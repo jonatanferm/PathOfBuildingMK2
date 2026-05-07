@@ -329,6 +329,51 @@ fn equipping_a_real_shield_adds_block_chance() {
 }
 
 #[test]
+fn full_demo_witch_arc_produces_reasonable_dps() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        return;
+    };
+    let bases = load_bases();
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.ascendancy = Some("Occultist".into());
+    c.main_skill = Some(MainSkill {
+        skill_id: "Arc".into(),
+        level: 20,
+        quality: 20,
+    });
+    c.config.enemy_lightning_resist = 50;
+    let item = parse_item(
+        "Item Class: Amulets\nRarity: RARE\nDemo Charm\nOnyx Amulet\n--------\n+10 to all Attributes\n+62 to maximum Life\n+39% to all Elemental Resistances\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::Amulet, item);
+
+    let out = pob_engine::compute_full(&c, &tree, Some(&skills), bases.as_ref());
+
+    // Sanity checks — the demo build should produce non-zero values for all the key
+    // outputs. If any of these are zero something has regressed.
+    assert!(out.get("Strength") > 14.0, "Strength: {}", out.get("Strength"));
+    assert!(out.get("Life") > 1000.0, "Life: {}", out.get("Life"));
+    assert!(out.get("Mana") > 500.0, "Mana: {}", out.get("Mana"));
+    assert_eq!(out.get("FireResistTotal"), 39.0);
+    assert_eq!(out.get("ColdResistTotal"), 39.0);
+    assert_eq!(out.get("LightningResistTotal"), 39.0);
+    assert!(
+        out.get("MainSkillDPS") > 100.0,
+        "Arc DPS: {}",
+        out.get("MainSkillDPS")
+    );
+    assert!(
+        out.get("AverageEHP") > out.get("Life"),
+        "EHP should exceed bare Life pool"
+    );
+    // Every output value should be finite.
+    for (k, v) in out.iter() {
+        assert!(v.is_finite(), "{k} = {v} is not finite");
+    }
+}
+
+#[test]
 fn arc_intrinsic_mods_land_in_modlist() {
     let (Some(_tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
         return;
