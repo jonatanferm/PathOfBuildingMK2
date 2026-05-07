@@ -140,8 +140,20 @@ fn render_item_summary(ui: &mut egui::Ui, item: &Item) {
         item.quality,
         if item.corrupted { " • Corrupted" } else { "" }
     ));
+    if !item.sockets.is_empty() {
+        ui.label(format!("Sockets: {}", item.sockets));
+    }
     ui.add_space(4.0);
     for ml in &item.mod_lines {
-        ui.label(format!("[{:?}] {}", ml.section, ml.line));
+        let colour = match ml.section {
+            pob_data::ModSection::Implicit => egui::Color32::from_rgb(200, 200, 255),
+            pob_data::ModSection::Crafted => egui::Color32::from_rgb(180, 230, 255),
+            pob_data::ModSection::Enchant => egui::Color32::from_rgb(180, 230, 180),
+            pob_data::ModSection::Fractured => egui::Color32::from_rgb(220, 200, 130),
+            pob_data::ModSection::Corrupted => egui::Color32::from_rgb(220, 100, 220),
+            pob_data::ModSection::Veiled => egui::Color32::from_rgb(180, 180, 180),
+            pob_data::ModSection::Explicit => egui::Color32::from_rgb(220, 220, 100),
+        };
+        ui.colored_label(colour, &ml.line);
     }
 }
