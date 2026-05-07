@@ -329,6 +329,56 @@ fn equipping_a_real_shield_adds_block_chance() {
 }
 
 #[test]
+fn attack_skill_with_weapon_produces_dps() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        return;
+    };
+    let bases = load_bases();
+    let Some(bases) = bases else { return };
+
+    // Find any active attack skill (e.g. HeavyStrike).
+    let attack_id = skills
+        .iter_active()
+        .find(|(_, s)| s.base_flags.get("attack").copied().unwrap_or(false))
+        .map(|(id, _)| id.to_owned());
+    let Some(attack_id) = attack_id else {
+        eprintln!("no attack skill found — skip");
+        return;
+    };
+
+    // Equip a sword from the bases dictionary.
+    let sword_name = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone());
+    let Some(sword_name) = sword_name else {
+        eprintln!("no sword in bases — skip");
+        return;
+    };
+    let sword_paste = format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    );
+    let sword = parse_item(&sword_paste).unwrap();
+
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new(&attack_id));
+
+    let out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let dps = out.get("MainSkillDPS");
+    assert!(
+        dps > 0.0,
+        "Attack {attack_id} with {sword_name}: expected DPS > 0, got {dps}"
+    );
+    // Speed should track the weapon's attack rate (most swords are 1.4–1.6 cps).
+    let speed = out.get("MainSkillSpeed");
+    assert!(
+        speed > 0.5 && speed < 5.0,
+        "Attack speed (cps): {speed}"
+    );
+}
+
+#[test]
 fn full_demo_witch_arc_produces_reasonable_dps() {
     let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
         return;
