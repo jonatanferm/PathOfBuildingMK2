@@ -145,6 +145,11 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         let (mflags, body) = r;
         attack_prefix_flag = mflags | ModFlag::ATTACK;
         rest = body;
+    } else if let Some(r) = strip_weapon_attacks_prefix(rest) {
+        // "Mace or Sceptre Attacks deal …" / "Sword Attacks deal …"
+        let (mflags, body) = r;
+        attack_prefix_flag = mflags | ModFlag::ATTACK;
+        rest = body;
     } else if let Some(r) = rest.strip_prefix("Bow Attacks ") {
         attack_prefix_flag = ModFlag::ATTACK | ModFlag::BOW;
         rest = r;
@@ -163,6 +168,19 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         rest = r;
     } else if let Some(r) = rest.strip_prefix("Auras from your Skills have ") {
         prefix_keyword = KeywordFlag::AURA;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Attacks used by Totems have ") {
+        attack_prefix_flag = ModFlag::ATTACK;
+        prefix_keyword = KeywordFlag::TOTEM;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Attack Skills deal ") {
+        attack_prefix_flag = ModFlag::ATTACK;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Spell Skills deal ") {
+        attack_prefix_flag = ModFlag::SPELL;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Hits and Ailments ") {
+        prefix_keyword = KeywordFlag::HIT | KeywordFlag::AILMENT;
         rest = r;
     }
 
@@ -189,6 +207,29 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         mod_.name = format!("Minion:{}", mod_.name);
     }
     Some(ParsedMod { mod_ })
+}
+
+/// "<Weapon-or-class> Attacks deal" — e.g. "Sword Attacks deal …", "Mace or Sceptre
+/// Attacks deal …".
+fn strip_weapon_attacks_prefix(text: &str) -> Option<(ModFlag, &str)> {
+    let weapons: &[(&str, ModFlag)] = &[
+        ("Mace or Sceptre Attacks deal ", ModFlag::MACE),
+        ("Sword Attacks deal ", ModFlag::SWORD),
+        ("Mace Attacks deal ", ModFlag::MACE),
+        ("Axe Attacks deal ", ModFlag::AXE),
+        ("Bow Attacks deal ", ModFlag::BOW),
+        ("Claw Attacks deal ", ModFlag::CLAW),
+        ("Dagger Attacks deal ", ModFlag::DAGGER),
+        ("Staff Attacks deal ", ModFlag::STAFF),
+        ("Wand Attacks deal ", ModFlag::WAND),
+        ("Melee Attacks deal ", ModFlag::MELEE),
+    ];
+    for (label, flag) in weapons {
+        if let Some(remainder) = text.strip_prefix(*label) {
+            return Some((*flag, remainder));
+        }
+    }
+    None
 }
 
 /// Match leading "Attacks with <Weapon-class> Weapons" / "Attacks with <Weapon> deal".
@@ -255,6 +296,7 @@ fn strip_with_skills_suffix(text: &str) -> &str {
         " with Bow Skills",
         " with Spell Skills",
         " with Channelling Skills",
+        " with Attack Skills",
         " with Melee Weapons",
         " with Melee Skills",
         " with Attacks",
@@ -268,6 +310,9 @@ fn strip_with_skills_suffix(text: &str) -> &str {
         " with Wands",
         " with Sceptres",
         " of Aura Skills",
+        " of Skills",
+        " of Curse Skills",
+        " of Herald Skills",
     ] {
         if let Some(rest) = text.strip_suffix(label) {
             return rest;
@@ -277,8 +322,13 @@ fn strip_with_skills_suffix(text: &str) -> &str {
 }
 
 fn strip_with_weapons_suffix(text: &str) -> &str {
-    // "X with this Weapon" / "X with this skill"
-    for label in [" with this Weapon", " with this Skill", " from your Skills"] {
+    // "X with this Weapon" / "X with this skill" / "X with Hits and Ailments"
+    for label in [
+        " with Hits and Ailments",
+        " with this Weapon",
+        " with this Skill",
+        " from your Skills",
+    ] {
         if let Some(rest) = text.strip_suffix(label) {
             return rest;
         }
@@ -430,8 +480,6 @@ fn try_parse_chance_to_event(text: &str) -> Option<ParsedMod> {
     let (n, rest) = consume_number(text)?;
     let rest = rest.strip_prefix('%')?.trim_start();
     let rest = rest.strip_prefix("chance to ")?.trim();
-    // We don't fully model the event, but we can at least produce a Base mod on a
-    // canonical key like "ChanceToBleed", "ChanceToIgnite", etc. so calc code can find it.
     let stat = match rest {
         s if s.starts_with("Bleed") || s.starts_with("cause Bleeding") => "BleedChance",
         s if s.starts_with("Poison") => "PoisonChance",
@@ -444,9 +492,16 @@ fn try_parse_chance_to_event(text: &str) -> Option<ParsedMod> {
         s if s.starts_with("Knock") => "KnockbackChance",
         s if s.starts_with("Block") => "BlockChance",
         s if s.starts_with("Suppress") => "SpellSuppressionChance",
+        s if s.starts_with("Impale") => "ImpaleChance",
+        s if s.starts_with("Intimidate") => "IntimidateChance",
+        s if s.starts_with("Hinder") => "HinderChance",
+        s if s.starts_with("Curse") => "CurseChance",
+        s if s.starts_with("Taunt") => "TauntChance",
+        s if s.starts_with("Cull") => "CullChance",
         s if s.starts_with("gain a Power Charge") => "PowerChargeOnCrit",
         s if s.starts_with("gain a Frenzy Charge") => "FrenzyChargeOnHit",
         s if s.starts_with("gain an Endurance Charge") => "EnduranceChargeOnHit",
+        s if s.starts_with("gain Onslaught") => "OnslaughtChance",
         s if s.starts_with("Avoid") => "AvoidChance",
         _ => return None,
     };
@@ -491,6 +546,22 @@ fn try_parse_to(line: &str) -> Option<ParsedMod> {
                     mod_: Mod::base(format!("{elem}ResistMax"), value),
                 });
             }
+        }
+        // "to Damage over Time Multiplier" / "to Critical Strike Multiplier" — these are
+        // base stats on their respective named keys.
+        if stat_text == "Damage over Time Multiplier" {
+            return Some(ParsedMod {
+                mod_: Mod::base("DamageOverTimeMultiplier", value),
+            });
+        }
+        if let Some(rest) = stat_text.strip_prefix("Damage over Time Multiplier for ") {
+            let stat = match rest {
+                "Poison" => "PoisonDamageMultiplier",
+                "Bleeding" => "BleedDamageMultiplier",
+                "Ignite" => "IgniteDamageMultiplier",
+                _ => return Some(ParsedMod { mod_: Mod::base("DamageOverTimeMultiplier", value) }),
+            };
+            return Some(ParsedMod { mod_: Mod::base(stat, value) });
         }
         if let Some(elem) = stat_text.strip_suffix(" Resistance") {
             return Some(ParsedMod {
@@ -747,6 +818,9 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Dexterity" => "Dexterity",
         "Intelligence" => "Intelligence",
         "all Attributes" => "AllAttributes",
+        "Strength and Dexterity" => "StrengthAndDexterity",
+        "Strength and Intelligence" => "StrengthAndIntelligence",
+        "Dexterity and Intelligence" => "DexterityAndIntelligence",
 
         // Pools
         "maximum Life" => "Life",
@@ -865,6 +939,56 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Chance to Block Attack Damage" => "BlockChance",
         "Evasion Rating and Armour" => "ArmourAndEvasion",
         "Armour and Evasion Rating" => "ArmourAndEvasion",
+
+        // Effect / duration / threshold
+        "Impale Effect" => "ImpaleEffect",
+        "Poison Duration" => "PoisonDuration",
+        "Bleed Duration" => "BleedDuration",
+        "Ignite Duration" => "IgniteDuration",
+        "Chill Duration" => "ChillDuration",
+        "Freeze Duration" => "FreezeDuration",
+        "Shock Duration" => "ShockDuration",
+        "Effect of Chill" => "ChillEffect",
+        "Effect of Shock" => "ShockEffect",
+        "Effect of Freeze" => "FreezeEffect",
+        "Effect of Ignite" => "IgniteEffect",
+        "Effect of Brittle" => "BrittleEffect",
+        "Effect of Sap" => "SapEffect",
+        "Effect of Scorch" => "ScorchEffect",
+        "Mana Reservation Efficiency of Skills" => "ManaReservationEfficiency",
+        "Life Reservation Efficiency of Skills" => "LifeReservationEfficiency",
+        "Reservation Efficiency of Skills" => "ReservationEfficiency",
+        "Enemy Stun Threshold" => "EnemyStunThresholdReduction",
+        "Stun Recovery" => "StunRecovery",
+        "Stun and Block Recovery" => "StunAndBlockRecovery",
+        "Mana Burn rate" => "ManaBurnRate",
+        "Warcry Buff Effect" => "WarcryBuffEffect",
+        "Warcry Duration" => "WarcryDuration",
+        "Warcry Speed" => "WarcrySpeed",
+        "Valour gained" => "ValourGained",
+        "Totem Placement speed" => "TotemPlacementSpeed",
+        "Totem Duration" => "TotemDuration",
+        "Trap Throwing Speed" => "TrapThrowingSpeed",
+        "Mine Throwing Speed" => "MineThrowingSpeed",
+        "Trap Trigger Area of Effect" => "TrapTriggerAreaOfEffect",
+        "Brand Attachment range" => "BrandAttachmentRange",
+        "Aura Effect" => "AuraEffect",
+        "Curse Skill Effect Duration" => "CurseDuration",
+        "Totem Life" => "TotemLife",
+        "Totem Damage" => "TotemDamage",
+        "Spell Critical Strike Chance" => "SpellCritChance",
+        "Attack Critical Strike Chance" => "AttackCritChance",
+        "Critical Strike Chance for Spells" => "SpellCritChance",
+        "Damage over Time Multiplier" => "DamageOverTimeMultiplier",
+        "Damage over Time Multiplier for Poison" => "PoisonDamageMultiplier",
+        "Damage over Time Multiplier for Bleeding" => "BleedDamageMultiplier",
+        "Damage over Time Multiplier for Ignite" => "IgniteDamageMultiplier",
+        "maximum number of Summoned Golems" => "MaxGolems",
+        "maximum number of Summoned Skeletons" => "MaxSkeletons",
+        "maximum number of Spectres" => "MaxSpectres",
+        "maximum number of Zombies" => "MaxZombies",
+        "Number of Mines you can have placed at a time" => "MaxMines",
+        "Number of Traps you can have placed at a time" => "MaxTraps",
 
         // Charges
         "Power Charges" => "PowerCharges",
