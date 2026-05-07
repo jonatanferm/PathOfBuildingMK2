@@ -63,6 +63,31 @@ fn witch_l68_naked_baseline() {
     assert_eq!(out.get("Mana"), 40.0 + 6.0 * 67.0 + 16.0);
 }
 
+/// Performance smoke test, release-only. ~3000 nodes, every passive allocated, computing
+/// every basic stat. Skipped in debug builds where it's ~10× slower (and CI unhelpful).
+#[test]
+#[cfg_attr(debug_assertions, ignore = "release-only perf check")]
+fn compute_is_under_5ms_with_full_tree_allocation() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    for id in tree.nodes.keys() {
+        c.allocated.insert(*id);
+    }
+    let start = std::time::Instant::now();
+    let n_iter = 50;
+    for _ in 0..n_iter {
+        let _ = compute(&c, &tree);
+    }
+    let per = start.elapsed() / n_iter;
+    eprintln!("compute() avg: {per:?}");
+    assert!(
+        per < std::time::Duration::from_millis(5),
+        "compute() too slow: {per:?}"
+    );
+}
+
 #[test]
 fn class_attribute_split_matches_pob() {
     // Per PoB src/TreeData/3_25/tree.lua, every class has known base stats. Verify a

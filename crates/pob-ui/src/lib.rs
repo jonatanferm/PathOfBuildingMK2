@@ -43,6 +43,12 @@ struct LoadedApp {
     /// Path of the currently-open build file, if any. Used by Save vs Save As.
     current_build_path: Option<std::path::PathBuf>,
     status_message: Option<(StatusKind, String)>,
+    /// Available tree versions found in `data/trees/`.
+    tree_versions: Vec<String>,
+    /// Currently-loaded tree version.
+    tree_version: String,
+    /// Path to the data root resolved at startup.
+    data_root: std::path::PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,13 +87,29 @@ impl PobApp {
         ];
         let data_root = candidates
             .iter()
-            .find(|p| p.join("trees/3_25.json").is_file())
+            .find(|p| p.join("trees/index.json").is_file())
             .cloned()
             .ok_or_else(|| {
-                "could not find data/trees/3_25.json — run `cargo run -p pob-extract --release` from the workspace root".to_owned()
+                "could not find data/trees/index.json — run `cargo run -p pob-extract --release` from the workspace root".to_owned()
             })?;
-        let tree_json = std::fs::read_to_string(data_root.join("trees/3_25.json"))
-            .map_err(|e| format!("reading tree: {e}"))?;
+        // Resolve the available tree versions from the index so the UI can let the user
+        // switch between 3_25 / 3_28 / etc. We pick the latest non-alternate, non-ruthless
+        // version as the default (lexicographic last with a stable filter).
+        let index_json = std::fs::read_to_string(data_root.join("trees/index.json"))
+            .map_err(|e| format!("reading tree index: {e}"))?;
+        let mut tree_versions: Vec<String> =
+            pob_data::load_tree_index(&index_json).map_err(|e| format!("parsing tree index: {e}"))?;
+        tree_versions.sort();
+        let default_version = tree_versions
+            .iter()
+            .filter(|v| !v.contains("alternate") && !v.contains("ruthless"))
+            .next_back()
+            .cloned()
+            .or_else(|| tree_versions.last().cloned())
+            .ok_or_else(|| "no tree versions found".to_owned())?;
+        let tree_path = data_root.join("trees").join(format!("{default_version}.json"));
+        let tree_json =
+            std::fs::read_to_string(&tree_path).map_err(|e| format!("reading tree: {e}"))?;
         let tree = pob_data::load_passive_tree(&tree_json)
             .map_err(|e| format!("parsing tree: {e}"))?;
 
@@ -129,6 +151,9 @@ impl PobApp {
             skills,
             current_build_path: None,
             status_message: None,
+            tree_versions,
+            tree_version: default_version,
+            data_root,
         })
     }
 }
@@ -150,43 +175,43 @@ impl eframe::App for PobApp {
 fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     let mut recompute = false;
 
+    // Keyboard shortcuts at the app level. egui::Key + Modifiers are tested in
+    // `Context::input` so they fire regardless of which panel has focus (unless an
+    // egui widget is consuming text input — e.g. the search box).
+    let mut menu_action: Option<MenuAction> = None;
+    ctx.input(|i| {
+        let cmd = i.modifiers.command;
+        let shift = i.modifiers.shift;
+        if cmd && i.key_pressed(egui::Key::S) {
+            menu_action = Some(if shift { MenuAction::SaveAs } else { MenuAction::Save });
+        } else if cmd && i.key_pressed(egui::Key::O) {
+            menu_action = Some(MenuAction::Open);
+        } else if cmd && i.key_pressed(egui::Key::N) {
+            menu_action = Some(MenuAction::New);
+        }
+    });
+    if let Some(action) = menu_action {
+        apply_menu_action(app, action);
+    }
+
     egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
         egui::menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("New").clicked() {
-                    app.character = Character::new(ClassRef::marauder(), 1);
-                    app.current_build_path = None;
-                    app.status_message = Some((StatusKind::Info, "New build.".into()));
+                    apply_menu_action(app, MenuAction::New);
                     ui.close_menu();
                 }
                 if ui.button("Open…").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("MK2 build", &["mk2"])
-                        .pick_file()
-                    {
-                        match std::fs::read_to_string(&path)
-                            .map_err(|e| e.to_string())
-                            .and_then(|s| pob_engine::import_code(s.trim()).map_err(|e| e.to_string()))
-                        {
-                            Ok(c) => {
-                                app.character = c;
-                                app.current_build_path = Some(path.clone());
-                                app.status_message = Some((StatusKind::Info, format!("Opened {}", path.display())));
-                            }
-                            Err(e) => {
-                                app.status_message = Some((StatusKind::Error, format!("Open failed: {e}")));
-                            }
-                        }
-                    }
+                    apply_menu_action(app, MenuAction::Open);
                     ui.close_menu();
                 }
                 let save_label = if app.current_build_path.is_some() { "Save" } else { "Save…" };
                 if ui.button(save_label).clicked() {
-                    save_build(app, false);
+                    apply_menu_action(app, MenuAction::Save);
                     ui.close_menu();
                 }
                 if ui.button("Save As…").clicked() {
-                    save_build(app, true);
+                    apply_menu_action(app, MenuAction::SaveAs);
                     ui.close_menu();
                 }
                 ui.separator();
@@ -315,7 +340,24 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
     egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.label(format!("Tree: {}", app.tree.version));
+            let mut new_version: Option<String> = None;
+            egui::ComboBox::from_label("Tree version")
+                .selected_text(app.tree_version.as_str())
+                .show_ui(ui, |ui| {
+                    for v in &app.tree_versions {
+                        if ui
+                            .selectable_label(*v == app.tree_version, v)
+                            .clicked()
+                        {
+                            new_version = Some(v.clone());
+                        }
+                    }
+                });
+            if let Some(v) = new_version {
+                if let Err(e) = swap_tree(app, &v) {
+                    app.status_message = Some((StatusKind::Error, e));
+                }
+            }
             ui.separator();
             ui.label(format!(
                 "{} nodes ({} groups)",
@@ -425,6 +467,66 @@ fn update_search(app: &mut LoadedApp) {
             app.tree_view.search_matches.insert(*id);
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MenuAction {
+    New,
+    Open,
+    Save,
+    SaveAs,
+}
+
+fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
+    match action {
+        MenuAction::New => {
+            app.character = Character::new(ClassRef::marauder(), 1);
+            app.current_build_path = None;
+            app.status_message = Some((StatusKind::Info, "New build.".into()));
+        }
+        MenuAction::Open => {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("MK2 build", &["mk2"])
+                .pick_file()
+            {
+                match std::fs::read_to_string(&path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|s| {
+                        pob_engine::import_code(s.trim())
+                            .map_err(|e| e.to_string())
+                    }) {
+                    Ok(c) => {
+                        app.character = c;
+                        app.current_build_path = Some(path.clone());
+                        app.status_message = Some((
+                            StatusKind::Info,
+                            format!("Opened {}", path.display()),
+                        ));
+                    }
+                    Err(e) => {
+                        app.status_message =
+                            Some((StatusKind::Error, format!("Open failed: {e}")));
+                    }
+                }
+            }
+        }
+        MenuAction::Save => save_build(app, false),
+        MenuAction::SaveAs => save_build(app, true),
+    }
+}
+
+fn swap_tree(app: &mut LoadedApp, version: &str) -> Result<(), String> {
+    let path = app
+        .data_root
+        .join("trees")
+        .join(format!("{version}.json"));
+    let json = std::fs::read_to_string(&path).map_err(|e| format!("reading {path:?}: {e}"))?;
+    let tree = pob_data::load_passive_tree(&json).map_err(|e| format!("parse: {e}"))?;
+    app.tree_version = version.to_owned();
+    app.tree = tree;
+    app.tree_view.rebind(&app.tree);
+    app.status_message = Some((StatusKind::Info, format!("Loaded tree {version}.")));
+    Ok(())
 }
 
 fn save_build(app: &mut LoadedApp, force_dialog: bool) {
