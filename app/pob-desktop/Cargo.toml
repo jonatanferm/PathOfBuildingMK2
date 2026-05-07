@@ -1,0 +1,15 @@
+[package]
+name = "pob-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Path of Building MK2 desktop app."
+
+[dependencies]
+pob-ui.workspace = true
+eframe.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

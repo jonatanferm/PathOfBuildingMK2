@@ -1,0 +1,32 @@
+# Path of Building MK2
+
+A Rust port of [Path of Building Community](https://github.com/PathOfBuildingCommunity/PathOfBuilding).
+Pure-Rust calc engine, egui desktop UI, eventual Wasm support.
+
+## Status
+
+**Phase 0 — Reconnaissance done.** See [docs/architecture-current.md](docs/architecture-current.md)
+for the map of the source codebase being ported.
+
+## Workspace layout
+
+| Crate | Role |
+|---|---|
+| `crates/pob-engine` | Pure calc engine. No I/O, no UI, Wasm-clean. |
+| `crates/pob-data` | Data types + loaders. Shared by engine and UI. |
+| `crates/pob-extract` | Build-time tool: reads PoB's `src/Data/` Lua tables, emits Rust-loadable files. |
+| `crates/pob-ui` | egui application. |
+| `app/pob-desktop` | Thin binary wrapping `pob-ui` in eframe. |
+| `data/` | Generated data files (output of `pob-extract`). |
+
+## Building
+
+```bash
+cargo build --workspace
+cargo test --workspace
+```
+
+## Reference repo
+
+The upstream Lua codebase lives in the sibling directory `../PathOfBuilding/`. It's not
+checked into this repo. The `pob-extract` tool reads from there.

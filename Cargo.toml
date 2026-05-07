@@ -1,0 +1,72 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/pob-engine",
+    "crates/pob-data",
+    "crates/pob-extract",
+    "crates/pob-ui",
+    "app/pob-desktop",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+repository = "https://github.com/jferm/PathOfBuildingMK2"
+
+[workspace.dependencies]
+pob-engine = { path = "crates/pob-engine" }
+pob-data = { path = "crates/pob-data" }
+pob-ui = { path = "crates/pob-ui" }
+
+# General
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+smallvec = { version = "1", features = ["serde", "union"] }
+indexmap = { version = "2", features = ["serde"] }
+ahash = "0.8"
+bitflags = { version = "2", features = ["serde"] }
+
+# Lua data ingest (for pob-extract only — engine must not depend on it)
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+
+# Compression / encoding (for POB share codes)
+flate2 = "1"
+base64 = "0.22"
+
+# XML (for build files)
+quick-xml = { version = "0.36", features = ["serialize"] }
+
+# UI
+eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow", "wgpu", "persistence"] }
+egui = "0.29"
+wgpu = "22"
+bytemuck = { version = "1", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

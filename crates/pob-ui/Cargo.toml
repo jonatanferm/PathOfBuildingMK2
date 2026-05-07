@@ -1,0 +1,18 @@
+[package]
+name = "pob-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "egui UI for Path of Building MK2."
+
+[dependencies]
+pob-engine.workspace = true
+pob-data.workspace = true
+egui.workspace = true
+eframe.workspace = true
+wgpu.workspace = true
+bytemuck.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

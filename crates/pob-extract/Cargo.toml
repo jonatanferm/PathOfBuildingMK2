@@ -1,0 +1,17 @@
+[package]
+name = "pob-extract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Build-time tool that reads PoB's Lua data files and emits Rust-loadable artefacts."
+
+[dependencies]
+pob-data.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+mlua.workspace = true
+anyhow.workspace = true
+indexmap.workspace = true
+
+[lints]
+workspace = true

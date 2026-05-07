@@ -1,0 +1,18 @@
+[package]
+name = "pob-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure calc engine for Path of Building MK2 — no I/O, Wasm-clean."
+
+[dependencies]
+pob-data.workspace = true
+serde.workspace = true
+smallvec.workspace = true
+indexmap.workspace = true
+ahash.workspace = true
+bitflags.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
