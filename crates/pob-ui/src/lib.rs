@@ -50,6 +50,8 @@ struct LoadedApp {
     tree_version: String,
     /// Path to the data root resolved at startup.
     data_root: std::path::PathBuf,
+    /// Hash of the inputs `compute_full` last ran with — skip recompute when unchanged.
+    last_compute_hash: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +162,7 @@ impl PobApp {
             tree_versions,
             tree_version: default_version,
             data_root,
+            last_compute_hash: 0,
         })
     }
 }
@@ -584,18 +587,63 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         }
     });
 
-    // Recomputing every frame is the simple correct thing — compute_full runs in ~2ms
-    // in release on the full 3.25 tree, which fits comfortably under a 60Hz frame
-    // budget. Once the engine grows to where this matters we can fingerprint the
-    // character state and skip when unchanged. The `recompute` flag is currently dead
-    // code but kept so feedback paths can use it later.
-    let _ = recompute;
-    app.output = pob_engine::compute_full(
-        &app.character,
-        &app.tree,
-        Some(&app.skills),
-        app.bases.as_ref(),
-    );
+    // Fingerprint the inputs that compute() actually depends on so we don't run the
+    // full pipeline (~5ms in release) on every frame regardless of whether anything
+    // changed. The recompute flag forces a re-run after explicit user edits.
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    app.character.class.0.hash(&mut hasher);
+    app.character.ascendancy.hash(&mut hasher);
+    app.character.level.hash(&mut hasher);
+    let mut alloc_sorted: Vec<_> = app.character.allocated.iter().copied().collect();
+    alloc_sorted.sort_unstable();
+    alloc_sorted.hash(&mut hasher);
+    app.tree_version.hash(&mut hasher);
+    if let Some(m) = &app.character.main_skill {
+        m.skill_id.hash(&mut hasher);
+        m.level.hash(&mut hasher);
+        m.quality.hash(&mut hasher);
+    }
+    let mut conds: Vec<_> = app.character.config.conditions.iter().collect();
+    conds.sort_by(|a, b| a.0.cmp(b.0));
+    for (k, v) in conds {
+        k.hash(&mut hasher);
+        v.hash(&mut hasher);
+    }
+    let mut mults: Vec<_> = app.character.config.multipliers.iter().collect();
+    mults.sort_by(|a, b| a.0.cmp(b.0));
+    for (k, v) in mults {
+        k.hash(&mut hasher);
+        v.to_bits().hash(&mut hasher);
+    }
+    app.character.config.enemy_level.hash(&mut hasher);
+    app.character.config.enemy_fire_resist.hash(&mut hasher);
+    app.character.config.enemy_cold_resist.hash(&mut hasher);
+    app.character.config.enemy_lightning_resist.hash(&mut hasher);
+    app.character.config.enemy_chaos_resist.hash(&mut hasher);
+    app.character.config.enemy_evasion.hash(&mut hasher);
+    let item_count = app.character.items.iter().count();
+    item_count.hash(&mut hasher);
+    for (slot, item) in app.character.items.iter() {
+        format!("{slot:?}").hash(&mut hasher);
+        item.base_name.hash(&mut hasher);
+        item.mod_lines.len().hash(&mut hasher);
+        for ml in &item.mod_lines {
+            ml.line.hash(&mut hasher);
+        }
+    }
+    let h = hasher.finish();
+
+    if recompute || h != app.last_compute_hash {
+        app.last_compute_hash = h;
+        app.output = pob_engine::compute_full(
+            &app.character,
+            &app.tree,
+            Some(&app.skills),
+            app.bases.as_ref(),
+        );
+    }
 }
 
 fn update_search(app: &mut LoadedApp) {
