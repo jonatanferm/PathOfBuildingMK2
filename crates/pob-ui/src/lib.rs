@@ -7,7 +7,11 @@ use eframe::egui;
 use pob_data::{NodeId, PassiveTree};
 use pob_engine::{character::ClassRef, Character, Output, SkillRegistry};
 
+mod calcs_tab;
+mod config_tab;
+mod import_export_tab;
 mod items_tab;
+mod notes_tab;
 mod pathfind;
 mod skills_tab;
 mod tree_layout;
@@ -33,6 +37,8 @@ struct LoadedApp {
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
     skills_state: skills_tab::SkillsTabState,
+    calcs_state: calcs_tab::CalcsTabState,
+    import_export_state: import_export_tab::ImportExportTabState,
     skills: SkillRegistry,
 }
 
@@ -41,6 +47,10 @@ enum Tab {
     Tree,
     Items,
     Skills,
+    Config,
+    Calcs,
+    Notes,
+    ImportExport,
 }
 
 impl PobApp {
@@ -105,6 +115,8 @@ impl PobApp {
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             skills_state: skills_tab::SkillsTabState::default(),
+            calcs_state: calcs_tab::CalcsTabState::default(),
+            import_export_state: import_export_tab::ImportExportTabState::default(),
             skills,
         })
     }
@@ -132,6 +144,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.selectable_value(&mut app.active_tab, Tab::Tree, "Tree");
             ui.selectable_value(&mut app.active_tab, Tab::Items, "Items");
             ui.selectable_value(&mut app.active_tab, Tab::Skills, "Skills");
+            ui.selectable_value(&mut app.active_tab, Tab::Config, "Config");
+            ui.selectable_value(&mut app.active_tab, Tab::Calcs, "Calcs");
+            ui.selectable_value(&mut app.active_tab, Tab::Notes, "Notes");
+            ui.selectable_value(&mut app.active_tab, Tab::ImportExport, "Import / Export");
         });
     });
 
@@ -277,6 +293,29 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 &mut app.character.main_skill,
                 &app.skills,
             ) {
+                recompute = true;
+            }
+        }
+        Tab::Config => {
+            if config_tab::ui(ui, &mut app.character.config) {
+                recompute = true;
+            }
+        }
+        Tab::Calcs => {
+            calcs_tab::ui(ui, &mut app.calcs_state, &app.output);
+        }
+        Tab::Notes => {
+            notes_tab::ui(ui, &mut app.character.notes);
+        }
+        Tab::ImportExport => {
+            if import_export_tab::ui(
+                ui,
+                &mut app.import_export_state,
+                &mut app.character,
+            ) {
+                // Imported character: rebind the tree view (positions stay valid since
+                // the tree didn't change) and force recompute.
+                app.tree_view.rebind(&app.tree);
                 recompute = true;
             }
         }

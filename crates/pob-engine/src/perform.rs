@@ -84,6 +84,14 @@ pub fn init_env(character: &Character, tree: &PassiveTree) -> Env {
     // 4. Items.
     let _ = crate::item_parser::apply_item_set(&character.items, &mut env.mod_db);
 
+    // 5. Config — push conditions and multipliers into the eval state.
+    for (k, v) in &character.config.conditions {
+        env.state.set_condition(k.clone(), *v);
+    }
+    for (k, v) in &character.config.multipliers {
+        env.state.set_multiplier(k.clone(), *v);
+    }
+
     env
 }
 
