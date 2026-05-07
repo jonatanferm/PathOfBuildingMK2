@@ -306,7 +306,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
     egui::SidePanel::left("class_panel")
         .resizable(true)
-        .default_width(220.0)
+        .default_width(260.0)
+        .min_width(220.0)
         .show(ctx, |ui| {
             ui.heading("Character");
             ui.separator();
