@@ -405,6 +405,37 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     }
     base_min *= skill.damage_effectiveness(gem_level);
     base_max *= skill.damage_effectiveness(gem_level);
+
+    // Add flat damage from "Adds N to M <element> Damage" mods. The parser emits these
+    // as Mod::base("<Element>Damage", ModValue::Range{min, max}).
+    let cfg_q = QueryCfg::default();
+    let st = &env.state;
+    let elem_for_flat = if early_is_attack {
+        // Attacks pick up the most recently equipped weapon's flat damage; for now
+        // we add all elements together to phys damage (rough but useful).
+        ["PhysicalDamage", "FireDamage", "ColdDamage", "LightningDamage", "ChaosDamage"]
+    } else {
+        // Spells: only the dominant element gets flat-damage bonuses.
+        let (e, _) = skill_damage_element(skill).unwrap_or(("Damage", ""));
+        [e, e, e, e, e]
+    };
+    for elem in &elem_for_flat {
+        let mut flat_min = 0.0;
+        let mut flat_max = 0.0;
+        for m in env.mod_db.iter_named(elem) {
+            if m.kind != ModType::Base {
+                continue;
+            }
+            if let Some((lo, hi)) = m.value.as_range() {
+                flat_min += lo;
+                flat_max += hi;
+            }
+        }
+        base_min += flat_min;
+        base_max += flat_max;
+    }
+    let _ = st;
+    let _ = cfg_q;
     env.output.set("MainSkillBaseMin", base_min);
     env.output.set("MainSkillBaseMax", base_max);
 
