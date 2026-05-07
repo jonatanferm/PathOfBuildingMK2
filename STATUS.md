@@ -71,18 +71,36 @@ nodes, equipped items, and config-driven conditions/multipliers):
   Energy Shield Recharge baseline.
 - Charges: cast / attack speed multipliers, crit chance + multiplier.
 - Main skill (when set): base hit min/max from the skill's level data ×
-  damageEffectiveness, hit damage × (1 + total inc/100) × total more, crit factor,
-  enemy resist × penetration, hit chance vs evasion (attacks only), final DPS.
-- Ailments: rough seeded-from-hit BleedDPS / PoisonDPS / IgniteDPS.
+  damageEffectiveness using PoB's *character-level-driven* effectiveness formula
+  (mirrors `Modules/CalcTools.lua:198`); skill-flag-aware mod filtering (Spell /
+  Attack / Melee / Projectile / Area); crit chance from skill data + INC mods; enemy
+  resist with per-element penetration; hit chance vs evasion; mana cost from skill
+  data; final DPS.
+- Skill `statMap` integration: each skill's intrinsic mods (e.g. Arc's `+15% MORE
+  Damage per remaining chain` from `constantStats × statMap`) are converted into real
+  Mod objects via `pob_engine::skill::skill_mods()` and applied to the env before the
+  damage query. Quality scales `qualityStats` linearly.
+- Ailments: BleedDPS / PoisonDPS (with steady-state stacking) / IgniteDPS, factoring
+  ailment chance, ailment-damage / damage-over-time / per-ailment damage multipliers.
+- FullDPS aggregates the four damage sources.
+- Effective HP per damage type: PhysicalEHP / FireEHP / ColdEHP / LightningEHP /
+  ChaosEHP, with spell-suppression factored in for elemental.
+- Items: paste-text parser handles implicit/explicit/crafted/enchant/fractured/
+  corrupted/veiled sections; canonical bases (when `bases.json` is loaded) provide
+  intrinsic armour / evasion / energy_shield / ward / block_chance values.
+- Mastery node selections: Character.mastery_selections picks one of a mastery node's
+  effects; perform pulls only the selected effect's stats.
 
 Modifier system handles `Sum` / `More` / `Flag` / `Override` / `List` queries with
 `Condition` / `ActorCondition` / `Multiplier` / `PerStat` / `PercentStat` /
-`StatThreshold` / `MultiplierThreshold` tag resolution.
+`StatThreshold` / `MultiplierThreshold` / `SkillType` / `SkillName` / `SkillId` /
+`SlotName` tag types. Tags from PoB skill-data closures (`mod()` / `flag()` /
+`skill()`) are recovered from the inert recordings the extractor emits.
 
-ModParser covers **~65% of the 3.25 passive tree's stat strings** (up from 25% in the
-phase-2 minimum). The remaining 35% are mostly conditional / suffix-clause forms and
-niche multi-stat lines (`+1 to maximum number of Summoned Golems`, `Hits have N% chance
-to ignore Enemy Physical Damage Reduction`, etc.) documented in `docs/divergences.md`.
+ModParser parses 100% of every modern tree version (~156 000 stat lines). Structured
+parsers cover the bulk; an explicit fallback path emits a `Misc:<canonicalised>` Flag
+or Base mod for the long tail so nothing is silently dropped. As specific calc
+consumers come online they replace Misc: keys with real calc paths.
 
 ## What's documented
 
