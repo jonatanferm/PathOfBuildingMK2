@@ -263,7 +263,30 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         attack_prefix_flag = ModFlag::SPELL;
         prefix_keyword = KeywordFlag::TOTEM;
         rest = r;
+    } else if let Some(r) = rest.strip_prefix("Nearby Enemies have ") {
+        // Treat "Nearby Enemies have -20% to Chaos Resistance" as a debuff applied to
+        // the enemy. Emit by routing the parsed mod into Enemy:<stat> namespace.
+        let synthetic = r;
+        if let Some(parsed) = parse_mod_line(synthetic) {
+            let mut m = parsed.mod_;
+            m.name = format!("Enemy:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
+        return None;
+    } else if let Some(r) = rest.strip_prefix("Nearby Enemies are ") {
+        let var = match r.trim_end_matches('.').trim() {
+            "Blinded" => "EnemyBlinded",
+            "Hindered" => "EnemyHindered",
+            "Intimidated" => "EnemyIntimidated",
+            "Maimed" => "EnemyMaimed",
+            "Crushed" => "EnemyCrushed",
+            "Unnerved" => "EnemyUnnerved",
+            _ => return None,
+        };
+        return Some(ParsedMod { mod_: Mod::flag(var, true) });
     } else if let Some(r) = rest.strip_prefix("Herald Skills have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Herald Skills deal ") {
         rest = r;
     } else if let Some(r) = rest.strip_prefix("Skills used by Mines have ") {
         prefix_keyword = KeywordFlag::MINE;
@@ -491,6 +514,13 @@ fn strip_with_skills_suffix(text: &str) -> &str {
     // Longest first so "Two Handed Melee Weapons" matches before "Melee Weapons".
     // Important to keep "with Poison" / "with Bleeding" etc. *out* of this list — those
     // emit KeywordFlag bits via strip_with_ailment_suffix so we don't drop the info.
+    // " on you" / " on Allies" — these are about *receiving* the effect; we strip them
+    // so the body parses, losing the precision (documented in divergences.md).
+    for suff in [" on you", " on Allies", " against you", " against Allies"] {
+        if let Some(rest) = text.strip_suffix(suff) {
+            return rest;
+        }
+    }
     for label in [
         " with Two Handed Melee Weapons",
         " with One Handed Melee Weapons",
@@ -583,6 +613,33 @@ fn strip_with_weapons_suffix(text: &str) -> &str {
 }
 
 fn strip_per_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
+    // " for each X" — same semantics as " per X". Try both prefixes.
+    if let Some(idx) = text.rfind(" for each ") {
+        let body = text[..idx].trim_end_matches(',').trim_end();
+        let suffix = text[idx + " for each ".len()..].trim().trim_end_matches('.');
+        let var = match suffix {
+            "Herald affecting you" => "HeraldsAffectingYou",
+            "Endurance Charge" => "EnduranceCharge",
+            "Power Charge" => "PowerCharge",
+            "Frenzy Charge" => "FrenzyCharge",
+            "Curse on the Enemy" => "CurseOnEnemy",
+            "Summoned Totem" => "SummonedTotem",
+            "Summoned Skeleton" => "SummonedSkeleton",
+            "Summoned Zombie" => "SummonedZombie",
+            "Buff or Aura affecting you" => "BuffsOnYou",
+            _ => return text,
+        };
+        out.push(Tag {
+            kind: TagKind::Multiplier {
+                var: var.to_owned(),
+                limit: None,
+                limit_total: false,
+                div: None,
+                actor: None,
+            },
+        });
+        return body;
+    }
     // " per <stat>" with optional "<N> ".
     let Some(idx) = text.rfind(" per ") else { return text };
     let body = text[..idx].trim_end_matches(',').trim_end();
@@ -640,9 +697,19 @@ fn strip_per_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -
 }
 
 fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
-    let Some(idx) = text.rfind(" while ") else { return text };
+    // Try "when " first because some lines use "when at low life" instead of "while
+    // at low life".
+    let (idx, sep_len) = if let Some(i) = text.rfind(" while ") {
+        (i, 7)
+    } else if let Some(i) = text.rfind(" when ") {
+        (i, 6)
+    } else if let Some(i) = text.rfind(" during ") {
+        (i, 8)
+    } else {
+        return text;
+    };
     let body = text[..idx].trim_end_matches(',').trim_end();
-    let suffix = text[idx + 7..].trim().trim_end_matches('.');
+    let suffix = text[idx + sep_len..].trim().trim_end_matches('.');
     let var = match suffix {
         "at Full Life" | "on Full Life" => "FullLife",
         "at Low Life" | "on Low Life" => "LowLife",
@@ -688,6 +755,13 @@ fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>)
         "you have Arcane Surge" => "HasArcaneSurge",
         "you have Fortify" | "you are Fortified" | "Fortified" => "Fortified",
         "you have at least one Mark Skill Active" => "HasMark",
+        "Leeching Energy Shield" => "LeechingEnergyShield",
+        "Leeching Mana" => "LeechingMana",
+        "any Flask Effect" => "UsingFlask",
+        "any Flask is active" => "UsingFlask",
+        "Stationary or Moving" => "Stationary",
+        "you have a Tincture active" => "UsingTincture",
+        "you have used a Skill Recently" => "UsedSkillRecently",
         _ => return text,
     };
     out.push(Tag {
@@ -1166,6 +1240,100 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             mod_: Mod::flag("DualWieldBonusesDoubled", true),
         });
     }
+    // "Minions have N additional/X" / "Minions have N% chance to <event>"
+    if let Some(rest) = line.strip_prefix("Minions have ") {
+        if let Some(parsed) = parse_mod_line(rest) {
+            let mut m = parsed.mod_;
+            m.name = format!("Minion:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
+    }
+    if let Some(rest) = line.strip_prefix("Minions deal ") {
+        // already handled by minion_prefix in the main flow
+        let _ = rest;
+    }
+    // "Poison you inflict with Critical Strikes deals N% more Damage"
+    if line.starts_with("Poison you inflict with Critical Strikes deals ") {
+        if let Some((n, rest)) = consume_simple_number(
+            &line["Poison you inflict with Critical Strikes deals ".len()..],
+        ) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if rest.starts_with("more Damage") {
+                return Some(ParsedMod {
+                    mod_: Mod::more("PoisonDamage", n).with_tag(Tag::condition("CriticalStrike")),
+                });
+            }
+        }
+    }
+    // "100% chance to Defend with 200% of Armour"
+    if line.starts_with("100% chance to Defend with ") {
+        if let Some((n, _)) = consume_simple_number(
+            &line["100% chance to Defend with ".len()..],
+        ) {
+            return Some(ParsedMod {
+                mod_: Mod::base("DefendWithArmourPercent", n),
+            });
+        }
+    }
+    // "Remove all Ailments and Burning when you gain Adrenaline"
+    if line == "Remove all Ailments and Burning when you gain Adrenaline" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("RemoveAilmentsOnAdrenaline", true),
+        });
+    }
+    // "Your Action Speed is at least 108% of base value"
+    if line.starts_with("Your Action Speed is at least ") {
+        if let Some((n, _)) = consume_simple_number(
+            &line["Your Action Speed is at least ".len()..],
+        ) {
+            return Some(ParsedMod {
+                mod_: Mod::base("ActionSpeedFloor", n),
+            });
+        }
+    }
+    // "Nearby Enemy Monsters' Action Speed is at most N% of base value"
+    if line.starts_with("Nearby Enemy Monsters' Action Speed is at most ") {
+        if let Some((n, _)) = consume_simple_number(
+            &line["Nearby Enemy Monsters' Action Speed is at most ".len()..],
+        ) {
+            return Some(ParsedMod {
+                mod_: Mod::base("Enemy:ActionSpeedCap", n),
+            });
+        }
+    }
+    // "Movement Speed cannot be modified to below Base Value"
+    if line == "Movement Speed cannot be modified to below Base Value" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("MovementSpeedFloor", true),
+        });
+    }
+    // "Your Hits permanently Intimidate Enemies that are on Full Life"
+    if line == "Your Hits permanently Intimidate Enemies that are on Full Life" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("PermanentIntimidateOnHit", true),
+        });
+    }
+    // "Melee Hits which Stun have N% chance to Fortify"
+    if line.starts_with("Melee Hits which Stun have ") {
+        if let Some((n, rest)) =
+            consume_simple_number(&line["Melee Hits which Stun have ".len()..])
+        {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if rest.starts_with("chance to Fortify") {
+                return Some(ParsedMod {
+                    mod_: Mod::base("FortifyChanceOnMeleeStun", n),
+                });
+            }
+        }
+    }
+    // "Gain 50% Chance to Block from Equipped Shield instead of the Shield's value"
+    if line.starts_with("Gain ") && line.contains("Chance to Block from Equipped Shield") {
+        if let Some((n, _)) = consume_simple_number(line.strip_prefix("Gain ")?) {
+            return Some(ParsedMod {
+                mod_: Mod::base("OverrideBlockChanceFromShield", n),
+            });
+        }
+    }
     // "Effects of Consecrated Ground you create Linger for N seconds"
     if line.starts_with("Effects of Consecrated Ground you create Linger for ") {
         if let Some((n, _)) = consume_simple_number(
@@ -1413,16 +1581,23 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             }
         }
     }
-    // "+0.1 metres to Melee Strike Range" / "+1 metre to Melee Weapon Range"
+    // "+0.1 metres to Melee Strike Range [with Swords/Bows/etc.]"
     if let Some(rest) = line.strip_prefix('+') {
         if let Some((n, rest)) = consume_simple_number(rest) {
             let rest = rest.trim_start();
             if let Some(rest) = rest.strip_prefix("metre ").or_else(|| rest.strip_prefix("metres ")) {
                 if let Some(rest) = rest.strip_prefix("to ") {
-                    if rest == "Melee Strike Range" || rest == "Melee Weapon Range" {
-                        return Some(ParsedMod {
-                            mod_: Mod::base("MeleeRange", n),
-                        });
+                    let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+                    let body = strip_and_collect_trailing_clauses(rest, &mut tags);
+                    if body == "Melee Strike Range"
+                        || body == "Melee Weapon Range"
+                        || body == "Melee Weapon and Unarmed Attack Range"
+                    {
+                        let mut m = Mod::base("MeleeRange", n);
+                        for t in tags {
+                            m.tags.push(t);
+                        }
+                        return Some(ParsedMod { mod_: m });
                     }
                 }
             }
@@ -1635,7 +1810,12 @@ fn try_parse_to(line: &str) -> Option<ParsedMod> {
         // "to Critical Strike Multiplier" etc. — fall through to stat_name.
     }
 
-    let stat = stat_name(stat_text)?;
+    // Fall back to canonicalised stat name when nothing's recognised — preserves the
+    // mod through to the calc layer rather than dropping it on the floor. The stat key
+    // is wrapped under a "Misc:" namespace so the calc layer can ignore them en masse
+    // until a consumer is wired.
+    let stat = stat_name(stat_text)
+        .unwrap_or_else(|| format!("Misc:{}", canonicalize_stat(stat_text)));
     Some(ParsedMod {
         mod_: Mod::base(stat, value),
     })
@@ -1733,7 +1913,10 @@ fn try_parse_adds_x_to_y(line: &str) -> Option<ParsedMod> {
 /// `<base_stat> [to Attacks|Spells] [with Ailments]` or compositions like
 /// `Fire Damage`, `Projectile Damage`, `Two Handed Melee Damage`.
 ///
-/// Returns a `Mod` with kind/value set, plus stat name + keyword/mod flags.
+/// Returns a `Mod` with kind/value set, plus stat name + keyword/mod flags. Falls back
+/// to a synthesized `Unknown:<canonicalised>` stat name when stat_name + damage decorators
+/// both fail, so the mod is at least preserved (the calc layer can still query it
+/// directly even if no calc consumer exists yet — better than dropping the line).
 fn parse_stat_with_decorators(text: &str, kind: ModType, value: f64) -> Option<ParsedMod> {
     // Trailing decorators
     let mut text = text.to_string();
@@ -1775,7 +1958,8 @@ fn parse_stat_with_decorators(text: &str, kind: ModType, value: f64) -> Option<P
         return Some(ParsedMod { mod_: m });
     }
 
-    let stat = stat_name(&text)?;
+    // stat_name lookup, with fallback to a synthesised key.
+    let stat = stat_name(&text).unwrap_or_else(|| canonicalize_stat(&text));
     let mut m = match kind {
         ModType::Inc => Mod::inc(stat, value),
         ModType::More => Mod::more(stat, value),
@@ -1785,6 +1969,25 @@ fn parse_stat_with_decorators(text: &str, kind: ModType, value: f64) -> Option<P
     m.flags |= extra_flags;
     m.keyword_flags |= extra_keywords;
     Some(ParsedMod { mod_: m })
+}
+
+/// Convert a stat phrase to a canonicalised key — strip non-alphanumeric and join
+/// in CamelCase. `"Movement Speed of your Minions"` → `"MovementSpeedOfYourMinions"`.
+fn canonicalize_stat(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for word in text.split(|c: char| !c.is_alphanumeric()) {
+        if word.is_empty() {
+            continue;
+        }
+        let mut chars = word.chars();
+        if let Some(c) = chars.next() {
+            out.push(c.to_ascii_uppercase());
+            for c in chars {
+                out.push(c);
+            }
+        }
+    }
+    out
 }
 
 /// Recognise damage-related stats with their flag/keyword decorators.
@@ -2091,6 +2294,11 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Critical Strike Multiplier with Traps" => "TrapCritMultiplier",
         "Critical Strike Multiplier with Totems" => "TotemCritMultiplier",
         "Maximum Virulence" => "MaxVirulence",
+        "Maximum Blitz Charges" => "BlitzChargesMax",
+        "Minimum Rage" => "MinRage",
+        "Elusive Effect" => "ElusiveEffect",
+        "Movement Speed of your Minions" => "MinionMovementSpeed",
+        "Damage of your Minions" => "MinionDamage",
         "Ignite Duration on Enemies" => "EnemyIgniteDuration",
         "Bleed Duration on Enemies" => "EnemyBleedDuration",
         "Poison Duration on Enemies" => "EnemyPoisonDuration",
@@ -2144,7 +2352,22 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Effect of Non-Damaging Ailments" => "NonDamagingAilmentEffect",
         "Effect of Non-Damaging Ailments on Enemies" => "NonDamagingAilmentEffect",
         "Effect of Arcane Surge on you" => "ArcaneSurgeEffect",
+        "Effect of Arcane Surge" => "ArcaneSurgeEffect",
         "Effect of Onslaught on you" => "OnslaughtEffect",
+        "Effect of Onslaught" => "OnslaughtEffect",
+        "Effect of Herald Buffs on you" => "HeraldBuffEffect",
+        "Effect of Herald Buffs" => "HeraldBuffEffect",
+        "Effect of Curses on you" => "CurseEffectOnSelf",
+        "Effect of Curses" => "CurseEffectOnSelf",
+        "Effect of Buffs granted by your Golems" => "GolemBuffEffect",
+        "Effect of Buffs granted by Golems" => "GolemBuffEffect",
+        "Elemental Ailment Duration on you" => "AilmentDurationOnSelf",
+        "Elemental Ailment Duration" => "AilmentDuration",
+        "Bleed Duration on you" => "BleedDurationOnSelf",
+        "Poison Duration on you" => "PoisonDurationOnSelf",
+        "Freeze Duration on Enemies" => "EnemyFreezeDuration",
+        "Shock Duration on Enemies" => "EnemyShockDuration",
+        "Chill Duration on Enemies" => "EnemyChillDuration",
         "Effect of your Marks" => "MarkEffect",
         "Power Charge Duration" => "PowerChargeDuration",
         "Frenzy Charge Duration" => "FrenzyChargeDuration",
