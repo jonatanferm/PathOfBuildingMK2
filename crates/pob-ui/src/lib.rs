@@ -325,9 +325,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 app.character.allocated.clear();
                 recompute = true;
             }
+            let asc_alloc =
+                count_allocated_ascendancy_nodes(&app.tree, &app.character.allocated);
+            let total_alloc = app.character.allocated.len() as u32;
             ui.label(format!(
-                "Allocated: {} nodes",
-                app.character.allocated.len()
+                "Allocated: {} (passive) / {} / {} (ascendancy)",
+                total_alloc - asc_alloc,
+                asc_alloc,
+                app.tree.points.ascendancy_points,
             ));
 
             ui.add_space(10.0);
@@ -428,22 +433,38 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
             if let Some(id) = interaction.clicked {
                 // Block ascendancy nodes that don't belong to the selected ascendancy.
-                let allowed = app
-                    .tree
-                    .nodes
-                    .get(&id)
+                let node = app.tree.nodes.get(&id);
+                let is_ascendancy_node = node
+                    .and_then(|n| n.ascendancy_name.as_deref())
+                    .is_some();
+                let allowed_ascend = node
                     .map(|n| {
                         n.ascendancy_name.is_none()
                             || n.ascendancy_name.as_deref() == app.character.ascendancy.as_deref()
                     })
                     .unwrap_or(true);
-                if !allowed {
+                let toggling_off = app.character.allocated.contains(&id);
+                let ascendancy_budget_ok = if !is_ascendancy_node || toggling_off {
+                    true
+                } else {
+                    count_allocated_ascendancy_nodes(&app.tree, &app.character.allocated)
+                        < app.tree.points.ascendancy_points
+                };
+                if !allowed_ascend {
                     app.status_message = Some((
                         StatusKind::Error,
                         "Node belongs to a different ascendancy class.".into(),
                     ));
+                } else if !ascendancy_budget_ok {
+                    app.status_message = Some((
+                        StatusKind::Error,
+                        format!(
+                            "Out of ascendancy points (cap is {}).",
+                            app.tree.points.ascendancy_points
+                        ),
+                    ));
                 } else {
-                    if app.character.allocated.contains(&id) {
+                    if toggling_off {
                         app.character.allocated.remove(&id);
                     } else {
                         app.character.allocated.insert(id);
@@ -565,6 +586,21 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
         MenuAction::Save => save_build(app, false),
         MenuAction::SaveAs => save_build(app, true),
     }
+}
+
+fn count_allocated_ascendancy_nodes(
+    tree: &PassiveTree,
+    allocated: &std::collections::HashSet<NodeId>,
+) -> u32 {
+    allocated
+        .iter()
+        .filter(|id| {
+            tree.nodes
+                .get(id)
+                .and_then(|n| n.ascendancy_name.as_deref())
+                .is_some()
+        })
+        .count() as u32
 }
 
 fn swap_tree(app: &mut LoadedApp, version: &str) -> Result<(), String> {

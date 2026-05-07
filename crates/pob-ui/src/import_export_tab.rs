@@ -1,7 +1,9 @@
 //! Import / Export tab — generate or paste an MK2 share code.
 
 use eframe::egui;
-use pob_engine::{export_code, import_code, import_pob_code, import_pob_xml, Character};
+use pob_engine::{
+    export_code, export_pob_code, import_code, import_pob_code, import_pob_xml, Character,
+};
 
 pub struct ImportExportTabState {
     pub paste: String,
@@ -27,17 +29,33 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut C
             ui.set_min_width(360.0);
             ui.heading("Export current build");
             ui.separator();
-            if ui.button("Generate code").clicked() {
-                match export_code(character) {
-                    Ok(code) => {
-                        state.generated = code;
-                        state.last_message = Some((true, "Generated.".into()));
-                    }
-                    Err(e) => {
-                        state.last_message = Some((false, format!("Export failed: {e}")));
+            ui.horizontal(|ui| {
+                if ui.button("Generate MK2 code").clicked() {
+                    match export_code(character) {
+                        Ok(code) => {
+                            state.generated = code;
+                            state.last_message = Some((true, "Generated MK2 code.".into()));
+                        }
+                        Err(e) => {
+                            state.last_message = Some((false, format!("Export failed: {e}")));
+                        }
                     }
                 }
-            }
+                if ui.button("Generate PoB share code").clicked() {
+                    match export_pob_code(character) {
+                        Ok(code) => {
+                            state.generated = code;
+                            state.last_message = Some((
+                                true,
+                                "Generated PoB-compatible code (paste into upstream PoB to round-trip).".into(),
+                            ));
+                        }
+                        Err(e) => {
+                            state.last_message = Some((false, format!("Export failed: {e}")));
+                        }
+                    }
+                }
+            });
             ui.add(
                 egui::TextEdit::multiline(&mut state.generated)
                     .desired_width(f32::INFINITY)
