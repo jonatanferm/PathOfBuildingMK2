@@ -7,6 +7,7 @@ use eframe::egui;
 use pob_data::{NodeId, PassiveTree};
 use pob_engine::{character::ClassRef, Character, Output};
 
+mod pathfind;
 mod tree_layout;
 mod tree_view;
 
@@ -26,6 +27,7 @@ struct LoadedApp {
     tree_view: TreeView,
     character: Character,
     output: Output,
+    search: String,
 }
 
 impl PobApp {
@@ -68,6 +70,7 @@ impl PobApp {
             tree_view,
             character,
             output,
+            search: String::new(),
         })
     }
 }
@@ -88,6 +91,33 @@ impl eframe::App for PobApp {
 
 fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     let mut recompute = false;
+
+    egui::TopBottomPanel::top("search_panel").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Search:");
+            let resp = ui.add(
+                egui::TextEdit::singleline(&mut app.search)
+                    .desired_width(220.0)
+                    .hint_text("notable name, keyword, stat..."),
+            );
+            if resp.changed() {
+                update_search(app);
+            }
+            if ui.button("Clear").clicked() {
+                app.search.clear();
+                update_search(app);
+            }
+            ui.separator();
+            ui.label(format!("{} matches", app.tree_view.search_matches.len()));
+            if ui.button("Focus first match").clicked() {
+                if let Some(&id) = app.tree_view.search_matches.iter().next() {
+                    if let Some(p) = app.tree_view.position_of(id) {
+                        app.tree_view.focus(p.x, p.y);
+                    }
+                }
+            }
+        });
+    });
 
     egui::SidePanel::left("class_panel")
         .resizable(true)
@@ -154,9 +184,21 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     });
 
     egui::CentralPanel::default().show(ctx, |ui| {
-        // Build a HashSet ref for the view's allocated query without cloning.
         let allocated: HashSet<NodeId> = app.character.allocated.iter().copied().collect();
-        if let Some(id) = app.tree_view.ui(ui, &app.tree, &allocated) {
+        let interaction = app.tree_view.ui(ui, &app.tree, &allocated);
+
+        // Path-overlay preview: when the user hovers an unallocated node, plot the
+        // shortest path from any allocated node to it.
+        app.tree_view.path_overlay.clear();
+        if let Some(hover) = interaction.hovered {
+            if !allocated.contains(&hover) && !allocated.is_empty() {
+                if let Some(path) = pathfind::shortest_path_from_allocated(&app.tree, &allocated, hover) {
+                    app.tree_view.path_overlay = path;
+                }
+            }
+        }
+
+        if let Some(id) = interaction.clicked {
             if app.character.allocated.contains(&id) {
                 app.character.allocated.remove(&id);
             } else {
@@ -170,6 +212,25 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // dirty-flagging in Phase 6 polish if profiling shows it matters.
     let _ = recompute;
     app.output = pob_engine::compute(&app.character, &app.tree);
+}
+
+fn update_search(app: &mut LoadedApp) {
+    app.tree_view.search_matches.clear();
+    let q = app.search.trim().to_lowercase();
+    if q.is_empty() {
+        return;
+    }
+    for (id, node) in &app.tree.nodes {
+        let name_match = node
+            .name
+            .as_deref()
+            .map(|s| s.to_lowercase().contains(&q))
+            .unwrap_or(false);
+        let stat_match = node.stats.iter().any(|s| s.to_lowercase().contains(&q));
+        if name_match || stat_match {
+            app.tree_view.search_matches.insert(*id);
+        }
+    }
 }
 
 fn stat_row(ui: &mut egui::Ui, label: &str, out: &Output, key: &str) {

@@ -11,6 +11,12 @@ use pob_data::{NodeId, NodeKind, PassiveTree};
 
 use crate::tree_layout::{compute_node_positions, NodePos};
 
+#[derive(Default, Debug, Clone, Copy)]
+pub struct TreeInteraction {
+    pub hovered: Option<NodeId>,
+    pub clicked: Option<NodeId>,
+}
+
 pub struct TreeView {
     /// Tree-space origin currently shown at the centre of the viewport.
     center: Vec2,
@@ -18,6 +24,10 @@ pub struct TreeView {
     zoom: f32,
     /// Cached layout (recomputed on tree change).
     positions: HashMap<NodeId, NodePos>,
+    /// Nodes matching the current search filter — drawn with a highlight ring.
+    pub search_matches: ahash::HashSet<NodeId>,
+    /// Path overlay (set externally, drawn on top of edges).
+    pub path_overlay: Vec<NodeId>,
 }
 
 impl TreeView {
@@ -26,20 +36,32 @@ impl TreeView {
             center: Vec2::ZERO,
             zoom: 0.04,
             positions: compute_node_positions(tree),
+            search_matches: ahash::HashSet::default(),
+            path_overlay: Vec::new(),
         }
+    }
+
+    /// Tree-space position of a node, if known.
+    pub fn position_of(&self, id: NodeId) -> Option<NodePos> {
+        self.positions.get(&id).copied()
+    }
+
+    /// Centre the viewport on a tree-space point.
+    pub fn focus(&mut self, x: f32, y: f32) {
+        self.center = Vec2::new(x, y);
     }
 
     pub fn rebind(&mut self, tree: &PassiveTree) {
         self.positions = compute_node_positions(tree);
     }
 
-    /// Render the tree. Returns `Some(node_id)` if the user just clicked a node.
+    /// Render the tree. Returns `(hovered, clicked)` node ids.
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
         tree: &PassiveTree,
         allocated: &std::collections::HashSet<NodeId>,
-    ) -> Option<NodeId> {
+    ) -> TreeInteraction {
         let available = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(available, Sense::click_and_drag());
 
@@ -104,6 +126,20 @@ impl TreeView {
             }
         }
 
+        // Path overlay (drawn over edges, under nodes).
+        if !self.path_overlay.is_empty() {
+            for win in self.path_overlay.windows(2) {
+                let (a, b) = (win[0], win[1]);
+                let (Some(pa), Some(pb)) = (self.positions.get(&a), self.positions.get(&b)) else {
+                    continue;
+                };
+                painter.line_segment(
+                    [to_screen(*pa), to_screen(*pb)],
+                    Stroke::new(2.5, Color32::from_rgb(255, 200, 80)),
+                );
+            }
+        }
+
         // Nodes.
         let mut hovered: Option<NodeId> = None;
         let mut clicked: Option<NodeId> = None;
@@ -124,6 +160,15 @@ impl TreeView {
             let alloc = allocated.contains(id);
             let (fill, ring) = node_colors(node, alloc);
             painter.circle(s, radius, fill, Stroke::new(1.0, ring));
+
+            // Search-match highlight ring.
+            if self.search_matches.contains(id) {
+                painter.circle_stroke(
+                    s,
+                    radius + 3.0,
+                    Stroke::new(2.0, Color32::from_rgb(255, 240, 80)),
+                );
+            }
 
             if let Some(pp) = pointer {
                 if (pp - s).length() < radius + 2.0 {
@@ -158,7 +203,7 @@ impl TreeView {
             }
         }
 
-        clicked
+        TreeInteraction { hovered, clicked }
     }
 
     pub fn center(&self) -> Vec2 {
