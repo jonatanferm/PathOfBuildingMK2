@@ -340,8 +340,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let Some(skill) = skills.get(&main.skill_id) else {
         return;
     };
-    env.output
-        .set("MainSkillLevel", f64::from(main.level.clamp(1, 40)));
+    let gem_level = main.level.clamp(1, 40);
+    env.output.set("MainSkillLevel", f64::from(gem_level));
 
     // Apply the skill's intrinsic mods (from constantStats + qualityStats × statMap)
     // to the env. These produce things like Arc's "+15% MORE damage per chain
@@ -350,7 +350,28 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     for m in intrinsic_mods {
         env.mod_db.add(m);
     }
-    let gem_level = main.level.clamp(1, 40);
+
+    // For each named per-level stat, push the corresponding positional value into the
+    // EvalState's stats map. This lets PerStat tags (e.g. PerStat:ChainRemaining)
+    // scale by the skill's own per-level numbers (Arc has 7 chains at level 20, so
+    // ChainRemaining = 7). PoB does this in CalcActiveSkill via its skillData table.
+    for (i, stat_id) in skill.stats.iter().enumerate() {
+        // positional indices in our extractor are 1-based: positional[1] is the first.
+        if let Some(v) = skill.positional(gem_level, (i + 1) as u32) {
+            // Map skill stat ids onto the EvalState stat names PoB uses for tag
+            // resolution. Conservative — only the well-known ones.
+            let mapped = match stat_id.as_str() {
+                "number_of_chains" | "number_of_chains_+" => Some("ChainRemaining"),
+                "number_of_additional_projectiles" => Some("ProjectileCount"),
+                "skill_repeat_count" => Some("SkillRepeatCount"),
+                "active_skill_area_of_effect_radius_+%_final" => Some("AreaOfEffect"),
+                _ => None,
+            };
+            if let Some(eval_key) = mapped {
+                env.state.set_stat(eval_key, v);
+            }
+        }
+    }
     let (mut base_min, mut base_max) = skill_base_damage(skill, gem_level, character.level);
     if base_min == 0.0 && base_max == 0.0 {
         // Skill has no positional damage values — abort cleanly.
