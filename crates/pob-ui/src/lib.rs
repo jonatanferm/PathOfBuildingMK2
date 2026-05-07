@@ -316,6 +316,16 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                             app.character.class = ClassRef(c.name.clone());
                             // Reset ascendancy when class changes — old one no longer valid.
                             app.character.ascendancy = None;
+                            // Drop any allocated ascendancy nodes that are no longer
+                            // valid for the new class. We only filter by ascendancy
+                            // tagging — non-ascendancy nodes stay.
+                            app.character.allocated.retain(|id| {
+                                app.tree
+                                    .nodes
+                                    .get(id)
+                                    .map(|n| n.ascendancy_name.is_none())
+                                    .unwrap_or(true)
+                            });
                             recompute = true;
                         }
                     }
