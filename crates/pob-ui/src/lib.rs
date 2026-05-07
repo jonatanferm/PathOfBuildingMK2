@@ -372,9 +372,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.separator();
             if app.character.main_skill.is_some() {
                 stat_row_decimal(ui, "Avg hit", &app.output, "MainSkillAverageHit");
+                stat_row_decimal(ui, "Crit chance %", &app.output, "MainSkillCritChance");
                 stat_row_decimal(ui, "Avg w/ crit", &app.output, "MainSkillAverageHitWithCrit");
+                stat_row_decimal(ui, "Hit chance %", &app.output, "MainSkillHitChance");
                 stat_row_decimal(ui, "Speed (cps)", &app.output, "MainSkillSpeed");
                 stat_row_decimal(ui, "DPS", &app.output, "MainSkillDPS");
+                if app.output.get("MainSkillManaCost") > 0.0 {
+                    stat_row_decimal(ui, "Mana cost", &app.output, "MainSkillManaCost");
+                }
                 if app.output.get("BleedDPS") > 0.0 {
                     stat_row_decimal(ui, "Bleed DPS", &app.output, "BleedDPS");
                 }

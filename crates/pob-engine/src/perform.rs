@@ -392,13 +392,29 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("MainSkillHitMax", hit_max);
     env.output.set("MainSkillAverageHit", avg);
 
-    // Apply crit:
-    // expected = avg * ((1 - crit_chance) + crit_chance * crit_multi)
-    let crit_chance = (env.output.get("CritChance") / 100.0).min(1.0);
+    // Apply crit. Spells use the skill's intrinsic critChance as base; attacks use
+    // the weapon's crit chance (we don't model that yet — fall back to 5% generic).
+    let base_crit = if is_spell {
+        skill.crit_chance(gem_level)
+    } else {
+        5.0
+    };
+    let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
+    let crit_chance = ((base_crit * (1.0 + crit_inc / 100.0)) / 100.0).clamp(0.0, 1.0);
+    env.output.set("MainSkillCritChance", crit_chance * 100.0);
     let crit_mult = env.output.get("CritMultiplier") / 100.0;
     let crit_factor = (1.0 - crit_chance) + crit_chance * crit_mult;
     let avg_with_crit = avg * crit_factor;
     env.output.set("MainSkillAverageHitWithCrit", avg_with_crit);
+
+    // Mana cost from the skill's level data — useful for sustainability checks.
+    let mana_cost_base = skill.cost(gem_level, "Mana");
+    if mana_cost_base > 0.0 {
+        // Apply (1 + inc) and ManaCost INC mods.
+        let cost_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ManaCost");
+        let cost = mana_cost_base * (1.0 + cost_inc / 100.0);
+        env.output.set("MainSkillManaCost", cost);
+    }
 
     // Apply enemy resistance: hit damage reduced by `(1 - effective_resist/100)`.
     // Penetration: a `<Element>Penetration` Base mod subtracts from the enemy resist

@@ -297,17 +297,26 @@ fn config_charges_drive_per_charge_mod() {
         return;
     };
 
-    // Find a passive that has a per-charge stat ("X per Power Charge")
-    let charge_node = tree
-        .nodes
-        .iter()
-        .find(|(_, n)| {
-            n.stats.iter().any(|s| s.contains("per Power Charge"))
-                && n.stats.len() == 1 // one-stat node so we can compute deltas cleanly
-        })
-        .map(|(id, _)| *id);
+    // Iterate sorted so the test is deterministic, and find a per-Power-Charge passive
+    // whose stat the parser handles (so toggling actually moves a value).
+    let mut ids: Vec<_> = tree.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    let charge_node = ids.into_iter().find(|id| {
+        let Some(n) = tree.nodes.get(id) else { return false };
+        // Only consider non-ascendancy / non-mastery normal-or-notable nodes with a
+        // single "per Power Charge" stat — predictable shape.
+        n.ascendancy_name.is_none()
+            && matches!(
+                n.kind,
+                pob_data::NodeKind::Normal | pob_data::NodeKind::Notable
+            )
+            && n.stats.len() == 1
+            && n.stats[0].contains("per Power Charge")
+            && !n.stats[0].contains(" while ")
+            && !n.stats[0].contains(" if ")
+    });
     let Some(node_id) = charge_node else {
-        eprintln!("no per-power-charge node — skip");
+        eprintln!("no clean per-power-charge node — skip");
         return;
     };
 
@@ -333,7 +342,7 @@ fn config_charges_drive_per_charge_mod() {
     }
     assert!(
         found_diff,
-        "Power charges should activate per-power-charge mod and change at least one stat"
+        "Power charges should activate per-power-charge mod (node {node_id}) and change at least one stat"
     );
 }
 
