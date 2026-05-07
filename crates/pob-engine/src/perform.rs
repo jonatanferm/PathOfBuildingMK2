@@ -170,6 +170,20 @@ fn perform_basic_stats(_character: &Character, _tree: &PassiveTree, env: &mut En
         env.output.set(stat, total.round());
     }
 
+    // Armour mitigation against a "typical" physical hit. PoE formula:
+    //   reduction = armour / (armour + 12 × raw_phys_damage)
+    // Capped at 90% by default.
+    // We expose `PhysicalDamageReduction` as a percent against a 1000-point baseline
+    // hit so the side panel can show something meaningful without an explicit enemy
+    // damage knob. PoB does the same with its standard-boss configurable hit value.
+    {
+        let armour = env.output.get("Armour");
+        let baseline_phys = 1000.0_f64;
+        let raw_reduction = armour / (armour + 12.0 * baseline_phys);
+        let reduction = (raw_reduction * 100.0).min(90.0);
+        env.output.set("PhysicalDamageReduction", reduction);
+    }
+
     // Block / Spell Block / Spell Suppression / Dodge — base 0, cap 75%.
     let block_inc_pct = env.mod_db.sum(ModType::Base, &cfg, &env.state, "BlockChance");
     let block_max_bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, "BlockChanceMax");
