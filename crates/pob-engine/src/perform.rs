@@ -145,6 +145,68 @@ fn perform_basic_stats(_character: &Character, _tree: &PassiveTree, env: &mut En
     let chaos = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ChaosResist");
     env.output.set("ChaosResist", chaos);
 
+    // Resist caps (default 75%, mods add/subtract).
+    for elem in ["Fire", "Cold", "Lightning"] {
+        let key = format!("{elem}ResistMax");
+        let bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, &key);
+        env.output.set(&key, 75.0 + bonus);
+        let cap = 75.0 + bonus;
+        let raw = env.output.get(&format!("{elem}Resist"));
+        let capped = raw.min(cap);
+        env.output.set(&format!("{elem}ResistTotal"), capped);
+    }
+    {
+        let bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ChaosResistMax");
+        let cap = 75.0 + bonus;
+        env.output.set("ChaosResistMax", cap);
+        let raw = env.output.get("ChaosResist");
+        env.output.set("ChaosResistTotal", raw.min(cap));
+    }
+
+    // Defences: armour, evasion. Treat them as INC over a base 0; items push base values.
+    for stat in ["Armour", "Evasion", "Ward"] {
+        let base = env.mod_db.sum(ModType::Base, &cfg, &env.state, stat);
+        let total = base * env.mod_db.applied(&cfg, &env.state, stat);
+        env.output.set(stat, total.round());
+    }
+
+    // Block / Spell Block / Spell Suppression / Dodge — base 0, cap 75%.
+    let block_inc_pct = env.mod_db.sum(ModType::Base, &cfg, &env.state, "BlockChance");
+    let block_max_bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, "BlockChanceMax");
+    let block_cap = 75.0 + block_max_bonus;
+    env.output.set("BlockChance", block_inc_pct.min(block_cap));
+    env.output.set("BlockChanceMax", block_cap);
+    let spell_block = env.mod_db.sum(ModType::Base, &cfg, &env.state, "SpellBlockChance");
+    env.output.set("SpellBlockChance", spell_block.min(block_cap));
+    let suppress = env.mod_db.sum(ModType::Base, &cfg, &env.state, "SpellSuppressionChance");
+    env.output.set("SpellSuppressionChance", suppress.min(100.0));
+
+    // Life / mana / ES regen
+    let life_regen_flat = env.mod_db.sum(ModType::Base, &cfg, &env.state, "LifeRegen");
+    let life_regen_pct = env.mod_db.sum(ModType::Base, &cfg, &env.state, "LifeRegenPercent");
+    let life = env.output.get("Life");
+    let life_regen_total =
+        life_regen_flat + life * life_regen_pct / 100.0;
+    env.output.set("LifeRegen", life_regen_total);
+
+    let mana_regen_flat = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ManaRegen");
+    let mana_regen_pct = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ManaRegen");
+    let mana = env.output.get("Mana");
+    // PoE: base mana regen = 1.75% of max mana per second; modifier is INC on rate.
+    let mana_regen_total =
+        (mana * 0.0175 + mana_regen_flat) * (1.0 + mana_regen_pct / 100.0);
+    env.output.set("ManaRegen", mana_regen_total);
+
+    // ES recharge — base 33% of total ES per second after delay, but we just expose the
+    // increased-rate stat as a mod multiplier (delay handling lives in Phase 4).
+    let es = env.output.get("EnergyShield");
+    let recharge_inc =
+        env.mod_db.sum(ModType::Inc, &cfg, &env.state, "EnergyShieldRecharge");
+    env.output.set(
+        "EnergyShieldRecharge",
+        es * 0.33 * (1.0 + recharge_inc / 100.0),
+    );
+
     // Cast speed (multiplier on a base of 1.0 — PoB normalises this against skill
     // baseline cast time).
     let cast_speed_mult = env.mod_db.applied(&cfg, &env.state, "CastSpeed");
@@ -245,6 +307,19 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let avg_with_crit = avg * crit_factor;
     env.output.set("MainSkillAverageHitWithCrit", avg_with_crit);
 
+    // Apply enemy resistance: hit damage reduced by `(1 - effective_resist/100)`.
+    // Phase 3 only models the dominant element — penetration support is Phase 6.
+    let enemy_resist = match elem_stat {
+        "FireDamage" => character.config.enemy_fire_resist,
+        "ColdDamage" => character.config.enemy_cold_resist,
+        "LightningDamage" => character.config.enemy_lightning_resist,
+        "ChaosDamage" => character.config.enemy_chaos_resist,
+        _ => 0,
+    };
+    let res_factor = (1.0 - f64::from(enemy_resist) / 100.0).max(0.0);
+    let avg_after_res = avg_with_crit * res_factor;
+    env.output.set("MainSkillAverageHitAfterResist", avg_after_res);
+
     // Cast/attack speed: PoB normalises against skill baseline.
     let speed_mult = if is_spell {
         env.output.get("CastSpeedMult")
@@ -258,13 +333,14 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     };
     let cps = baseline * speed_mult;
     env.output.set("MainSkillSpeed", cps);
-    env.output.set("MainSkillDPS", avg_with_crit * cps);
+    env.output.set("MainSkillDPS", avg_after_res * cps);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::character::ClassRef;
+    use crate::modifier::Mod;
     use std::path::PathBuf;
 
     fn load_3_25_tree() -> Option<PassiveTree> {
@@ -351,6 +427,77 @@ mod tests {
         assert_eq!(out.get("Strength"), 14.0);
         assert_eq!(out.get("Dexterity"), 32.0);
         assert_eq!(out.get("Intelligence"), 14.0);
+    }
+
+    #[test]
+    fn resist_max_default_75() {
+        let Some(tree) = load_3_25_tree() else {
+            return;
+        };
+        let c = Character::new(ClassRef::marauder(), 1);
+        let out = compute(&c, &tree);
+        assert_eq!(out.get("FireResistMax"), 75.0);
+        assert_eq!(out.get("ColdResistMax"), 75.0);
+        assert_eq!(out.get("LightningResistMax"), 75.0);
+        assert_eq!(out.get("ChaosResistMax"), 75.0);
+    }
+
+    #[test]
+    fn fire_resist_capped_at_max() {
+        let Some(tree) = load_3_25_tree() else {
+            return;
+        };
+        let mut c = Character::new(ClassRef::marauder(), 1);
+        // Synthesise: insert raw "+200% to Fire Resistance" into the env via a node we
+        // know parses. Simpler: build the env manually.
+        let mut env = init_env(&c, &tree);
+        env.mod_db.add(Mod::base("FireResist", 200.0));
+        perform_basic_stats(&c, &tree, &mut env);
+        let out = env.output;
+        assert_eq!(out.get("FireResist"), 200.0);
+        assert_eq!(out.get("FireResistMax"), 75.0);
+        assert_eq!(out.get("FireResistTotal"), 75.0);
+        // Bumping the max should push the cap.
+        let mut env2 = init_env(&c, &tree);
+        env2.mod_db.add(Mod::base("FireResist", 200.0));
+        env2.mod_db.add(Mod::base("FireResistMax", 5.0));
+        perform_basic_stats(&c, &tree, &mut env2);
+        assert_eq!(env2.output.get("FireResistMax"), 80.0);
+        assert_eq!(env2.output.get("FireResistTotal"), 80.0);
+        let _ = c.allocated; // silence clippy for unused
+    }
+
+    #[test]
+    fn block_capped_at_75_by_default() {
+        let Some(tree) = load_3_25_tree() else {
+            return;
+        };
+        let c = Character::new(ClassRef::duelist(), 1);
+        let mut env = init_env(&c, &tree);
+        env.mod_db.add(Mod::base("BlockChance", 95.0));
+        perform_basic_stats(&c, &tree, &mut env);
+        assert_eq!(env.output.get("BlockChance"), 75.0);
+        // With +5 to max block:
+        let mut env2 = init_env(&c, &tree);
+        env2.mod_db.add(Mod::base("BlockChance", 95.0));
+        env2.mod_db.add(Mod::base("BlockChanceMax", 5.0));
+        perform_basic_stats(&c, &tree, &mut env2);
+        assert_eq!(env2.output.get("BlockChance"), 80.0);
+    }
+
+    #[test]
+    fn life_regen_pct_uses_total_life() {
+        let Some(tree) = load_3_25_tree() else {
+            return;
+        };
+        let c = Character::new(ClassRef::marauder(), 1);
+        let mut env = init_env(&c, &tree);
+        env.mod_db.add(Mod::base("LifeRegenPercent", 5.0));
+        perform_basic_stats(&c, &tree, &mut env);
+        let life = env.output.get("Life");
+        let regen = env.output.get("LifeRegen");
+        // 5% of 66 = 3.3
+        assert!((regen - life * 0.05).abs() < 1e-9);
     }
 
     #[test]

@@ -222,10 +222,19 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             stat_row(ui, "Mana", &app.output, "Mana");
             stat_row(ui, "Energy Shield", &app.output, "EnergyShield");
             ui.add_space(4.0);
-            stat_row(ui, "Fire Res", &app.output, "FireResist");
-            stat_row(ui, "Cold Res", &app.output, "ColdResist");
-            stat_row(ui, "Lightning Res", &app.output, "LightningResist");
-            stat_row(ui, "Chaos Res", &app.output, "ChaosResist");
+            stat_row(ui, "Fire Res", &app.output, "FireResistTotal");
+            stat_row(ui, "Cold Res", &app.output, "ColdResistTotal");
+            stat_row(ui, "Lightning Res", &app.output, "LightningResistTotal");
+            stat_row(ui, "Chaos Res", &app.output, "ChaosResistTotal");
+            ui.add_space(4.0);
+            stat_row(ui, "Armour", &app.output, "Armour");
+            stat_row(ui, "Evasion", &app.output, "Evasion");
+            stat_row(ui, "Block", &app.output, "BlockChance");
+            stat_row(ui, "Spell Block", &app.output, "SpellBlockChance");
+            stat_row(ui, "Spell Suppress", &app.output, "SpellSuppressionChance");
+            ui.add_space(4.0);
+            stat_row_decimal(ui, "Life regen", &app.output, "LifeRegen");
+            stat_row_decimal(ui, "Mana regen", &app.output, "ManaRegen");
 
             ui.add_space(8.0);
             ui.heading("Main skill");

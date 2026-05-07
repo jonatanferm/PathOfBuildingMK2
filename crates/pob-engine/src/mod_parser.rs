@@ -38,9 +38,89 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         return None;
     }
 
+    // "+N% Chance to Block Attack Damage" / "+N% chance to Suppress Spell Damage"
+    if let Some((sign, after_sign)) = match line.as_bytes().first() {
+        Some(b'+') => Some((1.0, &line[1..])),
+        Some(b'-') => Some((-1.0, &line[1..])),
+        _ => None,
+    } {
+        if let Some((n, rest)) = consume_simple_number(after_sign) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if let Some(rest) = rest.strip_prefix("Chance to Block Attack Damage")
+                .or_else(|| rest.strip_prefix("chance to Block Attack Damage"))
+                .or_else(|| rest.strip_prefix("Chance to Block Spell Damage"))
+                .or_else(|| rest.strip_prefix("chance to Block Spell Damage"))
+            {
+                let stat = if line.contains("Spell") {
+                    "SpellBlockChance"
+                } else {
+                    "BlockChance"
+                };
+                let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+                strip_and_collect_trailing_clauses(rest, &mut tags);
+                let mut m = Mod::base(stat, sign * n);
+                for t in tags {
+                    m.tags.push(t);
+                }
+                return Some(ParsedMod { mod_: m });
+            }
+            if rest.starts_with("chance to Suppress Spell Damage")
+                || rest.starts_with("Chance to Suppress Spell Damage")
+            {
+                return Some(ParsedMod {
+                    mod_: Mod::base("SpellSuppressionChance", sign * n),
+                });
+            }
+            if rest.starts_with("Chance to Avoid")
+                || rest.starts_with("chance to Avoid")
+            {
+                return Some(ParsedMod {
+                    mod_: Mod::base("AvoidChance", sign * n),
+                });
+            }
+        }
+    }
+
+    // "Adds … as Extra X Damage" — drop trailing modifier we don't yet support
+    // (handled by adds-x-to-y for the basic "Adds N to M Fire Damage" form).
+
+    // "N% of Attack Damage Leeched as Life" / "N% of Spell Damage Leeched as Mana" etc.
+    if let Some((n, rest)) = consume_number(line) {
+        let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+        if let Some(rest) = rest.strip_prefix("of Attack Damage Leeched as ")
+            .or_else(|| rest.strip_prefix("of Spell Damage Leeched as "))
+            .or_else(|| rest.strip_prefix("of Damage Leeched as "))
+        {
+            let pool = match rest.trim() {
+                "Life" => "LifeLeechRate",
+                "Mana" => "ManaLeechRate",
+                "Energy Shield" => "EnergyShieldLeechRate",
+                _ => "",
+            };
+            if !pool.is_empty() {
+                return Some(ParsedMod {
+                    mod_: Mod::base(pool, n),
+                });
+            }
+        }
+    }
+
+    // "Grants N Passive Skill Point" → static counter mod.
+    if let Some(rest) = line.strip_prefix("Grants ") {
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.trim_start();
+            if rest == "Passive Skill Point" || rest == "Passive Skill Points" {
+                return Some(ParsedMod {
+                    mod_: Mod::base("ExtraPoints", n),
+                });
+            }
+        }
+    }
+
     // Pre-flag prefixes that modify routing/applicability of the rest of the line.
     let mut minion_prefix = false;
     let mut attack_prefix_flag = ModFlag::empty();
+    let mut prefix_keyword = KeywordFlag::empty();
     let mut rest: &str = line;
     if let Some(r) = rest.strip_prefix("Minions deal ") {
         minion_prefix = true;
@@ -60,6 +140,30 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
     } else if let Some(r) = rest.strip_prefix("Hits have ") {
         attack_prefix_flag = ModFlag::HIT;
         rest = r;
+    } else if let Some(r) = strip_attacks_with_weapon_prefix(rest) {
+        // "Attacks with Two Handed Melee Weapons deal …" → ATTACK + matching weapon flag
+        let (mflags, body) = r;
+        attack_prefix_flag = mflags | ModFlag::ATTACK;
+        rest = body;
+    } else if let Some(r) = rest.strip_prefix("Bow Attacks ") {
+        attack_prefix_flag = ModFlag::ATTACK | ModFlag::BOW;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Hits with Two Handed Weapons ") {
+        attack_prefix_flag = ModFlag::HIT | ModFlag::WEAPON_2H;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Hits with One Handed Weapons ") {
+        attack_prefix_flag = ModFlag::HIT | ModFlag::WEAPON_1H;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Flasks applied to you have ") {
+        // Phase 4 will extract these into the "Flask" namespace; for now treat as the
+        // generic stat with no special flags, so a "5% increased Effect" still gets a
+        // mod — wrong scope but avoids dropping the line.
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Tinctures applied to you have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Auras from your Skills have ") {
+        prefix_keyword = KeywordFlag::AURA;
+        rest = r;
     }
 
     // Strip trailing scaling / condition clauses *before* trying to parse the body so the
@@ -77,6 +181,7 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
 
     let mut mod_ = parsed.mod_;
     mod_.flags |= attack_prefix_flag;
+    mod_.keyword_flags |= prefix_keyword;
     for tag in trailing_tags {
         mod_.tags.push(tag);
     }
@@ -86,24 +191,99 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
     Some(ParsedMod { mod_ })
 }
 
+/// Match leading "Attacks with <Weapon-class> Weapons" / "Attacks with <Weapon> deal".
+fn strip_attacks_with_weapon_prefix(text: &str) -> Option<(ModFlag, &str)> {
+    let rest = text.strip_prefix("Attacks with ")?;
+    // Sniff weapon class (longest first).
+    let weapons: &[(&str, ModFlag)] = &[
+        ("Two Handed Melee Weapons deal ", ModFlag::WEAPON_2H | ModFlag::MELEE),
+        ("One Handed Melee Weapons deal ", ModFlag::WEAPON_1H | ModFlag::MELEE),
+        ("Two Handed Weapons deal ", ModFlag::WEAPON_2H),
+        ("One Handed Weapons deal ", ModFlag::WEAPON_1H),
+        ("Melee Weapons deal ", ModFlag::MELEE),
+        ("Bows deal ", ModFlag::BOW),
+        ("Swords deal ", ModFlag::SWORD),
+        ("Maces deal ", ModFlag::MACE),
+        ("Axes deal ", ModFlag::AXE),
+        ("Claws deal ", ModFlag::CLAW),
+        ("Daggers deal ", ModFlag::DAGGER),
+        ("Staves deal ", ModFlag::STAFF),
+        ("Wands deal ", ModFlag::WAND),
+    ];
+    for (label, flag) in weapons {
+        if let Some(remainder) = rest.strip_prefix(*label) {
+            return Some((*flag, remainder));
+        }
+    }
+    None
+}
+
 /// Strip recognised trailing clauses ("per X", "while at full life", "if you've killed
-/// recently") from `text` and emit corresponding tags. Returns the remainder.
+/// recently", "with Y Skills", "with Z Weapons") from `text` and emit corresponding
+/// tags / set flags on the eventual mod. Flag-modifying clauses get returned to the
+/// caller via the closure-friendly out param. Returns the remainder.
 fn strip_and_collect_trailing_clauses<'a>(
     text: &'a str,
     out: &mut smallvec::SmallVec<[Tag; 2]>,
 ) -> &'a str {
     let mut s = text.trim();
-    // Iterate so we can chain multiple clauses ("X per power charge while at full life").
     loop {
         let before = s.len();
         s = strip_per_clause(s, out).trim();
         s = strip_while_clause(s, out).trim();
         s = strip_recently_clause(s, out).trim();
+        s = strip_with_skills_suffix(s).trim();
+        s = strip_with_weapons_suffix(s).trim();
         if s.len() == before {
             break;
         }
     }
     s.trim_end_matches(',').trim()
+}
+
+/// "X with Bow Skills" → strip; the calc layer treats keyword flags from the *body* of
+/// the line. We don't yet propagate skill-type filters through trailing clauses; this
+/// strip prevents the body from failing to parse.
+fn strip_with_skills_suffix(text: &str) -> &str {
+    // Longest first so "Two Handed Melee Weapons" matches before "Melee Weapons".
+    for label in [
+        " with Two Handed Melee Weapons",
+        " with One Handed Melee Weapons",
+        " with Two Handed Weapons",
+        " with One Handed Weapons",
+        " with Maces or Sceptres",
+        " with Bow Skills",
+        " with Spell Skills",
+        " with Channelling Skills",
+        " with Melee Weapons",
+        " with Melee Skills",
+        " with Attacks",
+        " with Bows",
+        " with Swords",
+        " with Maces",
+        " with Axes",
+        " with Claws",
+        " with Daggers",
+        " with Staves",
+        " with Wands",
+        " with Sceptres",
+        " of Aura Skills",
+    ] {
+        if let Some(rest) = text.strip_suffix(label) {
+            return rest;
+        }
+    }
+    text
+}
+
+fn strip_with_weapons_suffix(text: &str) -> &str {
+    // "X with this Weapon" / "X with this skill"
+    for label in [" with this Weapon", " with this Skill", " from your Skills"] {
+        if let Some(rest) = text.strip_suffix(label) {
+            return rest;
+        }
+    }
+    text
 }
 
 fn strip_per_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
@@ -637,6 +817,7 @@ pub fn stat_name(text: &str) -> Option<String> {
 
         // Composite / catch-all damage
         "Damage Over Time" => "DamageOverTime",
+        "Damage over Time" => "DamageOverTime",
         "Burning Damage" => "BurningDamage",
         "Trap Damage" => "TrapDamage",
         "Mine Damage" => "MineDamage",
@@ -654,6 +835,39 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Maximum Mana" => "Mana",
         "Maximum Life" => "Life",
         "Maximum Energy Shield" => "EnergyShield",
+
+        // Recovery / leech / cost
+        "Life Recovery from Flasks" => "FlaskLifeRecovery",
+        "Mana Recovery from Flasks" => "FlaskManaRecovery",
+        "Life Recovery rate" => "LifeRecovery",
+        "Mana Recovery rate" => "ManaRecovery",
+        "total Recovery per second from Life Leech" => "LifeLeechRate",
+        "total Recovery per second from Mana Leech" => "ManaLeechRate",
+        "Maximum total Recovery per second from Life Leech" => "MaxLifeLeechRate",
+        "Maximum Life Leech Rate" => "MaxLifeLeechRate",
+        "Maximum Mana Leech Rate" => "MaxManaLeechRate",
+
+        // Effect-of-X
+        "Effect of your Curses" => "CurseEffect",
+        "effect of your Curses" => "CurseEffect",
+        "Effect of Curses on you" => "CurseEffectOnSelf",
+        "effect of Non-Curse Auras from your Skills" => "AuraEffect",
+        "Effect of non-Curse Auras from your Skills" => "AuraEffect",
+        "Effect" => "Effect",
+        "effect" => "Effect",
+        "Flask Effect Duration" => "FlaskEffectDuration",
+        "Flask Charges gained" => "FlaskChargesGained",
+        "Flask Charges used" => "FlaskChargesUsed",
+        "Flask Life Recovery rate" => "FlaskLifeRecoveryRate",
+        "Flask Mana Recovery rate" => "FlaskManaRecoveryRate",
+
+        // Maximum block / suppression
+        "Maximum Block Chance" => "BlockChanceMax",
+        "Chance to Block Attack Damage" => "BlockChance",
+        "Evasion Rating and Armour" => "ArmourAndEvasion",
+        "Armour and Evasion Rating" => "ArmourAndEvasion",
+        "Evasion and Energy Shield" => "EvasionAndEnergyShield",
+        "Armour and Energy Shield" => "ArmourAndEnergyShield",
 
         // Charges
         "Power Charges" => "PowerCharges",
