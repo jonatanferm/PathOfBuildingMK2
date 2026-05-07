@@ -67,8 +67,10 @@ Modifier system handles `Sum` / `More` / `Flag` / `Override` / `List` queries wi
 `Condition` / `ActorCondition` / `Multiplier` / `PerStat` / `PercentStat` /
 `StatThreshold` / `MultiplierThreshold` tag resolution.
 
-ModParser covers ~56% of the 3.25 passive tree's stat strings — the remaining 44% are
-mostly conditional / suffix-clause forms documented in `docs/divergences.md`.
+ModParser covers **~65% of the 3.25 passive tree's stat strings** (up from 25% in the
+phase-2 minimum). The remaining 35% are mostly conditional / suffix-clause forms and
+niche multi-stat lines (`+1 to maximum number of Summoned Golems`, `Hits have N% chance
+to ignore Enemy Physical Damage Reduction`, etc.) documented in `docs/divergences.md`.
 
 ## What's documented
 

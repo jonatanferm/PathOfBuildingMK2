@@ -975,7 +975,6 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Aura Effect" => "AuraEffect",
         "Curse Skill Effect Duration" => "CurseDuration",
         "Totem Life" => "TotemLife",
-        "Totem Damage" => "TotemDamage",
         "Spell Critical Strike Chance" => "SpellCritChance",
         "Attack Critical Strike Chance" => "AttackCritChance",
         "Critical Strike Chance for Spells" => "SpellCritChance",
