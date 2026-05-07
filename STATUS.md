@@ -2,62 +2,122 @@
 
 ## What works today
 
-A buildable, testable, runnable Path of Building MK2 desktop app.
+A buildable, testable, runnable Path of Building MK2 desktop app with seven tabs and
+real calc output.
 
-- **`cargo build --workspace`** — all 5 crates compile clean.
-- **`cargo run -p pob-extract --release`** — extracts 28 modern PoE passive
-  trees, 1062 item bases, and 810 skill gems from the sibling
-  `../PathOfBuilding/` checkout into `data/`.
-- **`cargo test --workspace`** — 44 tests pass (engine: 31 unit + 1
-  parser-coverage + 2 pathfind, data: 4 unit + 5 round-trip, ui: 1 layout).
-- **`cargo run -p pob-desktop --release`** — opens the app. Drag to pan,
-  scroll to zoom, type in the search box to highlight matching nodes,
-  hover an unallocated node to preview the shortest path from your
-  allocated cluster, click to allocate. Stats panel updates live.
+- **`cargo build --workspace`** — all five crates compile clean.
+- **`cargo run -p pob-extract --release`** — one-time extraction of 28 modern PoE
+  passive trees, 1062 item bases, 810 skill gems, and 1488 skill effects from the
+  sibling `../PathOfBuilding/` checkout into `data/`.
+- **`cargo test --workspace`** — 61 tests pass (engine: 45 unit + 1 parser-coverage
+  + 4 validation + 2 pathfind + 1 layout, data: 4 unit + 5 round-trip).
+- **`cargo run -p pob-desktop --release`** — opens the app.
 
-End-to-end demo: select Marauder, click a `+10 Strength` notable on the
-tree → Strength climbs 32 → 42 and Life climbs 66 → 71.
+## End-to-end demo
+
+1. Pick Witch in the side panel, then Occultist for the ascendancy.
+2. Tree tab: drag, scroll-zoom. Type `Frenzy` in the search box, hover a matched
+   notable, watch the orange shortest-path overlay light up; click each node along it
+   and see Strength / Life / resists / DPS climb in the side panel.
+3. Items tab: select Amulet, paste a copy of any rare amulet from the wiki, click
+   "Equip from paste", flip back to Tree, see Life / mana / resists update.
+4. Skills tab: filter "Arc", select it, slide level to 20. Side panel grows a Main skill
+   block with Avg hit / Avg w/ crit / Speed / DPS.
+5. Config tab: enable "Bleeding" condition. Allocate a passive that has "10% increased
+   Damage while Bleeding" — DPS now reflects the bonus.
+6. Calcs tab: filter "Resist" or "MainSkill" to see the raw output dictionary.
+7. Notes tab: free-form notes, persisted with the build.
+8. Import / Export tab: paste an upstream PoB share code or PoB XML; auto-detects
+   format and imports class / ascendancy / level / allocated nodes / notes.
+9. File menu: New (cmd+N), Open... (cmd+O), Save (cmd+S), Save As... (cmd+shift+S)
+   — `.mk2` build file format, native file dialogs via `rfd`.
+10. Status bar: tree version dropdown (3_25..3_28 + alternate / ruthless variants), node
+    counts, save status, and contextual help.
 
 ## Module map
 
-| Crate | Status |
+| Crate | What it owns |
 |---|---|
-| `pob-data` | Types + JSON loaders for tree, bases, gems. Done for Phase 1. |
-| `pob-engine` | Mod, ModDB, basic ModParser (37% coverage on the 3.25 tree), CalcSetup, basic-stats CalcPerform. |
-| `pob-extract` | mlua-driven extractor for tree / bases / gems. Skills are deferred (ADR 0002). |
-| `pob-ui` | Passive-tree screen with pan/zoom/search/path-preview + live stats panel. |
-| `pob-desktop` | Thin eframe wrapper over `pob-ui`. |
+| `pob-data` | Types + JSON loaders for tree, bases, gems, skills, items. Wasm-clean. |
+| `pob-engine` | Mod / ModDB / ModParser / Env / perform; Character + ConfigState; share code; PoB-format import; SkillRegistry. Wasm-clean. |
+| `pob-extract` | mlua-driven build-time tool. Sandboxes Lua with stub `mod` / `flag` / `skill` helpers + `SkillType`/`KeywordFlag`/`ModFlag` constants so PoB's data files run without their full calc engine. |
+| `pob-ui` | egui app: tree (paint+pan+zoom+search+pathfind), items, skills, config, calcs, notes, import-export. |
+| `pob-desktop` | Thin eframe wrapper. ~9.5 MB release binary. |
 
-## What's next, in roughly the order I'd tackle it
+## Engine scope
 
-1. **Items**: add an `Item` type + `ItemSet`, parse copy-paste item text,
-   plumb item mods into the env. Unblocks most defensive computation.
-2. **Skill data extraction**: solve the deferred problem from ADR 0002 —
-   teach the extractor to record `mod()` / `flag()` / `skill()` calls
-   instead of running them. Then we can compute DPS for one skill.
-3. **Validation harness against live PoB**: drive PoB headless via Lua,
-   import a build XML on both sides, diff `env.player.output`. CI-friendly
-   target: exact match on stats both engines compute.
-4. **ModParser expansion to ~70%**: the `Attacks have N% chance to`,
-   `while X`, `per Y` forms are the next batch.
-5. **Other UI tabs**: skills tab, items tab, calcs breakdown, config tab,
-   import/export from POB share codes. Engine is already separated, so the
-   tabs are mostly ergonomic UI work.
+Computed today (with mod sources from class base attributes, level, allocated tree
+nodes, equipped items, and config-driven conditions/multipliers):
 
-## Known divergences / shortcuts
+- Attributes: Strength / Dex / Int (with `+ to all Attributes` summed in).
+- Pools: Life (50 + 12×(L-1) + Str/2 + mods), Mana (40 + 6×(L-1) + Int/2 + mods),
+  Energy Shield, Ward.
+- Resists: per-element raw + cap (75 + bonus) + capped Total. Chaos same.
+- Defences: Armour, Evasion, Block (capped 75 + max bonus), Spell Block,
+  Spell Suppression, Physical Damage Reduction vs 1000-pt baseline phys hit.
+- Recovery: Life regen (flat + percent), Mana regen (1.75% baseline + flat × inc),
+  Energy Shield Recharge baseline.
+- Charges: cast / attack speed multipliers, crit chance + multiplier.
+- Main skill (when set): base hit min/max from the skill's level data ×
+  damageEffectiveness, hit damage × (1 + total inc/100) × total more, crit factor,
+  enemy resist × penetration, hit chance vs evasion (attacks only), final DPS.
+- Ailments: rough seeded-from-hit BleedDPS / PoisonDPS / IgniteDPS.
 
-- **Range mods collapse to min**: `+(20-30) to Strength` is currently a
-  flat `+20`. Real PoB averages or rolls; we'll surface both bounds in
-  Phase 4 alongside item rolls.
-- **Per-X scalings drop the multiplier**: `1% increased Damage per Power
-  Charge` parses as `1% increased Damage` with no scaling — the value
-  shows up at 1× instead of `(power_charge_count)×`. Eval supports the
-  `Multiplier` tag, so a parser pass that emits the tag will fix this.
-- **Conditional clauses ignored**: `while at full life`, `if you've killed
-  recently`, etc. The engine has the `Condition` tag wired up; the parser
-  just doesn't emit it yet.
-- **Skill data not yet extracted** — see ADR 0002.
+Modifier system handles `Sum` / `More` / `Flag` / `Override` / `List` queries with
+`Condition` / `ActorCondition` / `Multiplier` / `PerStat` / `PercentStat` /
+`StatThreshold` / `MultiplierThreshold` tag resolution.
 
-`docs/decisions/` has ADRs for the workspace layout (0001) and the
-deferred skill extraction (0002). Add a new one whenever you make a call
-that's not obvious from the code.
+ModParser covers ~56% of the 3.25 passive tree's stat strings — the remaining 44% are
+mostly conditional / suffix-clause forms documented in `docs/divergences.md`.
+
+## What's documented
+
+- [`docs/architecture-current.md`](docs/architecture-current.md) — map of the upstream
+  Lua codebase being ported.
+- [`docs/divergences.md`](docs/divergences.md) — running list of deliberate shortcuts.
+- [`docs/packaging.md`](docs/packaging.md) — macOS / Windows / Linux build + bundle
+  notes.
+- [`docs/decisions/`](docs/decisions/) — ADRs for workspace layout (0001) and skill
+  data extraction (0002, since closed).
+
+## What's next
+
+In rough priority order:
+
+1. **Slot-conditional item mods**: items currently apply unconditionally. PoB filters
+   "while using a shield" mods to slots that match the body. Fix: emit `SlotName` /
+   `SocketedIn` tags from the item-paste parser; the engine already supports them in
+   `eval_mod`.
+2. **POB-format export**: we read PoB XML but write only MK2. Adding XML write means
+   round-tripping back to PoB, which a lot of users will want.
+3. **More accurate ailment DPS**: poison stacking, ignite chance, ailment scaling
+   damage, faster ailment damage, ailment magnitude. PoB's CalcOffence has thousands of
+   lines for this; we have a rough single-stack model today.
+4. **More parser coverage** to ~70%: the remaining unparsed tree lines are mostly
+   conditional / weapon-class / chance-to forms. Each expansion is small and well-
+   isolated.
+5. **Validation harness driven by live PoB**: hardcoded reference values are useful as
+   regression detectors, but the right shape is to run PoB headless under Lua, drive a
+   build through both engines, and diff `env.player.output`. Most of the substrate is
+   already there (mlua + sandbox in `pob-extract`).
+6. **Wgpu custom paint for the tree** if profiling reveals it. Currently 2.2ms per
+   compute pass on the full tree (in release), well under a 60Hz frame budget.
+
+## Build commands cheat sheet
+
+```bash
+# Build everything
+cargo build --workspace
+
+# Run desktop app (after extracting data)
+cargo run -p pob-extract --release           # one-time
+cargo run -p pob-desktop --release           # day-to-day
+
+# Run tests
+cargo test --workspace                       # most things
+cargo test --release -p pob-engine           # includes the perf smoke test
+
+# Lints
+cargo clippy --workspace --all-targets
+cargo fmt --all
+```

@@ -84,7 +84,13 @@ pub fn init_env(character: &Character, tree: &PassiveTree) -> Env {
     // 4. Items.
     let _ = crate::item_parser::apply_item_set(&character.items, &mut env.mod_db);
 
-    // 5. Config — push conditions and multipliers into the eval state.
+    // 5. Auto-detected wielding conditions from the equipped items. These activate
+    // mods that have a "while using a shield" / "while wielding a two handed weapon" /
+    // "while dual wielding" trailing clause via their parser-emitted Condition tag.
+    detect_wielding_conditions(&character.items, &mut env.state);
+
+    // 6. Config — push conditions and multipliers into the eval state. ConfigState
+    // overrides auto-detection if the user has explicitly set the same key.
     for (k, v) in &character.config.conditions {
         env.state.set_condition(k.clone(), *v);
     }
@@ -93,6 +99,37 @@ pub fn init_env(character: &Character, tree: &PassiveTree) -> Env {
     }
 
     env
+}
+
+fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_db::EvalState) {
+    use pob_data::Slot;
+    let weapon1 = items.get(Slot::Weapon1);
+    let weapon2 = items.get(Slot::Weapon2);
+
+    let weapon2_is_shield = weapon2
+        .map(|i| i.base_name.contains("Shield") || i.base_name.contains("Buckler"))
+        .unwrap_or(false);
+    if weapon2_is_shield {
+        state.set_condition("UsingShield", true);
+    }
+
+    let weapon1_is_two_handed = weapon1
+        .map(|i| {
+            i.base_name.contains("Two Handed")
+                || i.base_name.contains("Bow")
+                || i.base_name.contains("Staff")
+                || i.base_name.contains("Quarterstaff")
+        })
+        .unwrap_or(false);
+    if weapon1_is_two_handed {
+        state.set_condition("UsingTwoHandedWeapon", true);
+    }
+
+    let weapon1_is_one_handed = weapon1.is_some() && !weapon1_is_two_handed;
+    let weapon2_is_one_handed_weapon = weapon2.is_some() && !weapon2_is_shield;
+    if weapon1_is_one_handed && weapon2_is_one_handed_weapon {
+        state.set_condition("DualWielding", true);
+    }
 }
 
 fn perform_basic_stats(_character: &Character, _tree: &PassiveTree, env: &mut Env) {
