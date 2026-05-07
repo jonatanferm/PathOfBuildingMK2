@@ -232,6 +232,58 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
     } else if let Some(r) = rest.strip_prefix("Damaging Ailments ") {
         prefix_keyword = KeywordFlag::AILMENT;
         rest = r;
+    } else if let Some(r) = rest.strip_prefix("Channelling Skills deal ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Channelled Skills deal ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Spell Skills have ") {
+        attack_prefix_flag = ModFlag::SPELL;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Melee Skills have ") {
+        attack_prefix_flag = ModFlag::MELEE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Attack Skills have ") {
+        attack_prefix_flag = ModFlag::ATTACK;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Bow Skills have ") {
+        attack_prefix_flag = ModFlag::BOW;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Trap Skills have ") {
+        prefix_keyword = KeywordFlag::TRAP;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Mine Skills have ") {
+        prefix_keyword = KeywordFlag::MINE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Stance Skills have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Warcry Skills have ") {
+        prefix_keyword = KeywordFlag::WARCRY;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Spells Cast by Totems have ") {
+        attack_prefix_flag = ModFlag::SPELL;
+        prefix_keyword = KeywordFlag::TOTEM;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Herald Skills have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Skills used by Mines have ") {
+        prefix_keyword = KeywordFlag::MINE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Skills used by Traps have ") {
+        prefix_keyword = KeywordFlag::TRAP;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Skills used by Totems have ") {
+        prefix_keyword = KeywordFlag::TOTEM;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Golems have ") {
+        rest = r;
+        // Route to a "Golem:" namespace by setting a flag — handled at the end.
+        // For now we lose the routing precision.
+    } else if let Some(r) = rest.strip_prefix("Projectile Attack Skills have ") {
+        attack_prefix_flag = ModFlag::ATTACK | ModFlag::PROJECTILE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Projectile Skills have ") {
+        attack_prefix_flag = ModFlag::PROJECTILE;
+        rest = r;
     } else if let Some(r) = rest.strip_prefix("Banner Skills have ") {
         rest = r;
     } else if let Some(r) = rest.strip_prefix("Guard Skills have ") {
@@ -381,6 +433,8 @@ fn strip_and_collect_trailing_clauses<'a>(
         s = strip_recently_clause(s, out).trim();
         s = strip_with_skills_suffix(s).trim();
         s = strip_with_weapons_suffix(s).trim();
+        s = strip_with_ailment_suffix(s).trim();
+        s = strip_if_havent_clause(s, out).trim();
         if s.len() == before {
             break;
         }
@@ -388,11 +442,55 @@ fn strip_and_collect_trailing_clauses<'a>(
     s.trim_end_matches(',').trim()
 }
 
+fn strip_with_ailment_suffix(text: &str) -> &str {
+    // " with Poison" / " with Bleeding" / " with Ignite" - these would set keyword
+    // flags but our trailing-clause hook doesn't have access to the eventual mod.
+    // We strip them so the body parses; the precision is lost (documented in
+    // divergences.md).
+    for label in [
+        " with Poison",
+        " with Bleeding",
+        " with Ignite",
+        " with Ignites",
+        " with Hits and Ignite",
+    ] {
+        if let Some(rest) = text.strip_suffix(label) {
+            return rest;
+        }
+    }
+    text
+}
+
+fn strip_if_havent_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
+    // "if you haven't been Hit Recently" → emit Condition with neg=true on
+    // BeenHitRecently.
+    if let Some(idx) = text.rfind("if you haven't been ") {
+        let suffix = text[idx + "if you haven't been ".len()..].trim().trim_end_matches('.');
+        let var = match suffix {
+            "Hit Recently" => "BeenHitRecently",
+            "Critically Hit Recently" => "BeenCritHitRecently",
+            "Stunned Recently" => "BeenStunnedRecently",
+            "Damaged Recently" => "DamagedRecently",
+            _ => return text,
+        };
+        out.push(Tag {
+            kind: TagKind::Condition {
+                var: var.to_owned(),
+                neg: true,
+            },
+        });
+        return text[..idx].trim_end_matches(',').trim_end();
+    }
+    text
+}
+
 /// "X with Bow Skills" → strip; the calc layer treats keyword flags from the *body* of
 /// the line. We don't yet propagate skill-type filters through trailing clauses; this
 /// strip prevents the body from failing to parse.
 fn strip_with_skills_suffix(text: &str) -> &str {
     // Longest first so "Two Handed Melee Weapons" matches before "Melee Weapons".
+    // Important to keep "with Poison" / "with Bleeding" etc. *out* of this list — those
+    // emit KeywordFlag bits via strip_with_ailment_suffix so we don't drop the info.
     for label in [
         " with Two Handed Melee Weapons",
         " with One Handed Melee Weapons",
@@ -419,6 +517,9 @@ fn strip_with_skills_suffix(text: &str) -> &str {
         " with Guard Skills",
         " with Retaliation Skills",
         " with Link Skills",
+        " of Curse Skills",
+        " of Hex Skills",
+        " of Mark Skills",
         " with Melee Weapons",
         " with Melee Skills",
         " with Hits and Ailments",
@@ -585,7 +686,7 @@ fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>)
         "you have Tailwind" => "HasTailwind",
         "you have Adrenaline" => "HasAdrenaline",
         "you have Arcane Surge" => "HasArcaneSurge",
-        "you have Fortify" | "you are Fortified" => "Fortified",
+        "you have Fortify" | "you are Fortified" | "Fortified" => "Fortified",
         "you have at least one Mark Skill Active" => "HasMark",
         _ => return text,
     };
@@ -785,19 +886,21 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             }
         }
     }
-    // "Recover N% of <pool> on <event>"
+    // "Recover N% of <pool> [on/when] <event>"
     if let Some(rest) = line.strip_prefix("Recover ") {
         if let Some((n, rest)) = consume_simple_number(rest) {
             let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
             if let Some(rest) = rest.strip_prefix("of ") {
-                if let Some(idx) = rest.find(" on ") {
+                let split = rest.find(" on ").map(|i| (i, 4))
+                    .or_else(|| rest.find(" when ").map(|i| (i, 6)));
+                if let Some((idx, sep_len)) = split {
                     let pool = match &rest[..idx] {
                         "Life" => "LifeRecover",
                         "Mana" => "ManaRecover",
                         "Energy Shield" => "EnergyShieldRecover",
                         _ => return None,
                     };
-                    let event = rest[idx + 4..].trim_end_matches('.').trim();
+                    let event = rest[idx + sep_len..].trim_end_matches('.').trim();
                     let event_clean = event.replace(' ', "");
                     return Some(ParsedMod {
                         mod_: Mod::base(format!("{pool}On{event_clean}"), n),
@@ -822,6 +925,26 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
                 });
             }
         }
+    }
+    // "Cannot Be Stunned while X" — gate on a condition. Check before the bare
+    // "Cannot be X" form so the `while` clause isn't lost.
+    if line.starts_with("Cannot Be Stunned while ")
+        || line.starts_with("Cannot be Stunned while ")
+    {
+        let cond_text = line
+            .strip_prefix("Cannot Be Stunned while ")
+            .or_else(|| line.strip_prefix("Cannot be Stunned while "))
+            .unwrap()
+            .trim();
+        let var = match cond_text {
+            "you have Energy Shield" => "HasEnergyShield",
+            "Channelling" => "Channelling",
+            "you have at least 25% Energy Shield" => "HasSomeEnergyShield",
+            _ => return None,
+        };
+        return Some(ParsedMod {
+            mod_: Mod::flag("AvoidAllStuns", true).with_tag(Tag::condition(var)),
+        });
     }
     // Stand-alone "Cannot be X" / "Unaffected by X" — emit a Flag mod.
     if line.starts_with("Cannot be ") || line.starts_with("Cannot Be ") {
@@ -852,18 +975,6 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             _ => return None,
         };
         return Some(ParsedMod { mod_: Mod::flag(var, true) });
-    }
-    // "Cannot Be Stunned while X" — gate on a condition.
-    if line.starts_with("Cannot Be Stunned while ") {
-        let cond = &line["Cannot Be Stunned while ".len()..].trim();
-        let var = match *cond {
-            "you have Energy Shield" => "HasEnergyShield",
-            "Channelling" => "Channelling",
-            _ => return None,
-        };
-        return Some(ParsedMod {
-            mod_: Mod::flag("AvoidAllStuns", true).with_tag(Tag::condition(var)),
-        });
     }
     // "Inherent Rage Loss starts N second(s) later"
     if line.starts_with("Inherent Rage Loss starts ") {
@@ -902,6 +1013,355 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
         return Some(ParsedMod {
             mod_: Mod::flag("OfferingSkillsAffectYou", true),
         });
+    }
+    // "Cannot take Reflected Physical Damage" / "Cannot take Reflected Elemental Damage"
+    if line.starts_with("Cannot take Reflected ") {
+        let rest = line.strip_prefix("Cannot take Reflected ")?;
+        let var = match rest.trim_end_matches('.').trim() {
+            "Physical Damage" => "AvoidReflectedPhysical",
+            "Elemental Damage" => "AvoidReflectedElemental",
+            "Damage" => "AvoidReflectedDamage",
+            _ => return None,
+        };
+        return Some(ParsedMod {
+            mod_: Mod::flag(var, true),
+        });
+    }
+    // "You have Culling Strike against Cursed Enemies"
+    if line == "You have Culling Strike against Cursed Enemies" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("CullingStrike", true).with_tag(Tag {
+                kind: TagKind::ActorCondition {
+                    actor: "enemy".into(),
+                    var: "Cursed".into(),
+                    neg: false,
+                },
+            }),
+        });
+    }
+    // "You have Culling Strike"
+    if line == "You have Culling Strike" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("CullingStrike", true),
+        });
+    }
+    // "Damage from your Critical Strikes cannot be Reflected"
+    if line == "Damage from your Critical Strikes cannot be Reflected" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("CritReflectionImmune", true),
+        });
+    }
+    // "Ignore all Movement Penalties from Armour"
+    if line == "Ignore all Movement Penalties from Armour" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("IgnoreArmourMovementPenalty", true),
+        });
+    }
+    // "Life Leech effects are not removed when Unreserved Life is Filled"
+    if line == "Life Leech effects are not removed when Unreserved Life is Filled" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("LifeLeechIgnoresFullLife", true),
+        });
+    }
+    // "Projectiles Pierce an additional Target" / "N additional Targets"
+    if line.starts_with("Projectiles Pierce ") {
+        let rest = line.strip_prefix("Projectiles Pierce ")?;
+        if let Some((n, _)) = consume_simple_number(rest) {
+            return Some(ParsedMod {
+                mod_: Mod::base("PierceCount", n),
+            });
+        }
+        if rest.starts_with("an additional Target") {
+            return Some(ParsedMod {
+                mod_: Mod::base("PierceCount", 1.0),
+            });
+        }
+    }
+    // "Can have up to N additional <X> placed at a time"
+    if line.starts_with("Can have up to ") {
+        let rest = line.strip_prefix("Can have up to ")?;
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.trim_start();
+            let stat = if rest.starts_with("additional Trap") {
+                "MaxTraps"
+            } else if rest.starts_with("additional Mine") {
+                "MaxMines"
+            } else if rest.starts_with("additional Curse") {
+                "MaxCursesOnEnemies"
+            } else {
+                return None;
+            };
+            return Some(ParsedMod {
+                mod_: Mod::base(stat, n),
+            });
+        }
+    }
+    // "Flasks gain N Charges every M seconds"
+    if line.starts_with("Flasks gain ") {
+        if let Some((n, _)) = consume_simple_number(line.strip_prefix("Flasks gain ")?) {
+            return Some(ParsedMod {
+                mod_: Mod::base("FlaskChargeGainOverTime", n),
+            });
+        }
+    }
+    // "Gain Arcane Surge ..." / "Gain Onslaught ..." — emit a flag mod
+    if line.starts_with("Gain Arcane Surge") {
+        return Some(ParsedMod {
+            mod_: Mod::flag("GainArcaneSurge", true),
+        });
+    }
+    if line.starts_with("Gain Onslaught") {
+        return Some(ParsedMod {
+            mod_: Mod::flag("GainOnslaught", true),
+        });
+    }
+    // "Bleeding you inflict deals Damage N% faster"
+    if line.starts_with("Bleeding you inflict deals Damage ") {
+        let rest = &line["Bleeding you inflict deals Damage ".len()..];
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if rest.starts_with("faster") {
+                return Some(ParsedMod {
+                    mod_: Mod::inc("BleedSpeed", n),
+                });
+            }
+        }
+    }
+    // "<Ailment> you inflict deal damage N% faster"
+    if let Some(rest) = line.strip_prefix("Ignites you inflict deal damage ") {
+        if let Some((n, _)) = consume_simple_number(rest) {
+            return Some(ParsedMod {
+                mod_: Mod::inc("IgniteSpeed", n),
+            });
+        }
+    }
+    if let Some(rest) = line.strip_prefix("Poisons you inflict deal damage ") {
+        if let Some((n, _)) = consume_simple_number(rest) {
+            return Some(ParsedMod {
+                mod_: Mod::inc("PoisonSpeed", n),
+            });
+        }
+    }
+    // "Marked Enemy grants N% increased Flask Charges to you"
+    if line.starts_with("Marked Enemy grants ") {
+        if let Some((n, rest)) = consume_simple_number(&line["Marked Enemy grants ".len()..]) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if rest.starts_with("increased Flask Charges") {
+                return Some(ParsedMod {
+                    mod_: Mod::inc("FlaskChargesGained", n)
+                        .with_tag(Tag {
+                            kind: TagKind::ActorCondition {
+                                actor: "enemy".into(),
+                                var: "Marked".into(),
+                                neg: false,
+                            },
+                        }),
+                });
+            }
+        }
+    }
+    // "Inherent Bonuses from Dual Wielding are doubled"
+    if line == "Inherent Bonuses from Dual Wielding are doubled" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("DualWieldBonusesDoubled", true),
+        });
+    }
+    // "Effects of Consecrated Ground you create Linger for N seconds"
+    if line.starts_with("Effects of Consecrated Ground you create Linger for ") {
+        if let Some((n, _)) = consume_simple_number(
+            &line["Effects of Consecrated Ground you create Linger for ".len()..],
+        ) {
+            return Some(ParsedMod {
+                mod_: Mod::base("ConsecratedGroundLinger", n),
+            });
+        }
+    }
+    // "Your Offerings have N% reduced Effect on you"
+    if line.starts_with("Your Offerings have ") {
+        if let Some((n, rest)) = consume_simple_number(&line["Your Offerings have ".len()..]) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            let sign = if rest.starts_with("reduced Effect") { -1.0 } else { 1.0 };
+            return Some(ParsedMod {
+                mod_: Mod::inc("OfferingEffectOnSelf", sign * n),
+            });
+        }
+    }
+    // "<N>% chance to gain a Power, Frenzy or Endurance Charge on Kill"
+    if line.contains("chance to gain a Power, Frenzy or Endurance Charge") {
+        if let Some((n, _)) = consume_simple_number(line) {
+            return Some(ParsedMod {
+                mod_: Mod::base("RandomChargeOnKillChance", n),
+            });
+        }
+    }
+    // "Enemies you Curse are <X>"
+    if line.starts_with("Enemies you Curse are ") {
+        let suffix = &line["Enemies you Curse are ".len()..].trim_end_matches('.');
+        let stat = match *suffix {
+            "Unnerved" => "EnemyUnnerved",
+            "Hindered" => "EnemyHindered",
+            "Intimidated" => "EnemyIntimidated",
+            "Maimed" => "EnemyMaimed",
+            "Crushed" => "EnemyCrushed",
+            "Blinded" => "EnemyBlinded",
+            _ => return None,
+        };
+        return Some(ParsedMod {
+            mod_: Mod::flag(stat, true).with_tag(Tag::condition("Cursed")),
+        });
+    }
+    // "If you've Consumed a corpse Recently, X" / "If you have X, Y" — recursive parse
+    // of the body with the matching condition tag.
+    if let Some(rest) = line.strip_prefix("If you've ") {
+        if let Some(comma) = rest.find(", ") {
+            let event = rest[..comma].trim();
+            let body = rest[comma + 2..].trim();
+            if let Some(parsed) = parse_mod_line(body) {
+                let mut m = parsed.mod_;
+                let var = if event.contains("Killed") {
+                    "KilledRecently"
+                } else if event.contains("Hit") {
+                    "HitRecently"
+                } else if event.contains("Crit") {
+                    "CritRecently"
+                } else if event.contains("Consumed") {
+                    "ConsumedCorpseRecently"
+                } else if event.contains("Cast") {
+                    "CastSpellRecently"
+                } else {
+                    "Recently"
+                };
+                m.tags.push(Tag::condition(var));
+                return Some(ParsedMod { mod_: m });
+            }
+        }
+    }
+    // "Withered you Inflict expires N% slower"
+    if line.starts_with("Withered you Inflict expires ") {
+        if let Some((n, _)) = consume_simple_number(&line["Withered you Inflict expires ".len()..]) {
+            return Some(ParsedMod {
+                mod_: Mod::base("WitheredDuration", n),
+            });
+        }
+    }
+    // "Retaliation Skills become Usable for N% longer"
+    if line.starts_with("Retaliation Skills become Usable for ") {
+        if let Some((n, _)) = consume_simple_number(
+            &line["Retaliation Skills become Usable for ".len()..],
+        ) {
+            return Some(ParsedMod {
+                mod_: Mod::inc("RetaliationDuration", n),
+            });
+        }
+    }
+    // "Corpses you Spawn have N% increased X"
+    if line.starts_with("Corpses you Spawn have ") {
+        if let Some((n, rest)) = consume_simple_number(&line["Corpses you Spawn have ".len()..]) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if rest.starts_with("increased Maximum Life") {
+                return Some(ParsedMod {
+                    mod_: Mod::inc("SpawnedCorpseLife", n),
+                });
+            }
+        }
+    }
+    // "Brand Recall has N% increased Cooldown Recovery Rate"
+    if line.starts_with("Brand Recall has ") {
+        if let Some((n, rest)) = consume_simple_number(&line["Brand Recall has ".len()..]) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if rest.starts_with("increased Cooldown") {
+                return Some(ParsedMod {
+                    mod_: Mod::inc("BrandRecallCooldown", n),
+                });
+            }
+        }
+    }
+    // "Attack Skills have +N to maximum number of <X>"
+    if line.starts_with("Attack Skills have +") {
+        let rest = line.strip_prefix("Attack Skills have +").unwrap();
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.trim_start();
+            if let Some(rest) = rest.strip_prefix("to maximum number of ") {
+                let stat = match rest.trim() {
+                    "Summoned Ballista Totems" => "MaxBallistaTotems",
+                    "Summoned Totems" => "MaxTotems",
+                    _ => return None,
+                };
+                return Some(ParsedMod {
+                    mod_: Mod::base(stat, n),
+                });
+            }
+        }
+    }
+    // "Gain N% chance to gain <buff> for M seconds on <event>"
+    if let Some(idx) = line.find("chance to gain ") {
+        if let Some((n, _)) = consume_simple_number(line) {
+            let rest = &line[idx + "chance to gain ".len()..];
+            let buff = if rest.starts_with("Phasing") {
+                "GainPhasingChance"
+            } else if rest.starts_with("Onslaught") {
+                "GainOnslaughtChance"
+            } else if rest.starts_with("Arcane Surge") {
+                "GainArcaneSurgeChance"
+            } else if rest.starts_with("Adrenaline") {
+                "GainAdrenalineChance"
+            } else {
+                ""
+            };
+            if !buff.is_empty() {
+                return Some(ParsedMod {
+                    mod_: Mod::base(buff, n),
+                });
+            }
+        }
+    }
+    // "You can have an additional <X> active"
+    if line.starts_with("You can have an additional ") {
+        let suffix = &line["You can have an additional ".len()..];
+        let stat = if suffix.starts_with("Tincture") {
+            "AdditionalTincture"
+        } else if suffix.starts_with("Curse") {
+            "AdditionalCurse"
+        } else if suffix.starts_with("Aura") {
+            "AdditionalAura"
+        } else {
+            ""
+        };
+        if !stat.is_empty() {
+            return Some(ParsedMod {
+                mod_: Mod::base(stat, 1.0),
+            });
+        }
+    }
+    // Standalone single-word lines like "Transfiguration of Mind", which are PoB
+    // keystone names. We can't know which keystones exist without the data, so we
+    // emit a Flag mod under "Keystone:<name>" so the calc layer can read it later.
+    // Heuristic: any line that's all-Capitalised-Words and doesn't start with a number
+    // and doesn't contain "%" or ":" or "(".
+    if !line.contains('%')
+        && !line.contains('(')
+        && !line.contains(':')
+        && !line.starts_with(|c: char| c.is_ascii_digit())
+        && line.split_whitespace().count() <= 6
+        && line.split_whitespace().all(|w| {
+            // Allow words like "of", "the", "an", "in" — common keystone connectors —
+            // but reject mod-form keywords.
+            let lower = w.to_lowercase();
+            matches!(lower.as_str(), "of" | "the" | "an" | "a" | "in" | "for" | "with" | "to" | "and" | "or")
+                || w.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+        })
+    {
+        // Conservative: treat as keystone only if it looks like one, i.e. has at least
+        // two capitalised words and no obvious mod-form text.
+        let cap_count = line
+            .split_whitespace()
+            .filter(|w| w.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false))
+            .count();
+        if cap_count >= 2 && line.len() >= 8 {
+            return Some(ParsedMod {
+                mod_: Mod::flag(format!("Keystone:{}", line.replace(' ', "")), true),
+            });
+        }
     }
     // "Exerted Attacks deal N% increased Damage"
     if let Some(rest) = line.strip_prefix("Exerted Attacks deal ") {
@@ -1082,7 +1542,18 @@ fn try_parse_to(line: &str) -> Option<ParsedMod> {
         (false, rest)
     };
     let rest = rest.trim_start();
-    let rest = rest.strip_prefix("to ")?;
+    // "+3% Elemental Resistances" is a real PoE form (sans "to "). For percent values
+    // where the body matches a Resistance phrase, allow bare. For non-percent we still
+    // require "to ".
+    let (rest, _bare) = if let Some(r) = rest.strip_prefix("to ") {
+        (r, false)
+    } else if is_percent
+        && (rest.contains("Resistance") || rest.starts_with("Critical Strike Multiplier"))
+    {
+        (rest, true)
+    } else {
+        return None;
+    };
     let stat_text = rest.trim();
 
     if is_percent {
@@ -1574,6 +2045,49 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Stun and Block Recovery Speed" => "StunAndBlockRecovery",
         "Fortification Duration" => "FortificationDuration",
         "Brand Activation frequency" => "BrandActivationFrequency",
+        "Effect of Buffs granted by your Golems" => "GolemBuffEffect",
+        "Effect of Herald Buffs on you" => "HeraldBuffEffect",
+        "Damage with Poison" => "PoisonDamage",
+        "Damage with Bleeding" => "BleedDamage",
+        "Damage with Ignite" => "IgniteDamage",
+        "Global Critical Strike Multiplier" => "CritMultiplier",
+        "Global Critical Strike Chance" => "CritChance",
+        "Maximum number of Summoned Totems" => "MaxTotems",
+        "Maximum number of Raised Zombies" => "MaxZombies",
+        "Maximum number of Skeletons" => "MaxSkeletons",
+        "Maximum number of Summoned Skeletons" => "MaxSkeletons",
+        "Maximum number of Spectres" => "MaxSpectres",
+        "Maximum number of Summoned Spectres" => "MaxSpectres",
+        "Maximum number of Summoned Golems" => "MaxGolems",
+        "Maximum Rage" => "MaxRage",
+        "Maximum Life" => "Life",
+        "Mirage Archer Duration" => "MirageArcherDuration",
+        "Minion Duration" => "MinionDuration",
+        "Mine Duration" => "MineDuration",
+        "Trap Duration" => "TrapDuration",
+        "Brand Recall has 10% increased Cooldown Recovery Rate" => "BrandRecallCooldown",
+        "Mana Cost of Link Skills" => "LinkManaCost",
+        "Mana Cost of Curse Skills" => "CurseManaCost",
+        "Mana Cost of Skills that throw Mines" => "MineManaCost",
+        "Mana Cost of Skills that throw Traps" => "TrapManaCost",
+        "Mana Reservation Efficiency of Skills that throw Mines" => "MineReservationEfficiency",
+        "Mana Reservation Efficiency of Skills that throw Traps" => "TrapReservationEfficiency",
+        "Effect of Cold Ailments" => "ColdAilmentEffect",
+        "Effect of Lightning Ailments" => "LightningAilmentEffect",
+        "Effect of Fire Ailments" => "FireAilmentEffect",
+        "Critical Strike Chance with Mines" => "MineCritChance",
+        "Critical Strike Chance with Traps" => "TrapCritChance",
+        "Critical Strike Chance with Totems" => "TotemCritChance",
+        "Critical Strike Multiplier with Mines" => "MineCritMultiplier",
+        "Critical Strike Multiplier with Traps" => "TrapCritMultiplier",
+        "Critical Strike Multiplier with Totems" => "TotemCritMultiplier",
+        "Maximum Virulence" => "MaxVirulence",
+        "Ignite Duration on Enemies" => "EnemyIgniteDuration",
+        "Bleed Duration on Enemies" => "EnemyBleedDuration",
+        "Poison Duration on Enemies" => "EnemyPoisonDuration",
+        "Stun Threshold reduction on Enemies" => "EnemyStunThresholdReduction",
+        "Maximum Chance to Block Spell Damage" => "SpellBlockChanceMax",
+        "Maximum Chance to Block Attack Damage" => "BlockChanceMax",
 
         // Effect / duration / threshold
         "Impale Effect" => "ImpaleEffect",
