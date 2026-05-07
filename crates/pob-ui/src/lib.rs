@@ -402,8 +402,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     stat_row_decimal(ui, "Ignite DPS", &app.output, "IgniteDPS");
                 }
                 stat_row_decimal(ui, "Full DPS", &app.output, "FullDPS");
-            } else {
-                ui.weak("(pick one in the Skills tab)");
+            } else if ui.link("Pick a skill →").clicked() {
+                app.active_tab = Tab::Skills;
             }
         });
 

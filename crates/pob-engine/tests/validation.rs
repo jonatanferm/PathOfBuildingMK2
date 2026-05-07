@@ -112,3 +112,70 @@ fn class_attribute_split_matches_pob() {
         assert_eq!(out.get("Intelligence"), f64::from(*int_), "{name} Int");
     }
 }
+
+/// Sanity-check that a level-90 character of every class produces sensible Life and Mana
+/// values matching the canonical PoE formulas:
+///   Life = 50 + 12*(L-1) + Str/2
+///   Mana = 40 + 6*(L-1) + Int/2
+#[test]
+fn level_90_pools_match_formula_every_class() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let cases: &[(&str, i32, i32)] = &[
+        ("Scion", 20, 20),
+        ("Marauder", 32, 14),
+        ("Ranger", 14, 14),
+        ("Witch", 14, 32),
+        ("Duelist", 23, 14),
+        ("Templar", 23, 23),
+        ("Shadow", 14, 23),
+    ];
+    for (name, str_, int_) in cases {
+        let c = Character::new(ClassRef((*name).into()), 90);
+        let out = compute(&c, &tree);
+        let expected_life = 50.0 + 12.0 * 89.0 + f64::from(*str_) / 2.0;
+        let expected_mana = 40.0 + 6.0 * 89.0 + f64::from(*int_) / 2.0;
+        // Engine rounds Life/Mana to nearest integer (matches PoB display).
+        assert!(
+            (out.get("Life") - expected_life.round()).abs() < 1e-9,
+            "{name} L90 Life: expected {} (formula {expected_life}), got {}",
+            expected_life.round(),
+            out.get("Life")
+        );
+        assert!(
+            (out.get("Mana") - expected_mana.round()).abs() < 1e-9,
+            "{name} L90 Mana: expected {} (formula {expected_mana}), got {}",
+            expected_mana.round(),
+            out.get("Mana")
+        );
+    }
+}
+
+/// Smoke test that compute returns finite (non-NaN, non-Inf) values for every output
+/// key across a representative sweep of characters. Catches divide-by-zero / float
+/// overflow regressions.
+#[test]
+fn compute_produces_finite_values() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let configs: &[(ClassRef, u32)] = &[
+        (ClassRef::scion(), 1),
+        (ClassRef::scion(), 90),
+        (ClassRef::marauder(), 50),
+        (ClassRef::witch(), 100),
+        (ClassRef::ranger(), 75),
+    ];
+    for (class, level) in configs {
+        let c = Character::new(class.clone(), *level);
+        let out = compute(&c, &tree);
+        for (k, v) in out.iter() {
+            assert!(
+                v.is_finite(),
+                "{:?} L{level}: stat {k} = {v} is not finite",
+                class
+            );
+        }
+    }
+}
