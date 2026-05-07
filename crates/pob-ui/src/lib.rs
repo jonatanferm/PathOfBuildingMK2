@@ -366,6 +366,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.add_space(4.0);
             stat_row_decimal(ui, "Life regen", &app.output, "LifeRegen");
             stat_row_decimal(ui, "Mana regen", &app.output, "ManaRegen");
+            ui.add_space(4.0);
+            stat_row(ui, "EHP (avg)", &app.output, "AverageEHP");
 
             ui.add_space(8.0);
             ui.heading("Main skill");
@@ -389,6 +391,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 if app.output.get("IgniteDPS") > 0.0 {
                     stat_row_decimal(ui, "Ignite DPS", &app.output, "IgniteDPS");
                 }
+                stat_row_decimal(ui, "Full DPS", &app.output, "FullDPS");
             } else {
                 ui.weak("(pick one in the Skills tab)");
             }

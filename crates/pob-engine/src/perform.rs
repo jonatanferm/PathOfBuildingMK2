@@ -42,6 +42,7 @@ pub fn compute_full(
     if let Some(reg) = skills {
         perform_skill_dps(character, reg, &mut env);
     }
+    perform_ehp(&mut env);
     env.output
 }
 
@@ -587,7 +588,52 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let cps = baseline * speed_mult;
     env.output.set("MainSkillSpeed", cps);
     let final_avg = env.output.get("MainSkillAverageHitAfterAccuracy");
-    env.output.set("MainSkillDPS", final_avg * cps);
+    let main_dps = final_avg * cps;
+    env.output.set("MainSkillDPS", main_dps);
+
+    // FullDPS aggregator: hit DPS + the highest-impact ailment that this skill can
+    // sustain. Real PoB sums all simultaneously sustainable ailments; we approximate.
+    let bleed = env.output.get("BleedDPS");
+    let poison = env.output.get("PoisonDPS");
+    let ignite = env.output.get("IgniteDPS");
+    env.output.set("FullDPS", main_dps + bleed + poison + ignite);
+}
+
+/// Compute "effective HP" — a rough single-source survivability number that combines
+/// life, energy shield, ward, armour mitigation, block/suppression, and resists. Real
+/// PoB does this per damage type with a much more sophisticated model. We compute a
+/// weighted-average that's useful as a relative indicator.
+fn perform_ehp(env: &mut Env) {
+    let life = env.output.get("Life");
+    let es = env.output.get("EnergyShield");
+    let ward = env.output.get("Ward");
+    let pool = life + es + ward;
+
+    let phys_red = env.output.get("PhysicalDamageReduction") / 100.0;
+    let block = env.output.get("BlockChance") / 100.0;
+    let suppress = env.output.get("SpellSuppressionChance") / 100.0;
+
+    let fire = env.output.get("FireResistTotal") / 100.0;
+    let cold = env.output.get("ColdResistTotal") / 100.0;
+    let lightning = env.output.get("LightningResistTotal") / 100.0;
+    let chaos = env.output.get("ChaosResistTotal") / 100.0;
+
+    // Per-element EHP: pool / (1 - resist).
+    let phys_ehp = pool / ((1.0 - phys_red) * (1.0 - 0.5 * block)).max(0.05);
+    let fire_ehp = pool / (1.0 - fire).max(0.05);
+    let cold_ehp = pool / (1.0 - cold).max(0.05);
+    let lightning_ehp = pool / (1.0 - lightning).max(0.05);
+    let chaos_ehp = pool / (1.0 - chaos).max(0.05);
+    // Spells additionally benefit from suppression (50% damage on success).
+    let spell_mult = (1.0 - suppress) + suppress * 0.5;
+
+    env.output.set("PhysicalEHP", phys_ehp);
+    env.output.set("FireEHP", fire_ehp / spell_mult);
+    env.output.set("ColdEHP", cold_ehp / spell_mult);
+    env.output.set("LightningEHP", lightning_ehp / spell_mult);
+    env.output.set("ChaosEHP", chaos_ehp / spell_mult);
+    let avg_ehp = (phys_ehp + fire_ehp + cold_ehp + lightning_ehp + chaos_ehp) / 5.0;
+    env.output.set("AverageEHP", avg_ehp);
 }
 
 #[cfg(test)]

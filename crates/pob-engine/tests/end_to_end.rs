@@ -268,6 +268,32 @@ fn equipping_a_shield_activates_using_shield_condition() {
 }
 
 #[test]
+fn arc_intrinsic_mods_land_in_modlist() {
+    let (Some(_tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        return;
+    };
+    let arc = skills.get("Arc").expect("Arc");
+    let mods = pob_engine::skill::skill_mods(arc, 0);
+    // Arc has constantStats `arc_damage_+%_final_for_each_remaining_chain` = 15 mapped
+    // through statMap to a MORE Damage mod with a PerStat ChainRemaining tag.
+    let chain_mod = mods
+        .iter()
+        .find(|m| m.name == "Damage" && m.kind == pob_engine::ModType::More);
+    assert!(chain_mod.is_some(), "Arc should produce a MORE Damage chain mod");
+    let chain_mod = chain_mod.unwrap();
+    // Value should be 15 (the constantStats value).
+    assert_eq!(chain_mod.value.as_f64(), Some(15.0));
+    // Tag should include PerStat with stat=ChainRemaining.
+    assert!(
+        chain_mod.tags.iter().any(|t| matches!(
+            &t.kind,
+            pob_engine::TagKind::PerStat { stat, .. } if stat == "ChainRemaining"
+        )),
+        "chain mod should carry PerStat ChainRemaining"
+    );
+}
+
+#[test]
 fn arc_level_20_witch_baseline_damage_is_in_pob_range() {
     let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
         return;
