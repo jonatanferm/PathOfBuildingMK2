@@ -72,7 +72,7 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         .or_else(|| try_parse_more_less(body))
         .or_else(|| try_parse_regenerate(body))
         .or_else(|| try_parse_adds_x_to_y(body))
-        .or_else(|| try_parse_chance_to_X(body))
+        .or_else(|| try_parse_chance_to_event(body))
         .or_else(|| try_parse_max_charges(body))?;
 
     let mut mod_ = parsed.mod_;
@@ -244,7 +244,7 @@ fn recent_event_var(s: &str) -> Option<&'static str> {
     })
 }
 
-fn try_parse_chance_to_X(text: &str) -> Option<ParsedMod> {
+fn try_parse_chance_to_event(text: &str) -> Option<ParsedMod> {
     // "N% chance to <event>" — e.g. "10% chance to gain a Power Charge on Critical Strike",
     // "20% chance to cause Bleeding on Hit"
     let (n, rest) = consume_number(text)?;

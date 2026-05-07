@@ -4,19 +4,33 @@
 //! Mirrors `Modules/CalcSetup.lua` (env construction) + a tiny slice of
 //! `Modules/CalcPerform.lua` (basic life/mana/attribute computation).
 
-use pob_data::PassiveTree;
+use pob_data::{KeywordFlag, ModFlag, PassiveTree};
 
 use crate::character::Character;
 use crate::env::{Env, Output};
 use crate::mod_db::{ModStore, QueryCfg};
 use crate::mod_parser::parse_mod_line;
 use crate::modifier::{Mod, ModType, Source};
+use crate::skill::{skill_base_damage, skill_damage_element, SkillRegistry};
 
 /// Top-level entry point — equivalent to PoB's `calcs.buildOutput(build, "MAIN")` for the
-/// minimal scope of Phase 2. Returns the populated `Output`.
+/// minimal scope of Phase 2/3. Returns the populated `Output`.
 pub fn compute(character: &Character, tree: &PassiveTree) -> Output {
+    compute_with_skills(character, tree, None)
+}
+
+/// Like `compute`, but also threads in a `SkillRegistry` so we can compute basic skill
+/// hit damage for the main skill.
+pub fn compute_with_skills(
+    character: &Character,
+    tree: &PassiveTree,
+    skills: Option<&SkillRegistry>,
+) -> Output {
     let mut env = init_env(character, tree);
     perform_basic_stats(character, tree, &mut env);
+    if let Some(reg) = skills {
+        perform_skill_dps(character, reg, &mut env);
+    }
     env.output
 }
 
@@ -122,6 +136,121 @@ fn perform_basic_stats(_character: &Character, _tree: &PassiveTree, env: &mut En
     }
     let chaos = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ChaosResist");
     env.output.set("ChaosResist", chaos);
+
+    // Cast speed (multiplier on a base of 1.0 — PoB normalises this against skill
+    // baseline cast time).
+    let cast_speed_mult = env.mod_db.applied(&cfg, &env.state, "CastSpeed");
+    env.output.set("CastSpeedMult", cast_speed_mult);
+    let attack_speed_mult = env.mod_db.applied(&cfg, &env.state, "AttackSpeed");
+    env.output.set("AttackSpeedMult", attack_speed_mult);
+
+    // Crit chance (base 5%, additive INC, OVERRIDE wins). Crit multiplier defaults to
+    // 150% in PoE; mods are additive on top.
+    let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
+    env.output.set("CritChance", 5.0 * (1.0 + crit_inc / 100.0));
+    let crit_mult = 150.0 + env.mod_db.sum(ModType::Base, &cfg, &env.state, "CritMultiplier");
+    env.output.set("CritMultiplier", crit_mult);
+}
+
+/// Compute hit damage for the main skill. Phase 3d: spell-only, single hit, single
+/// target, ignores ailments / penetration / resistances of the enemy. Outputs:
+/// `MainSkillId`, `MainSkillLevel`, `MainSkillBaseMin`, `MainSkillBaseMax`,
+/// `MainSkillAverageHit`, `MainSkillDPS`.
+fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut Env) {
+    let Some(main) = character.main_skill.as_ref() else {
+        return;
+    };
+    let Some(skill) = skills.get(&main.skill_id) else {
+        return;
+    };
+    env.output.set(
+        "MainSkillLevel",
+        f64::from(main.level.max(1).min(40)),
+    );
+    let level = main.level.clamp(1, 40);
+    let (mut base_min, mut base_max) = skill_base_damage(skill, level);
+    if base_min == 0.0 && base_max == 0.0 {
+        // Skill has no positional damage values — abort cleanly.
+        return;
+    }
+    base_min *= skill.damage_effectiveness(level);
+    base_max *= skill.damage_effectiveness(level);
+    env.output.set("MainSkillBaseMin", base_min);
+    env.output.set("MainSkillBaseMax", base_max);
+
+    // Determine if the skill is a spell or an attack — drives which ModFlag bit we set.
+    let is_spell = skill.base_flags.get("spell").copied().unwrap_or(false);
+    let is_attack = skill.base_flags.get("attack").copied().unwrap_or(false);
+
+    // Identify the element keyword for further filtering.
+    let (elem_stat, _label) = skill_damage_element(skill).unwrap_or(("Damage", ""));
+
+    let mut cfg = QueryCfg::default();
+    cfg.flags = if is_spell {
+        ModFlag::SPELL
+    } else if is_attack {
+        ModFlag::ATTACK
+    } else {
+        ModFlag::empty()
+    };
+    cfg.keyword_flags = match elem_stat {
+        "FireDamage" => KeywordFlag::FIRE,
+        "ColdDamage" => KeywordFlag::COLD,
+        "LightningDamage" => KeywordFlag::LIGHTNING,
+        "PhysicalDamage" => KeywordFlag::PHYSICAL,
+        "ChaosDamage" => KeywordFlag::CHAOS,
+        _ => KeywordFlag::empty(),
+    };
+
+    // Damage modifiers: stack the elemental, generic damage, and skill-type damage mods.
+    // Order: (1+inc_total) * more_total.
+    let inc_total = env.mod_db.sum(ModType::Inc, &cfg, &env.state, elem_stat)
+        + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "Damage")
+        + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ElementalDamage")
+        + if is_spell {
+            env.mod_db.sum(ModType::Inc, &cfg, &env.state, "SpellDamage")
+        } else {
+            0.0
+        };
+    let more_total = env.mod_db.more(&cfg, &env.state, elem_stat)
+        * env.mod_db.more(&cfg, &env.state, "Damage")
+        * env.mod_db.more(&cfg, &env.state, "ElementalDamage")
+        * if is_spell {
+            env.mod_db.more(&cfg, &env.state, "SpellDamage")
+        } else {
+            1.0
+        };
+    let mult = (1.0 + inc_total / 100.0) * more_total;
+
+    let hit_min = base_min * mult;
+    let hit_max = base_max * mult;
+    let avg = (hit_min + hit_max) * 0.5;
+    env.output.set("MainSkillHitMin", hit_min);
+    env.output.set("MainSkillHitMax", hit_max);
+    env.output.set("MainSkillAverageHit", avg);
+
+    // Apply crit:
+    // expected = avg * ((1 - crit_chance) + crit_chance * crit_multi)
+    let crit_chance = (env.output.get("CritChance") / 100.0).min(1.0);
+    let crit_mult = env.output.get("CritMultiplier") / 100.0;
+    let crit_factor = (1.0 - crit_chance) + crit_chance * crit_mult;
+    let avg_with_crit = avg * crit_factor;
+    env.output.set("MainSkillAverageHitWithCrit", avg_with_crit);
+
+    // Cast/attack speed: PoB normalises against skill baseline.
+    let speed_mult = if is_spell {
+        env.output.get("CastSpeedMult")
+    } else {
+        env.output.get("AttackSpeedMult")
+    };
+    let baseline = if skill.cast_time > 0.0 {
+        1.0 / f64::from(skill.cast_time)
+    } else {
+        1.0
+    };
+    let cps = baseline * speed_mult;
+    env.output.set("MainSkillSpeed", cps);
+    env.output.set("MainSkillDPS", avg_with_crit * cps);
 }
 
 #[cfg(test)]

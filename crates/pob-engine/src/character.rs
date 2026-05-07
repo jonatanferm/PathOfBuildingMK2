@@ -5,6 +5,8 @@ use std::collections::HashSet;
 
 use pob_data::{Class, ItemSet, NodeId, PassiveTree};
 
+use crate::skill::MainSkill;
+
 /// Reference to a class within a `PassiveTree`. Either the index (faster, fragile across
 /// tree versions) or the name (slower, version-portable). We canonicalise on name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -27,6 +29,7 @@ pub struct Character {
     pub level: u32,
     pub allocated: HashSet<NodeId>,
     pub items: ItemSet,
+    pub main_skill: Option<MainSkill>,
 }
 
 impl Default for ClassRef {
@@ -43,6 +46,7 @@ impl Character {
             level,
             allocated: HashSet::new(),
             items: ItemSet::new(),
+            main_skill: None,
         }
     }
 

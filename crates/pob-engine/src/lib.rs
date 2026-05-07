@@ -25,6 +25,7 @@ pub mod mod_db;
 pub mod mod_parser;
 pub mod modifier;
 pub mod perform;
+pub mod skill;
 
 pub use character::{Character, ClassRef};
 pub use env::{Env, Output};
@@ -33,3 +34,4 @@ pub use mod_db::{ModDB, ModList, ModStore};
 pub use mod_parser::{parse_mod_line, ParsedMod};
 pub use modifier::{Mod, ModType, ModValue, Source, Tag, TagKind};
 pub use perform::compute;
+pub use skill::{MainSkill, SkillRegistry};

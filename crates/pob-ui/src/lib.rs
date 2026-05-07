@@ -5,10 +5,11 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use pob_data::{NodeId, PassiveTree};
-use pob_engine::{character::ClassRef, Character, Output};
+use pob_engine::{character::ClassRef, Character, Output, SkillRegistry};
 
 mod items_tab;
 mod pathfind;
+mod skills_tab;
 mod tree_layout;
 mod tree_view;
 
@@ -31,12 +32,15 @@ struct LoadedApp {
     search: String,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
+    skills_state: skills_tab::SkillsTabState,
+    skills: SkillRegistry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Tree,
     Items,
+    Skills,
 }
 
 impl PobApp {
@@ -52,27 +56,45 @@ impl PobApp {
     fn load_initial() -> Result<LoadedApp, String> {
         // Find data/ relative to the workspace root. pob-desktop runs from there.
         let candidates = [
-            PathBuf::from("data/trees/3_25.json"),
-            PathBuf::from("../data/trees/3_25.json"),
-            PathBuf::from("../../data/trees/3_25.json"),
+            PathBuf::from("data"),
+            PathBuf::from("../data"),
+            PathBuf::from("../../data"),
         ];
-        let path = candidates
+        let data_root = candidates
             .iter()
-            .find(|p| p.is_file())
+            .find(|p| p.join("trees/3_25.json").is_file())
+            .cloned()
             .ok_or_else(|| {
-                format!(
-                    "could not find data/trees/3_25.json — run `cargo run -p pob-extract --release` from the workspace root\n(searched: {:?})",
-                    candidates
-                )
+                "could not find data/trees/3_25.json — run `cargo run -p pob-extract --release` from the workspace root".to_owned()
             })?;
-        let json = std::fs::read_to_string(path)
-            .map_err(|e| format!("reading {}: {e}", path.display()))?;
-        let tree = pob_data::load_passive_tree(&json)
+        let tree_json = std::fs::read_to_string(data_root.join("trees/3_25.json"))
+            .map_err(|e| format!("reading tree: {e}"))?;
+        let tree = pob_data::load_passive_tree(&tree_json)
             .map_err(|e| format!("parsing tree: {e}"))?;
+
+        let mut skill_sets = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(data_root.join("skills")) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                if stem == "index" {
+                    continue;
+                }
+                if let Ok(json) = std::fs::read_to_string(&p) {
+                    if let Ok(set) = pob_data::load_skill_file(&json) {
+                        skill_sets.push(set);
+                    }
+                }
+            }
+        }
+        let skills = SkillRegistry::from_files(skill_sets);
 
         let tree_view = TreeView::new(&tree);
         let character = Character::new(ClassRef::marauder(), 1);
-        let output = pob_engine::compute(&character, &tree);
+        let output = pob_engine::perform::compute_with_skills(&character, &tree, Some(&skills));
 
         Ok(LoadedApp {
             tree,
@@ -82,6 +104,8 @@ impl PobApp {
             search: String::new(),
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
+            skills_state: skills_tab::SkillsTabState::default(),
+            skills,
         })
     }
 }
@@ -107,6 +131,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut app.active_tab, Tab::Tree, "Tree");
             ui.selectable_value(&mut app.active_tab, Tab::Items, "Items");
+            ui.selectable_value(&mut app.active_tab, Tab::Skills, "Skills");
         });
     });
 
@@ -185,6 +210,18 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             stat_row(ui, "Cold Res", &app.output, "ColdResist");
             stat_row(ui, "Lightning Res", &app.output, "LightningResist");
             stat_row(ui, "Chaos Res", &app.output, "ChaosResist");
+
+            ui.add_space(8.0);
+            ui.heading("Main skill");
+            ui.separator();
+            if app.character.main_skill.is_some() {
+                stat_row_decimal(ui, "Avg hit", &app.output, "MainSkillAverageHit");
+                stat_row_decimal(ui, "Avg w/ crit", &app.output, "MainSkillAverageHitWithCrit");
+                stat_row_decimal(ui, "Speed (cps)", &app.output, "MainSkillSpeed");
+                stat_row_decimal(ui, "DPS", &app.output, "MainSkillDPS");
+            } else {
+                ui.weak("(pick one in the Skills tab)");
+            }
         });
 
     egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
@@ -233,12 +270,22 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 recompute = true;
             }
         }
+        Tab::Skills => {
+            if skills_tab::ui(
+                ui,
+                &mut app.skills_state,
+                &mut app.character.main_skill,
+                &app.skills,
+            ) {
+                recompute = true;
+            }
+        }
     });
 
     // Recompute every frame for now — ~3k nodes is sub-millisecond. We can move to
     // dirty-flagging in Phase 6 polish if profiling shows it matters.
     let _ = recompute;
-    app.output = pob_engine::compute(&app.character, &app.tree);
+    app.output = pob_engine::perform::compute_with_skills(&app.character, &app.tree, Some(&app.skills));
 }
 
 fn update_search(app: &mut LoadedApp) {
@@ -266,6 +313,16 @@ fn stat_row(ui: &mut egui::Ui, label: &str, out: &Output, key: &str) {
         ui.label(label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
             ui.monospace(format!("{:>7.0}", v));
+        });
+    });
+}
+
+fn stat_row_decimal(ui: &mut egui::Ui, label: &str, out: &Output, key: &str) {
+    let v = out.get(key);
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            ui.monospace(format!("{:>9.2}", v));
         });
     });
 }
