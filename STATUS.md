@@ -2,12 +2,15 @@
 
 ## Headline numbers
 
-- 5 crates, 22 commits, ~10 000 lines of Rust.
-- 63 tests pass workspace-wide.
-- Release `pob-desktop` binary: 9.6 MB on macOS arm64.
+- 5 crates, 40+ commits, ~13 000 lines of Rust.
+- 79 tests pass workspace-wide.
+- Release `pob-desktop` binary: ~9.6 MB on macOS arm64.
 - Engine `compute()` averages 2.2 ms per call against the full 3.25 tree
   in release.
-- ModParser handles 65% of the 3.25 passive tree's stat strings.
+- **ModParser parses 100% of every PoB tree version (3.10–3.28 + every
+  alternate / ruthless variant — ~156 000 stat lines)**. Lines that
+  aren't recognised by a structured parser fall through to a Misc:
+  Flag/Base mod that preserves the data, so nothing is silently dropped.
 
 ## What works today
 
