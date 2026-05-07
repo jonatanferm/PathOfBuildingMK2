@@ -3,8 +3,82 @@
 
 use ahash::HashSet;
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+
+/// Deserialise a `Vec<T>` that may appear as an empty `{}` in the JSON. The extractor
+/// emits empty Lua tables as empty JSON objects (Lua can't distinguish empty array from
+/// empty map), so this normaliser accepts both shapes for "should be a list" fields.
+fn de_lenient_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    let value: Value = Deserialize::deserialize(deserializer)?;
+    match value {
+        Value::Null => Ok(Vec::new()),
+        Value::Object(m) if m.is_empty() => Ok(Vec::new()),
+        Value::Array(a) => a
+            .into_iter()
+            .map(|v| serde_json::from_value(v).map_err(serde::de::Error::custom))
+            .collect(),
+        Value::Object(m) => {
+            // Sparse int-keyed object — convert to a Vec with index = key - 1.
+            // Lua arrays are 1-indexed; the extractor preserves that.
+            let mut entries: Vec<(usize, Value)> = m
+                .into_iter()
+                .filter_map(|(k, v)| k.parse::<usize>().ok().map(|i| (i, v)))
+                .collect();
+            entries.sort_by_key(|(i, _)| *i);
+            let max_idx = entries.last().map(|(i, _)| *i).unwrap_or(0);
+            let mut out: Vec<T> = (0..max_idx).map(|_| T::default()).collect();
+            for (i, v) in entries {
+                let item: T = serde_json::from_value(v).map_err(serde::de::Error::custom)?;
+                if i >= 1 && i - 1 < out.len() {
+                    out[i - 1] = item;
+                } else if i == 0 {
+                    // 0-keyed entry — Lua sometimes uses [0]; ignore (or push at 0?)
+                }
+            }
+            Ok(out)
+        }
+        other => Err(serde::de::Error::custom(format!(
+            "expected sequence or empty object, got {other}"
+        ))),
+    }
+}
+
+fn de_lenient_indexmap<'de, D>(deserializer: D) -> Result<IndexMap<String, bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value: Value = Deserialize::deserialize(deserializer)?;
+    match value {
+        Value::Null => Ok(IndexMap::new()),
+        Value::Array(a) => {
+            // The extractor sometimes promotes a Lua dict to a JSON array when keys
+            // happen to be 1..N consecutive (e.g. spectre skill types as [true, true]).
+            // Recover by indexing back to "1", "2", ...
+            Ok(a.into_iter()
+                .enumerate()
+                .filter_map(|(i, v)| {
+                    serde_json::from_value::<bool>(v).ok().map(|b| ((i + 1).to_string(), b))
+                })
+                .collect())
+        }
+        Value::Object(m) => m
+            .into_iter()
+            .map(|(k, v)| {
+                serde_json::from_value::<bool>(v)
+                    .map(|b| (k, b))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect(),
+        other => Err(serde::de::Error::custom(format!(
+            "expected map or array, got {other}"
+        ))),
+    }
+}
 
 pub type SkillSet = IndexMap<String, Skill>;
 
@@ -24,26 +98,26 @@ pub struct Skill {
     pub cast_time: f32,
     /// Mapping `stat_id_string -> bool` for properties like `spell`, `chaining`,
     /// `attack`, `area`, `melee`. The presence of a key means that flag is set.
-    #[serde(default, rename = "baseFlags")]
+    #[serde(default, rename = "baseFlags", deserialize_with = "de_lenient_indexmap")]
     pub base_flags: IndexMap<String, bool>,
     /// `[stat_id, scale_per_quality]` entries.
-    #[serde(default, rename = "qualityStats")]
+    #[serde(default, rename = "qualityStats", deserialize_with = "de_lenient_vec")]
     pub quality_stats: Vec<Value>,
     /// `[stat_id, value]` entries that apply at every level regardless of gem level.
-    #[serde(default, rename = "constantStats")]
+    #[serde(default, rename = "constantStats", deserialize_with = "de_lenient_vec")]
     pub constant_stats: Vec<Value>,
     /// Ordered stat ids that map to the positional values in each level entry.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_vec")]
     pub stats: Vec<String>,
     /// Stats that should NOT propagate to a minion the gem creates.
-    #[serde(default, rename = "notMinionStat")]
+    #[serde(default, rename = "notMinionStat", deserialize_with = "de_lenient_vec")]
     pub not_minion_stat: Vec<String>,
     /// SkillType ids (numbers) the skill participates in.
-    #[serde(default, rename = "skillTypes")]
+    #[serde(default, rename = "skillTypes", deserialize_with = "de_lenient_indexmap")]
     pub skill_types: IndexMap<String, bool>,
     /// Per-level data, ordered by gem level (level 1 at index 0). Each entry is a JSON
     /// object with positional and named fields — see `SkillLevel` for accessors.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_lenient_vec")]
     pub levels: Vec<Value>,
     /// Effectiveness multiplier baseline (PoB's `baseEffectiveness`).
     #[serde(default, rename = "baseEffectiveness")]

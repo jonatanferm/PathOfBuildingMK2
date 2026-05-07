@@ -292,18 +292,16 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let Some(skill) = skills.get(&main.skill_id) else {
         return;
     };
-    env.output.set(
-        "MainSkillLevel",
-        f64::from(main.level.max(1).min(40)),
-    );
-    let level = main.level.clamp(1, 40);
-    let (mut base_min, mut base_max) = skill_base_damage(skill, level);
+    env.output
+        .set("MainSkillLevel", f64::from(main.level.clamp(1, 40)));
+    let gem_level = main.level.clamp(1, 40);
+    let (mut base_min, mut base_max) = skill_base_damage(skill, gem_level, character.level);
     if base_min == 0.0 && base_max == 0.0 {
         // Skill has no positional damage values — abort cleanly.
         return;
     }
-    base_min *= skill.damage_effectiveness(level);
-    base_max *= skill.damage_effectiveness(level);
+    base_min *= skill.damage_effectiveness(gem_level);
+    base_max *= skill.damage_effectiveness(gem_level);
     env.output.set("MainSkillBaseMin", base_min);
     env.output.set("MainSkillBaseMax", base_max);
 

@@ -83,19 +83,29 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
                 }
                 return Some(ParsedMod { mod_: m });
             }
-            if rest.starts_with("chance to Suppress Spell Damage")
-                || rest.starts_with("Chance to Suppress Spell Damage")
+            if let Some(body) = rest
+                .strip_prefix("chance to Suppress Spell Damage")
+                .or_else(|| rest.strip_prefix("Chance to Suppress Spell Damage"))
             {
-                return Some(ParsedMod {
-                    mod_: Mod::base("SpellSuppressionChance", sign * n),
-                });
+                let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+                strip_and_collect_trailing_clauses(body, &mut tags);
+                let mut m = Mod::base("SpellSuppressionChance", sign * n);
+                for t in tags {
+                    m.tags.push(t);
+                }
+                return Some(ParsedMod { mod_: m });
             }
             if rest.starts_with("Chance to Avoid")
                 || rest.starts_with("chance to Avoid")
             {
-                return Some(ParsedMod {
-                    mod_: Mod::base("AvoidChance", sign * n),
-                });
+                let body = rest.trim_start_matches("Chance to Avoid").trim_start_matches("chance to Avoid");
+                let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+                strip_and_collect_trailing_clauses(body, &mut tags);
+                let mut m = Mod::base("AvoidChance", sign * n);
+                for t in tags {
+                    m.tags.push(t);
+                }
+                return Some(ParsedMod { mod_: m });
             }
         }
     }
@@ -782,20 +792,54 @@ fn strip_per_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -
 }
 
 fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
-    // Try "when " first because some lines use "when at low life" instead of "while
-    // at low life".
+    // Find " while " / " when " / " during " — falling back to bare leading "while " /
+    // "when " / "during " when the text has been trimmed to start with the clause.
     let (idx, sep_len) = if let Some(i) = text.rfind(" while ") {
         (i, 7)
     } else if let Some(i) = text.rfind(" when ") {
         (i, 6)
     } else if let Some(i) = text.rfind(" during ") {
         (i, 8)
+    } else if let Some(rest) = text.strip_prefix("while ") {
+        // body=empty, suffix=rest
+        let suffix = rest.trim().trim_end_matches('.');
+        let var = match_while_var(suffix);
+        if !var.is_empty() {
+            out.push(Tag::condition(var));
+            return "";
+        }
+        return text;
+    } else if let Some(rest) = text.strip_prefix("when ") {
+        let suffix = rest.trim().trim_end_matches('.');
+        let var = match_while_var(suffix);
+        if !var.is_empty() {
+            out.push(Tag::condition(var));
+            return "";
+        }
+        return text;
+    } else if let Some(rest) = text.strip_prefix("during ") {
+        let suffix = rest.trim().trim_end_matches('.');
+        let var = match_while_var(suffix);
+        if !var.is_empty() {
+            out.push(Tag::condition(var));
+            return "";
+        }
+        return text;
     } else {
         return text;
     };
     let body = text[..idx].trim_end_matches(',').trim_end();
     let suffix = text[idx + sep_len..].trim().trim_end_matches('.');
-    let var = match suffix {
+    let var = match_while_var(suffix);
+    if !var.is_empty() {
+        out.push(Tag::condition(var));
+        return body;
+    }
+    text
+}
+
+fn match_while_var(suffix: &str) -> &'static str {
+    match suffix {
         "at Full Life" | "on Full Life" => "FullLife",
         "at Low Life" | "on Low Life" => "LowLife",
         "at Full Mana" | "on Full Mana" => "FullMana",
@@ -847,15 +891,8 @@ fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>)
         "Stationary or Moving" => "Stationary",
         "you have a Tincture active" => "UsingTincture",
         "you have used a Skill Recently" => "UsedSkillRecently",
-        _ => return text,
-    };
-    out.push(Tag {
-        kind: TagKind::Condition {
-            var: var.to_owned(),
-            neg: false,
-        },
-    });
-    body
+        _ => "",
+    }
 }
 
 fn strip_recently_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {

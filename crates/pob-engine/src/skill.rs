@@ -69,24 +69,35 @@ impl MainSkill {
     }
 }
 
-/// Per-skill base damage. Phase 3d computes:
+/// PoE's universal damage-by-level constants (`Data/Misc.lua`).
+const SKILL_DAMAGE_BASE_EFFECTIVENESS: f64 = 3.885209;
+const SKILL_DAMAGE_INCREMENTAL_EFFECTIVENESS: f64 = 0.360246;
+
+/// Per-skill base damage. Mirrors `Modules/CalcTools.lua:198-205` (statInterpolation == 3
+/// — the "effectiveness interpolation" path used by spells like Arc, Fireball, etc.):
 ///
 /// ```text
-/// base_min = positional[1] * effectiveness(level)
-/// base_max = positional[2] * effectiveness(level)
-/// effectiveness(L) = baseEffectiveness + incrementalEffectiveness * (L - 1)
+/// available_effectiveness = (SkillDamageBaseEff + SkillDamageIncrEff * (L_char - 1))
+///   * baseEffectiveness
+///   * (1 + incrementalEffectiveness) ^ (L_char - 1)
+/// stat_value = level_data[index] * available_effectiveness
 /// ```
 ///
-/// Where `positional[1]` and `positional[2]` are the first two stat values in the level
-/// entry, conventionally `spell_minimum_base_<element>_damage` and the corresponding
-/// max. This is the formula PoB uses in `Modules/CalcActiveSkill.lua` (where it appears
-/// as `effectiveness = grantedEffect.baseEffectiveness + grantedEffect.incrementalEffectiveness * (level - 1)`).
-pub fn skill_base_damage(skill: &Skill, level: u32) -> (f64, f64) {
-    let level = level.max(1);
-    let effectiveness = skill.base_effectiveness
-        + skill.incremental_effectiveness * f64::from(level.saturating_sub(1));
-    let min = skill.positional(level, 1).unwrap_or(0.0) * effectiveness;
-    let max = skill.positional(level, 2).unwrap_or(0.0) * effectiveness;
+/// Where `L_char` is the *character* level (not gem level) and `level_data[1..=2]` is
+/// the gem-level-indexed scalar pair.
+///
+/// Returns `(min, max)` damage *before* `damageEffectiveness`. The caller multiplies by
+/// `damageEffectiveness` to get the final hit base damage.
+pub fn skill_base_damage(skill: &Skill, gem_level: u32, character_level: u32) -> (f64, f64) {
+    let gem_level = gem_level.max(1);
+    let l = character_level.max(1);
+    let l_minus_1 = f64::from(l - 1);
+    let base = SKILL_DAMAGE_BASE_EFFECTIVENESS + SKILL_DAMAGE_INCREMENTAL_EFFECTIVENESS * l_minus_1;
+    let available_effectiveness = base
+        * skill.base_effectiveness.max(1.0)
+        * (1.0 + skill.incremental_effectiveness).powf(l_minus_1);
+    let min = skill.positional(gem_level, 1).unwrap_or(0.0) * available_effectiveness;
+    let max = skill.positional(gem_level, 2).unwrap_or(0.0) * available_effectiveness;
     (min, max)
 }
 
