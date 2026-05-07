@@ -472,9 +472,20 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("MainSkillAverageHit", avg);
 
     // Apply crit. Spells use the skill's intrinsic critChance as base; attacks use
-    // the weapon's crit chance (we don't model that yet — fall back to 5% generic).
+    // the weapon's crit chance (Weapon1CritChance from the equipped weapon's base).
     let base_crit = if is_spell {
         skill.crit_chance(gem_level)
+    } else if is_attack {
+        let cfg_q = QueryCfg::default();
+        let st = &env.state;
+        let w = env
+            .mod_db
+            .sum(ModType::Base, &cfg_q, st, "Weapon1CritChance");
+        if w > 0.0 {
+            w
+        } else {
+            5.0
+        }
     } else {
         5.0
     };
