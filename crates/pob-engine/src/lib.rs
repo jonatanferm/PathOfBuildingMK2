@@ -25,6 +25,7 @@ pub mod mod_db;
 pub mod mod_parser;
 pub mod modifier;
 pub mod perform;
+pub mod pob_import;
 pub mod share;
 pub mod skill;
 
@@ -35,5 +36,6 @@ pub use mod_db::{ModDB, ModList, ModStore};
 pub use mod_parser::{parse_mod_line, ParsedMod};
 pub use modifier::{Mod, ModType, ModValue, Source, Tag, TagKind};
 pub use perform::compute;
+pub use pob_import::{import_pob_code, import_pob_xml, PobImportError};
 pub use share::{export_code, import_code, ShareError};
 pub use skill::{MainSkill, SkillRegistry};

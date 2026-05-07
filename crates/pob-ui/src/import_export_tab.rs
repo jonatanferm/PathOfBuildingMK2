@@ -1,7 +1,7 @@
 //! Import / Export tab — generate or paste an MK2 share code.
 
 use eframe::egui;
-use pob_engine::{export_code, import_code, Character};
+use pob_engine::{export_code, import_code, import_pob_code, import_pob_xml, Character};
 
 pub struct ImportExportTabState {
     pub paste: String,
@@ -61,11 +61,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut C
                     .hint_text("MK2|..."),
             );
             ui.horizontal(|ui| {
-                if ui.button("Import").clicked() {
-                    match import_code(&state.paste) {
-                        Ok(c) => {
+                if ui.button("Import (auto)").clicked() {
+                    match auto_import(&state.paste) {
+                        Ok((c, kind)) => {
                             *character = c;
-                            state.last_message = Some((true, "Imported.".into()));
+                            state.last_message = Some((true, format!("Imported as {kind}.")));
                             state.paste.clear();
                             changed = true;
                         }
@@ -79,6 +79,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut C
                     state.last_message = None;
                 }
             });
+            ui.weak("Auto-detects MK2 codes, raw PoB XML, or PoB share codes (zlib+base64).");
         });
     });
 
@@ -93,4 +94,23 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut C
     }
 
     changed
+}
+
+/// Try the formats in order of specificity.
+fn auto_import(input: &str) -> Result<(Character, &'static str), String> {
+    let trimmed = input.trim();
+    if trimmed.starts_with("MK2|") {
+        return import_code(trimmed)
+            .map(|c| (c, "MK2 code"))
+            .map_err(|e| e.to_string());
+    }
+    if trimmed.starts_with('<') {
+        return import_pob_xml(trimmed)
+            .map(|c| (c, "PoB XML"))
+            .map_err(|e| e.to_string());
+    }
+    // Fall through to PoB share code (zlib+base64).
+    import_pob_code(trimmed)
+        .map(|c| (c, "PoB share code"))
+        .map_err(|e| e.to_string())
 }
