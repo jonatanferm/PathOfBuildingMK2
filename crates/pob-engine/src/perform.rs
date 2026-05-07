@@ -96,6 +96,29 @@ pub fn init_env_with_bases(
         let Some(node) = tree.nodes.get(node_id) else {
             continue;
         };
+        // Mastery nodes don't contribute their `stats` directly — the user picks one of
+        // the `mastery_effects`. Look up the selection and use that effect's stats.
+        if matches!(node.kind, pob_data::NodeKind::Mastery) {
+            if let Some(effect_id) = character.mastery_selections.get(node_id) {
+                if let Some(effect) =
+                    node.mastery_effects.iter().find(|e| e.effect == *effect_id)
+                {
+                    for raw in &effect.stats {
+                        for line in raw.lines() {
+                            let line = line.trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            if let Some(parsed) = parse_mod_line(line) {
+                                env.mod_db
+                                    .add(parsed.mod_.with_source(Source::Passive(*node_id)));
+                            }
+                        }
+                    }
+                }
+            }
+            continue;
+        }
         for raw in &node.stats {
             for line in raw.lines() {
                 let line = line.trim();

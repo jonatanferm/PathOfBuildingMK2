@@ -340,6 +340,16 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 asc_alloc,
                 app.tree.points.ascendancy_points,
             ));
+            let item_count = app.character.items.iter().count();
+            if item_count > 0 {
+                ui.label(format!("Items equipped: {item_count}"));
+            }
+            if app.character.main_skill.is_some() {
+                ui.label(format!(
+                    "Main skill: {}",
+                    app.character.main_skill.as_ref().unwrap().skill_id
+                ));
+            }
 
             ui.add_space(10.0);
             ui.heading("Stats");

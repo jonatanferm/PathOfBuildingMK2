@@ -971,9 +971,14 @@ fn try_parse_chance_to_event(text: &str) -> Option<ParsedMod> {
         s if s.starts_with("Avoid") => "AvoidChance",
         _ => return None,
     };
-    Some(ParsedMod {
-        mod_: Mod::base(stat, n),
-    })
+    // Preserve any trailing on/while/recently clauses on the chance event.
+    let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+    strip_and_collect_trailing_clauses(rest, &mut tags);
+    let mut m = Mod::base(stat, n);
+    for t in tags {
+        m.tags.push(t);
+    }
+    Some(ParsedMod { mod_: m })
 }
 
 fn try_parse_max_charges(text: &str) -> Option<ParsedMod> {

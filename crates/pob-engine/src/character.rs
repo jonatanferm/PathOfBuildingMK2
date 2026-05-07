@@ -22,6 +22,8 @@ pub struct CharacterSnapshot {
     pub main_skill_quality: u32,
     pub config: ConfigState,
     pub notes: String,
+    #[serde(default)]
+    pub mastery_selections: Vec<(NodeId, u32)>,
 }
 
 impl CharacterSnapshot {
@@ -37,6 +39,7 @@ impl CharacterSnapshot {
             main_skill_quality: c.main_skill.as_ref().map(|m| m.quality).unwrap_or(0),
             config: c.config.clone(),
             notes: c.notes.clone(),
+            mastery_selections: c.mastery_selections.iter().map(|(k, v)| (*k, *v)).collect(),
         }
     }
     pub fn into_character(self) -> Character {
@@ -53,6 +56,7 @@ impl CharacterSnapshot {
             }),
             config: self.config,
             notes: self.notes,
+            mastery_selections: self.mastery_selections.into_iter().collect(),
         }
     }
 }
@@ -82,6 +86,10 @@ pub struct Character {
     pub main_skill: Option<MainSkill>,
     pub config: ConfigState,
     pub notes: String,
+    /// Selected mastery effect per mastery node id. PoB stores this as
+    /// `PassiveSpec.masterySelections`. Without an entry, an allocated mastery node
+    /// contributes no stats (because the user hasn't picked an effect).
+    pub mastery_selections: HashMap<NodeId, u32>,
 }
 
 /// Encounter / condition configuration. Mirrors PoB's Config tab:
@@ -126,6 +134,7 @@ impl Character {
             main_skill: None,
             config: ConfigState::default_with_enemy(),
             notes: String::new(),
+            mastery_selections: HashMap::default(),
         }
     }
 
