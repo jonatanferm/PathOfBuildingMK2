@@ -104,6 +104,9 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, items: &mut ItemSet) -> 
                             }
                         }
                     }
+                    // Note: egui doesn't expose synchronous clipboard reads in this
+                    // version, so we just instruct the user to paste manually with
+                    // the system shortcut.
                     if ui.button("Clear paste").clicked() {
                         state.paste_buffer.clear();
                         state.last_error = None;

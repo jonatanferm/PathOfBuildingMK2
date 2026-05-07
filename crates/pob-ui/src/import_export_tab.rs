@@ -62,6 +62,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut C
                     .desired_rows(8)
                     .font(egui::TextStyle::Monospace),
             );
+            if !state.generated.is_empty() && ui.button("Copy code to clipboard").clicked() {
+                ui.ctx().copy_text(state.generated.clone());
+                state.last_message = Some((true, "Copied to clipboard.".into()));
+            }
         });
 
         ui.separator();
