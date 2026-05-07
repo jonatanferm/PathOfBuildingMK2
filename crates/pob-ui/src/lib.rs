@@ -211,6 +211,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     apply_menu_action(app, MenuAction::New);
                     ui.close_menu();
                 }
+                if ui.button("Demo build (Witch / Arc)").clicked() {
+                    apply_menu_action(app, MenuAction::DemoBuild);
+                    ui.close_menu();
+                }
                 if ui.button("Open…").clicked() {
                     apply_menu_action(app, MenuAction::Open);
                     ui.close_menu();
@@ -582,6 +586,7 @@ fn update_search(app: &mut LoadedApp) {
 #[derive(Debug, Clone, Copy)]
 enum MenuAction {
     New,
+    DemoBuild,
     Open,
     Save,
     SaveAs,
@@ -593,6 +598,30 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
             app.character = Character::new(ClassRef::marauder(), 1);
             app.current_build_path = None;
             app.status_message = Some((StatusKind::Info, "New build.".into()));
+        }
+        MenuAction::DemoBuild => {
+            // A non-trivial Witch / Occultist with Arc to demo the full calc pipeline
+            // without making the user paste anything.
+            let mut c = Character::new(ClassRef::witch(), 90);
+            c.ascendancy = Some("Occultist".into());
+            c.main_skill = Some(pob_engine::MainSkill {
+                skill_id: "Arc".into(),
+                level: 20,
+                quality: 20,
+            });
+            c.config.enemy_lightning_resist = 50;
+            // Equip a basic resist amulet so resists move.
+            let amulet_paste =
+                "Item Class: Amulets\nRarity: RARE\nDemo Charm\nOnyx Amulet\n--------\n+10 to all Attributes\n+62 to maximum Life\n+39% to all Elemental Resistances\n--------";
+            if let Ok(item) = pob_engine::parse_item(amulet_paste) {
+                c.items.equip(pob_data::Slot::Amulet, item);
+            }
+            app.character = c;
+            app.current_build_path = None;
+            app.status_message = Some((
+                StatusKind::Info,
+                "Demo build loaded: Witch L90 Occultist Arc.".into(),
+            ));
         }
         MenuAction::Open => {
             if let Some(path) = rfd::FileDialog::new()
