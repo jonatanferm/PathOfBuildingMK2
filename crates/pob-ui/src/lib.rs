@@ -7,6 +7,7 @@ use eframe::egui;
 use pob_data::{NodeId, PassiveTree};
 use pob_engine::{character::ClassRef, Character, Output};
 
+mod items_tab;
 mod pathfind;
 mod tree_layout;
 mod tree_view;
@@ -28,6 +29,14 @@ struct LoadedApp {
     character: Character,
     output: Output,
     search: String,
+    active_tab: Tab,
+    items_state: items_tab::ItemsTabState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Tree,
+    Items,
 }
 
 impl PobApp {
@@ -71,6 +80,8 @@ impl PobApp {
             character,
             output,
             search: String::new(),
+            active_tab: Tab::Tree,
+            items_state: items_tab::ItemsTabState::default(),
         })
     }
 }
@@ -92,32 +103,41 @@ impl eframe::App for PobApp {
 fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     let mut recompute = false;
 
-    egui::TopBottomPanel::top("search_panel").show(ctx, |ui| {
+    egui::TopBottomPanel::top("tab_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.label("Search:");
-            let resp = ui.add(
-                egui::TextEdit::singleline(&mut app.search)
-                    .desired_width(220.0)
-                    .hint_text("notable name, keyword, stat..."),
-            );
-            if resp.changed() {
-                update_search(app);
-            }
-            if ui.button("Clear").clicked() {
-                app.search.clear();
-                update_search(app);
-            }
-            ui.separator();
-            ui.label(format!("{} matches", app.tree_view.search_matches.len()));
-            if ui.button("Focus first match").clicked() {
-                if let Some(&id) = app.tree_view.search_matches.iter().next() {
-                    if let Some(p) = app.tree_view.position_of(id) {
-                        app.tree_view.focus(p.x, p.y);
-                    }
-                }
-            }
+            ui.selectable_value(&mut app.active_tab, Tab::Tree, "Tree");
+            ui.selectable_value(&mut app.active_tab, Tab::Items, "Items");
         });
     });
+
+    if app.active_tab == Tab::Tree {
+        egui::TopBottomPanel::top("search_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Search:");
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut app.search)
+                        .desired_width(220.0)
+                        .hint_text("notable name, keyword, stat..."),
+                );
+                if resp.changed() {
+                    update_search(app);
+                }
+                if ui.button("Clear").clicked() {
+                    app.search.clear();
+                    update_search(app);
+                }
+                ui.separator();
+                ui.label(format!("{} matches", app.tree_view.search_matches.len()));
+                if ui.button("Focus first match").clicked() {
+                    if let Some(&id) = app.tree_view.search_matches.iter().next() {
+                        if let Some(p) = app.tree_view.position_of(id) {
+                            app.tree_view.focus(p.x, p.y);
+                        }
+                    }
+                }
+            });
+        });
+    }
 
     egui::SidePanel::left("class_panel")
         .resizable(true)
@@ -183,28 +203,35 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         });
     });
 
-    egui::CentralPanel::default().show(ctx, |ui| {
-        let allocated: HashSet<NodeId> = app.character.allocated.iter().copied().collect();
-        let interaction = app.tree_view.ui(ui, &app.tree, &allocated);
+    egui::CentralPanel::default().show(ctx, |ui| match app.active_tab {
+        Tab::Tree => {
+            let allocated: HashSet<NodeId> = app.character.allocated.iter().copied().collect();
+            let interaction = app.tree_view.ui(ui, &app.tree, &allocated);
 
-        // Path-overlay preview: when the user hovers an unallocated node, plot the
-        // shortest path from any allocated node to it.
-        app.tree_view.path_overlay.clear();
-        if let Some(hover) = interaction.hovered {
-            if !allocated.contains(&hover) && !allocated.is_empty() {
-                if let Some(path) = pathfind::shortest_path_from_allocated(&app.tree, &allocated, hover) {
-                    app.tree_view.path_overlay = path;
+            // Path-overlay preview: when the user hovers an unallocated node, plot the
+            // shortest path from any allocated node to it.
+            app.tree_view.path_overlay.clear();
+            if let Some(hover) = interaction.hovered {
+                if !allocated.contains(&hover) && !allocated.is_empty() {
+                    if let Some(path) = pathfind::shortest_path_from_allocated(&app.tree, &allocated, hover) {
+                        app.tree_view.path_overlay = path;
+                    }
                 }
             }
-        }
 
-        if let Some(id) = interaction.clicked {
-            if app.character.allocated.contains(&id) {
-                app.character.allocated.remove(&id);
-            } else {
-                app.character.allocated.insert(id);
+            if let Some(id) = interaction.clicked {
+                if app.character.allocated.contains(&id) {
+                    app.character.allocated.remove(&id);
+                } else {
+                    app.character.allocated.insert(id);
+                }
+                recompute = true;
             }
-            recompute = true;
+        }
+        Tab::Items => {
+            if items_tab::ui(ui, &mut app.items_state, &mut app.character.items) {
+                recompute = true;
+            }
         }
     });
 

@@ -67,6 +67,9 @@ pub fn init_env(character: &Character, tree: &PassiveTree) -> Env {
         }
     }
 
+    // 4. Items.
+    let _ = crate::item_parser::apply_item_set(&character.items, &mut env.mod_db);
+
     env
 }
 

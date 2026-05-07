@@ -20,6 +20,7 @@
 
 pub mod character;
 pub mod env;
+pub mod item_parser;
 pub mod mod_db;
 pub mod mod_parser;
 pub mod modifier;
@@ -27,6 +28,7 @@ pub mod perform;
 
 pub use character::{Character, ClassRef};
 pub use env::{Env, Output};
+pub use item_parser::{apply_item_set, parse_item, ItemApplyReport};
 pub use mod_db::{ModDB, ModList, ModStore};
 pub use mod_parser::{parse_mod_line, ParsedMod};
 pub use modifier::{Mod, ModType, ModValue, Source, Tag, TagKind};

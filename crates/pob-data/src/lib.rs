@@ -6,12 +6,14 @@
 pub mod bases;
 pub mod flags;
 pub mod gem;
+pub mod item;
 pub mod load;
 pub mod tree;
 
 pub use bases::{ArmourStats, FlaskStats, ItemBase, ItemBaseKind, ItemReq, WeaponStats};
 pub use flags::{KeywordFlag, ModFlag, SkillType};
 pub use gem::Gem;
+pub use item::{Item, ItemSet, ModLine, ModSection, Rarity, Slot};
 pub use load::{load_bases, load_gems, load_passive_tree, load_tree_index};
 pub use tree::{
     Ascendancy, Class, Group, GroupBackground, MasteryEffect, Node, NodeId, NodeKind,

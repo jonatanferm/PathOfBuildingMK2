@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use pob_data::{Class, NodeId, PassiveTree};
+use pob_data::{Class, ItemSet, NodeId, PassiveTree};
 
 /// Reference to a class within a `PassiveTree`. Either the index (faster, fragile across
 /// tree versions) or the name (slower, version-portable). We canonicalise on name.
@@ -20,12 +20,19 @@ impl ClassRef {
     pub fn scion() -> Self { Self("Scion".into()) }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Character {
     pub class: ClassRef,
     pub ascendancy: Option<String>,
     pub level: u32,
     pub allocated: HashSet<NodeId>,
+    pub items: ItemSet,
+}
+
+impl Default for ClassRef {
+    fn default() -> Self {
+        Self::scion()
+    }
 }
 
 impl Character {
@@ -35,6 +42,7 @@ impl Character {
             ascendancy: None,
             level,
             allocated: HashSet::new(),
+            items: ItemSet::new(),
         }
     }
 
