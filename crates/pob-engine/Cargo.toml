@@ -8,6 +8,7 @@ description = "Pure calc engine for Path of Building MK2 — no I/O, Wasm-clean.
 [dependencies]
 pob-data.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 smallvec.workspace = true
 indexmap.workspace = true
 ahash.workspace = true

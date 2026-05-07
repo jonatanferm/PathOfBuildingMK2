@@ -5,3 +5,29 @@
 //! no `mlua`. `std::collections` and the rest of `core`/`alloc` are fine.
 //!
 //! See `docs/architecture-current.md` for the upstream Lua engine map.
+//!
+//! ## Module map
+//!
+//! - [`modifier`] — `Mod`, `ModValue`, `ModType`, `Tag`, `Source`. The data carrier.
+//! - [`mod_db`] — `ModStore`, `ModDB`, `ModList`. Storage + query API
+//!   (`Sum` / `More` / `Flag` / `Override` / `List`).
+//! - [`mod_parser`] — English text → `Vec<Mod>`. A tiny subset of PoB's `ModParser.lua`
+//!   for Phase 2; expanded in Phase 3.
+//! - [`character`] — `Character` (class + level + allocated nodes), `Build` (the user's
+//!   configuration). Runtime version of PoB's `Build`.
+//! - [`env`] — `Env`, `Output`. Computation context.
+//! - [`perform`] — top-level `compute(build) -> Output`. Calls the basic-stats passes.
+
+pub mod character;
+pub mod env;
+pub mod mod_db;
+pub mod mod_parser;
+pub mod modifier;
+pub mod perform;
+
+pub use character::{Character, ClassRef};
+pub use env::{Env, Output};
+pub use mod_db::{ModDB, ModList, ModStore};
+pub use mod_parser::{parse_mod_line, ParsedMod};
+pub use modifier::{Mod, ModType, ModValue, Source, Tag, TagKind};
+pub use perform::compute;
