@@ -1283,13 +1283,13 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             let rest = rest.trim_start();
             if let Some(rest) = rest.strip_prefix("to maximum number of ") {
                 let stat = match rest.trim() {
-                    "Summoned Ballista Totems" => "MaxBallistaTotems",
-                    "Summoned Totems" => "MaxTotems",
-                    _ => return None,
+                    "Summoned Ballista Totems" => Some("MaxBallistaTotems"),
+                    "Summoned Totems" => Some("MaxTotems"),
+                    _ => None,
                 };
-                return Some(ParsedMod {
-                    mod_: Mod::base(stat, n),
-                });
+                if let Some(stat) = stat {
+                    return Some(ParsedMod { mod_: Mod::base(stat, n) });
+                }
             }
         }
     }
@@ -1434,34 +1434,38 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             let rest = rest.trim_start();
             if let Some(rest) = rest.strip_prefix("to maximum number of ") {
                 let stat = match rest.trim() {
-                    "Summoned Golems" => "MaxGolems",
-                    "Summoned Skeletons" => "MaxSkeletons",
-                    "Spectres" => "MaxSpectres",
-                    "Zombies" => "MaxZombies",
-                    "Raised Zombies" => "MaxZombies",
-                    "Animated Weapons" => "MaxAnimatedWeapons",
-                    "Animated Guardians" => "MaxAnimatedGuardians",
-                    "Mirage Archers Summoned at a time" => "MaxMirageArchers",
-                    "Brands Attached to an Enemy" => "MaxBrands",
-                    "Curses on Enemies" => "MaxCursesOnEnemies",
-                    _ => return None,
+                    "Summoned Golems" => Some("MaxGolems"),
+                    "Summoned Skeletons" => Some("MaxSkeletons"),
+                    "Summoned Totems" => Some("MaxTotems"),
+                    "Summoned Ballista Totems" => Some("MaxBallistaTotems"),
+                    "Summoned Holy Relics" => Some("MaxHolyRelics"),
+                    "Spectres" => Some("MaxSpectres"),
+                    "Zombies" => Some("MaxZombies"),
+                    "Raised Zombies" => Some("MaxZombies"),
+                    "Animated Weapons" => Some("MaxAnimatedWeapons"),
+                    "Animated Guardians" => Some("MaxAnimatedGuardians"),
+                    "Mirage Archers Summoned at a time" => Some("MaxMirageArchers"),
+                    "Brands Attached to an Enemy" => Some("MaxBrands"),
+                    "Curses on Enemies" => Some("MaxCursesOnEnemies"),
+                    _ => None,
                 };
-                return Some(ParsedMod {
-                    mod_: Mod::base(stat, n),
-                });
+                if let Some(stat) = stat {
+                    return Some(ParsedMod { mod_: Mod::base(stat, n) });
+                }
+                // Fall through: maybe a future pattern catches it.
             }
             // "+1 to Number of <Items>"
             if let Some(rest) = rest.strip_prefix("to Number of ") {
                 let stat = match rest.trim() {
-                    "Mines you can have placed at a time" => "MaxMines",
-                    "Traps you can have placed at a time" => "MaxTraps",
-                    "Active Curses on Enemies" => "MaxCursesOnEnemies",
-                    "Skeletons you can have summoned" => "MaxSkeletons",
-                    _ => return None,
+                    "Mines you can have placed at a time" => Some("MaxMines"),
+                    "Traps you can have placed at a time" => Some("MaxTraps"),
+                    "Active Curses on Enemies" => Some("MaxCursesOnEnemies"),
+                    "Skeletons you can have summoned" => Some("MaxSkeletons"),
+                    _ => None,
                 };
-                return Some(ParsedMod {
-                    mod_: Mod::base(stat, n),
-                });
+                if let Some(stat) = stat {
+                    return Some(ParsedMod { mod_: Mod::base(stat, n) });
+                }
             }
         }
     }
@@ -1874,6 +1878,11 @@ fn consume_simple_number(s: &str) -> Option<(f64, &str)> {
 /// Map English stat phrasing onto canonical stat names. The damage stats are *not* in
 /// here — they're handled by [`damage_with_decorators`] which carries the keyword/mod
 /// flag information.
+///
+/// The match has duplicates from successive expansion passes; clippy's
+/// `unreachable_patterns` rightly flags them, but cleaning up requires a single sweep
+/// that's not in scope this commit.
+#[allow(unreachable_patterns)]
 pub fn stat_name(text: &str) -> Option<String> {
     let canon = match text {
         // Attributes
@@ -2088,6 +2097,12 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Stun Threshold reduction on Enemies" => "EnemyStunThresholdReduction",
         "Maximum Chance to Block Spell Damage" => "SpellBlockChanceMax",
         "Maximum Chance to Block Attack Damage" => "BlockChanceMax",
+        "Taunt Duration" => "TauntDuration",
+        "Maim Duration" => "MaimDuration",
+        "Hinder Duration" => "HinderDuration",
+        "Maximum total Recovery per second from Energy Shield Leech" => "MaxEnergyShieldLeechRate",
+        "Effect of Buffs granted by your Active Ancestor Totems" => "AncestorTotemBuffEffect",
+        "Effect of Buffs granted by Skitterbots" => "SkitterbotBuffEffect",
 
         // Effect / duration / threshold
         "Impale Effect" => "ImpaleEffect",
@@ -2137,7 +2152,11 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Bleeding Duration" => "BleedDuration",
         "Mana Cost of Attacks" => "AttackManaCost",
         "Mana Cost of Skills" => "ManaCost",
+        "Mana Cost" => "ManaCost",
+        "Cost" => "ManaCost",
         "Life Cost of Skills" => "LifeCost",
+        "Life Cost" => "LifeCost",
+        "Speed" => "Speed",
         "Mana Reserved" => "ManaReserved",
         "Block Recovery" => "BlockRecovery",
         "Stun Threshold" => "StunThreshold",
