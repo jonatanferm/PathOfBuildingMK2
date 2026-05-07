@@ -384,6 +384,34 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         }
     }
 
+    // Hit chance — only meaningful for attack skills against an enemy with evasion.
+    // PoE formula (mirrors Modules/CalcOffence.lua's accuracy block):
+    //   chance = 1.15 * accuracy / (accuracy + (eva/4)^0.9) - 0.15
+    // Spells always hit at 100%.
+    if is_attack {
+        let accuracy = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Accuracy");
+        // Phase 3 uses a fixed 1500 enemy evasion baseline; ConfigState gains an
+        // enemy_evasion field in Phase 4.
+        let enemy_evasion: f64 = 1500.0;
+        let denom = accuracy + f64::powf(enemy_evasion / 4.0, 0.9);
+        let raw = if denom > 0.0 {
+            1.15 * accuracy / denom - 0.15
+        } else {
+            0.05
+        };
+        let chance = raw.clamp(0.05, 1.0);
+        env.output.set("MainSkillHitChance", chance * 100.0);
+        // Roll hit chance into the DPS at the end.
+        let dps_now = env.output.get("MainSkillAverageHitAfterResist");
+        env.output.set("MainSkillAverageHitAfterAccuracy", dps_now * chance);
+    } else {
+        env.output.set("MainSkillHitChance", 100.0);
+        env.output.set(
+            "MainSkillAverageHitAfterAccuracy",
+            env.output.get("MainSkillAverageHitAfterResist"),
+        );
+    }
+
     // Cast/attack speed: PoB normalises against skill baseline.
     let speed_mult = if is_spell {
         env.output.get("CastSpeedMult")
@@ -397,7 +425,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     };
     let cps = baseline * speed_mult;
     env.output.set("MainSkillSpeed", cps);
-    env.output.set("MainSkillDPS", avg_after_res * cps);
+    let final_avg = env.output.get("MainSkillAverageHitAfterAccuracy");
+    env.output.set("MainSkillDPS", final_avg * cps);
 }
 
 #[cfg(test)]
