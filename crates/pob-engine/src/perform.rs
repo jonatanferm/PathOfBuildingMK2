@@ -442,6 +442,15 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // Determine if the skill is a spell or an attack — drives which ModFlag bit we set.
     let is_spell = skill.base_flags.get("spell").copied().unwrap_or(false);
     let is_attack = skill.base_flags.get("attack").copied().unwrap_or(false);
+    // SkillType 39 = DamageOverTime in PoB's enum. Skills like Caustic Arrow / Essence
+    // Drain are DoT-only — the per-level positional values aren't hit damage but a
+    // damage-per-minute/second base that PoB treats specially. Mark them so the hit
+    // DPS report doesn't silently mislead.
+    let is_dot_only = skill.skill_types.get("39").copied().unwrap_or(false)
+        && !skill.skill_types.get("10").copied().unwrap_or(false); // SkillType 10 = Damage (hit)
+    if is_dot_only {
+        env.output.set("MainSkillIsDotOnly", 1.0);
+    }
 
     // Identify the element keyword for further filtering.
     let (elem_stat, _label) = skill_damage_element(skill).unwrap_or(("Damage", ""));

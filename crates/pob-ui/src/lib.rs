@@ -415,6 +415,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.heading("Main skill");
             ui.separator();
             if app.character.main_skill.is_some() {
+                if app.output.get("MainSkillIsDotOnly") > 0.0 {
+                    ui.colored_label(
+                        egui::Color32::LIGHT_YELLOW,
+                        "DoT-only skill — hit DPS below is not meaningful",
+                    );
+                }
                 stat_row_decimal(ui, "Avg hit", &app.output, "MainSkillAverageHit");
                 stat_row_decimal(ui, "Crit chance %", &app.output, "MainSkillCritChance");
                 stat_row_decimal(ui, "Avg w/ crit", &app.output, "MainSkillAverageHitWithCrit");
