@@ -97,12 +97,28 @@ loads `3_25.json` by default. Phase 4 polish should expose a tree-version dropdo
 
 ## UI
 
-### POB share-code import is MK2-only — Phase 5 (open)
+### POB share-code import is MK2-only — Phase 5 (closed)
 
-We ship our own `MK2|<base64>` format. PoB's native code is `base64(deflate(xml))` of
-the per-build XML document. Implementing PoB import means writing a quick-xml-driven
-parser for the `<PathOfBuilding><Build/><Tree/><Items/><Skills/><Notes/>` document. The
-infrastructure (flate2, base64, and our `CharacterSnapshot` shape) is already in place.
+Closed: `pob_engine::import_pob_code` and `import_pob_xml` parse upstream PoB share
+codes. Items / skills / config are still empty in the imported `Character` — the
+upstream document encodes those as nested elements with attribute-encoded data, which is
+non-trivial to round-trip.
+
+### POB share-code export is MK2-only — Phase 5 (closed for class+tree+notes)
+
+Closed: `pob_engine::export_pob_code` writes a PoB-readable XML document with class,
+ascendancy, level, allocated nodes, and notes. PoB will accept it and fill items /
+skills / config with defaults. Round-tripping items + skill setup back to upstream PoB
+requires full document serialisation.
+
+### Live-PoB validation harness — Phase 2g (skeleton)
+
+`crates/pob-extract/src/bin/pob_diff.rs` boots an mlua sandbox with the SimpleGraphic
+shims PoB needs at module-load time, plus the `SkillType` / `KeywordFlag` constants. It
+does *not* yet load PoB's full `Modules/` + `Classes/` graph and run a build through it
+— that's the next chunk: stub or vendor enough of `Common.lua` / `Main.lua` /
+`HeadlessWrapper.lua` to reach `calcs.buildOutput`. Hardcoded reference values in
+`crates/pob-engine/tests/validation.rs` cover the regression-detection role until then.
 
 ### Tree rendering uses egui shapes, not wgpu — Phase 4a (open)
 
