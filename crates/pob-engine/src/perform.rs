@@ -357,6 +357,18 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         env.mod_db.add(m);
     }
 
+    // Tag the EvalState with the active skill's name and types so SkillName /
+    // SkillType / SkillId tags on mods can filter correctly.
+    env.state
+        .set_condition(format!("SkillName:{}", main.skill_id), true);
+    for (st_id, on) in &skill.skill_types {
+        if !*on {
+            continue;
+        }
+        env.state
+            .set_condition(format!("SkillType:{st_id}"), true);
+    }
+
     // For each named per-level stat, push the corresponding positional value into the
     // EvalState's stats map. This lets PerStat tags (e.g. PerStat:ChainRemaining)
     // scale by the skill's own per-level numbers (Arc has 7 chains at level 20, so

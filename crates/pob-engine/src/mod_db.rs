@@ -258,8 +258,31 @@ pub fn eval_mod(m: &Mod, state: &EvalState) -> Option<f64> {
                     return None;
                 }
             }
-            // The remaining tag kinds are filters we don't yet model; pass through.
-            // TODO(phase-3): SkillType, SkillName, SkillId, SlotName.
+            TagKind::SkillName { skill_name, neg } => {
+                let matches = state.condition(&format!("SkillName:{skill_name}"));
+                if matches == *neg {
+                    return None;
+                }
+            }
+            TagKind::SkillId { skill_id, neg } => {
+                let matches = state.condition(&format!("SkillId:{skill_id}"));
+                if matches == *neg {
+                    return None;
+                }
+            }
+            TagKind::SkillType { skill_type, neg } => {
+                let matches = state.condition(&format!("SkillType:{skill_type}"));
+                if matches == *neg {
+                    return None;
+                }
+            }
+            TagKind::SlotName { slot_name, neg } => {
+                let matches = state.condition(&format!("SlotName:{slot_name}"));
+                if matches == *neg {
+                    return None;
+                }
+            }
+            // Unknown tag kinds are pass-through (treated as if they always succeed).
             _ => {}
         }
     }
