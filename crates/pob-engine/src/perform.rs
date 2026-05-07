@@ -378,9 +378,29 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             }
         }
     }
-    let (mut base_min, mut base_max) = skill_base_damage(skill, gem_level, character.level);
+    // Move the spell/attack flag detection before damage so we can branch.
+    let early_is_attack = skill.base_flags.get("attack").copied().unwrap_or(false);
+    let (mut base_min, mut base_max) = if early_is_attack {
+        // Attack skills: base damage is the weapon's damage. Use Weapon1 if equipped.
+        let cfg_q = QueryCfg::default();
+        let st = &env.state;
+        let w_min =
+            env.mod_db
+                .sum(ModType::Base, &cfg_q, st, "Weapon1PhysicalMin");
+        let w_max =
+            env.mod_db
+                .sum(ModType::Base, &cfg_q, st, "Weapon1PhysicalMax");
+        if w_min > 0.0 || w_max > 0.0 {
+            (w_min, w_max)
+        } else {
+            // No weapon equipped — fall back to skill positional values.
+            skill_base_damage(skill, gem_level, character.level)
+        }
+    } else {
+        skill_base_damage(skill, gem_level, character.level)
+    };
     if base_min == 0.0 && base_max == 0.0 {
-        // Skill has no positional damage values — abort cleanly.
+        // Skill has no usable damage values — abort cleanly.
         return;
     }
     base_min *= skill.damage_effectiveness(gem_level);
@@ -630,7 +650,19 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     } else {
         env.output.get("AttackSpeedMult")
     };
-    let baseline = if skill.cast_time > 0.0 {
+    let baseline = if is_attack {
+        // Attacks: speed is weapon-driven (attack rate from weapon base).
+        let cfg_q = QueryCfg::default();
+        let st = &env.state;
+        let attack_rate =
+            env.mod_db
+                .sum(ModType::Base, &cfg_q, st, "Weapon1AttackRate");
+        if attack_rate > 0.0 {
+            attack_rate
+        } else {
+            1.0
+        }
+    } else if skill.cast_time > 0.0 {
         1.0 / f64::from(skill.cast_time)
     } else {
         1.0
