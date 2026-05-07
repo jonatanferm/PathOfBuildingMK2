@@ -115,7 +115,9 @@ fn parser_covers_floor_of_3_25_passives() {
         println!("DEBUG bytes: {:?}", line.as_bytes());
     }
 
-    // Floor: Phase 2 parser handles a small subset, but a regression to zero would mean
-    // something broke. The floor is intentionally loose.
-    assert!(parsed > 200, "expected to parse at least 200 lines, got {parsed}");
+    // We hit 100% coverage with the fallback path; assert that as the floor.
+    assert_eq!(
+        parsed, total,
+        "regression: parser coverage dropped — {parsed}/{total}"
+    );
 }
