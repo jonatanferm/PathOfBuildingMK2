@@ -268,6 +268,157 @@ fn equipping_a_shield_activates_using_shield_condition() {
 }
 
 #[test]
+fn arc_level_20_witch_baseline_damage_is_in_pob_range() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.main_skill = Some(MainSkill::new("Arc"));
+    let out = compute_with_skills(&c, &tree, Some(&skills));
+    let base_min = out.get("MainSkillBaseMin");
+    let base_max = out.get("MainSkillBaseMax");
+    // Per PoB's calc, Arc lvl 20 / char L90 base damage is ~640–3653 (with the 1.2
+    // damage effectiveness) before any modifiers. We use a wide tolerance because
+    // upstream PoB occasionally tweaks the constants and we don't want this test
+    // brittle.
+    assert!(
+        base_min > 200.0 && base_min < 1500.0,
+        "Arc base min damage: expected 200-1500, got {base_min}"
+    );
+    assert!(
+        base_max > 1000.0 && base_max < 6000.0,
+        "Arc base max damage: expected 1000-6000, got {base_max}"
+    );
+}
+
+#[test]
+fn config_charges_drive_per_charge_mod() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+
+    // Find a passive that has a per-charge stat ("X per Power Charge")
+    let charge_node = tree
+        .nodes
+        .iter()
+        .find(|(_, n)| {
+            n.stats.iter().any(|s| s.contains("per Power Charge"))
+                && n.stats.len() == 1 // one-stat node so we can compute deltas cleanly
+        })
+        .map(|(id, _)| *id);
+    let Some(node_id) = charge_node else {
+        eprintln!("no per-power-charge node — skip");
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.allocate(node_id);
+    let zero = compute_with_skills(&c, &tree, None);
+    c.config.multipliers.insert("PowerCharge".to_owned(), 5.0);
+    let five = compute_with_skills(&c, &tree, None);
+
+    // Some stat must differ between zero and five power charges.
+    let mut found_diff = false;
+    for (k, v) in zero.iter() {
+        if (five.get(k) - v).abs() > 1e-9 {
+            found_diff = true;
+            break;
+        }
+    }
+    for (k, _) in five.iter() {
+        if zero.try_get(k).is_none() {
+            found_diff = true;
+            break;
+        }
+    }
+    assert!(
+        found_diff,
+        "Power charges should activate per-power-charge mod and change at least one stat"
+    );
+}
+
+#[test]
+fn fire_resist_cap_blocks_overflow() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    // Find a node that gives lots of fire resistance.
+    // Fall back to a synthesised mod if the tree doesn't have one.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let mut env = pob_engine::perform::init_env(&c, &tree);
+    env.mod_db.add(pob_engine::Mod::base("FireResist", 999.0));
+    pob_engine::perform::compute(&c, &tree); // smoke; not used
+    pob_engine::perform::perform_basic_stats(&c, &tree, &mut env);
+    let total = env.output.get("FireResistTotal");
+    assert!(
+        (total - 75.0).abs() < 1e-9,
+        "FireResistTotal should cap at 75% (no max-bonus mods), got {total}"
+    );
+    let _ = c;
+}
+
+#[test]
+fn ms_share_code_round_trips_full_character() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::ranger(), 78);
+    c.allocated.insert(101);
+    c.allocated.insert(202);
+    c.allocated.insert(303);
+    c.notes = "Bow build with poison stacking & elemental scaling".into();
+    c.main_skill = Some(MainSkill {
+        skill_id: "TornadoShot".into(),
+        level: 21,
+        quality: 23,
+    });
+    c.config.enemy_lightning_resist = 50;
+    c.config.conditions.insert("FullLife".to_owned(), true);
+    c.config.multipliers.insert("PowerCharge".to_owned(), 5.0);
+
+    let code = pob_engine::export_code(&c).expect("export");
+    let restored = pob_engine::import_code(&code).expect("import");
+
+    assert_eq!(restored.class.0, "Ranger");
+    assert_eq!(restored.level, 78);
+    assert_eq!(restored.allocated.len(), 3);
+    assert!(restored.allocated.contains(&101));
+    assert_eq!(restored.notes, c.notes);
+    assert_eq!(
+        restored.main_skill.as_ref().map(|m| m.skill_id.as_str()),
+        Some("TornadoShot")
+    );
+    assert_eq!(restored.main_skill.as_ref().map(|m| m.level), Some(21));
+    assert_eq!(restored.config.enemy_lightning_resist, 50);
+    assert!(restored.config.conditions.get("FullLife").copied().unwrap_or(false));
+    assert_eq!(
+        restored.config.multipliers.get("PowerCharge").copied(),
+        Some(5.0)
+    );
+
+    let _ = tree;
+}
+
+#[test]
+fn pob_xml_round_trip_full_character() {
+    let mut c = Character::new(ClassRef::witch(), 92);
+    c.ascendancy = Some("Occultist".to_owned());
+    c.allocated.insert(101);
+    c.allocated.insert(202);
+    c.notes = "POB-format build".to_owned();
+
+    let xml = pob_engine::export_pob_xml(&c);
+    let restored = pob_engine::import_pob_xml(&xml).expect("import xml");
+    assert_eq!(restored.class.0, "Witch");
+    assert_eq!(restored.ascendancy.as_deref(), Some("Occultist"));
+    assert_eq!(restored.level, 92);
+    assert_eq!(restored.allocated.len(), 2);
+    assert!(restored.allocated.contains(&101));
+    assert!(restored.allocated.contains(&202));
+    assert_eq!(restored.notes, "POB-format build");
+}
+
+#[test]
 fn level_up_increases_life_and_mana() {
     let Some(tree) = load_3_25_tree() else {
         return;

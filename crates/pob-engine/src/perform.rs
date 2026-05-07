@@ -140,7 +140,7 @@ fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_
     }
 }
 
-fn perform_basic_stats(_character: &Character, _tree: &PassiveTree, env: &mut Env) {
+pub fn perform_basic_stats(_character: &Character, _tree: &PassiveTree, env: &mut Env) {
     // Strength / Dexterity / Intelligence
     let cfg = QueryCfg::default();
     let str_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Strength")
