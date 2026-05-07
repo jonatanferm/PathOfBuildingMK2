@@ -97,11 +97,17 @@ pub fn init_env_with_bases(
             continue;
         };
         // Mastery nodes don't contribute their `stats` directly — the user picks one of
-        // the `mastery_effects`. Look up the selection and use that effect's stats.
+        // the `mastery_effects`. Look up the selection (or default to the first effect
+        // if the user hasn't picked one) and use that effect's stats.
         if matches!(node.kind, pob_data::NodeKind::Mastery) {
-            if let Some(effect_id) = character.mastery_selections.get(node_id) {
+            let selected = character
+                .mastery_selections
+                .get(node_id)
+                .copied()
+                .or_else(|| node.mastery_effects.first().map(|e| e.effect));
+            if let Some(effect_id) = selected {
                 if let Some(effect) =
-                    node.mastery_effects.iter().find(|e| e.effect == *effect_id)
+                    node.mastery_effects.iter().find(|e| e.effect == effect_id)
                 {
                     for raw in &effect.stats {
                         for line in raw.lines() {
