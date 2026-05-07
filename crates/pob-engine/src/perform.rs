@@ -622,41 +622,62 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("FullDPS", main_dps + bleed + poison + ignite);
 }
 
-/// Compute "effective HP" — a rough single-source survivability number that combines
-/// life, energy shield, ward, armour mitigation, block/suppression, and resists. Real
-/// PoB does this per damage type with a much more sophisticated model. We compute a
-/// weighted-average that's useful as a relative indicator.
+/// Compute "effective HP" — a single-source survivability number that combines life,
+/// energy shield, ward, armour mitigation, block/suppression, and resists.
+///
+/// EHP[type] = pool / damage_taken_multiplier[type]
+/// where damage_taken_multiplier folds in:
+///   - Resistance: (1 - resist/100)
+///   - Block: (1 - block_chance) (block prevents the hit entirely)
+///   - Suppression for spells: (1 - 0.5*suppress) (50% reduction on success)
+///   - Armour mitigation for physical: (1 - phys_red)
 fn perform_ehp(env: &mut Env) {
     let life = env.output.get("Life");
     let es = env.output.get("EnergyShield");
     let ward = env.output.get("Ward");
-    let pool = life + es + ward;
+    let pool = (life + es + ward).max(1.0);
 
-    let phys_red = env.output.get("PhysicalDamageReduction") / 100.0;
-    let block = env.output.get("BlockChance") / 100.0;
-    let suppress = env.output.get("SpellSuppressionChance") / 100.0;
+    let phys_red = (env.output.get("PhysicalDamageReduction") / 100.0).clamp(0.0, 0.9);
+    let block = (env.output.get("BlockChance") / 100.0).clamp(0.0, 1.0);
+    let spell_block = (env.output.get("SpellBlockChance") / 100.0).clamp(0.0, 1.0);
+    let suppress = (env.output.get("SpellSuppressionChance") / 100.0).clamp(0.0, 1.0);
 
-    let fire = env.output.get("FireResistTotal") / 100.0;
-    let cold = env.output.get("ColdResistTotal") / 100.0;
-    let lightning = env.output.get("LightningResistTotal") / 100.0;
-    let chaos = env.output.get("ChaosResistTotal") / 100.0;
+    let fire = (env.output.get("FireResistTotal") / 100.0).clamp(-2.0, 0.95);
+    let cold = (env.output.get("ColdResistTotal") / 100.0).clamp(-2.0, 0.95);
+    let lightning = (env.output.get("LightningResistTotal") / 100.0).clamp(-2.0, 0.95);
+    let chaos = (env.output.get("ChaosResistTotal") / 100.0).clamp(-2.0, 0.95);
 
-    // Per-element EHP: pool / (1 - resist).
-    let phys_ehp = pool / ((1.0 - phys_red) * (1.0 - 0.5 * block)).max(0.05);
-    let fire_ehp = pool / (1.0 - fire).max(0.05);
-    let cold_ehp = pool / (1.0 - cold).max(0.05);
-    let lightning_ehp = pool / (1.0 - lightning).max(0.05);
-    let chaos_ehp = pool / (1.0 - chaos).max(0.05);
-    // Spells additionally benefit from suppression (50% damage on success).
-    let spell_mult = (1.0 - suppress) + suppress * 0.5;
+    // Damage-taken multipliers per element.
+    let phys_taken = (1.0 - phys_red) * (1.0 - block);
+    // Spell suppression caps at 50% damage reduction on a successful suppress; it scales
+    // linearly with chance.
+    let spell_mult = 1.0 - 0.5 * suppress;
+    let spell_block_mult = 1.0 - spell_block;
+    let fire_taken = (1.0 - fire) * spell_mult * spell_block_mult;
+    let cold_taken = (1.0 - cold) * spell_mult * spell_block_mult;
+    let lightning_taken = (1.0 - lightning) * spell_mult * spell_block_mult;
+    let chaos_taken = (1.0 - chaos) * spell_mult * spell_block_mult;
+
+    let phys_ehp = pool / phys_taken.max(0.05);
+    let fire_ehp = pool / fire_taken.max(0.05);
+    let cold_ehp = pool / cold_taken.max(0.05);
+    let lightning_ehp = pool / lightning_taken.max(0.05);
+    let chaos_ehp = pool / chaos_taken.max(0.05);
 
     env.output.set("PhysicalEHP", phys_ehp);
-    env.output.set("FireEHP", fire_ehp / spell_mult);
-    env.output.set("ColdEHP", cold_ehp / spell_mult);
-    env.output.set("LightningEHP", lightning_ehp / spell_mult);
-    env.output.set("ChaosEHP", chaos_ehp / spell_mult);
+    env.output.set("FireEHP", fire_ehp);
+    env.output.set("ColdEHP", cold_ehp);
+    env.output.set("LightningEHP", lightning_ehp);
+    env.output.set("ChaosEHP", chaos_ehp);
     let avg_ehp = (phys_ehp + fire_ehp + cold_ehp + lightning_ehp + chaos_ehp) / 5.0;
     env.output.set("AverageEHP", avg_ehp);
+    // Worst-case (smallest of the five) — useful "what's the weakest hit type".
+    let min_ehp = phys_ehp
+        .min(fire_ehp)
+        .min(cold_ehp)
+        .min(lightning_ehp)
+        .min(chaos_ehp);
+    env.output.set("MinimumEHP", min_ehp);
 }
 
 #[cfg(test)]
