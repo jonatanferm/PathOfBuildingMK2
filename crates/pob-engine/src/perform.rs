@@ -308,17 +308,81 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("MainSkillAverageHitWithCrit", avg_with_crit);
 
     // Apply enemy resistance: hit damage reduced by `(1 - effective_resist/100)`.
-    // Phase 3 only models the dominant element — penetration support is Phase 6.
-    let enemy_resist = match elem_stat {
+    // Penetration: a `<Element>Penetration` Base mod subtracts from the enemy resist
+    // before clamping to PoE's -200..max range.
+    let enemy_resist_raw = match elem_stat {
         "FireDamage" => character.config.enemy_fire_resist,
         "ColdDamage" => character.config.enemy_cold_resist,
         "LightningDamage" => character.config.enemy_lightning_resist,
         "ChaosDamage" => character.config.enemy_chaos_resist,
         _ => 0,
     };
-    let res_factor = (1.0 - f64::from(enemy_resist) / 100.0).max(0.0);
+    let pen_stat = match elem_stat {
+        "FireDamage" => "FirePenetration",
+        "ColdDamage" => "ColdPenetration",
+        "LightningDamage" => "LightningPenetration",
+        "ChaosDamage" => "ChaosPenetration",
+        _ => "",
+    };
+    let elem_pen = if pen_stat.is_empty() {
+        0.0
+    } else {
+        env.mod_db.sum(ModType::Base, &cfg, &env.state, pen_stat)
+    } + env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ElementalPenetration");
+    let effective_resist = (f64::from(enemy_resist_raw) - elem_pen).clamp(-200.0, 95.0);
+    let res_factor = (1.0 - effective_resist / 100.0).max(0.0);
     let avg_after_res = avg_with_crit * res_factor;
     env.output.set("MainSkillAverageHitAfterResist", avg_after_res);
+    env.output.set("MainSkillEnemyEffectiveResist", effective_resist);
+
+    // Ailments: rough hit-derived DPS approximations.
+    // Phase 3 simplifications: average hit (no crit modifier) is used as the "base hit"
+    // for ailment seeding, ailment damage scales additively with damage / INC and the
+    // ailment's specific INC stat, and we ignore poison / ignite stacking and bleed
+    // movement. Real PoB rolls all this through CalcOffence.lua's 4k+ lines.
+    if is_attack || is_spell {
+        // Bleed: 70% of base physical hit damage as Phys DoT, lasts 5s by default.
+        let bleed_chance = env.mod_db.sum(ModType::Base, &cfg, &env.state, "BleedChance");
+        if bleed_chance > 0.0 || matches!(elem_stat, "PhysicalDamage") {
+            let phys_avg = if elem_stat == "PhysicalDamage" {
+                avg
+            } else {
+                env.mod_db.sum(ModType::Base, &cfg, &env.state, "PhysicalDamage")
+            };
+            let dot_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BleedDamage")
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime");
+            let dot_more = env.mod_db.more(&cfg, &env.state, "BleedDamage")
+                * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
+            let bleed = phys_avg * 0.70 * (1.0 + dot_inc / 100.0) * dot_more;
+            env.output.set("BleedDPS", bleed);
+        }
+        // Poison: stacks of 30% of total hit damage for 2 seconds, scales with chaos +
+        // poison damage mods. Single-stack DPS = 0.30 × hit × (1 + inc) × more.
+        let poison_chance = env.mod_db.sum(ModType::Base, &cfg, &env.state, "PoisonChance");
+        if poison_chance > 0.0 {
+            let p_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "PoisonDamage")
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ChaosDamage")
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime");
+            let p_more = env.mod_db.more(&cfg, &env.state, "PoisonDamage")
+                * env.mod_db.more(&cfg, &env.state, "ChaosDamage")
+                * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
+            let poison = avg * 0.30 * (1.0 + p_inc / 100.0) * p_more;
+            env.output.set("PoisonDPS", poison);
+        }
+        // Ignite: 90% of fire hit damage as Fire DoT for 4 seconds.
+        if elem_stat == "FireDamage" {
+            let i_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "IgniteDamage")
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BurningDamage")
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime");
+            let i_more = env.mod_db.more(&cfg, &env.state, "IgniteDamage")
+                * env.mod_db.more(&cfg, &env.state, "BurningDamage")
+                * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
+            let ignite = avg * 0.90 * (1.0 + i_inc / 100.0) * i_more;
+            env.output.set("IgniteDPS", ignite);
+        }
+    }
 
     // Cast/attack speed: PoB normalises against skill baseline.
     let speed_mult = if is_spell {

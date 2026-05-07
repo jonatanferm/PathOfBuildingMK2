@@ -852,7 +852,6 @@ pub fn stat_name(text: &str) -> Option<String> {
         "effect of your Curses" => "CurseEffect",
         "Effect of Curses on you" => "CurseEffectOnSelf",
         "effect of Non-Curse Auras from your Skills" => "AuraEffect",
-        "Effect of non-Curse Auras from your Skills" => "AuraEffect",
         "Effect" => "Effect",
         "effect" => "Effect",
         "Flask Effect Duration" => "FlaskEffectDuration",
@@ -866,8 +865,6 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Chance to Block Attack Damage" => "BlockChance",
         "Evasion Rating and Armour" => "ArmourAndEvasion",
         "Armour and Evasion Rating" => "ArmourAndEvasion",
-        "Evasion and Energy Shield" => "EvasionAndEnergyShield",
-        "Armour and Energy Shield" => "ArmourAndEnergyShield",
 
         // Charges
         "Power Charges" => "PowerCharges",

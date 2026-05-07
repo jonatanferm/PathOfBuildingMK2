@@ -40,6 +40,15 @@ struct LoadedApp {
     calcs_state: calcs_tab::CalcsTabState,
     import_export_state: import_export_tab::ImportExportTabState,
     skills: SkillRegistry,
+    /// Path of the currently-open build file, if any. Used by Save vs Save As.
+    current_build_path: Option<std::path::PathBuf>,
+    status_message: Option<(StatusKind, String)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusKind {
+    Info,
+    Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +127,8 @@ impl PobApp {
             calcs_state: calcs_tab::CalcsTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             skills,
+            current_build_path: None,
+            status_message: None,
         })
     }
 }
@@ -138,6 +149,59 @@ impl eframe::App for PobApp {
 
 fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     let mut recompute = false;
+
+    egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+        egui::menu::bar(ui, |ui| {
+            ui.menu_button("File", |ui| {
+                if ui.button("New").clicked() {
+                    app.character = Character::new(ClassRef::marauder(), 1);
+                    app.current_build_path = None;
+                    app.status_message = Some((StatusKind::Info, "New build.".into()));
+                    ui.close_menu();
+                }
+                if ui.button("Open…").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("MK2 build", &["mk2"])
+                        .pick_file()
+                    {
+                        match std::fs::read_to_string(&path)
+                            .map_err(|e| e.to_string())
+                            .and_then(|s| pob_engine::import_code(s.trim()).map_err(|e| e.to_string()))
+                        {
+                            Ok(c) => {
+                                app.character = c;
+                                app.current_build_path = Some(path.clone());
+                                app.status_message = Some((StatusKind::Info, format!("Opened {}", path.display())));
+                            }
+                            Err(e) => {
+                                app.status_message = Some((StatusKind::Error, format!("Open failed: {e}")));
+                            }
+                        }
+                    }
+                    ui.close_menu();
+                }
+                let save_label = if app.current_build_path.is_some() { "Save" } else { "Save…" };
+                if ui.button(save_label).clicked() {
+                    save_build(app, false);
+                    ui.close_menu();
+                }
+                if ui.button("Save As…").clicked() {
+                    save_build(app, true);
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Quit").clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            });
+            ui.separator();
+            if let Some(p) = &app.current_build_path {
+                ui.weak(format!("{}", p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
+            } else {
+                ui.weak("(unsaved)");
+            }
+        });
+    });
 
     egui::TopBottomPanel::top("tab_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {
@@ -259,9 +323,17 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 app.tree.groups.len()
             ));
             ui.separator();
-            ui.label(format!("Zoom: {:.3}", app.tree_view.zoom()));
-            ui.separator();
-            ui.label("Drag to pan, scroll to zoom, click a node to allocate.");
+            if app.active_tab == Tab::Tree {
+                ui.label(format!("Zoom: {:.3}", app.tree_view.zoom()));
+                ui.separator();
+                ui.label("Drag to pan, scroll to zoom, click to allocate.");
+            } else if let Some((kind, msg)) = &app.status_message {
+                let colour = match kind {
+                    StatusKind::Info => egui::Color32::LIGHT_GREEN,
+                    StatusKind::Error => egui::Color32::LIGHT_RED,
+                };
+                ui.colored_label(colour, msg);
+            }
         });
     });
 
@@ -351,6 +423,35 @@ fn update_search(app: &mut LoadedApp) {
         let stat_match = node.stats.iter().any(|s| s.to_lowercase().contains(&q));
         if name_match || stat_match {
             app.tree_view.search_matches.insert(*id);
+        }
+    }
+}
+
+fn save_build(app: &mut LoadedApp, force_dialog: bool) {
+    let path = if force_dialog || app.current_build_path.is_none() {
+        rfd::FileDialog::new()
+            .add_filter("MK2 build", &["mk2"])
+            .set_file_name("build.mk2")
+            .save_file()
+    } else {
+        app.current_build_path.clone()
+    };
+    let Some(path) = path else {
+        return;
+    };
+    match pob_engine::export_code(&app.character)
+        .map_err(|e| e.to_string())
+        .and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string()))
+    {
+        Ok(()) => {
+            app.current_build_path = Some(path.clone());
+            app.status_message = Some((
+                StatusKind::Info,
+                format!("Saved to {}", path.display()),
+            ));
+        }
+        Err(e) => {
+            app.status_message = Some((StatusKind::Error, format!("Save failed: {e}")));
         }
     }
 }
