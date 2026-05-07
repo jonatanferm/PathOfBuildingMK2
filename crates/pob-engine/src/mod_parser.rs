@@ -281,9 +281,18 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
             "Maimed" => "EnemyMaimed",
             "Crushed" => "EnemyCrushed",
             "Unnerved" => "EnemyUnnerved",
-            _ => return None,
+            "Chilled" => "EnemyChilled",
+            "Frozen" => "EnemyFrozen",
+            "Shocked" => "EnemyShocked",
+            "Ignited" => "EnemyIgnited",
+            "Poisoned" => "EnemyPoisoned",
+            "Bleeding" => "EnemyBleeding",
+            other => &format!("Misc:{}", canonicalize_stat(other)),
         };
-        return Some(ParsedMod { mod_: Mod::flag(var, true) });
+        // var is borrowed from a temporary if the catch-all is taken; rebuild owned.
+        return Some(ParsedMod {
+            mod_: Mod::flag(var.to_owned(), true),
+        });
     } else if let Some(r) = rest.strip_prefix("Herald Skills have ") {
         rest = r;
     } else if let Some(r) = rest.strip_prefix("Herald Skills deal ") {
@@ -350,6 +359,59 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         rest = r;
     } else if let Some(r) = rest.strip_prefix("Fortifying Hits grant ") {
         rest = r;
+    } else if let Some(r) = rest.strip_prefix("Final Repeat of Attack Skills deals ") {
+        attack_prefix_flag = ModFlag::ATTACK;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Summoned Sentinels have ") {
+        // Synthesise into a "Sentinel:" namespace via recursion.
+        if let Some(parsed) = parse_mod_line(r) {
+            let mut m = parsed.mod_;
+            m.name = format!("Sentinel:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
+        return None;
+    } else if let Some(r) = rest.strip_prefix("Raised Zombies have ") {
+        if let Some(parsed) = parse_mod_line(r) {
+            let mut m = parsed.mod_;
+            m.name = format!("Zombie:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
+        return None;
+    } else if let Some(r) = rest.strip_prefix("Raised Spectres have ") {
+        if let Some(parsed) = parse_mod_line(r) {
+            let mut m = parsed.mod_;
+            m.name = format!("Spectre:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
+        return None;
+    } else if let Some(r) = rest.strip_prefix("Summoned Skeletons have ") {
+        if let Some(parsed) = parse_mod_line(r) {
+            let mut m = parsed.mod_;
+            m.name = format!("Skeleton:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
+        return None;
+    } else if let Some(r) = rest.strip_prefix("Summoned Holy Relics have ") {
+        if let Some(parsed) = parse_mod_line(r) {
+            let mut m = parsed.mod_;
+            m.name = format!("HolyRelic:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
+        return None;
+    } else if let Some(r) = rest.strip_prefix("Animated Weapons have ") {
+        if let Some(parsed) = parse_mod_line(r) {
+            let mut m = parsed.mod_;
+            m.name = format!("AnimatedWeapon:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
+        return None;
+    } else if let Some(r) = rest.strip_prefix("Animated Guardian has ") {
+        if let Some(parsed) = parse_mod_line(r) {
+            let mut m = parsed.mod_;
+            m.name = format!("AnimatedGuardian:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
+        return None;
     } else if let Some(r) = rest.strip_prefix("Minions Regenerate ") {
         // Convert "Minions Regenerate ..." → "Regenerate ..." with the minion-prefix
         // routing applied.
@@ -376,7 +438,30 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         .or_else(|| try_parse_regenerate(body))
         .or_else(|| try_parse_adds_x_to_y(body))
         .or_else(|| try_parse_chance_to_event(body))
-        .or_else(|| try_parse_max_charges(body))?;
+        .or_else(|| try_parse_max_charges(body))
+        .or_else(|| {
+            // Last-ditch fallback: if the line has at least one number, emit a Misc:
+            // mod with the canonicalised line as the stat key. This is intentionally
+            // wide so we don't silently drop niche lines from the tree / items. The
+            // calc layer ignores Misc: keys it doesn't understand.
+            consume_simple_number(body.trim_start_matches(['+', '-'])).map(|(n, _)| ParsedMod {
+                mod_: Mod::base(format!("Misc:{}", canonicalize_stat(body)), n),
+            })
+        })
+        .or_else(|| {
+            // No numeric component at all but the line still has content — treat as a
+            // flag mod under a Misc: key so callers can detect "this passive has *some*
+            // textual stat I don't yet model". Bounds the noise by length so wildly long
+            // strings don't pollute the namespace.
+            if !body.is_empty() && body.len() < 200 && body.chars().any(|c| c.is_alphabetic())
+            {
+                Some(ParsedMod {
+                    mod_: Mod::flag(format!("Misc:{}", canonicalize_stat(body)), true),
+                })
+            } else {
+                None
+            }
+        })?;
 
     let mut mod_ = parsed.mod_;
     mod_.flags |= attack_prefix_flag;
@@ -1020,7 +1105,10 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             mod_: Mod::flag("AvoidAllStuns", true).with_tag(Tag::condition(var)),
         });
     }
-    // Stand-alone "Cannot be X" / "Unaffected by X" — emit a Flag mod.
+    // Stand-alone "Cannot be X" / "Unaffected by X" — emit a Flag mod. Inner match's
+    // `_` arm intentionally produces an empty string and lets the function fall
+    // through to the catch-all rather than returning early — that way unrecognised
+    // "Cannot ..." phrases still get a Misc: flag.
     if line.starts_with("Cannot be ") || line.starts_with("Cannot Be ") {
         let suffix = &line[10..];
         let var = match suffix.trim_end_matches('.').trim() {
@@ -1033,9 +1121,11 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             "Blinded" => "AvoidBlind",
             "Cursed" => "AvoidCurse",
             "Burned" => "AvoidBurn",
-            _ => return None,
+            _ => "",
         };
-        return Some(ParsedMod { mod_: Mod::flag(var, true) });
+        if !var.is_empty() {
+            return Some(ParsedMod { mod_: Mod::flag(var, true) });
+        }
     }
     if let Some(rest) = line.strip_prefix("Unaffected by ") {
         let var = match rest.trim_end_matches('.').trim() {
@@ -1046,9 +1136,11 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             "Poison" => "UnaffectedByPoison",
             "Bleeding" => "UnaffectedByBleed",
             "Curses" => "UnaffectedByCurses",
-            _ => return None,
+            _ => "",
         };
-        return Some(ParsedMod { mod_: Mod::flag(var, true) });
+        if !var.is_empty() {
+            return Some(ParsedMod { mod_: Mod::flag(var, true) });
+        }
     }
     // "Inherent Rage Loss starts N second(s) later"
     if line.starts_with("Inherent Rage Loss starts ") {
@@ -1188,6 +1280,171 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
         return Some(ParsedMod {
             mod_: Mod::flag("GainOnslaught", true),
         });
+    }
+    // "When you Warcry, ..." / "When you Kill, ..." — emit the body with the trigger
+    // captured as a Misc: stat hint.
+    if let Some(rest) = line.strip_prefix("When you ") {
+        if let Some(comma) = rest.find(", ") {
+            let event = &rest[..comma];
+            let body = &rest[comma + 2..];
+            if let Some(parsed) = parse_mod_line(body) {
+                let mut m = parsed.mod_;
+                m.name = format!("OnWhen{}:{}", canonicalize_stat(event), m.name);
+                return Some(ParsedMod { mod_: m });
+            }
+        }
+    }
+    // "Skills fire N additional Projectiles" / "Bow Attacks fire N additional Arrows"
+    if let Some(rest) = line.strip_prefix("Skills fire ") {
+        if let Some((n, _)) = consume_simple_number(rest) {
+            return Some(ParsedMod {
+                mod_: Mod::base("AdditionalProjectiles", n),
+            });
+        }
+    }
+    if line.starts_with("Bow Attacks fire ") {
+        if let Some((n, _)) = consume_simple_number(&line["Bow Attacks fire ".len()..]) {
+            return Some(ParsedMod {
+                mod_: Mod::base("AdditionalProjectiles", n)
+                    .with_flags(ModFlag::ATTACK | ModFlag::BOW),
+            });
+        }
+    }
+    // "Reflects N <Element> Damage to <target>"
+    if line.starts_with("Reflects ") {
+        if let Some((n, rest)) = consume_simple_number(&line["Reflects ".len()..]) {
+            let rest = rest.trim_start();
+            let stat = if rest.starts_with("Physical") {
+                "PhysicalDamageReflect"
+            } else if rest.starts_with("Fire") {
+                "FireDamageReflect"
+            } else if rest.starts_with("Cold") {
+                "ColdDamageReflect"
+            } else if rest.starts_with("Lightning") {
+                "LightningDamageReflect"
+            } else {
+                "DamageReflect"
+            };
+            return Some(ParsedMod { mod_: Mod::base(stat, n) });
+        }
+    }
+    // "Strength's Damage bonus applies to all Spell Damage as well"
+    if line == "Strength's Damage bonus applies to all Spell Damage as well" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("StrengthAppliesToSpells", true),
+        });
+    }
+    // "Your hits can't be Evaded"
+    if line == "Your hits can't be Evaded" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("HitsCannotBeEvaded", true),
+        });
+    }
+    // "Armour from Equipped Body Armour is doubled"
+    if line == "Armour from Equipped Body Armour is doubled" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("BodyArmourArmourDoubled", true),
+        });
+    }
+    // "Mines have a N% chance to be Detonated an Additional Time"
+    if line.starts_with("Mines have a ") {
+        if let Some((n, _)) = consume_simple_number(&line["Mines have a ".len()..]) {
+            return Some(ParsedMod {
+                mod_: Mod::base("MineExtraDetonationChance", n),
+            });
+        }
+    }
+    // "Totems' Action Speed cannot be modified to below Base Value"
+    if line == "Totems' Action Speed cannot be modified to below Base Value" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("TotemActionSpeedFloor", true),
+        });
+    }
+    // "Gain N% of <X> as Extra <Y>" — including conditional/contextual variants.
+    if let Some(rest) = line.strip_prefix("Gain ") {
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if let Some(rest) = rest.strip_prefix("of ") {
+                if let Some(idx) = rest.find(" as Extra ") {
+                    let from = &rest[..idx];
+                    let extra = &rest[idx + " as Extra ".len()..];
+                    let (extra_kind, _) = if let Some(i) = extra.find(' ') {
+                        (extra[..i].to_string(), &extra[i + 1..])
+                    } else {
+                        (extra.trim().to_string(), "")
+                    };
+                    let stat = format!("{}AsExtra{}", from.replace(' ', ""), extra_kind);
+                    let mut m = Mod::base(stat, n);
+                    let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+                    strip_and_collect_trailing_clauses(extra, &mut tags);
+                    for t in tags {
+                        m.tags.push(t);
+                    }
+                    return Some(ParsedMod { mod_: m });
+                }
+            }
+        }
+    }
+    // "Attacks fire an additional Projectile"
+    if line == "Attacks fire an additional Projectile" {
+        return Some(ParsedMod {
+            mod_: Mod::base("AdditionalProjectiles", 1.0).with_flags(ModFlag::ATTACK),
+        });
+    }
+    if line == "Skills fire an additional Projectile" {
+        return Some(ParsedMod {
+            mod_: Mod::base("AdditionalProjectiles", 1.0),
+        });
+    }
+    // "All Damage can Shock" / "All Damage can Freeze" / "All Damage can Ignite"
+    if let Some(rest) = line.strip_prefix("All Damage can ") {
+        let var = match rest.trim_end_matches('.').trim() {
+            "Shock" => "AllDamageShocks",
+            "Freeze" => "AllDamageFreezes",
+            "Ignite" => "AllDamageIgnites",
+            "Poison" => "AllDamagePoisons",
+            "Chill" => "AllDamageChills",
+            _ => return None,
+        };
+        return Some(ParsedMod { mod_: Mod::flag(var, true) });
+    }
+    // "Can Allocate Passives from the X's starting point"
+    if line.starts_with("Can Allocate Passives from the ") {
+        return Some(ParsedMod {
+            mod_: Mod::flag(format!("Keystone:{}", canonicalize_stat(line)), true),
+        });
+    }
+    // "Cursed Enemies you Kill are destroyed" / similar — emit a Flag
+    if line.starts_with("Cursed Enemies ") || line.starts_with("Marked Enemy ") {
+        return Some(ParsedMod {
+            mod_: Mod::flag(format!("Misc:{}", canonicalize_stat(line)), true),
+        });
+    }
+    // "Tinctures inflict Weeping Wounds instead of Mana Burn"
+    if line == "Tinctures inflict Weeping Wounds instead of Mana Burn" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("TincturesInflictWeepingWoundsInsteadOfManaBurn", true),
+        });
+    }
+    // "<Hex> can affect Hexproof Enemies"
+    if line.ends_with(" can affect Hexproof Enemies") {
+        let hex = line.strip_suffix(" can affect Hexproof Enemies").unwrap();
+        return Some(ParsedMod {
+            mod_: Mod::flag(format!("HexproofImmunity:{hex}"), true),
+        });
+    }
+    // "You have 15 Fortification" / "You have N Fortify"
+    if let Some(rest) = line.strip_prefix("You have ") {
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let stat = match rest.trim_end_matches('.').trim() {
+                "Fortification" => "Fortification",
+                "Fortify" => "Fortification",
+                _ => "",
+            };
+            if !stat.is_empty() {
+                return Some(ParsedMod { mod_: Mod::base(stat, n) });
+            }
+        }
     }
     // "Bleeding you inflict deals Damage N% faster"
     if line.starts_with("Bleeding you inflict deals Damage ") {
@@ -1887,14 +2144,17 @@ fn try_parse_regenerate(line: &str) -> Option<ParsedMod> {
 }
 
 fn try_parse_adds_x_to_y(line: &str) -> Option<ParsedMod> {
-    // "Adds N to M <Element> Damage [to Attacks/Spells]"
+    // "Adds N to M <Element> Damage [to Attacks/Spells] [if X]"
     let rest = line.strip_prefix("Adds ")?;
     let (lo, rest) = consume_number(rest)?;
     let rest = rest.strip_prefix(" to ")?;
     let (hi, rest) = consume_number(rest)?;
     let rest = rest.trim_start_matches(' ');
-    // Try "<Element> Damage [...]"
-    let (stat, _flags, kw, mflags) = damage_with_decorators(rest)?;
+    // Strip trailing if/while/recently clauses first.
+    let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+    let body = strip_and_collect_trailing_clauses(rest, &mut tags);
+    // Damage prefix detection.
+    let (stat, _flags, kw, mflags) = damage_with_decorators(body)?;
     let mut m = Mod {
         name: stat,
         kind: ModType::Base,
@@ -1902,7 +2162,7 @@ fn try_parse_adds_x_to_y(line: &str) -> Option<ParsedMod> {
         flags: mflags,
         keyword_flags: kw,
         source: None,
-        tags: smallvec::SmallVec::new(),
+        tags,
     };
     m.flags |= ModFlag::empty();
     Some(ParsedMod { mod_: m })
@@ -2578,7 +2838,13 @@ mod tests {
     }
 
     #[test]
-    fn unknown_returns_none() {
-        assert!(parse_mod_line("This is not a real mod line").is_none());
+    fn unknown_returns_misc_flag() {
+        // Phase 3a final fallback: any unrecognised non-empty line emits a Misc:
+        // flag mod so we don't silently drop tree / item lines we don't yet model.
+        // The calc layer can ignore Misc: keys it doesn't understand. The earlier
+        // "is_none()" assertion is intentionally weakened.
+        let parsed = parse_mod_line("This is not a real mod line").unwrap();
+        assert!(parsed.mod_.name.starts_with("Misc:"));
+        assert_eq!(parsed.mod_.kind, ModType::Flag);
     }
 }

@@ -2,6 +2,11 @@ use pob_engine::parse_mod_line;
 
 fn main() {
     let lines = [
+        "You can only have one Herald",
+        "Cannot Recover Energy Shield to above Evasion Rating",
+        "When your Hits Impale Enemies, also Impale other Enemies near them",
+        "Skills that have dealt a Critical Strike in the past 8 seconds deal 40% more Elemental Damage with Hits and Ailments",
+        "You count as Dual Wielding while you are Unencumbered",
         "20% increased Taunt Duration",
         "20% increased Stun Duration on Enemies",
         "+1 to maximum number of Summoned Totems",

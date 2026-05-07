@@ -33,13 +33,22 @@ fn parser_covers_floor_of_3_25_passives() {
     let mut parsed: u64 = 0;
     let mut unparsed_examples: HashMap<String, u32> = HashMap::new();
 
+    // Tree data sometimes packs several stats into a single newline-joined string
+    // (e.g. mastery effects, keystone descriptions). Split on newlines before parsing
+    // so each stat is counted independently.
     for (_, node) in &tree.nodes {
-        for line in &node.stats {
-            total += 1;
-            if parse_mod_line(line).is_some() {
-                parsed += 1;
-            } else {
-                *unparsed_examples.entry(line.clone()).or_insert(0) += 1;
+        for raw in &node.stats {
+            for line in raw.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                total += 1;
+                if parse_mod_line(line).is_some() {
+                    parsed += 1;
+                } else {
+                    *unparsed_examples.entry(line.to_owned()).or_insert(0) += 1;
+                }
             }
         }
     }
@@ -53,6 +62,13 @@ fn parser_covers_floor_of_3_25_passives() {
     println!("Top unparsed lines:");
     for (line, n) in top.iter().take(30) {
         println!("  {n:>4}× {line}");
+    }
+
+    // Print the actual byte sequence of any unparsed lines so we can see hidden
+    // characters (carriage returns, NBSPs, etc.) that diagnostic-mode plain-text
+    // dumps would hide.
+    for (line, _) in top.iter().take(5) {
+        println!("DEBUG bytes: {:?}", line.as_bytes());
     }
 
     // Floor: Phase 2 parser handles a small subset, but a regression to zero would mean

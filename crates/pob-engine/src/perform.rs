@@ -68,15 +68,23 @@ pub fn init_env(character: &Character, tree: &PassiveTree) -> Env {
             .with_source(Source::Other("Level".into())),
     );
 
-    // 3. Tree node stats. Parse each allocated node's stat lines.
+    // 3. Tree node stats. Parse each allocated node's stat lines. Some stat strings
+    // are newline-joined multi-line blocks (mastery effects, keystone descriptions);
+    // split before parsing so every stat lands as a separate mod.
     for node_id in &character.allocated {
         let Some(node) = tree.nodes.get(node_id) else {
             continue;
         };
-        for line in &node.stats {
-            if let Some(parsed) = parse_mod_line(line) {
-                env.mod_db
-                    .add(parsed.mod_.with_source(Source::Passive(*node_id)));
+        for raw in &node.stats {
+            for line in raw.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if let Some(parsed) = parse_mod_line(line) {
+                    env.mod_db
+                        .add(parsed.mod_.with_source(Source::Passive(*node_id)));
+                }
             }
         }
     }
