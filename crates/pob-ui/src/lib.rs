@@ -369,6 +369,15 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 stat_row_decimal(ui, "Avg w/ crit", &app.output, "MainSkillAverageHitWithCrit");
                 stat_row_decimal(ui, "Speed (cps)", &app.output, "MainSkillSpeed");
                 stat_row_decimal(ui, "DPS", &app.output, "MainSkillDPS");
+                if app.output.get("BleedDPS") > 0.0 {
+                    stat_row_decimal(ui, "Bleed DPS", &app.output, "BleedDPS");
+                }
+                if app.output.get("PoisonDPS") > 0.0 {
+                    stat_row_decimal(ui, "Poison DPS", &app.output, "PoisonDPS");
+                }
+                if app.output.get("IgniteDPS") > 0.0 {
+                    stat_row_decimal(ui, "Ignite DPS", &app.output, "IgniteDPS");
+                }
             } else {
                 ui.weak("(pick one in the Skills tab)");
             }

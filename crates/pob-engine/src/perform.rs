@@ -388,30 +388,39 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("MainSkillAverageHitAfterResist", avg_after_res);
     env.output.set("MainSkillEnemyEffectiveResist", effective_resist);
 
-    // Ailments: rough hit-derived DPS approximations.
-    // Phase 3 simplifications: average hit (no crit modifier) is used as the "base hit"
-    // for ailment seeding, ailment damage scales additively with damage / INC and the
-    // ailment's specific INC stat, and we ignore poison / ignite stacking and bleed
-    // movement. Real PoB rolls all this through CalcOffence.lua's 4k+ lines.
+    // Ailments — improved over Phase 3a-baseline. Still a rough single-skill model;
+    // see docs/divergences.md for the full list of TODOs (poison-stack steady-state
+    // requires cast_rate × duration with a stack cap; bleed has movement modifiers;
+    // ignite is single-application, not stacking, but we currently treat it the same).
     if is_attack || is_spell {
-        // Bleed: 70% of base physical hit damage as Phys DoT, lasts 5s by default.
-        let bleed_chance = env.mod_db.sum(ModType::Base, &cfg, &env.state, "BleedChance");
-        if bleed_chance > 0.0 || matches!(elem_stat, "PhysicalDamage") {
-            let phys_avg = if elem_stat == "PhysicalDamage" {
-                avg
-            } else {
-                env.mod_db.sum(ModType::Base, &cfg, &env.state, "PhysicalDamage")
-            };
+        // Per-ailment chance (default ailment chances live in skill data; we don't yet
+        // pull those, so a skill with no on-hit ailment chance + no chance-mods produces
+        // a 0 ailment DPS — which is correct for spells like Arc against unmodded gear.)
+        let bleed_chance = (env.mod_db.sum(ModType::Base, &cfg, &env.state, "BleedChance") / 100.0)
+            .clamp(0.0, 1.0);
+        let poison_chance = (env.mod_db.sum(ModType::Base, &cfg, &env.state, "PoisonChance") / 100.0)
+            .clamp(0.0, 1.0);
+        let ignite_chance = (env.mod_db.sum(ModType::Base, &cfg, &env.state, "IgniteChance") / 100.0)
+            .clamp(0.0, 1.0);
+
+        // Bleed: 70% of base physical hit damage as Phys DoT for 5s. One stack at a time.
+        let phys_avg = if elem_stat == "PhysicalDamage" {
+            avg
+        } else {
+            env.mod_db.sum(ModType::Base, &cfg, &env.state, "PhysicalDamage")
+        };
+        if bleed_chance > 0.0 && phys_avg > 0.0 {
             let dot_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BleedDamage")
                 + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime");
             let dot_more = env.mod_db.more(&cfg, &env.state, "BleedDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
             let bleed = phys_avg * 0.70 * (1.0 + dot_inc / 100.0) * dot_more;
-            env.output.set("BleedDPS", bleed);
+            // Single-stack with chance-to-apply: long-run DPS = p × per-application-DPS
+            env.output.set("BleedDPS", bleed * bleed_chance);
         }
-        // Poison: stacks of 30% of total hit damage for 2 seconds, scales with chaos +
-        // poison damage mods. Single-stack DPS = 0.30 × hit × (1 + inc) × more.
-        let poison_chance = env.mod_db.sum(ModType::Base, &cfg, &env.state, "PoisonChance");
+
+        // Poison: 30% of hit damage as Chaos DoT for 2s. Stacks; steady-state
+        // DPS ≈ per-stack-DPS × cast_rate × duration × chance.
         if poison_chance > 0.0 {
             let p_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "PoisonDamage")
                 + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ChaosDamage")
@@ -419,19 +428,54 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             let p_more = env.mod_db.more(&cfg, &env.state, "PoisonDamage")
                 * env.mod_db.more(&cfg, &env.state, "ChaosDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
-            let poison = avg * 0.30 * (1.0 + p_inc / 100.0) * p_more;
-            env.output.set("PoisonDPS", poison);
+            let p_dot_mult = env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "PoisonDamageMultiplier")
+                + env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "DamageOverTimeMultiplier");
+            let per_stack = avg
+                * 0.30
+                * (1.0 + p_inc / 100.0)
+                * p_more
+                * (1.0 + p_dot_mult / 100.0);
+            let speed = env.output.get("MainSkillSpeed").max(0.0);
+            let duration_inc = env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "PoisonDuration")
+                / 100.0;
+            let duration = 2.0 * (1.0 + duration_inc);
+            // Steady-state stacks = cast_rate × duration × chance, capped at 50 (PoB
+            // default visualisation cap).
+            let stacks = (speed * duration * poison_chance).min(50.0);
+            env.output.set("PoisonDPS", per_stack * stacks);
+            env.output.set("PoisonStacks", stacks);
         }
-        // Ignite: 90% of fire hit damage as Fire DoT for 4 seconds.
-        if elem_stat == "FireDamage" {
+
+        // Ignite: 90% of fire hit damage as Fire DoT for 4s, single-application
+        // (highest-damage ignite overrides). For a skill that hits constantly, the
+        // single-app DPS is the ceiling.
+        if elem_stat == "FireDamage" && ignite_chance > 0.0 {
             let i_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "IgniteDamage")
                 + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BurningDamage")
                 + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime");
             let i_more = env.mod_db.more(&cfg, &env.state, "IgniteDamage")
                 * env.mod_db.more(&cfg, &env.state, "BurningDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
-            let ignite = avg * 0.90 * (1.0 + i_inc / 100.0) * i_more;
-            env.output.set("IgniteDPS", ignite);
+            let i_dot_mult = env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "IgniteDamageMultiplier")
+                + env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "DamageOverTimeMultiplier");
+            let ignite = avg
+                * 0.90
+                * (1.0 + i_inc / 100.0)
+                * i_more
+                * (1.0 + i_dot_mult / 100.0);
+            // Apply chance — assumes the skill reapplies frequently enough to maintain
+            // an active ignite.
+            env.output.set("IgniteDPS", ignite * ignite_chance);
         }
     }
 
