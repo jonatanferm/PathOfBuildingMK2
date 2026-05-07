@@ -31,7 +31,7 @@ ahash = "0.8"
 bitflags = { version = "2", features = ["serde"] }
 
 # Lua data ingest (for pob-extract only — engine must not depend on it)
-mlua = { version = "0.10", features = ["lua54", "vendored"] }
+mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
 
 # Compression / encoding (for POB share codes)
 flate2 = "1"

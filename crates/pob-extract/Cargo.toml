@@ -12,6 +12,8 @@ serde_json.workspace = true
 mlua.workspace = true
 anyhow.workspace = true
 indexmap.workspace = true
+ahash.workspace = true
+smallvec.workspace = true
 
 [lints]
 workspace = true

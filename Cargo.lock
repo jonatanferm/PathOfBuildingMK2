@@ -2025,12 +2025,14 @@ dependencies = [
 name = "pob-extract"
 version = "0.0.1"
 dependencies = [
+ "ahash",
  "anyhow",
  "indexmap",
  "mlua",
  "pob-data",
  "serde",
  "serde_json",
+ "smallvec",
 ]
 
 [[package]]

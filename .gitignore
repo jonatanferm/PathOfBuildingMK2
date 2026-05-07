@@ -1,5 +1,6 @@
 /target
 /reference
+/data
 **/*.rs.bk
 *.pdb
 .DS_Store
