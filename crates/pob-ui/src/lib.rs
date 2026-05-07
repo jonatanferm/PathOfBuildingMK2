@@ -189,6 +189,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // `Context::input` so they fire regardless of which panel has focus (unless an
     // egui widget is consuming text input — e.g. the search box).
     let mut menu_action: Option<MenuAction> = None;
+    let mut tab_jump: Option<Tab> = None;
     ctx.input(|i| {
         let cmd = i.modifiers.command;
         let shift = i.modifiers.shift;
@@ -198,10 +199,27 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             menu_action = Some(MenuAction::Open);
         } else if cmd && i.key_pressed(egui::Key::N) {
             menu_action = Some(MenuAction::New);
+        } else if cmd && i.key_pressed(egui::Key::Num1) {
+            tab_jump = Some(Tab::Tree);
+        } else if cmd && i.key_pressed(egui::Key::Num2) {
+            tab_jump = Some(Tab::Items);
+        } else if cmd && i.key_pressed(egui::Key::Num3) {
+            tab_jump = Some(Tab::Skills);
+        } else if cmd && i.key_pressed(egui::Key::Num4) {
+            tab_jump = Some(Tab::Config);
+        } else if cmd && i.key_pressed(egui::Key::Num5) {
+            tab_jump = Some(Tab::Calcs);
+        } else if cmd && i.key_pressed(egui::Key::Num6) {
+            tab_jump = Some(Tab::Notes);
+        } else if cmd && i.key_pressed(egui::Key::Num7) {
+            tab_jump = Some(Tab::ImportExport);
         }
     });
     if let Some(action) = menu_action {
         apply_menu_action(app, action);
+    }
+    if let Some(t) = tab_jump {
+        app.active_tab = t;
     }
 
     egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
