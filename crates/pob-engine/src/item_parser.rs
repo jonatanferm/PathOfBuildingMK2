@@ -369,6 +369,38 @@ pub fn apply_item_set_with_bases(
                     );
                 }
             }
+            // Weapon stats for the main- or off-hand weapon. Stored under
+            // Weapon{1,2}{Min,Max,AttackRate,CritChance,Range} so the calc layer can
+            // pull them when computing attack-skill DPS.
+            if let Some(w) = b.weapon.as_ref() {
+                let suffix = match *slot {
+                    pob_data::Slot::Weapon1 => "1",
+                    pob_data::Slot::Weapon2 => "2",
+                    _ => "",
+                };
+                if !suffix.is_empty() {
+                    for (k, v) in [
+                        (format!("Weapon{suffix}PhysicalMin"), f64::from(w.physical_min)),
+                        (format!("Weapon{suffix}PhysicalMax"), f64::from(w.physical_max)),
+                        (
+                            format!("Weapon{suffix}AttackRate"),
+                            f64::from(w.attack_rate_base),
+                        ),
+                        (
+                            format!("Weapon{suffix}CritChance"),
+                            f64::from(w.crit_chance_base),
+                        ),
+                        (format!("Weapon{suffix}Range"), f64::from(w.range)),
+                    ] {
+                        if v > 0.0 {
+                            db.add(
+                                crate::Mod::base(k, v)
+                                    .with_source(crate::Source::Item(slot_index)),
+                            );
+                        }
+                    }
+                }
+            }
         } else if item.base_name.contains("Shield") || item.base_name.contains("Buckler") {
             // No base lookup available — fall back to a generic 20% block chance.
             db.add(
