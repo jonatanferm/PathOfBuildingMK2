@@ -26,7 +26,18 @@ pub fn compute_with_skills(
     tree: &PassiveTree,
     skills: Option<&SkillRegistry>,
 ) -> Output {
-    let mut env = init_env(character, tree);
+    compute_full(character, tree, skills, None)
+}
+
+/// Most-complete entry point: bases are used for item-base implicit stats (armour /
+/// evasion / ES / shield block from canonical bases instead of heuristics).
+pub fn compute_full(
+    character: &Character,
+    tree: &PassiveTree,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+) -> Output {
+    let mut env = init_env_with_bases(character, tree, bases);
     perform_basic_stats(character, tree, &mut env);
     if let Some(reg) = skills {
         perform_skill_dps(character, reg, &mut env);
@@ -37,6 +48,15 @@ pub fn compute_with_skills(
 /// Construct the env: gather class base attributes, parse and add tree node mods,
 /// add level mods.
 pub fn init_env(character: &Character, tree: &PassiveTree) -> Env {
+    init_env_with_bases(character, tree, None)
+}
+
+/// Same as `init_env` but also looks up canonical item-base implicits.
+pub fn init_env_with_bases(
+    character: &Character,
+    tree: &PassiveTree,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+) -> Env {
     let mut env = Env::default();
 
     // 1. Class base attributes (Marauder = 32 str / 14 dex / 14 int, etc.).
@@ -90,7 +110,11 @@ pub fn init_env(character: &Character, tree: &PassiveTree) -> Env {
     }
 
     // 4. Items.
-    let _ = crate::item_parser::apply_item_set(&character.items, &mut env.mod_db);
+    let _ = crate::item_parser::apply_item_set_with_bases(
+        &character.items,
+        &mut env.mod_db,
+        bases,
+    );
 
     // 5. Auto-detected wielding conditions from the equipped items. These activate
     // mods that have a "while using a shield" / "while wielding a two handed weapon" /
@@ -313,13 +337,24 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let (elem_stat, _label) = skill_damage_element(skill).unwrap_or(("Damage", ""));
 
     let mut cfg = QueryCfg::default();
-    cfg.flags = if is_spell {
-        ModFlag::SPELL
-    } else if is_attack {
-        ModFlag::ATTACK
-    } else {
-        ModFlag::empty()
-    };
+    // Skill's baseFlags map onto ModFlag bits so "Spell Damage" / "Projectile Damage"
+    // mods filter correctly. PoB walks the full skillTypes table; we approximate.
+    if is_spell {
+        cfg.flags |= ModFlag::SPELL;
+    }
+    if is_attack {
+        cfg.flags |= ModFlag::ATTACK;
+    }
+    if skill.base_flags.get("melee").copied().unwrap_or(false) {
+        cfg.flags |= ModFlag::MELEE;
+    }
+    if skill.base_flags.get("projectile").copied().unwrap_or(false) {
+        cfg.flags |= ModFlag::PROJECTILE;
+    }
+    if skill.base_flags.get("area").copied().unwrap_or(false) {
+        cfg.flags |= ModFlag::AREA;
+    }
+    cfg.flags |= ModFlag::HIT;
     cfg.keyword_flags = match elem_stat {
         "FireDamage" => KeywordFlag::FIRE,
         "ColdDamage" => KeywordFlag::COLD,
@@ -328,6 +363,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         "ChaosDamage" => KeywordFlag::CHAOS,
         _ => KeywordFlag::empty(),
     };
+    cfg.skill_name = Some(&main.skill_id);
 
     // Damage modifiers: stack the elemental, generic damage, and skill-type damage mods.
     // Order: (1+inc_total) * more_total.

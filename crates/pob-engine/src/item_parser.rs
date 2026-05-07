@@ -307,11 +307,76 @@ pub fn item_mods_into_modlist(
     produced
 }
 
-/// Add every item's mods from an `ItemSet` to a target ModDB.
+/// Add every item's mods from an `ItemSet` to a target ModDB. Also seeds known base-type
+/// implicits: a shield's intrinsic block chance, an armour's intrinsic armour rating, etc.
+/// Without this, a "Wooden Shield" equipped with no explicit affixes wouldn't actually
+/// add block chance — the calc layer would only see modifier strings, not the weapon /
+/// armour numbers from the base.
 pub fn apply_item_set(item_set: &ItemSet, db: &mut crate::ModDB) -> ItemApplyReport {
+    apply_item_set_with_bases(item_set, db, None)
+}
+
+/// Same as `apply_item_set` but also looks up canonical bases when a `bases` map is
+/// provided so seeded implicits use real numbers (armour, evasion, ES, weapon damage,
+/// block chance, etc.).
+pub fn apply_item_set_with_bases(
+    item_set: &ItemSet,
+    db: &mut crate::ModDB,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+) -> ItemApplyReport {
     let mut report = ItemApplyReport::default();
     for (slot, item) in item_set.iter() {
         let slot_index = slot_to_index(*slot);
+        let base = bases.and_then(|b| b.get(&item.base_name));
+
+        // Heuristic implicits if no canonical base lookup is available; fall back when
+        // a canonical base is present.
+        if let Some(b) = base {
+            // Armour from canonical base — average of min/max.
+            if let Some(a) = b.armour.as_ref() {
+                let armour = (a.armour_base_min + a.armour_base_max) * 0.5;
+                let evasion = (a.evasion_base_min + a.evasion_base_max) * 0.5;
+                let es = (a.energy_shield_base_min + a.energy_shield_base_max) * 0.5;
+                let ward = (a.ward_base_min + a.ward_base_max) * 0.5;
+                if armour > 0.0 {
+                    db.add(
+                        crate::Mod::base("Armour", f64::from(armour))
+                            .with_source(crate::Source::Item(slot_index)),
+                    );
+                }
+                if evasion > 0.0 {
+                    db.add(
+                        crate::Mod::base("Evasion", f64::from(evasion))
+                            .with_source(crate::Source::Item(slot_index)),
+                    );
+                }
+                if es > 0.0 {
+                    db.add(
+                        crate::Mod::base("EnergyShield", f64::from(es))
+                            .with_source(crate::Source::Item(slot_index)),
+                    );
+                }
+                if ward > 0.0 {
+                    db.add(
+                        crate::Mod::base("Ward", f64::from(ward))
+                            .with_source(crate::Source::Item(slot_index)),
+                    );
+                }
+                if a.block_chance_base > 0.0 {
+                    db.add(
+                        crate::Mod::base("BlockChance", f64::from(a.block_chance_base))
+                            .with_source(crate::Source::Item(slot_index)),
+                    );
+                }
+            }
+        } else if item.base_name.contains("Shield") || item.base_name.contains("Buckler") {
+            // No base lookup available — fall back to a generic 20% block chance.
+            db.add(
+                crate::Mod::base("BlockChance", 20.0)
+                    .with_source(crate::Source::Item(slot_index)),
+            );
+        }
+
         for ml in &item.mod_lines {
             if let Some(parsed) = crate::mod_parser::parse_mod_line(&ml.line) {
                 let m = parsed.mod_.with_source(crate::Source::Item(slot_index));

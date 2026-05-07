@@ -40,6 +40,7 @@ struct LoadedApp {
     calcs_state: calcs_tab::CalcsTabState,
     import_export_state: import_export_tab::ImportExportTabState,
     skills: SkillRegistry,
+    bases: Option<pob_data::bases::ItemBaseSet>,
     /// Path of the currently-open build file, if any. Used by Save vs Save As.
     current_build_path: Option<std::path::PathBuf>,
     status_message: Option<(StatusKind, String)>,
@@ -113,6 +114,10 @@ impl PobApp {
         let tree = pob_data::load_passive_tree(&tree_json)
             .map_err(|e| format!("parsing tree: {e}"))?;
 
+        let bases = std::fs::read_to_string(data_root.join("bases.json"))
+            .ok()
+            .and_then(|j| pob_data::load_bases(&j).ok());
+
         let mut skill_sets = Vec::new();
         if let Ok(entries) = std::fs::read_dir(data_root.join("skills")) {
             for entry in entries.flatten() {
@@ -135,7 +140,7 @@ impl PobApp {
 
         let tree_view = TreeView::new(&tree);
         let character = Character::new(ClassRef::marauder(), 1);
-        let output = pob_engine::perform::compute_with_skills(&character, &tree, Some(&skills));
+        let output = pob_engine::compute_full(&character, &tree, Some(&skills), bases.as_ref());
 
         Ok(LoadedApp {
             tree,
@@ -149,6 +154,7 @@ impl PobApp {
             calcs_state: calcs_tab::CalcsTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             skills,
+            bases,
             current_build_path: None,
             status_message: None,
             tree_versions,
@@ -522,14 +528,18 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         }
     });
 
-    // Recomputing every frame is the simple correct thing — `compute_with_skills` runs
-    // in ~2ms in release on the full 3.25 tree, which fits comfortably under a 60Hz
-    // frame budget. Once the engine grows to where this matters we can fingerprint the
+    // Recomputing every frame is the simple correct thing — compute_full runs in ~2ms
+    // in release on the full 3.25 tree, which fits comfortably under a 60Hz frame
+    // budget. Once the engine grows to where this matters we can fingerprint the
     // character state and skip when unchanged. The `recompute` flag is currently dead
     // code but kept so feedback paths can use it later.
     let _ = recompute;
-    app.output =
-        pob_engine::perform::compute_with_skills(&app.character, &app.tree, Some(&app.skills));
+    app.output = pob_engine::compute_full(
+        &app.character,
+        &app.tree,
+        Some(&app.skills),
+        app.bases.as_ref(),
+    );
 }
 
 fn update_search(app: &mut LoadedApp) {
