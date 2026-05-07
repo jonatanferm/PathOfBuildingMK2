@@ -109,6 +109,33 @@ pub fn ui(
                     if !skill.description.is_empty() {
                         ui.label(egui::RichText::new(&skill.description).italics());
                     }
+                    // Tag chips
+                    if !skill.skill_types.is_empty() {
+                        let tag_count = skill.skill_types.iter().filter(|(_, on)| **on).count();
+                        ui.label(format!("Skill types: {tag_count}"));
+                    }
+                    if !skill.constant_stats.is_empty() {
+                        ui.add_space(4.0);
+                        ui.collapsing("Constant stats", |ui| {
+                            for s in &skill.constant_stats {
+                                ui.monospace(s.to_string());
+                            }
+                        });
+                    }
+                    if !skill.quality_stats.is_empty() {
+                        ui.collapsing("Quality stats (per +1% Q)", |ui| {
+                            for s in &skill.quality_stats {
+                                ui.monospace(s.to_string());
+                            }
+                        });
+                    }
+                    if !skill.stats.is_empty() {
+                        ui.collapsing("Per-level stat ids", |ui| {
+                            for s in &skill.stats {
+                                ui.monospace(s);
+                            }
+                        });
+                    }
                 } else {
                     ui.colored_label(
                         egui::Color32::LIGHT_RED,
