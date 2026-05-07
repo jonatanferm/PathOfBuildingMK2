@@ -21,6 +21,50 @@ fn data_root() -> PathBuf {
 }
 
 #[test]
+fn parser_covers_floor_of_every_tree_version() {
+    let trees_dir = data_root().join("trees");
+    let Ok(idx_json) = std::fs::read_to_string(trees_dir.join("index.json")) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    let index: Vec<String> = pob_data::load_tree_index(&idx_json).unwrap();
+    let mut totals: Vec<(String, u64, u64)> = Vec::new();
+    for v in &index {
+        let path = trees_dir.join(format!("{v}.json"));
+        let Ok(json) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let tree: pob_data::PassiveTree = serde_json::from_str(&json).unwrap();
+        let mut t = 0u64;
+        let mut p = 0u64;
+        for (_, node) in &tree.nodes {
+            for raw in &node.stats {
+                for line in raw.lines() {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    t += 1;
+                    if pob_engine::parse_mod_line(line).is_some() {
+                        p += 1;
+                    }
+                }
+            }
+        }
+        totals.push((v.clone(), p, t));
+    }
+    println!("Per-version coverage:");
+    for (v, p, t) in &totals {
+        let pct = (*p as f64 / *t as f64) * 100.0;
+        println!("  {v:<24} {p}/{t} ({pct:.1}%)");
+    }
+    // Fallback ensures everything parses to *some* mod, so 100% is the floor.
+    for (v, p, t) in &totals {
+        assert_eq!(p, t, "tree {v}: {p}/{t} should be 100%");
+    }
+}
+
+#[test]
 fn parser_covers_floor_of_3_25_passives() {
     let path = data_root().join("trees/3_25.json");
     let Ok(json) = std::fs::read_to_string(&path) else {
