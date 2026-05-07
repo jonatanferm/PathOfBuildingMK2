@@ -24,7 +24,7 @@
 
 use pob_data::{KeywordFlag, ModFlag};
 
-use crate::modifier::{Mod, ModType, ModValue};
+use crate::modifier::{Mod, ModType, ModValue, Tag, TagKind};
 
 #[derive(Debug, Clone)]
 pub struct ParsedMod {
@@ -38,29 +38,248 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         return None;
     }
 
-    // Pre-flag: "Minions deal", "Minions have"
-    let (minion_prefix, rest) = if let Some(r) = line.strip_prefix("Minions deal ") {
-        (true, r)
-    } else if let Some(r) = line.strip_prefix("Minions have ") {
-        (true, r)
-    } else {
-        (false, line)
-    };
+    // Pre-flag prefixes that modify routing/applicability of the rest of the line.
+    let mut minion_prefix = false;
+    let mut attack_prefix_flag = ModFlag::empty();
+    let mut rest: &str = line;
+    if let Some(r) = rest.strip_prefix("Minions deal ") {
+        minion_prefix = true;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Minions have ") {
+        minion_prefix = true;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Attacks have ") {
+        attack_prefix_flag = ModFlag::ATTACK;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Attacks with this Weapon have ") {
+        attack_prefix_flag = ModFlag::ATTACK;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Spells have ") {
+        attack_prefix_flag = ModFlag::SPELL;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Hits have ") {
+        attack_prefix_flag = ModFlag::HIT;
+        rest = r;
+    }
 
-    let parsed = try_parse_to(rest)
-        .or_else(|| try_parse_inc_reduced(rest))
-        .or_else(|| try_parse_more_less(rest))
-        .or_else(|| try_parse_regenerate(rest))
-        .or_else(|| try_parse_adds_x_to_y(rest))?;
+    // Strip trailing scaling / condition clauses *before* trying to parse the body so the
+    // numeric form recogniser doesn't get confused by "increased Foo per X".
+    let mut trailing_tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+    let body = strip_and_collect_trailing_clauses(rest, &mut trailing_tags);
+
+    let parsed = try_parse_to(body)
+        .or_else(|| try_parse_inc_reduced(body))
+        .or_else(|| try_parse_more_less(body))
+        .or_else(|| try_parse_regenerate(body))
+        .or_else(|| try_parse_adds_x_to_y(body))
+        .or_else(|| try_parse_chance_to_X(body))
+        .or_else(|| try_parse_max_charges(body))?;
 
     let mut mod_ = parsed.mod_;
+    mod_.flags |= attack_prefix_flag;
+    for tag in trailing_tags {
+        mod_.tags.push(tag);
+    }
     if minion_prefix {
-        // Phase 3a: route minion mods to a "Minion" namespace by prefixing the stat.
-        // The calc layer can then use modDB.iter_named("Minion:Damage") for minion stats.
-        // Phase 4: replace with proper minion ModDB.
         mod_.name = format!("Minion:{}", mod_.name);
     }
     Some(ParsedMod { mod_ })
+}
+
+/// Strip recognised trailing clauses ("per X", "while at full life", "if you've killed
+/// recently") from `text` and emit corresponding tags. Returns the remainder.
+fn strip_and_collect_trailing_clauses<'a>(
+    text: &'a str,
+    out: &mut smallvec::SmallVec<[Tag; 2]>,
+) -> &'a str {
+    let mut s = text.trim();
+    // Iterate so we can chain multiple clauses ("X per power charge while at full life").
+    loop {
+        let before = s.len();
+        s = strip_per_clause(s, out).trim();
+        s = strip_while_clause(s, out).trim();
+        s = strip_recently_clause(s, out).trim();
+        if s.len() == before {
+            break;
+        }
+    }
+    s.trim_end_matches(',').trim()
+}
+
+fn strip_per_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
+    // " per <stat>" with optional "<N> ".
+    let Some(idx) = text.rfind(" per ") else { return text };
+    let body = text[..idx].trim_end_matches(',').trim_end();
+    let suffix = text[idx + 5..].trim();
+
+    // Try "<N> <stat>"
+    let mut div: Option<f64> = None;
+    let suffix_inner = if let Some((n, rest)) = consume_simple_number(suffix) {
+        div = Some(n);
+        rest.trim_start()
+    } else {
+        suffix
+    };
+
+    // Common per-X variables.
+    let var = match suffix_inner {
+        "Power Charge" | "Power Charges" => "PowerCharge",
+        "Frenzy Charge" | "Frenzy Charges" => "FrenzyCharge",
+        "Endurance Charge" | "Endurance Charges" => "EnduranceCharge",
+        "Rage" => "Rage",
+        "Strength" => "Strength",
+        "Dexterity" => "Dexterity",
+        "Intelligence" => "Intelligence",
+        "second" => "Time",
+        "level" | "Level" => "Level",
+        s if s.ends_with(" Strength") => "Strength",
+        s if s.ends_with(" Dexterity") => "Dexterity",
+        s if s.ends_with(" Intelligence") => "Intelligence",
+        _ => {
+            // Unknown per-X — leave the clause in place (return original text).
+            return text;
+        }
+    };
+
+    let tag = match var {
+        "Strength" | "Dexterity" | "Intelligence" => Tag {
+            kind: TagKind::PerStat {
+                stat: var.to_owned(),
+                div,
+                actor: None,
+            },
+        },
+        _ => Tag {
+            kind: TagKind::Multiplier {
+                var: var.to_owned(),
+                limit: None,
+                limit_total: false,
+                div,
+                actor: None,
+            },
+        },
+    };
+    out.push(tag);
+    body
+}
+
+fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
+    let Some(idx) = text.rfind(" while ") else { return text };
+    let body = text[..idx].trim_end_matches(',').trim_end();
+    let suffix = text[idx + 7..].trim().trim_end_matches('.');
+    let var = match suffix {
+        "at Full Life" | "on Full Life" => "FullLife",
+        "at Low Life" | "on Low Life" => "LowLife",
+        "at Full Mana" | "on Full Mana" => "FullMana",
+        "at Low Mana" | "on Low Mana" => "LowMana",
+        "Leeching" => "Leeching",
+        "Stationary" => "Stationary",
+        "Moving" => "Moving",
+        "Focused" => "Focused",
+        "Phasing" => "Phasing",
+        "Bleeding" => "Bleeding",
+        "Ignited" => "Ignited",
+        "Frozen" => "Frozen",
+        "Shocked" => "Shocked",
+        "Chilled" => "Chilled",
+        "Cursed" => "Cursed",
+        "you have a Magic Mana Flask Active" => "UsingMagicManaFlask",
+        "Channelling" => "Channelling",
+        "Dual Wielding" => "DualWielding",
+        "Wielding a Two Handed Weapon" => "UsingTwoHandedWeapon",
+        "Wielding a Shield" => "UsingShield",
+        _ => return text,
+    };
+    out.push(Tag {
+        kind: TagKind::Condition {
+            var: var.to_owned(),
+            neg: false,
+        },
+    });
+    body
+}
+
+fn strip_recently_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
+    // "if you've X Recently" / "if you've been X Recently" / "if X Recently"
+    if let Some(idx) = text.rfind("if you've ") {
+        let suffix = text[idx + "if you've ".len()..].trim();
+        if let Some(var) = recent_event_var(suffix) {
+            out.push(Tag {
+                kind: TagKind::Condition {
+                    var: format!("{var}Recently"),
+                    neg: false,
+                },
+            });
+            return text[..idx].trim_end_matches(',').trim_end();
+        }
+    }
+    if let Some(idx) = text.rfind("if you have ") {
+        let suffix = text[idx + "if you have ".len()..].trim();
+        if let Some(var) = recent_event_var(suffix) {
+            out.push(Tag {
+                kind: TagKind::Condition {
+                    var: var.to_owned(),
+                    neg: false,
+                },
+            });
+            return text[..idx].trim_end_matches(',').trim_end();
+        }
+    }
+    text
+}
+
+fn recent_event_var(s: &str) -> Option<&'static str> {
+    let s = s.trim().trim_end_matches('.');
+    Some(match s {
+        "Killed Recently" | "killed Recently" => "Killed",
+        "Killed an Enemy Recently" => "Killed",
+        "been Hit Recently" => "BeenHit",
+        "been Critically Hit Recently" => "BeenCritHit",
+        "Stunned an Enemy Recently" => "StunnedEnemy",
+        "Crit Recently" | "Critically Hit an Enemy Recently" => "Crit",
+        "Cast a Spell Recently" => "CastSpell",
+        "Used a Skill Recently" => "UsedSkill",
+        "Blocked Recently" => "Blocked",
+        _ => return None,
+    })
+}
+
+fn try_parse_chance_to_X(text: &str) -> Option<ParsedMod> {
+    // "N% chance to <event>" — e.g. "10% chance to gain a Power Charge on Critical Strike",
+    // "20% chance to cause Bleeding on Hit"
+    let (n, rest) = consume_number(text)?;
+    let rest = rest.strip_prefix('%')?.trim_start();
+    let rest = rest.strip_prefix("chance to ")?.trim();
+    // We don't fully model the event, but we can at least produce a Base mod on a
+    // canonical key like "ChanceToBleed", "ChanceToIgnite", etc. so calc code can find it.
+    let stat = match rest {
+        s if s.starts_with("Bleed") || s.starts_with("cause Bleeding") => "BleedChance",
+        s if s.starts_with("Poison") => "PoisonChance",
+        s if s.starts_with("Ignite") || s.starts_with("cause Ignite") => "IgniteChance",
+        s if s.starts_with("Freeze") => "FreezeChance",
+        s if s.starts_with("Shock") => "ShockChance",
+        s if s.starts_with("Chill") => "ChillChance",
+        s if s.starts_with("Maim") => "MaimChance",
+        s if s.starts_with("Blind") => "BlindChance",
+        s if s.starts_with("Knock") => "KnockbackChance",
+        s if s.starts_with("Block") => "BlockChance",
+        s if s.starts_with("Suppress") => "SpellSuppressionChance",
+        s if s.starts_with("gain a Power Charge") => "PowerChargeOnCrit",
+        s if s.starts_with("gain a Frenzy Charge") => "FrenzyChargeOnHit",
+        s if s.starts_with("gain an Endurance Charge") => "EnduranceChargeOnHit",
+        s if s.starts_with("Avoid") => "AvoidChance",
+        _ => return None,
+    };
+    Some(ParsedMod {
+        mod_: Mod::base(stat, n),
+    })
+}
+
+fn try_parse_max_charges(text: &str) -> Option<ParsedMod> {
+    // "+1 to Maximum Power Charges" already covered by try_parse_to + stat lookup.
+    // This is for "Maximum Power Charges" without "to" prefix — leave as None for now.
+    let _ = text;
+    None
 }
 
 fn try_parse_to(line: &str) -> Option<ParsedMod> {
@@ -415,6 +634,26 @@ pub fn stat_name(text: &str) -> Option<String> {
         // Drops / quantity
         "Rarity of Items found" => "ItemRarity",
         "Quantity of Items found" => "ItemQuantity",
+
+        // Composite / catch-all damage
+        "Damage Over Time" => "DamageOverTime",
+        "Burning Damage" => "BurningDamage",
+        "Trap Damage" => "TrapDamage",
+        "Mine Damage" => "MineDamage",
+        "Totem Damage" => "TotemDamage",
+        "Minion Damage" => "MinionDamage",
+
+        // Cost
+        "Mana Cost of Skills" => "ManaCost",
+        "Life Cost of Skills" => "LifeCost",
+
+        // Maximums
+        "Maximum Power Charges" => "PowerChargesMax",
+        "Maximum Frenzy Charges" => "FrenzyChargesMax",
+        "Maximum Endurance Charges" => "EnduranceChargesMax",
+        "Maximum Mana" => "Mana",
+        "Maximum Life" => "Life",
+        "Maximum Energy Shield" => "EnergyShield",
 
         // Charges
         "Power Charges" => "PowerCharges",
