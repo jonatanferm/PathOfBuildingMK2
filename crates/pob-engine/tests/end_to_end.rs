@@ -267,6 +267,67 @@ fn equipping_a_shield_activates_using_shield_condition() {
     );
 }
 
+fn load_bases() -> Option<pob_data::bases::ItemBaseSet> {
+    let path = data_root().join("bases.json");
+    let json = std::fs::read_to_string(&path).ok()?;
+    pob_data::load_bases(&json).ok()
+}
+
+#[test]
+fn equipping_a_real_body_armour_adds_armour() {
+    let (Some(tree), Some(bases)) = (load_3_25_tree(), load_bases()) else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let baseline =
+        pob_engine::compute_full(&c, &tree, None, Some(&bases)).get("Armour");
+
+    // Equip a Sacrificial Garb (Body Armour with armour base).
+    let raw = "Item Class: Body Armours\nRarity: NORMAL\nAstral Plate\n--------\n";
+    let item = parse_item(raw).expect("parse body armour");
+    c.items.equip(pob_data::Slot::BodyArmour, item);
+    let after =
+        pob_engine::compute_full(&c, &tree, None, Some(&bases)).get("Armour");
+
+    assert!(
+        after > baseline + 100.0,
+        "Astral Plate should add >100 armour: {baseline} → {after}"
+    );
+}
+
+#[test]
+fn equipping_a_real_shield_adds_block_chance() {
+    let (Some(tree), Some(bases)) = (load_3_25_tree(), load_bases()) else {
+        return;
+    };
+
+    // Find a shield base in bases.json.
+    let shield_base = bases
+        .iter()
+        .find(|(_, b)| {
+            b.r#type.contains("Shield") || b.r#type.contains("Buckler")
+        })
+        .map(|(name, _)| name.clone());
+    let Some(shield_name) = shield_base else {
+        eprintln!("no shield in bases — skip");
+        return;
+    };
+
+    let raw = format!(
+        "Item Class: Shields\nRarity: NORMAL\n{shield_name}\n--------\n"
+    );
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let item = parse_item(&raw).expect("parse shield");
+    c.items.equip(pob_data::Slot::Weapon2, item);
+    let after =
+        pob_engine::compute_full(&c, &tree, None, Some(&bases)).get("BlockChance");
+
+    assert!(
+        after > 0.0,
+        "Shield should add block chance — got {after} for {shield_name}"
+    );
+}
+
 #[test]
 fn arc_intrinsic_mods_land_in_modlist() {
     let (Some(_tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
