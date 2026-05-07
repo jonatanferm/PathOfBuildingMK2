@@ -8,12 +8,14 @@ use pob_engine::Output;
 
 pub struct CalcsTabState {
     pub filter: String,
+    pub hide_zero: bool,
 }
 
 impl Default for CalcsTabState {
     fn default() -> Self {
         Self {
             filter: String::new(),
+            hide_zero: false,
         }
     }
 }
@@ -40,6 +42,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut CalcsTabState, output: &Output) {
                 .desired_width(220.0)
                 .hint_text("Life, FireResist, MainSkill, …"),
         );
+        ui.checkbox(&mut state.hide_zero, "Hide zero values");
         ui.separator();
         ui.label(format!("{} stats", output.len()));
     });
@@ -51,6 +54,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut CalcsTabState, output: &Output) {
     let entries_filtered: Vec<(&str, f64)> = entries
         .into_iter()
         .filter(|(k, _)| q.is_empty() || k.to_lowercase().contains(&q))
+        .filter(|(_, v)| !state.hide_zero || v.abs() > 1e-9)
         .collect();
 
     egui::ScrollArea::vertical()
