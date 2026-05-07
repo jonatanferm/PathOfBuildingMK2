@@ -591,6 +591,39 @@ fn ms_share_code_round_trips_full_character() {
 }
 
 #[test]
+fn realistic_pob_xml_imports_cleanly() {
+    // Realistic shape based on actual upstream PoB XML — multiple Specs, attribute
+    // ordering varies, the active spec is referenced by activeSpec="N".
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+    <Build level="92" targetVersion="3_0" mainSocketGroup="1" className="Witch" ascendClassName="Occultist"/>
+    <Tree activeSpec="1">
+        <Spec masteryEffects="" treeVersion="3_25" classId="3" ascendClassId="3" nodes="59530,55156,57264,2151,4180,30880,3936"/>
+        <Spec masteryEffects="" treeVersion="3_25" classId="3" ascendClassId="0" nodes=""/>
+    </Tree>
+    <Notes>
+This is a multiline note
+with several lines of detail
+about the build approach.
+    </Notes>
+    <Items/>
+    <Skills/>
+    <Config>
+        <Input name="enemyIsBoss" value="None"/>
+    </Config>
+</PathOfBuilding>"#;
+    let c = pob_engine::import_pob_xml(xml).expect("import");
+    assert_eq!(c.class.0, "Witch");
+    assert_eq!(c.ascendancy.as_deref(), Some("Occultist"));
+    assert_eq!(c.level, 92);
+    // First Spec has 7 node ids.
+    assert_eq!(c.allocated.len(), 7);
+    assert!(c.allocated.contains(&59530));
+    assert!(c.allocated.contains(&3936));
+    assert!(c.notes.contains("multiline note"));
+}
+
+#[test]
 fn pob_xml_round_trip_full_character() {
     let mut c = Character::new(ClassRef::witch(), 92);
     c.ascendancy = Some("Occultist".to_owned());
