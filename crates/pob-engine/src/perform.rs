@@ -217,7 +217,7 @@ fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_
     }
 }
 
-pub fn perform_basic_stats(_character: &Character, _tree: &PassiveTree, env: &mut Env) {
+pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut Env) {
     // Strength / Dexterity / Intelligence
     let cfg = QueryCfg::default();
     let str_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Strength")
@@ -255,16 +255,20 @@ pub fn perform_basic_stats(_character: &Character, _tree: &PassiveTree, env: &mu
     let es = es_base * env.mod_db.applied(&cfg, &env.state, "EnergyShield");
     env.output.set("EnergyShield", es.round());
 
-    // Resistances: each starts at -60 unmodified for level 68+, but the base value the
-    // calc engine reports is the mod sum; the cap is enforced separately. Phase 2: just
-    // sum the BASE mods.
+    // Resistances: PoE applies a story-based penalty that drops elemental and chaos
+    // resists by 30 at end of Act 5 and another 30 at end of Act 10. The character's
+    // `level` is a proxy for story progression — by level 68+ players are post-Act 10.
+    // Match PoB's default by applying -60 to all four resists for any character of
+    // level 68 or higher unless an explicit `act` config override is in play.
+    let resist_penalty: f64 = if character.level >= 68 { -60.0 } else { 0.0 };
     for elem in ["Fire", "Cold", "Lightning"] {
         let key = format!("{elem}Resist");
         let total = env.mod_db.sum(ModType::Base, &cfg, &env.state, &key)
-            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "ElementalResist");
+            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "ElementalResist")
+            + resist_penalty;
         env.output.set(&key, total);
     }
-    let chaos = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ChaosResist");
+    let chaos = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ChaosResist") + resist_penalty;
     env.output.set("ChaosResist", chaos);
 
     // Resist caps (default 75%, mods add/subtract).

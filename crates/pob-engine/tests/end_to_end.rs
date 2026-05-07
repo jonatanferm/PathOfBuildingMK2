@@ -92,11 +92,11 @@ fn equipping_an_amulet_changes_stats() {
         "Life increase from amulet"
     );
 
-    // All elemental resistances went up by 39% — capped Total too because cap is 75 and
-    // raw base went from 0 to 39 < 75.
-    assert_eq!(after.get("FireResistTotal"), 39.0);
-    assert_eq!(after.get("ColdResistTotal"), 39.0);
-    assert_eq!(after.get("LightningResistTotal"), 39.0);
+    // Elemental resistances went up by 39%, but post-Act-10 penalty is -60.
+    // Net at level 90: -60 (penalty) + 39 (item) = -21.
+    assert_eq!(after.get("FireResistTotal"), -21.0);
+    assert_eq!(after.get("ColdResistTotal"), -21.0);
+    assert_eq!(after.get("LightningResistTotal"), -21.0);
 }
 
 #[test]
@@ -405,17 +405,22 @@ fn full_demo_witch_arc_produces_reasonable_dps() {
     assert!(out.get("Strength") > 14.0, "Strength: {}", out.get("Strength"));
     assert!(out.get("Life") > 1000.0, "Life: {}", out.get("Life"));
     assert!(out.get("Mana") > 500.0, "Mana: {}", out.get("Mana"));
-    assert_eq!(out.get("FireResistTotal"), 39.0);
-    assert_eq!(out.get("ColdResistTotal"), 39.0);
-    assert_eq!(out.get("LightningResistTotal"), 39.0);
+    // -60 story penalty + 39 from amulet = -21.
+    assert_eq!(out.get("FireResistTotal"), -21.0);
+    assert_eq!(out.get("ColdResistTotal"), -21.0);
+    assert_eq!(out.get("LightningResistTotal"), -21.0);
     assert!(
         out.get("MainSkillDPS") > 100.0,
         "Arc DPS: {}",
         out.get("MainSkillDPS")
     );
+    // With -21% resists across the board the character takes elevated damage so
+    // EHP can come out below raw Life. Just sanity-check it's a positive finite
+    // value — any non-zero pool is acceptable in this scenario.
     assert!(
-        out.get("AverageEHP") > out.get("Life"),
-        "EHP should exceed bare Life pool"
+        out.get("AverageEHP") > 0.0,
+        "EHP should be positive: {}",
+        out.get("AverageEHP")
     );
     // Every output value should be finite.
     for (k, v) in out.iter() {

@@ -2369,6 +2369,7 @@ dependencies = [
  "indexmap",
  "mlua",
  "pob-data",
+ "pob-engine",
  "serde",
  "serde_json",
  "smallvec",
