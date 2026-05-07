@@ -145,6 +145,29 @@ pub fn init_env_with_bases(
         &mut env.mod_db,
         bases,
     );
+    // Set SlotName conditions for slots that have an item — supports SlotName tags on
+    // mods that say "while using a shield" / "while wielding a bow", etc.
+    for (slot, _) in character.items.iter() {
+        let slot_name = match slot {
+            pob_data::Slot::Helmet => "Helmet",
+            pob_data::Slot::BodyArmour => "Body Armour",
+            pob_data::Slot::Gloves => "Gloves",
+            pob_data::Slot::Boots => "Boots",
+            pob_data::Slot::Amulet => "Amulet",
+            pob_data::Slot::Ring1 => "Ring 1",
+            pob_data::Slot::Ring2 => "Ring 2",
+            pob_data::Slot::Belt => "Belt",
+            pob_data::Slot::Weapon1 => "Weapon 1",
+            pob_data::Slot::Weapon2 => "Weapon 2",
+            pob_data::Slot::Flask1 => "Flask 1",
+            pob_data::Slot::Flask2 => "Flask 2",
+            pob_data::Slot::Flask3 => "Flask 3",
+            pob_data::Slot::Flask4 => "Flask 4",
+            pob_data::Slot::Flask5 => "Flask 5",
+        };
+        env.state
+            .set_condition(format!("SlotName:{slot_name}"), true);
+    }
 
     // 5. Auto-detected wielding conditions from the equipped items. These activate
     // mods that have a "while using a shield" / "while wielding a two handed weapon" /
