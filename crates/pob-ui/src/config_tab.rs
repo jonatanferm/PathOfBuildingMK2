@@ -61,6 +61,14 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
                     changed = true;
                 }
             }
+            let mut ev = state.enemy_evasion as i32;
+            if ui
+                .add(egui::Slider::new(&mut ev, 0..=20000).text("Enemy evasion"))
+                .changed()
+            {
+                state.enemy_evasion = ev.max(0) as u32;
+                changed = true;
+            }
         });
 
         ui.separator();

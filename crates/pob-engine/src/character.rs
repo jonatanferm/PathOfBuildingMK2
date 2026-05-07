@@ -101,6 +101,10 @@ pub struct ConfigState {
     pub enemy_cold_resist: i32,
     pub enemy_lightning_resist: i32,
     pub enemy_chaos_resist: i32,
+    /// Enemy evasion (used for player attack hit-chance calc). Default 1500 for an
+    /// iLvl-84 monster — matches PoB's standard map mob.
+    #[serde(default)]
+    pub enemy_evasion: u32,
     /// Player-side condition toggles (`FullLife`, `LowLife`, …) — applied to
     /// `EvalState.conditions` at perform time so tagged mods activate.
     pub conditions: HashMap<String, bool>,
@@ -112,6 +116,7 @@ impl ConfigState {
     pub fn default_with_enemy() -> Self {
         Self {
             enemy_level: 84,
+            enemy_evasion: 1500,
             ..Self::default()
         }
     }

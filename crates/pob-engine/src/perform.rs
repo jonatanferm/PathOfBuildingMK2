@@ -633,9 +633,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // Spells always hit at 100%.
     if is_attack {
         let accuracy = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Accuracy");
-        // Phase 3 uses a fixed 1500 enemy evasion baseline; ConfigState gains an
-        // enemy_evasion field in Phase 4.
-        let enemy_evasion: f64 = 1500.0;
+        let enemy_evasion = f64::from(character.config.enemy_evasion.max(1));
         let denom = accuracy + f64::powf(enemy_evasion / 4.0, 0.9);
         let raw = if denom > 0.0 {
             1.15 * accuracy / denom - 0.15
