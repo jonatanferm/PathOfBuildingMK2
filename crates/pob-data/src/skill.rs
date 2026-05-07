@@ -119,6 +119,11 @@ pub struct Skill {
     /// object with positional and named fields — see `SkillLevel` for accessors.
     #[serde(default, deserialize_with = "de_lenient_vec")]
     pub levels: Vec<Value>,
+    /// `statMap[stat_id] = [<mod-recording>...]`. Each mod recording is the inert
+    /// table that pob-extract emits for a `mod()` call in the skill data — see
+    /// `pob_engine::skill::parse_extractor_mod`.
+    #[serde(default, rename = "statMap")]
+    pub stat_map: indexmap::IndexMap<String, Value>,
     /// Effectiveness multiplier baseline (PoB's `baseEffectiveness`).
     #[serde(default, rename = "baseEffectiveness")]
     pub base_effectiveness: f64,

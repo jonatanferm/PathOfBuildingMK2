@@ -318,6 +318,14 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     };
     env.output
         .set("MainSkillLevel", f64::from(main.level.clamp(1, 40)));
+
+    // Apply the skill's intrinsic mods (from constantStats + qualityStats × statMap)
+    // to the env. These produce things like Arc's "+15% MORE damage per chain
+    // remaining" which the calc layer needs to see before the damage query runs.
+    let intrinsic_mods = crate::skill::skill_mods(skill, main.quality);
+    for m in intrinsic_mods {
+        env.mod_db.add(m);
+    }
     let gem_level = main.level.clamp(1, 40);
     let (mut base_min, mut base_max) = skill_base_damage(skill, gem_level, character.level);
     if base_min == 0.0 && base_max == 0.0 {

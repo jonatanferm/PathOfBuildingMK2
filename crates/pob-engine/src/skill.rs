@@ -101,6 +101,167 @@ pub fn skill_base_damage(skill: &Skill, gem_level: u32, character_level: u32) ->
     (min, max)
 }
 
+/// Iterate (stat_id, stat_value) pairs from constantStats + qualityStats *(quality
+/// scales linearly so we contribute `quality_pct × scale_per_quality` per entry)*.
+/// `stats` (positional, level-indexed via statInterpolation) is *not* included here —
+/// that's the per-level damage data which the dedicated `skill_base_damage` handles.
+pub fn iter_skill_stats(
+    skill: &Skill,
+    quality: u32,
+) -> impl Iterator<Item = (String, f64)> + '_ {
+    let q = f64::from(quality);
+    let constant = skill.constant_stats.iter().filter_map(|v| {
+        let arr = v.as_array()?;
+        let id = arr.first()?.as_str()?.to_owned();
+        let val = arr.get(1)?.as_f64()?;
+        Some((id, val))
+    });
+    let quality_iter = skill.quality_stats.iter().filter_map(move |v| {
+        let arr = v.as_array()?;
+        let id = arr.first()?.as_str()?.to_owned();
+        let scale = arr.get(1)?.as_f64()?;
+        Some((id, scale * q))
+    });
+    constant.chain(quality_iter)
+}
+
+/// Convert the inert `__kind: "mod"` table that pob-extract emits for a `mod(...)`
+/// call into a real `crate::Mod`. Returns `None` if the value isn't a mod recording.
+pub fn parse_extractor_mod(v: &serde_json::Value, value: f64) -> Option<crate::Mod> {
+    use crate::{Mod, ModType, ModValue, Tag, TagKind};
+    use pob_data::{KeywordFlag, ModFlag};
+
+    let obj = v.as_object()?;
+    if obj.get("__kind")?.as_str()? != "mod" {
+        return None;
+    }
+    let name = obj.get("name")?.as_str()?.to_owned();
+    let kind_str = obj.get("type")?.as_str()?;
+    let kind = match kind_str {
+        "BASE" => ModType::Base,
+        "INC" => ModType::Inc,
+        "MORE" => ModType::More,
+        "OVERRIDE" => ModType::Override,
+        "FLAG" => ModType::Flag,
+        "LIST" => ModType::List,
+        _ => return None,
+    };
+    let flags_bits = obj.get("flags").and_then(serde_json::Value::as_u64).unwrap_or(0) as u32;
+    let kw_bits = obj
+        .get("keywordFlags")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as u32;
+    let mut m = Mod {
+        name,
+        kind,
+        value: ModValue::Number(value),
+        flags: ModFlag::from_bits_retain(flags_bits),
+        keyword_flags: KeywordFlag::from_bits_retain(kw_bits),
+        source: None,
+        tags: smallvec::SmallVec::new(),
+    };
+    // Trailing tags are stored as numeric-key entries on the object: "1", "2", ...
+    let mut tag_keys: Vec<u32> = obj
+        .keys()
+        .filter_map(|k| k.parse::<u32>().ok())
+        .collect();
+    tag_keys.sort_unstable();
+    for k in tag_keys {
+        let tag_v = &obj[&k.to_string()];
+        let Some(tag_obj) = tag_v.as_object() else {
+            continue;
+        };
+        let Some(t) = tag_obj.get("type").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let kind_opt: Option<TagKind> = match t {
+            "Condition" => tag_obj
+                .get("var")
+                .and_then(serde_json::Value::as_str)
+                .map(|var| TagKind::Condition {
+                    var: var.to_owned(),
+                    neg: tag_obj
+                        .get("neg")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false),
+                }),
+            "Multiplier" => tag_obj
+                .get("var")
+                .and_then(serde_json::Value::as_str)
+                .map(|var| TagKind::Multiplier {
+                    var: var.to_owned(),
+                    limit: tag_obj.get("limit").and_then(serde_json::Value::as_f64),
+                    limit_total: tag_obj
+                        .get("limitTotal")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false),
+                    div: tag_obj.get("div").and_then(serde_json::Value::as_f64),
+                    actor: tag_obj
+                        .get("actor")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                }),
+            "PerStat" => tag_obj
+                .get("stat")
+                .and_then(serde_json::Value::as_str)
+                .map(|stat| TagKind::PerStat {
+                    stat: stat.to_owned(),
+                    div: tag_obj.get("div").and_then(serde_json::Value::as_f64),
+                    actor: tag_obj
+                        .get("actor")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                }),
+            "ActorCondition" => {
+                let var = tag_obj.get("var").and_then(serde_json::Value::as_str)?;
+                let actor = tag_obj
+                    .get("actor")
+                    .and_then(serde_json::Value::as_str)?
+                    .to_owned();
+                Some(TagKind::ActorCondition {
+                    var: var.to_owned(),
+                    actor,
+                    neg: tag_obj
+                        .get("neg")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false),
+                })
+            }
+            _ => Some(TagKind::Unknown(tag_v.clone())),
+        };
+        if let Some(kind) = kind_opt {
+            m.tags.push(Tag { kind });
+        }
+    }
+    Some(m)
+}
+
+/// Produce all the `Mod`s a skill grants from its statMap + constantStats + qualityStats
+/// data. Each emitted Mod is sourced as `Source::Skill(skill.name)`.
+pub fn skill_mods(skill: &Skill, quality: u32) -> Vec<crate::Mod> {
+    let mut out = Vec::new();
+    for (stat_id, value) in iter_skill_stats(skill, quality) {
+        // statMap is keyed by stat id; values are arrays of mod recordings.
+        let Some(stat_map) = skill_stat_map(skill).get(&stat_id) else {
+            continue;
+        };
+        let Some(arr) = stat_map.as_array() else {
+            continue;
+        };
+        for entry in arr {
+            if let Some(mut m) = parse_extractor_mod(entry, value) {
+                m.source = Some(crate::Source::Skill(skill.name.clone()));
+                out.push(m);
+            }
+        }
+    }
+    out
+}
+
+fn skill_stat_map(skill: &Skill) -> &indexmap::IndexMap<String, serde_json::Value> {
+    &skill.stat_map
+}
+
 /// Try to identify the dominant damage element keyword for a spell skill.
 /// Reads the skill's `stats` list for the leading `spell_<element>_base_..._damage`
 /// pattern. Returns `(stat_name_for_modifier_lookup, damage_label)`.
