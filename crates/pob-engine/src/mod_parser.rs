@@ -38,10 +38,29 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
         return None;
     }
 
-    // "+N% Chance to Block Attack Damage" / "+N% chance to Suppress Spell Damage"
+    // "Gain N <thing> on <event>" / "Gain N <pool> per Enemy Killed"
+    if let Some(p) = try_parse_gain_on_event(line) {
+        return Some(p);
+    }
+    // "Hits have N% chance to ignore Enemy Physical Damage Reduction" and similar
+    if let Some(p) = try_parse_special_phrase(line) {
+        return Some(p);
+    }
+    // "N% of Damage taken Recouped as Life" / "Mana"
+    if let Some(p) = try_parse_recouped(line) {
+        return Some(p);
+    }
+    // "Damage with Weapons Penetrates N% Elemental Resistances" — covers fire/cold/lightning too
+    if let Some(p) = try_parse_penetrates(line) {
+        return Some(p);
+    }
+
+    // "+N% Chance to Block Attack Damage" / "N% chance to Suppress Spell Damage" /
+    // "4% Chance to Block Spell Damage" — sign optional.
     if let Some((sign, after_sign)) = match line.as_bytes().first() {
         Some(b'+') => Some((1.0, &line[1..])),
         Some(b'-') => Some((-1.0, &line[1..])),
+        Some(b'0'..=b'9') => Some((1.0, line)),
         _ => None,
     } {
         if let Some((n, rest)) = consume_simple_number(after_sign) {
@@ -84,23 +103,24 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
     // "Adds … as Extra X Damage" — drop trailing modifier we don't yet support
     // (handled by adds-x-to-y for the basic "Adds N to M Fire Damage" form).
 
-    // "N% of Attack Damage Leeched as Life" / "N% of Spell Damage Leeched as Mana" etc.
+    // "N% of <kind> Damage Leeched as Life/Mana/ES" — covers Attack / Spell / Physical
+    // Attack / Damage / Elemental Damage / Chaos Damage / Lightning Damage / etc.
     if let Some((n, rest)) = consume_number(line) {
         let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
-        if let Some(rest) = rest.strip_prefix("of Attack Damage Leeched as ")
-            .or_else(|| rest.strip_prefix("of Spell Damage Leeched as "))
-            .or_else(|| rest.strip_prefix("of Damage Leeched as "))
-        {
-            let pool = match rest.trim() {
-                "Life" => "LifeLeechRate",
-                "Mana" => "ManaLeechRate",
-                "Energy Shield" => "EnergyShieldLeechRate",
-                _ => "",
-            };
-            if !pool.is_empty() {
-                return Some(ParsedMod {
-                    mod_: Mod::base(pool, n),
-                });
+        if let Some(rest) = rest.strip_prefix("of ") {
+            if let Some(idx) = rest.find(" Leeched as ") {
+                let pool_part = &rest[idx + " Leeched as ".len()..];
+                let pool = match pool_part.trim() {
+                    "Life" => "LifeLeechRate",
+                    "Mana" => "ManaLeechRate",
+                    "Energy Shield" => "EnergyShieldLeechRate",
+                    _ => "",
+                };
+                if !pool.is_empty() {
+                    return Some(ParsedMod {
+                        mod_: Mod::base(pool, n),
+                    });
+                }
             }
         }
     }
@@ -182,6 +202,92 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
     } else if let Some(r) = rest.strip_prefix("Hits and Ailments ") {
         prefix_keyword = KeywordFlag::HIT | KeywordFlag::AILMENT;
         rest = r;
+    } else if let Some(r) = rest.strip_prefix("Curse Skills have ") {
+        prefix_keyword = KeywordFlag::CURSE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Aura Skills have ") {
+        prefix_keyword = KeywordFlag::AURA;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Link Skills have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Trigger Skills have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Brand Skills have ") {
+        prefix_keyword = KeywordFlag::BRAND;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Movement Skills have ") {
+        prefix_keyword = KeywordFlag::MOVEMENT;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Channelling Skills have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Trap and Mine Skills have ") {
+        prefix_keyword = KeywordFlag::TRAP | KeywordFlag::MINE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Skills which Throw Traps have ") {
+        prefix_keyword = KeywordFlag::TRAP;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Skills which Throw Mines have ") {
+        prefix_keyword = KeywordFlag::MINE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Damaging Ailments ") {
+        prefix_keyword = KeywordFlag::AILMENT;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Banner Skills have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Guard Skills have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Retaliation Skills have ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Hex Skills have ") {
+        prefix_keyword = KeywordFlag::CURSE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Mark Skills have ") {
+        prefix_keyword = KeywordFlag::CURSE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Vaal Skills have ") {
+        prefix_keyword = KeywordFlag::VAAL;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Totem Skills have ") {
+        prefix_keyword = KeywordFlag::TOTEM;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Travel Skills have ") {
+        prefix_keyword = KeywordFlag::MOVEMENT;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Mines have ") {
+        prefix_keyword = KeywordFlag::MINE;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Traps have ") {
+        prefix_keyword = KeywordFlag::TRAP;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Totems have ") {
+        prefix_keyword = KeywordFlag::TOTEM;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Brands have ") {
+        prefix_keyword = KeywordFlag::BRAND;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Totems gain ") {
+        prefix_keyword = KeywordFlag::TOTEM;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Retaliation Skills deal ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Melee Hits which Stun ") {
+        attack_prefix_flag = ModFlag::MELEE | ModFlag::ATTACK;
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Fortifying Hits grant ") {
+        rest = r;
+    } else if let Some(r) = rest.strip_prefix("Minions Regenerate ") {
+        // Convert "Minions Regenerate ..." → "Regenerate ..." with the minion-prefix
+        // routing applied.
+        rest = "";
+        // Re-run as Regenerate after prepending minion-prefix indicator.
+        // We do this by recursion: call parse_mod_line on the body with the prefix
+        // simulated. Simplest: build a fake line and parse it.
+        let synthetic = format!("Regenerate {r}");
+        if let Some(parsed) = parse_mod_line(&synthetic) {
+            let mut m = parsed.mod_;
+            m.name = format!("Minion:{}", m.name);
+            return Some(ParsedMod { mod_: m });
+        }
     }
 
     // Strip trailing scaling / condition clauses *before* trying to parse the body so the
@@ -297,8 +403,25 @@ fn strip_with_skills_suffix(text: &str) -> &str {
         " with Spell Skills",
         " with Channelling Skills",
         " with Attack Skills",
+        " with Totem Skills",
+        " with Trap Skills",
+        " with Mine Skills",
+        " with Vaal Skills",
+        " with Movement Skills",
+        " with Travel Skills",
+        " with Hex Skills",
+        " with Mark Skills",
+        " with Aura Skills",
+        " with Brand Skills",
+        " with Herald Skills",
+        " with Banner Skills",
+        " with Curse Skills",
+        " with Guard Skills",
+        " with Retaliation Skills",
+        " with Link Skills",
         " with Melee Weapons",
         " with Melee Skills",
+        " with Hits and Ailments",
         " with Attacks",
         " with Bows",
         " with Swords",
@@ -309,10 +432,32 @@ fn strip_with_skills_suffix(text: &str) -> &str {
         " with Staves",
         " with Wands",
         " with Sceptres",
+        " from Attack Skills",
+        " from Spell Skills",
+        " from your Skills",
         " of Aura Skills",
-        " of Skills",
+        " of Hex Skills",
+        " of Mark Skills",
         " of Curse Skills",
+        " of Curse Aura Skills",
         " of Herald Skills",
+        " of Banner Skills",
+        " of Movement Skills",
+        " of Travel Skills",
+        " of Vaal Skills",
+        " of Skills",
+        " for Spell Damage",
+        " for Attack Damage",
+        " against Marked Enemy",
+        " against Cursed Enemies",
+        " against Bleeding Enemies",
+        " against Ignited Enemies",
+        " against Frozen Enemies",
+        " against Chilled Enemies",
+        " against Shocked Enemies",
+        " against Poisoned Enemies",
+        " for throwing Traps",
+        " for placing Mines",
     ] {
         if let Some(rest) = text.strip_suffix(label) {
             return rest;
@@ -415,9 +560,33 @@ fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>)
         "Cursed" => "Cursed",
         "you have a Magic Mana Flask Active" => "UsingMagicManaFlask",
         "Channelling" => "Channelling",
+        "Casting" => "Casting",
         "Dual Wielding" => "DualWielding",
         "Wielding a Two Handed Weapon" => "UsingTwoHandedWeapon",
         "Wielding a Shield" => "UsingShield",
+        "wielding a Sword" => "UsingSword",
+        "wielding an Axe" => "UsingAxe",
+        "wielding a Mace or Sceptre" => "UsingMaceOrSceptre",
+        "wielding a Mace" => "UsingMace",
+        "wielding a Sceptre" => "UsingSceptre",
+        "wielding a Staff" => "UsingStaff",
+        "wielding a Bow" => "UsingBow",
+        "wielding a Wand" => "UsingWand",
+        "wielding a Claw" => "UsingClaw",
+        "wielding a Dagger" => "UsingDagger",
+        "wielding a Quarterstaff" => "UsingQuarterstaff",
+        "holding a Shield" => "UsingShield",
+        "Affected by a Herald" => "AffectedByHerald",
+        "you are affected by a Herald" => "AffectedByHerald",
+        "you are affected by an Aura" => "AffectedByAura",
+        "you are Bleeding" => "Bleeding",
+        "you are Cursed" => "Cursed",
+        "you have Onslaught" => "HasOnslaught",
+        "you have Tailwind" => "HasTailwind",
+        "you have Adrenaline" => "HasAdrenaline",
+        "you have Arcane Surge" => "HasArcaneSurge",
+        "you have Fortify" | "you are Fortified" => "Fortified",
+        "you have at least one Mark Skill Active" => "HasMark",
         _ => return text,
     };
     out.push(Tag {
@@ -517,6 +686,385 @@ fn try_parse_max_charges(text: &str) -> Option<ParsedMod> {
     None
 }
 
+fn try_parse_gain_on_event(line: &str) -> Option<ParsedMod> {
+    // "Gain N Rage on Melee Hit" / "Gain 5 Life per Enemy Killed" / "Gain N% of <X> as Extra <Y> Damage"
+    let rest = line.strip_prefix("Gain ")?;
+    let (n, rest) = consume_number(rest)?;
+    let (is_percent, rest) = if let Some(r) = rest.strip_prefix('%') {
+        (true, r)
+    } else {
+        (false, rest)
+    };
+    let rest = rest.trim_start();
+
+    // "Gain N% of <X> as Extra <Y> Damage"
+    if is_percent {
+        if let Some(rest) = rest.strip_prefix("of ") {
+            if let Some(rest) = rest.find(" as Extra ").map(|i| &rest[i + " as Extra ".len()..]) {
+                let stat = match rest.trim_end_matches(" Damage") {
+                    "Fire" => "FireDamageGain",
+                    "Cold" => "ColdDamageGain",
+                    "Lightning" => "LightningDamageGain",
+                    "Chaos" => "ChaosDamageGain",
+                    _ => return None,
+                };
+                return Some(ParsedMod {
+                    mod_: Mod::base(stat, n),
+                });
+            }
+        }
+    }
+
+    // "Gain N <thing> on <event>" — emit Base mod on a synthetic key.
+    // Example: "Gain 1 Rage on Melee Hit" → Base "RageOnMeleeHit" 1.
+    // We split on the first " on " or " per ".
+    let (thing, on, event) = if let Some(idx) = rest.find(" on ") {
+        (&rest[..idx], "On", &rest[idx + 4..])
+    } else if let Some(idx) = rest.find(" per ") {
+        (&rest[..idx], "Per", &rest[idx + 5..])
+    } else if let Some(idx) = rest.find(" when ") {
+        (&rest[..idx], "When", &rest[idx + 6..])
+    } else if let Some(idx) = rest.find(" every ") {
+        (&rest[..idx], "Every", &rest[idx + 7..])
+    } else {
+        return None;
+    };
+
+    let thing_clean = thing.trim().trim_end_matches('s').replace(' ', "");
+    let event_clean = event
+        .trim()
+        .trim_end_matches('.')
+        .replace("Recently", "")
+        .replace("if you've", "")
+        .replace(' ', "");
+    let stat = format!("{thing_clean}{on}{event_clean}");
+    Some(ParsedMod {
+        mod_: Mod::base(stat, n),
+    })
+}
+
+fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
+    // "Hits have N% chance to ignore Enemy Physical Damage Reduction"
+    if line.starts_with("Hits have ") || line.starts_with("Damage Penetrates") {
+        if let Some((n, rest)) = consume_simple_number(line.strip_prefix("Hits have ")?) {
+            let rest = rest.strip_prefix('%')?.trim_start();
+            if rest.starts_with("chance to ignore Enemy Physical Damage Reduction") {
+                return Some(ParsedMod {
+                    mod_: Mod::base("IgnorePhysicalDamageReductionChance", n),
+                });
+            }
+        }
+    }
+    // "N% chance to Ignore Stuns while X" / "N% chance to double Stun Duration"
+    if let Some((n, rest)) = consume_simple_number(line) {
+        let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+        if let Some(rest) = rest.strip_prefix("chance to ") {
+            let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+            let body = strip_and_collect_trailing_clauses(rest, &mut tags);
+            let stat = match body {
+                "Ignore Stuns" => Some("IgnoreStunChance"),
+                "double Stun Duration" => Some("DoubleStunDurationChance"),
+                "deal Double Damage" => Some("DoubleDamageChance"),
+                "Avoid being Stunned" => Some("AvoidStunChance"),
+                "Avoid being Frozen" => Some("AvoidFreezeChance"),
+                "Avoid being Chilled" => Some("AvoidChillChance"),
+                "Avoid being Shocked" => Some("AvoidShockChance"),
+                "Avoid being Ignited" => Some("AvoidIgniteChance"),
+                "Avoid Elemental Ailments" => Some("AvoidElementalAilmentChance"),
+                "Avoid Bleeding" => Some("AvoidBleedChance"),
+                "Avoid Poison" => Some("AvoidPoisonChance"),
+                "Fortify" | "Fortify on Hit" | "Fortify on Melee Hit" => Some("FortifyChance"),
+                _ => None,
+            };
+            if let Some(stat) = stat {
+                let mut m = Mod::base(stat, n);
+                for t in tags {
+                    m.tags.push(t);
+                }
+                return Some(ParsedMod { mod_: m });
+            }
+        }
+    }
+    // "Recover N% of <pool> on <event>"
+    if let Some(rest) = line.strip_prefix("Recover ") {
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if let Some(rest) = rest.strip_prefix("of ") {
+                if let Some(idx) = rest.find(" on ") {
+                    let pool = match &rest[..idx] {
+                        "Life" => "LifeRecover",
+                        "Mana" => "ManaRecover",
+                        "Energy Shield" => "EnergyShieldRecover",
+                        _ => return None,
+                    };
+                    let event = rest[idx + 4..].trim_end_matches('.').trim();
+                    let event_clean = event.replace(' ', "");
+                    return Some(ParsedMod {
+                        mod_: Mod::base(format!("{pool}On{event_clean}"), n),
+                    });
+                }
+            }
+        }
+    }
+    // "You can apply an additional Curse" - free curse slot
+    if line == "You can apply an additional Curse" {
+        return Some(ParsedMod {
+            mod_: Mod::base("AdditionalCurse", 1.0),
+        });
+    }
+    // "You can apply N additional Curses"
+    if let Some(rest) = line.strip_prefix("You can apply ") {
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.trim_start();
+            if rest == "additional Curse" || rest == "additional Curses" {
+                return Some(ParsedMod {
+                    mod_: Mod::base("AdditionalCurse", n),
+                });
+            }
+        }
+    }
+    // Stand-alone "Cannot be X" / "Unaffected by X" — emit a Flag mod.
+    if line.starts_with("Cannot be ") || line.starts_with("Cannot Be ") {
+        let suffix = &line[10..];
+        let var = match suffix.trim_end_matches('.').trim() {
+            "Stunned" => "AvoidAllStuns",
+            "Frozen" => "AvoidFreeze",
+            "Chilled" => "AvoidChill",
+            "Shocked" => "AvoidShock",
+            "Ignited" => "AvoidIgnite",
+            "Poisoned" => "AvoidPoison",
+            "Blinded" => "AvoidBlind",
+            "Cursed" => "AvoidCurse",
+            "Burned" => "AvoidBurn",
+            _ => return None,
+        };
+        return Some(ParsedMod { mod_: Mod::flag(var, true) });
+    }
+    if let Some(rest) = line.strip_prefix("Unaffected by ") {
+        let var = match rest.trim_end_matches('.').trim() {
+            "Ignite" => "UnaffectedByIgnite",
+            "Freeze" => "UnaffectedByFreeze",
+            "Chill" => "UnaffectedByChill",
+            "Shock" => "UnaffectedByShock",
+            "Poison" => "UnaffectedByPoison",
+            "Bleeding" => "UnaffectedByBleed",
+            "Curses" => "UnaffectedByCurses",
+            _ => return None,
+        };
+        return Some(ParsedMod { mod_: Mod::flag(var, true) });
+    }
+    // "Cannot Be Stunned while X" — gate on a condition.
+    if line.starts_with("Cannot Be Stunned while ") {
+        let cond = &line["Cannot Be Stunned while ".len()..].trim();
+        let var = match *cond {
+            "you have Energy Shield" => "HasEnergyShield",
+            "Channelling" => "Channelling",
+            _ => return None,
+        };
+        return Some(ParsedMod {
+            mod_: Mod::flag("AvoidAllStuns", true).with_tag(Tag::condition(var)),
+        });
+    }
+    // "Inherent Rage Loss starts N second(s) later"
+    if line.starts_with("Inherent Rage Loss starts ") {
+        let rest = line.strip_prefix("Inherent Rage Loss starts ")?;
+        if let Some((n, _)) = consume_simple_number(rest) {
+            return Some(ParsedMod {
+                mod_: Mod::base("RageLossStartDelay", n),
+            });
+        }
+    }
+    // "Impales you inflict last N additional Hits"
+    if line.starts_with("Impales you inflict last ") {
+        if let Some((n, _)) = consume_simple_number(&line["Impales you inflict last ".len()..]) {
+            return Some(ParsedMod {
+                mod_: Mod::base("ImpaleAdditionalHits", n),
+            });
+        }
+    }
+    // "Life Flasks gain N Charge every M seconds" / "Mana Flasks gain..."
+    if let Some(rest) = line.strip_prefix("Life Flasks gain ") {
+        if let Some((n, _)) = consume_simple_number(rest) {
+            return Some(ParsedMod {
+                mod_: Mod::base("LifeFlaskChargeGainOverTime", n),
+            });
+        }
+    }
+    if let Some(rest) = line.strip_prefix("Mana Flasks gain ") {
+        if let Some((n, _)) = consume_simple_number(rest) {
+            return Some(ParsedMod {
+                mod_: Mod::base("ManaFlaskChargeGainOverTime", n),
+            });
+        }
+    }
+    // "Your Offering Skills also affect you"
+    if line == "Your Offering Skills also affect you" {
+        return Some(ParsedMod {
+            mod_: Mod::flag("OfferingSkillsAffectYou", true),
+        });
+    }
+    // "Exerted Attacks deal N% increased Damage"
+    if let Some(rest) = line.strip_prefix("Exerted Attacks deal ") {
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if rest.starts_with("increased Damage") {
+                return Some(ParsedMod {
+                    mod_: Mod::inc("ExertedAttackDamage", n),
+                });
+            }
+        }
+    }
+    // "Enemies you Curse take N% increased Damage"
+    if line.starts_with("Enemies you Curse take ") {
+        if let Some((n, rest)) = consume_simple_number(&line["Enemies you Curse take ".len()..]) {
+            let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
+            if rest.starts_with("increased Damage") {
+                return Some(ParsedMod {
+                    mod_: Mod::inc("Enemy:Damage", n).with_tag(Tag::condition("Cursed")),
+                });
+            }
+        }
+    }
+    // "You and nearby Allies have <X>" → emit as a flag on a synthetic key
+    if let Some(rest) = line.strip_prefix("You and nearby Allies have ") {
+        let key = format!("Buff:{}", rest.trim_end_matches('.').replace(' ', ""));
+        return Some(ParsedMod {
+            mod_: Mod::flag(key, true),
+        });
+    }
+    // "Inherent loss of Rage is N% slower" / "Inherent Rage Loss starts N seconds later"
+    if line.starts_with("Inherent loss of Rage is ") {
+        if let Some(idx) = line.find("% slower") {
+            let head = &line["Inherent loss of Rage is ".len()..idx];
+            if let Ok(n) = head.parse::<f64>() {
+                return Some(ParsedMod {
+                    mod_: Mod::base("RageLossSlower", n),
+                });
+            }
+        }
+    }
+    // "Damaging Ailments deal damage N% faster"
+    if let Some(rest) = line.strip_prefix("Damaging Ailments deal damage ") {
+        if let Some(idx) = rest.find("% faster") {
+            if let Ok(n) = rest[..idx].parse::<f64>() {
+                return Some(ParsedMod {
+                    mod_: Mod::inc("AilmentSpeed", n),
+                });
+            }
+        }
+    }
+    // "+0.1 metres to Melee Strike Range" / "+1 metre to Melee Weapon Range"
+    if let Some(rest) = line.strip_prefix('+') {
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.trim_start();
+            if let Some(rest) = rest.strip_prefix("metre ").or_else(|| rest.strip_prefix("metres ")) {
+                if let Some(rest) = rest.strip_prefix("to ") {
+                    if rest == "Melee Strike Range" || rest == "Melee Weapon Range" {
+                        return Some(ParsedMod {
+                            mod_: Mod::base("MeleeRange", n),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    // "+1 to maximum number of <X>"
+    if let Some(rest) = line.strip_prefix('+') {
+        if let Some((n, rest)) = consume_simple_number(rest) {
+            let rest = rest.trim_start();
+            if let Some(rest) = rest.strip_prefix("to maximum number of ") {
+                let stat = match rest.trim() {
+                    "Summoned Golems" => "MaxGolems",
+                    "Summoned Skeletons" => "MaxSkeletons",
+                    "Spectres" => "MaxSpectres",
+                    "Zombies" => "MaxZombies",
+                    "Raised Zombies" => "MaxZombies",
+                    "Animated Weapons" => "MaxAnimatedWeapons",
+                    "Animated Guardians" => "MaxAnimatedGuardians",
+                    "Mirage Archers Summoned at a time" => "MaxMirageArchers",
+                    "Brands Attached to an Enemy" => "MaxBrands",
+                    "Curses on Enemies" => "MaxCursesOnEnemies",
+                    _ => return None,
+                };
+                return Some(ParsedMod {
+                    mod_: Mod::base(stat, n),
+                });
+            }
+            // "+1 to Number of <Items>"
+            if let Some(rest) = rest.strip_prefix("to Number of ") {
+                let stat = match rest.trim() {
+                    "Mines you can have placed at a time" => "MaxMines",
+                    "Traps you can have placed at a time" => "MaxTraps",
+                    "Active Curses on Enemies" => "MaxCursesOnEnemies",
+                    "Skeletons you can have summoned" => "MaxSkeletons",
+                    _ => return None,
+                };
+                return Some(ParsedMod {
+                    mod_: Mod::base(stat, n),
+                });
+            }
+        }
+    }
+    // "Defences from Equipped Shield" group form: "N% increased Defences from Equipped Shield"
+    if let Some(rest) = line.strip_suffix(" from Equipped Shield") {
+        // delegate the leading number form back in; replace with body that maps to a
+        // synthetic stat and let normal Inc parsing handle it.
+        let body = rest.replacen("Defences", "ShieldDefences", 1);
+        return parse_mod_line(&body);
+    }
+    None
+}
+
+fn try_parse_recouped(line: &str) -> Option<ParsedMod> {
+    // "N% of Damage taken Recouped as Life" / "Mana" / "Energy Shield"
+    let (n, rest) = consume_number(line)?;
+    let rest = rest.strip_prefix('%')?.trim_start();
+    let rest = rest.strip_prefix("of Damage taken Recouped as ")?;
+    let stat = match rest.trim() {
+        "Life" => "LifeRecoup",
+        "Mana" => "ManaRecoup",
+        "Energy Shield" => "EnergyShieldRecoup",
+        _ => return None,
+    };
+    Some(ParsedMod {
+        mod_: Mod::base(stat, n),
+    })
+}
+
+fn try_parse_penetrates(line: &str) -> Option<ParsedMod> {
+    // "Damage [with Weapons] Penetrates N% [<Element>] Resistances"
+    let rest = line.strip_prefix("Damage ")?;
+    let (with_weapon, rest) = if let Some(r) = rest.strip_prefix("with Weapons ") {
+        (true, r)
+    } else if let Some(r) = rest.strip_prefix("with Hits and Ailments ") {
+        (false, r)
+    } else {
+        (false, rest)
+    };
+    let rest = rest.strip_prefix("Penetrates ")?;
+    let (n, rest) = consume_simple_number(rest)?;
+    let rest = rest.strip_prefix('%')?.trim_start();
+    // Strip trailing " Resistance" or " Resistances".
+    let element = rest
+        .strip_suffix(" Resistances")
+        .or_else(|| rest.strip_suffix(" Resistance"))
+        .unwrap_or(rest)
+        .trim();
+    let stat = match element {
+        "Fire" => "FirePenetration",
+        "Cold" => "ColdPenetration",
+        "Lightning" => "LightningPenetration",
+        "Chaos" => "ChaosPenetration",
+        "Elemental" | "" => "ElementalPenetration",
+        _ => return None,
+    };
+    let mut m = Mod::base(stat, n);
+    if with_weapon {
+        m.flags |= ModFlag::WEAPON;
+    }
+    Some(ParsedMod { mod_: m })
+}
+
 fn try_parse_to(line: &str) -> Option<ParsedMod> {
     let (sign, rest) = if let Some(r) = line.strip_prefix('+') {
         (1.0, r)
@@ -563,6 +1111,40 @@ fn try_parse_to(line: &str) -> Option<ParsedMod> {
             };
             return Some(ParsedMod { mod_: Mod::base(stat, value) });
         }
+        // "+5% to Cold Damage over Time Multiplier" / "+8% to Fire Damage over Time Multiplier"
+        if let Some(rest) = stat_text.strip_suffix(" Damage over Time Multiplier") {
+            let stat = match rest {
+                "Fire" => "FireDamageMultiplier",
+                "Cold" => "ColdDamageMultiplier",
+                "Lightning" => "LightningDamageMultiplier",
+                "Chaos" => "ChaosDamageMultiplier",
+                "Physical" => "PhysicalDamageMultiplier",
+                _ => return Some(ParsedMod { mod_: Mod::base("DamageOverTimeMultiplier", value) }),
+            };
+            return Some(ParsedMod { mod_: Mod::base(stat, value) });
+        }
+        // "+8% to Critical Strike Multiplier" / "with Traps" / "with Bows" suffix
+        if stat_text == "Critical Strike Multiplier" {
+            return Some(ParsedMod {
+                mod_: Mod::base("CritMultiplier", value),
+            });
+        }
+        if let Some(rest) = stat_text.strip_prefix("Critical Strike Multiplier with ") {
+            let mut m = Mod::base("CritMultiplier", value);
+            match rest {
+                "Traps" => m.keyword_flags |= KeywordFlag::TRAP,
+                "Mines" => m.keyword_flags |= KeywordFlag::MINE,
+                "Bows" => m.flags |= ModFlag::BOW,
+                "Spells" => m.flags |= ModFlag::SPELL,
+                "Attacks" => m.flags |= ModFlag::ATTACK,
+                "Two Handed Melee Weapons" => m.flags |= ModFlag::WEAPON_2H | ModFlag::MELEE,
+                "One Handed Melee Weapons" => m.flags |= ModFlag::WEAPON_1H | ModFlag::MELEE,
+                "Two Handed Weapons" => m.flags |= ModFlag::WEAPON_2H,
+                "One Handed Weapons" => m.flags |= ModFlag::WEAPON_1H,
+                _ => {}
+            }
+            return Some(ParsedMod { mod_: m });
+        }
         if let Some(elem) = stat_text.strip_suffix(" Resistance") {
             return Some(ParsedMod {
                 mod_: Mod::base(format!("{elem}Resist"), value),
@@ -594,7 +1176,17 @@ fn try_parse_inc_reduced(line: &str) -> Option<ParsedMod> {
     } else {
         return None;
     };
-    parse_stat_with_decorators(rest.trim(), ModType::Inc, sign * n)
+    let rest = rest.trim();
+    // "Enemy X" prefix routes to a separate "Enemy:" namespace so calc layer can apply
+    // it against the enemy's stats.
+    if let Some(stat_part) = rest.strip_prefix("Enemy ") {
+        if let Some(canon) = stat_name(stat_part) {
+            return Some(ParsedMod {
+                mod_: Mod::inc(format!("Enemy:{canon}"), sign * n),
+            });
+        }
+    }
+    parse_stat_with_decorators(rest, ModType::Inc, sign * n)
 }
 
 fn try_parse_more_less(line: &str) -> Option<ParsedMod> {
@@ -939,6 +1531,49 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Chance to Block Attack Damage" => "BlockChance",
         "Evasion Rating and Armour" => "ArmourAndEvasion",
         "Armour and Evasion Rating" => "ArmourAndEvasion",
+        "Stun Duration" => "EnemyStunDuration",
+        "Stun Duration on Enemies" => "EnemyStunDuration",
+        "Stun Duration with Staves on Enemies" => "EnemyStunDuration",
+        "Cost of Skills" => "ManaCost",
+        "Cost of Attack Skills" => "AttackManaCost",
+        "Cost" => "ManaCost",
+        "Cooldown Recovery Rate for Stance Skills" => "StanceCooldownRecovery",
+        "Critical Strike Multiplier for Spell Damage" => "SpellCritMultiplier",
+        "Global Critical Strike Chance" => "CritChance",
+        "Blind Effect" => "BlindEffect",
+        "Knockback Distance" => "KnockbackDistance",
+        "Tincture Mana Burn rate" => "TinctureManaBurnRate",
+        "Mana Burn rate" => "ManaBurnRate",
+        "maximum Fortification" => "FortificationMax",
+        "maximum Power Charges" => "PowerChargesMax",
+        "maximum Frenzy Charges" => "FrenzyChargesMax",
+        "maximum Endurance Charges" => "EnduranceChargesMax",
+        "maximum Mana" => "Mana",
+        "maximum Life" => "Life",
+        "maximum Energy Shield" => "EnergyShield",
+        "maximum Valour" => "MaxValour",
+        "Melee Critical Strike Multiplier" => "MeleeCritMultiplier",
+        "Spell Critical Strike Multiplier" => "SpellCritMultiplier",
+        "Attack Critical Strike Multiplier" => "AttackCritMultiplier",
+        "Brand Critical Strike Chance" => "BrandCritChance",
+        "Critical Strike Chance for Attacks" => "AttackCritChance",
+        "Critical Strike Chance with Spells" => "SpellCritChance",
+        "Critical Strike Multiplier with Spell Damage" => "SpellCritMultiplier",
+        "Critical Strike Multiplier with Attacks" => "AttackCritMultiplier",
+        "Maximum total Life Recovery per second from Leech" => "MaxLifeLeechRate",
+        "Maximum total Mana Recovery per second from Leech" => "MaxManaLeechRate",
+        "Maximum total Energy Shield Recovery per second from Leech" => "MaxEnergyShieldLeechRate",
+        "Maximum total Recovery per second from Mana Leech" => "MaxManaLeechRate",
+        "Maximum total Recovery per second from Life Leech" => "MaxLifeLeechRate",
+        "Skill Effect Duration of Curse Skills" => "CurseDuration",
+        "Duration of Elemental Ailments on Enemies" => "EnemyElementalAilmentDuration",
+        "Duration of Ailments you inflict" => "InflictedAilmentDuration",
+        "Stun Duration with Staves on Enemies" => "EnemyStunDuration",
+        "Block Recovery Speed" => "BlockRecovery",
+        "Stun Recovery Speed" => "StunRecovery",
+        "Stun and Block Recovery Speed" => "StunAndBlockRecovery",
+        "Fortification Duration" => "FortificationDuration",
+        "Brand Activation frequency" => "BrandActivationFrequency",
 
         // Effect / duration / threshold
         "Impale Effect" => "ImpaleEffect",
@@ -974,6 +1609,78 @@ pub fn stat_name(text: &str) -> Option<String> {
         "Brand Attachment range" => "BrandAttachmentRange",
         "Aura Effect" => "AuraEffect",
         "Curse Skill Effect Duration" => "CurseDuration",
+        "Curse Duration" => "CurseDuration",
+        "effect of Non-Curse Auras" => "AuraEffect",
+        "Effect of Non-Curse Auras" => "AuraEffect",
+        "Effect of Non-Damaging Ailments" => "NonDamagingAilmentEffect",
+        "Effect of Non-Damaging Ailments on Enemies" => "NonDamagingAilmentEffect",
+        "Effect of Arcane Surge on you" => "ArcaneSurgeEffect",
+        "Effect of Onslaught on you" => "OnslaughtEffect",
+        "Effect of your Marks" => "MarkEffect",
+        "Power Charge Duration" => "PowerChargeDuration",
+        "Frenzy Charge Duration" => "FrenzyChargeDuration",
+        "Endurance Charge Duration" => "EnduranceChargeDuration",
+        "Bleeding Duration" => "BleedDuration",
+        "Mana Cost of Attacks" => "AttackManaCost",
+        "Mana Cost of Skills" => "ManaCost",
+        "Life Cost of Skills" => "LifeCost",
+        "Mana Reserved" => "ManaReserved",
+        "Block Recovery" => "BlockRecovery",
+        "Stun Threshold" => "StunThreshold",
+        "Damage Recouped as Life" => "LifeRecoup",
+        "Defences from Equipped Shield" => "ShieldDefences",
+        "Cooldown Recovery Rate of Movement Skills" => "MovementCooldownRecovery",
+        "Cooldown Recovery Rate of Travel Skills" => "TravelCooldownRecovery",
+        "Warcry Cooldown Recovery Rate" => "WarcryCooldownRecovery",
+        "Mana Reservation Efficiency of Aura Skills" => "AuraReservationEfficiency",
+        "Mana Reservation Efficiency of Curse Aura Skills" => "CurseReservationEfficiency",
+        "Mana Reservation Efficiency of Herald Skills" => "HeraldReservationEfficiency",
+        "Quantity of Items Dropped by Slain Enemies" => "ItemQuantity",
+        "Rarity of Items Dropped by Slain Enemies" => "ItemRarity",
+        "Melee Critical Strike Chance" => "MeleeCritChance",
+        "Melee Damage" => "MeleeDamage",
+        "Melee Strike Range" => "MeleeRange",
+        "Melee Weapon Range" => "MeleeRange",
+        "Melee Weapon and Unarmed Attack Range" => "MeleeRange",
+        "Travel Skill Cooldown Recovery Rate" => "TravelCooldownRecovery",
+        "Buff Effect" => "BuffEffect",
+        "Buff Duration" => "BuffEffectDuration",
+        "Aura Effect" => "AuraEffect",
+        "Detonation Speed" => "DetonationSpeed",
+        "Cooldown Recovery Rate" => "CooldownRecovery",
+        "Stun and Block Recovery" => "StunAndBlockRecovery",
+        "Duration of Elemental Ailments on Enemies" => "EnemyElementalAilmentDuration",
+        "Duration of Ailments on Enemies" => "EnemyAilmentDuration",
+        "Duration" => "Duration",
+        "Skill Effect Duration" => "SkillEffectDuration",
+        "Cast Speed" => "CastSpeed",
+        "Attack Speed" => "AttackSpeed",
+        "Minion Damage" => "MinionDamage",
+        "Minion Life" => "MinionLife",
+        "Minion Accuracy Rating" => "MinionAccuracy",
+        "Minion Movement Speed" => "MinionMovementSpeed",
+        "Minion Attack Speed" => "MinionAttackSpeed",
+        "Minion Cast Speed" => "MinionCastSpeed",
+        "Minion Block Chance" => "MinionBlockChance",
+        "Minion Critical Strike Chance" => "MinionCritChance",
+        "Minion Critical Strike Multiplier" => "MinionCritMultiplier",
+        "Damage with Ailments" => "AilmentDamage",
+        "Damage Penetration" => "DamagePenetration",
+        "Resistance Penetration" => "ResistancePenetration",
+        "Travel Skill Damage" => "TravelDamage",
+        "Brand Damage" => "BrandDamage",
+        "Hex Damage" => "HexDamage",
+        "Curse Damage" => "CurseDamage",
+        "Banner Effect" => "BannerEffect",
+        "Aura Reservation Efficiency" => "AuraReservationEfficiency",
+        "Curse Effect" => "CurseEffect",
+        "Onslaught Effect" => "OnslaughtEffect",
+        "Tincture Effect" => "TinctureEffect",
+        "Flask Effect" => "FlaskEffect",
+        "Strength of Body and Soul" => "StrengthOfBodyAndSoul",
+        "Maximum Fortification" => "FortificationMax",
+        "Fortification" => "Fortification",
+        "Damaging Ailments" => "AilmentDamage",
         "Totem Life" => "TotemLife",
         "Spell Critical Strike Chance" => "SpellCritChance",
         "Attack Critical Strike Chance" => "AttackCritChance",

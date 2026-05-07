@@ -47,11 +47,11 @@ fn parser_covers_floor_of_3_25_passives() {
     let pct = (parsed as f64 / total as f64) * 100.0;
     println!("3_25 passive stat lines: {parsed}/{total} parsed ({pct:.1}%)");
 
-    // Show the top-10 unparsed lines so any regression is easy to spot.
+    // Show the top-30 unparsed lines so any regression is easy to spot.
     let mut top: Vec<_> = unparsed_examples.into_iter().collect();
     top.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
     println!("Top unparsed lines:");
-    for (line, n) in top.iter().take(10) {
+    for (line, n) in top.iter().take(30) {
         println!("  {n:>4}× {line}");
     }
 
