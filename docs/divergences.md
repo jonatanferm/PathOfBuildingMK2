@@ -111,14 +111,29 @@ ascendancy, level, allocated nodes, and notes. PoB will accept it and fill items
 skills / config with defaults. Round-tripping items + skill setup back to upstream PoB
 requires full document serialisation.
 
-### Live-PoB validation harness — Phase 2g (skeleton)
+### Live-PoB validation harness — Phase 2g (operational)
 
-`crates/pob-extract/src/bin/pob_diff.rs` boots an mlua sandbox with the SimpleGraphic
-shims PoB needs at module-load time, plus the `SkillType` / `KeywordFlag` constants. It
-does *not* yet load PoB's full `Modules/` + `Classes/` graph and run a build through it
-— that's the next chunk: stub or vendor enough of `Common.lua` / `Main.lua` /
-`HeadlessWrapper.lua` to reach `calcs.buildOutput`. Hardcoded reference values in
-`crates/pob-engine/tests/validation.rs` cover the regression-detection role until then.
+`crates/pob-extract/src/bin/pob_diff.rs` boots PoB's full Lua codebase under mlua
+(HeadlessWrapper + Launch + Modules/Main + tree data + uniques + rares + Build mode),
+loads any `--build` XML through `main:SetMode("BUILD", …)`, runs the official calc
+engine, pulls `env.player.output` (~617 scalar keys) back into Rust, and prints a
+side-by-side diff against `pob_engine::compute_with_skills` for the comparable subset.
+
+LuaJIT → Lua 5.4 compatibility shims live in `build_lua_sandbox`:
+- `jit.opt.start`, `unpack`, `loadstring`, LuaJIT-style `bit.*`
+- `package.preload` stubs for native libs (lcurl/sha1/sha2/lfs/socket/cjson/dkjson/base64)
+- functional `lua-utf8` mapping to builtin `string.*` and `utf8`
+- `xml` loaded from PoB's own `runtime/lua/xml.lua`
+- lenient `string.gsub` replacement-pattern shim (handles bare `%` escapes)
+- `string.format` int-coercion for `%d`/`%i` with float arguments
+
+Open work on the bridge:
+- XML→CharacterState mapping is class+level only; items, tree allocs, skill gem
+  selection, and config inputs need plumbing.
+- The Witch-with-no-tree comparison surfaces an apparent PoB quirk where
+  attributes default to 20/20/20 instead of class base (Witch=14/14/32) when the
+  build XML has no tree allocations. Allocating the class start node should
+  resolve this and give us a clean apples-to-apples baseline.
 
 ### Tree rendering uses egui shapes, not wgpu — Phase 4a (open)
 
