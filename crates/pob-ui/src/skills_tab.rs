@@ -8,12 +8,16 @@ use pob_engine::{MainSkill, SkillRegistry};
 
 pub struct SkillsTabState {
     pub filter: String,
+    pub show_spells: bool,
+    pub show_attacks: bool,
 }
 
 impl Default for SkillsTabState {
     fn default() -> Self {
         Self {
             filter: String::new(),
+            show_spells: true,
+            show_attacks: true,
         }
     }
 }
@@ -33,6 +37,8 @@ pub fn ui(
                 .desired_width(220.0)
                 .hint_text("Arc, Fireball, …"),
         );
+        ui.checkbox(&mut state.show_spells, "Spells");
+        ui.checkbox(&mut state.show_attacks, "Attacks");
         ui.separator();
         ui.label(format!("{} skills loaded", registry.len()));
     });
@@ -52,6 +58,17 @@ pub fn ui(
                     let mut skills: Vec<(&str, &pob_data::Skill)> = registry
                         .iter_active()
                         .filter(|(_, s)| {
+                            let is_spell = s.base_flags.get("spell").copied().unwrap_or(false);
+                            let is_attack = s.base_flags.get("attack").copied().unwrap_or(false);
+                            if is_spell && !state.show_spells {
+                                return false;
+                            }
+                            if is_attack && !state.show_attacks {
+                                return false;
+                            }
+                            if !is_spell && !is_attack {
+                                return false;
+                            }
                             if q.is_empty() {
                                 return true;
                             }
