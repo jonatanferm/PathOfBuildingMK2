@@ -450,6 +450,46 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         && !skill.skill_types.get("10").copied().unwrap_or(false); // SkillType 10 = Damage (hit)
     if is_dot_only {
         env.output.set("MainSkillIsDotOnly", 1.0);
+        // Compute basic DoT DPS using a default-cfg query (no skill-name targeting).
+        let dot_cfg = QueryCfg::default();
+        let (dot_min, _) = skill_base_damage(skill, gem_level, character.level);
+        if dot_min > 0.0 {
+            let dot_eff = skill.damage_effectiveness(gem_level);
+            let (elem, _) = skill_damage_element(skill).unwrap_or(("ChaosDamage", "Chaos"));
+            let dot_inc = env
+                .mod_db
+                .sum(ModType::Inc, &dot_cfg, &env.state, "DamageOverTime")
+                + env.mod_db.sum(ModType::Inc, &dot_cfg, &env.state, elem);
+            let dot_more = env
+                .mod_db
+                .more(&dot_cfg, &env.state, "DamageOverTime")
+                * env.mod_db.more(&dot_cfg, &env.state, elem);
+            let dot_mult_base = env.mod_db.sum(
+                ModType::Base,
+                &dot_cfg,
+                &env.state,
+                "DamageOverTimeMultiplier",
+            );
+            let per_minute = dot_min
+                * dot_eff
+                * (1.0 + dot_inc / 100.0)
+                * dot_more
+                * (1.0 + dot_mult_base / 100.0);
+            let per_second = per_minute / 60.0;
+            let res = match elem {
+                "FireDamage" => character.config.enemy_fire_resist,
+                "ColdDamage" => character.config.enemy_cold_resist,
+                "LightningDamage" => character.config.enemy_lightning_resist,
+                "ChaosDamage" => character.config.enemy_chaos_resist,
+                _ => 0,
+            };
+            let res_factor = (1.0 - f64::from(res) / 100.0).max(0.0);
+            let dot_dps = per_second * res_factor;
+            env.output.set("MainSkillDotDPS", dot_dps);
+            env.output.set("MainSkillDPS", dot_dps);
+            env.output.set("FullDPS", dot_dps);
+            return;
+        }
     }
 
     // Identify the element keyword for further filtering.
