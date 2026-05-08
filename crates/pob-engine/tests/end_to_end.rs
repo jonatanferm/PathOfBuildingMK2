@@ -1264,6 +1264,48 @@ fn impale_chance_drives_impale_dps() {
     );
 }
 
+// Issue #9: a Granite Flask granting "+3000 to Armour during Flask Effect"
+// must contribute its bonus only when the `UsingFlask` config toggle is on,
+// matching PoB's gating in CalcSetup.lua. Without the toggle the mod is in
+// modDB but the Condition tag (auto-emitted by mod_parser from "during Flask
+// effect") gates evaluation; with the toggle the bonus lands.
+#[test]
+fn flask_armour_mod_gates_on_using_flask_toggle() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::marauder(), 90);
+
+    // Force UsingFlask=false explicitly so we know what we're measuring.
+    c.config.conditions.insert("UsingFlask".to_owned(), false);
+    let no_flask_baseline = compute_with_skills(&c, &tree, None);
+    let baseline_armour = no_flask_baseline.get("Armour");
+
+    let flask = parse_item(
+        "Item Class: Utility Flasks\nRarity: NORMAL\nGranite Flask\n--------\n+3000 to Armour during Flask Effect\n--------",
+    )
+    .expect("parse Granite Flask");
+    c.items.equip(pob_data::Slot::Flask1, flask);
+
+    // With the flask equipped but UsingFlask off, armour should be unchanged
+    // — the mod is gated by the Condition tag.
+    let off = compute_with_skills(&c, &tree, None);
+    let off_armour = off.get("Armour");
+    assert!(
+        (off_armour - baseline_armour).abs() < 0.5,
+        "With UsingFlask=false the flask mod must not apply: baseline={baseline_armour} got={off_armour}"
+    );
+
+    // Toggle UsingFlask on; armour should jump by ~3000.
+    c.config.conditions.insert("UsingFlask".to_owned(), true);
+    let on = compute_with_skills(&c, &tree, None);
+    let on_armour = on.get("Armour");
+    assert!(
+        on_armour - off_armour > 2900.0,
+        "With UsingFlask=true the Granite Flask should add ~3000 Armour: off={off_armour} on={on_armour}"
+    );
+}
+
 #[test]
 fn config_charges_drive_per_charge_mod() {
     let Some(tree) = load_3_25_tree() else {
