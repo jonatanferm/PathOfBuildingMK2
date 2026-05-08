@@ -914,6 +914,39 @@ fn arc_level_20_witch_baseline_damage_is_in_pob_range() {
     );
 }
 
+// Issue #11: PoB sets `output.ChainRemaining = max(0, ChainMax - Chain)` where
+// `Chain` is a config (default 0) — see CalcOffence.lua:1033. The default analysis
+// is the initial cast with the FULL chain bonus, so EvalState.ChainRemaining must
+// equal ChainMax. Previously MK2 stored ChainMax / 2.0 as a half-bonus
+// approximation, which over-stated the divergence note in docs/divergences.md.
+//
+// Note: the chain MORE itself (Arc's `+15% MORE damage per remaining chain`,
+// `KeywordFlag::Hit | Ailment`) is currently filtered out of the hit-damage query
+// because the cfg lacks `KeywordFlag::Hit`. That's a separate issue (it touched
+// many other mods and produced unexpected damage spikes); this PR limits its
+// scope to the ChainRemaining alignment.
+#[test]
+fn arc_chain_remaining_is_full_chain_count_by_default() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.main_skill = Some(MainSkill::new("Arc"));
+    let out = compute_with_skills(&c, &tree, Some(&skills));
+
+    // Output key: ChainRemaining mirrors ChainMax (initial cast, no chains used).
+    let chain_remaining = out.get("ChainRemaining");
+    let chain_max = out.get("ChainMax");
+    assert_eq!(
+        chain_remaining, chain_max,
+        "ChainRemaining should equal ChainMax by default (no chains used)"
+    );
+    assert!(
+        chain_remaining >= 7.0 && chain_remaining <= 8.0,
+        "Arc level 20 ChainRemaining expected 7..=8, got {chain_remaining}"
+    );
+}
+
 #[test]
 fn config_charges_drive_per_charge_mod() {
     let Some(tree) = load_3_25_tree() else {
