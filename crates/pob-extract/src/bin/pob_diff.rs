@@ -337,6 +337,43 @@ fn diff_against_pob_engine(
     }
     println!("{:-<78}", "");
     println!("  {shown} keys compared, {diverge} divergent (>=0.5 absolute delta)");
+
+    // Auto-divergence pass: walk every numeric scalar that pob-engine emits and
+    // also has a same-named entry in PoB's output, and report the deltas. This
+    // surfaces engine bugs that the curated probe table doesn't cover.
+    let mut auto_div: Vec<(String, f64, f64)> = Vec::new();
+    let mut auto_match = 0usize;
+    for (name, ours) in output.iter() {
+        // Only reported if pob-engine value is non-trivial OR PoB value is non-trivial,
+        // so we don't drown in zeros.
+        let theirs = lookup.get(name).and_then(|v| match v {
+            mlua::Value::Number(n) => Some(*n),
+            mlua::Value::Integer(i) => Some(*i as f64),
+            mlua::Value::Boolean(true) => Some(1.0),
+            mlua::Value::Boolean(false) => Some(0.0),
+            _ => None,
+        });
+        let Some(theirs) = theirs else { continue };
+        let delta = ours - theirs;
+        if delta.abs() < 0.5 {
+            auto_match += 1;
+        } else if ours.abs() > 0.5 || theirs.abs() > 0.5 {
+            auto_div.push((name.to_string(), ours, theirs));
+        }
+    }
+    auto_div.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
+    let auto_total = auto_match + auto_div.len();
+    println!("\n=== auto-divergence ({auto_total} shared keys, {} divergent) ===", auto_div.len());
+    for (name, ours, theirs) in auto_div.iter().take(40) {
+        println!(
+            "  {name:<32}  ours={ours:>12.2}  pob={theirs:>12.2}  delta={:>+12.2}",
+            ours - theirs
+        );
+    }
+    if auto_div.len() > 40 {
+        println!("  … ({} more divergent — pass --verbose to see all)", auto_div.len() - 40);
+    }
+
     println!("\nXML→CharacterState bridge uses pob-engine's import_pob_xml: class,");
     println!("level, ascendancy, and allocated tree nodes are wired. Items / skills /");
     println!("config inputs are still empty (the upstream XML encodes them as nested");

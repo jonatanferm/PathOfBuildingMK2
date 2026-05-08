@@ -377,12 +377,19 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     let attack_speed_mult = env.mod_db.applied(&cfg, &env.state, "AttackSpeed");
     env.output.set("AttackSpeedMult", attack_speed_mult);
 
-    // Crit chance (base 5%, additive INC, OVERRIDE wins). Crit multiplier defaults to
-    // 150% in PoE; mods are additive on top.
+    // Crit chance / multiplier. PoB exposes these as flat character-level outputs
+    // even with no skill selected: 0 (no chance to crit) and 1.5 (the decimal form
+    // of the 150% PoE base crit damage multiplier — `1 + 50/100`).
+    // With a skill we mirror PoB's full computation: crit chance scales with INC,
+    // CritMultiplier picks up BASE additions on top of the 150% baseline.
     let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
-    env.output.set("CritChance", 5.0 * (1.0 + crit_inc / 100.0));
-    let crit_mult = 150.0 + env.mod_db.sum(ModType::Base, &cfg, &env.state, "CritMultiplier");
-    env.output.set("CritMultiplier", crit_mult);
+    let crit_chance_base = if character.main_skill.is_some() { 5.0 } else { 0.0 };
+    env.output.set("CritChance", crit_chance_base * (1.0 + crit_inc / 100.0));
+    // PoE base crit deals 150% damage; PoB exposes that as the decimal multiplier
+    // 1.5 (= 150 / 100). BASE mods on `CritMultiplier` add extra crit damage as
+    // additional percentage points.
+    let crit_mult_pct = 150.0 + env.mod_db.sum(ModType::Base, &cfg, &env.state, "CritMultiplier");
+    env.output.set("CritMultiplier", crit_mult_pct / 100.0);
 }
 
 /// Compute hit damage for the main skill. Phase 3d: spell-only, single hit, single
