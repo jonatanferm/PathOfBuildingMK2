@@ -2912,10 +2912,29 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
     //   normal × (1 - uptime) + exerted × uptime
     // = normal × (1 + uptime × ((1 + inc/100) × more - 1))
     // where `uptime = ExertedAttackCount / (ExertedAttackCount + attacks_between_cries)`.
-    // We accept the uptime directly via `ConfigState::exerted_attack_uptime`
-    // (0..=1) since modelling cry cadence + skill detection is out of scope
-    // for this PR.
-    let exerted_uptime = character.config.exerted_attack_uptime.clamp(0.0, 1.0);
+    //
+    // Slice 4 (#19) auto-derives the uptime from the slice-3
+    // warcry aggregates (`WarcryExertedAttackCountTotal` /
+    // `WarcryMinCooldown`) when the user hasn't pinned it manually.
+    // The user's `config.exerted_attack_uptime` (>0) still wins so
+    // existing builds that hand-tuned the value don't shift.
+    let manual_uptime = character.config.exerted_attack_uptime.clamp(0.0, 1.0);
+    let exerted_uptime = if manual_uptime > 0.0 {
+        manual_uptime
+    } else {
+        // Auto-derive: a warcry empowers `total_exert` attacks each
+        // time it cycles, and the player makes `cps × cooldown`
+        // attacks between cries. Uptime is the share of attacks
+        // landing while exerted, capped at 1.
+        let total_exert = env.output.get("WarcryExertedAttackCountTotal");
+        let min_cooldown = env.output.get("WarcryMinCooldown");
+        if total_exert > 0.0 && min_cooldown > 0.0 && cps > 0.0 {
+            let attacks_per_cycle = cps * min_cooldown;
+            (total_exert / attacks_per_cycle).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    };
     let exerted_dps_factor = if is_attack && exerted_uptime > 0.0 {
         let exerted_inc = env
             .mod_db

@@ -3208,6 +3208,79 @@ fn warcry_detection_emits_loadout_aggregates() {
     );
 }
 
+// Issue #19 (slice 4): `ExertedAttackUptime` auto-derives from the
+// slice-3 warcry aggregates when the user hasn't pinned it
+// manually. Auto-uptime = `total_exert / (cps × cooldown)`, capped
+// at 1; manual `config.exerted_attack_uptime > 0` still wins.
+#[test]
+fn exerted_uptime_auto_derives_from_warcry_loadout() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("AncestralCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: AncestralCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+    use pob_engine::{Mod, Source};
+
+    // Cleave + Ancestral Cry. We need at least one
+    // `ExertedAttackDamage` mod for the existing exerted-DPS branch
+    // to actually emit the output keys we want to assert on; pin one
+    // via the modDB.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("AncestralCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcry".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+
+    // Manual override stays in control when set.
+    c.config.exerted_attack_uptime = 0.42;
+    let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
+    env.mod_db
+        .add(Mod::more("ExertedAttackDamage", 50.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
+    let manual = env.output.get("ExertedAttackUptime");
+    assert!(
+        (manual - 0.42).abs() < 0.001,
+        "manual override should win when config.exerted_attack_uptime > 0; got {manual}"
+    );
+
+    // Drop the manual override → auto-derive kicks in.
+    c.config.exerted_attack_uptime = 0.0;
+    let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
+    env.mod_db
+        .add(Mod::more("ExertedAttackDamage", 50.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
+    let auto = env.output.get("ExertedAttackUptime");
+    // We assert two things: the value is positive (auto-derive
+    // fired) and capped at 1.0. The exact uptime depends on
+    // Cleave's attack rate × Ancestral Cry cooldown which can shift
+    // with skill data updates, so we don't pin the magnitude.
+    assert!(
+        auto > 0.0 && auto <= 1.0,
+        "auto-uptime should be in (0, 1]; got {auto}"
+    );
+    // Sanity-cross-check against the slice-3 aggregates.
+    let total_exert = env.output.get("WarcryExertedAttackCountTotal");
+    let min_cd = env.output.get("WarcryMinCooldown");
+    let cps = env.output.get("MainSkillSpeed");
+    if total_exert > 0.0 && min_cd > 0.0 && cps > 0.0 {
+        let expected = (total_exert / (cps * min_cd)).clamp(0.0, 1.0);
+        assert!(
+            (auto - expected).abs() < 0.001,
+            "auto-uptime should equal total_exert / (cps × cooldown); got {auto} expected {expected}"
+        );
+    }
+}
+
 // Issue #68: Ruthless support `RuthlessBlowAilmentEffect`. Mirrors
 // CalcOffence.lua:2780-2797 — `effect = (1 - chance) + chance × mult`,
 // where `chance = 1 / RuthlessBlowMaxCount` and `mult = 1 + BASE/100`.
