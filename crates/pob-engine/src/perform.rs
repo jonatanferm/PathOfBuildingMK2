@@ -1587,14 +1587,45 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         env.output.set("MainSkillManaCost", cost);
     }
 
-    // Apply enemy resistance: hit damage reduced by `(1 - effective_resist/100)`.
-    // Penetration: a `<Element>Penetration` Base mod subtracts from the enemy resist
-    // before clamping to PoE's -200..max range.
+    // Apply enemy mitigation: physical hits go through the armour formula,
+    // elemental/chaos through resist. Both resolve into an `effective_resist`
+    // percentage and a `(1 - effective_resist/100)` multiplier on the hit
+    // average.
+    //
+    // PoB's armour formula (`CalcDefence.lua:41`):
+    //   reduction% = armour / (armour + 5 × raw)
+    // where `raw` is the per-hit physical average BEFORE crit averaging
+    // (`damageTypeHitAvg` in CalcOffence.lua:3260). The result is capped at
+    // 90% (`EnemyPhysicalDamageReductionCap`).
+    //
+    // We treat a hit as physical when either the skill explicitly tags itself
+    // as `PhysicalDamage` or it's a weapon-driven attack with no elemental
+    // tag (Cleave, Strike skills, default Sunder, etc. — their damage source
+    // is the weapon's physical damage). Skill-data-driven elemental conversion
+    // (e.g. Avatar of Fire) takes a follow-up to model precisely.
+    let is_physical_hit =
+        elem_stat == "PhysicalDamage" || (early_is_attack && elem_stat == "Damage");
+    let enemy_phys_reduction = if is_physical_hit {
+        let raw = avg.max(0.0);
+        let armour = f64::from(character.config.effective_enemy_armour());
+        if armour > 0.0 && raw > 0.0 {
+            ((armour / (armour + 5.0 * raw)) * 100.0).min(90.0)
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+    if is_physical_hit {
+        env.output.set("EnemyPhysReduction", enemy_phys_reduction);
+    }
     let enemy_resist_raw = match elem_stat {
         "FireDamage" => character.config.enemy_fire_resist,
         "ColdDamage" => character.config.enemy_cold_resist,
         "LightningDamage" => character.config.enemy_lightning_resist,
         "ChaosDamage" => character.config.enemy_chaos_resist,
+        "PhysicalDamage" => enemy_phys_reduction.round() as i32,
+        "Damage" if is_physical_hit => enemy_phys_reduction.round() as i32,
         _ => 0,
     };
     // Curse-driven enemy resist reduction. perform_curses populated

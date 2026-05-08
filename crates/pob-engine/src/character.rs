@@ -201,6 +201,12 @@ pub struct ConfigState {
     /// iLvl-84 monster — matches PoB's standard map mob.
     #[serde(default)]
     pub enemy_evasion: u32,
+    /// Enemy armour (used for physical-hit damage reduction via PoB's
+    /// `armour / (armour + 5 × raw)` formula in CalcDefence.lua). Default 0
+    /// to match PoB's bare target-dummy mode; common Pinnacle profile uses
+    /// 36000.
+    #[serde(default)]
+    pub enemy_armour: u32,
     /// Defender-side avoidance against the player's hits. Each value is the
     /// percentage chance the enemy avoids/halves the hit. Mirrors PoB's
     /// `enemyBlockChance`, `enemyDodgeChance`, and `enemySuppressionChance`
@@ -226,7 +232,31 @@ impl ConfigState {
             ..Self::default()
         }
     }
+
+    /// Effective enemy armour for damage-reduction calcs. When the user has
+    /// set `enemy_armour` to a non-zero value, that value wins. Otherwise we
+    /// mirror PoB's behaviour and pick the level-derived default from
+    /// `MONSTER_ARMOUR_TABLE` (Data/Misc.lua) — that's what the PoB config
+    /// panel shows as the placeholder when the user hasn't typed anything.
+    pub fn effective_enemy_armour(&self) -> u32 {
+        if self.enemy_armour > 0 {
+            return self.enemy_armour;
+        }
+        let lvl = self.enemy_level.clamp(1, MONSTER_ARMOUR_TABLE.len() as u32);
+        MONSTER_ARMOUR_TABLE[(lvl - 1) as usize]
+    }
 }
+
+/// PoB `Data/Misc.lua:13` — base monster armour by level (1–100).
+const MONSTER_ARMOUR_TABLE: [u32; 100] = [
+    12, 15, 19, 23, 27, 32, 37, 43, 50, 57, 65, 74, 83, 94, 105, 118, 132, 147, 164, 182, 202, 224,
+    248, 275, 303, 334, 368, 405, 445, 489, 537, 589, 646, 707, 774, 846, 925, 1010, 1103, 1204,
+    1313, 1432, 1560, 1700, 1850, 2014, 2191, 2383, 2591, 2815, 3059, 3322, 3607, 3915, 4248, 4608,
+    4997, 5418, 5873, 6365, 6896, 7469, 8089, 8757, 9480, 10259, 11101, 12009, 12989, 14047, 15188,
+    16419, 17747, 19178, 20722, 22387, 24182, 26117, 28203, 30451, 32873, 35483, 38296, 41326,
+    44591, 48107, 51894, 55973, 60365, 65095, 70188, 75670, 81573, 87926, 94765, 102125, 110047,
+    118571, 127744, 137613,
+];
 
 impl Default for ClassRef {
     fn default() -> Self {

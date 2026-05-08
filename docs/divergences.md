@@ -72,7 +72,12 @@ We compute `MainSkillDPS = final_avg × cps` after applying enemy element resist
 chance, but do not model:
 - AoE / projectile stat-derived mods (e.g. AoE radius rolloff, projectile shotgun
   multiplier).
-- Enemy armour mitigation against physical hits.
+
+Closed in 7g: enemy armour now reduces physical-hit damage via PoB's
+`armour / (armour + 5 × raw)` formula (`CalcDefence.lua:41`). When the
+user has not specified an explicit value, MK2 falls back on the
+level-based `MONSTER_ARMOUR_TABLE` (`Data/Misc.lua`), matching PoB's
+config-tab placeholder.
 
 PoB walks all of these; ours doesn't yet.
 

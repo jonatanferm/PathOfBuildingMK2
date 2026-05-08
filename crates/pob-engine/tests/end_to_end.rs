@@ -1066,6 +1066,72 @@ fn enemy_block_dodge_suppress_reduce_dps() {
     assert_eq!(combined.get("EnemyDodgeChance"), 30.0);
 }
 
+// Issue #2: Enemy armour reduces physical-hit DPS via PoB's
+// `armour / (armour + 5 × raw)` formula (CalcDefence.lua:41). When the
+// user has not specified an explicit value, MK2 falls back on the
+// level-based monster armour table (Data/Misc.lua), matching PoB's
+// placeholder. This test exercises two explicit values to confirm the
+// reduction scales as expected without saturating the 90% cap.
+#[test]
+fn enemy_armour_reduces_physical_dps() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        return;
+    };
+    let xml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("crates/pob-extract/test-builds/marauder_l90_cleave_with_axe.xml");
+    let Ok(xml) = std::fs::read_to_string(&xml_path) else {
+        eprintln!("skip: {} not found", xml_path.display());
+        return;
+    };
+    let mut c = pob_engine::import_pob_xml(&xml).expect("import cleave fixture");
+
+    // Two explicit armour values, both small enough that the formula stays
+    // below the 90 % cap on the Cleave fixture's per-hit damage. Lets us
+    // assert the formula scales: doubling armour should produce strictly
+    // more reduction (and lower DPS) without saturating.
+    c.config.enemy_armour = 50;
+    let low = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let low_dps = low.get("MainSkillDPS");
+    let low_reduction = low.get("EnemyPhysReduction");
+
+    c.config.enemy_armour = 200;
+    let high = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let high_dps = high.get("MainSkillDPS");
+    let high_reduction = high.get("EnemyPhysReduction");
+
+    assert!(
+        low_dps > 0.0 && high_dps > 0.0,
+        "Cleave fixture should produce non-zero phys DPS at both armour values"
+    );
+    assert!(
+        low_reduction > 0.0 && low_reduction < 90.0,
+        "50 armour should give a non-zero, non-capped reduction, got {low_reduction}"
+    );
+    assert!(
+        high_reduction > low_reduction && high_reduction < 90.0,
+        "Higher armour should give more reduction (high={high_reduction} low={low_reduction})"
+    );
+    assert!(
+        high_dps < low_dps,
+        "Higher armour should reduce phys DPS ({high_dps} < {low_dps} expected)"
+    );
+    // The ratio between the two armoured runs should match the ratio of
+    // surviving damage fractions: dps_high / dps_low = (1 - r_high) / (1 - r_low).
+    let expected_ratio = (1.0 - high_reduction / 100.0) / (1.0 - low_reduction / 100.0);
+    let actual_ratio = high_dps / low_dps;
+    assert!(
+        (actual_ratio - expected_ratio).abs() < 0.05,
+        "DPS ratio {actual_ratio} should track (1 - r_high/100) / (1 - r_low/100) = {expected_ratio} \
+         (low_reduction={low_reduction}, high_reduction={high_reduction})"
+    );
+}
+
 #[test]
 fn config_charges_drive_per_charge_mod() {
     let Some(tree) = load_3_25_tree() else {

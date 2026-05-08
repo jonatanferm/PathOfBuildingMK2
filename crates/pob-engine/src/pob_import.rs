@@ -486,6 +486,7 @@ fn apply_config_number(c: &mut Character, name: &str, value: f64) {
         "enemyColdResist" => c.config.enemy_cold_resist = value as i32,
         "enemyLightningResist" => c.config.enemy_lightning_resist = value as i32,
         "enemyChaosResist" => c.config.enemy_chaos_resist = value as i32,
+        "enemyArmour" => c.config.enemy_armour = value as u32,
         "enemyBlockChance" => {
             c.config.enemy_block_chance = (value as i32).clamp(0, 75) as u32;
         }

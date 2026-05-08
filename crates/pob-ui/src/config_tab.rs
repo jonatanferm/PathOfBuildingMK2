@@ -185,6 +185,14 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
                 state.enemy_evasion = ev.max(0) as u32;
                 changed = true;
             }
+            let mut ar = state.enemy_armour as i32;
+            if ui
+                .add(egui::Slider::new(&mut ar, 0..=50000).text("Enemy armour"))
+                .changed()
+            {
+                state.enemy_armour = ar.max(0) as u32;
+                changed = true;
+            }
             let mut block = state.enemy_block_chance as i32;
             if ui
                 .add(egui::Slider::new(&mut block, 0..=75).text("Enemy block (%)"))
