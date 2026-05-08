@@ -51,7 +51,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Characte
                         changed = true;
                     }
                 }
-                if ui.small_button("✕").on_hover_text(format!("Delete {name}")).clicked() {
+                if ui
+                    .small_button("✕")
+                    .on_hover_text(format!("Delete {name}"))
+                    .clicked()
+                {
                     if character.delete_item_set(idx) {
                         // No recompute — deleting a saved (inactive)
                         // set doesn't change `character.items`.

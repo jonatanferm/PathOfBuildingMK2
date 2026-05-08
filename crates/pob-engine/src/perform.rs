@@ -121,10 +121,18 @@ fn perform_dual_wield_skill_dps(character: &Character, reg: &SkillRegistry, env:
     env.output.set("Weapon2HitChance", weapon2_hit_chance);
     env.output.set("Weapon1FullDPS", weapon1_full_dps);
     env.output.set("Weapon2FullDPS", weapon2_full_dps);
-    env.output.set("MainSkillDPS", (weapon1_dps + weapon2_dps) / 2.0);
-    env.output.set("MainSkillAverageHit", (weapon1_avg_hit + weapon2_avg_hit) / 2.0);
-    env.output.set("MainSkillHitChance", (weapon1_hit_chance + weapon2_hit_chance) / 2.0);
-    env.output.set("FullDPS", (weapon1_full_dps + weapon2_full_dps) / 2.0);
+    env.output
+        .set("MainSkillDPS", (weapon1_dps + weapon2_dps) / 2.0);
+    env.output.set(
+        "MainSkillAverageHit",
+        (weapon1_avg_hit + weapon2_avg_hit) / 2.0,
+    );
+    env.output.set(
+        "MainSkillHitChance",
+        (weapon1_hit_chance + weapon2_hit_chance) / 2.0,
+    );
+    env.output
+        .set("FullDPS", (weapon1_full_dps + weapon2_full_dps) / 2.0);
     let avg_mana = (weapon1_mana + weapon2_mana) / 2.0;
     if avg_mana > 0.0 {
         env.output.set("ManaPerSecondCost", avg_mana);
@@ -369,9 +377,8 @@ fn apply_enemy_boss_preset(boss: crate::character::EnemyBoss, env: &mut Env) {
     // contribute 0.
     let pen = boss.default_penetration();
     if pen > 0 {
-        env.mod_db.add(
-            Mod::base("ElementalPenetration", f64::from(pen)).with_source(source.clone()),
-        );
+        env.mod_db
+            .add(Mod::base("ElementalPenetration", f64::from(pen)).with_source(source.clone()));
     }
     // Surface the canonical PoB damage-taken multiplier per preset on
     // the output for callers that want to display "ratio of monster
@@ -2425,10 +2432,14 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let is_mine = skill.base_flags.get("mine").copied().unwrap_or(false);
     let mine_count = if is_mine {
         let throw_count = (1.0
-            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "MineThrowCount"))
+            + env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "MineThrowCount"))
         .max(1.0);
         let active_limit = (1.0
-            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "ActiveMineLimit"))
+            + env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "ActiveMineLimit"))
         .max(throw_count);
         env.output.set("ActiveMineLimit", active_limit);
         env.output.set("MinesPlaced", throw_count);
@@ -2440,10 +2451,14 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let is_trap = skill.base_flags.get("trap").copied().unwrap_or(false);
     let trap_count = if is_trap {
         let throw_count = (1.0
-            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "TrapThrowCount"))
+            + env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "TrapThrowCount"))
         .max(1.0);
         let active_limit = (15.0
-            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "ActiveTrapLimit"))
+            + env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "ActiveTrapLimit"))
         .max(throw_count);
         env.output.set("ActiveTrapLimit", active_limit);
         env.output.set("TrapsThrown", throw_count);
@@ -2696,21 +2711,37 @@ fn perform_flask_recovery(
 ) {
     use pob_data::Slot;
     let cfg = QueryCfg::default();
-    let life_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskLifeRecovery")
-        + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskRecovery");
+    let life_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "FlaskLifeRecovery")
+        + env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "FlaskRecovery");
     let life_more = env.mod_db.more(&cfg, &env.state, "FlaskLifeRecovery")
         * env.mod_db.more(&cfg, &env.state, "FlaskRecovery");
-    let mana_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskManaRecovery")
-        + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskRecovery");
+    let mana_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "FlaskManaRecovery")
+        + env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "FlaskRecovery");
     let mana_more = env.mod_db.more(&cfg, &env.state, "FlaskManaRecovery")
         * env.mod_db.more(&cfg, &env.state, "FlaskRecovery");
-    let effect_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskEffect");
-    let dur_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskDuration");
-    let life_rate_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "LifeRecovery")
+    let effect_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "FlaskEffect");
+    let dur_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "FlaskDuration");
+    let life_rate_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "LifeRecovery")
         + env
             .mod_db
             .sum(ModType::Inc, &cfg, &env.state, "FlaskLifeRecoveryRate");
-    let mana_rate_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ManaRecovery")
+    let mana_rate_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "ManaRecovery")
         + env
             .mod_db
             .sum(ModType::Inc, &cfg, &env.state, "FlaskManaRecoveryRate");
@@ -2720,10 +2751,12 @@ fn perform_flask_recovery(
     // ascendancies + a handful of uniques write this. PoB applies it
     // after the inc/more pass, so we accumulate it here once and add
     // per-flask. Mana mirrors via `ManaAdditional`.
-    let life_additional =
-        env.mod_db.sum(ModType::Base, &cfg, &env.state, "LifeAdditional");
-    let mana_additional =
-        env.mod_db.sum(ModType::Base, &cfg, &env.state, "ManaAdditional");
+    let life_additional = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "LifeAdditional");
+    let mana_additional = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ManaAdditional");
 
     // Issue #69: low-life recovery multiplier — Forbidden Rite and
     // certain uniques scale recovery while the player is below the
@@ -2732,7 +2765,8 @@ fn perform_flask_recovery(
     let low_life_mult = if env.state.condition("LowLife") {
         // Sum of `FlaskLifeRecoveryLowLife` MORE multipliers — items
         // like Mageblood / Forbidden Rite drop these.
-        env.mod_db.more(&cfg, &env.state, "FlaskLifeRecoveryLowLife")
+        env.mod_db
+            .more(&cfg, &env.state, "FlaskLifeRecoveryLowLife")
     } else {
         1.0
     };
@@ -2740,7 +2774,13 @@ fn perform_flask_recovery(
     let mut life_max: f64 = 0.0;
     let mut mana_max: f64 = 0.0;
 
-    let flask_slots = [Slot::Flask1, Slot::Flask2, Slot::Flask3, Slot::Flask4, Slot::Flask5];
+    let flask_slots = [
+        Slot::Flask1,
+        Slot::Flask2,
+        Slot::Flask3,
+        Slot::Flask4,
+        Slot::Flask5,
+    ];
     for (idx, slot) in flask_slots.iter().enumerate() {
         let Some(item) = character.items.get(*slot) else {
             continue;
