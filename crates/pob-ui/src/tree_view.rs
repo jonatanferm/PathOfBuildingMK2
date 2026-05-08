@@ -129,7 +129,7 @@ impl TreeView {
         }
 
         let painter = ui.painter_at(available);
-        painter.rect_filled(available, 0.0, Color32::from_rgb(20, 20, 28));
+        painter.rect_filled(available, 0.0, Color32::BLACK);
 
         let viewport = available;
         let to_screen = |p: NodePos| -> Pos2 {
@@ -437,11 +437,24 @@ fn compute_group_instances(
     let Some(cat) = sprites.get("groupBackground") else {
         return out;
     };
-    // Sprite-size mapping: per PoB, the native pixel size at scale=1. We
-    // scale by 2.5 in the shader-equivalent (matching PoB's apparent ~2.5x
-    // factor on background draws — the raw atlas slice is much smaller than
-    // the cluster of nodes it backs).
-    const BG_SCALE: f32 = 2.5;
+    // PoB blits these sprites at native pixel size (sprite pixels == tree
+    // units). PSGroupBackground1=138², 2=178² match their target orbit
+    // radii (82, 162) closely enough to look right.
+    //
+    // Class-start medallions live in the same atlas (we packed them in
+    // alongside the PSGroupBackground sprites). They're drawn after the
+    // halo so the portrait sits on top of it — PoB does the same with a
+    // higher draw layer for the start-art overlay.
+    const CLASS_CENTER_KEYS: [&str; 7] = [
+        "centerscion",
+        "centermarauder",
+        "centerranger",
+        "centerwitch",
+        "centerduelist",
+        "centertemplar",
+        "centershadow",
+    ];
+
     for group in tree.groups.values() {
         if group.is_proxy {
             continue;
@@ -459,20 +472,62 @@ fn compute_group_instances(
             continue;
         };
         let uv = rect.uv(cat.w as f32, cat.h as f32);
-        // PSGroupBackground3 is a 'half image' in PoB — drawn twice, once
-        // mirrored — to bridge wide clusters. We approximate as a single
-        // wider quad (height stays the sprite height, width doubles).
-        let (w, h) = if key == "PSGroupBackground3" {
-            (rect.w() * 2.0 * BG_SCALE, rect.h() * BG_SCALE)
+        let (w, h) = (rect.w(), rect.h());
+        if key == "PSGroupBackground3" {
+            // PoB draws BG3 as two halves vertically — top sprite at
+            // (y - h/2), bottom sprite at (y + h/2) with V flipped, so the
+            // full halo spans 2*h. The bottom instance gets a UV rect with
+            // negated `dv` so the shader's local_uv.y * dv mapping flips
+            // the sample direction.
+            out.push(GroupInstance {
+                world_pos: [group.x, group.y - h * 0.5],
+                world_size: [w, h],
+                uv_rect: uv,
+            });
+            out.push(GroupInstance {
+                world_pos: [group.x, group.y + h * 0.5],
+                world_size: [w, h],
+                uv_rect: [uv[0], uv[1] + uv[3], uv[2], -uv[3]],
+            });
         } else {
-            (rect.w() * BG_SCALE, rect.h() * BG_SCALE)
+            out.push(GroupInstance {
+                world_pos: [group.x, group.y],
+                world_size: [w, h],
+                uv_rect: uv,
+            });
+        }
+    }
+
+    // Class-start medallions: a `centerXxx` portrait sprite per class. PoB
+    // draws the per-class portrait (centerwitch.png, centermarauder.png,
+    // …) at the ClassStart node's position. We treat it as another group
+    // sprite so it shares the same pipeline.
+    for node in tree.nodes.values() {
+        if !matches!(node.kind, pob_data::NodeKind::ClassStart) {
+            continue;
+        }
+        let Some(idx) = node.class_start_index else {
+            continue;
         };
+        let key = CLASS_CENTER_KEYS
+            .get(idx as usize)
+            .copied()
+            .unwrap_or("PSStartNodeBackgroundInactive");
+        let Some(rect) = cat.coords.get(key) else {
+            continue;
+        };
+        let group = match node.group.and_then(|gid| tree.groups.get(&gid)) {
+            Some(g) => g,
+            None => continue,
+        };
+        let uv = rect.uv(cat.w as f32, cat.h as f32);
         out.push(GroupInstance {
             world_pos: [group.x, group.y],
-            world_size: [w, h],
+            world_size: [rect.w(), rect.h()],
             uv_rect: uv,
         });
     }
+
     out
 }
 

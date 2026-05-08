@@ -2452,14 +2452,22 @@
   "groupBackground": {
     "filename": "https://web.poecdn.com/image/passive-skill/group-background-3.png?95dbfa0a",
     "w": 1006,
-    "h": 666,
+    "h": 1118,
     "coords": {
       "GroupBackgroundLargeHalfAlt": [723,143,283,143],
       "GroupBackgroundMediumAlt": [723,464,178,178],
       "GroupBackgroundSmallAlt": [581,444,138,138],
       "PSGroupBackground1": [443,444,138,138],
       "PSGroupBackground2": [723,286,178,178],
-      "PSGroupBackground3": [723,0,283,143]
+      "PSGroupBackground3": [723,0,283,143],
+      "centerscion": [0,670,241,222],
+      "centermarauder": [241,670,241,222],
+      "centerranger": [482,670,241,222],
+      "centerwitch": [723,670,241,222],
+      "centerduelist": [0,896,241,222],
+      "centertemplar": [241,896,241,222],
+      "centershadow": [482,896,241,222],
+      "PSStartNodeBackgroundInactive": [723,896,202,202]
     }
   },
   "frame": {
