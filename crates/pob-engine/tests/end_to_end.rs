@@ -577,6 +577,26 @@ fn tattoo_override_replaces_allocated_node_stats() {
         "Removing the tattoo override must restore the original node's contribution"
     );
 
+    // Issue #98: round-trip the tattoo override through PoB XML.
+    // PoB stores them as `<Spec> <Overrides> <Override nodeId="…">mod
+    // text</Override> </Overrides> </Spec>`. Re-installing the
+    // override, exporting, and re-importing should preserve the same
+    // node id → mod text mapping.
+    c.tattoo_overrides
+        .insert(node_id, "+75 to Strength".to_owned());
+    let xml = pob_engine::pob_export::export_pob_xml(&c);
+    assert!(
+        xml.contains("<Overrides>") && xml.contains("<Override nodeId="),
+        "exported XML should carry an Overrides block; got:\n{xml}"
+    );
+    let reparsed = pob_engine::import_pob_xml(&xml).expect("re-import own XML");
+    let preserved = reparsed.tattoo_overrides.get(&node_id).cloned();
+    assert_eq!(
+        preserved.as_deref(),
+        Some("+75 to Strength"),
+        "Tattoo override should round-trip through PoB XML"
+    );
+
     // An empty-string override is treated as "no tattoo here" — the
     // original node's stats apply (avoids a footgun where the user
     // clears the textarea but the entry remains).
