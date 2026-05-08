@@ -51,6 +51,12 @@ pub struct GemSnapshot {
     pub level: u32,
     #[serde(default)]
     pub quality: u32,
+    #[serde(default = "true_default")]
+    pub enabled: bool,
+}
+
+fn true_default() -> bool {
+    true
 }
 
 impl CharacterSnapshot {
@@ -79,6 +85,7 @@ impl CharacterSnapshot {
                             skill_id: m.skill_id.clone(),
                             level: m.level,
                             quality: m.quality,
+                            enabled: m.enabled,
                         })
                         .collect(),
                     main_active_skill_index: g.main_active_skill_index,
@@ -101,7 +108,7 @@ impl CharacterSnapshot {
                         skill_id: gem.skill_id,
                         level: gem.level.max(1),
                         quality: gem.quality,
-                        enabled: true,
+                        enabled: gem.enabled,
                     })
                     .collect(),
                 main_active_skill_index: g.main_active_skill_index.max(1),
