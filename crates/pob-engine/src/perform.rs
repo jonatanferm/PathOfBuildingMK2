@@ -351,6 +351,18 @@ pub fn init_env_with_bases(
     for (k, v) in &character.config.conditions {
         env.state.set_condition(k.clone(), *v);
     }
+    // Issue #19 (slice 5): mirror PoB's ConfigOptions.lua
+    // `implyCondList` for warcry conditions — checking
+    // `UsedWarcryRecently` also implies `UsedWarcryInPast8Seconds`
+    // and `UsedSkillRecently`, so mods gated on those wider buckets
+    // light up automatically. We only imply when the source flag is
+    // truthy; user can still independently uncheck any of the
+    // implied conditions and we'll respect that (last-write wins
+    // because `set_condition` is straight insert).
+    if env.state.condition("UsedWarcryRecently") {
+        env.state.set_condition("UsedWarcryInPast8Seconds", true);
+        env.state.set_condition("UsedSkillRecently", true);
+    }
     for (k, v) in &character.config.multipliers {
         env.state.set_multiplier(k.clone(), *v);
     }

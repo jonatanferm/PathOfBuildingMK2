@@ -50,6 +50,16 @@ const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("CritRecently", "Crit Recently"),
             ("CastSpellRecently", "Cast a Spell Recently"),
             ("UsedSkillRecently", "Used a Skill Recently"),
+            // Issue #19 (slice 5): Warcry usage conditions. Mirrors PoB's
+            // ConfigOptions.lua:1528-1534 — gates "while you've used a
+            // warcry" mods (Berserker ascendancy, certain notables) plus
+            // the 8-second window variant.
+            ("UsedWarcryRecently", "Used a Warcry Recently"),
+            ("UsedWarcryInPast8Seconds", "Used a Warcry in the past 8s"),
+            (
+                "WarcryMaxHit",
+                "Show max hit instead of average (warcry uptime = 100%)",
+            ),
             ("BlockedRecently", "Blocked Recently"),
             ("StunnedEnemyRecently", "Stunned an Enemy Recently"),
             ("ConsumedCorpseRecently", "Consumed a Corpse Recently"),

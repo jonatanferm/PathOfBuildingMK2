@@ -3208,6 +3208,54 @@ fn warcry_detection_emits_loadout_aggregates() {
     );
 }
 
+// Issue #19 (slice 5): UsedWarcryRecently condition implication
+// chain. Mirrors PoB's `ConfigOptions.lua:1528-1534`
+// `implyCondList`: ticking `UsedWarcryRecently` also implies
+// `UsedWarcryInPast8Seconds` and `UsedSkillRecently` so mods gated
+// on the wider buckets light up automatically.
+#[test]
+fn used_warcry_recently_implies_wider_conditions() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: tree missing");
+        return;
+    };
+
+    // Without the source flag, no implications fire.
+    let baseline = Character::new(ClassRef::marauder(), 90);
+    let env = pob_engine::perform::init_env(&baseline, &tree);
+    assert!(
+        !env.state.condition("UsedWarcryRecently"),
+        "no source condition → no implication"
+    );
+    assert!(
+        !env.state.condition("UsedWarcryInPast8Seconds"),
+        "no source condition → no 8s implication"
+    );
+    assert!(
+        !env.state.condition("UsedSkillRecently"),
+        "no source condition → no skill implication"
+    );
+
+    // Tick `UsedWarcryRecently` → both wider buckets imply true.
+    let mut c = baseline.clone();
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::perform::init_env(&c, &tree);
+    assert!(
+        env.state.condition("UsedWarcryRecently"),
+        "explicit source condition stays on"
+    );
+    assert!(
+        env.state.condition("UsedWarcryInPast8Seconds"),
+        "UsedWarcryRecently should imply the 8s window"
+    );
+    assert!(
+        env.state.condition("UsedSkillRecently"),
+        "UsedWarcryRecently should imply UsedSkillRecently"
+    );
+}
+
 // Issue #19 (slice 4): `ExertedAttackUptime` auto-derives from the
 // slice-3 warcry aggregates when the user hasn't pinned it
 // manually. Auto-uptime = `total_exert / (cps × cooldown)`, capped
