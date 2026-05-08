@@ -89,7 +89,19 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Characte
             ui.set_min_width(180.0);
             ui.heading("Slots");
             ui.separator();
-            for slot in Slot::all() {
+            // Issue #109 (slice 3): visually separate the swap pair
+            // from the primary pair so it's clear which entries the
+            // calc engine reads when `use_second_weapon_set` is on.
+            // We render the slot list in three groups: primary
+            // equipment, the swap pair, and flasks.
+            let is_swap = |s: &Slot| matches!(s, Slot::Weapon1Swap | Slot::Weapon2Swap);
+            let is_flask = |s: &Slot| {
+                matches!(
+                    s,
+                    Slot::Flask1 | Slot::Flask2 | Slot::Flask3 | Slot::Flask4 | Slot::Flask5
+                )
+            };
+            let render_slot = |ui: &mut egui::Ui, slot: &Slot, state: &mut ItemsTabState| {
                 let equipped = items.get(*slot);
                 let label = if let Some(item) = equipped {
                     let rarity_glyph = rarity_glyph(item.rarity);
@@ -107,6 +119,28 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Characte
                     state.paste_buffer.clear();
                     state.last_error = None;
                 }
+            };
+            for slot in Slot::all() {
+                if is_swap(slot) || is_flask(slot) {
+                    continue;
+                }
+                render_slot(ui, slot, state);
+            }
+            ui.add_space(4.0);
+            ui.weak("Swap weapon set");
+            for slot in Slot::all() {
+                if !is_swap(slot) {
+                    continue;
+                }
+                render_slot(ui, slot, state);
+            }
+            ui.add_space(4.0);
+            ui.weak("Flasks");
+            for slot in Slot::all() {
+                if !is_flask(slot) {
+                    continue;
+                }
+                render_slot(ui, slot, state);
             }
         });
 
