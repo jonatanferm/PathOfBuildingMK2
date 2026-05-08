@@ -299,11 +299,18 @@ pub fn init_env_with_bases(
         }
     }
 
-    // 4. Items.
-    let _ = crate::item_parser::apply_item_set_with_bases(&character.items, &mut env.mod_db, bases);
+    // 4. Items. Issue #109 slice 2: when `use_second_weapon_set` is
+    // on, project the swap pair onto Weapon1/Weapon2 for the rest of
+    // the compute pass. We materialise a thin "live" view rather than
+    // mutating `character.items` so the source build remains
+    // unchanged for downstream callers (Calcs side-panel, snapshot
+    // export, etc.).
+    let live_items = effective_items_for_compute(character);
+    let live_items_ref: &pob_data::ItemSet = &live_items;
+    let _ = crate::item_parser::apply_item_set_with_bases(live_items_ref, &mut env.mod_db, bases);
     // Set SlotName conditions for slots that have an item — supports SlotName tags on
     // mods that say "while using a shield" / "while wielding a bow", etc.
-    for (slot, _) in character.items.iter() {
+    for (slot, _) in live_items_ref.iter() {
         let slot_name = match slot {
             pob_data::Slot::Helmet => "Helmet",
             pob_data::Slot::BodyArmour => "Body Armour",
@@ -315,12 +322,9 @@ pub fn init_env_with_bases(
             pob_data::Slot::Belt => "Belt",
             pob_data::Slot::Weapon1 => "Weapon 1",
             pob_data::Slot::Weapon2 => "Weapon 2",
-            // Issue #109: swap-set weapons don't drive the live
-            // `SlotName:` condition flags — only the active pair
-            // does. The swap pair is reachable via
-            // `character.items.get(Weapon1Swap/Weapon2Swap)` for
-            // tooling, but doesn't influence the calc until the user
-            // toggles `use_second_weapon_set` (slice 2).
+            // Swap-set entries that survive the projection (i.e. when
+            // `use_second_weapon_set` is *off*) don't drive the live
+            // `SlotName:` flags — only the active pair does.
             pob_data::Slot::Weapon1Swap | pob_data::Slot::Weapon2Swap => continue,
             pob_data::Slot::Flask1 => "Flask 1",
             pob_data::Slot::Flask2 => "Flask 2",
@@ -335,8 +339,8 @@ pub fn init_env_with_bases(
     // 5. Auto-detected wielding conditions from the equipped items. These activate
     // mods that have a "while using a shield" / "while wielding a two handed weapon" /
     // "while dual wielding" trailing clause via their parser-emitted Condition tag.
-    detect_wielding_conditions(&character.items, &mut env.state);
-    detect_rarity_slot_conditions(&character.items, &mut env.state);
+    detect_wielding_conditions(live_items_ref, &mut env.state);
+    detect_rarity_slot_conditions(live_items_ref, &mut env.state);
 
     // 6. Config — push conditions and multipliers into the eval state. ConfigState
     // overrides auto-detection if the user has explicitly set the same key.
@@ -655,6 +659,45 @@ fn apply_pantheon_mods(
             }
         }
     }
+}
+
+/// Issue #109 slice 2: materialise the "live" item set the calc
+/// engine should read for this compute pass. When
+/// `config.use_second_weapon_set` is `false` (default) this is just
+/// `character.items` — no allocation. When `true` the swap pair
+/// (`Weapon1Swap` / `Weapon2Swap`) replaces the primary pair and the
+/// originals are dropped from the projection. Mirrors PoB's "swap
+/// active / passive" UI gesture.
+fn effective_items_for_compute(character: &Character) -> std::borrow::Cow<'_, pob_data::ItemSet> {
+    use pob_data::Slot;
+    if !character.config.use_second_weapon_set {
+        return std::borrow::Cow::Borrowed(&character.items);
+    }
+    // Only allocate the swapped view when the user has actually
+    // toggled the swap on AND the swap pair carries at least one
+    // weapon. Otherwise fall through — toggling on with no swap pair
+    // shouldn't silently strip the live weapons.
+    let swap_main = character.items.get(Slot::Weapon1Swap).cloned();
+    let swap_off = character.items.get(Slot::Weapon2Swap).cloned();
+    if swap_main.is_none() && swap_off.is_none() {
+        return std::borrow::Cow::Borrowed(&character.items);
+    }
+    let mut projected = character.items.clone();
+    // Drop both swap entries from the projection so they don't
+    // double-count downstream, then install them onto the primary
+    // slots. Empty swap slots fall through to "no weapon equipped"
+    // for that hand.
+    projected.unequip(Slot::Weapon1Swap);
+    projected.unequip(Slot::Weapon2Swap);
+    projected.unequip(Slot::Weapon1);
+    projected.unequip(Slot::Weapon2);
+    if let Some(item) = swap_main {
+        projected.equip(Slot::Weapon1, item);
+    }
+    if let Some(item) = swap_off {
+        projected.equip(Slot::Weapon2, item);
+    }
+    std::borrow::Cow::Owned(projected)
 }
 
 fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_db::EvalState) {
