@@ -999,7 +999,10 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
     let crit_chance = ((base_crit * (1.0 + crit_inc / 100.0)) / 100.0).clamp(0.0, 1.0);
     env.output.set("MainSkillCritChance", crit_chance * 100.0);
-    let crit_mult = env.output.get("CritMultiplier") / 100.0;
+    // CritMultiplier is now stored in decimal form (1.5 == 150%) — see the
+    // basic-stats pass. Earlier code divided by 100 here, which made non-crit
+    // hits land at 0.94× when crit was 6%.
+    let crit_mult = env.output.get("CritMultiplier").max(1.0);
     let crit_factor = (1.0 - crit_chance) + crit_chance * crit_mult;
     let avg_with_crit = avg * crit_factor;
     env.output.set("MainSkillAverageHitWithCrit", avg_with_crit);
@@ -1200,7 +1203,34 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let bleed = env.output.get("BleedDPS");
     let poison = env.output.get("PoisonDPS");
     let ignite = env.output.get("IgniteDPS");
-    env.output.set("FullDPS", main_dps + bleed + poison + ignite);
+    let full_dps = main_dps + bleed + poison + ignite;
+    env.output.set("FullDPS", full_dps);
+
+    // PoB exposes a stack of DPS aliases the UI uses interchangeably. Without
+    // any ailment add-ons these all just mirror MainSkillDPS / FullDPS.
+    env.output.set("CombinedDPS", full_dps);
+    env.output.set("TotalDPS", main_dps);
+    env.output.set("WithBleedDPS", main_dps + bleed);
+    env.output.set("WithPoisonDPS", main_dps + poison);
+    env.output.set("WithIgniteDPS", main_dps + ignite);
+    // PoB's CombinedAvg is actually the combined per-second damage (DPS), not
+    // avg-hit. AverageDamage / AverageHit / AverageBurstDamage are the per-hit
+    // damage values — those use final_avg.
+    env.output.set("CombinedAvg", full_dps);
+    env.output.set("AverageDamage", final_avg);
+    env.output.set("AverageHit", final_avg);
+    env.output.set("AverageBurstDamage", final_avg);
+    env.output.set("CastRate", cps);
+
+    // Skill metadata pob-engine has but PoB exposes as flat outputs.
+    env.output.set("GemLevel", f64::from(main.level));
+    env.output.set("GemQuality", f64::from(main.quality));
+
+    // Crit-related per-skill: PoB exposes the pre-effective crit chance (the
+    // skill's intrinsic crit before character modifiers). For Arc this is the
+    // gem's `critChance` field — 6% at L20.
+    let pre_crit = skill.crit_chance(main.level);
+    env.output.set("PreEffectiveCritChance", pre_crit);
 }
 
 /// Compute "effective HP" — a single-source survivability number that combines life,

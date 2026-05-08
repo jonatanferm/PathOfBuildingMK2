@@ -95,7 +95,7 @@ pub fn skill_base_damage(skill: &Skill, gem_level: u32, character_level: u32) ->
     // this was a long-standing bug that caused our DPS to be ~2.5x too high
     // since (1 + incEff)^(L_char - 1) blows up at L_char=90 vs L_char=70.
     let actor_level = skill.level_requirement(gem_level).max(1);
-    let l_minus_1 = f64::from(actor_level.saturating_sub(1).max(1) - 1);
+    let l_minus_1 = f64::from(actor_level - 1);
     let base = SKILL_DAMAGE_BASE_EFFECTIVENESS + SKILL_DAMAGE_INCREMENTAL_EFFECTIVENESS * l_minus_1;
     let available_effectiveness = base
         * skill.base_effectiveness.max(1.0)
