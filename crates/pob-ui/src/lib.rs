@@ -70,6 +70,21 @@ struct LoadedApp {
     data_root: std::path::PathBuf,
     /// Hash of the inputs `compute_full` last ran with — skip recompute when unchanged.
     last_compute_hash: u64,
+    /// Issue #100 (slice 1): auto-save bookkeeping. `last_saved_hash`
+    /// tracks the hash of the build state that's currently on disk;
+    /// `dirty_since` is set when `last_compute_hash` diverges from
+    /// `last_saved_hash`, and cleared after a successful auto-save.
+    /// On native targets, when `dirty_since.elapsed() > 2s` and a
+    /// `current_build_path` is set, the frame loop writes the build
+    /// to disk without prompting. wasm builds skip this entirely.
+    last_saved_hash: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    dirty_since: Option<std::time::Instant>,
+    /// Set by load paths so the next compute pass seeds
+    /// `last_saved_hash = last_compute_hash` (i.e. mark the
+    /// freshly-loaded build as already on disk, suppressing the
+    /// no-op auto-save that would otherwise fire next tick).
+    pending_seed_saved_hash: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,6 +218,9 @@ impl PobApp {
             tree_version: default_version,
             data_root,
             last_compute_hash: 0,
+            last_saved_hash: 0,
+            dirty_since: None,
+            pending_seed_saved_hash: false,
         })
     }
 
@@ -247,6 +265,8 @@ impl PobApp {
             tree_version: "3_25".to_owned(),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
+            last_saved_hash: 0,
+            pending_seed_saved_hash: false,
         })
     }
 }
@@ -437,6 +457,27 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 ));
             } else {
                 ui.weak("(unsaved)");
+            }
+            // Issue #100: dirty / saved indicator. Mirrors PoB's
+            // header chrome — users want at-a-glance confirmation
+            // their last edit hit disk before they kill the process.
+            // Only meaningful once a save target exists; an untitled
+            // scratch build shows the "(unsaved)" path label instead.
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if app.current_build_path.is_some() {
+                    if app.dirty_since.is_some() {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(0xFF, 0x99, 0x22),
+                            "● Modified",
+                        );
+                    } else {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(0x33, 0xFF, 0x77),
+                            "✔ Saved",
+                        );
+                    }
+                }
             }
         });
     });
@@ -1000,6 +1041,72 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         app.output = output;
         app.last_env = Some(env);
     }
+    // Issue #100: track dirty state relative to what's currently on
+    // disk. When the recomputed input hash diverges from the
+    // last-saved hash, mark the build dirty (unless we already are);
+    // when they match again (e.g. after auto-save or manual save),
+    // clear the dirty mark. wasm has no disk so the field gates out.
+    if app.pending_seed_saved_hash {
+        app.last_saved_hash = app.last_compute_hash;
+        app.pending_seed_saved_hash = false;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if app.last_compute_hash != app.last_saved_hash {
+            if app.dirty_since.is_none() {
+                app.dirty_since = Some(std::time::Instant::now());
+            }
+        } else {
+            app.dirty_since = None;
+        }
+        try_autosave(app);
+    }
+}
+
+/// Issue #100 (slice 1): auto-save the build to its current path
+/// once it has been dirty for at least `IDLE_AUTOSAVE_MS`. Mirrors
+/// PoB's `Modules/Build.lua::SaveDBFile` cadence — saves on a debounce,
+/// not on every change. Skips silently when no path is set (unnamed
+/// scratch builds need an explicit Save As first).
+#[cfg(not(target_arch = "wasm32"))]
+fn try_autosave(app: &mut LoadedApp) {
+    const IDLE_AUTOSAVE_MS: u128 = 2000;
+    let Some(since) = app.dirty_since else {
+        return;
+    };
+    if since.elapsed().as_millis() < IDLE_AUTOSAVE_MS {
+        return;
+    }
+    let Some(path) = app.current_build_path.clone() else {
+        // Untitled buffer — leave dirty until the user picks a path.
+        return;
+    };
+    let is_xml = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.eq_ignore_ascii_case("xml"))
+        .unwrap_or(false);
+    let payload = if is_xml {
+        Ok(pob_engine::export_pob_xml(&app.character))
+    } else {
+        pob_engine::export_code(&app.character).map_err(|e| e.to_string())
+    };
+    match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
+        Ok(()) => {
+            app.last_saved_hash = app.last_compute_hash;
+            app.dirty_since = None;
+            app.status_message = Some((
+                StatusKind::Info,
+                format!("Auto-saved to {}", path.display()),
+            ));
+        }
+        Err(e) => {
+            // Don't clear `dirty_since` — we'll retry on the next idle
+            // tick; surfacing the error keeps the user informed.
+            app.status_message = Some((StatusKind::Error, format!("Auto-save failed: {e}")));
+            app.dirty_since = Some(std::time::Instant::now());
+        }
+    }
 }
 
 fn update_search(app: &mut LoadedApp) {
@@ -1097,6 +1204,12 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
                         Ok(c) => {
                             app.character = c;
                             app.current_build_path = Some(path.clone());
+                            // Just loaded → matches what's on disk.
+                            // Defer seeding `last_saved_hash` to the next
+                            // compute (when the new input hash exists),
+                            // so auto-save doesn't fire on a no-op write.
+                            app.pending_seed_saved_hash = true;
+                            app.dirty_since = None;
                             app.status_message =
                                 Some((StatusKind::Info, format!("Opened {}", path.display())));
                         }
@@ -1304,6 +1417,8 @@ fn save_build(app: &mut LoadedApp, force_dialog: bool) {
     match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
         Ok(()) => {
             app.current_build_path = Some(path.clone());
+            app.last_saved_hash = app.last_compute_hash;
+            app.dirty_since = None;
             app.status_message = Some((StatusKind::Info, format!("Saved to {}", path.display())));
         }
         Err(e) => {
