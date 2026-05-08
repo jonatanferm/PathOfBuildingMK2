@@ -2235,6 +2235,74 @@ fn flask_recovery_outputs_scale_with_flask_mods() {
     );
 }
 
+// Issue #69 (slice 2): instant/gradual recovery split. Pinning a
+// `LifeFlaskInstantRecovery` BASE mod (the same source unique flasks
+// like Forbidden Rite stamp) should split the per-flask recovery
+// into instant vs gradual portions. The total `Flask1LifeRecovery`
+// stays unchanged so existing slice 1 callers don't shift.
+#[test]
+fn flask_instant_recovery_mod_splits_per_flask_output() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    use pob_engine::{Mod, Source};
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let life_flask =
+        parse_item("Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n")
+            .unwrap();
+    c.items.equip(pob_data::Slot::Flask1, life_flask);
+
+    // Without any instant mod, no split keys are emitted (existing
+    // slice 1 behaviour) — the total `Flask1LifeRecovery` is still
+    // populated.
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        baseline.get("Flask1LifeRecovery") > 0.0,
+        "baseline should still emit Flask1LifeRecovery"
+    );
+    assert_eq!(
+        baseline.try_get("Flask1LifeRecoveryInstant"),
+        None,
+        "no instant mod → no instant split key"
+    );
+
+    // Inject the unique-flask mod payload: 30% applied instantly.
+    // Run init_env_with_bases + perform_basic_stats + perform_flask_recovery
+    // by hand against the augmented modDB, since there's no public
+    // `perform_flask_recovery` wrapper that re-reads bases.
+    let mut env = pob_engine::perform::init_env_with_bases(&c, &tree, Some(&bases));
+    env.mod_db
+        .add(Mod::base("LifeFlaskInstantRecovery", 30.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_flask_recovery(&c, &bases, &mut env);
+
+    let total = env.output.get("Flask1LifeRecovery");
+    let inst = env.output.get("Flask1LifeRecoveryInstant");
+    let grad = env.output.get("Flask1LifeRecoveryGradual");
+
+    assert!(
+        total > 0.0,
+        "Flask1LifeRecovery should still be populated after the split"
+    );
+    assert!(
+        inst > 0.0 && grad > 0.0,
+        "30% instant should produce both instant ({inst}) and gradual ({grad}) portions"
+    );
+    // Sum-conservation: instant + gradual ≈ total.
+    assert!(
+        ((inst + grad) - total).abs() / total < 0.01,
+        "instant ({inst}) + gradual ({grad}) should sum to total ({total}); split conservation broken"
+    );
+    // 30% instant → instant ≈ 30% of total.
+    assert!(
+        (inst / total - 0.30).abs() < 0.01,
+        "instant fraction should be ~30%; got {}",
+        inst / total
+    );
+}
+
 #[test]
 fn fireball_emits_base_ignite_chance_via_global_stat_map() {
     let Some(skills) = load_skills() else { return };
