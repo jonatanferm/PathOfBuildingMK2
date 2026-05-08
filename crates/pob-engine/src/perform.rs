@@ -239,6 +239,44 @@ fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_
     if weapon1_is_one_handed && weapon2_is_one_handed_weapon {
         state.set_condition("DualWielding", true);
     }
+    // PoB also distinguishes one-handed wielding (one or two 1H weapons in either
+    // hand, regardless of shield) — used by "while wielding a one handed weapon" mods.
+    if weapon1_is_one_handed {
+        state.set_condition("UsingOneHandedWeapon", true);
+    }
+
+    // Per-weapon-type conditions ("while wielding a Bow/Staff/Sword/...") so item mods
+    // gated on weapon class apply correctly. We use the base name as a heuristic — the
+    // canonical PoB approach reads the base type's class from item data, but base-name
+    // matching is sufficient for the common bases.
+    if let Some(w) = weapon1 {
+        let n = &w.base_name;
+        let pairs: &[(&str, &str)] = &[
+            ("Bow", "UsingBow"),
+            ("Quarterstaff", "UsingQuarterstaff"),
+            ("Staff", "UsingStaff"),
+            ("Wand", "UsingWand"),
+            ("Sword", "UsingSword"),
+            ("Axe", "UsingAxe"),
+            ("Mace", "UsingMace"),
+            ("Sceptre", "UsingSceptre"),
+            ("Claw", "UsingClaw"),
+            ("Dagger", "UsingDagger"),
+        ];
+        // Longest-match-first: "Quarterstaff" before "Staff", "Sceptre" before "Mace".
+        for (needle, var) in pairs {
+            if n.contains(needle) {
+                state.set_condition(*var, true);
+                break;
+            }
+        }
+        // Melee weapon: anything not a Bow / Wand / Staff (Quarterstaff is melee in PoE2).
+        let is_ranged = n.contains("Bow") || n.contains("Wand");
+        let is_caster_staff = n.contains("Staff") && !n.contains("Quarterstaff");
+        if !is_ranged && !is_caster_staff {
+            state.set_condition("UsingMeleeWeapon", true);
+        }
+    }
 }
 
 /// Fill output keys that PoB defaults to fixed game constants (max ailment
@@ -2028,5 +2066,97 @@ mod tests {
         assert_eq!(out.get("Strength"), 14.0);
         assert_eq!(out.get("Dexterity"), 14.0);
         assert_eq!(out.get("Intelligence"), 32.0);
+    }
+
+    /// End-to-end check that a "while wielding a Shield" item mod is gated on the
+    /// equipped state. Mirrors the unique-boots bug from the task brief: with a
+    /// shield equipped the buff applies; without one, it doesn't.
+    #[test]
+    fn while_wielding_shield_mod_is_gated_by_equipped_shield() {
+        let Some(tree) = load_3_25_tree() else {
+            return;
+        };
+        // Build a paste for boots whose only modifier mentions a shield.
+        let boots_with_shield_mod = "\
+Item Class: Boots
+Rarity: Rare
+Aegis Boots
+Iron Greaves
+--------
++50 to Armour while wielding a Shield
+--------
+";
+        let shield_paste = "\
+Item Class: Shields
+Rarity: Magic
+Iron Buckler
+--------
+";
+        let boots = crate::item_parser::parse_item(boots_with_shield_mod).unwrap();
+        let shield = crate::item_parser::parse_item(shield_paste).unwrap();
+
+        let mut c = Character::new(ClassRef::marauder(), 1);
+        // Without a shield: only the boots are equipped.
+        c.items.equip(pob_data::Slot::Boots, boots.clone());
+        let out_no_shield = compute(&c, &tree);
+
+        // With a shield equipped (in the off-hand slot Weapon2).
+        c.items.equip(pob_data::Slot::Weapon2, shield);
+        let out_with_shield = compute(&c, &tree);
+
+        // The +50 conditional armour mod must NOT contribute when there's no shield.
+        // It MUST contribute the full 50 when a shield is equipped.
+        let delta = out_with_shield.get("Armour") - out_no_shield.get("Armour");
+        assert!(
+            (delta - 50.0).abs() < 1e-6,
+            "expected +50 armour from the conditional mod when a shield is wielded; got delta={delta}"
+        );
+    }
+
+    /// Symmetric check for "while Dual Wielding".
+    #[test]
+    fn while_dual_wielding_mod_is_gated_by_two_weapons() {
+        let Some(tree) = load_3_25_tree() else {
+            return;
+        };
+        let amulet_paste = "\
+Item Class: Amulets
+Rarity: Rare
+Dual Surge
+Onyx Amulet
+--------
++25 to Strength while Dual Wielding
+--------
+";
+        let weapon1_paste = "\
+Item Class: Daggers
+Rarity: Magic
+Glass Shank
+--------
+";
+        let weapon2_paste = "\
+Item Class: Daggers
+Rarity: Magic
+Skinning Knife
+--------
+";
+        let amulet = crate::item_parser::parse_item(amulet_paste).unwrap();
+        let w1 = crate::item_parser::parse_item(weapon1_paste).unwrap();
+        let w2 = crate::item_parser::parse_item(weapon2_paste).unwrap();
+
+        let mut c = Character::new(ClassRef::marauder(), 1);
+        c.items.equip(pob_data::Slot::Amulet, amulet);
+        // Just main hand: not dual wielding yet.
+        c.items.equip(pob_data::Slot::Weapon1, w1.clone());
+        let out_one_weapon = compute(&c, &tree);
+
+        c.items.equip(pob_data::Slot::Weapon2, w2);
+        let out_dual = compute(&c, &tree);
+
+        let delta = out_dual.get("Strength") - out_one_weapon.get("Strength");
+        assert!(
+            (delta - 25.0).abs() < 1e-6,
+            "expected +25 Strength when dual wielding; got delta={delta}"
+        );
     }
 }
