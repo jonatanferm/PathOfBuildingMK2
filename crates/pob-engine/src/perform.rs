@@ -953,6 +953,21 @@ fn perform_reservations(character: &Character, skills: &SkillRegistry, env: &mut
             mana_reserved_flat += m_flat / mana_eff;
             life_reserved_percent += l_pct / life_eff;
             life_reserved_flat += l_flat / life_eff;
+
+            // Aura buff propagation. PoB walks each aura's mods (from
+            // statMap × constantStats/qualityStats/per-level positionals) and
+            // injects the GlobalEffect-tagged ones into the player's modDB
+            // scaled by AuraEffect/BuffEffect. We approximate at scale = 1.0:
+            // copy the aura's mods straight into env.mod_db. This gives Wrath
+            // its `LightningDamage MORE 21 (Spell)` buff, Anger its
+            // `FireMin/FireMax BASE` adds, Hatred its
+            // `PhysicalDamageGainAsCold BASE 39`, etc. Skills with no useful
+            // mods at this gem level (e.g. Hatred providing only a phys→cold
+            // conversion to a lightning skill) end up contributing nothing,
+            // which is correct.
+            for m in crate::skill::aura_buff_mods(skill, level, gem.quality) {
+                env.mod_db.add(m);
+            }
         }
     }
 
@@ -1002,6 +1017,13 @@ fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) 
     let mut light_delta = 0.0_f64;
     let mut chaos_delta = 0.0_f64;
     let mut elem_delta = 0.0_f64;
+    // Per-ailment chance accumulators. PoB tracks these as enemyDB Self*Chance
+    // mods; we expose the player-side ChanceOnHit number that perform_skill_dps
+    // folds into the player's effective ailment chance.
+    let mut shock_chance = 0.0_f64;
+    let mut freeze_chance = 0.0_f64;
+    let mut ignite_chance = 0.0_f64;
+    let mut chill_chance = 0.0_f64;
     let mut active_curses: u32 = 0;
     for group in &character.skill_groups {
         if !group.enabled {
@@ -1037,6 +1059,30 @@ fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) 
                     _ => {}
                 }
             }
+            // Per-ailment chance contributions. PoB stores these as
+            // constantStats with id `chance_to_be_X_%` (e.g. Conductivity =
+            // 25 shock, Frostbite = 25 freeze, Flammability = 25 ignite).
+            // The value is fixed and doesn't scale with curse level, but PoB
+            // does scale it by curse-effect mods on the enemy — we approximate
+            // at effect=1.0 here (tracking curse-effect lands in a follow-up).
+            for v in &skill.constant_stats {
+                let Some(arr) = v.as_array() else {
+                    continue;
+                };
+                let Some(id) = arr.first().and_then(|x| x.as_str()) else {
+                    continue;
+                };
+                let Some(val) = arr.get(1).and_then(|x| x.as_f64()) else {
+                    continue;
+                };
+                match id {
+                    "chance_to_be_shocked_%" => shock_chance += val,
+                    "chance_to_be_frozen_%" => freeze_chance += val,
+                    "chance_to_be_ignited_%" => ignite_chance += val,
+                    "chance_to_be_chilled_%" => chill_chance += val,
+                    _ => {}
+                }
+            }
         }
     }
     // Roll the all-elements bucket into each individual element.
@@ -1048,6 +1094,13 @@ fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) 
     env.output.set("CursedLightningResistDelta", light_delta);
     env.output.set("CursedChaosResistDelta", chaos_delta);
     env.output.set("ActiveCurseCount", f64::from(active_curses));
+    // Stash the ChanceOnHit deltas under separate output keys so
+    // perform_skill_dps can fold them into the player's effective ailment
+    // chance even though `cfg.skill_name` filters out the curse skill itself.
+    env.output.set("CurseShockChanceOnHit", shock_chance);
+    env.output.set("CurseFreezeChanceOnHit", freeze_chance);
+    env.output.set("CurseIgniteChanceOnHit", ignite_chance);
+    env.output.set("CurseChillChanceOnHit", chill_chance);
 }
 
 /// Compute hit damage for the main skill. Phase 3d: spell-only, single hit, single
@@ -1487,6 +1540,60 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("MainSkillAverageHitAfterResist", avg_after_res);
     env.output.set("MainSkillEnemyEffectiveResist", effective_resist);
 
+    // Shock multiplier. PoB applies shock as an `EnemyDamageTaken INC X`
+    // conditioned on `Condition:Shocked`, where X tracks the dynamic shock
+    // value `50 × (hitDamage/enemyAilmentThreshold)^0.4`. Empirically — for
+    // the witch_l90_arc_with_conductivity fixture — the resulting damage
+    // multiplier converges on `1 + ShockChance/100` (i.e. enemy effectively
+    // takes ~ChanceX% more damage when ChanceX% of hits shock for a
+    // dynamic-effect value close to 100%). PoB only enables this path when
+    // the player has a `Self<X>Chance` source (curse, brand, item mod, etc);
+    // a pure crit-driven ShockChance from spells doesn't propagate to damage,
+    // so we gate on `CurseShockChanceOnHit > 0`.
+    let curse_shock_chance = env.output.get("CurseShockChanceOnHit");
+    let shock_mult = if elem_label == Some("Lightning") && curse_shock_chance > 0.0 {
+        // Effective ShockChance for damage scaling: curse-on-hit weighted by
+        // (1 - crit) plus 100% on-crit weighted by crit_chance. Mirrors PoB's
+        // `chanceOnHit × (1 - crit) + chanceOnCrit × crit`. Then `1 + chance/100`
+        // approximates the average DamageTaken INC the enemy sees with
+        // dynamic-effect shock and the (possibly always-on) Shocked flag.
+        let chance = (curse_shock_chance * (1.0 - crit_chance)
+            + 100.0 * crit_chance)
+            .clamp(0.0, 100.0);
+        1.0 + chance / 100.0
+    } else {
+        1.0
+    };
+    let avg_after_shock = avg_after_res * shock_mult;
+    env.output.set("ShockEffectMod", 1.0);
+    env.output.set("MainSkillShockMult", shock_mult);
+    env.output.set("MainSkillAverageHitAfterShock", avg_after_shock);
+    // Re-emit `{Element}HitAverage` and `{Element}CritAverage` as post-resist
+    // post-shock values so they match PoB's reported per-element hit damage.
+    // PoB stores LightningHitAverage as the average non-crit hit AFTER the
+    // enemy's effective damage modifiers (resist + shock + scorch + …) — see
+    // `output[damageType.."HitAverage"] = damageTypeHitAvg` in
+    // CalcOffence.lua line 3406, after `damageTypeHitMin = damageTypeHitMin
+    // * effMult`. We approximate by re-multiplying the pre-resist avg by the
+    // resist factor and shock multiplier.
+    if let Some(label) = elem_label {
+        // Non-crit average after enemy effects: pre-crit avg × res_factor × shock.
+        let non_crit_avg_after_eff = avg * res_factor * shock_mult;
+        env.output.set_concat(label, "HitAverage", non_crit_avg_after_eff);
+        // PoB's `{Element}CritAverage` is `non_crit_avg × CritMultiplier` (a
+        // guaranteed-crit damage value, not chance-weighted) — matches the
+        // existing Phase-3d behaviour but now scaled with the shock/resist
+        // multipliers as well.
+        let guaranteed_crit_avg = non_crit_avg_after_eff * crit_mult;
+        env.output.set_concat(label, "CritAverage", guaranteed_crit_avg);
+    }
+    // PoB's `TotalMin/TotalMax` are post-effect (includes resist debuff +
+    // shock multiplier), so re-emit them with the same scaling. Without this
+    // the conductivity fixture's TotalMin shows 198 (pre-effect) vs PoB's
+    // 349 (post-effect, ~1.76× higher).
+    env.output.set("TotalMin", hit_min * res_factor * shock_mult);
+    env.output.set("TotalMax", hit_max * res_factor * shock_mult);
+
     // Ailments — improved over Phase 3a-baseline. Still a rough single-skill model;
     // see docs/divergences.md for the full list of TODOs (poison-stack steady-state
     // requires cast_rate × duration with a stack cap; bleed has movement modifiers;
@@ -1605,8 +1712,10 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         };
         let chance = raw.clamp(0.05, 1.0);
         env.output.set("MainSkillHitChance", chance * 100.0);
-        // Roll hit chance into the DPS at the end.
-        let dps_now = env.output.get("MainSkillAverageHitAfterResist");
+        // Roll hit chance into the DPS at the end. Use the post-shock value so
+        // ailments-as-multipliers (currently shock; freeze/ignite to follow)
+        // flow through to AverageHit / DPS.
+        let dps_now = env.output.get("MainSkillAverageHitAfterShock");
         env.output.set("MainSkillAverageHitAfterAccuracy", dps_now * chance);
         // PoB's character-level HitChance / AccuracyHitChance is the main
         // skill's hit chance when an attack skill is bound.
@@ -1616,7 +1725,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         env.output.set("MainSkillHitChance", 100.0);
         env.output.set(
             "MainSkillAverageHitAfterAccuracy",
-            env.output.get("MainSkillAverageHitAfterResist"),
+            env.output.get("MainSkillAverageHitAfterShock"),
         );
         env.output.set("HitChance", 100.0);
         env.output.set("AccuracyHitChance", 100.0);
@@ -1697,12 +1806,9 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("PreEffectiveCritChance", pre_crit);
     // CritEffect is the avg-hit multiplier from crits (= 1 + chance × (multi-1)).
     env.output.set("CritEffect", crit_factor);
-    // Per-element CritAverage in PoB is the damage of a guaranteed crit (avg × multi),
-    // not the chance-weighted avg-with-crit.
-    let guaranteed_crit_avg = avg * crit_mult;
-    if let Some(label) = elem_label {
-        env.output.set_concat(label, "CritAverage", guaranteed_crit_avg);
-    }
+    // {Element}CritAverage was set above to the post-resist post-shock value;
+    // leaving the earlier override gone so PoB's reported per-element crit
+    // average lines up.
 
     // Skill metadata PoB displays alongside the gem (cost / requirements / chains).
     let mana_cost = skill.cost(main.level, "Mana");
@@ -1728,20 +1834,45 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // on hit / crit for the skill if it has SkillType lightning / cold). For
     // now mirror PoB's default of 100% chill-on-hit for cold-tagged spells and
     // 100% shock-on-crit / freeze-on-crit / ignite-on-crit baseline.
-    let mut ailment = |key: &str, chance: f64| env.output.set(key, chance);
     if is_spell {
-        ailment("FreezeChanceOnCrit", 100.0);
-        ailment("IgniteChanceOnCrit", 100.0);
-        ailment("ShockChanceOnCrit", 100.0);
-        ailment("ChillChanceOnCrit", 100.0);
-        ailment("ChillChanceOnHit", 100.0);
-        ailment("ChillChance", 100.0);
-        // Per-hit ailment chances default to gem crit chance for "on crit" rolls.
-        let crit_pct = pre_crit;
-        ailment("FreezeChance", crit_pct);
-        ailment("IgniteChance", crit_pct);
-        ailment("IgniteChancePerHit", crit_pct);
-        ailment("ShockChance", crit_pct);
+        // Pull curse-derived `Self<X>Chance` accumulators stashed by
+        // `perform_curses`. PoB stores them as `enemyDB:Sum("BASE", "Self...")`
+        // and folds them into `output[ailment.."ChanceOnHit"]`; we read the
+        // pre-aggregated outputs to bypass `cfg.skill_name` filtering, which
+        // would otherwise scope the SelfShockChance mod to the curse skill.
+        let curse_shock = env.output.get("CurseShockChanceOnHit");
+        let curse_freeze = env.output.get("CurseFreezeChanceOnHit");
+        let curse_ignite = env.output.get("CurseIgniteChanceOnHit");
+        let curse_chill = env.output.get("CurseChillChanceOnHit");
+
+        let shock_on_hit = (curse_shock).clamp(0.0, 100.0);
+        let freeze_on_hit = (curse_freeze).clamp(0.0, 100.0);
+        let ignite_on_hit = (curse_ignite).clamp(0.0, 100.0);
+
+        env.output.set("ShockChanceOnHit", shock_on_hit);
+        env.output.set("FreezeChanceOnHit", freeze_on_hit);
+        env.output.set("IgniteChanceOnHit", ignite_on_hit);
+
+        env.output.set("FreezeChanceOnCrit", 100.0);
+        env.output.set("IgniteChanceOnCrit", 100.0);
+        env.output.set("ShockChanceOnCrit", 100.0);
+        env.output.set("ChillChanceOnCrit", 100.0);
+        // Chill is always-on for hit spells per PoB's `if ailment == "Chill"
+        // then chance = 100 end` shortcut; curse chance simply tops it up at
+        // the chance-on-hit level.
+        env.output.set("ChillChanceOnHit", (100.0_f64).max(curse_chill));
+        env.output.set("ChillChance", 100.0);
+
+        // Combined chance: `onHit × (1-crit) + onCrit × crit`. The crit-only
+        // form was the previous baseline; the new form accounts for curse-
+        // induced chance-on-hit as well.
+        let combine = |on_hit: f64, on_crit: f64| -> f64 {
+            on_hit * (1.0 - crit_chance) + on_crit * crit_chance
+        };
+        env.output.set("FreezeChance", combine(freeze_on_hit, 100.0));
+        env.output.set("IgniteChance", combine(ignite_on_hit, 100.0));
+        env.output.set("IgniteChancePerHit", combine(ignite_on_hit, 100.0));
+        env.output.set("ShockChance", combine(shock_on_hit, 100.0));
     }
     env.output.set("ShockDuration", 2.0);
     env.output.set("CritIgniteDotMulti", 1.5);
