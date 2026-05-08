@@ -585,6 +585,54 @@ fn ascendancy_point_cap_is_8() {
 }
 
 #[test]
+fn pob_diff_bleeding_cleave_baseline() {
+    // Regression baseline for the 6d-2 ailment overhaul: the
+    // marauder_l90_bleeding_cleave reference build should emit non-zero
+    // BleedDPS. The corresponding XML lives at
+    // crates/pob-extract/test-builds/marauder_l90_bleeding_cleave.xml so
+    // future pob_diff runs can compare against PoB's authoritative output:
+    //
+    //   cargo run -p pob-extract --bin pob_diff --release -- \
+    //     --build crates/pob-extract/test-builds/marauder_l90_bleeding_cleave.xml
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        return;
+    };
+    let xml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("crates/pob-extract/test-builds/marauder_l90_bleeding_cleave.xml");
+    let Ok(xml) = std::fs::read_to_string(&xml_path) else {
+        eprintln!("skip: {} not found", xml_path.display());
+        return;
+    };
+    let c = pob_engine::import_pob_xml(&xml).expect("import bleeding cleave fixture");
+    let out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let bleed = out.get("BleedDPS");
+    assert!(
+        bleed > 100.0,
+        "Bleed Cleave fixture should produce a non-trivial BleedDPS, got {bleed}"
+    );
+
+    // Flipping EnemyMoving doubles bleed — the regression guard for 6d-2's
+    // movement multiplier.
+    let mut moving = c.clone();
+    moving
+        .config
+        .conditions
+        .insert("EnemyMoving".to_owned(), true);
+    let moving_out = pob_engine::compute_full(&moving, &tree, Some(&skills), Some(&bases));
+    let moving_ratio = moving_out.get("BleedDPS") / bleed;
+    assert!(
+        (1.95..=2.05).contains(&moving_ratio),
+        "EnemyMoving should still double BleedDPS in the fixture; ratio={moving_ratio}"
+    );
+}
+
+#[test]
 fn curse_effect_scales_resist_delta() {
     let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
         return;
