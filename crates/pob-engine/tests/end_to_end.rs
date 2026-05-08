@@ -918,6 +918,104 @@ fn bleed_faster_and_enemy_moving_scale_bleed_dps() {
     );
 }
 
+// Issue #15: Ailment duration output keys (BleedDuration / PoisonDuration /
+// IgniteDuration) must be populated whenever the corresponding ailment is
+// computed, and must scale with their `*Duration` INC mods. PoB exposes these
+// on the Calcs tab side panel; previously MK2 emitted only the static
+// placeholder `IgniteDuration = 4.0` from init_env and nothing for bleed/poison.
+#[test]
+fn ailment_duration_outputs_scale_with_duration_mods() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    // Use Cleave deterministically — the existing pob_diff_bleeding_cleave
+    // baseline already validates Cleave's ailment branches.
+    let Some(_) = skills.get("Cleave") else {
+        eprintln!("skip: Cleave not found");
+        return;
+    };
+    let sword_name = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone());
+    let Some(sword_name) = sword_name else {
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+
+    // Body armour: 100% bleed chance + 100% poison chance + 100% ignite chance.
+    // Fire damage on the body armour ensures the ignite branch has a non-zero
+    // base hit so its duration output is overwritten from the init_env default.
+    let triple = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nAilment Hauberk\nFull Plate\n--------\n100% chance to cause Bleeding on Hit\n100% chance to Poison on Hit\n100% chance to Ignite\nAdds 50 to 100 Fire Damage to Attacks\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::BodyArmour, triple);
+
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    if baseline.get("BleedDPS") <= 0.0 {
+        eprintln!("skip: Cleave produced no BleedDPS baseline");
+        return;
+    }
+    // Bleed/poison branches always run when their chance > 0 + phys hit > 0.
+    assert!(
+        (baseline.get("BleedDuration") - 5.0).abs() < 0.001,
+        "Default BleedDuration should be 5.0s, got {}",
+        baseline.get("BleedDuration")
+    );
+    assert!(
+        (baseline.get("PoisonDuration") - 2.0).abs() < 0.001,
+        "Default PoisonDuration should be 2.0s, got {}",
+        baseline.get("PoisonDuration")
+    );
+    // Ignite is conditional on fire damage feeding into ignite_chance > 0.
+    let baseline_ignite_active = baseline.get("IgniteDPS") > 0.0;
+    if baseline_ignite_active {
+        assert!(
+            (baseline.get("IgniteDuration") - 4.0).abs() < 0.001,
+            "Default IgniteDuration should be 4.0s, got {}",
+            baseline.get("IgniteDuration")
+        );
+    }
+
+    // Add a belt with +30% increased Bleeding/Poison/Ignite Duration. Each
+    // duration should rise by 1.30x.
+    let belt = parse_item(
+        "Item Class: Belts\nRarity: MAGIC\nDuration Belt\nLeather Belt\n--------\n30% increased Bleeding Duration\n30% increased Poison Duration\n30% increased Ignite Duration\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::Belt, belt);
+    let after = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        (after.get("BleedDuration") - 6.5).abs() < 0.01,
+        "BleedDuration with 30% INC should be 6.5s, got {}",
+        after.get("BleedDuration")
+    );
+    assert!(
+        (after.get("PoisonDuration") - 2.6).abs() < 0.01,
+        "PoisonDuration with 30% INC should be 2.6s, got {}",
+        after.get("PoisonDuration")
+    );
+    if baseline_ignite_active && after.get("IgniteDPS") > 0.0 {
+        assert!(
+            (after.get("IgniteDuration") - 5.2).abs() < 0.01,
+            "IgniteDuration with 30% INC should be 5.2s, got {}",
+            after.get("IgniteDuration")
+        );
+    }
+}
+
 #[test]
 fn fireball_emits_base_ignite_chance_via_global_stat_map() {
     let Some(skills) = load_skills() else { return };

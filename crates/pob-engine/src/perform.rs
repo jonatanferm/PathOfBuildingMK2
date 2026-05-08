@@ -1772,6 +1772,13 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 phys_avg * 0.70 * (1.0 + dot_inc / 100.0) * dot_more * rate_mod * movement_mod;
             // Single-stack with chance-to-apply: long-run DPS = p × per-application-DPS
             env.output.set("BleedDPS", bleed * bleed_chance);
+            // Bleed duration: PoE base 5s, scaled by `BleedDuration` INC mods.
+            // PoB exposes this on the Calcs tab side panel.
+            let bleed_duration_inc = env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "BleedDuration")
+                / 100.0;
+            env.output.set("BleedDuration", 5.0 * (1.0 + bleed_duration_inc));
         }
 
         // Poison: 30% of hit damage as Chaos DoT for 2s. Stacks; steady-state
@@ -1829,6 +1836,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             env.output.set("PoisonDPS", per_stack * stacks);
             env.output.set("PoisonStacks", stacks);
             env.output.set("PoisonStackLimit", stack_limit);
+            env.output.set("PoisonDuration", duration);
         }
 
         // Ignite: 90% of fire hit damage as Fire DoT for 4s, single-application
@@ -1862,6 +1870,13 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             // Apply chance — assumes the skill reapplies frequently enough to maintain
             // an active ignite.
             env.output.set("IgniteDPS", ignite * ignite_chance);
+            // Ignite duration: PoE base 4s, scaled by `IgniteDuration` INC.
+            // Overrides the static `4.0` placeholder set in init_env.
+            let ignite_duration_inc = env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "IgniteDuration")
+                / 100.0;
+            env.output.set("IgniteDuration", 4.0 * (1.0 + ignite_duration_inc));
         }
     }
 
