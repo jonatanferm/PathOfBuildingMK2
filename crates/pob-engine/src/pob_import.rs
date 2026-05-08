@@ -156,9 +156,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                         let main_idx = attr_str(&e, "mainActiveSkill")
                             .and_then(|s| s.parse::<u32>().ok())
                             .unwrap_or(0);
-                        let enabled = attr_str(&e, "enabled")
-                            .map(|s| s != "false")
-                            .unwrap_or(true);
+                        let enabled = attr_str(&e, "enabled").is_none_or(|s| s != "false");
                         current_skill_group = Some(SkillGroup {
                             index: socket_group_index,
                             main_active_skill_index: main_idx,
@@ -244,9 +242,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                                 quality: attr_str(&e, "quality")
                                     .and_then(|s| s.parse::<u32>().ok())
                                     .unwrap_or(0),
-                                enabled: attr_str(&e, "enabled")
-                                    .map(|s| s != "false")
-                                    .unwrap_or(true),
+                                enabled: attr_str(&e, "enabled").is_none_or(|s| s != "false"),
                             });
                         }
                     }
@@ -659,15 +655,11 @@ fn handle_start_attrs(
                             character.level = n.max(1);
                         }
                     }
-                    "className" => {
-                        if !val.is_empty() {
-                            character.class = ClassRef(val);
-                        }
+                    "className" if !val.is_empty() => {
+                        character.class = ClassRef(val);
                     }
-                    "ascendClassName" => {
-                        if !val.is_empty() && val != "None" {
-                            character.ascendancy = Some(val);
-                        }
+                    "ascendClassName" if !val.is_empty() && val != "None" => {
+                        character.ascendancy = Some(val);
                     }
                     "bandit" => {
                         if let Some(b) = crate::character::Bandit::from_pob_name(&val) {

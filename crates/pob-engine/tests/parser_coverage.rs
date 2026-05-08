@@ -37,7 +37,7 @@ fn parser_covers_floor_of_every_tree_version() {
         let tree: pob_data::PassiveTree = serde_json::from_str(&json).unwrap();
         let mut t = 0u64;
         let mut p = 0u64;
-        for (_, node) in &tree.nodes {
+        for node in tree.nodes.values() {
             for raw in &node.stats {
                 for line in raw.lines() {
                     let line = line.trim();
@@ -80,7 +80,7 @@ fn parser_covers_floor_of_3_25_passives() {
     // Tree data sometimes packs several stats into a single newline-joined string
     // (e.g. mastery effects, keystone descriptions). Split on newlines before parsing
     // so each stat is counted independently.
-    for (_, node) in &tree.nodes {
+    for node in tree.nodes.values() {
         for raw in &node.stats {
             for line in raw.lines() {
                 let line = line.trim();

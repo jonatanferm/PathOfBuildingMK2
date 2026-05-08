@@ -172,7 +172,7 @@ fn boot_pob(lua: &Lua, build_xml: &str, verbose: bool) -> Result<()> {
     run(
         lua,
         "load_build",
-        r#"
+        r"
 local m = launch.main
 if not m then error('launch.main not loaded') end
 m:SetMode('BUILD', false, 'pob_diff', __POB_DIFF_BUILD_XML__, false, nil)
@@ -180,7 +180,7 @@ runCallback('OnFrame')
 if launch.promptMsg then
     error('build load failed: '..tostring(launch.promptMsg))
 end
-"#,
+",
     );
 
     // Probe build state to verify class registration and tree alloc count.
@@ -188,7 +188,7 @@ end
         run(
             lua,
             "enemy_damage_probe",
-            r#"
+            r"
 local m = launch.main
 local b = m.modes['BUILD']
 local env = b.calcsTab and (b.calcsTab.mainEnv or b.calcsTab.calcsEnv)
@@ -205,12 +205,12 @@ if env then
         end
     end
 end
-"#,
+",
         );
         run(
             lua,
             "build_probe",
-            r#"
+            r"
 local m = launch.main
 local b = m.modes['BUILD']
 print(string.format('  build.className=%s ascendClassName=%s level=%s',
@@ -236,14 +236,14 @@ if b.spec and b.spec.nodes then
     for _ in pairs(b.spec.nodes) do n = n + 1 end
     print(string.format('  spec.nodes table size=%d', n))
 end
-"#,
+",
         );
     }
 
     // Step 6: pull env.player.output back into Rust as a sorted scalar map.
     let scalars: mlua::Table = lua
         .load(
-            r#"
+            r"
 local m = launch.main
 local build = m.modes['BUILD']
 local env = build.calcsTab and (build.calcsTab.mainEnv or build.calcsTab.calcsEnv)
@@ -256,16 +256,14 @@ for k, v in pairs(out) do
     end
 end
 return dst
-"#,
+",
         )
         .eval()
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
     let mut entries: Vec<(String, mlua::Value)> = Vec::new();
-    for pair in scalars.pairs::<String, mlua::Value>() {
-        if let Ok((k, v)) = pair {
-            entries.push((k, v));
-        }
+    for (k, v) in scalars.pairs::<String, mlua::Value>().flatten() {
+        entries.push((k, v));
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -303,7 +301,7 @@ fn diff_against_pob_engine(
     // ascendancy, allocated nodes, notes are all picked up.
     let character = pob_engine::import_pob_xml(build_xml)
         .map_err(|e| anyhow::anyhow!("import_pob_xml: {e}"))?;
-    let class = character.class.0.to_string();
+    let class = character.class.0.clone();
     let level = character.level;
     let allocated = character.allocated.len();
 
@@ -471,7 +469,7 @@ fn diff_against_pob_engine(
         "\n=== coverage gaps ({} non-trivial PoB keys not emitted by pob-engine) ===",
         missing_outputs.len()
     );
-    let coverage_limit = if !verbose { 30 } else { missing_outputs.len() };
+    let coverage_limit = if verbose { missing_outputs.len() } else { 30 };
     for (name, value) in missing_outputs.iter().take(coverage_limit) {
         println!("  {name:<40}  pob={value:>12.2}");
     }
@@ -646,7 +644,7 @@ return true
     // Lua 5.4 ↔ LuaJIT compat: string.format("%d", floatVal) errors in 5.4 because
     // floats with no integer representation are rejected. LuaJIT silently truncated.
     // Wrap string.format to coerce numeric args for %d / %i.
-    let format_patch = r#"
+    let format_patch = r"
 local raw_format = string.format
 local function coerce_int(v)
     if type(v) == 'number' then
@@ -709,13 +707,13 @@ string.format = function(fmt, ...)
     return res
 end
 return true
-"#;
+";
     let _: bool = lua
         .load(format_patch)
         .eval()
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-    let gsub_patch = r#"
+    let gsub_patch = r"
 local raw_gsub = string.gsub
 local function escape_replacement(repl)
     if type(repl) ~= 'string' then return repl end
@@ -754,7 +752,7 @@ end
 -- Method form (s:gsub) goes through string metatable's __index = string, so
 -- patching string.gsub is enough.
 return true
-"#;
+";
     let _: bool = lua
         .load(gsub_patch)
         .eval()
@@ -766,7 +764,7 @@ return true
         let parts: Vec<String> = args
             .iter()
             .map(|v| match v {
-                mlua::Value::String(s) => s.to_string_lossy().to_string(),
+                mlua::Value::String(s) => s.to_string_lossy().clone(),
                 v => format!("{v:?}"),
             })
             .collect();
@@ -842,7 +840,7 @@ fn format_value(v: &mlua::Value) -> String {
         }
         mlua::Value::Integer(i) => i.to_string(),
         mlua::Value::Boolean(b) => b.to_string(),
-        mlua::Value::String(s) => s.to_string_lossy().to_string(),
+        mlua::Value::String(s) => s.to_string_lossy().clone(),
         other => format!("{other:?}"),
     }
 }
