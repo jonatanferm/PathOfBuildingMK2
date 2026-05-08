@@ -23,8 +23,11 @@ pub struct CompareTabState {
 
 #[derive(Debug, Clone)]
 pub struct Snapshot {
-    /// Character at snapshot time. Currently informational; held so the
-    /// UI can describe what's being compared.
+    /// Character at snapshot time. Held so a future UI can describe
+    /// what's being compared (e.g. "vs L92 Witch Arc on 2026-05-08").
+    /// Clippy flags it as unread today — `#[allow]` keeps it compiling
+    /// without losing the field.
+    #[allow(dead_code)]
     pub character: Character,
     /// Output of `compute_full` against the snapshot character. The
     /// compare panel diffs the live `Output` against this one.

@@ -9,7 +9,7 @@
 //! Returns an [`egui::text::LayoutJob`] so callers can drop it directly
 //! into `ui.label(job)`.
 
-use eframe::egui::{self, text::LayoutJob, Color32, FontId, TextFormat};
+use eframe::egui::{text::LayoutJob, Color32, FontId, TextFormat};
 
 /// Single-digit `^N` palette. PoE convention plus PoB's defaults
 /// (white-ish for `^7`, gray for `^8`, etc.). Indices 0..=9.
@@ -97,6 +97,10 @@ fn parse_hex_escape(s: &str) -> Option<Color32> {
 /// Strip any `^N` / `^xRRGGBB` escapes, returning a plain-text view.
 /// Useful for clipboard copy paths or the Notes-tab edit-mode buffer.
 #[must_use]
+// Reserved for future Notes-tab edit-mode buffer (issue #38) — clippy
+// flags it as dead code today; it's still tested by the unit suite
+// below so don't remove.
+#[allow(dead_code)]
 pub fn strip_escapes(text: &str) -> String {
     // Slice the original `&str` between matched escapes rather than pushing
     // one byte at a time — pushing `bytes[i] as char` would corrupt any

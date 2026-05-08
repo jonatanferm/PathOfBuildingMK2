@@ -5,20 +5,11 @@ use pob_engine::{
     export_code, export_pob_code, import_code, import_pob_code, import_pob_xml, Character,
 };
 
+#[derive(Default)]
 pub struct ImportExportTabState {
     pub paste: String,
     pub generated: String,
     pub last_message: Option<(bool, String)>,
-}
-
-impl Default for ImportExportTabState {
-    fn default() -> Self {
-        Self {
-            paste: String::new(),
-            generated: String::new(),
-            last_message: None,
-        }
-    }
 }
 
 pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut Character) -> bool {
