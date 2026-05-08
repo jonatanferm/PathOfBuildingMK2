@@ -3018,6 +3018,69 @@ fn mine_multi_throw_penalty_scales_laying_speed() {
     );
 }
 
+// Issue #84 (slice 4): per-skill cooldown caps the trap/mine throw
+// rate. Bear Trap has an intrinsic 4s cooldown — even with default
+// throwing speed of 1 / 0.6s ≈ 1.67/s, the effective DPS rate must
+// fall to 1/4 = 0.25/s when the cooldown is read from skill data.
+// CooldownRecovery scales the cooldown down. Mirrors PoB's
+// `useSpeed = 1 / cooldown` pattern from CalcOffence.lua:5648.
+#[test]
+fn trap_cooldown_caps_throw_rate() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("BearTrap").is_none() {
+        eprintln!("skip: BearTrap not in registry");
+        return;
+    }
+    use pob_engine::{Mod, Source};
+
+    // Baseline: Shadow + Bear Trap (4s base cooldown). Without
+    // CooldownRecovery the effective cooldown stays at 4s.
+    let mut c = Character::new(ClassRef::shadow(), 90);
+    c.main_skill = Some(MainSkill::new("BearTrap"));
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let cd = baseline.get("TrapCooldown");
+    assert!(
+        (cd - 4.0).abs() < 1e-6,
+        "Bear Trap base cooldown should be 4.0s with no CooldownRecovery; got {cd}"
+    );
+    let main_speed = baseline.get("MainSkillSpeed");
+    assert!(
+        (main_speed - 0.25).abs() < 1e-6,
+        "Bear Trap MainSkillSpeed should fall to 1/4 = 0.25/s under the cooldown cap; got {main_speed}"
+    );
+    // Throwing speed itself stays at the throwing-time-derived rate
+    // (~1.67/s) — the cooldown only gates the effective DPS rate.
+    let throw_speed = baseline.get("TrapThrowingSpeed");
+    assert!(
+        throw_speed > 1.0,
+        "Bear Trap raw TrapThrowingSpeed should still reflect the 0.6s base throwing time; got {throw_speed}"
+    );
+
+    // 50% increased CooldownRecovery → effective cooldown = 4 / 1.5
+    // = 2.6667s, then ceil to nearest 60Hz tick → 2.6667 (already
+    // tick-aligned). Effective throw rate = 1/2.6667 ≈ 0.375/s.
+    let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
+    env.mod_db
+        .add(Mod::inc("CooldownRecovery", 50.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
+    let cd_after = env.output.get("TrapCooldown");
+    let expected = (4.0 / 1.5 * 60.0_f64).ceil() / 60.0;
+    assert!(
+        (cd_after - expected).abs() < 1e-3,
+        "TrapCooldown with 50% CooldownRecovery should be ~{expected:.4}s; got {cd_after}"
+    );
+    let main_speed_after = env.output.get("MainSkillSpeed");
+    let expected_speed = 1.0 / expected;
+    assert!(
+        (main_speed_after - expected_speed).abs() < 1e-3,
+        "MainSkillSpeed under 50% CDR should match 1/{expected:.4} = {expected_speed:.4}; got {main_speed_after}"
+    );
+}
+
 // Issue #8: impale layer adds physical-stack DPS to FullDPS via
 //   ImpaleDPS = stored × stacks(5) × effect/100 × chance/100 × cps
 // Issue #19: Warcry exertion. Each warcry exerts the next N attacks

@@ -1896,6 +1896,30 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     }
 }
 
+/// Issue #84 (slice 4): per-skill effective cooldown. Returns the
+/// skill's intrinsic `cooldown` (from `levels[L].cooldown`) divided
+/// by the player's `1 + CooldownRecovery%` total and rounded up to
+/// the server tick rate (60 Hz), matching PoB's
+/// `CalcOffence.lua:1248-1252` formula. `None` for skills without an
+/// intrinsic cooldown — those don't gate throw rate.
+fn effective_cooldown(
+    skill: &pob_data::Skill,
+    level: u32,
+    mod_db: &crate::ModDB,
+    cfg: &QueryCfg,
+    state: &crate::mod_db::EvalState,
+) -> Option<f64> {
+    let base = skill.cooldown(level)?;
+    if base <= 0.0 {
+        return None;
+    }
+    let cdr_inc = mod_db.sum(ModType::Inc, cfg, state, "CooldownRecovery") / 100.0;
+    let scaled = base / (1.0 + cdr_inc).max(0.001);
+    // Round up to server tick (60 Hz) so the cooldown lands on a tick
+    // boundary — same ceil-to-tick PoB applies.
+    Some((scaled * 60.0).ceil() / 60.0)
+}
+
 /// Compute hit damage for the main skill. Phase 3d: spell-only, single hit, single
 /// target, ignores ailments / penetration / resistances of the enemy. Outputs:
 /// `MainSkillId`, `MainSkillLevel`, `MainSkillBaseMin`, `MainSkillBaseMax`,
@@ -2854,6 +2878,15 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
         env.output
             .set("MineLayingTime", 1.0 / laying_speed.max(0.001));
         cps = laying_speed;
+        // Issue #84 (slice 4): per-skill cooldown caps the effective
+        // throw rate. Mirrors PoB's CalcOffence.lua:5648 use_speed
+        // pattern: when the skill carries an intrinsic cooldown
+        // (Bear Trap, Pyroclast Mine, etc.), the effective DPS rate
+        // is `1 / cooldown`, not the throwing-speed-derived rate.
+        if let Some(cd) = effective_cooldown(skill, gem_level, &env.mod_db, &cfg, &env.state) {
+            env.output.set("MineCooldown", cd);
+            cps = cps.min(1.0 / cd);
+        }
     } else if is_trap_skill {
         // Same shape as mines but using `TrapThrowingTime` (default 0.6s)
         // and `TrapThrowingSpeed`. PoB also folds in `SkillTrapThrowingTime`
@@ -2875,6 +2908,14 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
         env.output
             .set("TrapThrowingTime", 1.0 / throwing_speed.max(0.001));
         cps = throwing_speed;
+        // Issue #84 (slice 4): trap cooldown caps the effective
+        // throw rate. Skills like Bear Trap (4s cooldown) cannot be
+        // thrown faster than their cooldown allows even with high
+        // throwing speed — same gating as mines, see comment above.
+        if let Some(cd) = effective_cooldown(skill, gem_level, &env.mod_db, &cfg, &env.state) {
+            env.output.set("TrapCooldown", cd);
+            cps = cps.min(1.0 / cd);
+        }
     }
 
     env.output.set("MainSkillSpeed", cps);
