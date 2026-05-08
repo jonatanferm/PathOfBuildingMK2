@@ -895,7 +895,11 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             calcs_tab::ui(ui, &mut app.calcs_state, &app.output, app.last_env.as_ref());
         }
         Tab::Compare => {
-            compare_tab::ui(ui, &mut app.compare_state, &app.character, &app.output);
+            if let Some(action) =
+                compare_tab::ui(ui, &mut app.compare_state, &app.character, &app.output)
+            {
+                handle_compare_action(app, action);
+            }
         }
         Tab::Notes => {
             notes_tab::ui(ui, &mut app.character.notes, &mut app.notes_state);
@@ -1109,6 +1113,68 @@ fn swap_tree(app: &mut LoadedApp, version: &str) -> Result<(), String> {
 fn swap_tree(_app: &mut LoadedApp, _version: &str) -> Result<(), String> {
     // The web build only bundles `3_25.json`, so there's nothing to swap to.
     Err("Tree-version switching is disabled in the web build (only 3_25 bundled).".into())
+}
+
+/// Handle a Compare-tab action — currently only "load comparison from
+/// disk." Picks a file, imports it, runs `compute_full` against the
+/// imported character with the host's tree / skills / bases, and
+/// installs the resulting (character, output) pair as the snapshot.
+#[cfg(not(target_arch = "wasm32"))]
+fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction) {
+    match action {
+        compare_tab::CompareAction::LoadFromFile => {
+            let Some(path) = rfd::FileDialog::new()
+                .add_filter("Build file", &["mk2", "xml"])
+                .add_filter("MK2 build", &["mk2"])
+                .add_filter("PoB XML", &["xml"])
+                .pick_file()
+            else {
+                return;
+            };
+            let parsed: Result<Character, String> = std::fs::read_to_string(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|s| {
+                    let trimmed = s.trim();
+                    if trimmed.starts_with("MK2|") {
+                        pob_engine::import_code(trimmed).map_err(|e| e.to_string())
+                    } else if trimmed.starts_with('<') {
+                        pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
+                    } else {
+                        pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
+                    }
+                });
+            match parsed {
+                Ok(comp_char) => {
+                    let output = pob_engine::compute_full(
+                        &comp_char,
+                        &app.tree,
+                        Some(&app.skills),
+                        app.bases.as_ref(),
+                    );
+                    let label = compare_tab::label_for(&comp_char);
+                    app.compare_state.snapshot = Some(compare_tab::Snapshot {
+                        character: comp_char,
+                        output,
+                        label: format!("{} (from {})", label, path.display()),
+                    });
+                    app.status_message = Some((
+                        StatusKind::Info,
+                        format!("Compare snapshot loaded from {}", path.display()),
+                    ));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Compare load failed: {e}")));
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn handle_compare_action(_app: &mut LoadedApp, _action: compare_tab::CompareAction) {
+    // The web build doesn't have a file picker yet; the Compare tab's
+    // in-memory snapshot button still works there.
 }
 
 #[cfg(not(target_arch = "wasm32"))]
