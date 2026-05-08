@@ -10,6 +10,8 @@ use eframe::egui;
 use pob_engine::character::SocketGroup;
 use pob_engine::{Character, MainSkill, SkillRegistry};
 
+use crate::color_codes;
+
 pub struct SkillsTabState {
     pub filter: String,
     pub show_spells: bool,
@@ -269,7 +271,16 @@ pub fn ui(
                     }
                     if !skill.description.is_empty() {
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new(&skill.description).italics());
+                        // Gem descriptions in upstream PoB carry inline
+                        // `^N` / `^xRRGGBB` color escapes (e.g. damage
+                        // numbers in yellow). Render them faithfully;
+                        // fall back to a muted weak text colour when
+                        // there are no escapes so the description still
+                        // visually separates from the gem name above.
+                        let default = ui.style().visuals.weak_text_color();
+                        let font = egui::TextStyle::Body.resolve(ui.style());
+                        let job = color_codes::to_layout_job(&skill.description, default, font);
+                        ui.label(job);
                     }
                 }
             }
