@@ -2882,6 +2882,127 @@ fn warcry_power_config_lands_in_mod_db() {
     );
 }
 
+// Issue #68: Ruthless support `RuthlessBlowAilmentEffect`. Mirrors
+// CalcOffence.lua:2780-2797 — `effect = (1 - chance) + chance × mult`,
+// where `chance = 1 / RuthlessBlowMaxCount` and `mult = 1 + BASE/100`.
+// Ruthless support gem at level 20 has MaxCount = 5 and ailment +100%
+// (so mult = 2). Expected: `(1 - 0.2) + 0.2 × 2 = 1.2` → ailment DPS
+// multiplied by 1.2.
+#[test]
+fn ruthless_blow_scales_ailment_dps() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Cleave").is_none() {
+        eprintln!("skip: Cleave not in registry");
+        return;
+    }
+    use pob_engine::{Mod, Source};
+
+    // Set up a Cleave build with bleed chance so BleedDPS lands.
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_bleed = baseline.get("BleedDPS");
+    if baseline_bleed <= 0.0 {
+        eprintln!("skip: Cleave doesn't bleed in this fixture");
+        return;
+    }
+
+    // Inject the Ruthless support's payload directly: MaxCount = 5,
+    // ailment multiplier +100% (so mult = 2). Expected ailment effect
+    // factor = (1 - 0.2) + 0.2 × 2 = 1.2.
+    let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
+    env.mod_db.add(
+        Mod::base("RuthlessBlowMaxCount", 5.0).with_source(Source::Other("test".into())),
+    );
+    env.mod_db.add(
+        Mod::base("RuthlessBlowAilmentMultiplier", 100.0)
+            .with_source(Source::Other("test".into())),
+    );
+    pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
+    let scaled_bleed = env.output.get("BleedDPS");
+    let ratio = scaled_bleed / baseline_bleed;
+    assert!(
+        (ratio - 1.2).abs() < 0.02,
+        "Ruthless 5-count × 2× ailment mult should multiply BleedDPS by 1.2; ratio={ratio}"
+    );
+    let effect = env.output.get("RuthlessBlowAilmentEffect");
+    assert!(
+        (effect - 1.2).abs() < 0.001,
+        "RuthlessBlowAilmentEffect should equal 1.2; got {effect}"
+    );
+    let chance = env.output.get("RuthlessBlowChance");
+    assert!(
+        (chance - 20.0).abs() < 0.1,
+        "RuthlessBlowChance should be 20% (1/5); got {chance}"
+    );
+}
+
+// Issue #68: Fist of War support `FistOfWarDamageEffect`. Mirrors
+// CalcOffence.lua:2799-2826 — Slam-skill-only multiplier whose
+// average effect is `1 + DamageMultiplier × min((1/Speed)/Cooldown, 1)`.
+// We verify Sunder (slam) picks up the support and Cleave (non-slam)
+// does not.
+#[test]
+fn fist_of_war_only_applies_to_slam_skills() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Sunder").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: Sunder/Cleave not in registry");
+        return;
+    }
+    use pob_engine::{Mod, Source};
+
+    // Slam skill (Sunder): Fist of War kicks in.
+    let mut sunder = Character::new(ClassRef::duelist(), 90);
+    sunder.main_skill = Some(MainSkill::new("Sunder"));
+    let (_, mut env) =
+        pob_engine::compute_full_with_env(&sunder, &tree, Some(&skills), Some(&bases));
+    env.mod_db.add(
+        Mod::base("FistOfWarCooldown", 3.0).with_source(Source::Other("test".into())),
+    );
+    env.mod_db.add(
+        Mod::base("FistOfWarDamageMultiplier", 80.0)
+            .with_source(Source::Other("test".into())),
+    );
+    pob_engine::perform::perform_skill_dps(&sunder, &skills, &mut env);
+    let slam_effect = env.output.get("FistOfWarDamageEffect");
+    assert!(
+        slam_effect > 1.0,
+        "Slam skill (Sunder) should pick up a Fist of War boost; got {slam_effect}"
+    );
+    let uptime = env.output.get("FistOfWarUptimeRatio");
+    assert!(
+        uptime > 0.0,
+        "Slam skill should emit a non-zero FistOfWarUptimeRatio; got {uptime}"
+    );
+
+    // Non-slam skill (Cleave): the same mods don't trigger Fist of War.
+    let mut cleave = Character::new(ClassRef::duelist(), 90);
+    cleave.main_skill = Some(MainSkill::new("Cleave"));
+    let (_, mut env) =
+        pob_engine::compute_full_with_env(&cleave, &tree, Some(&skills), Some(&bases));
+    env.mod_db.add(
+        Mod::base("FistOfWarCooldown", 3.0).with_source(Source::Other("test".into())),
+    );
+    env.mod_db.add(
+        Mod::base("FistOfWarDamageMultiplier", 80.0)
+            .with_source(Source::Other("test".into())),
+    );
+    pob_engine::perform::perform_skill_dps(&cleave, &skills, &mut env);
+    let cleave_effect = env.output.get("FistOfWarDamageEffect");
+    assert!(
+        (cleave_effect - 1.0).abs() < 0.001,
+        "Non-slam skill (Cleave) must not pick up Fist of War; got {cleave_effect}"
+    );
+}
+
 // Issue #19 (composition): INC and MORE for ExertedAttackDamage compose
 // multiplicatively, matching PoE's `(1 + inc/100) × more` chain. With
 // 50% INC and a separate 50% MORE the per-exerted-attack factor is

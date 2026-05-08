@@ -2811,8 +2811,96 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
     } else {
         1.0
     };
-    let main_dps = raw_main_dps * exerted_dps_factor;
+    // Issue #68: Ruthless support + Fist of War support multipliers.
+    // Mirrors `CalcOffence.lua:2780-2826` — both reads BASE mods that
+    // only land when the matching support gem is socketed alongside
+    // the active skill, so a build without either support sees both
+    // factors collapse to 1.0 (no-op).
+    //
+    // Ruthless support: every Nth attack (`RuthlessBlowMaxCount`) is
+    // a "ruthless blow" that deals more hit damage and applies a more
+    // ailment magnitude. PoB's "AVERAGE" mode (the only one we model
+    // here) blends:
+    //   chance       = 100 / max_count
+    //   hit_effect   = (1 - p) + p × hit_mult
+    //   ailment_eff  = (1 - p) + p × ailment_mult
+    // where `hit_mult = 1 + RuthlessBlowHitMultiplier_BASE/100` and
+    // `ailment_mult = 1 + RuthlessBlowAilmentMultiplier_BASE/100`.
+    let (ruthless_hit_effect, ruthless_ailment_effect) = {
+        let max_count = env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "RuthlessBlowMaxCount");
+        if max_count > 0.0 {
+            let chance = 1.0 / max_count;
+            let hit_mult = 1.0
+                + env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "RuthlessBlowHitMultiplier")
+                    / 100.0;
+            let ail_mult = 1.0
+                + env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "RuthlessBlowAilmentMultiplier")
+                    / 100.0;
+            let hit_eff = (1.0 - chance) + chance * hit_mult;
+            let ail_eff = (1.0 - chance) + chance * ail_mult;
+            env.output.set("RuthlessBlowChance", chance * 100.0);
+            env.output.set("RuthlessBlowHitEffect", hit_eff);
+            env.output.set("RuthlessBlowAilmentEffect", ail_eff);
+            (hit_eff, ail_eff)
+        } else {
+            (1.0, 1.0)
+        }
+    };
+
+    // Fist of War: only fires for slam-tagged skills (skillType id 103
+    // = "Slam" per upstream `Data/Global.lua:215`). The empowered hit
+    // happens once per `FistOfWarCooldown` seconds; uptime ratio is
+    // `min((1/Speed) / cooldown, 1)`. Average effect across the
+    // long-run cast stream is `1 + multiplier × uptime`.
+    let is_slam = skill.skill_types.get("103").copied().unwrap_or(false);
+    let fist_of_war_effect = if is_slam {
+        let cooldown = env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "FistOfWarCooldown");
+        if cooldown > 0.0 && cps > 0.0 {
+            let damage_mult = env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "FistOfWarDamageMultiplier")
+                / 100.0;
+            let uptime = ((1.0 / cps) / cooldown).min(1.0);
+            let avg_effect = 1.0 + damage_mult * uptime;
+            env.output.set("FistOfWarUptimeRatio", uptime * 100.0);
+            env.output.set("FistOfWarDamageMultiplier", damage_mult);
+            env.output.set("AvgFistOfWarDamageEffect", avg_effect);
+            env.output.set("MaxFistOfWarDamageEffect", 1.0 + damage_mult);
+            avg_effect
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+
+    let main_dps = raw_main_dps * exerted_dps_factor * ruthless_hit_effect * fist_of_war_effect;
     env.output.set("MainSkillDPS", main_dps);
+
+    // Issue #68: scale the ailment DPS keys by the same Ruthless +
+    // Fist of War multipliers PoB applies in CalcOffence.lua:5095+.
+    // Only do this when the multipliers actually deviate from 1.0
+    // so we don't pay the output read/write cost on every skill.
+    if (ruthless_ailment_effect - 1.0).abs() > f64::EPSILON
+        || (fist_of_war_effect - 1.0).abs() > f64::EPSILON
+    {
+        let factor = ruthless_ailment_effect * fist_of_war_effect;
+        for key in ["BleedDPS", "PoisonDPS", "IgniteDPS"] {
+            if let Some(v) = env.output.try_get(key) {
+                if v > 0.0 {
+                    env.output.set(key, v * factor);
+                }
+            }
+        }
+    }
 
     // Issue #20: Minion build support. PoB models a parallel `env.minion`
     // sub-environment with its own ModDB, level, and output. MK2 doesn't
@@ -3038,7 +3126,17 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
     env.output.set("ShockDuration", 2.0);
     env.output.set("CritIgniteDotMulti", 1.5);
     env.output.set("EnemyStunThresholdMod", 1.0);
-    env.output.set("FistOfWarDamageEffect", 1.0);
+    // Issue #68: surface the per-skill Fist of War multiplier on
+    // `FistOfWarDamageEffect`. For non-slam skills this stays 1.0
+    // (the existing default); for slams the Avg effect computed
+    // earlier in this fn lands here so the Calcs-tab side panel can
+    // display it.
+    let fist_of_war_skill_effect = env
+        .output
+        .try_get("AvgFistOfWarDamageEffect")
+        .unwrap_or(1.0);
+    env.output
+        .set("FistOfWarDamageEffect", fist_of_war_skill_effect);
 
     // AoE radius — only meaningful for skills tagged `area`. Mirrors the
     // `calcAreaOfEffect` block in CalcOffence.lua:341-360. PoB pulls a base
