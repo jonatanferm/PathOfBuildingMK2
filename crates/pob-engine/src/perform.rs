@@ -436,18 +436,23 @@ fn apply_enemy_boss_preset(boss: crate::character::EnemyBoss, env: &mut Env) {
     }
 }
 
-/// Inject Pantheon Major + Minor God soul[1] effects into the player
-/// modDB. Each god has a single canonical "Soul of <god>" mod line
-/// (sourced from upstream PoB's `Data/Pantheons.lua`). Each line is
+/// Inject Pantheon Major + Minor God soul effects into the player
+/// modDB. Mirrors upstream PoB's `PantheonTools.applySoulMod`, which
+/// iterates over **every** soul level (1 through 4 for majors, 1
+/// through 2 for minors) for the selected god — PoB assumes the
+/// player has fully upgraded their souls via Divine Vessel, since
+/// soul-level state is not stored in the build XML. Each mod line is
 /// run through `mod_parser::parse_mod_line`; lines that fail to parse
-/// (some have complex conditional gating that the parser doesn't yet
-/// cover) are silently skipped — the mod_db will at least carry the
-/// god identifier as a `Source::Other("Pantheon:<god>")` no-op for
-/// downstream tools that want to know which god is selected.
+/// (a handful have conditional gating the parser doesn't yet model,
+/// e.g. Solaris's "while there is only one nearby Enemy") are silently
+/// skipped — the mod_db will still carry the god tag as a
+/// `Source::Other("Pantheon:<god>")` no-op for downstream tools that
+/// want to know which god is selected.
 ///
-/// The deeper soul levels (2-4 per god, captured from spirit-stone
-/// upgrades in PoE) are out of scope for this PR — they're tracked as
-/// follow-up work.
+/// Tabled mod data is sourced from `Data/Pantheons.lua` in the
+/// upstream PoB tree (commit pinned in `.PathOfBuilding`). When the
+/// upstream data drifts, regenerate by walking that file's
+/// `souls[].mods[].line` columns.
 fn apply_pantheon_mods(
     major: crate::character::MajorGod,
     minor: crate::character::MinorGod,
@@ -455,37 +460,121 @@ fn apply_pantheon_mods(
 ) {
     use crate::character::{MajorGod, MinorGod};
 
-    let major_mod_text: Option<&str> = match major {
-        MajorGod::None => None,
-        MajorGod::TheBrineKing => Some(
-            "You cannot be Stunned if you've been Stunned or Blocked a Stunning Hit in the past 2 seconds",
-        ),
-        MajorGod::Arakaali => Some("10% reduced Damage taken from Damage Over Time"),
-        MajorGod::Solaris => Some("6% additional Physical Damage Reduction while there is only one nearby Enemy"),
-        MajorGod::Lunaris => Some("1% additional Physical Damage Reduction for each nearby Enemy, up to 8%"),
+    // Major god soul tables — outer slice indexed by soul level 1..N,
+    // inner slice is one or more mod lines for that level.
+    let major_souls: &[&[&str]] = match major {
+        MajorGod::None => &[],
+        MajorGod::TheBrineKing => &[
+            // soul[1] — Soul of the Brine King
+            &["You cannot be Stunned if you've been Stunned or Blocked a Stunning Hit in the past 2 seconds"],
+            // soul[2] — Puruna, the Challenger
+            &["30% increased Stun and Block Recovery"],
+            // soul[3] — Merveil, the Returned
+            &["100% chance to Avoid being Frozen"],
+            // soul[4] — Nassar, Lion of the Seas
+            &["50% reduced Effect of Chill on you"],
+        ],
+        MajorGod::Arakaali => &[
+            &["10% reduced Damage taken from Damage Over Time"],
+            &["20% increased Recovery rate of Life and Energy Shield if you've stopped taking Damage Over Time Recently"],
+            &["Debuffs on you expire 20% faster"],
+            &["+40% Chaos Resistance against Damage Over Time"],
+        ],
+        MajorGod::Solaris => &[
+            &[
+                "6% additional Physical Damage Reduction while there is only one nearby Enemy",
+                "20% chance to take 50% less Area Damage from Hits",
+            ],
+            &["8% reduced Elemental Damage taken if you haven't been Hit Recently"],
+            &["Take no Extra Damage from Critical Strikes if you have taken a Critical Strike Recently"],
+            &["50% chance to avoid Ailments from Critical Strikes"],
+        ],
+        MajorGod::Lunaris => &[
+            &[
+                "1% additional Physical Damage Reduction for each nearby Enemy, up to 8%",
+                "1% increased Movement Speed for each nearby Enemy, up to 8%",
+            ],
+            &["10% chance to avoid Projectiles"],
+            &["6% reduced Elemental Damage taken if you have been Hit Recently"],
+            &["Avoid Projectiles that have Chained"],
+        ],
     };
-    if let Some(text) = major_mod_text {
+    if !major_souls.is_empty() {
         let source = Source::Other(format!("Pantheon:{}", major.as_pob_name()));
-        if let Some(parsed) = crate::mod_parser::parse_mod_line(text) {
-            db.add(parsed.mod_.with_source(source));
+        for soul in major_souls {
+            for line in *soul {
+                if let Some(parsed) = crate::mod_parser::parse_mod_line(line) {
+                    db.add(parsed.mod_.with_source(source.clone()));
+                }
+            }
         }
     }
 
-    let minor_mod_text: Option<&str> = match minor {
-        MinorGod::None => None,
-        MinorGod::Abberath => Some("60% less Duration of Ignite on You"),
-        MinorGod::Gruthkul => Some("1% additional Physical Damage Reduction for each Hit you've taken Recently up to a maximum of 5%"),
-        MinorGod::Yugul => Some("50% of Hit Damage from you and your Minions cannot be Reflected"),
-        MinorGod::Shakari => Some("50% less Duration of Poisons on You"),
-        MinorGod::Tukohama => Some("3% additional Physical Damage Reduction per second you've been stationary, up to a maximum of 9%"),
-        MinorGod::Ralakesh => Some("25% reduced Physical Damage over Time taken while moving"),
-        MinorGod::Garukhan => Some("60% reduced Effect of Shock on you"),
-        MinorGod::Ryslatha => Some("60% increased Life Recovery from Flasks used when on Low Life"),
+    // Minor god soul tables — minors max out at soul level 2.
+    let minor_souls: &[&[&str]] = match minor {
+        MinorGod::None => &[],
+        MinorGod::Abberath => &[
+            &["60% less Duration of Ignite on You"],
+            &[
+                "Unaffected by Burning Ground",
+                "10% increased Movement Speed while on Burning Ground",
+            ],
+        ],
+        MinorGod::Gruthkul => &[
+            &["1% additional Physical Damage Reduction for each Hit you've taken Recently up to a maximum of 5%"],
+            &["Enemies that have Hit you with an Attack Recently have 8% reduced Attack Speed"],
+        ],
+        MinorGod::Yugul => &[
+            &[
+                "50% of Hit Damage from you and your Minions cannot be Reflected",
+                "50% chance to Reflect Hexes",
+            ],
+            &["30% reduced Effect of Curses on you"],
+        ],
+        MinorGod::Shakari => &[
+            &[
+                "50% less Duration of Poisons on You",
+                "You cannot be Poisoned while there are at least 3 Poisons on you",
+            ],
+            &[
+                "5% reduced Chaos Damage taken",
+                "25% reduced Chaos Damage over Time taken while on Caustic Ground",
+            ],
+        ],
+        MinorGod::Tukohama => &[
+            &["3% additional Physical Damage Reduction per second you've been stationary, up to a maximum of 9%"],
+            &["Regenerate 2% of Life per second while stationary"],
+        ],
+        MinorGod::Ralakesh => &[
+            &[
+                "25% reduced Physical Damage over Time taken while moving",
+                "Moving while Bleeding doesn't cause you to take extra Damage",
+            ],
+            &["Corrupted Blood cannot be inflicted on you if you have at least 5 Corrupted Blood Debuffs on you"],
+        ],
+        MinorGod::Garukhan => &[
+            &["60% reduced Effect of Shock on you"],
+            &[
+                "Cannot be Blinded",
+                "You cannot be Maimed",
+            ],
+        ],
+        MinorGod::Ryslatha => &[
+            &[
+                "Life Flasks gain 3 Charges every 3 seconds if you haven't used a Life Flask Recently",
+                "60% increased Life Recovery from Flasks used when on Low Life",
+            ],
+            &["Enemies you've Hit Recently have 50% reduced Life Regeneration rate"],
+        ],
     };
-    if let Some(text) = minor_mod_text {
+    if !minor_souls.is_empty() {
         let source = Source::Other(format!("Pantheon:{}", minor.as_pob_name()));
-        if let Some(parsed) = crate::mod_parser::parse_mod_line(text) {
-            db.add(parsed.mod_.with_source(source));
+        for soul in minor_souls {
+            for line in *soul {
+                if let Some(parsed) = crate::mod_parser::parse_mod_line(line) {
+                    db.add(parsed.mod_.with_source(source.clone()));
+                }
+            }
         }
     }
 }

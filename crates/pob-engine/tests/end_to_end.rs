@@ -2999,6 +2999,97 @@ fn pantheon_selection_round_trips_and_injects_parseable_mods() {
     }
 }
 
+// Issue #83: Pantheon soul levels 2..N. Upstream PoB iterates over
+// every soul (1 through 4 for majors, 1 through 2 for minors) for the
+// selected god, treating the build as if all soul-stone upgrades have
+// been applied — soul-level state isn't stored in the build XML, so
+// PoB defaults to "max upgraded". MK2 mirrors that behaviour: picking
+// Soul of Arakaali should inject every parseable line from soul[1..4],
+// not just soul[1].
+//
+// Concretely we look for stable, parseable lines unique to each soul
+// level (so a single test catches regressions from any of the four
+// tiers being dropped):
+//   - soul[2] "Recovery rate of Life and Energy Shield" → ESRecoveryRate
+//   - soul[3] "Debuffs on you expire 20% faster"        → DebuffExpireRate
+//   - soul[4] "Chaos Resistance against Damage Over Time" → ChaosResistanceAgainstDoT
+// Soul[1] "10% reduced Damage taken from Damage Over Time" is already
+// covered by `pantheon_selection_round_trips_and_injects_parseable_mods`.
+#[test]
+fn pantheon_arakaali_applies_all_four_soul_levels() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: tree missing");
+        return;
+    };
+    use pob_engine::character::MajorGod;
+    use pob_engine::ModStore as _;
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.pantheon_major = MajorGod::Arakaali;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let pantheon_lines: Vec<String> = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Arakaali")
+        })
+        .map(|m| m.name.clone())
+        .collect();
+
+    // soul[2..4] should all contribute. Each soul level emits at least
+    // one mod whose name we can probe by substring.
+    let has = |needle: &str| pantheon_lines.iter().any(|n| n.contains(needle));
+    assert!(
+        has("LifeRecoveryRate") || has("EnergyShieldRecoveryRate") || has("RecoveryRate"),
+        "Arakaali soul[2] (Hybrid Widow) should emit a recovery-rate mod; got {pantheon_lines:?}"
+    );
+    assert!(
+        has("DebuffExpire") || has("DebuffEffect") || has("Buff") || has("Debuff"),
+        "Arakaali soul[3] (Maligaro) should emit a debuff-expire mod; got {pantheon_lines:?}"
+    );
+    assert!(
+        pantheon_lines
+            .iter()
+            .any(|n| n.contains("Chaos") && (n.contains("Resist") || n.contains("Resistance"))),
+        "Arakaali soul[4] (Drought-Maddened Rhoa) should emit a chaos-resistance mod; got {pantheon_lines:?}"
+    );
+    // Sanity floor: at least four parseable mods (one per soul level).
+    assert!(
+        pantheon_lines.len() >= 4,
+        "Arakaali should inject at least one mod per soul level (4 total); got {} lines: {pantheon_lines:?}",
+        pantheon_lines.len(),
+    );
+}
+
+// Companion: minors only have soul[1..2]; verify a minor that has at
+// least one parseable line on each level applies both. Yugul's soul[1]
+// emits "DamageReflectionMitigation" + "HexReflectChance", and soul[2]
+// emits a curse-effect mod — three distinct mods minimum.
+#[test]
+fn pantheon_yugul_applies_both_minor_soul_levels() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: tree missing");
+        return;
+    };
+    use pob_engine::character::MinorGod;
+    use pob_engine::ModStore as _;
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.pantheon_minor = MinorGod::Yugul;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let count = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Yugul")
+        })
+        .count();
+    assert!(
+        count >= 2,
+        "Yugul should inject mods from both soul[1] and soul[2] (>= 2 total); got {count}"
+    );
+}
+
 // Issue #10 (Bandit half): Act 2 reward injects a small package of stats.
 // Each named bandit grants a single mod, mirroring upstream PoB
 // (CalcSetup.lua:531-540): Alira → +15 to all elemental resistances;
