@@ -251,7 +251,8 @@ fn load_atlases() -> Option<tree_renderer::AtlasInputs> {
     let inactive = std::fs::read(dir.join("skills-disabled.jpg")).ok()?;
     let group = std::fs::read(dir.join("group-background.png")).ok()?;
     let frame = std::fs::read(dir.join("frame.png")).ok()?;
-    decode_atlas_inputs(&active, &inactive, &group, &frame)
+    let mastery = std::fs::read(dir.join("mastery.png")).ok()?;
+    decode_atlas_inputs(&active, &inactive, &group, &frame, &mastery)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -260,7 +261,8 @@ fn load_atlases() -> Option<tree_renderer::AtlasInputs> {
     let inactive = include_bytes!("../../../data/sprites/3_25/skills-disabled.jpg");
     let group = include_bytes!("../../../data/sprites/3_25/group-background.png");
     let frame = include_bytes!("../../../data/sprites/3_25/frame.png");
-    decode_atlas_inputs(active, inactive, group, frame)
+    let mastery = include_bytes!("../../../data/sprites/3_25/mastery.png");
+    decode_atlas_inputs(active, inactive, group, frame, mastery)
 }
 
 fn decode_atlas_inputs(
@@ -268,15 +270,18 @@ fn decode_atlas_inputs(
     inactive: &[u8],
     group: &[u8],
     frame: &[u8],
+    mastery: &[u8],
 ) -> Option<tree_renderer::AtlasInputs> {
     let active_img = image::load_from_memory(active).ok()?.to_rgba8();
     let inactive_img = image::load_from_memory(inactive).ok()?.to_rgba8();
     let group_img = image::load_from_memory(group).ok()?.to_rgba8();
     let frame_img = image::load_from_memory(frame).ok()?.to_rgba8();
+    let mastery_img = image::load_from_memory(mastery).ok()?.to_rgba8();
     let active_size = (active_img.width(), active_img.height());
     let inactive_size = (inactive_img.width(), inactive_img.height());
     let group_size = (group_img.width(), group_img.height());
     let frame_size = (frame_img.width(), frame_img.height());
+    let mastery_size = (mastery_img.width(), mastery_img.height());
     Some(tree_renderer::AtlasInputs {
         active_rgba8: active_img.into_raw(),
         active_size,
@@ -286,6 +291,8 @@ fn decode_atlas_inputs(
         group_size,
         frame_rgba8: frame_img.into_raw(),
         frame_size,
+        mastery_rgba8: mastery_img.into_raw(),
+        mastery_size,
     })
 }
 
