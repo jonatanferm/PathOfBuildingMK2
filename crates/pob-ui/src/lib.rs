@@ -8,6 +8,7 @@ use pob_data::{NodeId, PassiveTree};
 use pob_engine::{character::ClassRef, Character, Output, SkillRegistry};
 
 mod calcs_tab;
+mod color_codes;
 mod config_tab;
 mod import_export_tab;
 mod items_tab;
@@ -45,6 +46,7 @@ struct LoadedApp {
     skills_state: skills_tab::SkillsTabState,
     calcs_state: calcs_tab::CalcsTabState,
     import_export_state: import_export_tab::ImportExportTabState,
+    notes_state: notes_tab::NotesTabState,
     skills: SkillRegistry,
     bases: Option<pob_data::bases::ItemBaseSet>,
     /// Path of the currently-open build file, if any. Used by Save vs Save As.
@@ -178,6 +180,7 @@ impl PobApp {
             skills_state: skills_tab::SkillsTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
+            notes_state: notes_tab::NotesTabState::default(),
             skills,
             bases,
             current_build_path: None,
@@ -222,6 +225,7 @@ impl PobApp {
             skills_state: skills_tab::SkillsTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
+            notes_state: notes_tab::NotesTabState::default(),
             skills,
             bases,
             current_build_path: None,
@@ -775,7 +779,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             );
         }
         Tab::Notes => {
-            notes_tab::ui(ui, &mut app.character.notes);
+            notes_tab::ui(ui, &mut app.character.notes, &mut app.notes_state);
         }
         Tab::ImportExport => {
             if import_export_tab::ui(
