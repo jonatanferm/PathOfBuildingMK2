@@ -80,12 +80,14 @@ enum Tab {
 impl PobApp {
     #[must_use]
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Install the wgpu tree renderer once at app boot. With the wgpu
-        // backend forced in `pob-desktop/main.rs`, `cc.wgpu_render_state` is
-        // always available; the early-return path keeps tests / future
-        // backends from panicking.
+        // Install the wgpu tree renderer once at app boot, uploading the two
+        // skill atlases (active + inactive). With the wgpu backend forced in
+        // `pob-desktop/main.rs`, `cc.wgpu_render_state` is always available;
+        // the early-return path keeps tests / future backends from panicking.
         if let Some(rs) = cc.wgpu_render_state.as_ref() {
-            tree_renderer::TreeRenderer::install(rs);
+            if let Some(atlases) = load_atlases() {
+                tree_renderer::TreeRenderer::install(rs, atlases);
+            }
         }
         let state = match Self::load_initial() {
             Ok(loaded) => AppState::Loaded(loaded),
@@ -154,7 +156,8 @@ impl PobApp {
         }
         let skills = SkillRegistry::from_files(skill_sets);
 
-        let tree_view = TreeView::new(&tree);
+        let sprites = load_sprite_metadata();
+        let tree_view = TreeView::new(&tree, sprites.as_ref());
         let character = Character::new(ClassRef::marauder(), 1);
         let (output, env) = pob_engine::compute_full_with_env(
             &character,
@@ -198,7 +201,8 @@ impl PobApp {
             .map_err(|e| format!("parsing tree: {e}"))?;
         let bases = pob_data::load_bases(bases_json).ok();
         let skills = SkillRegistry::default();
-        let tree_view = TreeView::new(&tree);
+        let sprites = load_sprite_metadata();
+        let tree_view = TreeView::new(&tree, sprites.as_ref());
         let character = Character::new(ClassRef::marauder(), 1);
         let (output, env) = pob_engine::compute_full_with_env(
             &character,
@@ -228,6 +232,63 @@ impl PobApp {
             last_compute_hash: 0,
         })
     }
+}
+
+/// Load the active + inactive skill atlases and decode them into RGBA8 byte
+/// arrays the wgpu renderer can upload as textures. Returns `None` if the
+/// assets aren't found or fail to decode — the renderer falls back to flat
+/// colored circles in that case.
+#[cfg(not(target_arch = "wasm32"))]
+fn load_atlases() -> Option<tree_renderer::AtlasInputs> {
+    use std::path::PathBuf;
+    let candidates = [
+        PathBuf::from("data/sprites/3_25"),
+        PathBuf::from("../data/sprites/3_25"),
+        PathBuf::from("../../data/sprites/3_25"),
+    ];
+    let dir = candidates.iter().find(|p| p.join("skills.jpg").is_file())?;
+    let active = std::fs::read(dir.join("skills.jpg")).ok()?;
+    let inactive = std::fs::read(dir.join("skills-disabled.jpg")).ok()?;
+    decode_atlas_pair(&active, &inactive)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn load_atlases() -> Option<tree_renderer::AtlasInputs> {
+    let active = include_bytes!("../../../data/sprites/3_25/skills.jpg");
+    let inactive = include_bytes!("../../../data/sprites/3_25/skills-disabled.jpg");
+    decode_atlas_pair(active, inactive)
+}
+
+fn decode_atlas_pair(active: &[u8], inactive: &[u8]) -> Option<tree_renderer::AtlasInputs> {
+    let active_img = image::load_from_memory(active).ok()?.to_rgba8();
+    let inactive_img = image::load_from_memory(inactive).ok()?.to_rgba8();
+    let active_size = (active_img.width(), active_img.height());
+    let inactive_size = (inactive_img.width(), inactive_img.height());
+    Some(tree_renderer::AtlasInputs {
+        active_rgba8: active_img.into_raw(),
+        active_size,
+        inactive_rgba8: inactive_img.into_raw(),
+        inactive_size,
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_sprite_metadata() -> Option<pob_data::sprites::SpriteSet> {
+    use std::path::PathBuf;
+    let candidates = [
+        PathBuf::from("data/sprites/3_25.json"),
+        PathBuf::from("../data/sprites/3_25.json"),
+        PathBuf::from("../../data/sprites/3_25.json"),
+    ];
+    let path = candidates.iter().find(|p| p.is_file())?;
+    let json = std::fs::read_to_string(path).ok()?;
+    pob_data::sprites::load_sprites(&json).ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn load_sprite_metadata() -> Option<pob_data::sprites::SpriteSet> {
+    let json = include_str!("../../../data/sprites/3_25.json");
+    pob_data::sprites::load_sprites(json).ok()
 }
 
 impl eframe::App for PobApp {

@@ -4,7 +4,7 @@
 //! Phase 8a moved node rendering off egui's CPU painter. Edges and the
 //! tooltip path stay on egui for now; Phase 8b takes edges to wgpu too.
 
-use ahash::HashMap;
+use ahash::{HashMap, HashMapExt};
 use eframe::egui::{self, Color32, Pos2, Sense, Vec2};
 use eframe::egui_wgpu;
 use pob_data::{NodeId, NodeKind, PassiveTree};
@@ -28,6 +28,9 @@ pub struct TreeView {
     zoom: f32,
     /// Cached layout (recomputed on tree change).
     positions: HashMap<NodeId, NodePos>,
+    /// Per-node icon UV rect into the skills atlas: `[u, v, du, dv]` in
+    /// [0, 1]. Empty rect means "no icon — render flat colour".
+    icon_uvs: HashMap<NodeId, [f32; 4]>,
     /// Nodes matching the current search filter — drawn with a highlight ring.
     pub search_matches: ahash::HashSet<NodeId>,
     /// Path overlay (set externally, drawn on top of edges).
@@ -35,11 +38,12 @@ pub struct TreeView {
 }
 
 impl TreeView {
-    pub fn new(tree: &PassiveTree) -> Self {
+    pub fn new(tree: &PassiveTree, sprites: Option<&pob_data::sprites::SpriteSet>) -> Self {
         Self {
             center: Vec2::ZERO,
-            zoom: 0.04,
+            zoom: 0.06,
             positions: compute_node_positions(tree),
+            icon_uvs: compute_icon_uvs(tree, sprites),
             search_matches: ahash::HashSet::default(),
             path_overlay: Vec::new(),
         }
@@ -57,6 +61,10 @@ impl TreeView {
 
     pub fn rebind(&mut self, tree: &PassiveTree) {
         self.positions = compute_node_positions(tree);
+        // Sprite metadata stays the same across tree-version swaps; we only
+        // re-key the icon-uv table by NodeId. New tree versions would need a
+        // matching sprite set — until then keep the existing mapping (icons
+        // for missing nodes simply render as flat colours).
     }
 
     /// Render the tree. Returns `(hovered, clicked)` node ids.
@@ -222,12 +230,13 @@ impl TreeView {
             if path_set.contains(id) {
                 state |= state_bits::PATH;
             }
+            let icon_uv = self.icon_uvs.get(id).copied().unwrap_or([0.0, 0.0, 0.0, 0.0]);
             instances.push(NodeInstance {
                 world_pos: [p.x, p.y],
                 world_radius: world_radius_for(node),
                 kind: kind_to_u32(node.kind),
                 state,
-                _pad: 0,
+                icon_uv,
             });
         }
 
@@ -300,6 +309,37 @@ impl TreeView {
         self.center = center;
         self.zoom = zoom;
     }
+}
+
+/// Look up each node's atlas-relative icon rect. Walks the relevant sprite
+/// categories (normal/notable/keystone, active variant) and stashes the UV
+/// for any node whose `icon` field matches a sprite. Nodes without an icon
+/// (Root, ClassStart, AscendancyStart) and nodes whose icon isn't in the
+/// bundled atlases get an empty rect — the shader falls back to a flat
+/// colored circle.
+fn compute_icon_uvs(
+    tree: &PassiveTree,
+    sprites: Option<&pob_data::sprites::SpriteSet>,
+) -> HashMap<NodeId, [f32; 4]> {
+    let mut out = HashMap::new();
+    let Some(sprites) = sprites else {
+        return out;
+    };
+    let categories = ["normalActive", "notableActive", "keystoneActive"];
+    for (id, node) in &tree.nodes {
+        let Some(icon) = node.icon.as_deref() else {
+            continue;
+        };
+        for cat in categories {
+            if let Some(c) = sprites.get(cat) {
+                if let Some(rect) = c.coords.get(icon) {
+                    out.insert(*id, rect.uv(c.w as f32, c.h as f32));
+                    break;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// World-space (pre-zoom) radius for a node. The wgpu pipeline applies zoom

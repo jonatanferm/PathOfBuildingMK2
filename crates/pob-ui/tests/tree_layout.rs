@@ -26,5 +26,5 @@ fn tree_view_constructs_without_panic() {
         eprintln!("skip: data missing");
         return;
     };
-    let _view = TreeView::new(&tree);
+    let _view = TreeView::new(&tree, None);
 }

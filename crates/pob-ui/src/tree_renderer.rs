@@ -20,6 +20,8 @@ use bytemuck::{Pod, Zeroable};
 use eframe::{egui_wgpu, wgpu};
 
 /// Per-instance vertex data — must match `Instance` in `tree_nodes.wgsl`.
+/// `vertex_attr_array!` packs attribute offsets back-to-back, so this struct
+/// must do the same — no padding fields.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct NodeInstance {
@@ -28,9 +30,9 @@ pub struct NodeInstance {
     pub kind: u32,
     /// Bitfield: 0=allocated, 1=search-match, 2=hovered, 3=path.
     pub state: u32,
-    /// Padding to a 16-byte aligned size keeps the buffer layout identical
-    /// between bytemuck slicing and `wgpu::vertex_attr_array!`.
-    pub _pad: u32,
+    /// Atlas UV rect in [0, 1]: (u, v, du, dv). Zero means no icon — the
+    /// shader falls back to the flat kind-color circle.
+    pub icon_uv: [f32; 4],
 }
 
 /// Per-instance vertex data for an edge — matches `Edge` in `tree_edges.wgsl`.
@@ -82,28 +84,127 @@ pub struct TreeRenderer {
     instance_capacity: u64,
     edge_buffer: wgpu::Buffer,
     edge_capacity: u64,
+    /// Cached views + sampler so we can rebuild the bind group in `prepare`
+    /// after a buffer reallocation (the bindings must reference the same
+    /// objects; we keep them around).
+    atlas_active_view: wgpu::TextureView,
+    atlas_inactive_view: wgpu::TextureView,
+    atlas_sampler: wgpu::Sampler,
+}
+
+/// Inputs to `TreeRenderer::install`: the two skill atlases as RGBA8 byte
+/// arrays plus their dimensions.
+pub struct AtlasInputs {
+    pub active_rgba8: Vec<u8>,
+    pub active_size: (u32, u32),
+    pub inactive_rgba8: Vec<u8>,
+    pub inactive_size: (u32, u32),
+}
+
+fn upload_atlas(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    rgba: &[u8],
+    size: (u32, u32),
+    label: &str,
+) -> wgpu::Texture {
+    let extent = wgpu::Extent3d {
+        width: size.0,
+        height: size.1,
+        depth_or_array_layers: 1,
+    };
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: extent,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        rgba,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * size.0),
+            rows_per_image: Some(size.1),
+        },
+        extent,
+    );
+    tex
 }
 
 impl TreeRenderer {
     /// Compile the pipeline and stash the renderer in `callback_resources`. Call
     /// once during app construction; subsequent frames look up the renderer by
     /// type-id from `callback_resources`.
-    pub fn install(render_state: &egui_wgpu::RenderState) {
+    pub fn install(render_state: &egui_wgpu::RenderState, atlases: AtlasInputs) {
         let device = &render_state.device;
+        let queue = &render_state.queue;
+
+        let active_tex = upload_atlas(device, queue, &atlases.active_rgba8, atlases.active_size, "atlas_active");
+        let inactive_tex = upload_atlas(device, queue, &atlases.inactive_rgba8, atlases.inactive_size, "atlas_inactive");
+        let active_view = active_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let inactive_view = inactive_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("tree.atlas_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
 
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("tree.bind_group_layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
             });
 
         let pipeline_layout =
@@ -142,10 +243,24 @@ impl TreeRenderer {
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("tree.bind_group"),
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&active_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&inactive_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
         });
 
         let renderer = Self {
@@ -158,6 +273,9 @@ impl TreeRenderer {
             instance_capacity,
             edge_buffer,
             edge_capacity,
+            atlas_active_view: active_view,
+            atlas_inactive_view: inactive_view,
+            atlas_sampler: sampler,
         };
 
         render_state
@@ -241,10 +359,11 @@ fn build_node_pipeline(
         ),
     });
     let attrs = wgpu::vertex_attr_array![
-        0 => Float32x2, // world_pos
-        1 => Float32,   // world_radius
-        2 => Uint32,    // kind
-        3 => Uint32,    // state
+        0 => Float32x2, // world_pos          @ 0
+        1 => Float32,   // world_radius       @ 8
+        2 => Uint32,    // kind               @ 12
+        3 => Uint32,    // state              @ 16
+        4 => Float32x4, // icon_uv            @ 20
     ];
     let buffer_layout = wgpu::VertexBufferLayout {
         array_stride: std::mem::size_of::<NodeInstance>() as u64,
@@ -371,10 +490,24 @@ impl egui_wgpu::CallbackTrait for TreeNodeCallback {
         renderer.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("tree.bind_group"),
             layout: &renderer.bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: renderer.uniform_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: renderer.uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&renderer.atlas_active_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&renderer.atlas_inactive_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&renderer.atlas_sampler),
+                },
+            ],
         });
         Vec::new()
     }

@@ -9,6 +9,7 @@ pub mod gem;
 pub mod item;
 pub mod load;
 pub mod skill;
+pub mod sprites;
 pub mod tree;
 
 pub use bases::{ArmourStats, FlaskStats, ItemBase, ItemBaseKind, ItemReq, WeaponStats};
