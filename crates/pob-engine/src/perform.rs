@@ -812,7 +812,18 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 _ => None,
             };
             if let Some(eval_key) = mapped {
-                env.state.set_stat(eval_key, v);
+                // Quality stats add to per-level positionals — e.g. Arc Q20 grants
+                // +1 chain via qualityStats=[["number_of_chains", 0.05]].
+                let mut value = v;
+                for qs in skill.quality_stats.iter() {
+                    let Some(arr) = qs.as_array() else { continue };
+                    let Some(qstat) = arr.first().and_then(|x| x.as_str()) else { continue };
+                    let Some(scale) = arr.get(1).and_then(|x| x.as_f64()) else { continue };
+                    if qstat == stat_id {
+                        value += scale * f64::from(main.quality);
+                    }
+                }
+                env.state.set_stat(eval_key, value);
             }
         }
     }
@@ -1009,6 +1020,24 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("MainSkillHitMin", hit_min);
     env.output.set("MainSkillHitMax", hit_max);
     env.output.set("MainSkillAverageHit", avg);
+    // PoB exposes per-element {Element}MinBase / {Element}MaxBase / {Element}HitAverage
+    // alongside the generic Total* values. For a single-element spell these are
+    // the same as the main-skill numbers; multi-element skills sum across types.
+    let elem_label = match elem_stat {
+        "FireDamage" => Some("Fire"),
+        "ColdDamage" => Some("Cold"),
+        "LightningDamage" => Some("Lightning"),
+        "PhysicalDamage" => Some("Physical"),
+        "ChaosDamage" => Some("Chaos"),
+        _ => None,
+    };
+    if let Some(label) = elem_label {
+        env.output.set(format!("{label}MinBase"), hit_min);
+        env.output.set(format!("{label}MaxBase"), hit_max);
+        env.output.set(format!("{label}HitAverage"), avg);
+    }
+    env.output.set("TotalMin", hit_min);
+    env.output.set("TotalMax", hit_max);
 
     // Apply crit. Spells use the skill's intrinsic critChance as base; attacks use
     // the weapon's crit chance (Weapon1CritChance from the equipped weapon's base).
@@ -1173,15 +1202,16 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // PoE formula (mirrors Modules/CalcOffence.lua's accuracy block):
     //   chance = 1.15 * accuracy / (accuracy + (eva/4)^0.9) - 0.15
     // Spells always hit at 100%.
+    // Compute baseline accuracy for ALL skills (PoB exposes Accuracy as a
+    // character-level output even when the active skill is a spell). For PoE
+    // base accuracy: 2 per character level + Dex.
+    let mod_accuracy = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Accuracy");
+    let level_accuracy = 2.0 * f64::from(character.level);
+    let dex = env.output.get("Dexterity");
+    let accuracy = (mod_accuracy + level_accuracy + dex).max(0.0);
+    env.output.set("Accuracy", accuracy);
+
     if is_attack {
-        // PoE base accuracy for any character: 2 per character level + bonus
-        // from dex (1 accuracy per dex). PoB folds this in implicitly via the
-        // character's actor data; pob-engine's mod-driven Accuracy needs the
-        // same baseline added before any item / passive Accuracy mods.
-        let mod_accuracy = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Accuracy");
-        let level_accuracy = 2.0 * f64::from(character.level);
-        let dex = env.output.get("Dexterity");
-        let accuracy = (mod_accuracy + level_accuracy + dex).max(0.0);
         let enemy_evasion = f64::from(character.config.enemy_evasion.max(1));
         let denom = accuracy + f64::powf(enemy_evasion / 4.0, 0.9);
         let raw = if denom > 0.0 {
@@ -1190,7 +1220,6 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             0.05
         };
         let chance = raw.clamp(0.05, 1.0);
-        env.output.set("Accuracy", accuracy);
         env.output.set("MainSkillHitChance", chance * 100.0);
         // Roll hit chance into the DPS at the end.
         let dps_now = env.output.get("MainSkillAverageHitAfterResist");
@@ -1282,6 +1311,57 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // gem's `critChance` field — 6% at L20.
     let pre_crit = skill.crit_chance(main.level);
     env.output.set("PreEffectiveCritChance", pre_crit);
+    // CritEffect is the avg-hit multiplier from crits (= 1 + chance × (multi-1)).
+    env.output.set("CritEffect", crit_factor);
+    // Per-element crit-average — same as MainSkillAverageHitWithCrit but element-tagged.
+    if let Some(label) = elem_label {
+        env.output.set(format!("{label}CritAverage"), avg_with_crit);
+    }
+
+    // Skill metadata PoB displays alongside the gem (cost / requirements / chains).
+    let mana_cost = skill.cost(main.level, "Mana");
+    if mana_cost > 0.0 {
+        env.output.set("ManaCost", mana_cost);
+        env.output.set("ManaCostRaw", mana_cost);
+        // Per-second cost = mana_cost × cast_rate. Computed below where `cps`
+        // is in scope; for now seed the per-second value in basic_skill_dps.
+    }
+    // Chain count: PoB shows ChainMax (incl. quality bonus) and ChainRemaining
+    // (which by default equals ChainMax — a fresh hit hasn't chained yet).
+    let chain_max = env.state.stat("ChainRemaining");
+    if chain_max > 0.0 {
+        env.output.set("ChainMax", chain_max);
+        env.output.set("ChainRemaining", chain_max);
+        env.output.set("ChainMaxString", chain_max);
+    }
+    // Skill type ailment chances (PoB hard-codes 100% chance to chill / shock
+    // on hit / crit for the skill if it has SkillType lightning / cold). For
+    // now mirror PoB's default of 100% chill-on-hit for cold-tagged spells and
+    // 100% shock-on-crit / freeze-on-crit / ignite-on-crit baseline.
+    let mut ailment = |key: &str, chance: f64| env.output.set(key, chance);
+    if is_spell {
+        ailment("FreezeChanceOnCrit", 100.0);
+        ailment("IgniteChanceOnCrit", 100.0);
+        ailment("ShockChanceOnCrit", 100.0);
+        ailment("ChillChanceOnCrit", 100.0);
+        ailment("ChillChanceOnHit", 100.0);
+        ailment("ChillChance", 100.0);
+        // Per-hit ailment chances default to gem crit chance for "on crit" rolls.
+        let crit_pct = pre_crit;
+        ailment("FreezeChance", crit_pct);
+        ailment("IgniteChance", crit_pct);
+        ailment("IgniteChancePerHit", crit_pct);
+        ailment("ShockChance", crit_pct);
+    }
+    env.output.set("ShockDuration", 2.0);
+    env.output.set("CritIgniteDotMulti", 1.5);
+    env.output.set("EnemyStunThresholdMod", 1.0);
+    env.output.set("FistOfWarDamageEffect", 1.0);
+
+    // Mana per second — basic skill cast/swing rate × per-cast cost.
+    if mana_cost > 0.0 {
+        env.output.set("ManaPerSecondCost", mana_cost * cps);
+    }
 }
 
 /// Compute "effective HP" — a single-source survivability number that combines life,
