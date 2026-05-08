@@ -442,8 +442,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 stat_row_decimal(ui, "Hit chance %", &app.output, "MainSkillHitChance");
                 stat_row_decimal(ui, "Speed (cps)", &app.output, "MainSkillSpeed");
                 stat_row_decimal(ui, "DPS", &app.output, "MainSkillDPS");
-                if app.output.get("MainSkillManaCost") > 0.0 {
+                if app.output.get("ManaPerSecondCost") > 0.0 {
+                    stat_row_decimal(ui, "Mana / sec", &app.output, "ManaPerSecondCost");
+                } else if app.output.get("MainSkillManaCost") > 0.0 {
                     stat_row_decimal(ui, "Mana cost", &app.output, "MainSkillManaCost");
+                }
+                if app.output.get("ChainMax") > 0.0 {
+                    stat_row(ui, "Chain count", &app.output, "ChainMax");
                 }
                 if app.output.get("BleedDPS") > 0.0 {
                     stat_row_decimal(ui, "Bleed DPS", &app.output, "BleedDPS");
