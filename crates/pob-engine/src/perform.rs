@@ -1313,9 +1313,11 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("PreEffectiveCritChance", pre_crit);
     // CritEffect is the avg-hit multiplier from crits (= 1 + chance × (multi-1)).
     env.output.set("CritEffect", crit_factor);
-    // Per-element crit-average — same as MainSkillAverageHitWithCrit but element-tagged.
+    // Per-element CritAverage in PoB is the damage of a guaranteed crit (avg × multi),
+    // not the chance-weighted avg-with-crit.
+    let guaranteed_crit_avg = avg * crit_mult;
     if let Some(label) = elem_label {
-        env.output.set(format!("{label}CritAverage"), avg_with_crit);
+        env.output.set(format!("{label}CritAverage"), guaranteed_crit_avg);
     }
 
     // Skill metadata PoB displays alongside the gem (cost / requirements / chains).
