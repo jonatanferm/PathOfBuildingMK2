@@ -17,6 +17,7 @@ mod config_tab;
 mod import_export_tab;
 mod items_tab;
 mod notes_tab;
+mod party_tab;
 mod pathfind;
 mod skills_tab;
 mod tree_layout;
@@ -50,6 +51,7 @@ struct LoadedApp {
     skills_state: skills_tab::SkillsTabState,
     calcs_state: calcs_tab::CalcsTabState,
     compare_state: compare_tab::CompareTabState,
+    party_state: party_tab::PartyTabState,
     import_export_state: import_export_tab::ImportExportTabState,
     notes_state: notes_tab::NotesTabState,
     skills: SkillRegistry,
@@ -81,6 +83,7 @@ enum Tab {
     Config,
     Calcs,
     Compare,
+    Party,
     Notes,
     ImportExport,
 }
@@ -184,6 +187,7 @@ impl PobApp {
             skills_state: skills_tab::SkillsTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
             compare_state: compare_tab::CompareTabState::default(),
+            party_state: party_tab::PartyTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             skills,
@@ -226,6 +230,7 @@ impl PobApp {
             skills_state: skills_tab::SkillsTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
             compare_state: compare_tab::CompareTabState::default(),
+            party_state: party_tab::PartyTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             skills,
@@ -438,6 +443,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.selectable_value(&mut app.active_tab, Tab::Config, "Config");
             ui.selectable_value(&mut app.active_tab, Tab::Calcs, "Calcs");
             ui.selectable_value(&mut app.active_tab, Tab::Compare, "Compare");
+            ui.selectable_value(&mut app.active_tab, Tab::Party, "Party");
             ui.selectable_value(&mut app.active_tab, Tab::Notes, "Notes");
             ui.selectable_value(&mut app.active_tab, Tab::ImportExport, "Import / Export");
         });
@@ -896,6 +902,11 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         }
         Tab::Compare => {
             compare_tab::ui(ui, &mut app.compare_state, &app.character, &app.output);
+        }
+        Tab::Party => {
+            if party_tab::ui(ui, &mut app.party_state, &mut app.character) {
+                recompute = true;
+            }
         }
         Tab::Notes => {
             notes_tab::ui(ui, &mut app.character.notes, &mut app.notes_state);
