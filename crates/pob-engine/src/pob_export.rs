@@ -132,7 +132,15 @@ fn write_items(out: &mut String, c: &Character) {
         }
     }
 
-    let _ = writeln!(out, "    <Items activeItemSet=\"{active_id}\">",);
+    // Issue #109: PoB stores `useSecondWeaponSet` per-ItemSet, but
+    // MK2 lifts it to a build-level toggle (single live pair). Emit
+    // it on `<Items>` so a round-trip back to PoB picks the same
+    // active pair when the user pastes the build there.
+    let use_swap = c.config.use_second_weapon_set;
+    let _ = writeln!(
+        out,
+        "    <Items activeItemSet=\"{active_id}\" useSecondWeaponSet=\"{use_swap}\">",
+    );
 
     for (id, item) in &item_blocks {
         // PoB embeds the paste text directly between <Item> tags. We
@@ -150,12 +158,15 @@ fn write_items(out: &mut String, c: &Character) {
             Some(name) => {
                 let _ = writeln!(
                     out,
-                    "        <ItemSet id=\"{set_id}\" title=\"{title}\">",
+                    "        <ItemSet id=\"{set_id}\" title=\"{title}\" useSecondWeaponSet=\"{use_swap}\">",
                     title = xml_escape(name),
                 );
             }
             None => {
-                let _ = writeln!(out, "        <ItemSet id=\"{set_id}\">");
+                let _ = writeln!(
+                    out,
+                    "        <ItemSet id=\"{set_id}\" useSecondWeaponSet=\"{use_swap}\">",
+                );
             }
         }
         for (slot, item) in entries {

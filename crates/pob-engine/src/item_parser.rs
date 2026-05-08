@@ -492,6 +492,11 @@ pub fn slot_to_index(slot: Slot) -> u32 {
         Slot::Flask3 => 13,
         Slot::Flask4 => 14,
         Slot::Flask5 => 15,
+        // Issue #109: swap-set slots get their own index slots so
+        // they don't collide with the live pair when something keys
+        // contributions by `slot_to_index`.
+        Slot::Weapon1Swap => 16,
+        Slot::Weapon2Swap => 17,
     }
 }
 

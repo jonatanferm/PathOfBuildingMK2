@@ -474,6 +474,79 @@ fn pob_xml_round_trip_preserves_all_item_sets() {
     );
 }
 
+// Issue #109: swap-weapon set round-trip. PoB stores swap weapons as
+// `<Slot name="Weapon 1 Swap" itemId="…">` inside `<ItemSet>`, gated
+// by `useSecondWeaponSet` on the same element. MK2 keeps the swap
+// pair in the same `ItemSet` map (under `Slot::Weapon1Swap` /
+// `Slot::Weapon2Swap`) and lifts `useSecondWeaponSet` to a
+// build-level config toggle. Verify both halves round-trip through
+// PoB XML: the swap item lands back on the right slot, and the
+// `use_second_weapon_set` config toggle survives.
+#[test]
+fn pob_xml_round_trip_preserves_swap_weapons() {
+    use pob_engine::pob_export::export_pob_xml;
+    use pob_engine::{import_pob_xml, parse_item};
+
+    let main_sword = parse_item(
+        "Item Class: One Hand Swords\nRarity: RARE\nRusted Sword\n--------\n",
+    )
+    .expect("parse main sword");
+    let swap_dagger = parse_item(
+        "Item Class: Daggers\nRarity: RARE\nGlass Shank\n--------\n+50 to Strength",
+    )
+    .expect("parse swap dagger");
+
+    let mut c = Character::new(pob_engine::ClassRef::shadow(), 90);
+    c.items
+        .equip(pob_data::Slot::Weapon1, main_sword.clone());
+    c.items
+        .equip(pob_data::Slot::Weapon1Swap, swap_dagger.clone());
+    c.config.use_second_weapon_set = true;
+
+    let xml = export_pob_xml(&c);
+    assert!(
+        xml.contains("Weapon 1 Swap"),
+        "exported XML should carry the swap weapon slot label; got:\n{xml}"
+    );
+    assert!(
+        xml.contains("useSecondWeaponSet=\"true\""),
+        "exported XML should carry useSecondWeaponSet=\"true\"; got:\n{xml}"
+    );
+
+    let reparsed = import_pob_xml(&xml).expect("re-import own XML");
+    assert!(
+        reparsed
+            .items
+            .get(pob_data::Slot::Weapon1Swap)
+            .is_some(),
+        "swap weapon should round-trip back onto Weapon1Swap"
+    );
+    assert!(
+        reparsed.config.use_second_weapon_set,
+        "use_second_weapon_set toggle should round-trip"
+    );
+
+    // Default state with no swap pair: useSecondWeaponSet=\"false\"
+    // and no Weapon1Swap entry survives.
+    let mut plain = Character::new(pob_engine::ClassRef::shadow(), 90);
+    plain
+        .items
+        .equip(pob_data::Slot::Weapon1, main_sword);
+    let plain_xml = export_pob_xml(&plain);
+    let plain_reparsed = import_pob_xml(&plain_xml).expect("re-import plain build");
+    assert!(
+        !plain_reparsed.config.use_second_weapon_set,
+        "plain build's use_second_weapon_set should round-trip as false"
+    );
+    assert!(
+        plain_reparsed
+            .items
+            .get(pob_data::Slot::Weapon1Swap)
+            .is_none(),
+        "plain build must not carry a phantom Weapon1Swap entry"
+    );
+}
+
 #[test]
 fn equipping_an_amulet_changes_stats() {
     let Some(tree) = load_3_25_tree() else {

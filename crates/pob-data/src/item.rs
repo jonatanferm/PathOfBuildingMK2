@@ -44,6 +44,14 @@ pub enum Slot {
     Belt,
     Weapon1,
     Weapon2,
+    /// Issue #109: swap-weapon set's main hand. The "X-key swap"
+    /// pair PoB stores in `<Slot name="Weapon 1 Swap" …>` per
+    /// ItemSet. Caster off-hand-buff stacking + brand swap-trap
+    /// builds rely on this; the calc engine reads it when
+    /// `ConfigState::use_second_weapon_set` is on.
+    Weapon1Swap,
+    /// Swap-weapon set's off-hand counterpart of `Weapon1Swap`.
+    Weapon2Swap,
     Flask1,
     Flask2,
     Flask3,
@@ -64,6 +72,8 @@ impl Slot {
             Self::Belt,
             Self::Weapon1,
             Self::Weapon2,
+            Self::Weapon1Swap,
+            Self::Weapon2Swap,
             Self::Flask1,
             Self::Flask2,
             Self::Flask3,
@@ -83,6 +93,8 @@ impl Slot {
             Self::Belt => "Belt",
             Self::Weapon1 => "Weapon",
             Self::Weapon2 => "Off-hand",
+            Self::Weapon1Swap => "Weapon (Swap)",
+            Self::Weapon2Swap => "Off-hand (Swap)",
             Self::Flask1 => "Flask 1",
             Self::Flask2 => "Flask 2",
             Self::Flask3 => "Flask 3",

@@ -566,6 +566,15 @@ pub struct ConfigState {
     /// attacks_between_cries)`; we expose the result directly.
     #[serde(default)]
     pub exerted_attack_uptime: f64,
+    /// Issue #109: when `true` the calc engine treats the
+    /// `Weapon1Swap` / `Weapon2Swap` pair as the live pair instead
+    /// of `Weapon1` / `Weapon2`. Mirrors PoB's per-ItemSet
+    /// `useSecondWeaponSet` attribute (lifted to a build-level
+    /// toggle so MK2 doesn't need to mirror PoB's per-set storage
+    /// scheme to round-trip the wire format). Defaults `false`
+    /// — the live pair stays as the primary weapons.
+    #[serde(default)]
+    pub use_second_weapon_set: bool,
 }
 
 /// PoB's `enemyIsBoss` four-option preset. The serialised PoB-XML
