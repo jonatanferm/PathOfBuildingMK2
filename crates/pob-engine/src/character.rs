@@ -109,6 +109,17 @@ pub struct ExtractedAura {
     /// but the user may toggle one off without re-importing.
     #[serde(default = "true_default_party")]
     pub enabled: bool,
+    /// Issue #97 (slice 2): manual aura-effect % override applied to
+    /// the projected mod values at compute time. PoB scales aura
+    /// values by `(1 + AuraEffect%/100) × BuffEffect_more` from the
+    /// teammate's items / supports (Generosity, Empower, etc.); we
+    /// don't yet recompute the teammate's full state at extract
+    /// time, so this field lets the user dial in the effective
+    /// scaling by hand. 0 = use the gem's raw L/Q values (no
+    /// scaling); 50 = +50% on every projected mod. Negative values
+    /// are clamped at -100% (no projection at all).
+    #[serde(default)]
+    pub effect_pct: i32,
 }
 
 fn default_aura_level() -> u32 {

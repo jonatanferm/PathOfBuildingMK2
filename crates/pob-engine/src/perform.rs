@@ -484,7 +484,14 @@ fn apply_party_extracted_auras(character: &Character, skills: &SkillRegistry, en
             let level = aura.level.clamp(1, 40);
             let mods = crate::skill::aura_buff_mods(skill, level, aura.quality);
             let source_label = format!("Party:{}:{}", member.name, aura.skill_id);
+            // Issue #97 (slice 2): manual aura-effect % override —
+            // user-typed scalar from the Party-tab UI. Clamp at -100%
+            // (zero projection) on the low end, no upper bound.
+            let scale = (1.0 + f64::from(aura.effect_pct.max(-100)) / 100.0).max(0.0);
             for mut m in mods {
+                if (scale - 1.0).abs() > f64::EPSILON {
+                    m.value = scale_mod_value(m.value, scale);
+                }
                 m.source = Some(Source::Other(source_label.clone()));
                 env.mod_db.add(m);
             }
