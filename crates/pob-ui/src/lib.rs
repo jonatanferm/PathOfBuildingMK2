@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use pob_data::{NodeId, PassiveTree};
-use pob_engine::{character::ClassRef, Character, Output, SkillRegistry};
+use pob_engine::{character::{Bandit, ClassRef}, Character, Output, SkillRegistry};
 
 mod calcs_tab;
 mod config_tab;
@@ -511,6 +511,35 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     .text("Level")
                     .step_by(1.0),
             );
+            // Issue #54: Bandit (Act 2 reward) selector. Mirrors PoB's
+            // dropdown — Kill All grants +2 passive points (default), the
+            // named bandits each grant a single hard-coded mod (Alira:
+            // +15 to all elemental resistances; Kraityn: +8% movement
+            // speed; Oak: +40 max life).
+            let bandit_options: &[(Bandit, &str)] = &[
+                (Bandit::KillAll, "Kill All (+2 passives)"),
+                (Bandit::Alira, "Alira (+15% all-ele resists)"),
+                (Bandit::Kraityn, "Kraityn (+8% move speed)"),
+                (Bandit::Oak, "Oak (+40 life)"),
+            ];
+            let current_label = bandit_options
+                .iter()
+                .find(|(b, _)| *b == app.character.bandit)
+                .map(|(_, l)| *l)
+                .unwrap_or("Kill All");
+            egui::ComboBox::from_label("Bandit")
+                .selected_text(current_label)
+                .show_ui(ui, |ui| {
+                    for (option, label) in bandit_options {
+                        if ui
+                            .selectable_label(app.character.bandit == *option, *label)
+                            .clicked()
+                        {
+                            app.character.bandit = *option;
+                            recompute = true;
+                        }
+                    }
+                });
             if ui.button("Reset allocation").clicked() {
                 app.character.allocated.clear();
                 recompute = true;
