@@ -95,10 +95,14 @@ pub fn init_env_with_bases(
         Mod::base("Evasion", 15.0).with_source(Source::Other("CharacterConstant".into())),
     );
 
-    // 3. Tree node stats. Parse each allocated node's stat lines. Some stat strings
-    // are newline-joined multi-line blocks (mastery effects, keystone descriptions);
-    // split before parsing so every stat lands as a separate mod.
-    for node_id in &character.allocated {
+    // 3. Tree node stats. Parse each allocated node's stat lines. PoB only credits
+    // nodes that form a connected path from the character's class start, so we
+    // filter the allocation set to the connected subgraph before applying mods.
+    // (Disconnected node IDs come from imported XML where the user manually edited
+    // the file — the in-app UI only ever allocates valid paths.)
+    let effective: std::collections::HashSet<pob_data::NodeId> =
+        connected_allocations(character, tree);
+    for node_id in &effective {
         let Some(node) = tree.nodes.get(node_id) else {
             continue;
         };
@@ -223,7 +227,72 @@ fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_
     }
 }
 
-pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut Env) {
+/// BFS from the character's class start through the allocated subgraph and
+/// return the set of allocations that are actually reachable. Mirrors PoB's
+/// rule that a node only contributes if it sits on a connected path from the
+/// character's class root.
+fn connected_allocations(
+    character: &Character,
+    tree: &PassiveTree,
+) -> std::collections::HashSet<pob_data::NodeId> {
+    let mut effective = std::collections::HashSet::new();
+    if character.allocated.is_empty() {
+        return effective;
+    }
+    // Find the class index by name match against tree.classes.
+    let Some(class_idx) = tree
+        .classes
+        .iter()
+        .position(|c| c.name.eq_ignore_ascii_case(&character.class.0))
+    else {
+        // Unknown class — fall back to crediting every alloc so we don't silently
+        // drop stats. This path is for tests that synthesise classes that the
+        // tree fixture doesn't actually carry.
+        return character.allocated.iter().copied().collect();
+    };
+    let class_idx = class_idx as u32;
+    // Find class-start node ID(s).
+    let starts: Vec<pob_data::NodeId> = tree
+        .nodes
+        .iter()
+        .filter_map(|(id, node)| {
+            if node.class_start_index == Some(class_idx) {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .collect();
+    if starts.is_empty() {
+        return character.allocated.iter().copied().collect();
+    }
+
+    let allocated: std::collections::HashSet<_> = character.allocated.iter().copied().collect();
+    let mut queue: std::collections::VecDeque<pob_data::NodeId> = starts.into_iter().collect();
+    while let Some(node_id) = queue.pop_front() {
+        if !effective.insert(node_id) {
+            continue;
+        }
+        let Some(node) = tree.nodes.get(&node_id) else {
+            continue;
+        };
+        for &neighbor in node.out_edges.iter().chain(node.in_edges.iter()) {
+            if !effective.contains(&neighbor) && allocated.contains(&neighbor) {
+                queue.push_back(neighbor);
+            }
+        }
+    }
+    // The class-start nodes themselves are visited but should not contribute
+    // mods (they're synthetic). Strip them.
+    effective.retain(|id| {
+        tree.nodes
+            .get(id)
+            .map_or(false, |n| n.class_start_index.is_none())
+    });
+    effective
+}
+
+pub fn perform_basic_stats(character: &Character, tree: &PassiveTree, env: &mut Env) {
     // Strength / Dexterity / Intelligence
     let cfg = QueryCfg::default();
     let str_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Strength")
@@ -955,26 +1024,69 @@ mod tests {
         let Some(tree) = load_3_25_tree() else {
             return;
         };
-        // Find any plain "+10 to Strength" notable/normal node.
-        let str_node = tree
+        // Path validation: only credit nodes connected to the class start, so we
+        // need to BFS for a `+10 to Strength` node reachable from the Marauder
+        // start. We allocate every node along the path.
+        let class_idx = tree
+            .classes
+            .iter()
+            .position(|c| c.name == "Marauder")
+            .unwrap() as u32;
+        let start = tree
             .nodes
             .iter()
-            .find(|(_, n)| {
-                n.stats.iter().any(|s| s == "+10 to Strength") && n.stats.len() == 1
-            })
-            .map(|(id, _)| *id);
-        let Some(node_id) = str_node else {
-            eprintln!("no '+10 to Strength' node in tree — skip");
+            .find_map(|(id, n)| (n.class_start_index == Some(class_idx)).then_some(*id))
+            .expect("class start node");
+        // BFS for a strength node within reasonable distance.
+        let mut prev: std::collections::HashMap<pob_data::NodeId, pob_data::NodeId> =
+            std::collections::HashMap::new();
+        let mut queue: std::collections::VecDeque<_> = [start].into();
+        let mut target: Option<pob_data::NodeId> = None;
+        while let Some(n) = queue.pop_front() {
+            if let Some(node) = tree.nodes.get(&n) {
+                if n != start && node.stats == ["+10 to Strength"] {
+                    target = Some(n);
+                    break;
+                }
+                for &nb in node.out_edges.iter().chain(node.in_edges.iter()) {
+                    if !prev.contains_key(&nb) && nb != start {
+                        prev.insert(nb, n);
+                        queue.push_back(nb);
+                    }
+                }
+            }
+        }
+        let Some(target) = target else {
+            eprintln!("no reachable +10 Strength node from Marauder start — skip");
             return;
         };
-
         let mut c = Character::new(ClassRef::marauder(), 1);
-        let baseline = compute(&c, &tree);
-        c.allocate(node_id);
+        // Walk back from target to start, allocating every node along the way.
+        let mut walk = target;
+        while let Some(&p) = prev.get(&walk) {
+            c.allocate(walk);
+            walk = p;
+        }
+        c.allocate(walk);
+        // Re-compute baselines without the path so we know the contribution.
+        let mut bare = Character::new(ClassRef::marauder(), 1);
+        // Allocate every path node EXCEPT the strength target.
+        let mut walk = target;
+        let mut path = vec![target];
+        while let Some(&p) = prev.get(&walk) {
+            path.push(p);
+            walk = p;
+        }
+        for n in path.iter().skip(1) {
+            bare.allocate(*n);
+        }
+        let baseline = compute(&bare, &tree);
         let after = compute(&c, &tree);
-
-        assert_eq!(after.get("Strength") - baseline.get("Strength"), 10.0);
-        // +10 Str adds +5 max life.
+        assert_eq!(
+            after.get("Strength") - baseline.get("Strength"),
+            10.0,
+            "Strength delta from one '+10 Str' node along path"
+        );
         assert_eq!(after.get("Life") - baseline.get("Life"), 5.0);
     }
 

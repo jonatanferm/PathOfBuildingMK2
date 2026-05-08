@@ -12,6 +12,53 @@ use pob_engine::{
     SkillRegistry,
 };
 
+/// BFS from the named class start through `tree` for a node where `pick`
+/// returns true. Allocates EVERY node along the path to satisfy pob-engine's
+/// path-validation rule. Returns the target node id.
+fn allocate_reachable<F>(
+    c: &mut Character,
+    tree: &pob_data::PassiveTree,
+    class_name: &str,
+    mut pick: F,
+) -> Option<pob_data::NodeId>
+where
+    F: FnMut(&pob_data::Node) -> bool,
+{
+    let class_idx = tree
+        .classes
+        .iter()
+        .position(|cls| cls.name.eq_ignore_ascii_case(class_name))? as u32;
+    let start = tree
+        .nodes
+        .iter()
+        .find_map(|(id, n)| (n.class_start_index == Some(class_idx)).then_some(*id))?;
+    let mut prev: std::collections::HashMap<pob_data::NodeId, pob_data::NodeId> =
+        std::collections::HashMap::new();
+    let mut queue: std::collections::VecDeque<_> = [start].into();
+    let mut target: Option<pob_data::NodeId> = None;
+    while let Some(n) = queue.pop_front() {
+        let Some(node) = tree.nodes.get(&n) else { continue };
+        if n != start && pick(node) {
+            target = Some(n);
+            break;
+        }
+        for &nb in node.out_edges.iter().chain(node.in_edges.iter()) {
+            if !prev.contains_key(&nb) && nb != start {
+                prev.insert(nb, n);
+                queue.push_back(nb);
+            }
+        }
+    }
+    let target = target?;
+    let mut walk = target;
+    while let Some(&p) = prev.get(&walk) {
+        c.allocate(walk);
+        walk = p;
+    }
+    c.allocate(walk);
+    Some(target)
+}
+
 fn data_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -105,17 +152,16 @@ fn allocating_keystone_passive_emits_flag_mod() {
         return;
     };
 
-    // Pick any keystone node — they have no number-form stats; verify allocating one
-    // produces a Misc:Keystone:<name> flag in the modDB.
-    let keystone = tree
-        .nodes
-        .iter()
-        .find(|(_, n)| matches!(n.kind, pob_data::NodeKind::Keystone))
-        .map(|(id, _)| *id)
-        .expect("at least one keystone in 3.25 tree");
-
+    // Pick any keystone node reachable from Marauder start — they have no
+    // number-form stats; verify allocating one produces a Misc:Keystone:<name>
+    // flag in the modDB.
     let mut c = Character::new(ClassRef::marauder(), 90);
-    c.allocate(keystone);
+    let Some(keystone) = allocate_reachable(&mut c, &tree, "Marauder", |n| {
+        matches!(n.kind, pob_data::NodeKind::Keystone)
+    }) else {
+        eprintln!("no reachable keystone — skip");
+        return;
+    };
 
     let env = pob_engine::perform::init_env(&c, &tree);
     use pob_engine::ModStore as _;
@@ -137,24 +183,15 @@ fn enabling_full_life_condition_activates_tagged_mod() {
         return;
     };
 
-    // Find a passive node with a "while at full life" stat.
-    let full_life_node = tree
-        .nodes
-        .iter()
-        .find(|(_, n)| {
-            n.stats
-                .iter()
-                .any(|s| s.contains("while at Full Life") || s.contains("while on Full Life"))
-        })
-        .map(|(id, _)| *id);
-
-    let Some(node_id) = full_life_node else {
-        eprintln!("no full-life node in tree — skip");
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let Some(_node_id) = allocate_reachable(&mut c, &tree, "Marauder", |n| {
+        n.stats
+            .iter()
+            .any(|s| s.contains("while at Full Life") || s.contains("while on Full Life"))
+    }) else {
+        eprintln!("no reachable full-life node — skip");
         return;
     };
-
-    let mut c = Character::new(ClassRef::marauder(), 90);
-    c.allocate(node_id);
 
     let baseline = compute_with_skills(&c, &tree, None);
     c.config.conditions.insert("FullLife".to_owned(), true);
@@ -484,14 +521,11 @@ fn config_charges_drive_per_charge_mod() {
         return;
     };
 
-    // Iterate sorted so the test is deterministic, and find a per-Power-Charge passive
-    // whose stat the parser handles (so toggling actually moves a value).
-    let mut ids: Vec<_> = tree.nodes.keys().copied().collect();
-    ids.sort_unstable();
-    let charge_node = ids.into_iter().find(|id| {
-        let Some(n) = tree.nodes.get(id) else { return false };
-        // Only consider non-ascendancy / non-mastery normal-or-notable nodes with a
-        // single "per Power Charge" stat — predictable shape.
+    // BFS for a per-Power-Charge passive reachable from Marauder start, allocating
+    // every node along the path. Path validation in pob-engine drops disconnected
+    // allocations, so we have to walk to the target.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let Some(node_id) = allocate_reachable(&mut c, &tree, "Marauder", |n| {
         n.ascendancy_name.is_none()
             && matches!(
                 n.kind,
@@ -501,14 +535,10 @@ fn config_charges_drive_per_charge_mod() {
             && n.stats[0].contains("per Power Charge")
             && !n.stats[0].contains(" while ")
             && !n.stats[0].contains(" if ")
-    });
-    let Some(node_id) = charge_node else {
-        eprintln!("no clean per-power-charge node — skip");
+    }) else {
+        eprintln!("no reachable per-power-charge node — skip");
         return;
     };
-
-    let mut c = Character::new(ClassRef::marauder(), 90);
-    c.allocate(node_id);
     let zero = compute_with_skills(&c, &tree, None);
     c.config.multipliers.insert("PowerCharge".to_owned(), 5.0);
     let five = compute_with_skills(&c, &tree, None);

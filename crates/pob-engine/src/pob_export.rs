@@ -19,6 +19,7 @@ pub fn export_pob_xml(character: &Character) -> String {
         .filter(|s| !s.is_empty())
         .map(xml_escape)
         .unwrap_or_else(|| "None".to_owned());
+    let class_id = class_name_to_id(&character.class.0);
 
     let mut nodes_str = String::new();
     let mut sorted: Vec<_> = character.allocated.iter().copied().collect();
@@ -38,7 +39,7 @@ pub fn export_pob_xml(character: &Character) -> String {
             "<PathOfBuilding>\n",
             "    <Build level=\"{level}\" targetVersion=\"3_0\" className=\"{class}\" ascendClassName=\"{asc}\" mainSocketGroup=\"1\"/>\n",
             "    <Tree activeSpec=\"1\">\n",
-            "        <Spec masteryEffects=\"\" treeVersion=\"3_25\" classId=\"\" ascendClassId=\"\" nodes=\"{nodes}\"/>\n",
+            "        <Spec masteryEffects=\"\" treeVersion=\"3_25\" classId=\"{class_id}\" ascendClassId=\"0\" nodes=\"{nodes}\"/>\n",
             "    </Tree>\n",
             "    <Notes>{notes}</Notes>\n",
             "    <Items/>\n",
@@ -49,9 +50,23 @@ pub fn export_pob_xml(character: &Character) -> String {
         level = character.level.max(1),
         class = class,
         asc = ascendancy,
+        class_id = class_id,
         nodes = nodes_str,
         notes = notes
     )
+}
+
+fn class_name_to_id(class: &str) -> u32 {
+    match class {
+        "Scion" => 0,
+        "Marauder" => 1,
+        "Ranger" => 2,
+        "Witch" => 3,
+        "Duelist" => 4,
+        "Templar" => 5,
+        "Shadow" => 6,
+        _ => 0,
+    }
 }
 
 /// Encode the `xml(deflate(bytes))` PoB share-code format.
