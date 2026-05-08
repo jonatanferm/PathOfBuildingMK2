@@ -54,6 +54,8 @@ impl CharacterSnapshot {
                 level: self.main_skill_level,
                 quality: self.main_skill_quality,
             }),
+            skill_groups: Vec::new(),
+            main_socket_group: 1,
             config: self.config,
             notes: self.notes,
             mastery_selections: self.mastery_selections.into_iter().collect(),
@@ -76,6 +78,21 @@ impl ClassRef {
     pub fn scion() -> Self { Self("Scion".into()) }
 }
 
+/// A single PoB-style "socket group" — a set of linked gems that share buffs
+/// from supports inside the same group. Phase 5 minimum: track the gem list
+/// and which one is the active skill the engine should target. Support-gem
+/// effect propagation is not yet wired through the calc layer.
+#[derive(Debug, Clone, Default)]
+pub struct SocketGroup {
+    pub label: String,
+    /// Gems socketed in this group (main + supports). Index into here +1
+    /// matches PoB's `mainActiveSkill` attribute.
+    pub gems: Vec<crate::skill::MainSkill>,
+    /// 1-based index of the active skill within `gems` (PoB convention).
+    pub main_active_skill_index: u32,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Character {
     pub class: ClassRef,
@@ -84,6 +101,12 @@ pub struct Character {
     pub allocated: HashSet<NodeId>,
     pub items: ItemSet,
     pub main_skill: Option<MainSkill>,
+    /// All socket groups defined on the character. The "main" group is whichever
+    /// `mainSocketGroup` index points at — that group's `main_active_skill_index`
+    /// gem becomes `main_skill`.
+    pub skill_groups: Vec<SocketGroup>,
+    /// 1-based index of the active socket group (PoB's `mainSocketGroup`).
+    pub main_socket_group: u32,
     pub config: ConfigState,
     pub notes: String,
     /// Selected mastery effect per mastery node id. PoB stores this as
@@ -137,9 +160,32 @@ impl Character {
             allocated: HashSet::new(),
             items: ItemSet::new(),
             main_skill: None,
+            skill_groups: Vec::new(),
+            main_socket_group: 1,
             config: ConfigState::default_with_enemy(),
             notes: String::new(),
             mastery_selections: HashMap::default(),
+        }
+    }
+
+    /// Refresh `main_skill` from `skill_groups[main_socket_group-1].gems[active-1]`.
+    /// Call after editing socket groups or pointing main_socket_group at a new
+    /// group; the calc layer reads `main_skill` directly.
+    pub fn sync_main_skill(&mut self) {
+        let group_idx = self
+            .main_socket_group
+            .saturating_sub(1)
+            .min(self.skill_groups.len() as u32) as usize;
+        let Some(group) = self.skill_groups.get(group_idx) else {
+            return;
+        };
+        if !group.enabled {
+            return;
+        }
+        let gem_idx = (group.main_active_skill_index.saturating_sub(1) as usize)
+            .min(group.gems.len().saturating_sub(1));
+        if let Some(g) = group.gems.get(gem_idx) {
+            self.main_skill = Some(g.clone());
         }
     }
 

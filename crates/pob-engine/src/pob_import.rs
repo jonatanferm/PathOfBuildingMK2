@@ -330,8 +330,10 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
     // Pick the main skill: prefer the explicit mainActiveSkill within
     // mainSocketGroup, otherwise fall back to the first enabled gem in the
     // first enabled group.
-    let main_group = main_socket_group
-        .and_then(|idx| skill_groups.iter().find(|g| g.index == idx))
+    let main_group_idx = main_socket_group.unwrap_or(1);
+    let main_group = skill_groups
+        .iter()
+        .find(|g| g.index == main_group_idx)
         .or_else(|| skill_groups.iter().find(|g| g.enabled && !g.gems.is_empty()));
     if let Some(group) = main_group {
         let gem_idx = if group.main_active_skill_index >= 1 {
@@ -349,6 +351,27 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
             }
         }
     }
+    // Persist all skill groups so the UI can render the multi-gem layout
+    // and let the user toggle the main skill / disable groups.
+    character.main_socket_group = main_group_idx;
+    character.skill_groups = skill_groups
+        .into_iter()
+        .map(|g| crate::character::SocketGroup {
+            label: String::new(),
+            enabled: g.enabled,
+            main_active_skill_index: g.main_active_skill_index.max(1),
+            gems: g
+                .gems
+                .into_iter()
+                .map(|gem| {
+                    let mut ms = MainSkill::new(gem.skill_id);
+                    ms.level = gem.level.clamp(1, 40);
+                    ms.quality = gem.quality.min(100);
+                    ms
+                })
+                .collect(),
+        })
+        .collect();
 
     Ok(character)
 }

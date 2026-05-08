@@ -565,12 +565,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Skills => {
-            if skills_tab::ui(
-                ui,
-                &mut app.skills_state,
-                &mut app.character.main_skill,
-                &app.skills,
-            ) {
+            if skills_tab::ui(ui, &mut app.skills_state, &mut app.character, &app.skills) {
                 recompute = true;
             }
         }

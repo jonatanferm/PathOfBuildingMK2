@@ -587,7 +587,7 @@ fn connected_allocations(
     effective
 }
 
-pub fn perform_basic_stats(character: &Character, tree: &PassiveTree, env: &mut Env) {
+pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut Env) {
     // Strength / Dexterity / Intelligence
     let cfg = QueryCfg::default();
     let str_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Strength")
