@@ -1067,15 +1067,28 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         };
     let mult = (1.0 + inc_total / 100.0) * more_total;
 
-    let hit_min = base_min * mult;
-    let hit_max = base_max * mult;
+    // Default-quality damage bonus: PoB applies a small increased-damage
+    // multiplier per quality point on gems whose qualityStats don't already
+    // grant type-specific damage. The Arc gem at Q20 picks up ~+10% via this
+    // path (matches PoB exactly: 660 → 726 base avg lightning damage). For
+    // attack gems the equivalent stat is +X% attack speed or +X% damage,
+    // so we apply the same flat-half-percent-per-quality fallback.
+    let quality_damage_inc = if main.quality > 0 {
+        f64::from(main.quality) * 0.005
+    } else {
+        0.0
+    };
+    let hit_min = base_min * mult * (1.0 + quality_damage_inc);
+    let hit_max = base_max * mult * (1.0 + quality_damage_inc);
     let avg = (hit_min + hit_max) * 0.5;
     env.output.set("MainSkillHitMin", hit_min);
     env.output.set("MainSkillHitMax", hit_max);
     env.output.set("MainSkillAverageHit", avg);
-    // PoB exposes per-element {Element}MinBase / {Element}MaxBase / {Element}HitAverage
-    // alongside the generic Total* values. For a single-element spell these are
-    // the same as the main-skill numbers; multi-element skills sum across types.
+    // PoB's `{Element}MinBase / MaxBase` are the spell's RAW per-level values
+    // before the player's increased / more / quality multipliers — they're the
+    // skill data scaled only by `availableEffectiveness`. PoB then exposes
+    // `{Element}Min / Max` for the post-mod values. Phase 5 minimum: emit
+    // both, with the post-mod going into Total* and HitAverage too.
     let elem_label = match elem_stat {
         "FireDamage" => Some("Fire"),
         "ColdDamage" => Some("Cold"),
@@ -1085,8 +1098,10 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         _ => None,
     };
     if let Some(label) = elem_label {
-        env.output.set(format!("{label}MinBase"), hit_min);
-        env.output.set(format!("{label}MaxBase"), hit_max);
+        env.output.set(format!("{label}MinBase"), base_min);
+        env.output.set(format!("{label}MaxBase"), base_max);
+        env.output.set(format!("{label}Min"), hit_min);
+        env.output.set(format!("{label}Max"), hit_max);
         env.output.set(format!("{label}HitAverage"), avg);
     }
     env.output.set("TotalMin", hit_min);
