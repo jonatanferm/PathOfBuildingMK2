@@ -937,6 +937,21 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
 /// MORE on `ManaReservationEfficiency` / `LifeReservationEfficiency` /
 /// `ReservationEfficiency`) scale the reserved amount: more efficient = less
 /// reserved.
+/// Multiply a numeric `ModValue` by a scalar. Range mods scale both bounds; bool
+/// and string values pass through unchanged. Used by perform_reservations to
+/// stretch aura buff values by `(1 + AuraEffect/100)`.
+fn scale_mod_value(v: crate::ModValue, scale: f64) -> crate::ModValue {
+    use crate::ModValue;
+    match v {
+        ModValue::Number(n) => ModValue::Number(n * scale),
+        ModValue::Range { min, max } => ModValue::Range {
+            min: min * scale,
+            max: max * scale,
+        },
+        other => other,
+    }
+}
+
 fn perform_reservations(character: &Character, skills: &SkillRegistry, env: &mut Env) {
     if character.skill_groups.is_empty() {
         return;
@@ -1000,15 +1015,15 @@ fn perform_reservations(character: &Character, skills: &SkillRegistry, env: &mut
             // Aura buff propagation. PoB walks each aura's mods (from
             // statMap × constantStats/qualityStats/per-level positionals) and
             // injects the GlobalEffect-tagged ones into the player's modDB
-            // scaled by AuraEffect/BuffEffect. We approximate at scale = 1.0:
-            // copy the aura's mods straight into env.mod_db. This gives Wrath
-            // its `LightningDamage MORE 21 (Spell)` buff, Anger its
-            // `FireMin/FireMax BASE` adds, Hatred its
-            // `PhysicalDamageGainAsCold BASE 39`, etc. Skills with no useful
-            // mods at this gem level (e.g. Hatred providing only a phys→cold
-            // conversion to a lightning skill) end up contributing nothing,
-            // which is correct.
-            for m in crate::skill::aura_buff_mods(skill, level, gem.quality) {
+            // scaled by AuraEffect/BuffEffect. Scale every value by
+            // `(1 + AuraEffect/100)` so mods like "+15% Aura Effect" boost the
+            // buffs as PoB does.
+            let aura_inc =
+                env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AuraEffect");
+            let aura_more = env.mod_db.more(&cfg, &env.state, "AuraEffect");
+            let aura_scale = (1.0 + aura_inc / 100.0) * aura_more;
+            for mut m in crate::skill::aura_buff_mods(skill, level, gem.quality) {
+                m.value = scale_mod_value(m.value, aura_scale);
                 env.mod_db.add(m);
             }
         }
@@ -1132,11 +1147,30 @@ fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) 
     fire_delta += elem_delta;
     cold_delta += elem_delta;
     light_delta += elem_delta;
+
+    // PoB scales every curse's outgoing values by `(1 + CurseEffect/100)` (mods
+    // like "+15% Curse Effect" on a Doedre's Damning amulet, the small-cluster
+    // notable, etc.). Apply the same scalar to every curse-derived output.
+    let cfg = QueryCfg::default();
+    let curse_effect_inc =
+        env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CurseEffect");
+    let curse_effect_more = env.mod_db.more(&cfg, &env.state, "CurseEffect");
+    let curse_scale = (1.0 + curse_effect_inc / 100.0) * curse_effect_more;
+    fire_delta *= curse_scale;
+    cold_delta *= curse_scale;
+    light_delta *= curse_scale;
+    chaos_delta *= curse_scale;
+    shock_chance *= curse_scale;
+    freeze_chance *= curse_scale;
+    ignite_chance *= curse_scale;
+    chill_chance *= curse_scale;
+
     env.output.set("CursedFireResistDelta", fire_delta);
     env.output.set("CursedColdResistDelta", cold_delta);
     env.output.set("CursedLightningResistDelta", light_delta);
     env.output.set("CursedChaosResistDelta", chaos_delta);
     env.output.set("ActiveCurseCount", f64::from(active_curses));
+    env.output.set("CurseEffectScale", curse_scale);
     // Stash the ChanceOnHit deltas under separate output keys so
     // perform_skill_dps can fold them into the player's effective ailment
     // chance even though `cfg.skill_name` filters out the curse skill itself.

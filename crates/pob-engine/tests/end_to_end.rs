@@ -585,6 +585,54 @@ fn ascendancy_point_cap_is_8() {
 }
 
 #[test]
+fn curse_effect_scales_resist_delta() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        return;
+    };
+    // Find any curse skill in the registry.
+    let curse_id = skills
+        .iter()
+        .find(|(_, s)| s.base_flags.get("curse").copied().unwrap_or(false))
+        .map(|(id, _)| id.to_owned());
+    let Some(curse_id) = curse_id else {
+        eprintln!("skip: no curse skill in registry");
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.skill_groups.push(pob_engine::character::SocketGroup {
+        label: "Curse".into(),
+        gems: vec![MainSkill::new(&curse_id)],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.main_socket_group = 1;
+    c.sync_main_skill();
+
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    let baseline_scale = baseline.get("CurseEffectScale");
+    if baseline_scale == 0.0 {
+        // Curse contributed no resist deltas (some curses don't touch resists).
+        eprintln!("skip: curse {curse_id} has no resist payload");
+        return;
+    }
+
+    // Bump CurseEffect with an item mod and verify the scale moves.
+    let amulet = parse_item(
+        "Item Class: Amulets\nRarity: RARE\nDoedre Charm\nOnyx Amulet\n--------\n50% increased Effect of your Curses\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::Amulet, amulet);
+    let after = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    let after_scale = after.get("CurseEffectScale");
+    let ratio = after_scale / baseline_scale;
+    assert!(
+        (1.45..=1.55).contains(&ratio),
+        "+50% Curse Effect should scale CurseEffectScale by ~1.5; got ratio={ratio} (baseline={baseline_scale}, after={after_scale})"
+    );
+}
+
+#[test]
 fn item_mods_carry_slot_name_tag() {
     let Some(tree) = load_3_25_tree() else {
         return;

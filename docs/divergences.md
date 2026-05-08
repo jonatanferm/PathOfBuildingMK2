@@ -28,12 +28,13 @@ Closed: `strip_unless_clause` recognises both `unless you've X recently` and
 canonical var names as the `if you've X recently` path (`KilledRecently`,
 `CritRecently`, `BeenHitRecently`, etc.).
 
-### `Effect of` modifiers are stat-name-only — Phase 3 (open)
+### `Effect of` modifiers are stat-name-only — Phase 3 (closed in 7e)
 
-`Effect of your Curses`, `Effect of non-Curse Auras` etc. parse to a `CurseEffect` /
-`AuraEffect` Base mod, but the calc engine doesn't yet apply that to outgoing curse /
-aura mods (PoB applies it as a multiplier to the relevant skill mods). Targeted fix
-lives in skill mod assembly when ActiveSkill grows from a stub to a real type.
+Closed: `perform_curses` now scales every curse-derived output (resist deltas,
+chance-on-hit) by `(1 + CurseEffect/100) × MoreCurseEffect`. `perform_reservations`
+multiplies aura buff values by `(1 + AuraEffect/100) × MoreAuraEffect` before they
+land in `env.mod_db`. Mods like "+15% Effect of your Curses" / "+10% Aura Effect"
+now actually contribute to outgoing buffs.
 
 ## Calc engine
 
