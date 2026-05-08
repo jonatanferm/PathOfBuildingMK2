@@ -217,39 +217,25 @@ pub fn init_env_with_bases(
     env
 }
 
-/// Inject the static mods awarded by the chosen Act 2 bandit. Numbers come
-/// from `Data/Bandits.lua` (PoE 3.x); `KillAll` is a no-op here because the
-/// "+2 passive points" reward is counted against the tree-budget UI rather
-/// than the modDB.
+/// Inject the static mods awarded by the chosen Act 2 bandit. Numbers mirror
+/// upstream PoB exactly — see `.PathOfBuilding/src/Modules/CalcSetup.lua:531-540`,
+/// which inlines a single mod per bandit. `KillAll` adds an `ExtraPoints` BASE
+/// of 1 (the "+2 passive points" reward).
 fn apply_bandit_mods(bandit: crate::character::Bandit, db: &mut crate::ModDB) {
     use crate::character::Bandit;
     let source = Source::Other(format!("Bandit:{}", bandit.as_pob_name()));
     match bandit {
-        Bandit::KillAll => {}
+        Bandit::KillAll => {
+            db.add(Mod::base("ExtraPoints", 1.0).with_source(source));
+        }
         Bandit::Alira => {
-            db.add(Mod::inc("ManaRegen", 15.0).with_source(source.clone()));
-            db.add(Mod::base("CritMultiplier", 20.0).with_source(source.clone()));
-            for stat in [
-                "FireResist",
-                "ColdResist",
-                "LightningResist",
-                "ChaosResist",
-            ] {
-                db.add(Mod::base(stat, 15.0).with_source(source.clone()));
-            }
+            db.add(Mod::base("ElementalResist", 15.0).with_source(source));
         }
         Bandit::Kraityn => {
-            db.add(Mod::inc("AttackSpeed", 6.0).with_source(source.clone()));
-            db.add(Mod::inc("MovementSpeed", 6.0).with_source(source.clone()));
-            db.add(Mod::inc("Evasion", 8.0).with_source(source.clone()));
-            db.add(Mod::base("AttackDodgeChance", 6.0).with_source(source.clone()));
+            db.add(Mod::inc("MovementSpeed", 8.0).with_source(source));
         }
         Bandit::Oak => {
-            db.add(Mod::base("LifeRegenPercent", 1.0).with_source(source.clone()));
-            db.add(
-                Mod::base("PhysicalDamageReduction", 2.0).with_source(source.clone()),
-            );
-            db.add(Mod::base("Life", 20.0).with_source(source.clone()));
+            db.add(Mod::base("Life", 40.0).with_source(source));
         }
     }
 }
