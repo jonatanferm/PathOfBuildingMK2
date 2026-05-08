@@ -10,6 +10,7 @@ use pob_engine::{
     Character, Output, SkillRegistry,
 };
 
+mod builds_tab;
 mod calcs_tab;
 mod color_codes;
 mod compare_tab;
@@ -52,6 +53,7 @@ struct LoadedApp {
     calcs_state: calcs_tab::CalcsTabState,
     compare_state: compare_tab::CompareTabState,
     party_state: party_tab::PartyTabState,
+    builds_state: builds_tab::BuildsTabState,
     import_export_state: import_export_tab::ImportExportTabState,
     notes_state: notes_tab::NotesTabState,
     skills: SkillRegistry,
@@ -84,6 +86,7 @@ enum Tab {
     Calcs,
     Compare,
     Party,
+    Builds,
     Notes,
     ImportExport,
 }
@@ -188,6 +191,7 @@ impl PobApp {
             calcs_state: calcs_tab::CalcsTabState::default(),
             compare_state: compare_tab::CompareTabState::default(),
             party_state: party_tab::PartyTabState::default(),
+            builds_state: builds_tab::BuildsTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             skills,
@@ -231,6 +235,7 @@ impl PobApp {
             calcs_state: calcs_tab::CalcsTabState::default(),
             compare_state: compare_tab::CompareTabState::default(),
             party_state: party_tab::PartyTabState::default(),
+            builds_state: builds_tab::BuildsTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             skills,
@@ -444,6 +449,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.selectable_value(&mut app.active_tab, Tab::Calcs, "Calcs");
             ui.selectable_value(&mut app.active_tab, Tab::Compare, "Compare");
             ui.selectable_value(&mut app.active_tab, Tab::Party, "Party");
+            ui.selectable_value(&mut app.active_tab, Tab::Builds, "Builds");
             ui.selectable_value(&mut app.active_tab, Tab::Notes, "Notes");
             ui.selectable_value(&mut app.active_tab, Tab::ImportExport, "Import / Export");
         });
@@ -912,6 +918,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 recompute = true;
             }
         }
+        Tab::Builds => {
+            if let Some(action) = builds_tab::ui(ui, &mut app.builds_state) {
+                handle_builds_action(app, action);
+                recompute = true;
+            }
+        }
         Tab::Notes => {
             notes_tab::ui(ui, &mut app.character.notes, &mut app.notes_state);
         }
@@ -1186,6 +1198,82 @@ fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction
 fn handle_compare_action(_app: &mut LoadedApp, _action: compare_tab::CompareAction) {
     // The web build doesn't have a file picker yet; the Compare tab's
     // in-memory snapshot button still works there.
+}
+
+/// Handle a Builds-tab action: load / save / open-folder against the
+/// platform-specific builds directory.
+#[cfg(not(target_arch = "wasm32"))]
+fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
+    match action {
+        builds_tab::BuildsAction::LoadFile(path) => {
+            let load = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+            let parsed: Result<Character, String> = load.and_then(|s| {
+                let trimmed = s.trim();
+                if trimmed.starts_with("MK2|") {
+                    pob_engine::import_code(trimmed).map_err(|e| e.to_string())
+                } else if trimmed.starts_with('<') {
+                    pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
+                } else {
+                    pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
+                }
+            });
+            match parsed {
+                Ok(c) => {
+                    app.character = c;
+                    app.current_build_path = Some(path.clone());
+                    app.status_message =
+                        Some((StatusKind::Info, format!("Opened {}", path.display())));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Load failed: {e}")));
+                }
+            }
+        }
+        builds_tab::BuildsAction::SaveAs(path) => {
+            // Write the current character to the chosen path inside
+            // the builds dir. This matches `save_build`'s logic but
+            // with a pre-resolved path (no rfd dialog).
+            let payload = pob_engine::export_code(&app.character).map_err(|e| e.to_string());
+            match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string()))
+            {
+                Ok(()) => {
+                    app.current_build_path = Some(path.clone());
+                    app.status_message =
+                        Some((StatusKind::Info, format!("Saved to {}", path.display())));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Save failed: {e}")));
+                }
+            }
+        }
+        builds_tab::BuildsAction::OpenFolder(dir) => {
+            // Try platform-native "open in file manager" — fall back
+            // to a status message if the spawn fails.
+            let result = if cfg!(target_os = "macos") {
+                std::process::Command::new("open").arg(&dir).spawn()
+            } else if cfg!(target_os = "linux") {
+                std::process::Command::new("xdg-open").arg(&dir).spawn()
+            } else if cfg!(target_os = "windows") {
+                std::process::Command::new("explorer").arg(&dir).spawn()
+            } else {
+                Err(std::io::Error::other("unsupported platform"))
+            };
+            if let Err(e) = result {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    format!("Couldn't open {}: {e}", dir.display()),
+                ));
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn handle_builds_action(_app: &mut LoadedApp, _action: builds_tab::BuildsAction) {
+    // No-op on wasm — the Builds tab itself shows a "no folder
+    // available" hint when `builds_dir()` returns None on this target.
 }
 
 #[cfg(not(target_arch = "wasm32"))]
