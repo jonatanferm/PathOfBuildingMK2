@@ -106,7 +106,13 @@ fn default_witch_xml() -> String {
 /// syntax error. They're only meaningful when SimpleGraphic loads the file.
 fn strip_pob_shebangs(src: &str) -> String {
     src.lines()
-        .map(|l| if l.trim_start().starts_with("#@") { "" } else { l })
+        .map(|l| {
+            if l.trim_start().starts_with("#@") {
+                ""
+            } else {
+                l
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -129,8 +135,8 @@ fn boot_pob(lua: &Lua, build_xml: &str, verbose: bool) -> Result<()> {
     // we want to drive Launch ourselves to skip the manifest XML / update-check
     // bits that need a real disk layout.
     let hw_path = std::path::Path::new("HeadlessWrapper.lua");
-    let hw_src = std::fs::read_to_string(hw_path)
-        .with_context(|| format!("read {}", hw_path.display()))?;
+    let hw_src =
+        std::fs::read_to_string(hw_path).with_context(|| format!("read {}", hw_path.display()))?;
     // HeadlessWrapper ends with a `dofile("Launch.lua")` and an `io.read("*l")`
     // prompt. Cut everything from `dofile("Launch.lua")` onward.
     let hw_trimmed = match hw_src.find("dofile(\"Launch.lua\")") {
@@ -263,14 +269,20 @@ return dst
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
 
-    println!("\n=== PoB env.player.output ({} scalar keys) ===", entries.len());
+    println!(
+        "\n=== PoB env.player.output ({} scalar keys) ===",
+        entries.len()
+    );
     let limit = if verbose { entries.len() } else { 80 };
     for (k, v) in entries.iter().take(limit) {
         let s = format_value(v);
         println!("  {k:<32} = {s}");
     }
     if !verbose && entries.len() > limit {
-        println!("  … ({} more — pass --verbose to see all)", entries.len() - limit);
+        println!(
+            "  … ({} more — pass --verbose to see all)",
+            entries.len() - limit
+        );
     }
 
     // Step 7: also run pob-engine on a comparable input and print a side-by-side
@@ -297,50 +309,58 @@ fn diff_against_pob_engine(
 
     let tree = load_default_tree().context("load 3_28 tree fixture for diff")?;
     let skills = load_skill_registry();
-    let output =
-        pob_engine::perform::compute_with_skills(&character, &tree, skills.as_ref());
+    let output = pob_engine::perform::compute_with_skills(&character, &tree, skills.as_ref());
 
     println!(
         "\n=== diff: pob-engine vs PoB (class={class}, level={level}, allocated={allocated}) ==="
     );
-    println!("{:<32}  {:>14}  {:>14}  {:>14}", "key", "pob-engine", "pob (lua)", "delta");
+    println!(
+        "{:<32}  {:>14}  {:>14}  {:>14}",
+        "key", "pob-engine", "pob (lua)", "delta"
+    );
     println!("{:-<78}", "");
 
-    let lookup: std::collections::HashMap<&str, &mlua::Value> = pob_entries
-        .iter()
-        .map(|(k, v)| (k.as_str(), v))
-        .collect();
+    let lookup: std::collections::HashMap<&str, &mlua::Value> =
+        pob_entries.iter().map(|(k, v)| (k.as_str(), v)).collect();
 
     // Each row: (display name, pob-engine key, PoB key — same if no rename).
     // Some stats use different naming conventions across the two engines, so
     // we keep an explicit alias table for the well-known cases.
     let probe_keys: &[(&str, &str, &str)] = &[
-        ("Life",                 "Life",                 "Life"),
-        ("LifeUnreserved",       "LifeUnreserved",       "LifeUnreserved"),
-        ("Mana",                 "Mana",                 "Mana"),
-        ("ManaUnreserved",       "ManaUnreserved",       "ManaUnreserved"),
-        ("EnergyShield",         "EnergyShield",         "EnergyShield"),
-        ("Ward",                 "Ward",                 "Ward"),
-        ("Strength",             "Strength",             "Str"),
-        ("Dexterity",            "Dexterity",            "Dex"),
-        ("Intelligence",         "Intelligence",         "Int"),
-        ("Armour",               "Armour",               "Armour"),
-        ("Evasion",              "Evasion",              "Evasion"),
-        ("BlockChance",          "BlockChance",          "BlockChance"),
-        ("BlockChanceMax",       "BlockChanceMax",       "BlockChanceMax"),
-        ("SpellBlockChance",     "SpellBlockChance",     "SpellBlockChance"),
-        ("FireResist",           "FireResist",           "FireResist"),
-        ("FireResistTotal",      "FireResistTotal",      "FireResistTotal"),
-        ("ColdResist",           "ColdResist",           "ColdResist"),
-        ("ColdResistTotal",      "ColdResistTotal",      "ColdResistTotal"),
-        ("LightningResist",      "LightningResist",      "LightningResist"),
-        ("LightningResistTotal", "LightningResistTotal", "LightningResistTotal"),
-        ("ChaosResist",          "ChaosResist",          "ChaosResist"),
-        ("ChaosResistTotal",     "ChaosResistTotal",     "ChaosResistTotal"),
-        ("LifeRegen",            "LifeRegen",            "LifeRegen"),
-        ("ManaRegen",            "ManaRegen",            "ManaRegen"),
-        ("EnergyShieldRegen",    "EnergyShieldRegen",    "EnergyShieldRegen"),
-        ("MovementSpeedMod",     "MovementSpeedMod",     "MovementSpeedMod"),
+        ("Life", "Life", "Life"),
+        ("LifeUnreserved", "LifeUnreserved", "LifeUnreserved"),
+        ("Mana", "Mana", "Mana"),
+        ("ManaUnreserved", "ManaUnreserved", "ManaUnreserved"),
+        ("EnergyShield", "EnergyShield", "EnergyShield"),
+        ("Ward", "Ward", "Ward"),
+        ("Strength", "Strength", "Str"),
+        ("Dexterity", "Dexterity", "Dex"),
+        ("Intelligence", "Intelligence", "Int"),
+        ("Armour", "Armour", "Armour"),
+        ("Evasion", "Evasion", "Evasion"),
+        ("BlockChance", "BlockChance", "BlockChance"),
+        ("BlockChanceMax", "BlockChanceMax", "BlockChanceMax"),
+        ("SpellBlockChance", "SpellBlockChance", "SpellBlockChance"),
+        ("FireResist", "FireResist", "FireResist"),
+        ("FireResistTotal", "FireResistTotal", "FireResistTotal"),
+        ("ColdResist", "ColdResist", "ColdResist"),
+        ("ColdResistTotal", "ColdResistTotal", "ColdResistTotal"),
+        ("LightningResist", "LightningResist", "LightningResist"),
+        (
+            "LightningResistTotal",
+            "LightningResistTotal",
+            "LightningResistTotal",
+        ),
+        ("ChaosResist", "ChaosResist", "ChaosResist"),
+        ("ChaosResistTotal", "ChaosResistTotal", "ChaosResistTotal"),
+        ("LifeRegen", "LifeRegen", "LifeRegen"),
+        ("ManaRegen", "ManaRegen", "ManaRegen"),
+        (
+            "EnergyShieldRegen",
+            "EnergyShieldRegen",
+            "EnergyShieldRegen",
+        ),
+        ("MovementSpeedMod", "MovementSpeedMod", "MovementSpeedMod"),
     ];
     let mut shown = 0;
     let mut diverge = 0;
@@ -358,15 +378,26 @@ fn diff_against_pob_engine(
             (Some(a), Some(b)) => {
                 let delta = a - b;
                 let marker = if (delta).abs() < 0.5 { " " } else { "*" };
-                println!("{:<32}{marker} {:>14.2}  {:>14.2}  {:>+14.2}", key, a, b, delta);
+                println!(
+                    "{:<32}{marker} {:>14.2}  {:>14.2}  {:>+14.2}",
+                    key, a, b, delta
+                );
                 shown += 1;
-                if (delta).abs() >= 0.5 { diverge += 1; }
+                if (delta).abs() >= 0.5 {
+                    diverge += 1;
+                }
             }
             (Some(a), None) => {
-                println!("{:<32}  {:>14.2}  {:>14}  {:>14}", key, a, "—", "(only ours)");
+                println!(
+                    "{:<32}  {:>14.2}  {:>14}  {:>14}",
+                    key, a, "—", "(only ours)"
+                );
             }
             (None, Some(b)) => {
-                println!("{:<32}  {:>14}  {:>14.2}  {:>14}", key, "—", b, "(only PoB)");
+                println!(
+                    "{:<32}  {:>14}  {:>14.2}  {:>14}",
+                    key, "—", b, "(only PoB)"
+                );
             }
             (None, None) => {}
         }
@@ -379,8 +410,7 @@ fn diff_against_pob_engine(
     // surfaces engine bugs that the curated probe table doesn't cover.
     let mut auto_div: Vec<(String, f64, f64)> = Vec::new();
     let mut auto_match = 0usize;
-    let our_keys: std::collections::HashSet<&str> =
-        output.iter().map(|(k, _)| k).collect();
+    let our_keys: std::collections::HashSet<&str> = output.iter().map(|(k, _)| k).collect();
     for (name, ours) in output.iter() {
         // Only reported if pob-engine value is non-trivial OR PoB value is non-trivial,
         // so we don't drown in zeros.
@@ -420,7 +450,10 @@ fn diff_against_pob_engine(
     missing_outputs.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
     auto_div.sort_by(|a, b| (b.1 - b.2).abs().total_cmp(&(a.1 - a.2).abs()));
     let auto_total = auto_match + auto_div.len();
-    println!("\n=== auto-divergence ({auto_total} shared keys, {} divergent) ===", auto_div.len());
+    println!(
+        "\n=== auto-divergence ({auto_total} shared keys, {} divergent) ===",
+        auto_div.len()
+    );
     for (name, ours, theirs) in auto_div.iter().take(40) {
         println!(
             "  {name:<32}  ours={ours:>12.2}  pob={theirs:>12.2}  delta={:>+12.2}",
@@ -428,7 +461,10 @@ fn diff_against_pob_engine(
         );
     }
     if auto_div.len() > 40 {
-        println!("  … ({} more divergent — pass --verbose to see all)", auto_div.len() - 40);
+        println!(
+            "  … ({} more divergent — pass --verbose to see all)",
+            auto_div.len() - 40
+        );
     }
 
     println!(
@@ -497,7 +533,6 @@ fn load_default_tree() -> Result<pob_data::PassiveTree> {
     anyhow::bail!("no tree fixture found in data/trees/")
 }
 
-
 fn build_lua_sandbox(pob_runtime_lua: &std::path::Path) -> Result<Lua> {
     let lua = Lua::new();
     let globals = lua.globals();
@@ -507,7 +542,10 @@ fn build_lua_sandbox(pob_runtime_lua: &std::path::Path) -> Result<Lua> {
     // `jit` global (Launch.lua calls jit.opt.start). Provide a no-op opt.start.
     let jit_tbl = lua.create_table()?;
     let jit_opt = lua.create_table()?;
-    jit_opt.set("start", lua.create_function(|_, _: mlua::MultiValue| Ok(()))?)?;
+    jit_opt.set(
+        "start",
+        lua.create_function(|_, _: mlua::MultiValue| Ok(()))?,
+    )?;
     jit_tbl.set("opt", jit_opt)?;
     jit_tbl.set("on", lua.create_function(|_, _: mlua::MultiValue| Ok(()))?)?;
     jit_tbl.set("off", lua.create_function(|_, _: mlua::MultiValue| Ok(()))?)?;

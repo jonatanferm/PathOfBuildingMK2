@@ -30,7 +30,11 @@ fn bases_load() {
         return;
     };
     let bases = load_bases(&json).expect("bases parse");
-    assert!(bases.len() > 500, "expected hundreds of bases, got {}", bases.len());
+    assert!(
+        bases.len() > 500,
+        "expected hundreds of bases, got {}",
+        bases.len()
+    );
     assert!(
         bases.iter().any(|(_, b)| b.weapon.is_some()),
         "expected at least one weapon base"
@@ -53,9 +57,14 @@ fn gems_load() {
         return;
     };
     let gems = load_gems(&json).expect("gems parse");
-    assert!(gems.len() > 500, "expected hundreds of gems, got {}", gems.len());
     assert!(
-        gems.iter().any(|(_, g)| g.tags.contains("grants_active_skill")),
+        gems.len() > 500,
+        "expected hundreds of gems, got {}",
+        gems.len()
+    );
+    assert!(
+        gems.iter()
+            .any(|(_, g)| g.tags.contains("grants_active_skill")),
         "expected at least one active skill gem"
     );
     let fireball = gems
@@ -63,7 +72,10 @@ fn gems_load() {
         .find(|(_, g)| g.name == "Fireball")
         .expect("Fireball must exist");
     assert!(fireball.1.tags.contains("fire"), "fireball is fire");
-    assert!(fireball.1.tags.contains("projectile"), "fireball is projectile");
+    assert!(
+        fireball.1.tags.contains("projectile"),
+        "fireball is projectile"
+    );
     assert!(fireball.1.tags.contains("spell"), "fireball is spell");
 }
 
@@ -94,8 +106,7 @@ fn every_tree_loads() {
     for v in &index {
         let tree_path = data_root().join("trees").join(format!("{v}.json"));
         let json = std::fs::read_to_string(&tree_path).expect("read tree");
-        let tree = load_passive_tree(&json)
-            .unwrap_or_else(|e| panic!("loading {v}: {e}"));
+        let tree = load_passive_tree(&json).unwrap_or_else(|e| panic!("loading {v}: {e}"));
         assert_eq!(tree.version, *v);
         assert!(!tree.classes.is_empty(), "{v}: classes");
         assert!(!tree.groups.is_empty(), "{v}: groups");
@@ -122,9 +133,10 @@ fn current_tree_has_expected_classes() {
     };
     let tree = load_passive_tree(&json).unwrap();
     let names: Vec<_> = tree.classes.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(names, vec![
-        "Scion", "Marauder", "Ranger", "Witch", "Duelist", "Templar", "Shadow"
-    ]);
+    assert_eq!(
+        names,
+        vec!["Scion", "Marauder", "Ranger", "Witch", "Duelist", "Templar", "Shadow"]
+    );
     // Each class except Scion has 3 ascendancies; Scion has 1.
     let scion = tree.classes.iter().find(|c| c.name == "Scion").unwrap();
     assert_eq!(scion.ascendancies.len(), 1);

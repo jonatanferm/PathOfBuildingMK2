@@ -116,9 +116,7 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
         // If any line in this mod section has an explicit (implicit) / (crafted) / …
         // suffix, the rest of the section defaults to explicit. Otherwise the first
         // mod section is treated as all-implicit.
-        let any_self_tagged = section
-            .iter()
-            .any(|l| strip_mod_suffix(l).1.is_some());
+        let any_self_tagged = section.iter().any(|l| strip_mod_suffix(l).1.is_some());
         for &line in *section {
             if let Some(rest) = line.strip_prefix("Quality:") {
                 quality = parse_first_int(rest).unwrap_or(0);
@@ -294,11 +292,7 @@ fn strip_magic_affixes(line: &str) -> String {
 /// `SlotName` tag so the eval system can filter them — today the SlotName
 /// condition is set whenever a slot is occupied, but the tag opens the door
 /// to future active-weapon-only scoping.
-pub fn item_mods_into_modlist(
-    item: &Item,
-    slot_index: u32,
-    out: &mut crate::ModList,
-) -> usize {
+pub fn item_mods_into_modlist(item: &Item, slot_index: u32, out: &mut crate::ModList) -> usize {
     let mut produced = 0usize;
     let slot_name = slot_name_for_index(slot_index);
     for ml in &item.mod_lines {
@@ -449,8 +443,7 @@ pub fn apply_item_set_with_bases(
         } else if item.base_name.contains("Shield") || item.base_name.contains("Buckler") {
             // No base lookup available — fall back to a generic 20% block chance.
             db.add(
-                crate::Mod::base("BlockChance", 20.0)
-                    .with_source(crate::Source::Item(slot_index)),
+                crate::Mod::base("BlockChance", 20.0).with_source(crate::Source::Item(slot_index)),
             );
         }
 

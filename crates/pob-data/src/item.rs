@@ -54,10 +54,21 @@ pub enum Slot {
 impl Slot {
     pub fn all() -> &'static [Self] {
         &[
-            Self::Helmet, Self::BodyArmour, Self::Gloves, Self::Boots,
-            Self::Amulet, Self::Ring1, Self::Ring2, Self::Belt,
-            Self::Weapon1, Self::Weapon2,
-            Self::Flask1, Self::Flask2, Self::Flask3, Self::Flask4, Self::Flask5,
+            Self::Helmet,
+            Self::BodyArmour,
+            Self::Gloves,
+            Self::Boots,
+            Self::Amulet,
+            Self::Ring1,
+            Self::Ring2,
+            Self::Belt,
+            Self::Weapon1,
+            Self::Weapon2,
+            Self::Flask1,
+            Self::Flask2,
+            Self::Flask3,
+            Self::Flask4,
+            Self::Flask5,
         ]
     }
     pub fn label(self) -> &'static str {
@@ -130,9 +141,7 @@ pub struct Item {
 impl Item {
     /// Iterate every mod line, yielding `(section, text)`.
     pub fn iter_mod_lines(&self) -> impl Iterator<Item = (&ModSection, &str)> {
-        self.mod_lines
-            .iter()
-            .map(|m| (&m.section, m.line.as_str()))
+        self.mod_lines.iter().map(|m| (&m.section, m.line.as_str()))
     }
 }
 

@@ -111,7 +111,10 @@ mod tests {
             .iter()
             .find(|(_, n)| {
                 n.class_start_index.is_some()
-                    && n.name.as_deref().map(|s| s.contains("MARAUDER")).unwrap_or(false)
+                    && n.name
+                        .as_deref()
+                        .map(|s| s.contains("MARAUDER"))
+                        .unwrap_or(false)
             })
             .map(|(id, _)| *id);
         let Some(start) = class_start else {

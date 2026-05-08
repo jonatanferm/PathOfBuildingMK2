@@ -54,8 +54,8 @@ pub fn import_pob_code(code: &str) -> Result<Character, PobImportError> {
     let mut xml_bytes = Vec::new();
     dec.read_to_end(&mut xml_bytes)
         .map_err(|e| PobImportError::Decode(format!("zlib: {e}")))?;
-    let xml = String::from_utf8(xml_bytes)
-        .map_err(|e| PobImportError::Decode(format!("utf-8: {e}")))?;
+    let xml =
+        String::from_utf8(xml_bytes).map_err(|e| PobImportError::Decode(format!("utf-8: {e}")))?;
     import_pob_xml(&xml)
 }
 
@@ -187,8 +187,8 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                         // way we capture only the first set we see.
                         if equipped_first_set.is_empty() || item_set_capture_id.is_some() {
                             let slot_name = attr_str(&e, "name").unwrap_or_default();
-                            let item_id = attr_str(&e, "itemId")
-                                .and_then(|s| s.parse::<u32>().ok());
+                            let item_id =
+                                attr_str(&e, "itemId").and_then(|s| s.parse::<u32>().ok());
                             if let (false, Some(id)) = (slot_name.is_empty(), item_id) {
                                 if id > 0 {
                                     equipped_first_set.insert(slot_name, id);
@@ -306,9 +306,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
     if let Some(c) = active_spec_class.filter(|s| !s.is_empty() && !is_numeric(s)) {
         character.class = ClassRef(c);
     }
-    if let Some(a) = active_spec_ascend
-        .filter(|s| !s.is_empty() && s != "None" && !is_numeric(s))
-    {
+    if let Some(a) = active_spec_ascend.filter(|s| !s.is_empty() && s != "None" && !is_numeric(s)) {
         character.ascendancy = Some(a);
     }
 
@@ -334,7 +332,11 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
     let main_group = skill_groups
         .iter()
         .find(|g| g.index == main_group_idx)
-        .or_else(|| skill_groups.iter().find(|g| g.enabled && !g.gems.is_empty()));
+        .or_else(|| {
+            skill_groups
+                .iter()
+                .find(|g| g.enabled && !g.gems.is_empty())
+        });
     if let Some(group) = main_group {
         let gem_idx = if group.main_active_skill_index >= 1 {
             (group.main_active_skill_index as usize).saturating_sub(1)
@@ -684,7 +686,10 @@ Quality: +20% (augmented)
     <Notes/>
 </PathOfBuilding>"#;
         let c = import_pob_xml(xml).expect("import");
-        let amulet = c.items.get(pob_data::Slot::Amulet).expect("amulet equipped");
+        let amulet = c
+            .items
+            .get(pob_data::Slot::Amulet)
+            .expect("amulet equipped");
         assert_eq!(amulet.base_name, "Onyx Amulet");
     }
 

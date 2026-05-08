@@ -9,9 +9,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use pob_data::{load_passive_tree, load_skill_file};
-use pob_engine::{
-    perform::compute_full_with_env, Character, MainSkill, SkillRegistry,
-};
+use pob_engine::{perform::compute_full_with_env, Character, MainSkill, SkillRegistry};
 
 const RARE_AMULET: &str = r"Item Class: Amulets
 Rarity: RARE

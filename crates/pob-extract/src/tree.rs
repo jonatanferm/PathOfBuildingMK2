@@ -3,8 +3,8 @@ use std::path::Path;
 use ahash::HashMap;
 use anyhow::{anyhow, bail, Context, Result};
 use pob_data::{
-    Ascendancy, Class, Group, GroupBackground, MasteryEffect, Node, NodeId, NodeKind,
-    PassiveTree, Rect, ROOT_NODE_ID, TreeConstants, TreePoints,
+    Ascendancy, Class, Group, GroupBackground, MasteryEffect, Node, NodeId, NodeKind, PassiveTree,
+    Rect, TreeConstants, TreePoints, ROOT_NODE_ID,
 };
 use serde_json::Value;
 use smallvec::SmallVec;
@@ -77,11 +77,7 @@ pub fn extract(pob_root: &Path, version: &str) -> Result<PassiveTree, ExtractErr
 fn iter_keyed<'a>(v: &'a Value) -> Box<dyn Iterator<Item = (String, &'a Value)> + 'a> {
     match v {
         Value::Object(m) => Box::new(m.iter().map(|(k, v)| (k.clone(), v))),
-        Value::Array(a) => Box::new(
-            a.iter()
-                .enumerate()
-                .map(|(i, v)| ((i + 1).to_string(), v)),
-        ),
+        Value::Array(a) => Box::new(a.iter().enumerate().map(|(i, v)| ((i + 1).to_string(), v))),
         _ => Box::new(std::iter::empty()),
     }
 }
@@ -90,20 +86,15 @@ fn parse_tree(version: &str, v: &Value) -> Result<PassiveTree> {
     let tree_name = lv::opt_str(v, "tree").unwrap_or_else(|| "Default".to_owned());
 
     let classes = parse_classes(lv::opt_array(v, "classes")?)?;
-    let groups = parse_groups(
-        lv::get(v, "groups").ok_or_else(|| anyhow!("missing `groups`"))?,
-    )?;
-    let nodes = parse_nodes(
-        lv::get(v, "nodes").ok_or_else(|| anyhow!("missing `nodes`"))?,
-    )?;
+    let groups = parse_groups(lv::get(v, "groups").ok_or_else(|| anyhow!("missing `groups`"))?)?;
+    let nodes = parse_nodes(lv::get(v, "nodes").ok_or_else(|| anyhow!("missing `nodes`"))?)?;
     let jewel_slots = lv::opt_array(v, "jewelSlots")?
         .iter()
         .filter_map(|n| n.as_u64().map(|n| n as NodeId))
         .collect();
 
-    let constants = parse_constants(
-        lv::opt_object(v, "constants").context("missing `constants`")?,
-    )?;
+    let constants =
+        parse_constants(lv::opt_object(v, "constants").context("missing `constants`")?)?;
     let points = lv::opt_object(v, "points")
         .map(|o| {
             let host = Value::Object(o.clone());
@@ -170,7 +161,9 @@ fn parse_ascendancy(v: &Value) -> Result<Ascendancy> {
 fn parse_groups(host: &Value) -> Result<HashMap<u32, Group>> {
     let mut out: HashMap<u32, Group> = HashMap::default();
     for (k, v) in iter_keyed(host) {
-        let id = k.parse::<u32>().with_context(|| format!("group id `{k}`"))?;
+        let id = k
+            .parse::<u32>()
+            .with_context(|| format!("group id `{k}`"))?;
         let nodes = lv::opt_array(v, "nodes")?
             .iter()
             .map(|nv| {
@@ -263,11 +256,10 @@ fn parse_node(id: NodeId, is_root: bool, v: &Value) -> Result<Node> {
         out_edges,
         in_edges,
         mastery_effects,
-        expansion_jewel_size: lv::opt_object(v, "expansionJewel")
-            .and_then(|o| {
-                let host = Value::Object(o.clone());
-                lv::opt_u64(&host, "size").map(|n| n as u8)
-            }),
+        expansion_jewel_size: lv::opt_object(v, "expansionJewel").and_then(|o| {
+            let host = Value::Object(o.clone());
+            lv::opt_u64(&host, "size").map(|n| n as u8)
+        }),
         jewel_radius: lv::opt_u64(v, "jewelRadius").map(|n| n as u8),
     })
 }

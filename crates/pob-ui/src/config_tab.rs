@@ -62,7 +62,10 @@ const GROUPS: &[(&str, &[(&str, &str)])] = &[
             // HitByLightningDamageRecently / HitBySpellDamageRecently).
             ("HitByFireDamageRecently", "Hit by Fire Damage Recently"),
             ("HitByColdDamageRecently", "Hit by Cold Damage Recently"),
-            ("HitByLightningDamageRecently", "Hit by Lightning Damage Recently"),
+            (
+                "HitByLightningDamageRecently",
+                "Hit by Lightning Damage Recently",
+            ),
             ("HitBySpellDamageRecently", "Hit by Spell Damage Recently"),
         ],
     ),
@@ -160,7 +163,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
             ui.heading("Enemy");
             ui.separator();
             let mut lvl = state.enemy_level as i32;
-            if ui.add(egui::Slider::new(&mut lvl, 1..=100).text("Enemy level")).changed() {
+            if ui
+                .add(egui::Slider::new(&mut lvl, 1..=100).text("Enemy level"))
+                .changed()
+            {
                 state.enemy_level = lvl.max(0) as u32;
                 changed = true;
             }

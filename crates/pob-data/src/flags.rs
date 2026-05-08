@@ -420,7 +420,10 @@ mod tests {
     #[test]
     fn keyword_flag_default_matches_when_mod_has_no_keywords() {
         // empty mod keywords always match
-        assert!(KeywordFlag::matches(KeywordFlag::FIRE, KeywordFlag::empty()));
+        assert!(KeywordFlag::matches(
+            KeywordFlag::FIRE,
+            KeywordFlag::empty()
+        ));
     }
 
     #[test]
@@ -429,16 +432,16 @@ mod tests {
             KeywordFlag::FIRE | KeywordFlag::ATTACK,
             KeywordFlag::FIRE,
         ));
-        assert!(!KeywordFlag::matches(
-            KeywordFlag::COLD,
-            KeywordFlag::FIRE,
-        ));
+        assert!(!KeywordFlag::matches(KeywordFlag::COLD, KeywordFlag::FIRE,));
     }
 
     #[test]
     fn keyword_flag_match_all_requires_all_bits() {
         let mod_kw = KeywordFlag::FIRE | KeywordFlag::ATTACK | KeywordFlag::MATCH_ALL;
-        assert!(KeywordFlag::matches(KeywordFlag::FIRE | KeywordFlag::ATTACK, mod_kw));
+        assert!(KeywordFlag::matches(
+            KeywordFlag::FIRE | KeywordFlag::ATTACK,
+            mod_kw
+        ));
         assert!(!KeywordFlag::matches(KeywordFlag::FIRE, mod_kw));
     }
 

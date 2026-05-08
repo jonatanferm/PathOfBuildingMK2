@@ -49,8 +49,7 @@ pub fn extract_all(pob_root: &Path, out_dir: &Path) -> Result<Vec<String>> {
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
             .to_owned();
-        let json = extract_one(&file)
-            .with_context(|| format!("extracting {}", file.display()))?;
+        let json = extract_one(&file).with_context(|| format!("extracting {}", file.display()))?;
         let out_path = out_dir.join(format!("{stem}.json"));
         std::fs::write(&out_path, serde_json::to_string(&json)?)?;
         produced.push(stem);
@@ -61,8 +60,8 @@ pub fn extract_all(pob_root: &Path, out_dir: &Path) -> Result<Vec<String>> {
 fn extract_one(path: &Path) -> Result<serde_json::Value> {
     let lua = make_lua()?;
     install_skill_helpers(&lua)?;
-    let src = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let src =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let chunk = lua.load(&src).set_name(path.to_string_lossy().as_ref());
     let func = chunk.into_function()?;
 

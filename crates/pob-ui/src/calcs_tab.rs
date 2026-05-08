@@ -23,15 +23,41 @@ impl Default for CalcsTabState {
 
 /// Stat category groupings — each (heading, prefix-or-substring-list).
 const GROUPS: &[(&str, &[&str])] = &[
-    ("Attributes", &["Strength", "Dexterity", "Intelligence", "AllAttributes"]),
+    (
+        "Attributes",
+        &["Strength", "Dexterity", "Intelligence", "AllAttributes"],
+    ),
     ("Pools", &["Life", "Mana", "EnergyShield", "Ward", "Rage"]),
-    ("Resists", &["FireResist", "ColdResist", "LightningResist", "ChaosResist", "ElementalResist"]),
-    ("Defences", &["Armour", "Evasion", "Block", "Spell", "Suppress", "Recover", "Regen", "Recharge", "Phys"]),
+    (
+        "Resists",
+        &[
+            "FireResist",
+            "ColdResist",
+            "LightningResist",
+            "ChaosResist",
+            "ElementalResist",
+        ],
+    ),
+    (
+        "Defences",
+        &[
+            "Armour", "Evasion", "Block", "Spell", "Suppress", "Recover", "Regen", "Recharge",
+            "Phys",
+        ],
+    ),
     ("EHP", &["EHP"]),
-    ("Charges & Multipliers", &["Charge", "Crit", "Power", "Frenzy", "Endurance"]),
+    (
+        "Charges & Multipliers",
+        &["Charge", "Crit", "Power", "Frenzy", "Endurance"],
+    ),
     ("Speeds", &["Speed", "Accuracy"]),
     ("Main Skill", &["MainSkill", "FullDPS"]),
-    ("Ailments", &["Bleed", "Poison", "Ignite", "Freeze", "Shock", "Chill", "Ailment"]),
+    (
+        "Ailments",
+        &[
+            "Bleed", "Poison", "Ignite", "Freeze", "Shock", "Chill", "Ailment",
+        ],
+    ),
     ("Misc", &["Misc:", "Keystone:"]),
 ];
 
@@ -260,7 +286,11 @@ fn source_label(s: Option<&Source>) -> String {
 fn format_tag(t: &Tag) -> String {
     match &t.kind {
         pob_engine::TagKind::Condition { var, neg } => {
-            if *neg { format!("not cond:{var}") } else { format!("cond:{var}") }
+            if *neg {
+                format!("not cond:{var}")
+            } else {
+                format!("cond:{var}")
+            }
         }
         pob_engine::TagKind::ActorCondition { actor, var, .. } => {
             format!("{actor}:{var}")
@@ -270,11 +300,19 @@ fn format_tag(t: &Tag) -> String {
         pob_engine::TagKind::PercentStat { stat, percent } => {
             format!("{percent}% of {stat}")
         }
-        pob_engine::TagKind::StatThreshold { stat, threshold, upper } => {
+        pob_engine::TagKind::StatThreshold {
+            stat,
+            threshold,
+            upper,
+        } => {
             let cmp = if *upper { "<" } else { ">=" };
             format!("if:{stat}{cmp}{threshold}")
         }
-        pob_engine::TagKind::MultiplierThreshold { var, threshold, upper } => {
+        pob_engine::TagKind::MultiplierThreshold {
+            var,
+            threshold,
+            upper,
+        } => {
             let cmp = if *upper { "<" } else { ">=" };
             format!("if:{var}{cmp}{threshold}")
         }

@@ -67,19 +67,13 @@ pub fn opt_array<'a>(o: &'a Value, key: &str) -> Result<&'a [Value]> {
         .unwrap_or(&[]))
 }
 
-pub fn req_object<'a>(
-    o: &'a Value,
-    key: &str,
-) -> Result<&'a serde_json::Map<String, Value>> {
+pub fn req_object<'a>(o: &'a Value, key: &str) -> Result<&'a serde_json::Map<String, Value>> {
     require(o, key)?
         .as_object()
         .with_context(|| format!("`{key}` is not an object"))
 }
 
-pub fn opt_object<'a>(
-    o: &'a Value,
-    key: &str,
-) -> Option<&'a serde_json::Map<String, Value>> {
+pub fn opt_object<'a>(o: &'a Value, key: &str) -> Option<&'a serde_json::Map<String, Value>> {
     get(o, key).and_then(Value::as_object)
 }
 

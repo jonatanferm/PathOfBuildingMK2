@@ -5,7 +5,10 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use pob_data::{NodeId, PassiveTree};
-use pob_engine::{character::{Bandit, ClassRef}, Character, Output, SkillRegistry};
+use pob_engine::{
+    character::{Bandit, ClassRef},
+    Character, Output, SkillRegistry,
+};
 
 mod calcs_tab;
 mod config_tab;
@@ -116,8 +119,8 @@ impl PobApp {
         // version as the default (lexicographic last with a stable filter).
         let index_json = std::fs::read_to_string(data_root.join("trees/index.json"))
             .map_err(|e| format!("reading tree index: {e}"))?;
-        let mut tree_versions: Vec<String> =
-            pob_data::load_tree_index(&index_json).map_err(|e| format!("parsing tree index: {e}"))?;
+        let mut tree_versions: Vec<String> = pob_data::load_tree_index(&index_json)
+            .map_err(|e| format!("parsing tree index: {e}"))?;
         tree_versions.sort();
         let default_version = tree_versions
             .iter()
@@ -126,11 +129,13 @@ impl PobApp {
             .cloned()
             .or_else(|| tree_versions.last().cloned())
             .ok_or_else(|| "no tree versions found".to_owned())?;
-        let tree_path = data_root.join("trees").join(format!("{default_version}.json"));
+        let tree_path = data_root
+            .join("trees")
+            .join(format!("{default_version}.json"));
         let tree_json =
             std::fs::read_to_string(&tree_path).map_err(|e| format!("reading tree: {e}"))?;
-        let tree = pob_data::load_passive_tree(&tree_json)
-            .map_err(|e| format!("parsing tree: {e}"))?;
+        let tree =
+            pob_data::load_passive_tree(&tree_json).map_err(|e| format!("parsing tree: {e}"))?;
 
         let bases = std::fs::read_to_string(data_root.join("bases.json"))
             .ok()
@@ -159,12 +164,8 @@ impl PobApp {
         let sprites = load_sprite_metadata();
         let tree_view = TreeView::new(&tree, sprites.as_ref());
         let character = Character::new(ClassRef::marauder(), 1);
-        let (output, env) = pob_engine::compute_full_with_env(
-            &character,
-            &tree,
-            Some(&skills),
-            bases.as_ref(),
-        );
+        let (output, env) =
+            pob_engine::compute_full_with_env(&character, &tree, Some(&skills), bases.as_ref());
 
         Ok(LoadedApp {
             tree,
@@ -197,19 +198,15 @@ impl PobApp {
     fn load_initial() -> Result<LoadedApp, String> {
         let tree_json = include_str!("../../../data/trees/3_25.json");
         let bases_json = include_str!("../../../data/bases.json");
-        let tree = pob_data::load_passive_tree(tree_json)
-            .map_err(|e| format!("parsing tree: {e}"))?;
+        let tree =
+            pob_data::load_passive_tree(tree_json).map_err(|e| format!("parsing tree: {e}"))?;
         let bases = pob_data::load_bases(bases_json).ok();
         let skills = SkillRegistry::default();
         let sprites = load_sprite_metadata();
         let tree_view = TreeView::new(&tree, sprites.as_ref());
         let character = Character::new(ClassRef::marauder(), 1);
-        let (output, env) = pob_engine::compute_full_with_env(
-            &character,
-            &tree,
-            Some(&skills),
-            bases.as_ref(),
-        );
+        let (output, env) =
+            pob_engine::compute_full_with_env(&character, &tree, Some(&skills), bases.as_ref());
         Ok(LoadedApp {
             tree,
             tree_view,
@@ -345,7 +342,11 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         let cmd = i.modifiers.command;
         let shift = i.modifiers.shift;
         if cmd && i.key_pressed(egui::Key::S) {
-            menu_action = Some(if shift { MenuAction::SaveAs } else { MenuAction::Save });
+            menu_action = Some(if shift {
+                MenuAction::SaveAs
+            } else {
+                MenuAction::Save
+            });
         } else if cmd && i.key_pressed(egui::Key::O) {
             menu_action = Some(MenuAction::Open);
         } else if cmd && i.key_pressed(egui::Key::N) {
@@ -388,7 +389,11 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     apply_menu_action(app, MenuAction::Open);
                     ui.close_menu();
                 }
-                let save_label = if app.current_build_path.is_some() { "Save" } else { "Save…" };
+                let save_label = if app.current_build_path.is_some() {
+                    "Save"
+                } else {
+                    "Save…"
+                };
                 if ui.button(save_label).clicked() {
                     apply_menu_action(app, MenuAction::Save);
                     ui.close_menu();
@@ -404,7 +409,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             });
             ui.separator();
             if let Some(p) = &app.current_build_path {
-                ui.weak(format!("{}", p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
+                ui.weak(format!(
+                    "{}",
+                    p.file_name()
+                        .map(|n| n.to_string_lossy())
+                        .unwrap_or_default()
+                ));
             } else {
                 ui.weak("(unsaved)");
             }
@@ -464,7 +474,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 .selected_text(app.character.class.0.clone())
                 .show_ui(ui, |ui| {
                     for c in &app.tree.classes {
-                        if ui.selectable_label(app.character.class.0 == c.name, &c.name).clicked() {
+                        if ui
+                            .selectable_label(app.character.class.0 == c.name, &c.name)
+                            .clicked()
+                        {
                             app.character.class = ClassRef(c.name.clone());
                             // Reset ascendancy when class changes — old one no longer valid.
                             app.character.ascendancy = None;
@@ -489,16 +502,24 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 .iter()
                 .find(|c| c.name == app.character.class.0)
             {
-                let current = app.character.ascendancy.clone().unwrap_or_else(|| "(None)".into());
+                let current = app
+                    .character
+                    .ascendancy
+                    .clone()
+                    .unwrap_or_else(|| "(None)".into());
                 egui::ComboBox::from_label("Ascendancy")
                     .selected_text(&current)
                     .show_ui(ui, |ui| {
-                        if ui.selectable_label(app.character.ascendancy.is_none(), "(None)").clicked() {
+                        if ui
+                            .selectable_label(app.character.ascendancy.is_none(), "(None)")
+                            .clicked()
+                        {
                             app.character.ascendancy = None;
                             recompute = true;
                         }
                         for asc in &class.ascendancies {
-                            let selected = app.character.ascendancy.as_deref() == Some(asc.id.as_str());
+                            let selected =
+                                app.character.ascendancy.as_deref() == Some(asc.id.as_str());
                             if ui.selectable_label(selected, &asc.id).clicked() {
                                 app.character.ascendancy = Some(asc.id.clone());
                                 recompute = true;
@@ -580,7 +601,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             stat_row(ui, "Chaos Res", &app.output, "ChaosResistTotal");
             ui.add_space(4.0);
             stat_row(ui, "Armour", &app.output, "Armour");
-            stat_row_decimal(ui, "Phys reduction %", &app.output, "PhysicalDamageReduction");
+            stat_row_decimal(
+                ui,
+                "Phys reduction %",
+                &app.output,
+                "PhysicalDamageReduction",
+            );
             stat_row(ui, "Evasion", &app.output, "Evasion");
             stat_row(ui, "Block", &app.output, "BlockChance");
             stat_row(ui, "Spell Block", &app.output, "SpellBlockChance");
@@ -607,7 +633,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 stat_row(ui, "Phys max hit", &app.output, "PhysicalMaximumHitTaken");
                 stat_row(ui, "Fire max hit", &app.output, "FireMaximumHitTaken");
                 stat_row(ui, "Cold max hit", &app.output, "ColdMaximumHitTaken");
-                stat_row(ui, "Lightning max hit", &app.output, "LightningMaximumHitTaken");
+                stat_row(
+                    ui,
+                    "Lightning max hit",
+                    &app.output,
+                    "LightningMaximumHitTaken",
+                );
                 stat_row(ui, "Chaos max hit", &app.output, "ChaosMaximumHitTaken");
             });
 
@@ -623,7 +654,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 }
                 stat_row_decimal(ui, "Avg hit", &app.output, "MainSkillAverageHit");
                 stat_row_decimal(ui, "Crit chance %", &app.output, "MainSkillCritChance");
-                stat_row_decimal(ui, "Avg w/ crit", &app.output, "MainSkillAverageHitWithCrit");
+                stat_row_decimal(
+                    ui,
+                    "Avg w/ crit",
+                    &app.output,
+                    "MainSkillAverageHitWithCrit",
+                );
                 stat_row_decimal(ui, "Hit chance %", &app.output, "MainSkillHitChance");
                 stat_row_decimal(ui, "Speed (cps)", &app.output, "MainSkillSpeed");
                 stat_row_decimal(ui, "DPS", &app.output, "MainSkillDPS");
@@ -657,10 +693,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 .selected_text(app.tree_version.as_str())
                 .show_ui(ui, |ui| {
                     for v in &app.tree_versions {
-                        if ui
-                            .selectable_label(*v == app.tree_version, v)
-                            .clicked()
-                        {
+                        if ui.selectable_label(*v == app.tree_version, v).clicked() {
                             new_version = Some(v.clone());
                         }
                     }
@@ -701,7 +734,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             app.tree_view.path_overlay.clear();
             if let Some(hover) = interaction.hovered {
                 if !allocated.contains(&hover) && !allocated.is_empty() {
-                    if let Some(path) = pathfind::shortest_path_from_allocated(&app.tree, &allocated, hover) {
+                    if let Some(path) =
+                        pathfind::shortest_path_from_allocated(&app.tree, &allocated, hover)
+                    {
                         app.tree_view.path_overlay = path;
                     }
                 }
@@ -756,14 +791,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                             .count() as u32;
                         let already_ascend = app.character.ascendancy_alloc_count(&app.tree);
                         let budget = app.tree.points.ascendancy_points;
-                        if new_ascend_in_path > 0
-                            && already_ascend + new_ascend_in_path > budget
-                        {
+                        if new_ascend_in_path > 0 && already_ascend + new_ascend_in_path > budget {
                             app.status_message = Some((
                                 StatusKind::Error,
-                                format!(
-                                    "Path would exceed the {budget}-point ascendancy budget."
-                                ),
+                                format!("Path would exceed the {budget}-point ascendancy budget."),
                             ));
                         } else {
                             for nid in &path[first_idx..] {
@@ -796,22 +827,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Calcs => {
-            calcs_tab::ui(
-                ui,
-                &mut app.calcs_state,
-                &app.output,
-                app.last_env.as_ref(),
-            );
+            calcs_tab::ui(ui, &mut app.calcs_state, &app.output, app.last_env.as_ref());
         }
         Tab::Notes => {
             notes_tab::ui(ui, &mut app.character.notes);
         }
         Tab::ImportExport => {
-            if import_export_tab::ui(
-                ui,
-                &mut app.import_export_state,
-                &mut app.character,
-            ) {
+            if import_export_tab::ui(ui, &mut app.import_export_state, &mut app.character) {
                 // Imported character: rebind the tree view (positions stay valid since
                 // the tree didn't change) and force recompute.
                 app.tree_view.rebind(&app.tree);
@@ -853,7 +875,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     app.character.config.enemy_level.hash(&mut hasher);
     app.character.config.enemy_fire_resist.hash(&mut hasher);
     app.character.config.enemy_cold_resist.hash(&mut hasher);
-    app.character.config.enemy_lightning_resist.hash(&mut hasher);
+    app.character
+        .config
+        .enemy_lightning_resist
+        .hash(&mut hasher);
     app.character.config.enemy_chaos_resist.hash(&mut hasher);
     app.character.config.enemy_evasion.hash(&mut hasher);
     let item_count = app.character.items.iter().count();
@@ -976,10 +1001,8 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
                         Ok(c) => {
                             app.character = c;
                             app.current_build_path = Some(path.clone());
-                            app.status_message = Some((
-                                StatusKind::Info,
-                                format!("Opened {}", path.display()),
-                            ));
+                            app.status_message =
+                                Some((StatusKind::Info, format!("Opened {}", path.display())));
                         }
                         Err(e) => {
                             app.status_message =
@@ -992,7 +1015,8 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
             {
                 app.status_message = Some((
                     StatusKind::Error,
-                    "Open is not supported in the web build yet — paste a build via Import/Export.".into(),
+                    "Open is not supported in the web build yet — paste a build via Import/Export."
+                        .into(),
                 ));
             }
         }
@@ -1003,10 +1027,7 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn swap_tree(app: &mut LoadedApp, version: &str) -> Result<(), String> {
-    let path = app
-        .data_root
-        .join("trees")
-        .join(format!("{version}.json"));
+    let path = app.data_root.join("trees").join(format!("{version}.json"));
     let json = std::fs::read_to_string(&path).map_err(|e| format!("reading {path:?}: {e}"))?;
     let tree = pob_data::load_passive_tree(&json).map_err(|e| format!("parse: {e}"))?;
     app.tree_version = version.to_owned();
@@ -1052,10 +1073,7 @@ fn save_build(app: &mut LoadedApp, force_dialog: bool) {
     match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
         Ok(()) => {
             app.current_build_path = Some(path.clone());
-            app.status_message = Some((
-                StatusKind::Info,
-                format!("Saved to {}", path.display()),
-            ));
+            app.status_message = Some((StatusKind::Info, format!("Saved to {}", path.display())));
         }
         Err(e) => {
             app.status_message = Some((StatusKind::Error, format!("Save failed: {e}")));

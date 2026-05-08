@@ -106,17 +106,15 @@ pub fn init_env_with_bases(
     // Every character gets 15 base evasion rating from `characterConstants`. Items
     // and tree allocs add to this; without anything else allocated PoB still shows
     // ~15 evasion on the defence panel.
-    env.mod_db.add(
-        Mod::base("Evasion", 15.0).with_source(Source::Other("CharacterConstant".into())),
-    );
+    env.mod_db
+        .add(Mod::base("Evasion", 15.0).with_source(Source::Other("CharacterConstant".into())));
 
     // 3. Tree node stats. Parse each allocated node's stat lines. PoB only credits
     // nodes that form a connected path from the character's class start, so we
     // filter the allocation set to the connected subgraph before applying mods.
     // (Disconnected node IDs come from imported XML where the user manually edited
     // the file — the in-app UI only ever allocates valid paths.)
-    let effective: ahash::AHashSet<pob_data::NodeId> =
-        connected_allocations(character, tree);
+    let effective: ahash::AHashSet<pob_data::NodeId> = connected_allocations(character, tree);
     for node_id in &effective {
         let Some(node) = tree.nodes.get(node_id) else {
             continue;
@@ -131,9 +129,7 @@ pub fn init_env_with_bases(
                 .copied()
                 .or_else(|| node.mastery_effects.first().map(|e| e.effect));
             if let Some(effect_id) = selected {
-                if let Some(effect) =
-                    node.mastery_effects.iter().find(|e| e.effect == effect_id)
-                {
+                if let Some(effect) = node.mastery_effects.iter().find(|e| e.effect == effect_id) {
                     for raw in &effect.stats {
                         for line in raw.lines() {
                             let line = line.trim();
@@ -165,11 +161,7 @@ pub fn init_env_with_bases(
     }
 
     // 4. Items.
-    let _ = crate::item_parser::apply_item_set_with_bases(
-        &character.items,
-        &mut env.mod_db,
-        bases,
-    );
+    let _ = crate::item_parser::apply_item_set_with_bases(&character.items, &mut env.mod_db, bases);
     // Set SlotName conditions for slots that have an item — supports SlotName tags on
     // mods that say "while using a shield" / "while wielding a bow", etc.
     for (slot, _) in character.items.iter() {
@@ -190,7 +182,8 @@ pub fn init_env_with_bases(
             pob_data::Slot::Flask4 => "Flask 4",
             pob_data::Slot::Flask5 => "Flask 5",
         };
-        env.state.set_condition_prefixed("SlotName", slot_name, true);
+        env.state
+            .set_condition_prefixed("SlotName", slot_name, true);
     }
 
     // 5. Auto-detected wielding conditions from the equipped items. These activate
@@ -379,7 +372,11 @@ fn fill_static_defaults(env: &mut Env) {
     for &(elem, missing_key, over_time_key) in &[
         ("Fire", "MissingFireResist", "FireResistOverTime"),
         ("Cold", "MissingColdResist", "ColdResistOverTime"),
-        ("Lightning", "MissingLightningResist", "LightningResistOverTime"),
+        (
+            "Lightning",
+            "MissingLightningResist",
+            "LightningResistOverTime",
+        ),
         ("Chaos", "MissingChaosResist", "ChaosResistOverTime"),
     ] {
         let total = env.output.get_concat(elem, "ResistTotal");
@@ -413,25 +410,36 @@ fn fill_static_defaults(env: &mut Env) {
     env.output.set("IgniteDuration", 4.0);
     // Self-ailment effect / duration multipliers default to 100%.
     for k in [
-        "SelfBleedDuration", "SelfBleedEffect",
+        "SelfBleedDuration",
+        "SelfBleedEffect",
         "SelfBlindDuration",
-        "SelfBrittleDuration", "SelfBrittleEffect",
-        "SelfChillDuration", "SelfChillEffect",
-        "SelfFreezeDuration", "SelfFreezeEffect",
-        "SelfIgniteDuration", "SelfIgniteEffect",
-        "SelfPoisonDuration", "SelfPoisonEffect",
-        "SelfSapDuration", "SelfSapEffect",
-        "SelfScorchDuration", "SelfScorchEffect",
-        "SelfShockDuration", "SelfShockEffect",
+        "SelfBrittleDuration",
+        "SelfBrittleEffect",
+        "SelfChillDuration",
+        "SelfChillEffect",
+        "SelfFreezeDuration",
+        "SelfFreezeEffect",
+        "SelfIgniteDuration",
+        "SelfIgniteEffect",
+        "SelfPoisonDuration",
+        "SelfPoisonEffect",
+        "SelfSapDuration",
+        "SelfSapEffect",
+        "SelfScorchDuration",
+        "SelfScorchEffect",
+        "SelfShockDuration",
+        "SelfShockEffect",
         "SelfStunChance",
         "WitherEffectOnSelf",
-        "CurseEffectOnSelf", "ExposureEffectOnSelf",
+        "CurseEffectOnSelf",
+        "ExposureEffectOnSelf",
         "BlockEffect",
         "ChaosEnergyShieldBypass",
         "ConfiguredDamageChance",
         "DebuffExpirationModifier",
         "FullLifePercentage",
-        "LifeCancellableReservation", "ManaCancellableReservation",
+        "LifeCancellableReservation",
+        "ManaCancellableReservation",
     ] {
         env.output.set(k, 100.0);
     }
@@ -464,7 +472,8 @@ fn fill_static_defaults(env: &mut Env) {
         env.output.set("HitChance", 0.0);
     }
     env.output.set("MeleeEvasion", env.output.get("Evasion"));
-    env.output.set("ProjectileEvasion", env.output.get("Evasion"));
+    env.output
+        .set("ProjectileEvasion", env.output.get("Evasion"));
     env.output.set("SpellSuppressionEffect", 40.0);
 
     // Attribute aliases (PoB exposes both forms).
@@ -475,10 +484,12 @@ fn fill_static_defaults(env: &mut Env) {
     env.output.set("Dex", dex_v);
     env.output.set("Int", int_v);
     env.output.set("TotalAttr", str_v + dex_v + int_v);
-    env.output.set("LowestAttribute", str_v.min(dex_v).min(int_v));
+    env.output
+        .set("LowestAttribute", str_v.min(dex_v).min(int_v));
 
     // Life/mana derivatives.
-    env.output.set("LowestOfMaximumLifeAndMaximumMana", life.min(mana));
+    env.output
+        .set("LowestOfMaximumLifeAndMaximumMana", life.min(mana));
     // Leech caps: 20% of max pool per second by default; per-instance is 10% of
     // base regen rate ~= 0.02 * pool.
     let life_leech_rate = 0.20 * life;
@@ -490,7 +501,8 @@ fn fill_static_defaults(env: &mut Env) {
     env.output.set("MaxManaLeechInstance", 0.10 * mana);
     env.output.set("LifeLeechInstanceRate", 0.02 * life);
     env.output.set("ManaLeechInstanceRate", 0.02 * mana);
-    env.output.set("ManaRegenRecovery", env.output.get("ManaRegen"));
+    env.output
+        .set("ManaRegenRecovery", env.output.get("ManaRegen"));
 
     // Ignite-related: average of min/max ignite damage roll, fixed 50% baseline.
     env.output.set("IgniteRollAverage", 50.0);
@@ -582,16 +594,14 @@ fn fill_static_defaults(env: &mut Env) {
 /// PoB's `data.monsterDamageTable` — expected damage per monster level for the
 /// "default" iLvl-N boss profile. Index N-1 (level 1 → index 0).
 const MONSTER_DAMAGE_TABLE: &[f64] = &[
-    4.99, 5.55, 6.16, 6.81, 7.5, 8.23, 9.0, 9.82, 10.7, 11.62,
-    12.6, 13.64, 14.74, 15.91, 17.14, 18.45, 19.83, 21.29, 22.84, 24.47,
-    26.19, 28.01, 29.94, 31.96, 34.11, 36.36, 38.75, 41.26, 43.91, 46.7,
-    49.65, 52.75, 56.01, 59.45, 63.08, 66.89, 70.91, 75.13, 79.58, 84.26,
-    89.18, 94.35, 99.8, 105.52, 111.53, 117.86, 124.5, 131.49, 138.83, 146.53,
-    154.63, 163.14, 172.07, 181.45, 191.3, 201.63, 212.48, 223.87, 235.83, 248.37,
-    261.53, 275.33, 289.82, 305.01, 320.94, 337.65, 355.18, 373.55, 392.81, 413.01,
-    434.18, 456.37, 479.62, 504.0, 529.54, 556.3, 584.35, 613.73, 644.5, 676.75,
-    710.52, 745.89, 782.94, 821.73, 862.36, 904.9, 949.44, 996.07, 1044.89, 1096.0,
-    1149.5, 1205.5, 1264.11, 1325.45, 1389.64, 1456.82, 1527.12, 1600.68, 1677.64, 1758.17,
+    4.99, 5.55, 6.16, 6.81, 7.5, 8.23, 9.0, 9.82, 10.7, 11.62, 12.6, 13.64, 14.74, 15.91, 17.14,
+    18.45, 19.83, 21.29, 22.84, 24.47, 26.19, 28.01, 29.94, 31.96, 34.11, 36.36, 38.75, 41.26,
+    43.91, 46.7, 49.65, 52.75, 56.01, 59.45, 63.08, 66.89, 70.91, 75.13, 79.58, 84.26, 89.18,
+    94.35, 99.8, 105.52, 111.53, 117.86, 124.5, 131.49, 138.83, 146.53, 154.63, 163.14, 172.07,
+    181.45, 191.3, 201.63, 212.48, 223.87, 235.83, 248.37, 261.53, 275.33, 289.82, 305.01, 320.94,
+    337.65, 355.18, 373.55, 392.81, 413.01, 434.18, 456.37, 479.62, 504.0, 529.54, 556.3, 584.35,
+    613.73, 644.5, 676.75, 710.52, 745.89, 782.94, 821.73, 862.36, 904.9, 949.44, 996.07, 1044.89,
+    1096.0, 1149.5, 1205.5, 1264.11, 1325.45, 1389.64, 1456.82, 1527.12, 1600.68, 1677.64, 1758.17,
 ];
 
 /// EHP damage simulation. PoB defaults to a Pinnacle-Boss enemy at iLvl 84 and
@@ -648,17 +658,18 @@ fn perform_enemy_damage_sim(env: &mut Env, character: &Character) {
     // some types first, ES recovery cap, MoM redirects to mana, etc.); none
     // of those are modelled yet, so a partial port wouldn't close the
     // ~0.2% baseline gap. Tracked in docs/divergences.md.
-    let pool = (env.output.get("Life")
-        + env.output.get("EnergyShield")
-        + env.output.get("Ward"))
-    .max(1.0);
+    let pool =
+        (env.output.get("Life") + env.output.get("EnergyShield") + env.output.get("Ward")).max(1.0);
     if total_taken_hit > 0.0 {
         let hits_to_die = pool / total_taken_hit;
         env.output.set("NumberOfDamagingHits", hits_to_die);
         env.output.set("NumberOfMitigatedDamagingHits", hits_to_die);
         env.output.set("TotalNumberOfHits", hits_to_die);
         env.output.set("TotalEHP", hits_to_die * total_in);
-        env.output.set("EHPSurvivalTime", hits_to_die * env.output.get("enemySkillTime"));
+        env.output.set(
+            "EHPSurvivalTime",
+            hits_to_die * env.output.get("enemySkillTime"),
+        );
     }
 }
 
@@ -751,7 +762,9 @@ fn connected_allocations(
     // unpicked Ascendant tree still appears as a graph bridge between class
     // areas, but allocating its nodes shouldn't credit Ascendant mods.
     effective.retain(|id| {
-        let Some(n) = tree.nodes.get(id) else { return false };
+        let Some(n) = tree.nodes.get(id) else {
+            return false;
+        };
         if n.class_start_index.is_some() {
             return false;
         }
@@ -793,11 +806,19 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     // Strength / Dexterity / Intelligence
     let cfg = QueryCfg::default();
     let str_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Strength")
-        + env.mod_db.sum(ModType::Base, &cfg, &env.state, "AllAttributes");
+        + env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "AllAttributes");
     let dex_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Dexterity")
-        + env.mod_db.sum(ModType::Base, &cfg, &env.state, "AllAttributes");
-    let int_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Intelligence")
-        + env.mod_db.sum(ModType::Base, &cfg, &env.state, "AllAttributes");
+        + env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "AllAttributes");
+    let int_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "Intelligence")
+        + env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "AllAttributes");
 
     let str_v = str_base * env.mod_db.applied(&cfg, &env.state, "Strength");
     let dex_v = dex_base * env.mod_db.applied(&cfg, &env.state, "Dexterity");
@@ -820,18 +841,21 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     // computation: `Evasion INC floor(Dex/5)` and `EnergyShield INC floor(Int/10)`,
     // gated by the NoDex/Int* flags. Add them here so the Evasion / ES queries
     // below pick them up.
-    if !env.mod_db.flag(&cfg, &env.state, "NoDexterityAttributeBonuses")
+    if !env
+        .mod_db
+        .flag(&cfg, &env.state, "NoDexterityAttributeBonuses")
         && !env.mod_db.flag(&cfg, &env.state, "NoDexBonusToEvasion")
     {
         let dex_evasion_inc = (dex_v / 5.0).floor();
         if dex_evasion_inc > 0.0 {
             env.mod_db.add(
-                Mod::inc("Evasion", dex_evasion_inc)
-                    .with_source(Source::Other("Dexterity".into())),
+                Mod::inc("Evasion", dex_evasion_inc).with_source(Source::Other("Dexterity".into())),
             );
         }
     }
-    if !env.mod_db.flag(&cfg, &env.state, "NoIntelligenceAttributeBonuses")
+    if !env
+        .mod_db
+        .flag(&cfg, &env.state, "NoIntelligenceAttributeBonuses")
         && !env.mod_db.flag(&cfg, &env.state, "NoIntBonusToES")
     {
         let int_es_inc = (int_v / 10.0).floor();
@@ -854,7 +878,9 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     env.output.set("Mana", mana.round());
 
     // Energy Shield: pure mods (no base). Phase 2: base 0; later integrate item ES bases.
-    let es_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "EnergyShield");
+    let es_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "EnergyShield");
     let es = es_base * env.mod_db.applied(&cfg, &env.state, "EnergyShield");
     env.output.set("EnergyShield", es.round());
 
@@ -867,10 +893,17 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     for &(_elem, resist_key, max_key, total_key) in &[
         ("Fire", "FireResist", "FireResistMax", "FireResistTotal"),
         ("Cold", "ColdResist", "ColdResistMax", "ColdResistTotal"),
-        ("Lightning", "LightningResist", "LightningResistMax", "LightningResistTotal"),
+        (
+            "Lightning",
+            "LightningResist",
+            "LightningResistMax",
+            "LightningResistTotal",
+        ),
     ] {
         let total = env.mod_db.sum(ModType::Base, &cfg, &env.state, resist_key)
-            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "ElementalResist")
+            + env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "ElementalResist")
             + resist_penalty;
         env.output.set(resist_key, total);
         let bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, max_key);
@@ -878,10 +911,15 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
         env.output.set(max_key, cap);
         env.output.set(total_key, total.min(cap));
     }
-    let chaos = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ChaosResist") + resist_penalty;
+    let chaos = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ChaosResist")
+        + resist_penalty;
     env.output.set("ChaosResist", chaos);
     {
-        let bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ChaosResistMax");
+        let bonus = env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "ChaosResistMax");
         let cap = 75.0 + bonus;
         env.output.set("ChaosResistMax", cap);
         let raw = env.output.get("ChaosResist");
@@ -909,37 +947,48 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     }
 
     // Block / Spell Block / Spell Suppression / Dodge — base 0, cap 75%.
-    let block_inc_pct = env.mod_db.sum(ModType::Base, &cfg, &env.state, "BlockChance");
-    let block_max_bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, "BlockChanceMax");
+    let block_inc_pct = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "BlockChance");
+    let block_max_bonus = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "BlockChanceMax");
     let block_cap = 75.0 + block_max_bonus;
     env.output.set("BlockChance", block_inc_pct.min(block_cap));
     env.output.set("BlockChanceMax", block_cap);
-    let spell_block = env.mod_db.sum(ModType::Base, &cfg, &env.state, "SpellBlockChance");
-    env.output.set("SpellBlockChance", spell_block.min(block_cap));
-    let suppress = env.mod_db.sum(ModType::Base, &cfg, &env.state, "SpellSuppressionChance");
-    env.output.set("SpellSuppressionChance", suppress.min(100.0));
+    let spell_block = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "SpellBlockChance");
+    env.output
+        .set("SpellBlockChance", spell_block.min(block_cap));
+    let suppress = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "SpellSuppressionChance");
+    env.output
+        .set("SpellSuppressionChance", suppress.min(100.0));
 
     // Life / mana / ES regen
     let life_regen_flat = env.mod_db.sum(ModType::Base, &cfg, &env.state, "LifeRegen");
-    let life_regen_pct = env.mod_db.sum(ModType::Base, &cfg, &env.state, "LifeRegenPercent");
+    let life_regen_pct = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "LifeRegenPercent");
     let life = env.output.get("Life");
-    let life_regen_total =
-        life_regen_flat + life * life_regen_pct / 100.0;
+    let life_regen_total = life_regen_flat + life * life_regen_pct / 100.0;
     env.output.set("LifeRegen", life_regen_total);
 
     let mana_regen_flat = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ManaRegen");
     let mana_regen_pct = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ManaRegen");
     let mana = env.output.get("Mana");
     // PoE: base mana regen = 1.75% of max mana per second; modifier is INC on rate.
-    let mana_regen_total =
-        (mana * 0.0175 + mana_regen_flat) * (1.0 + mana_regen_pct / 100.0);
+    let mana_regen_total = (mana * 0.0175 + mana_regen_flat) * (1.0 + mana_regen_pct / 100.0);
     env.output.set("ManaRegen", mana_regen_total);
 
     // ES recharge — base 33% of total ES per second after delay, but we just expose the
     // increased-rate stat as a mod multiplier (delay handling lives in Phase 4).
     let es = env.output.get("EnergyShield");
-    let recharge_inc =
-        env.mod_db.sum(ModType::Inc, &cfg, &env.state, "EnergyShieldRecharge");
+    let recharge_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "EnergyShieldRecharge");
     env.output.set(
         "EnergyShieldRecharge",
         es * 0.33 * (1.0 + recharge_inc / 100.0),
@@ -947,9 +996,16 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
 
     // ES regen — separate from recharge. PoB exposes EnergyShieldRegen as the
     // base regen-per-second rate (zero unless mods grant it directly).
-    let es_regen_flat = env.mod_db.sum(ModType::Base, &cfg, &env.state, "EnergyShieldRegen");
-    let es_regen_pct = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "EnergyShieldRegen");
-    env.output.set("EnergyShieldRegen", es_regen_flat * (1.0 + es_regen_pct / 100.0));
+    let es_regen_flat = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "EnergyShieldRegen");
+    let es_regen_pct = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "EnergyShieldRegen");
+    env.output.set(
+        "EnergyShieldRegen",
+        es_regen_flat * (1.0 + es_regen_pct / 100.0),
+    );
 
     // Reservation pools. Default 100% unreserved; perform_reservations (called
     // after the basic-stats pass once we have a SkillRegistry) replaces these
@@ -985,12 +1041,20 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     // for attacks it folds in HitChance (= chance to crit per swing).
     // perform_skill_dps overrides this once a main skill is bound.
     let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
-    let crit_chance_base = if character.main_skill.is_some() { 5.0 } else { 0.0 };
-    env.output.set("CritChance", crit_chance_base * (1.0 + crit_inc / 100.0));
+    let crit_chance_base = if character.main_skill.is_some() {
+        5.0
+    } else {
+        0.0
+    };
+    env.output
+        .set("CritChance", crit_chance_base * (1.0 + crit_inc / 100.0));
     // PoE base crit deals 150% damage; PoB exposes that as the decimal multiplier
     // 1.5 (= 150 / 100). BASE mods on `CritMultiplier` add extra crit damage as
     // additional percentage points.
-    let crit_mult_pct = 150.0 + env.mod_db.sum(ModType::Base, &cfg, &env.state, "CritMultiplier");
+    let crit_mult_pct = 150.0
+        + env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "CritMultiplier");
     env.output.set("CritMultiplier", crit_mult_pct / 100.0);
 }
 
@@ -1028,10 +1092,15 @@ fn perform_reservations(character: &Character, skills: &SkillRegistry, env: &mut
     // The reserved amount scales by `1 / ((1 + inc/100) * more)` — i.e. higher
     // efficiency means less of the pool is consumed.
     let efficiency = |pool: &str| -> f64 {
-        let inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ReservationEfficiency")
-            + env
-                .mod_db
-                .sum(ModType::Inc, &cfg, &env.state, &format!("{pool}ReservationEfficiency"));
+        let inc = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "ReservationEfficiency")
+            + env.mod_db.sum(
+                ModType::Inc,
+                &cfg,
+                &env.state,
+                &format!("{pool}ReservationEfficiency"),
+            );
         let more = env.mod_db.more(&cfg, &env.state, "ReservationEfficiency")
             * env
                 .mod_db
@@ -1084,8 +1153,7 @@ fn perform_reservations(character: &Character, skills: &SkillRegistry, env: &mut
             // scaled by AuraEffect/BuffEffect. Scale every value by
             // `(1 + AuraEffect/100)` so mods like "+15% Aura Effect" boost the
             // buffs as PoB does.
-            let aura_inc =
-                env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AuraEffect");
+            let aura_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AuraEffect");
             let aura_more = env.mod_db.more(&cfg, &env.state, "AuraEffect");
             let aura_scale = (1.0 + aura_inc / 100.0) * aura_more;
             for mut m in crate::skill::aura_buff_mods(skill, level, gem.quality) {
@@ -1218,8 +1286,9 @@ fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) 
     // like "+15% Curse Effect" on a Doedre's Damning amulet, the small-cluster
     // notable, etc.). Apply the same scalar to every curse-derived output.
     let cfg = QueryCfg::default();
-    let curse_effect_inc =
-        env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CurseEffect");
+    let curse_effect_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "CurseEffect");
     let curse_effect_more = env.mod_db.more(&cfg, &env.state, "CurseEffect");
     let curse_scale = (1.0 + curse_effect_inc / 100.0) * curse_effect_more;
     fire_delta *= curse_scale;
@@ -1276,8 +1345,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let main_group_idx = (character.main_socket_group.saturating_sub(1)) as usize;
     if let Some(group) = character.skill_groups.get(main_group_idx) {
         if group.enabled {
-            let active_idx =
-                group.main_active_skill_index.saturating_sub(1) as usize;
+            let active_idx = group.main_active_skill_index.saturating_sub(1) as usize;
             for (idx, gem) in group.gems.iter().enumerate() {
                 if idx == active_idx {
                     continue; // skip the main skill itself
@@ -1285,7 +1353,9 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 if !gem.enabled {
                     continue; // user toggled this support off
                 }
-                let Some(support) = skills.get(&gem.skill_id) else { continue };
+                let Some(support) = skills.get(&gem.skill_id) else {
+                    continue;
+                };
                 if !support.support {
                     continue;
                 }
@@ -1296,7 +1366,9 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 let active_types = &skill.skill_types;
                 let mut compatible = true;
                 for (st, on) in &support.add_skill_types {
-                    if !*on { continue }
+                    if !*on {
+                        continue;
+                    }
                     if !active_types.get(st).copied().unwrap_or(false) {
                         compatible = false;
                         break;
@@ -1304,7 +1376,9 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 }
                 if compatible {
                     for (st, on) in &support.exclude_skill_types {
-                        if !*on { continue }
+                        if !*on {
+                            continue;
+                        }
                         if active_types.get(st).copied().unwrap_or(false) {
                             compatible = false;
                             break;
@@ -1361,8 +1435,12 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 let mut value = v;
                 for qs in skill.quality_stats.iter() {
                     let Some(arr) = qs.as_array() else { continue };
-                    let Some(qstat) = arr.first().and_then(|x| x.as_str()) else { continue };
-                    let Some(scale) = arr.get(1).and_then(|x| x.as_f64()) else { continue };
+                    let Some(qstat) = arr.first().and_then(|x| x.as_str()) else {
+                        continue;
+                    };
+                    let Some(scale) = arr.get(1).and_then(|x| x.as_f64()) else {
+                        continue;
+                    };
                     if qstat == stat_id {
                         value += scale * f64::from(main.quality);
                     }
@@ -1381,12 +1459,12 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // Attack skills: base damage is the weapon's damage. Use Weapon1 if equipped.
         let cfg_q = QueryCfg::default();
         let st = &env.state;
-        let w_min =
-            env.mod_db
-                .sum(ModType::Base, &cfg_q, st, "Weapon1PhysicalMin");
-        let w_max =
-            env.mod_db
-                .sum(ModType::Base, &cfg_q, st, "Weapon1PhysicalMax");
+        let w_min = env
+            .mod_db
+            .sum(ModType::Base, &cfg_q, st, "Weapon1PhysicalMin");
+        let w_max = env
+            .mod_db
+            .sum(ModType::Base, &cfg_q, st, "Weapon1PhysicalMax");
         if w_min > 0.0 || w_max > 0.0 {
             (w_min, w_max)
         } else {
@@ -1414,7 +1492,13 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let elem_for_flat = if early_is_attack {
         // Attacks pick up the most recently equipped weapon's flat damage; for now
         // we add all elements together to phys damage (rough but useful).
-        ["PhysicalDamage", "FireDamage", "ColdDamage", "LightningDamage", "ChaosDamage"]
+        [
+            "PhysicalDamage",
+            "FireDamage",
+            "ColdDamage",
+            "LightningDamage",
+            "ChaosDamage",
+        ]
     } else {
         // Spells: only the dominant element gets flat-damage bonuses.
         let (e, _) = skill_damage_element(skill).unwrap_or(("Damage", ""));
@@ -1469,9 +1553,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 .mod_db
                 .sum(ModType::Inc, &dot_cfg, &env.state, "DamageOverTime")
                 + env.mod_db.sum(ModType::Inc, &dot_cfg, &env.state, elem);
-            let dot_more = env
-                .mod_db
-                .more(&dot_cfg, &env.state, "DamageOverTime")
+            let dot_more = env.mod_db.more(&dot_cfg, &env.state, "DamageOverTime")
                 * env.mod_db.more(&dot_cfg, &env.state, elem);
             let dot_mult_base = env.mod_db.sum(
                 ModType::Base,
@@ -1537,9 +1619,12 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // Order: (1+inc_total) * more_total.
     let inc_total = env.mod_db.sum(ModType::Inc, &cfg, &env.state, elem_stat)
         + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "Damage")
-        + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ElementalDamage")
+        + env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "ElementalDamage")
         + if is_spell {
-            env.mod_db.sum(ModType::Inc, &cfg, &env.state, "SpellDamage")
+            env.mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "SpellDamage")
         } else {
             0.0
         };
@@ -1700,8 +1785,10 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let effective_resist = (enemy_resist_raw - elem_pen).clamp(-200.0, 95.0);
     let res_factor = (1.0 - effective_resist / 100.0).max(0.0);
     let avg_after_res = avg_with_crit * res_factor;
-    env.output.set("MainSkillAverageHitAfterResist", avg_after_res);
-    env.output.set("MainSkillEnemyEffectiveResist", effective_resist);
+    env.output
+        .set("MainSkillAverageHitAfterResist", avg_after_res);
+    env.output
+        .set("MainSkillEnemyEffectiveResist", effective_resist);
 
     // Shock multiplier. PoB applies shock as an `EnemyDamageTaken INC X`
     // conditioned on `Condition:Shocked`, where X tracks the dynamic shock
@@ -1720,9 +1807,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // `chanceOnHit × (1 - crit) + chanceOnCrit × crit`. Then `1 + chance/100`
         // approximates the average DamageTaken INC the enemy sees with
         // dynamic-effect shock and the (possibly always-on) Shocked flag.
-        let chance = (curse_shock_chance * (1.0 - crit_chance)
-            + 100.0 * crit_chance)
-            .clamp(0.0, 100.0);
+        let chance =
+            (curse_shock_chance * (1.0 - crit_chance) + 100.0 * crit_chance).clamp(0.0, 100.0);
         1.0 + chance / 100.0
     } else {
         1.0
@@ -1730,7 +1816,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let avg_after_shock = avg_after_res * shock_mult;
     env.output.set("ShockEffectMod", 1.0);
     env.output.set("MainSkillShockMult", shock_mult);
-    env.output.set("MainSkillAverageHitAfterShock", avg_after_shock);
+    env.output
+        .set("MainSkillAverageHitAfterShock", avg_after_shock);
     // Re-emit `{Element}HitAverage` and `{Element}CritAverage` as post-resist
     // post-shock values so they match PoB's reported per-element hit damage.
     // PoB stores LightningHitAverage as the average non-crit hit AFTER the
@@ -1742,20 +1829,24 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     if let Some(label) = elem_label {
         // Non-crit average after enemy effects: pre-crit avg × res_factor × shock.
         let non_crit_avg_after_eff = avg * res_factor * shock_mult;
-        env.output.set_concat(label, "HitAverage", non_crit_avg_after_eff);
+        env.output
+            .set_concat(label, "HitAverage", non_crit_avg_after_eff);
         // PoB's `{Element}CritAverage` is `non_crit_avg × CritMultiplier` (a
         // guaranteed-crit damage value, not chance-weighted) — matches the
         // existing Phase-3d behaviour but now scaled with the shock/resist
         // multipliers as well.
         let guaranteed_crit_avg = non_crit_avg_after_eff * crit_mult;
-        env.output.set_concat(label, "CritAverage", guaranteed_crit_avg);
+        env.output
+            .set_concat(label, "CritAverage", guaranteed_crit_avg);
     }
     // PoB's `TotalMin/TotalMax` are post-effect (includes resist debuff +
     // shock multiplier), so re-emit them with the same scaling. Without this
     // the conductivity fixture's TotalMin shows 198 (pre-effect) vs PoB's
     // 349 (post-effect, ~1.76× higher).
-    env.output.set("TotalMin", hit_min * res_factor * shock_mult);
-    env.output.set("TotalMax", hit_max * res_factor * shock_mult);
+    env.output
+        .set("TotalMin", hit_min * res_factor * shock_mult);
+    env.output
+        .set("TotalMax", hit_max * res_factor * shock_mult);
 
     // Ailments — improved over Phase 3a-baseline. Still a rough single-skill model;
     // see docs/divergences.md for the full list of TODOs (poison-stack steady-state
@@ -1765,17 +1856,26 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // Per-ailment chance (default ailment chances live in skill data; we don't yet
         // pull those, so a skill with no on-hit ailment chance + no chance-mods produces
         // a 0 ailment DPS — which is correct for spells like Arc against unmodded gear.)
-        let bleed_chance = (env.mod_db.sum(ModType::Base, &cfg, &env.state, "BleedChance") / 100.0)
+        let bleed_chance = (env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "BleedChance")
+            / 100.0)
             .clamp(0.0, 1.0);
-        let poison_chance_raw = env.mod_db.sum(ModType::Base, &cfg, &env.state, "PoisonChance");
+        let poison_chance_raw = env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "PoisonChance");
         // AdditionalPoisonChance lifts the chance an enemy is poisoned by more than
         // one stack per hit. PoB models it as `chanceOfAdditionalPoison/100` extra
         // applications added on top of the base — same effective multiplier here.
         let additional_poison_chance =
-            env.mod_db.sum(ModType::Base, &cfg, &env.state, "AdditionalPoisonChance");
-        let poison_chance = ((poison_chance_raw + additional_poison_chance) / 100.0)
-            .clamp(0.0, 5.0);
-        let ignite_chance = (env.mod_db.sum(ModType::Base, &cfg, &env.state, "IgniteChance") / 100.0)
+            env.mod_db
+                .sum(ModType::Base, &cfg, &env.state, "AdditionalPoisonChance");
+        let poison_chance =
+            ((poison_chance_raw + additional_poison_chance) / 100.0).clamp(0.0, 5.0);
+        let ignite_chance = (env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "IgniteChance")
+            / 100.0)
             .clamp(0.0, 1.0);
 
         // Faster-ailment cluster: each `*Faster` mod plus the broad
@@ -1783,7 +1883,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // this as a multiplicative `rateMod = 1 + faster%/100` applied to the per-second
         // damage. We mirror that.
         let damaging_ailments_faster =
-            env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamagingAilmentsFaster");
+            env.mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "DamagingAilmentsFaster");
 
         // Bleed: 70% of base physical hit damage as Phys DoT for 5s. One stack at a time.
         // Attack skills like Cleave / Heavy Strike have no element stat in skill.stats
@@ -1793,7 +1894,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         let phys_avg = if elem_stat == "PhysicalDamage" || is_attack {
             avg
         } else {
-            env.mod_db.sum(ModType::Base, &cfg, &env.state, "PhysicalDamage")
+            env.mod_db
+                .sum(ModType::Base, &cfg, &env.state, "PhysicalDamage")
         };
         if bleed_chance > 0.0 && phys_avg > 0.0 {
             // Mirrors PoB's `effectMod = calcLib.mod(skillModList, dotCfg, "AilmentEffect")`
@@ -1802,14 +1904,22 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             // grant "increased Ailment Effect"). The hit-damage mods (PhysicalDamage,
             // generic Damage) are already folded into `phys_avg` upstream, so we
             // don't re-apply them here.
-            let dot_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BleedDamage")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
+            let dot_inc = env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "BleedDamage")
+                + env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "DamageOverTime")
+                + env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
             let dot_more = env.mod_db.more(&cfg, &env.state, "BleedDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime")
                 * env.mod_db.more(&cfg, &env.state, "AilmentEffect");
             let rate_mod = 1.0
-                + (env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BleedFaster")
+                + (env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "BleedFaster")
                     + damaging_ailments_faster)
                     / 100.0;
             // Bleed deals double damage when the enemy is moving — PoB models this as
@@ -1826,31 +1936,40 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             env.output.set("BleedDPS", bleed * bleed_chance);
             // Bleed duration: PoE base 5s, scaled by `BleedDuration` INC mods.
             // PoB exposes this on the Calcs tab side panel.
-            let bleed_duration_inc = env
-                .mod_db
-                .sum(ModType::Inc, &cfg, &env.state, "BleedDuration")
-                / 100.0;
-            env.output.set("BleedDuration", 5.0 * (1.0 + bleed_duration_inc));
+            let bleed_duration_inc =
+                env.mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "BleedDuration")
+                    / 100.0;
+            env.output
+                .set("BleedDuration", 5.0 * (1.0 + bleed_duration_inc));
         }
 
         // Poison: 30% of hit damage as Chaos DoT for 2s. Stacks; steady-state
         // DPS ≈ per-stack-DPS × stacks where stacks ramps with cast/attack rate.
         if poison_chance > 0.0 {
             // AilmentEffect mirrors PoB's `effectMod` in CalcOffence.lua:4584.
-            let p_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "PoisonDamage")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ChaosDamage")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
+            let p_inc = env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "PoisonDamage")
+                + env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "ChaosDamage")
+                + env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "DamageOverTime")
+                + env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
             let p_more = env.mod_db.more(&cfg, &env.state, "PoisonDamage")
                 * env.mod_db.more(&cfg, &env.state, "ChaosDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime")
                 * env.mod_db.more(&cfg, &env.state, "AilmentEffect");
-            let p_dot_mult = env
-                .mod_db
-                .sum(ModType::Base, &cfg, &env.state, "PoisonDamageMultiplier")
-                + env
-                    .mod_db
-                    .sum(ModType::Base, &cfg, &env.state, "DamageOverTimeMultiplier");
+            let p_dot_mult =
+                env.mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "PoisonDamageMultiplier")
+                    + env
+                        .mod_db
+                        .sum(ModType::Base, &cfg, &env.state, "DamageOverTimeMultiplier");
             // PoisonFaster (and the DamagingAilmentsFaster aggregator) speed up the
             // dot's tick rate, which on a single stack equates to a per-stack DPS
             // scalar. Mirrors PoB's `rateMod` in CalcOffence.lua:4435.
@@ -1860,12 +1979,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                     .sum(ModType::Inc, &cfg, &env.state, "PoisonFaster")
                     + damaging_ailments_faster)
                     / 100.0;
-            let per_stack = avg
-                * 0.30
-                * (1.0 + p_inc / 100.0)
-                * p_more
-                * (1.0 + p_dot_mult / 100.0)
-                * rate_mod;
+            let per_stack =
+                avg * 0.30 * (1.0 + p_inc / 100.0) * p_more * (1.0 + p_dot_mult / 100.0) * rate_mod;
             let speed = env.output.get("MainSkillSpeed").max(0.0);
             // Faster-poison shortens each stack's duration in addition to speeding
             // its damage — net effect on steady-state stack count is the duration
@@ -1885,7 +2000,11 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 let base = env
                     .mod_db
                     .sum(ModType::Base, &cfg, &env.state, "PoisonStackLimit");
-                if base <= 0.0 { 50.0 } else { base }
+                if base <= 0.0 {
+                    50.0
+                } else {
+                    base
+                }
             };
             let stacks = (speed * duration * poison_chance).min(stack_limit);
             env.output.set("PoisonDPS", per_stack * stacks);
@@ -1900,42 +2019,47 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         if elem_stat == "FireDamage" && ignite_chance > 0.0 {
             // AilmentEffect mirrors PoB's `effectMod` in CalcOffence.lua:4932.
             // Hit-damage mods (FireDamage, ElementalDamage) are already in `avg`.
-            let i_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "IgniteDamage")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BurningDamage")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
+            let i_inc = env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "IgniteDamage")
+                + env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "BurningDamage")
+                + env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "DamageOverTime")
+                + env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
             let i_more = env.mod_db.more(&cfg, &env.state, "IgniteDamage")
                 * env.mod_db.more(&cfg, &env.state, "BurningDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime")
                 * env.mod_db.more(&cfg, &env.state, "AilmentEffect");
-            let i_dot_mult = env
-                .mod_db
-                .sum(ModType::Base, &cfg, &env.state, "IgniteDamageMultiplier")
-                + env
-                    .mod_db
-                    .sum(ModType::Base, &cfg, &env.state, "DamageOverTimeMultiplier");
+            let i_dot_mult =
+                env.mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "IgniteDamageMultiplier")
+                    + env
+                        .mod_db
+                        .sum(ModType::Base, &cfg, &env.state, "DamageOverTimeMultiplier");
             let rate_mod = 1.0
                 + (env
                     .mod_db
                     .sum(ModType::Inc, &cfg, &env.state, "IgniteBurnFaster")
                     + damaging_ailments_faster)
                     / 100.0;
-            let ignite = avg
-                * 0.90
-                * (1.0 + i_inc / 100.0)
-                * i_more
-                * (1.0 + i_dot_mult / 100.0)
-                * rate_mod;
+            let ignite =
+                avg * 0.90 * (1.0 + i_inc / 100.0) * i_more * (1.0 + i_dot_mult / 100.0) * rate_mod;
             // Apply chance — assumes the skill reapplies frequently enough to maintain
             // an active ignite.
             env.output.set("IgniteDPS", ignite * ignite_chance);
             // Ignite duration: PoE base 4s, scaled by `IgniteDuration` INC.
             // Overrides the static `4.0` placeholder set in init_env.
-            let ignite_duration_inc = env
-                .mod_db
-                .sum(ModType::Inc, &cfg, &env.state, "IgniteDuration")
-                / 100.0;
-            env.output.set("IgniteDuration", 4.0 * (1.0 + ignite_duration_inc));
+            let ignite_duration_inc =
+                env.mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "IgniteDuration")
+                    / 100.0;
+            env.output
+                .set("IgniteDuration", 4.0 * (1.0 + ignite_duration_inc));
         }
     }
 
@@ -1971,7 +2095,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // ailments-as-multipliers (currently shock; freeze/ignite to follow)
         // flow through to AverageHit / DPS.
         let dps_now = env.output.get("MainSkillAverageHitAfterShock");
-        env.output.set("MainSkillAverageHitAfterAccuracy", dps_now * chance);
+        env.output
+            .set("MainSkillAverageHitAfterAccuracy", dps_now * chance);
         // PoB's character-level HitChance / AccuracyHitChance is the main
         // skill's hit chance when an attack skill is bound.
         env.output.set("HitChance", chance_pct);
@@ -2007,9 +2132,9 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // Attacks: speed is weapon-driven (attack rate from weapon base).
         let cfg_q = QueryCfg::default();
         let st = &env.state;
-        let attack_rate =
-            env.mod_db
-                .sum(ModType::Base, &cfg_q, st, "Weapon1AttackRate");
+        let attack_rate = env
+            .mod_db
+            .sum(ModType::Base, &cfg_q, st, "Weapon1AttackRate");
         if attack_rate > 0.0 {
             attack_rate
         } else {
@@ -2036,8 +2161,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     } else {
         1.0
     };
-    let avoidance_factor =
-        ((1.0 - block) * (1.0 - dodge) * suppress_factor).clamp(0.0, 1.0);
+    let avoidance_factor = ((1.0 - block) * (1.0 - dodge) * suppress_factor).clamp(0.0, 1.0);
     env.output.set(
         "EnemyBlockChance",
         f64::from(character.config.enemy_block_chance),
@@ -2060,16 +2184,17 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // (set from `number_of_additional_projectiles`); total projectile count
     // = 1 (primary) + additional. We clamp the user's pick into
     // `[1, ProjectileCount]` and multiply the final hit average by it.
-    let projectile_count =
-        (1.0 + env.state.stat("ProjectileCount")).max(1.0).round() as u32;
+    let projectile_count = (1.0 + env.state.stat("ProjectileCount")).max(1.0).round() as u32;
     let hits_target = character
         .config
         .projectiles_hitting_target
         .max(1)
         .min(projectile_count);
     let projectile_multiplier = f64::from(hits_target);
-    env.output.set("ProjectileCount", f64::from(projectile_count));
-    env.output.set("ProjectileMultiplier", projectile_multiplier);
+    env.output
+        .set("ProjectileCount", f64::from(projectile_count));
+    env.output
+        .set("ProjectileMultiplier", projectile_multiplier);
 
     let final_avg = env.output.get("MainSkillAverageHitAfterAccuracy")
         * avoidance_factor
@@ -2215,7 +2340,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // Chill is always-on for hit spells per PoB's `if ailment == "Chill"
         // then chance = 100 end` shortcut; curse chance simply tops it up at
         // the chance-on-hit level.
-        env.output.set("ChillChanceOnHit", (100.0_f64).max(curse_chill));
+        env.output
+            .set("ChillChanceOnHit", (100.0_f64).max(curse_chill));
         env.output.set("ChillChance", 100.0);
 
         // Combined chance: `onHit × (1-crit) + onCrit × crit`. The crit-only
@@ -2224,9 +2350,12 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         let combine = |on_hit: f64, on_crit: f64| -> f64 {
             on_hit * (1.0 - crit_chance) + on_crit * crit_chance
         };
-        env.output.set("FreezeChance", combine(freeze_on_hit, 100.0));
-        env.output.set("IgniteChance", combine(ignite_on_hit, 100.0));
-        env.output.set("IgniteChancePerHit", combine(ignite_on_hit, 100.0));
+        env.output
+            .set("FreezeChance", combine(freeze_on_hit, 100.0));
+        env.output
+            .set("IgniteChance", combine(ignite_on_hit, 100.0));
+        env.output
+            .set("IgniteChancePerHit", combine(ignite_on_hit, 100.0));
         env.output.set("ShockChance", combine(shock_on_hit, 100.0));
     }
     env.output.set("ShockDuration", 2.0);
@@ -2251,18 +2380,19 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 .mod_db
                 .sum(ModType::Base, &cfg, &env.state, "AreaOfEffect");
         if base_radius > 0.0 {
-            let inc_area = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AreaOfEffect");
+            let inc_area = env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "AreaOfEffect");
             let more_area = env.mod_db.more(&cfg, &env.state, "AreaOfEffect");
             let area_mod = (1.0 + inc_area / 100.0) * more_area;
-            let final_radius = (base_radius
-                * f64::floor(100.0 * area_mod.max(0.0).sqrt())
-                / 100.0)
-                .floor();
+            let final_radius =
+                (base_radius * f64::floor(100.0 * area_mod.max(0.0).sqrt()) / 100.0).floor();
             env.output.set("AoERadius", base_radius);
             env.output.set("FinalAoERadius", final_radius);
             env.output.set("AreaOfEffectMod", area_mod);
             env.output.set("AreaOfEffectRadius", final_radius);
-            env.output.set("AreaOfEffectRadiusMetres", final_radius / 10.0);
+            env.output
+                .set("AreaOfEffectRadiusMetres", final_radius / 10.0);
         }
     }
 
@@ -2358,11 +2488,16 @@ fn perform_ehp(env: &mut Env) {
     env.output.set("LifeRecoverable", life);
     env.output.set("StunThreshold", life);
     for elem in ["Physical", "Fire", "Cold", "Lightning", "Chaos"] {
-        let hp = if elem == "Physical" { hit_pool_phys } else { hit_pool_ele };
+        let hp = if elem == "Physical" {
+            hit_pool_phys
+        } else {
+            hit_pool_ele
+        };
         env.output.set_concat(elem, "TotalHitPool", hp);
         env.output.set_concat(elem, "TotalPool", hp);
         env.output.set_concat(elem, "MoMHitPool", mom_hit_pool);
-        env.output.set_concat(elem, "ManaEffectiveLife", mom_hit_pool);
+        env.output
+            .set_concat(elem, "ManaEffectiveLife", mom_hit_pool);
     }
     env.output.set("sharedManaEffectiveLife", mom_hit_pool);
     env.output.set("sharedMoMHitPool", mom_hit_pool);
@@ -2378,7 +2513,8 @@ fn perform_ehp(env: &mut Env) {
     env.output.set("PhysicalDotEHP", pool / phys_dot_taken);
     env.output.set("FireDotEHP", pool / fire_dot_taken);
     env.output.set("ColdDotEHP", pool / cold_dot_taken);
-    env.output.set("LightningDotEHP", pool / lightning_dot_taken);
+    env.output
+        .set("LightningDotEHP", pool / lightning_dot_taken);
     env.output.set("ChaosDotEHP", pool / chaos_dot_taken);
 
     // Maximum-hit-taken — pool divided by the damage-taken multiplier for that

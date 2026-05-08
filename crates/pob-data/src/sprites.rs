@@ -37,10 +37,18 @@ pub struct SpriteCategory {
 pub struct SpriteRect(pub [f32; 4]);
 
 impl SpriteRect {
-    pub fn x(&self) -> f32 { self.0[0] }
-    pub fn y(&self) -> f32 { self.0[1] }
-    pub fn w(&self) -> f32 { self.0[2] }
-    pub fn h(&self) -> f32 { self.0[3] }
+    pub fn x(&self) -> f32 {
+        self.0[0]
+    }
+    pub fn y(&self) -> f32 {
+        self.0[1]
+    }
+    pub fn w(&self) -> f32 {
+        self.0[2]
+    }
+    pub fn h(&self) -> f32 {
+        self.0[3]
+    }
 
     /// Normalised UV rect against the given atlas size: `[u, v, du, dv]`
     /// in the [0, 1] range.

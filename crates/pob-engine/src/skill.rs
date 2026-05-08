@@ -116,10 +116,7 @@ pub fn skill_base_damage(skill: &Skill, gem_level: u32, character_level: u32) ->
 /// scales linearly so we contribute `quality_pct × scale_per_quality` per entry)*.
 /// `stats` (positional, level-indexed via statInterpolation) is *not* included here —
 /// that's the per-level damage data which the dedicated `skill_base_damage` handles.
-pub fn iter_skill_stats(
-    skill: &Skill,
-    quality: u32,
-) -> impl Iterator<Item = (String, f64)> + '_ {
+pub fn iter_skill_stats(skill: &Skill, quality: u32) -> impl Iterator<Item = (String, f64)> + '_ {
     let q = f64::from(quality);
     let constant = skill.constant_stats.iter().filter_map(|v| {
         let arr = v.as_array()?;
@@ -157,7 +154,10 @@ pub fn parse_extractor_mod(v: &serde_json::Value, value: f64) -> Option<crate::M
         "LIST" => ModType::List,
         _ => return None,
     };
-    let flags_bits = obj.get("flags").and_then(serde_json::Value::as_u64).unwrap_or(0) as u32;
+    let flags_bits = obj
+        .get("flags")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as u32;
     let kw_bits = obj
         .get("keywordFlags")
         .and_then(serde_json::Value::as_u64)
@@ -172,10 +172,7 @@ pub fn parse_extractor_mod(v: &serde_json::Value, value: f64) -> Option<crate::M
         tags: smallvec::SmallVec::new(),
     };
     // Trailing tags are stored as numeric-key entries on the object: "1", "2", ...
-    let mut tag_keys: Vec<u32> = obj
-        .keys()
-        .filter_map(|k| k.parse::<u32>().ok())
-        .collect();
+    let mut tag_keys: Vec<u32> = obj.keys().filter_map(|k| k.parse::<u32>().ok()).collect();
     tag_keys.sort_unstable();
     for k in tag_keys {
         let tag_v = &obj[&k.to_string()];
@@ -254,7 +251,10 @@ pub fn skill_mods(skill: &Skill, quality: u32) -> Vec<crate::Mod> {
     for (stat_id, value) in iter_skill_stats(skill, quality) {
         // Per-skill statMap is the primary source. Each entry is an array of mod
         // recordings.
-        if let Some(arr) = skill_stat_map(skill).get(&stat_id).and_then(|v| v.as_array()) {
+        if let Some(arr) = skill_stat_map(skill)
+            .get(&stat_id)
+            .and_then(|v| v.as_array())
+        {
             for entry in arr {
                 if let Some(mut m) = parse_extractor_mod(entry, value) {
                     m.source = Some(crate::Source::Skill(skill.name.clone()));

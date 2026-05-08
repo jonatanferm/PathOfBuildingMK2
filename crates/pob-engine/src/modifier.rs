@@ -51,7 +51,10 @@ pub enum ModType {
 pub enum ModValue {
     Number(f64),
     /// Inclusive damage range, used for `Adds N to M <element> Damage`.
-    Range { min: f64, max: f64 },
+    Range {
+        min: f64,
+        max: f64,
+    },
     /// Boolean flag (used with `ModType::Flag`).
     Bool(bool),
     /// Free-form string payload (used with `ModType::List` for keystone names, etc.).
@@ -135,7 +138,11 @@ pub enum TagKind {
     /// `{type = "Condition", var = X}` — applies iff modDB.conditions[X] is truthy.
     Condition { var: String, neg: bool },
     /// `{type = "ActorCondition", actor = X, var = Y}` — looks up `Y` on a different actor.
-    ActorCondition { actor: String, var: String, neg: bool },
+    ActorCondition {
+        actor: String,
+        var: String,
+        neg: bool,
+    },
     /// `{type = "Multiplier", var = X, limit?, limit_total?, div?}` — value scales by an
     /// integer counter (e.g. `PowerCharge` count). `limit` caps the multiplier; `div`
     /// divides the count first (e.g. "per 10 strength").
@@ -155,9 +162,17 @@ pub enum TagKind {
     /// `{type = "PercentStat", stat = X, percent = N}` — value scales by N% of stat.
     PercentStat { stat: String, percent: f64 },
     /// `{type = "StatThreshold", stat = X, threshold = N, upper = bool}`.
-    StatThreshold { stat: String, threshold: f64, upper: bool },
+    StatThreshold {
+        stat: String,
+        threshold: f64,
+        upper: bool,
+    },
     /// `{type = "MultiplierThreshold", var = X, threshold = N, upper = bool}`.
-    MultiplierThreshold { var: String, threshold: f64, upper: bool },
+    MultiplierThreshold {
+        var: String,
+        threshold: f64,
+        upper: bool,
+    },
     /// `{type = "SkillType", skillType = N}`.
     SkillType { skill_type: u8, neg: bool },
     /// `{type = "SkillName", skillName = "..." }`.
