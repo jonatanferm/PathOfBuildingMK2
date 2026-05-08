@@ -55,6 +55,11 @@ pub fn compute_full_with_env(
         perform_flask_recovery(character, b, &mut env);
     }
     if let Some(reg) = skills {
+        // Issue #97: party-member auto-extracted auras / curses /
+        // banners. Each gem in `extracted_auras` contributes mods via
+        // `aura_buff_mods`, sourced as `Party:<name>:<skill>`. Manual
+        // `mod_lines` already landed in init_env_with_bases.
+        apply_party_extracted_auras(character, reg, &mut env);
         perform_reservations(character, reg, &mut env);
         perform_curses(character, reg, &mut env);
         // Issue #5: Dual-wield per-weapon calc loop. PoB's CalcOffence.lua
@@ -382,6 +387,40 @@ pub fn init_env_with_bases(
 /// upstream PoB exactly — see `.PathOfBuilding/src/Modules/CalcSetup.lua:531-540`,
 /// which inlines a single mod per bandit. `KillAll` adds an `ExtraPoints` BASE
 /// of 1 (the "+2 passive points" reward).
+/// Issue #97: project a party member's auto-extracted aura / curse /
+/// banner gems into the player's modDB. Each enabled `ExtractedAura`
+/// is looked up in the `SkillRegistry`; `aura_buff_mods` returns the
+/// mod list that gem grants its allies at the chosen level + quality.
+/// Each mod is re-sourced as `Source::Other("Party:<member>:<skill>")`
+/// so the Calcs-tab breakdown can attribute it back to the teammate.
+/// Disabled members and disabled gems contribute nothing.
+fn apply_party_extracted_auras(
+    character: &Character,
+    skills: &SkillRegistry,
+    env: &mut Env,
+) {
+    for member in &character.party_members {
+        if !member.enabled {
+            continue;
+        }
+        for aura in &member.extracted_auras {
+            if !aura.enabled {
+                continue;
+            }
+            let Some(skill) = skills.get(&aura.skill_id) else {
+                continue;
+            };
+            let level = aura.level.clamp(1, 40);
+            let mods = crate::skill::aura_buff_mods(skill, level, aura.quality);
+            let source_label = format!("Party:{}:{}", member.name, aura.skill_id);
+            for mut m in mods {
+                m.source = Some(Source::Other(source_label.clone()));
+                env.mod_db.add(m);
+            }
+        }
+    }
+}
+
 fn apply_bandit_mods(bandit: crate::character::Bandit, db: &mut crate::ModDB) {
     use crate::character::Bandit;
     let source = Source::Other(format!("Bandit:{}", bandit.as_pob_name()));

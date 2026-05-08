@@ -192,6 +192,7 @@ fn party_members_inject_mods_and_toggle_off_cleanly() {
     c.party_members.push(PartyMember {
         name: "Aura Bot".into(),
         mod_lines: "+50 to Strength".into(),
+        extracted_auras: Vec::new(),
         enabled: true,
     });
     let with_aura = compute_with_skills(&c, &tree, None).get("Strength");
@@ -213,6 +214,7 @@ fn party_members_inject_mods_and_toggle_off_cleanly() {
     c.party_members.push(PartyMember {
         name: "Curse Bot".into(),
         mod_lines: "+50 to Strength\n+30 to Dexterity".into(),
+        extracted_auras: Vec::new(),
         enabled: true,
     });
     let combined = compute_with_skills(&c, &tree, None);
@@ -240,6 +242,69 @@ fn party_members_inject_mods_and_toggle_off_cleanly() {
     assert!(
         aura_bot_mods >= 1,
         "Aura Bot's mods must show up in the modDB sourced as Party:Aura Bot"
+    );
+}
+
+// Issue #97: a teammate's auto-extracted aura gem should project the
+// same buff mods that PoB's `aura_buff_mods` returns. We don't go
+// through the import_pob_code path here (that's covered by the UI
+// test fixture); we set up a `Character` with a populated
+// `extracted_auras` directly and verify the engine consumes it.
+//
+// Hatred at level 20 contributes a `PhysicalDamageGainAsCold` BASE
+// mod via its statMap. Tagging it `Party:<name>:Hatred` lets the
+// Calcs-tab breakdown attribute the buff to the teammate.
+#[test]
+fn party_extracted_auras_inject_skill_mods() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Hatred").is_none() {
+        eprintln!("skip: Hatred not in registry");
+        return;
+    }
+    use pob_engine::character::{ExtractedAura, PartyMember};
+    use pob_engine::ModStore as _;
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.party_members.push(PartyMember {
+        name: "Aura Bot".into(),
+        mod_lines: String::new(),
+        extracted_auras: vec![ExtractedAura {
+            skill_id: "Hatred".into(),
+            level: 20,
+            quality: 0,
+            enabled: true,
+        }],
+        enabled: true,
+    });
+
+    // Run the full compute pipeline — `compute_full_with_env` calls
+    // `apply_party_extracted_auras` once skills are present, so the
+    // teammate's gem should land in the player's modDB.
+    let (_, env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    let projected_count = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Party:Aura Bot:Hatred")
+        })
+        .count();
+    assert!(
+        projected_count >= 1,
+        "Hatred should project at least one buff mod sourced as Party:Aura Bot:Hatred (got {projected_count})"
+    );
+
+    // A disabled aura must not project.
+    c.party_members[0].extracted_auras[0].enabled = false;
+    let (_, env2) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    let still_there = env2.mod_db.iter_all().any(|m| {
+        matches!(&m.source, Some(pob_engine::Source::Other(s)) if s.contains("Party:Aura Bot:Hatred"))
+    });
+    assert!(
+        !still_there,
+        "Disabled extracted aura must not contribute mods"
     );
 }
 

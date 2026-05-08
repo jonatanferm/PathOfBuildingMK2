@@ -9,7 +9,10 @@
 //! pulls auras out of a teammate's tree + skill bar automatically.
 
 use eframe::egui;
-use pob_engine::{character::PartyMember, Character};
+use pob_engine::{
+    character::{ExtractedAura, PartyMember},
+    Character, SkillRegistry,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct PartyTabState {
@@ -18,11 +21,32 @@ pub struct PartyTabState {
     pub selected: Option<usize>,
     /// Buffer for the "add new member" name input.
     pub new_name: String,
+    /// Buffer for the per-member "paste teammate PoB code" textarea.
+    /// Indexed by member index — keeps the user's draft visible while
+    /// they work in other tabs without polluting `Character`.
+    pub import_buffers: Vec<String>,
+    /// Status line from the most recent import attempt (success or
+    /// parse failure). Cleared when the user types into the buffer.
+    pub import_status: Vec<Option<String>>,
 }
 
 /// Returns true if any member field changed (so the caller can recompute).
-pub fn ui(ui: &mut egui::Ui, state: &mut PartyTabState, character: &mut Character) -> bool {
+pub fn ui(
+    ui: &mut egui::Ui,
+    state: &mut PartyTabState,
+    character: &mut Character,
+    registry: &SkillRegistry,
+) -> bool {
     let mut changed = false;
+    // Keep the per-member buffer arrays sized to the member list. Adds /
+    // removes mutate `party_members` first; we resize lazily here so
+    // both buffers and statuses index parallel to the member vec.
+    state
+        .import_buffers
+        .resize(character.party_members.len(), String::new());
+    state
+        .import_status
+        .resize(character.party_members.len(), None);
 
     ui.horizontal(|ui| {
         ui.heading("Party");
@@ -40,8 +64,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PartyTabState, character: &mut Characte
             character.party_members.push(PartyMember {
                 name: state.new_name.trim().to_owned(),
                 mod_lines: String::new(),
+                extracted_auras: Vec::new(),
                 enabled: true,
             });
+            state.import_buffers.push(String::new());
+            state.import_status.push(None);
             state.selected = Some(character.party_members.len() - 1);
             state.new_name.clear();
             changed = true;
@@ -109,6 +136,12 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PartyTabState, character: &mut Characte
             }
             if let Some(idx) = delete_idx {
                 character.party_members.remove(idx);
+                if idx < state.import_buffers.len() {
+                    state.import_buffers.remove(idx);
+                }
+                if idx < state.import_status.len() {
+                    state.import_status.remove(idx);
+                }
                 if state.selected == Some(idx) {
                     state.selected = None;
                 } else if let Some(sel) = state.selected {
@@ -144,6 +177,43 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PartyTabState, character: &mut Characte
             });
             ui.checkbox(&mut member.enabled, "Active in calc")
                 .on_hover_text("Untick to exclude this member from the next compute pass");
+
+            // Issue #97: extracted auras / curses / banners list.
+            // Each entry can be toggled or removed inline; the
+            // engine's `apply_party_extracted_auras` consumes this
+            // list at compute time.
+            if !member.extracted_auras.is_empty() {
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("Auto-extracted gems")
+                        .strong(),
+                );
+                let mut to_remove: Option<usize> = None;
+                for (i, aura) in member.extracted_auras.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut aura.enabled, "").changed() {
+                            changed = true;
+                        }
+                        let display = registry
+                            .get(&aura.skill_id)
+                            .map(|s| s.name.as_str())
+                            .unwrap_or(&aura.skill_id);
+                        ui.label(format!(
+                            "{display}  L{level} Q{quality}%",
+                            level = aura.level,
+                            quality = aura.quality
+                        ));
+                        if ui.small_button("✕").clicked() {
+                            to_remove = Some(i);
+                        }
+                    });
+                }
+                if let Some(rm) = to_remove {
+                    member.extracted_auras.remove(rm);
+                    changed = true;
+                }
+            }
+
             ui.label("Mod lines (one per line, same syntax as Custom Modifiers / item mods):");
             let resp = ui.add(
                 egui::TextEdit::multiline(&mut member.mod_lines)
@@ -176,8 +246,151 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PartyTabState, character: &mut Characte
                 };
                 ui.colored_label(color, format!("{parsed} / {total} lines parse"));
             }
+
+            // Issue #97: paste-and-extract panel. Drop a teammate's
+            // PoB code (or `<PathOfBuilding>` XML) into the box and
+            // press "Extract auras" — the engine pulls every aura /
+            // curse / banner gem from their skill bar and prepopulates
+            // the `extracted_auras` list above.
+            ui.add_space(8.0);
+            ui.separator();
+            ui.label(
+                egui::RichText::new("Auto-extract from teammate PoB code")
+                    .strong(),
+            );
+            let buf = state
+                .import_buffers
+                .get_mut(idx)
+                .expect("buffer slot resized at top of ui()");
+            let resp = ui.add(
+                egui::TextEdit::multiline(buf)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(4)
+                    .hint_text("Paste pobb.in / pob.cool code or PoB XML here")
+                    .font(egui::TextStyle::Monospace),
+            );
+            if resp.changed() {
+                if let Some(slot) = state.import_status.get_mut(idx) {
+                    *slot = None;
+                }
+            }
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        !buf.trim().is_empty(),
+                        egui::Button::new("Extract auras"),
+                    )
+                    .clicked()
+                {
+                    let import = run_import(&buf.trim().to_owned());
+                    match import {
+                        Ok(extracted) => {
+                            let count = extract_into(member, &extracted, registry);
+                            if let Some(slot) = state.import_status.get_mut(idx) {
+                                *slot = Some(format!("Extracted {count} aura/curse/banner gem(s)"));
+                            }
+                            // Clear the buffer once the extraction
+                            // succeeds so users don't double-import.
+                            buf.clear();
+                            changed = true;
+                        }
+                        Err(e) => {
+                            if let Some(slot) = state.import_status.get_mut(idx) {
+                                *slot = Some(format!("Import failed: {e}"));
+                            }
+                        }
+                    }
+                }
+                if ui.small_button("Clear buffer").clicked() {
+                    buf.clear();
+                    if let Some(slot) = state.import_status.get_mut(idx) {
+                        *slot = None;
+                    }
+                }
+            });
+            if let Some(Some(msg)) = state.import_status.get(idx) {
+                let is_err = msg.starts_with("Import failed");
+                let color = if is_err {
+                    egui::Color32::from_rgb(0xFF, 0x99, 0x22)
+                } else {
+                    egui::Color32::from_rgb(0x33, 0xFF, 0x77)
+                };
+                ui.colored_label(color, msg);
+            }
         });
     });
 
     changed
+}
+
+/// Try every PoB import path the user might paste: a PoB share code
+/// (zlib + base64), a `<PathOfBuilding>` XML document, or — as a
+/// convenience — an MK2 share code. Returns the parsed teammate
+/// `Character` on success.
+fn run_import(input: &str) -> Result<pob_engine::Character, String> {
+    let trimmed = input.trim();
+    if trimmed.starts_with("MK2|") {
+        return pob_engine::import_code(trimmed).map_err(|e| e.to_string());
+    }
+    if trimmed.starts_with('<') {
+        return pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string());
+    }
+    pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
+}
+
+/// Walk the teammate `Character`'s socket groups, find every enabled
+/// gem whose `baseFlags` include `aura` / `curse` / `banner`, and
+/// append them to `member.extracted_auras`. Returns the number of
+/// gems added. Existing entries with the same `skill_id` are
+/// replaced so re-importing a refreshed teammate code updates levels
+/// instead of duplicating gems.
+fn extract_into(
+    member: &mut PartyMember,
+    teammate: &pob_engine::Character,
+    registry: &SkillRegistry,
+) -> usize {
+    let mut added = 0;
+    for group in &teammate.skill_groups {
+        if !group.enabled {
+            continue;
+        }
+        for gem in &group.gems {
+            if !gem.enabled {
+                continue;
+            }
+            let Some(skill) = registry.get(&gem.skill_id) else {
+                continue;
+            };
+            let is_projection = skill
+                .base_flags
+                .get("aura")
+                .copied()
+                .unwrap_or(false)
+                || skill.base_flags.get("curse").copied().unwrap_or(false)
+                || skill.base_flags.get("banner").copied().unwrap_or(false);
+            if !is_projection {
+                continue;
+            }
+            let new_aura = ExtractedAura {
+                skill_id: gem.skill_id.clone(),
+                level: gem.level.max(1),
+                quality: gem.quality,
+                enabled: true,
+            };
+            // Replace any existing entry with the same skill_id so a
+            // re-import refreshes levels in place rather than
+            // accumulating duplicates.
+            if let Some(existing) = member
+                .extracted_auras
+                .iter_mut()
+                .find(|a| a.skill_id == new_aura.skill_id)
+            {
+                *existing = new_aura;
+            } else {
+                member.extracted_auras.push(new_aura);
+                added += 1;
+            }
+        }
+    }
+    added
 }
