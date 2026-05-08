@@ -2356,5 +2356,49 @@
     "coords": {
       "Background2": [0,0,98,98]
     }
+  },
+  "groupBackground": {
+    "filename": "https://web.poecdn.com/image/passive-skill/group-background-3.png?95dbfa0a",
+    "w": 1006,
+    "h": 666,
+    "coords": {
+      "GroupBackgroundLargeHalfAlt": [723,143,283,143],
+      "GroupBackgroundMediumAlt": [723,464,178,178],
+      "GroupBackgroundSmallAlt": [581,444,138,138],
+      "PSGroupBackground1": [443,444,138,138],
+      "PSGroupBackground2": [723,286,178,178],
+      "PSGroupBackground3": [723,0,283,143]
+    }
+  },
+  "frame": {
+    "filename": "https://web.poecdn.com/image/passive-skill/frame-3.png?4eb7045b",
+    "w": 383,
+    "h": 334,
+    "coords": {
+      "BlightedNotableFrameAllocated": [325,174,58,58],
+      "BlightedNotableFrameCanAllocate": [325,116,58,58],
+      "BlightedNotableFrameUnallocated": [325,58,58,58],
+      "JewelFrameAllocated": [325,0,58,58],
+      "JewelFrameCanAllocate": [232,237,58,58],
+      "JewelFrameUnallocated": [174,237,58,58],
+      "JewelSocketAltActive": [249,152,76,76],
+      "JewelSocketAltCanAllocate": [249,76,76,76],
+      "JewelSocketAltNormal": [249,0,76,76],
+      "JewelSocketClusterAltCanAllocate1Large": [152,161,76,76],
+      "JewelSocketClusterAltCanAllocate1Medium": [76,161,76,76],
+      "JewelSocketClusterAltCanAllocate1Small": [0,161,76,76],
+      "JewelSocketClusterAltNormal1Large": [152,85,76,76],
+      "JewelSocketClusterAltNormal1Medium": [76,85,76,76],
+      "JewelSocketClusterAltNormal1Small": [0,85,76,76],
+      "KeystoneFrameAllocated": [166,0,83,85],
+      "KeystoneFrameCanAllocate": [83,0,83,85],
+      "KeystoneFrameUnallocated": [0,0,83,85],
+      "NotableFrameAllocated": [116,237,58,58],
+      "NotableFrameCanAllocate": [58,237,58,58],
+      "NotableFrameUnallocated": [0,237,58,58],
+      "PSSkillFrame": [39,295,39,39],
+      "PSSkillFrameActive": [0,295,39,39],
+      "PSSkillFrameHighlighted": [325,232,39,39]
+    }
   }
 }
