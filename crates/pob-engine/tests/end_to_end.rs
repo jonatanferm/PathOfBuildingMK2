@@ -2098,6 +2098,47 @@ fn skill_registry_variants_of_groups_alt_and_vaal_versions() {
     );
 }
 
+// Issue #36 (slice 2 backstop): the variant picker rewrites the
+// gem's `skill_id`, and the engine should pick up the new entry's
+// level data + skill mods on next compute. Verify that swapping
+// from the base `Fireball` to `VaalFireball` actually changes the
+// MainSkillDPS the engine emits — without this the UI dropdown
+// would be cosmetic. We only assert *change* (not direction or
+// magnitude), since Vaal variants have different base damage and
+// flags that could go either way per character setup.
+#[test]
+fn variant_swap_changes_main_skill_dps() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Fireball").is_none() || skills.get("VaalFireball").is_none() {
+        eprintln!("skip: Fireball/VaalFireball not in registry");
+        return;
+    }
+
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.main_skill = Some(MainSkill::new("Fireball"));
+    let base_dps = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
+        .get("MainSkillDPS");
+
+    c.main_skill = Some(MainSkill::new("VaalFireball"));
+    let vaal_dps = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
+        .get("MainSkillDPS");
+
+    // Skip if both compute to zero (skill data may be incomplete in
+    // the test fixture); otherwise the two should differ.
+    if base_dps == 0.0 && vaal_dps == 0.0 {
+        eprintln!("skip: neither variant produces DPS in this fixture");
+        return;
+    }
+    assert!(
+        (base_dps - vaal_dps).abs() > f64::EPSILON,
+        "Vaal variant should change MainSkillDPS vs base; got base={base_dps} vaal={vaal_dps}"
+    );
+}
+
 #[test]
 fn arc_intrinsic_mods_land_in_modlist() {
     let (Some(_tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
