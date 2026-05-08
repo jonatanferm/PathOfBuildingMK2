@@ -1,8 +1,15 @@
 //! Compare tab — snapshot the current build and surface stat-by-stat
 //! deltas against the live one. PoB exposes the same as `compareTab`
-//! in `Modules/Build.lua`; the MVP here keeps the snapshot in-memory
-//! (no second-build file load yet) so the user can A/B a tweak
-//! without leaving the app.
+//! in `Modules/Build.lua`. Two snapshot sources:
+//!
+//! * **Snapshot current build** — captures the live character + output
+//!   in memory.
+//! * **Load comparison from file** — picks a `.mk2` / `.xml` / share-
+//!   code file, imports it, and the host runs `compute_full` against
+//!   it to populate the snapshot Output.
+//!
+//! Each frame, every change to the live build shows up here as a
+//! coloured delta vs. the snapshot's stats.
 
 use eframe::egui;
 use pob_engine::{Character, Output};
@@ -26,12 +33,23 @@ pub struct Snapshot {
     pub label: String,
 }
 
+/// Action the host should take after the user interacted with the
+/// Compare tab — currently only "load a comparison build from disk."
+/// The host runs the file-pick dialog, imports the build, and runs
+/// `compute_full` against it to populate the snapshot Output, then
+/// writes the result back via `state.snapshot = Some(...)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompareAction {
+    LoadFromFile,
+}
+
 pub fn ui(
     ui: &mut egui::Ui,
     state: &mut CompareTabState,
     live_character: &Character,
     live_output: &Output,
-) {
+) -> Option<CompareAction> {
+    let mut action: Option<CompareAction> = None;
     ui.horizontal(|ui| {
         ui.heading("Compare");
         ui.separator();
@@ -42,6 +60,9 @@ pub fn ui(
                 label: format_snapshot_label(live_character),
             });
         }
+        if ui.button("Load comparison from file…").clicked() {
+            action = Some(CompareAction::LoadFromFile);
+        }
         if state.snapshot.is_some() && ui.button("Clear snapshot").clicked() {
             state.snapshot = None;
         }
@@ -51,9 +72,12 @@ pub fn ui(
         ui.separator();
         ui.label(
             "Click \"Snapshot current build\" to capture the current stats. \
-             After that, every change to the live build shows up here as a delta.",
+             After that, every change to the live build shows up here as a delta.\n\
+             \n\
+             Or click \"Load comparison from file…\" to compare against a saved \
+             build (.mk2 / .xml / PoB share-code).",
         );
-        return;
+        return action;
     };
 
     ui.separator();
@@ -121,6 +145,14 @@ pub fn ui(
                     }
                 });
         });
+    action
+}
+
+/// Build a snapshot label for a character imported from disk. Public
+/// so the host can use it after running the file load + compute.
+#[must_use]
+pub fn label_for(c: &Character) -> String {
+    format_snapshot_label(c)
 }
 
 fn format_snapshot_label(c: &Character) -> String {
