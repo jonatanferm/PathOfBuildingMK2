@@ -2919,6 +2919,50 @@ fn mine_and_trap_throw_timing_emits_pob_default_speeds() {
     }
 }
 
+// Issue #84 (slice 3): DoT-only mines/traps still surface throw
+// timing + count outputs even though their DPS lands via the early-
+// return ailment branch. Siphoning Trap (DoT-only) should emit
+// `TrapThrowingSpeed`, `TrapThrowingTime`, `NumberOfTraps`, and the
+// active limit just like a hit-based trap does.
+#[test]
+fn dot_only_trap_emits_throw_timing_outputs() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("SiphoningTrap").is_none() {
+        eprintln!("skip: SiphoningTrap not in registry");
+        return;
+    }
+    let mut c = Character::new(ClassRef::shadow(), 90);
+    c.main_skill = Some(MainSkill::new("SiphoningTrap"));
+    let out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+
+    // Trap timing keys land regardless of whether the DPS path
+    // routes through the DoT branch.
+    let speed = out.get("TrapThrowingSpeed");
+    assert!(
+        (speed - 1.666_667).abs() < 0.05,
+        "DoT trap should emit TrapThrowingSpeed ≈ 1.67 /s, got {speed}"
+    );
+    let time = out.get("TrapThrowingTime");
+    assert!(
+        (time - 0.6).abs() < 0.005,
+        "DoT trap should emit TrapThrowingTime = 0.6 s, got {time}"
+    );
+    assert!(
+        (out.get("NumberOfTraps") - 1.0).abs() < 0.001,
+        "DoT trap should emit NumberOfTraps = 1, got {}",
+        out.get("NumberOfTraps")
+    );
+    assert!(
+        out.get("ActiveTrapLimit") >= 15.0,
+        "DoT trap should emit ActiveTrapLimit ≥ 15 (PoB default), got {}",
+        out.get("ActiveTrapLimit")
+    );
+}
+
 // Issue #84 (slice 2): multi-throw penalty for mines. PoB applies a
 // "throwing mines takes 10% more time for each additional mine
 // thrown" rule — so layering 4 extra throws (from a Minefield-style
