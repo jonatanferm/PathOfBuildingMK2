@@ -467,6 +467,60 @@ fn full_demo_witch_arc_produces_reasonable_dps() {
 }
 
 #[test]
+fn ascendancy_point_cap_is_8() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    assert_eq!(
+        tree.points.ascendancy_points, 8,
+        "tree should expose an 8-point ascendancy cap"
+    );
+
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.ascendancy = Some("Occultist".into());
+
+    // Empty character: count is zero and the gate allows the next click.
+    assert_eq!(c.ascendancy_alloc_count(&tree), 0);
+    assert!(c.can_allocate_ascendancy(&tree));
+
+    // Pull 8 Occultist nodes out of the tree and allocate them directly. The UI
+    // walks the ascendancy tree to surface candidate clicks; here we cheat by
+    // grabbing any 8 nodes tagged with the right ascendancy_name.
+    let occultist_nodes: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter_map(|(id, n)| {
+            n.ascendancy_name
+                .as_deref()
+                .filter(|asc| asc.eq_ignore_ascii_case("Occultist"))
+                .map(|_| *id)
+        })
+        .take(8)
+        .collect();
+    assert_eq!(
+        occultist_nodes.len(),
+        8,
+        "expected at least 8 Occultist nodes in 3.25 tree"
+    );
+    for id in &occultist_nodes {
+        c.allocate(*id);
+    }
+
+    // At the cap: count matches, gate now refuses a 9th click.
+    assert_eq!(c.ascendancy_alloc_count(&tree), 8);
+    assert!(!c.can_allocate_ascendancy(&tree));
+
+    // Non-ascendancy nodes don't count against the budget.
+    let passive_id = *tree
+        .nodes
+        .iter()
+        .find_map(|(id, n)| (n.ascendancy_name.is_none() && n.kind == pob_data::NodeKind::Notable).then_some(id))
+        .expect("any notable in 3.25 tree");
+    c.allocate(passive_id);
+    assert_eq!(c.ascendancy_alloc_count(&tree), 8);
+}
+
+#[test]
 fn arc_intrinsic_mods_land_in_modlist() {
     let (Some(_tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
         return;

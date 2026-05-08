@@ -378,8 +378,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 app.character.allocated.clear();
                 recompute = true;
             }
-            let asc_alloc =
-                count_allocated_ascendancy_nodes(&app.tree, &app.character.allocated);
+            let asc_alloc = app.character.ascendancy_alloc_count(&app.tree);
             let total_alloc = app.character.allocated.len() as u32;
             ui.label(format!(
                 "Allocated: {} (passive) / {} / {} (ascendancy)",
@@ -558,8 +557,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 let ascendancy_budget_ok = if !is_ascendancy_node || toggling_off {
                     true
                 } else {
-                    count_allocated_ascendancy_nodes(&app.tree, &app.character.allocated)
-                        < app.tree.points.ascendancy_points
+                    app.character.can_allocate_ascendancy(&app.tree)
                 };
                 if !allowed_ascend {
                     app.status_message = Some((
@@ -793,21 +791,6 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
         MenuAction::Save => save_build(app, false),
         MenuAction::SaveAs => save_build(app, true),
     }
-}
-
-fn count_allocated_ascendancy_nodes(
-    tree: &PassiveTree,
-    allocated: &std::collections::HashSet<NodeId>,
-) -> u32 {
-    allocated
-        .iter()
-        .filter(|id| {
-            tree.nodes
-                .get(id)
-                .and_then(|n| n.ascendancy_name.as_deref())
-                .is_some()
-        })
-        .count() as u32
 }
 
 fn swap_tree(app: &mut LoadedApp, version: &str) -> Result<(), String> {

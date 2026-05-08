@@ -270,4 +270,24 @@ impl Character {
     pub fn resolve_class<'a>(&self, tree: &'a PassiveTree) -> Option<&'a Class> {
         tree.classes.iter().find(|c| c.name == self.class.0)
     }
+
+    /// Count allocated nodes that belong to *some* ascendancy. PoB caps this at
+    /// `tree.points.ascendancy_points` (8 by default, exposed in tree data).
+    pub fn ascendancy_alloc_count(&self, tree: &PassiveTree) -> u32 {
+        self.allocated
+            .iter()
+            .filter(|id| {
+                tree.nodes
+                    .get(id)
+                    .and_then(|n| n.ascendancy_name.as_deref())
+                    .is_some()
+            })
+            .count() as u32
+    }
+
+    /// True iff allocating one more ascendancy node would stay within the
+    /// `tree.points.ascendancy_points` budget. UI gates clicks with this.
+    pub fn can_allocate_ascendancy(&self, tree: &PassiveTree) -> bool {
+        self.ascendancy_alloc_count(tree) < tree.points.ascendancy_points
+    }
 }
