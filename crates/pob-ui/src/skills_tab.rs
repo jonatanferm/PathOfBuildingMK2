@@ -14,6 +14,7 @@ pub struct SkillsTabState {
     pub filter: String,
     pub show_spells: bool,
     pub show_attacks: bool,
+    pub show_supports: bool,
     pub selected_group: usize,
     pub selected_gem: usize,
     pub catalog_open: bool,
@@ -25,6 +26,7 @@ impl Default for SkillsTabState {
             filter: String::new(),
             show_spells: true,
             show_attacks: true,
+            show_supports: true,
             selected_group: 0,
             selected_gem: 0,
             catalog_open: false,
@@ -184,9 +186,11 @@ pub fn ui(
                 } else {
                     " "
                 };
+                let is_support = registry.get(&gem.skill_id).map(|s| s.support).unwrap_or(false);
+                let kind_marker = if is_support { "⚙" } else { " " };
                 let label = format!(
-                    "{} {} (L{} Q{}%)",
-                    main_marker, gem.skill_id, gem.level, gem.quality
+                    "{} {} {} (L{} Q{}%)",
+                    main_marker, kind_marker, gem.skill_id, gem.level, gem.quality
                 );
                 ui.horizontal(|ui| {
                     if ui.selectable_label(state.selected_gem == idx, label).clicked() {
@@ -272,6 +276,7 @@ pub fn ui(
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut state.show_spells, "Spells");
                     ui.checkbox(&mut state.show_attacks, "Attacks");
+                    ui.checkbox(&mut state.show_supports, "Supports");
                 });
                 ui.label(format!("{} skills loaded", registry.len()));
                 ui.separator();
@@ -281,14 +286,20 @@ pub fn ui(
                     .filter(|(_, s)| {
                         let is_spell = s.base_flags.get("spell").copied().unwrap_or(false);
                         let is_attack = s.base_flags.get("attack").copied().unwrap_or(false);
-                        if is_spell && !state.show_spells {
+                        let is_support = s.support;
+                        if is_support && !state.show_supports {
                             return false;
                         }
-                        if is_attack && !state.show_attacks {
-                            return false;
-                        }
-                        if !is_spell && !is_attack {
-                            return false;
+                        if !is_support {
+                            if is_spell && !state.show_spells {
+                                return false;
+                            }
+                            if is_attack && !state.show_attacks {
+                                return false;
+                            }
+                            if !is_spell && !is_attack {
+                                return false;
+                            }
                         }
                         if q.is_empty() {
                             return true;
@@ -303,7 +314,12 @@ pub fn ui(
                     .max_height(420.0)
                     .show(ui, |ui| {
                         for (id, s) in skills {
-                            if ui.selectable_label(false, &s.name).clicked() {
+                            let label = if s.support {
+                                format!("⚙ {}", s.name)
+                            } else {
+                                s.name.clone()
+                            };
+                            if ui.selectable_label(false, label).clicked() {
                                 if let Some(group) =
                                     character.skill_groups.get_mut(state.selected_group)
                                 {
