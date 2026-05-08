@@ -24,6 +24,33 @@ pub struct CharacterSnapshot {
     pub notes: String,
     #[serde(default)]
     pub mastery_selections: Vec<(NodeId, u32)>,
+    #[serde(default)]
+    pub skill_groups: Vec<SocketGroupSnapshot>,
+    #[serde(default = "one")]
+    pub main_socket_group: u32,
+}
+
+fn one() -> u32 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SocketGroupSnapshot {
+    pub label: String,
+    pub gems: Vec<GemSnapshot>,
+    #[serde(default = "one")]
+    pub main_active_skill_index: u32,
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GemSnapshot {
+    pub skill_id: String,
+    #[serde(default)]
+    pub level: u32,
+    #[serde(default)]
+    pub quality: u32,
 }
 
 impl CharacterSnapshot {
@@ -40,9 +67,46 @@ impl CharacterSnapshot {
             config: c.config.clone(),
             notes: c.notes.clone(),
             mastery_selections: c.mastery_selections.iter().map(|(k, v)| (*k, *v)).collect(),
+            skill_groups: c
+                .skill_groups
+                .iter()
+                .map(|g| SocketGroupSnapshot {
+                    label: g.label.clone(),
+                    gems: g
+                        .gems
+                        .iter()
+                        .map(|m| GemSnapshot {
+                            skill_id: m.skill_id.clone(),
+                            level: m.level,
+                            quality: m.quality,
+                        })
+                        .collect(),
+                    main_active_skill_index: g.main_active_skill_index,
+                    enabled: g.enabled,
+                })
+                .collect(),
+            main_socket_group: c.main_socket_group,
         }
     }
     pub fn into_character(self) -> Character {
+        let groups: Vec<SocketGroup> = self
+            .skill_groups
+            .into_iter()
+            .map(|g| SocketGroup {
+                label: g.label,
+                gems: g
+                    .gems
+                    .into_iter()
+                    .map(|gem| MainSkill {
+                        skill_id: gem.skill_id,
+                        level: gem.level.max(1),
+                        quality: gem.quality,
+                    })
+                    .collect(),
+                main_active_skill_index: g.main_active_skill_index.max(1),
+                enabled: g.enabled,
+            })
+            .collect();
         Character {
             class: ClassRef(self.class),
             ascendancy: self.ascendancy,
@@ -54,8 +118,8 @@ impl CharacterSnapshot {
                 level: self.main_skill_level,
                 quality: self.main_skill_quality,
             }),
-            skill_groups: Vec::new(),
-            main_socket_group: 1,
+            skill_groups: groups,
+            main_socket_group: self.main_socket_group,
             config: self.config,
             notes: self.notes,
             mastery_selections: self.mastery_selections.into_iter().collect(),
