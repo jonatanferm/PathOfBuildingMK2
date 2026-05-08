@@ -554,6 +554,7 @@ fn strip_and_collect_trailing_clauses<'a>(
         s = strip_with_weapons_suffix(s).trim();
         s = strip_with_ailment_suffix(s).trim();
         s = strip_if_havent_clause(s, out).trim();
+        s = strip_unless_clause(s, out).trim();
         s = strip_have_equipped_clause(s, out).trim();
         if s.len() == before {
             break;
@@ -672,6 +673,28 @@ fn strip_with_ailment_suffix(text: &str) -> &str {
     ] {
         if let Some(rest) = text.strip_suffix(label) {
             return rest;
+        }
+    }
+    text
+}
+
+/// "...unless you've Killed Recently" / "...unless you have Crit Recently" — the
+/// inverse of `strip_recently_clause`. Emits a negated Condition tag with the
+/// same canonical var names (`KilledRecently`, `BeenHitRecently`, ...).
+fn strip_unless_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
+    let lower = text.to_ascii_lowercase();
+    for prefix in ["unless you've ", "unless you have "] {
+        if let Some(idx) = lower.rfind(prefix) {
+            let suffix = &text[idx + prefix.len()..];
+            if let Some(var) = recent_event_var(suffix) {
+                out.push(Tag {
+                    kind: TagKind::Condition {
+                        var: format!("{var}Recently"),
+                        neg: true,
+                    },
+                });
+                return text[..idx].trim_end_matches(',').trim_end();
+            }
         }
     }
     text
@@ -3276,6 +3299,27 @@ mod tests {
         let m = parse("Damaging Ailments deal damage 15% faster");
         assert_eq!(m.name, "DamagingAilmentsFaster");
         assert_eq!(m.kind, ModType::Inc);
+    }
+
+    #[test]
+    fn unless_youve_killed_recently_emits_negated_tag() {
+        let m = parse("12% increased Damage unless you've Killed Recently");
+        assert_eq!(m.name, "Damage");
+        let has = m.tags.iter().any(|t| matches!(
+            &t.kind,
+            TagKind::Condition { var, neg: true } if var == "KilledRecently"
+        ));
+        assert!(has, "expected negated KilledRecently tag, got {:?}", m.tags);
+    }
+
+    #[test]
+    fn unless_you_have_crit_recently_emits_negated_tag() {
+        let m = parse("8% increased Cast Speed unless you have Crit Recently");
+        let has = m.tags.iter().any(|t| matches!(
+            &t.kind,
+            TagKind::Condition { var, neg: true } if var == "CritRecently"
+        ));
+        assert!(has, "expected negated CritRecently tag, got {:?}", m.tags);
     }
 
     #[test]

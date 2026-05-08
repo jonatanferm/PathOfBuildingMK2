@@ -21,10 +21,12 @@ so range-aware consumers (the hit-damage calc) keep both bounds.
 Closed by phase 3a-cont: `1% increased Damage per Power Charge` now parses as an Inc mod
 with a `Multiplier{var=PowerCharge}` tag. Verified by `mod_db::tests::multiplier_tag_scales`.
 
-### Conditional clauses with `unless` are dropped — Phase 3a (open)
+### Conditional clauses with `unless` are dropped — Phase 3a (closed in 7c)
 
-`unless you have used X recently` clauses are not parsed. We strip "if you've X recently"
-and "while X" but not the `unless` form.
+Closed: `strip_unless_clause` recognises both `unless you've X recently` and
+`unless you have X recently` and emits a negated Condition tag with the same
+canonical var names as the `if you've X recently` path (`KilledRecently`,
+`CritRecently`, `BeenHitRecently`, etc.).
 
 ### `Effect of` modifiers are stat-name-only — Phase 3 (open)
 
