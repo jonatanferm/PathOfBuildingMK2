@@ -2660,6 +2660,63 @@ fn mine_and_trap_throw_timing_emits_pob_default_speeds() {
     }
 }
 
+// Issue #84 (slice 2): multi-throw penalty for mines. PoB applies a
+// "throwing mines takes 10% more time for each additional mine
+// thrown" rule — so layering 4 extra throws (from a Minefield-style
+// `MineThrowCount` BASE 4 mod) divides the laying speed by 1.4.
+// Verifies the engine respects the penalty by injecting the
+// extra-throw mod and checking `MineLayingSpeed` drops by the right
+// factor while throw count goes up.
+#[test]
+fn mine_multi_throw_penalty_scales_laying_speed() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("IcicleMine").is_none() {
+        eprintln!("skip: IcicleMine not in registry");
+        return;
+    }
+    use pob_engine::{Mod, Source};
+
+    // Baseline: default Shadow / IcicleMine, throw_count = 1 (no
+    // MineThrowCount mod). Slice 1 already pins `MineLayingSpeed` at
+    // 1 / 0.3 = 3.333…/s.
+    let mut c = Character::new(ClassRef::shadow(), 90);
+    c.main_skill = Some(MainSkill::new("IcicleMine"));
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let base_speed = baseline.get("MineLayingSpeed");
+    if base_speed <= 0.0 {
+        eprintln!("skip: IcicleMine MineLayingSpeed not emitted");
+        return;
+    }
+
+    // Inject 4 additional mine throws (Minefield-style). Throw count
+    // = 5; expected MineLayingSpeed = base / (1 + (5-1)*0.1) = base / 1.4.
+    // We seed the mod via the player modDB directly so the test
+    // doesn't need to find a specific item.
+    let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
+    env.mod_db.add(
+        Mod::base("MineThrowCount", 4.0)
+            .with_source(Source::Other("test".into())),
+    );
+    // Re-run the skill DPS pass with the augmented modDB.
+    pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
+    let scaled_speed = env.output.get("MineLayingSpeed");
+    let expected = base_speed / 1.4;
+    assert!(
+        (scaled_speed - expected).abs() / expected < 0.01,
+        "MineLayingSpeed with 4 extra throws should be base/1.4 ({expected:.3}); got {scaled_speed:.3}"
+    );
+    // Throw count should reflect the mod (existing slice 1 behaviour).
+    let throws = env.output.get("NumberOfMines");
+    assert!(
+        (throws - 5.0).abs() < 0.01,
+        "NumberOfMines with +4 BASE MineThrowCount should be 5; got {throws}"
+    );
+}
+
 // Issue #8: impale layer adds physical-stack DPS to FullDPS via
 //   ImpaleDPS = stored × stacks(5) × effect/100 × chance/100 × cps
 // Issue #19: Warcry exertion. Each warcry exerts the next N attacks

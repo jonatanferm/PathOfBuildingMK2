@@ -1701,7 +1701,7 @@ fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) 
 /// target, ignores ailments / penetration / resistances of the enemy. Outputs:
 /// `MainSkillId`, `MainSkillLevel`, `MainSkillBaseMin`, `MainSkillBaseMax`,
 /// `MainSkillAverageHit`, `MainSkillDPS`.
-fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut Env) {
+pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut Env) {
     let Some(main) = character.main_skill.as_ref() else {
         return;
     };
@@ -2562,6 +2562,19 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             .more(&cfg, &env.state, "SkillMineThrowingTime");
         // time_more divides into the throw rate (MORE on time = LESS on speed).
         let mut laying_speed = (1.0 / base) * (1.0 + speed_inc) * speed_more / time_more.max(0.001);
+        // Issue #84 (slice 2): multi-throw penalty. Mirrors
+        // CalcOffence.lua:1314 — "Throwing Mines takes 10% more time
+        // for each *additional* Mine thrown". `MineThrowCount` is
+        // `1 + sum(BASE, MineThrowCount)`, so a Minefield support
+        // (which adds 4 BASE) → 5 throws → laying_speed / 1.4.
+        let throw_count = (1.0
+            + env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "MineThrowCount"))
+        .max(1.0);
+        if throw_count > 1.0 {
+            laying_speed /= 1.0 + (throw_count - 1.0) * 0.1;
+        }
         laying_speed = laying_speed.min(60.0);
         env.output.set("MineLayingSpeed", laying_speed);
         env.output.set("MineLayingTime", 1.0 / laying_speed.max(0.001));
