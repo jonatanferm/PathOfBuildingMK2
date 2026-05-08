@@ -1475,6 +1475,45 @@ fn aoe_skills_emit_radius_outputs_that_scale_with_area_mods() {
 }
 
 // Issue #53: Equipped flasks must surface per-flask LifeRecovery /
+// Issue #69: low-life multiplier — toggling the `LowLife` config
+// condition activates `FlaskLifeRecoveryLowLife` MORE multipliers.
+// Without any such mods in the build the toggle should leave recovery
+// unchanged (the multiplier defaults to 1.0). And the baseline
+// recovery formula must stay healthy after the LifeAdditional and
+// low-life layers were folded into the calc.
+#[test]
+fn flask_low_life_toggle_no_mods_keeps_recovery_unchanged() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let flask = parse_item(
+        "Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::Flask1, flask);
+
+    let baseline_out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline = baseline_out.get("Flask1LifeRecovery");
+    // The Colossal Life Flask base is 1000; with LifeAdditional = 0
+    // and low_life_mult = 1.0 the recovery is exactly the base.
+    assert!(
+        (baseline - 1000.0).abs() < 0.01,
+        "Colossal Life Flask baseline must be 1000 after the LifeAdditional / LowLife layers, got {baseline}"
+    );
+    c.config.conditions.insert("LowLife".to_owned(), true);
+    let with_low =
+        pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases)).get("Flask1LifeRecovery");
+    assert!(
+        (with_low - baseline).abs() < 0.01,
+        "LowLife toggle without any FlaskLifeRecoveryLowLife mod must leave recovery unchanged"
+    );
+}
+
 // ManaRecovery output keys (PoB exposes these on the Calcs tab side panel
 // for flask-stacking builds — Pathfinder, Forbidden Rite Hierophant) and
 // they must scale with FlaskLifeRecovery / FlaskEffect / FlaskDuration /

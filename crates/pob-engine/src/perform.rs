@@ -2697,6 +2697,28 @@ fn perform_flask_recovery(
             .mod_db
             .sum(ModType::Inc, &cfg, &env.state, "FlaskManaRecoveryRate");
 
+    // Issue #69: `LifeAdditional` BASE adds flat extra life recovery
+    // on top of the percentage scaling. Hierophant / Pathfinder
+    // ascendancies + a handful of uniques write this. PoB applies it
+    // after the inc/more pass, so we accumulate it here once and add
+    // per-flask. Mana mirrors via `ManaAdditional`.
+    let life_additional =
+        env.mod_db.sum(ModType::Base, &cfg, &env.state, "LifeAdditional");
+    let mana_additional =
+        env.mod_db.sum(ModType::Base, &cfg, &env.state, "ManaAdditional");
+
+    // Issue #69: low-life recovery multiplier — Forbidden Rite and
+    // certain uniques scale recovery while the player is below the
+    // standard low-life threshold. PoB queries `LifeBelow35Percent`
+    // condition, gated on the user's Config-tab `LowLife` toggle.
+    let low_life_mult = if env.state.condition("LowLife") {
+        // Sum of `FlaskLifeRecoveryLowLife` MORE multipliers — items
+        // like Mageblood / Forbidden Rite drop these.
+        env.mod_db.more(&cfg, &env.state, "FlaskLifeRecoveryLowLife")
+    } else {
+        1.0
+    };
+
     let mut life_max: f64 = 0.0;
     let mut mana_max: f64 = 0.0;
 
@@ -2718,10 +2740,12 @@ fn perform_flask_recovery(
 
         let duration = (f64::from(flask.duration) * (1.0 + dur_inc / 100.0)).max(0.001);
         if let Some(life_base) = flask.life {
-            let life = f64::from(life_base)
+            let life = (f64::from(life_base)
                 * (1.0 + life_inc / 100.0)
                 * life_more
-                * (1.0 + effect_inc / 100.0);
+                * (1.0 + effect_inc / 100.0)
+                + life_additional)
+                * low_life_mult;
             let life_dur = duration / (1.0 + life_rate_inc / 100.0);
             let rate = if life_dur > 0.0 { life / life_dur } else { 0.0 };
             env.output.set(&key_life, life);
@@ -2732,7 +2756,8 @@ fn perform_flask_recovery(
             let mana = f64::from(mana_base)
                 * (1.0 + mana_inc / 100.0)
                 * mana_more
-                * (1.0 + effect_inc / 100.0);
+                * (1.0 + effect_inc / 100.0)
+                + mana_additional;
             let mana_dur = duration / (1.0 + mana_rate_inc / 100.0);
             let rate = if mana_dur > 0.0 { mana / mana_dur } else { 0.0 };
             env.output.set(&key_mana, mana);
