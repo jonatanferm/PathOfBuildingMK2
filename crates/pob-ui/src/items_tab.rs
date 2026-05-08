@@ -2,7 +2,7 @@
 
 use eframe::egui;
 use pob_data::{Item, ItemSet, Rarity, Slot};
-use pob_engine::parse_item;
+use pob_engine::{parse_item, Character};
 
 pub struct ItemsTabState {
     /// Slot the user is currently editing (paste / clear / view).
@@ -11,6 +11,8 @@ pub struct ItemsTabState {
     pub paste_buffer: String,
     /// Last parse error, if any, shown next to the textarea.
     pub last_error: Option<String>,
+    /// Buffer for the "save current as new set" name input.
+    pub new_set_name: String,
 }
 
 impl Default for ItemsTabState {
@@ -19,13 +21,62 @@ impl Default for ItemsTabState {
             selected_slot: Some(Slot::Amulet),
             paste_buffer: String::new(),
             last_error: None,
+            new_set_name: String::new(),
         }
     }
 }
 
 /// Returns true if the equipped items changed (so the caller can recompute).
-pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, items: &mut ItemSet) -> bool {
+pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Character) -> bool {
     let mut changed = false;
+    // Issue #27: item-set saves. Top row lets the user save the current
+    // loadout as a named set, swap a saved set in, or delete one.
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Item sets:");
+        let total = character.item_sets.len();
+        if total == 0 {
+            ui.weak("(none saved)");
+        } else {
+            // Snapshot names so we don't borrow `character.item_sets`
+            // while mutating it inside the loop.
+            let entries: Vec<(usize, String)> = character
+                .item_sets
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (i, s.name.clone()))
+                .collect();
+            for (idx, name) in entries {
+                if ui.button(format!("Load {name}")).clicked() {
+                    if character.activate_item_set(idx) {
+                        changed = true;
+                    }
+                }
+                if ui.small_button("✕").on_hover_text(format!("Delete {name}")).clicked() {
+                    if character.delete_item_set(idx) {
+                        // No recompute — deleting a saved (inactive)
+                        // set doesn't change `character.items`.
+                    }
+                }
+            }
+        }
+        ui.separator();
+        ui.add(
+            egui::TextEdit::singleline(&mut state.new_set_name)
+                .desired_width(120.0)
+                .hint_text("New set name…"),
+        );
+        let save_enabled = !state.new_set_name.trim().is_empty();
+        if ui
+            .add_enabled(save_enabled, egui::Button::new("Save current as set"))
+            .clicked()
+        {
+            character.save_item_set(state.new_set_name.trim().to_owned());
+            state.new_set_name.clear();
+        }
+    });
+    ui.separator();
+
+    let items: &mut ItemSet = &mut character.items;
     ui.horizontal(|ui| {
         // Left: slot grid
         ui.vertical(|ui| {

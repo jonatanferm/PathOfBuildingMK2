@@ -877,7 +877,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Items => {
-            if items_tab::ui(ui, &mut app.items_state, &mut app.character.items) {
+            if items_tab::ui(ui, &mut app.items_state, &mut app.character) {
                 recompute = true;
             }
         }

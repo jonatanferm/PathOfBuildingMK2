@@ -34,6 +34,20 @@ pub struct CharacterSnapshot {
     pub pantheon_major: MajorGod,
     #[serde(default)]
     pub pantheon_minor: MinorGod,
+    /// Named item-set saves the user has stored. The active set is the
+    /// `items` field on Character; this list keeps inactive copies that
+    /// the user can swap in.
+    #[serde(default)]
+    pub item_sets: Vec<NamedItemSet>,
+}
+
+/// One stored item-loadout save. `items` is the same `ItemSet` the
+/// active hand uses — switching the active set just clones it back
+/// onto `Character::items`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NamedItemSet {
+    pub name: String,
+    pub items: ItemSet,
 }
 
 fn one() -> u32 {
@@ -102,6 +116,7 @@ impl CharacterSnapshot {
             bandit: c.bandit,
             pantheon_major: c.pantheon_major,
             pantheon_minor: c.pantheon_minor,
+            item_sets: c.item_sets.clone(),
         }
     }
     pub fn into_character(self) -> Character {
@@ -144,6 +159,7 @@ impl CharacterSnapshot {
             bandit: self.bandit,
             pantheon_major: self.pantheon_major,
             pantheon_minor: self.pantheon_minor,
+            item_sets: self.item_sets,
         }
     }
 }
@@ -380,6 +396,11 @@ pub struct Character {
     pub pantheon_major: MajorGod,
     /// Endgame Pantheon Minor God.
     pub pantheon_minor: MinorGod,
+    /// Stored item-loadout saves the user has named (e.g. "Mapping",
+    /// "Bossing"). The active loadout is the `items` field above; this
+    /// list keeps inactive copies that the user can swap in via
+    /// `activate_item_set`.
+    pub item_sets: Vec<NamedItemSet>,
 }
 
 /// Encounter / condition configuration. Mirrors PoB's Config tab:
@@ -603,6 +624,47 @@ impl Character {
             bandit: Bandit::default(),
             pantheon_major: MajorGod::default(),
             pantheon_minor: MinorGod::default(),
+            item_sets: Vec::new(),
+        }
+    }
+
+    /// Save the current `items` map as a named entry in `item_sets`.
+    /// Returns the index of the new entry. If a set with the given
+    /// name already exists, overwrites it and returns its index.
+    pub fn save_item_set(&mut self, name: impl Into<String>) -> usize {
+        let name = name.into();
+        let snapshot = NamedItemSet {
+            name: name.clone(),
+            items: self.items.clone(),
+        };
+        if let Some(idx) = self.item_sets.iter().position(|s| s.name == name) {
+            self.item_sets[idx] = snapshot;
+            idx
+        } else {
+            self.item_sets.push(snapshot);
+            self.item_sets.len() - 1
+        }
+    }
+
+    /// Make `item_sets[idx]` the active loadout. Returns true if the
+    /// swap happened (idx in range), false otherwise. The previously
+    /// active items are NOT auto-saved — call `save_item_set` first if
+    /// you want to keep them.
+    pub fn activate_item_set(&mut self, idx: usize) -> bool {
+        let Some(set) = self.item_sets.get(idx) else {
+            return false;
+        };
+        self.items = set.items.clone();
+        true
+    }
+
+    /// Remove the named set from `item_sets`. Returns true if removed.
+    pub fn delete_item_set(&mut self, idx: usize) -> bool {
+        if idx < self.item_sets.len() {
+            self.item_sets.remove(idx);
+            true
+        } else {
+            false
         }
     }
 
