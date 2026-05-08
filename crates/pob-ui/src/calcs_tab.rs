@@ -22,12 +22,48 @@ impl Default for CalcsTabState {
 }
 
 /// Stat category groupings — each (heading, prefix-or-substring-list).
+/// Section order + names track upstream PoB's
+/// `Modules/CalcSections.lua` structure: Offence groups first
+/// (Skill Hit Damage / Speed / Crit / Accuracy / Impale / Bleed /
+/// Poison / Ignite / Other Effects), then Attributes, then Defence
+/// (Resists / Damage Avoidance / Charges / Other Defences). A full
+/// CalcSections.lua port (#34) keeps section-row breakdowns scoped
+/// to each stat, but matching the layout already gets us most of the
+/// usability win.
 const GROUPS: &[(&str, &[&str])] = &[
+    // OFFENCE column.
+    (
+        "Skill Hit Damage",
+        &[
+            "MainSkill",
+            "FullDPS",
+            "WithBleedDPS",
+            "WithImpaleDPS",
+            "Damage",
+        ],
+    ),
+    (
+        "Attack / Cast Rate",
+        &["Speed", "AttackSpeed", "CastSpeed", "MainSkillSpeed"],
+    ),
+    ("Crits", &["Crit", "CritChance", "CritMultiplier"]),
+    ("Impale", &["Impale"]),
+    ("Accuracy", &["Accuracy", "HitChance"]),
+    ("Bleed", &["Bleed"]),
+    ("Poison", &["Poison"]),
+    ("Ignite", &["Ignite"]),
+    (
+        "Non-Damaging Ailments",
+        &["Freeze", "Shock", "Chill", "Scorch", "Ailment"],
+    ),
+    ("Other Offence", &["Projectile", "Chain", "AoE", "Area"]),
+    // CORE / NORMAL.
     (
         "Attributes",
         &["Strength", "Dexterity", "Intelligence", "AllAttributes"],
     ),
     ("Pools", &["Life", "Mana", "EnergyShield", "Ward", "Rage"]),
+    // DEFENCE column.
     (
         "Resists",
         &[
@@ -39,23 +75,17 @@ const GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "Defences",
-        &[
-            "Armour", "Evasion", "Block", "Spell", "Suppress", "Recover", "Regen", "Recharge",
-            "Phys",
-        ],
+        "Damage Avoidance",
+        &["Block", "Suppress", "Dodge", "Avoid"],
     ),
-    ("EHP", &["EHP"]),
     (
-        "Charges & Multipliers",
-        &["Charge", "Crit", "Power", "Frenzy", "Endurance"],
+        "Charges",
+        &["Charge", "PowerCharge", "FrenzyCharge", "EnduranceCharge"],
     ),
-    ("Speeds", &["Speed", "Accuracy"]),
-    ("Main Skill", &["MainSkill", "FullDPS"]),
     (
-        "Ailments",
+        "Other Defences",
         &[
-            "Bleed", "Poison", "Ignite", "Freeze", "Shock", "Chill", "Ailment",
+            "Armour", "Evasion", "Recover", "Regen", "Recharge", "Phys", "EHP",
         ],
     ),
     ("Misc", &["Misc:", "Keystone:"]),
