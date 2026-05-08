@@ -70,11 +70,8 @@ fn write_items(out: &mut String, c: &Character) {
     // Sort by slot for deterministic output. Each item gets a 1-based id
     // (PoB tolerates any positive integer; the `<Slot itemId>` references
     // them by id).
-    let mut entries: Vec<(pob_data::Slot, &pob_data::Item)> = c
-        .items
-        .iter()
-        .map(|(slot, item)| (*slot, item))
-        .collect();
+    let mut entries: Vec<(pob_data::Slot, &pob_data::Item)> =
+        c.items.iter().map(|(slot, item)| (*slot, item)).collect();
     entries.sort_by_key(|(slot, _)| pob_slot_to_name(*slot));
 
     for (id, (_, item)) in entries.iter().enumerate() {
@@ -333,10 +330,7 @@ mod tests {
         assert_eq!(imported.allocated.len(), 3);
         assert!(imported.allocated.contains(&101));
         assert!(imported.allocated.contains(&303));
-        assert_eq!(
-            imported.notes,
-            "Build summary <with> & special characters."
-        );
+        assert_eq!(imported.notes, "Build summary <with> & special characters.");
     }
 
     #[test]
@@ -384,9 +378,7 @@ mod tests {
         c.sync_main_skill();
 
         // Config: one condition, one charge multiplier, one typed enemy field.
-        c.config
-            .conditions
-            .insert("FullLife".to_owned(), true);
+        c.config.conditions.insert("FullLife".to_owned(), true);
         c.config.multipliers.insert("PowerCharge".into(), 3.0);
         c.config.enemy_lightning_resist = 50;
 
@@ -414,7 +406,10 @@ mod tests {
         assert!(group.gems[0].enabled);
         assert_eq!(group.gems[1].skill_id, "ArcaneSurge");
         assert!(!group.gems[1].enabled);
-        assert_eq!(r.main_skill.as_ref().map(|m| m.skill_id.as_str()), Some("Arc"));
+        assert_eq!(
+            r.main_skill.as_ref().map(|m| m.skill_id.as_str()),
+            Some("Arc")
+        );
 
         // Config: condition + charge multiplier + enemy resist.
         assert_eq!(r.config.conditions.get("FullLife"), Some(&true));

@@ -146,13 +146,27 @@ impl CharacterSnapshot {
 pub struct ClassRef(pub String);
 
 impl ClassRef {
-    pub fn marauder() -> Self { Self("Marauder".into()) }
-    pub fn ranger() -> Self { Self("Ranger".into()) }
-    pub fn witch() -> Self { Self("Witch".into()) }
-    pub fn duelist() -> Self { Self("Duelist".into()) }
-    pub fn templar() -> Self { Self("Templar".into()) }
-    pub fn shadow() -> Self { Self("Shadow".into()) }
-    pub fn scion() -> Self { Self("Scion".into()) }
+    pub fn marauder() -> Self {
+        Self("Marauder".into())
+    }
+    pub fn ranger() -> Self {
+        Self("Ranger".into())
+    }
+    pub fn witch() -> Self {
+        Self("Witch".into())
+    }
+    pub fn duelist() -> Self {
+        Self("Duelist".into())
+    }
+    pub fn templar() -> Self {
+        Self("Templar".into())
+    }
+    pub fn shadow() -> Self {
+        Self("Shadow".into())
+    }
+    pub fn scion() -> Self {
+        Self("Scion".into())
+    }
 }
 
 /// A single PoB-style "socket group" — a set of linked gems that share buffs

@@ -204,11 +204,41 @@ impl TreeRenderer {
         let device = &render_state.device;
         let queue = &render_state.queue;
 
-        let active_tex = upload_atlas(device, queue, &atlases.active_rgba8, atlases.active_size, "atlas_active");
-        let inactive_tex = upload_atlas(device, queue, &atlases.inactive_rgba8, atlases.inactive_size, "atlas_inactive");
-        let group_tex = upload_atlas(device, queue, &atlases.group_rgba8, atlases.group_size, "atlas_group");
-        let frame_tex = upload_atlas(device, queue, &atlases.frame_rgba8, atlases.frame_size, "atlas_frame");
-        let mastery_tex = upload_atlas(device, queue, &atlases.mastery_rgba8, atlases.mastery_size, "atlas_mastery");
+        let active_tex = upload_atlas(
+            device,
+            queue,
+            &atlases.active_rgba8,
+            atlases.active_size,
+            "atlas_active",
+        );
+        let inactive_tex = upload_atlas(
+            device,
+            queue,
+            &atlases.inactive_rgba8,
+            atlases.inactive_size,
+            "atlas_inactive",
+        );
+        let group_tex = upload_atlas(
+            device,
+            queue,
+            &atlases.group_rgba8,
+            atlases.group_size,
+            "atlas_group",
+        );
+        let frame_tex = upload_atlas(
+            device,
+            queue,
+            &atlases.frame_rgba8,
+            atlases.frame_size,
+            "atlas_frame",
+        );
+        let mastery_tex = upload_atlas(
+            device,
+            queue,
+            &atlases.mastery_rgba8,
+            atlases.mastery_size,
+            "atlas_mastery",
+        );
         let active_view = active_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let inactive_view = inactive_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let group_view = group_tex.create_view(&wgpu::TextureViewDescriptor::default());
@@ -225,68 +255,68 @@ impl TreeRenderer {
             ..Default::default()
         });
 
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("tree.bind_group_layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("tree.bind_group_layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                ],
-            });
+                    count: None,
+                },
+            ],
+        });
 
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("tree.pipeline_layout"),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("tree.pipeline_layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
 
-        let node_pipeline = build_node_pipeline(device, &pipeline_layout, render_state.target_format);
-        let edge_pipeline = build_edge_pipeline(device, &pipeline_layout, render_state.target_format);
+        let node_pipeline =
+            build_node_pipeline(device, &pipeline_layout, render_state.target_format);
+        let edge_pipeline =
+            build_edge_pipeline(device, &pipeline_layout, render_state.target_format);
         let arc_pipeline = build_arc_pipeline(device, &pipeline_layout, render_state.target_format);
 
         // Group-background pipeline uses a 3-binding layout: uniform + atlas
@@ -330,18 +360,12 @@ impl TreeRenderer {
                 bind_group_layouts: &[&group_bind_group_layout],
                 push_constant_ranges: &[],
             });
-        let group_pipeline = build_group_pipeline(
-            device,
-            &group_pipeline_layout,
-            render_state.target_format,
-        );
+        let group_pipeline =
+            build_group_pipeline(device, &group_pipeline_layout, render_state.target_format);
         // Frame pipeline shares the group bind-group layout (uniform + atlas
         // + sampler). Different shader, different texture binding.
-        let frame_pipeline = build_frame_pipeline(
-            device,
-            &group_pipeline_layout,
-            render_state.target_format,
-        );
+        let frame_pipeline =
+            build_frame_pipeline(device, &group_pipeline_layout, render_state.target_format);
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tree.uniform_buffer"),
@@ -624,9 +648,7 @@ fn build_node_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("tree_nodes.wgsl"),
-        source: wgpu::ShaderSource::Wgsl(
-            include_str!("../shaders/tree_nodes.wgsl").into(),
-        ),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/tree_nodes.wgsl").into()),
     });
     let attrs = wgpu::vertex_attr_array![
         0 => Float32x2, // world_pos          @ 0
@@ -677,9 +699,7 @@ fn build_group_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("tree_groups.wgsl"),
-        source: wgpu::ShaderSource::Wgsl(
-            include_str!("../shaders/tree_groups.wgsl").into(),
-        ),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/tree_groups.wgsl").into()),
     });
     let attrs = wgpu::vertex_attr_array![
         0 => Float32x2, // world_pos     @ 0
@@ -728,9 +748,7 @@ fn build_frame_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("tree_frames.wgsl"),
-        source: wgpu::ShaderSource::Wgsl(
-            include_str!("../shaders/tree_frames.wgsl").into(),
-        ),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/tree_frames.wgsl").into()),
     });
     let attrs = wgpu::vertex_attr_array![
         0 => Float32x2,
@@ -779,9 +797,7 @@ fn build_edge_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("tree_edges.wgsl"),
-        source: wgpu::ShaderSource::Wgsl(
-            include_str!("../shaders/tree_edges.wgsl").into(),
-        ),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/tree_edges.wgsl").into()),
     });
     // EdgeInstance: a (vec2), b (vec2), state (u32), _pad (u32). Shader uses
     // locations 0 (a), 1 (b), 2 (state); the trailing pad word doesn't get a
@@ -833,9 +849,7 @@ fn build_arc_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("tree_arcs.wgsl"),
-        source: wgpu::ShaderSource::Wgsl(
-            include_str!("../shaders/tree_arcs.wgsl").into(),
-        ),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/tree_arcs.wgsl").into()),
     });
     let attrs = wgpu::vertex_attr_array![
         0 => Float32x2, // center            @ 0

@@ -29,7 +29,9 @@ pub fn compute_node_positions(tree: &PassiveTree) -> HashMap<NodeId, NodePos> {
         // We skip them entirely so they don't pile up at (0, 0) in the
         // tree-view centre.
         let Some(group_id) = node.group else { continue };
-        let Some(group) = tree.groups.get(&group_id) else { continue };
+        let Some(group) = tree.groups.get(&group_id) else {
+            continue;
+        };
         let orbit = node.orbit.unwrap_or(0) as usize;
         let orbit_index = node.orbit_index.unwrap_or(0) as usize;
 
@@ -49,14 +51,14 @@ pub fn compute_node_positions(tree: &PassiveTree) -> HashMap<NodeId, NodePos> {
 pub(crate) fn orbit_angles_rad(nodes_in_orbit: u32) -> Vec<f32> {
     let degs: Vec<f32> = match nodes_in_orbit {
         16 => vec![
-            0.0, 30.0, 45.0, 60.0, 90.0, 120.0, 135.0, 150.0, 180.0, 210.0, 225.0, 240.0,
-            270.0, 300.0, 315.0, 330.0,
+            0.0, 30.0, 45.0, 60.0, 90.0, 120.0, 135.0, 150.0, 180.0, 210.0, 225.0, 240.0, 270.0,
+            300.0, 315.0, 330.0,
         ],
         40 => vec![
-            0.0, 10.0, 20.0, 30.0, 40.0, 45.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0,
-            120.0, 130.0, 135.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0, 200.0, 210.0,
-            220.0, 225.0, 230.0, 240.0, 250.0, 260.0, 270.0, 280.0, 290.0, 300.0, 310.0,
-            315.0, 320.0, 330.0, 340.0, 350.0,
+            0.0, 10.0, 20.0, 30.0, 40.0, 45.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0,
+            130.0, 135.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0, 200.0, 210.0, 220.0, 225.0,
+            230.0, 240.0, 250.0, 260.0, 270.0, 280.0, 290.0, 300.0, 310.0, 315.0, 320.0, 330.0,
+            340.0, 350.0,
         ],
         n if n > 0 => (0..n).map(|i| 360.0 * i as f32 / n as f32).collect(),
         _ => vec![0.0],

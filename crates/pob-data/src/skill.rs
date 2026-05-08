@@ -62,7 +62,9 @@ where
             Ok(a.into_iter()
                 .enumerate()
                 .filter_map(|(i, v)| {
-                    serde_json::from_value::<bool>(v).ok().map(|b| ((i + 1).to_string(), b))
+                    serde_json::from_value::<bool>(v)
+                        .ok()
+                        .map(|b| ((i + 1).to_string(), b))
                 })
                 .collect())
         }
@@ -98,7 +100,11 @@ pub struct Skill {
     pub cast_time: f32,
     /// Mapping `stat_id_string -> bool` for properties like `spell`, `chaining`,
     /// `attack`, `area`, `melee`. The presence of a key means that flag is set.
-    #[serde(default, rename = "baseFlags", deserialize_with = "de_lenient_indexmap")]
+    #[serde(
+        default,
+        rename = "baseFlags",
+        deserialize_with = "de_lenient_indexmap"
+    )]
     pub base_flags: IndexMap<String, bool>,
     /// `[stat_id, scale_per_quality]` entries.
     #[serde(default, rename = "qualityStats", deserialize_with = "de_lenient_vec")]
@@ -113,7 +119,11 @@ pub struct Skill {
     #[serde(default, rename = "notMinionStat", deserialize_with = "de_lenient_vec")]
     pub not_minion_stat: Vec<String>,
     /// SkillType ids (numbers) the skill participates in.
-    #[serde(default, rename = "skillTypes", deserialize_with = "de_lenient_indexmap")]
+    #[serde(
+        default,
+        rename = "skillTypes",
+        deserialize_with = "de_lenient_indexmap"
+    )]
     pub skill_types: IndexMap<String, bool>,
     /// Per-level data, ordered by gem level (level 1 at index 0). Each entry is a JSON
     /// object with positional and named fields — see `SkillLevel` for accessors.
@@ -132,9 +142,17 @@ pub struct Skill {
     /// Skill-type filters that determine which active skills a support can
     /// link to. Empty `addSkillTypes` means "any skill type matching the
     /// support's intent" (e.g. attack-only or spell-only).
-    #[serde(default, rename = "addSkillTypes", deserialize_with = "de_lenient_indexmap")]
+    #[serde(
+        default,
+        rename = "addSkillTypes",
+        deserialize_with = "de_lenient_indexmap"
+    )]
     pub add_skill_types: IndexMap<String, bool>,
-    #[serde(default, rename = "excludeSkillTypes", deserialize_with = "de_lenient_indexmap")]
+    #[serde(
+        default,
+        rename = "excludeSkillTypes",
+        deserialize_with = "de_lenient_indexmap"
+    )]
     pub exclude_skill_types: IndexMap<String, bool>,
     /// Effectiveness multiplier baseline (PoB's `baseEffectiveness`).
     #[serde(default, rename = "baseEffectiveness")]

@@ -23,7 +23,11 @@ mod tree;
 
 fn main() -> Result<()> {
     let args = cli::Args::parse();
-    println!("pob-extract: pob={} out={}", args.pob.display(), args.out.display());
+    println!(
+        "pob-extract: pob={} out={}",
+        args.pob.display(),
+        args.out.display()
+    );
     std::fs::create_dir_all(&args.out)
         .with_context(|| format!("creating output dir {}", args.out.display()))?;
 
@@ -31,10 +35,11 @@ fn main() -> Result<()> {
 
     // Bases — many small files merged into one.
     let bases_path = args.out.join("bases.json");
-    let bases = bases::extract_all(&args.pob)
-        .with_context(|| "extracting item bases".to_string())?;
+    let bases =
+        bases::extract_all(&args.pob).with_context(|| "extracting item bases".to_string())?;
     let json = serde_json::to_string_pretty(&bases)?;
-    std::fs::write(&bases_path, json).with_context(|| format!("writing {}", bases_path.display()))?;
+    std::fs::write(&bases_path, json)
+        .with_context(|| format!("writing {}", bases_path.display()))?;
     wrote.push(bases_path);
 
     // Gems — one file.
@@ -168,10 +173,7 @@ pub(crate) fn make_lua() -> Result<Lua> {
                 Ok(acc)
             })?,
         )?;
-        bit_tbl.set(
-            "bnot",
-            lua.create_function(|_, v: i64| Ok(!v))?,
-        )?;
+        bit_tbl.set("bnot", lua.create_function(|_, v: i64| Ok(!v))?)?;
         bit_tbl.set(
             "bxor",
             lua.create_function(|_, args: mlua::MultiValue| {
@@ -192,85 +194,214 @@ pub(crate) fn make_lua() -> Result<Lua> {
 fn skill_type_pairs() -> &'static [(&'static str, u32)] {
     // Mirror the `SkillType` enum in pob-data::flags (1..=141 range, 1-indexed names).
     &[
-        ("Attack", 1), ("Spell", 2), ("Projectile", 3), ("DualWieldOnly", 4),
-        ("Buff", 5), ("Removed6", 6), ("MainHandOnly", 7), ("Removed8", 8),
-        ("Minion", 9), ("Damage", 10), ("Area", 11), ("Duration", 12),
-        ("RequiresShield", 13), ("ProjectileSpeed", 14), ("HasReservation", 15),
-        ("ReservationBecomesCost", 16), ("Trappable", 17), ("Totemable", 18),
-        ("Mineable", 19), ("ElementalStatus", 20), ("MinionsCanExplode", 21),
-        ("Removed22", 22), ("Chains", 23), ("Melee", 24), ("MeleeSingleTarget", 25),
-        ("Multicastable", 26), ("TotemCastsAlone", 27), ("Multistrikeable", 28),
-        ("CausesBurning", 29), ("SummonsTotem", 30), ("TotemCastsWhenNotDetached", 31),
-        ("Fire", 32), ("Cold", 33), ("Lightning", 34), ("Triggerable", 35),
-        ("Trapped", 36), ("Movement", 37), ("Removed38", 38), ("DamageOverTime", 39),
-        ("RemoteMined", 40), ("Triggered", 41), ("Vaal", 42), ("Aura", 43),
-        ("Removed44", 44), ("CanTargetUnusableCorpse", 45), ("Removed46", 46),
-        ("RangedAttack", 47), ("Removed48", 48), ("Chaos", 49),
-        ("FixedSpeedProjectile", 50), ("Removed51", 51), ("ThresholdJewelArea", 52),
-        ("ThresholdJewelProjectile", 53), ("ThresholdJewelDuration", 54),
-        ("ThresholdJewelRangedAttack", 55), ("Removed56", 56), ("Channel", 57),
-        ("DegenOnlySpellDamage", 58), ("Removed59", 59), ("InbuiltTrigger", 60),
-        ("Golem", 61), ("Herald", 62), ("AuraAffectsEnemies", 63), ("NoRuthless", 64),
-        ("ThresholdJewelSpellDamage", 65), ("Cascadable", 66),
-        ("ProjectilesFromUser", 67), ("MirageArcherCanUse", 68),
-        ("ProjectileSpiral", 69), ("SingleMainProjectile", 70),
-        ("MinionsPersistWhenSkillRemoved", 71), ("ProjectileNumber", 72),
-        ("Warcry", 73), ("Instant", 74), ("Brand", 75), ("DestroysCorpse", 76),
-        ("NonHitChill", 77), ("ChillingArea", 78), ("AppliesCurse", 79),
-        ("CanRapidFire", 80), ("AuraDuration", 81), ("AreaSpell", 82),
-        ("OR", 83), ("AND", 84), ("NOT", 85), ("Physical", 86),
-        ("AppliesMaim", 87), ("CreatesMinion", 88), ("Guard", 89), ("Travel", 90),
-        ("Blink", 91), ("CanHaveBlessing", 92), ("ProjectilesNotFromUser", 93),
-        ("AttackInPlaceIsDefault", 94), ("Nova", 95), ("InstantNoRepeatWhenHeld", 96),
-        ("InstantShiftAttackForLeftMouse", 97), ("AuraNotOnCaster", 98),
-        ("Banner", 99), ("Rain", 100), ("Cooldown", 101),
-        ("ThresholdJewelChaining", 102), ("Slam", 103), ("Stance", 104),
-        ("NonRepeatable", 105), ("OtherThingUsesSkill", 106), ("Steel", 107),
-        ("Hex", 108), ("Mark", 109), ("Aegis", 110), ("Orb", 111),
-        ("KillNoDamageModifiers", 112), ("RandomElement", 113),
-        ("LateConsumeCooldown", 114), ("Arcane", 115), ("FixedCastTime", 116),
-        ("RequiresOffHandNotWeapon", 117), ("Link", 118), ("Blessing", 119),
-        ("ZeroReservation", 120), ("DynamicCooldown", 121), ("Microtransaction", 122),
-        ("OwnerCannotUse", 123), ("ProjectilesNumberModifiersNotApplied", 124),
-        ("TotemsAreBallistae", 125), ("SkillGrantedBySupport", 126),
-        ("PreventHexTransfer", 127), ("MinionsAreUndamagable", 128),
-        ("InnateTrauma", 129), ("DualWieldRequiresDifferentTypes", 130),
-        ("NoVolley", 131), ("Retaliation", 132), ("NeverExertable", 133),
-        ("DisallowTriggerSupports", 134), ("ProjectileCannotReturn", 135),
-        ("Offering", 136), ("SupportedByBane", 137), ("WandAttack", 138),
-        ("GainsIntensity", 139), ("CreatesSentinelMinion", 140),
+        ("Attack", 1),
+        ("Spell", 2),
+        ("Projectile", 3),
+        ("DualWieldOnly", 4),
+        ("Buff", 5),
+        ("Removed6", 6),
+        ("MainHandOnly", 7),
+        ("Removed8", 8),
+        ("Minion", 9),
+        ("Damage", 10),
+        ("Area", 11),
+        ("Duration", 12),
+        ("RequiresShield", 13),
+        ("ProjectileSpeed", 14),
+        ("HasReservation", 15),
+        ("ReservationBecomesCost", 16),
+        ("Trappable", 17),
+        ("Totemable", 18),
+        ("Mineable", 19),
+        ("ElementalStatus", 20),
+        ("MinionsCanExplode", 21),
+        ("Removed22", 22),
+        ("Chains", 23),
+        ("Melee", 24),
+        ("MeleeSingleTarget", 25),
+        ("Multicastable", 26),
+        ("TotemCastsAlone", 27),
+        ("Multistrikeable", 28),
+        ("CausesBurning", 29),
+        ("SummonsTotem", 30),
+        ("TotemCastsWhenNotDetached", 31),
+        ("Fire", 32),
+        ("Cold", 33),
+        ("Lightning", 34),
+        ("Triggerable", 35),
+        ("Trapped", 36),
+        ("Movement", 37),
+        ("Removed38", 38),
+        ("DamageOverTime", 39),
+        ("RemoteMined", 40),
+        ("Triggered", 41),
+        ("Vaal", 42),
+        ("Aura", 43),
+        ("Removed44", 44),
+        ("CanTargetUnusableCorpse", 45),
+        ("Removed46", 46),
+        ("RangedAttack", 47),
+        ("Removed48", 48),
+        ("Chaos", 49),
+        ("FixedSpeedProjectile", 50),
+        ("Removed51", 51),
+        ("ThresholdJewelArea", 52),
+        ("ThresholdJewelProjectile", 53),
+        ("ThresholdJewelDuration", 54),
+        ("ThresholdJewelRangedAttack", 55),
+        ("Removed56", 56),
+        ("Channel", 57),
+        ("DegenOnlySpellDamage", 58),
+        ("Removed59", 59),
+        ("InbuiltTrigger", 60),
+        ("Golem", 61),
+        ("Herald", 62),
+        ("AuraAffectsEnemies", 63),
+        ("NoRuthless", 64),
+        ("ThresholdJewelSpellDamage", 65),
+        ("Cascadable", 66),
+        ("ProjectilesFromUser", 67),
+        ("MirageArcherCanUse", 68),
+        ("ProjectileSpiral", 69),
+        ("SingleMainProjectile", 70),
+        ("MinionsPersistWhenSkillRemoved", 71),
+        ("ProjectileNumber", 72),
+        ("Warcry", 73),
+        ("Instant", 74),
+        ("Brand", 75),
+        ("DestroysCorpse", 76),
+        ("NonHitChill", 77),
+        ("ChillingArea", 78),
+        ("AppliesCurse", 79),
+        ("CanRapidFire", 80),
+        ("AuraDuration", 81),
+        ("AreaSpell", 82),
+        ("OR", 83),
+        ("AND", 84),
+        ("NOT", 85),
+        ("Physical", 86),
+        ("AppliesMaim", 87),
+        ("CreatesMinion", 88),
+        ("Guard", 89),
+        ("Travel", 90),
+        ("Blink", 91),
+        ("CanHaveBlessing", 92),
+        ("ProjectilesNotFromUser", 93),
+        ("AttackInPlaceIsDefault", 94),
+        ("Nova", 95),
+        ("InstantNoRepeatWhenHeld", 96),
+        ("InstantShiftAttackForLeftMouse", 97),
+        ("AuraNotOnCaster", 98),
+        ("Banner", 99),
+        ("Rain", 100),
+        ("Cooldown", 101),
+        ("ThresholdJewelChaining", 102),
+        ("Slam", 103),
+        ("Stance", 104),
+        ("NonRepeatable", 105),
+        ("OtherThingUsesSkill", 106),
+        ("Steel", 107),
+        ("Hex", 108),
+        ("Mark", 109),
+        ("Aegis", 110),
+        ("Orb", 111),
+        ("KillNoDamageModifiers", 112),
+        ("RandomElement", 113),
+        ("LateConsumeCooldown", 114),
+        ("Arcane", 115),
+        ("FixedCastTime", 116),
+        ("RequiresOffHandNotWeapon", 117),
+        ("Link", 118),
+        ("Blessing", 119),
+        ("ZeroReservation", 120),
+        ("DynamicCooldown", 121),
+        ("Microtransaction", 122),
+        ("OwnerCannotUse", 123),
+        ("ProjectilesNumberModifiersNotApplied", 124),
+        ("TotemsAreBallistae", 125),
+        ("SkillGrantedBySupport", 126),
+        ("PreventHexTransfer", 127),
+        ("MinionsAreUndamagable", 128),
+        ("InnateTrauma", 129),
+        ("DualWieldRequiresDifferentTypes", 130),
+        ("NoVolley", 131),
+        ("Retaliation", 132),
+        ("NeverExertable", 133),
+        ("DisallowTriggerSupports", 134),
+        ("ProjectileCannotReturn", 135),
+        ("Offering", 136),
+        ("SupportedByBane", 137),
+        ("WandAttack", 138),
+        ("GainsIntensity", 139),
+        ("CreatesSentinelMinion", 140),
         ("SupportedByAutoExertion", 141),
     ]
 }
 
 fn keyword_flag_pairs() -> &'static [(&'static str, u32)] {
     &[
-        ("Aura", 0x0000_0001), ("Curse", 0x0000_0002), ("Warcry", 0x0000_0004),
-        ("Movement", 0x0000_0008), ("Physical", 0x0000_0010), ("Fire", 0x0000_0020),
-        ("Cold", 0x0000_0040), ("Lightning", 0x0000_0080), ("Chaos", 0x0000_0100),
-        ("Vaal", 0x0000_0200), ("Bow", 0x0000_0400), ("Arrow", 0x0000_0800),
-        ("Trap", 0x0000_1000), ("Mine", 0x0000_2000), ("Totem", 0x0000_4000),
-        ("Minion", 0x0000_8000), ("Attack", 0x0001_0000), ("Spell", 0x0002_0000),
-        ("Hit", 0x0004_0000), ("Ailment", 0x0008_0000), ("Brand", 0x0010_0000),
-        ("Poison", 0x0020_0000), ("Bleed", 0x0040_0000), ("Ignite", 0x0080_0000),
-        ("PhysicalDot", 0x0100_0000), ("LightningDot", 0x0200_0000),
-        ("ColdDot", 0x0400_0000), ("FireDot", 0x0800_0000), ("ChaosDot", 0x1000_0000),
+        ("Aura", 0x0000_0001),
+        ("Curse", 0x0000_0002),
+        ("Warcry", 0x0000_0004),
+        ("Movement", 0x0000_0008),
+        ("Physical", 0x0000_0010),
+        ("Fire", 0x0000_0020),
+        ("Cold", 0x0000_0040),
+        ("Lightning", 0x0000_0080),
+        ("Chaos", 0x0000_0100),
+        ("Vaal", 0x0000_0200),
+        ("Bow", 0x0000_0400),
+        ("Arrow", 0x0000_0800),
+        ("Trap", 0x0000_1000),
+        ("Mine", 0x0000_2000),
+        ("Totem", 0x0000_4000),
+        ("Minion", 0x0000_8000),
+        ("Attack", 0x0001_0000),
+        ("Spell", 0x0002_0000),
+        ("Hit", 0x0004_0000),
+        ("Ailment", 0x0008_0000),
+        ("Brand", 0x0010_0000),
+        ("Poison", 0x0020_0000),
+        ("Bleed", 0x0040_0000),
+        ("Ignite", 0x0080_0000),
+        ("PhysicalDot", 0x0100_0000),
+        ("LightningDot", 0x0200_0000),
+        ("ColdDot", 0x0400_0000),
+        ("FireDot", 0x0800_0000),
+        ("ChaosDot", 0x1000_0000),
         ("MatchAll", 0x4000_0000),
     ]
 }
 
 fn mod_flag_pairs() -> &'static [(&'static str, u32)] {
     &[
-        ("Attack", 0x0000_0001), ("Spell", 0x0000_0002), ("Hit", 0x0000_0004),
-        ("Dot", 0x0000_0008), ("Cast", 0x0000_0010), ("Melee", 0x0000_0100),
-        ("Area", 0x0000_0200), ("Projectile", 0x0000_0400), ("SourceMask", 0x0000_0600),
-        ("Ailment", 0x0000_0800), ("MeleeHit", 0x0000_1000), ("Weapon", 0x0000_2000),
-        ("Axe", 0x0001_0000), ("Bow", 0x0002_0000), ("Claw", 0x0004_0000),
-        ("Dagger", 0x0008_0000), ("Mace", 0x0010_0000), ("Staff", 0x0020_0000),
-        ("Sword", 0x0040_0000), ("Wand", 0x0080_0000), ("Unarmed", 0x0100_0000),
-        ("Fishing", 0x0200_0000), ("WeaponMelee", 0x0400_0000),
-        ("WeaponRanged", 0x0800_0000), ("Weapon1H", 0x1000_0000),
-        ("Weapon2H", 0x2000_0000), ("WeaponMask", 0x2FFF_0000),
+        ("Attack", 0x0000_0001),
+        ("Spell", 0x0000_0002),
+        ("Hit", 0x0000_0004),
+        ("Dot", 0x0000_0008),
+        ("Cast", 0x0000_0010),
+        ("Melee", 0x0000_0100),
+        ("Area", 0x0000_0200),
+        ("Projectile", 0x0000_0400),
+        ("SourceMask", 0x0000_0600),
+        ("Ailment", 0x0000_0800),
+        ("MeleeHit", 0x0000_1000),
+        ("Weapon", 0x0000_2000),
+        ("Axe", 0x0001_0000),
+        ("Bow", 0x0002_0000),
+        ("Claw", 0x0004_0000),
+        ("Dagger", 0x0008_0000),
+        ("Mace", 0x0010_0000),
+        ("Staff", 0x0020_0000),
+        ("Sword", 0x0040_0000),
+        ("Wand", 0x0080_0000),
+        ("Unarmed", 0x0100_0000),
+        ("Fishing", 0x0200_0000),
+        ("WeaponMelee", 0x0400_0000),
+        ("WeaponRanged", 0x0800_0000),
+        ("Weapon1H", 0x1000_0000),
+        ("Weapon2H", 0x2000_0000),
+        ("WeaponMask", 0x2FFF_0000),
     ]
 }
 
@@ -283,8 +414,7 @@ pub(crate) fn lua_to_json(v: Value) -> Result<serde_json::Value> {
         Value::Nil => Ok(J::Null),
         Value::Boolean(b) => Ok(J::Bool(b)),
         Value::Integer(i) => Ok(J::Number(i.into())),
-        Value::Number(n) => Ok(serde_json::Number::from_f64(n)
-            .map_or(J::Null, J::Number)),
+        Value::Number(n) => Ok(serde_json::Number::from_f64(n).map_or(J::Null, J::Number)),
         Value::String(s) => Ok(J::String(s.to_str()?.to_owned())),
         Value::Table(t) => table_to_json(t),
         // Function / Thread / UserData / LightUserData / Error: not representable. Replace
@@ -352,8 +482,8 @@ fn table_to_json(t: Table) -> Result<serde_json::Value> {
 
 /// Read a Lua file and return its top-level `return`ed value, evaluated in our sandbox.
 pub(crate) fn load_lua_file_returning(lua: &Lua, path: &Path) -> Result<serde_json::Value> {
-    let src = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let src =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let chunk = lua.load(&src).set_name(path.to_string_lossy().as_ref());
     let v: Value = chunk
         .eval()
@@ -363,12 +493,9 @@ pub(crate) fn load_lua_file_returning(lua: &Lua, path: &Path) -> Result<serde_js
 
 /// Read a Lua file like `Bases/sword.lua` that mutates an `itemBases` table passed via
 /// varargs. Returns the table after execution.
-pub(crate) fn load_lua_file_with_table_arg(
-    lua: &Lua,
-    path: &Path,
-) -> Result<serde_json::Value> {
-    let src = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+pub(crate) fn load_lua_file_with_table_arg(lua: &Lua, path: &Path) -> Result<serde_json::Value> {
+    let src =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let table = lua.create_table()?;
     let chunk = lua.load(&src).set_name(path.to_string_lossy().as_ref());
     let func = chunk
@@ -394,8 +521,11 @@ pub(crate) fn list_files(dir: &Path, predicate: impl Fn(&Path) -> bool) -> Resul
 }
 
 /// Used by tree.rs as a typed accessor.
-pub(crate) fn obj<'a>(v: &'a serde_json::Value) -> Result<&'a serde_json::Map<String, serde_json::Value>> {
-    v.as_object().ok_or_else(|| anyhow!("expected JSON object, got {v:?}"))
+pub(crate) fn obj<'a>(
+    v: &'a serde_json::Value,
+) -> Result<&'a serde_json::Map<String, serde_json::Value>> {
+    v.as_object()
+        .ok_or_else(|| anyhow!("expected JSON object, got {v:?}"))
 }
 
 #[allow(dead_code)]

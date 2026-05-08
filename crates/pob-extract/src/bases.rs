@@ -28,7 +28,8 @@ pub fn extract_all(pob_root: &Path) -> Result<IndexMap<String, ItemBase>> {
             .as_object()
             .with_context(|| format!("{} did not produce a table", file.display()))?;
         for (name, raw) in map {
-            let base = parse_one(raw).with_context(|| format!("parsing {name} in {}", file.display()))?;
+            let base =
+                parse_one(raw).with_context(|| format!("parsing {name} in {}", file.display()))?;
             out.insert(name.clone(), base);
         }
     }

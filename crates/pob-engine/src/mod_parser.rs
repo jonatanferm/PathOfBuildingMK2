@@ -66,7 +66,8 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
     } {
         if let Some((n, rest)) = consume_simple_number(after_sign) {
             let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
-            if let Some(rest) = rest.strip_prefix("Chance to Block Attack Damage")
+            if let Some(rest) = rest
+                .strip_prefix("Chance to Block Attack Damage")
                 .or_else(|| rest.strip_prefix("chance to Block Attack Damage"))
                 .or_else(|| rest.strip_prefix("Chance to Block Spell Damage"))
                 .or_else(|| rest.strip_prefix("chance to Block Spell Damage"))
@@ -96,10 +97,10 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
                 }
                 return Some(ParsedMod { mod_: m });
             }
-            if rest.starts_with("Chance to Avoid")
-                || rest.starts_with("chance to Avoid")
-            {
-                let body = rest.trim_start_matches("Chance to Avoid").trim_start_matches("chance to Avoid");
+            if rest.starts_with("Chance to Avoid") || rest.starts_with("chance to Avoid") {
+                let body = rest
+                    .trim_start_matches("Chance to Avoid")
+                    .trim_start_matches("chance to Avoid");
                 let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
                 strip_and_collect_trailing_clauses(body, &mut tags);
                 let mut m = Mod::base("AvoidChance", sign * n);
@@ -464,8 +465,7 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
             // flag mod under a Misc: key so callers can detect "this passive has *some*
             // textual stat I don't yet model". Bounds the noise by length so wildly long
             // strings don't pollute the namespace.
-            if !body.is_empty() && body.len() < 200 && body.chars().any(|c| c.is_alphabetic())
-            {
+            if !body.is_empty() && body.len() < 200 && body.chars().any(|c| c.is_alphabetic()) {
                 Some(ParsedMod {
                     mod_: Mod::flag(format!("Misc:{}", canonicalize_stat(body)), true),
                 })
@@ -514,8 +514,14 @@ fn strip_attacks_with_weapon_prefix(text: &str) -> Option<(ModFlag, &str)> {
     let rest = text.strip_prefix("Attacks with ")?;
     // Sniff weapon class (longest first).
     let weapons: &[(&str, ModFlag)] = &[
-        ("Two Handed Melee Weapons deal ", ModFlag::WEAPON_2H | ModFlag::MELEE),
-        ("One Handed Melee Weapons deal ", ModFlag::WEAPON_1H | ModFlag::MELEE),
+        (
+            "Two Handed Melee Weapons deal ",
+            ModFlag::WEAPON_2H | ModFlag::MELEE,
+        ),
+        (
+            "One Handed Melee Weapons deal ",
+            ModFlag::WEAPON_1H | ModFlag::MELEE,
+        ),
         ("Two Handed Weapons deal ", ModFlag::WEAPON_2H),
         ("One Handed Weapons deal ", ModFlag::WEAPON_1H),
         ("Melee Weapons deal ", ModFlag::MELEE),
@@ -574,7 +580,10 @@ fn strip_and_collect_trailing_clauses<'a>(
 ///   `["if you have a (%a+) (%a+) in (%a+) slot"]` and the per-rarity ring/equipped
 ///   uniques. The conditions are set in `perform::detect_wielding_conditions` based on
 ///   the actual `ItemSet` rarity + slot, so the gate evaluates correctly.
-fn strip_have_equipped_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
+fn strip_have_equipped_clause<'a>(
+    text: &'a str,
+    out: &mut smallvec::SmallVec<[Tag; 2]>,
+) -> &'a str {
     let lower = text.to_ascii_lowercase();
 
     // "if you have a {rarity} {item} in {left|right} slot"
@@ -624,7 +633,9 @@ fn parse_rarity_item_in_slot(suffix: &str) -> Option<(&'static str, &'static str
     } else {
         return None;
     };
-    let trimmed = lc.trim_end_matches(" in left slot").trim_end_matches(" in right slot");
+    let trimmed = lc
+        .trim_end_matches(" in left slot")
+        .trim_end_matches(" in right slot");
     let (rarity, item) = split_rarity_item(trimmed)?;
     Some((rarity, item, slot_idx))
 }
@@ -859,7 +870,9 @@ fn strip_per_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -
     // " for each X" — same semantics as " per X". Try both prefixes.
     if let Some(idx) = text.rfind(" for each ") {
         let body = text[..idx].trim_end_matches(',').trim_end();
-        let suffix = text[idx + " for each ".len()..].trim().trim_end_matches('.');
+        let suffix = text[idx + " for each ".len()..]
+            .trim()
+            .trim_end_matches('.');
         let var = match suffix {
             "Herald affecting you" => "HeraldsAffectingYou",
             "Endurance Charge" => "EnduranceCharge",
@@ -884,7 +897,9 @@ fn strip_per_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -
         return body;
     }
     // " per <stat>" with optional "<N> ".
-    let Some(idx) = text.rfind(" per ") else { return text };
+    let Some(idx) = text.rfind(" per ") else {
+        return text;
+    };
     let body = text[..idx].trim_end_matches(',').trim_end();
     let suffix = text[idx + 5..].trim();
 
@@ -1185,7 +1200,10 @@ fn try_parse_gain_on_event(line: &str) -> Option<ParsedMod> {
     // "Gain N% of <X> as Extra <Y> Damage"
     if is_percent {
         if let Some(rest) = rest.strip_prefix("of ") {
-            if let Some(rest) = rest.find(" as Extra ").map(|i| &rest[i + " as Extra ".len()..]) {
+            if let Some(rest) = rest
+                .find(" as Extra ")
+                .map(|i| &rest[i + " as Extra ".len()..])
+            {
                 let stat = match rest.trim_end_matches(" Damage") {
                     "Fire" => "FireDamageGain",
                     "Cold" => "ColdDamageGain",
@@ -1275,7 +1293,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
         if let Some((n, rest)) = consume_simple_number(rest) {
             let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
             if let Some(rest) = rest.strip_prefix("of ") {
-                let split = rest.find(" on ").map(|i| (i, 4))
+                let split = rest
+                    .find(" on ")
+                    .map(|i| (i, 4))
                     .or_else(|| rest.find(" when ").map(|i| (i, 6)));
                 if let Some((idx, sep_len)) = split {
                     let pool = match &rest[..idx] {
@@ -1312,8 +1332,7 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     }
     // "Cannot Be Stunned while X" — gate on a condition. Check before the bare
     // "Cannot be X" form so the `while` clause isn't lost.
-    if line.starts_with("Cannot Be Stunned while ")
-        || line.starts_with("Cannot be Stunned while ")
+    if line.starts_with("Cannot Be Stunned while ") || line.starts_with("Cannot be Stunned while ")
     {
         let cond_text = line
             .strip_prefix("Cannot Be Stunned while ")
@@ -1349,7 +1368,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             _ => "",
         };
         if !var.is_empty() {
-            return Some(ParsedMod { mod_: Mod::flag(var, true) });
+            return Some(ParsedMod {
+                mod_: Mod::flag(var, true),
+            });
         }
     }
     if let Some(rest) = line.strip_prefix("Unaffected by ") {
@@ -1364,7 +1385,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             _ => "",
         };
         if !var.is_empty() {
-            return Some(ParsedMod { mod_: Mod::flag(var, true) });
+            return Some(ParsedMod {
+                mod_: Mod::flag(var, true),
+            });
         }
     }
     // "Inherent Rage Loss starts N second(s) later"
@@ -1550,7 +1573,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             } else {
                 "DamageReflect"
             };
-            return Some(ParsedMod { mod_: Mod::base(stat, n) });
+            return Some(ParsedMod {
+                mod_: Mod::base(stat, n),
+            });
         }
     }
     // "Strength's Damage bonus applies to all Spell Damage as well"
@@ -1631,7 +1656,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             "Chill" => "AllDamageChills",
             _ => return None,
         };
-        return Some(ParsedMod { mod_: Mod::flag(var, true) });
+        return Some(ParsedMod {
+            mod_: Mod::flag(var, true),
+        });
     }
     // "Can Allocate Passives from the X's starting point"
     if line.starts_with("Can Allocate Passives from the ") {
@@ -1667,7 +1694,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
                 _ => "",
             };
             if !stat.is_empty() {
-                return Some(ParsedMod { mod_: Mod::base(stat, n) });
+                return Some(ParsedMod {
+                    mod_: Mod::base(stat, n),
+                });
             }
         }
     }
@@ -1746,14 +1775,13 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
             if rest.starts_with("increased Flask Charges") {
                 return Some(ParsedMod {
-                    mod_: Mod::inc("FlaskChargesGained", n)
-                        .with_tag(Tag {
-                            kind: TagKind::ActorCondition {
-                                actor: "enemy".into(),
-                                var: "Marked".into(),
-                                neg: false,
-                            },
-                        }),
+                    mod_: Mod::inc("FlaskChargesGained", n).with_tag(Tag {
+                        kind: TagKind::ActorCondition {
+                            actor: "enemy".into(),
+                            var: "Marked".into(),
+                            neg: false,
+                        },
+                    }),
                 });
             }
         }
@@ -1778,9 +1806,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     }
     // "Poison you inflict with Critical Strikes deals N% more Damage"
     if line.starts_with("Poison you inflict with Critical Strikes deals ") {
-        if let Some((n, rest)) = consume_simple_number(
-            &line["Poison you inflict with Critical Strikes deals ".len()..],
-        ) {
+        if let Some((n, rest)) =
+            consume_simple_number(&line["Poison you inflict with Critical Strikes deals ".len()..])
+        {
             let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
             if rest.starts_with("more Damage") {
                 return Some(ParsedMod {
@@ -1791,9 +1819,7 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     }
     // "100% chance to Defend with 200% of Armour"
     if line.starts_with("100% chance to Defend with ") {
-        if let Some((n, _)) = consume_simple_number(
-            &line["100% chance to Defend with ".len()..],
-        ) {
+        if let Some((n, _)) = consume_simple_number(&line["100% chance to Defend with ".len()..]) {
             return Some(ParsedMod {
                 mod_: Mod::base("DefendWithArmourPercent", n),
             });
@@ -1807,9 +1833,8 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     }
     // "Your Action Speed is at least 108% of base value"
     if line.starts_with("Your Action Speed is at least ") {
-        if let Some((n, _)) = consume_simple_number(
-            &line["Your Action Speed is at least ".len()..],
-        ) {
+        if let Some((n, _)) = consume_simple_number(&line["Your Action Speed is at least ".len()..])
+        {
             return Some(ParsedMod {
                 mod_: Mod::base("ActionSpeedFloor", n),
             });
@@ -1817,9 +1842,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     }
     // "Nearby Enemy Monsters' Action Speed is at most N% of base value"
     if line.starts_with("Nearby Enemy Monsters' Action Speed is at most ") {
-        if let Some((n, _)) = consume_simple_number(
-            &line["Nearby Enemy Monsters' Action Speed is at most ".len()..],
-        ) {
+        if let Some((n, _)) =
+            consume_simple_number(&line["Nearby Enemy Monsters' Action Speed is at most ".len()..])
+        {
             return Some(ParsedMod {
                 mod_: Mod::base("Enemy:ActionSpeedCap", n),
             });
@@ -1839,8 +1864,7 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     }
     // "Melee Hits which Stun have N% chance to Fortify"
     if line.starts_with("Melee Hits which Stun have ") {
-        if let Some((n, rest)) =
-            consume_simple_number(&line["Melee Hits which Stun have ".len()..])
+        if let Some((n, rest)) = consume_simple_number(&line["Melee Hits which Stun have ".len()..])
         {
             let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
             if rest.starts_with("chance to Fortify") {
@@ -1872,7 +1896,11 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     if line.starts_with("Your Offerings have ") {
         if let Some((n, rest)) = consume_simple_number(&line["Your Offerings have ".len()..]) {
             let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
-            let sign = if rest.starts_with("reduced Effect") { -1.0 } else { 1.0 };
+            let sign = if rest.starts_with("reduced Effect") {
+                -1.0
+            } else {
+                1.0
+            };
             return Some(ParsedMod {
                 mod_: Mod::inc("OfferingEffectOnSelf", sign * n),
             });
@@ -1930,7 +1958,8 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     }
     // "Withered you Inflict expires N% slower"
     if line.starts_with("Withered you Inflict expires ") {
-        if let Some((n, _)) = consume_simple_number(&line["Withered you Inflict expires ".len()..]) {
+        if let Some((n, _)) = consume_simple_number(&line["Withered you Inflict expires ".len()..])
+        {
             return Some(ParsedMod {
                 mod_: Mod::base("WitheredDuration", n),
             });
@@ -1938,9 +1967,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     }
     // "Retaliation Skills become Usable for N% longer"
     if line.starts_with("Retaliation Skills become Usable for ") {
-        if let Some((n, _)) = consume_simple_number(
-            &line["Retaliation Skills become Usable for ".len()..],
-        ) {
+        if let Some((n, _)) =
+            consume_simple_number(&line["Retaliation Skills become Usable for ".len()..])
+        {
             return Some(ParsedMod {
                 mod_: Mod::inc("RetaliationDuration", n),
             });
@@ -1980,7 +2009,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
                     _ => None,
                 };
                 if let Some(stat) = stat {
-                    return Some(ParsedMod { mod_: Mod::base(stat, n) });
+                    return Some(ParsedMod {
+                        mod_: Mod::base(stat, n),
+                    });
                 }
             }
         }
@@ -2039,15 +2070,26 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             // Allow words like "of", "the", "an", "in" — common keystone connectors —
             // but reject mod-form keywords.
             let lower = w.to_lowercase();
-            matches!(lower.as_str(), "of" | "the" | "an" | "a" | "in" | "for" | "with" | "to" | "and" | "or")
-                || w.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false)
+            matches!(
+                lower.as_str(),
+                "of" | "the" | "an" | "a" | "in" | "for" | "with" | "to" | "and" | "or"
+            ) || w
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_uppercase())
+                .unwrap_or(false)
         })
     {
         // Conservative: treat as keystone only if it looks like one, i.e. has at least
         // two capitalised words and no obvious mod-form text.
         let cap_count = line
             .split_whitespace()
-            .filter(|w| w.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false))
+            .filter(|w| {
+                w.chars()
+                    .next()
+                    .map(|c| c.is_ascii_uppercase())
+                    .unwrap_or(false)
+            })
             .count();
         if cap_count >= 2 && line.len() >= 8 {
             return Some(ParsedMod {
@@ -2109,7 +2151,10 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
     if let Some(rest) = line.strip_prefix('+') {
         if let Some((n, rest)) = consume_simple_number(rest) {
             let rest = rest.trim_start();
-            if let Some(rest) = rest.strip_prefix("metre ").or_else(|| rest.strip_prefix("metres ")) {
+            if let Some(rest) = rest
+                .strip_prefix("metre ")
+                .or_else(|| rest.strip_prefix("metres "))
+            {
                 if let Some(rest) = rest.strip_prefix("to ") {
                     let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
                     let body = strip_and_collect_trailing_clauses(rest, &mut tags);
@@ -2149,7 +2194,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
                     _ => None,
                 };
                 if let Some(stat) = stat {
-                    return Some(ParsedMod { mod_: Mod::base(stat, n) });
+                    return Some(ParsedMod {
+                        mod_: Mod::base(stat, n),
+                    });
                 }
                 // Fall through: maybe a future pattern catches it.
             }
@@ -2163,7 +2210,9 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
                     _ => None,
                 };
                 if let Some(stat) = stat {
-                    return Some(ParsedMod { mod_: Mod::base(stat, n) });
+                    return Some(ParsedMod {
+                        mod_: Mod::base(stat, n),
+                    });
                 }
             }
         }
@@ -2281,9 +2330,15 @@ fn try_parse_to(line: &str) -> Option<ParsedMod> {
                 "Poison" => "PoisonDamageMultiplier",
                 "Bleeding" => "BleedDamageMultiplier",
                 "Ignite" => "IgniteDamageMultiplier",
-                _ => return Some(ParsedMod { mod_: Mod::base("DamageOverTimeMultiplier", value) }),
+                _ => {
+                    return Some(ParsedMod {
+                        mod_: Mod::base("DamageOverTimeMultiplier", value),
+                    })
+                }
             };
-            return Some(ParsedMod { mod_: Mod::base(stat, value) });
+            return Some(ParsedMod {
+                mod_: Mod::base(stat, value),
+            });
         }
         // "+5% to Cold Damage over Time Multiplier" / "+8% to Fire Damage over Time Multiplier"
         if let Some(rest) = stat_text.strip_suffix(" Damage over Time Multiplier") {
@@ -2293,9 +2348,15 @@ fn try_parse_to(line: &str) -> Option<ParsedMod> {
                 "Lightning" => "LightningDamageMultiplier",
                 "Chaos" => "ChaosDamageMultiplier",
                 "Physical" => "PhysicalDamageMultiplier",
-                _ => return Some(ParsedMod { mod_: Mod::base("DamageOverTimeMultiplier", value) }),
+                _ => {
+                    return Some(ParsedMod {
+                        mod_: Mod::base("DamageOverTimeMultiplier", value),
+                    })
+                }
             };
-            return Some(ParsedMod { mod_: Mod::base(stat, value) });
+            return Some(ParsedMod {
+                mod_: Mod::base(stat, value),
+            });
         }
         // "+8% to Critical Strike Multiplier" / "with Traps" / "with Bows" suffix
         if stat_text == "Critical Strike Multiplier" {
@@ -2338,8 +2399,8 @@ fn try_parse_to(line: &str) -> Option<ParsedMod> {
     // mod through to the calc layer rather than dropping it on the floor. The stat key
     // is wrapped under a "Misc:" namespace so the calc layer can ignore them en masse
     // until a consumer is wired.
-    let stat = stat_name(stat_text)
-        .unwrap_or_else(|| format!("Misc:{}", canonicalize_stat(stat_text)));
+    let stat =
+        stat_name(stat_text).unwrap_or_else(|| format!("Misc:{}", canonicalize_stat(stat_text)));
     Some(ParsedMod {
         mod_: Mod::base(stat, value),
     })
@@ -2547,8 +2608,16 @@ fn damage_with_decorators(text: &str) -> Option<(String, ModFlag, KeywordFlag, M
     // Ordered longest-first: "Two Handed Melee" must be checked before "Melee" so that
     // "Two Handed Melee Damage" doesn't lose its 2H qualifier.
     let table: &[(&str, KeywordFlag, ModFlag)] = &[
-        ("Two Handed Melee", KeywordFlag::empty(), ModFlag::WEAPON_2H | ModFlag::MELEE),
-        ("One Handed Melee", KeywordFlag::empty(), ModFlag::WEAPON_1H | ModFlag::MELEE),
+        (
+            "Two Handed Melee",
+            KeywordFlag::empty(),
+            ModFlag::WEAPON_2H | ModFlag::MELEE,
+        ),
+        (
+            "One Handed Melee",
+            KeywordFlag::empty(),
+            ModFlag::WEAPON_1H | ModFlag::MELEE,
+        ),
         ("Two Handed", KeywordFlag::empty(), ModFlag::WEAPON_2H),
         ("One Handed", KeywordFlag::empty(), ModFlag::WEAPON_1H),
         ("Lightning", KeywordFlag::LIGHTNING, ModFlag::empty()),
@@ -2575,7 +2644,12 @@ fn damage_with_decorators(text: &str) -> Option<(String, ModFlag, KeywordFlag, M
     let trimmed_prefix = prefix.trim();
     if trimmed_prefix.is_empty() {
         // Bare "Damage" — generic damage mod, no flags.
-        return Some(("Damage".to_owned(), ModFlag::empty(), KeywordFlag::empty(), ModFlag::empty()));
+        return Some((
+            "Damage".to_owned(),
+            ModFlag::empty(),
+            KeywordFlag::empty(),
+            ModFlag::empty(),
+        ));
     }
 
     for (label, kw, mf) in table {
@@ -3028,7 +3102,9 @@ mod tests {
     use super::*;
 
     fn parse(line: &str) -> Mod {
-        parse_mod_line(line).unwrap_or_else(|| panic!("failed: {line:?}")).mod_
+        parse_mod_line(line)
+            .unwrap_or_else(|| panic!("failed: {line:?}"))
+            .mod_
     }
 
     #[test]
@@ -3114,7 +3190,13 @@ mod tests {
     fn adds_fire_damage_range() {
         let m = parse("Adds 10 to 20 Fire Damage");
         assert_eq!(m.name, "FireDamage");
-        assert!(matches!(m.value, ModValue::Range { min: 10.0, max: 20.0 }));
+        assert!(matches!(
+            m.value,
+            ModValue::Range {
+                min: 10.0,
+                max: 20.0
+            }
+        ));
         assert!(m.keyword_flags.contains(KeywordFlag::FIRE));
     }
 
@@ -3141,14 +3223,13 @@ mod tests {
     }
 
     fn assert_condition_tag(m: &Mod, expected_var: &str) {
-        let has = m.tags.iter().any(|t| matches!(
-            &t.kind,
-            TagKind::Condition { var, neg: false } if var == expected_var
-        ));
-        assert!(
-            has,
-            "expected Condition({expected_var}) tag on mod {m:?}"
-        );
+        let has = m.tags.iter().any(|t| {
+            matches!(
+                &t.kind,
+                TagKind::Condition { var, neg: false } if var == expected_var
+            )
+        });
+        assert!(has, "expected Condition({expected_var}) tag on mod {m:?}");
     }
 
     #[test]
@@ -3233,10 +3314,12 @@ mod tests {
     fn if_havent_killed_recently_emits_negated_tag() {
         let m = parse("12% increased Damage if you haven't Killed Recently");
         assert_eq!(m.name, "Damage");
-        let has = m.tags.iter().any(|t| matches!(
-            &t.kind,
-            TagKind::Condition { var, neg: true } if var == "KilledRecently"
-        ));
+        let has = m.tags.iter().any(|t| {
+            matches!(
+                &t.kind,
+                TagKind::Condition { var, neg: true } if var == "KilledRecently"
+            )
+        });
         assert!(has, "expected negated KilledRecently tag, got {:?}", m.tags);
     }
 
@@ -3245,24 +3328,24 @@ mod tests {
         let m = parse(
             "Take no Extra Damage from Critical Strikes if you have a Magic Ring in left slot",
         );
-        let has = m.tags.iter().any(|t| matches!(
-            &t.kind,
-            TagKind::Condition { var, neg: false } if var == "MagicItemInRing 1"
-        ));
-        assert!(
-            has,
-            "expected MagicItemInRing 1 tag, got {:?}",
-            m.tags
-        );
+        let has = m.tags.iter().any(|t| {
+            matches!(
+                &t.kind,
+                TagKind::Condition { var, neg: false } if var == "MagicItemInRing 1"
+            )
+        });
+        assert!(has, "expected MagicItemInRing 1 tag, got {:?}", m.tags);
     }
 
     #[test]
     fn if_have_rare_helmet_in_right_slot_emits_condition_tag() {
         let m = parse("10% increased Damage if you have a Rare Helmet in right slot");
-        let has = m.tags.iter().any(|t| matches!(
-            &t.kind,
-            TagKind::Condition { var, neg: false } if var == "RareItemInHelmet 2"
-        ));
+        let has = m.tags.iter().any(|t| {
+            matches!(
+                &t.kind,
+                TagKind::Condition { var, neg: false } if var == "RareItemInHelmet 2"
+            )
+        });
         assert!(has, "expected RareItemInHelmet 2 tag, got {:?}", m.tags);
     }
 
@@ -3313,20 +3396,24 @@ mod tests {
     fn unless_youve_killed_recently_emits_negated_tag() {
         let m = parse("12% increased Damage unless you've Killed Recently");
         assert_eq!(m.name, "Damage");
-        let has = m.tags.iter().any(|t| matches!(
-            &t.kind,
-            TagKind::Condition { var, neg: true } if var == "KilledRecently"
-        ));
+        let has = m.tags.iter().any(|t| {
+            matches!(
+                &t.kind,
+                TagKind::Condition { var, neg: true } if var == "KilledRecently"
+            )
+        });
         assert!(has, "expected negated KilledRecently tag, got {:?}", m.tags);
     }
 
     #[test]
     fn unless_you_have_crit_recently_emits_negated_tag() {
         let m = parse("8% increased Cast Speed unless you have Crit Recently");
-        let has = m.tags.iter().any(|t| matches!(
-            &t.kind,
-            TagKind::Condition { var, neg: true } if var == "CritRecently"
-        ));
+        let has = m.tags.iter().any(|t| {
+            matches!(
+                &t.kind,
+                TagKind::Condition { var, neg: true } if var == "CritRecently"
+            )
+        });
         assert!(has, "expected negated CritRecently tag, got {:?}", m.tags);
     }
 

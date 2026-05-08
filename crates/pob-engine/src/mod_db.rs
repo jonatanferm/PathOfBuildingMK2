@@ -261,7 +261,11 @@ pub fn eval_mod(m: &Mod, state: &EvalState) -> Option<f64> {
                 }
                 value = scaled;
             }
-            TagKind::PerStat { stat, div, actor: _ } => {
+            TagKind::PerStat {
+                stat,
+                div,
+                actor: _,
+            } => {
                 let mut s = state.stat(stat);
                 if let Some(d) = div {
                     if *d != 0.0 {
@@ -280,7 +284,11 @@ pub fn eval_mod(m: &Mod, state: &EvalState) -> Option<f64> {
                 upper,
             } => {
                 let s = state.stat(stat);
-                let pass = if *upper { s <= *threshold } else { s >= *threshold };
+                let pass = if *upper {
+                    s <= *threshold
+                } else {
+                    s >= *threshold
+                };
                 if !pass {
                     return None;
                 }
@@ -291,7 +299,11 @@ pub fn eval_mod(m: &Mod, state: &EvalState) -> Option<f64> {
                 upper,
             } => {
                 let s = state.multiplier(var);
-                let pass = if *upper { s <= *threshold } else { s >= *threshold };
+                let pass = if *upper {
+                    s <= *threshold
+                } else {
+                    s >= *threshold
+                };
                 if !pass {
                     return None;
                 }

@@ -145,11 +145,16 @@ impl TreeView {
         let path_pairs: ahash::HashSet<(NodeId, NodeId)> = self
             .path_overlay
             .windows(2)
-            .map(|w| if w[0] < w[1] { (w[0], w[1]) } else { (w[1], w[0]) })
+            .map(|w| {
+                if w[0] < w[1] {
+                    (w[0], w[1])
+                } else {
+                    (w[1], w[0])
+                }
+            })
             .collect();
 
-        let mut edge_state: ahash::HashMap<(NodeId, NodeId), u32> =
-            ahash::HashMap::default();
+        let mut edge_state: ahash::HashMap<(NodeId, NodeId), u32> = ahash::HashMap::default();
         for (id, node) in &tree.nodes {
             for nb_id in node.out_edges.iter().chain(node.in_edges.iter()) {
                 if id == nb_id {
@@ -166,7 +171,11 @@ impl TreeView {
                 if asc_a != asc_b {
                     continue;
                 }
-                let pair = if id < nb_id { (*id, *nb_id) } else { (*nb_id, *id) };
+                let pair = if id < nb_id {
+                    (*id, *nb_id)
+                } else {
+                    (*nb_id, *id)
+                };
                 let mut state = 0u32;
                 if allocated.contains(&pair.0) && allocated.contains(&pair.1) {
                     state |= edge_state_bits::ALLOCATED;
@@ -192,9 +201,10 @@ impl TreeView {
         let mut edges: Vec<EdgeInstance> = Vec::with_capacity(edge_state.len());
         let mut arcs: Vec<ArcInstance> = Vec::new();
         for ((a_id, b_id), state) in edge_state {
-            let (Some(pa), Some(pb)) =
-                (self.positions.get(&a_id).copied(), self.positions.get(&b_id).copied())
-            else {
+            let (Some(pa), Some(pb)) = (
+                self.positions.get(&a_id).copied(),
+                self.positions.get(&b_id).copied(),
+            ) else {
                 continue;
             };
             // Try to lift this edge to a curved arc when both endpoints
@@ -222,8 +232,7 @@ impl TreeView {
         let pointer = response.hover_pos();
 
         // Path-overlay set for fast lookup when building the state byte.
-        let path_set: ahash::HashSet<NodeId> =
-            self.path_overlay.iter().copied().collect();
+        let path_set: ahash::HashSet<NodeId> = self.path_overlay.iter().copied().collect();
 
         // First pass: hit-test (so `hovered` is known when we build the state
         // byte for the same draw call).
@@ -298,7 +307,11 @@ impl TreeView {
                     });
                 }
             }
-            let icon_uv = self.icon_uvs.get(id).copied().unwrap_or([0.0, 0.0, 0.0, 0.0]);
+            let icon_uv = self
+                .icon_uvs
+                .get(id)
+                .copied()
+                .unwrap_or([0.0, 0.0, 0.0, 0.0]);
             instances.push(NodeInstance {
                 world_pos: [p.x, p.y],
                 world_radius: world_radius_for(node),
@@ -421,7 +434,9 @@ fn compute_group_instances(
 ) -> Vec<GroupInstance> {
     let mut out = Vec::new();
     let Some(sprites) = sprites else { return out };
-    let Some(cat) = sprites.get("groupBackground") else { return out };
+    let Some(cat) = sprites.get("groupBackground") else {
+        return out;
+    };
     // Sprite-size mapping: per PoB, the native pixel size at scale=1. We
     // scale by 2.5 in the shader-equivalent (matching PoB's apparent ~2.5x
     // factor on background draws — the raw atlas slice is much smaller than
@@ -440,7 +455,9 @@ fn compute_group_instances(
         } else {
             continue;
         };
-        let Some(rect) = cat.coords.get(key) else { continue };
+        let Some(rect) = cat.coords.get(key) else {
+            continue;
+        };
         let uv = rect.uv(cat.w as f32, cat.h as f32);
         // PSGroupBackground3 is a 'half image' in PoB — drawn twice, once
         // mirrored — to bridge wide clusters. We approximate as a single
@@ -467,7 +484,9 @@ fn compute_group_instances(
 fn compute_frame_table(sprites: Option<&pob_data::sprites::SpriteSet>) -> FrameTable {
     let mut table = FrameTable::default();
     let Some(sprites) = sprites else { return table };
-    let Some(cat) = sprites.get("frame") else { return table };
+    let Some(cat) = sprites.get("frame") else {
+        return table;
+    };
     let aw = cat.w as f32;
     let ah = cat.h as f32;
     let lookup = |key: &str| -> Option<[f32; 6]> {
@@ -530,7 +549,9 @@ fn compute_icon_uvs(
             // colors for now.
             _ => continue,
         };
-        let Some(c) = sprites.get(category) else { continue };
+        let Some(c) = sprites.get(category) else {
+            continue;
+        };
         if let Some(rect) = c.coords.get(icon) {
             out.insert(*id, rect.uv(c.w as f32, c.h as f32));
         }

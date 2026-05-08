@@ -189,9 +189,7 @@ pub fn ui(
                 let skill_meta = registry.get(&gem.skill_id);
                 let is_support = skill_meta.map(|s| s.support).unwrap_or(false);
                 let kind_marker = if is_support { "⚙" } else { " " };
-                let display_name = skill_meta
-                    .map(|s| s.name.as_str())
-                    .unwrap_or(&gem.skill_id);
+                let display_name = skill_meta.map(|s| s.name.as_str()).unwrap_or(&gem.skill_id);
                 let label = format!(
                     "{} {} {} (L{} Q{}%)",
                     main_marker, kind_marker, display_name, gem.level, gem.quality
@@ -215,7 +213,11 @@ pub fn ui(
                     {
                         state.selected_gem = idx;
                     }
-                    if ui.small_button("★").on_hover_text("Set as main skill").clicked() {
+                    if ui
+                        .small_button("★")
+                        .on_hover_text("Set as main skill")
+                        .clicked()
+                    {
                         group.main_active_skill_index = one_based;
                         changed = true;
                     }

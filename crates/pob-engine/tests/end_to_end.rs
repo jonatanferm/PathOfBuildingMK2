@@ -37,7 +37,9 @@ where
     let mut queue: std::collections::VecDeque<_> = [start].into();
     let mut target: Option<pob_data::NodeId> = None;
     while let Some(n) = queue.pop_front() {
-        let Some(node) = tree.nodes.get(&n) else { continue };
+        let Some(node) = tree.nodes.get(&n) else {
+            continue;
+        };
         if n != start && pick(node) {
             target = Some(n);
             break;
@@ -154,8 +156,7 @@ fn custom_mods_textarea_lines_inject_into_mod_db() {
     );
 
     // An unparseable line should not crash the calc and other lines should still apply.
-    c.config.custom_mods =
-        "this is not a valid mod line\n+50 to Strength\n".to_owned();
+    c.config.custom_mods = "this is not a valid mod line\n+50 to Strength\n".to_owned();
     let with_garbage = compute_with_skills(&c, &tree, None);
     assert!(
         (with_garbage.get("Strength") - baseline.get("Strength") - 50.0).abs() < 0.5,
@@ -186,9 +187,21 @@ fn equipping_an_amulet_changes_stats() {
     c.items.equip(pob_data::Slot::Amulet, item);
     let after = compute_with_skills(&c, &tree, None);
 
-    assert_eq!(after.get("Strength") - baseline.get("Strength"), 10.0, "Strength");
-    assert_eq!(after.get("Dexterity") - baseline.get("Dexterity"), 10.0, "Dexterity");
-    assert_eq!(after.get("Intelligence") - baseline.get("Intelligence"), 10.0, "Intelligence");
+    assert_eq!(
+        after.get("Strength") - baseline.get("Strength"),
+        10.0,
+        "Strength"
+    );
+    assert_eq!(
+        after.get("Dexterity") - baseline.get("Dexterity"),
+        10.0,
+        "Dexterity"
+    );
+    assert_eq!(
+        after.get("Intelligence") - baseline.get("Intelligence"),
+        10.0,
+        "Intelligence"
+    );
 
     // Life base went up by 62 (item base) + 5 (Strength/2 from +10 Str) = 67.
     assert_eq!(
@@ -269,7 +282,10 @@ fn enabling_full_life_condition_activates_tagged_mod() {
             diffs += 1;
         }
     }
-    assert!(diffs > 0, "expected toggling FullLife to change at least one stat");
+    assert!(
+        diffs > 0,
+        "expected toggling FullLife to change at least one stat"
+    );
 }
 
 #[test]
@@ -374,15 +390,13 @@ fn equipping_a_real_body_armour_adds_armour() {
         return;
     };
     let mut c = Character::new(ClassRef::marauder(), 90);
-    let baseline =
-        pob_engine::compute_full(&c, &tree, None, Some(&bases)).get("Armour");
+    let baseline = pob_engine::compute_full(&c, &tree, None, Some(&bases)).get("Armour");
 
     // Equip a Sacrificial Garb (Body Armour with armour base).
     let raw = "Item Class: Body Armours\nRarity: NORMAL\nAstral Plate\n--------\n";
     let item = parse_item(raw).expect("parse body armour");
     c.items.equip(pob_data::Slot::BodyArmour, item);
-    let after =
-        pob_engine::compute_full(&c, &tree, None, Some(&bases)).get("Armour");
+    let after = pob_engine::compute_full(&c, &tree, None, Some(&bases)).get("Armour");
 
     assert!(
         after > baseline + 100.0,
@@ -399,23 +413,18 @@ fn equipping_a_real_shield_adds_block_chance() {
     // Find a shield base in bases.json.
     let shield_base = bases
         .iter()
-        .find(|(_, b)| {
-            b.r#type.contains("Shield") || b.r#type.contains("Buckler")
-        })
+        .find(|(_, b)| b.r#type.contains("Shield") || b.r#type.contains("Buckler"))
         .map(|(name, _)| name.clone());
     let Some(shield_name) = shield_base else {
         eprintln!("no shield in bases — skip");
         return;
     };
 
-    let raw = format!(
-        "Item Class: Shields\nRarity: NORMAL\n{shield_name}\n--------\n"
-    );
+    let raw = format!("Item Class: Shields\nRarity: NORMAL\n{shield_name}\n--------\n");
     let mut c = Character::new(ClassRef::duelist(), 90);
     let item = parse_item(&raw).expect("parse shield");
     c.items.equip(pob_data::Slot::Weapon2, item);
-    let after =
-        pob_engine::compute_full(&c, &tree, None, Some(&bases)).get("BlockChance");
+    let after = pob_engine::compute_full(&c, &tree, None, Some(&bases)).get("BlockChance");
 
     assert!(
         after > 0.0,
@@ -450,9 +459,8 @@ fn attack_skill_with_weapon_produces_dps() {
         eprintln!("no sword in bases — skip");
         return;
     };
-    let sword_paste = format!(
-        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
-    );
+    let sword_paste =
+        format!("Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n");
     let sword = parse_item(&sword_paste).unwrap();
 
     let mut c = Character::new(ClassRef::duelist(), 90);
@@ -467,10 +475,7 @@ fn attack_skill_with_weapon_produces_dps() {
     );
     // Speed should track the weapon's attack rate (most swords are 1.4–1.6 cps).
     let speed = out.get("MainSkillSpeed");
-    assert!(
-        speed > 0.5 && speed < 5.0,
-        "Attack speed (cps): {speed}"
-    );
+    assert!(speed > 0.5 && speed < 5.0, "Attack speed (cps): {speed}");
 }
 
 #[test]
@@ -498,7 +503,11 @@ fn full_demo_witch_arc_produces_reasonable_dps() {
 
     // Sanity checks — the demo build should produce non-zero values for all the key
     // outputs. If any of these are zero something has regressed.
-    assert!(out.get("Strength") > 14.0, "Strength: {}", out.get("Strength"));
+    assert!(
+        out.get("Strength") > 14.0,
+        "Strength: {}",
+        out.get("Strength")
+    );
     assert!(out.get("Life") > 1000.0, "Life: {}", out.get("Life"));
     assert!(out.get("Mana") > 500.0, "Mana: {}", out.get("Mana"));
     // -60 story penalty + 39 from amulet = -21.
@@ -636,7 +645,9 @@ fn ascendancy_point_cap_is_8() {
     let passive_id = *tree
         .nodes
         .iter()
-        .find_map(|(id, n)| (n.ascendancy_name.is_none() && n.kind == pob_data::NodeKind::Notable).then_some(id))
+        .find_map(|(id, n)| {
+            (n.ascendancy_name.is_none() && n.kind == pob_data::NodeKind::Notable).then_some(id)
+        })
         .expect("any notable in 3.25 tree");
     c.allocate(passive_id);
     assert_eq!(c.ascendancy_alloc_count(&tree), 8);
@@ -718,8 +729,7 @@ fn pob_diff_bleeding_cleave_baseline() {
     //
     //   cargo run -p pob-extract --bin pob_diff --release -- \
     //     --build crates/pob-extract/test-builds/marauder_l90_bleeding_cleave.xml
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         return;
     };
@@ -837,10 +847,12 @@ fn item_mods_carry_slot_name_tag() {
         .iter()
         .find(|m| m.name == "Life")
         .expect("Life mod from body armour");
-    let has_slot = life.tags.iter().any(|t| matches!(
-        &t.kind,
-        pob_engine::TagKind::SlotName { slot_name, neg: false } if slot_name == "Body Armour"
-    ));
+    let has_slot = life.tags.iter().any(|t| {
+        matches!(
+            &t.kind,
+            pob_engine::TagKind::SlotName { slot_name, neg: false } if slot_name == "Body Armour"
+        )
+    });
     assert!(
         has_slot,
         "Body armour Life mod should carry SlotName=\"Body Armour\" tag, got {:?}",
@@ -867,8 +879,7 @@ fn item_mods_carry_slot_name_tag() {
 // ~50% AverageDamage divergence on the marauder_l90_cleave_with_axe fixture.
 #[test]
 fn hit_chance_matches_pob_calcdefence_formula() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -921,8 +932,8 @@ fn hit_chance_matches_pob_calcdefence_formula() {
 
     // At a very low evasion, hit chance should clamp to 100.
     c.config.enemy_evasion = 1;
-    let high = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
-        .get("MainSkillHitChance");
+    let high =
+        pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases)).get("MainSkillHitChance");
     assert!(
         (high - 100.0).abs() < 0.001,
         "near-zero evasion should clamp HitChance to 100, got {high}"
@@ -930,8 +941,8 @@ fn hit_chance_matches_pob_calcdefence_formula() {
 
     // At a very high evasion, hit chance should clamp to 5 (floor).
     c.config.enemy_evasion = 1_000_000;
-    let low = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
-        .get("MainSkillHitChance");
+    let low =
+        pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases)).get("MainSkillHitChance");
     assert!(
         (low - 5.0).abs() < 0.001,
         "huge evasion should clamp HitChance to 5, got {low}"
@@ -940,8 +951,7 @@ fn hit_chance_matches_pob_calcdefence_formula() {
 
 #[test]
 fn enemy_evasion_changes_main_skill_hit_chance() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         return;
     };
@@ -971,11 +981,11 @@ fn enemy_evasion_changes_main_skill_hit_chance() {
     c.main_skill = Some(MainSkill::new(&attack_id));
 
     c.config.enemy_evasion = 500;
-    let low = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
-        .get("MainSkillHitChance");
+    let low =
+        pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases)).get("MainSkillHitChance");
     c.config.enemy_evasion = 20_000;
-    let high = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
-        .get("MainSkillHitChance");
+    let high =
+        pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases)).get("MainSkillHitChance");
     assert!(
         low > high,
         "Higher enemy_evasion should drop hit chance; low={low}, high={high}"
@@ -984,8 +994,7 @@ fn enemy_evasion_changes_main_skill_hit_chance() {
 
 #[test]
 fn bleed_faster_and_enemy_moving_scale_bleed_dps() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -1010,9 +1019,10 @@ fn bleed_faster_and_enemy_moving_scale_bleed_dps() {
     };
 
     let mut c = Character::new(ClassRef::duelist(), 90);
-    let sword =
-        parse_item(&format!("Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"))
-            .unwrap();
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
     c.items.equip(pob_data::Slot::Weapon1, sword);
     c.main_skill = Some(MainSkill::new(&attack_id));
 
@@ -1067,14 +1077,15 @@ fn ailment_effect_mods_scale_all_three_ailment_dps_keys() {
     // that grant "increased Effect of Ailments") must scale every damaging
     // ailment's DPS, mirroring PoB's `effectMod = calcLib.mod(skillModList,
     // dotCfg, "AilmentEffect")` in CalcOffence.lua:4304/4584/4932.
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
     };
 
-    let Some(_) = skills.get("Cleave") else { return };
+    let Some(_) = skills.get("Cleave") else {
+        return;
+    };
     let sword_name = bases
         .iter()
         .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
@@ -1140,8 +1151,7 @@ fn ailment_effect_mods_scale_all_three_ailment_dps_keys() {
 
 #[test]
 fn ailment_duration_outputs_scale_with_duration_mods() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -1239,8 +1249,7 @@ fn ailment_duration_outputs_scale_with_duration_mods() {
 // "Witch L90 Arc baseline unchanged" criterion.
 #[test]
 fn aoe_skills_emit_radius_outputs_that_scale_with_area_mods() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -1345,7 +1354,10 @@ fn arc_intrinsic_mods_land_in_modlist() {
     let chain_mod = mods
         .iter()
         .find(|m| m.name == "Damage" && m.kind == pob_engine::ModType::More);
-    assert!(chain_mod.is_some(), "Arc should produce a MORE Damage chain mod");
+    assert!(
+        chain_mod.is_some(),
+        "Arc should produce a MORE Damage chain mod"
+    );
     let chain_mod = chain_mod.unwrap();
     // Value should be 15 (the constantStats value).
     assert_eq!(chain_mod.value.as_f64(), Some(15.0));
@@ -1431,7 +1443,10 @@ fn enemy_block_dodge_suppress_reduce_dps() {
     witch.main_skill = Some(MainSkill::new("Arc"));
     let baseline = compute_with_skills(&witch, &tree, Some(&skills));
     let baseline_dps = baseline.get("MainSkillDPS");
-    assert!(baseline_dps > 0.0, "Arc baseline should produce non-zero DPS");
+    assert!(
+        baseline_dps > 0.0,
+        "Arc baseline should produce non-zero DPS"
+    );
 
     witch.config.enemy_suppression_chance = 50;
     let suppressed = compute_with_skills(&witch, &tree, Some(&skills));
@@ -1476,8 +1491,7 @@ fn enemy_block_dodge_suppress_reduce_dps() {
 // reduction scales as expected without saturating the 90% cap.
 #[test]
 fn enemy_armour_reduces_physical_dps() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         return;
     };
@@ -1596,8 +1610,7 @@ fn projectiles_hitting_target_multiplies_dps() {
 // ImpaleDPS that approximately matches `0.3 × 5 × 0.10 × main_dps`.
 #[test]
 fn impale_chance_drives_impale_dps() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         return;
     };
@@ -1871,7 +1884,12 @@ fn ms_share_code_round_trips_full_character() {
     );
     assert_eq!(restored.main_skill.as_ref().map(|m| m.level), Some(21));
     assert_eq!(restored.config.enemy_lightning_resist, 50);
-    assert!(restored.config.conditions.get("FullLife").copied().unwrap_or(false));
+    assert!(restored
+        .config
+        .conditions
+        .get("FullLife")
+        .copied()
+        .unwrap_or(false));
     assert_eq!(
         restored.config.multipliers.get("PowerCharge").copied(),
         Some(5.0)
@@ -2024,11 +2042,17 @@ fn pob_xml_round_trip_items_and_skills() {
 
     // Items survive the round-trip on both slots.
     assert!(
-        restored.items.iter().any(|(s, _)| *s == pob_data::Slot::BodyArmour),
+        restored
+            .items
+            .iter()
+            .any(|(s, _)| *s == pob_data::Slot::BodyArmour),
         "BodyArmour slot should be populated after round-trip"
     );
     assert!(
-        restored.items.iter().any(|(s, _)| *s == pob_data::Slot::Amulet),
+        restored
+            .items
+            .iter()
+            .any(|(s, _)| *s == pob_data::Slot::Amulet),
         "Amulet slot should be populated after round-trip"
     );
 
