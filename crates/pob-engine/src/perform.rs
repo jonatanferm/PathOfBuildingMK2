@@ -1978,8 +1978,27 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         );
     }
 
-    let final_avg =
-        env.output.get("MainSkillAverageHitAfterAccuracy") * avoidance_factor;
+    // Projectile-count "shotgun" multiplier. PoB's Config tab "Projectiles
+    // hit target" lets users say how many of a skill's projectiles can hit
+    // the same enemy (Barrage, focal-point Tornado Shot, etc.). The
+    // EvalState already carries the skill's additional-projectile count
+    // (set from `number_of_additional_projectiles`); total projectile count
+    // = 1 (primary) + additional. We clamp the user's pick into
+    // `[1, ProjectileCount]` and multiply the final hit average by it.
+    let projectile_count =
+        (1.0 + env.state.stat("ProjectileCount")).max(1.0).round() as u32;
+    let hits_target = character
+        .config
+        .projectiles_hitting_target
+        .max(1)
+        .min(projectile_count);
+    let projectile_multiplier = f64::from(hits_target);
+    env.output.set("ProjectileCount", f64::from(projectile_count));
+    env.output.set("ProjectileMultiplier", projectile_multiplier);
+
+    let final_avg = env.output.get("MainSkillAverageHitAfterAccuracy")
+        * avoidance_factor
+        * projectile_multiplier;
     let main_dps = final_avg * cps;
     env.output.set("MainSkillDPS", main_dps);
 

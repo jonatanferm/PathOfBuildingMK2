@@ -217,6 +217,14 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
                 state.enemy_suppression_chance = sup.max(0) as u32;
                 changed = true;
             }
+            let mut proj = state.projectiles_hitting_target as i32;
+            if ui
+                .add(egui::Slider::new(&mut proj, 0..=20).text("Projectiles hit target"))
+                .changed()
+            {
+                state.projectiles_hitting_target = proj.max(0) as u32;
+                changed = true;
+            }
         });
 
         ui.separator();

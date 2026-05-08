@@ -496,6 +496,9 @@ fn apply_config_number(c: &mut Character, name: &str, value: f64) {
         "enemySuppressionChance" => {
             c.config.enemy_suppression_chance = (value as i32).clamp(0, 100) as u32;
         }
+        "projectileNumberHitting" | "projectilesHitTarget" => {
+            c.config.projectiles_hitting_target = (value as i32).max(0) as u32;
+        }
         "powerCharges" => {
             c.config.multipliers.insert("PowerCharge".into(), value);
         }

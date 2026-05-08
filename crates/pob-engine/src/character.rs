@@ -217,6 +217,13 @@ pub struct ConfigState {
     pub enemy_dodge_chance: u32,
     #[serde(default)]
     pub enemy_suppression_chance: u32,
+    /// How many projectiles from a single cast/attack hit the target — PoB
+    /// calls this "Projectiles hit target" and uses it for shotgun-style
+    /// builds (Barrage, Tornado Shot focal-point). 0 / 1 = single hit (no
+    /// shotgun); higher values multiply `MainSkillDPS` by `min(count,
+    /// ProjectileCount)`.
+    #[serde(default)]
+    pub projectiles_hitting_target: u32,
     /// Player-side condition toggles (`FullLife`, `LowLife`, …) — applied to
     /// `EvalState.conditions` at perform time so tagged mods activate.
     pub conditions: HashMap<String, bool>,
