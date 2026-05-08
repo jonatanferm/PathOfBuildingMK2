@@ -287,6 +287,49 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
         });
     });
 
+    // Issue #28: Custom Modifiers textarea. Mirrors PoB's Config-tab
+    // free-form mod input — each non-empty line is parsed by `mod_parser`
+    // and added to the player modDB with `source = Custom`. The engine
+    // half landed in PR #63; this is the UI surface.
+    ui.separator();
+    ui.heading("Custom Modifiers");
+    ui.label(
+        "One PoB-style mod line per row (e.g. `+50 to Strength`, `100% increased Fire Damage`). \
+         Unparseable lines are silently skipped.",
+    );
+    let response = ui.add(
+        egui::TextEdit::multiline(&mut state.custom_mods)
+            .desired_width(f32::INFINITY)
+            .desired_rows(6)
+            .hint_text("Custom mods, one per line — used for what-if testing.")
+            .font(egui::TextStyle::Monospace),
+    );
+    if response.changed() {
+        changed = true;
+    }
+    // Surface a quick parse-status summary so users can spot bad lines
+    // without leaving the tab. Each line is checked through the same
+    // `parse_mod_line` the engine uses at perform time.
+    let total = state
+        .custom_mods
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .count();
+    if total > 0 {
+        let parsed = state
+            .custom_mods
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter(|l| pob_engine::mod_parser::parse_mod_line(l.trim()).is_some())
+            .count();
+        let color = if parsed == total {
+            egui::Color32::from_rgb(0x33, 0xFF, 0x77)
+        } else {
+            egui::Color32::from_rgb(0xFF, 0x99, 0x22)
+        };
+        ui.colored_label(color, format!("{parsed} / {total} lines parse"));
+    }
+
     changed
 }
 
