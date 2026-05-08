@@ -52,6 +52,8 @@ pub fn compute_full_with_env(
     let mut env = init_env_with_bases(character, tree, bases);
     perform_basic_stats(character, tree, &mut env);
     if let Some(reg) = skills {
+        perform_reservations(character, reg, &mut env);
+        perform_curses(character, reg, &mut env);
         perform_skill_dps(character, reg, &mut env);
     }
     perform_ehp(&mut env);
@@ -513,16 +515,25 @@ fn perform_enemy_damage_sim(env: &mut Env, character: &Character) {
     env.output.set("totalTakenDamage", total_damage);
     env.output.set("totalTakenHit", total_taken_hit);
 
-    // TotalEHP — PoB derives this from an iterative damage-shaving solver, but a
-    // close approximation is `pool * (totalEnemyDamageIn / totalTakenHit)` which
-    // gives the same ratio: how much raw incoming damage you can absorb relative
-    // to how much actually lands per hit.
+    // TotalEHP — `NumberOfHitsToDie × totalEnemyDamageIn`, the same shape PoB
+    // uses (Modules/CalcDefence.lua:2881). For a single-pool build (life only,
+    // no Aegis/MoM/Ward) `NumberOfHitsToDie = pool / totalTakenHit`, which is
+    // what we compute here. PoB's full iterative solver matters only when
+    // there are multiple pools with type-specific protection (Aegis absorbs
+    // some types first, ES recovery cap, MoM redirects to mana, etc.); none
+    // of those are modelled yet, so a partial port wouldn't close the
+    // ~0.2% baseline gap. Tracked in docs/divergences.md.
     let pool = (env.output.get("Life")
         + env.output.get("EnergyShield")
         + env.output.get("Ward"))
     .max(1.0);
     if total_taken_hit > 0.0 {
-        env.output.set("TotalEHP", pool * total_in / total_taken_hit);
+        let hits_to_die = pool / total_taken_hit;
+        env.output.set("NumberOfDamagingHits", hits_to_die);
+        env.output.set("NumberOfMitigatedDamagingHits", hits_to_die);
+        env.output.set("TotalNumberOfHits", hits_to_die);
+        env.output.set("TotalEHP", hits_to_die * total_in);
+        env.output.set("EHPSurvivalTime", hits_to_die * env.output.get("enemySkillTime"));
     }
 }
 
@@ -613,6 +624,37 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     env.state.set_stat("Strength", str_v);
     env.state.set_stat("Dexterity", dex_v);
     env.state.set_stat("Intelligence", int_v);
+    env.state.set_stat("Str", str_v);
+    env.state.set_stat("Dex", dex_v);
+    env.state.set_stat("Int", int_v);
+
+    // Character implicits derived from the just-computed attributes (Modules/
+    // CalcPerform.lua:507-520). PoB injects two INC mods after attribute
+    // computation: `Evasion INC floor(Dex/5)` and `EnergyShield INC floor(Int/10)`,
+    // gated by the NoDex/Int* flags. Add them here so the Evasion / ES queries
+    // below pick them up.
+    if !env.mod_db.flag(&cfg, &env.state, "NoDexterityAttributeBonuses")
+        && !env.mod_db.flag(&cfg, &env.state, "NoDexBonusToEvasion")
+    {
+        let dex_evasion_inc = (dex_v / 5.0).floor();
+        if dex_evasion_inc > 0.0 {
+            env.mod_db.add(
+                Mod::inc("Evasion", dex_evasion_inc)
+                    .with_source(Source::Other("Dexterity".into())),
+            );
+        }
+    }
+    if !env.mod_db.flag(&cfg, &env.state, "NoIntelligenceAttributeBonuses")
+        && !env.mod_db.flag(&cfg, &env.state, "NoIntBonusToES")
+    {
+        let int_es_inc = (int_v / 10.0).floor();
+        if int_es_inc > 0.0 {
+            env.mod_db.add(
+                Mod::inc("EnergyShield", int_es_inc)
+                    .with_source(Source::Other("Intelligence".into())),
+            );
+        }
+    }
 
     // Life: base + (Strength / 2) implicit from PoE; then * (1 + inc/100) * more product.
     let life_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Life") + str_v / 2.0;
@@ -659,7 +701,6 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
         env.output.set("ChaosResistTotal", raw.min(cap));
     }
 
-    // Defences: armour, evasion. Treat them as INC over a base 0; items push base values.
     for stat in ["Armour", "Evasion", "Ward"] {
         let base = env.mod_db.sum(ModType::Base, &cfg, &env.state, stat);
         let total = base * env.mod_db.applied(&cfg, &env.state, stat);
@@ -723,12 +764,17 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     let es_regen_pct = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "EnergyShieldRegen");
     env.output.set("EnergyShieldRegen", es_regen_flat * (1.0 + es_regen_pct / 100.0));
 
-    // Reservation pools. Phase 2 doesn't model auras yet, so unreserved == max.
-    // PoB exposes both the absolute and the percentage; we mirror absolutes.
+    // Reservation pools. Default 100% unreserved; perform_reservations (called
+    // after the basic-stats pass once we have a SkillRegistry) replaces these
+    // with the actual aura/herald-reduced values.
     env.output.set("LifeUnreserved", life);
     env.output.set("LifeUnreservedPercent", 100.0);
     env.output.set("ManaUnreserved", mana);
     env.output.set("ManaUnreservedPercent", 100.0);
+    env.output.set("LifeReserved", 0.0);
+    env.output.set("ManaReserved", 0.0);
+    env.output.set("LifeReservedPercent", 0.0);
+    env.output.set("ManaReservedPercent", 0.0);
 
     // Movement speed multiplier — `applied` returns the (1+inc)*more product.
     let move_speed = env.mod_db.applied(&cfg, &env.state, "MovementSpeed");
@@ -759,6 +805,171 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     // additional percentage points.
     let crit_mult_pct = 150.0 + env.mod_db.sum(ModType::Base, &cfg, &env.state, "CritMultiplier");
     env.output.set("CritMultiplier", crit_mult_pct / 100.0);
+}
+
+/// Walk the character's skill groups, sum aura/herald reservations, and rewrite
+/// the LifeUnreserved/ManaUnreserved outputs accordingly. Mirrors PoB's
+/// `doActorLifeManaReservation`. We model the basics: each enabled gem in an
+/// enabled group whose level data carries `manaReservationPercent` /
+/// `lifeReservationPercent` / `manaReservationFlat` / `lifeReservationFlat`
+/// contributes to the pool reservation. Reservation efficiency mods (INC and
+/// MORE on `ManaReservationEfficiency` / `LifeReservationEfficiency` /
+/// `ReservationEfficiency`) scale the reserved amount: more efficient = less
+/// reserved.
+fn perform_reservations(character: &Character, skills: &SkillRegistry, env: &mut Env) {
+    if character.skill_groups.is_empty() {
+        return;
+    }
+    let cfg = QueryCfg::default();
+    // Reservation efficiency: PoB stores it as INC + MORE on
+    // `<pool>ReservationEfficiency` and the generic `ReservationEfficiency`.
+    // The reserved amount scales by `1 / ((1 + inc/100) * more)` — i.e. higher
+    // efficiency means less of the pool is consumed.
+    let efficiency = |pool: &str| -> f64 {
+        let inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ReservationEfficiency")
+            + env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, &format!("{pool}ReservationEfficiency"));
+        let more = env.mod_db.more(&cfg, &env.state, "ReservationEfficiency")
+            * env
+                .mod_db
+                .more(&cfg, &env.state, &format!("{pool}ReservationEfficiency"));
+        ((1.0 + inc / 100.0) * more).max(0.01)
+    };
+    let mana_eff = efficiency("Mana");
+    let life_eff = efficiency("Life");
+    let life_max = env.output.get("Life").max(1.0);
+    let mana_max = env.output.get("Mana").max(1.0);
+
+    let mut life_reserved_flat = 0.0;
+    let mut life_reserved_percent = 0.0;
+    let mut mana_reserved_flat = 0.0;
+    let mut mana_reserved_percent = 0.0;
+
+    for group in &character.skill_groups {
+        if !group.enabled {
+            continue;
+        }
+        for gem in &group.gems {
+            if !gem.enabled {
+                continue;
+            }
+            let Some(skill) = skills.get(&gem.skill_id) else {
+                continue;
+            };
+            // Only count aura/reservation skills. PoB checks SkillType.HasReservation
+            // (id 18 in the canonical PoB enum); we mirror that, plus the
+            // base-flag `aura` which the extractor also surfaces.
+            let has_reservation = skill.skill_types.get("18").copied().unwrap_or(false)
+                || skill.base_flags.get("aura").copied().unwrap_or(false)
+                || skill.base_flags.get("herald").copied().unwrap_or(false);
+            if !has_reservation {
+                continue;
+            }
+            let level = gem.level.max(1);
+            let m_pct = skill.reservation_percent(level, "Mana");
+            let m_flat = skill.reservation_flat(level, "Mana");
+            let l_pct = skill.reservation_percent(level, "Life");
+            let l_flat = skill.reservation_flat(level, "Life");
+            mana_reserved_percent += m_pct / mana_eff;
+            mana_reserved_flat += m_flat / mana_eff;
+            life_reserved_percent += l_pct / life_eff;
+            life_reserved_flat += l_flat / life_eff;
+        }
+    }
+
+    // Convert percent reservations on each pool into absolutes.
+    let life_reserved = life_reserved_flat + life_max * life_reserved_percent / 100.0;
+    let mana_reserved = mana_reserved_flat + mana_max * mana_reserved_percent / 100.0;
+    let life_unreserved = (life_max - life_reserved).max(0.0);
+    let mana_unreserved = (mana_max - mana_reserved).max(0.0);
+
+    env.output.set("LifeReserved", life_reserved.round());
+    env.output.set("ManaReserved", mana_reserved.round());
+    env.output.set(
+        "LifeReservedPercent",
+        (life_reserved / life_max * 100.0).min(100.0),
+    );
+    env.output.set(
+        "ManaReservedPercent",
+        (mana_reserved / mana_max * 100.0).min(100.0),
+    );
+    env.output.set("LifeUnreserved", life_unreserved.round());
+    env.output.set("ManaUnreserved", mana_unreserved.round());
+    env.output.set(
+        "LifeUnreservedPercent",
+        (life_unreserved / life_max * 100.0).max(0.0),
+    );
+    env.output.set(
+        "ManaUnreservedPercent",
+        (mana_unreserved / mana_max * 100.0).max(0.0),
+    );
+}
+
+/// Walk the character's skill groups, gather any enabled curse / mark gems, and
+/// stash the resulting enemy-resist deltas + curse-effect outputs. The skill DPS
+/// pass reads `EnemyFireResist` / `EnemyColdResist` / etc. to apply them to
+/// damage. PoB models curses as mods on a dedicated `enemyDB`; we model the
+/// player-visible side: aggregate the per-element resist reduction across all
+/// curses on the build and expose it as `Cursed{Element}ResistDelta`.
+fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) {
+    if character.skill_groups.is_empty() {
+        return;
+    }
+    // Sum of resist reductions across active curses (negative numbers; e.g. -36
+    // means the enemy's lightning resist drops by 36). PoB caps total curse
+    // effect against bosses; for now we apply the raw stack (Phase-3 minimum).
+    let mut fire_delta = 0.0_f64;
+    let mut cold_delta = 0.0_f64;
+    let mut light_delta = 0.0_f64;
+    let mut chaos_delta = 0.0_f64;
+    let mut elem_delta = 0.0_f64;
+    let mut active_curses: u32 = 0;
+    for group in &character.skill_groups {
+        if !group.enabled {
+            continue;
+        }
+        for gem in &group.gems {
+            if !gem.enabled {
+                continue;
+            }
+            let Some(skill) = skills.get(&gem.skill_id) else {
+                continue;
+            };
+            let is_curse = skill.base_flags.get("curse").copied().unwrap_or(false);
+            if !is_curse {
+                continue;
+            }
+            active_curses += 1;
+            // The resist-reduction value sits on a positional indexed by the
+            // curse's `stats` list — typically the third entry (`base_X_damage_
+            // resistance_%`). Walk stats and pluck values for the four element
+            // resists + the all-elements bucket.
+            let level = gem.level.max(1);
+            for (i, stat_id) in skill.stats.iter().enumerate() {
+                let Some(value) = skill.positional(level, (i + 1) as u32) else {
+                    continue;
+                };
+                match stat_id.as_str() {
+                    "base_fire_damage_resistance_%" => fire_delta += value,
+                    "base_cold_damage_resistance_%" => cold_delta += value,
+                    "base_lightning_damage_resistance_%" => light_delta += value,
+                    "base_chaos_damage_resistance_%" => chaos_delta += value,
+                    "base_resist_all_elements_%" => elem_delta += value,
+                    _ => {}
+                }
+            }
+        }
+    }
+    // Roll the all-elements bucket into each individual element.
+    fire_delta += elem_delta;
+    cold_delta += elem_delta;
+    light_delta += elem_delta;
+    env.output.set("CursedFireResistDelta", fire_delta);
+    env.output.set("CursedColdResistDelta", cold_delta);
+    env.output.set("CursedLightningResistDelta", light_delta);
+    env.output.set("CursedChaosResistDelta", chaos_delta);
+    env.output.set("ActiveCurseCount", f64::from(active_curses));
 }
 
 /// Compute hit damage for the main skill. Phase 3d: spell-only, single hit, single
@@ -851,6 +1062,16 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // EvalState's stats map. This lets PerStat tags (e.g. PerStat:ChainRemaining)
     // scale by the skill's own per-level numbers (Arc has 7 chains at level 20, so
     // ChainRemaining = 7). PoB does this in CalcActiveSkill via its skillData table.
+    //
+    // Special-case for `ChainRemaining`: PoB iterates over each chain hit
+    // separately. Mods like Arc's "+15% more damage per remaining chain" then
+    // apply differently to every hit (0..N remaining). We approximate the
+    // averaged per-cast damage by stashing the **average** remaining-chain
+    // count (N/2) into EvalState. The MORE evaluator multiplies by that
+    // average, which matches the arithmetic mean of the per-hit multipliers
+    // (sum_{r=0}^{N} 15·r / (N+1) = 15 · N/2). The display value (ChainMax)
+    // is filled in later from `chain_max_display`.
+    let mut chain_max_display: Option<f64> = None;
     for (i, stat_id) in skill.stats.iter().enumerate() {
         // positional indices in our extractor are 1-based: positional[1] is the first.
         if let Some(v) = skill.positional(gem_level, (i + 1) as u32) {
@@ -875,7 +1096,13 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                         value += scale * f64::from(main.quality);
                     }
                 }
-                env.state.set_stat(eval_key, value);
+                if eval_key == "ChainRemaining" {
+                    chain_max_display = Some(value);
+                    // Average remaining over [0, N] is N/2.
+                    env.state.set_stat(eval_key, value / 2.0);
+                } else {
+                    env.state.set_stat(eval_key, value);
+                }
             }
         }
     }
@@ -1036,14 +1263,11 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         "ChaosDamage" => KeywordFlag::CHAOS,
         _ => KeywordFlag::empty(),
     };
-    // NOTE: We deliberately do NOT add HIT/SPELL/ATTACK to cfg.keyword_flags
-    // here, even though it might seem natural. PoB's intrinsic skill mods
-    // (e.g. Arc's "+15% MORE damage per chain remaining" tagged HIT|AILMENT)
-    // are applied in a specialized "per-hit" context that averages over chain
-    // counts; including HIT here would inflate the basic per-cast average by
-    // applying the full ChainMax bonus to every reported hit. Modelling that
-    // properly requires PoB's full chain-iteration calc which Phase 3d doesn't
-    // implement yet.
+    // Per-chain MOREs (tagged with PerStat:ChainRemaining, e.g. Arc's "+15%
+    // more damage per remaining chain") are now safe to apply because we
+    // stash the *average* remaining-chain count into EvalState — the MORE
+    // value evaluates to the arithmetic mean over all chain hits, which is
+    // what PoB ultimately reports as the per-cast average.
     cfg.skill_name = Some(&main.skill_id);
 
     // Damage modifiers: stack the elemental, generic damage, and skill-type damage mods.
@@ -1154,6 +1378,17 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         "ChaosDamage" => character.config.enemy_chaos_resist,
         _ => 0,
     };
+    // Curse-driven enemy resist reduction. perform_curses populated
+    // Cursed{Element}ResistDelta with the sum of all active curses' resist
+    // reductions (already negative — e.g. Conductivity contributes -36).
+    let curse_delta = match elem_stat {
+        "FireDamage" => env.output.get("CursedFireResistDelta"),
+        "ColdDamage" => env.output.get("CursedColdResistDelta"),
+        "LightningDamage" => env.output.get("CursedLightningResistDelta"),
+        "ChaosDamage" => env.output.get("CursedChaosResistDelta"),
+        _ => 0.0,
+    };
+    let enemy_resist_raw = f64::from(enemy_resist_raw) + curse_delta;
     let pen_stat = match elem_stat {
         "FireDamage" => "FirePenetration",
         "ColdDamage" => "ColdPenetration",
@@ -1168,7 +1403,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     } + env
         .mod_db
         .sum(ModType::Base, &cfg, &env.state, "ElementalPenetration");
-    let effective_resist = (f64::from(enemy_resist_raw) - elem_pen).clamp(-200.0, 95.0);
+    let effective_resist = (enemy_resist_raw - elem_pen).clamp(-200.0, 95.0);
     let res_factor = (1.0 - effective_resist / 100.0).max(0.0);
     let avg_after_res = avg_with_crit * res_factor;
     env.output.set("MainSkillAverageHitAfterResist", avg_after_res);
@@ -1401,11 +1636,15 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     }
     // Chain count: PoB shows ChainMax (incl. quality bonus) and ChainRemaining
     // (which by default equals ChainMax — a fresh hit hasn't chained yet).
-    let chain_max = env.state.stat("ChainRemaining");
-    if chain_max > 0.0 {
-        env.output.set("ChainMax", chain_max);
-        env.output.set("ChainRemaining", chain_max);
-        env.output.set("ChainMaxString", chain_max);
+    // The EvalState stat now carries the *average* remaining-chain count for
+    // the DPS calc (see the special case at the top of this function), so we
+    // pull the display value from `chain_max_display` instead.
+    if let Some(chain_max) = chain_max_display {
+        if chain_max > 0.0 {
+            env.output.set("ChainMax", chain_max);
+            env.output.set("ChainRemaining", chain_max);
+            env.output.set("ChainMaxString", chain_max);
+        }
     }
     // Skill type ailment chances (PoB hard-codes 100% chance to chill / shock
     // on hit / crit for the skill if it has SkillType lightning / cold). For

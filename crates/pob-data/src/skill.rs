@@ -211,4 +211,34 @@ impl Skill {
         let key = idx.to_string();
         entry.get(&key).and_then(Value::as_f64)
     }
+
+    /// Aura/herald reservation: percent of the named pool reserved by this skill at
+    /// the given level. PoB reads `manaReservationPercent` / `lifeReservationPercent`
+    /// off the per-level entry; absent → 0.
+    pub fn reservation_percent(&self, level: u32, pool: &str) -> f64 {
+        let key = match pool {
+            "Mana" => "manaReservationPercent",
+            "Life" => "lifeReservationPercent",
+            _ => return 0.0,
+        };
+        self.level_data(level)
+            .and_then(|v| v.get(key))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    }
+
+    /// Aura/herald flat reservation: absolute amount reserved by this skill at the
+    /// given level. PoB reads `manaReservationFlat` / `lifeReservationFlat` off the
+    /// per-level entry; absent → 0.
+    pub fn reservation_flat(&self, level: u32, pool: &str) -> f64 {
+        let key = match pool {
+            "Mana" => "manaReservationFlat",
+            "Life" => "lifeReservationFlat",
+            _ => return 0.0,
+        };
+        self.level_data(level)
+            .and_then(|v| v.get(key))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    }
 }

@@ -46,6 +46,8 @@ impl SkillRegistry {
             .filter(|(_, s)| {
                 s.base_flags.get("spell").copied().unwrap_or(false)
                     || s.base_flags.get("attack").copied().unwrap_or(false)
+                    || s.base_flags.get("aura").copied().unwrap_or(false)
+                    || s.base_flags.get("herald").copied().unwrap_or(false)
             })
             .map(|(k, v)| (k.as_str(), v))
     }
