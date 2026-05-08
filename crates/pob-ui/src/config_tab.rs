@@ -344,6 +344,36 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
         });
     });
 
+    // Issue #19 (slice 2): Warcry Power config knob. Mirrors PoB's
+    // `multiplierWarcryPower` Config-tab input from
+    // `Modules/ConfigOptions.lua:723-725`. Power is the strength of
+    // nearby enemies summed up (1 normal, 2 magic, 10 rare, 20
+    // unique); PoB's tooltip suggests 20 (one boss) as a default.
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label("Warcry Power:");
+        let mut enabled = state.warcry_power.is_some();
+        if ui.checkbox(&mut enabled, "").changed() {
+            state.warcry_power = if enabled { Some(20) } else { None };
+            changed = true;
+        }
+        if let Some(power) = state.warcry_power.as_mut() {
+            let mut as_i32 = *power as i32;
+            if ui
+                .add(egui::DragValue::new(&mut as_i32).range(0..=999))
+                .changed()
+            {
+                let clamped = as_i32.clamp(0, 999) as u32;
+                if clamped != *power {
+                    *power = clamped;
+                    changed = true;
+                }
+            }
+        } else {
+            ui.weak("(disabled — defaults to PoB's 20-power boss assumption)");
+        }
+    });
+
     // Issue #28: Custom Modifiers textarea. Mirrors PoB's Config-tab
     // free-form mod input — each non-empty line is parsed by `mod_parser`
     // and added to the player modDB with `source = Custom`. The engine
