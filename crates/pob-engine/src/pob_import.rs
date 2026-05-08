@@ -97,11 +97,14 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
         std::collections::HashMap::new();
     let mut current_item_id: Option<u32> = None;
     let mut current_item_body = String::new();
-    // ItemSet → slot bindings
-    let mut equipped_first_set: std::collections::HashMap<String, u32> =
-        std::collections::HashMap::new();
+    // ItemSet → slot bindings. Issue #90: PoB stores multiple
+    // `<ItemSet>` blocks, each pointing back at items by id. We capture
+    // every set so saved-loadout names round-trip; the slot map for the
+    // *active* set drives `character.items`.
+    type SlotMap = std::collections::HashMap<String, u32>;
+    let mut item_sets: Vec<(u32, Option<String>, SlotMap)> = Vec::new();
     let mut active_item_set_id: Option<u32> = None;
-    let mut item_set_capture_id: Option<u32> = None;
+    let mut current_item_set: Option<(u32, Option<String>, SlotMap)> = None;
     // Skills: capture all skill groups; track which has mainActiveSkill.
     let mut skill_groups: Vec<SkillGroup> = Vec::new();
     let mut current_skill_group: Option<SkillGroup> = None;
@@ -156,11 +159,16 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                         });
                     }
                     "ItemSet" => {
-                        // First ItemSet wins for our minimal one-set model.
-                        let id = attr_str(&e, "id").and_then(|s| s.parse::<u32>().ok());
-                        if item_set_capture_id.is_none() {
-                            item_set_capture_id = id.or(Some(1));
-                        }
+                        // Issue #90: capture every <ItemSet> so multi-loadout
+                        // builds round-trip. Each block carries an id, an
+                        // optional human-readable title, and a slot→itemId
+                        // map; we collect them all and reconcile after the
+                        // parse loop using `active_item_set_id`.
+                        let id = attr_str(&e, "id")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or((item_sets.len() + 1) as u32);
+                        let title = attr_str(&e, "title").filter(|s| !s.is_empty());
+                        current_item_set = Some((id, title, SlotMap::new()));
                     }
                     "Config" => in_config = true,
                     _ => {}
@@ -182,16 +190,21 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                 )?;
                 match name.as_str() {
                     "Slot" => {
-                        // ItemSet → Slot mapping. PoB sometimes nests Slot inside
-                        // ItemSet, sometimes directly inside Items (legacy). Either
-                        // way we capture only the first set we see.
-                        if equipped_first_set.is_empty() || item_set_capture_id.is_some() {
-                            let slot_name = attr_str(&e, "name").unwrap_or_default();
-                            let item_id =
-                                attr_str(&e, "itemId").and_then(|s| s.parse::<u32>().ok());
-                            if let (false, Some(id)) = (slot_name.is_empty(), item_id) {
-                                if id > 0 {
-                                    equipped_first_set.insert(slot_name, id);
+                        // ItemSet → Slot mapping. PoB nests Slot inside
+                        // ItemSet (current schema); some legacy files place
+                        // Slot directly inside Items, in which case we
+                        // synthesise a default set on first sight.
+                        let slot_name = attr_str(&e, "name").unwrap_or_default();
+                        let item_id = attr_str(&e, "itemId").and_then(|s| s.parse::<u32>().ok());
+                        if let (false, Some(id)) = (slot_name.is_empty(), item_id) {
+                            if id > 0 {
+                                if let Some((_, _, ref mut m)) = current_item_set {
+                                    m.insert(slot_name, id);
+                                } else if item_sets.is_empty() {
+                                    // Legacy: <Slot> outside any <ItemSet>.
+                                    let mut m = SlotMap::new();
+                                    m.insert(slot_name, id);
+                                    item_sets.push((1, None, m));
                                 }
                             }
                         }
@@ -254,7 +267,9 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                         }
                     }
                     "ItemSet" => {
-                        item_set_capture_id = None;
+                        if let Some(set) = current_item_set.take() {
+                            item_sets.push(set);
+                        }
                     }
                     "Config" => in_config = false,
                     _ => {}
@@ -310,19 +325,52 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
         character.ascendancy = Some(a);
     }
 
-    // Equip items based on the first ItemSet's slot bindings. Parse failures are
-    // swallowed silently — exotic items the parser doesn't handle yet shouldn't
-    // block the rest of the import.
-    for (slot_name, item_id) in &equipped_first_set {
-        let Some(slot) = pob_slot_from_name(slot_name) else {
-            continue;
-        };
-        let Some(spec) = items_by_id.get(item_id) else {
-            continue;
-        };
-        if let Ok(item) = parse_item(spec.raw.trim()) {
-            character.items.equip(slot, item);
+    // Issue #90: round-trip every <ItemSet>. Build an ItemSet for each
+    // captured (id, title, slot→itemId) entry, then install the active
+    // one onto `character.items` and the rest under `character.item_sets`
+    // (preserving title for display). Parse failures swallow per-slot —
+    // exotic items the parser doesn't handle yet shouldn't block import.
+    let materialise_set = |slots: &SlotMap| -> pob_data::ItemSet {
+        let mut set = pob_data::ItemSet::default();
+        for (slot_name, item_id) in slots {
+            let Some(slot) = pob_slot_from_name(slot_name) else {
+                continue;
+            };
+            let Some(spec) = items_by_id.get(item_id) else {
+                continue;
+            };
+            if let Ok(item) = parse_item(spec.raw.trim()) {
+                set.equip(slot, item);
+            }
         }
+        set
+    };
+
+    if !item_sets.is_empty() {
+        // Pick the active set: prefer the one PoB tagged via
+        // `activeItemSet`, else fall back to id == 1, else the first one
+        // we saw. The remaining sets become saved loadouts.
+        let active_id = active_item_set_id
+            .or_else(|| item_sets.iter().find(|(id, _, _)| *id == 1).map(|(id, _, _)| *id))
+            .or_else(|| item_sets.first().map(|(id, _, _)| *id));
+        let mut saved: Vec<crate::character::NamedItemSet> = Vec::new();
+        for (idx, (id, title, slots)) in item_sets.iter().enumerate() {
+            let materialised = materialise_set(slots);
+            if Some(*id) == active_id {
+                character.items = materialised;
+            } else {
+                let display = title.clone().unwrap_or_else(|| {
+                    // PoB doesn't always emit titles; default to a stable
+                    // ordinal so the UI still surfaces every set.
+                    format!("Set {}", idx + 1)
+                });
+                saved.push(crate::character::NamedItemSet {
+                    name: display,
+                    items: materialised,
+                });
+            }
+        }
+        character.item_sets = saved;
     }
 
     // Pick the main skill: prefer the explicit mainActiveSkill within
@@ -530,7 +578,7 @@ fn handle_start_attrs(
     active_spec_ascend: &mut Option<String>,
     found_root: &mut bool,
     main_socket_group: &mut Option<u32>,
-    _active_item_set_id: &mut Option<u32>,
+    active_item_set_id: &mut Option<u32>,
 ) -> Result<(), PobImportError> {
     match name {
         "PathOfBuilding" => {
@@ -570,6 +618,23 @@ fn handle_start_attrs(
                         }
                     }
                     _ => {}
+                }
+            }
+        }
+        "Items" => {
+            // PoB pins the active loadout via `<Items activeItemSet="N">`.
+            // Capture it so the post-parse reconciliation can pick the
+            // right `<ItemSet>` to install as the live items.
+            for attr in e.attributes().with_checks(false).flatten() {
+                let key = String::from_utf8_lossy(attr.key.as_ref()).into_owned();
+                let val = attr
+                    .unescape_value()
+                    .map_err(|err| PobImportError::Xml(err.to_string()))?
+                    .into_owned();
+                if key == "activeItemSet" {
+                    if let Ok(n) = val.parse::<u32>() {
+                        *active_item_set_id = Some(n);
+                    }
                 }
             }
         }
