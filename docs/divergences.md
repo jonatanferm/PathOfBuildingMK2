@@ -119,13 +119,15 @@ loads any `--build` XML through `main:SetMode("BUILD", …)`, runs the official 
 engine, pulls `env.player.output` (~617 scalar keys) back into Rust, and prints a
 side-by-side diff against `pob_engine::compute_with_skills` for the comparable subset.
 
-Status on Witch / Marauder L90 baselines:
+Status on Witch L90 baseline:
 - 26 curated probe keys: 0 divergent
-- 243 auto-discovered shared scalar keys: 4 divergent (only on elemental
-  `*MaximumHitTaken`, where PoB's iterative damage-shaving solver gives 690 vs
-  pob-engine's pool/taken value of 703 — within ~2%)
-- 20 PoB-only keys not yet emitted by pob-engine, all from PoB's EHP damage
-  simulation (`totalEnemyDamage`, per-element `TakenHit`/`TakenDamage`, `TotalEHP`).
+- 263 auto-discovered shared scalar keys: 1 divergent (TotalEHP off by ~0.2%
+  due to PoB's iterative damage-shaving solver vs our analytic approximation)
+- 0 PoB-only keys remaining — pob-engine emits every non-trivial PoB output
+
+Marauder L90 baseline shows 2 divergent keys (TotalEHP +1.6, plus
+`impaleStoredHitAvg` which PoB derives from a class-specific calc not yet
+modelled in pob-engine).
 
 LuaJIT → Lua 5.4 compatibility shims live in `build_lua_sandbox`:
 - `jit.opt.start`, `unpack`, `loadstring`, LuaJIT-style `bit.*`
@@ -150,10 +152,10 @@ Open work:
 - XML→CharacterState bridge currently covers class + level + ascendancy +
   allocated tree nodes. Items, skill gem selection, and Config inputs still
   need plumbing through `import_pob_xml`.
-- EHP damage simulation: PoB's iterative damage-shaving solver produces
-  `totalTakenHit` / `totalEnemyDamage` / per-element `TakenHit`/`TakenDamage`
-  by simulating an enemy hit against the character's defences. The 20 missing
-  PoB-only outputs are all from this simulation.
+- PoB's iterative damage-shaving solver (used for `MaximumHitTaken` and
+  `TotalEHP`): pob-engine's analytic ratio approximation matches to ~0.2%.
+  Implementing the solver would close the last divergence but is unlikely to
+  matter for users.
 
 ### Tree rendering uses egui shapes, not wgpu — Phase 4a (open)
 
