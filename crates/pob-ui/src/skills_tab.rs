@@ -186,11 +186,15 @@ pub fn ui(
                 } else {
                     " "
                 };
-                let is_support = registry.get(&gem.skill_id).map(|s| s.support).unwrap_or(false);
+                let skill_meta = registry.get(&gem.skill_id);
+                let is_support = skill_meta.map(|s| s.support).unwrap_or(false);
                 let kind_marker = if is_support { "⚙" } else { " " };
+                let display_name = skill_meta
+                    .map(|s| s.name.as_str())
+                    .unwrap_or(&gem.skill_id);
                 let label = format!(
                     "{} {} {} (L{} Q{}%)",
-                    main_marker, kind_marker, gem.skill_id, gem.level, gem.quality
+                    main_marker, kind_marker, display_name, gem.level, gem.quality
                 );
                 ui.horizontal(|ui| {
                     if ui
