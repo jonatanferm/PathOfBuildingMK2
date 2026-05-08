@@ -584,6 +584,72 @@ fn ascendancy_point_cap_is_8() {
     assert_eq!(c.ascendancy_alloc_count(&tree), 8);
 }
 
+// Issue #17: a build loaded with more than 8 ascendancy nodes (e.g. from a
+// hand-edited .mk2 file or stale PoB XML) must not credit the excess into
+// the calc. The UI gate handles fresh clicks, but `connected_allocations`
+// is the last-line defence at compute time.
+#[test]
+fn over_allocated_ascendancy_nodes_are_capped_at_compute_time() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+
+    // Grab 10 Occultist nodes — two more than the budget — and force-allocate
+    // them. We bypass the UI click gate to simulate a loaded build.
+    let occultist_nodes: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter_map(|(id, n)| {
+            n.ascendancy_name
+                .as_deref()
+                .filter(|asc| asc.eq_ignore_ascii_case("Occultist"))
+                .map(|_| *id)
+        })
+        .take(10)
+        .collect();
+    if occultist_nodes.len() < 10 {
+        eprintln!("skip: tree fixture has fewer than 10 Occultist nodes");
+        return;
+    }
+
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.ascendancy = Some("Occultist".into());
+    for id in &occultist_nodes {
+        c.allocate(*id);
+    }
+    assert_eq!(
+        c.ascendancy_alloc_count(&tree),
+        10,
+        "raw allocated count should reflect the over-allocation"
+    );
+
+    // The compute path filters via `connected_allocations`; we exercise it
+    // indirectly through `init_env`, which walks the same path. Count
+    // ascendancy mods sourced from Occultist nodes — we expect at most 8
+    // distinct passive sources.
+    let env = pob_engine::perform::init_env(&c, &tree);
+    use pob_engine::ModStore as _;
+    let asc_sources: std::collections::HashSet<pob_data::NodeId> = env
+        .mod_db
+        .iter_all()
+        .filter_map(|m| match m.source {
+            Some(pob_engine::Source::Passive(id)) => Some(id),
+            _ => None,
+        })
+        .filter(|id| {
+            tree.nodes
+                .get(id)
+                .and_then(|n| n.ascendancy_name.as_deref())
+                .is_some()
+        })
+        .collect();
+    assert!(
+        asc_sources.len() <= 8,
+        "expected the calc layer to cap ascendancy contributions at 8; got {}",
+        asc_sources.len()
+    );
+}
+
 #[test]
 fn pob_diff_bleeding_cleave_baseline() {
     // Regression baseline for the 6d-2 ailment overhaul: the

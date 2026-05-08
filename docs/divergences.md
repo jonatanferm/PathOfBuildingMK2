@@ -56,12 +56,15 @@ Closed: `ConfigState.enemy_evasion` exists, defaults to 1500 (the PoB level-84 b
 is surfaced as a slider in the Config tab, and read by the accuracy block in
 `perform.rs::compute_with_skills` when computing `MainSkillHitChance`.
 
-### No ascendancy point counter — Phase 3 (open)
+### Ascendancy point counter — Phase 3 (closed)
 
-We let users allocate any node, including ascendancy nodes, without checking the 8-point
-ascendancy budget. PoB enforces it via `PassiveSpec:CountAllocNodes` plus a paint-step
-gate. Easy fix: extend `Character::allocated` semantics to track a separate
-`ascendancy_allocated` set with a 8-point cap.
+Closed: `Character::ascendancy_alloc_count` / `can_allocate_ascendancy` track the
+ascendancy budget against `tree.points.ascendancy_points` (8 by default). The Tree
+tab gates clicks past the cap and the status bar surfaces the count.
+`connected_allocations` enforces the cap a second time at compute time, so loaded
+`.mk2` / PoB-XML builds with over-allocated ascendancy nodes don't credit the
+excess into stats — the lowest 8 NodeIds among the reachable allocated set win,
+and the rest are silently dropped.
 
 ### Skill DPS is single-target hit + ailment, no enemy mitigation — Phase 3 (open)
 
