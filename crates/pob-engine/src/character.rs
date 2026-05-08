@@ -797,33 +797,54 @@ impl Character {
         self.allocated.insert(node);
     }
 
+    /// The set of nodes treated as already-reached when path-finding: the
+    /// user's actual `allocated` set plus the synthetic class-start (and
+    /// ascendancy-start) anchors. The anchors aren't real allocations — they
+    /// don't cost a point and don't appear in `allocated` — but PoB lets you
+    /// grow a path from the class start as if they were. Used by
+    /// `allocate_path` and the UI hover preview so they agree on what
+    /// "reachable" means.
+    pub fn pathfind_seeds(&self, tree: &PassiveTree) -> std::collections::HashSet<NodeId> {
+        let mut seeds: std::collections::HashSet<NodeId> =
+            self.allocated.iter().copied().collect();
+        for s in crate::pathfind::anchor_nodes(tree, &self.class.0, self.ascendancy.as_deref()) {
+            seeds.insert(s);
+        }
+        seeds
+    }
+
     /// Allocate `target` and every unallocated node on the shortest path
     /// connecting it to the existing allocation. Mirrors PoB's "click an
     /// outlying notable to jump there" behaviour: when you click a far
     /// node we also allocate the chain of points it takes to reach it.
     ///
+    /// The class start (and chosen ascendancy start) act as virtual seeds —
+    /// the first click on a freshly-rolled Marauder grows a path from the
+    /// Marauder start, not an isolated island.
+    ///
     /// Returns the list of node ids that were newly inserted (in path
     /// order, target last). Returns an empty `Vec` if `target` was
     /// already allocated. Returns `None` if `target` is unreachable from
-    /// the current allocation; in that case nothing changes.
+    /// any seed; in that case nothing changes.
     ///
-    /// When the allocation is empty the method falls back to inserting
-    /// just `target` (first-click behaviour for tests / freshly reset
-    /// characters).
+    /// When there are no seeds at all (no class set and nothing allocated —
+    /// only happens in synthetic test trees) the method falls back to
+    /// inserting just `target`.
     pub fn allocate_path(&mut self, tree: &PassiveTree, target: NodeId) -> Option<Vec<NodeId>> {
         if self.allocated.contains(&target) {
             return Some(Vec::new());
         }
-        let allocated_set: std::collections::HashSet<NodeId> =
-            self.allocated.iter().copied().collect();
-        let path = if allocated_set.is_empty() {
+        let seeds = self.pathfind_seeds(tree);
+        let path = if seeds.is_empty() {
             vec![target]
         } else {
-            crate::pathfind::shortest_path_from_allocated(tree, &allocated_set, target)?
+            crate::pathfind::shortest_path_from_allocated(tree, &seeds, target)?
         };
-        // First entry is an already-allocated root (or `target` itself when the
-        // allocated set was empty). Skip it so we only return newly-added ids.
-        let first_idx = usize::from(!allocated_set.is_empty());
+        // First entry is a seed (real allocation or virtual anchor) — or
+        // `target` itself in the no-seeds fallback. Skip it so we only return
+        // and insert newly-added ids. Path[1..] is guaranteed not to contain
+        // anchors because BFS stops at the first seed it hits.
+        let first_idx = usize::from(!seeds.is_empty());
         let added: Vec<NodeId> = path[first_idx..].to_vec();
         for id in &added {
             self.allocated.insert(*id);
