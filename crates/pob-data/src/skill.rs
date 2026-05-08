@@ -30,7 +30,7 @@ where
                 .filter_map(|(k, v)| k.parse::<usize>().ok().map(|i| (i, v)))
                 .collect();
             entries.sort_by_key(|(i, _)| *i);
-            let max_idx = entries.last().map(|(i, _)| *i).unwrap_or(0);
+            let max_idx = entries.last().map_or(0, |(i, _)| *i);
             let mut out: Vec<T> = (0..max_idx).map(|_| T::default()).collect();
             for (i, v) in entries {
                 let item: T = serde_json::from_value(v).map_err(serde::de::Error::custom)?;
@@ -201,8 +201,7 @@ impl Skill {
         self.level_data(level)
             .and_then(|v| v.get("levelRequirement"))
             .and_then(Value::as_u64)
-            .map(|n| n as u32)
-            .unwrap_or(1)
+            .map_or(1, |n| n as u32)
     }
 
     /// `critChance` (in percent, 0..100).

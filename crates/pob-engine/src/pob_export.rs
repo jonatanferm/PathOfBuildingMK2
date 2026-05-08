@@ -170,10 +170,7 @@ fn write_items(out: &mut String, c: &Character) {
             }
         }
         for (slot, item) in entries {
-            let item_id = item_id_by_raw
-                .get(item.raw.as_str())
-                .copied()
-                .unwrap_or(0);
+            let item_id = item_id_by_raw.get(item.raw.as_str()).copied().unwrap_or(0);
             let _ = writeln!(
                 out,
                 "            <Slot name=\"{name}\" itemId=\"{item_id}\"/>",

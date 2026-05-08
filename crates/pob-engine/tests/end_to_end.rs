@@ -398,13 +398,12 @@ fn item_sets_round_trip_and_swap_active_loadout() {
 // selection is preserved.
 #[test]
 fn pob_xml_round_trip_preserves_all_item_sets() {
-    use pob_engine::{import_pob_xml, parse_item};
     use pob_engine::pob_export::export_pob_xml;
+    use pob_engine::{import_pob_xml, parse_item};
 
-    let mapping_amulet = parse_item(
-        "Item Class: Amulets\nRarity: RARE\nLapis Amulet\n--------\n+5 to maximum Life",
-    )
-    .expect("parse mapping amulet");
+    let mapping_amulet =
+        parse_item("Item Class: Amulets\nRarity: RARE\nLapis Amulet\n--------\n+5 to maximum Life")
+            .expect("parse mapping amulet");
     let bossing_amulet = parse_item(
         "Item Class: Amulets\nRarity: RARE\nLapis Amulet\n--------\n+50 to maximum Life",
     )
@@ -487,18 +486,15 @@ fn pob_xml_round_trip_preserves_swap_weapons() {
     use pob_engine::pob_export::export_pob_xml;
     use pob_engine::{import_pob_xml, parse_item};
 
-    let main_sword = parse_item(
-        "Item Class: One Hand Swords\nRarity: RARE\nRusted Sword\n--------\n",
-    )
-    .expect("parse main sword");
-    let swap_dagger = parse_item(
-        "Item Class: Daggers\nRarity: RARE\nGlass Shank\n--------\n+50 to Strength",
-    )
-    .expect("parse swap dagger");
+    let main_sword =
+        parse_item("Item Class: One Hand Swords\nRarity: RARE\nRusted Sword\n--------\n")
+            .expect("parse main sword");
+    let swap_dagger =
+        parse_item("Item Class: Daggers\nRarity: RARE\nGlass Shank\n--------\n+50 to Strength")
+            .expect("parse swap dagger");
 
     let mut c = Character::new(pob_engine::ClassRef::shadow(), 90);
-    c.items
-        .equip(pob_data::Slot::Weapon1, main_sword.clone());
+    c.items.equip(pob_data::Slot::Weapon1, main_sword.clone());
     c.items
         .equip(pob_data::Slot::Weapon1Swap, swap_dagger.clone());
     c.config.use_second_weapon_set = true;
@@ -515,10 +511,7 @@ fn pob_xml_round_trip_preserves_swap_weapons() {
 
     let reparsed = import_pob_xml(&xml).expect("re-import own XML");
     assert!(
-        reparsed
-            .items
-            .get(pob_data::Slot::Weapon1Swap)
-            .is_some(),
+        reparsed.items.get(pob_data::Slot::Weapon1Swap).is_some(),
         "swap weapon should round-trip back onto Weapon1Swap"
     );
     assert!(
@@ -529,9 +522,7 @@ fn pob_xml_round_trip_preserves_swap_weapons() {
     // Default state with no swap pair: useSecondWeaponSet=\"false\"
     // and no Weapon1Swap entry survives.
     let mut plain = Character::new(pob_engine::ClassRef::shadow(), 90);
-    plain
-        .items
-        .equip(pob_data::Slot::Weapon1, main_sword);
+    plain.items.equip(pob_data::Slot::Weapon1, main_sword);
     let plain_xml = export_pob_xml(&plain);
     let plain_reparsed = import_pob_xml(&plain_xml).expect("re-import plain build");
     assert!(
@@ -561,18 +552,13 @@ fn use_second_weapon_set_swaps_live_weapons() {
     };
     use pob_engine::parse_item;
 
-    let sword = parse_item(
-        "Item Class: One Hand Swords\nRarity: NORMAL\nRusted Sword\n--------\n",
-    )
-    .expect("parse sword");
-    let shield = parse_item(
-        "Item Class: Shields\nRarity: NORMAL\nSplintered Tower Shield\n--------\n",
-    )
-    .expect("parse shield");
-    let bow = parse_item(
-        "Item Class: Bows\nRarity: NORMAL\nCrude Bow\n--------\n",
-    )
-    .expect("parse bow");
+    let sword = parse_item("Item Class: One Hand Swords\nRarity: NORMAL\nRusted Sword\n--------\n")
+        .expect("parse sword");
+    let shield =
+        parse_item("Item Class: Shields\nRarity: NORMAL\nSplintered Tower Shield\n--------\n")
+            .expect("parse shield");
+    let bow =
+        parse_item("Item Class: Bows\nRarity: NORMAL\nCrude Bow\n--------\n").expect("parse bow");
 
     let mut c = Character::new(ClassRef::shadow(), 90);
     c.items.equip(pob_data::Slot::Weapon1, sword);
@@ -607,10 +593,9 @@ fn use_second_weapon_set_swaps_live_weapons() {
     // No swap pair equipped → toggle is a no-op (don't strip the
     // primary weapons just because the user forgot to fill the swap).
     let mut empty_swap = Character::new(ClassRef::shadow(), 90);
-    let sword2 = parse_item(
-        "Item Class: One Hand Swords\nRarity: NORMAL\nRusted Sword\n--------\n",
-    )
-    .expect("parse sword");
+    let sword2 =
+        parse_item("Item Class: One Hand Swords\nRarity: NORMAL\nRusted Sword\n--------\n")
+            .expect("parse sword");
     empty_swap.items.equip(pob_data::Slot::Weapon1, sword2);
     empty_swap.config.use_second_weapon_set = true;
     let env = pob_engine::perform::init_env(&empty_swap, &tree);
@@ -2351,12 +2336,12 @@ fn variant_swap_changes_main_skill_dps() {
 
     let mut c = Character::new(ClassRef::witch(), 90);
     c.main_skill = Some(MainSkill::new("Fireball"));
-    let base_dps = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
-        .get("MainSkillDPS");
+    let base_dps =
+        pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases)).get("MainSkillDPS");
 
     c.main_skill = Some(MainSkill::new("VaalFireball"));
-    let vaal_dps = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
-        .get("MainSkillDPS");
+    let vaal_dps =
+        pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases)).get("MainSkillDPS");
 
     // Skip if both compute to zero (skill data may be incomplete in
     // the test fixture); otherwise the two should differ.
@@ -2843,10 +2828,8 @@ fn mine_multi_throw_penalty_scales_laying_speed() {
     // We seed the mod via the player modDB directly so the test
     // doesn't need to find a specific item.
     let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
-    env.mod_db.add(
-        Mod::base("MineThrowCount", 4.0)
-            .with_source(Source::Other("test".into())),
-    );
+    env.mod_db
+        .add(Mod::base("MineThrowCount", 4.0).with_source(Source::Other("test".into())));
     // Re-run the skill DPS pass with the augmented modDB.
     pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
     let scaled_speed = env.output.get("MineLayingSpeed");
@@ -3061,12 +3044,10 @@ fn ruthless_blow_scales_ailment_dps() {
     // ailment multiplier +100% (so mult = 2). Expected ailment effect
     // factor = (1 - 0.2) + 0.2 × 2 = 1.2.
     let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
+    env.mod_db
+        .add(Mod::base("RuthlessBlowMaxCount", 5.0).with_source(Source::Other("test".into())));
     env.mod_db.add(
-        Mod::base("RuthlessBlowMaxCount", 5.0).with_source(Source::Other("test".into())),
-    );
-    env.mod_db.add(
-        Mod::base("RuthlessBlowAilmentMultiplier", 100.0)
-            .with_source(Source::Other("test".into())),
+        Mod::base("RuthlessBlowAilmentMultiplier", 100.0).with_source(Source::Other("test".into())),
     );
     pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
     let scaled_bleed = env.output.get("BleedDPS");
@@ -3110,12 +3091,10 @@ fn fist_of_war_only_applies_to_slam_skills() {
     sunder.main_skill = Some(MainSkill::new("Sunder"));
     let (_, mut env) =
         pob_engine::compute_full_with_env(&sunder, &tree, Some(&skills), Some(&bases));
+    env.mod_db
+        .add(Mod::base("FistOfWarCooldown", 3.0).with_source(Source::Other("test".into())));
     env.mod_db.add(
-        Mod::base("FistOfWarCooldown", 3.0).with_source(Source::Other("test".into())),
-    );
-    env.mod_db.add(
-        Mod::base("FistOfWarDamageMultiplier", 80.0)
-            .with_source(Source::Other("test".into())),
+        Mod::base("FistOfWarDamageMultiplier", 80.0).with_source(Source::Other("test".into())),
     );
     pob_engine::perform::perform_skill_dps(&sunder, &skills, &mut env);
     let slam_effect = env.output.get("FistOfWarDamageEffect");
@@ -3134,12 +3113,10 @@ fn fist_of_war_only_applies_to_slam_skills() {
     cleave.main_skill = Some(MainSkill::new("Cleave"));
     let (_, mut env) =
         pob_engine::compute_full_with_env(&cleave, &tree, Some(&skills), Some(&bases));
+    env.mod_db
+        .add(Mod::base("FistOfWarCooldown", 3.0).with_source(Source::Other("test".into())));
     env.mod_db.add(
-        Mod::base("FistOfWarCooldown", 3.0).with_source(Source::Other("test".into())),
-    );
-    env.mod_db.add(
-        Mod::base("FistOfWarDamageMultiplier", 80.0)
-            .with_source(Source::Other("test".into())),
+        Mod::base("FistOfWarDamageMultiplier", 80.0).with_source(Source::Other("test".into())),
     );
     pob_engine::perform::perform_skill_dps(&cleave, &skills, &mut env);
     let cleave_effect = env.output.get("FistOfWarDamageEffect");
@@ -3731,9 +3708,9 @@ fn pantheon_arakaali_applies_all_four_soul_levels() {
     let pantheon_lines: Vec<String> = env
         .mod_db
         .iter_all()
-        .filter(|m| {
-            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Arakaali")
-        })
+        .filter(
+            |m| matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Arakaali"),
+        )
         .map(|m| m.name.clone())
         .collect();
 
@@ -3781,9 +3758,9 @@ fn pantheon_yugul_applies_both_minor_soul_levels() {
     let count = env
         .mod_db
         .iter_all()
-        .filter(|m| {
-            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Yugul")
-        })
+        .filter(
+            |m| matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Yugul"),
+        )
         .count();
     assert!(
         count >= 2,

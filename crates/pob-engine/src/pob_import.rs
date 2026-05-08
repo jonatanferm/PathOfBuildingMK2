@@ -402,7 +402,12 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
         // `activeItemSet`, else fall back to id == 1, else the first one
         // we saw. The remaining sets become saved loadouts.
         let active_id = active_item_set_id
-            .or_else(|| item_sets.iter().find(|(id, _, _)| *id == 1).map(|(id, _, _)| *id))
+            .or_else(|| {
+                item_sets
+                    .iter()
+                    .find(|(id, _, _)| *id == 1)
+                    .map(|(id, _, _)| *id)
+            })
             .or_else(|| item_sets.first().map(|(id, _, _)| *id));
         let mut saved: Vec<crate::character::NamedItemSet> = Vec::new();
         for (idx, (id, title, slots)) in item_sets.iter().enumerate() {

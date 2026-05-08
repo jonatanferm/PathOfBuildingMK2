@@ -184,10 +184,7 @@ pub fn ui(
             // list at compute time.
             if !member.extracted_auras.is_empty() {
                 ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new("Auto-extracted gems")
-                        .strong(),
-                );
+                ui.label(egui::RichText::new("Auto-extracted gems").strong());
                 let mut to_remove: Option<usize> = None;
                 for (i, aura) in member.extracted_auras.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
@@ -254,10 +251,7 @@ pub fn ui(
             // the `extracted_auras` list above.
             ui.add_space(8.0);
             ui.separator();
-            ui.label(
-                egui::RichText::new("Auto-extract from teammate PoB code")
-                    .strong(),
-            );
+            ui.label(egui::RichText::new("Auto-extract from teammate PoB code").strong());
             let buf = state
                 .import_buffers
                 .get_mut(idx)
@@ -276,10 +270,7 @@ pub fn ui(
             }
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(
-                        !buf.trim().is_empty(),
-                        egui::Button::new("Extract auras"),
-                    )
+                    .add_enabled(!buf.trim().is_empty(), egui::Button::new("Extract auras"))
                     .clicked()
                 {
                     let import = run_import(&buf.trim().to_owned());
@@ -361,11 +352,7 @@ fn extract_into(
             let Some(skill) = registry.get(&gem.skill_id) else {
                 continue;
             };
-            let is_projection = skill
-                .base_flags
-                .get("aura")
-                .copied()
-                .unwrap_or(false)
+            let is_projection = skill.base_flags.get("aura").copied().unwrap_or(false)
                 || skill.base_flags.get("curse").copied().unwrap_or(false)
                 || skill.base_flags.get("banner").copied().unwrap_or(false);
             if !is_projection {

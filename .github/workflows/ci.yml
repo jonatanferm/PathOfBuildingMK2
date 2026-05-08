@@ -49,10 +49,9 @@ jobs:
   fmt:
     name: cargo fmt --check
     runs-on: ubuntu-latest
-    # Advisory until the existing rustfmt drift is cleaned up — fmt diffs
-    # against current main are unrelated to any PR's changes, so blocking PRs
-    # on `--check` would punish contributors for untouched files.
-    continue-on-error: true
+    # Issue #49: promoted from advisory to required. Main is now
+    # `cargo fmt --check` clean, so this gates every PR against
+    # rustfmt drift instead of letting it accumulate.
     steps:
       - uses: actions/checkout@v4
 

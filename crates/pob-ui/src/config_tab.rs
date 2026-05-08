@@ -352,10 +352,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
     // the toggle on a single-pair build is harmless.
     ui.separator();
     if ui
-        .checkbox(
-            &mut state.use_second_weapon_set,
-            "Use swap weapon set",
-        )
+        .checkbox(&mut state.use_second_weapon_set, "Use swap weapon set")
         .on_hover_text(
             "When checked, the calc engine reads the swap-pair weapons \
              (Weapon1Swap / Weapon2Swap) as the live pair. Useful for \
