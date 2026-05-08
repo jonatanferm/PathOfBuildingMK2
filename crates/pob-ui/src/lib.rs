@@ -726,15 +726,25 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
         }
         MenuAction::Open => {
             if let Some(path) = rfd::FileDialog::new()
+                .add_filter("Build file", &["mk2", "xml"])
                 .add_filter("MK2 build", &["mk2"])
+                .add_filter("PoB XML", &["xml"])
                 .pick_file()
             {
-                match std::fs::read_to_string(&path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|s| {
-                        pob_engine::import_code(s.trim())
-                            .map_err(|e| e.to_string())
-                    }) {
+                let load = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+                let parse_result: Result<Character, String> = load.and_then(|s| {
+                    let trimmed = s.trim();
+                    // Auto-detect: MK2 codes start with "MK2|", XML starts with "<".
+                    if trimmed.starts_with("MK2|") {
+                        pob_engine::import_code(trimmed).map_err(|e| e.to_string())
+                    } else if trimmed.starts_with('<') {
+                        pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
+                    } else {
+                        // Maybe a PoB share-code (zlib+base64) saved to file.
+                        pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
+                    }
+                });
+                match parse_result {
                     Ok(c) => {
                         app.character = c;
                         app.current_build_path = Some(path.clone());
@@ -788,6 +798,7 @@ fn save_build(app: &mut LoadedApp, force_dialog: bool) {
     let path = if force_dialog || app.current_build_path.is_none() {
         rfd::FileDialog::new()
             .add_filter("MK2 build", &["mk2"])
+            .add_filter("PoB XML", &["xml"])
             .set_file_name("build.mk2")
             .save_file()
     } else {
@@ -796,10 +807,20 @@ fn save_build(app: &mut LoadedApp, force_dialog: bool) {
     let Some(path) = path else {
         return;
     };
-    match pob_engine::export_code(&app.character)
-        .map_err(|e| e.to_string())
-        .and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string()))
-    {
+    // Pick the format from the file extension. .xml emits a PoB-compatible
+    // document so users can round-trip into upstream PoB; everything else
+    // gets the compact MK2 share code.
+    let is_xml = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.eq_ignore_ascii_case("xml"))
+        .unwrap_or(false);
+    let payload = if is_xml {
+        Ok(pob_engine::export_pob_xml(&app.character))
+    } else {
+        pob_engine::export_code(&app.character).map_err(|e| e.to_string())
+    };
+    match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
         Ok(()) => {
             app.current_build_path = Some(path.clone());
             app.status_message = Some((

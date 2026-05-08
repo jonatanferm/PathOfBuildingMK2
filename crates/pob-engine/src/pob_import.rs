@@ -371,6 +371,10 @@ struct GemSpec {
     skill_id: String,
     level: u32,
     quality: u32,
+    /// PoB persists the toggle but pob-engine doesn't yet differentiate disabled
+    /// gems from absent ones. Kept on the parsed shape so callers that read this
+    /// later don't need a re-import.
+    #[allow(dead_code)]
     enabled: bool,
 }
 
