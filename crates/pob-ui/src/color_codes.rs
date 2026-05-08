@@ -99,23 +99,33 @@ fn parse_hex_escape(s: &str) -> Option<Color32> {
 /// Useful for clipboard copy paths or the Notes-tab edit-mode buffer.
 #[must_use]
 pub fn strip_escapes(text: &str) -> String {
+    // Slice the original `&str` between matched escapes rather than pushing
+    // one byte at a time — pushing `bytes[i] as char` would corrupt any
+    // multi-byte UTF-8 sequence (accents, em-dashes, smart quotes, emoji)
+    // by mis-mapping continuation bytes to their Latin-1 codepoints. Notes
+    // are user-authored free-form text, so non-ASCII is common.
     let mut out = String::with_capacity(text.len());
     let bytes = text.as_bytes();
     let mut i = 0;
+    let mut chunk_start = 0;
     while i < bytes.len() {
         if bytes[i] == b'^' {
             if parse_hex_escape(&text[i..]).is_some() {
+                out.push_str(&text[chunk_start..i]);
                 i += 8;
+                chunk_start = i;
                 continue;
             }
             if parse_digit_escape(&text[i..]).is_some() {
+                out.push_str(&text[chunk_start..i]);
                 i += 2;
+                chunk_start = i;
                 continue;
             }
         }
-        out.push(bytes[i] as char);
         i += 1;
     }
+    out.push_str(&text[chunk_start..]);
     out
 }
 
@@ -127,6 +137,14 @@ mod tests {
     fn strips_hex_and_digit_escapes() {
         let s = "^x00FF00green^7white^1red";
         assert_eq!(strip_escapes(s), "greenwhitered");
+    }
+
+    #[test]
+    fn preserves_non_ascii() {
+        // Multi-byte UTF-8 sequences (accents, em-dashes, smart quotes,
+        // emoji) must round-trip cleanly through the stripper.
+        assert_eq!(strip_escapes("^7café — naïve"), "café — naïve");
+        assert_eq!(strip_escapes("^x00FF00fire 🔥 burns"), "fire 🔥 burns");
     }
 
     #[test]
