@@ -37,6 +37,18 @@ pub fn compute_full(
     skills: Option<&SkillRegistry>,
     bases: Option<&pob_data::bases::ItemBaseSet>,
 ) -> Output {
+    compute_full_with_env(character, tree, skills, bases).0
+}
+
+/// Like `compute_full` but also returns the `Env` used during the calc, so the
+/// UI can drill into the modifier chain (which mods contributed to a stat,
+/// what their sources were, etc.) without recomputing.
+pub fn compute_full_with_env(
+    character: &Character,
+    tree: &PassiveTree,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+) -> (Output, Env) {
     let mut env = init_env_with_bases(character, tree, bases);
     perform_basic_stats(character, tree, &mut env);
     if let Some(reg) = skills {
@@ -44,7 +56,7 @@ pub fn compute_full(
     }
     perform_ehp(&mut env);
     perform_enemy_damage_sim(&mut env, character);
-    env.output
+    (env.output.clone(), env)
 }
 
 /// Construct the env: gather class base attributes, parse and add tree node mods,

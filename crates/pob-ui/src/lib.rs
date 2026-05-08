@@ -33,6 +33,11 @@ struct LoadedApp {
     tree_view: TreeView,
     character: Character,
     output: Output,
+    /// Mod-DB the last compute pass produced. Used by the Calcs tab's stat
+    /// breakdown panel to surface contributing mods. Lives outside `output`
+    /// because Output is a flat key→f64 dictionary; the breakdown needs the
+    /// underlying Mod list with sources / tags.
+    last_env: Option<pob_engine::Env>,
     search: String,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
@@ -142,13 +147,19 @@ impl PobApp {
 
         let tree_view = TreeView::new(&tree);
         let character = Character::new(ClassRef::marauder(), 1);
-        let output = pob_engine::compute_full(&character, &tree, Some(&skills), bases.as_ref());
+        let (output, env) = pob_engine::compute_full_with_env(
+            &character,
+            &tree,
+            Some(&skills),
+            bases.as_ref(),
+        );
 
         Ok(LoadedApp {
             tree,
             tree_view,
             character,
             output,
+            last_env: Some(env),
             search: String::new(),
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
@@ -569,7 +580,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Calcs => {
-            calcs_tab::ui(ui, &mut app.calcs_state, &app.output);
+            calcs_tab::ui(
+                ui,
+                &mut app.calcs_state,
+                &app.output,
+                app.last_env.as_ref(),
+            );
         }
         Tab::Notes => {
             notes_tab::ui(ui, &mut app.character.notes);
@@ -638,12 +654,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
     if recompute || h != app.last_compute_hash {
         app.last_compute_hash = h;
-        app.output = pob_engine::compute_full(
+        let (output, env) = pob_engine::compute_full_with_env(
             &app.character,
             &app.tree,
             Some(&app.skills),
             app.bases.as_ref(),
         );
+        app.output = output;
+        app.last_env = Some(env);
     }
 }
 
