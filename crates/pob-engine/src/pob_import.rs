@@ -43,6 +43,73 @@ impl std::fmt::Display for PobImportError {
 
 impl std::error::Error for PobImportError {}
 
+/// Issue #33 (slice 1): map a build-share URL to the raw-endpoint
+/// URL the existing share-code path can decode. Returns `None` for
+/// non-URL inputs (so the caller's existing "decode as code" path
+/// still runs unchanged) or for hosts we don't recognise.
+///
+/// Mirrors upstream PoB's `Classes/BuildSiteTools.lua` host table.
+/// The HTTP fetch itself is intentionally out of scope here — this
+/// is the pure URL-recognition + endpoint-rewrite half. The host UI
+/// or a future fetcher slice can wire `reqwest` / `ureq` on top.
+///
+/// Recognised hosts (case-insensitive on scheme + domain):
+/// - `pobb.in/<id>`         → `https://pobb.in/<id>/raw`
+/// - `pastebin.com/<id>`    → `https://pastebin.com/raw/<id>`
+/// - `poeplanner.com/<id>`  → `https://poeplanner.com/api/build/<id>/pob`
+///
+/// IDs are constrained to ASCII alphanumerics so a stray path
+/// segment (`pobb.in/about`) doesn't accidentally re-target.
+#[must_use]
+pub fn resolve_share_url(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return None;
+    }
+    // Reject any internal whitespace — a real URL won't contain
+    // unescaped spaces, and `split_whitespace().next()` would
+    // otherwise silently truncate `https://pobb.in/has spaces`
+    // into `https://pobb.in/has` and accept it.
+    if trimmed.chars().any(char::is_whitespace) {
+        return None;
+    }
+    // Strip the scheme so the host/path matcher is uniform.
+    let rest = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))?;
+    // Drop fragment and query.
+    let rest = rest.split('#').next()?;
+    let rest = rest.split('?').next()?;
+    // Tolerate a `www.` prefix on any of the supported hosts.
+    let rest = rest.strip_prefix("www.").unwrap_or(rest);
+    // Pull the host + path. We require exactly one path segment
+    // (the share id) — extra segments mean it's not the share URL
+    // we expect.
+    let (host, path) = rest.split_once('/')?;
+    let path = path.trim_end_matches('/');
+    if path.is_empty() {
+        return None;
+    }
+    // Treat path as the share id only when it's a single segment.
+    let id = path;
+    if id.contains('/') {
+        return None;
+    }
+    let id_ok = !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !id_ok {
+        return None;
+    }
+    match host.to_ascii_lowercase().as_str() {
+        "pobb.in" => Some(format!("https://pobb.in/{id}/raw")),
+        "pastebin.com" => Some(format!("https://pastebin.com/raw/{id}")),
+        "poeplanner.com" => Some(format!("https://poeplanner.com/api/build/{id}/pob")),
+        _ => None,
+    }
+}
+
 pub fn import_pob_code(code: &str) -> Result<Character, PobImportError> {
     // PoB shares use both `+/=` (standard base64) and `-_` (url-safe). Try url-safe first.
     let stripped = code.trim();
@@ -861,5 +928,62 @@ Quality: +20% (augmented)
         assert_eq!(c.config.enemy_fire_resist, 40);
         assert_eq!(c.config.enemy_chaos_resist, 25);
         assert_eq!(c.config.conditions.get("EnemyIsBoss").copied(), Some(true));
+    }
+
+    // Issue #33 (slice 1): URL recogniser. Each supported host
+    // maps to its raw-endpoint URL; unrecognised hosts and
+    // non-URLs return `None` so the existing share-code fallback
+    // path runs unchanged.
+    #[test]
+    fn resolve_share_url_recognises_pobb_in() {
+        assert_eq!(
+            resolve_share_url("https://pobb.in/abc123"),
+            Some("https://pobb.in/abc123/raw".to_owned())
+        );
+        // www. prefix tolerated; trailing slash stripped.
+        assert_eq!(
+            resolve_share_url("https://www.pobb.in/XYZ-789/"),
+            Some("https://pobb.in/XYZ-789/raw".to_owned())
+        );
+        // Query string and fragment dropped.
+        assert_eq!(
+            resolve_share_url("https://pobb.in/foo?utm=src#x"),
+            Some("https://pobb.in/foo/raw".to_owned())
+        );
+    }
+
+    #[test]
+    fn resolve_share_url_recognises_pastebin() {
+        assert_eq!(
+            resolve_share_url("https://pastebin.com/abc123"),
+            Some("https://pastebin.com/raw/abc123".to_owned())
+        );
+    }
+
+    #[test]
+    fn resolve_share_url_recognises_poeplanner() {
+        assert_eq!(
+            resolve_share_url("https://poeplanner.com/abcXYZ123"),
+            Some("https://poeplanner.com/api/build/abcXYZ123/pob".to_owned())
+        );
+    }
+
+    #[test]
+    fn resolve_share_url_rejects_non_urls_and_unknown_hosts() {
+        // Non-URL → None (caller's existing share-code path
+        // handles it).
+        assert_eq!(resolve_share_url("xnd_abc123"), None);
+        assert_eq!(resolve_share_url(""), None);
+        assert_eq!(resolve_share_url("not a url"), None);
+        // Unknown host.
+        assert_eq!(resolve_share_url("https://github.com/foo/bar"), None);
+        // Pobb.in but not a single-id path (e.g. about page).
+        assert_eq!(resolve_share_url("https://pobb.in/about/team"), None);
+        // Empty id after the host.
+        assert_eq!(resolve_share_url("https://pobb.in/"), None);
+        // ID with disallowed characters (so we don't cargo-cult
+        // arbitrary path segments into the raw endpoint).
+        assert_eq!(resolve_share_url("https://pobb.in/has spaces"), None);
+        assert_eq!(resolve_share_url("https://pobb.in/has.dots"), None);
     }
 }
