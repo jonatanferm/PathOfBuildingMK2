@@ -436,9 +436,11 @@ fn diff_against_pob_engine(
     }
 
     println!("\nXML→CharacterState bridge uses pob-engine's import_pob_xml: class,");
-    println!("level, ascendancy, and allocated tree nodes are wired. Items / skills /");
-    println!("config inputs are still empty (the upstream XML encodes them as nested");
-    println!("elements that need full document traversal — Phase 5 follow-up).");
+    println!("level, ascendancy, allocated tree nodes, items, skill groups, and");
+    println!("config inputs all flow through. Items use pob-engine's parse_item;");
+    println!("the active skill picks the gem at <Build mainSocketGroup=N>'s");
+    println!("`mainActiveSkill`. Support gems in the same group buff the active");
+    println!("skill via skill_mods + addSkillTypes/excludeSkillTypes filtering.");
     Ok(())
 }
 
