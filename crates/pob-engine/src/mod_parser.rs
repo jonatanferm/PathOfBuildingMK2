@@ -581,14 +581,41 @@ fn strip_with_ailment_suffix(text: &str) -> &str {
 
 fn strip_if_havent_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
     // "if you haven't been Hit Recently" → emit Condition with neg=true on
-    // BeenHitRecently.
+    // BeenHitRecently. Also covers "if you haven't <verb>ed Recently" forms
+    // ("Killed", "Crit", "Blocked", "Cast", ...).
     if let Some(idx) = text.rfind("if you haven't been ") {
-        let suffix = text[idx + "if you haven't been ".len()..].trim().trim_end_matches('.');
-        let var = match suffix {
-            "Hit Recently" => "BeenHitRecently",
-            "Critically Hit Recently" => "BeenCritHitRecently",
-            "Stunned Recently" => "BeenStunnedRecently",
-            "Damaged Recently" => "DamagedRecently",
+        let suffix = text[idx + "if you haven't been ".len()..]
+            .trim()
+            .trim_end_matches('.')
+            .to_ascii_lowercase();
+        let var: &'static str = match suffix.as_str() {
+            "hit recently" => "BeenHitRecently",
+            "hit by an attack recently" => "BeenHitByAttackRecently",
+            "critically hit recently" => "BeenCritHitRecently",
+            "stunned recently" => "BeenStunnedRecently",
+            "damaged recently" => "DamagedRecently",
+            _ => return text,
+        };
+        out.push(Tag {
+            kind: TagKind::Condition {
+                var: var.to_owned(),
+                neg: true,
+            },
+        });
+        return text[..idx].trim_end_matches(',').trim_end();
+    }
+    if let Some(idx) = text.rfind("if you haven't ") {
+        let suffix = text[idx + "if you haven't ".len()..]
+            .trim()
+            .trim_end_matches('.')
+            .to_ascii_lowercase();
+        let var: &'static str = match suffix.as_str() {
+            "killed recently" => "KilledRecently",
+            "crit recently" => "CritRecently",
+            "blocked recently" => "BlockedRecently",
+            "cast a spell recently" => "CastSpellRecently",
+            "used a skill recently" => "UsedSkillRecently",
+            "taken a critical strike recently" => "BeenCritRecently",
             _ => return text,
         };
         out.push(Tag {
@@ -839,82 +866,102 @@ fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>)
 }
 
 fn match_while_var(suffix: &str) -> &'static str {
-    match suffix {
-        "at Full Life" | "on Full Life" => "FullLife",
-        "at Low Life" | "on Low Life" => "LowLife",
-        "at Full Mana" | "on Full Mana" => "FullMana",
-        "at Low Mana" | "on Low Mana" => "LowMana",
-        "Leeching" => "Leeching",
-        "Stationary" => "Stationary",
-        "Moving" => "Moving",
-        "Focused" => "Focused",
-        "Phasing" => "Phasing",
-        "Bleeding" => "Bleeding",
-        "Ignited" => "Ignited",
-        "Frozen" => "Frozen",
-        "Shocked" => "Shocked",
-        "Chilled" => "Chilled",
-        "Cursed" => "Cursed",
-        "you have a Magic Mana Flask Active" => "UsingMagicManaFlask",
-        "Channelling" => "Channelling",
-        "Casting" => "Casting",
-        "Dual Wielding" => "DualWielding",
-        "Wielding a Two Handed Weapon" => "UsingTwoHandedWeapon",
-        "Wielding a Shield" => "UsingShield",
-        "wielding a Sword" => "UsingSword",
-        "wielding an Axe" => "UsingAxe",
-        "wielding a Mace or Sceptre" => "UsingMaceOrSceptre",
-        "wielding a Mace" => "UsingMace",
-        "wielding a Sceptre" => "UsingSceptre",
-        "wielding a Staff" => "UsingStaff",
-        "wielding a Bow" => "UsingBow",
-        "wielding a Wand" => "UsingWand",
-        "wielding a Claw" => "UsingClaw",
-        "wielding a Dagger" => "UsingDagger",
-        "wielding a Quarterstaff" => "UsingQuarterstaff",
-        "holding a Shield" => "UsingShield",
-        "Affected by a Herald" => "AffectedByHerald",
-        "you are affected by a Herald" => "AffectedByHerald",
-        "you are affected by an Aura" => "AffectedByAura",
-        "you are Bleeding" => "Bleeding",
-        "you are Cursed" => "Cursed",
-        "you have Onslaught" => "HasOnslaught",
-        "you have Tailwind" => "HasTailwind",
-        "you have Adrenaline" => "HasAdrenaline",
-        "you have Arcane Surge" => "HasArcaneSurge",
-        "you have Fortify" | "you are Fortified" | "Fortified" => "Fortified",
-        "you have at least one Mark Skill Active" => "HasMark",
-        "Leeching Energy Shield" => "LeechingEnergyShield",
-        "Leeching Mana" => "LeechingMana",
-        "any Flask Effect" => "UsingFlask",
-        "any Flask is active" => "UsingFlask",
-        "Stationary or Moving" => "Stationary",
-        "you have a Tincture active" => "UsingTincture",
-        "you have used a Skill Recently" => "UsedSkillRecently",
+    // PoB's `specialModList` keys are all lowercased — the lookup is case-insensitive.
+    // Mirror that here so "while Wielding a Shield" / "while wielding a shield" /
+    // "while Wielding A Shield" all hit the same arm.
+    let lc = suffix.to_ascii_lowercase();
+    match lc.as_str() {
+        "at full life" | "on full life" => "FullLife",
+        "at low life" | "on low life" => "LowLife",
+        "at full mana" | "on full mana" => "FullMana",
+        "at low mana" | "on low mana" => "LowMana",
+        "leeching" => "Leeching",
+        "stationary" => "Stationary",
+        "moving" => "Moving",
+        "focused" => "Focused",
+        "phasing" => "Phasing",
+        "bleeding" => "Bleeding",
+        "ignited" => "Ignited",
+        "frozen" => "Frozen",
+        "shocked" => "Shocked",
+        "chilled" => "Chilled",
+        "cursed" => "Cursed",
+        "you have a magic mana flask active" => "UsingMagicManaFlask",
+        "channelling" => "Channelling",
+        "casting" => "Casting",
+        "dual wielding" => "DualWielding",
+        "dual wielding claws" => "DualWieldingClaws",
+        "wielding a two handed weapon" | "using a two handed weapon" => "UsingTwoHandedWeapon",
+        "wielding a one handed weapon" | "using a one handed weapon" => "UsingOneHandedWeapon",
+        "wielding a shield" | "using a shield" | "holding a shield" => "UsingShield",
+        "wielding a sword" | "using a sword" => "UsingSword",
+        "wielding an axe" | "using an axe" => "UsingAxe",
+        "wielding a mace or sceptre" | "using a mace or sceptre" => "UsingMace",
+        "wielding a mace" | "using a mace" => "UsingMace",
+        "wielding a sceptre" | "using a sceptre" => "UsingSceptre",
+        "wielding a staff" | "using a staff" => "UsingStaff",
+        "wielding a bow" | "using a bow" => "UsingBow",
+        "wielding a wand" | "using a wand" => "UsingWand",
+        "wielding a claw" | "using a claw" => "UsingClaw",
+        "wielding a dagger" | "using a dagger" => "UsingDagger",
+        "wielding a quarterstaff" | "using a quarterstaff" => "UsingQuarterstaff",
+        "wielding a melee weapon" | "using a melee weapon" => "UsingMeleeWeapon",
+        "wielding a fishing rod" | "holding a fishing rod" => "UsingFishing",
+        "affected by a herald" => "AffectedByHerald",
+        "you are affected by a herald" => "AffectedByHerald",
+        "you are affected by an aura" => "AffectedByAura",
+        "you are bleeding" => "Bleeding",
+        "you are cursed" => "Cursed",
+        "you have onslaught" => "HasOnslaught",
+        "you have tailwind" => "HasTailwind",
+        "you have adrenaline" => "HasAdrenaline",
+        "you have arcane surge" => "HasArcaneSurge",
+        "you have fortify" | "you are fortified" | "fortified" => "Fortified",
+        "you have at least one mark skill active" => "HasMark",
+        "leeching energy shield" => "LeechingEnergyShield",
+        "leeching mana" => "LeechingMana",
+        "any flask effect" => "UsingFlask",
+        "any flask is active" => "UsingFlask",
+        "using a flask" => "UsingFlask",
+        "stationary or moving" => "Stationary",
+        "you have a tincture active" => "UsingTincture",
+        "you have used a skill recently" => "UsedSkillRecently",
         _ => "",
     }
 }
 
 fn strip_recently_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
-    // "if you've X Recently" / "if you've been X Recently" / "if X Recently"
-    if let Some(idx) = text.rfind("if you've ") {
-        let suffix = text[idx + "if you've ".len()..].trim();
-        if let Some(var) = recent_event_var(suffix) {
+    // "if you've X recently" / "if you have X recently" / "if you were/are X recently".
+    // PoB's regex `if you[' ]h?a?ve` matches both "'ve" and " have"; both map to the
+    // same canonical condition key.
+    let lower = text.to_ascii_lowercase();
+    for prefix in ["if you've ", "if you have "] {
+        if let Some(idx) = lower.rfind(prefix) {
+            let suffix = &text[idx + prefix.len()..];
+            if let Some(var) = recent_event_var(suffix) {
+                out.push(Tag {
+                    kind: TagKind::Condition {
+                        var: format!("{var}Recently"),
+                        neg: false,
+                    },
+                });
+                return text[..idx].trim_end_matches(',').trim_end();
+            }
+        }
+    }
+    // PoB also recognises "if you were Hit recently" / "if you were damaged by a hit
+    // recently" — both map to BeenHitRecently.
+    if let Some(idx) = lower.rfind("if you were ") {
+        let suffix = text[idx + "if you were ".len()..].trim();
+        let lc = suffix.to_ascii_lowercase();
+        let var = match lc.trim_end_matches('.') {
+            "hit recently" | "damaged by a hit recently" => "BeenHit",
+            _ => "",
+        };
+        if !var.is_empty() {
             out.push(Tag {
                 kind: TagKind::Condition {
                     var: format!("{var}Recently"),
-                    neg: false,
-                },
-            });
-            return text[..idx].trim_end_matches(',').trim_end();
-        }
-    }
-    if let Some(idx) = text.rfind("if you have ") {
-        let suffix = text[idx + "if you have ".len()..].trim();
-        if let Some(var) = recent_event_var(suffix) {
-            out.push(Tag {
-                kind: TagKind::Condition {
-                    var: var.to_owned(),
                     neg: false,
                 },
             });
@@ -925,17 +972,27 @@ fn strip_recently_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2
 }
 
 fn recent_event_var(s: &str) -> Option<&'static str> {
-    let s = s.trim().trim_end_matches('.');
-    Some(match s {
-        "Killed Recently" | "killed Recently" => "Killed",
-        "Killed an Enemy Recently" => "Killed",
-        "been Hit Recently" => "BeenHit",
-        "been Critically Hit Recently" => "BeenCritHit",
-        "Stunned an Enemy Recently" => "StunnedEnemy",
-        "Crit Recently" | "Critically Hit an Enemy Recently" => "Crit",
-        "Cast a Spell Recently" => "CastSpell",
-        "Used a Skill Recently" => "UsedSkill",
-        "Blocked Recently" => "Blocked",
+    // Case-insensitive match against PoB's canonical "if you've X recently" keys; the
+    // returned var is concatenated with "Recently" by the caller (see strip_recently_clause).
+    let lc = s.trim().trim_end_matches('.').to_ascii_lowercase();
+    Some(match lc.as_str() {
+        "killed recently" | "killed an enemy recently" => "Killed",
+        "been hit recently" | "been hit by an attack recently" => "BeenHit",
+        "been critically hit recently" => "BeenCritHit",
+        "taken a critical strike recently" => "BeenCrit",
+        "stunned an enemy recently" => "StunnedEnemy",
+        "crit recently" | "critically hit an enemy recently" => "Crit",
+        "dealt a critical strike recently" => "Crit",
+        "cast a spell recently" => "CastSpell",
+        "used a skill recently" => "UsedSkill",
+        "blocked recently" => "Blocked",
+        "blocked an attack recently" => "BlockedAttack",
+        "hit recently" | "hit an enemy recently" => "Hit",
+        "frozen an enemy recently" => "FrozenEnemy",
+        "chilled an enemy recently" => "ChilledEnemy",
+        "ignited an enemy recently" => "IgnitedEnemy",
+        "shocked an enemy recently" => "ShockedEnemy",
+        "suppressed spell damage recently" => "Suppressed",
         _ => return None,
     })
 }
@@ -2130,17 +2187,29 @@ fn try_parse_inc_reduced(line: &str) -> Option<ParsedMod> {
     } else {
         return None;
     };
-    let rest = rest.trim();
+    // Strip trailing while/recently/per/if-haven't clauses BEFORE stat-name lookup so
+    // the body is the bare stat ("Damage") rather than "Damage while wielding a Shield"
+    // (which would otherwise canonicalise into a synthetic key with no condition tag,
+    // applying unconditionally — the bug this function previously had).
+    let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+    let body = strip_and_collect_trailing_clauses(rest, &mut tags);
+    let body = body.trim();
     // "Enemy X" prefix routes to a separate "Enemy:" namespace so calc layer can apply
     // it against the enemy's stats.
-    if let Some(stat_part) = rest.strip_prefix("Enemy ") {
+    if let Some(stat_part) = body.strip_prefix("Enemy ") {
         if let Some(canon) = stat_name(stat_part) {
-            return Some(ParsedMod {
-                mod_: Mod::inc(format!("Enemy:{canon}"), sign * n),
-            });
+            let mut m = Mod::inc(format!("Enemy:{canon}"), sign * n);
+            for t in tags {
+                m.tags.push(t);
+            }
+            return Some(ParsedMod { mod_: m });
         }
     }
-    parse_stat_with_decorators(rest, ModType::Inc, sign * n)
+    let mut parsed = parse_stat_with_decorators(body, ModType::Inc, sign * n)?;
+    for t in tags {
+        parsed.mod_.tags.push(t);
+    }
+    Some(parsed)
 }
 
 fn try_parse_more_less(line: &str) -> Option<ParsedMod> {
@@ -2153,7 +2222,13 @@ fn try_parse_more_less(line: &str) -> Option<ParsedMod> {
     } else {
         return None;
     };
-    parse_stat_with_decorators(rest.trim(), ModType::More, sign * n)
+    let mut tags: smallvec::SmallVec<[Tag; 2]> = smallvec::SmallVec::new();
+    let body = strip_and_collect_trailing_clauses(rest, &mut tags);
+    let mut parsed = parse_stat_with_decorators(body.trim(), ModType::More, sign * n)?;
+    for t in tags {
+        parsed.mod_.tags.push(t);
+    }
+    Some(parsed)
 }
 
 fn try_parse_regenerate(line: &str) -> Option<ParsedMod> {
@@ -2888,5 +2963,116 @@ mod tests {
         let parsed = parse_mod_line("This is not a real mod line").unwrap();
         assert!(parsed.mod_.name.starts_with("Misc:"));
         assert_eq!(parsed.mod_.kind, ModType::Flag);
+    }
+
+    fn assert_condition_tag(m: &Mod, expected_var: &str) {
+        let has = m.tags.iter().any(|t| matches!(
+            &t.kind,
+            TagKind::Condition { var, neg: false } if var == expected_var
+        ));
+        assert!(
+            has,
+            "expected Condition({expected_var}) tag on mod {m:?}"
+        );
+    }
+
+    #[test]
+    fn while_dual_wielding_emits_condition_tag() {
+        let m = parse("12% increased Damage while Dual Wielding");
+        assert_eq!(m.name, "Damage");
+        assert_eq!(m.kind, ModType::Inc);
+        assert_eq!(m.value.as_f64(), Some(12.0));
+        assert_condition_tag(&m, "DualWielding");
+    }
+
+    #[test]
+    fn while_using_a_shield_emits_condition_tag() {
+        // PoB phrasing varies — both "while using a Shield" and "while wielding a
+        // Shield" should map to UsingShield (case-insensitively).
+        for line in [
+            "8% Chance to Block Attack Damage while using a Shield",
+            "8% Chance to Block Attack Damage while wielding a Shield",
+            "8% Chance to Block Attack Damage while Wielding a Shield",
+        ] {
+            let m = parse(line);
+            assert_eq!(m.name, "BlockChance", "{line}");
+            assert_condition_tag(&m, "UsingShield");
+        }
+    }
+
+    #[test]
+    fn while_wielding_a_two_handed_weapon_emits_condition_tag() {
+        let m = parse("15% increased Damage while wielding a Two Handed Weapon");
+        assert_eq!(m.name, "Damage");
+        assert_eq!(m.kind, ModType::Inc);
+        assert_condition_tag(&m, "UsingTwoHandedWeapon");
+    }
+
+    #[test]
+    fn while_wielding_a_one_handed_weapon_emits_condition_tag() {
+        let m = parse("10% increased Damage while wielding a One Handed Weapon");
+        assert_eq!(m.name, "Damage");
+        assert_condition_tag(&m, "UsingOneHandedWeapon");
+    }
+
+    #[test]
+    fn while_wielding_a_staff_emits_condition_tag() {
+        let m = parse("18% increased Damage while wielding a Staff");
+        assert_eq!(m.name, "Damage");
+        assert_condition_tag(&m, "UsingStaff");
+    }
+
+    #[test]
+    fn while_wielding_a_bow_emits_condition_tag() {
+        let m = parse("18% increased Damage while wielding a Bow");
+        assert_eq!(m.name, "Damage");
+        assert_condition_tag(&m, "UsingBow");
+    }
+
+    #[test]
+    fn taken_a_critical_strike_recently_emits_been_crit_recently() {
+        // The unique-boots example from the bug report: this previously canonicalised
+        // into a synthetic stat name and applied unconditionally.
+        let m = parse("10% increased Damage if you've taken a Critical Strike Recently");
+        assert_eq!(m.name, "Damage");
+        assert_condition_tag(&m, "BeenCritRecently");
+    }
+
+    #[test]
+    fn adds_chaos_damage_with_recently_clause() {
+        // Mirrors the boot enchant "Adds 44 to 64 Chaos Damage if you've taken a
+        // Critical Strike Recently" — Range value plus the Condition tag.
+        let m = parse("Adds 44 to 64 Chaos Damage if you've taken a Critical Strike Recently");
+        assert_eq!(m.name, "ChaosDamage");
+        assert_condition_tag(&m, "BeenCritRecently");
+        match m.value {
+            ModValue::Range { min, max } => {
+                assert_eq!(min, 44.0);
+                assert_eq!(max, 64.0);
+            }
+            _ => panic!("expected range value, got {:?}", m.value),
+        }
+    }
+
+    #[test]
+    fn if_havent_killed_recently_emits_negated_tag() {
+        let m = parse("12% increased Damage if you haven't Killed Recently");
+        assert_eq!(m.name, "Damage");
+        let has = m.tags.iter().any(|t| matches!(
+            &t.kind,
+            TagKind::Condition { var, neg: true } if var == "KilledRecently"
+        ));
+        assert!(has, "expected negated KilledRecently tag, got {:?}", m.tags);
+    }
+
+    #[test]
+    fn while_wielding_does_not_apply_unconditionally() {
+        // Regression guard for the bug where the trailing "while wielding" clause was
+        // canonicalised into the stat name (`DamageWhileWieldingAShield`) instead of
+        // emitting a condition tag — the canonicalised name then matched no calc and
+        // applied unconditionally.
+        let m = parse("10% increased Damage while wielding a Shield");
+        assert_eq!(m.name, "Damage", "should canonicalise to bare Damage stat");
+        assert!(!m.tags.is_empty(), "should have a condition tag");
     }
 }
