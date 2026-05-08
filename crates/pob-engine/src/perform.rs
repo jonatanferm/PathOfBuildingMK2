@@ -964,6 +964,48 @@ fn perform_ehp(env: &mut Env) {
         .min(lightning_ehp)
         .min(chaos_ehp);
     env.output.set("MinimumEHP", min_ehp);
+
+    // Pool / hit-pool decomposition (matches PoB's CalcDefence layout):
+    // - {Element}TotalHitPool = effective HP against a single hit of that damage type
+    // - {Element}TotalPool = total recoverable pool against that damage type
+    // - {Element}MoMHitPool = pool inclusive of mana when MoM% > 0 (Phase 2: no MoM)
+    // - {Element}ManaEffectiveLife = the same pool seen as "effective life"
+    // - LifeHitPool / LifeRecoverable = base life pool (Phase 2: no recoup mods)
+    // - PhysicalDotEHP / *DotEHP = same as the per-element EHP without hit-only
+    //   defenses (block, suppression). Phase 2 approximates these as `pool / taken`
+    //   with the resist-derived taken multiplier only.
+    let hit_pool_phys = pool;
+    let hit_pool_ele = pool;
+    let mom_hit_pool = pool; // no MoM yet
+    env.output.set("LifeHitPool", life);
+    env.output.set("LifeRecoverable", life);
+    env.output.set("StunThreshold", life);
+    for elem in ["Physical", "Fire", "Cold", "Lightning", "Chaos"] {
+        let hp = if elem == "Physical" { hit_pool_phys } else { hit_pool_ele };
+        env.output.set(format!("{elem}TotalHitPool"), hp);
+        env.output.set(format!("{elem}TotalPool"), hp);
+        env.output.set(format!("{elem}MoMHitPool"), mom_hit_pool);
+        env.output.set(format!("{elem}ManaEffectiveLife"), mom_hit_pool);
+    }
+    env.output.set("sharedManaEffectiveLife", mom_hit_pool);
+    env.output.set("sharedMoMHitPool", mom_hit_pool);
+
+    // DoT EHP per element. Phase 2: same as the hit-EHP because we don't yet
+    // separate DoT-specific defences. PoB names these `*DotEHP`.
+    env.output.set("PhysicalDotEHP", phys_ehp);
+    env.output.set("FireDotEHP", fire_ehp);
+    env.output.set("ColdDotEHP", cold_ehp);
+    env.output.set("LightningDotEHP", lightning_ehp);
+    env.output.set("ChaosDotEHP", chaos_ehp);
+
+    // Maximum-hit-taken — pool divided by the damage-taken multiplier for that
+    // damage type. PoB applies the same multipliers we use for EHP, so
+    // MaxHitTaken == pool / taken (== EHP for that element).
+    env.output.set("PhysicalMaximumHitTaken", phys_ehp.min(pool * 10.0));
+    env.output.set("FireMaximumHitTaken", fire_ehp.min(pool * 10.0));
+    env.output.set("ColdMaximumHitTaken", cold_ehp.min(pool * 10.0));
+    env.output.set("LightningMaximumHitTaken", lightning_ehp.min(pool * 10.0));
+    env.output.set("ChaosMaximumHitTaken", chaos_ehp.min(pool * 10.0));
 }
 
 #[cfg(test)]

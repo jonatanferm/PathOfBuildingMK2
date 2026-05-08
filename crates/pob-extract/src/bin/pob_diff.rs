@@ -243,7 +243,7 @@ return dst
     // Step 7: also run pob-engine on a comparable input and print a side-by-side
     // diff for the keys both engines emit. The XML→CharacterState bridge is a
     // simplified mapping for now (class+level only); items/tree allocs are TODO.
-    diff_against_pob_engine(&entries, build_xml)?;
+    diff_against_pob_engine(&entries, build_xml, verbose)?;
 
     Ok(())
 }
@@ -251,6 +251,7 @@ return dst
 fn diff_against_pob_engine(
     pob_entries: &[(String, mlua::Value)],
     build_xml: &str,
+    verbose: bool,
 ) -> Result<()> {
     // Use pob-engine's PoB XML importer so the character we feed into compute_full
     // mirrors what PoB itself constructed from the same XML — class, level,
@@ -399,12 +400,15 @@ fn diff_against_pob_engine(
         "\n=== coverage gaps ({} non-trivial PoB keys not emitted by pob-engine) ===",
         missing_outputs.len()
     );
-    let limit = if missing_outputs.is_empty() { 0 } else { 30 };
-    for (name, value) in missing_outputs.iter().take(limit) {
+    let coverage_limit = if !verbose { 30 } else { missing_outputs.len() };
+    for (name, value) in missing_outputs.iter().take(coverage_limit) {
         println!("  {name:<40}  pob={value:>12.2}");
     }
-    if missing_outputs.len() > limit {
-        println!("  … ({} more — pass --verbose to see the full roadmap)", missing_outputs.len() - limit);
+    if missing_outputs.len() > coverage_limit {
+        println!(
+            "  … ({} more — pass --verbose to see the full roadmap)",
+            missing_outputs.len() - coverage_limit
+        );
     }
 
     println!("\nXML→CharacterState bridge uses pob-engine's import_pob_xml: class,");
