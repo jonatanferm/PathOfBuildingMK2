@@ -807,6 +807,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     }
     // Move the spell/attack flag detection before damage so we can branch.
     let early_is_attack = skill.base_flags.get("attack").copied().unwrap_or(false);
+    let early_is_spell = skill.base_flags.get("spell").copied().unwrap_or(false);
     let (mut base_min, mut base_max) = if early_is_attack {
         // Attack skills: base damage is the weapon's damage. Use Weapon1 if equipped.
         let cfg_q = QueryCfg::default();
@@ -830,8 +831,12 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // Skill has no usable damage values — abort cleanly.
         return;
     }
-    base_min *= skill.damage_effectiveness(gem_level);
-    base_max *= skill.damage_effectiveness(gem_level);
+    // PoB's `damageEffectiveness` only scales ADDED flat damage (item / aura
+    // bonuses), not the spell's own gem-level damage. We applied it to base
+    // damage too, which inflated Arc's average hit by 1.2× even with no added
+    // damage. Pull dmgEff out of the base computation; we'll re-apply it to
+    // the flat-damage adds below.
+    let dmg_eff = skill.damage_effectiveness(gem_level);
 
     // Add flat damage from "Adds N to M <element> Damage" mods. The parser emits these
     // as Mod::base("<Element>Damage", ModValue::Range{min, max}).
@@ -858,8 +863,16 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 flat_max += hi;
             }
         }
-        base_min += flat_min;
-        base_max += flat_max;
+        // For spells, damageEffectiveness scales the added flat damage. For
+        // attacks, it scales the entire weapon hit (which we already folded in
+        // when we read the weapon damage above), so don't double-scale.
+        if early_is_spell {
+            base_min += flat_min * dmg_eff;
+            base_max += flat_max * dmg_eff;
+        } else {
+            base_min += flat_min;
+            base_max += flat_max;
+        }
     }
     let _ = st;
     let _ = cfg_q;

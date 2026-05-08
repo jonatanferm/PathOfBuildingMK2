@@ -501,17 +501,16 @@ fn arc_level_20_witch_baseline_damage_is_in_pob_range() {
     let out = compute_with_skills(&c, &tree, Some(&skills));
     let base_min = out.get("MainSkillBaseMin");
     let base_max = out.get("MainSkillBaseMax");
-    // Per PoB's calc, Arc lvl 20 / char L90 base damage is ~640–3653 (with the 1.2
-    // damage effectiveness) before any modifiers. We use a wide tolerance because
-    // upstream PoB occasionally tweaks the constants and we don't want this test
-    // brittle.
+    // PoB's calc: Arc level 20 at actor level 70 (gem.levelRequirement, NOT
+    // character level) gives base ≈ 198–1122. damageEffectiveness only scales
+    // ADDED flat damage on spells, not the gem's intrinsic base.
     assert!(
-        base_min > 200.0 && base_min < 1500.0,
-        "Arc base min damage: expected 200-1500, got {base_min}"
+        base_min > 150.0 && base_min < 300.0,
+        "Arc base min damage: expected ~198, got {base_min}"
     );
     assert!(
-        base_max > 1000.0 && base_max < 6000.0,
-        "Arc base max damage: expected 1000-6000, got {base_max}"
+        base_max > 1000.0 && base_max < 1300.0,
+        "Arc base max damage: expected ~1122, got {base_max}"
     );
 }
 
