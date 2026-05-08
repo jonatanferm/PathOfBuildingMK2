@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs of the same branch / PR so we only ever pay for the
+# tip of a branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: cargo test (calc engine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      # Strict gate runs against the headless calc-engine crates (no native
+      # UI deps). `pob-ui` / `pob-desktop` / `pob-web` pull in `winit` /
+      # `wgpu` / `eframe`, which need extra system libs on Linux runners
+      # (libxkbcommon, libwayland, libxcb, mesa-egl, …) — not worth the CI
+      # surface area for a calc-focused regression suite. UI breakage is
+      # caught locally and via the existing Pages deploy workflow.
+      - name: cargo build (engine)
+        run: cargo build -p pob-engine -p pob-data -p pob-extract --all-targets
+
+      - name: cargo test (engine)
+        # Some integration tests require generated data (under `data/`, which
+        # is gitignored) and self-skip when it's missing. Data-independent
+        # tests (mod_parser, mod_db, parser coverage, validation) still run.
+        run: cargo test -p pob-engine -p pob-data -p pob-extract
+
+  fmt:
+    name: cargo fmt --check
+    runs-on: ubuntu-latest
+    # Advisory until the existing rustfmt drift is cleaned up — fmt diffs
+    # against current main are unrelated to any PR's changes, so blocking PRs
+    # on `--check` would punish contributors for untouched files.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (with rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    # Advisory until the existing warnings (mostly in `pob-data` extractor
+    # paths) are cleaned up. Strict `-D warnings` fails on unrelated lints.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (with clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: cargo clippy (engine)
+        # Same deal as the test job: limit to the headless calc-engine crates
+        # so we don't need the Linux UI system packages.
+        run: cargo clippy -p pob-engine -p pob-data -p pob-extract --all-targets
+
+  # Optional: run pob_diff against an upstream PoB checkout. Manual trigger
+  # only — the upstream PoB repo is not redistributable as a CI artifact, so
+  # this job is meant for maintainers who clone PoB locally and want to
+  # publish a regression run on demand.
+  pob-diff:
+    name: pob_diff regression (manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout upstream PoB into .PathOfBuilding
+        uses: actions/checkout@v4
+        with:
+          repository: PathOfBuildingCommunity/PathOfBuilding
+          path: .PathOfBuilding
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: pob_diff (witch L90 Arc)
+        run: |
+          cargo run --release -p pob-extract --bin pob_diff -- \
+            --build crates/pob-extract/test-builds/witch_l90_arc_with_items.xml
+
+      - name: pob_diff (marauder L90 bleeding cleave)
+        run: |
+          cargo run --release -p pob-extract --bin pob_diff -- \
+            --build crates/pob-extract/test-builds/marauder_l90_bleeding_cleave.xml
