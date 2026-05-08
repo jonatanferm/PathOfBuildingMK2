@@ -311,32 +311,36 @@ impl TreeView {
     }
 }
 
-/// Look up each node's atlas-relative icon rect. Walks the relevant sprite
-/// categories (normal/notable/keystone, active variant) and stashes the UV
-/// for any node whose `icon` field matches a sprite. Nodes without an icon
-/// (Root, ClassStart, AscendancyStart) and nodes whose icon isn't in the
-/// bundled atlases get an empty rect — the shader falls back to a flat
-/// colored circle.
+/// Look up each node's atlas-relative icon rect. Picks the sprite category
+/// by the node's `kind` (normal → normalActive, notable → notableActive,
+/// etc.) so the same icon path can have different rects per category in the
+/// atlas — PoB does the same in `node.sprites[node.type:lower()..Active]`.
 fn compute_icon_uvs(
     tree: &PassiveTree,
     sprites: Option<&pob_data::sprites::SpriteSet>,
 ) -> HashMap<NodeId, [f32; 4]> {
+    use pob_data::NodeKind;
     let mut out = HashMap::new();
     let Some(sprites) = sprites else {
         return out;
     };
-    let categories = ["normalActive", "notableActive", "keystoneActive"];
     for (id, node) in &tree.nodes {
         let Some(icon) = node.icon.as_deref() else {
             continue;
         };
-        for cat in categories {
-            if let Some(c) = sprites.get(cat) {
-                if let Some(rect) = c.coords.get(icon) {
-                    out.insert(*id, rect.uv(c.w as f32, c.h as f32));
-                    break;
-                }
-            }
+        let category = match node.kind {
+            NodeKind::Normal => "normalActive",
+            NodeKind::Notable => "notableActive",
+            NodeKind::Keystone => "keystoneActive",
+            // Mastery / JewelSocket / Root / ClassStart / AscendancyStart /
+            // Tattoo / Blighted use atlases we don't yet bundle (masteryInactive
+            // is in mastery-disabled-3.png; jewelSocket in jewel-3.png). Until
+            // we wire those in, those nodes fall back to flat colored circles.
+            _ => continue,
+        };
+        let Some(c) = sprites.get(category) else { continue };
+        if let Some(rect) = c.coords.get(icon) {
+            out.insert(*id, rect.uv(c.w as f32, c.h as f32));
         }
     }
     out

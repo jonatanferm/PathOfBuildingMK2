@@ -24,14 +24,12 @@ pub fn compute_node_positions(tree: &PassiveTree) -> HashMap<NodeId, NodePos> {
 
     let mut out: HashMap<NodeId, NodePos> = HashMap::default();
     for (id, node) in &tree.nodes {
-        let Some(group_id) = node.group else {
-            out.insert(*id, NodePos { x: 0.0, y: 0.0 });
-            continue;
-        };
-        let Some(group) = tree.groups.get(&group_id) else {
-            out.insert(*id, NodePos { x: 0.0, y: 0.0 });
-            continue;
-        };
+        // Orphan nodes (no group / no orbit) are cluster-jewel notable
+        // templates — PoB only places them once a cluster jewel is socketed.
+        // We skip them entirely so they don't pile up at (0, 0) in the
+        // tree-view centre.
+        let Some(group_id) = node.group else { continue };
+        let Some(group) = tree.groups.get(&group_id) else { continue };
         let orbit = node.orbit.unwrap_or(0) as usize;
         let orbit_index = node.orbit_index.unwrap_or(0) as usize;
 
