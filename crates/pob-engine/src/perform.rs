@@ -801,6 +801,31 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 if !support.support {
                     continue;
                 }
+                // Skill-type compatibility: PoB's `addSkillTypes` lists the
+                // SkillType ids the support REQUIRES on the linked skill, and
+                // `excludeSkillTypes` lists those that disqualify it. We honour
+                // both so e.g. an attack-only support doesn't buff a spell.
+                let active_types = &skill.skill_types;
+                let mut compatible = true;
+                for (st, on) in &support.add_skill_types {
+                    if !*on { continue }
+                    if !active_types.get(st).copied().unwrap_or(false) {
+                        compatible = false;
+                        break;
+                    }
+                }
+                if compatible {
+                    for (st, on) in &support.exclude_skill_types {
+                        if !*on { continue }
+                        if active_types.get(st).copied().unwrap_or(false) {
+                            compatible = false;
+                            break;
+                        }
+                    }
+                }
+                if !compatible {
+                    continue;
+                }
                 for m in crate::skill::skill_mods(support, gem.quality) {
                     env.mod_db.add(m);
                 }
