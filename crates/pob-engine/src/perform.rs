@@ -2199,7 +2199,27 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let final_avg = env.output.get("MainSkillAverageHitAfterAccuracy")
         * avoidance_factor
         * projectile_multiplier;
-    let main_dps = final_avg * cps;
+
+    // Issue #16 (totem half): a totem-summoning skill's DPS scales by the
+    // number of totems the player can have active. Mirrors `CalcOffence.lua:1388`:
+    //   ActiveTotemLimit = base_number_of_totems_allowed + sum(BASE, MaxTotems)
+    //   TotemsSummoned   = override(TotemsSummoned) or ActiveTotemLimit
+    // and the post-DPS multiplication in CalcOffence.lua's totem branch.
+    // SkillType "30" (SummonsTotem) is the upstream marker; PoB's own
+    // `Data/SkillType.lua:30 = "Totem"`. The UI / config doesn't yet have
+    // a TotemsSummoned override knob; the slot is reserved here.
+    let summons_totem = skill.skill_types.get("30").copied().unwrap_or(false);
+    let totem_count = if summons_totem {
+        let base_limit = 1.0 + env.mod_db.sum(ModType::Base, &cfg, &env.state, "MaxTotems");
+        let active_limit = base_limit.max(1.0);
+        env.output.set("ActiveTotemLimit", active_limit);
+        env.output.set("TotemsSummoned", active_limit);
+        env.output.set("NumberOfTotems", active_limit);
+        active_limit
+    } else {
+        1.0
+    };
+    let main_dps = final_avg * cps * totem_count;
     env.output.set("MainSkillDPS", main_dps);
 
     // Impale: a stack-based physical-only damage layer. PoB models 5 stacks of

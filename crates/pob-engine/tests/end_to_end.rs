@@ -1604,6 +1604,88 @@ fn projectiles_hitting_target_multiplies_dps() {
 
 // Issue #8: impale layer adds physical-stack DPS to FullDPS via
 //   ImpaleDPS = stored × stacks(5) × effect/100 × chance/100 × cps
+// Issue #16 (totem half): a totem-summoning skill's MainSkillDPS must
+// scale by the player's `ActiveTotemLimit` (default 1; supports like
+// Multiple Totems Support raise the limit). Mirrors PoB's
+// CalcOffence.lua:1388 totem branch.
+#[test]
+fn totem_skill_dps_scales_with_active_totem_limit() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    let Some(_) = skills.get("HolyFlameTotem") else {
+        eprintln!("skip: HolyFlameTotem not found");
+        return;
+    };
+    let mut c = Character::new(ClassRef::templar(), 90);
+    c.main_skill = Some(MainSkill::new("HolyFlameTotem"));
+
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_dps = baseline.get("MainSkillDPS");
+    if baseline_dps <= 0.0 {
+        eprintln!("skip: HolyFlameTotem baseline DPS is zero");
+        return;
+    }
+    // Default ActiveTotemLimit is 1 (PoE base).
+    assert!(
+        (baseline.get("ActiveTotemLimit") - 1.0).abs() < 0.001,
+        "Default ActiveTotemLimit should be 1, got {}",
+        baseline.get("ActiveTotemLimit")
+    );
+    assert!(
+        (baseline.get("NumberOfTotems") - 1.0).abs() < 0.001,
+        "NumberOfTotems should mirror ActiveTotemLimit"
+    );
+
+    // Equip a helmet granting "+1 to maximum number of Summoned Totems"
+    // — bumps ActiveTotemLimit to 2 and doubles MainSkillDPS.
+    let helm = parse_item(
+        "Item Class: Helmets\nRarity: RARE\nTotem Crown\nIron Hat\n--------\n+1 to maximum number of Summoned Totems\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::Helmet, helm);
+    let two_totems = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        (two_totems.get("ActiveTotemLimit") - 2.0).abs() < 0.001,
+        "+1 totem mod should lift ActiveTotemLimit to 2, got {}",
+        two_totems.get("ActiveTotemLimit")
+    );
+    let ratio = two_totems.get("MainSkillDPS") / baseline_dps;
+    assert!(
+        (ratio - 2.0).abs() < 0.01,
+        "MainSkillDPS should double with +1 totem; ratio={ratio} (baseline={baseline_dps}, two={})",
+        two_totems.get("MainSkillDPS")
+    );
+
+    // Non-totem skill (Arc) should NOT emit ActiveTotemLimit and the
+    // existing DPS should be unaffected by totem mods on items.
+    let Some(_) = skills.get("Arc") else { return };
+    let mut arc_char = Character::new(ClassRef::witch(), 90);
+    arc_char.main_skill = Some(MainSkill::new("Arc"));
+    let arc_baseline = pob_engine::compute_full(&arc_char, &tree, Some(&skills), Some(&bases));
+    assert_eq!(
+        arc_baseline.try_get("ActiveTotemLimit"),
+        None,
+        "Arc (non-totem skill) should not emit ActiveTotemLimit"
+    );
+
+    // Even with the +1-totem helm, Arc DPS must not change.
+    let helm2 = parse_item(
+        "Item Class: Helmets\nRarity: RARE\nTotem Crown\nIron Hat\n--------\n+1 to maximum number of Summoned Totems\n--------",
+    )
+    .unwrap();
+    arc_char.items.equip(pob_data::Slot::Helmet, helm2);
+    let arc_after = pob_engine::compute_full(&arc_char, &tree, Some(&skills), Some(&bases));
+    assert!(
+        (arc_after.get("MainSkillDPS") - arc_baseline.get("MainSkillDPS")).abs() < 0.01,
+        "Arc DPS must not respond to totem mods (non-totem skill)"
+    );
+}
+
 // where `stored` is the per-cast physical hit average post-crit. With no
 // ImpaleChance source the impale path must zero out cleanly, and a body
 // armour granting "30% chance to Impale on Hit" must surface a non-zero
