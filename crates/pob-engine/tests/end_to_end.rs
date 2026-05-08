@@ -3139,6 +3139,75 @@ fn warcry_power_config_lands_in_mod_db() {
     );
 }
 
+// Issue #19 (slice 3): warcry-loadout detection. Each enabled warcry
+// gem in the gem list contributes to `ActiveWarcryCount`,
+// `WarcryExertedAttackCountTotal`, and (for cooldown-having warcries)
+// `WarcryMinCooldown`. Builds without warcry gems get no output.
+#[test]
+fn warcry_detection_emits_loadout_aggregates() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("AncestralCry").is_none() {
+        eprintln!("skip: AncestralCry not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+
+    // Baseline: no warcries → no aggregate keys.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    assert_eq!(
+        baseline.try_get("ActiveWarcryCount"),
+        None,
+        "no warcry gems → no ActiveWarcryCount"
+    );
+
+    // Add a warcry gem in a separate group. It should land in the
+    // detection regardless of which group is the main socket group.
+    let mut warcry = MainSkill::new("AncestralCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcry".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    let with_warcry = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    assert!(
+        (with_warcry.get("ActiveWarcryCount") - 1.0).abs() < 0.001,
+        "one warcry gem should land as ActiveWarcryCount=1; got {}",
+        with_warcry.get("ActiveWarcryCount")
+    );
+    // Ancestral Cry exerts 8 melee attacks (constant across levels).
+    assert!(
+        (with_warcry.get("WarcryExertedAttackCountTotal") - 8.0).abs() < 0.001,
+        "Ancestral Cry exerts 8 attacks per cast; got {}",
+        with_warcry.get("WarcryExertedAttackCountTotal")
+    );
+    // Cooldown at L20 is 8s.
+    let cd = with_warcry.get("WarcryMinCooldown");
+    assert!(
+        cd > 0.0,
+        "Ancestral Cry should emit a positive WarcryMinCooldown; got {cd}"
+    );
+
+    // Disabling the warcry gem removes the aggregates entirely.
+    if let Some(g) = c.skill_groups.last_mut() {
+        if let Some(gem) = g.gems.first_mut() {
+            gem.enabled = false;
+        }
+    }
+    let disabled = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    assert_eq!(
+        disabled.try_get("ActiveWarcryCount"),
+        None,
+        "disabled warcry gem must drop the aggregate keys"
+    );
+}
+
 // Issue #68: Ruthless support `RuthlessBlowAilmentEffect`. Mirrors
 // CalcOffence.lua:2780-2797 — `effect = (1 - chance) + chance × mult`,
 // where `chance = 1 / RuthlessBlowMaxCount` and `mult = 1 + BASE/100`.

@@ -62,6 +62,11 @@ pub fn compute_full_with_env(
         apply_party_extracted_auras(character, reg, &mut env);
         perform_reservations(character, reg, &mut env);
         perform_curses(character, reg, &mut env);
+        // Issue #19 (slice 3): emit aggregate warcry-loadout outputs
+        // (count + total exert + min cooldown). Auto-uptime
+        // derivation lives in slice 4; this slice ships the data
+        // pipeline for it.
+        detect_warcries(character, reg, &mut env);
         // Issue #5: Dual-wield per-weapon calc loop. PoB's CalcOffence.lua
         // runs the skill calc twice for dual-wielders — once with
         // `SlotName:Weapon 1` active and `SlotName:Weapon 2` inactive,
@@ -1768,6 +1773,87 @@ fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) 
     env.output.set("CurseFreezeChanceOnHit", freeze_chance);
     env.output.set("CurseIgniteChanceOnHit", ignite_chance);
     env.output.set("CurseChillChanceOnHit", chill_chance);
+}
+
+/// Issue #19 (slice 3): walk the gem list for warcry skills and
+/// surface aggregate output keys describing the player's warcry
+/// loadout. Mirrors PoB's `Modules/CalcPerform.lua:2200+` warcry
+/// detection: each warcry gem with `baseFlags.warcry = true`
+/// contributes its `skill_empowers_next_x_melee_attacks` constant
+/// (the per-cry exert count) and its level-data `cooldown` to the
+/// totals.
+///
+/// Output keys (only emitted when at least one enabled warcry gem
+/// is present, so non-warcry builds stay clean):
+///
+/// - `ActiveWarcryCount` — number of enabled warcry gems socketed.
+/// - `WarcryExertedAttackCountTotal` — sum of per-cry exert counts.
+/// - `WarcryMinCooldown` — fastest cooldown among the warcries
+///   (drives uptime: a faster cry can refresh exertion before the
+///   next batch expires).
+///
+/// The actual `ExertedAttackUptime` derivation needs a per-skill
+/// cast-cadence pass (still in slice 4 scope); this slice ships the
+/// raw aggregates so the Calcs side panel and a future auto-uptime
+/// pass have the data they need.
+fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env) {
+    if character.skill_groups.is_empty() {
+        return;
+    }
+    let mut active = 0u32;
+    let mut total_exert: f64 = 0.0;
+    let mut min_cooldown: Option<f64> = None;
+    for group in &character.skill_groups {
+        if !group.enabled {
+            continue;
+        }
+        for gem in &group.gems {
+            if !gem.enabled {
+                continue;
+            }
+            let Some(skill) = skills.get(&gem.skill_id) else {
+                continue;
+            };
+            if !skill.base_flags.get("warcry").copied().unwrap_or(false) {
+                continue;
+            }
+            active += 1;
+            // Each warcry gem stores its exert count in
+            // `constantStats[skill_empowers_next_x_melee_attacks]` —
+            // a JSON array `[<stat_id>, <value>]` per entry.
+            for entry in &skill.constant_stats {
+                let Some(arr) = entry.as_array() else {
+                    continue;
+                };
+                let Some(id) = arr.first().and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                if id == "skill_empowers_next_x_melee_attacks" {
+                    if let Some(v) = arr.get(1).and_then(serde_json::Value::as_f64) {
+                        total_exert += v;
+                    }
+                    break;
+                }
+            }
+            // Cooldown lives in `levels[L].cooldown`. We read it
+            // through the same `f64::from(...).max(...)` path the
+            // mine/trap timing pass uses so a missing field falls
+            // back to the configured default (no clamp here — PoB
+            // exposes the raw value).
+            let level = gem.level.max(1);
+            if let Some(cd) = skill.cooldown(level) {
+                min_cooldown = Some(min_cooldown.map_or(cd, |m| m.min(cd)));
+            }
+        }
+    }
+    if active == 0 {
+        return;
+    }
+    env.output.set("ActiveWarcryCount", f64::from(active));
+    env.output.set("WarcryExertedAttackCountTotal", total_exert);
+    if let Some(cd) = min_cooldown {
+        env.output.set("WarcryMinCooldown", cd);
+    }
 }
 
 /// Compute hit damage for the main skill. Phase 3d: spell-only, single hit, single
