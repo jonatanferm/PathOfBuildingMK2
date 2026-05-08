@@ -2453,7 +2453,25 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         1.0
     };
 
-    let mechanism_multiplier = totem_count * mine_count * trap_count;
+    // Issue #60: AoE shotgun-overlap rolloff. PoB's Config tab has an
+    // "Enemies hit by AoE" slider that multiplies per-cast hit by the
+    // number of overlapping AoE hits on the same target — used by
+    // Earthquake / Tectonic Slam / Vaal Ground Slam style builds where
+    // a single cast can hit one enemy multiple times. We surface that
+    // multiplier (clamped to >=1) on AoE-tagged skills only.
+    let is_area = skill.base_flags.get("area").copied().unwrap_or(false);
+    let aoe_stacks = if is_area {
+        let stacks = f64::from(character.config.enemies_hit_by_aoe.max(1));
+        if stacks > 1.0 {
+            env.output.set("AoEStacks", stacks);
+            env.output.set("AoEStackMultiplier", stacks);
+        }
+        stacks
+    } else {
+        1.0
+    };
+
+    let mechanism_multiplier = totem_count * mine_count * trap_count * aoe_stacks;
     let main_dps = final_avg * cps * mechanism_multiplier;
     env.output.set("MainSkillDPS", main_dps);
 

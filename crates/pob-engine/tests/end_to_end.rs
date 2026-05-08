@@ -1386,6 +1386,76 @@ fn ailment_duration_outputs_scale_with_duration_mods() {
     }
 }
 
+// Issue #60: AoE shotgun-overlap rolloff. The Config-tab "Enemies hit
+// by AoE" slider multiplies per-cast hit on AoE-tagged skills. Default
+// 1 leaves DPS unchanged; setting 3 triples MainSkillDPS for an AoE
+// skill while leaving non-AoE skills (Arc) untouched.
+#[test]
+fn enemies_hit_by_aoe_multiplies_aoe_skill_dps() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    // Ice Nova is AoE-tagged.
+    let Some(_) = skills.get("IceNova") else {
+        eprintln!("skip: IceNova not found");
+        return;
+    };
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.main_skill = Some(MainSkill::new("IceNova"));
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_dps = baseline.get("MainSkillDPS");
+    if baseline_dps <= 0.0 {
+        eprintln!("skip: IceNova has no DPS in this fixture");
+        return;
+    }
+    // Default = 1: no AoEStacks output emitted.
+    assert_eq!(c.config.enemies_hit_by_aoe, 0);
+    assert_eq!(
+        baseline.try_get("AoEStacks"),
+        None,
+        "default (no shotgun) must not emit AoEStacks"
+    );
+
+    // Triple the per-cast hit: 3 enemies × per-cast = 3× DPS.
+    c.config.enemies_hit_by_aoe = 3;
+    let triple = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let ratio = triple.get("MainSkillDPS") / baseline_dps;
+    assert!(
+        (ratio - 3.0).abs() < 0.01,
+        "Setting Enemies hit by AoE to 3 should triple MainSkillDPS; ratio={ratio}"
+    );
+    assert!(
+        (triple.get("AoEStacks") - 3.0).abs() < 0.001,
+        "AoEStacks output should equal the slider value"
+    );
+    assert!(
+        (triple.get("AoEStackMultiplier") - 3.0).abs() < 0.001,
+        "AoEStackMultiplier output should equal the slider value"
+    );
+
+    // Arc is chain, not AoE — slider must not affect its DPS.
+    let Some(_) = skills.get("Arc") else { return };
+    let mut arc_char = Character::new(ClassRef::witch(), 90);
+    arc_char.main_skill = Some(MainSkill::new("Arc"));
+    let arc_baseline =
+        pob_engine::compute_full(&arc_char, &tree, Some(&skills), Some(&bases)).get("MainSkillDPS");
+    arc_char.config.enemies_hit_by_aoe = 5;
+    let arc_with_slider = pob_engine::compute_full(&arc_char, &tree, Some(&skills), Some(&bases));
+    assert!(
+        (arc_with_slider.get("MainSkillDPS") - arc_baseline).abs() < 0.01,
+        "Arc (chain skill) MainSkillDPS must be unaffected by Enemies hit by AoE"
+    );
+    assert_eq!(
+        arc_with_slider.try_get("AoEStacks"),
+        None,
+        "Arc (chain skill) must not emit AoEStacks"
+    );
+}
+
 // Issue #52: Every AoE-tagged skill must emit AoERadius / FinalAoERadius
 // outputs (PoB exposes these on the Calcs tab) and FinalAoERadius must
 // scale with `increased Area of Effect` mods according to PoB's

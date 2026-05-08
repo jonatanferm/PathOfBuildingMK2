@@ -277,6 +277,17 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
                 state.projectiles_hitting_target = proj.max(0) as u32;
                 changed = true;
             }
+            // Issue #60: AoE shotgun-overlap multiplier. PoB exposes
+            // this for skills like Earthquake / Tectonic Slam where
+            // overlapping AoE hits stack on a single target.
+            let mut aoe = state.enemies_hit_by_aoe as i32;
+            if ui
+                .add(egui::Slider::new(&mut aoe, 1..=10).text("Enemies hit by AoE"))
+                .changed()
+            {
+                state.enemies_hit_by_aoe = aoe.max(1) as u32;
+                changed = true;
+            }
         });
 
         ui.separator();
