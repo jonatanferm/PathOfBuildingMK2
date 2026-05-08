@@ -276,6 +276,7 @@ fn party_extracted_auras_inject_skill_mods() {
             level: 20,
             quality: 0,
             enabled: true,
+            effect_pct: 0,
         }],
         enabled: true,
     });
@@ -306,6 +307,96 @@ fn party_extracted_auras_inject_skill_mods() {
         !still_there,
         "Disabled extracted aura must not contribute mods"
     );
+}
+
+// Issue #97 (slice 2): manual aura-effect % override scales the
+// projected mod values. PoB uses the teammate's full state to derive
+// the effective aura strength (Generosity, +X% Aura Effect items,
+// Empower, etc.); we expose a per-aura `effect_pct` for users to
+// dial it in by hand. This test pins the scaling for Hatred's
+// `PhysicalDamageGainAsCold` BASE — at +50% effect_pct, the
+// projected value should rise to 1.5× the baseline.
+#[test]
+fn party_extracted_aura_effect_override_scales_mod_values() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Hatred").is_none() {
+        eprintln!("skip: Hatred not in registry");
+        return;
+    }
+    use pob_engine::character::{ExtractedAura, PartyMember};
+    use pob_engine::ModStore as _;
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.party_members.push(PartyMember {
+        name: "Aura Bot".into(),
+        mod_lines: String::new(),
+        extracted_auras: vec![ExtractedAura {
+            skill_id: "Hatred".into(),
+            level: 20,
+            quality: 0,
+            enabled: true,
+            effect_pct: 0,
+        }],
+        enabled: true,
+    });
+
+    // Baseline (effect_pct = 0): grab whatever Hatred BASE values
+    // land in the player modDB sourced as the Party teammate.
+    let (_, env_base) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    let baseline: Vec<(String, f64)> = env_base
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Party:Aura Bot:Hatred")
+        })
+        .filter_map(|m| m.value.as_f64().map(|v| (m.name.clone(), v)))
+        .collect();
+    assert!(
+        !baseline.is_empty(),
+        "Hatred at L20 should project at least one f64-valued buff mod for the override test"
+    );
+
+    // +50% override → every projected scalar should be 1.5× baseline.
+    c.party_members[0].extracted_auras[0].effect_pct = 50;
+    let (_, env_scaled) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    for (name, base_val) in &baseline {
+        let scaled = env_scaled
+            .mod_db
+            .iter_all()
+            .find(|m| {
+                m.name == *name
+                    && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Party:Aura Bot:Hatred")
+            })
+            .and_then(|m| m.value.as_f64())
+            .unwrap_or(0.0);
+        let expected = base_val * 1.5;
+        assert!(
+            (scaled - expected).abs() < expected.abs() * 1e-6 + 1e-9,
+            "Hatred '{name}' at +50% effect_pct should be {expected:.3}, got {scaled:.3}"
+        );
+    }
+
+    // Negative override clamped at -100%: no projection at all.
+    c.party_members[0].extracted_auras[0].effect_pct = -200;
+    let (_, env_neg) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    for (name, _) in &baseline {
+        let value = env_neg
+            .mod_db
+            .iter_all()
+            .find(|m| {
+                m.name == *name
+                    && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Party:Aura Bot:Hatred")
+            })
+            .and_then(|m| m.value.as_f64())
+            .unwrap_or(0.0);
+        assert!(
+            value.abs() < 1e-9,
+            "Hatred '{name}' with effect_pct = -200 (clamped to -100%) should be 0, got {value}"
+        );
+    }
 }
 
 // Issue #27: Item sets — multiple equipment loadouts. The `items`

@@ -200,6 +200,28 @@ pub fn ui(
                             level = aura.level,
                             quality = aura.quality
                         ));
+                        // Issue #97 (slice 2): manual aura-effect %
+                        // override. Lets the user dial in the effect
+                        // boost from the teammate's Generosity /
+                        // Empower / aura-effect items without
+                        // re-running their full calc here. Negative
+                        // is allowed but clamped at -100% downstream.
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut aura.effect_pct)
+                                    .speed(1.0)
+                                    .range(-100..=300)
+                                    .suffix("% effect"),
+                            )
+                            .on_hover_text(
+                                "Aura-effect % the teammate has on this aura \
+                                 (Generosity, +X% Aura Effect mods, etc.). \
+                                 0% = use the gem's raw L/Q values.",
+                            )
+                            .changed()
+                        {
+                            changed = true;
+                        }
                         if ui.small_button("✕").clicked() {
                             to_remove = Some(i);
                         }
@@ -363,6 +385,7 @@ fn extract_into(
                 level: gem.level.max(1),
                 quality: gem.quality,
                 enabled: true,
+                effect_pct: 0,
             };
             // Replace any existing entry with the same skill_id so a
             // re-import refreshes levels in place rather than
