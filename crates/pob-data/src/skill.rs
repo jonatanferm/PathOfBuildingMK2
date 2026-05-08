@@ -163,6 +163,18 @@ impl Skill {
             .unwrap_or(1.0)
     }
 
+    /// `levelRequirement` — the character level at which a gem of this gem-level
+    /// becomes equippable. Defaults to 1 if absent. Used as the "actor level" for
+    /// effectiveness interpolation in `skill_base_damage`, matching PoB's
+    /// `actorLevel = level.levelRequirement` fallback.
+    pub fn level_requirement(&self, level: u32) -> u32 {
+        self.level_data(level)
+            .and_then(|v| v.get("levelRequirement"))
+            .and_then(Value::as_u64)
+            .map(|n| n as u32)
+            .unwrap_or(1)
+    }
+
     /// `critChance` (in percent, 0..100).
     pub fn crit_chance(&self, level: u32) -> f64 {
         self.level_data(level)

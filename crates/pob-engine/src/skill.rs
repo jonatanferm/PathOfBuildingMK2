@@ -90,14 +90,19 @@ const SKILL_DAMAGE_INCREMENTAL_EFFECTIVENESS: f64 = 0.360246;
 /// `damageEffectiveness` to get the final hit base damage.
 pub fn skill_base_damage(skill: &Skill, gem_level: u32, character_level: u32) -> (f64, f64) {
     let gem_level = gem_level.max(1);
-    let l = character_level.max(1);
-    let l_minus_1 = f64::from(l - 1);
+    // PoB uses `actorLevel = skillInstance.actorLevel or level.levelRequirement
+    // or 1` (CalcTools.lua:198-205). The character level is NOT used directly —
+    // this was a long-standing bug that caused our DPS to be ~2.5x too high
+    // since (1 + incEff)^(L_char - 1) blows up at L_char=90 vs L_char=70.
+    let actor_level = skill.level_requirement(gem_level).max(1);
+    let l_minus_1 = f64::from(actor_level.saturating_sub(1).max(1) - 1);
     let base = SKILL_DAMAGE_BASE_EFFECTIVENESS + SKILL_DAMAGE_INCREMENTAL_EFFECTIVENESS * l_minus_1;
     let available_effectiveness = base
         * skill.base_effectiveness.max(1.0)
         * (1.0 + skill.incremental_effectiveness).powf(l_minus_1);
     let min = skill.positional(gem_level, 1).unwrap_or(0.0) * available_effectiveness;
     let max = skill.positional(gem_level, 2).unwrap_or(0.0) * available_effectiveness;
+    let _ = character_level;
     (min, max)
 }
 
