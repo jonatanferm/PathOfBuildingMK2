@@ -1044,6 +1044,11 @@ fn match_while_var(suffix: &str) -> &'static str {
         "any flask effect" => "UsingFlask",
         "any flask is active" => "UsingFlask",
         "using a flask" => "UsingFlask",
+        // Bare "during Flask Effect" / "during Flask effect" — the suffix
+        // PoB stamps on every flask's prefix mods (e.g. "+3000 to Armour
+        // during Flask Effect" on a Granite Flask). Same canonical key as
+        // "any flask effect".
+        "flask effect" => "UsingFlask",
         "stationary or moving" => "Stationary",
         "you have a tincture active" => "UsingTincture",
         "you have used a skill recently" => "UsedSkillRecently",
