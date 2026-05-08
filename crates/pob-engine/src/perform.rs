@@ -2088,6 +2088,83 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
     // Determine if the skill is a spell or an attack — drives which ModFlag bit we set.
     let is_spell = skill.base_flags.get("spell").copied().unwrap_or(false);
     let is_attack = skill.base_flags.get("attack").copied().unwrap_or(false);
+
+    // Issue #84 (slice 3): emit mine / trap throw-timing + count
+    // outputs before the DoT-only early return so DoT-tagged
+    // mines/traps (e.g. Siphoning Trap) still surface their throw
+    // rate. The hit-DPS branch lower in this fn re-runs the same
+    // formula to compute `cps`; the writes here just make the keys
+    // visible in the DoT path. Idempotent on re-write.
+    {
+        let cfg = QueryCfg::default();
+        let is_mine = skill.base_flags.get("mine").copied().unwrap_or(false);
+        let is_trap = skill.base_flags.get("trap").copied().unwrap_or(false);
+        if is_mine {
+            let base = env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "MineLayingTime")
+                .max(0.001);
+            let speed_inc = env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "MineLayingSpeed")
+                / 100.0;
+            let speed_more = env.mod_db.more(&cfg, &env.state, "MineLayingSpeed");
+            let time_more = env.mod_db.more(&cfg, &env.state, "SkillMineThrowingTime");
+            let throw_count = (1.0
+                + env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "MineThrowCount"))
+            .max(1.0);
+            let mut laying_speed =
+                (1.0 / base) * (1.0 + speed_inc) * speed_more / time_more.max(0.001);
+            if throw_count > 1.0 {
+                laying_speed /= 1.0 + (throw_count - 1.0) * 0.1;
+            }
+            laying_speed = laying_speed.min(60.0);
+            let active_limit = (1.0
+                + env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "ActiveMineLimit"))
+            .max(throw_count);
+            env.output.set("MineLayingSpeed", laying_speed);
+            env.output
+                .set("MineLayingTime", 1.0 / laying_speed.max(0.001));
+            env.output.set("ActiveMineLimit", active_limit);
+            env.output.set("MinesPlaced", throw_count);
+            env.output.set("NumberOfMines", throw_count);
+        }
+        if is_trap {
+            let base = env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "TrapThrowingTime")
+                .max(0.001);
+            let speed_inc = env
+                .mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "TrapThrowingSpeed")
+                / 100.0;
+            let speed_more = env.mod_db.more(&cfg, &env.state, "TrapThrowingSpeed");
+            let time_more = env.mod_db.more(&cfg, &env.state, "SkillTrapThrowingTime");
+            let throwing_speed =
+                ((1.0 / base) * (1.0 + speed_inc) * speed_more / time_more.max(0.001)).min(60.0);
+            let throw_count = (1.0
+                + env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "TrapThrowCount"))
+            .max(1.0);
+            let active_limit = (15.0
+                + env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "ActiveTrapLimit"))
+            .max(throw_count);
+            env.output.set("TrapThrowingSpeed", throwing_speed);
+            env.output
+                .set("TrapThrowingTime", 1.0 / throwing_speed.max(0.001));
+            env.output.set("ActiveTrapLimit", active_limit);
+            env.output.set("TrapsThrown", throw_count);
+            env.output.set("NumberOfTraps", throw_count);
+        }
+    }
+
     // SkillType 39 = DamageOverTime in PoB's enum. Skills like Caustic Arrow / Essence
     // Drain are DoT-only — the per-level positional values aren't hit damage but a
     // damage-per-minute/second base that PoB treats specially. Mark them so the hit
