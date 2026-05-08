@@ -43,6 +43,7 @@ pub fn compute_full(
         perform_skill_dps(character, reg, &mut env);
     }
     perform_ehp(&mut env);
+    perform_enemy_damage_sim(&mut env, character);
     env.output
 }
 
@@ -419,12 +420,87 @@ fn fill_static_defaults(env: &mut Env) {
     env.output.set("WardRechargeDelay", 2.0);
     env.output.set("ManaRegenPercent", 1.7);
     env.output.set("Speed", 1.2);
-    env.output.set("EnemyCritEffect", 1.01);
+    // PoB default: 5% crit chance × 30% extra crit damage = +1.5% damage on average.
+    env.output.set("EnemyCritEffect", 1.015);
     env.output.set("Time", 0.83);
     env.output.set("WeaponRangeMetre", 0.8);
     env.output.set("enemySkillTime", 0.7);
     env.output.set("ImpaleDuration", 8.02);
     env.output.set("impaleStoredHitAvg", 3.5);
+}
+
+/// PoB's `data.monsterDamageTable` — expected damage per monster level for the
+/// "default" iLvl-N boss profile. Index N-1 (level 1 → index 0).
+const MONSTER_DAMAGE_TABLE: &[f64] = &[
+    4.99, 5.55, 6.16, 6.81, 7.5, 8.23, 9.0, 9.82, 10.7, 11.62,
+    12.6, 13.64, 14.74, 15.91, 17.14, 18.45, 19.83, 21.29, 22.84, 24.47,
+    26.19, 28.01, 29.94, 31.96, 34.11, 36.36, 38.75, 41.26, 43.91, 46.7,
+    49.65, 52.75, 56.01, 59.45, 63.08, 66.89, 70.91, 75.13, 79.58, 84.26,
+    89.18, 94.35, 99.8, 105.52, 111.53, 117.86, 124.5, 131.49, 138.83, 146.53,
+    154.63, 163.14, 172.07, 181.45, 191.3, 201.63, 212.48, 223.87, 235.83, 248.37,
+    261.53, 275.33, 289.82, 305.01, 320.94, 337.65, 355.18, 373.55, 392.81, 413.01,
+    434.18, 456.37, 479.62, 504.0, 529.54, 556.3, 584.35, 613.73, 644.5, 676.75,
+    710.52, 745.89, 782.94, 821.73, 862.36, 904.9, 949.44, 996.07, 1044.89, 1096.0,
+    1149.5, 1205.5, 1264.11, 1325.45, 1389.64, 1456.82, 1527.12, 1600.68, 1677.64, 1758.17,
+];
+
+/// EHP damage simulation. PoB defaults to a Pinnacle-Boss enemy at iLvl 84 and
+/// runs each damage type through the character's defences. Phase 2 emits the
+/// per-element EnemyDamage / TakenDamage / TakenHit tables and the totals — no
+/// iterative damage shaving (PoB's solver) yet.
+fn perform_enemy_damage_sim(env: &mut Env, character: &Character) {
+    // PoB clamps the simulated enemy level at MaxEnemyLevel = 84 in the modern
+    // tree. For lower-level characters, the enemy tracks character.level - 6.
+    // We approximate by taking min(84, max(1, character.level)).
+    let enemy_level = character.config.enemy_level.max(1).min(84) as usize;
+    let idx = (enemy_level - 1).min(MONSTER_DAMAGE_TABLE.len() - 1);
+    let table_value = MONSTER_DAMAGE_TABLE[idx];
+    // PoB uses Pinnacle Boss preset by default → 8/4.4 = 1.8181x DPS multiplier.
+    let pinnacle_dps_mult = 8.0 / 4.4;
+    let base_damage = (table_value * 1.5 * pinnacle_dps_mult).round();
+    let chaos_damage = (base_damage / 2.5).round();
+
+    let crit_effect = env.output.get("EnemyCritEffect").max(1.0);
+
+    let mut total_in = 0.0_f64;
+    let mut total_damage = 0.0_f64;
+    let mut total_taken_hit = 0.0_f64;
+    for elem in ["Physical", "Fire", "Cold", "Lightning"] {
+        total_in += base_damage;
+        let damage = base_damage * crit_effect;
+        total_damage += damage;
+        env.output.set(format!("{elem}EnemyDamage"), damage);
+        env.output.set(format!("{elem}TakenDamage"), damage);
+        let taken_mult = env.output.get(&format!("{elem}TakenHitMult"));
+        let taken_hit = damage * taken_mult;
+        env.output.set(format!("{elem}TakenHit"), taken_hit);
+        total_taken_hit += taken_hit;
+    }
+    total_in += chaos_damage;
+    let chaos_taken_damage = chaos_damage * crit_effect;
+    total_damage += chaos_taken_damage;
+    env.output.set("ChaosEnemyDamage", chaos_taken_damage);
+    env.output.set("ChaosTakenDamage", chaos_taken_damage);
+    let chaos_taken_hit = chaos_taken_damage * env.output.get("ChaosTakenHitMult");
+    env.output.set("ChaosTakenHit", chaos_taken_hit);
+    total_taken_hit += chaos_taken_hit;
+
+    env.output.set("totalEnemyDamageIn", total_in);
+    env.output.set("totalEnemyDamage", total_damage);
+    env.output.set("totalTakenDamage", total_damage);
+    env.output.set("totalTakenHit", total_taken_hit);
+
+    // TotalEHP — PoB derives this from an iterative damage-shaving solver, but a
+    // close approximation is `pool * (totalEnemyDamageIn / totalTakenHit)` which
+    // gives the same ratio: how much raw incoming damage you can absorb relative
+    // to how much actually lands per hit.
+    let pool = (env.output.get("Life")
+        + env.output.get("EnergyShield")
+        + env.output.get("Ward"))
+    .max(1.0);
+    if total_taken_hit > 0.0 {
+        env.output.set("TotalEHP", pool * total_in / total_taken_hit);
+    }
 }
 
 /// BFS from the character's class start through the allocated subgraph and

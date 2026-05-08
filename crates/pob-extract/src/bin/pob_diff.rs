@@ -170,6 +170,28 @@ end
     if verbose {
         run(
             lua,
+            "enemy_damage_probe",
+            r#"
+local m = launch.main
+local b = m.modes['BUILD']
+local env = b.calcsTab and (b.calcsTab.mainEnv or b.calcsTab.calcsEnv)
+if env then
+    print(string.format('  env.enemyLevel = %s', tostring(env.enemyLevel)))
+    if env.configInput then
+        for _, k in ipairs({'enemyPhysicalDamage', 'enemyFireDamage', 'enemyChaosDamage', 'enemySpeed', 'enemyIsBoss'}) do
+            print(string.format('  configInput[%s] = %s', k, tostring(env.configInput[k])))
+        end
+    end
+    if env.configPlaceholder then
+        for _, k in ipairs({'enemyPhysicalDamage', 'enemyFireDamage', 'enemyChaosDamage', 'enemyLevel'}) do
+            print(string.format('  configPlaceholder[%s] = %s', k, tostring(env.configPlaceholder[k])))
+        end
+    end
+end
+"#,
+        );
+        run(
+            lua,
             "build_probe",
             r#"
 local m = launch.main
