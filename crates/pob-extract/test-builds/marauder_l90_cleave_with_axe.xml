@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+  <Build level="90" targetVersion="3_0" pantheonMajorGod="None" pantheonMinorGod="None" className="Marauder" ascendClassName="None" mainSocketGroup="1" viewMode="TREE">
+  </Build>
+  <Items>
+    <Item id="1" variant="1">Rarity: RARE
+Brutal Hatchet
+Tomahawk
+--------
+Two Handed Axe
+Quality: +20% (augmented)
+Physical Damage: 100-200 (augmented)
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.30
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 70
+Strength: 110
+--------
+Item Level: 84
+--------
++50 to maximum Life
+20% increased Critical Strike Chance
+--------</Item>
+    <ItemSet id="1" useSecondWeaponSet="false">
+      <Slot name="Weapon 1" itemId="1" active="true"/>
+    </ItemSet>
+  </Items>
+  <Skills sortGemsByDPSField="CombinedDPS" sortGemsByDPS="true" defaultGemQuality="0" defaultGemLevel="normalMaximum" showSupportGemTypes="ALL" showAltQualityGems="false">
+    <Skill enabled="true" mainActiveSkill="1" includeInFullDPS="true" label="" slot="">
+      <Gem skillId="Cleave" level="20" quality="20" enabled="true" qualityId="Default"/>
+    </Skill>
+  </Skills>
+  <Tree activeSpec="1">
+    <Spec title="Default" classId="1" ascendClassId="0" treeVersion="3_28" masteryEffects="" nodes="">
+      <Sockets/>
+    </Spec>
+  </Tree>
+  <Notes/>
+  <TreeView searchStr="" zoomY="0" showHeatMap="false" zoomLevel="2" showStatDifferences="true" zoomX="0"/>
+  <Calcs>
+    <Input name="enemyIsBoss" string="None"/>
+  </Calcs>
+  <Config/>
+</PathOfBuilding>

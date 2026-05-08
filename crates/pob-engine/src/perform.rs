@@ -734,14 +734,13 @@ pub fn perform_basic_stats(character: &Character, tree: &PassiveTree, env: &mut 
     // of the 150% PoE base crit damage multiplier — `1 + 50/100`).
     // With a skill we mirror PoB's full computation: crit chance scales with INC,
     // CritMultiplier picks up BASE additions on top of the 150% baseline.
+    // Character-level CritChance is the *effective* crit rate the player rolls
+    // per hit on the active skill (PoB's `output.CritChance`). For spells it
+    // collapses to the skill's intrinsic critChance because spells always hit;
+    // for attacks it folds in HitChance (= chance to crit per swing).
+    // perform_skill_dps overrides this once a main skill is bound.
     let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
-    let crit_chance_base = if let Some(ms) = character.main_skill.as_ref() {
-        // Gem quality grants +1% crit chance per 4 quality on Arc-style spells
-        // (PoB rounds to integer percent when displaying). Phase 2: linear scale.
-        5.0 + f64::from(ms.quality) * 0.05
-    } else {
-        0.0
-    };
+    let crit_chance_base = if character.main_skill.is_some() { 5.0 } else { 0.0 };
     env.output.set("CritChance", crit_chance_base * (1.0 + crit_inc / 100.0));
     // PoE base crit deals 150% damage; PoB exposes that as the decimal multiplier
     // 1.5 (= 150 / 100). BASE mods on `CritMultiplier` add extra crit damage as
@@ -1012,7 +1011,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
     let crit_chance = ((base_crit * (1.0 + crit_inc / 100.0)) / 100.0).clamp(0.0, 1.0);
     env.output.set("MainSkillCritChance", crit_chance * 100.0);
-    // CritMultiplier is now stored in decimal form (1.5 == 150%) — see the
+    // CritMultiplier is stored in decimal form (1.5 == 150%) — see the
     // basic-stats pass. Earlier code divided by 100 here, which made non-crit
     // hits land at 0.94× when crit was 6%.
     let crit_mult = env.output.get("CritMultiplier").max(1.0);
@@ -1155,7 +1154,14 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     //   chance = 1.15 * accuracy / (accuracy + (eva/4)^0.9) - 0.15
     // Spells always hit at 100%.
     if is_attack {
-        let accuracy = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Accuracy");
+        // PoE base accuracy for any character: 2 per character level + bonus
+        // from dex (1 accuracy per dex). PoB folds this in implicitly via the
+        // character's actor data; pob-engine's mod-driven Accuracy needs the
+        // same baseline added before any item / passive Accuracy mods.
+        let mod_accuracy = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Accuracy");
+        let level_accuracy = 2.0 * f64::from(character.level);
+        let dex = env.output.get("Dexterity");
+        let accuracy = (mod_accuracy + level_accuracy + dex).max(0.0);
         let enemy_evasion = f64::from(character.config.enemy_evasion.max(1));
         let denom = accuracy + f64::powf(enemy_evasion / 4.0, 0.9);
         let raw = if denom > 0.0 {
@@ -1164,12 +1170,13 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             0.05
         };
         let chance = raw.clamp(0.05, 1.0);
+        env.output.set("Accuracy", accuracy);
         env.output.set("MainSkillHitChance", chance * 100.0);
         // Roll hit chance into the DPS at the end.
         let dps_now = env.output.get("MainSkillAverageHitAfterResist");
         env.output.set("MainSkillAverageHitAfterAccuracy", dps_now * chance);
-        // PoB also sets the character-level HitChance / AccuracyHitChance to
-        // the main skill's hit chance when one is bound.
+        // PoB's character-level HitChance / AccuracyHitChance is the main
+        // skill's hit chance when an attack skill is bound.
         env.output.set("HitChance", chance * 100.0);
         env.output.set("AccuracyHitChance", chance * 100.0);
     } else {
@@ -1181,6 +1188,17 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         env.output.set("HitChance", 100.0);
         env.output.set("AccuracyHitChance", 100.0);
     }
+
+    // PoB's character-level CritChance for the active skill: spell crit
+    // applies on every cast (always hits); attack crit is conditional on
+    // landing the swing, so it's `hit_chance × crit_chance`.
+    let hit_chance_decimal = env.output.get("MainSkillHitChance") / 100.0;
+    let effective_crit = if is_attack {
+        crit_chance * hit_chance_decimal
+    } else {
+        crit_chance
+    };
+    env.output.set("CritChance", effective_crit * 100.0);
 
     // Cast/attack speed: PoB normalises against skill baseline.
     let speed_mult = if is_spell {
