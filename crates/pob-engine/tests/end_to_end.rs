@@ -1186,6 +1186,84 @@ fn projectiles_hitting_target_multiplies_dps() {
     assert_eq!(triple.get("ProjectileMultiplier"), expected_mult);
 }
 
+// Issue #8: impale layer adds physical-stack DPS to FullDPS via
+//   ImpaleDPS = stored × stacks(5) × effect/100 × chance/100 × cps
+// where `stored` is the per-cast physical hit average post-crit. With no
+// ImpaleChance source the impale path must zero out cleanly, and a body
+// armour granting "30% chance to Impale on Hit" must surface a non-zero
+// ImpaleDPS that approximately matches `0.3 × 5 × 0.10 × main_dps`.
+#[test]
+fn impale_chance_drives_impale_dps() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        return;
+    };
+    let xml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("crates/pob-extract/test-builds/marauder_l90_cleave_with_axe.xml");
+    let Ok(xml) = std::fs::read_to_string(&xml_path) else {
+        eprintln!("skip: {} not found", xml_path.display());
+        return;
+    };
+    let mut c = pob_engine::import_pob_xml(&xml).expect("import cleave fixture");
+
+    // Baseline: no impale chance -> ImpaleDPS == 0, output keys populated
+    // so the Calcs tab side panel doesn't show blanks.
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_main = baseline.get("MainSkillDPS");
+    assert_eq!(baseline.get("ImpaleChance"), 0.0);
+    assert_eq!(baseline.get("ImpaleStoredHitAvg"), 0.0);
+    assert_eq!(baseline.get("ImpaleDPS"), 0.0);
+    assert!(
+        (baseline.get("FullDPS") - baseline_main).abs() < 0.01,
+        "FullDPS should equal MainSkillDPS when there's no impale (and no ailments)"
+    );
+
+    // Equip a body armour granting 30% chance to Impale on Hit. The
+    // mod_parser maps "Impale" -> ImpaleChance BASE 30, which feeds the
+    // impale calc.
+    let body = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nDoom Carapace\nFull Plate\n--------\n+50 to maximum Life\n30% chance to Impale Enemies on Hit\n--------",
+    )
+    .expect("parse impaling body armour");
+    c.items.equip(pob_data::Slot::BodyArmour, body);
+
+    let armoured = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert_eq!(
+        armoured.get("ImpaleChance"),
+        30.0,
+        "ImpaleChance output should reflect the 30% body-armour mod"
+    );
+    let stored = armoured.get("ImpaleStoredHitAvg");
+    let impale_dps = armoured.get("ImpaleDPS");
+    let main_dps = armoured.get("MainSkillDPS");
+    assert!(
+        stored > 0.0,
+        "ImpaleStoredHitAvg should track the physical hit avg, got {stored}"
+    );
+    assert!(
+        impale_dps > 0.0,
+        "Non-zero ImpaleChance must surface non-zero ImpaleDPS, got {impale_dps}"
+    );
+    // FullDPS now folds in impale.
+    assert!(
+        armoured.get("FullDPS") > main_dps,
+        "FullDPS should grow once impale lands: full={} main={}",
+        armoured.get("FullDPS"),
+        main_dps
+    );
+    // WithImpaleDPS = MainSkillDPS + ImpaleDPS.
+    let combined = main_dps + impale_dps;
+    assert!(
+        (armoured.get("WithImpaleDPS") - combined).abs() < 0.01,
+        "WithImpaleDPS should equal MainSkillDPS + ImpaleDPS"
+    );
+}
+
 #[test]
 fn config_charges_drive_per_charge_mod() {
     let Some(tree) = load_3_25_tree() else {
