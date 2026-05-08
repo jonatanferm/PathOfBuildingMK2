@@ -111,13 +111,21 @@ ascendancy, level, allocated nodes, and notes. PoB will accept it and fill items
 skills / config with defaults. Round-tripping items + skill setup back to upstream PoB
 requires full document serialisation.
 
-### Live-PoB validation harness — Phase 2g (operational)
+### Live-PoB validation harness — Phase 2g (operational; near parity)
 
 `crates/pob-extract/src/bin/pob_diff.rs` boots PoB's full Lua codebase under mlua
 (HeadlessWrapper + Launch + Modules/Main + tree data + uniques + rares + Build mode),
 loads any `--build` XML through `main:SetMode("BUILD", …)`, runs the official calc
 engine, pulls `env.player.output` (~617 scalar keys) back into Rust, and prints a
 side-by-side diff against `pob_engine::compute_with_skills` for the comparable subset.
+
+Status on Witch / Marauder L90 baselines:
+- 26 curated probe keys: 0 divergent
+- 243 auto-discovered shared scalar keys: 4 divergent (only on elemental
+  `*MaximumHitTaken`, where PoB's iterative damage-shaving solver gives 690 vs
+  pob-engine's pool/taken value of 703 — within ~2%)
+- 20 PoB-only keys not yet emitted by pob-engine, all from PoB's EHP damage
+  simulation (`totalEnemyDamage`, per-element `TakenHit`/`TakenDamage`, `TotalEHP`).
 
 LuaJIT → Lua 5.4 compatibility shims live in `build_lua_sandbox`:
 - `jit.opt.start`, `unpack`, `loadstring`, LuaJIT-style `bit.*`
@@ -127,13 +135,25 @@ LuaJIT → Lua 5.4 compatibility shims live in `build_lua_sandbox`:
 - lenient `string.gsub` replacement-pattern shim (handles bare `%` escapes)
 - `string.format` int-coercion for `%d`/`%i` with float arguments
 
-Open work on the bridge:
-- XML→CharacterState mapping is class+level only; items, tree allocs, skill gem
-  selection, and config inputs need plumbing.
-- The Witch-with-no-tree comparison surfaces an apparent PoB quirk where
-  attributes default to 20/20/20 instead of class base (Witch=14/14/32) when the
-  build XML has no tree allocations. Allocating the class start node should
-  resolve this and give us a clean apples-to-apples baseline.
+Diff fixes the harness has surfaced and resolved:
+- Post-Act-10 -60 resist penalty for level >= 68
+- Path-validation: pob-engine only credits passive nodes reachable from class
+  start (matches PoB; previously it summed every entry in `character.allocated`)
+- CritMultiplier scale (decimal 1.5 ≡ 150%, not raw 150)
+- CritChance defaults to 0 with no main skill selected
+- Pool / hit-pool decomposition per damage type
+- `*TakenHitMult` / `BaseTakenHitMult` / `TakenDotMult` per element
+- ~50 game-constant outputs (max ailment magnitudes, charge defaults, totem
+  resists, missing-resist deltas, attribute aliases, leech caps)
+
+Open work:
+- XML→CharacterState bridge currently covers class + level + ascendancy +
+  allocated tree nodes. Items, skill gem selection, and Config inputs still
+  need plumbing through `import_pob_xml`.
+- EHP damage simulation: PoB's iterative damage-shaving solver produces
+  `totalTakenHit` / `totalEnemyDamage` / per-element `TakenHit`/`TakenDamage`
+  by simulating an enemy hit against the character's defences. The 20 missing
+  PoB-only outputs are all from this simulation.
 
 ### Tree rendering uses egui shapes, not wgpu — Phase 4a (open)
 
