@@ -67,9 +67,8 @@ gate. Easy fix: extend `Character::allocated` semantics to track a separate
 
 We compute `MainSkillDPS = final_avg × cps` after applying enemy element resist + hit
 chance, but do not model:
-- AoE / projectile / chain stat-derived mods (e.g. Arc's "more damage per remaining chain"
-  is in the skill data but the calc layer doesn't apply the `PerStat ChainRemaining` tag
-  yet — that requires a `ChainRemaining` value to live in `EvalState`).
+- AoE / projectile stat-derived mods (e.g. AoE radius rolloff, projectile shotgun
+  multiplier).
 - Enemy armour mitigation against physical hits.
 - Block / dodge / suppression on the *defender* side from the player's perspective.
 
@@ -157,11 +156,16 @@ Open work:
   Implementing the solver would close the last divergence but is unlikely to
   matter for users.
 - Per-skill chain damage scaling: Arc-style "+15% MORE damage per chain
-  remaining" mods are loaded as PerStat:ChainRemaining MORE multipliers but
-  applying them in the per-cast average overshoots, because PoB averages
-  across the chain count (hit 0 has full bonus, hit ChainMax has none). For
-  now we omit the scaling from the displayed AverageHit; full chain
-  iteration is a Phase 3e follow-up.
+  remaining" mods are loaded as `PerStat:ChainRemaining` MORE multipliers
+  with the correct full chain count (matching PoB's `output.ChainRemaining
+  = ChainMax - Chain`, default `Chain = 0`). However, the cfg used for the
+  hit-damage query lacks `KeywordFlag::Hit`, while these mods carry
+  `KeywordFlag::Hit | KeywordFlag::Ailment` — so the chain MORE is silently
+  filtered out of the per-cast average. The original "PoB averages across
+  chain count" framing was incorrect: PoB does not iterate. Restoring the
+  full bonus needs the cfg fix plus an investigation of why adding
+  `KeywordFlag::Hit` produces a 5× damage spike on the witch_l90_arc
+  baseline (likely another HIT-tagged mod becomes active simultaneously).
 
 Closed in this phase:
 - Items, skill gem selection (with multi-group socketing + supports), and

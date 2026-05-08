@@ -1271,14 +1271,11 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // scale by the skill's own per-level numbers (Arc has 7 chains at level 20, so
     // ChainRemaining = 7). PoB does this in CalcActiveSkill via its skillData table.
     //
-    // Special-case for `ChainRemaining`: PoB iterates over each chain hit
-    // separately. Mods like Arc's "+15% more damage per remaining chain" then
-    // apply differently to every hit (0..N remaining). We approximate the
-    // averaged per-cast damage by stashing the **average** remaining-chain
-    // count (N/2) into EvalState. The MORE evaluator multiplies by that
-    // average, which matches the arithmetic mean of the per-hit multipliers
-    // (sum_{r=0}^{N} 15·r / (N+1) = 15 · N/2). The display value (ChainMax)
-    // is filled in later from `chain_max_display`.
+    // PoB stores `output.ChainRemaining = max(0, ChainMax - Chain)` where `Chain`
+    // is the user's `skillChainCount` config (default 0) — see CalcOffence.lua.
+    // The default analysis is therefore the initial cast with the FULL chain
+    // bonus. We mirror that default here; a `skillChainCount` config override is
+    // a follow-up.
     let mut chain_max_display: Option<f64> = None;
     for (i, stat_id) in skill.stats.iter().enumerate() {
         // positional indices in our extractor are 1-based: positional[1] is the first.
@@ -1306,11 +1303,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 }
                 if eval_key == "ChainRemaining" {
                     chain_max_display = Some(value);
-                    // Average remaining over [0, N] is N/2.
-                    env.state.set_stat(eval_key, value / 2.0);
-                } else {
-                    env.state.set_stat(eval_key, value);
                 }
+                env.state.set_stat(eval_key, value);
             }
         }
     }
@@ -1471,11 +1465,6 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         "ChaosDamage" => KeywordFlag::CHAOS,
         _ => KeywordFlag::empty(),
     };
-    // Per-chain MOREs (tagged with PerStat:ChainRemaining, e.g. Arc's "+15%
-    // more damage per remaining chain") are now safe to apply because we
-    // stash the *average* remaining-chain count into EvalState — the MORE
-    // value evaluates to the arithmetic mean over all chain hits, which is
-    // what PoB ultimately reports as the per-cast average.
     cfg.skill_name = Some(&main.skill_id);
 
     // Damage modifiers: stack the elemental, generic damage, and skill-type damage mods.
@@ -1958,9 +1947,9 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     }
     // Chain count: PoB shows ChainMax (incl. quality bonus) and ChainRemaining
     // (which by default equals ChainMax — a fresh hit hasn't chained yet).
-    // The EvalState stat now carries the *average* remaining-chain count for
-    // the DPS calc (see the special case at the top of this function), so we
-    // pull the display value from `chain_max_display` instead.
+    // EvalState's ChainRemaining mirrors PoB's `output.ChainRemaining`
+    // (= ChainMax for the default initial-cast analysis). Surface the same
+    // value on the user-visible outputs.
     if let Some(chain_max) = chain_max_display {
         if chain_max > 0.0 {
             env.output.set("ChainMax", chain_max);
