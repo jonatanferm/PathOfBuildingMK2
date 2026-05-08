@@ -1469,6 +1469,119 @@ fn pob_xml_round_trip_full_character() {
     assert_eq!(restored.notes, "POB-format build");
 }
 
+// Issue #14: round-trip the full Config payload — every typed enemy
+// stat (resists, evasion, armour, block/dodge/suppress, projectile
+// shotgun count) must survive export → re-import. Each field uses PoB's
+// canonical Input name on the wire.
+#[test]
+fn pob_xml_round_trip_config_state() {
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.config.enemy_level = 84;
+    c.config.enemy_fire_resist = 30;
+    c.config.enemy_cold_resist = -10;
+    c.config.enemy_lightning_resist = 25;
+    c.config.enemy_chaos_resist = -25;
+    c.config.enemy_evasion = 1500;
+    c.config.enemy_armour = 36000;
+    c.config.enemy_block_chance = 50;
+    c.config.enemy_dodge_chance = 30;
+    c.config.enemy_suppression_chance = 50;
+    c.config.projectiles_hitting_target = 4;
+    c.config.conditions.insert("UsingFlask".to_owned(), true);
+    c.config.conditions.insert("EnemyMoving".to_owned(), false);
+    c.config.multipliers.insert("PowerCharge".to_owned(), 5.0);
+
+    let xml = pob_engine::export_pob_xml(&c);
+    let restored = pob_engine::import_pob_xml(&xml).expect("import xml");
+
+    // Every typed Config field round-trips bit-for-bit.
+    assert_eq!(restored.config.enemy_level, 84);
+    assert_eq!(restored.config.enemy_fire_resist, 30);
+    assert_eq!(restored.config.enemy_cold_resist, -10);
+    assert_eq!(restored.config.enemy_lightning_resist, 25);
+    assert_eq!(restored.config.enemy_chaos_resist, -25);
+    assert_eq!(restored.config.enemy_evasion, 1500);
+    assert_eq!(restored.config.enemy_armour, 36000);
+    assert_eq!(restored.config.enemy_block_chance, 50);
+    assert_eq!(restored.config.enemy_dodge_chance, 30);
+    assert_eq!(restored.config.enemy_suppression_chance, 50);
+    assert_eq!(restored.config.projectiles_hitting_target, 4);
+    assert_eq!(
+        restored.config.conditions.get("UsingFlask").copied(),
+        Some(true)
+    );
+    assert_eq!(
+        restored.config.conditions.get("EnemyMoving").copied(),
+        Some(false)
+    );
+    assert_eq!(
+        restored.config.multipliers.get("PowerCharge").copied(),
+        Some(5.0)
+    );
+}
+
+// Issue #14: round-trip a full Items + Skills payload. Items go through
+// the `<Item> + <ItemSet><Slot>` mapping; skill groups go through
+// `<Skill mainActiveSkill> <Gem skillId level quality enabled/>` blocks.
+#[test]
+fn pob_xml_round_trip_items_and_skills() {
+    let mut c = Character::new(ClassRef::witch(), 90);
+
+    let body = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nDoom Carapace\nFull Plate\n--------\n+50 to maximum Life\n--------",
+    )
+    .expect("parse body armour");
+    c.items.equip(pob_data::Slot::BodyArmour, body);
+    let amulet = parse_item(RARE_AMULET).expect("parse amulet");
+    c.items.equip(pob_data::Slot::Amulet, amulet);
+
+    c.skill_groups.push(pob_engine::character::SocketGroup {
+        label: "Main".to_owned(),
+        gems: vec![
+            MainSkill {
+                skill_id: "Arc".to_owned(),
+                level: 20,
+                quality: 23,
+                enabled: true,
+            },
+            MainSkill {
+                skill_id: "AddedLightningDamage".to_owned(),
+                level: 18,
+                quality: 0,
+                enabled: false,
+            },
+        ],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.main_socket_group = 1;
+
+    let xml = pob_engine::export_pob_xml(&c);
+    let restored = pob_engine::import_pob_xml(&xml).expect("import xml");
+
+    // Items survive the round-trip on both slots.
+    assert!(
+        restored.items.iter().any(|(s, _)| *s == pob_data::Slot::BodyArmour),
+        "BodyArmour slot should be populated after round-trip"
+    );
+    assert!(
+        restored.items.iter().any(|(s, _)| *s == pob_data::Slot::Amulet),
+        "Amulet slot should be populated after round-trip"
+    );
+
+    // Skill group + gem details land back on the restored character.
+    assert_eq!(restored.skill_groups.len(), 1);
+    let group = &restored.skill_groups[0];
+    assert_eq!(group.gems.len(), 2);
+    assert_eq!(group.gems[0].skill_id, "Arc");
+    assert_eq!(group.gems[0].level, 20);
+    assert_eq!(group.gems[0].quality, 23);
+    assert!(group.gems[0].enabled);
+    assert_eq!(group.gems[1].skill_id, "AddedLightningDamage");
+    assert_eq!(group.gems[1].level, 18);
+    assert!(!group.gems[1].enabled);
+}
+
 #[test]
 fn level_up_increases_life_and_mana() {
     let Some(tree) = load_3_25_tree() else {
