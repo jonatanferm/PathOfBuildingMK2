@@ -178,4 +178,41 @@ mod tests {
         assert_eq!(job.sections.len(), 1);
         assert_eq!(job.sections[0].format.color, Color32::RED);
     }
+
+    #[test]
+    fn pob_unique_item_name_renders_with_embedded_hex() {
+        // Upstream PoB stamps unique item names with `^xRRGGBB` to get
+        // the orange unique colour. The default fallback should never
+        // bleed through when the entire string is wrapped in an escape.
+        let job = to_layout_job("^xAF6025Headhunter", Color32::WHITE, FontId::default());
+        assert_eq!(job.text, "Headhunter");
+        assert_eq!(job.sections.len(), 1);
+        assert_eq!(
+            job.sections[0].format.color,
+            Color32::from_rgb(0xAF, 0x60, 0x25)
+        );
+    }
+
+    #[test]
+    fn gem_description_alternates_between_default_and_palette() {
+        // Skill descriptions look like "Deals ^9more^7 damage" — the
+        // default colour wraps the prose, the digit escape highlights
+        // the keyword. Three sections expected: default, orange, default.
+        let job = to_layout_job("Deals ^9more^7 damage", Color32::GRAY, FontId::default());
+        assert_eq!(job.text, "Deals more damage");
+        assert_eq!(job.sections.len(), 3);
+        assert_eq!(job.sections[0].format.color, Color32::GRAY);
+        assert_eq!(job.sections[1].format.color, PALETTE[9]);
+        assert_eq!(job.sections[2].format.color, PALETTE[7]);
+    }
+
+    #[test]
+    fn malformed_hex_escape_passes_through_as_literal() {
+        // `^xZZZZZZ` has the right shape but invalid hex — the parser
+        // should treat the whole sequence as ordinary text, not panic
+        // or eat 8 characters silently.
+        let job = to_layout_job("a^xZZZZZZb", Color32::WHITE, FontId::default());
+        assert_eq!(job.text, "a^xZZZZZZb");
+        assert_eq!(job.sections.len(), 1);
+    }
 }

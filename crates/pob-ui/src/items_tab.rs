@@ -4,6 +4,8 @@ use eframe::egui;
 use pob_data::{Item, ItemSet, Rarity, Slot};
 use pob_engine::{parse_item, Character};
 
+use crate::color_codes;
+
 pub struct ItemsTabState {
     /// Slot the user is currently editing (paste / clear / view).
     pub selected_slot: Option<Slot>,
@@ -276,7 +278,13 @@ fn rarity_glyph(r: Rarity) -> &'static str {
 }
 
 fn render_item_summary(ui: &mut egui::Ui, item: &Item) {
-    ui.label(egui::RichText::new(&item.name).strong());
+    let body_font = egui::TextStyle::Body.resolve(ui.style());
+    let strong_font = body_font.clone();
+    // Item name — render with PoB color escapes if present (e.g. unique
+    // names use `^xRRGGBB`); fall back to default text colour otherwise.
+    let name_default = ui.style().visuals.strong_text_color();
+    let name_job = color_codes::to_layout_job(&item.name, name_default, strong_font);
+    ui.label(name_job);
     ui.label(&item.base_name);
     ui.label(format!(
         "{:?} • iLvl {} • Q{}{}",
@@ -290,7 +298,7 @@ fn render_item_summary(ui: &mut egui::Ui, item: &Item) {
     }
     ui.add_space(4.0);
     for ml in &item.mod_lines {
-        let colour = match ml.section {
+        let section_default = match ml.section {
             pob_data::ModSection::Implicit => egui::Color32::from_rgb(200, 200, 255),
             pob_data::ModSection::Crafted => egui::Color32::from_rgb(180, 230, 255),
             pob_data::ModSection::Enchant => egui::Color32::from_rgb(180, 230, 180),
@@ -299,6 +307,10 @@ fn render_item_summary(ui: &mut egui::Ui, item: &Item) {
             pob_data::ModSection::Veiled => egui::Color32::from_rgb(180, 180, 180),
             pob_data::ModSection::Explicit => egui::Color32::from_rgb(220, 220, 100),
         };
-        ui.colored_label(colour, &ml.line);
+        // Inline `^N` / `^xRRGGBB` escapes in the mod line override the
+        // section colour for the runs they cover; sections without any
+        // escape render in the section's default colour as before.
+        let job = color_codes::to_layout_job(&ml.line, section_default, body_font.clone());
+        ui.label(job);
     }
 }
