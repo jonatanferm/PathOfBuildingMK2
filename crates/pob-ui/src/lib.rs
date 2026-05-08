@@ -480,15 +480,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             {
                 if app.current_build_path.is_some() {
                     if app.dirty_since.is_some() {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(0xFF, 0x99, 0x22),
-                            "● Modified",
-                        );
+                        ui.colored_label(egui::Color32::from_rgb(0xFF, 0x99, 0x22), "● Modified");
                     } else {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(0x33, 0xFF, 0x77),
-                            "✔ Saved",
-                        );
+                        ui.colored_label(egui::Color32::from_rgb(0x33, 0xFF, 0x77), "✔ Saved");
                     }
                 }
             }
@@ -1419,62 +1413,47 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                     if app.current_build_path.as_ref() == Some(&from) {
                         app.current_build_path = Some(to.clone());
                     }
-                    app.status_message = Some((
-                        StatusKind::Info,
-                        format!("Renamed to {}", to.display()),
-                    ));
+                    app.status_message =
+                        Some((StatusKind::Info, format!("Renamed to {}", to.display())));
                 }
                 Err(e) => {
-                    app.status_message =
-                        Some((StatusKind::Error, format!("Rename failed: {e}")));
+                    app.status_message = Some((StatusKind::Error, format!("Rename failed: {e}")));
                 }
             }
         }
-        builds_tab::BuildsAction::Duplicate { from, to } => {
-            match std::fs::copy(&from, &to) {
-                Ok(_) => {
-                    app.status_message = Some((
-                        StatusKind::Info,
-                        format!("Duplicated to {}", to.display()),
-                    ));
-                }
-                Err(e) => {
-                    app.status_message =
-                        Some((StatusKind::Error, format!("Duplicate failed: {e}")));
-                }
+        builds_tab::BuildsAction::Duplicate { from, to } => match std::fs::copy(&from, &to) {
+            Ok(_) => {
+                app.status_message =
+                    Some((StatusKind::Info, format!("Duplicated to {}", to.display())));
             }
-        }
-        builds_tab::BuildsAction::Delete(path) => {
-            match std::fs::remove_file(&path) {
-                Ok(()) => {
-                    if app.current_build_path.as_ref() == Some(&path) {
-                        app.current_build_path = None;
-                    }
-                    app.status_message =
-                        Some((StatusKind::Info, format!("Deleted {}", path.display())));
-                }
-                Err(e) => {
-                    app.status_message =
-                        Some((StatusKind::Error, format!("Delete failed: {e}")));
-                }
+            Err(e) => {
+                app.status_message = Some((StatusKind::Error, format!("Duplicate failed: {e}")));
             }
-        }
-        builds_tab::BuildsAction::CreateCategory(dir) => {
-            match std::fs::create_dir_all(&dir) {
-                Ok(()) => {
-                    app.status_message = Some((
-                        StatusKind::Info,
-                        format!("Created category {}", dir.display()),
-                    ));
+        },
+        builds_tab::BuildsAction::Delete(path) => match std::fs::remove_file(&path) {
+            Ok(()) => {
+                if app.current_build_path.as_ref() == Some(&path) {
+                    app.current_build_path = None;
                 }
-                Err(e) => {
-                    app.status_message = Some((
-                        StatusKind::Error,
-                        format!("Create category failed: {e}"),
-                    ));
-                }
+                app.status_message =
+                    Some((StatusKind::Info, format!("Deleted {}", path.display())));
             }
-        }
+            Err(e) => {
+                app.status_message = Some((StatusKind::Error, format!("Delete failed: {e}")));
+            }
+        },
+        builds_tab::BuildsAction::CreateCategory(dir) => match std::fs::create_dir_all(&dir) {
+            Ok(()) => {
+                app.status_message = Some((
+                    StatusKind::Info,
+                    format!("Created category {}", dir.display()),
+                ));
+            }
+            Err(e) => {
+                app.status_message =
+                    Some((StatusKind::Error, format!("Create category failed: {e}")));
+            }
+        },
     }
 }
 

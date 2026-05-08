@@ -215,9 +215,8 @@ pub fn init_env_with_bases(
     // unset so a build without warcries doesn't carry stale state.
     if let Some(power) = character.config.warcry_power {
         let power_f = f64::from(power);
-        env.mod_db.add(
-            Mod::base("WarcryPower", power_f).with_source(Source::Other("Config".into())),
-        );
+        env.mod_db
+            .add(Mod::base("WarcryPower", power_f).with_source(Source::Other("Config".into())));
         env.mod_db.add(
             Mod::base("Multiplier:WarcryPower", power_f)
                 .with_source(Source::Other("Config".into())),
@@ -425,11 +424,7 @@ pub fn init_env_with_bases(
 /// Each mod is re-sourced as `Source::Other("Party:<member>:<skill>")`
 /// so the Calcs-tab breakdown can attribute it back to the teammate.
 /// Disabled members and disabled gems contribute nothing.
-fn apply_party_extracted_auras(
-    character: &Character,
-    skills: &SkillRegistry,
-    env: &mut Env,
-) {
+fn apply_party_extracted_auras(character: &Character, skills: &SkillRegistry, env: &mut Env) {
     for member in &character.party_members {
         if !member.enabled {
             continue;
@@ -2639,9 +2634,7 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
             .sum(ModType::Inc, &cfg, &env.state, "MineLayingSpeed")
             / 100.0;
         let speed_more = env.mod_db.more(&cfg, &env.state, "MineLayingSpeed");
-        let time_more = env
-            .mod_db
-            .more(&cfg, &env.state, "SkillMineThrowingTime");
+        let time_more = env.mod_db.more(&cfg, &env.state, "SkillMineThrowingTime");
         // time_more divides into the throw rate (MORE on time = LESS on speed).
         let mut laying_speed = (1.0 / base) * (1.0 + speed_inc) * speed_more / time_more.max(0.001);
         // Issue #84 (slice 2): multi-throw penalty. Mirrors
@@ -2659,7 +2652,8 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
         }
         laying_speed = laying_speed.min(60.0);
         env.output.set("MineLayingSpeed", laying_speed);
-        env.output.set("MineLayingTime", 1.0 / laying_speed.max(0.001));
+        env.output
+            .set("MineLayingTime", 1.0 / laying_speed.max(0.001));
         cps = laying_speed;
     } else if is_trap_skill {
         // Same shape as mines but using `TrapThrowingTime` (default 0.6s)
@@ -2674,9 +2668,7 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
             .sum(ModType::Inc, &cfg, &env.state, "TrapThrowingSpeed")
             / 100.0;
         let speed_more = env.mod_db.more(&cfg, &env.state, "TrapThrowingSpeed");
-        let time_more = env
-            .mod_db
-            .more(&cfg, &env.state, "SkillTrapThrowingTime");
+        let time_more = env.mod_db.more(&cfg, &env.state, "SkillTrapThrowingTime");
         let mut throwing_speed =
             (1.0 / base) * (1.0 + speed_inc) * speed_more / time_more.max(0.001);
         throwing_speed = throwing_speed.min(60.0);
@@ -2888,10 +2880,12 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
                     .sum(ModType::Base, &cfg, &env.state, "RuthlessBlowHitMultiplier")
                     / 100.0;
             let ail_mult = 1.0
-                + env
-                    .mod_db
-                    .sum(ModType::Base, &cfg, &env.state, "RuthlessBlowAilmentMultiplier")
-                    / 100.0;
+                + env.mod_db.sum(
+                    ModType::Base,
+                    &cfg,
+                    &env.state,
+                    "RuthlessBlowAilmentMultiplier",
+                ) / 100.0;
             let hit_eff = (1.0 - chance) + chance * hit_mult;
             let ail_eff = (1.0 - chance) + chance * ail_mult;
             env.output.set("RuthlessBlowChance", chance * 100.0);
@@ -2914,16 +2908,17 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
             .mod_db
             .sum(ModType::Base, &cfg, &env.state, "FistOfWarCooldown");
         if cooldown > 0.0 && cps > 0.0 {
-            let damage_mult = env
-                .mod_db
-                .sum(ModType::Base, &cfg, &env.state, "FistOfWarDamageMultiplier")
-                / 100.0;
+            let damage_mult =
+                env.mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "FistOfWarDamageMultiplier")
+                    / 100.0;
             let uptime = ((1.0 / cps) / cooldown).min(1.0);
             let avg_effect = 1.0 + damage_mult * uptime;
             env.output.set("FistOfWarUptimeRatio", uptime * 100.0);
             env.output.set("FistOfWarDamageMultiplier", damage_mult);
             env.output.set("AvgFistOfWarDamageEffect", avg_effect);
-            env.output.set("MaxFistOfWarDamageEffect", 1.0 + damage_mult);
+            env.output
+                .set("MaxFistOfWarDamageEffect", 1.0 + damage_mult);
             avg_effect
         } else {
             1.0

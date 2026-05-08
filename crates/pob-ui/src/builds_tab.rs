@@ -161,8 +161,7 @@ fn rescan(dir: &Path) -> Vec<BuildEntry> {
                 let Some(category) = category else { continue };
                 if let Ok(child) = std::fs::read_dir(&path) {
                     for f in child.filter_map(|e| e.ok()) {
-                        if let Some(be) = build_entry_from_path(f.path(), Some(category.clone()))
-                        {
+                        if let Some(be) = build_entry_from_path(f.path(), Some(category.clone())) {
                             out.push(be);
                         }
                     }
@@ -181,9 +180,7 @@ fn rescan(dir: &Path) -> Vec<BuildEntry> {
         let by_cat = match (a.category.is_some(), b.category.is_some()) {
             (false, true) => std::cmp::Ordering::Less,
             (true, false) => std::cmp::Ordering::Greater,
-            _ => ca
-                .to_ascii_lowercase()
-                .cmp(&cb.to_ascii_lowercase()),
+            _ => ca.to_ascii_lowercase().cmp(&cb.to_ascii_lowercase()),
         };
         by_cat.then_with(|| {
             a.label
@@ -333,139 +330,131 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
             .show(ui, |ui| {
                 for (cat, indices) in &groups {
                     let header = cat.as_deref().unwrap_or("Uncategorised");
-                    egui::CollapsingHeader::new(format!(
-                        "{header}  ({n})",
-                        n = indices.len()
-                    ))
-                    .default_open(true)
-                    .id_salt(format!("builds_cat_{header}"))
-                    .show(ui, |ui| {
-                        for &i in indices {
-                            let entry = &entries_clone[i];
-                            // Issue #100 (slice 3): per-row controls.
-                            // Either an inline rename TextEdit or the
-                            // standard click-to-load label, plus
-                            // duplicate / delete buttons.
-                            ui.horizontal(|ui| {
-                                let renaming_this = state
-                                    .pending_rename
-                                    .as_ref()
-                                    .map(|(p, _)| p == &entry.path)
-                                    .unwrap_or(false);
-                                if renaming_this {
-                                    let buf = state
+                    egui::CollapsingHeader::new(format!("{header}  ({n})", n = indices.len()))
+                        .default_open(true)
+                        .id_salt(format!("builds_cat_{header}"))
+                        .show(ui, |ui| {
+                            for &i in indices {
+                                let entry = &entries_clone[i];
+                                // Issue #100 (slice 3): per-row controls.
+                                // Either an inline rename TextEdit or the
+                                // standard click-to-load label, plus
+                                // duplicate / delete buttons.
+                                ui.horizontal(|ui| {
+                                    let renaming_this = state
                                         .pending_rename
-                                        .as_mut()
-                                        .map(|(_, s)| s)
-                                        .expect("just checked Some");
-                                    let resp = ui.add(
-                                        egui::TextEdit::singleline(buf)
-                                            .desired_width(180.0)
-                                            .font(egui::TextStyle::Monospace),
-                                    );
-                                    let confirm =
-                                        ui.button("OK").on_hover_text("Apply rename").clicked()
+                                        .as_ref()
+                                        .map(|(p, _)| p == &entry.path)
+                                        .unwrap_or(false);
+                                    if renaming_this {
+                                        let buf = state
+                                            .pending_rename
+                                            .as_mut()
+                                            .map(|(_, s)| s)
+                                            .expect("just checked Some");
+                                        let resp = ui.add(
+                                            egui::TextEdit::singleline(buf)
+                                                .desired_width(180.0)
+                                                .font(egui::TextStyle::Monospace),
+                                        );
+                                        let confirm = ui
+                                            .button("OK")
+                                            .on_hover_text("Apply rename")
+                                            .clicked()
                                             || (resp.lost_focus()
                                                 && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-                                    let cancel = ui
-                                        .button("✕")
-                                        .on_hover_text("Cancel rename")
-                                        .clicked();
-                                    if confirm {
-                                        let new_name = buf.trim().to_owned();
-                                        if !new_name.is_empty() && new_name != entry.label {
-                                            let mut to = entry
-                                                .path
-                                                .parent()
-                                                .map(Path::to_path_buf)
-                                                .unwrap_or_else(|| dir.clone());
-                                            to.push(format!("{new_name}.{ext}", ext = entry.ext));
-                                            action = Some(BuildsAction::Rename {
-                                                from: entry.path.clone(),
-                                                to,
-                                            });
-                                            state.loaded = false;
-                                        }
-                                        state.pending_rename = None;
-                                    } else if cancel {
-                                        state.pending_rename = None;
-                                    }
-                                } else if ui
-                                    .add(
-                                        egui::Label::new(
-                                            egui::RichText::new(&entry.label).monospace(),
-                                        )
-                                        .sense(egui::Sense::click()),
-                                    )
-                                    .on_hover_text("Click to load")
-                                    .clicked()
-                                {
-                                    action = Some(BuildsAction::LoadFile(entry.path.clone()));
-                                }
-
-                                ui.weak(format!(".{}", entry.ext));
-
-                                if !renaming_this {
-                                    if ui
-                                        .small_button("✎")
-                                        .on_hover_text("Rename")
-                                        .clicked()
-                                    {
-                                        state.pending_rename =
-                                            Some((entry.path.clone(), entry.label.clone()));
-                                        state.pending_delete = None;
-                                    }
-                                    if ui
-                                        .small_button("⎘")
-                                        .on_hover_text("Duplicate")
-                                        .clicked()
-                                    {
-                                        if let Some(to) = duplicate_target(entry) {
-                                            action = Some(BuildsAction::Duplicate {
-                                                from: entry.path.clone(),
-                                                to,
-                                            });
-                                            state.loaded = false;
-                                        }
-                                    }
-                                    let pending = state
-                                        .pending_delete
-                                        .as_ref()
-                                        .map(|p| p == &entry.path)
-                                        .unwrap_or(false);
-                                    if pending {
-                                        if ui
-                                            .add(
-                                                egui::Button::new(
-                                                    egui::RichText::new("Confirm?").color(
-                                                        egui::Color32::from_rgb(
-                                                            0xDD, 0x00, 0x22,
-                                                        ),
-                                                    ),
-                                                )
-                                                .small(),
-                                            )
-                                            .on_hover_text(
-                                                "Click again to permanently delete",
-                                            )
-                                            .clicked()
-                                        {
-                                            action =
-                                                Some(BuildsAction::Delete(entry.path.clone()));
-                                            state.pending_delete = None;
-                                            state.loaded = false;
+                                        let cancel =
+                                            ui.button("✕").on_hover_text("Cancel rename").clicked();
+                                        if confirm {
+                                            let new_name = buf.trim().to_owned();
+                                            if !new_name.is_empty() && new_name != entry.label {
+                                                let mut to = entry
+                                                    .path
+                                                    .parent()
+                                                    .map(Path::to_path_buf)
+                                                    .unwrap_or_else(|| dir.clone());
+                                                to.push(format!(
+                                                    "{new_name}.{ext}",
+                                                    ext = entry.ext
+                                                ));
+                                                action = Some(BuildsAction::Rename {
+                                                    from: entry.path.clone(),
+                                                    to,
+                                                });
+                                                state.loaded = false;
+                                            }
+                                            state.pending_rename = None;
+                                        } else if cancel {
+                                            state.pending_rename = None;
                                         }
                                     } else if ui
-                                        .small_button("🗑")
-                                        .on_hover_text("Delete (click again to confirm)")
+                                        .add(
+                                            egui::Label::new(
+                                                egui::RichText::new(&entry.label).monospace(),
+                                            )
+                                            .sense(egui::Sense::click()),
+                                        )
+                                        .on_hover_text("Click to load")
                                         .clicked()
                                     {
-                                        state.pending_delete = Some(entry.path.clone());
+                                        action = Some(BuildsAction::LoadFile(entry.path.clone()));
                                     }
-                                }
-                            });
-                        }
-                    });
+
+                                    ui.weak(format!(".{}", entry.ext));
+
+                                    if !renaming_this {
+                                        if ui.small_button("✎").on_hover_text("Rename").clicked()
+                                        {
+                                            state.pending_rename =
+                                                Some((entry.path.clone(), entry.label.clone()));
+                                            state.pending_delete = None;
+                                        }
+                                        if ui.small_button("⎘").on_hover_text("Duplicate").clicked()
+                                        {
+                                            if let Some(to) = duplicate_target(entry) {
+                                                action = Some(BuildsAction::Duplicate {
+                                                    from: entry.path.clone(),
+                                                    to,
+                                                });
+                                                state.loaded = false;
+                                            }
+                                        }
+                                        let pending = state
+                                            .pending_delete
+                                            .as_ref()
+                                            .map(|p| p == &entry.path)
+                                            .unwrap_or(false);
+                                        if pending {
+                                            if ui
+                                                .add(
+                                                    egui::Button::new(
+                                                        egui::RichText::new("Confirm?").color(
+                                                            egui::Color32::from_rgb(
+                                                                0xDD, 0x00, 0x22,
+                                                            ),
+                                                        ),
+                                                    )
+                                                    .small(),
+                                                )
+                                                .on_hover_text("Click again to permanently delete")
+                                                .clicked()
+                                            {
+                                                action =
+                                                    Some(BuildsAction::Delete(entry.path.clone()));
+                                                state.pending_delete = None;
+                                                state.loaded = false;
+                                            }
+                                        } else if ui
+                                            .small_button("🗑")
+                                            .on_hover_text("Delete (click again to confirm)")
+                                            .clicked()
+                                        {
+                                            state.pending_delete = Some(entry.path.clone());
+                                        }
+                                    }
+                                });
+                            }
+                        });
                 }
             });
     }
@@ -548,10 +537,8 @@ mod tests {
     // dirs (starting with `.`) and nested-deeper files don't show.
     #[test]
     fn rescan_walks_one_level_of_subdirs_into_categories() {
-        let dir = std::env::temp_dir().join(format!(
-            "pob-ui-builds-categories-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("pob-ui-builds-categories-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -571,8 +558,7 @@ mod tests {
         std::fs::write(dir.join("Bossing/sub/deep.mk2"), "").unwrap();
 
         let entries = rescan(&dir);
-        let categories: Vec<Option<&str>> =
-            entries.iter().map(|e| e.category.as_deref()).collect();
+        let categories: Vec<Option<&str>> = entries.iter().map(|e| e.category.as_deref()).collect();
         let labels: Vec<&str> = entries.iter().map(|e| e.label.as_str()).collect();
 
         assert_eq!(
@@ -605,10 +591,7 @@ mod tests {
     // that one's taken.
     #[test]
     fn duplicate_target_picks_unused_copy_name() {
-        let dir = std::env::temp_dir().join(format!(
-            "pob-ui-builds-dup-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("pob-ui-builds-dup-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
