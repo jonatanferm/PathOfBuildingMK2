@@ -5,7 +5,7 @@
   <Items/>
   <Skills sortGemsByDPSField="CombinedDPS" sortGemsByDPS="true" defaultGemQuality="0" defaultGemLevel="normalMaximum" showSupportGemTypes="ALL" showAltQualityGems="false"/>
   <Tree activeSpec="1">
-    <Spec title="Default" classId="3" ascendClassId="0" treeVersion="3_25" masteryEffects="" nodes="59530,55156,57264,2151,4180,30880,3936">
+    <Spec title="Default" classId="3" ascendClassId="0" treeVersion="3_28" masteryEffects="" nodes="">
       <Sockets/>
     </Spec>
   </Tree>

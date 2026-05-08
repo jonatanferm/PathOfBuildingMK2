@@ -312,8 +312,14 @@ fn fill_static_defaults(env: &mut Env) {
     env.output.set("WeaponRange", 8.0);
     env.output.set("WarcryPower", 20.0);
     env.output.set("EnemyCritChance", 5.0);
-    env.output.set("AccuracyHitChance", 22.0);
-    env.output.set("HitChance", 22.0);
+    // Hit chance: spells always hit (100%); attacks roll vs accuracy. Only set
+    // a default of 0 if the skill DPS pass hasn't already populated this — the
+    // ordering is perform_basic_stats → perform_skill_dps → perform_ehp, so
+    // by the time perform_ehp runs HitChance may already be set.
+    if env.output.try_get("HitChance").is_none() {
+        env.output.set("AccuracyHitChance", 0.0);
+        env.output.set("HitChance", 0.0);
+    }
     env.output.set("MeleeEvasion", env.output.get("Evasion"));
     env.output.set("ProjectileEvasion", env.output.get("Evasion"));
     env.output.set("SpellSuppressionEffect", 40.0);
@@ -426,7 +432,8 @@ fn fill_static_defaults(env: &mut Env) {
     env.output.set("WeaponRangeMetre", 0.8);
     env.output.set("enemySkillTime", 0.7);
     env.output.set("ImpaleDuration", 8.02);
-    env.output.set("impaleStoredHitAvg", 3.5);
+    // impaleStoredHitAvg is a per-skill accumulator that PoB writes only when
+    // a main skill is bound. Leaving it unset keeps parity in the no-skill case.
 }
 
 /// PoB's `data.monsterDamageTable` — expected damage per monster level for the
@@ -728,7 +735,13 @@ pub fn perform_basic_stats(character: &Character, tree: &PassiveTree, env: &mut 
     // With a skill we mirror PoB's full computation: crit chance scales with INC,
     // CritMultiplier picks up BASE additions on top of the 150% baseline.
     let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
-    let crit_chance_base = if character.main_skill.is_some() { 5.0 } else { 0.0 };
+    let crit_chance_base = if let Some(ms) = character.main_skill.as_ref() {
+        // Gem quality grants +1% crit chance per 4 quality on Arc-style spells
+        // (PoB rounds to integer percent when displaying). Phase 2: linear scale.
+        5.0 + f64::from(ms.quality) * 0.05
+    } else {
+        0.0
+    };
     env.output.set("CritChance", crit_chance_base * (1.0 + crit_inc / 100.0));
     // PoE base crit deals 150% damage; PoB exposes that as the decimal multiplier
     // 1.5 (= 150 / 100). BASE mods on `CritMultiplier` add extra crit damage as
@@ -1139,12 +1152,18 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // Roll hit chance into the DPS at the end.
         let dps_now = env.output.get("MainSkillAverageHitAfterResist");
         env.output.set("MainSkillAverageHitAfterAccuracy", dps_now * chance);
+        // PoB also sets the character-level HitChance / AccuracyHitChance to
+        // the main skill's hit chance when one is bound.
+        env.output.set("HitChance", chance * 100.0);
+        env.output.set("AccuracyHitChance", chance * 100.0);
     } else {
         env.output.set("MainSkillHitChance", 100.0);
         env.output.set(
             "MainSkillAverageHitAfterAccuracy",
             env.output.get("MainSkillAverageHitAfterResist"),
         );
+        env.output.set("HitChance", 100.0);
+        env.output.set("AccuracyHitChance", 100.0);
     }
 
     // Cast/attack speed: PoB normalises against skill baseline.

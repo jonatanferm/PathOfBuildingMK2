@@ -285,7 +285,9 @@ fn diff_against_pob_engine(
     let allocated = character.allocated.len();
 
     let tree = load_default_tree().context("load 3_28 tree fixture for diff")?;
-    let output = pob_engine::perform::compute_with_skills(&character, &tree, None);
+    let skills = load_skill_registry();
+    let output =
+        pob_engine::perform::compute_with_skills(&character, &tree, skills.as_ref());
 
     println!(
         "\n=== diff: pob-engine vs PoB (class={class}, level={level}, allocated={allocated}) ==="
@@ -438,6 +440,31 @@ fn diff_against_pob_engine(
     println!("config inputs are still empty (the upstream XML encodes them as nested");
     println!("elements that need full document traversal — Phase 5 follow-up).");
     Ok(())
+}
+
+fn load_skill_registry() -> Option<pob_engine::SkillRegistry> {
+    let dir = format!("{}/../../data/skills", env!("CARGO_MANIFEST_DIR"));
+    let entries = std::fs::read_dir(&dir).ok()?;
+    let mut sets = Vec::new();
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        if p.file_stem().and_then(|s| s.to_str()) == Some("index") {
+            continue;
+        }
+        if let Ok(json) = std::fs::read_to_string(&p) {
+            if let Ok(set) = pob_data::load_skill_file(&json) {
+                sets.push(set);
+            }
+        }
+    }
+    if sets.is_empty() {
+        None
+    } else {
+        Some(pob_engine::SkillRegistry::from_files(sets))
+    }
 }
 
 fn load_default_tree() -> Result<pob_data::PassiveTree> {

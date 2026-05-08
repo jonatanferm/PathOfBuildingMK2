@@ -20,7 +20,9 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 use crate::character::{Character, ClassRef};
-use pob_data::NodeId;
+use crate::item_parser::parse_item;
+use crate::skill::MainSkill;
+use pob_data::{NodeId, Slot};
 
 #[derive(Debug)]
 pub enum PobImportError {
@@ -88,6 +90,26 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
     let mut notes_collect = String::new();
     let mut in_notes = false;
 
+    // Items / skills / config require multi-element traversal. We collect raw
+    // bodies + attributes here and reconcile after the parse loop finishes.
+    // Items: id → ItemSpec (raw paste body + variant info)
+    let mut items_by_id: std::collections::HashMap<u32, ItemSpec> =
+        std::collections::HashMap::new();
+    let mut current_item_id: Option<u32> = None;
+    let mut current_item_body = String::new();
+    // ItemSet → slot bindings
+    let mut equipped_first_set: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
+    let mut active_item_set_id: Option<u32> = None;
+    let mut item_set_capture_id: Option<u32> = None;
+    // Skills: capture all skill groups; track which has mainActiveSkill.
+    let mut skill_groups: Vec<SkillGroup> = Vec::new();
+    let mut current_skill_group: Option<SkillGroup> = None;
+    let mut main_socket_group: Option<u32> = None;
+    let mut socket_group_index: u32 = 0;
+    // Config: name/value pairs.
+    let mut in_config = false;
+
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Eof) => break,
@@ -101,10 +123,47 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                     &mut active_spec_class,
                     &mut active_spec_ascend,
                     &mut found_root,
+                    &mut main_socket_group,
+                    &mut active_item_set_id,
                 )?;
-                if name == "Notes" {
-                    in_notes = true;
-                    notes_collect.clear();
+                match name.as_str() {
+                    "Notes" => {
+                        in_notes = true;
+                        notes_collect.clear();
+                    }
+                    "Item" => {
+                        // <Item id="N" variant="...">raw text</Item>
+                        let id = attr_str(&e, "id").and_then(|s| s.parse::<u32>().ok());
+                        if let Some(id) = id {
+                            current_item_id = Some(id);
+                            current_item_body.clear();
+                        }
+                    }
+                    "Skill" => {
+                        // <Skill mainActiveSkill="1" enabled="true" ...>
+                        socket_group_index += 1;
+                        let main_idx = attr_str(&e, "mainActiveSkill")
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+                        let enabled = attr_str(&e, "enabled")
+                            .map(|s| s != "false")
+                            .unwrap_or(true);
+                        current_skill_group = Some(SkillGroup {
+                            index: socket_group_index,
+                            main_active_skill_index: main_idx,
+                            enabled,
+                            gems: Vec::new(),
+                        });
+                    }
+                    "ItemSet" => {
+                        // First ItemSet wins for our minimal one-set model.
+                        let id = attr_str(&e, "id").and_then(|s| s.parse::<u32>().ok());
+                        if item_set_capture_id.is_none() {
+                            item_set_capture_id = id.or(Some(1));
+                        }
+                    }
+                    "Config" => in_config = true,
+                    _ => {}
                 }
                 depth_stack.push(name);
             }
@@ -118,13 +177,87 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                     &mut active_spec_class,
                     &mut active_spec_ascend,
                     &mut found_root,
+                    &mut main_socket_group,
+                    &mut active_item_set_id,
                 )?;
+                match name.as_str() {
+                    "Slot" => {
+                        // ItemSet → Slot mapping. PoB sometimes nests Slot inside
+                        // ItemSet, sometimes directly inside Items (legacy). Either
+                        // way we capture only the first set we see.
+                        if equipped_first_set.is_empty() || item_set_capture_id.is_some() {
+                            let slot_name = attr_str(&e, "name").unwrap_or_default();
+                            let item_id = attr_str(&e, "itemId")
+                                .and_then(|s| s.parse::<u32>().ok());
+                            if let (false, Some(id)) = (slot_name.is_empty(), item_id) {
+                                if id > 0 {
+                                    equipped_first_set.insert(slot_name, id);
+                                }
+                            }
+                        }
+                    }
+                    "Gem" => {
+                        if let Some(group) = current_skill_group.as_mut() {
+                            group.gems.push(GemSpec {
+                                skill_id: attr_str(&e, "skillId").unwrap_or_default(),
+                                level: attr_str(&e, "level")
+                                    .and_then(|s| s.parse::<u32>().ok())
+                                    .unwrap_or(20),
+                                quality: attr_str(&e, "quality")
+                                    .and_then(|s| s.parse::<u32>().ok())
+                                    .unwrap_or(0),
+                                enabled: attr_str(&e, "enabled")
+                                    .map(|s| s != "false")
+                                    .unwrap_or(true),
+                            });
+                        }
+                    }
+                    "Input" if in_config => {
+                        // <Input name="..." string="..."/> or boolean="true" or number="N"
+                        let name = attr_str(&e, "name").unwrap_or_default();
+                        if name.is_empty() {
+                            continue;
+                        }
+                        if let Some(s) = attr_str(&e, "string") {
+                            apply_config_string(&mut character, &name, &s);
+                        } else if let Some(b) = attr_str(&e, "boolean") {
+                            character.config.conditions.insert(name, b == "true");
+                        } else if let Some(n) = attr_str(&e, "number") {
+                            if let Ok(num) = n.parse::<f64>() {
+                                apply_config_number(&mut character, &name, num);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
             Ok(Event::End(e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
-                if name == "Notes" {
-                    in_notes = false;
-                    character.notes = std::mem::take(&mut notes_collect);
+                match name.as_str() {
+                    "Notes" => {
+                        in_notes = false;
+                        character.notes = std::mem::take(&mut notes_collect);
+                    }
+                    "Item" => {
+                        if let Some(id) = current_item_id.take() {
+                            items_by_id.insert(
+                                id,
+                                ItemSpec {
+                                    raw: std::mem::take(&mut current_item_body),
+                                },
+                            );
+                        }
+                    }
+                    "Skill" => {
+                        if let Some(g) = current_skill_group.take() {
+                            skill_groups.push(g);
+                        }
+                    }
+                    "ItemSet" => {
+                        item_set_capture_id = None;
+                    }
+                    "Config" => in_config = false,
+                    _ => {}
                 }
                 depth_stack.pop();
             }
@@ -133,11 +266,23 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                     if let Ok(s) = t.unescape() {
                         notes_collect.push_str(&s);
                     }
+                } else if current_item_id.is_some() {
+                    if let Ok(s) = t.unescape() {
+                        if !current_item_body.is_empty() {
+                            current_item_body.push('\n');
+                        }
+                        current_item_body.push_str(&s);
+                    }
                 }
             }
             Ok(Event::CData(t)) => {
                 if in_notes {
                     notes_collect.push_str(&String::from_utf8_lossy(&t));
+                } else if current_item_id.is_some() {
+                    if !current_item_body.is_empty() {
+                        current_item_body.push('\n');
+                    }
+                    current_item_body.push_str(&String::from_utf8_lossy(&t));
                 }
             }
             Err(e) => return Err(PobImportError::Xml(e.to_string())),
@@ -167,7 +312,143 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
         character.ascendancy = Some(a);
     }
 
+    // Equip items based on the first ItemSet's slot bindings. Parse failures are
+    // swallowed silently — exotic items the parser doesn't handle yet shouldn't
+    // block the rest of the import.
+    for (slot_name, item_id) in &equipped_first_set {
+        let Some(slot) = pob_slot_from_name(slot_name) else {
+            continue;
+        };
+        let Some(spec) = items_by_id.get(item_id) else {
+            continue;
+        };
+        if let Ok(item) = parse_item(spec.raw.trim()) {
+            character.items.equip(slot, item);
+        }
+    }
+
+    // Pick the main skill: prefer the explicit mainActiveSkill within
+    // mainSocketGroup, otherwise fall back to the first enabled gem in the
+    // first enabled group.
+    let main_group = main_socket_group
+        .and_then(|idx| skill_groups.iter().find(|g| g.index == idx))
+        .or_else(|| skill_groups.iter().find(|g| g.enabled && !g.gems.is_empty()));
+    if let Some(group) = main_group {
+        let gem_idx = if group.main_active_skill_index >= 1 {
+            (group.main_active_skill_index as usize).saturating_sub(1)
+        } else {
+            0
+        };
+        let gem = group.gems.get(gem_idx).or_else(|| group.gems.first());
+        if let Some(gem) = gem {
+            if !gem.skill_id.is_empty() {
+                let mut ms = MainSkill::new(gem.skill_id.clone());
+                ms.level = gem.level.clamp(1, 40);
+                ms.quality = gem.quality.min(100);
+                character.main_skill = Some(ms);
+            }
+        }
+    }
+
     Ok(character)
+}
+
+#[derive(Debug)]
+struct ItemSpec {
+    raw: String,
+}
+
+#[derive(Debug)]
+struct SkillGroup {
+    index: u32,
+    main_active_skill_index: u32,
+    enabled: bool,
+    gems: Vec<GemSpec>,
+}
+
+#[derive(Debug)]
+struct GemSpec {
+    skill_id: String,
+    level: u32,
+    quality: u32,
+    enabled: bool,
+}
+
+fn attr_str(e: &quick_xml::events::BytesStart<'_>, key: &str) -> Option<String> {
+    for attr in e.attributes().with_checks(false).flatten() {
+        let k = String::from_utf8_lossy(attr.key.as_ref()).into_owned();
+        if k == key {
+            if let Ok(v) = attr.unescape_value() {
+                return Some(v.into_owned());
+            }
+        }
+    }
+    None
+}
+
+fn pob_slot_from_name(name: &str) -> Option<Slot> {
+    // PoB slot names: "Helmet", "Body Armour", "Gloves", "Boots", "Amulet",
+    // "Ring 1", "Ring 2", "Belt", "Weapon 1", "Weapon 2", "Flask 1".."Flask 5".
+    Some(match name {
+        "Helmet" | "Helm" => Slot::Helmet,
+        "Body Armour" | "BodyArmour" => Slot::BodyArmour,
+        "Gloves" => Slot::Gloves,
+        "Boots" => Slot::Boots,
+        "Amulet" => Slot::Amulet,
+        "Ring 1" | "Ring1" => Slot::Ring1,
+        "Ring 2" | "Ring2" => Slot::Ring2,
+        "Belt" => Slot::Belt,
+        "Weapon 1" | "Weapon1" | "Weapon" => Slot::Weapon1,
+        "Weapon 2" | "Weapon2" | "Off-hand" => Slot::Weapon2,
+        "Flask 1" | "Flask1" => Slot::Flask1,
+        "Flask 2" | "Flask2" => Slot::Flask2,
+        "Flask 3" | "Flask3" => Slot::Flask3,
+        "Flask 4" | "Flask4" => Slot::Flask4,
+        "Flask 5" | "Flask5" => Slot::Flask5,
+        _ => return None,
+    })
+}
+
+fn apply_config_string(c: &mut Character, name: &str, value: &str) {
+    // Common Config Input string keys map to ConfigState booleans / multipliers.
+    // Anything we don't recognise is preserved as a condition flag (presence-only).
+    match name {
+        "enemyIsBoss" => {
+            // "None" / "Boss" / "Pinnacle" / "Uber" — we don't model the variants
+            // yet but a non-None value flips a condition.
+            c.config
+                .conditions
+                .insert("EnemyIsBoss".to_owned(), value != "None");
+        }
+        _ => {
+            // Generic catch-all so per-skill string toggles persist as conditions.
+            c.config
+                .conditions
+                .insert(format!("Cfg:{name}"), !value.is_empty() && value != "None");
+        }
+    }
+}
+
+fn apply_config_number(c: &mut Character, name: &str, value: f64) {
+    match name {
+        "enemyLevel" => c.config.enemy_level = value as u32,
+        "enemyFireResist" => c.config.enemy_fire_resist = value as i32,
+        "enemyColdResist" => c.config.enemy_cold_resist = value as i32,
+        "enemyLightningResist" => c.config.enemy_lightning_resist = value as i32,
+        "enemyChaosResist" => c.config.enemy_chaos_resist = value as i32,
+        "powerCharges" => {
+            c.config.multipliers.insert("PowerCharge".into(), value);
+        }
+        "frenzyCharges" => {
+            c.config.multipliers.insert("FrenzyCharge".into(), value);
+        }
+        "enduranceCharges" => {
+            c.config.multipliers.insert("EnduranceCharge".into(), value);
+        }
+        _ => {
+            c.config.multipliers.insert(format!("Cfg:{name}"), value);
+        }
+    }
 }
 
 fn is_numeric(s: &str) -> bool {
@@ -182,6 +463,8 @@ fn handle_start_attrs(
     active_spec_class: &mut Option<String>,
     active_spec_ascend: &mut Option<String>,
     found_root: &mut bool,
+    main_socket_group: &mut Option<u32>,
+    _active_item_set_id: &mut Option<u32>,
 ) -> Result<(), PobImportError> {
     match name {
         "PathOfBuilding" => {
@@ -208,6 +491,11 @@ fn handle_start_attrs(
                     "ascendClassName" => {
                         if !val.is_empty() && val != "None" {
                             character.ascendancy = Some(val);
+                        }
+                    }
+                    "mainSocketGroup" => {
+                        if let Ok(n) = val.parse::<u32>() {
+                            *main_socket_group = Some(n);
                         }
                     }
                     _ => {}
@@ -299,5 +587,78 @@ Multi-line.</Notes>
         let c = import_pob_code(&code).unwrap();
         assert_eq!(c.class.0, "Witch");
         assert_eq!(c.level, 92);
+    }
+
+    #[test]
+    fn imports_items_and_equips_first_set() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+    <Build level="90" className="Witch" mainSocketGroup="1"/>
+    <Tree activeSpec="1">
+        <Spec classId="3" ascendClassId="0" nodes=""/>
+    </Tree>
+    <Items>
+        <Item id="1" variant="1">Rarity: RARE
+Soul Charm
+Onyx Amulet
+--------
+Quality: +20% (augmented)
+--------
++10 to all Attributes
++62 to maximum Life
++39% to all Elemental Resistances
+--------</Item>
+        <ItemSet id="1" useSecondWeaponSet="false">
+            <Slot name="Amulet" itemId="1" active="true"/>
+        </ItemSet>
+    </Items>
+    <Notes/>
+</PathOfBuilding>"#;
+        let c = import_pob_xml(xml).expect("import");
+        let amulet = c.items.get(pob_data::Slot::Amulet).expect("amulet equipped");
+        assert_eq!(amulet.base_name, "Onyx Amulet");
+    }
+
+    #[test]
+    fn imports_main_skill_from_skill_group() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+    <Build level="90" className="Witch" mainSocketGroup="1"/>
+    <Tree activeSpec="1">
+        <Spec classId="3" ascendClassId="0" nodes=""/>
+    </Tree>
+    <Skills>
+        <Skill enabled="true" mainActiveSkill="1" includeInFullDPS="true">
+            <Gem skillId="Arc" level="20" quality="20" enabled="true"/>
+        </Skill>
+    </Skills>
+    <Notes/>
+</PathOfBuilding>"#;
+        let c = import_pob_xml(xml).expect("import");
+        let main = c.main_skill.as_ref().expect("main skill set");
+        assert_eq!(main.skill_id, "Arc");
+        assert_eq!(main.level, 20);
+        assert_eq!(main.quality, 20);
+    }
+
+    #[test]
+    fn imports_config_enemy_resists() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+    <Build level="90" className="Witch"/>
+    <Tree activeSpec="1">
+        <Spec classId="3" ascendClassId="0" nodes=""/>
+    </Tree>
+    <Config>
+        <Input name="enemyFireResist" number="40"/>
+        <Input name="enemyChaosResist" number="25"/>
+        <Input name="enemyIsBoss" string="Pinnacle"/>
+    </Config>
+    <Notes/>
+</PathOfBuilding>"#;
+        let c = import_pob_xml(xml).expect("import");
+        assert_eq!(c.config.enemy_fire_resist, 40);
+        assert_eq!(c.config.enemy_chaos_resist, 25);
+        assert_eq!(c.config.conditions.get("EnemyIsBoss").copied(), Some(true));
     }
 }
