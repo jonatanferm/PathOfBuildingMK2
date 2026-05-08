@@ -560,6 +560,15 @@ pub struct ConfigState {
     /// — the live pair stays as the primary weapons.
     #[serde(default)]
     pub use_second_weapon_set: bool,
+    /// Issue #83 (slice 2): "# of nearby Enemies" — drives the
+    /// `Multiplier:NearbyEnemies` BASE that PoB exposes from
+    /// `ConfigOptions.lua:1193-1199`. Used by mods like Lunaris's
+    /// "1% phys reduction for each nearby Enemy" and (via the
+    /// derived `OnlyOneNearbyEnemy` condition) Solaris's "while
+    /// there is only one nearby Enemy". 0 = no nearby enemies, no
+    /// mod injection.
+    #[serde(default)]
+    pub nearby_enemies: u32,
 }
 
 /// PoB's `enemyIsBoss` four-option preset. The serialised PoB-XML

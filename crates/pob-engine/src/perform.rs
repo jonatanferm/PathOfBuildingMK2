@@ -228,6 +228,21 @@ pub fn init_env_with_bases(
         );
     }
 
+    // Issue #83 (slice 2): NearbyEnemies multiplier. Mirrors PoB's
+    // `multiplierNearbyEnemies` Config-tab input from
+    // `Modules/ConfigOptions.lua:1193-1199`, which feeds
+    // `Multiplier:NearbyEnemies` BASE for PerStat-tagged mods (e.g.
+    // Lunaris's "1% phys reduction for each nearby Enemy").
+    // Skip injection at zero — both to match PoB's "no mod when
+    // val == 0" emission and to keep the modDB clean for builds
+    // that don't care about the multiplier.
+    if character.config.nearby_enemies > 0 {
+        let val = f64::from(character.config.nearby_enemies);
+        env.mod_db.add(
+            Mod::base("Multiplier:NearbyEnemies", val).with_source(Source::Other("Config".into())),
+        );
+    }
+
     // 3. Tree node stats. Parse each allocated node's stat lines. PoB only credits
     // nodes that form a connected path from the character's class start, so we
     // filter the allocation set to the connected subgraph before applying mods.
@@ -365,6 +380,19 @@ pub fn init_env_with_bases(
     }
     for (k, v) in &character.config.multipliers {
         env.state.set_multiplier(k.clone(), *v);
+    }
+    // Issue #83 (slice 2): mirror NearbyEnemies into EvalState so
+    // PerStat-tagged mods read it directly, and emit
+    // `OnlyOneNearbyEnemy` (PoB's `ConfigOptions.lua:1195`) when the
+    // count is exactly 1 — that condition gates Solaris's "while
+    // there is only one nearby Enemy" mod via the parser's
+    // `Condition:OnlyOneNearbyEnemy` tag.
+    if character.config.nearby_enemies > 0 {
+        let val = f64::from(character.config.nearby_enemies);
+        env.state.set_multiplier("NearbyEnemies", val);
+        if character.config.nearby_enemies == 1 {
+            env.state.set_condition("OnlyOneNearbyEnemy", true);
+        }
     }
     // 6b. Custom modifiers — user-typed lines from the Config-tab textarea.
     // Parse each non-empty line through `mod_parser` and add it with
