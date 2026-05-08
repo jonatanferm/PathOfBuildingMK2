@@ -343,6 +343,8 @@ fn diff_against_pob_engine(
     // surfaces engine bugs that the curated probe table doesn't cover.
     let mut auto_div: Vec<(String, f64, f64)> = Vec::new();
     let mut auto_match = 0usize;
+    let our_keys: std::collections::HashSet<&str> =
+        output.iter().map(|(k, _)| k).collect();
     for (name, ours) in output.iter() {
         // Only reported if pob-engine value is non-trivial OR PoB value is non-trivial,
         // so we don't drown in zeros.
@@ -361,7 +363,26 @@ fn diff_against_pob_engine(
             auto_div.push((name.to_string(), ours, theirs));
         }
     }
-    auto_div.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
+
+    // Coverage gap pass: PoB emits a key with a non-trivial numeric value, and
+    // pob-engine doesn't expose that key at all. This is a roadmap of stats we
+    // could plumb through.
+    let mut missing_outputs: Vec<(String, f64)> = Vec::new();
+    for (name, value) in pob_entries.iter() {
+        if our_keys.contains(name.as_str()) {
+            continue;
+        }
+        let n = match value {
+            mlua::Value::Number(n) => *n,
+            mlua::Value::Integer(i) => *i as f64,
+            _ => continue,
+        };
+        if n.abs() >= 0.5 && n.is_finite() {
+            missing_outputs.push((name.clone(), n));
+        }
+    }
+    missing_outputs.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
+    auto_div.sort_by(|a, b| (b.1 - b.2).abs().total_cmp(&(a.1 - a.2).abs()));
     let auto_total = auto_match + auto_div.len();
     println!("\n=== auto-divergence ({auto_total} shared keys, {} divergent) ===", auto_div.len());
     for (name, ours, theirs) in auto_div.iter().take(40) {
@@ -372,6 +393,18 @@ fn diff_against_pob_engine(
     }
     if auto_div.len() > 40 {
         println!("  … ({} more divergent — pass --verbose to see all)", auto_div.len() - 40);
+    }
+
+    println!(
+        "\n=== coverage gaps ({} non-trivial PoB keys not emitted by pob-engine) ===",
+        missing_outputs.len()
+    );
+    let limit = if missing_outputs.is_empty() { 0 } else { 30 };
+    for (name, value) in missing_outputs.iter().take(limit) {
+        println!("  {name:<40}  pob={value:>12.2}");
+    }
+    if missing_outputs.len() > limit {
+        println!("  … ({} more — pass --verbose to see the full roadmap)", missing_outputs.len() - limit);
     }
 
     println!("\nXML→CharacterState bridge uses pob-engine's import_pob_xml: class,");
