@@ -1256,12 +1256,16 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     //   chance = 1.15 * accuracy / (accuracy + (eva/4)^0.9) - 0.15
     // Spells always hit at 100%.
     // Compute baseline accuracy for ALL skills (PoB exposes Accuracy as a
-    // character-level output even when the active skill is a spell). For PoE
-    // base accuracy: 2 per character level + Dex.
+    // character-level output even when the active skill is a spell). PoE base
+    // accuracy: 2 × (character_level - 1) + 2 × Dex. PoB encodes this as
+    // `accuracy_rating_per_level=2` with `Multiplier{var=Level, base=-2}`,
+    // which evaluates to 2*(level-1), and dex contributes 2 per point via the
+    // `dexterity_base_accuracy_+%_per_dex` implicit (modeled as a flat 2/dex
+    // baseline here).
     let mod_accuracy = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Accuracy");
-    let level_accuracy = 2.0 * f64::from(character.level);
+    let level_accuracy = 2.0 * f64::from(character.level.saturating_sub(1));
     let dex = env.output.get("Dexterity");
-    let accuracy = (mod_accuracy + level_accuracy + dex).max(0.0);
+    let accuracy = (mod_accuracy + level_accuracy + 2.0 * dex).max(0.0);
     env.output.set("Accuracy", accuracy);
 
     if is_attack {
