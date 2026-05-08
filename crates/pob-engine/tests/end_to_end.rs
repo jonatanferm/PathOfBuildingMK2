@@ -547,6 +547,79 @@ fn pob_xml_round_trip_preserves_swap_weapons() {
     );
 }
 
+// Issue #109 (slice 2): when `use_second_weapon_set` is on, the
+// engine reads `Weapon1Swap` / `Weapon2Swap` as the live weapons
+// and ignores the primary pair. We assert this through the
+// `UsingShield` condition: equip a sword + shield as the primary
+// pair (UsingShield = true) and a bow on Weapon1Swap (no shield in
+// the swap pair → UsingShield should flip to false once swap is on).
+#[test]
+fn use_second_weapon_set_swaps_live_weapons() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: tree missing");
+        return;
+    };
+    use pob_engine::parse_item;
+
+    let sword = parse_item(
+        "Item Class: One Hand Swords\nRarity: NORMAL\nRusted Sword\n--------\n",
+    )
+    .expect("parse sword");
+    let shield = parse_item(
+        "Item Class: Shields\nRarity: NORMAL\nSplintered Tower Shield\n--------\n",
+    )
+    .expect("parse shield");
+    let bow = parse_item(
+        "Item Class: Bows\nRarity: NORMAL\nCrude Bow\n--------\n",
+    )
+    .expect("parse bow");
+
+    let mut c = Character::new(ClassRef::shadow(), 90);
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.items.equip(pob_data::Slot::Weapon2, shield);
+    c.items.equip(pob_data::Slot::Weapon1Swap, bow);
+
+    // Default: use_second_weapon_set = false → primary pair drives
+    // wielding conditions, so UsingShield is true.
+    let env = pob_engine::perform::init_env(&c, &tree);
+    assert!(
+        env.state.condition("UsingShield"),
+        "Primary pair has a shield; UsingShield should be true while swap is off"
+    );
+    assert!(
+        !env.state.condition("UsingBow"),
+        "UsingBow should be false while the bow lives only in the swap slot"
+    );
+
+    // Toggle on: swap pair becomes live. Bow on Weapon1Swap → live
+    // Weapon1; Weapon2Swap is empty → live Weapon2 unset → no shield.
+    c.config.use_second_weapon_set = true;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    assert!(
+        env.state.condition("UsingBow"),
+        "Bow from swap pair should drive UsingBow once use_second_weapon_set is on"
+    );
+    assert!(
+        !env.state.condition("UsingShield"),
+        "Shield from primary pair must not leak through when swap is active"
+    );
+
+    // No swap pair equipped → toggle is a no-op (don't strip the
+    // primary weapons just because the user forgot to fill the swap).
+    let mut empty_swap = Character::new(ClassRef::shadow(), 90);
+    let sword2 = parse_item(
+        "Item Class: One Hand Swords\nRarity: NORMAL\nRusted Sword\n--------\n",
+    )
+    .expect("parse sword");
+    empty_swap.items.equip(pob_data::Slot::Weapon1, sword2);
+    empty_swap.config.use_second_weapon_set = true;
+    let env = pob_engine::perform::init_env(&empty_swap, &tree);
+    assert!(
+        env.state.condition("UsingOneHandedWeapon"),
+        "Toggling swap on with an empty swap pair must not strip the primary weapon"
+    );
+}
+
 #[test]
 fn equipping_an_amulet_changes_stats() {
     let Some(tree) = load_3_25_tree() else {
