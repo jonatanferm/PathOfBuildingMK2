@@ -11,9 +11,7 @@
 use std::collections::HashSet;
 
 use ahash::HashMap as AHashMap;
-use pob_data::{
-    Class, Node, NodeId, NodeKind, PassiveTree, TreeConstants, TreePoints,
-};
+use pob_data::{Class, Node, NodeId, NodeKind, PassiveTree, TreeConstants, TreePoints};
 use pob_engine::{Character, ClassRef};
 use smallvec::SmallVec;
 

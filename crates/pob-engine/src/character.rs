@@ -777,11 +777,7 @@ impl Character {
     /// When the allocation is empty the method falls back to inserting
     /// just `target` (first-click behaviour for tests / freshly reset
     /// characters).
-    pub fn allocate_path(
-        &mut self,
-        tree: &PassiveTree,
-        target: NodeId,
-    ) -> Option<Vec<NodeId>> {
+    pub fn allocate_path(&mut self, tree: &PassiveTree, target: NodeId) -> Option<Vec<NodeId>> {
         if self.allocated.contains(&target) {
             return Some(Vec::new());
         }
@@ -813,11 +809,7 @@ impl Character {
             return Vec::new();
         }
         let mut removed = vec![node];
-        let seeds = crate::pathfind::anchor_nodes(
-            tree,
-            &self.class.0,
-            self.ascendancy.as_deref(),
-        );
+        let seeds = crate::pathfind::anchor_nodes(tree, &self.class.0, self.ascendancy.as_deref());
         if seeds.is_empty() {
             // No anchor — every node is technically orphaned, but blowing
             // away the whole allocation surprises callers (e.g. tests with
@@ -826,8 +818,7 @@ impl Character {
         }
         let allocated_set: std::collections::HashSet<NodeId> =
             self.allocated.iter().copied().collect();
-        let anchored =
-            crate::pathfind::anchored_subset(tree, &allocated_set, &seeds);
+        let anchored = crate::pathfind::anchored_subset(tree, &allocated_set, &seeds);
         let orphans: Vec<NodeId> = self
             .allocated
             .iter()
