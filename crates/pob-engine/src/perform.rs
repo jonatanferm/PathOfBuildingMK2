@@ -187,6 +187,18 @@ pub fn init_env_with_bases(
     env.mod_db
         .add(Mod::base("Evasion", 15.0).with_source(Source::Other("CharacterConstant".into())));
 
+    // Issue #84: base mine / trap throw timings. Mirrors PoB's
+    // CalcSetup.lua:52-53 — these are the default per-throw seconds
+    // before any per-skill overrides or % faster mods apply.
+    //   TrapThrowingTime BASE = 0.6 s
+    //   MineLayingTime   BASE = 0.3 s
+    env.mod_db.add(
+        Mod::base("TrapThrowingTime", 0.6).with_source(Source::Other("CharacterConstant".into())),
+    );
+    env.mod_db.add(
+        Mod::base("MineLayingTime", 0.3).with_source(Source::Other("CharacterConstant".into())),
+    );
+
     // 3. Tree node stats. Parse each allocated node's stat lines. PoB only credits
     // nodes that form a connected path from the character's class start, so we
     // filter the allocation set to the connected subgraph before applying mods.
@@ -2390,7 +2402,67 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     } else {
         1.0
     };
-    let cps = baseline * speed_mult;
+    let mut cps = baseline * speed_mult;
+
+    // Issue #84: mine + trap throw rate model. Mirrors PoB's
+    // CalcOffence.lua mine/trap branches: replace the spell-cast
+    // baseline with the throw rate derived from `MineLayingTime` /
+    // `TrapThrowingTime`. This is the rate the player *throws* the
+    // mine/trap, not the cast time of the underlying spell — they're
+    // distinct stats with separate scaling. The resulting `cps × throw
+    // count` then matches PoB's steady-state mines-per-second /
+    // traps-per-second formula.
+    let is_mine_skill = skill.base_flags.get("mine").copied().unwrap_or(false);
+    let is_trap_skill = skill.base_flags.get("trap").copied().unwrap_or(false);
+    if is_mine_skill {
+        // base = `MineLayingTime` BASE (default 0.3s from CharacterConstant).
+        // `MineLayingSpeed` is the inc/more multiplier on the throw rate;
+        // `SkillMineThrowingTime` MORE is a per-skill time-divisor (see
+        // CalcOffence.lua:1302). PoB clamps the result to the server tick
+        // rate (60 Hz) — we mirror that ceiling here.
+        let base = env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "MineLayingTime")
+            .max(0.001);
+        let speed_inc = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "MineLayingSpeed")
+            / 100.0;
+        let speed_more = env.mod_db.more(&cfg, &env.state, "MineLayingSpeed");
+        let time_more = env
+            .mod_db
+            .more(&cfg, &env.state, "SkillMineThrowingTime");
+        // time_more divides into the throw rate (MORE on time = LESS on speed).
+        let mut laying_speed = (1.0 / base) * (1.0 + speed_inc) * speed_more / time_more.max(0.001);
+        laying_speed = laying_speed.min(60.0);
+        env.output.set("MineLayingSpeed", laying_speed);
+        env.output.set("MineLayingTime", 1.0 / laying_speed.max(0.001));
+        cps = laying_speed;
+    } else if is_trap_skill {
+        // Same shape as mines but using `TrapThrowingTime` (default 0.6s)
+        // and `TrapThrowingSpeed`. PoB also folds in `SkillTrapThrowingTime`
+        // MORE (per-skill time-divisor) — same direction as mines.
+        let base = env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, "TrapThrowingTime")
+            .max(0.001);
+        let speed_inc = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "TrapThrowingSpeed")
+            / 100.0;
+        let speed_more = env.mod_db.more(&cfg, &env.state, "TrapThrowingSpeed");
+        let time_more = env
+            .mod_db
+            .more(&cfg, &env.state, "SkillTrapThrowingTime");
+        let mut throwing_speed =
+            (1.0 / base) * (1.0 + speed_inc) * speed_more / time_more.max(0.001);
+        throwing_speed = throwing_speed.min(60.0);
+        env.output.set("TrapThrowingSpeed", throwing_speed);
+        env.output
+            .set("TrapThrowingTime", 1.0 / throwing_speed.max(0.001));
+        cps = throwing_speed;
+    }
+
     env.output.set("MainSkillSpeed", cps);
 
     // Defender-side avoidance: PoB multiplies AverageDamage by

@@ -2362,6 +2362,94 @@ fn mine_and_trap_skills_emit_throw_count_outputs() {
     );
 }
 
+// Issue #84: mine/trap throw timing model. Mirrors PoB's
+// CalcSetup.lua:52-53 base values:
+//   MineLayingTime BASE  = 0.3 s → MineLayingSpeed default ≈ 3.33 /s
+//   TrapThrowingTime BASE = 0.6 s → TrapThrowingSpeed default ≈ 1.67 /s
+// With no extra mods this is the throw rate the engine should use as
+// `MainSkillSpeed` for mine/trap skills (replacing the spell cast-rate
+// baseline). The default character carries no MineLayingSpeed /
+// TrapThrowingSpeed inc/more, so the output should match the base.
+#[test]
+fn mine_and_trap_throw_timing_emits_pob_default_speeds() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    // Use a deterministic hit-based mine/trap (DoT-only variants
+    // currently bypass the throw-timing block via the DoT-DPS early
+    // return — that branch is tracked as a follow-up in this issue).
+    if skills.get("IcicleMine").is_some() {
+        let mut c = Character::new(ClassRef::shadow(), 90);
+        c.main_skill = Some(MainSkill::new("IcicleMine"));
+        let out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+        if out.get("MainSkillDPS") > 0.0 {
+            // Default mine laying speed: 1 / 0.3 = 3.333…/s
+            let speed = out.get("MineLayingSpeed");
+            assert!(
+                (speed - 3.333_333).abs() < 0.05,
+                "default MineLayingSpeed should be ~3.33 /s, got {speed}"
+            );
+            let time = out.get("MineLayingTime");
+            assert!(
+                (time - 0.3).abs() < 0.005,
+                "default MineLayingTime should be 0.3 s, got {time}"
+            );
+            // MainSkillSpeed should equal MineLayingSpeed (the cast-time
+            // path was overridden for mine skills).
+            let main_speed = out.get("MainSkillSpeed");
+            assert!(
+                (main_speed - speed).abs() < 0.001,
+                "MainSkillSpeed should track MineLayingSpeed for a mine skill, got {main_speed} vs {speed}"
+            );
+        }
+    }
+
+    if skills.get("LightningTrap").is_some() {
+        let mut c = Character::new(ClassRef::shadow(), 90);
+        c.main_skill = Some(MainSkill::new("LightningTrap"));
+        let out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+        if out.get("MainSkillDPS") > 0.0 {
+            // Default trap throwing speed: 1 / 0.6 = 1.666…/s
+            let speed = out.get("TrapThrowingSpeed");
+            assert!(
+                (speed - 1.666_667).abs() < 0.05,
+                "default TrapThrowingSpeed should be ~1.67 /s, got {speed}"
+            );
+            let time = out.get("TrapThrowingTime");
+            assert!(
+                (time - 0.6).abs() < 0.005,
+                "default TrapThrowingTime should be 0.6 s, got {time}"
+            );
+            let main_speed = out.get("MainSkillSpeed");
+            assert!(
+                (main_speed - speed).abs() < 0.001,
+                "MainSkillSpeed should track TrapThrowingSpeed for a trap skill, got {main_speed} vs {speed}"
+            );
+        }
+    }
+
+    // A non-mine/trap skill (Cleave) keeps the attack-rate baseline; its
+    // MainSkillSpeed should not equal the mine/trap defaults.
+    if skills.get("Cleave").is_some() {
+        let mut c = Character::new(ClassRef::duelist(), 90);
+        c.main_skill = Some(MainSkill::new("Cleave"));
+        let out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+        assert_eq!(
+            out.try_get("MineLayingSpeed"),
+            None,
+            "Cleave must not emit MineLayingSpeed"
+        );
+        assert_eq!(
+            out.try_get("TrapThrowingSpeed"),
+            None,
+            "Cleave must not emit TrapThrowingSpeed"
+        );
+    }
+}
+
 // Issue #8: impale layer adds physical-stack DPS to FullDPS via
 //   ImpaleDPS = stored × stacks(5) × effect/100 × chance/100 × cps
 // Issue #19: Warcry exertion. Each warcry exerts the next N attacks
