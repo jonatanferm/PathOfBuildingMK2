@@ -124,6 +124,18 @@ pub struct Skill {
     /// `pob_engine::skill::parse_extractor_mod`.
     #[serde(default, rename = "statMap")]
     pub stat_map: indexmap::IndexMap<String, Value>,
+    /// `true` for support gems (PoB's top-level `support` flag). Supports
+    /// don't have `baseFlags` of their own; their effect is to inject mods
+    /// into the linked active skill's calc.
+    #[serde(default)]
+    pub support: bool,
+    /// Skill-type filters that determine which active skills a support can
+    /// link to. Empty `addSkillTypes` means "any skill type matching the
+    /// support's intent" (e.g. attack-only or spell-only).
+    #[serde(default, rename = "addSkillTypes", deserialize_with = "de_lenient_indexmap")]
+    pub add_skill_types: IndexMap<String, bool>,
+    #[serde(default, rename = "excludeSkillTypes", deserialize_with = "de_lenient_indexmap")]
+    pub exclude_skill_types: IndexMap<String, bool>,
     /// Effectiveness multiplier baseline (PoB's `baseEffectiveness`).
     #[serde(default, rename = "baseEffectiveness")]
     pub base_effectiveness: f64,

@@ -782,6 +782,31 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     for m in intrinsic_mods {
         env.mod_db.add(m);
     }
+    // Support gems linked in the same socket group buff the active skill.
+    // Each support's intrinsic mods get the same skill_mods treatment and are
+    // added to the env. PoB applies skill-type filtering (e.g. "Added Lightning
+    // Damage" only buffs skills that hit) — Phase 5 minimum: we apply every
+    // support that's enabled in the same group. addSkillTypes / excludeSkillTypes
+    // filtering is a follow-up.
+    let main_group_idx = (character.main_socket_group.saturating_sub(1)) as usize;
+    if let Some(group) = character.skill_groups.get(main_group_idx) {
+        if group.enabled {
+            let active_idx =
+                group.main_active_skill_index.saturating_sub(1) as usize;
+            for (idx, gem) in group.gems.iter().enumerate() {
+                if idx == active_idx {
+                    continue; // skip the main skill itself
+                }
+                let Some(support) = skills.get(&gem.skill_id) else { continue };
+                if !support.support {
+                    continue;
+                }
+                for m in crate::skill::skill_mods(support, gem.quality) {
+                    env.mod_db.add(m);
+                }
+            }
+        }
+    }
 
     // Tag the EvalState with the active skill's name and types so SkillName /
     // SkillType / SkillId tags on mods can filter correctly.
