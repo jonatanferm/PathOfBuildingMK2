@@ -1004,6 +1004,83 @@ fn bleed_faster_and_enemy_moving_scale_bleed_dps() {
 // on the Calcs tab side panel; previously MK2 emitted only the static
 // placeholder `IgniteDuration = 4.0` from init_env and nothing for bleed/poison.
 #[test]
+fn ailment_effect_mods_scale_all_three_ailment_dps_keys() {
+    // Issue #58: `AilmentEffect` mods (e.g. unique amulets / cluster notables
+    // that grant "increased Effect of Ailments") must scale every damaging
+    // ailment's DPS, mirroring PoB's `effectMod = calcLib.mod(skillModList,
+    // dotCfg, "AilmentEffect")` in CalcOffence.lua:4304/4584/4932.
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    let Some(_) = skills.get("Cleave") else { return };
+    let sword_name = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone());
+    let Some(sword_name) = sword_name else { return };
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+
+    // 100% chance to apply all three ailments + fire damage on attacks so
+    // every ailment branch evaluates a non-zero DPS.
+    let triple = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nAilment Hauberk\nFull Plate\n--------\n100% chance to cause Bleeding on Hit\n100% chance to Poison on Hit\n100% chance to Ignite\nAdds 50 to 100 Fire Damage to Attacks\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::BodyArmour, triple);
+
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_bleed = baseline.get("BleedDPS");
+    let baseline_poison = baseline.get("PoisonDPS");
+    let baseline_ignite = baseline.get("IgniteDPS");
+    if baseline_bleed <= 0.0 || baseline_poison <= 0.0 {
+        eprintln!("skip: Cleave produced no bleed/poison baseline");
+        return;
+    }
+
+    // Equip a +25% increased Effect of Ailments amulet. Bleed and poison
+    // should both rise by 1.25x; ignite if it was non-zero, also 1.25x.
+    let amulet = parse_item(
+        "Item Class: Amulets\nRarity: MAGIC\nAilment Pendant\nAmber Amulet\n--------\n25% increased Effect of Ailments\n--------",
+    )
+    .unwrap_or_else(|_| parse_item(
+        "Item Class: Amulets\nRarity: MAGIC\nAilment Pendant\nAmber Amulet\n--------\n25% increased Magnitude of Ailments\n--------",
+    ).unwrap());
+    c.items.equip(pob_data::Slot::Amulet, amulet);
+    let scaled = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+
+    let bleed_ratio = scaled.get("BleedDPS") / baseline_bleed;
+    let poison_ratio = scaled.get("PoisonDPS") / baseline_poison;
+    assert!(
+        (bleed_ratio - 1.25).abs() < 0.01,
+        "+25% AilmentEffect should multiply BleedDPS by ~1.25, got {bleed_ratio} (baseline={baseline_bleed}, scaled={})",
+        scaled.get("BleedDPS")
+    );
+    assert!(
+        (poison_ratio - 1.25).abs() < 0.01,
+        "+25% AilmentEffect should multiply PoisonDPS by ~1.25, got {poison_ratio} (baseline={baseline_poison}, scaled={})",
+        scaled.get("PoisonDPS")
+    );
+    if baseline_ignite > 0.0 {
+        let ignite_ratio = scaled.get("IgniteDPS") / baseline_ignite;
+        assert!(
+            (ignite_ratio - 1.25).abs() < 0.01,
+            "+25% AilmentEffect should multiply IgniteDPS by ~1.25, got {ignite_ratio} (baseline={baseline_ignite}, scaled={})",
+            scaled.get("IgniteDPS")
+        );
+    }
+}
+
+#[test]
 fn ailment_duration_outputs_scale_with_duration_mods() {
     let (Some(tree), Some(skills), Some(bases)) =
         (load_3_25_tree(), load_skills(), load_bases())

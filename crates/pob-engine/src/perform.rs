@@ -1781,10 +1781,18 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             env.mod_db.sum(ModType::Base, &cfg, &env.state, "PhysicalDamage")
         };
         if bleed_chance > 0.0 && phys_avg > 0.0 {
+            // Mirrors PoB's `effectMod = calcLib.mod(skillModList, dotCfg, "AilmentEffect")`
+            // in CalcOffence.lua:4304 — generic ailment magnitude scaler that hits
+            // all three damaging ailments (e.g. unique items / cluster notables that
+            // grant "increased Ailment Effect"). The hit-damage mods (PhysicalDamage,
+            // generic Damage) are already folded into `phys_avg` upstream, so we
+            // don't re-apply them here.
             let dot_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BleedDamage")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime");
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime")
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
             let dot_more = env.mod_db.more(&cfg, &env.state, "BleedDamage")
-                * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
+                * env.mod_db.more(&cfg, &env.state, "DamageOverTime")
+                * env.mod_db.more(&cfg, &env.state, "AilmentEffect");
             let rate_mod = 1.0
                 + (env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BleedFaster")
                     + damaging_ailments_faster)
@@ -1813,12 +1821,15 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // Poison: 30% of hit damage as Chaos DoT for 2s. Stacks; steady-state
         // DPS ≈ per-stack-DPS × stacks where stacks ramps with cast/attack rate.
         if poison_chance > 0.0 {
+            // AilmentEffect mirrors PoB's `effectMod` in CalcOffence.lua:4584.
             let p_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "PoisonDamage")
                 + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ChaosDamage")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime");
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime")
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
             let p_more = env.mod_db.more(&cfg, &env.state, "PoisonDamage")
                 * env.mod_db.more(&cfg, &env.state, "ChaosDamage")
-                * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
+                * env.mod_db.more(&cfg, &env.state, "DamageOverTime")
+                * env.mod_db.more(&cfg, &env.state, "AilmentEffect");
             let p_dot_mult = env
                 .mod_db
                 .sum(ModType::Base, &cfg, &env.state, "PoisonDamageMultiplier")
@@ -1872,12 +1883,16 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // (highest-damage ignite overrides). For a skill that hits constantly, the
         // single-app DPS is the ceiling.
         if elem_stat == "FireDamage" && ignite_chance > 0.0 {
+            // AilmentEffect mirrors PoB's `effectMod` in CalcOffence.lua:4932.
+            // Hit-damage mods (FireDamage, ElementalDamage) are already in `avg`.
             let i_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "IgniteDamage")
                 + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BurningDamage")
-                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime");
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime")
+                + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
             let i_more = env.mod_db.more(&cfg, &env.state, "IgniteDamage")
                 * env.mod_db.more(&cfg, &env.state, "BurningDamage")
-                * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
+                * env.mod_db.more(&cfg, &env.state, "DamageOverTime")
+                * env.mod_db.more(&cfg, &env.state, "AilmentEffect");
             let i_dot_mult = env
                 .mod_db
                 .sum(ModType::Base, &cfg, &env.state, "IgniteDamageMultiplier")
