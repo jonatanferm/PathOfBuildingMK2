@@ -7,3 +7,5 @@
 .DS_Store
 .idea/
 .vscode/
+# Trunk build output for the wasm app.
+app/pob-web/dist/

@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pob-web",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:$PATH\" && cd app/pob-web && exec trunk serve --port 8080 --address 127.0.0.1"
+      ],
+      "port": 8080
+    }
+  ]
+}

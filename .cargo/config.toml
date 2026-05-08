@@ -1,0 +1,4 @@
+# getrandom 0.3 dropped its automatic wasm-js backend; pass the cfg flag so
+# transitive deps (egui-wgpu, etc.) keep working when targeting wasm32.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

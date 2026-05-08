@@ -94,6 +94,7 @@ impl PobApp {
         Self { state }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn load_initial() -> Result<LoadedApp, String> {
         // Find data/ relative to the workspace root. pob-desktop runs from there.
         let candidates = [
@@ -181,6 +182,49 @@ impl PobApp {
             tree_versions,
             tree_version: default_version,
             data_root,
+            last_compute_hash: 0,
+        })
+    }
+
+    /// wasm32 build of `load_initial`: bundles a single tree (`3_25`) plus the
+    /// item-base table via `include_str!`. Skills aren't bundled — the dataset
+    /// is ~5 MB and the tree tab doesn't need them. Items / skills tabs will
+    /// appear empty until a fetch-on-demand path lands.
+    #[cfg(target_arch = "wasm32")]
+    fn load_initial() -> Result<LoadedApp, String> {
+        let tree_json = include_str!("../../../data/trees/3_25.json");
+        let bases_json = include_str!("../../../data/bases.json");
+        let tree = pob_data::load_passive_tree(tree_json)
+            .map_err(|e| format!("parsing tree: {e}"))?;
+        let bases = pob_data::load_bases(bases_json).ok();
+        let skills = SkillRegistry::default();
+        let tree_view = TreeView::new(&tree);
+        let character = Character::new(ClassRef::marauder(), 1);
+        let (output, env) = pob_engine::compute_full_with_env(
+            &character,
+            &tree,
+            Some(&skills),
+            bases.as_ref(),
+        );
+        Ok(LoadedApp {
+            tree,
+            tree_view,
+            character,
+            output,
+            last_env: Some(env),
+            search: String::new(),
+            active_tab: Tab::Tree,
+            items_state: items_tab::ItemsTabState::default(),
+            skills_state: skills_tab::SkillsTabState::default(),
+            calcs_state: calcs_tab::CalcsTabState::default(),
+            import_export_state: import_export_tab::ImportExportTabState::default(),
+            skills,
+            bases,
+            current_build_path: None,
+            status_message: None,
+            tree_versions: vec!["3_25".to_owned()],
+            tree_version: "3_25".to_owned(),
+            data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
         })
     }
@@ -761,39 +805,49 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
             ));
         }
         MenuAction::Open => {
-            if let Some(path) = rfd::FileDialog::new()
-                .add_filter("Build file", &["mk2", "xml"])
-                .add_filter("MK2 build", &["mk2"])
-                .add_filter("PoB XML", &["xml"])
-                .pick_file()
+            #[cfg(not(target_arch = "wasm32"))]
             {
-                let load = std::fs::read_to_string(&path).map_err(|e| e.to_string());
-                let parse_result: Result<Character, String> = load.and_then(|s| {
-                    let trimmed = s.trim();
-                    // Auto-detect: MK2 codes start with "MK2|", XML starts with "<".
-                    if trimmed.starts_with("MK2|") {
-                        pob_engine::import_code(trimmed).map_err(|e| e.to_string())
-                    } else if trimmed.starts_with('<') {
-                        pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
-                    } else {
-                        // Maybe a PoB share-code (zlib+base64) saved to file.
-                        pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
-                    }
-                });
-                match parse_result {
-                    Ok(c) => {
-                        app.character = c;
-                        app.current_build_path = Some(path.clone());
-                        app.status_message = Some((
-                            StatusKind::Info,
-                            format!("Opened {}", path.display()),
-                        ));
-                    }
-                    Err(e) => {
-                        app.status_message =
-                            Some((StatusKind::Error, format!("Open failed: {e}")));
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Build file", &["mk2", "xml"])
+                    .add_filter("MK2 build", &["mk2"])
+                    .add_filter("PoB XML", &["xml"])
+                    .pick_file()
+                {
+                    let load = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+                    let parse_result: Result<Character, String> = load.and_then(|s| {
+                        let trimmed = s.trim();
+                        // Auto-detect: MK2 codes start with "MK2|", XML starts with "<".
+                        if trimmed.starts_with("MK2|") {
+                            pob_engine::import_code(trimmed).map_err(|e| e.to_string())
+                        } else if trimmed.starts_with('<') {
+                            pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
+                        } else {
+                            // Maybe a PoB share-code (zlib+base64) saved to file.
+                            pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
+                        }
+                    });
+                    match parse_result {
+                        Ok(c) => {
+                            app.character = c;
+                            app.current_build_path = Some(path.clone());
+                            app.status_message = Some((
+                                StatusKind::Info,
+                                format!("Opened {}", path.display()),
+                            ));
+                        }
+                        Err(e) => {
+                            app.status_message =
+                                Some((StatusKind::Error, format!("Open failed: {e}")));
+                        }
                     }
                 }
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    "Open is not supported in the web build yet — paste a build via Import/Export.".into(),
+                ));
             }
         }
         MenuAction::Save => save_build(app, false),
@@ -801,6 +855,7 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn swap_tree(app: &mut LoadedApp, version: &str) -> Result<(), String> {
     let path = app
         .data_root
@@ -815,6 +870,13 @@ fn swap_tree(app: &mut LoadedApp, version: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_arch = "wasm32")]
+fn swap_tree(_app: &mut LoadedApp, _version: &str) -> Result<(), String> {
+    // The web build only bundles `3_25.json`, so there's nothing to swap to.
+    Err("Tree-version switching is disabled in the web build (only 3_25 bundled).".into())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn save_build(app: &mut LoadedApp, force_dialog: bool) {
     let path = if force_dialog || app.current_build_path.is_none() {
         rfd::FileDialog::new()
@@ -853,6 +915,14 @@ fn save_build(app: &mut LoadedApp, force_dialog: bool) {
             app.status_message = Some((StatusKind::Error, format!("Save failed: {e}")));
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn save_build(app: &mut LoadedApp, _force_dialog: bool) {
+    app.status_message = Some((
+        StatusKind::Error,
+        "Save is not supported in the web build yet — copy from Import/Export.".into(),
+    ));
 }
 
 fn stat_row(ui: &mut egui::Ui, label: &str, out: &Output, key: &str) {
