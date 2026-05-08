@@ -705,11 +705,20 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
             // without making the user paste anything.
             let mut c = Character::new(ClassRef::witch(), 90);
             c.ascendancy = Some("Occultist".into());
-            c.main_skill = Some(pob_engine::MainSkill {
-                skill_id: "Arc".into(),
-                level: 20,
-                quality: 20,
+            // Populate via the socket-group model so the Skills tab shows the
+            // bound gem and the user can swap it / add supports.
+            c.skill_groups.push(pob_engine::character::SocketGroup {
+                label: "Main".into(),
+                gems: vec![pob_engine::MainSkill {
+                    skill_id: "Arc".into(),
+                    level: 20,
+                    quality: 20,
+                }],
+                main_active_skill_index: 1,
+                enabled: true,
             });
+            c.main_socket_group = 1;
+            c.sync_main_skill();
             c.config.enemy_lightning_resist = 50;
             // Equip a basic resist amulet so resists move.
             let amulet_paste =
