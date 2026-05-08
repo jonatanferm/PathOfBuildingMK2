@@ -22,6 +22,20 @@ pub struct CalcsTabState {
 /// to each stat, but matching the layout already gets us most of the
 /// usability win.
 const GROUPS: &[(&str, &[&str])] = &[
+    // Issue #19: warcry / exertion outputs. Listed first so keys
+    // like `ExertedAttackDamageBonus` don't get swept into the
+    // generic "Skill Hit Damage" group by the substring match.
+    // Covers slice-3 loadout aggregates (`ActiveWarcryCount`,
+    // `WarcryExertedAttackCountTotal`, `WarcryMinCooldown`), the
+    // slice-2 Config knob (`WarcryPower`), the slice-4 auto-uptime
+    // (`ExertedAttackUptime`, `ExertedAttackDamageBonus`), and the
+    // slice-6 Intimidating-Cry indicator (`IntimidatingCryActive`).
+    ("Warcry", &["Warcry", "Exerted", "Cry"]),
+    // Issue #84: mine / trap timing outputs. Listed before
+    // "Attack / Cast Rate" so `MineLayingSpeed` /
+    // `TrapThrowingSpeed` aren't absorbed by the generic "Speed"
+    // pattern.
+    ("Mines / Traps", &["Mine", "Trap"]),
     // OFFENCE column.
     (
         "Skill Hit Damage",
@@ -352,5 +366,77 @@ fn kind_label(k: ModType) -> &'static str {
         ModType::List => "LIST",
         ModType::Max => "MAX",
         ModType::Min => "MIN",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GROUPS;
+
+    /// Returns the first group heading whose patterns match `key`, or
+    /// `None` if it falls through to "Other". Matches the same shape
+    /// as the runtime grouping code (substring match, with `:` suffix
+    /// handled as a strict prefix).
+    fn group_for(key: &str) -> Option<&'static str> {
+        for (heading, patterns) in GROUPS {
+            for p in *patterns {
+                let hit = if p.ends_with(':') {
+                    key.starts_with(p)
+                } else {
+                    key.contains(p)
+                };
+                if hit {
+                    return Some(*heading);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn warcry_outputs_land_under_warcry_section() {
+        // Slice 3-6 outputs all need the dedicated Warcry section so
+        // they don't end up in the "Other" overflow at the bottom.
+        for key in [
+            "ActiveWarcryCount",
+            "WarcryExertedAttackCountTotal",
+            "WarcryMinCooldown",
+            "WarcryPower",
+            "ExertedAttackUptime",
+            "ExertedAttackDamageBonus",
+            "IntimidatingCryActive",
+        ] {
+            let group = group_for(key);
+            assert_eq!(
+                group,
+                Some("Warcry"),
+                "{key} should bucket under Warcry, got {group:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mine_and_trap_outputs_land_under_mines_traps_section() {
+        // Slice 4's TrapCooldown / MineCooldown plus the slice 1-3
+        // throw-rate outputs all need a dedicated Mines / Traps
+        // section so the user can scan them in one place.
+        for key in [
+            "MineLayingTime",
+            "MineLayingSpeed",
+            "MineCooldown",
+            "NumberOfMines",
+            "MinesPlaced",
+            "TrapThrowingTime",
+            "TrapThrowingSpeed",
+            "TrapCooldown",
+            "NumberOfTraps",
+        ] {
+            let group = group_for(key);
+            assert_eq!(
+                group,
+                Some("Mines / Traps"),
+                "{key} should bucket under Mines / Traps, got {group:?}"
+            );
+        }
     }
 }
