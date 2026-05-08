@@ -204,6 +204,26 @@ pub fn init_env_with_bases(
         Mod::base("MineLayingTime", 0.3).with_source(Source::Other("CharacterConstant".into())),
     );
 
+    // Issue #19 (slice 2): WarcryPower config knob. Mirrors PoB's
+    // `multiplierWarcryPower` Config-tab input from
+    // `Modules/ConfigOptions.lua:723-725`. When the user pins a value
+    // we OVERRIDE it onto WarcryPower (so warcry-scaling formulas
+    // read the right number) and set `Multiplier:WarcryPower` BASE
+    // so PerStat-tagged mods (e.g. "+1% damage per 5 Warcry Power")
+    // pick it up. Power tracks total strength of nearby enemies in
+    // PoE — PoB defaults to 20 (boss target); MK2 leaves the field
+    // unset so a build without warcries doesn't carry stale state.
+    if let Some(power) = character.config.warcry_power {
+        let power_f = f64::from(power);
+        env.mod_db.add(
+            Mod::base("WarcryPower", power_f).with_source(Source::Other("Config".into())),
+        );
+        env.mod_db.add(
+            Mod::base("Multiplier:WarcryPower", power_f)
+                .with_source(Source::Other("Config".into())),
+        );
+    }
+
     // 3. Tree node stats. Parse each allocated node's stat lines. PoB only credits
     // nodes that form a connected path from the character's class start, so we
     // filter the allocation set to the connected subgraph before applying mods.
@@ -843,7 +863,19 @@ fn fill_static_defaults(env: &mut Env) {
     env.output.set("ActiveMineLimit", 15.0);
     env.output.set("ActiveTrapLimit", 15.0);
     env.output.set("WeaponRange", 8.0);
-    env.output.set("WarcryPower", 20.0);
+    // Issue #19 (slice 2): expose `WarcryPower` derived from BASE
+    // mods. Mirrors `CalcPerform.lua:1244` —
+    // `output.WarcryPower = sum(BASE, WarcryPower) or 0`. The
+    // user-facing default in PoB's tooltip is 20 (boss target);
+    // we honour it as a floor so existing builds without an explicit
+    // config knob still see the same number a "boss" assumption
+    // would produce.
+    let cfg_q = QueryCfg::default();
+    let warcry_power_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg_q, &env.state, "WarcryPower")
+        .max(20.0);
+    env.output.set("WarcryPower", warcry_power_base);
     env.output.set("EnemyCritChance", 5.0);
     // Hit chance: spells always hit (100%); attacks roll vs accuracy. Only set
     // a default of 0 if the skill DPS pass hasn't already populated this — the

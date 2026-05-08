@@ -2746,6 +2746,85 @@ fn exerted_attack_uptime_lifts_main_skill_dps() {
     );
 }
 
+// Issue #19 (slice 2): WarcryPower config knob. Pinning a value via
+// `Character::config.warcry_power` should land both as a `WarcryPower`
+// BASE mod (so PoB-style `WarcryPower` reads pick it up) and as a
+// `Multiplier:WarcryPower` BASE mod (so PerStat-tagged scalars like
+// "+1% damage per 5 Warcry Power" can scale off it). Without an
+// explicit pin the engine falls back to PoB's documented 20-default
+// (boss target).
+#[test]
+fn warcry_power_config_lands_in_mod_db() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: tree missing");
+        return;
+    };
+    use pob_engine::ModStore as _;
+
+    // No config pin → falls back to the PoB 20 default; WarcryPower
+    // BASE mods aren't injected from Config.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let cfg_sourced_power = env.mod_db.iter_all().any(|m| {
+        m.name == "WarcryPower"
+            && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Config")
+    });
+    assert!(
+        !cfg_sourced_power,
+        "Without warcry_power config there should be no Config-sourced WarcryPower mod"
+    );
+
+    // Pinning warcry_power = 35 injects both `WarcryPower` and
+    // `Multiplier:WarcryPower` BASE mods.
+    c.config.warcry_power = Some(35);
+    let env2 = pob_engine::perform::init_env(&c, &tree);
+    let power_value = env2.mod_db.iter_all().find_map(|m| {
+        if m.name == "WarcryPower"
+            && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Config")
+        {
+            m.value.as_f64()
+        } else {
+            None
+        }
+    });
+    assert_eq!(
+        power_value,
+        Some(35.0),
+        "Config-sourced WarcryPower BASE mod should equal warcry_power"
+    );
+    let mult_value = env2.mod_db.iter_all().find_map(|m| {
+        if m.name == "Multiplier:WarcryPower"
+            && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Config")
+        {
+            m.value.as_f64()
+        } else {
+            None
+        }
+    });
+    assert_eq!(
+        mult_value,
+        Some(35.0),
+        "Multiplier:WarcryPower BASE should mirror the config value so PerStat-tagged mods see it"
+    );
+
+    // The output key reflects the BASE sum, with the PoB 20 floor.
+    let out = pob_engine::compute_full(&c, &tree, None, None);
+    assert!(
+        (out.get("WarcryPower") - 35.0).abs() < 0.01,
+        "Output WarcryPower should equal the configured value when above the 20 floor; got {}",
+        out.get("WarcryPower")
+    );
+
+    // Below the floor the default kicks in.
+    c.config.warcry_power = Some(5);
+    let out = pob_engine::compute_full(&c, &tree, None, None);
+    assert!(
+        (out.get("WarcryPower") - 20.0).abs() < 0.01,
+        "Output WarcryPower should fall back to the PoB 20-default when configured below it; got {}",
+        out.get("WarcryPower")
+    );
+}
+
 // Issue #19 (composition): INC and MORE for ExertedAttackDamage compose
 // multiplicatively, matching PoE's `(1 + inc/100) × more` chain. With
 // 50% INC and a separate 50% MORE the per-exerted-attack factor is
