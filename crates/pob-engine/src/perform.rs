@@ -3355,12 +3355,16 @@ pub fn perform_flask_recovery(
         if let Some(life_base) = flask.life {
             // Per-base scalar (no flask-specific instantPerc data
             // extracted yet — slice 3) plus mod-sourced extra. PoB's
-            // `inst = lifeBase × (instantPerc/100) × inc/more × ...`
-            // and `grad = lifeBase × (1 − instantPerc/100) × ...`.
+            // `inst = lifeBase × (instantPerc/100) × inc/more × ... × low_life`
+            // and `grad = (lifeBase × (1 − instantPerc/100) × ... + LifeAdditional) × low_life`.
+            // `low_life_mult` lives *outside* the shared `scalar` so
+            // it's applied exactly once per branch — slice 1 of #69
+            // had it folded in twice on the gradual half (once via
+            // `scalar`, once on the outer multiplier), inflating
+            // FlaskLifeRecoveryLowLife scenarios by `low_life_mult²`.
             let instant_perc = life_instant_perc_base.clamp(0.0, 100.0);
-            let scalar =
-                (1.0 + life_inc / 100.0) * life_more * (1.0 + effect_inc / 100.0) * low_life_mult;
-            let inst = f64::from(life_base) * (instant_perc / 100.0) * scalar;
+            let scalar = (1.0 + life_inc / 100.0) * life_more * (1.0 + effect_inc / 100.0);
+            let inst = f64::from(life_base) * (instant_perc / 100.0) * scalar * low_life_mult;
             let grad = (f64::from(life_base) * (1.0 - instant_perc / 100.0) * scalar
                 + life_additional)
                 * low_life_mult;
