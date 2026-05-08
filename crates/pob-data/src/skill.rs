@@ -221,6 +221,17 @@ impl Skill {
             .unwrap_or(0.0)
     }
 
+    /// `cooldown` from the level entry (seconds). `None` when the
+    /// gem doesn't carry an explicit cooldown — instant-cast spells
+    /// and most attack skills, where PoB falls back to skill-data
+    /// timing instead. Used by warcry detection (#19) and the
+    /// upcoming auto-uptime derivation.
+    pub fn cooldown(&self, level: u32) -> Option<f64> {
+        self.level_data(level)
+            .and_then(|v| v.get("cooldown"))
+            .and_then(Value::as_f64)
+    }
+
     /// Get a positional stat value from the level entry by 1-based index.
     /// PoB extracts these as numeric string keys (`"1"`, `"2"`, …) in JSON.
     pub fn positional(&self, level: u32, idx: u32) -> Option<f64> {
