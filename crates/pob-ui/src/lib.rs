@@ -15,6 +15,7 @@ mod notes_tab;
 mod pathfind;
 mod skills_tab;
 mod tree_layout;
+mod tree_renderer;
 mod tree_view;
 
 pub use tree_view::TreeView;
@@ -78,7 +79,14 @@ enum Tab {
 
 impl PobApp {
     #[must_use]
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Install the wgpu tree renderer once at app boot. With the wgpu
+        // backend forced in `pob-desktop/main.rs`, `cc.wgpu_render_state` is
+        // always available; the early-return path keeps tests / future
+        // backends from panicking.
+        if let Some(rs) = cc.wgpu_render_state.as_ref() {
+            tree_renderer::TreeRenderer::install(rs);
+        }
         let state = match Self::load_initial() {
             Ok(loaded) => AppState::Loaded(loaded),
             Err(e) => AppState::Error(e),

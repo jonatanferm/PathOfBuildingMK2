@@ -29,7 +29,8 @@ struct VsOut {
 fn corner_offsets(idx: u32) -> vec2<f32> {
     // Two triangles forming a unit rectangle in (along, across).
     // along = 0 at A, 1 at B; across = -1 to 1.
-    let lookup = array<vec2<f32>, 6>(
+    // `var` (not `let`) so naga lets us index by a runtime value.
+    var lookup = array<vec2<f32>, 6>(
         vec2<f32>(0.0, -1.0),
         vec2<f32>(1.0, -1.0),
         vec2<f32>(1.0,  1.0),

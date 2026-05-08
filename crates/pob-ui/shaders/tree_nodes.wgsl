@@ -35,8 +35,9 @@ struct VsOut {
 // Generate a unit quad covering [-1, 1]^2 from vertex_index 0..6.
 fn quad_corner(idx: u32) -> vec2<f32> {
     // Two triangles: (0,1,2), (0,2,3) where corners are
-    // 0=(-1,-1), 1=(+1,-1), 2=(+1,+1), 3=(-1,+1)
-    let lookup = array<vec2<f32>, 6>(
+    // 0=(-1,-1), 1=(+1,-1), 2=(+1,+1), 3=(-1,+1).
+    // `var` (not `let`) so naga lets us index by a runtime value.
+    var lookup = array<vec2<f32>, 6>(
         vec2<f32>(-1.0, -1.0),
         vec2<f32>( 1.0, -1.0),
         vec2<f32>( 1.0,  1.0),

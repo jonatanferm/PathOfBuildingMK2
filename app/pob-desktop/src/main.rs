@@ -10,6 +10,10 @@ fn main() -> eframe::Result<()> {
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([800.0, 600.0])
             .with_title("Path of Building MK2"),
+        // Force the wgpu backend so the tree renderer's CallbackTrait pipeline
+        // wires in (`pob_ui::TreeRenderer`). With the glow backend the custom
+        // paint callback isn't picked up.
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
 

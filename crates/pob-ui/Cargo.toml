@@ -10,6 +10,7 @@ pob-engine.workspace = true
 pob-data.workspace = true
 egui.workspace = true
 eframe.workspace = true
+egui-wgpu = "0.29"
 wgpu.workspace = true
 bytemuck.workspace = true
 tracing.workspace = true

@@ -2383,6 +2383,7 @@ dependencies = [
  "bytemuck",
  "eframe",
  "egui",
+ "egui-wgpu",
  "pob-data",
  "pob-engine",
  "rfd",

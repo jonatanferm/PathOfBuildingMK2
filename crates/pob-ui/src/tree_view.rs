@@ -1,15 +1,16 @@
-//! Passive tree widget. Renders edges + nodes via egui's `Painter`, supports pan/zoom,
-//! click-to-allocate, and hover tooltips.
+//! Passive tree widget. Renders edges via egui shapes and nodes via a wgpu
+//! custom-paint callback (`tree_renderer::TreeNodeCallback`).
 //!
-//! Phase 4a uses egui shapes (lines + circles) — fast enough for the ~3000-node tree at
-//! interactive zooms. A wgpu custom paint callback is queued for Phase 6 polish if
-//! profiling shows we need it.
+//! Phase 8a moved node rendering off egui's CPU painter. Edges and the
+//! tooltip path stay on egui for now; Phase 8b takes edges to wgpu too.
 
 use ahash::HashMap;
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
+use eframe::egui_wgpu;
 use pob_data::{NodeId, NodeKind, PassiveTree};
 
 use crate::tree_layout::{compute_node_positions, NodePos};
+use crate::tree_renderer::{kind_to_u32, state_bits, NodeInstance, TreeNodeCallback};
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct TreeInteraction {
@@ -140,11 +141,19 @@ impl TreeView {
             }
         }
 
-        // Nodes.
+        // Nodes — hit-test in CPU and emit a single wgpu draw callback for the
+        // whole tree. The shader's SDF circle handles fill/ring/search/hover
+        // visuals based on the per-instance state byte.
         let mut hovered: Option<NodeId> = None;
         let mut clicked: Option<NodeId> = None;
         let pointer = response.hover_pos();
 
+        // Path-overlay set for fast lookup when building the state byte.
+        let path_set: ahash::HashSet<NodeId> =
+            self.path_overlay.iter().copied().collect();
+
+        // First pass: hit-test (so `hovered` is known when we build the state
+        // byte for the same draw call).
         for (id, node) in &tree.nodes {
             if matches!(node.kind, NodeKind::Root) {
                 continue;
@@ -157,25 +166,66 @@ impl TreeView {
                 continue;
             }
             let radius = node_radius(node, self.zoom);
-            let alloc = allocated.contains(id);
-            let (fill, ring) = node_colors(node, alloc);
-            painter.circle(s, radius, fill, Stroke::new(1.0, ring));
-
-            // Search-match highlight ring.
-            if self.search_matches.contains(id) {
-                painter.circle_stroke(
-                    s,
-                    radius + 3.0,
-                    Stroke::new(2.0, Color32::from_rgb(255, 240, 80)),
-                );
-            }
-
             if let Some(pp) = pointer {
                 if (pp - s).length() < radius + 2.0 {
                     hovered = Some(*id);
                 }
             }
         }
+
+        // Second pass: build the instance buffer for the wgpu draw call.
+        let mut instances: Vec<NodeInstance> = Vec::with_capacity(tree.nodes.len());
+        for (id, node) in &tree.nodes {
+            if matches!(node.kind, NodeKind::Root) {
+                continue;
+            }
+            let Some(p) = self.positions.get(id).copied() else {
+                continue;
+            };
+            let mut state = 0u32;
+            if allocated.contains(id) {
+                state |= state_bits::ALLOCATED;
+            }
+            if self.search_matches.contains(id) {
+                state |= state_bits::SEARCH;
+            }
+            if hovered == Some(*id) {
+                state |= state_bits::HOVERED;
+            }
+            if path_set.contains(id) {
+                state |= state_bits::PATH;
+            }
+            instances.push(NodeInstance {
+                world_pos: [p.x, p.y],
+                world_radius: world_radius_for(node),
+                kind: kind_to_u32(node.kind),
+                state,
+                _pad: 0,
+            });
+        }
+
+        // Hand the per-frame state to the wgpu pipeline. The pixels-per-point
+        // factor lets us compute pixel sizes inside the shader without
+        // re-deriving them from the projection.
+        let pixels_per_point = ui.ctx().pixels_per_point();
+        let viewport_size_px = [
+            viewport.width() * pixels_per_point,
+            viewport.height() * pixels_per_point,
+        ];
+        let viewport_pixel_rect = egui::Rect::from_min_size(
+            viewport.min * pixels_per_point,
+            egui::Vec2::new(viewport_size_px[0], viewport_size_px[1]),
+        );
+        let _ = viewport_pixel_rect;
+        let cb = TreeNodeCallback {
+            instances,
+            viewport_center: [self.center.x, self.center.y],
+            zoom: self.zoom * pixels_per_point,
+            viewport_size: viewport_size_px,
+            pixels_per_point,
+        };
+        let paint_cb = egui_wgpu::Callback::new_paint_callback(viewport, cb);
+        painter.add(paint_cb);
 
         if let Some(id) = hovered {
             if let Some(node) = tree.nodes.get(&id) {
@@ -218,39 +268,22 @@ impl TreeView {
     }
 }
 
-fn node_radius(node: &pob_data::Node, zoom: f32) -> f32 {
-    let world = match node.kind {
+/// World-space (pre-zoom) radius for a node. The wgpu pipeline applies zoom
+/// inside the shader; the CPU-side hit-test uses `node_radius` below to
+/// compute the pixel radius.
+fn world_radius_for(node: &pob_data::Node) -> f32 {
+    match node.kind {
         NodeKind::Keystone => 90.0,
         NodeKind::Notable => 70.0,
         NodeKind::Mastery => 80.0,
         NodeKind::JewelSocket => 75.0,
         NodeKind::AscendancyStart | NodeKind::ClassStart => 110.0,
         _ => 35.0,
-    };
-    (world * zoom).max(2.0)
+    }
 }
 
-fn node_colors(node: &pob_data::Node, allocated: bool) -> (Color32, Color32) {
-    use Color32 as C;
-    if allocated {
-        let fill = match node.kind {
-            NodeKind::Keystone => C::from_rgb(220, 180, 60),
-            NodeKind::Notable => C::from_rgb(220, 100, 100),
-            NodeKind::Mastery => C::from_rgb(180, 80, 220),
-            NodeKind::JewelSocket => C::from_rgb(60, 220, 220),
-            _ => C::from_rgb(100, 200, 255),
-        };
-        return (fill, C::WHITE);
-    }
-    let fill = match node.kind {
-        NodeKind::Keystone => C::from_rgb(120, 100, 50),
-        NodeKind::Notable => C::from_rgb(140, 70, 70),
-        NodeKind::Mastery => C::from_rgb(100, 60, 130),
-        NodeKind::JewelSocket => C::from_rgb(40, 110, 110),
-        NodeKind::AscendancyStart | NodeKind::ClassStart => C::from_rgb(80, 80, 110),
-        _ => C::from_rgb(70, 70, 90),
-    };
-    (fill, C::from_rgb(120, 120, 130))
+fn node_radius(node: &pob_data::Node, zoom: f32) -> f32 {
+    (world_radius_for(node) * zoom).max(2.0)
 }
 
 fn rect_contains_segment(rect: Rect, a: Pos2, b: Pos2) -> bool {
