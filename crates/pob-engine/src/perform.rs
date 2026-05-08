@@ -1983,12 +1983,60 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let main_dps = final_avg * cps;
     env.output.set("MainSkillDPS", main_dps);
 
+    // Impale: a stack-based physical-only damage layer. PoB models 5 stacks of
+    // 10% (default) of the original physical hit, applied when the next hit
+    // lands. We use the simplified per-cast rollup from the issue:
+    //
+    //   ImpaleStoredHitAvg = phys_avg (post-crit, pre-mitigation)
+    //   ImpaleDPS = stored × stacks × effect/100 × chance/100 × cps
+    //
+    // Skipping `impaleHitDamageMod`'s armour interaction and `impaleTaken`
+    // multiplier matches the simple model in CalcOffence.lua line 5875 minus
+    // the resist/taken factors, which `(1 - phys_reduction/100)` already
+    // dampens via `final_avg` if the user has set enemy armour. Output keys
+    // mirror PoB's: `ImpaleChance`, `ImpaleStoredHitAvg`, `ImpaleDPS`.
+    // Treat the hit as physical when the skill explicitly tags itself
+    // PhysicalDamage or it's a weapon-driven attack with no elemental tag
+    // (Cleave, Strike skills, etc.). Skill-data-driven elemental conversion
+    // (e.g. Avatar of Fire) is a separate concern.
+    let impale_is_physical_hit =
+        elem_stat == "PhysicalDamage" || (early_is_attack && elem_stat == "Damage");
+    let impale_chance_pct = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ImpaleChance")
+        .clamp(0.0, 100.0);
+    let impale_dps = if impale_is_physical_hit && impale_chance_pct > 0.0 {
+        // Effect is a % per stack (PoB's ImpaleStoredDamage). Default 10%
+        // before any inc/more mods. Mods accumulate on `ImpaleEffect`.
+        let effect_inc = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "ImpaleEffect");
+        let effect_more = env.mod_db.more(&cfg, &env.state, "ImpaleEffect");
+        let effect_pct = 10.0 * (1.0 + effect_inc / 100.0) * effect_more;
+        let stacks = 5.0_f64
+            + env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "ImpaleStacksMax");
+        let stored = avg_with_crit;
+        env.output.set("ImpaleChance", impale_chance_pct);
+        env.output.set("ImpaleEffect", effect_pct);
+        env.output.set("ImpaleStoredHitAvg", stored);
+        let dps = stored * (effect_pct / 100.0) * stacks * (impale_chance_pct / 100.0) * cps;
+        env.output.set("ImpaleDPS", dps);
+        dps
+    } else {
+        env.output.set("ImpaleChance", 0.0);
+        env.output.set("ImpaleStoredHitAvg", 0.0);
+        env.output.set("ImpaleDPS", 0.0);
+        0.0
+    };
+
     // FullDPS aggregator: hit DPS + the highest-impact ailment that this skill can
     // sustain. Real PoB sums all simultaneously sustainable ailments; we approximate.
     let bleed = env.output.get("BleedDPS");
     let poison = env.output.get("PoisonDPS");
     let ignite = env.output.get("IgniteDPS");
-    let full_dps = main_dps + bleed + poison + ignite;
+    let full_dps = main_dps + bleed + poison + ignite + impale_dps;
     env.output.set("FullDPS", full_dps);
 
     // PoB exposes a stack of DPS aliases the UI uses interchangeably. Without
@@ -1998,6 +2046,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("WithBleedDPS", main_dps + bleed);
     env.output.set("WithPoisonDPS", main_dps + poison);
     env.output.set("WithIgniteDPS", main_dps + ignite);
+    env.output.set("WithImpaleDPS", main_dps + impale_dps);
     // PoB's CombinedAvg is actually the combined per-second damage (DPS), not
     // avg-hit. AverageDamage / AverageHit / AverageBurstDamage are the per-hit
     // damage values — those use final_avg.
