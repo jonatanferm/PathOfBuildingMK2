@@ -703,11 +703,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             if item_count > 0 {
                 ui.label(format!("Items equipped: {item_count}"));
             }
-            if app.character.main_skill.is_some() {
-                ui.label(format!(
-                    "Main skill: {}",
-                    app.character.main_skill.as_ref().unwrap().skill_id
-                ));
+            if let Some(main_skill) = app.character.main_skill.as_ref() {
+                ui.label(format!("Main skill: {}", main_skill.skill_id));
             }
 
             ui.add_space(10.0);

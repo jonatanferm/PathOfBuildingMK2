@@ -2312,7 +2312,7 @@ fn flask_instant_recovery_mod_splits_per_flask_output() {
 // is on, not 2.25×.
 #[test]
 fn flask_low_life_multiplier_applies_exactly_once_to_gradual() {
-    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(_skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;

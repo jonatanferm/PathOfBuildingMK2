@@ -66,9 +66,10 @@ jobs:
   clippy:
     name: cargo clippy
     runs-on: ubuntu-latest
-    # Advisory until the existing warnings (mostly in `pob-data` extractor
-    # paths) are cleaned up. Strict `-D warnings` fails on unrelated lints.
-    continue-on-error: true
+    # Issue #49: promoted from advisory to required. The workspace
+    # is now `cargo clippy ... -- -D warnings` clean across the
+    # engine crates, so this gates every PR against new lint
+    # introductions instead of letting warnings drift.
     steps:
       - uses: actions/checkout@v4
 
@@ -85,7 +86,8 @@ jobs:
       - name: cargo clippy (engine)
         # Same deal as the test job: limit to the headless calc-engine crates
         # so we don't need the Linux UI system packages.
-        run: cargo clippy -p pob-engine -p pob-data -p pob-extract --all-targets
+        # Issue #49: `-D warnings` makes clippy fail on lint introductions.
+        run: cargo clippy -p pob-engine -p pob-data -p pob-extract --all-targets -- -D warnings
 
   # Optional: run pob_diff against an upstream PoB checkout. Manual trigger
   # only — the upstream PoB repo is not redistributable as a CI artifact, so

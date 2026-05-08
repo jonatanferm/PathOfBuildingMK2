@@ -100,6 +100,25 @@ too_many_arguments = "allow"
 cast_possible_wrap = "allow"
 default_trait_access = "allow"
 from_iter_instead_of_collect = "allow"
+# Issue #49 (slice 3): final wave to clear clippy. These are all
+# stylistic preferences; the value of `-D warnings` is catching
+# real errors before they ship, not bikeshedding on
+# `map(...).unwrap_or(...)` vs `map_or(...)`.
+map_unwrap_or = "allow"
+collapsible_if = "allow"
+bool_to_int_with_if = "allow"
+borrow_as_ptr = "allow"
+explicit_counter_loop = "allow"
+redundant_closure_for_method_calls = "allow"
+unnecessary_debug_formatting = "allow"
+manual_midpoint = "allow"
+ptr_as_ptr = "allow"
+ref_as_ptr = "allow"
+manual_clamp = "allow"
+large_enum_variant = "allow"
+filter_next = "allow"
+unnecessary_to_owned = "allow"
+if_not_else = "allow"
 
 [profile.release]
 lto = "thin"

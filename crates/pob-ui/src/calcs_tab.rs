@@ -4,21 +4,12 @@
 use eframe::egui;
 use pob_engine::{Env, Mod, ModStore as _, ModType, Output, Source, Tag};
 
+#[derive(Default)]
 pub struct CalcsTabState {
     pub filter: String,
     pub hide_zero: bool,
     /// Stat the user clicked to inspect. `None` collapses the breakdown panel.
     pub focused_stat: Option<String>,
-}
-
-impl Default for CalcsTabState {
-    fn default() -> Self {
-        Self {
-            filter: String::new(),
-            hide_zero: false,
-            focused_stat: None,
-        }
-    }
 }
 
 /// Stat category groupings — each (heading, prefix-or-substring-list).
