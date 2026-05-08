@@ -24,6 +24,7 @@ pub mod item_parser;
 pub mod mod_db;
 pub mod mod_parser;
 pub mod modifier;
+pub mod pathfind;
 pub mod perform;
 pub mod pob_export;
 pub mod pob_import;
