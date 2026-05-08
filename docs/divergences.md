@@ -149,13 +149,28 @@ Diff fixes the harness has surfaced and resolved:
   resists, missing-resist deltas, attribute aliases, leech caps)
 
 Open work:
-- XML→CharacterState bridge currently covers class + level + ascendancy +
-  allocated tree nodes. Items, skill gem selection, and Config inputs still
-  need plumbing through `import_pob_xml`.
 - PoB's iterative damage-shaving solver (used for `MaximumHitTaken` and
   `TotalEHP`): pob-engine's analytic ratio approximation matches to ~0.2%.
   Implementing the solver would close the last divergence but is unlikely to
   matter for users.
+- Per-skill chain damage scaling: Arc-style "+15% MORE damage per chain
+  remaining" mods are loaded as PerStat:ChainRemaining MORE multipliers but
+  applying them in the per-cast average overshoots, because PoB averages
+  across the chain count (hit 0 has full bonus, hit ChainMax has none). For
+  now we omit the scaling from the displayed AverageHit; full chain
+  iteration is a Phase 3e follow-up.
+
+Closed in this phase:
+- Items, skill gem selection (with multi-group socketing + supports), and
+  Config inputs all flow through `import_pob_xml` into CharacterState.
+- Support gems linked into the active socket group buff the main skill via
+  `skill_mods` + `addSkillTypes` / `excludeSkillTypes` filtering.
+- Per-gem enabled toggle persisted through both PoB XML import and
+  CharacterSnapshot share codes.
+- Calcs tab gained a stat-breakdown side panel: click any stat to see every
+  contributing mod (BASE / INC / MORE / FLAG) with source + tag annotations.
+- Side panel grew a per-element defence section showing per-damage-type
+  EHP and MaxHitTaken numbers.
 
 ### Tree rendering uses egui shapes, not wgpu — Phase 4a (open)
 
