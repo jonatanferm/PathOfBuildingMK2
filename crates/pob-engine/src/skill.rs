@@ -269,6 +269,39 @@ pub fn skill_mods(skill: &Skill, quality: u32) -> Vec<crate::Mod> {
     out
 }
 
+/// Produce the buff mods an aura/herald skill grants its allies — i.e. the
+/// `Mod`s a player picks up while the aura is reserved. This walks the same
+/// statMap as `skill_mods` but also iterates `stats[]` × per-level positionals
+/// (Hatred's `physical_damage_%_to_add_as_cold = 39 @ L20`, Wrath's
+/// `wrath_aura_spell_lightning_damage_+%_final = 21 @ L20`, etc.). Per-level
+/// values are taken raw — PoB's `statInterpolation` types 1 (linear) and 3
+/// (effectiveness) both end up at the same number in PoB's pre-extracted
+/// JSON, since the extractor already resolves the interpolation during data
+/// generation. Each emitted `Mod` is sourced as `Source::Skill(skill.name)`.
+pub fn aura_buff_mods(skill: &Skill, gem_level: u32, quality: u32) -> Vec<crate::Mod> {
+    let mut out = skill_mods(skill, quality);
+    // Per-level positional stats. The extractor-emitted values in `levels[L][i+1]`
+    // are already post-interpolation, so we use them directly.
+    for (i, stat_id) in skill.stats.iter().enumerate() {
+        let Some(value) = skill.positional(gem_level, (i + 1) as u32) else {
+            continue;
+        };
+        let Some(stat_map) = skill_stat_map(skill).get(stat_id) else {
+            continue;
+        };
+        let Some(arr) = stat_map.as_array() else {
+            continue;
+        };
+        for entry in arr {
+            if let Some(mut m) = parse_extractor_mod(entry, value) {
+                m.source = Some(crate::Source::Skill(skill.name.clone()));
+                out.push(m);
+            }
+        }
+    }
+    out
+}
+
 fn skill_stat_map(skill: &Skill) -> &indexmap::IndexMap<String, serde_json::Value> {
     &skill.stat_map
 }
