@@ -18,11 +18,12 @@ mod import_export_tab;
 mod items_tab;
 mod notes_tab;
 mod party_tab;
-mod pathfind;
 mod skills_tab;
 mod tree_layout;
 mod tree_renderer;
 mod tree_view;
+
+use pob_engine::pathfind;
 
 pub use tree_view::TreeView;
 
@@ -830,7 +831,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         "Node belongs to a different ascendancy class.".into(),
                     ));
                 } else if toggling_off {
-                    app.character.allocated.remove(&id);
+                    // Unallocate: removes the clicked node *and* any nodes that
+                    // are now disconnected from the class start.
+                    app.character.unallocate(&app.tree, id);
                     recompute = true;
                 } else {
                     // Unallocated click: allocate the whole shortest path from any
@@ -847,8 +850,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         pathfind::shortest_path_from_allocated(&app.tree, &allocated_set, id)
                     };
                     if let Some(path) = path_opt {
-                        // The first entry of `path` is an already-allocated root
-                        // (or `id` itself when allocated is empty); skip that.
+                        // Path[0] is an already-allocated root (or `id` itself when
+                        // the allocation was empty); skip that for the budget check.
                         let first_idx = if allocated_set.is_empty() { 0 } else { 1 };
                         let new_ascend_in_path: u32 = path[first_idx..]
                             .iter()
@@ -868,9 +871,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                                 format!("Path would exceed the {budget}-point ascendancy budget."),
                             ));
                         } else {
-                            for nid in &path[first_idx..] {
-                                app.character.allocated.insert(*nid);
-                            }
+                            app.character.allocate_path(&app.tree, id);
                             recompute = true;
                         }
                     } else {

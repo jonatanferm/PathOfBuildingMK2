@@ -764,6 +764,74 @@ impl Character {
         self.allocated.insert(node);
     }
 
+    /// Allocate `target` and every unallocated node on the shortest path
+    /// connecting it to the existing allocation. Mirrors PoB's "click an
+    /// outlying notable to jump there" behaviour: when you click a far
+    /// node we also allocate the chain of points it takes to reach it.
+    ///
+    /// Returns the list of node ids that were newly inserted (in path
+    /// order, target last). Returns an empty `Vec` if `target` was
+    /// already allocated. Returns `None` if `target` is unreachable from
+    /// the current allocation; in that case nothing changes.
+    ///
+    /// When the allocation is empty the method falls back to inserting
+    /// just `target` (first-click behaviour for tests / freshly reset
+    /// characters).
+    pub fn allocate_path(&mut self, tree: &PassiveTree, target: NodeId) -> Option<Vec<NodeId>> {
+        if self.allocated.contains(&target) {
+            return Some(Vec::new());
+        }
+        let allocated_set: std::collections::HashSet<NodeId> =
+            self.allocated.iter().copied().collect();
+        let path = if allocated_set.is_empty() {
+            vec![target]
+        } else {
+            crate::pathfind::shortest_path_from_allocated(tree, &allocated_set, target)?
+        };
+        // First entry is an already-allocated root (or `target` itself when the
+        // allocated set was empty). Skip it so we only return newly-added ids.
+        let first_idx = usize::from(!allocated_set.is_empty());
+        let added: Vec<NodeId> = path[first_idx..].to_vec();
+        for id in &added {
+            self.allocated.insert(*id);
+        }
+        Some(added)
+    }
+
+    /// Unallocate `node` and any nodes that are now orphaned — that is,
+    /// no longer connected to the character's class start (or picked
+    /// ascendancy start) through the remaining allocation. Returns the
+    /// full set of removed node ids.
+    ///
+    /// Does nothing and returns an empty `Vec` if `node` wasn't allocated.
+    pub fn unallocate(&mut self, tree: &PassiveTree, node: NodeId) -> Vec<NodeId> {
+        if !self.allocated.remove(&node) {
+            return Vec::new();
+        }
+        let mut removed = vec![node];
+        let seeds = crate::pathfind::anchor_nodes(tree, &self.class.0, self.ascendancy.as_deref());
+        if seeds.is_empty() {
+            // No anchor — every node is technically orphaned, but blowing
+            // away the whole allocation surprises callers (e.g. tests with
+            // synthetic class names). Leave the rest in place.
+            return removed;
+        }
+        let allocated_set: std::collections::HashSet<NodeId> =
+            self.allocated.iter().copied().collect();
+        let anchored = crate::pathfind::anchored_subset(tree, &allocated_set, &seeds);
+        let orphans: Vec<NodeId> = self
+            .allocated
+            .iter()
+            .copied()
+            .filter(|id| !anchored.contains(id))
+            .collect();
+        for id in &orphans {
+            self.allocated.remove(id);
+        }
+        removed.extend(orphans);
+        removed
+    }
+
     /// Find the `Class` definition in the tree.
     pub fn resolve_class<'a>(&self, tree: &'a PassiveTree) -> Option<&'a Class> {
         tree.classes.iter().find(|c| c.name == self.class.0)
