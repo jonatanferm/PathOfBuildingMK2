@@ -467,6 +467,70 @@ fn full_demo_witch_arc_produces_reasonable_dps() {
 }
 
 #[test]
+fn slot_conditional_item_mod_gates_on_equipped_ring() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::marauder(), 90);
+
+    // Body armour with a slot-conditional damage line. The mod text must parse into
+    // a Condition `HaveMagicRingEquipped` tag so it only activates when a Magic
+    // Ring is on.
+    let body = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nDoom Carapace\nFull Plate\n--------\n+50 to maximum Life\n10% increased Damage while you have a Magic Ring equipped\n--------",
+    )
+    .expect("parse body armour");
+    c.items.equip(pob_data::Slot::BodyArmour, body);
+
+    // Without a ring, the condition stays unset.
+    let env_no_ring = pob_engine::perform::init_env(&c, &tree);
+    assert!(
+        !env_no_ring.state.condition("HaveMagicRingEquipped"),
+        "HaveMagicRingEquipped should be off without a ring"
+    );
+
+    // Equip a Magic ring in Ring1 — the rarity+slot detector should set both
+    // the per-slot key and the rarity-equipped key.
+    let ring = parse_item(
+        "Item Class: Rings\nRarity: MAGIC\nResonant Topaz Ring\n--------\n+15% to Lightning Resistance\n--------",
+    )
+    .expect("parse magic ring");
+    c.items.equip(pob_data::Slot::Ring1, ring);
+    let env_with_ring = pob_engine::perform::init_env(&c, &tree);
+    assert!(
+        env_with_ring.state.condition("HaveMagicRingEquipped"),
+        "HaveMagicRingEquipped should be set with a Magic Ring on"
+    );
+    assert!(
+        env_with_ring.state.condition("MagicItemInRing 1"),
+        "MagicItemInRing 1 should be set for Ring1=left"
+    );
+
+    // The slot-conditional mod is in mod_db with the Condition tag — confirm at
+    // least one mod carries the gate.
+    use pob_engine::ModStore as _;
+    let gated = env_with_ring
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            m.tags.iter().any(|t| matches!(
+                &t.kind,
+                pob_engine::TagKind::Condition { var, neg: false } if var == "HaveMagicRingEquipped"
+            ))
+        })
+        .count();
+    assert!(
+        gated >= 1,
+        "expected at least one mod with HaveMagicRingEquipped tag"
+    );
+
+    // Sanity: removing the ring flips the condition back off.
+    c.items.unequip(pob_data::Slot::Ring1);
+    let env_back_off = pob_engine::perform::init_env(&c, &tree);
+    assert!(!env_back_off.state.condition("HaveMagicRingEquipped"));
+}
+
+#[test]
 fn ascendancy_point_cap_is_8() {
     let Some(tree) = load_3_25_tree() else {
         return;

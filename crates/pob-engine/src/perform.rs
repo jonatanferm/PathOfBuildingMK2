@@ -197,6 +197,7 @@ pub fn init_env_with_bases(
     // mods that have a "while using a shield" / "while wielding a two handed weapon" /
     // "while dual wielding" trailing clause via their parser-emitted Condition tag.
     detect_wielding_conditions(&character.items, &mut env.state);
+    detect_rarity_slot_conditions(&character.items, &mut env.state);
 
     // 6. Config — push conditions and multipliers into the eval state. ConfigState
     // overrides auto-detection if the user has explicitly set the same key.
@@ -276,6 +277,48 @@ fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_
         if !is_ranged && !is_caster_staff {
             state.set_condition("UsingMeleeWeapon", true);
         }
+    }
+}
+
+/// Set rarity + slot conditions that gate item mods like
+/// "if you have a Magic Ring in left slot" or "while you have a Rare Helmet equipped".
+/// Mirrors PoB's slot-conditional resolver: ring slots are 1=left, 2=right.
+fn detect_rarity_slot_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_db::EvalState) {
+    use pob_data::{Rarity, Slot};
+    let rarity_str = |r: Rarity| -> &'static str {
+        match r {
+            Rarity::Magic => "Magic",
+            Rarity::Rare => "Rare",
+            Rarity::Normal => "Normal",
+            Rarity::Unique => "Unique",
+            // Relic items count as Unique for parity with PoB's `RareItemIn...` lookup.
+            Rarity::Relic => "Unique",
+        }
+    };
+    for slot in Slot::all() {
+        let Some(item) = items.get(*slot) else {
+            continue;
+        };
+        let rarity = rarity_str(item.rarity);
+        let (kind, slot_idx) = match slot {
+            Slot::Ring1 => ("Ring", Some(1u32)),
+            Slot::Ring2 => ("Ring", Some(2u32)),
+            Slot::Amulet => ("Amulet", None),
+            Slot::Helmet => ("Helmet", None),
+            Slot::BodyArmour => ("Body Armour", None),
+            Slot::Gloves => ("Gloves", None),
+            Slot::Boots => ("Boots", None),
+            Slot::Belt => ("Belt", None),
+            // Shields are tracked via the existing UsingShield condition, not a per-rarity tag.
+            _ => continue,
+        };
+        // "if you have a Magic Ring in left slot" → MagicItemInRing 1
+        if let Some(idx) = slot_idx {
+            state.set_condition(format!("{rarity}ItemIn{kind} {idx}"), true);
+        }
+        // "while you have a Magic Ring equipped" → HaveMagicRingEquipped (any slot OK).
+        // Set once per rarity-kind pair so dual rings of the same rarity collapse.
+        state.set_condition(format!("Have{rarity}{kind}Equipped"), true);
     }
 }
 

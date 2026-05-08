@@ -553,11 +553,108 @@ fn strip_and_collect_trailing_clauses<'a>(
         s = strip_with_weapons_suffix(s).trim();
         s = strip_with_ailment_suffix(s).trim();
         s = strip_if_havent_clause(s, out).trim();
+        s = strip_have_equipped_clause(s, out).trim();
         if s.len() == before {
             break;
         }
     }
     s.trim_end_matches(',').trim()
+}
+
+/// Recognise mod tail clauses that gate the mod on the rarity / slot of equipped items:
+///
+///   "...if you have a Magic Ring in left slot"   → Condition `MagicItemInRing 1`
+///   "...if you have a Rare Helmet in right slot" → Condition `RareItemInHelmet 2`
+///   "...while you have a Magic Ring equipped"    → Condition `HaveMagicRingEquipped`
+///   "...while you have a Bow equipped"           → Condition `UsingBow` (delegates to wielding)
+///
+/// Mirrors PoB's pattern at `Modules/ModParser.lua`:
+///   `["if you have a (%a+) (%a+) in (%a+) slot"]` and the per-rarity ring/equipped
+///   uniques. The conditions are set in `perform::detect_wielding_conditions` based on
+///   the actual `ItemSet` rarity + slot, so the gate evaluates correctly.
+fn strip_have_equipped_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>) -> &'a str {
+    let lower = text.to_ascii_lowercase();
+
+    // "if you have a {rarity} {item} in {left|right} slot"
+    if let Some(idx) = lower.rfind("if you have a ") {
+        let suffix = text[idx + "if you have a ".len()..]
+            .trim()
+            .trim_end_matches('.');
+        if let Some((rarity, item, slot_idx)) = parse_rarity_item_in_slot(suffix) {
+            out.push(Tag {
+                kind: TagKind::Condition {
+                    var: format!("{rarity}ItemIn{item} {slot_idx}"),
+                    neg: false,
+                },
+            });
+            return text[..idx].trim_end_matches(',').trim_end();
+        }
+    }
+
+    // "while you have a {rarity} {item} equipped" — emits a single condition the
+    // engine populates based on whatever the user has on.
+    if let Some(idx) = lower.rfind("while you have a ") {
+        let suffix = text[idx + "while you have a ".len()..]
+            .trim()
+            .trim_end_matches('.');
+        if let Some((rarity, item)) = parse_rarity_item_equipped(suffix) {
+            out.push(Tag {
+                kind: TagKind::Condition {
+                    var: format!("Have{rarity}{item}Equipped"),
+                    neg: false,
+                },
+            });
+            return text[..idx].trim_end_matches(',').trim_end();
+        }
+    }
+
+    text
+}
+
+/// Match `<rarity> <item> in <left|right> slot` → ("Magic", "Ring", 1).
+/// Item names like "Body Armour" are supported as a single token.
+fn parse_rarity_item_in_slot(suffix: &str) -> Option<(&'static str, &'static str, u32)> {
+    let lc = suffix.to_ascii_lowercase();
+    let slot_idx = if lc.ends_with(" in left slot") {
+        1
+    } else if lc.ends_with(" in right slot") {
+        2
+    } else {
+        return None;
+    };
+    let trimmed = lc.trim_end_matches(" in left slot").trim_end_matches(" in right slot");
+    let (rarity, item) = split_rarity_item(trimmed)?;
+    Some((rarity, item, slot_idx))
+}
+
+/// Match `<rarity> <item> equipped` → ("Magic", "Ring").
+fn parse_rarity_item_equipped(suffix: &str) -> Option<(&'static str, &'static str)> {
+    let lc = suffix.to_ascii_lowercase();
+    let trimmed = lc.strip_suffix(" equipped")?.trim();
+    split_rarity_item(trimmed)
+}
+
+fn split_rarity_item(lc: &str) -> Option<(&'static str, &'static str)> {
+    let (rarity_lc, rest) = lc.split_once(' ')?;
+    let rarity = match rarity_lc {
+        "magic" => "Magic",
+        "rare" => "Rare",
+        "normal" => "Normal",
+        "unique" => "Unique",
+        _ => return None,
+    };
+    let item = match rest.trim() {
+        "ring" => "Ring",
+        "amulet" => "Amulet",
+        "helmet" => "Helmet",
+        "body armour" => "Body Armour",
+        "gloves" => "Gloves",
+        "boots" => "Boots",
+        "belt" => "Belt",
+        "shield" => "Shield",
+        _ => return None,
+    };
+    Some((rarity, item))
 }
 
 fn strip_with_ailment_suffix(text: &str) -> &str {
@@ -3063,6 +3160,46 @@ mod tests {
             TagKind::Condition { var, neg: true } if var == "KilledRecently"
         ));
         assert!(has, "expected negated KilledRecently tag, got {:?}", m.tags);
+    }
+
+    #[test]
+    fn if_have_magic_ring_in_left_slot_emits_condition_tag() {
+        let m = parse(
+            "Take no Extra Damage from Critical Strikes if you have a Magic Ring in left slot",
+        );
+        let has = m.tags.iter().any(|t| matches!(
+            &t.kind,
+            TagKind::Condition { var, neg: false } if var == "MagicItemInRing 1"
+        ));
+        assert!(
+            has,
+            "expected MagicItemInRing 1 tag, got {:?}",
+            m.tags
+        );
+    }
+
+    #[test]
+    fn if_have_rare_helmet_in_right_slot_emits_condition_tag() {
+        let m = parse("10% increased Damage if you have a Rare Helmet in right slot");
+        let has = m.tags.iter().any(|t| matches!(
+            &t.kind,
+            TagKind::Condition { var, neg: false } if var == "RareItemInHelmet 2"
+        ));
+        assert!(has, "expected RareItemInHelmet 2 tag, got {:?}", m.tags);
+    }
+
+    #[test]
+    fn while_have_magic_ring_equipped_emits_condition_tag() {
+        let m = parse("12% increased Damage while you have a Magic Ring equipped");
+        assert_condition_tag(&m, "HaveMagicRingEquipped");
+    }
+
+    #[test]
+    fn while_have_rare_body_armour_equipped_emits_condition_tag() {
+        // PoB keeps the space in "Body Armour" everywhere it appears in condition keys
+        // (e.g. `SocketedGemsInBody Armour`); we mirror that.
+        let m = parse("8% increased Damage while you have a Rare Body Armour equipped");
+        assert_condition_tag(&m, "HaveRareBody ArmourEquipped");
     }
 
     #[test]
