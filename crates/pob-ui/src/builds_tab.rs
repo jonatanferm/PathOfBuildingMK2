@@ -121,7 +121,11 @@ fn rescan(dir: &Path) -> Vec<BuildEntry> {
             Some(BuildEntry { label, path, ext })
         })
         .collect();
-    out.sort_by(|a, b| a.label.to_ascii_lowercase().cmp(&b.label.to_ascii_lowercase()));
+    out.sort_by(|a, b| {
+        a.label
+            .to_ascii_lowercase()
+            .cmp(&b.label.to_ascii_lowercase())
+    });
     out
 }
 
@@ -176,10 +180,8 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
                         for entry in &state.entries {
                             if ui
                                 .add(
-                                    egui::Label::new(
-                                        egui::RichText::new(&entry.label).monospace(),
-                                    )
-                                    .sense(egui::Sense::click()),
+                                    egui::Label::new(egui::RichText::new(&entry.label).monospace())
+                                        .sense(egui::Sense::click()),
                                 )
                                 .on_hover_text("Click to load")
                                 .clicked()
@@ -225,10 +227,7 @@ mod tests {
     #[test]
     fn rescan_picks_mk2_and_xml_only() {
         // Use a temp dir under target/ so cargo test cleans it up.
-        let dir = std::env::temp_dir().join(format!(
-            "pob-ui-builds-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("pob-ui-builds-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -252,10 +251,7 @@ mod tests {
 
     #[test]
     fn rescan_alphabetises_case_insensitively() {
-        let dir = std::env::temp_dir().join(format!(
-            "pob-ui-builds-sort-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("pob-ui-builds-sort-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -278,8 +274,7 @@ mod tests {
         if let Some(p) = builds_dir() {
             let s = p.to_string_lossy();
             assert!(
-                s.ends_with("PathOfBuildingMK2/Builds")
-                    || s.ends_with("PathOfBuildingMK2\\Builds"),
+                s.ends_with("PathOfBuildingMK2/Builds") || s.ends_with("PathOfBuildingMK2\\Builds"),
                 "unexpected builds_dir suffix: {s}"
             );
         }

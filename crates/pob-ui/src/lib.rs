@@ -1225,8 +1225,7 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                         Some((StatusKind::Info, format!("Opened {}", path.display())));
                 }
                 Err(e) => {
-                    app.status_message =
-                        Some((StatusKind::Error, format!("Load failed: {e}")));
+                    app.status_message = Some((StatusKind::Error, format!("Load failed: {e}")));
                 }
             }
         }
@@ -1235,16 +1234,14 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
             // the builds dir. This matches `save_build`'s logic but
             // with a pre-resolved path (no rfd dialog).
             let payload = pob_engine::export_code(&app.character).map_err(|e| e.to_string());
-            match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string()))
-            {
+            match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
                 Ok(()) => {
                     app.current_build_path = Some(path.clone());
                     app.status_message =
                         Some((StatusKind::Info, format!("Saved to {}", path.display())));
                 }
                 Err(e) => {
-                    app.status_message =
-                        Some((StatusKind::Error, format!("Save failed: {e}")));
+                    app.status_message = Some((StatusKind::Error, format!("Save failed: {e}")));
                 }
             }
         }
