@@ -51,6 +51,9 @@ pub fn compute_full_with_env(
 ) -> (Output, Env) {
     let mut env = init_env_with_bases(character, tree, bases);
     perform_basic_stats(character, tree, &mut env);
+    if let Some(b) = bases {
+        perform_flask_recovery(character, b, &mut env);
+    }
     if let Some(reg) = skills {
         perform_reservations(character, reg, &mut env);
         perform_curses(character, reg, &mut env);
@@ -2239,6 +2242,98 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // Mana per second — basic skill cast/swing rate × per-cast cost.
     if mana_cost > 0.0 {
         env.output.set("ManaPerSecondCost", mana_cost * cps);
+    }
+}
+
+/// Per-flask recovery outputs: surface `LifeRecovery` / `ManaRecovery` /
+/// `LifeRecoveryRate` / `ManaRecoveryRate` for each equipped flask, plus the
+/// aggregate `FlaskLifeRecovery` / `FlaskManaRecovery` totals (max across
+/// flasks, mirroring `multipliers["LifeFlaskRecovery"]` in
+/// CalcSetup.lua:817).
+///
+/// Formula (mirrors ItemsTab.lua:3795-3809 simplified — no instant/gradual
+/// split, no LowLife multiplier, no `LifeAdditional`):
+///   life     = base × (1 + (FlaskLifeRecovery_inc + FlaskRecovery_inc)/100)
+///                    × FlaskLifeRecovery_more × FlaskRecovery_more
+///                    × (1 + FlaskEffect_inc/100)
+///   duration = base_duration × (1 + FlaskDuration_inc/100)
+///                            / (1 + (LifeRecovery_inc + FlaskLifeRecoveryRate_inc)/100)
+///   rate     = life / duration
+fn perform_flask_recovery(
+    character: &Character,
+    bases: &pob_data::bases::ItemBaseSet,
+    env: &mut Env,
+) {
+    use pob_data::Slot;
+    let cfg = QueryCfg::default();
+    let life_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskLifeRecovery")
+        + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskRecovery");
+    let life_more = env.mod_db.more(&cfg, &env.state, "FlaskLifeRecovery")
+        * env.mod_db.more(&cfg, &env.state, "FlaskRecovery");
+    let mana_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskManaRecovery")
+        + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskRecovery");
+    let mana_more = env.mod_db.more(&cfg, &env.state, "FlaskManaRecovery")
+        * env.mod_db.more(&cfg, &env.state, "FlaskRecovery");
+    let effect_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskEffect");
+    let dur_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "FlaskDuration");
+    let life_rate_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "LifeRecovery")
+        + env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "FlaskLifeRecoveryRate");
+    let mana_rate_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ManaRecovery")
+        + env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "FlaskManaRecoveryRate");
+
+    let mut life_max: f64 = 0.0;
+    let mut mana_max: f64 = 0.0;
+
+    let flask_slots = [Slot::Flask1, Slot::Flask2, Slot::Flask3, Slot::Flask4, Slot::Flask5];
+    for (idx, slot) in flask_slots.iter().enumerate() {
+        let Some(item) = character.items.get(*slot) else {
+            continue;
+        };
+        let Some(base) = bases.get(&item.base_name) else {
+            continue;
+        };
+        let Some(flask) = base.flask.as_ref() else {
+            continue;
+        };
+        let key_life = format!("Flask{}LifeRecovery", idx + 1);
+        let key_mana = format!("Flask{}ManaRecovery", idx + 1);
+        let key_life_rate = format!("Flask{}LifeRecoveryRate", idx + 1);
+        let key_mana_rate = format!("Flask{}ManaRecoveryRate", idx + 1);
+
+        let duration = (f64::from(flask.duration) * (1.0 + dur_inc / 100.0)).max(0.001);
+        if let Some(life_base) = flask.life {
+            let life = f64::from(life_base)
+                * (1.0 + life_inc / 100.0)
+                * life_more
+                * (1.0 + effect_inc / 100.0);
+            let life_dur = duration / (1.0 + life_rate_inc / 100.0);
+            let rate = if life_dur > 0.0 { life / life_dur } else { 0.0 };
+            env.output.set(&key_life, life);
+            env.output.set(&key_life_rate, rate);
+            life_max = life_max.max(life);
+        }
+        if let Some(mana_base) = flask.mana {
+            let mana = f64::from(mana_base)
+                * (1.0 + mana_inc / 100.0)
+                * mana_more
+                * (1.0 + effect_inc / 100.0);
+            let mana_dur = duration / (1.0 + mana_rate_inc / 100.0);
+            let rate = if mana_dur > 0.0 { mana / mana_dur } else { 0.0 };
+            env.output.set(&key_mana, mana);
+            env.output.set(&key_mana_rate, rate);
+            mana_max = mana_max.max(mana);
+        }
+    }
+
+    if life_max > 0.0 {
+        env.output.set("LifeFlaskRecovery", life_max);
+    }
+    if mana_max > 0.0 {
+        env.output.set("ManaFlaskRecovery", mana_max);
     }
 }
 
