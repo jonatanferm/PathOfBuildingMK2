@@ -135,30 +135,34 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     if has_icon {
         // Map the quad's local pixel offset (-half..+half) into the atlas
-        // sub-rect for this instance. The icon fills the SDF circle (uses
-        // r as the half-extent), so anything outside r samples border which
-        // we then mask with `inside` below.
-        let local_uv = in.local / r * 0.5 + 0.5; // 0..1
+        // sub-rect for this instance. The padded quad extends past r by a
+        // few pixels (for AA + outer rings), so local_uv ranges from
+        // ~-0.25..1.25; clamping to 0..1 keeps the atlas sample inside the
+        // icon's rect rather than bleeding into neighbouring atlas cells
+        // (matters most for the mastery atlas which is sparse).
+        let local_uv = clamp(in.local / r * 0.5 + 0.5, vec2<f32>(0.0), vec2<f32>(1.0));
         let atlas_uv = vec2<f32>(
             in.icon_uv.x + local_uv.x * in.icon_uv.z,
             in.icon_uv.y + local_uv.y * in.icon_uv.w,
         );
-        // Mastery nodes (kind == 3) live in a different atlas — same UV
-        // shape, different texture. Everyone else samples the active /
-        // inactive skill atlas based on allocation state.
-        var sampled: vec3<f32>;
+        // Sample all three atlases unconditionally and pick afterwards —
+        // some naga / browser-WebGPU paths choke on conditional texture
+        // reads inside an `if` (uniformity analysis treats them as
+        // non-uniform even when in.kind is constant per draw).
+        let s_active = textureSampleLevel(atlas_active, atlas_sampler, atlas_uv, 0.0);
+        let s_inactive = textureSampleLevel(atlas_inactive, atlas_sampler, atlas_uv, 0.0);
+        let s_mastery = textureSampleLevel(atlas_mastery, atlas_sampler, atlas_uv, 0.0);
+        var sampled: vec4<f32>;
         if in.kind == 3u {
-            sampled = textureSampleLevel(atlas_mastery, atlas_sampler, atlas_uv, 0.0).rgb;
+            sampled = s_mastery;
         } else {
-            sampled = select(
-                textureSampleLevel(atlas_inactive, atlas_sampler, atlas_uv, 0.0).rgb,
-                textureSampleLevel(atlas_active, atlas_sampler, atlas_uv, 0.0).rgb,
-                allocated,
-            );
+            sampled = select(s_inactive, s_active, allocated);
         }
-        // Mix sampled icon with the kind-color tint so allocation state is
-        // still legible even on busy icons.
-        fill = mix(sampled, fill, 0.15);
+        // Sit the sampled icon over the kind-color tint, weighted by the
+        // sampled alpha so transparent atlas pixels (mastery icons in
+        // particular) don't darken the underlying fill.
+        let icon_alpha = sampled.a;
+        fill = mix(fill, sampled.rgb, icon_alpha * 0.85);
     }
 
     let ring_color = select(vec3<f32>(0.47, 0.47, 0.51), vec3<f32>(1.0, 1.0, 1.0), allocated);

@@ -1050,6 +1050,24 @@ impl egui_wgpu::CallbackTrait for TreeEdgeCallback {
     }
 }
 
+#[test]
+fn check_node_instance_layout() {
+    // The vertex_attr_array! macro packs offsets from declared field
+    // order; adding any Rust-side padding without updating the vertex
+    // attribute layout would silently misalign icon_uv on the GPU.
+    let n = NodeInstance {
+        world_pos: [0.0; 2],
+        world_radius: 0.0,
+        kind: 0,
+        state: 0,
+        icon_uv: [0.0; 4],
+    };
+    let base = &n as *const _ as usize;
+    let icon_addr = &n.icon_uv as *const _ as usize;
+    assert_eq!(icon_addr - base, 20);
+    assert_eq!(std::mem::size_of::<NodeInstance>(), 36);
+}
+
 /// Map a `pob_data::NodeKind` to the integer the WGSL fragment shader expects.
 pub fn kind_to_u32(kind: pob_data::NodeKind) -> u32 {
     match kind {
