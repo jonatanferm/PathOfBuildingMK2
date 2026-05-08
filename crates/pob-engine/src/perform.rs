@@ -2204,6 +2204,38 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     env.output.set("EnemyStunThresholdMod", 1.0);
     env.output.set("FistOfWarDamageEffect", 1.0);
 
+    // AoE radius — only meaningful for skills tagged `area`. Mirrors the
+    // `calcAreaOfEffect` block in CalcOffence.lua:341-360. PoB pulls a base
+    // radius from `skillData.radius` (constant + quality scaling) and an
+    // `AreaOfEffectMod` multiplier from inc + more AoE mods, then computes
+    // `AreaOfEffectRadius = floor(base × floor(100 × sqrt(mod)) / 100)`.
+    // We surface the same on AoERadius / FinalAoERadius / AreaOfEffectMod /
+    // AreaOfEffectRadius / AreaOfEffectRadiusMetres so the Calcs tab can
+    // display them and pob_diff can compare against PoB's outputs.
+    if skill.base_flags.get("area").copied().unwrap_or(false) {
+        let base_radius: f64 = crate::skill::iter_skill_stats(skill, main.quality)
+            .filter(|(id, _)| id == "active_skill_base_area_of_effect_radius")
+            .map(|(_, v)| v)
+            .sum::<f64>()
+            + env
+                .mod_db
+                .sum(ModType::Base, &cfg, &env.state, "AreaOfEffect");
+        if base_radius > 0.0 {
+            let inc_area = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AreaOfEffect");
+            let more_area = env.mod_db.more(&cfg, &env.state, "AreaOfEffect");
+            let area_mod = (1.0 + inc_area / 100.0) * more_area;
+            let final_radius = (base_radius
+                * f64::floor(100.0 * area_mod.max(0.0).sqrt())
+                / 100.0)
+                .floor();
+            env.output.set("AoERadius", base_radius);
+            env.output.set("FinalAoERadius", final_radius);
+            env.output.set("AreaOfEffectMod", area_mod);
+            env.output.set("AreaOfEffectRadius", final_radius);
+            env.output.set("AreaOfEffectRadiusMetres", final_radius / 10.0);
+        }
+    }
+
     // Mana per second — basic skill cast/swing rate × per-cast cost.
     if mana_cost > 0.0 {
         env.output.set("ManaPerSecondCost", mana_cost * cps);

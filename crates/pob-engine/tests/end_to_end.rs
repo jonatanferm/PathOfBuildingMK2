@@ -1096,6 +1096,95 @@ fn ailment_duration_outputs_scale_with_duration_mods() {
     }
 }
 
+// Issue #52: Every AoE-tagged skill must emit AoERadius / FinalAoERadius
+// outputs (PoB exposes these on the Calcs tab) and FinalAoERadius must
+// scale with `increased Area of Effect` mods according to PoB's
+// `calcRadius = floor(base × floor(100 × sqrt(areaMod)) / 100)`.
+// Arc (chain, not AoE) must NOT emit these keys, satisfying the issue's
+// "Witch L90 Arc baseline unchanged" criterion.
+#[test]
+fn aoe_skills_emit_radius_outputs_that_scale_with_area_mods() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    // Ice Nova — base radius 26 from `active_skill_base_area_of_effect_radius`.
+    let Some(_) = skills.get("IceNova") else {
+        eprintln!("skip: IceNova not found");
+        return;
+    };
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.main_skill = Some(MainSkill::new("IceNova"));
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        (baseline.get("AoERadius") - 26.0).abs() < 0.001,
+        "IceNova AoERadius should be 26 (constantStats), got {}",
+        baseline.get("AoERadius")
+    );
+    // No INC/MORE area mods → AreaOfEffectMod == 1.0 → FinalAoERadius == 26.
+    assert!(
+        (baseline.get("AreaOfEffectMod") - 1.0).abs() < 0.001,
+        "AreaOfEffectMod with no mods should be 1.0"
+    );
+    assert!(
+        (baseline.get("FinalAoERadius") - 26.0).abs() < 0.001,
+        "FinalAoERadius with no mods should equal base, got {}",
+        baseline.get("FinalAoERadius")
+    );
+    // Metres = radius / 10 (PoB convention).
+    assert!(
+        (baseline.get("AreaOfEffectRadiusMetres") - 2.6).abs() < 0.001,
+        "AreaOfEffectRadiusMetres should be radius / 10"
+    );
+
+    // Equip an item granting +44% increased Area of Effect. With no MORE mods,
+    // areaMod = 1.44 and FinalAoERadius = floor(26 × floor(100 × sqrt(1.44)) / 100)
+    //                                   = floor(26 × floor(120) / 100)
+    //                                   = floor(26 × 1.20)
+    //                                   = floor(31.2)
+    //                                   = 31.
+    let belt = parse_item(
+        "Item Class: Belts\nRarity: MAGIC\nAoE Belt\nLeather Belt\n--------\n44% increased Area of Effect\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::Belt, belt);
+    let scaled = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        (scaled.get("AreaOfEffectMod") - 1.44).abs() < 0.001,
+        "AreaOfEffectMod with +44% INC should be 1.44, got {}",
+        scaled.get("AreaOfEffectMod")
+    );
+    assert!(
+        (scaled.get("FinalAoERadius") - 31.0).abs() < 0.001,
+        "FinalAoERadius with +44% INC should be 31 (calcRadius rounding), got {}",
+        scaled.get("FinalAoERadius")
+    );
+    // Base shouldn't move when only INC mods change.
+    assert!(
+        (scaled.get("AoERadius") - 26.0).abs() < 0.001,
+        "AoERadius (base) shouldn't change when INC mods change"
+    );
+
+    // Arc is chain, not AoE — should not emit any AoE radius outputs.
+    let Some(_) = skills.get("Arc") else { return };
+    let mut arc_char = Character::new(ClassRef::witch(), 90);
+    arc_char.main_skill = Some(MainSkill::new("Arc"));
+    let arc_out = pob_engine::compute_full(&arc_char, &tree, Some(&skills), Some(&bases));
+    assert_eq!(
+        arc_out.try_get("AoERadius"),
+        None,
+        "Arc (chain skill) should not emit AoERadius"
+    );
+    assert_eq!(
+        arc_out.try_get("FinalAoERadius"),
+        None,
+        "Arc (chain skill) should not emit FinalAoERadius"
+    );
+}
+
 #[test]
 fn fireball_emits_base_ignite_chance_via_global_stat_map() {
     let Some(skills) = load_skills() else { return };
