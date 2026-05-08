@@ -30,6 +30,10 @@ pub struct CharacterSnapshot {
     pub main_socket_group: u32,
     #[serde(default)]
     pub bandit: Bandit,
+    #[serde(default)]
+    pub pantheon_major: MajorGod,
+    #[serde(default)]
+    pub pantheon_minor: MinorGod,
 }
 
 fn one() -> u32 {
@@ -96,6 +100,8 @@ impl CharacterSnapshot {
                 .collect(),
             main_socket_group: c.main_socket_group,
             bandit: c.bandit,
+            pantheon_major: c.pantheon_major,
+            pantheon_minor: c.pantheon_minor,
         }
     }
     pub fn into_character(self) -> Character {
@@ -136,6 +142,8 @@ impl CharacterSnapshot {
             notes: self.notes,
             mastery_selections: self.mastery_selections.into_iter().collect(),
             bandit: self.bandit,
+            pantheon_major: self.pantheon_major,
+            pantheon_minor: self.pantheon_minor,
         }
     }
 }
@@ -224,6 +232,124 @@ impl Bandit {
     }
 }
 
+/// Endgame Pantheon — Major God selection. PoB stores this on the
+/// `<Build pantheonMajorGod="…">` attribute. Each god's "Soul"
+/// (level-1 effect) is the player-facing baseline mod.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MajorGod {
+    None,
+    TheBrineKing,
+    Arakaali,
+    Solaris,
+    Lunaris,
+}
+
+impl Default for MajorGod {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl MajorGod {
+    pub fn as_pob_name(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::TheBrineKing => "TheBrineKing",
+            Self::Arakaali => "Arakaali",
+            Self::Solaris => "Solaris",
+            Self::Lunaris => "Lunaris",
+        }
+    }
+
+    pub fn from_pob_name(name: &str) -> Option<Self> {
+        match name {
+            "None" | "" => Some(Self::None),
+            "TheBrineKing" => Some(Self::TheBrineKing),
+            "Arakaali" => Some(Self::Arakaali),
+            "Solaris" => Some(Self::Solaris),
+            "Lunaris" => Some(Self::Lunaris),
+            _ => None,
+        }
+    }
+
+    /// Display label for the UI dropdown. PoB's data file uses the
+    /// internal id; this is the in-game name.
+    pub fn display(self) -> &'static str {
+        match self {
+            Self::None => "No major god",
+            Self::TheBrineKing => "Soul of the Brine King",
+            Self::Arakaali => "Soul of Arakaali",
+            Self::Solaris => "Soul of Solaris",
+            Self::Lunaris => "Soul of Lunaris",
+        }
+    }
+}
+
+/// Endgame Pantheon — Minor God selection. PoB has 8 minor gods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MinorGod {
+    None,
+    Abberath,
+    Gruthkul,
+    Yugul,
+    Shakari,
+    Tukohama,
+    Ralakesh,
+    Garukhan,
+    Ryslatha,
+}
+
+impl Default for MinorGod {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl MinorGod {
+    pub fn as_pob_name(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Abberath => "Abberath",
+            Self::Gruthkul => "Gruthkul",
+            Self::Yugul => "Yugul",
+            Self::Shakari => "Shakari",
+            Self::Tukohama => "Tukohama",
+            Self::Ralakesh => "Ralakesh",
+            Self::Garukhan => "Garukhan",
+            Self::Ryslatha => "Ryslatha",
+        }
+    }
+
+    pub fn from_pob_name(name: &str) -> Option<Self> {
+        match name {
+            "None" | "" => Some(Self::None),
+            "Abberath" => Some(Self::Abberath),
+            "Gruthkul" => Some(Self::Gruthkul),
+            "Yugul" => Some(Self::Yugul),
+            "Shakari" => Some(Self::Shakari),
+            "Tukohama" => Some(Self::Tukohama),
+            "Ralakesh" => Some(Self::Ralakesh),
+            "Garukhan" => Some(Self::Garukhan),
+            "Ryslatha" => Some(Self::Ryslatha),
+            _ => None,
+        }
+    }
+
+    pub fn display(self) -> &'static str {
+        match self {
+            Self::None => "No minor god",
+            Self::Abberath => "Soul of Abberath",
+            Self::Gruthkul => "Soul of Gruthkul",
+            Self::Yugul => "Soul of Yugul",
+            Self::Shakari => "Soul of Shakari",
+            Self::Tukohama => "Soul of Tukohama",
+            Self::Ralakesh => "Soul of Ralakesh",
+            Self::Garukhan => "Soul of Garukhan",
+            Self::Ryslatha => "Soul of Ryslatha",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Character {
     pub class: ClassRef,
@@ -248,6 +374,12 @@ pub struct Character {
     /// elsewhere); the named bandits each apply a small reward via
     /// `apply_bandit_mods` at compute time.
     pub bandit: Bandit,
+    /// Endgame Pantheon Major God. The chosen god's "Soul" (level-1
+    /// effect) is injected into the player modDB at compute time via
+    /// `apply_pantheon_mods`.
+    pub pantheon_major: MajorGod,
+    /// Endgame Pantheon Minor God.
+    pub pantheon_minor: MinorGod,
 }
 
 /// Encounter / condition configuration. Mirrors PoB's Config tab:
@@ -409,6 +541,8 @@ impl Character {
             notes: String::new(),
             mastery_selections: HashMap::default(),
             bandit: Bandit::default(),
+            pantheon_major: MajorGod::default(),
+            pantheon_minor: MinorGod::default(),
         }
     }
 
