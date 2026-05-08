@@ -47,12 +47,11 @@ with cast speed; ignite is single-instance non-stacking; bleed has a movement mo
 duration mods, faster ailment damage, and ailment magnitude. We do not yet model any of
 those.
 
-### Hit chance uses fixed enemy evasion — Phase 3 (open)
+### Hit chance uses fixed enemy evasion — Phase 3 (closed in 7b)
 
-`MainSkillHitChance` uses `enemy_evasion = 1500.0`. PoB pulls the enemy evasion from the
-ConfigState. Targeted fix: add `enemy_evasion` to `ConfigState`, surface a slider in the
-Config tab, and read it here. Rationale for the shortcut: 1500 is the PoB-default baseline
-evasion for level 84 enemies, so the number is correct for the default config.
+Closed: `ConfigState.enemy_evasion` exists, defaults to 1500 (the PoB level-84 baseline),
+is surfaced as a slider in the Config tab, and read by the accuracy block in
+`perform.rs::compute_with_skills` when computing `MainSkillHitChance`.
 
 ### No ascendancy point counter — Phase 3 (open)
 

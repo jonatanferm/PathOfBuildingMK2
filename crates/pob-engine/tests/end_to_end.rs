@@ -585,6 +585,50 @@ fn ascendancy_point_cap_is_8() {
 }
 
 #[test]
+fn enemy_evasion_changes_main_skill_hit_chance() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        return;
+    };
+
+    let attack_id = skills
+        .iter_active()
+        .find(|(_, s)| s.base_flags.get("attack").copied().unwrap_or(false))
+        .map(|(id, _)| id.to_owned());
+    let Some(attack_id) = attack_id else {
+        return;
+    };
+    let sword_name = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone());
+    let Some(sword_name) = sword_name else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    c.items.equip(
+        pob_data::Slot::Weapon1,
+        parse_item(&format!(
+            "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+        ))
+        .unwrap(),
+    );
+    c.main_skill = Some(MainSkill::new(&attack_id));
+
+    c.config.enemy_evasion = 500;
+    let low = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
+        .get("MainSkillHitChance");
+    c.config.enemy_evasion = 20_000;
+    let high = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
+        .get("MainSkillHitChance");
+    assert!(
+        low > high,
+        "Higher enemy_evasion should drop hit chance; low={low}, high={high}"
+    );
+}
+
+#[test]
 fn bleed_faster_and_enemy_moving_scale_bleed_dps() {
     let (Some(tree), Some(skills), Some(bases)) =
         (load_3_25_tree(), load_skills(), load_bases())
