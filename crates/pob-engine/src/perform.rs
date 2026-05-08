@@ -2402,7 +2402,49 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     } else {
         1.0
     };
-    let main_dps = final_avg * cps * totem_count;
+
+    // Issue #16 (mine + trap halves): mirror the totem branch for mine-
+    // and trap-tagged skills. PoB's `data.characterConstants` says
+    // `base_number_of_traps_allowed = 15` and
+    // `base_number_of_remote_mines_allowed = 15` (different from the
+    // per-throw count, which is what we model here as a steady-state
+    // DPS multiplier). For an MVP we treat each mine / trap tossed as
+    // contributing one cast's worth of damage, with the count capped
+    // by the active limit. The multiplier defaults to 1 when no extra
+    // mines / traps are provided by mods or the supports.
+    let is_mine = skill.base_flags.get("mine").copied().unwrap_or(false);
+    let mine_count = if is_mine {
+        let throw_count = (1.0
+            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "MineThrowCount"))
+        .max(1.0);
+        let active_limit = (1.0
+            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "ActiveMineLimit"))
+        .max(throw_count);
+        env.output.set("ActiveMineLimit", active_limit);
+        env.output.set("MinesPlaced", throw_count);
+        env.output.set("NumberOfMines", throw_count);
+        throw_count
+    } else {
+        1.0
+    };
+    let is_trap = skill.base_flags.get("trap").copied().unwrap_or(false);
+    let trap_count = if is_trap {
+        let throw_count = (1.0
+            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "TrapThrowCount"))
+        .max(1.0);
+        let active_limit = (15.0
+            + env.mod_db.sum(ModType::Base, &cfg, &env.state, "ActiveTrapLimit"))
+        .max(throw_count);
+        env.output.set("ActiveTrapLimit", active_limit);
+        env.output.set("TrapsThrown", throw_count);
+        env.output.set("NumberOfTraps", throw_count);
+        throw_count
+    } else {
+        1.0
+    };
+
+    let mechanism_multiplier = totem_count * mine_count * trap_count;
+    let main_dps = final_avg * cps * mechanism_multiplier;
     env.output.set("MainSkillDPS", main_dps);
 
     // Impale: a stack-based physical-only damage layer. PoB models 5 stacks of

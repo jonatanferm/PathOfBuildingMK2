@@ -1764,6 +1764,93 @@ fn projectiles_hitting_target_multiplies_dps() {
     assert_eq!(triple.get("ProjectileMultiplier"), expected_mult);
 }
 
+// Issue #16 (mine + trap halves): mine- and trap-tagged skills emit
+// per-mechanism output keys (`NumberOfMines`, `MinesPlaced`,
+// `NumberOfTraps`, `TrapsThrown`) and scale `MainSkillDPS` by the
+// per-throw count. Default is 1 (one mine / trap per cast); items
+// supplying `MineThrowCount` / `TrapThrowCount` BASE bumps it.
+#[test]
+fn mine_and_trap_skills_emit_throw_count_outputs() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    // Pick the first mine skill we can find. baseFlags.mine is the upstream
+    // flag.
+    let mine_id = skills
+        .iter_active()
+        .find(|(_, s)| s.base_flags.get("mine").copied().unwrap_or(false))
+        .map(|(id, _)| id.to_owned());
+    let Some(mine_id) = mine_id else {
+        eprintln!("skip: no mine skills available");
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::shadow(), 90);
+    c.main_skill = Some(MainSkill::new(&mine_id));
+    let mine_out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    if mine_out.get("MainSkillDPS") <= 0.0 {
+        eprintln!("skip: mine skill {mine_id} produces no DPS in this fixture");
+        return;
+    }
+    assert!(
+        (mine_out.get("NumberOfMines") - 1.0).abs() < 0.001,
+        "Mine skill should emit NumberOfMines = 1 by default, got {}",
+        mine_out.get("NumberOfMines")
+    );
+    assert!(
+        (mine_out.get("MinesPlaced") - 1.0).abs() < 0.001,
+        "Mine skill should emit MinesPlaced = 1 by default, got {}",
+        mine_out.get("MinesPlaced")
+    );
+
+    // Same for trap skills.
+    let trap_id = skills
+        .iter_active()
+        .find(|(_, s)| s.base_flags.get("trap").copied().unwrap_or(false))
+        .map(|(id, _)| id.to_owned());
+    let Some(trap_id) = trap_id else {
+        eprintln!("skip: no trap skills available");
+        return;
+    };
+    let mut tc = Character::new(ClassRef::shadow(), 90);
+    tc.main_skill = Some(MainSkill::new(&trap_id));
+    let trap_out = pob_engine::compute_full(&tc, &tree, Some(&skills), Some(&bases));
+    if trap_out.get("MainSkillDPS") <= 0.0 {
+        eprintln!("skip: trap skill {trap_id} produces no DPS");
+        return;
+    }
+    assert!(
+        (trap_out.get("NumberOfTraps") - 1.0).abs() < 0.001,
+        "Trap skill should emit NumberOfTraps = 1 by default, got {}",
+        trap_out.get("NumberOfTraps")
+    );
+    assert!(
+        (trap_out.get("TrapsThrown") - 1.0).abs() < 0.001,
+        "Trap skill should emit TrapsThrown = 1 by default, got {}",
+        trap_out.get("TrapsThrown")
+    );
+
+    // Non-mine/trap skill (Cleave) emits no mine/trap output keys.
+    let Some(_) = skills.get("Cleave") else { return };
+    let mut nc = Character::new(ClassRef::duelist(), 90);
+    nc.main_skill = Some(MainSkill::new("Cleave"));
+    let cleave_out = pob_engine::compute_full(&nc, &tree, Some(&skills), Some(&bases));
+    assert_eq!(
+        cleave_out.try_get("NumberOfMines"),
+        None,
+        "Cleave (non-mine skill) must not emit NumberOfMines"
+    );
+    assert_eq!(
+        cleave_out.try_get("NumberOfTraps"),
+        None,
+        "Cleave (non-trap skill) must not emit NumberOfTraps"
+    );
+}
+
 // Issue #8: impale layer adds physical-stack DPS to FullDPS via
 //   ImpaleDPS = stored × stacks(5) × effect/100 × chance/100 × cps
 // Issue #16 (totem half): a totem-summoning skill's MainSkillDPS must
