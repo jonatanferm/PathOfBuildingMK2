@@ -1652,6 +1652,13 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         let ignite_chance = (env.mod_db.sum(ModType::Base, &cfg, &env.state, "IgniteChance") / 100.0)
             .clamp(0.0, 1.0);
 
+        // Faster-ailment cluster: each `*Faster` mod plus the broad
+        // `DamagingAilmentsFaster` aggregator add to the dot's tick rate. PoB models
+        // this as a multiplicative `rateMod = 1 + faster%/100` applied to the per-second
+        // damage. We mirror that.
+        let damaging_ailments_faster =
+            env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamagingAilmentsFaster");
+
         // Bleed: 70% of base physical hit damage as Phys DoT for 5s. One stack at a time.
         let phys_avg = if elem_stat == "PhysicalDamage" {
             avg
@@ -1663,7 +1670,20 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamageOverTime");
             let dot_more = env.mod_db.more(&cfg, &env.state, "BleedDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime");
-            let bleed = phys_avg * 0.70 * (1.0 + dot_inc / 100.0) * dot_more;
+            let rate_mod = 1.0
+                + (env.mod_db.sum(ModType::Inc, &cfg, &env.state, "BleedFaster")
+                    + damaging_ailments_faster)
+                    / 100.0;
+            // Bleed deals double damage when the enemy is moving — PoB models this as
+            // a 100% MORE multiplier gated on the EnemyMoving condition. Surface it as a
+            // Config-tab toggle (`EnemyMoving`) so users can flip the assumption.
+            let movement_mod = if env.state.condition("EnemyMoving") {
+                2.0
+            } else {
+                1.0
+            };
+            let bleed =
+                phys_avg * 0.70 * (1.0 + dot_inc / 100.0) * dot_more * rate_mod * movement_mod;
             // Single-stack with chance-to-apply: long-run DPS = p × per-application-DPS
             env.output.set("BleedDPS", bleed * bleed_chance);
         }
@@ -1717,11 +1737,18 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 + env
                     .mod_db
                     .sum(ModType::Base, &cfg, &env.state, "DamageOverTimeMultiplier");
+            let rate_mod = 1.0
+                + (env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "IgniteBurnFaster")
+                    + damaging_ailments_faster)
+                    / 100.0;
             let ignite = avg
                 * 0.90
                 * (1.0 + i_inc / 100.0)
                 * i_more
-                * (1.0 + i_dot_mult / 100.0);
+                * (1.0 + i_dot_mult / 100.0)
+                * rate_mod;
             // Apply chance — assumes the skill reapplies frequently enough to maintain
             // an active ignite.
             env.output.set("IgniteDPS", ignite * ignite_chance);

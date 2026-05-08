@@ -585,6 +585,80 @@ fn ascendancy_point_cap_is_8() {
 }
 
 #[test]
+fn bleed_faster_and_enemy_moving_scale_bleed_dps() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    // Build a Duelist with an attack skill + sword + a body armour that grants
+    // 100% chance to bleed. With those alone we get a non-zero BleedDPS to
+    // measure ailment-rate scaling against.
+    let attack_id = skills
+        .iter_active()
+        .find(|(_, s)| s.base_flags.get("attack").copied().unwrap_or(false))
+        .map(|(id, _)| id.to_owned());
+    let Some(attack_id) = attack_id else {
+        return;
+    };
+    let sword_name = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone());
+    let Some(sword_name) = sword_name else {
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword =
+        parse_item(&format!("Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"))
+            .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new(&attack_id));
+
+    let bleeding_armour = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nBleed Hauberk\nFull Plate\n--------\n100% chance to cause Bleeding on Hit\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::BodyArmour, bleeding_armour);
+
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_bleed = baseline.get("BleedDPS");
+    if baseline_bleed <= 0.0 {
+        // The active-attack pick may not produce phys damage on every tree
+        // version; skip cleanly rather than asserting against a zero baseline.
+        eprintln!("skip: attack {attack_id} produced no BleedDPS baseline");
+        return;
+    }
+
+    // Add a 50% BleedFaster item — this is INC on BleedFaster, so BleedDPS rises by 1.5x.
+    let faster_belt = parse_item(
+        "Item Class: Belts\nRarity: MAGIC\nBleed Belt\nLeather Belt\n--------\nBleeding you inflict deals Damage 50% faster\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::Belt, faster_belt);
+    let after_faster = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let faster_bleed = after_faster.get("BleedDPS");
+    let faster_ratio = faster_bleed / baseline_bleed;
+    assert!(
+        (1.45..=1.55).contains(&faster_ratio),
+        "BleedFaster 50% should multiply BleedDPS by ~1.5; ratio={faster_ratio} (baseline={baseline_bleed}, after={faster_bleed})"
+    );
+
+    // Flip on EnemyMoving — bleed should double on top of the BleedFaster boost.
+    c.config.conditions.insert("EnemyMoving".to_owned(), true);
+    let after_moving = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let moving_bleed = after_moving.get("BleedDPS");
+    let moving_ratio = moving_bleed / faster_bleed;
+    assert!(
+        (1.95..=2.05).contains(&moving_ratio),
+        "EnemyMoving should double BleedDPS; ratio={moving_ratio} (with-faster={faster_bleed}, moving={moving_bleed})"
+    );
+}
+
+#[test]
 fn fireball_emits_base_ignite_chance_via_global_stat_map() {
     let Some(skills) = load_skills() else { return };
     let fireball = skills.get("Fireball").expect("Fireball");

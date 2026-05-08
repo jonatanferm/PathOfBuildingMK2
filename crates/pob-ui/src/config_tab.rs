@@ -134,6 +134,9 @@ const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("EnemyUnnerved", "Enemy is Unnerved"),
             ("EnemyCrushed", "Enemy is Crushed"),
             ("EnemyIsBoss", "Enemy is a Boss"),
+            // Movement toggle doubles BleedDPS — PoB models bleed-while-moving as a
+            // 100% MORE multiplier on bleed damage gated on this condition.
+            ("EnemyMoving", "Enemy is Moving"),
         ],
     ),
 ];
