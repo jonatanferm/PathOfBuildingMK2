@@ -76,8 +76,7 @@ fn default_witch_xml() -> String {
   <Items/>
   <Skills sortGemsByDPSField="CombinedDPS" sortGemsByDPS="true" defaultGemQuality="0" defaultGemLevel="normalMaximum" showSupportGemTypes="ALL" showAltQualityGems="false"/>
   <Tree activeSpec="1">
-    <Spec title="Default" classId="3" ascendClassId="0" treeVersion="3_28" masteryEffects="">
-      <URL>https://www.pathofexile.com/passive-skill-tree/AAAABgAAAAAA</URL>
+    <Spec title="Default" classId="3" ascendClassId="0" treeVersion="3_28" masteryEffects="" nodes="">
       <Sockets/>
     </Spec>
   </Tree>
@@ -167,6 +166,30 @@ end
 "#,
     );
 
+    // Probe build state to verify class registration.
+    if verbose {
+        run(
+            lua,
+            "build_probe",
+            r#"
+local m = launch.main
+local b = m.modes['BUILD']
+print(string.format('  build.className=%s ascendClassName=%s level=%s',
+    tostring(b.className), tostring(b.ascendClassName), tostring(b.characterLevel)))
+print(string.format('  build.spec.classId=%s ascendClassId=%s',
+    tostring(b.spec and b.spec.classId), tostring(b.spec and b.spec.ascendClassId)))
+local env = b.calcsTab and b.calcsTab.mainEnv
+if env and env.classId then
+    print(string.format('  env.classId=%s', tostring(env.classId)))
+end
+if env and env.player and env.player.modDB then
+    print(string.format('  player.modDB:Sum BASE Str = %s', tostring(env.player.modDB:Sum('BASE', nil, 'Str'))))
+    print(string.format('  player.modDB:Sum BASE Int = %s', tostring(env.player.modDB:Sum('BASE', nil, 'Int'))))
+end
+"#,
+        );
+    }
+
     // Step 6: pull env.player.output back into Rust as a sorted scalar map.
     let scalars: mlua::Table = lua
         .load(
@@ -218,26 +241,21 @@ fn diff_against_pob_engine(
     pob_entries: &[(String, mlua::Value)],
     build_xml: &str,
 ) -> Result<()> {
-    let class = extract_xml_attr(build_xml, "Build", "className").unwrap_or_else(|| "Witch".into());
-    let level = extract_xml_attr(build_xml, "Build", "level")
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(90);
-    let class_ref = match class.as_str() {
-        "Marauder" => pob_engine::character::ClassRef::marauder(),
-        "Ranger" => pob_engine::character::ClassRef::ranger(),
-        "Witch" => pob_engine::character::ClassRef::witch(),
-        "Duelist" => pob_engine::character::ClassRef::duelist(),
-        "Templar" => pob_engine::character::ClassRef::templar(),
-        "Shadow" => pob_engine::character::ClassRef::shadow(),
-        "Scion" => pob_engine::character::ClassRef::scion(),
-        _ => pob_engine::character::ClassRef::witch(),
-    };
+    // Use pob-engine's PoB XML importer so the character we feed into compute_full
+    // mirrors what PoB itself constructed from the same XML — class, level,
+    // ascendancy, allocated nodes, notes are all picked up.
+    let character = pob_engine::import_pob_xml(build_xml)
+        .map_err(|e| anyhow::anyhow!("import_pob_xml: {e}"))?;
+    let class = character.class.0.to_string();
+    let level = character.level;
+    let allocated = character.allocated.len();
 
-    let character = pob_engine::Character::new(class_ref, level);
     let tree = load_default_tree().context("load 3_28 tree fixture for diff")?;
     let output = pob_engine::perform::compute_with_skills(&character, &tree, None);
 
-    println!("\n=== diff: pob-engine vs PoB (class={class}, level={level}, no items / no tree) ===");
+    println!(
+        "\n=== diff: pob-engine vs PoB (class={class}, level={level}, allocated={allocated}) ==="
+    );
     println!("{:<32}  {:>14}  {:>14}  {:>14}", "key", "pob-engine", "pob (lua)", "delta");
     println!("{:-<78}", "");
 
@@ -247,21 +265,35 @@ fn diff_against_pob_engine(
         .collect();
 
     // Each row: (display name, pob-engine key, PoB key — same if no rename).
-    // Some stats use different naming conventions across the two engines.
+    // Some stats use different naming conventions across the two engines, so
+    // we keep an explicit alias table for the well-known cases.
     let probe_keys: &[(&str, &str, &str)] = &[
         ("Life",                 "Life",                 "Life"),
+        ("LifeUnreserved",       "LifeUnreserved",       "LifeUnreserved"),
         ("Mana",                 "Mana",                 "Mana"),
+        ("ManaUnreserved",       "ManaUnreserved",       "ManaUnreserved"),
         ("EnergyShield",         "EnergyShield",         "EnergyShield"),
+        ("Ward",                 "Ward",                 "Ward"),
         ("Strength",             "Strength",             "Str"),
         ("Dexterity",            "Dexterity",            "Dex"),
         ("Intelligence",         "Intelligence",         "Int"),
         ("Armour",               "Armour",               "Armour"),
         ("Evasion",              "Evasion",              "Evasion"),
         ("BlockChance",          "BlockChance",          "BlockChance"),
+        ("BlockChanceMax",       "BlockChanceMax",       "BlockChanceMax"),
+        ("SpellBlockChance",     "SpellBlockChance",     "SpellBlockChance"),
+        ("FireResist",           "FireResist",           "FireResist"),
         ("FireResistTotal",      "FireResistTotal",      "FireResistTotal"),
+        ("ColdResist",           "ColdResist",           "ColdResist"),
         ("ColdResistTotal",      "ColdResistTotal",      "ColdResistTotal"),
+        ("LightningResist",      "LightningResist",      "LightningResist"),
         ("LightningResistTotal", "LightningResistTotal", "LightningResistTotal"),
+        ("ChaosResist",          "ChaosResist",          "ChaosResist"),
         ("ChaosResistTotal",     "ChaosResistTotal",     "ChaosResistTotal"),
+        ("LifeRegen",            "LifeRegen",            "LifeRegen"),
+        ("ManaRegen",            "ManaRegen",            "ManaRegen"),
+        ("EnergyShieldRegen",    "EnergyShieldRegen",    "EnergyShieldRegen"),
+        ("MovementSpeedMod",     "MovementSpeedMod",     "MovementSpeedMod"),
     ];
     let mut shown = 0;
     let mut diverge = 0;
@@ -294,8 +326,10 @@ fn diff_against_pob_engine(
     }
     println!("{:-<78}", "");
     println!("  {shown} keys compared, {diverge} divergent (>=0.5 absolute delta)");
-    println!("\nXML→CharacterState mapping is class+level only for now. Items, tree allocs,");
-    println!("skill gem selection, and config inputs are next on the bridge to-do list.");
+    println!("\nXML→CharacterState bridge uses pob-engine's import_pob_xml: class,");
+    println!("level, ascendancy, and allocated tree nodes are wired. Items / skills /");
+    println!("config inputs are still empty (the upstream XML encodes them as nested");
+    println!("elements that need full document traversal — Phase 5 follow-up).");
     Ok(())
 }
 
@@ -316,19 +350,6 @@ fn load_default_tree() -> Result<pob_data::PassiveTree> {
     anyhow::bail!("no tree fixture found in data/trees/")
 }
 
-/// Cheap regex-free attribute scrape — pulls value of `attr` on the first
-/// occurrence of `<elem ...>`. Good enough for the harness; we don't build
-/// XML parsers for hand-written test fixtures.
-fn extract_xml_attr(xml: &str, elem: &str, attr: &str) -> Option<String> {
-    let needle = format!("<{elem} ");
-    let start = xml.find(&needle)?;
-    let tag_close = xml[start..].find('>')?;
-    let body = &xml[start..start + tag_close];
-    let attr_needle = format!("{attr}=\"");
-    let a_start = body.find(&attr_needle)? + attr_needle.len();
-    let a_end = body[a_start..].find('"')?;
-    Some(body[a_start..a_start + a_end].to_string())
-}
 
 fn build_lua_sandbox(pob_runtime_lua: &std::path::Path) -> Result<Lua> {
     let lua = Lua::new();

@@ -88,6 +88,12 @@ pub fn init_env_with_bases(
         Mod::base("Mana", 40.0 + 6.0 * f64::from(level - 1))
             .with_source(Source::Other("Level".into())),
     );
+    // Every character gets 15 base evasion rating from `characterConstants`. Items
+    // and tree allocs add to this; without anything else allocated PoB still shows
+    // ~15 evasion on the defence panel.
+    env.mod_db.add(
+        Mod::base("Evasion", 15.0).with_source(Source::Other("CharacterConstant".into())),
+    );
 
     // 3. Tree node stats. Parse each allocated node's stat lines. Some stat strings
     // are newline-joined multi-line blocks (mastery effects, keystone descriptions);
@@ -346,6 +352,23 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
         "EnergyShieldRecharge",
         es * 0.33 * (1.0 + recharge_inc / 100.0),
     );
+
+    // ES regen — separate from recharge. PoB exposes EnergyShieldRegen as the
+    // base regen-per-second rate (zero unless mods grant it directly).
+    let es_regen_flat = env.mod_db.sum(ModType::Base, &cfg, &env.state, "EnergyShieldRegen");
+    let es_regen_pct = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "EnergyShieldRegen");
+    env.output.set("EnergyShieldRegen", es_regen_flat * (1.0 + es_regen_pct / 100.0));
+
+    // Reservation pools. Phase 2 doesn't model auras yet, so unreserved == max.
+    // PoB exposes both the absolute and the percentage; we mirror absolutes.
+    env.output.set("LifeUnreserved", life);
+    env.output.set("LifeUnreservedPercent", 100.0);
+    env.output.set("ManaUnreserved", mana);
+    env.output.set("ManaUnreservedPercent", 100.0);
+
+    // Movement speed multiplier — `applied` returns the (1+inc)*more product.
+    let move_speed = env.mod_db.applied(&cfg, &env.state, "MovementSpeed");
+    env.output.set("MovementSpeedMod", move_speed);
 
     // Cast speed (multiplier on a base of 1.0 — PoB normalises this against skill
     // baseline cast time).
