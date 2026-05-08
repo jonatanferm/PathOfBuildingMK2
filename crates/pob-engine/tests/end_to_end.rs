@@ -172,6 +172,88 @@ fn custom_mods_textarea_lines_inject_into_mod_db() {
     );
 }
 
+// Issue #27: Item sets — multiple equipment loadouts. The `items`
+// field on Character is the active loadout; `item_sets` holds named
+// inactive copies. `save_item_set` snapshots the current loadout;
+// `activate_item_set` swaps in a named one; `delete_item_set` removes
+// a save. Stats reflect whatever's in `items`.
+#[test]
+fn item_sets_round_trip_and_swap_active_loadout() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    // Build two distinct loadouts: "Mapping" with a +Strength amulet,
+    // "Bossing" with a +Life amulet. The compute output should follow
+    // whichever is active.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let str_amulet = parse_item(
+        "Item Class: Amulets\nRarity: MAGIC\nStrength Charm\nOnyx Amulet\n--------\n+50 to Strength\n--------",
+    )
+    .unwrap();
+    let life_amulet = parse_item(
+        "Item Class: Amulets\nRarity: MAGIC\nLife Charm\nOnyx Amulet\n--------\n+100 to maximum Life\n--------",
+    )
+    .unwrap();
+
+    // Start with Mapping (str amulet) and save it.
+    c.items.equip(pob_data::Slot::Amulet, str_amulet);
+    let mapping_idx = c.save_item_set("Mapping");
+    let mapping_str = compute_with_skills(&c, &tree, None).get("Strength");
+    let mapping_life = compute_with_skills(&c, &tree, None).get("Life");
+
+    // Swap to Bossing: re-equip and save.
+    c.items.equip(pob_data::Slot::Amulet, life_amulet);
+    let bossing_idx = c.save_item_set("Bossing");
+    let bossing_str = compute_with_skills(&c, &tree, None).get("Strength");
+    let bossing_life = compute_with_skills(&c, &tree, None).get("Life");
+
+    // Assertions on the deltas — Mapping has +50 Str, Bossing doesn't.
+    assert!(
+        (mapping_str - bossing_str - 50.0).abs() < 0.5,
+        "Mapping (+50 Str amulet) should report +50 Strength vs Bossing"
+    );
+    // Bossing has +100 Life (plus Str-derived life shifts; Mapping's
+    // +50 Str gives +25 life via Str/2). Net delta on Life:
+    //   bossing - mapping = +100 - 25 = +75
+    assert!(
+        (bossing_life - mapping_life - 75.0).abs() < 1.0,
+        "Bossing (+100 Life amulet) should outscale Mapping by ~75 Life"
+    );
+
+    // Now switch back to Mapping via activate_item_set.
+    assert!(c.activate_item_set(mapping_idx));
+    let restored_str = compute_with_skills(&c, &tree, None).get("Strength");
+    assert!(
+        (restored_str - mapping_str).abs() < 0.5,
+        "activate(Mapping) should restore the Mapping Strength total"
+    );
+
+    // Switching to Bossing via its index works the same way.
+    assert!(c.activate_item_set(bossing_idx));
+    let restored_life = compute_with_skills(&c, &tree, None).get("Life");
+    assert!(
+        (restored_life - bossing_life).abs() < 1.0,
+        "activate(Bossing) should restore the Bossing Life total"
+    );
+
+    // Saving with an existing name overwrites in place (no duplicate).
+    let total_sets_before = c.item_sets.len();
+    let _ = c.save_item_set("Mapping");
+    assert_eq!(
+        c.item_sets.len(),
+        total_sets_before,
+        "save_item_set with existing name should overwrite, not duplicate"
+    );
+
+    // Delete: removes from the list.
+    assert!(c.delete_item_set(mapping_idx));
+    assert!(c.item_sets.iter().all(|s| s.name != "Mapping"));
+    // Out-of-range delete returns false.
+    assert!(!c.delete_item_set(99));
+}
+
 #[test]
 fn equipping_an_amulet_changes_stats() {
     let Some(tree) = load_3_25_tree() else {
