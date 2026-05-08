@@ -290,21 +290,58 @@ fn strip_magic_affixes(line: &str) -> String {
 }
 
 /// Apply the parsed item's mods to a `ModList` using the existing `mod_parser`.
-/// `slot_index` is used for the source attribution.
+/// `slot_index` is used for the source attribution. Item mods also pick up a
+/// `SlotName` tag so the eval system can filter them — today the SlotName
+/// condition is set whenever a slot is occupied, but the tag opens the door
+/// to future active-weapon-only scoping.
 pub fn item_mods_into_modlist(
     item: &Item,
     slot_index: u32,
     out: &mut crate::ModList,
 ) -> usize {
     let mut produced = 0usize;
+    let slot_name = slot_name_for_index(slot_index);
     for ml in &item.mod_lines {
         if let Some(parsed) = crate::mod_parser::parse_mod_line(&ml.line) {
-            let m = parsed.mod_.with_source(crate::Source::Item(slot_index));
+            let mut m = parsed.mod_.with_source(crate::Source::Item(slot_index));
+            if let Some(name) = slot_name {
+                m.tags.push(crate::Tag {
+                    kind: crate::TagKind::SlotName {
+                        slot_name: name.to_owned(),
+                        neg: false,
+                    },
+                });
+            }
             out.add(m);
             produced += 1;
         }
     }
     produced
+}
+
+/// Look up a slot's PoB-style name from its 1-based slot index. Used to
+/// stamp a `SlotName` tag onto item mods.
+fn slot_name_for_index(slot_index: u32) -> Option<&'static str> {
+    use pob_data::Slot::*;
+    let slot = match slot_index {
+        1 => Helmet,
+        2 => BodyArmour,
+        3 => Gloves,
+        4 => Boots,
+        5 => Amulet,
+        6 => Ring1,
+        7 => Ring2,
+        8 => Belt,
+        9 => Weapon1,
+        10 => Weapon2,
+        11 => Flask1,
+        12 => Flask2,
+        13 => Flask3,
+        14 => Flask4,
+        15 => Flask5,
+        _ => return None,
+    };
+    Some(crate::pob_import::pob_slot_to_name(slot))
 }
 
 /// Add every item's mods from an `ItemSet` to a target ModDB. Also seeds known base-type
@@ -417,9 +454,18 @@ pub fn apply_item_set_with_bases(
             );
         }
 
+        let slot_name = slot_name_for_index(slot_index);
         for ml in &item.mod_lines {
             if let Some(parsed) = crate::mod_parser::parse_mod_line(&ml.line) {
-                let m = parsed.mod_.with_source(crate::Source::Item(slot_index));
+                let mut m = parsed.mod_.with_source(crate::Source::Item(slot_index));
+                if let Some(name) = slot_name {
+                    m.tags.push(crate::Tag {
+                        kind: crate::TagKind::SlotName {
+                            slot_name: name.to_owned(),
+                            neg: false,
+                        },
+                    });
+                }
                 db.add(m);
                 report.parsed += 1;
             } else {

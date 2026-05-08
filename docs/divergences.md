@@ -74,13 +74,14 @@ chance, but do not model:
 
 PoB walks all of these; ours doesn't yet.
 
-### Items don't apply slot-conditional mods — Phase 3 (open)
+### Items don't apply slot-conditional mods — Phase 3 (closed in 7d)
 
-A unique boots' `while you've taken a Critical Strike Recently, …` mod parses cleanly but
-applies unconditionally because the parser doesn't emit a `SlotName` tag and the engine
-doesn't filter by slot when applying item mods. The `apply_item_set` source attribution
-gives us `Source::Item(slot_index)` so the engine *could* filter — Phase 3 fix is to add
-a `slot_only` config knob to the apply pass.
+Closed: every parsed item mod now picks up a `SlotName` tag matching its source slot
+in `apply_item_set` / `item_mods_into_modlist`. `eval_mod` already understood the tag,
+and `perform.rs` sets the matching `SlotName:<slot>` condition for every equipped slot,
+so mods filter correctly when the slot is unoccupied. The remaining work — filtering
+weapon mods to the *active* hand for dual-wield calc — depends on a per-weapon eval
+loop that does not yet exist.
 
 ## Data extraction
 

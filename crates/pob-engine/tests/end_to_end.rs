@@ -585,6 +585,56 @@ fn ascendancy_point_cap_is_8() {
 }
 
 #[test]
+fn item_mods_carry_slot_name_tag() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let body = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nDoom Carapace\nFull Plate\n--------\n+50 to maximum Life\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::BodyArmour, body);
+    let env = pob_engine::perform::init_env(&c, &tree);
+
+    use pob_engine::ModStore as _;
+    let body_mods: Vec<_> = env
+        .mod_db
+        .iter_all()
+        .filter(|m| matches!(m.source, Some(pob_engine::Source::Item(2))))
+        .collect();
+    assert!(
+        !body_mods.is_empty(),
+        "expected at least one mod sourced from BodyArmour (slot 2)"
+    );
+    // Every parsed item mod (not the base implicits, which don't go through
+    // mod_parser) should carry a SlotName tag matching its slot.
+    let life = body_mods
+        .iter()
+        .find(|m| m.name == "Life")
+        .expect("Life mod from body armour");
+    let has_slot = life.tags.iter().any(|t| matches!(
+        &t.kind,
+        pob_engine::TagKind::SlotName { slot_name, neg: false } if slot_name == "Body Armour"
+    ));
+    assert!(
+        has_slot,
+        "Body armour Life mod should carry SlotName=\"Body Armour\" tag, got {:?}",
+        life.tags
+    );
+
+    // The mod still evaluates because perform.rs sets the matching SlotName
+    // condition for every equipped slot — verify by computing Life via the
+    // full pipeline.
+    let out = pob_engine::compute_full(&c, &tree, None, None);
+    assert!(
+        out.get("Life") >= 50.0,
+        "Life should include +50 from body, got {}",
+        out.get("Life")
+    );
+}
+
+#[test]
 fn enemy_evasion_changes_main_skill_hit_chance() {
     let (Some(tree), Some(skills), Some(bases)) =
         (load_3_25_tree(), load_skills(), load_bases())
