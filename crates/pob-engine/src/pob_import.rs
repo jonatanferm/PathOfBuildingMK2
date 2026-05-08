@@ -414,7 +414,7 @@ fn attr_str(e: &quick_xml::events::BytesStart<'_>, key: &str) -> Option<String> 
     None
 }
 
-fn pob_slot_from_name(name: &str) -> Option<Slot> {
+pub(crate) fn pob_slot_from_name(name: &str) -> Option<Slot> {
     // PoB slot names: "Helmet", "Body Armour", "Gloves", "Boots", "Amulet",
     // "Ring 1", "Ring 2", "Belt", "Weapon 1", "Weapon 2", "Flask 1".."Flask 5".
     Some(match name {
@@ -435,6 +435,28 @@ fn pob_slot_from_name(name: &str) -> Option<Slot> {
         "Flask 5" | "Flask5" => Slot::Flask5,
         _ => return None,
     })
+}
+
+/// Inverse of `pob_slot_from_name`: the canonical PoB-XML slot label for a `Slot`.
+/// Used by `pob_export` so import / export agree on the wire format.
+pub(crate) fn pob_slot_to_name(slot: Slot) -> &'static str {
+    match slot {
+        Slot::Helmet => "Helmet",
+        Slot::BodyArmour => "Body Armour",
+        Slot::Gloves => "Gloves",
+        Slot::Boots => "Boots",
+        Slot::Amulet => "Amulet",
+        Slot::Ring1 => "Ring 1",
+        Slot::Ring2 => "Ring 2",
+        Slot::Belt => "Belt",
+        Slot::Weapon1 => "Weapon 1",
+        Slot::Weapon2 => "Weapon 2",
+        Slot::Flask1 => "Flask 1",
+        Slot::Flask2 => "Flask 2",
+        Slot::Flask3 => "Flask 3",
+        Slot::Flask4 => "Flask 4",
+        Slot::Flask5 => "Flask 5",
+    }
 }
 
 fn apply_config_string(c: &mut Character, name: &str, value: &str) {
