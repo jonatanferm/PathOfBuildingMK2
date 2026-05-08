@@ -2922,6 +2922,95 @@ fn mine_and_trap_skills_emit_throw_count_outputs() {
     );
 }
 
+// Issue #84 (slice 5): cast-speed mods do NOT scale mine / trap DPS.
+// PoB's `CalcOffence.lua` mine/trap branches replace the cast-rate
+// baseline with `MineLayingSpeed` / `TrapThrowingSpeed` — so a +200%
+// `CastSpeed` INC on the player must leave a mine/trap skill's
+// effective throws-per-second untouched. Mirrors the issue body's
+// third acceptance criterion.
+#[test]
+fn cast_speed_does_not_scale_mine_or_trap_dps() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    use pob_engine::{Mod, Source};
+
+    // Pick a mine skill that produces non-zero DPS in the fixture.
+    let mine_id = skills
+        .iter_active()
+        .find(|(_, s)| s.base_flags.get("mine").copied().unwrap_or(false))
+        .map(|(id, _)| id.to_owned());
+    let Some(mine_id) = mine_id else {
+        eprintln!("skip: no mine skills available");
+        return;
+    };
+    let mut c = Character::new(ClassRef::shadow(), 90);
+    c.main_skill = Some(MainSkill::new(&mine_id));
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_dps = baseline.get("MainSkillDPS");
+    let baseline_speed = baseline.get("MainSkillSpeed");
+    if baseline_dps <= 0.0 {
+        eprintln!("skip: mine skill {mine_id} produces no DPS");
+        return;
+    }
+
+    // Inject 200% increased CastSpeed via the modDB. For a spell-tagged
+    // skill this would more-than-triple the cps; for a mine the
+    // throw-rate path should ignore it entirely.
+    let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
+    env.mod_db
+        .add(Mod::inc("CastSpeed", 200.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
+    let scaled_dps = env.output.get("MainSkillDPS");
+    let scaled_speed = env.output.get("MainSkillSpeed");
+    assert!(
+        (scaled_dps - baseline_dps).abs() / baseline_dps.abs().max(1e-9) < 1e-6,
+        "Mine skill MainSkillDPS must not scale with CastSpeed (baseline {baseline_dps}, +200% CastSpeed {scaled_dps})"
+    );
+    assert!(
+        (scaled_speed - baseline_speed).abs() / baseline_speed.abs().max(1e-9) < 1e-6,
+        "Mine skill MainSkillSpeed must stay pinned to MineLayingSpeed (baseline {baseline_speed}, +200% CastSpeed {scaled_speed})"
+    );
+
+    // Same for traps.
+    let trap_id = skills
+        .iter_active()
+        .find(|(_, s)| s.base_flags.get("trap").copied().unwrap_or(false))
+        .map(|(id, _)| id.to_owned());
+    let Some(trap_id) = trap_id else {
+        eprintln!("skip: no trap skills available");
+        return;
+    };
+    let mut tc = Character::new(ClassRef::shadow(), 90);
+    tc.main_skill = Some(MainSkill::new(&trap_id));
+    let trap_baseline = pob_engine::compute_full(&tc, &tree, Some(&skills), Some(&bases));
+    let trap_baseline_dps = trap_baseline.get("MainSkillDPS");
+    let trap_baseline_speed = trap_baseline.get("MainSkillSpeed");
+    if trap_baseline_dps <= 0.0 {
+        eprintln!("skip: trap skill {trap_id} produces no DPS");
+        return;
+    }
+    let (_, mut trap_env) =
+        pob_engine::compute_full_with_env(&tc, &tree, Some(&skills), Some(&bases));
+    trap_env
+        .mod_db
+        .add(Mod::inc("CastSpeed", 200.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_skill_dps(&tc, &skills, &mut trap_env);
+    let trap_scaled_dps = trap_env.output.get("MainSkillDPS");
+    let trap_scaled_speed = trap_env.output.get("MainSkillSpeed");
+    assert!(
+        (trap_scaled_dps - trap_baseline_dps).abs() / trap_baseline_dps.abs().max(1e-9) < 1e-6,
+        "Trap skill MainSkillDPS must not scale with CastSpeed (baseline {trap_baseline_dps}, +200% CastSpeed {trap_scaled_dps})"
+    );
+    assert!(
+        (trap_scaled_speed - trap_baseline_speed).abs() / trap_baseline_speed.abs().max(1e-9)
+            < 1e-6,
+        "Trap skill MainSkillSpeed must stay pinned to TrapThrowingSpeed (baseline {trap_baseline_speed}, +200% CastSpeed {trap_scaled_speed})"
+    );
+}
+
 // Issue #84: mine/trap throw timing model. Mirrors PoB's
 // CalcSetup.lua:52-53 base values:
 //   MineLayingTime BASE  = 0.3 s → MineLayingSpeed default ≈ 3.33 /s
