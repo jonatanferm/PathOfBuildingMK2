@@ -1965,6 +1965,110 @@ fn flask_armour_mod_gates_on_using_flask_toggle() {
     );
 }
 
+// Issue #35: EnemyBoss preset (None / Boss / Pinnacle / Uber) injects
+// `Condition:RareOrUnique` (all non-None presets) and
+// `Condition:PinnacleBoss` (Pinnacle + Uber) into the eval state, plus
+// an `AilmentThreshold` MORE that mirrors PoB's `enemyIsBoss`
+// ConfigOption (488 for Boss, 404 for Pinnacle/Uber).
+#[test]
+fn enemy_boss_preset_emits_conditions_and_ailment_threshold() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    use pob_engine::character::EnemyBoss;
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+
+    // Default: EnemyBoss::None — no conditions, no AilmentThreshold mod.
+    assert_eq!(c.config.enemy_boss, EnemyBoss::None);
+    let env = pob_engine::perform::init_env(&c, &tree);
+    assert!(
+        !env.state.condition("RareOrUnique"),
+        "None preset must not flag RareOrUnique"
+    );
+    assert!(
+        !env.state.condition("PinnacleBoss"),
+        "None preset must not flag PinnacleBoss"
+    );
+    use pob_engine::ModStore as _;
+    let none_threshold_mods: Vec<_> = env
+        .mod_db
+        .iter_all()
+        .filter(|m| m.name == "AilmentThreshold")
+        .collect();
+    assert!(
+        none_threshold_mods.is_empty(),
+        "None preset should not emit any AilmentThreshold mods, got {}",
+        none_threshold_mods.len()
+    );
+
+    // Boss: RareOrUnique + AilmentThreshold MORE 488.
+    c.config.enemy_boss = EnemyBoss::Boss;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    assert!(
+        env.state.condition("RareOrUnique"),
+        "Boss preset must flag RareOrUnique"
+    );
+    assert!(
+        !env.state.condition("PinnacleBoss"),
+        "Boss preset must not flag PinnacleBoss"
+    );
+    let boss_threshold = env
+        .mod_db
+        .iter_all()
+        .find(|m| m.name == "AilmentThreshold")
+        .expect("Boss preset must emit AilmentThreshold");
+    assert_eq!(
+        boss_threshold.value.as_f64(),
+        Some(488.0),
+        "Boss AilmentThreshold MORE should be 488 (matching PoB)"
+    );
+
+    // Pinnacle: RareOrUnique + PinnacleBoss + AilmentThreshold MORE 404.
+    c.config.enemy_boss = EnemyBoss::Pinnacle;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    assert!(env.state.condition("RareOrUnique"));
+    assert!(
+        env.state.condition("PinnacleBoss"),
+        "Pinnacle preset must flag PinnacleBoss"
+    );
+    let pinnacle_threshold = env
+        .mod_db
+        .iter_all()
+        .find(|m| m.name == "AilmentThreshold")
+        .expect("Pinnacle preset must emit AilmentThreshold");
+    assert_eq!(
+        pinnacle_threshold.value.as_f64(),
+        Some(404.0),
+        "Pinnacle AilmentThreshold MORE should be 404"
+    );
+
+    // Uber: same conditions as Pinnacle (it's "harder Pinnacle" with
+    // upgraded damage / pen — those are surfaced via separate ConfigState
+    // sliders, not this preset).
+    c.config.enemy_boss = EnemyBoss::Uber;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    assert!(env.state.condition("RareOrUnique"));
+    assert!(env.state.condition("PinnacleBoss"));
+
+    // Default-resists helper: Boss → 40/40/40/25, Pinnacle/Uber → 50/50/50/30.
+    assert_eq!(EnemyBoss::Boss.default_resists(), (40, 40, 40, 25));
+    assert_eq!(EnemyBoss::Pinnacle.default_resists(), (50, 50, 50, 30));
+    assert_eq!(EnemyBoss::Uber.default_resists(), (50, 50, 50, 30));
+    assert_eq!(EnemyBoss::None.default_resists(), (0, 0, 0, 0));
+
+    // PoB-name round trip.
+    for variant in [EnemyBoss::None, EnemyBoss::Boss, EnemyBoss::Pinnacle, EnemyBoss::Uber] {
+        assert_eq!(
+            EnemyBoss::from_pob_name(variant.as_pob_name()),
+            Some(variant),
+            "round trip failed for {:?}",
+            variant
+        );
+    }
+}
+
 // Issue #10 (Bandit half): Act 2 reward injects a small package of stats.
 // Each named bandit grants a single mod, mirroring upstream PoB
 // (CalcSetup.lua:531-540): Alira → +15 to all elemental resistances;
