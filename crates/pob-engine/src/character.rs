@@ -101,6 +101,7 @@ impl CharacterSnapshot {
                         skill_id: gem.skill_id,
                         level: gem.level.max(1),
                         quality: gem.quality,
+                        enabled: true,
                     })
                     .collect(),
                 main_active_skill_index: g.main_active_skill_index.max(1),
@@ -117,6 +118,7 @@ impl CharacterSnapshot {
                 skill_id: id,
                 level: self.main_skill_level,
                 quality: self.main_skill_quality,
+                enabled: true,
             }),
             skill_groups: groups,
             main_socket_group: self.main_socket_group,

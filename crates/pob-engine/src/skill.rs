@@ -51,12 +51,15 @@ impl SkillRegistry {
     }
 }
 
-/// User's choice of skill, level, and quality.
+/// User's choice of skill, level, and quality. Doubles as the per-gem entry in
+/// `SocketGroup`, with `enabled` letting the UI toggle individual supports
+/// without removing them.
 #[derive(Debug, Clone)]
 pub struct MainSkill {
     pub skill_id: String,
     pub level: u32,
     pub quality: u32,
+    pub enabled: bool,
 }
 
 impl MainSkill {
@@ -65,6 +68,7 @@ impl MainSkill {
             skill_id: skill_id.into(),
             level: 20,
             quality: 0,
+            enabled: true,
         }
     }
 }

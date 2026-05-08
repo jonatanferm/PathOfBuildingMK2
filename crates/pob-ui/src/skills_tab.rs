@@ -179,7 +179,7 @@ pub fn ui(
             ui.separator();
             // Gem list
             let mut to_remove_gem: Option<usize> = None;
-            for (idx, gem) in group.gems.iter().enumerate() {
+            for (idx, gem) in group.gems.iter_mut().enumerate() {
                 let one_based = (idx as u32) + 1;
                 let main_marker = if one_based == group.main_active_skill_index {
                     "★"
@@ -193,7 +193,22 @@ pub fn ui(
                     main_marker, kind_marker, gem.skill_id, gem.level, gem.quality
                 );
                 ui.horizontal(|ui| {
-                    if ui.selectable_label(state.selected_gem == idx, label).clicked() {
+                    if ui
+                        .checkbox(&mut gem.enabled, "")
+                        .on_hover_text("Enable / disable this gem")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                    let label_text = if gem.enabled {
+                        egui::RichText::new(&label)
+                    } else {
+                        egui::RichText::new(&label).weak().strikethrough()
+                    };
+                    if ui
+                        .selectable_label(state.selected_gem == idx, label_text)
+                        .clicked()
+                    {
                         state.selected_gem = idx;
                     }
                     if ui.small_button("★").on_hover_text("Set as main skill").clicked() {

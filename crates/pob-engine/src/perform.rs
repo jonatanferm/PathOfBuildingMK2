@@ -797,6 +797,9 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 if idx == active_idx {
                     continue; // skip the main skill itself
                 }
+                if !gem.enabled {
+                    continue; // user toggled this support off
+                }
                 let Some(support) = skills.get(&gem.skill_id) else { continue };
                 if !support.support {
                     continue;

@@ -733,6 +733,7 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
                     skill_id: "Arc".into(),
                     level: 20,
                     quality: 20,
+                    enabled: true,
                 }],
                 main_active_skill_index: 1,
                 enabled: true,

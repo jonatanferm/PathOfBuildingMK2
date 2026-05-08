@@ -427,6 +427,7 @@ fn full_demo_witch_arc_produces_reasonable_dps() {
         skill_id: "Arc".into(),
         level: 20,
         quality: 20,
+        enabled: true,
     });
     c.config.enemy_lightning_resist = 50;
     let item = parse_item(
@@ -596,6 +597,7 @@ fn ms_share_code_round_trips_full_character() {
         skill_id: "TornadoShot".into(),
         level: 21,
         quality: 23,
+        enabled: true,
     });
     c.config.enemy_lightning_resist = 50;
     c.config.conditions.insert("FullLife".to_owned(), true);
