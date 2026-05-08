@@ -64,7 +64,10 @@ pub struct NamedItemSet {
 /// Party member — a teammate's projected buffs / curses / banners.
 /// `mod_lines` is free-form text the user pastes (one line per mod);
 /// each line goes through `mod_parser::parse_mod_line` at compute time
-/// with `source = Source::Other("Party:<name>")`.
+/// with `source = Source::Other("Party:<name>")`. Issue #97 also
+/// supports auto-extraction: the user can paste a teammate's PoB
+/// share code, and `extracted_auras` is populated from their aura /
+/// curse / banner gems via `pob_engine::skill::aura_buff_mods`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PartyMember {
     /// Display name shown in the Party tab and used as the mod source
@@ -75,11 +78,41 @@ pub struct PartyMember {
     /// `+15% to all Elemental Resistances`). Parsed through the same
     /// path as `ConfigState::custom_mods`.
     pub mod_lines: String,
+    /// Issue #97: gems auto-extracted from a pasted teammate PoB
+    /// build code. Each entry feeds `aura_buff_mods` at compute time
+    /// and contributes mods alongside the manual `mod_lines`. Stored
+    /// rather than re-derived per frame so saves preserve the import
+    /// even after the source code is forgotten.
+    #[serde(default)]
+    pub extracted_auras: Vec<ExtractedAura>,
     /// Toggle to A/B with vs. without this teammate's contribution.
     /// Default true so adding a member immediately applies their
     /// buffs.
     #[serde(default = "true_default_party")]
     pub enabled: bool,
+}
+
+/// One aura/curse/banner gem auto-extracted from a teammate's pasted
+/// PoB code. The triple `(skill_id, level, quality)` is enough to
+/// recover the projected mods through `SkillRegistry::get` +
+/// `aura_buff_mods`. Mirrors the bare minimum PoB persists per
+/// teammate (`Classes/PartyTab.lua`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ExtractedAura {
+    pub skill_id: String,
+    #[serde(default = "default_aura_level")]
+    pub level: u32,
+    #[serde(default)]
+    pub quality: u32,
+    /// Mirror the gem's enabled state from the source build —
+    /// disabled gems on the teammate are not extracted by default,
+    /// but the user may toggle one off without re-importing.
+    #[serde(default = "true_default_party")]
+    pub enabled: bool,
+}
+
+fn default_aura_level() -> u32 {
+    20
 }
 
 fn true_default_party() -> bool {
