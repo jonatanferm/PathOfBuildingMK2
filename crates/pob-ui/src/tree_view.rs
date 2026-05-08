@@ -11,8 +11,8 @@ use pob_data::{NodeId, NodeKind, PassiveTree};
 
 use crate::tree_layout::{compute_node_positions, NodePos};
 use crate::tree_renderer::{
-    edge_state_bits, kind_to_u32, state_bits, EdgeInstance, GroupInstance, NodeInstance,
-    TreeEdgeCallback, TreeGroupCallback, TreeNodeCallback,
+    edge_state_bits, kind_to_u32, state_bits, EdgeInstance, FrameInstance, GroupInstance,
+    NodeInstance, TreeEdgeCallback, TreeFrameCallback, TreeGroupCallback, TreeNodeCallback,
 };
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -33,10 +33,22 @@ pub struct TreeView {
     icon_uvs: HashMap<NodeId, [f32; 4]>,
     /// Pre-computed `GroupInstance`s for the cluster halos.
     group_instances: Vec<GroupInstance>,
+    /// Frame UV rects per kind × state. Indexed [kind][state]: kind is one
+    /// of Normal/Notable/Keystone/JewelSocket; state is 0=Unallocated,
+    /// 1=CanAllocate, 2=Allocated. Each entry carries the atlas-relative UV
+    /// rect plus the frame's native pixel size used as `world_size`.
+    frame_table: FrameTable,
     /// Nodes matching the current search filter — drawn with a highlight ring.
     pub search_matches: ahash::HashSet<NodeId>,
     /// Path overlay (set externally, drawn on top of edges).
     pub path_overlay: Vec<NodeId>,
+}
+
+#[derive(Default, Clone)]
+struct FrameTable {
+    /// `[normal, notable, keystone, jewel]`, each Option<[u, v, du, dv, w_px, h_px]>
+    /// per state Unallocated/CanAllocate/Allocated. Missing entries skip rendering.
+    entries: [[Option<[f32; 6]>; 3]; 4],
 }
 
 impl TreeView {
@@ -47,6 +59,7 @@ impl TreeView {
             positions: compute_node_positions(tree),
             icon_uvs: compute_icon_uvs(tree, sprites),
             group_instances: compute_group_instances(tree, sprites),
+            frame_table: compute_frame_table(sprites),
             search_matches: ahash::HashSet::default(),
             path_overlay: Vec::new(),
         }
@@ -213,6 +226,7 @@ impl TreeView {
 
         // Second pass: build the instance buffer for the wgpu draw call.
         let mut instances: Vec<NodeInstance> = Vec::with_capacity(tree.nodes.len());
+        let mut frames: Vec<FrameInstance> = Vec::with_capacity(tree.nodes.len());
         for (id, node) in &tree.nodes {
             if matches!(node.kind, NodeKind::Root) {
                 continue;
@@ -232,6 +246,35 @@ impl TreeView {
             }
             if path_set.contains(id) {
                 state |= state_bits::PATH;
+            }
+            // Frame ring: per-kind sprite, per-state variant. Pixel size from
+            // atlas; we scale to roughly match the node's circle (frame
+            // sprites have built-in margin around the node).
+            let kind_idx = match node.kind {
+                NodeKind::Normal => Some(0usize),
+                NodeKind::Notable => Some(1),
+                NodeKind::Keystone => Some(2),
+                NodeKind::JewelSocket => Some(3),
+                _ => None,
+            };
+            if let Some(ki) = kind_idx {
+                let alloc = (state & state_bits::ALLOCATED) != 0;
+                let on_path = (state & state_bits::PATH) != 0;
+                let si = if alloc {
+                    2
+                } else if on_path {
+                    1
+                } else {
+                    0
+                };
+                if let Some(entry) = self.frame_table.entries[ki][si] {
+                    let world_size = world_radius_for(node) * 2.0 * FRAME_SCALE;
+                    frames.push(FrameInstance {
+                        world_pos: [p.x, p.y],
+                        world_size: [world_size, world_size],
+                        uv_rect: [entry[0], entry[1], entry[2], entry[3]],
+                    });
+                }
             }
             let icon_uv = self.icon_uvs.get(id).copied().unwrap_or([0.0, 0.0, 0.0, 0.0]);
             instances.push(NodeInstance {
@@ -277,6 +320,16 @@ impl TreeView {
             viewport,
             TreeNodeCallback {
                 instances,
+                viewport_center: viewport_center_world,
+                zoom: zoom_px,
+                viewport_size: viewport_size_px,
+                pixels_per_point,
+            },
+        ));
+        painter.add(egui_wgpu::Callback::new_paint_callback(
+            viewport,
+            TreeFrameCallback {
+                frames,
                 viewport_center: viewport_center_world,
                 zoom: zoom_px,
                 viewport_size: viewport_size_px,
@@ -374,6 +427,45 @@ fn compute_group_instances(
     out
 }
 
+/// Look up the per-kind/per-state frame sprite from the `frame` category.
+/// We index 0=Normal, 1=Notable, 2=Keystone, 3=JewelSocket and
+/// 0=Unallocated, 1=CanAllocate, 2=Allocated. `PSSkillFrame` is the only
+/// shared normal-node frame — its three "states" are aliases of the same
+/// sprite + the `Active`/`Highlighted` variants.
+fn compute_frame_table(sprites: Option<&pob_data::sprites::SpriteSet>) -> FrameTable {
+    let mut table = FrameTable::default();
+    let Some(sprites) = sprites else { return table };
+    let Some(cat) = sprites.get("frame") else { return table };
+    let aw = cat.w as f32;
+    let ah = cat.h as f32;
+    let lookup = |key: &str| -> Option<[f32; 6]> {
+        let r = cat.coords.get(key)?;
+        let uv = r.uv(aw, ah);
+        Some([uv[0], uv[1], uv[2], uv[3], r.w(), r.h()])
+    };
+    // Normal nodes: PSSkillFrame[Active]. No "CanAllocate" art; reuse
+    // base for all three states.
+    let psf = lookup("PSSkillFrame");
+    let psf_active = lookup("PSSkillFrameActive");
+    let psf_high = lookup("PSSkillFrameHighlighted");
+    table.entries[0][0] = psf;
+    table.entries[0][1] = psf_high.or(psf);
+    table.entries[0][2] = psf_active.or(psf);
+    // Notable
+    table.entries[1][0] = lookup("NotableFrameUnallocated");
+    table.entries[1][1] = lookup("NotableFrameCanAllocate");
+    table.entries[1][2] = lookup("NotableFrameAllocated");
+    // Keystone
+    table.entries[2][0] = lookup("KeystoneFrameUnallocated");
+    table.entries[2][1] = lookup("KeystoneFrameCanAllocate");
+    table.entries[2][2] = lookup("KeystoneFrameAllocated");
+    // JewelSocket — uses the JewelSocketAlt variants.
+    table.entries[3][0] = lookup("JewelSocketAltNormal");
+    table.entries[3][1] = lookup("JewelSocketAltCanAllocate");
+    table.entries[3][2] = lookup("JewelSocketAltActive");
+    table
+}
+
 /// Look up each node's atlas-relative icon rect. Picks the sprite category
 /// by the node's `kind` (normal → normalActive, notable → notableActive,
 /// etc.) so the same icon path can have different rects per category in the
@@ -408,6 +500,12 @@ fn compute_icon_uvs(
     }
     out
 }
+
+/// Frame ring is drawn slightly larger than the node's SDF circle so it
+/// surrounds the icon without clipping it. Empirically ~1.3 looks like the
+/// PoE-style ring; the frame sprite has internal padding so this is a
+/// world-units scaler against `node_radius * 2`.
+const FRAME_SCALE: f32 = 1.3;
 
 /// World-space (pre-zoom) radius for a node. The wgpu pipeline applies zoom
 /// inside the shader; the CPU-side hit-test uses `node_radius` below to
