@@ -157,8 +157,8 @@ impl CharacterSnapshot {
             allocated: c.allocated.iter().copied().collect(),
             items: c.items.clone(),
             main_skill_id: c.main_skill.as_ref().map(|m| m.skill_id.clone()),
-            main_skill_level: c.main_skill.as_ref().map(|m| m.level).unwrap_or(20),
-            main_skill_quality: c.main_skill.as_ref().map(|m| m.quality).unwrap_or(0),
+            main_skill_level: c.main_skill.as_ref().map_or(20, |m| m.level),
+            main_skill_quality: c.main_skill.as_ref().map_or(0, |m| m.quality),
             config: c.config.clone(),
             notes: c.notes.clone(),
             mastery_selections: c.mastery_selections.iter().map(|(k, v)| (*k, *v)).collect(),
@@ -288,18 +288,13 @@ pub struct SocketGroup {
 /// Act 2 bandit reward — see `Data/Misc.lua` and `CalcSetup.lua` in PoB.
 /// `KillAll` is the default; the other three each grant a small package of
 /// stats. PoB stores this as a string attribute on `<Build bandit="…">`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Bandit {
+    #[default]
     KillAll,
     Alira,
     Kraityn,
     Oak,
-}
-
-impl Default for Bandit {
-    fn default() -> Self {
-        Self::KillAll
-    }
 }
 
 impl Bandit {
@@ -328,19 +323,14 @@ impl Bandit {
 /// Endgame Pantheon — Major God selection. PoB stores this on the
 /// `<Build pantheonMajorGod="…">` attribute. Each god's "Soul"
 /// (level-1 effect) is the player-facing baseline mod.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum MajorGod {
+    #[default]
     None,
     TheBrineKing,
     Arakaali,
     Solaris,
     Lunaris,
-}
-
-impl Default for MajorGod {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl MajorGod {
@@ -379,8 +369,9 @@ impl MajorGod {
 }
 
 /// Endgame Pantheon — Minor God selection. PoB has 8 minor gods.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum MinorGod {
+    #[default]
     None,
     Abberath,
     Gruthkul,
@@ -390,12 +381,6 @@ pub enum MinorGod {
     Ralakesh,
     Garukhan,
     Ryslatha,
-}
-
-impl Default for MinorGod {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl MinorGod {
@@ -580,18 +565,13 @@ pub struct ConfigState {
 /// PoB's `enemyIsBoss` four-option preset. The serialised PoB-XML
 /// attribute is "None" / "Boss" / "Pinnacle" / "Uber" — see
 /// `as_pob_name` / `from_pob_name`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum EnemyBoss {
+    #[default]
     None,
     Boss,
     Pinnacle,
     Uber,
-}
-
-impl Default for EnemyBoss {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl EnemyBoss {

@@ -127,18 +127,18 @@ fn perform_dual_wield_skill_dps(character: &Character, reg: &SkillRegistry, env:
     env.output.set("Weapon1FullDPS", weapon1_full_dps);
     env.output.set("Weapon2FullDPS", weapon2_full_dps);
     env.output
-        .set("MainSkillDPS", (weapon1_dps + weapon2_dps) / 2.0);
+        .set("MainSkillDPS", f64::midpoint(weapon1_dps, weapon2_dps));
     env.output.set(
         "MainSkillAverageHit",
-        (weapon1_avg_hit + weapon2_avg_hit) / 2.0,
+        f64::midpoint(weapon1_avg_hit, weapon2_avg_hit),
     );
     env.output.set(
         "MainSkillHitChance",
-        (weapon1_hit_chance + weapon2_hit_chance) / 2.0,
+        f64::midpoint(weapon1_hit_chance, weapon2_hit_chance),
     );
     env.output
-        .set("FullDPS", (weapon1_full_dps + weapon2_full_dps) / 2.0);
-    let avg_mana = (weapon1_mana + weapon2_mana) / 2.0;
+        .set("FullDPS", f64::midpoint(weapon1_full_dps, weapon2_full_dps));
+    let avg_mana = f64::midpoint(weapon1_mana, weapon2_mana);
     if avg_mana > 0.0 {
         env.output.set("ManaPerSecondCost", avg_mana);
     }
@@ -700,21 +700,18 @@ fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_
     let weapon1 = items.get(Slot::Weapon1);
     let weapon2 = items.get(Slot::Weapon2);
 
-    let weapon2_is_shield = weapon2
-        .map(|i| i.base_name.contains("Shield") || i.base_name.contains("Buckler"))
-        .unwrap_or(false);
+    let weapon2_is_shield =
+        weapon2.is_some_and(|i| i.base_name.contains("Shield") || i.base_name.contains("Buckler"));
     if weapon2_is_shield {
         state.set_condition("UsingShield", true);
     }
 
-    let weapon1_is_two_handed = weapon1
-        .map(|i| {
-            i.base_name.contains("Two Handed")
-                || i.base_name.contains("Bow")
-                || i.base_name.contains("Staff")
-                || i.base_name.contains("Quarterstaff")
-        })
-        .unwrap_or(false);
+    let weapon1_is_two_handed = weapon1.is_some_and(|i| {
+        i.base_name.contains("Two Handed")
+            || i.base_name.contains("Bow")
+            || i.base_name.contains("Staff")
+            || i.base_name.contains("Quarterstaff")
+    });
     if weapon1_is_two_handed {
         state.set_condition("UsingTwoHandedWeapon", true);
     }
@@ -1071,7 +1068,7 @@ fn perform_enemy_damage_sim(env: &mut Env, character: &Character) {
     // PoB clamps the simulated enemy level at MaxEnemyLevel = 84 in the modern
     // tree. For lower-level characters, the enemy tracks character.level - 6.
     // We approximate by taking min(84, max(1, character.level)).
-    let enemy_level = character.config.enemy_level.max(1).min(84) as usize;
+    let enemy_level = character.config.enemy_level.clamp(1, 84) as usize;
     let idx = (enemy_level - 1).min(MONSTER_DAMAGE_TABLE.len() - 1);
     let table_value = MONSTER_DAMAGE_TABLE[idx];
     // PoB uses Pinnacle Boss preset by default → 8/4.4 = 1.8181x DPS multiplier.
@@ -1193,8 +1190,7 @@ fn connected_allocations(
             matches!(n.kind, pob_data::NodeKind::AscendancyStart)
                 && n.ascendancy_name
                     .as_deref()
-                    .map(|s| s.eq_ignore_ascii_case(picked))
-                    .unwrap_or(false)
+                    .is_some_and(|s| s.eq_ignore_ascii_case(picked))
         }) {
             starts.push(*id);
         }
@@ -1232,7 +1228,7 @@ fn connected_allocations(
         }
         if let Some(asc_name) = n.ascendancy_name.as_deref() {
             // Allocated ascendancy node — only keep if it matches the picked one.
-            return picked_asc.map_or(false, |p| p.eq_ignore_ascii_case(asc_name));
+            return picked_asc.is_some_and(|p| p.eq_ignore_ascii_case(asc_name));
         }
         true
     });
@@ -1723,7 +1719,7 @@ fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) 
                 let Some(id) = arr.first().and_then(|x| x.as_str()) else {
                     continue;
                 };
-                let Some(val) = arr.get(1).and_then(|x| x.as_f64()) else {
+                let Some(val) = arr.get(1).and_then(serde_json::Value::as_f64) else {
                     continue;
                 };
                 match id {
@@ -1897,7 +1893,7 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
                     let Some(qstat) = arr.first().and_then(|x| x.as_str()) else {
                         continue;
                     };
-                    let Some(scale) = arr.get(1).and_then(|x| x.as_f64()) else {
+                    let Some(scale) = arr.get(1).and_then(serde_json::Value::as_f64) else {
                         continue;
                     };
                     if qstat == stat_id {
@@ -3659,7 +3655,7 @@ mod tests {
         let Some(tree) = load_3_25_tree() else {
             return;
         };
-        let mut c = Character::new(ClassRef::marauder(), 1);
+        let c = Character::new(ClassRef::marauder(), 1);
         // Synthesise: insert raw "+200% to Fire Resistance" into the env via a node we
         // know parses. Simpler: build the env manually.
         let mut env = init_env(&c, &tree);

@@ -695,7 +695,7 @@ fn tattoo_override_replaces_allocated_node_stats() {
     // floor on the delta is safe.
     let delta = with_tattoo - baseline_str;
     assert!(
-        delta >= 60.0 - 30.0 && delta <= 75.0 + 30.0,
+        (60.0 - 30.0..=75.0 + 30.0).contains(&delta),
         "Tattoo override should approximately +75 Str the build (delta {}); baseline={baseline_str}, with={with_tattoo}",
         delta
     );
@@ -841,11 +841,7 @@ fn picking_arc_increases_dps_with_lightning_damage_node() {
         .iter()
         .find(|(_, n)| {
             n.stats.iter().any(|s| s.contains("Lightning Damage"))
-                && !n
-                    .ascendancy_name
-                    .as_deref()
-                    .map(|a| !a.is_empty())
-                    .unwrap_or(false)
+                && n.ascendancy_name.as_deref().is_none_or(str::is_empty)
         })
         .map(|(id, _)| *id);
 
@@ -973,7 +969,7 @@ fn dual_wielding_averages_dps_across_per_hand_passes() {
     // simple case. The regression guard is that MainSkillDPS equals the
     // average to floating-point tolerance, and that all three values are
     // strictly positive.
-    let expected_avg = (weapon1_dps + weapon2_dps) / 2.0;
+    let expected_avg = f64::midpoint(weapon1_dps, weapon2_dps);
     assert!(
         (main_dps - expected_avg).abs() < 0.01,
         "MainSkillDPS should equal (Weapon1DPS + Weapon2DPS) / 2; got {main_dps} vs {expected_avg}"
@@ -992,7 +988,8 @@ fn dual_wielding_averages_dps_across_per_hand_passes() {
         "dual-wielding should emit positive Weapon2AverageHit"
     );
     let main_avg = dual.get("MainSkillAverageHit");
-    let expected_avg_hit = (dual.get("Weapon1AverageHit") + dual.get("Weapon2AverageHit")) / 2.0;
+    let expected_avg_hit =
+        f64::midpoint(dual.get("Weapon1AverageHit"), dual.get("Weapon2AverageHit"));
     assert!(
         (main_avg - expected_avg_hit).abs() < 0.01,
         "MainSkillAverageHit should equal (Weapon1AverageHit + Weapon2AverageHit) / 2"
@@ -2435,7 +2432,7 @@ fn arc_chain_remaining_is_full_chain_count_by_default() {
         "ChainRemaining should equal ChainMax by default (no chains used)"
     );
     assert!(
-        chain_remaining >= 7.0 && chain_remaining <= 8.0,
+        (7.0..=8.0).contains(&chain_remaining),
         "Arc level 20 ChainRemaining expected 7..=8, got {chain_remaining}"
     );
 }
@@ -2579,8 +2576,7 @@ fn projectiles_hitting_target_multiplies_dps() {
             skills
                 .get(id)
                 .and_then(|s| s.positional(20, 3))
-                .map(|v| v >= 1.0)
-                .unwrap_or(false)
+                .is_some_and(|v| v >= 1.0)
         })
         .copied()
     else {
@@ -3884,7 +3880,7 @@ fn fire_resist_cap_blocks_overflow() {
     };
     // Find a node that gives lots of fire resistance.
     // Fall back to a synthesised mod if the tree doesn't have one.
-    let mut c = Character::new(ClassRef::marauder(), 90);
+    let c = Character::new(ClassRef::marauder(), 90);
     let mut env = pob_engine::perform::init_env(&c, &tree);
     env.mod_db.add(pob_engine::Mod::base("FireResist", 999.0));
     pob_engine::perform::compute(&c, &tree); // smoke; not used

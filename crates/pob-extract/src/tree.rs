@@ -270,10 +270,8 @@ fn parse_edges(v: &Value, key: &str) -> Result<SmallVec<[NodeId; 4]>> {
         .filter_map(|nv| {
             if let Some(s) = nv.as_str() {
                 s.parse::<NodeId>().ok()
-            } else if let Some(n) = nv.as_u64() {
-                Some(n as NodeId)
             } else {
-                None
+                nv.as_u64().map(|n| n as NodeId)
             }
         })
         .collect())

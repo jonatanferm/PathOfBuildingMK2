@@ -225,18 +225,16 @@ pub fn eval_mod(m: &Mod, state: &EvalState) -> Option<f64> {
     let mut value = m.value.as_f64()?;
     for tag in &m.tags {
         match &tag.kind {
-            TagKind::Condition { var, neg } => {
-                if state.condition(var) == *neg {
+            TagKind::Condition { var, neg }
+                if state.condition(var) == *neg => {
                     return None;
                 }
-            }
-            TagKind::ActorCondition { actor, var, neg } => {
+            TagKind::ActorCondition { actor, var, neg }
                 // Phase 2: only the player actor is modelled. Treat enemy/minion conditions
                 // as false unless we explicitly stash them under a namespaced key.
-                if state.condition_actor(actor, var) == *neg {
+                if state.condition_actor(actor, var) == *neg => {
                     return None;
                 }
-            }
             TagKind::Multiplier {
                 var,
                 limit,
@@ -308,16 +306,14 @@ pub fn eval_mod(m: &Mod, state: &EvalState) -> Option<f64> {
                     return None;
                 }
             }
-            TagKind::SkillName { skill_name, neg } => {
-                if state.condition_prefixed("SkillName", skill_name) == *neg {
+            TagKind::SkillName { skill_name, neg }
+                if state.condition_prefixed("SkillName", skill_name) == *neg => {
                     return None;
                 }
-            }
-            TagKind::SkillId { skill_id, neg } => {
-                if state.condition_prefixed("SkillId", skill_id) == *neg {
+            TagKind::SkillId { skill_id, neg }
+                if state.condition_prefixed("SkillId", skill_id) == *neg => {
                     return None;
                 }
-            }
             TagKind::SkillType { skill_type, neg } => {
                 // SkillType is a u8 (max 3 digits); format into a tiny stack buffer
                 // and reuse the prefixed-condition fast path. PoB's SkillType ids
@@ -347,11 +343,10 @@ pub fn eval_mod(m: &Mod, state: &EvalState) -> Option<f64> {
                     return None;
                 }
             }
-            TagKind::SlotName { slot_name, neg } => {
-                if state.condition_prefixed("SlotName", slot_name) == *neg {
+            TagKind::SlotName { slot_name, neg }
+                if state.condition_prefixed("SlotName", slot_name) == *neg => {
                     return None;
                 }
-            }
             // Unknown tag kinds are pass-through (treated as if they always succeed).
             _ => {}
         }
@@ -406,7 +401,7 @@ impl ModDB {
     /// method would otherwise allocate for every query.
     #[inline]
     pub fn slice_named(&self, name: &str) -> &[Mod] {
-        self.buckets.get(name).map(Vec::as_slice).unwrap_or(&[])
+        self.buckets.get(name).map_or(&[][..], Vec::as_slice)
     }
 }
 
@@ -429,6 +424,13 @@ impl ModDB {
     }
     pub fn len(&self) -> usize {
         self.buckets.values().map(Vec::len).sum()
+    }
+
+    /// Companion to `len()` so clippy's `len_without_is_empty` rule
+    /// stays clean. Avoids re-summing every bucket when the caller
+    /// only wants to know if any mods exist.
+    pub fn is_empty(&self) -> bool {
+        self.buckets.values().all(Vec::is_empty)
     }
 }
 
@@ -605,7 +607,7 @@ mod tests {
         db.add(Mod::override_("Life", 1.0));
         db.add(Mod::override_("Life", 999.0));
         let st = EvalState::default();
-        assert!(matches!(db.override_value(&cfg(), &st, "Life"), Some(_)));
+        assert!(db.override_value(&cfg(), &st, "Life").is_some());
     }
 
     #[test]

@@ -82,6 +82,24 @@ manual_let_else = "allow"
 explicit_iter_loop = "allow"
 match_wildcard_for_single_variants = "allow"
 unnested_or_patterns = "allow"
+# Issue #49: float comparisons against pinned outputs are
+# intentional in the calc engine + tests. Asserting `out.get(...)
+# == 75.0` is the readable way to write "this stat is exactly 75
+# in this fixture". The pedantic warning catches a real footgun in
+# general but in our case it's noise.
+float_cmp = "allow"
+# Issue #49: pedantic stylistic lints we trade away to keep the
+# pob_data extractor + parser path tractable. Each is a real
+# preference signal in greenfield code but not worth a churn pass
+# in already-shipping modules.
+manual_strip = "allow"
+unreadable_literal = "allow"
+assigning_clones = "allow"
+implicit_hasher = "allow"
+too_many_arguments = "allow"
+cast_possible_wrap = "allow"
+default_trait_access = "allow"
+from_iter_instead_of_collect = "allow"
 
 [profile.release]
 lto = "thin"

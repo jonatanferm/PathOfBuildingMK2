@@ -465,7 +465,7 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
             // flag mod under a Misc: key so callers can detect "this passive has *some*
             // textual stat I don't yet model". Bounds the noise by length so wildly long
             // strings don't pollute the namespace.
-            if !body.is_empty() && body.len() < 200 && body.chars().any(|c| c.is_alphabetic()) {
+            if !body.is_empty() && body.len() < 200 && body.chars().any(char::is_alphabetic) {
                 Some(ParsedMod {
                     mod_: Mod::flag(format!("Misc:{}", canonicalize_stat(body)), true),
                 })
@@ -2039,8 +2039,7 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
         }
     }
     // "You can have an additional <X> active"
-    if line.starts_with("You can have an additional ") {
-        let suffix = &line["You can have an additional ".len()..];
+    if let Some(suffix) = line.strip_prefix("You can have an additional ") {
         let stat = if suffix.starts_with("Tincture") {
             "AdditionalTincture"
         } else if suffix.starts_with("Curse") {
@@ -2073,23 +2072,14 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             matches!(
                 lower.as_str(),
                 "of" | "the" | "an" | "a" | "in" | "for" | "with" | "to" | "and" | "or"
-            ) || w
-                .chars()
-                .next()
-                .map(|c| c.is_ascii_uppercase())
-                .unwrap_or(false)
+            ) || w.chars().next().is_some_and(|c| c.is_ascii_uppercase())
         })
     {
         // Conservative: treat as keystone only if it looks like one, i.e. has at least
         // two capitalised words and no obvious mod-form text.
         let cap_count = line
             .split_whitespace()
-            .filter(|w| {
-                w.chars()
-                    .next()
-                    .map(|c| c.is_ascii_uppercase())
-                    .unwrap_or(false)
-            })
+            .filter(|w| w.chars().next().is_some_and(|c| c.is_ascii_uppercase()))
             .count();
         if cap_count >= 2 && line.len() >= 8 {
             return Some(ParsedMod {

@@ -17,8 +17,7 @@ pub fn export_pob_xml(character: &Character) -> String {
         .ascendancy
         .as_deref()
         .filter(|s| !s.is_empty())
-        .map(xml_escape)
-        .unwrap_or_else(|| "None".to_owned());
+        .map_or_else(|| "None".to_owned(), xml_escape);
     let class_id = class_name_to_id(&character.class.0);
 
     let mut nodes_str = String::new();

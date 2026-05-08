@@ -98,7 +98,7 @@ fn main() -> Result<()> {
 
     println!("wrote {} files:", wrote.len());
     for p in &wrote {
-        let bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+        let bytes = std::fs::metadata(p).map_or(0, |m| m.len());
         println!("  {} ({} bytes)", p.display(), bytes);
     }
     Ok(())
@@ -521,15 +521,13 @@ pub(crate) fn list_files(dir: &Path, predicate: impl Fn(&Path) -> bool) -> Resul
 }
 
 /// Used by tree.rs as a typed accessor.
-pub(crate) fn obj<'a>(
-    v: &'a serde_json::Value,
-) -> Result<&'a serde_json::Map<String, serde_json::Value>> {
+pub(crate) fn obj(v: &serde_json::Value) -> Result<&serde_json::Map<String, serde_json::Value>> {
     v.as_object()
         .ok_or_else(|| anyhow!("expected JSON object, got {v:?}"))
 }
 
 #[allow(dead_code)]
-pub(crate) fn arr<'a>(v: &'a serde_json::Value) -> Result<&'a [serde_json::Value]> {
+pub(crate) fn arr(v: &serde_json::Value) -> Result<&[serde_json::Value]> {
     v.as_array()
         .map(Vec::as_slice)
         .ok_or_else(|| anyhow!("expected JSON array, got {v:?}"))

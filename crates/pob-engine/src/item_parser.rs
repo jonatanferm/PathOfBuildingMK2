@@ -158,7 +158,7 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
             }
 
             let (clean, suffix_section) = strip_mod_suffix(line);
-            let section_kind = suffix_section.unwrap_or_else(|| {
+            let section_kind = suffix_section.unwrap_or({
                 if any_self_tagged {
                     ModSection::Explicit
                 } else if !explicit_section_started {
@@ -316,7 +316,10 @@ pub fn item_mods_into_modlist(item: &Item, slot_index: u32, out: &mut crate::Mod
 /// Look up a slot's PoB-style name from its 1-based slot index. Used to
 /// stamp a `SlotName` tag onto item mods.
 fn slot_name_for_index(slot_index: u32) -> Option<&'static str> {
-    use pob_data::Slot::*;
+    use pob_data::Slot::{
+        Amulet, Belt, BodyArmour, Boots, Flask1, Flask2, Flask3, Flask4, Flask5, Gloves, Helmet,
+        Ring1, Ring2, Weapon1, Weapon2,
+    };
     let slot = match slot_index {
         1 => Helmet,
         2 => BodyArmour,
