@@ -32,6 +32,12 @@ pub struct BuildEntry {
     pub path: PathBuf,
     /// File extension lowercased (`mk2` / `xml`).
     pub ext: String,
+    /// Issue #100 (slice 2): subdirectory the build lives under,
+    /// relative to the builds root. `None` means the file is in the
+    /// root itself ("Uncategorised" group). Mirrors PoB's
+    /// "Levelling/", "Bossing/", "Mapping/" folder convention. We
+    /// only walk one level deep — nested categories are out of scope.
+    pub category: Option<String>,
 }
 
 /// Action the host should take based on the user's interaction.
@@ -100,33 +106,83 @@ pub fn builds_dir() -> Option<PathBuf> {
 }
 
 /// Refresh the entry list from disk. Creates the builds dir if it
-/// doesn't exist (so the user has somewhere to save into).
+/// doesn't exist (so the user has somewhere to save into). Issue
+/// #100 (slice 2): walks one level of subdirectories so the user
+/// can organise builds into categories (e.g. `Levelling/MyAcrobat`,
+/// `Bossing/HC-DD`). Files in the root itself are tagged with
+/// `category = None` and render under "Uncategorised". Nested
+/// subdirectories are flattened — only the immediate parent of each
+/// build file becomes a category label.
 fn rescan(dir: &Path) -> Vec<BuildEntry> {
     let _ = std::fs::create_dir_all(dir);
-    let Ok(read) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut out: Vec<BuildEntry> = read
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let path = e.path();
-            let ext = path
-                .extension()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_ascii_lowercase())?;
-            if ext != "mk2" && ext != "xml" {
-                return None;
+    let mut out: Vec<BuildEntry> = Vec::new();
+    if let Ok(read) = std::fs::read_dir(dir) {
+        for entry in read.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            let file_type = entry.file_type().ok();
+            if file_type.map(|t| t.is_dir()).unwrap_or(false) {
+                // One-level-deep walk into subdirectories. Skip
+                // hidden / metadata dirs (anything starting with
+                // `.`) so cache directories don't pollute the list.
+                let category = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .filter(|s| !s.starts_with('.'))
+                    .map(str::to_owned);
+                let Some(category) = category else { continue };
+                if let Ok(child) = std::fs::read_dir(&path) {
+                    for f in child.filter_map(|e| e.ok()) {
+                        if let Some(be) = build_entry_from_path(f.path(), Some(category.clone()))
+                        {
+                            out.push(be);
+                        }
+                    }
+                }
+            } else if let Some(be) = build_entry_from_path(path, None) {
+                out.push(be);
             }
-            let label = path.file_stem().and_then(|s| s.to_str())?.to_owned();
-            Some(BuildEntry { label, path, ext })
-        })
-        .collect();
+        }
+    }
     out.sort_by(|a, b| {
-        a.label
-            .to_ascii_lowercase()
-            .cmp(&b.label.to_ascii_lowercase())
+        // Stable category-then-label ordering keeps the rendered
+        // groups deterministic. `None` (Uncategorised) sorts first
+        // so users see their root-level builds without scrolling.
+        let ca = a.category.as_deref().unwrap_or("");
+        let cb = b.category.as_deref().unwrap_or("");
+        let by_cat = match (a.category.is_some(), b.category.is_some()) {
+            (false, true) => std::cmp::Ordering::Less,
+            (true, false) => std::cmp::Ordering::Greater,
+            _ => ca
+                .to_ascii_lowercase()
+                .cmp(&cb.to_ascii_lowercase()),
+        };
+        by_cat.then_with(|| {
+            a.label
+                .to_ascii_lowercase()
+                .cmp(&b.label.to_ascii_lowercase())
+        })
     });
     out
+}
+
+/// Helper for `rescan`: build an `Option<BuildEntry>` from a
+/// candidate path, filtering out non-build extensions and rejecting
+/// paths whose stem doesn't decode as UTF-8.
+fn build_entry_from_path(path: PathBuf, category: Option<String>) -> Option<BuildEntry> {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())?;
+    if ext != "mk2" && ext != "xml" {
+        return None;
+    }
+    let label = path.file_stem().and_then(|s| s.to_str())?.to_owned();
+    Some(BuildEntry {
+        label,
+        path,
+        ext,
+        category,
+    })
 }
 
 /// Render the builds tab. Returns an action for the host to execute
@@ -169,29 +225,73 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
              \"Save here\" below — or use File → Save As to pick any path manually.",
         );
     } else {
+        // Issue #100 (slice 2): group entries by category so users
+        // can collapse rare-use folders. Entries in the root land
+        // under "Uncategorised"; every named subdir gets its own
+        // collapsing header. `state.entries` is already
+        // category-then-label sorted, so we can stream straight
+        // through it.
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .max_height(360.0)
             .show(ui, |ui| {
-                egui::Grid::new("builds_grid")
-                    .num_columns(2)
-                    .striped(true)
-                    .show(ui, |ui| {
-                        for entry in &state.entries {
-                            if ui
-                                .add(
-                                    egui::Label::new(egui::RichText::new(&entry.label).monospace())
-                                        .sense(egui::Sense::click()),
-                                )
-                                .on_hover_text("Click to load")
-                                .clicked()
-                            {
-                                action = Some(BuildsAction::LoadFile(entry.path.clone()));
-                            }
-                            ui.weak(format!(".{}", entry.ext));
-                            ui.end_row();
+                let mut current_category: Option<&str> = Some("__sentinel__");
+                let mut group: Vec<&BuildEntry> = Vec::new();
+                let entries: &Vec<BuildEntry> = &state.entries;
+                let mut flush_group =
+                    |ui: &mut egui::Ui,
+                     cat: Option<&str>,
+                     items: &mut Vec<&BuildEntry>,
+                     action: &mut Option<BuildsAction>| {
+                        if items.is_empty() {
+                            return;
                         }
-                    });
+                        let header = cat.unwrap_or("Uncategorised");
+                        egui::CollapsingHeader::new(format!(
+                            "{header}  ({n})",
+                            n = items.len()
+                        ))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            egui::Grid::new(format!("builds_grid_{header}"))
+                                .num_columns(2)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    for entry in items.iter() {
+                                        if ui
+                                            .add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(&entry.label).monospace(),
+                                                )
+                                                .sense(egui::Sense::click()),
+                                            )
+                                            .on_hover_text("Click to load")
+                                            .clicked()
+                                        {
+                                            *action = Some(BuildsAction::LoadFile(
+                                                entry.path.clone(),
+                                            ));
+                                        }
+                                        ui.weak(format!(".{}", entry.ext));
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+                        items.clear();
+                    };
+                for entry in entries {
+                    let entry_cat: Option<&str> = entry.category.as_deref();
+                    let category_changed = match (current_category, entry_cat) {
+                        (Some("__sentinel__"), _) => true,
+                        (a, b) => a != b,
+                    };
+                    if category_changed {
+                        flush_group(ui, current_category.filter(|c| *c != "__sentinel__"), &mut group, &mut action);
+                        current_category = entry_cat;
+                    }
+                    group.push(entry);
+                }
+                flush_group(ui, current_category.filter(|c| *c != "__sentinel__"), &mut group, &mut action);
             });
     }
 
@@ -262,6 +362,65 @@ mod tests {
         let entries = rescan(&dir);
         let labels: Vec<_> = entries.iter().map(|e| e.label.clone()).collect();
         assert_eq!(labels, vec!["alpha", "MIDDLE", "Zeta"]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Issue #100 (slice 2): one-level subdirectory walk groups
+    // builds into categories. Files in the root carry
+    // `category = None` (rendered as "Uncategorised"); files inside a
+    // subdir carry the directory name as their category. Hidden
+    // dirs (starting with `.`) and nested-deeper files don't show.
+    #[test]
+    fn rescan_walks_one_level_of_subdirs_into_categories() {
+        let dir = std::env::temp_dir().join(format!(
+            "pob-ui-builds-categories-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Root-level build.
+        std::fs::write(dir.join("scratch.mk2"), "").unwrap();
+        // Two named categories with builds inside each.
+        std::fs::create_dir_all(dir.join("Levelling")).unwrap();
+        std::fs::write(dir.join("Levelling/Phys-RT.mk2"), "").unwrap();
+        std::fs::write(dir.join("Levelling/Spell-CI.xml"), "").unwrap();
+        std::fs::create_dir_all(dir.join("Bossing")).unwrap();
+        std::fs::write(dir.join("Bossing/HC-DD.mk2"), "").unwrap();
+        // Hidden dir is ignored.
+        std::fs::create_dir_all(dir.join(".cache")).unwrap();
+        std::fs::write(dir.join(".cache/old.mk2"), "").unwrap();
+        // Nested-deeper builds are ignored (only one level of subdir).
+        std::fs::create_dir_all(dir.join("Bossing/sub")).unwrap();
+        std::fs::write(dir.join("Bossing/sub/deep.mk2"), "").unwrap();
+
+        let entries = rescan(&dir);
+        let categories: Vec<Option<&str>> =
+            entries.iter().map(|e| e.category.as_deref()).collect();
+        let labels: Vec<&str> = entries.iter().map(|e| e.label.as_str()).collect();
+
+        assert_eq!(
+            categories,
+            vec![None, Some("Bossing"), Some("Levelling"), Some("Levelling")],
+            "Uncategorised first, then categories alphabetised; deeper / hidden dirs skipped"
+        );
+        assert_eq!(
+            labels,
+            vec!["scratch", "HC-DD", "Phys-RT", "Spell-CI"],
+            "labels stable within each category"
+        );
+        // The deeper build "deep" must not appear at all.
+        assert!(
+            !entries.iter().any(|e| e.label == "deep"),
+            "files inside nested subdirs must not be flattened up; got {:?}",
+            labels
+        );
+        // The hidden-dir build is ignored too.
+        assert!(
+            !entries.iter().any(|e| e.label == "old"),
+            "files inside hidden dirs must be skipped"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
