@@ -1676,6 +1676,26 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             }
         }
     }
+    // "N% chance to inflict an additional Poison on the same target when you inflict
+    // Poison" → BASE AdditionalPoisonChance. PoB's calc treats this as extra
+    // poison applications per hit; perform.rs accumulates it into the effective
+    // poison_chance.
+    if let Some((n, suffix)) = consume_simple_number(line) {
+        if suffix
+            .strip_prefix('%')
+            .map(str::trim_start)
+            .and_then(|s| {
+                s.strip_prefix(
+                    "chance to inflict an additional Poison on the same target when you inflict Poison",
+                )
+            })
+            .is_some()
+        {
+            return Some(ParsedMod {
+                mod_: Mod::base("AdditionalPoisonChance", n),
+            });
+        }
+    }
     // "Damaging Ailments deal damage N% faster" → INC each of the three faster keys.
     if let Some(rest) = line.strip_prefix("Damaging Ailments deal damage ") {
         if let Some((n, suffix)) = consume_simple_number(rest) {
@@ -3251,6 +3271,16 @@ mod tests {
         let m = parse("Damaging Ailments deal damage 15% faster");
         assert_eq!(m.name, "DamagingAilmentsFaster");
         assert_eq!(m.kind, ModType::Inc);
+    }
+
+    #[test]
+    fn additional_poison_chance_pattern_emits_base_mod() {
+        let m = parse(
+            "20% chance to inflict an additional Poison on the same target when you inflict Poison",
+        );
+        assert_eq!(m.name, "AdditionalPoisonChance");
+        assert_eq!(m.kind, ModType::Base);
+        assert_eq!(m.value.as_f64(), Some(20.0));
     }
 
     #[test]

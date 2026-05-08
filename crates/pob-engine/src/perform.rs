@@ -1647,8 +1647,14 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // a 0 ailment DPS — which is correct for spells like Arc against unmodded gear.)
         let bleed_chance = (env.mod_db.sum(ModType::Base, &cfg, &env.state, "BleedChance") / 100.0)
             .clamp(0.0, 1.0);
-        let poison_chance = (env.mod_db.sum(ModType::Base, &cfg, &env.state, "PoisonChance") / 100.0)
-            .clamp(0.0, 1.0);
+        let poison_chance_raw = env.mod_db.sum(ModType::Base, &cfg, &env.state, "PoisonChance");
+        // AdditionalPoisonChance lifts the chance an enemy is poisoned by more than
+        // one stack per hit. PoB models it as `chanceOfAdditionalPoison/100` extra
+        // applications added on top of the base — same effective multiplier here.
+        let additional_poison_chance =
+            env.mod_db.sum(ModType::Base, &cfg, &env.state, "AdditionalPoisonChance");
+        let poison_chance = ((poison_chance_raw + additional_poison_chance) / 100.0)
+            .clamp(0.0, 5.0);
         let ignite_chance = (env.mod_db.sum(ModType::Base, &cfg, &env.state, "IgniteChance") / 100.0)
             .clamp(0.0, 1.0);
 
@@ -1689,7 +1695,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         }
 
         // Poison: 30% of hit damage as Chaos DoT for 2s. Stacks; steady-state
-        // DPS ≈ per-stack-DPS × cast_rate × duration × chance.
+        // DPS ≈ per-stack-DPS × stacks where stacks ramps with cast/attack rate.
         if poison_chance > 0.0 {
             let p_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "PoisonDamage")
                 + env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ChaosDamage")
@@ -1703,22 +1709,46 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                 + env
                     .mod_db
                     .sum(ModType::Base, &cfg, &env.state, "DamageOverTimeMultiplier");
+            // PoisonFaster (and the DamagingAilmentsFaster aggregator) speed up the
+            // dot's tick rate, which on a single stack equates to a per-stack DPS
+            // scalar. Mirrors PoB's `rateMod` in CalcOffence.lua:4435.
+            let rate_mod = 1.0
+                + (env
+                    .mod_db
+                    .sum(ModType::Inc, &cfg, &env.state, "PoisonFaster")
+                    + damaging_ailments_faster)
+                    / 100.0;
             let per_stack = avg
                 * 0.30
                 * (1.0 + p_inc / 100.0)
                 * p_more
-                * (1.0 + p_dot_mult / 100.0);
+                * (1.0 + p_dot_mult / 100.0)
+                * rate_mod;
             let speed = env.output.get("MainSkillSpeed").max(0.0);
+            // Faster-poison shortens each stack's duration in addition to speeding
+            // its damage — net effect on steady-state stack count is the duration
+            // INC + the rate scaling. PoB models duration on its own from the
+            // PoisonDuration mods only; rate_mod doesn't shrink duration here, so
+            // stack count tracks speed × duration × chance unchanged.
             let duration_inc = env
                 .mod_db
                 .sum(ModType::Inc, &cfg, &env.state, "PoisonDuration")
                 / 100.0;
             let duration = 2.0 * (1.0 + duration_inc);
-            // Steady-state stacks = cast_rate × duration × chance, capped at 50 (PoB
-            // default visualisation cap).
-            let stacks = (speed * duration * poison_chance).min(50.0);
+            // Steady-state stack count = cast_rate × duration × chance. PoB caps
+            // this at PoisonStackLimit (default unbounded; uniques like Volkuur's
+            // explicitly raise/lower it). We expose the limit as a BASE mod with
+            // a 50 default so the pre-mod-system behaviour is preserved.
+            let stack_limit = {
+                let base = env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "PoisonStackLimit");
+                if base <= 0.0 { 50.0 } else { base }
+            };
+            let stacks = (speed * duration * poison_chance).min(stack_limit);
             env.output.set("PoisonDPS", per_stack * stacks);
             env.output.set("PoisonStacks", stacks);
+            env.output.set("PoisonStackLimit", stack_limit);
         }
 
         // Ignite: 90% of fire hit damage as Fire DoT for 4s, single-application
