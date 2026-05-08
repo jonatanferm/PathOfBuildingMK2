@@ -973,6 +973,14 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         "ChaosDamage" => KeywordFlag::CHAOS,
         _ => KeywordFlag::empty(),
     };
+    // NOTE: We deliberately do NOT add HIT/SPELL/ATTACK to cfg.keyword_flags
+    // here, even though it might seem natural. PoB's intrinsic skill mods
+    // (e.g. Arc's "+15% MORE damage per chain remaining" tagged HIT|AILMENT)
+    // are applied in a specialized "per-hit" context that averages over chain
+    // counts; including HIT here would inflate the basic per-cast average by
+    // applying the full ChainMax bonus to every reported hit. Modelling that
+    // properly requires PoB's full chain-iteration calc which Phase 3d doesn't
+    // implement yet.
     cfg.skill_name = Some(&main.skill_id);
 
     // Damage modifiers: stack the elemental, generic damage, and skill-type damage mods.
