@@ -1910,8 +1910,9 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     }
 
     // Hit chance — only meaningful for attack skills against an enemy with evasion.
-    // PoE formula (mirrors Modules/CalcOffence.lua's accuracy block):
-    //   chance = 1.15 * accuracy / (accuracy + (eva/4)^0.9) - 0.15
+    // PoE formula (mirrors `calcs.hitChance` in CalcDefence.lua:32-38):
+    //   rawChance = accuracy / (accuracy + (evasion/5)^0.9) * 125
+    //   chance    = max(5, min(round(rawChance), 100))
     // Spells always hit at 100%.
     // Compute baseline accuracy for ALL skills (PoB exposes Accuracy as a
     // character-level output even when the active skill is a spell). PoE base
@@ -1928,14 +1929,14 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
 
     if is_attack {
         let enemy_evasion = f64::from(character.config.enemy_evasion.max(1));
-        let denom = accuracy + f64::powf(enemy_evasion / 4.0, 0.9);
-        let raw = if denom > 0.0 {
-            1.15 * accuracy / denom - 0.15
+        let raw_chance_pct = if accuracy <= 0.0 {
+            5.0
         } else {
-            0.05
+            accuracy / (accuracy + f64::powf(enemy_evasion / 5.0, 0.9)) * 125.0
         };
-        let chance = raw.clamp(0.05, 1.0);
-        env.output.set("MainSkillHitChance", chance * 100.0);
+        let chance_pct = raw_chance_pct.round().clamp(5.0, 100.0);
+        let chance = chance_pct / 100.0;
+        env.output.set("MainSkillHitChance", chance_pct);
         // Roll hit chance into the DPS at the end. Use the post-shock value so
         // ailments-as-multipliers (currently shock; freeze/ignite to follow)
         // flow through to AverageHit / DPS.
@@ -1943,8 +1944,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         env.output.set("MainSkillAverageHitAfterAccuracy", dps_now * chance);
         // PoB's character-level HitChance / AccuracyHitChance is the main
         // skill's hit chance when an attack skill is bound.
-        env.output.set("HitChance", chance * 100.0);
-        env.output.set("AccuracyHitChance", chance * 100.0);
+        env.output.set("HitChance", chance_pct);
+        env.output.set("AccuracyHitChance", chance_pct);
     } else {
         env.output.set("MainSkillHitChance", 100.0);
         env.output.set(

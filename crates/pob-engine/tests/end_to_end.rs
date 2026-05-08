@@ -800,6 +800,86 @@ fn item_mods_carry_slot_name_tag() {
     );
 }
 
+// Issue #48: HitChance formula must match upstream PoB exactly.
+// Upstream formula (CalcDefence.lua:32-38):
+//   rawChance = accuracy / (accuracy + (evasion/5)^0.9) * 125
+//   chance    = max(5, min(round(rawChance), 100))
+// Pre-fix MK2 used `1.15 × acc/(acc+(eva/4)^0.9) - 0.15`, which gave a
+// different (lower) chance and is the suspected accuracy-side cause of the
+// ~50% AverageDamage divergence on the marauder_l90_cleave_with_axe fixture.
+#[test]
+fn hit_chance_matches_pob_calcdefence_formula() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    let Some(_) = skills.get("Cleave") else {
+        eprintln!("skip: Cleave not found");
+        return;
+    };
+    let sword_name = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone());
+    let Some(sword_name) = sword_name else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    c.items.equip(
+        pob_data::Slot::Weapon1,
+        parse_item(&format!(
+            "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+        ))
+        .unwrap(),
+    );
+    c.main_skill = Some(MainSkill::new("Cleave"));
+
+    // Pin the inputs we control so the formula is the only variable.
+    c.config.enemy_evasion = 10_000;
+    let out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let accuracy = out.get("Accuracy");
+    let hit_chance = out.get("MainSkillHitChance");
+
+    // Reproduce PoB's formula to derive the expected value from the same accuracy.
+    let raw = accuracy / (accuracy + f64::powf(10_000.0 / 5.0, 0.9)) * 125.0;
+    let expected = raw.round().clamp(5.0, 100.0);
+    assert!(
+        (hit_chance - expected).abs() < 0.001,
+        "MainSkillHitChance {hit_chance} should equal PoB-formula {expected} (acc={accuracy})"
+    );
+
+    // HitChance and AccuracyHitChance should track MainSkillHitChance.
+    assert!(
+        (out.get("HitChance") - hit_chance).abs() < 0.001,
+        "HitChance should mirror MainSkillHitChance"
+    );
+    assert!(
+        (out.get("AccuracyHitChance") - hit_chance).abs() < 0.001,
+        "AccuracyHitChance should mirror MainSkillHitChance"
+    );
+
+    // At a very low evasion, hit chance should clamp to 100.
+    c.config.enemy_evasion = 1;
+    let high = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
+        .get("MainSkillHitChance");
+    assert!(
+        (high - 100.0).abs() < 0.001,
+        "near-zero evasion should clamp HitChance to 100, got {high}"
+    );
+
+    // At a very high evasion, hit chance should clamp to 5 (floor).
+    c.config.enemy_evasion = 1_000_000;
+    let low = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases))
+        .get("MainSkillHitChance");
+    assert!(
+        (low - 5.0).abs() < 0.001,
+        "huge evasion should clamp HitChance to 5, got {low}"
+    );
+}
+
 #[test]
 fn enemy_evasion_changes_main_skill_hit_chance() {
     let (Some(tree), Some(skills), Some(bases)) =
