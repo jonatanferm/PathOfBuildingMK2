@@ -129,9 +129,11 @@ Status on Witch L90 baseline:
   due to PoB's iterative damage-shaving solver vs our analytic approximation)
 - 0 PoB-only keys remaining — pob-engine emits every non-trivial PoB output
 
-Marauder L90 baseline shows 2 divergent keys (TotalEHP +1.6, plus
-`impaleStoredHitAvg` which PoB derives from a class-specific calc not yet
-modelled in pob-engine).
+Marauder L90 baseline shows 1 divergent key (TotalEHP +1.6).
+`impaleStoredHitAvg` and `ImpaleDPS` are now emitted by `perform_skill_dps`
+when an attack skill picks up an `ImpaleChance` source — the basic stack
+model from CalcOffence.lua line 5875 (`stored × stacks × effect/100 ×
+chance/100 × cps`) is now in place.
 
 LuaJIT → Lua 5.4 compatibility shims live in `build_lua_sandbox`:
 - `jit.opt.start`, `unpack`, `loadstring`, LuaJIT-style `bit.*`
