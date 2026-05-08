@@ -1965,6 +1965,88 @@ fn flask_armour_mod_gates_on_using_flask_toggle() {
     );
 }
 
+// Issue #75: per-preset damage / pen / armour / evasion baselines.
+// Pinnacle Boss adds 3% elemental pen (`pinnacleBossPen = 15/5`); Uber
+// adds 8% (`uberBossPen = 40/5`); Boss has no implicit pen. Default
+// armour and evasion lift to 36000 / 6000 for Pinnacle/Uber.
+#[test]
+fn enemy_boss_preset_per_preset_damage_defaults() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    use pob_engine::character::EnemyBoss;
+
+    // default_penetration values mirror PoB's Data.lua constants.
+    assert_eq!(EnemyBoss::None.default_penetration(), 0);
+    assert_eq!(EnemyBoss::Boss.default_penetration(), 0);
+    assert_eq!(EnemyBoss::Pinnacle.default_penetration(), 3);
+    assert_eq!(EnemyBoss::Uber.default_penetration(), 8);
+
+    // default_armour / default_evasion: Pinnacle and Uber jump to fixed
+    // baselines mirroring PoB's `data.bossStats.PinnacleArmourMean` and
+    // `PinnacleEvasionMean`. Boss inherits the level-derived default (0
+    // means "fall back to engine's MONSTER_ARMOUR_TABLE").
+    assert_eq!(EnemyBoss::None.default_armour(), 0);
+    assert_eq!(EnemyBoss::Boss.default_armour(), 0);
+    assert_eq!(EnemyBoss::Pinnacle.default_armour(), 36_000);
+    assert_eq!(EnemyBoss::Uber.default_armour(), 36_000);
+    assert_eq!(EnemyBoss::Pinnacle.default_evasion(), 6_000);
+
+    // dps_taken_multiplier mirrors PoB's `Data.lua` constants:
+    //   stdBossDPSMult     = 4 / 4.40    ≈ 0.909
+    //   pinnacleBossDPSMult = 8 / 4.40   ≈ 1.818
+    //   uberBossDPSMult    = 10 / 4.25   ≈ 2.353
+    assert!((EnemyBoss::None.dps_taken_multiplier() - 1.0).abs() < 1e-6);
+    assert!((EnemyBoss::Boss.dps_taken_multiplier() - 4.0 / 4.40).abs() < 1e-6);
+    assert!((EnemyBoss::Pinnacle.dps_taken_multiplier() - 8.0 / 4.40).abs() < 1e-6);
+    assert!((EnemyBoss::Uber.dps_taken_multiplier() - 10.0 / 4.25).abs() < 1e-6);
+
+    // Engine: selecting Pinnacle injects an ElementalPenetration BASE
+    // mod sourced from the preset.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.config.enemy_boss = EnemyBoss::Pinnacle;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    use pob_engine::ModStore as _;
+    let pen_mod = env
+        .mod_db
+        .iter_all()
+        .find(|m| {
+            m.name == "ElementalPenetration"
+                && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "EnemyBoss:Pinnacle")
+        })
+        .expect("Pinnacle preset should emit ElementalPenetration BASE");
+    assert_eq!(pen_mod.value.as_f64(), Some(3.0));
+
+    // Boss preset emits no pen mod.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.config.enemy_boss = EnemyBoss::Boss;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let pen_mods: Vec<_> = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            m.name == "ElementalPenetration"
+                && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s.starts_with("EnemyBoss:"))
+        })
+        .collect();
+    assert!(
+        pen_mods.is_empty(),
+        "Boss preset should not emit ElementalPenetration"
+    );
+
+    // EnemyBossDpsTakenMultiplier output key: surfaces only when the
+    // preset moves the multiplier away from 1.0.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.config.enemy_boss = EnemyBoss::Pinnacle;
+    let out = pob_engine::compute_full(&c, &tree, None, None);
+    let mult = out.get("EnemyBossDpsTakenMultiplier");
+    assert!(
+        (mult - 8.0 / 4.40).abs() < 1e-6,
+        "Pinnacle should set EnemyBossDpsTakenMultiplier ≈ 8/4.40, got {mult}"
+    );
+}
+
 // Issue #35: EnemyBoss preset (None / Boss / Pinnacle / Uber) injects
 // `Condition:RareOrUnique` (all non-None presets) and
 // `Condition:PinnacleBoss` (Pinnacle + Uber) into the eval state, plus

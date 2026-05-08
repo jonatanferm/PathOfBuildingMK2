@@ -352,6 +352,58 @@ impl EnemyBoss {
             Self::Pinnacle | Self::Uber => (50, 50, 50, 30),
         }
     }
+
+    /// Default elemental penetration (%) the preset implies. PoB's
+    /// `pinnacleBossPen = 15 / 5 = 3` and `uberBossPen = 40 / 5 = 8`
+    /// (in `Data.lua`); Boss has no implicit pen. Used by the calc as
+    /// "enemy resists are reduced by N%" — applied to FireResistTotal /
+    /// ColdResistTotal / LightningResistTotal at hit time.
+    pub fn default_penetration(self) -> i32 {
+        match self {
+            Self::None | Self::Boss => 0,
+            Self::Pinnacle => 3,
+            Self::Uber => 8,
+        }
+    }
+
+    /// Default armour for the preset, mirroring upstream PoB's
+    /// `data.bossStats.PinnacleArmourMean` (computed in
+    /// `Modules/Data.lua`). Standard map mob: 0 (we already default
+    /// `enemy_armour` from level via `MONSTER_ARMOUR_TABLE`); Boss
+    /// inherits the level-derived value; Pinnacle / Uber use higher
+    /// fixed scales — PoB's averaged number is around 36000 for
+    /// pinnacle bosses.
+    pub fn default_armour(self) -> u32 {
+        match self {
+            Self::None | Self::Boss => 0, // 0 → fall back to level-derived default
+            Self::Pinnacle | Self::Uber => 36_000,
+        }
+    }
+
+    /// Default evasion for the preset. PoB's
+    /// `data.bossStats.PinnacleEvasionMean` runs around 6000.
+    pub fn default_evasion(self) -> u32 {
+        match self {
+            Self::None => 1500, // standard map mob, matches PoB default
+            Self::Boss => 1500,
+            Self::Pinnacle | Self::Uber => 6_000,
+        }
+    }
+
+    /// PoB's `damageTaken` multiplier per preset, derived from
+    /// `data.misc.{stdBossDPSMult, pinnacleBossDPSMult, uberBossDPSMult}`
+    /// in `Modules/Data.lua`. Currently exposed as an output key so
+    /// callers can show "ratio of monster damage taken" in the UI;
+    /// the calc engine doesn't fold this into MainSkillDPS yet
+    /// (PoB models monster damage scaling, not player DPS scaling).
+    pub fn dps_taken_multiplier(self) -> f64 {
+        match self {
+            Self::None => 1.0,
+            Self::Boss => 4.0 / 4.40,
+            Self::Pinnacle => 8.0 / 4.40,
+            Self::Uber => 10.0 / 4.25,
+        }
+    }
 }
 
 impl ConfigState {

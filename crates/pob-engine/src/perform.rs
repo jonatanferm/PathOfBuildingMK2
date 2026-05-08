@@ -331,14 +331,36 @@ fn apply_enemy_boss_preset(boss: crate::character::EnemyBoss, env: &mut Env) {
         EnemyBoss::Boss => {
             env.state.set_condition("RareOrUnique", true);
             env.mod_db
-                .add(Mod::more("AilmentThreshold", 488.0).with_source(source));
+                .add(Mod::more("AilmentThreshold", 488.0).with_source(source.clone()));
         }
         EnemyBoss::Pinnacle | EnemyBoss::Uber => {
             env.state.set_condition("RareOrUnique", true);
             env.state.set_condition("PinnacleBoss", true);
             env.mod_db
-                .add(Mod::more("AilmentThreshold", 404.0).with_source(source));
+                .add(Mod::more("AilmentThreshold", 404.0).with_source(source.clone()));
         }
+    }
+    // Issue #75: per-preset elemental penetration the player must
+    // overcome on the boss. Mirrors `pinnacleBossPen = 15/5 = 3` and
+    // `uberBossPen = 40/5 = 8` from `Data.lua`. Adds a generic
+    // `ElementalPenetration` BASE mod that the existing pen-aggregation
+    // path in `perform_skill_dps` already consumes (see
+    // `elem_pen = ... + sum(BASE, ElementalPenetration)`). Boss / None
+    // contribute 0.
+    let pen = boss.default_penetration();
+    if pen > 0 {
+        env.mod_db.add(
+            Mod::base("ElementalPenetration", f64::from(pen)).with_source(source.clone()),
+        );
+    }
+    // Surface the canonical PoB damage-taken multiplier per preset on
+    // the output for callers that want to display "ratio of monster
+    // damage taken" — purely informational; the engine doesn't fold
+    // this into MainSkillDPS (PoB models monster damage scaling, not
+    // player DPS scaling).
+    let dps_taken = boss.dps_taken_multiplier();
+    if (dps_taken - 1.0).abs() > 1e-6 {
+        env.output.set("EnemyBossDpsTakenMultiplier", dps_taken);
     }
 }
 
