@@ -805,8 +805,7 @@ impl Character {
     /// `allocate_path` and the UI hover preview so they agree on what
     /// "reachable" means.
     pub fn pathfind_seeds(&self, tree: &PassiveTree) -> std::collections::HashSet<NodeId> {
-        let mut seeds: std::collections::HashSet<NodeId> =
-            self.allocated.iter().copied().collect();
+        let mut seeds: std::collections::HashSet<NodeId> = self.allocated.iter().copied().collect();
         for s in crate::pathfind::anchor_nodes(tree, &self.class.0, self.ascendancy.as_deref()) {
             seeds.insert(s);
         }
