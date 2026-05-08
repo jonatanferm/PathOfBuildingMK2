@@ -207,6 +207,21 @@ pub fn init_env_with_bases(
     for (k, v) in &character.config.multipliers {
         env.state.set_multiplier(k.clone(), *v);
     }
+    // 6b. Custom modifiers — user-typed lines from the Config-tab textarea.
+    // Parse each non-empty line through `mod_parser` and add it with
+    // `source = Custom` so the Calcs-tab breakdown can identify them.
+    // Mirrors PoB's ConfigTab "Custom Modifiers" feature. Lines that fail
+    // to parse are silently skipped (the UI surfaces parse errors separately).
+    for line in character.config.custom_mods.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(parsed) = crate::mod_parser::parse_mod_line(trimmed) {
+            env.mod_db
+                .add(parsed.mod_.with_source(Source::Other("Custom".into())));
+        }
+    }
 
     // 7. Act 2 bandit reward. KillAll grants +2 passive points (counted
     // against the tree-budget elsewhere); the named bandits inject a small

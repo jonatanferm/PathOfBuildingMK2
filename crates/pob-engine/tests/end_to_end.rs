@@ -113,6 +113,64 @@ Item Level: 84
 20% increased Light Radius
 --------";
 
+// Issue #28: User-typed lines in `ConfigState.custom_mods` must be parsed
+// through `mod_parser` and injected into the player modDB during init_env.
+// Mirrors PoB's Config-tab "Custom Modifiers" feature.
+#[test]
+fn custom_mods_textarea_lines_inject_into_mod_db() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let baseline = compute_with_skills(&c, &tree, None);
+
+    // Single mod that goes via the BASE path and lands on Strength.
+    c.config.custom_mods = "+50 to Strength".to_owned();
+    let single = compute_with_skills(&c, &tree, None);
+    assert!(
+        (single.get("Strength") - baseline.get("Strength") - 50.0).abs() < 0.5,
+        "+50 to Strength via custom_mods should add 50 Strength (baseline={}, after={})",
+        baseline.get("Strength"),
+        single.get("Strength")
+    );
+
+    // Multi-line input — both should land. The Empty/blank lines are tolerated.
+    c.config.custom_mods = "+50 to Strength\n\n+62 to maximum Life\n".to_owned();
+    let multi = compute_with_skills(&c, &tree, None);
+    assert!(
+        (multi.get("Strength") - baseline.get("Strength") - 50.0).abs() < 0.5,
+        "Strength still scales after second line is added"
+    );
+    // Life delta: +62 from the explicit life line, plus +25 from Strength/2
+    // (the Str+50 line contributes 50/2 = 25 life via the implicit Strength
+    // → Life conversion). Total = 87.
+    assert!(
+        (multi.get("Life") - baseline.get("Life") - 87.0).abs() < 1.0,
+        "+62 to maximum Life + +50 Str via custom_mods should add 87 to Life (62 + 50/2). \
+         baseline={}, after={}",
+        baseline.get("Life"),
+        multi.get("Life")
+    );
+
+    // An unparseable line should not crash the calc and other lines should still apply.
+    c.config.custom_mods =
+        "this is not a valid mod line\n+50 to Strength\n".to_owned();
+    let with_garbage = compute_with_skills(&c, &tree, None);
+    assert!(
+        (with_garbage.get("Strength") - baseline.get("Strength") - 50.0).abs() < 0.5,
+        "Unparseable lines should be silently skipped without breaking others"
+    );
+
+    // Empty textarea → no effect.
+    c.config.custom_mods = String::new();
+    let empty = compute_with_skills(&c, &tree, None);
+    assert!(
+        (empty.get("Strength") - baseline.get("Strength")).abs() < 0.5,
+        "Empty custom_mods should not change Strength"
+    );
+}
+
 #[test]
 fn equipping_an_amulet_changes_stats() {
     let Some(tree) = load_3_25_tree() else {

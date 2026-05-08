@@ -277,6 +277,12 @@ pub struct ConfigState {
     pub conditions: HashMap<String, bool>,
     /// Multiplier counters (`PowerCharge` count, `FrenzyCharge` count, …).
     pub multipliers: HashMap<String, f64>,
+    /// User-typed "Custom Modifiers" textarea content. Mirrors PoB's Config-tab
+    /// custom-modifiers feature: each newline-separated line is parsed by
+    /// `mod_parser` and added to the player modDB with `source = "Custom"`.
+    /// Used for what-if testing without editing items / tree.
+    #[serde(default)]
+    pub custom_mods: String,
 }
 
 impl ConfigState {
