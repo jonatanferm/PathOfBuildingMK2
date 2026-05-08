@@ -455,8 +455,7 @@ fn enemy_resist_reduces_skill_dps() {
 //    builds don't get a Weapon{1,2}DPS pair).
 #[test]
 fn dual_wielding_averages_dps_across_per_hand_passes() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -1474,8 +1473,7 @@ fn ailment_duration_outputs_scale_with_duration_mods() {
 // skill while leaving non-AoE skills (Arc) untouched.
 #[test]
 fn enemies_hit_by_aoe_multiplies_aoe_skill_dps() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -1635,18 +1633,16 @@ fn aoe_skills_emit_radius_outputs_that_scale_with_area_mods() {
 // low-life layers were folded into the calc.
 #[test]
 fn flask_low_life_toggle_no_mods_keeps_recovery_unchanged() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
     };
 
     let mut c = Character::new(ClassRef::marauder(), 90);
-    let flask = parse_item(
-        "Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n",
-    )
-    .unwrap();
+    let flask =
+        parse_item("Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n")
+            .unwrap();
     c.items.equip(pob_data::Slot::Flask1, flask);
 
     let baseline_out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
@@ -1672,8 +1668,7 @@ fn flask_low_life_toggle_no_mods_keeps_recovery_unchanged() {
 // LifeRecovery (rate) / FlaskLifeRecoveryRate INC mods.
 #[test]
 fn flask_recovery_outputs_scale_with_flask_mods() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -1682,10 +1677,9 @@ fn flask_recovery_outputs_scale_with_flask_mods() {
     let mut c = Character::new(ClassRef::marauder(), 90);
 
     // Colossal Life Flask: life=1000, duration=3.5s. Magic flask on Flask 1.
-    let life_flask = parse_item(
-        "Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n",
-    )
-    .unwrap();
+    let life_flask =
+        parse_item("Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n")
+            .unwrap();
     c.items.equip(pob_data::Slot::Flask1, life_flask);
 
     let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
@@ -1709,10 +1703,9 @@ fn flask_recovery_outputs_scale_with_flask_mods() {
 
     // Mana flask in slot 2 should populate Flask2ManaRecovery without
     // touching the life-flask outputs.
-    let mana_flask = parse_item(
-        "Item Class: Mana Flasks\nRarity: NORMAL\nColossal Mana Flask\n--------\n",
-    )
-    .unwrap();
+    let mana_flask =
+        parse_item("Item Class: Mana Flasks\nRarity: NORMAL\nColossal Mana Flask\n--------\n")
+            .unwrap();
     c.items.equip(pob_data::Slot::Flask2, mana_flask);
     let with_mana = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
     assert!(
@@ -2009,8 +2002,7 @@ fn projectiles_hitting_target_multiplies_dps() {
 // supplying `MineThrowCount` / `TrapThrowCount` BASE bumps it.
 #[test]
 fn mine_and_trap_skills_emit_throw_count_outputs() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -2073,7 +2065,9 @@ fn mine_and_trap_skills_emit_throw_count_outputs() {
     );
 
     // Non-mine/trap skill (Cleave) emits no mine/trap output keys.
-    let Some(_) = skills.get("Cleave") else { return };
+    let Some(_) = skills.get("Cleave") else {
+        return;
+    };
     let mut nc = Character::new(ClassRef::duelist(), 90);
     nc.main_skill = Some(MainSkill::new("Cleave"));
     let cleave_out = pob_engine::compute_full(&nc, &tree, Some(&skills), Some(&bases));
@@ -2091,14 +2085,169 @@ fn mine_and_trap_skills_emit_throw_count_outputs() {
 
 // Issue #8: impale layer adds physical-stack DPS to FullDPS via
 //   ImpaleDPS = stored × stacks(5) × effect/100 × chance/100 × cps
+// Issue #19: Warcry exertion. Each warcry exerts the next N attacks
+// and grants them an `ExertedAttackDamage` bonus composed multiplicatively
+// from INC and MORE — `(1 + inc/100) × more`. The user supplies the
+// resulting uptime via `ConfigState::exerted_attack_uptime` (modelling
+// cry cadence + skill detection is a follow-up). MK2 computes
+// `MainSkillDPS *= 1 + uptime × (factor - 1)` for attack skills.
+#[test]
+fn exerted_attack_uptime_lifts_main_skill_dps() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    let Some(_) = skills.get("Cleave") else {
+        eprintln!("skip: Cleave not found");
+        return;
+    };
+    let sword_name = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone());
+    let Some(sword_name) = sword_name else {
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+
+    // Equip a body armour granting "+50% Exerted Attacks deal increased
+    // Damage" — mod_parser maps this to `ExertedAttackDamage` INC 50.
+    let body = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nWarcry Plate\nFull Plate\n--------\nExerted Attacks deal 50% increased Damage\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::BodyArmour, body);
+
+    // Baseline: no exerted uptime — DPS unaffected by the mod.
+    assert_eq!(c.config.exerted_attack_uptime, 0.0);
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_dps = baseline.get("MainSkillDPS");
+    if baseline_dps <= 0.0 {
+        eprintln!("skip: Cleave produces no DPS in this fixture");
+        return;
+    }
+    assert_eq!(
+        baseline.try_get("ExertedAttackUptime"),
+        None,
+        "uptime=0 must not emit ExertedAttackUptime"
+    );
+
+    // Set 50% uptime: half of attacks are exerted, so the average DPS
+    // bonus is 0.5 × 50% = 25%.
+    c.config.exerted_attack_uptime = 0.5;
+    let exerted = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let ratio = exerted.get("MainSkillDPS") / baseline_dps;
+    assert!(
+        (ratio - 1.25).abs() < 0.01,
+        "50% uptime + 50% Exerted MORE should multiply DPS by 1.25; ratio={ratio} (baseline={baseline_dps}, after={})",
+        exerted.get("MainSkillDPS")
+    );
+    assert!(
+        (exerted.get("ExertedAttackUptime") - 0.5).abs() < 0.001,
+        "ExertedAttackUptime output should mirror the config value"
+    );
+    assert!(
+        (exerted.get("ExertedAttackDamageBonus") - 50.0).abs() < 0.01,
+        "ExertedAttackDamageBonus should reflect the 50% INC mod"
+    );
+
+    // Set 100% uptime: every attack is exerted, full 50% bonus.
+    c.config.exerted_attack_uptime = 1.0;
+    let full = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let ratio = full.get("MainSkillDPS") / baseline_dps;
+    assert!(
+        (ratio - 1.5).abs() < 0.01,
+        "100% uptime + 50% Exerted MORE should multiply DPS by 1.5; ratio={ratio}"
+    );
+}
+
+// Issue #19 (composition): INC and MORE for ExertedAttackDamage compose
+// multiplicatively, matching PoE's `(1 + inc/100) × more` chain. With
+// 50% INC and a separate 50% MORE the per-exerted-attack factor is
+// `1.5 × 1.5 = 2.25`, so at 100% uptime the average DPS lands × 2.25
+// vs the unexerted baseline; at 50% uptime it lands × 1.625.
+#[test]
+fn exerted_attack_inc_and_more_compose_multiplicatively() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    let Some(_) = skills.get("Cleave") else {
+        eprintln!("skip: Cleave not found");
+        return;
+    };
+    let sword_name = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone());
+    let Some(sword_name) = sword_name else {
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+
+    // Body armour grants 50% INC; custom_mods adds 50% MORE on the same
+    // ExertedAttackDamage stat from a separate source.
+    let body = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nWarcry Plate\nFull Plate\n--------\nExerted Attacks deal 50% increased Damage\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::BodyArmour, body);
+    c.config.custom_mods = "Exerted Attacks deal 50% more Damage".to_owned();
+
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_dps = baseline.get("MainSkillDPS");
+    if baseline_dps <= 0.0 {
+        eprintln!("skip: Cleave produces no DPS in this fixture");
+        return;
+    }
+
+    // 100% uptime: every attack is exerted; factor = 1.5 × 1.5 = 2.25.
+    c.config.exerted_attack_uptime = 1.0;
+    let full = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let ratio = full.get("MainSkillDPS") / baseline_dps;
+    assert!(
+        (ratio - 2.25).abs() < 0.01,
+        "100% uptime + 50% INC × 50% MORE should multiply DPS by 2.25 (1.5 × 1.5); ratio={ratio}"
+    );
+    assert!(
+        (full.get("ExertedAttackDamageBonus") - 125.0).abs() < 0.01,
+        "ExertedAttackDamageBonus should reflect the multiplicative composition: (1.5 × 1.5 - 1) × 100 = 125; got {}",
+        full.get("ExertedAttackDamageBonus")
+    );
+
+    // 50% uptime: factor = 1 + 0.5 × 1.25 = 1.625.
+    c.config.exerted_attack_uptime = 0.5;
+    let half = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let ratio = half.get("MainSkillDPS") / baseline_dps;
+    assert!(
+        (ratio - 1.625).abs() < 0.01,
+        "50% uptime + 50% INC × 50% MORE should multiply DPS by 1.625; ratio={ratio}"
+    );
+}
+
 // Issue #16 (totem half): a totem-summoning skill's MainSkillDPS must
 // scale by the player's `ActiveTotemLimit` (default 1; supports like
 // Multiple Totems Support raise the limit). Mirrors PoB's
 // CalcOffence.lua:1388 totem branch.
 #[test]
 fn totem_skill_dps_scales_with_active_totem_limit() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -2466,7 +2615,12 @@ fn enemy_boss_preset_emits_conditions_and_ailment_threshold() {
     assert_eq!(EnemyBoss::None.default_resists(), (0, 0, 0, 0));
 
     // PoB-name round trip.
-    for variant in [EnemyBoss::None, EnemyBoss::Boss, EnemyBoss::Pinnacle, EnemyBoss::Uber] {
+    for variant in [
+        EnemyBoss::None,
+        EnemyBoss::Boss,
+        EnemyBoss::Pinnacle,
+        EnemyBoss::Uber,
+    ] {
         assert_eq!(
             EnemyBoss::from_pob_name(variant.as_pob_name()),
             Some(variant),
@@ -2516,9 +2670,9 @@ fn pantheon_selection_round_trips_and_injects_parseable_mods() {
     let arakaali_mods: Vec<_> = env
         .mod_db
         .iter_all()
-        .filter(|m| {
-            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Arakaali")
-        })
+        .filter(
+            |m| matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Arakaali"),
+        )
         .collect();
     assert!(
         !arakaali_mods.is_empty(),
@@ -2532,9 +2686,9 @@ fn pantheon_selection_round_trips_and_injects_parseable_mods() {
     let garukhan_mods: Vec<_> = env
         .mod_db
         .iter_all()
-        .filter(|m| {
-            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Garukhan")
-        })
+        .filter(
+            |m| matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Garukhan"),
+        )
         .collect();
     assert!(
         !garukhan_mods.is_empty(),

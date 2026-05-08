@@ -2097,13 +2097,18 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             });
         }
     }
-    // "Exerted Attacks deal N% increased Damage"
+    // "Exerted Attacks deal N% {increased,more} Damage"
     if let Some(rest) = line.strip_prefix("Exerted Attacks deal ") {
         if let Some((n, rest)) = consume_simple_number(rest) {
             let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
             if rest.starts_with("increased Damage") {
                 return Some(ParsedMod {
                     mod_: Mod::inc("ExertedAttackDamage", n),
+                });
+            }
+            if rest.starts_with("more Damage") {
+                return Some(ParsedMod {
+                    mod_: Mod::more("ExertedAttackDamage", n),
                 });
             }
         }
