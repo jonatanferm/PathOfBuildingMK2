@@ -3183,6 +3183,72 @@ fn warcry_power_config_lands_in_mod_db() {
     );
 }
 
+// Issue #83 (slice 2): NearbyEnemies multiplier surfaces from Config
+// tab into the modDB and EvalState, plus the OnlyOneNearbyEnemy
+// condition flips on for exactly one nearby enemy. Mirrors PoB's
+// `ConfigOptions.lua:1193-1199`.
+#[test]
+fn nearby_enemies_config_emits_multiplier_and_condition() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: tree missing");
+        return;
+    };
+    use pob_engine::ModStore as _;
+
+    // Default (0) → no Config-sourced injection.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let injected = env.mod_db.iter_all().any(|m| {
+        m.name == "Multiplier:NearbyEnemies"
+            && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Config")
+    });
+    assert!(
+        !injected,
+        "Default nearby_enemies = 0 should not inject any Config-sourced Multiplier:NearbyEnemies"
+    );
+    assert!(
+        !env.state.condition("OnlyOneNearbyEnemy"),
+        "Default config should not set OnlyOneNearbyEnemy"
+    );
+
+    // 5 nearby enemies → BASE = 5, EvalState multiplier reads 5,
+    // OnlyOneNearbyEnemy stays off.
+    c.config.nearby_enemies = 5;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let val = env.mod_db.iter_all().find_map(|m| {
+        if m.name == "Multiplier:NearbyEnemies"
+            && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Config")
+        {
+            m.value.as_f64()
+        } else {
+            None
+        }
+    });
+    assert_eq!(
+        val,
+        Some(5.0),
+        "nearby_enemies = 5 should inject Multiplier:NearbyEnemies BASE = 5"
+    );
+    assert!(
+        (env.state.multiplier("NearbyEnemies") - 5.0).abs() < 1e-6,
+        "EvalState multiplier(NearbyEnemies) should mirror the config so PerStat-tagged mods read it; got {}",
+        env.state.multiplier("NearbyEnemies")
+    );
+    assert!(
+        !env.state.condition("OnlyOneNearbyEnemy"),
+        "OnlyOneNearbyEnemy must only flip on at exactly 1 enemy"
+    );
+
+    // Exactly 1 → OnlyOneNearbyEnemy flips on. Solaris's "while there
+    // is only one nearby Enemy" mod gates on this condition.
+    c.config.nearby_enemies = 1;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    assert!(
+        env.state.condition("OnlyOneNearbyEnemy"),
+        "OnlyOneNearbyEnemy must be true when nearby_enemies == 1"
+    );
+}
+
 // Issue #19 (slice 3): warcry-loadout detection. Each enabled warcry
 // gem in the gem list contributes to `ActiveWarcryCount`,
 // `WarcryExertedAttackCountTotal`, and (for cooldown-having warcries)

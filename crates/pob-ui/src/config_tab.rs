@@ -298,6 +298,18 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
                 state.enemies_hit_by_aoe = aoe.max(1) as u32;
                 changed = true;
             }
+            // Issue #83 (slice 2): "# of nearby Enemies" feeds
+            // Multiplier:NearbyEnemies + (when ==1) the
+            // OnlyOneNearbyEnemy condition; mirrors PoB's
+            // `multiplierNearbyEnemies` Config-tab input.
+            let mut nearby = state.nearby_enemies as i32;
+            if ui
+                .add(egui::Slider::new(&mut nearby, 0..=20).text("# of nearby Enemies"))
+                .changed()
+            {
+                state.nearby_enemies = nearby.max(0) as u32;
+                changed = true;
+            }
         });
 
         ui.separator();
