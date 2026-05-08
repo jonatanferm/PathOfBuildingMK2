@@ -1850,6 +1850,7 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     let mut active = 0u32;
     let mut total_exert: f64 = 0.0;
     let mut min_cooldown: Option<f64> = None;
+    let mut intimidating_cry_present = false;
     for group in &character.skill_groups {
         if !group.enabled {
             continue;
@@ -1865,6 +1866,13 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
                 continue;
             }
             active += 1;
+            // Issue #19 (slice 6): track Intimidating Cry separately
+            // — its core effect is an enemy debuff (Intimidate), not
+            // an exert bonus, so it needs to flip a condition rather
+            // than contribute to the exert aggregates.
+            if gem.skill_id == "IntimidatingCry" {
+                intimidating_cry_present = true;
+            }
             // Each warcry gem stores its exert count in
             // `constantStats[skill_empowers_next_x_melee_attacks]` —
             // a JSON array `[<stat_id>, <value>]` per entry.
@@ -1900,6 +1908,24 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     env.output.set("WarcryExertedAttackCountTotal", total_exert);
     if let Some(cd) = min_cooldown {
         env.output.set("WarcryMinCooldown", cd);
+    }
+    // Issue #19 (slice 6): Intimidating Cry's core effect — enemies
+    // hit by the warcry are Intimidated, taking 10% more attack
+    // damage. PoB models this as the `EnemyIntimidated` condition
+    // for the duration of the cry's exertion. We tie our auto-set
+    // to the `UsedWarcryRecently` config flag so the condition only
+    // flips on when the user has indicated a warcry was actually
+    // cast — same gating shape PoB uses for the rest of the
+    // `Used*Recently` chain. The user's explicit Config-tab toggle
+    // for `EnemyIntimidated` still wins (set earlier in
+    // `init_env_with_bases`), since `set_condition` is straight
+    // insert and we only set when not already on.
+    if intimidating_cry_present
+        && env.state.condition("UsedWarcryRecently")
+        && !env.state.condition("EnemyIntimidated")
+    {
+        env.state.set_condition("EnemyIntimidated", true);
+        env.output.set("IntimidatingCryActive", 1.0);
     }
 }
 
