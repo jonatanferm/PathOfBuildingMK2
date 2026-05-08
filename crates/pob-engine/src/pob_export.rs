@@ -61,37 +61,88 @@ pub fn export_pob_xml(character: &Character) -> String {
 }
 
 fn write_items(out: &mut String, c: &Character) {
-    if c.items.iter().next().is_none() {
+    let active_empty = c.items.iter().next().is_none();
+    if active_empty && c.item_sets.is_empty() {
         out.push_str("    <Items/>\n");
         return;
     }
-    out.push_str("    <Items>\n");
 
-    // Sort by slot for deterministic output. Each item gets a 1-based id
-    // (PoB tolerates any positive integer; the `<Slot itemId>` references
-    // them by id).
-    let mut entries: Vec<(pob_data::Slot, &pob_data::Item)> =
-        c.items.iter().map(|(slot, item)| (*slot, item)).collect();
-    entries.sort_by_key(|(slot, _)| pob_slot_to_name(*slot));
+    // Issue #90: emit every named item-set alongside the active one.
+    // Each unique item is serialised once with a stable id; each set
+    // emits a `<Slot itemId>` mapping referencing those ids. The active
+    // set is the live `c.items` and lands at id 1; saved sets follow at
+    // id 2..N. PoB pins the active loadout via the `activeItemSet`
+    // attribute on `<Items>`.
+    let active_id: u32 = 1;
+    let mut sets: Vec<(u32, Option<&str>, &pob_data::ItemSet)> =
+        Vec::with_capacity(1 + c.item_sets.len());
+    sets.push((active_id, None, &c.items));
+    for (idx, named) in c.item_sets.iter().enumerate() {
+        sets.push(((idx + 2) as u32, Some(named.name.as_str()), &named.items));
+    }
 
-    for (id, (_, item)) in entries.iter().enumerate() {
-        let id = (id + 1) as u32;
-        // PoB embeds the paste text directly between <Item> tags. We escape
-        // for XML safety; PoB's parser unescapes on read.
+    // Stable ordering of items: walk every set in declaration order and
+    // assign ids the first time we see each (slot, raw) tuple. We key by
+    // raw paste text so two slots with the *same* item only write it
+    // once across sets — but rely on per-set slot uniqueness for the
+    // common case where Mapping vs Bossing swap a body armour entirely.
+    use std::collections::HashMap;
+    let mut item_id_by_raw: HashMap<&str, u32> = HashMap::new();
+    let mut next_item_id: u32 = 1;
+    let mut item_blocks: Vec<(u32, &pob_data::Item)> = Vec::new();
+    for (_, _, set) in &sets {
+        let mut entries: Vec<(pob_data::Slot, &pob_data::Item)> =
+            set.iter().map(|(slot, item)| (*slot, item)).collect();
+        entries.sort_by_key(|(slot, _)| pob_slot_to_name(*slot));
+        for (_, item) in entries {
+            let key: &str = item.raw.as_str();
+            if !item_id_by_raw.contains_key(key) {
+                item_id_by_raw.insert(key, next_item_id);
+                item_blocks.push((next_item_id, item));
+                next_item_id += 1;
+            }
+        }
+    }
+
+    let _ = writeln!(out, "    <Items activeItemSet=\"{active_id}\">",);
+
+    for (id, item) in &item_blocks {
+        // PoB embeds the paste text directly between <Item> tags. We
+        // escape for XML safety; PoB's parser unescapes on read.
         let body = xml_escape(item.raw.trim());
         let _ = writeln!(out, "        <Item id=\"{id}\" variant=\"\">{body}</Item>");
     }
 
-    out.push_str("        <ItemSet id=\"1\">\n");
-    for (id, (slot, _)) in entries.iter().enumerate() {
-        let id = (id + 1) as u32;
-        let _ = writeln!(
-            out,
-            "            <Slot name=\"{name}\" itemId=\"{id}\"/>",
-            name = pob_slot_to_name(*slot),
-        );
+    for (set_id, title, set) in &sets {
+        let mut entries: Vec<(pob_data::Slot, &pob_data::Item)> =
+            set.iter().map(|(slot, item)| (*slot, item)).collect();
+        entries.sort_by_key(|(slot, _)| pob_slot_to_name(*slot));
+
+        match title {
+            Some(name) => {
+                let _ = writeln!(
+                    out,
+                    "        <ItemSet id=\"{set_id}\" title=\"{title}\">",
+                    title = xml_escape(name),
+                );
+            }
+            None => {
+                let _ = writeln!(out, "        <ItemSet id=\"{set_id}\">");
+            }
+        }
+        for (slot, item) in entries {
+            let item_id = item_id_by_raw
+                .get(item.raw.as_str())
+                .copied()
+                .unwrap_or(0);
+            let _ = writeln!(
+                out,
+                "            <Slot name=\"{name}\" itemId=\"{item_id}\"/>",
+                name = pob_slot_to_name(slot),
+            );
+        }
+        out.push_str("        </ItemSet>\n");
     }
-    out.push_str("        </ItemSet>\n");
     out.push_str("    </Items>\n");
 }
 
