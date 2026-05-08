@@ -57,11 +57,68 @@ pub fn compute_full_with_env(
     if let Some(reg) = skills {
         perform_reservations(character, reg, &mut env);
         perform_curses(character, reg, &mut env);
-        perform_skill_dps(character, reg, &mut env);
+        // Issue #5: Dual-wield per-weapon calc loop. PoB's CalcOffence.lua
+        // runs the skill calc twice for dual-wielders — once with
+        // `SlotName:Weapon 1` active and `SlotName:Weapon 2` inactive,
+        // once with the two flipped — and averages MainSkillDPS /
+        // AverageHit / HitChance across the two passes. Mirroring that
+        // here also exposes Weapon1DPS / Weapon2DPS for the Calcs tab
+        // side panel.
+        if env.state.condition("DualWielding") {
+            perform_dual_wield_skill_dps(character, reg, &mut env);
+        } else {
+            perform_skill_dps(character, reg, &mut env);
+        }
     }
     perform_ehp(&mut env);
     perform_enemy_damage_sim(&mut env, character);
     (env.output.clone(), env)
+}
+
+/// Dual-wield: run `perform_skill_dps` twice, once per active hand, average
+/// the headline DPS keys, and surface per-hand `Weapon{1,2}DPS` outputs.
+/// Mirrors the dual-wield branch of CalcOffence.lua's per-pass loop.
+fn perform_dual_wield_skill_dps(character: &Character, reg: &SkillRegistry, env: &mut Env) {
+    let main_was = env.state.condition("SlotName:Weapon 1");
+    let off_was = env.state.condition("SlotName:Weapon 2");
+
+    // Pass 1: only Weapon 1 active.
+    env.state.set_condition("SlotName:Weapon 1", true);
+    env.state.set_condition("SlotName:Weapon 2", false);
+    perform_skill_dps(character, reg, env);
+    let weapon1_dps = env.output.get("MainSkillDPS");
+    let weapon1_avg_hit = env.output.get("MainSkillAverageHit");
+    let weapon1_hit_chance = env.output.get("MainSkillHitChance");
+    let weapon1_full_dps = env.output.get("FullDPS");
+    let weapon1_mana = env.output.get("ManaPerSecondCost");
+
+    // Pass 2: only Weapon 2 active.
+    env.state.set_condition("SlotName:Weapon 1", false);
+    env.state.set_condition("SlotName:Weapon 2", true);
+    perform_skill_dps(character, reg, env);
+    let weapon2_dps = env.output.get("MainSkillDPS");
+    let weapon2_avg_hit = env.output.get("MainSkillAverageHit");
+    let weapon2_hit_chance = env.output.get("MainSkillHitChance");
+    let weapon2_full_dps = env.output.get("FullDPS");
+    let weapon2_mana = env.output.get("ManaPerSecondCost");
+
+    // Restore the original SlotName state. Other downstream calcs
+    // (perform_ehp, perform_enemy_damage_sim) read from `env` and need
+    // both hands' mods active to mirror PoB's defensive-side eval.
+    env.state.set_condition("SlotName:Weapon 1", main_was);
+    env.state.set_condition("SlotName:Weapon 2", off_was);
+
+    // Average the headline keys and emit per-hand breakdowns.
+    env.output.set("Weapon1DPS", weapon1_dps);
+    env.output.set("Weapon2DPS", weapon2_dps);
+    env.output.set("MainSkillDPS", (weapon1_dps + weapon2_dps) / 2.0);
+    env.output.set("MainSkillAverageHit", (weapon1_avg_hit + weapon2_avg_hit) / 2.0);
+    env.output.set("MainSkillHitChance", (weapon1_hit_chance + weapon2_hit_chance) / 2.0);
+    env.output.set("FullDPS", (weapon1_full_dps + weapon2_full_dps) / 2.0);
+    let avg_mana = (weapon1_mana + weapon2_mana) / 2.0;
+    if avg_mana > 0.0 {
+        env.output.set("ManaPerSecondCost", avg_mana);
+    }
 }
 
 /// Construct the env: gather class base attributes, parse and add tree node mods,
