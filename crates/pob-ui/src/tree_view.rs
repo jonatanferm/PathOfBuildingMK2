@@ -9,10 +9,11 @@ use eframe::egui::{self, Color32, Pos2, Sense, Vec2};
 use eframe::egui_wgpu;
 use pob_data::{NodeId, NodeKind, PassiveTree};
 
-use crate::tree_layout::{compute_node_positions, NodePos};
+use crate::tree_layout::{compute_node_positions, orbit_angles_rad, NodePos};
 use crate::tree_renderer::{
-    edge_state_bits, kind_to_u32, state_bits, EdgeInstance, FrameInstance, GroupInstance,
-    NodeInstance, TreeEdgeCallback, TreeFrameCallback, TreeGroupCallback, TreeNodeCallback,
+    edge_state_bits, kind_to_u32, state_bits, ArcInstance, EdgeInstance, FrameInstance,
+    GroupInstance, NodeInstance, TreeArcCallback, TreeEdgeCallback, TreeFrameCallback,
+    TreeGroupCallback, TreeNodeCallback,
 };
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -177,19 +178,40 @@ impl TreeView {
             }
         }
 
+        // Precompute per-orbit angle tables once for arc classification.
+        // `orbit_angles_rad(skills_per_orbit[orbit])[orbit_index]` is the
+        // angle a node sits at within its group — same source of truth as
+        // `compute_node_positions`. Empty when constants are missing.
+        let angle_tables: Vec<Vec<f32>> = tree
+            .constants
+            .skills_per_orbit
+            .iter()
+            .map(|&n| orbit_angles_rad(n))
+            .collect();
+
         let mut edges: Vec<EdgeInstance> = Vec::with_capacity(edge_state.len());
+        let mut arcs: Vec<ArcInstance> = Vec::new();
         for ((a_id, b_id), state) in edge_state {
             let (Some(pa), Some(pb)) =
                 (self.positions.get(&a_id).copied(), self.positions.get(&b_id).copied())
             else {
                 continue;
             };
-            edges.push(EdgeInstance {
-                a: [pa.x, pa.y],
-                b: [pb.x, pb.y],
-                state,
-                _pad: 0,
-            });
+            // Try to lift this edge to a curved arc when both endpoints
+            // sit on the same orbit of the same group. PoB renders these
+            // with cropped orbit-line sprites; we tessellate analytically
+            // in the arc shader instead, which keeps the curve crisp at
+            // any zoom.
+            if let Some(arc) = try_classify_arc(tree, &angle_tables, a_id, b_id, state) {
+                arcs.push(arc);
+            } else {
+                edges.push(EdgeInstance {
+                    a: [pa.x, pa.y],
+                    b: [pb.x, pb.y],
+                    state,
+                    _pad: 0,
+                });
+            }
         }
 
         // Nodes — hit-test in CPU and emit a single wgpu draw callback for the
@@ -310,6 +332,16 @@ impl TreeView {
             viewport,
             TreeEdgeCallback {
                 edges,
+                viewport_center: viewport_center_world,
+                zoom: zoom_px,
+                viewport_size: viewport_size_px,
+                pixels_per_point,
+            },
+        ));
+        painter.add(egui_wgpu::Callback::new_paint_callback(
+            viewport,
+            TreeArcCallback {
+                arcs,
                 viewport_center: viewport_center_world,
                 zoom: zoom_px,
                 viewport_size: viewport_size_px,
@@ -528,4 +560,73 @@ fn world_radius_for(node: &pob_data::Node) -> f32 {
 
 fn node_radius(node: &pob_data::Node, zoom: f32) -> f32 {
     (world_radius_for(node) * zoom).max(2.0)
+}
+
+/// Detect orbital connectors. An edge is "arc-able" when both endpoints
+/// belong to the same group and the same orbit; PoB's tree only ever
+/// connects nodes along an orbit (curved) or along a radial spoke
+/// (straight), so this single check is enough.
+///
+/// Returns `None` for cross-group, cross-orbit, missing-group, or
+/// orbit-0 (group centre) edges — those fall back to straight lines.
+/// On success, normalises the angle delta into `[-π, π]` so the shader's
+/// linear interpolation walks the short way around. Single-segment short
+/// arcs (delta < ~3°) also fall back to straight lines: the radial cost
+/// of tessellating them isn't worth a curve indistinguishable from a line.
+fn try_classify_arc(
+    tree: &PassiveTree,
+    angle_tables: &[Vec<f32>],
+    a_id: NodeId,
+    b_id: NodeId,
+    state: u32,
+) -> Option<ArcInstance> {
+    let na = tree.nodes.get(&a_id)?;
+    let nb = tree.nodes.get(&b_id)?;
+    let group_id = na.group?;
+    if Some(group_id) != nb.group {
+        return None;
+    }
+    let orbit = na.orbit?;
+    if Some(orbit) != nb.orbit {
+        return None;
+    }
+    if orbit == 0 {
+        // Orbit 0 is the group centre — a single node at radius 0; an
+        // edge there can't curve. (Defensive — shouldn't appear in real
+        // trees but we guard against zero radius below regardless.)
+        return None;
+    }
+    let group = tree.groups.get(&group_id)?;
+    let radius = *tree.constants.orbit_radii.get(orbit as usize)? as f32;
+    if radius <= 0.0 {
+        return None;
+    }
+    let table = angle_tables.get(orbit as usize)?;
+    let ai = na.orbit_index? as usize;
+    let bi = nb.orbit_index? as usize;
+    let angle_a = *table.get(ai)?;
+    let angle_b_raw = *table.get(bi)?;
+
+    // Normalise (b - a) into [-π, π] so the shader lerps along the
+    // shorter arc, then express b as `a + delta`.
+    let two_pi = std::f32::consts::TAU;
+    let mut delta = angle_b_raw - angle_a;
+    while delta > std::f32::consts::PI {
+        delta -= two_pi;
+    }
+    while delta < -std::f32::consts::PI {
+        delta += two_pi;
+    }
+    if delta.abs() < 0.06 {
+        // <~3° — chord ≈ arc; not worth a curve.
+        return None;
+    }
+    Some(ArcInstance {
+        center: [group.x, group.y],
+        radius,
+        angle_a,
+        angle_b: angle_a + delta,
+        state,
+        _pad: [0; 2],
+    })
 }

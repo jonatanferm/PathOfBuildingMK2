@@ -46,6 +46,22 @@ pub struct EdgeInstance {
     pub _pad: u32,
 }
 
+/// Per-instance vertex data for a curved orbital connector — matches
+/// `Arc` in `tree_arcs.wgsl`. The vertex shader tessellates the sweep
+/// from `angle_a` to `angle_b` into `SEGMENTS` mini-quads. `angle_b` is
+/// pre-normalised on the CPU so the lerp walks the short way around.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct ArcInstance {
+    pub center: [f32; 2],
+    pub radius: f32,
+    pub angle_a: f32,
+    pub angle_b: f32,
+    /// Bitfield: 0=both endpoints allocated, 1=path overlay. Mirrors EdgeInstance.
+    pub state: u32,
+    pub _pad: [u32; 2],
+}
+
 /// Per-instance vertex data for a group-background quad. Sampled from
 /// `group-background.png`. Matches `Instance` in `tree_groups.wgsl`.
 /// The `tree_frames.wgsl` shader uses the same layout — a frame instance
@@ -88,12 +104,14 @@ struct Uniforms {
 
 const INITIAL_INSTANCE_CAPACITY: u64 = 4096;
 const INITIAL_EDGE_CAPACITY: u64 = 8192;
+const INITIAL_ARC_CAPACITY: u64 = 4096;
 const INITIAL_GROUP_CAPACITY: u64 = 1024;
 const INITIAL_FRAME_CAPACITY: u64 = 4096;
 
 pub struct TreeRenderer {
     node_pipeline: wgpu::RenderPipeline,
     edge_pipeline: wgpu::RenderPipeline,
+    arc_pipeline: wgpu::RenderPipeline,
     group_pipeline: wgpu::RenderPipeline,
     frame_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -106,6 +124,8 @@ pub struct TreeRenderer {
     instance_capacity: u64,
     edge_buffer: wgpu::Buffer,
     edge_capacity: u64,
+    arc_buffer: wgpu::Buffer,
+    arc_capacity: u64,
     group_buffer: wgpu::Buffer,
     group_capacity: u64,
     frame_buffer: wgpu::Buffer,
@@ -267,6 +287,7 @@ impl TreeRenderer {
 
         let node_pipeline = build_node_pipeline(device, &pipeline_layout, render_state.target_format);
         let edge_pipeline = build_edge_pipeline(device, &pipeline_layout, render_state.target_format);
+        let arc_pipeline = build_arc_pipeline(device, &pipeline_layout, render_state.target_format);
 
         // Group-background pipeline uses a 3-binding layout: uniform + atlas
         // + sampler (the node pipeline binds two atlases; we don't need the
@@ -341,6 +362,14 @@ impl TreeRenderer {
         let edge_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tree.edge_instance_buffer"),
             size: edge_capacity * std::mem::size_of::<EdgeInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let arc_capacity = INITIAL_ARC_CAPACITY;
+        let arc_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree.arc_instance_buffer"),
+            size: arc_capacity * std::mem::size_of::<ArcInstance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -429,6 +458,7 @@ impl TreeRenderer {
         let renderer = Self {
             node_pipeline,
             edge_pipeline,
+            arc_pipeline,
             group_pipeline,
             frame_pipeline,
             bind_group_layout,
@@ -441,6 +471,8 @@ impl TreeRenderer {
             instance_capacity,
             edge_buffer,
             edge_capacity,
+            arc_buffer,
+            arc_capacity,
             group_buffer,
             group_capacity,
             frame_buffer,
@@ -486,6 +518,20 @@ impl TreeRenderer {
             mapped_at_creation: false,
         });
         self.edge_capacity = new_capacity;
+    }
+
+    fn ensure_arc_capacity(&mut self, device: &wgpu::Device, needed: u64) {
+        if needed <= self.arc_capacity {
+            return;
+        }
+        let new_capacity = needed.next_power_of_two().max(self.arc_capacity * 2);
+        self.arc_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree.arc_instance_buffer"),
+            size: new_capacity * std::mem::size_of::<ArcInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.arc_capacity = new_capacity;
     }
 
     fn ensure_group_capacity(&mut self, device: &wgpu::Device, needed: u64) {
@@ -547,6 +593,13 @@ impl TreeRenderer {
             return;
         }
         queue.write_buffer(&self.edge_buffer, 0, bytemuck::cast_slice(edges));
+    }
+
+    fn write_arcs(&self, queue: &wgpu::Queue, arcs: &[ArcInstance]) {
+        if arcs.is_empty() {
+            return;
+        }
+        queue.write_buffer(&self.arc_buffer, 0, bytemuck::cast_slice(arcs));
     }
 
     fn write_groups(&self, queue: &wgpu::Queue, groups: &[GroupInstance]) {
@@ -745,6 +798,60 @@ fn build_edge_pipeline(
     };
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("tree_edges.pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[buffer_layout],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
+}
+
+fn build_arc_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    target_format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("tree_arcs.wgsl"),
+        source: wgpu::ShaderSource::Wgsl(
+            include_str!("../shaders/tree_arcs.wgsl").into(),
+        ),
+    });
+    let attrs = wgpu::vertex_attr_array![
+        0 => Float32x2, // center            @ 0
+        1 => Float32,   // radius            @ 8
+        2 => Float32,   // angle_a           @ 12
+        3 => Float32,   // angle_b           @ 16
+        4 => Uint32,    // state             @ 20
+        // _pad[2]                            @ 24, 28 — not exposed to shader
+    ];
+    let buffer_layout = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<ArcInstance>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &attrs,
+    };
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("tree_arcs.pipeline"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: &shader,
@@ -1050,6 +1157,62 @@ impl egui_wgpu::CallbackTrait for TreeEdgeCallback {
     }
 }
 
+/// Curved orbital connector callback. Same draw position as the straight
+/// edge pipeline (before nodes); arcs and straight edges are drawn back
+/// to back so node SDFs cover both endpoints.
+pub struct TreeArcCallback {
+    pub arcs: Vec<ArcInstance>,
+    pub viewport_center: [f32; 2],
+    pub zoom: f32,
+    pub viewport_size: [f32; 2],
+    pub pixels_per_point: f32,
+}
+
+const ARC_SEGMENTS: u32 = 16;
+
+impl egui_wgpu::CallbackTrait for TreeArcCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        _egui_encoder: &mut wgpu::CommandEncoder,
+        callback_resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let Some(renderer) = callback_resources.get_mut::<TreeRenderer>() else {
+            return Vec::new();
+        };
+        renderer.ensure_arc_capacity(device, self.arcs.len() as u64);
+        renderer.write_uniforms(
+            queue,
+            self.viewport_center,
+            self.zoom,
+            self.viewport_size,
+            self.pixels_per_point,
+        );
+        renderer.write_arcs(queue, &self.arcs);
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        callback_resources: &egui_wgpu::CallbackResources,
+    ) {
+        let Some(renderer) = callback_resources.get::<TreeRenderer>() else {
+            return;
+        };
+        if self.arcs.is_empty() {
+            return;
+        }
+        render_pass.set_pipeline(&renderer.arc_pipeline);
+        render_pass.set_bind_group(0, &renderer.bind_group, &[]);
+        render_pass.set_vertex_buffer(0, renderer.arc_buffer.slice(..));
+        render_pass.draw(0..(6 * ARC_SEGMENTS), 0..self.arcs.len() as u32);
+    }
+}
+
 #[test]
 fn check_node_instance_layout() {
     // The vertex_attr_array! macro packs offsets from declared field
@@ -1066,6 +1229,23 @@ fn check_node_instance_layout() {
     let icon_addr = &n.icon_uv as *const _ as usize;
     assert_eq!(icon_addr - base, 20);
     assert_eq!(std::mem::size_of::<NodeInstance>(), 36);
+}
+
+#[test]
+fn check_arc_instance_layout() {
+    let a = ArcInstance {
+        center: [0.0; 2],
+        radius: 0.0,
+        angle_a: 0.0,
+        angle_b: 0.0,
+        state: 0,
+        _pad: [0; 2],
+    };
+    let base = &a as *const _ as usize;
+    let state_addr = &a.state as *const _ as usize;
+    // shader location 4 is `state`, declared offset 20 — matches packed layout
+    assert_eq!(state_addr - base, 20);
+    assert_eq!(std::mem::size_of::<ArcInstance>(), 32);
 }
 
 /// Map a `pob_data::NodeKind` to the integer the WGSL fragment shader expects.
