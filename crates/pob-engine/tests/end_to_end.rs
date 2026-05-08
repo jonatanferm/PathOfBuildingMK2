@@ -3520,6 +3520,79 @@ fn used_warcry_recently_implies_wider_conditions() {
     );
 }
 
+// Issue #19 (slice 6): Intimidating Cry's intimidate enemy debuff
+// auto-flips `EnemyIntimidated` when the user has indicated a
+// warcry was used recently (UsedWarcryRecently config flag). The
+// condition stays off without the user-cast indicator — even if
+// IntimidatingCry is in the loadout — so the calc engine doesn't
+// silently overstate damage when the warcry isn't being actively
+// rotated.
+#[test]
+fn intimidating_cry_loadout_flips_enemy_intimidated_with_warcry_use() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("IntimidatingCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: IntimidatingCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+
+    // Cleave + Intimidating Cry, no warcry-uptime indicator → no
+    // EnemyIntimidated. The detection is gated on
+    // `UsedWarcryRecently` so a build that has the gem socketed
+    // but isn't currently casting the cry doesn't get the buff.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("IntimidatingCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcry".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        !env.state.condition("EnemyIntimidated"),
+        "Without UsedWarcryRecently, IntimidatingCry in the loadout must NOT auto-flip EnemyIntimidated"
+    );
+    assert!(
+        env.output.get("IntimidatingCryActive") < 0.5,
+        "IntimidatingCryActive output key should not be emitted when the cry isn't cast"
+    );
+
+    // Tick UsedWarcryRecently → EnemyIntimidated flips on.
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        env.state.condition("EnemyIntimidated"),
+        "With UsedWarcryRecently and IntimidatingCry in the loadout, EnemyIntimidated must auto-flip on"
+    );
+    assert!(
+        (env.output.get("IntimidatingCryActive") - 1.0).abs() < 1e-6,
+        "IntimidatingCryActive should be 1 when the cry's intimidate debuff is active"
+    );
+
+    // Without IntimidatingCry, ticking UsedWarcryRecently alone
+    // must not flip EnemyIntimidated — the slice-5 implication
+    // chain only widens warcry-related buckets, not enemy debuffs.
+    let mut c2 = Character::new(ClassRef::marauder(), 90);
+    c2.main_skill = Some(MainSkill::new("Cleave"));
+    c2.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::compute_full_with_env(&c2, &tree, Some(&skills), None).1;
+    assert!(
+        !env.state.condition("EnemyIntimidated"),
+        "UsedWarcryRecently alone (no IntimidatingCry gem) must not auto-flip EnemyIntimidated"
+    );
+}
+
 // Issue #19 (slice 4): `ExertedAttackUptime` auto-derives from the
 // slice-3 warcry aggregates when the user hasn't pinned it
 // manually. Auto-uptime = `total_exert / (cps × cooldown)`, capped
