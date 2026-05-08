@@ -247,6 +247,41 @@ pub fn ui(
             if let Some(gem) = group.gems.get_mut(state.selected_gem) {
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new(&gem.skill_id).strong());
+
+                // Issue #36 (slice 2): variant picker. `SkillRegistry::variants_of`
+                // surfaces every gem id sharing the same base — Vaal counterparts
+                // and `AltX/Y/A/B/C` siblings. We only render the dropdown if
+                // there's actually more than one variant (i.e. the gem has a
+                // Vaal/alt-quality option). Picking a new variant rewrites
+                // `gem.skill_id`; the level/quality sliders below pick up the
+                // new entry's `levels` table next frame.
+                let variants: Vec<String> = registry
+                    .variants_of(&gem.skill_id)
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect();
+                if variants.len() > 1 {
+                    let mut chosen = gem.skill_id.clone();
+                    egui::ComboBox::from_label("Variant")
+                        .selected_text(&chosen)
+                        .show_ui(ui, |ui| {
+                            for v in &variants {
+                                ui.selectable_value(&mut chosen, v.clone(), v);
+                            }
+                        });
+                    if chosen != gem.skill_id {
+                        gem.skill_id = chosen;
+                        // Variants share the same level table shape (PoB tables
+                        // mirror length between primary/secondary), but defensively
+                        // clamp to whatever the new entry advertises.
+                        if let Some(s) = registry.get(&gem.skill_id) {
+                            let max_level = s.levels.len().max(1).min(40) as u32;
+                            gem.level = gem.level.clamp(1, max_level);
+                        }
+                        changed = true;
+                    }
+                }
+
                 if let Some(skill) = registry.get(&gem.skill_id) {
                     let max_level = skill.levels.len().max(1).min(40) as u32;
                     let prev_level = gem.level;
