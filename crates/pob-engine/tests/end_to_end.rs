@@ -2235,6 +2235,138 @@ fn flask_recovery_outputs_scale_with_flask_mods() {
     );
 }
 
+// Issue #69 (slice 2): instant/gradual recovery split. Pinning a
+// `LifeFlaskInstantRecovery` BASE mod (the same source unique flasks
+// like Forbidden Rite stamp) should split the per-flask recovery
+// into instant vs gradual portions. The total `Flask1LifeRecovery`
+// stays unchanged so existing slice 1 callers don't shift.
+#[test]
+fn flask_instant_recovery_mod_splits_per_flask_output() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    use pob_engine::{Mod, Source};
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let life_flask =
+        parse_item("Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n")
+            .unwrap();
+    c.items.equip(pob_data::Slot::Flask1, life_flask);
+
+    // Without any instant mod, no split keys are emitted (existing
+    // slice 1 behaviour) — the total `Flask1LifeRecovery` is still
+    // populated.
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        baseline.get("Flask1LifeRecovery") > 0.0,
+        "baseline should still emit Flask1LifeRecovery"
+    );
+    assert_eq!(
+        baseline.try_get("Flask1LifeRecoveryInstant"),
+        None,
+        "no instant mod → no instant split key"
+    );
+
+    // Inject the unique-flask mod payload: 30% applied instantly.
+    // Run init_env_with_bases + perform_basic_stats + perform_flask_recovery
+    // by hand against the augmented modDB, since there's no public
+    // `perform_flask_recovery` wrapper that re-reads bases.
+    let mut env = pob_engine::perform::init_env_with_bases(&c, &tree, Some(&bases));
+    env.mod_db
+        .add(Mod::base("LifeFlaskInstantRecovery", 30.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_flask_recovery(&c, &bases, &mut env);
+
+    let total = env.output.get("Flask1LifeRecovery");
+    let inst = env.output.get("Flask1LifeRecoveryInstant");
+    let grad = env.output.get("Flask1LifeRecoveryGradual");
+
+    assert!(
+        total > 0.0,
+        "Flask1LifeRecovery should still be populated after the split"
+    );
+    assert!(
+        inst > 0.0 && grad > 0.0,
+        "30% instant should produce both instant ({inst}) and gradual ({grad}) portions"
+    );
+    // Sum-conservation: instant + gradual ≈ total.
+    assert!(
+        ((inst + grad) - total).abs() / total < 0.01,
+        "instant ({inst}) + gradual ({grad}) should sum to total ({total}); split conservation broken"
+    );
+    // 30% instant → instant ≈ 30% of total.
+    assert!(
+        (inst / total - 0.30).abs() < 0.01,
+        "instant fraction should be ~30%; got {}",
+        inst / total
+    );
+}
+
+// Issue #69 (slice 2 review fix): `low_life_mult` must apply
+// exactly once to the gradual half — slice 2's first cut folded it
+// into the shared `scalar` *and* multiplied the gradual expression
+// by it again, inflating FlaskLifeRecoveryLowLife scenarios by
+// `low_life_mult²`. Verify a 50% MORE FlaskLifeRecoveryLowLife mod
+// scales `Flask{N}LifeRecoveryGradual` by exactly 1.5× when LowLife
+// is on, not 2.25×.
+#[test]
+fn flask_low_life_multiplier_applies_exactly_once_to_gradual() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    use pob_engine::{Mod, Source};
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let life_flask =
+        parse_item("Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n")
+            .unwrap();
+    c.items.equip(pob_data::Slot::Flask1, life_flask);
+    // 30% applied instantly so Flask1LifeRecoveryGradual is split
+    // out as its own output key (the test target).
+    c.config.conditions.insert("LowLife".to_owned(), true);
+
+    // Baseline: LowLife = on, no FlaskLifeRecoveryLowLife mod →
+    // low_life_mult = 1.0 (since `more()` of an empty bucket is 1).
+    let mut env = pob_engine::perform::init_env_with_bases(&c, &tree, Some(&bases));
+    env.mod_db
+        .add(Mod::base("LifeFlaskInstantRecovery", 30.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_flask_recovery(&c, &bases, &mut env);
+    let baseline_grad = env.output.get("Flask1LifeRecoveryGradual");
+    assert!(
+        baseline_grad > 0.0,
+        "baseline gradual recovery should be positive; got {baseline_grad}"
+    );
+
+    // Inject `FlaskLifeRecoveryLowLife MORE 50` — low_life_mult
+    // becomes 1.5. Gradual recovery should scale by exactly 1.5×,
+    // not 1.5² = 2.25× (the slice-2-bug behaviour).
+    let mut env2 = pob_engine::perform::init_env_with_bases(&c, &tree, Some(&bases));
+    env2.mod_db
+        .add(Mod::base("LifeFlaskInstantRecovery", 30.0).with_source(Source::Other("test".into())));
+    env2.mod_db
+        .add(Mod::more("FlaskLifeRecoveryLowLife", 50.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_flask_recovery(&c, &bases, &mut env2);
+    let scaled_grad = env2.output.get("Flask1LifeRecoveryGradual");
+    let ratio = scaled_grad / baseline_grad;
+    assert!(
+        (ratio - 1.5).abs() < 0.005,
+        "FlaskLifeRecoveryLowLife MORE 50 should scale gradual recovery by exactly 1.5× (got {ratio:.4}); double-application would land at 2.25"
+    );
+
+    // Instant half also scales by exactly 1.5× — same low_life_mult,
+    // applied once.
+    let baseline_inst = env.output.get("Flask1LifeRecoveryInstant");
+    let scaled_inst = env2.output.get("Flask1LifeRecoveryInstant");
+    let inst_ratio = scaled_inst / baseline_inst;
+    assert!(
+        (inst_ratio - 1.5).abs() < 0.005,
+        "instant half should also scale by exactly 1.5× (got {inst_ratio:.4})"
+    );
+}
+
 #[test]
 fn fireball_emits_base_ignite_chance_via_global_stat_map() {
     let Some(skills) = load_skills() else { return };

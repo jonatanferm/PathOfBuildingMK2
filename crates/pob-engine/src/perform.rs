@@ -3232,7 +3232,7 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
 ///   duration = base_duration × (1 + FlaskDuration_inc/100)
 ///                            / (1 + (LifeRecovery_inc + FlaskLifeRecoveryRate_inc)/100)
 ///   rate     = life / duration
-fn perform_flask_recovery(
+pub fn perform_flask_recovery(
     character: &Character,
     bases: &pob_data::bases::ItemBaseSet,
     env: &mut Env,
@@ -3286,6 +3286,27 @@ fn perform_flask_recovery(
         .mod_db
         .sum(ModType::Base, &cfg, &env.state, "ManaAdditional");
 
+    // Issue #69 (slice 2): instant/gradual recovery split. Mirrors
+    // PoB's `ItemsTab.lua:3797-3806` formula:
+    //   instantPerc = base.instantPerc + sum(BASE, LifeFlaskInstantRecovery)
+    //   inst        = lifeBase × (instantPerc/100) × scalars
+    //   grad        = lifeBase × (1 − instantPerc/100) × scalars × LifeRecoveryRateMod
+    // Today we read only the mod sum because the flask base table
+    // doesn't yet carry `instantPerc`. Vanilla flasks therefore have
+    // 0% instant unless the user has a mod like "100% of Recovery
+    // applied Instantly" parsed onto their build (Forbidden Rite,
+    // unique flasks). Surfacing the split per-flask anyway lets the
+    // Calcs side panel display "X life instantly + Y over Zs" in
+    // the next slice.
+    let life_instant_perc_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "LifeFlaskInstantRecovery")
+        .clamp(0.0, 100.0);
+    let mana_instant_perc_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ManaFlaskInstantRecovery")
+        .clamp(0.0, 100.0);
+
     // Issue #69: low-life recovery multiplier — Forbidden Rite and
     // certain uniques scale recovery while the player is below the
     // standard low-life threshold. PoB queries `LifeBelow35Percent`
@@ -3323,31 +3344,56 @@ fn perform_flask_recovery(
         let key_mana = format!("Flask{}ManaRecovery", idx + 1);
         let key_life_rate = format!("Flask{}LifeRecoveryRate", idx + 1);
         let key_mana_rate = format!("Flask{}ManaRecoveryRate", idx + 1);
+        // Issue #69 (slice 2): per-flask instant / gradual breakdown
+        // keys for the Calcs side panel.
+        let key_life_inst = format!("Flask{}LifeRecoveryInstant", idx + 1);
+        let key_life_grad = format!("Flask{}LifeRecoveryGradual", idx + 1);
+        let key_mana_inst = format!("Flask{}ManaRecoveryInstant", idx + 1);
+        let key_mana_grad = format!("Flask{}ManaRecoveryGradual", idx + 1);
 
         let duration = (f64::from(flask.duration) * (1.0 + dur_inc / 100.0)).max(0.001);
         if let Some(life_base) = flask.life {
-            let life = (f64::from(life_base)
-                * (1.0 + life_inc / 100.0)
-                * life_more
-                * (1.0 + effect_inc / 100.0)
+            // Per-base scalar (no flask-specific instantPerc data
+            // extracted yet — slice 3) plus mod-sourced extra. PoB's
+            // `inst = lifeBase × (instantPerc/100) × inc/more × ... × low_life`
+            // and `grad = (lifeBase × (1 − instantPerc/100) × ... + LifeAdditional) × low_life`.
+            // `low_life_mult` lives *outside* the shared `scalar` so
+            // it's applied exactly once per branch — slice 1 of #69
+            // had it folded in twice on the gradual half (once via
+            // `scalar`, once on the outer multiplier), inflating
+            // FlaskLifeRecoveryLowLife scenarios by `low_life_mult²`.
+            let instant_perc = life_instant_perc_base.clamp(0.0, 100.0);
+            let scalar = (1.0 + life_inc / 100.0) * life_more * (1.0 + effect_inc / 100.0);
+            let inst = f64::from(life_base) * (instant_perc / 100.0) * scalar * low_life_mult;
+            let grad = (f64::from(life_base) * (1.0 - instant_perc / 100.0) * scalar
                 + life_additional)
                 * low_life_mult;
+            let life = inst + grad;
             let life_dur = duration / (1.0 + life_rate_inc / 100.0);
             let rate = if life_dur > 0.0 { life / life_dur } else { 0.0 };
             env.output.set(&key_life, life);
             env.output.set(&key_life_rate, rate);
+            if instant_perc > 0.0 {
+                env.output.set(&key_life_inst, inst);
+                env.output.set(&key_life_grad, grad);
+            }
             life_max = life_max.max(life);
         }
         if let Some(mana_base) = flask.mana {
-            let mana = f64::from(mana_base)
-                * (1.0 + mana_inc / 100.0)
-                * mana_more
-                * (1.0 + effect_inc / 100.0)
-                + mana_additional;
+            let instant_perc = mana_instant_perc_base.clamp(0.0, 100.0);
+            let scalar = (1.0 + mana_inc / 100.0) * mana_more * (1.0 + effect_inc / 100.0);
+            let inst = f64::from(mana_base) * (instant_perc / 100.0) * scalar;
+            let grad =
+                f64::from(mana_base) * (1.0 - instant_perc / 100.0) * scalar + mana_additional;
+            let mana = inst + grad;
             let mana_dur = duration / (1.0 + mana_rate_inc / 100.0);
             let rate = if mana_dur > 0.0 { mana / mana_dur } else { 0.0 };
             env.output.set(&key_mana, mana);
             env.output.set(&key_mana_rate, rate);
+            if instant_perc > 0.0 {
+                env.output.set(&key_mana_inst, inst);
+                env.output.set(&key_mana_grad, grad);
+            }
             mana_max = mana_max.max(mana);
         }
     }
