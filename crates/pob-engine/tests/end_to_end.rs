@@ -1404,6 +1404,67 @@ fn flask_armour_mod_gates_on_using_flask_toggle() {
     );
 }
 
+// Issue #10 (Bandit half): Act 2 reward injects a small package of stats.
+// Each named bandit grants a single mod, mirroring upstream PoB
+// (CalcSetup.lua:531-540): Alira → +15 to all elemental resistances;
+// Kraityn → +8% increased Movement Speed; Oak → +40 to maximum Life;
+// KillAll → +1 ExtraPoints (the "+2 passive points" reward).
+#[test]
+fn bandit_grants_stat_package() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::marauder(), 90);
+
+    // Default (KillAll) baseline — only ExtraPoints lands.
+    assert_eq!(c.bandit, pob_engine::character::Bandit::KillAll);
+    let baseline = compute_with_skills(&c, &tree, None);
+    let baseline_fire = baseline.get("FireResistTotal");
+    let baseline_cold = baseline.get("ColdResistTotal");
+    let baseline_lightning = baseline.get("LightningResistTotal");
+    let baseline_life = baseline.get("Life");
+    let baseline_move = baseline.get("MovementSpeedMod");
+
+    // Alira: ElementalResist BASE 15 — applies to all three elemental resists.
+    c.bandit = pob_engine::character::Bandit::Alira;
+    let alira = compute_with_skills(&c, &tree, None);
+    assert!(
+        (alira.get("FireResistTotal") - baseline_fire - 15.0).abs() < 0.001,
+        "Alira should add +15 to Fire Resist Total (baseline={}, after={})",
+        baseline_fire,
+        alira.get("FireResistTotal")
+    );
+    assert!(
+        (alira.get("ColdResistTotal") - baseline_cold - 15.0).abs() < 0.001,
+        "Alira should add +15 to Cold Resist Total"
+    );
+    assert!(
+        (alira.get("LightningResistTotal") - baseline_lightning - 15.0).abs() < 0.001,
+        "Alira should add +15 to Lightning Resist Total"
+    );
+
+    // Oak: Life BASE 40.
+    c.bandit = pob_engine::character::Bandit::Oak;
+    let oak = compute_with_skills(&c, &tree, None);
+    assert!(
+        (oak.get("Life") - baseline_life - 40.0).abs() < 0.5,
+        "Oak should add +40 to Life ({} vs baseline {})",
+        oak.get("Life"),
+        baseline_life
+    );
+
+    // Kraityn: MovementSpeed INC 8 lifts the move-speed multiplier by 0.08.
+    c.bandit = pob_engine::character::Bandit::Kraityn;
+    let kraityn = compute_with_skills(&c, &tree, None);
+    let kraityn_move = kraityn.get("MovementSpeedMod");
+    assert!(
+        (kraityn_move - baseline_move - 0.08).abs() < 0.001,
+        "Kraityn should add +0.08 to MovementSpeedMod ({} vs baseline {})",
+        kraityn_move,
+        baseline_move
+    );
+}
+
 #[test]
 fn config_charges_drive_per_charge_mod() {
     let Some(tree) = load_3_25_tree() else {

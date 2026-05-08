@@ -208,7 +208,36 @@ pub fn init_env_with_bases(
         env.state.set_multiplier(k.clone(), *v);
     }
 
+    // 7. Act 2 bandit reward. KillAll grants +2 passive points (counted
+    // against the tree-budget elsewhere); the named bandits inject a small
+    // package of static mods. Mirrors PoB's bandit branch in
+    // `Modules/CalcSetup.lua`.
+    apply_bandit_mods(character.bandit, &mut env.mod_db);
+
     env
+}
+
+/// Inject the static mods awarded by the chosen Act 2 bandit. Numbers mirror
+/// upstream PoB exactly — see `.PathOfBuilding/src/Modules/CalcSetup.lua:531-540`,
+/// which inlines a single mod per bandit. `KillAll` adds an `ExtraPoints` BASE
+/// of 1 (the "+2 passive points" reward).
+fn apply_bandit_mods(bandit: crate::character::Bandit, db: &mut crate::ModDB) {
+    use crate::character::Bandit;
+    let source = Source::Other(format!("Bandit:{}", bandit.as_pob_name()));
+    match bandit {
+        Bandit::KillAll => {
+            db.add(Mod::base("ExtraPoints", 1.0).with_source(source));
+        }
+        Bandit::Alira => {
+            db.add(Mod::base("ElementalResist", 15.0).with_source(source));
+        }
+        Bandit::Kraityn => {
+            db.add(Mod::inc("MovementSpeed", 8.0).with_source(source));
+        }
+        Bandit::Oak => {
+            db.add(Mod::base("Life", 40.0).with_source(source));
+        }
+    }
 }
 
 fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_db::EvalState) {
