@@ -39,6 +39,6 @@ pub use mod_parser::{parse_mod_line, ParsedMod};
 pub use modifier::{Mod, ModType, ModValue, Source, Tag, TagKind};
 pub use perform::{compute, compute_full, compute_full_with_env};
 pub use pob_export::{export_pob_code, export_pob_xml};
-pub use pob_import::{import_pob_code, import_pob_xml, PobImportError};
+pub use pob_import::{import_pob_code, import_pob_xml, resolve_share_url, PobImportError};
 pub use share::{export_code, import_code, ShareError};
 pub use skill::{skill_mods, MainSkill, SkillRegistry};
