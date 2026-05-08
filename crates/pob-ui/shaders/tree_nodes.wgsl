@@ -22,6 +22,10 @@ struct Uniforms {
 @group(0) @binding(1) var atlas_active: texture_2d<f32>;
 @group(0) @binding(2) var atlas_inactive: texture_2d<f32>;
 @group(0) @binding(3) var atlas_sampler: sampler;
+// Per-mastery-group icons live in a separate atlas (`mastery-3.png`)
+// because their pixel size and naming convention differ from the
+// normal/notable/keystone shared atlas.
+@group(0) @binding(4) var atlas_mastery: texture_2d<f32>;
 
 struct Instance {
     @location(0) world_pos: vec2<f32>,
@@ -139,11 +143,19 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             in.icon_uv.x + local_uv.x * in.icon_uv.z,
             in.icon_uv.y + local_uv.y * in.icon_uv.w,
         );
-        let sampled = select(
-            textureSampleLevel(atlas_inactive, atlas_sampler, atlas_uv, 0.0).rgb,
-            textureSampleLevel(atlas_active, atlas_sampler, atlas_uv, 0.0).rgb,
-            allocated,
-        );
+        // Mastery nodes (kind == 3) live in a different atlas — same UV
+        // shape, different texture. Everyone else samples the active /
+        // inactive skill atlas based on allocation state.
+        var sampled: vec3<f32>;
+        if in.kind == 3u {
+            sampled = textureSampleLevel(atlas_mastery, atlas_sampler, atlas_uv, 0.0).rgb;
+        } else {
+            sampled = select(
+                textureSampleLevel(atlas_inactive, atlas_sampler, atlas_uv, 0.0).rgb,
+                textureSampleLevel(atlas_active, atlas_sampler, atlas_uv, 0.0).rgb,
+                allocated,
+            );
+        }
         // Mix sampled icon with the kind-color tint so allocation state is
         // still legible even on busy icons.
         fill = mix(sampled, fill, 0.15);

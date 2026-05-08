@@ -487,10 +487,15 @@ fn compute_icon_uvs(
             NodeKind::Normal => "normalActive",
             NodeKind::Notable => "notableActive",
             NodeKind::Keystone => "keystoneActive",
-            // Mastery / JewelSocket / Root / ClassStart / AscendancyStart /
-            // Tattoo / Blighted use atlases we don't yet bundle (masteryInactive
-            // is in mastery-disabled-3.png; jewelSocket in jewel-3.png). Until
-            // we wire those in, those nodes fall back to flat colored circles.
+            // Mastery node icons (`MasteryGroupTwoHands.png` etc.) live in
+            // the `mastery` sprite category — different atlas (`mastery-3.png`)
+            // than normal/notable/keystone. The shader picks atlas by kind.
+            NodeKind::Mastery => "mastery",
+            // JewelSocket / Root / ClassStart / AscendancyStart / Tattoo /
+            // Blighted: jewel sockets need a separate sprite-name lookup
+            // (the tree's `icon` field is "MasteryBlank.png" for all of them
+            // — the actual variant comes from elsewhere). Fall back to flat
+            // colors for now.
             _ => continue,
         };
         let Some(c) = sprites.get(category) else { continue };

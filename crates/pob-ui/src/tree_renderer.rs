@@ -115,6 +115,7 @@ pub struct TreeRenderer {
     /// objects; we keep them around).
     atlas_active_view: wgpu::TextureView,
     atlas_inactive_view: wgpu::TextureView,
+    atlas_mastery_view: wgpu::TextureView,
     atlas_sampler: wgpu::Sampler,
     group_atlas_view: wgpu::TextureView,
     frame_atlas_view: wgpu::TextureView,
@@ -131,6 +132,8 @@ pub struct AtlasInputs {
     pub group_size: (u32, u32),
     pub frame_rgba8: Vec<u8>,
     pub frame_size: (u32, u32),
+    pub mastery_rgba8: Vec<u8>,
+    pub mastery_size: (u32, u32),
 }
 
 fn upload_atlas(
@@ -185,10 +188,12 @@ impl TreeRenderer {
         let inactive_tex = upload_atlas(device, queue, &atlases.inactive_rgba8, atlases.inactive_size, "atlas_inactive");
         let group_tex = upload_atlas(device, queue, &atlases.group_rgba8, atlases.group_size, "atlas_group");
         let frame_tex = upload_atlas(device, queue, &atlases.frame_rgba8, atlases.frame_size, "atlas_frame");
+        let mastery_tex = upload_atlas(device, queue, &atlases.mastery_rgba8, atlases.mastery_size, "atlas_mastery");
         let active_view = active_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let inactive_view = inactive_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let group_view = group_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let frame_view = frame_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let mastery_view = mastery_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("tree.atlas_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -238,6 +243,16 @@ impl TreeRenderer {
                         binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
                         count: None,
                     },
                 ],
@@ -366,6 +381,10 @@ impl TreeRenderer {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&mastery_view),
+                },
             ],
         });
 
@@ -428,6 +447,7 @@ impl TreeRenderer {
             frame_capacity,
             atlas_active_view: active_view,
             atlas_inactive_view: inactive_view,
+            atlas_mastery_view: mastery_view,
             atlas_sampler: sampler,
             group_atlas_view: group_view,
             frame_atlas_view: frame_view,
@@ -805,6 +825,10 @@ impl egui_wgpu::CallbackTrait for TreeNodeCallback {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&renderer.atlas_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&renderer.atlas_mastery_view),
                 },
             ],
         });
