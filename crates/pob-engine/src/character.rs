@@ -464,6 +464,21 @@ pub struct ConfigState {
     /// higher values stack overlapping AoE hits on the same target.
     #[serde(default)]
     pub enemies_hit_by_aoe: u32,
+    /// `WarcryPower` config input — drives skills / nodes that scale per
+    /// warcry power (e.g. "X% increased Damage per 5 Warcry Power").
+    /// PoB exposes a slider 0..100 with 20 as the default ("a small pack
+    /// of monsters in front of the player"). When this is `None` the
+    /// engine falls back to its existing 20-default.
+    #[serde(default)]
+    pub warcry_power: Option<u32>,
+    /// Fraction of the player's attacks that are "exerted" by an active
+    /// warcry. Each exerted attack receives the `ExertedAttackDamage`
+    /// MORE bonus from warcry support gems. Default 0 means "no
+    /// exertion is active" (equivalent to no warcry being cast). PoB
+    /// computes this from `ExertedAttackCount / (ExertedAttackCount +
+    /// attacks_between_cries)`; we expose the result directly.
+    #[serde(default)]
+    pub exerted_attack_uptime: f64,
 }
 
 /// PoB's `enemyIsBoss` four-option preset. The serialised PoB-XML

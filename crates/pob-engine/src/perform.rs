@@ -2472,7 +2472,40 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     };
 
     let mechanism_multiplier = totem_count * mine_count * trap_count * aoe_stacks;
-    let main_dps = final_avg * cps * mechanism_multiplier;
+    let raw_main_dps = final_avg * cps * mechanism_multiplier;
+
+    // Issue #19: Warcry exertion. Each warcry exerts the next N attacks
+    // and grants them an `ExertedAttackDamage` bonus composed from INC and
+    // MORE mods. PoE composes these multiplicatively — `(1 + inc/100) * more` —
+    // so the per-exerted-attack factor is
+    //   exerted = normal × (1 + inc/100) × more
+    // and the average DPS over normal + exerted attacks is
+    //   normal × (1 - uptime) + exerted × uptime
+    // = normal × (1 + uptime × ((1 + inc/100) × more - 1))
+    // where `uptime = ExertedAttackCount / (ExertedAttackCount + attacks_between_cries)`.
+    // We accept the uptime directly via `ConfigState::exerted_attack_uptime`
+    // (0..=1) since modelling cry cadence + skill detection is out of scope
+    // for this PR.
+    let exerted_uptime = character.config.exerted_attack_uptime.clamp(0.0, 1.0);
+    let exerted_dps_factor = if is_attack && exerted_uptime > 0.0 {
+        let exerted_inc = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "ExertedAttackDamage")
+            / 100.0;
+        let exerted_more = env.mod_db.more(&cfg, &env.state, "ExertedAttackDamage");
+        let total_factor = (1.0 + exerted_inc) * exerted_more;
+        let total_bonus = total_factor - 1.0;
+        if total_bonus > 0.0 {
+            env.output.set("ExertedAttackUptime", exerted_uptime);
+            env.output.set("ExertedAttackDamageBonus", total_bonus * 100.0);
+            1.0 + exerted_uptime * total_bonus
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+    let main_dps = raw_main_dps * exerted_dps_factor;
     env.output.set("MainSkillDPS", main_dps);
 
     // Impale: a stack-based physical-only damage layer. PoB models 5 stacks of

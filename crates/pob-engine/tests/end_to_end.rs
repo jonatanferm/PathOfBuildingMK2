@@ -2091,6 +2091,91 @@ fn mine_and_trap_skills_emit_throw_count_outputs() {
 
 // Issue #8: impale layer adds physical-stack DPS to FullDPS via
 //   ImpaleDPS = stored × stacks(5) × effect/100 × chance/100 × cps
+// Issue #19: Warcry exertion. Each warcry exerts the next N attacks
+// and grants them an `ExertedAttackDamage` bonus composed multiplicatively
+// from INC and MORE — `(1 + inc/100) × more`. The user supplies the
+// resulting uptime via `ConfigState::exerted_attack_uptime` (modelling
+// cry cadence + skill detection is a follow-up). MK2 computes
+// `MainSkillDPS *= 1 + uptime × (factor - 1)` for attack skills.
+#[test]
+fn exerted_attack_uptime_lifts_main_skill_dps() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    let Some(_) = skills.get("Cleave") else {
+        eprintln!("skip: Cleave not found");
+        return;
+    };
+    let sword_name = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone());
+    let Some(sword_name) = sword_name else {
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+
+    // Equip a body armour granting "+50% Exerted Attacks deal increased
+    // Damage" — mod_parser maps this to `ExertedAttackDamage` INC 50.
+    let body = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nWarcry Plate\nFull Plate\n--------\nExerted Attacks deal 50% increased Damage\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::BodyArmour, body);
+
+    // Baseline: no exerted uptime — DPS unaffected by the mod.
+    assert_eq!(c.config.exerted_attack_uptime, 0.0);
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_dps = baseline.get("MainSkillDPS");
+    if baseline_dps <= 0.0 {
+        eprintln!("skip: Cleave produces no DPS in this fixture");
+        return;
+    }
+    assert_eq!(
+        baseline.try_get("ExertedAttackUptime"),
+        None,
+        "uptime=0 must not emit ExertedAttackUptime"
+    );
+
+    // Set 50% uptime: half of attacks are exerted, so the average DPS
+    // bonus is 0.5 × 50% = 25%.
+    c.config.exerted_attack_uptime = 0.5;
+    let exerted = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let ratio = exerted.get("MainSkillDPS") / baseline_dps;
+    assert!(
+        (ratio - 1.25).abs() < 0.01,
+        "50% uptime + 50% Exerted MORE should multiply DPS by 1.25; ratio={ratio} (baseline={baseline_dps}, after={})",
+        exerted.get("MainSkillDPS")
+    );
+    assert!(
+        (exerted.get("ExertedAttackUptime") - 0.5).abs() < 0.001,
+        "ExertedAttackUptime output should mirror the config value"
+    );
+    assert!(
+        (exerted.get("ExertedAttackDamageBonus") - 50.0).abs() < 0.01,
+        "ExertedAttackDamageBonus should reflect the 50% INC mod"
+    );
+
+    // Set 100% uptime: every attack is exerted, full 50% bonus.
+    c.config.exerted_attack_uptime = 1.0;
+    let full = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let ratio = full.get("MainSkillDPS") / baseline_dps;
+    assert!(
+        (ratio - 1.5).abs() < 0.01,
+        "100% uptime + 50% Exerted MORE should multiply DPS by 1.5; ratio={ratio}"
+    );
+}
+
 // Issue #16 (totem half): a totem-summoning skill's MainSkillDPS must
 // scale by the player's `ActiveTotemLimit` (default 1; supports like
 // Multiple Totems Support raise the limit). Mirrors PoB's
