@@ -1915,7 +1915,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
                     .sum(ModType::Inc, &cfg, &env.state, "AilmentEffect");
             let dot_more = env.mod_db.more(&cfg, &env.state, "BleedDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime")
-                * env.mod_db.more(&cfg, &env.state, "AilmentEffect");
+                * env.mod_db.more(&cfg, &env.state, "AilmentEffect")
+                * env.mod_db.more(&cfg, &env.state, "BleedAsThoughDealing");
             let rate_mod = 1.0
                 + (env
                     .mod_db
@@ -1963,7 +1964,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             let p_more = env.mod_db.more(&cfg, &env.state, "PoisonDamage")
                 * env.mod_db.more(&cfg, &env.state, "ChaosDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime")
-                * env.mod_db.more(&cfg, &env.state, "AilmentEffect");
+                * env.mod_db.more(&cfg, &env.state, "AilmentEffect")
+                * env.mod_db.more(&cfg, &env.state, "PoisonAsThoughDealing");
             let p_dot_mult =
                 env.mod_db
                     .sum(ModType::Base, &cfg, &env.state, "PoisonDamageMultiplier")
@@ -2034,7 +2036,8 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             let i_more = env.mod_db.more(&cfg, &env.state, "IgniteDamage")
                 * env.mod_db.more(&cfg, &env.state, "BurningDamage")
                 * env.mod_db.more(&cfg, &env.state, "DamageOverTime")
-                * env.mod_db.more(&cfg, &env.state, "AilmentEffect");
+                * env.mod_db.more(&cfg, &env.state, "AilmentEffect")
+                * env.mod_db.more(&cfg, &env.state, "IgniteAsThoughDealing");
             let i_dot_mult =
                 env.mod_db
                     .sum(ModType::Base, &cfg, &env.state, "IgniteDamageMultiplier")
