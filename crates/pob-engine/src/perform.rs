@@ -720,6 +720,28 @@ fn connected_allocations(
         }
         true
     });
+    // Enforce the ascendancy point budget (PoE: 8 nodes by default, exposed by
+    // `tree.points.ascendancy_points`). Imported builds may be over-allocated;
+    // the UI gates clicks but loaded `.mk2` / PoB-XML data can sneak past, so
+    // we silently drop the excess at compute time. Sort by NodeId for a
+    // deterministic choice of which nodes survive.
+    let budget = tree.points.ascendancy_points as usize;
+    let mut asc_in_effective: Vec<pob_data::NodeId> = effective
+        .iter()
+        .copied()
+        .filter(|id| {
+            tree.nodes
+                .get(id)
+                .and_then(|n| n.ascendancy_name.as_deref())
+                .is_some()
+        })
+        .collect();
+    if asc_in_effective.len() > budget {
+        asc_in_effective.sort_unstable();
+        for drop_id in &asc_in_effective[budget..] {
+            effective.remove(drop_id);
+        }
+    }
     effective
 }
 
