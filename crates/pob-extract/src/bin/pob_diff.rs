@@ -166,7 +166,7 @@ end
 "#,
     );
 
-    // Probe build state to verify class registration.
+    // Probe build state to verify class registration and tree alloc count.
     if verbose {
         run(
             lua,
@@ -178,6 +178,7 @@ print(string.format('  build.className=%s ascendClassName=%s level=%s',
     tostring(b.className), tostring(b.ascendClassName), tostring(b.characterLevel)))
 print(string.format('  build.spec.classId=%s ascendClassId=%s',
     tostring(b.spec and b.spec.classId), tostring(b.spec and b.spec.ascendClassId)))
+print(string.format('  build.spec.treeVersion=%s', tostring(b.spec and b.spec.treeVersion)))
 local env = b.calcsTab and b.calcsTab.mainEnv
 if env and env.classId then
     print(string.format('  env.classId=%s', tostring(env.classId)))
@@ -185,6 +186,16 @@ end
 if env and env.player and env.player.modDB then
     print(string.format('  player.modDB:Sum BASE Str = %s', tostring(env.player.modDB:Sum('BASE', nil, 'Str'))))
     print(string.format('  player.modDB:Sum BASE Int = %s', tostring(env.player.modDB:Sum('BASE', nil, 'Int'))))
+end
+if b.spec and b.spec.allocNodes then
+    local n = 0
+    for _ in pairs(b.spec.allocNodes) do n = n + 1 end
+    print(string.format('  spec.allocNodes count=%d', n))
+end
+if b.spec and b.spec.nodes then
+    local n = 0
+    for _ in pairs(b.spec.nodes) do n = n + 1 end
+    print(string.format('  spec.nodes table size=%d', n))
 end
 "#,
         );
