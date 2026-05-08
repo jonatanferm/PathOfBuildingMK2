@@ -233,9 +233,9 @@ fn party_members_inject_mods_and_toggle_off_cleanly() {
     let aura_bot_mods = env
         .mod_db
         .iter_all()
-        .filter(|m| {
-            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Party:Aura Bot")
-        })
+        .filter(
+            |m| matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Party:Aura Bot"),
+        )
         .count();
     assert!(
         aura_bot_mods >= 1,
@@ -526,8 +526,7 @@ fn enemy_resist_reduces_skill_dps() {
 //    builds don't get a Weapon{1,2}DPS pair).
 #[test]
 fn dual_wielding_averages_dps_across_per_hand_passes() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -1545,8 +1544,7 @@ fn ailment_duration_outputs_scale_with_duration_mods() {
 // skill while leaving non-AoE skills (Arc) untouched.
 #[test]
 fn enemies_hit_by_aoe_multiplies_aoe_skill_dps() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -1706,18 +1704,16 @@ fn aoe_skills_emit_radius_outputs_that_scale_with_area_mods() {
 // low-life layers were folded into the calc.
 #[test]
 fn flask_low_life_toggle_no_mods_keeps_recovery_unchanged() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
     };
 
     let mut c = Character::new(ClassRef::marauder(), 90);
-    let flask = parse_item(
-        "Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n",
-    )
-    .unwrap();
+    let flask =
+        parse_item("Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n")
+            .unwrap();
     c.items.equip(pob_data::Slot::Flask1, flask);
 
     let baseline_out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
@@ -1743,8 +1739,7 @@ fn flask_low_life_toggle_no_mods_keeps_recovery_unchanged() {
 // LifeRecovery (rate) / FlaskLifeRecoveryRate INC mods.
 #[test]
 fn flask_recovery_outputs_scale_with_flask_mods() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -1753,10 +1748,9 @@ fn flask_recovery_outputs_scale_with_flask_mods() {
     let mut c = Character::new(ClassRef::marauder(), 90);
 
     // Colossal Life Flask: life=1000, duration=3.5s. Magic flask on Flask 1.
-    let life_flask = parse_item(
-        "Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n",
-    )
-    .unwrap();
+    let life_flask =
+        parse_item("Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n")
+            .unwrap();
     c.items.equip(pob_data::Slot::Flask1, life_flask);
 
     let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
@@ -1780,10 +1774,9 @@ fn flask_recovery_outputs_scale_with_flask_mods() {
 
     // Mana flask in slot 2 should populate Flask2ManaRecovery without
     // touching the life-flask outputs.
-    let mana_flask = parse_item(
-        "Item Class: Mana Flasks\nRarity: NORMAL\nColossal Mana Flask\n--------\n",
-    )
-    .unwrap();
+    let mana_flask =
+        parse_item("Item Class: Mana Flasks\nRarity: NORMAL\nColossal Mana Flask\n--------\n")
+            .unwrap();
     c.items.equip(pob_data::Slot::Flask2, mana_flask);
     let with_mana = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
     assert!(
@@ -2080,8 +2073,7 @@ fn projectiles_hitting_target_multiplies_dps() {
 // supplying `MineThrowCount` / `TrapThrowCount` BASE bumps it.
 #[test]
 fn mine_and_trap_skills_emit_throw_count_outputs() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -2144,7 +2136,9 @@ fn mine_and_trap_skills_emit_throw_count_outputs() {
     );
 
     // Non-mine/trap skill (Cleave) emits no mine/trap output keys.
-    let Some(_) = skills.get("Cleave") else { return };
+    let Some(_) = skills.get("Cleave") else {
+        return;
+    };
     let mut nc = Character::new(ClassRef::duelist(), 90);
     nc.main_skill = Some(MainSkill::new("Cleave"));
     let cleave_out = pob_engine::compute_full(&nc, &tree, Some(&skills), Some(&bases));
@@ -2168,8 +2162,7 @@ fn mine_and_trap_skills_emit_throw_count_outputs() {
 // CalcOffence.lua:1388 totem branch.
 #[test]
 fn totem_skill_dps_scales_with_active_totem_limit() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;
@@ -2537,7 +2530,12 @@ fn enemy_boss_preset_emits_conditions_and_ailment_threshold() {
     assert_eq!(EnemyBoss::None.default_resists(), (0, 0, 0, 0));
 
     // PoB-name round trip.
-    for variant in [EnemyBoss::None, EnemyBoss::Boss, EnemyBoss::Pinnacle, EnemyBoss::Uber] {
+    for variant in [
+        EnemyBoss::None,
+        EnemyBoss::Boss,
+        EnemyBoss::Pinnacle,
+        EnemyBoss::Uber,
+    ] {
         assert_eq!(
             EnemyBoss::from_pob_name(variant.as_pob_name()),
             Some(variant),
@@ -2587,9 +2585,9 @@ fn pantheon_selection_round_trips_and_injects_parseable_mods() {
     let arakaali_mods: Vec<_> = env
         .mod_db
         .iter_all()
-        .filter(|m| {
-            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Arakaali")
-        })
+        .filter(
+            |m| matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Arakaali"),
+        )
         .collect();
     assert!(
         !arakaali_mods.is_empty(),
@@ -2603,9 +2601,9 @@ fn pantheon_selection_round_trips_and_injects_parseable_mods() {
     let garukhan_mods: Vec<_> = env
         .mod_db
         .iter_all()
-        .filter(|m| {
-            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Garukhan")
-        })
+        .filter(
+            |m| matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Garukhan"),
+        )
         .collect();
     assert!(
         !garukhan_mods.is_empty(),

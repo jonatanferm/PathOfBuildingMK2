@@ -74,10 +74,7 @@ const GROUPS: &[(&str, &[&str])] = &[
             "ElementalResist",
         ],
     ),
-    (
-        "Damage Avoidance",
-        &["Block", "Suppress", "Dodge", "Avoid"],
-    ),
+    ("Damage Avoidance", &["Block", "Suppress", "Dodge", "Avoid"]),
     (
         "Charges",
         &["Charge", "PowerCharge", "FrenzyCharge", "EnduranceCharge"],

@@ -76,7 +76,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PartyTabState, character: &mut Characte
             let mut toggle_idx: Option<usize> = None;
             for (idx, name, enabled) in entries {
                 ui.horizontal(|ui| {
-                    let label = if enabled { name.clone() } else { format!("{name} (off)") };
+                    let label = if enabled {
+                        name.clone()
+                    } else {
+                        format!("{name} (off)")
+                    };
                     let selected = state.selected == Some(idx);
                     if ui.selectable_label(selected, label).clicked() {
                         state.selected = Some(idx);
@@ -88,7 +92,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PartyTabState, character: &mut Characte
                     {
                         toggle_idx = Some(idx);
                     }
-                    if ui.small_button("✕").on_hover_text("Remove member").clicked() {
+                    if ui
+                        .small_button("✕")
+                        .on_hover_text("Remove member")
+                        .clicked()
+                    {
                         delete_idx = Some(idx);
                     }
                 });
@@ -127,9 +135,8 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PartyTabState, character: &mut Characte
             };
             ui.horizontal(|ui| {
                 ui.label("Member:");
-                let resp = ui.add(
-                    egui::TextEdit::singleline(&mut member.name).desired_width(220.0),
-                );
+                let resp =
+                    ui.add(egui::TextEdit::singleline(&mut member.name).desired_width(220.0));
                 if resp.changed() {
                     changed = true;
                 }
@@ -137,9 +144,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PartyTabState, character: &mut Characte
             });
             ui.checkbox(&mut member.enabled, "Active in calc")
                 .on_hover_text("Untick to exclude this member from the next compute pass");
-            ui.label(
-                "Mod lines (one per line, same syntax as Custom Modifiers / item mods):",
-            );
+            ui.label("Mod lines (one per line, same syntax as Custom Modifiers / item mods):");
             let resp = ui.add(
                 egui::TextEdit::multiline(&mut member.mod_lines)
                     .desired_width(f32::INFINITY)
