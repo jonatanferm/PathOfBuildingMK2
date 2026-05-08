@@ -1132,6 +1132,60 @@ fn enemy_armour_reduces_physical_dps() {
     );
 }
 
+// Issue #3: a "Projectiles hit target" config knob multiplies the per-cast
+// hit average by `min(count, ProjectileCount)`. The default (0/1) is a
+// no-op; raising it grows MainSkillDPS proportionally up to the skill's
+// total projectile count. Tornado Shot at level 20 has
+// `number_of_additional_projectiles = 0`, so its `ProjectileCount` is 1
+// and the multiplier never grows past 1× — we use Lightning Arrow (also a
+// projectile attack) but skip if the gem fixture isn't present.
+#[test]
+fn projectiles_hitting_target_multiplies_dps() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        return;
+    };
+    let Some(skill_id) = ["LightningArrow", "TornadoShot", "Barrage"]
+        .iter()
+        .find(|id| {
+            skills
+                .get(id)
+                .and_then(|s| s.positional(20, 3))
+                .map(|v| v >= 1.0)
+                .unwrap_or(false)
+        })
+        .copied()
+    else {
+        eprintln!("skip: no projectile-attack gem with additional projectiles in fixture");
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::ranger(), 90);
+    c.main_skill = Some(MainSkill::new(skill_id));
+
+    // Single hit (default 0 → clamped to 1).
+    c.config.projectiles_hitting_target = 0;
+    let single = compute_with_skills(&c, &tree, Some(&skills));
+    let single_dps = single.get("MainSkillDPS");
+    let projectile_count = single.get("ProjectileCount");
+    assert!(
+        projectile_count >= 1.0,
+        "ProjectileCount should be at least 1, got {projectile_count}"
+    );
+    assert_eq!(single.get("ProjectileMultiplier"), 1.0);
+
+    // Three hits (capped to ProjectileCount). DPS scales linearly when below cap.
+    c.config.projectiles_hitting_target = 3;
+    let triple = compute_with_skills(&c, &tree, Some(&skills));
+    let triple_dps = triple.get("MainSkillDPS");
+    let expected_mult = (3.0_f64).min(projectile_count);
+    let actual_mult = triple_dps / single_dps;
+    assert!(
+        (actual_mult - expected_mult).abs() < 0.001,
+        "Triple-hit DPS should equal single × {expected_mult}; got {actual_mult} (proj_count={projectile_count})"
+    );
+    assert_eq!(triple.get("ProjectileMultiplier"), expected_mult);
+}
+
 #[test]
 fn config_charges_drive_per_charge_mod() {
     let Some(tree) = load_3_25_tree() else {
