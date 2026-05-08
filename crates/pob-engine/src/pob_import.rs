@@ -367,6 +367,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                     let mut ms = MainSkill::new(gem.skill_id);
                     ms.level = gem.level.clamp(1, 40);
                     ms.quality = gem.quality.min(100);
+                    ms.enabled = gem.enabled;
                     ms
                 })
                 .collect(),
