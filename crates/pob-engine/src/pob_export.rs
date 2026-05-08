@@ -161,6 +161,48 @@ fn write_config(out: &mut String, cfg: &ConfigState) {
             cfg.enemy_chaos_resist
         ));
     }
+    // Defender-side enemy stats added after the original 7d export pass.
+    // Names match the canonical PoB Input names recognised by
+    // `apply_config_number` so a round-trip survives.
+    if cfg.enemy_evasion != 0 {
+        inputs.push(format!(
+            "        <Input name=\"enemyEvasion\" number=\"{}\"/>",
+            cfg.enemy_evasion
+        ));
+    }
+    if cfg.enemy_armour != 0 {
+        inputs.push(format!(
+            "        <Input name=\"enemyArmour\" number=\"{}\"/>",
+            cfg.enemy_armour
+        ));
+    }
+    if cfg.enemy_block_chance != 0 {
+        inputs.push(format!(
+            "        <Input name=\"enemyBlockChance\" number=\"{}\"/>",
+            cfg.enemy_block_chance
+        ));
+    }
+    if cfg.enemy_dodge_chance != 0 {
+        inputs.push(format!(
+            "        <Input name=\"enemyDodgeChance\" number=\"{}\"/>",
+            cfg.enemy_dodge_chance
+        ));
+    }
+    if cfg.enemy_suppression_chance != 0 {
+        inputs.push(format!(
+            "        <Input name=\"enemySuppressionChance\" number=\"{}\"/>",
+            cfg.enemy_suppression_chance
+        ));
+    }
+    // Projectile shotgun count from the Config tab. Use PoB's canonical
+    // `projectileNumberHitting` name; the import side accepts that or the
+    // alias `projectilesHitTarget`.
+    if cfg.projectiles_hitting_target != 0 {
+        inputs.push(format!(
+            "        <Input name=\"projectileNumberHitting\" number=\"{}\"/>",
+            cfg.projectiles_hitting_target
+        ));
+    }
 
     // Map MK2's internal multiplier keys back to the PoB Input names that
     // apply_config_number recognises so charge counts survive a round-trip.
