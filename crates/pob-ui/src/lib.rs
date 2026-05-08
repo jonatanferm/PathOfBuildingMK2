@@ -12,6 +12,7 @@ use pob_engine::{
 
 mod calcs_tab;
 mod color_codes;
+mod compare_tab;
 mod config_tab;
 mod import_export_tab;
 mod items_tab;
@@ -48,6 +49,7 @@ struct LoadedApp {
     items_state: items_tab::ItemsTabState,
     skills_state: skills_tab::SkillsTabState,
     calcs_state: calcs_tab::CalcsTabState,
+    compare_state: compare_tab::CompareTabState,
     import_export_state: import_export_tab::ImportExportTabState,
     notes_state: notes_tab::NotesTabState,
     skills: SkillRegistry,
@@ -78,6 +80,7 @@ enum Tab {
     Skills,
     Config,
     Calcs,
+    Compare,
     Notes,
     ImportExport,
 }
@@ -180,6 +183,7 @@ impl PobApp {
             items_state: items_tab::ItemsTabState::default(),
             skills_state: skills_tab::SkillsTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
+            compare_state: compare_tab::CompareTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             skills,
@@ -221,6 +225,7 @@ impl PobApp {
             items_state: items_tab::ItemsTabState::default(),
             skills_state: skills_tab::SkillsTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
+            compare_state: compare_tab::CompareTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             skills,
@@ -432,6 +437,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.selectable_value(&mut app.active_tab, Tab::Skills, "Skills");
             ui.selectable_value(&mut app.active_tab, Tab::Config, "Config");
             ui.selectable_value(&mut app.active_tab, Tab::Calcs, "Calcs");
+            ui.selectable_value(&mut app.active_tab, Tab::Compare, "Compare");
             ui.selectable_value(&mut app.active_tab, Tab::Notes, "Notes");
             ui.selectable_value(&mut app.active_tab, Tab::ImportExport, "Import / Export");
         });
@@ -887,6 +893,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         }
         Tab::Calcs => {
             calcs_tab::ui(ui, &mut app.calcs_state, &app.output, app.last_env.as_ref());
+        }
+        Tab::Compare => {
+            compare_tab::ui(ui, &mut app.compare_state, &app.character, &app.output);
         }
         Tab::Notes => {
             notes_tab::ui(ui, &mut app.character.notes, &mut app.notes_state);
