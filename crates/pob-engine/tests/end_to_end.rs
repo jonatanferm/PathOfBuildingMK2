@@ -1951,6 +1951,69 @@ fn fireball_emits_base_ignite_chance_via_global_stat_map() {
     assert_eq!(ignite_chance.value.as_f64(), Some(25.0));
 }
 
+// Issue #36: variant-discovery helper. `variants_of(skill_id)` returns
+// every gem entry sharing the same base (default + Vaal + alt-quality
+// reworks). The full Vaal-variant feature (UI selector, alt-quality
+// stat substitution) is a deeper refactor; this slice ships the
+// engine-side discovery helper that downstream UI code will consume.
+#[test]
+fn skill_registry_variants_of_groups_alt_and_vaal_versions() {
+    let Some(skills) = load_skills() else {
+        eprintln!("skip: skill data missing");
+        return;
+    };
+    use pob_engine::skill::base_skill_id;
+
+    // Sanity-check the base-id stripper directly.
+    assert_eq!(base_skill_id("Fireball"), "Fireball");
+    assert_eq!(base_skill_id("VaalFireball"), "Fireball");
+    assert_eq!(base_skill_id("FireballAltX"), "Fireball");
+    assert_eq!(base_skill_id("VaalFireballAltX"), "Fireball");
+    // Vaal- prefix with no further nesting still strips down once.
+    assert_eq!(base_skill_id("VaalCleave"), "Cleave");
+
+    // The registry is a HashMap so the absolute set depends on what
+    // ships in the data. We assert a couple of hard invariants:
+    //
+    //  * Every variant returned shares the same `base_skill_id` as
+    //    the lookup key.
+    //  * The lookup is reflexive — `variants_of(id)` includes `id`
+    //    itself when the id is in the registry.
+    //  * Looking up `"VaalFireball"` returns the same set as looking
+    //    up `"Fireball"` (both share base `"Fireball"`).
+    if skills.get("Fireball").is_some() && skills.get("VaalFireball").is_some() {
+        let from_default = skills.variants_of("Fireball");
+        let from_vaal = skills.variants_of("VaalFireball");
+        assert_eq!(
+            from_default, from_vaal,
+            "variants_of should be symmetric across the variant set"
+        );
+        assert!(
+            from_default.contains(&"Fireball"),
+            "variants list should include the default variant"
+        );
+        assert!(
+            from_default.contains(&"VaalFireball"),
+            "variants list should include the Vaal counterpart"
+        );
+        for id in &from_default {
+            assert_eq!(
+                base_skill_id(id),
+                "Fireball",
+                "{id} should resolve to base Fireball"
+            );
+        }
+    }
+
+    // Skills without alternates yield a single-element list (or
+    // an empty list if the id isn't in the registry).
+    let lonely = skills.variants_of("DefinitelyNotASkill");
+    assert!(
+        lonely.is_empty(),
+        "Unknown skill id should return an empty variant list, got {lonely:?}"
+    );
+}
+
 #[test]
 fn arc_intrinsic_mods_land_in_modlist() {
     let (Some(_tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {

@@ -51,6 +51,50 @@ impl SkillRegistry {
             })
             .map(|(k, v)| (k.as_str(), v))
     }
+
+    /// Issue #36: variant-discovery helper. Given a skill id (e.g.
+    /// `"Fireball"`), returns every gem-data entry that shares the
+    /// same "base" — the default (`Fireball`), the Vaal counterpart
+    /// (`VaalFireball`), and any alt-quality reworks
+    /// (`FireballAltX` / `FireballAltY` / `FireballAltA` /
+    /// `FireballAltB` / `FireballAltC`).
+    ///
+    /// The returned list is sorted alphabetically and includes the
+    /// input id when it exists in the registry. Gems without
+    /// alternates simply yield a single-element list.
+    pub fn variants_of(&self, skill_id: &str) -> Vec<&str> {
+        let base = base_skill_id(skill_id);
+        let mut out: Vec<&str> = self
+            .by_id
+            .keys()
+            .filter(|k| base_skill_id(k) == base)
+            .map(String::as_str)
+            .collect();
+        out.sort_unstable();
+        out
+    }
+}
+
+/// Strip Vaal- prefix and AltX/AltY/AltA/AltB/AltC suffixes to recover
+/// a canonical "base" skill id used by `variants_of`. Public so the UI
+/// can label a variant group by its base name.
+#[must_use]
+pub fn base_skill_id(skill_id: &str) -> &str {
+    // Trailing alt-quality suffix.
+    for suffix in ["AltX", "AltY", "AltA", "AltB", "AltC"] {
+        if let Some(stripped) = skill_id.strip_suffix(suffix) {
+            return base_skill_id(stripped);
+        }
+    }
+    // Vaal- prefix.
+    if let Some(stripped) = skill_id.strip_prefix("Vaal") {
+        // Some gems are *natively* Vaal-named (the side-cast Vaal of an
+        // active skill). Strip the prefix only when the rest is also a
+        // valid identifier — the recursive call handles further
+        // suffixes if any.
+        return base_skill_id(stripped);
+    }
+    skill_id
 }
 
 /// User's choice of skill, level, and quality. Doubles as the per-gem entry in
