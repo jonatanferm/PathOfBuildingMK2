@@ -104,9 +104,39 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, items: &mut ItemSet) -> 
                             }
                         }
                     }
-                    // Note: egui doesn't expose synchronous clipboard reads in this
-                    // version, so we just instruct the user to paste manually with
-                    // the system shortcut.
+                    if ui
+                        .button("Auto-equip (detect slot)")
+                        .on_hover_text(
+                            "Parse the pasted item and equip it to whichever \
+                             slot its `Item Class:` line maps to (e.g. amulets \
+                             → Amulet slot).",
+                        )
+                        .clicked()
+                    {
+                        match parse_item(&state.paste_buffer) {
+                            Ok(item) => {
+                                let detected = detect_slot(&item.base_name)
+                                    .or_else(|| detect_slot_from_class(&state.paste_buffer));
+                                if let Some(target) = detected {
+                                    items.equip(target, item);
+                                    state.selected_slot = Some(target);
+                                    state.last_error = None;
+                                    state.paste_buffer.clear();
+                                    changed = true;
+                                } else {
+                                    state.last_error = Some(
+                                        "Could not detect the right slot — \
+                                         use \"Equip from paste\" with a \
+                                         specific slot selected."
+                                            .into(),
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                state.last_error = Some(e.to_string());
+                            }
+                        }
+                    }
                     if ui.button("Clear paste").clicked() {
                         state.paste_buffer.clear();
                         state.last_error = None;
@@ -121,6 +151,63 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, items: &mut ItemSet) -> 
         });
     });
     changed
+}
+
+/// Detect the equipment slot from the base name (e.g. "Onyx Amulet" → Amulet).
+/// Returns None if the base type doesn't map to a single slot — e.g. rings could
+/// fit either Ring1 or Ring2 (caller's responsibility to disambiguate).
+fn detect_slot(base_name: &str) -> Option<Slot> {
+    let lower = base_name.to_lowercase();
+    if lower.ends_with("amulet") || lower.contains("talisman") {
+        return Some(Slot::Amulet);
+    }
+    if lower.ends_with("belt") || lower.contains("sash") || lower.contains("girdle") {
+        return Some(Slot::Belt);
+    }
+    if lower.contains("ring") {
+        return Some(Slot::Ring1);
+    }
+    if lower.contains("flask") {
+        return Some(Slot::Flask1);
+    }
+    None
+}
+
+/// Map "Item Class: X" lines that PoE pastes include to the corresponding slot.
+fn detect_slot_from_class(raw: &str) -> Option<Slot> {
+    let line = raw
+        .lines()
+        .find(|l| l.trim_start().starts_with("Item Class:"))?
+        .split_once(':')?
+        .1
+        .trim()
+        .to_lowercase();
+    Some(match line.as_str() {
+        "amulets" => Slot::Amulet,
+        "rings" => Slot::Ring1,
+        "belts" => Slot::Belt,
+        "helmets" => Slot::Helmet,
+        "body armours" => Slot::BodyArmour,
+        "gloves" => Slot::Gloves,
+        "boots" => Slot::Boots,
+        "quivers" => Slot::Weapon2,
+        s if s.contains("flask") => Slot::Flask1,
+        s if s.contains("axes")
+            || s.contains("swords")
+            || s.contains("maces")
+            || s.contains("daggers")
+            || s.contains("claws")
+            || s.contains("staves")
+            || s.contains("bows")
+            || s.contains("wands")
+            || s.contains("sceptres")
+            || s.contains("spears") =>
+        {
+            Slot::Weapon1
+        }
+        s if s.contains("shield") => Slot::Weapon2,
+        _ => return None,
+    })
 }
 
 fn rarity_glyph(r: Rarity) -> &'static str {
