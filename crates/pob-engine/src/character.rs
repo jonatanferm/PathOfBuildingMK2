@@ -45,6 +45,11 @@ pub struct CharacterSnapshot {
     /// during `init_env` (skipped when `enabled = false`).
     #[serde(default)]
     pub party_members: Vec<PartyMember>,
+    /// Tattoo overrides per allocated passive node — `(NodeId, mod
+    /// text)`. Used as a Vec in the snapshot for deterministic save
+    /// ordering; converted to a HashMap on the Character.
+    #[serde(default)]
+    pub tattoo_overrides: Vec<(NodeId, String)>,
 }
 
 /// One stored item-loadout save. `items` is the same `ItemSet` the
@@ -149,6 +154,11 @@ impl CharacterSnapshot {
             pantheon_minor: c.pantheon_minor,
             item_sets: c.item_sets.clone(),
             party_members: c.party_members.clone(),
+            tattoo_overrides: c
+                .tattoo_overrides
+                .iter()
+                .map(|(k, v)| (*k, v.clone()))
+                .collect(),
         }
     }
     pub fn into_character(self) -> Character {
@@ -193,6 +203,7 @@ impl CharacterSnapshot {
             pantheon_minor: self.pantheon_minor,
             item_sets: self.item_sets,
             party_members: self.party_members,
+            tattoo_overrides: self.tattoo_overrides.into_iter().collect(),
         }
     }
 }
@@ -439,6 +450,11 @@ pub struct Character {
     /// are parsed by `mod_parser` and added to the player's modDB
     /// during `init_env_with_bases` (skipped when `enabled = false`).
     pub party_members: Vec<PartyMember>,
+    /// Tattoo overrides per allocated passive node (3.22+). Each entry
+    /// `node_id → mod text` replaces the node's canonical `stats` with
+    /// the tattoo's mod lines during compute. Removing an entry restores
+    /// the original node. Mirrors PoB's `PassiveSpec.tattooOverrides`.
+    pub tattoo_overrides: HashMap<NodeId, String>,
 }
 
 /// Encounter / condition configuration. Mirrors PoB's Config tab:
@@ -679,6 +695,7 @@ impl Character {
             pantheon_minor: MinorGod::default(),
             item_sets: Vec::new(),
             party_members: Vec::new(),
+            tattoo_overrides: HashMap::default(),
         }
     }
 

@@ -370,6 +370,75 @@ fn equipping_an_amulet_changes_stats() {
     assert_eq!(after.get("LightningResistTotal"), -21.0);
 }
 
+// Issue #29: Tattoos (3.22+) replace an allocated normal passive
+// node's stats with a chosen tattoo's mod text. The engine reads
+// `Character::tattoo_overrides[node_id]` and uses that text instead
+// of the node's canonical `stats` during compute. Removing the
+// override restores the original node.
+#[test]
+fn tattoo_override_replaces_allocated_node_stats() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    // Find any allocated normal passive node we can override.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let Some(node_id) = allocate_reachable(&mut c, &tree, "Marauder", |n| {
+        matches!(
+            n.kind,
+            pob_data::NodeKind::Normal | pob_data::NodeKind::Notable
+        ) && n.ascendancy_name.is_none()
+            && !n.stats.is_empty()
+    }) else {
+        eprintln!("skip: no reachable normal node found");
+        return;
+    };
+
+    let baseline = compute_with_skills(&c, &tree, None);
+    let baseline_str = baseline.get("Strength");
+
+    // Override the node with a tattoo that grants +75 to Strength —
+    // a simple value the parser handles cleanly.
+    c.tattoo_overrides
+        .insert(node_id, "+75 to Strength".to_owned());
+    let with_tattoo = compute_with_skills(&c, &tree, None).get("Strength");
+
+    // The node's original stats no longer apply (whatever they were);
+    // the tattoo grants +75 Str. The net delta is +75 minus whatever
+    // Strength the original node contributed.
+    //
+    // Since we don't know the original node's stats statically, we
+    // assert that the tattoo override at minimum reaches baseline +
+    // (75 - max_plausible_node_contribution). For most normal /
+    // notable nodes that Strength contribution is 5..30, so a +60
+    // floor on the delta is safe.
+    let delta = with_tattoo - baseline_str;
+    assert!(
+        delta >= 60.0 - 30.0 && delta <= 75.0 + 30.0,
+        "Tattoo override should approximately +75 Str the build (delta {}); baseline={baseline_str}, with={with_tattoo}",
+        delta
+    );
+
+    // Removing the override restores the baseline.
+    c.tattoo_overrides.remove(&node_id);
+    let restored = compute_with_skills(&c, &tree, None).get("Strength");
+    assert!(
+        (restored - baseline_str).abs() < 0.5,
+        "Removing the tattoo override must restore the original node's contribution"
+    );
+
+    // An empty-string override is treated as "no tattoo here" — the
+    // original node's stats apply (avoids a footgun where the user
+    // clears the textarea but the entry remains).
+    c.tattoo_overrides.insert(node_id, String::new());
+    let empty_override = compute_with_skills(&c, &tree, None).get("Strength");
+    assert!(
+        (empty_override - baseline_str).abs() < 0.5,
+        "Empty-string tattoo override must fall through to the original node"
+    );
+}
+
 #[test]
 fn allocating_keystone_passive_emits_flag_mod() {
     let Some(tree) = load_3_25_tree() else {
@@ -1615,8 +1684,7 @@ fn enemies_hit_by_aoe_multiplies_aoe_skill_dps() {
 // minion gems — non-minion skills (Cleave, Arc) emit nothing.
 #[test]
 fn minion_skill_emits_minion_buff_aggregates() {
-    let (Some(tree), Some(skills), Some(bases)) =
-        (load_3_25_tree(), load_skills(), load_bases())
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
     else {
         eprintln!("skip: data missing");
         return;

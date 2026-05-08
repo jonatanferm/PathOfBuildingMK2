@@ -224,6 +224,30 @@ pub fn init_env_with_bases(
             }
             continue;
         }
+        // Issue #29: Tattoo override. Tattoos (3.22+) replace a single
+        // allocated normal passive node's stats with a chosen tattoo's
+        // mod text. PoB tracks them in `PassiveSpec.tattooOverrides`.
+        // We mirror that here: if the user has set
+        // `tattoo_overrides[node_id]` to a non-empty string, parse that
+        // text instead of the node's `stats`. Parse failures are
+        // silently skipped — the tattoo's lines come from canonical
+        // PoB text and almost always parse, but if any don't they
+        // simply don't contribute (matching the custom_mods behaviour).
+        if let Some(override_text) = character.tattoo_overrides.get(node_id) {
+            if !override_text.trim().is_empty() {
+                for line in override_text.lines() {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Some(parsed) = parse_mod_line(line) {
+                        env.mod_db
+                            .add(parsed.mod_.with_source(Source::Passive(*node_id)));
+                    }
+                }
+                continue;
+            }
+        }
         for raw in &node.stats {
             for line in raw.lines() {
                 let line = line.trim();
@@ -2564,27 +2588,24 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             .mod_db
             .sum(ModType::Inc, &cfg, &env.state, "MinionDamage");
         let more = env.mod_db.more(&cfg, &env.state, "MinionDamage");
-        env.output.set("MinionDamageMod", (1.0 + inc / 100.0) * more);
+        env.output
+            .set("MinionDamageMod", (1.0 + inc / 100.0) * more);
         env.output.set("MinionDamageInc", inc);
 
-        let life_inc = env
-            .mod_db
-            .sum(ModType::Inc, &cfg, &env.state, "MinionLife");
+        let life_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "MinionLife");
         let life_more = env.mod_db.more(&cfg, &env.state, "MinionLife");
         env.output
             .set("MinionLifeMod", (1.0 + life_inc / 100.0) * life_more);
 
-        let attack_speed_inc =
-            env.mod_db
-                .sum(ModType::Inc, &cfg, &env.state, "MinionAttackSpeed");
-        env.output.set(
-            "MinionAttackSpeedMod",
-            1.0 + attack_speed_inc / 100.0,
-        );
+        let attack_speed_inc = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "MinionAttackSpeed");
+        env.output
+            .set("MinionAttackSpeedMod", 1.0 + attack_speed_inc / 100.0);
 
-        let move_speed_inc =
-            env.mod_db
-                .sum(ModType::Inc, &cfg, &env.state, "MinionMovementSpeed");
+        let move_speed_inc = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "MinionMovementSpeed");
         env.output
             .set("MinionMovementSpeedMod", 1.0 + move_speed_inc / 100.0);
 
@@ -2606,7 +2627,9 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         // mods. Items / supports add to that — e.g. Mistress of
         // Sacrifice grants +1 zombie. Floor at 1 so a no-mod build
         // still summons one minion.
-        let extras = env.mod_db.sum(ModType::Base, &cfg, &env.state, max_mod_name);
+        let extras = env
+            .mod_db
+            .sum(ModType::Base, &cfg, &env.state, max_mod_name);
         let minion_count = (1.0 + extras).max(1.0);
         env.output.set("NumberOfMinions", minion_count);
     }
