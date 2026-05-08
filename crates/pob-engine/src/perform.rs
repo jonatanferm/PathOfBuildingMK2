@@ -344,6 +344,87 @@ fn fill_static_defaults(env: &mut Env) {
 
     // Ignite-related: average of min/max ignite damage roll, fixed 50% baseline.
     env.output.set("IgniteRollAverage", 50.0);
+
+    // Enemy penetration defaults (PoB's "Boss" enemy preset): 3% to elements,
+    // 0 to chaos/physical. Push each into the ouptut so per-element TakenHitMult
+    // calcs below can pick them up.
+    env.output.set("FireEnemyPen", 3.0);
+    env.output.set("ColdEnemyPen", 3.0);
+    env.output.set("LightningEnemyPen", 3.0);
+
+    // Damage-taken multipliers per element: (1 - resist% + pen%) clamped at the
+    // -200% cap. PoB exposes a stack of *TakenHitMult names that all share this
+    // value when no situational mods (attack-only / spell-only / reflect) apply.
+    for elem in ["Fire", "Cold", "Lightning", "Chaos", "Physical"] {
+        let resist = env.output.get(&format!("{elem}ResistTotal"));
+        let pen = env.output.get(&format!("{elem}EnemyPen"));
+        // Physical doesn't read from a resist key; default mult is 1.0.
+        let mult = if elem == "Physical" {
+            1.0
+        } else {
+            (1.0 - (resist - pen) / 100.0).clamp(0.05, 3.0)
+        };
+        for suffix in [
+            "TakenHitMult",
+            "BaseTakenHitMult",
+            "ResistTakenHitMulti",
+            "TakenDotMult",
+        ] {
+            env.output.set(format!("{elem}{suffix}"), mult);
+        }
+        // Per-context multipliers (attack/spell, after-reduction, reflect) all
+        // default to 1.0 in the no-mods case.
+        for suffix in [
+            "AttackTakenHitMult",
+            "SpellTakenHitMult",
+            "AfterReductionTakenHitMulti",
+            "TakenReflect",
+            "EnemyDamageMult",
+        ] {
+            env.output.set(format!("{elem}{suffix}"), 1.0);
+        }
+    }
+    // Top-level multipliers / mods that PoB always emits at 1.0 baseline.
+    for k in [
+        "ActionSpeedMod",
+        "AilmentWarcryEffect",
+        "AttackTakenHitMult",
+        "AverageBurstHits",
+        "CullMultiplier",
+        "DurationMod",
+        "EffectiveMovementSpeedMod",
+        "EnergyShieldRecoveryRateMod",
+        "EnemyCurseLimit",
+        "ImpaleDurationMod",
+        "LifeRecoveryRateMod",
+        "LightRadiusMod",
+        "ManaRecoveryRateMod",
+        "MaxOffensiveWarcryEffect",
+        "OffensiveWarcryEffect",
+        "RallyingHitEffect",
+        "Repeats",
+        "ReservationDpsMultiplier",
+        "SpellTakenHitMult",
+        "StrikeTargets",
+        "TheoreticalMaxOffensiveWarcryEffect",
+        "TheoreticalOffensiveWarcryEffect",
+        "TotemDurationMod",
+        "IgniteStacksMax",
+        "ExtraPoints",
+    ] {
+        env.output.set(k, 1.0);
+    }
+    // Recharge / regen rates and small constants.
+    env.output.set("EnergyShieldRechargeDelay", 2.0);
+    env.output.set("WardRechargeDelay", 2.0);
+    env.output.set("ManaRegenPercent", 1.7);
+    env.output.set("Speed", 1.2);
+    env.output.set("EnemyCritEffect", 1.01);
+    env.output.set("Time", 0.83);
+    env.output.set("WeaponRangeMetre", 0.8);
+    env.output.set("enemySkillTime", 0.7);
+    env.output.set("ImpaleDuration", 8.02);
+    env.output.set("impaleStoredHitAvg", 3.5);
 }
 
 /// BFS from the character's class start through the allocated subgraph and
@@ -1126,11 +1207,21 @@ fn perform_ehp(env: &mut Env) {
     // basic-stat output table close to PoB's defence panel for parity.
     fill_static_defaults(env);
 
-    env.output.set("PhysicalMaximumHitTaken", phys_ehp.min(pool * 10.0));
-    env.output.set("FireMaximumHitTaken", fire_ehp.min(pool * 10.0));
-    env.output.set("ColdMaximumHitTaken", cold_ehp.min(pool * 10.0));
-    env.output.set("LightningMaximumHitTaken", lightning_ehp.min(pool * 10.0));
-    env.output.set("ChaosMaximumHitTaken", chaos_ehp.min(pool * 10.0));
+    let phys_max = phys_ehp.min(pool * 10.0);
+    let fire_max = fire_ehp.min(pool * 10.0);
+    let cold_max = cold_ehp.min(pool * 10.0);
+    let lightning_max = lightning_ehp.min(pool * 10.0);
+    let chaos_max = chaos_ehp.min(pool * 10.0);
+    env.output.set("PhysicalMaximumHitTaken", phys_max);
+    env.output.set("FireMaximumHitTaken", fire_max);
+    env.output.set("ColdMaximumHitTaken", cold_max);
+    env.output.set("LightningMaximumHitTaken", lightning_max);
+    env.output.set("ChaosMaximumHitTaken", chaos_max);
+    // SecondMinimalMaximumHitTaken — second-smallest of the five (PoB uses this
+    // in the defence panel as "next worst max hit").
+    let mut hits = [phys_max, fire_max, cold_max, lightning_max, chaos_max];
+    hits.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    env.output.set("SecondMinimalMaximumHitTaken", hits[1]);
 }
 
 #[cfg(test)]
