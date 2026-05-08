@@ -1405,6 +1405,76 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 ));
             }
         }
+        // Issue #100 (slice 3): rename / duplicate / delete + create
+        // category. Each action does the corresponding fs:: call and
+        // surfaces success / failure via `app.status_message`. The
+        // builds-tab state is reset to force a rescan on the next
+        // frame.
+        builds_tab::BuildsAction::Rename { from, to } => {
+            match std::fs::rename(&from, &to) {
+                Ok(()) => {
+                    // If the renamed file was the open build, follow
+                    // the rename so subsequent saves go to the new
+                    // path instead of leaving a stale orphan.
+                    if app.current_build_path.as_ref() == Some(&from) {
+                        app.current_build_path = Some(to.clone());
+                    }
+                    app.status_message = Some((
+                        StatusKind::Info,
+                        format!("Renamed to {}", to.display()),
+                    ));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Rename failed: {e}")));
+                }
+            }
+        }
+        builds_tab::BuildsAction::Duplicate { from, to } => {
+            match std::fs::copy(&from, &to) {
+                Ok(_) => {
+                    app.status_message = Some((
+                        StatusKind::Info,
+                        format!("Duplicated to {}", to.display()),
+                    ));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Duplicate failed: {e}")));
+                }
+            }
+        }
+        builds_tab::BuildsAction::Delete(path) => {
+            match std::fs::remove_file(&path) {
+                Ok(()) => {
+                    if app.current_build_path.as_ref() == Some(&path) {
+                        app.current_build_path = None;
+                    }
+                    app.status_message =
+                        Some((StatusKind::Info, format!("Deleted {}", path.display())));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Delete failed: {e}")));
+                }
+            }
+        }
+        builds_tab::BuildsAction::CreateCategory(dir) => {
+            match std::fs::create_dir_all(&dir) {
+                Ok(()) => {
+                    app.status_message = Some((
+                        StatusKind::Info,
+                        format!("Created category {}", dir.display()),
+                    ));
+                }
+                Err(e) => {
+                    app.status_message = Some((
+                        StatusKind::Error,
+                        format!("Create category failed: {e}"),
+                    ));
+                }
+            }
+        }
     }
 }
 
