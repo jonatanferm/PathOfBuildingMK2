@@ -426,6 +426,26 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.add_space(4.0);
             stat_row(ui, "EHP (avg)", &app.output, "AverageEHP");
 
+            ui.add_space(6.0);
+            ui.collapsing("Per-element defence", |ui| {
+                ui.weak("EHP and max-hit-taken split by damage type:");
+                ui.add_space(2.0);
+                stat_row(ui, "Phys EHP", &app.output, "PhysicalEHP");
+                stat_row(ui, "Fire EHP", &app.output, "FireEHP");
+                stat_row(ui, "Cold EHP", &app.output, "ColdEHP");
+                stat_row(ui, "Lightning EHP", &app.output, "LightningEHP");
+                stat_row(ui, "Chaos EHP", &app.output, "ChaosEHP");
+                ui.add_space(4.0);
+                stat_row(ui, "Min EHP", &app.output, "MinimumEHP");
+                stat_row(ui, "Total EHP", &app.output, "TotalEHP");
+                ui.add_space(4.0);
+                stat_row(ui, "Phys max hit", &app.output, "PhysicalMaximumHitTaken");
+                stat_row(ui, "Fire max hit", &app.output, "FireMaximumHitTaken");
+                stat_row(ui, "Cold max hit", &app.output, "ColdMaximumHitTaken");
+                stat_row(ui, "Lightning max hit", &app.output, "LightningMaximumHitTaken");
+                stat_row(ui, "Chaos max hit", &app.output, "ChaosMaximumHitTaken");
+            });
+
             ui.add_space(8.0);
             ui.heading("Main skill");
             ui.separator();
