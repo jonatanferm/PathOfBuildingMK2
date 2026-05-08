@@ -2069,6 +2069,96 @@ fn enemy_boss_preset_emits_conditions_and_ailment_threshold() {
     }
 }
 
+// Issue #10 (Pantheon half): Major + Minor god soul[1] effects are
+// parsed through `mod_parser` and injected into the player modDB with
+// `source = "Pantheon:<god>"`. Guards two flows: the framework (enums
+// + Character round-trip + apply hook) and at least one god's mod text
+// actually parsing cleanly through mod_parser.
+#[test]
+fn pantheon_selection_round_trips_and_injects_parseable_mods() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    use pob_engine::character::{MajorGod, MinorGod};
+
+    // Default: None / None — no Pantheon mods land.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    assert_eq!(c.pantheon_major, MajorGod::None);
+    assert_eq!(c.pantheon_minor, MinorGod::None);
+    let env = pob_engine::perform::init_env(&c, &tree);
+    use pob_engine::ModStore as _;
+    let pantheon_mods: Vec<_> = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s.starts_with("Pantheon:"))
+        })
+        .collect();
+    assert!(
+        pantheon_mods.is_empty(),
+        "None / None should not emit any Pantheon mods, got {}",
+        pantheon_mods.len()
+    );
+
+    // Arakaali: "10% reduced Damage taken from Damage Over Time".
+    // mod_parser handles this; the mod must show up sourced from
+    // "Pantheon:Arakaali".
+    c.pantheon_major = MajorGod::Arakaali;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let arakaali_mods: Vec<_> = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Arakaali")
+        })
+        .collect();
+    assert!(
+        !arakaali_mods.is_empty(),
+        "Soul of Arakaali should inject at least one mod (parseable through mod_parser)"
+    );
+
+    // Garukhan: "60% reduced Effect of Shock on you".
+    c.pantheon_major = MajorGod::None;
+    c.pantheon_minor = MinorGod::Garukhan;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let garukhan_mods: Vec<_> = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Pantheon:Garukhan")
+        })
+        .collect();
+    assert!(
+        !garukhan_mods.is_empty(),
+        "Soul of Garukhan should inject at least one mod"
+    );
+
+    // PoB-name round trip for every variant.
+    for v in [
+        MajorGod::None,
+        MajorGod::TheBrineKing,
+        MajorGod::Arakaali,
+        MajorGod::Solaris,
+        MajorGod::Lunaris,
+    ] {
+        assert_eq!(MajorGod::from_pob_name(v.as_pob_name()), Some(v));
+    }
+    for v in [
+        MinorGod::None,
+        MinorGod::Abberath,
+        MinorGod::Gruthkul,
+        MinorGod::Yugul,
+        MinorGod::Shakari,
+        MinorGod::Tukohama,
+        MinorGod::Ralakesh,
+        MinorGod::Garukhan,
+        MinorGod::Ryslatha,
+    ] {
+        assert_eq!(MinorGod::from_pob_name(v.as_pob_name()), Some(v));
+    }
+}
+
 // Issue #10 (Bandit half): Act 2 reward injects a small package of stats.
 // Each named bandit grants a single mod, mirroring upstream PoB
 // (CalcSetup.lua:531-540): Alira → +15 to all elemental resistances;

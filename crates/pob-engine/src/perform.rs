@@ -282,6 +282,16 @@ pub fn init_env_with_bases(
     // `Modules/CalcSetup.lua`.
     apply_bandit_mods(character.bandit, &mut env.mod_db);
 
+    // 7b. Pantheon. Major + Minor god each contribute their soul[1]
+    // (level-1) effect — a single mod text run through `mod_parser`
+    // and added with `source = "Pantheon:<god>"`. Mirrors PoB's
+    // `Data/Pantheons.lua` data, applied in CalcSetup.lua:545-554.
+    apply_pantheon_mods(
+        character.pantheon_major,
+        character.pantheon_minor,
+        &mut env.mod_db,
+    );
+
     // 8. Enemy preset (Boss / Pinnacle / Uber). Sets the
     // RareOrUnique / PinnacleBoss conditions and the AilmentThreshold MORE
     // multiplier that PoB's `enemyIsBoss` ConfigOption applies. Defensive
@@ -338,6 +348,60 @@ fn apply_enemy_boss_preset(boss: crate::character::EnemyBoss, env: &mut Env) {
             env.state.set_condition("PinnacleBoss", true);
             env.mod_db
                 .add(Mod::more("AilmentThreshold", 404.0).with_source(source));
+        }
+    }
+}
+
+/// Inject Pantheon Major + Minor God soul[1] effects into the player
+/// modDB. Each god has a single canonical "Soul of <god>" mod line
+/// (sourced from upstream PoB's `Data/Pantheons.lua`). Each line is
+/// run through `mod_parser::parse_mod_line`; lines that fail to parse
+/// (some have complex conditional gating that the parser doesn't yet
+/// cover) are silently skipped — the mod_db will at least carry the
+/// god identifier as a `Source::Other("Pantheon:<god>")` no-op for
+/// downstream tools that want to know which god is selected.
+///
+/// The deeper soul levels (2-4 per god, captured from spirit-stone
+/// upgrades in PoE) are out of scope for this PR — they're tracked as
+/// follow-up work.
+fn apply_pantheon_mods(
+    major: crate::character::MajorGod,
+    minor: crate::character::MinorGod,
+    db: &mut crate::ModDB,
+) {
+    use crate::character::{MajorGod, MinorGod};
+
+    let major_mod_text: Option<&str> = match major {
+        MajorGod::None => None,
+        MajorGod::TheBrineKing => Some(
+            "You cannot be Stunned if you've been Stunned or Blocked a Stunning Hit in the past 2 seconds",
+        ),
+        MajorGod::Arakaali => Some("10% reduced Damage taken from Damage Over Time"),
+        MajorGod::Solaris => Some("6% additional Physical Damage Reduction while there is only one nearby Enemy"),
+        MajorGod::Lunaris => Some("1% additional Physical Damage Reduction for each nearby Enemy, up to 8%"),
+    };
+    if let Some(text) = major_mod_text {
+        let source = Source::Other(format!("Pantheon:{}", major.as_pob_name()));
+        if let Some(parsed) = crate::mod_parser::parse_mod_line(text) {
+            db.add(parsed.mod_.with_source(source));
+        }
+    }
+
+    let minor_mod_text: Option<&str> = match minor {
+        MinorGod::None => None,
+        MinorGod::Abberath => Some("60% less Duration of Ignite on You"),
+        MinorGod::Gruthkul => Some("1% additional Physical Damage Reduction for each Hit you've taken Recently up to a maximum of 5%"),
+        MinorGod::Yugul => Some("50% of Hit Damage from you and your Minions cannot be Reflected"),
+        MinorGod::Shakari => Some("50% less Duration of Poisons on You"),
+        MinorGod::Tukohama => Some("3% additional Physical Damage Reduction per second you've been stationary, up to a maximum of 9%"),
+        MinorGod::Ralakesh => Some("25% reduced Physical Damage over Time taken while moving"),
+        MinorGod::Garukhan => Some("60% reduced Effect of Shock on you"),
+        MinorGod::Ryslatha => Some("60% increased Life Recovery from Flasks used when on Low Life"),
+    };
+    if let Some(text) = minor_mod_text {
+        let source = Source::Other(format!("Pantheon:{}", minor.as_pob_name()));
+        if let Some(parsed) = crate::mod_parser::parse_mod_line(text) {
+            db.add(parsed.mod_.with_source(source));
         }
     }
 }

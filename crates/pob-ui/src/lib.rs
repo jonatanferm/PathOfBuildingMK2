@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use eframe::egui;
 use pob_data::{NodeId, PassiveTree};
 use pob_engine::{
-    character::{Bandit, ClassRef},
+    character::{Bandit, ClassRef, MajorGod, MinorGod},
     Character, Output, SkillRegistry,
 };
 
@@ -561,6 +561,61 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                             .clicked()
                         {
                             app.character.bandit = *option;
+                            recompute = true;
+                        }
+                    }
+                });
+            // Issue #10 (Pantheon half): Major + Minor god selectors.
+            // Each god injects its soul[1] mod (defensive, mostly) at
+            // compute time via `apply_pantheon_mods`.
+            let major_options: &[MajorGod] = &[
+                MajorGod::None,
+                MajorGod::TheBrineKing,
+                MajorGod::Arakaali,
+                MajorGod::Solaris,
+                MajorGod::Lunaris,
+            ];
+            egui::ComboBox::from_label("Major God")
+                .selected_text(app.character.pantheon_major.display())
+                .show_ui(ui, |ui| {
+                    for option in major_options {
+                        if ui
+                            .selectable_label(
+                                app.character.pantheon_major == *option,
+                                option.display(),
+                            )
+                            .clicked()
+                            && app.character.pantheon_major != *option
+                        {
+                            app.character.pantheon_major = *option;
+                            recompute = true;
+                        }
+                    }
+                });
+            let minor_options: &[MinorGod] = &[
+                MinorGod::None,
+                MinorGod::Abberath,
+                MinorGod::Gruthkul,
+                MinorGod::Yugul,
+                MinorGod::Shakari,
+                MinorGod::Tukohama,
+                MinorGod::Ralakesh,
+                MinorGod::Garukhan,
+                MinorGod::Ryslatha,
+            ];
+            egui::ComboBox::from_label("Minor God")
+                .selected_text(app.character.pantheon_minor.display())
+                .show_ui(ui, |ui| {
+                    for option in minor_options {
+                        if ui
+                            .selectable_label(
+                                app.character.pantheon_minor == *option,
+                                option.display(),
+                            )
+                            .clicked()
+                            && app.character.pantheon_minor != *option
+                        {
+                            app.character.pantheon_minor = *option;
                             recompute = true;
                         }
                     }
