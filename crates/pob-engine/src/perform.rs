@@ -1700,7 +1700,11 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
             env.mod_db.sum(ModType::Inc, &cfg, &env.state, "DamagingAilmentsFaster");
 
         // Bleed: 70% of base physical hit damage as Phys DoT for 5s. One stack at a time.
-        let phys_avg = if elem_stat == "PhysicalDamage" {
+        // Attack skills like Cleave / Heavy Strike have no element stat in skill.stats
+        // (they get their element from the equipped weapon), so `elem_stat` falls
+        // through to the generic "Damage". Treat the skill's `avg` as phys for any
+        // attack — accurate for pure-phys weapons; conversions are a follow-up.
+        let phys_avg = if elem_stat == "PhysicalDamage" || is_attack {
             avg
         } else {
             env.mod_db.sum(ModType::Base, &cfg, &env.state, "PhysicalDamage")

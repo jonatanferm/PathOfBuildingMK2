@@ -596,9 +596,6 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             if let Some(id) = interaction.clicked {
                 // Block ascendancy nodes that don't belong to the selected ascendancy.
                 let node = app.tree.nodes.get(&id);
-                let is_ascendancy_node = node
-                    .and_then(|n| n.ascendancy_name.as_deref())
-                    .is_some();
                 let allowed_ascend = node
                     .map(|n| {
                         n.ascendancy_name.is_none()
@@ -606,31 +603,66 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     })
                     .unwrap_or(true);
                 let toggling_off = app.character.allocated.contains(&id);
-                let ascendancy_budget_ok = if !is_ascendancy_node || toggling_off {
-                    true
-                } else {
-                    app.character.can_allocate_ascendancy(&app.tree)
-                };
+
                 if !allowed_ascend {
                     app.status_message = Some((
                         StatusKind::Error,
                         "Node belongs to a different ascendancy class.".into(),
                     ));
-                } else if !ascendancy_budget_ok {
-                    app.status_message = Some((
-                        StatusKind::Error,
-                        format!(
-                            "Out of ascendancy points (cap is {}).",
-                            app.tree.points.ascendancy_points
-                        ),
-                    ));
-                } else {
-                    if toggling_off {
-                        app.character.allocated.remove(&id);
-                    } else {
-                        app.character.allocated.insert(id);
-                    }
+                } else if toggling_off {
+                    app.character.allocated.remove(&id);
                     recompute = true;
+                } else {
+                    // Unallocated click: allocate the whole shortest path from any
+                    // already-allocated node to the target. Mirrors PoB / poeplanner's
+                    // "click an outlying notable to jump there" behavior. Falls back
+                    // to a single-node insert when there's no allocated set yet
+                    // (first click) or pathfinding fails (e.g. behind an unreachable
+                    // ascendancy gate).
+                    let allocated_set: std::collections::HashSet<NodeId> =
+                        app.character.allocated.iter().copied().collect();
+                    let path_opt = if allocated_set.is_empty() {
+                        Some(vec![id])
+                    } else {
+                        pathfind::shortest_path_from_allocated(&app.tree, &allocated_set, id)
+                    };
+                    if let Some(path) = path_opt {
+                        // The first entry of `path` is an already-allocated root
+                        // (or `id` itself when allocated is empty); skip that.
+                        let first_idx = if allocated_set.is_empty() { 0 } else { 1 };
+                        let new_ascend_in_path: u32 = path[first_idx..]
+                            .iter()
+                            .filter(|nid| {
+                                app.tree
+                                    .nodes
+                                    .get(nid)
+                                    .and_then(|n| n.ascendancy_name.as_deref())
+                                    .is_some()
+                            })
+                            .count() as u32;
+                        let already_ascend = app.character.ascendancy_alloc_count(&app.tree);
+                        let budget = app.tree.points.ascendancy_points;
+                        if new_ascend_in_path > 0
+                            && already_ascend + new_ascend_in_path > budget
+                        {
+                            app.status_message = Some((
+                                StatusKind::Error,
+                                format!(
+                                    "Path would exceed the {budget}-point ascendancy budget."
+                                ),
+                            ));
+                        } else {
+                            for nid in &path[first_idx..] {
+                                app.character.allocated.insert(*nid);
+                            }
+                            recompute = true;
+                        }
+                    } else {
+                        app.status_message = Some((
+                            StatusKind::Error,
+                            "Cannot reach that node from the currently allocated set.".into(),
+                        ));
+                    }
                 }
             }
         }

@@ -75,13 +75,30 @@ impl TreeView {
             self.center -= Vec2::new(delta.x / self.zoom, delta.y / self.zoom);
         }
 
-        // Zoom: scroll wheel.
+        // Zoom: scroll wheel. Anchor the zoom at the pointer so the world point
+        // under the cursor stays put — matches PoB / poeplanner.
         if response.hovered() {
+            let pointer = response.hover_pos();
             ui.input(|i| {
                 let scroll = i.smooth_scroll_delta.y;
                 if scroll.abs() > 0.0 {
                     let factor = (scroll * 0.005).exp();
-                    self.zoom = (self.zoom * factor).clamp(0.005, 0.5);
+                    let new_zoom = (self.zoom * factor).clamp(0.005, 0.5);
+                    if let Some(p) = pointer {
+                        let vc = available.center();
+                        let cursor_world = Vec2::new(
+                            (p.x - vc.x) / self.zoom + self.center.x,
+                            (p.y - vc.y) / self.zoom + self.center.y,
+                        );
+                        self.zoom = new_zoom;
+                        let cursor_world_after = Vec2::new(
+                            (p.x - vc.x) / self.zoom + self.center.x,
+                            (p.y - vc.y) / self.zoom + self.center.y,
+                        );
+                        self.center += cursor_world - cursor_world_after;
+                    } else {
+                        self.zoom = new_zoom;
+                    }
                 }
             });
         }
@@ -111,6 +128,17 @@ impl TreeView {
         for (id, node) in &tree.nodes {
             for nb_id in node.out_edges.iter().chain(node.in_edges.iter()) {
                 if id == nb_id {
+                    continue;
+                }
+                // Don't draw the edges that bridge an ascendancy cluster to the
+                // main tree (or a different ascendancy). PoB / poeplanner render
+                // ascendancies as floating sub-graphs; we mirror that visually.
+                // Pathfinding still walks these edges so click-to-allocate
+                // works through them.
+                let neighbour = tree.nodes.get(nb_id);
+                let asc_a = node.ascendancy_name.as_deref();
+                let asc_b = neighbour.and_then(|n| n.ascendancy_name.as_deref());
+                if asc_a != asc_b {
                     continue;
                 }
                 let pair = if id < nb_id { (*id, *nb_id) } else { (*nb_id, *id) };
