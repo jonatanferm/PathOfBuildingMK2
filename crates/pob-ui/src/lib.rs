@@ -862,14 +862,19 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             let interaction = app.tree_view.ui(ui, &app.tree, &allocated);
 
             // Path-overlay preview: when the user hovers an unallocated node, plot the
-            // shortest path from any allocated node to it.
+            // shortest path from any allocated node (or the class-start anchor) to it.
+            // Using `pathfind_seeds` keeps the preview in sync with `allocate_path`'s
+            // anchor-aware behaviour, so a fresh Marauder sees the path from the start.
             app.tree_view.path_overlay.clear();
             if let Some(hover) = interaction.hovered {
-                if !allocated.contains(&hover) && !allocated.is_empty() {
-                    if let Some(path) =
-                        pathfind::shortest_path_from_allocated(&app.tree, &allocated, hover)
-                    {
-                        app.tree_view.path_overlay = path;
+                if !allocated.contains(&hover) {
+                    let seeds = app.character.pathfind_seeds(&app.tree);
+                    if !seeds.is_empty() {
+                        if let Some(path) =
+                            pathfind::shortest_path_from_allocated(&app.tree, &seeds, hover)
+                        {
+                            app.tree_view.path_overlay = path;
+                        }
                     }
                 }
             }
@@ -897,22 +902,22 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     recompute = true;
                 } else {
                     // Unallocated click: allocate the whole shortest path from any
-                    // already-allocated node to the target. Mirrors PoB / poeplanner's
-                    // "click an outlying notable to jump there" behavior. Falls back
-                    // to a single-node insert when there's no allocated set yet
-                    // (first click) or pathfinding fails (e.g. behind an unreachable
-                    // ascendancy gate).
-                    let allocated_set: std::collections::HashSet<NodeId> =
-                        app.character.allocated.iter().copied().collect();
-                    let path_opt = if allocated_set.is_empty() {
+                    // already-allocated node (or the class-start anchor) to the target.
+                    // Mirrors PoB / poeplanner's "click an outlying notable to jump
+                    // there" behavior. Falls back to a single-node insert only when
+                    // there are no seeds at all — i.e. no class set and nothing
+                    // allocated.
+                    let seeds = app.character.pathfind_seeds(&app.tree);
+                    let path_opt = if seeds.is_empty() {
                         Some(vec![id])
                     } else {
-                        pathfind::shortest_path_from_allocated(&app.tree, &allocated_set, id)
+                        pathfind::shortest_path_from_allocated(&app.tree, &seeds, id)
                     };
                     if let Some(path) = path_opt {
-                        // Path[0] is an already-allocated root (or `id` itself when
-                        // the allocation was empty); skip that for the budget check.
-                        let first_idx = if allocated_set.is_empty() { 0 } else { 1 };
+                        // Path[0] is a seed (real allocation or virtual anchor) — or
+                        // `id` itself in the no-seeds fallback. Skip it for the
+                        // budget check so we only count nodes we'd actually allocate.
+                        let first_idx = if seeds.is_empty() { 0 } else { 1 };
                         let new_ascend_in_path: u32 = path[first_idx..]
                             .iter()
                             .filter(|nid| {

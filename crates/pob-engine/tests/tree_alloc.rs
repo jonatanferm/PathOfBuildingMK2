@@ -147,12 +147,31 @@ fn allocate_path_returns_none_when_unreachable() {
 }
 
 #[test]
-fn allocate_path_when_empty_inserts_only_target() {
+fn allocate_path_first_click_grows_from_class_start() {
+    // First click on a fresh character (nothing allocated) must grow a path
+    // from the class-start anchor — the synthetic seed isn't itself
+    // allocated, but the chain to the target is. Without this, a freshly
+    // rolled Marauder click-jumping to a far node would leave a disconnected
+    // island that gives no stats until the user manually fills the gap.
     let tree = build_tree();
     let mut c = Character {
         class: ClassRef("Test".into()),
         ..Character::default()
     };
+    let added = c.allocate_path(&tree, 3).expect("ok");
+    assert_eq!(added, vec![2, 3]);
+    // Anchor (node 1) stays out of `allocated` — it doesn't cost a point.
+    assert_eq!(alloc_set(&c), [2, 3].into_iter().collect());
+}
+
+#[test]
+fn allocate_path_falls_back_to_target_when_no_class_set() {
+    // Synthetic-tree case: no class assigned and nothing allocated means
+    // there are no seeds at all. Preserve the bare-target fallback so test
+    // fixtures and imported-without-class characters can still grow a
+    // build by clicking.
+    let tree = build_tree();
+    let mut c = Character::default(); // class is empty string
     let added = c.allocate_path(&tree, 3).expect("ok");
     assert_eq!(added, vec![3]);
     assert_eq!(alloc_set(&c), [3].into_iter().collect());
