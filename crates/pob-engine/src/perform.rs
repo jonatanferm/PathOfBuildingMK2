@@ -113,7 +113,7 @@ pub fn init_env_with_bases(
     // filter the allocation set to the connected subgraph before applying mods.
     // (Disconnected node IDs come from imported XML where the user manually edited
     // the file — the in-app UI only ever allocates valid paths.)
-    let effective: std::collections::HashSet<pob_data::NodeId> =
+    let effective: ahash::AHashSet<pob_data::NodeId> =
         connected_allocations(character, tree);
     for node_id in &effective {
         let Some(node) = tree.nodes.get(node_id) else {
@@ -188,8 +188,7 @@ pub fn init_env_with_bases(
             pob_data::Slot::Flask4 => "Flask 4",
             pob_data::Slot::Flask5 => "Flask 5",
         };
-        env.state
-            .set_condition(format!("SlotName:{slot_name}"), true);
+        env.state.set_condition_prefixed("SlotName", slot_name, true);
     }
 
     // 5. Auto-detected wielding conditions from the equipped items. These activate
@@ -250,11 +249,16 @@ fn fill_static_defaults(env: &mut Env) {
     // Caps and missing-resist deltas.
     env.output.set("DamageReductionMax", 90.0);
     env.output.set("SpellBlockChanceMax", 75.0);
-    for elem in ["Fire", "Cold", "Lightning", "Chaos"] {
-        let total = env.output.get(&format!("{elem}ResistTotal"));
-        let cap = env.output.get(&format!("{elem}ResistMax"));
-        env.output.set(format!("Missing{elem}Resist"), (cap - total).max(0.0));
-        env.output.set(format!("{elem}ResistOverTime"), total);
+    for &(elem, missing_key, over_time_key) in &[
+        ("Fire", "MissingFireResist", "FireResistOverTime"),
+        ("Cold", "MissingColdResist", "ColdResistOverTime"),
+        ("Lightning", "MissingLightningResist", "LightningResistOverTime"),
+        ("Chaos", "MissingChaosResist", "ChaosResistOverTime"),
+    ] {
+        let total = env.output.get_concat(elem, "ResistTotal");
+        let cap = env.output.get_concat(elem, "ResistMax");
+        env.output.set(missing_key, (cap - total).max(0.0));
+        env.output.set(over_time_key, total);
     }
     // Totems start at +100% to ele resists and +80% to chaos resist on top of
     // the level penalty (so -60 → +40 / +20 net at level 90).
@@ -375,12 +379,12 @@ fn fill_static_defaults(env: &mut Env) {
     // -200% cap. PoB exposes a stack of *TakenHitMult names that all share this
     // value when no situational mods (attack-only / spell-only / reflect) apply.
     for elem in ["Fire", "Cold", "Lightning", "Chaos", "Physical"] {
-        let resist = env.output.get(&format!("{elem}ResistTotal"));
-        let pen = env.output.get(&format!("{elem}EnemyPen"));
         // Physical doesn't read from a resist key; default mult is 1.0.
         let mult = if elem == "Physical" {
             1.0
         } else {
+            let resist = env.output.get_concat(elem, "ResistTotal");
+            let pen = env.output.get_concat(elem, "EnemyPen");
             (1.0 - (resist - pen) / 100.0).clamp(0.05, 3.0)
         };
         for suffix in [
@@ -389,7 +393,7 @@ fn fill_static_defaults(env: &mut Env) {
             "ResistTakenHitMulti",
             "TakenDotMult",
         ] {
-            env.output.set(format!("{elem}{suffix}"), mult);
+            env.output.set_concat(elem, suffix, mult);
         }
         // Per-context multipliers (attack/spell, after-reduction, reflect) all
         // default to 1.0 in the no-mods case.
@@ -400,7 +404,7 @@ fn fill_static_defaults(env: &mut Env) {
             "TakenReflect",
             "EnemyDamageMult",
         ] {
-            env.output.set(format!("{elem}{suffix}"), 1.0);
+            env.output.set_concat(elem, suffix, 1.0);
         }
     }
     // Top-level multipliers / mods that PoB always emits at 1.0 baseline.
@@ -488,11 +492,11 @@ fn perform_enemy_damage_sim(env: &mut Env, character: &Character) {
         total_in += base_damage;
         let damage = base_damage * crit_effect;
         total_damage += damage;
-        env.output.set(format!("{elem}EnemyDamage"), damage);
-        env.output.set(format!("{elem}TakenDamage"), damage);
-        let taken_mult = env.output.get(&format!("{elem}TakenHitMult"));
+        env.output.set_concat(elem, "EnemyDamage", damage);
+        env.output.set_concat(elem, "TakenDamage", damage);
+        let taken_mult = env.output.get_concat(elem, "TakenHitMult");
         let taken_hit = damage * taken_mult;
-        env.output.set(format!("{elem}TakenHit"), taken_hit);
+        env.output.set_concat(elem, "TakenHit", taken_hit);
         total_taken_hit += taken_hit;
     }
     total_in += chaos_damage;
@@ -529,8 +533,8 @@ fn perform_enemy_damage_sim(env: &mut Env, character: &Character) {
 fn connected_allocations(
     character: &Character,
     tree: &PassiveTree,
-) -> std::collections::HashSet<pob_data::NodeId> {
-    let mut effective = std::collections::HashSet::new();
+) -> ahash::AHashSet<pob_data::NodeId> {
+    let mut effective = ahash::AHashSet::new();
     if character.allocated.is_empty() {
         return effective;
     }
@@ -562,7 +566,7 @@ fn connected_allocations(
         return character.allocated.iter().copied().collect();
     }
 
-    let allocated: std::collections::HashSet<_> = character.allocated.iter().copied().collect();
+    let allocated: ahash::AHashSet<_> = character.allocated.iter().copied().collect();
     let mut queue: std::collections::VecDeque<pob_data::NodeId> = starts.into_iter().collect();
     while let Some(node_id) = queue.pop_front() {
         if !effective.insert(node_id) {
@@ -631,26 +635,22 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     // Match PoB's default by applying -60 to all four resists for any character of
     // level 68 or higher unless an explicit `act` config override is in play.
     let resist_penalty: f64 = if character.level >= 68 { -60.0 } else { 0.0 };
-    for elem in ["Fire", "Cold", "Lightning"] {
-        let key = format!("{elem}Resist");
-        let total = env.mod_db.sum(ModType::Base, &cfg, &env.state, &key)
+    for &(_elem, resist_key, max_key, total_key) in &[
+        ("Fire", "FireResist", "FireResistMax", "FireResistTotal"),
+        ("Cold", "ColdResist", "ColdResistMax", "ColdResistTotal"),
+        ("Lightning", "LightningResist", "LightningResistMax", "LightningResistTotal"),
+    ] {
+        let total = env.mod_db.sum(ModType::Base, &cfg, &env.state, resist_key)
             + env.mod_db.sum(ModType::Base, &cfg, &env.state, "ElementalResist")
             + resist_penalty;
-        env.output.set(&key, total);
+        env.output.set(resist_key, total);
+        let bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, max_key);
+        let cap = 75.0 + bonus;
+        env.output.set(max_key, cap);
+        env.output.set(total_key, total.min(cap));
     }
     let chaos = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ChaosResist") + resist_penalty;
     env.output.set("ChaosResist", chaos);
-
-    // Resist caps (default 75%, mods add/subtract).
-    for elem in ["Fire", "Cold", "Lightning"] {
-        let key = format!("{elem}ResistMax");
-        let bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, &key);
-        env.output.set(&key, 75.0 + bonus);
-        let cap = 75.0 + bonus;
-        let raw = env.output.get(&format!("{elem}Resist"));
-        let capped = raw.min(cap);
-        env.output.set(&format!("{elem}ResistTotal"), capped);
-    }
     {
         let bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ChaosResistMax");
         let cap = 75.0 + bonus;
@@ -839,13 +839,12 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // Tag the EvalState with the active skill's name and types so SkillName /
     // SkillType / SkillId tags on mods can filter correctly.
     env.state
-        .set_condition(format!("SkillName:{}", main.skill_id), true);
+        .set_condition_prefixed("SkillName", &main.skill_id, true);
     for (st_id, on) in &skill.skill_types {
         if !*on {
             continue;
         }
-        env.state
-            .set_condition(format!("SkillType:{st_id}"), true);
+        env.state.set_condition_prefixed("SkillType", st_id, true);
     }
 
     // For each named per-level stat, push the corresponding positional value into the
@@ -1098,11 +1097,11 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
         _ => None,
     };
     if let Some(label) = elem_label {
-        env.output.set(format!("{label}MinBase"), base_min);
-        env.output.set(format!("{label}MaxBase"), base_max);
-        env.output.set(format!("{label}Min"), hit_min);
-        env.output.set(format!("{label}Max"), hit_max);
-        env.output.set(format!("{label}HitAverage"), avg);
+        env.output.set_concat(label, "MinBase", base_min);
+        env.output.set_concat(label, "MaxBase", base_max);
+        env.output.set_concat(label, "Min", hit_min);
+        env.output.set_concat(label, "Max", hit_max);
+        env.output.set_concat(label, "HitAverage", avg);
     }
     env.output.set("TotalMin", hit_min);
     env.output.set("TotalMax", hit_max);
@@ -1389,7 +1388,7 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     // not the chance-weighted avg-with-crit.
     let guaranteed_crit_avg = avg * crit_mult;
     if let Some(label) = elem_label {
-        env.output.set(format!("{label}CritAverage"), guaranteed_crit_avg);
+        env.output.set_concat(label, "CritAverage", guaranteed_crit_avg);
     }
 
     // Skill metadata PoB displays alongside the gem (cost / requirements / chains).
@@ -1525,10 +1524,10 @@ fn perform_ehp(env: &mut Env) {
     env.output.set("StunThreshold", life);
     for elem in ["Physical", "Fire", "Cold", "Lightning", "Chaos"] {
         let hp = if elem == "Physical" { hit_pool_phys } else { hit_pool_ele };
-        env.output.set(format!("{elem}TotalHitPool"), hp);
-        env.output.set(format!("{elem}TotalPool"), hp);
-        env.output.set(format!("{elem}MoMHitPool"), mom_hit_pool);
-        env.output.set(format!("{elem}ManaEffectiveLife"), mom_hit_pool);
+        env.output.set_concat(elem, "TotalHitPool", hp);
+        env.output.set_concat(elem, "TotalPool", hp);
+        env.output.set_concat(elem, "MoMHitPool", mom_hit_pool);
+        env.output.set_concat(elem, "ManaEffectiveLife", mom_hit_pool);
     }
     env.output.set("sharedManaEffectiveLife", mom_hit_pool);
     env.output.set("sharedMoMHitPool", mom_hit_pool);

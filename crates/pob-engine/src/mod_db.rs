@@ -14,7 +14,7 @@
 //! handles `Condition` and `Multiplier`; other tags are passed through (see
 //! `eval_mod` docs).
 
-use std::collections::HashMap;
+use ahash::AHashMap;
 
 use pob_data::{KeywordFlag, ModFlag};
 
@@ -37,14 +37,24 @@ pub struct QueryCfg<'a> {
 /// State backing `EvalMod` — conditions, multipliers, stats. Owned by the calling actor.
 #[derive(Debug, Default)]
 pub struct EvalState {
-    pub conditions: HashMap<String, bool>,
-    pub multipliers: HashMap<String, f64>,
-    pub stats: HashMap<String, f64>,
+    pub conditions: AHashMap<String, bool>,
+    pub multipliers: AHashMap<String, f64>,
+    pub stats: AHashMap<String, f64>,
 }
 
 impl EvalState {
     pub fn set_condition(&mut self, name: impl Into<String>, on: bool) {
         self.conditions.insert(name.into(), on);
+    }
+    /// `set_condition(prefix + ":" + var, on)` without going through `format!`.
+    /// Mirrors `condition_prefixed` on the read path.
+    #[inline]
+    pub fn set_condition_prefixed(&mut self, prefix: &str, var: &str, on: bool) {
+        let mut s = String::with_capacity(prefix.len() + 1 + var.len());
+        s.push_str(prefix);
+        s.push(':');
+        s.push_str(var);
+        self.conditions.insert(s, on);
     }
     pub fn set_multiplier(&mut self, name: impl Into<String>, n: f64) {
         self.multipliers.insert(name.into(), n);
@@ -60,6 +70,35 @@ impl EvalState {
     }
     pub fn stat(&self, name: &str) -> f64 {
         self.stats.get(name).copied().unwrap_or(0.0)
+    }
+    /// `condition(prefix + ":" + var)` without a heap allocation. Used by
+    /// `eval_mod`'s namespaced tag lookups (`SkillName:`, `SlotName:`, etc.),
+    /// which would otherwise format a fresh String for every mod evaluation.
+    #[inline]
+    pub fn condition_prefixed(&self, prefix: &str, var: &str) -> bool {
+        let total = prefix.len() + 1 + var.len();
+        if total <= 96 {
+            let mut buf = [0u8; 96];
+            buf[..prefix.len()].copy_from_slice(prefix.as_bytes());
+            buf[prefix.len()] = b':';
+            let var_off = prefix.len() + 1;
+            buf[var_off..var_off + var.len()].copy_from_slice(var.as_bytes());
+            let key = std::str::from_utf8(&buf[..total]).expect("valid utf-8 join");
+            self.conditions.get(key).copied().unwrap_or(false)
+        } else {
+            let mut s = String::with_capacity(total);
+            s.push_str(prefix);
+            s.push(':');
+            s.push_str(var);
+            self.conditions.get(&s).copied().unwrap_or(false)
+        }
+    }
+    /// Same idea as `condition_prefixed` but for `actor:var` joins (no `:` lit
+    /// in between because the caller already passes the actor name as prefix).
+    #[inline]
+    pub fn condition_actor(&self, actor: &str, var: &str) -> bool {
+        // `format!("{actor}:{var}")` — same wire format as `condition_prefixed`.
+        self.condition_prefixed(actor, var)
     }
 }
 
@@ -194,8 +233,7 @@ pub fn eval_mod(m: &Mod, state: &EvalState) -> Option<f64> {
             TagKind::ActorCondition { actor, var, neg } => {
                 // Phase 2: only the player actor is modelled. Treat enemy/minion conditions
                 // as false unless we explicitly stash them under a namespaced key.
-                let key = format!("{actor}:{var}");
-                if state.condition(&key) == *neg {
+                if state.condition_actor(actor, var) == *neg {
                     return None;
                 }
             }
@@ -259,26 +297,46 @@ pub fn eval_mod(m: &Mod, state: &EvalState) -> Option<f64> {
                 }
             }
             TagKind::SkillName { skill_name, neg } => {
-                let matches = state.condition(&format!("SkillName:{skill_name}"));
-                if matches == *neg {
+                if state.condition_prefixed("SkillName", skill_name) == *neg {
                     return None;
                 }
             }
             TagKind::SkillId { skill_id, neg } => {
-                let matches = state.condition(&format!("SkillId:{skill_id}"));
-                if matches == *neg {
+                if state.condition_prefixed("SkillId", skill_id) == *neg {
                     return None;
                 }
             }
             TagKind::SkillType { skill_type, neg } => {
-                let matches = state.condition(&format!("SkillType:{skill_type}"));
-                if matches == *neg {
+                // SkillType is a u8 (max 3 digits); format into a tiny stack buffer
+                // and reuse the prefixed-condition fast path. PoB's SkillType ids
+                // never get near u8::MAX, so 3 bytes is safely enough.
+                let mut buf = [0u8; 3];
+                let mut n = *skill_type;
+                let mut len = 0;
+                if n == 0 {
+                    buf[0] = b'0';
+                    len = 1;
+                } else {
+                    let mut tmp = [0u8; 3];
+                    let mut i = 0;
+                    while n > 0 {
+                        tmp[i] = b'0' + (n % 10);
+                        n /= 10;
+                        i += 1;
+                    }
+                    while i > 0 {
+                        i -= 1;
+                        buf[len] = tmp[i];
+                        len += 1;
+                    }
+                }
+                let s = std::str::from_utf8(&buf[..len]).expect("ascii digits");
+                if state.condition_prefixed("SkillType", s) == *neg {
                     return None;
                 }
             }
             TagKind::SlotName { slot_name, neg } => {
-                let matches = state.condition(&format!("SlotName:{slot_name}"));
-                if matches == *neg {
+                if state.condition_prefixed("SlotName", slot_name) == *neg {
                     return None;
                 }
             }
@@ -328,7 +386,16 @@ impl ModStore for ModList {
 /// Hash-indexed modifier database. O(1) bucket lookup by name; linear scan within a bucket.
 #[derive(Debug, Default, Clone)]
 pub struct ModDB {
-    buckets: HashMap<String, Vec<Mod>>,
+    buckets: AHashMap<String, Vec<Mod>>,
+}
+
+impl ModDB {
+    /// Slice-returning fast lookup; avoids the boxed iterator that the trait
+    /// method would otherwise allocate for every query.
+    #[inline]
+    pub fn slice_named(&self, name: &str) -> &[Mod] {
+        self.buckets.get(name).map(Vec::as_slice).unwrap_or(&[])
+    }
 }
 
 impl ModDB {
@@ -362,6 +429,111 @@ impl ModStore for ModDB {
             Some(v) => Box::new(v.iter()),
             None => Box::new(std::iter::empty()),
         }
+    }
+
+    // Specialised query implementations: the default trait impls all funnel
+    // through `iter_named`, which boxes a fresh iterator on every call. ModDB
+    // is the hot store (one per Env, queried 50–100× per `compute_full`), so
+    // we override each method to walk the underlying `&[Mod]` slice directly.
+    #[inline]
+    fn sum(&self, kind: ModType, cfg: &QueryCfg<'_>, state: &EvalState, name: &str) -> f64 {
+        let mut sum = 0.0;
+        for m in self.slice_named(name) {
+            if m.kind != kind {
+                continue;
+            }
+            if !match_query(m, cfg) {
+                continue;
+            }
+            if let Some(v) = eval_mod(m, state) {
+                sum += v;
+            }
+        }
+        sum
+    }
+
+    #[inline]
+    fn more(&self, cfg: &QueryCfg<'_>, state: &EvalState, name: &str) -> f64 {
+        let mut prod = 1.0;
+        for m in self.slice_named(name) {
+            if m.kind != ModType::More {
+                continue;
+            }
+            if !match_query(m, cfg) {
+                continue;
+            }
+            if let Some(v) = eval_mod(m, state) {
+                prod *= 1.0 + v / 100.0;
+            }
+        }
+        prod
+    }
+
+    #[inline]
+    fn flag(&self, cfg: &QueryCfg<'_>, state: &EvalState, name: &str) -> bool {
+        for m in self.slice_named(name) {
+            if m.kind != ModType::Flag {
+                continue;
+            }
+            if !match_query(m, cfg) {
+                continue;
+            }
+            if eval_mod(m, state).is_some() {
+                if let ModValue::Bool(b) = m.value {
+                    if b {
+                        return true;
+                    }
+                } else if let ModValue::Number(n) = m.value {
+                    if n != 0.0 {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    #[inline]
+    fn override_value(&self, cfg: &QueryCfg<'_>, state: &EvalState, name: &str) -> Option<f64> {
+        for m in self.slice_named(name) {
+            if m.kind != ModType::Override {
+                continue;
+            }
+            if !match_query(m, cfg) {
+                continue;
+            }
+            if let Some(v) = eval_mod(m, state) {
+                return Some(v);
+            }
+        }
+        None
+    }
+
+    #[inline]
+    fn applied(&self, cfg: &QueryCfg<'_>, state: &EvalState, name: &str) -> f64 {
+        // Single slice fetch shared between the inc-sum walk and the more-prod walk.
+        let slice = self.slice_named(name);
+        let mut inc = 0.0;
+        let mut more = 1.0;
+        for m in slice {
+            if !match_query(m, cfg) {
+                continue;
+            }
+            match m.kind {
+                ModType::Inc => {
+                    if let Some(v) = eval_mod(m, state) {
+                        inc += v;
+                    }
+                }
+                ModType::More => {
+                    if let Some(v) = eval_mod(m, state) {
+                        more *= 1.0 + v / 100.0;
+                    }
+                }
+                _ => {}
+            }
+        }
+        (1.0 + inc / 100.0) * more
     }
 }
 

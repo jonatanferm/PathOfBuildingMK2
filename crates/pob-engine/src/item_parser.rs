@@ -371,30 +371,38 @@ pub fn apply_item_set_with_bases(
             }
             // Weapon stats for the main- or off-hand weapon. Stored under
             // Weapon{1,2}{Min,Max,AttackRate,CritChance,Range} so the calc layer can
-            // pull them when computing attack-skill DPS.
+            // pull them when computing attack-skill DPS. Use static keys to avoid
+            // re-formatting these strings on every compute pass.
             if let Some(w) = b.weapon.as_ref() {
-                let suffix = match *slot {
-                    pob_data::Slot::Weapon1 => "1",
-                    pob_data::Slot::Weapon2 => "2",
-                    _ => "",
+                let keys: &[&'static str] = match *slot {
+                    pob_data::Slot::Weapon1 => &[
+                        "Weapon1PhysicalMin",
+                        "Weapon1PhysicalMax",
+                        "Weapon1AttackRate",
+                        "Weapon1CritChance",
+                        "Weapon1Range",
+                    ],
+                    pob_data::Slot::Weapon2 => &[
+                        "Weapon2PhysicalMin",
+                        "Weapon2PhysicalMax",
+                        "Weapon2AttackRate",
+                        "Weapon2CritChance",
+                        "Weapon2Range",
+                    ],
+                    _ => &[],
                 };
-                if !suffix.is_empty() {
-                    for (k, v) in [
-                        (format!("Weapon{suffix}PhysicalMin"), f64::from(w.physical_min)),
-                        (format!("Weapon{suffix}PhysicalMax"), f64::from(w.physical_max)),
-                        (
-                            format!("Weapon{suffix}AttackRate"),
-                            f64::from(w.attack_rate_base),
-                        ),
-                        (
-                            format!("Weapon{suffix}CritChance"),
-                            f64::from(w.crit_chance_base),
-                        ),
-                        (format!("Weapon{suffix}Range"), f64::from(w.range)),
-                    ] {
+                if !keys.is_empty() {
+                    let values = [
+                        f64::from(w.physical_min),
+                        f64::from(w.physical_max),
+                        f64::from(w.attack_rate_base),
+                        f64::from(w.crit_chance_base),
+                        f64::from(w.range),
+                    ];
+                    for (k, &v) in keys.iter().zip(values.iter()) {
                         if v > 0.0 {
                             db.add(
-                                crate::Mod::base(k, v)
+                                crate::Mod::base(*k, v)
                                     .with_source(crate::Source::Item(slot_index)),
                             );
                         }
