@@ -20,7 +20,8 @@ real calc output.
 - **`cargo build --workspace`** — all five crates compile clean.
 - **`cargo run -p pob-extract --release`** — one-time extraction of 28 modern PoE
   passive trees, 1062 item bases, 810 skill gems, and 1488 skill effects from the
-  sibling `../PathOfBuilding/` checkout into `data/`.
+  upstream PoB checkout (`.PathOfBuilding/` in-repo, or `../PathOfBuilding/` legacy)
+  into `data/`.
 - **`cargo test --workspace`** — 61 tests pass (engine: 45 unit + 1 parser-coverage
   + 4 validation + 2 pathfind + 1 layout, data: 4 unit + 5 round-trip).
 - **`cargo run -p pob-desktop --release`** — opens the app.

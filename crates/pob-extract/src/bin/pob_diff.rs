@@ -21,8 +21,19 @@ use anyhow::{Context, Result};
 use mlua::Lua;
 use std::path::PathBuf;
 
+/// Find the upstream PoB checkout. Preferred layout: `.PathOfBuilding/`
+/// inside the MK2 repo root (hidden subdir, gitignored). Falls back to the
+/// legacy sibling layout (`../PathOfBuilding/`) so older clones still work.
+fn default_pob_path() -> PathBuf {
+    let local = PathBuf::from(".PathOfBuilding");
+    if local.join("src").is_dir() {
+        return local;
+    }
+    PathBuf::from("../PathOfBuilding")
+}
+
 fn main() -> Result<()> {
-    let mut pob_root = PathBuf::from("../PathOfBuilding");
+    let mut pob_root = default_pob_path();
     let mut build_xml_path: Option<PathBuf> = None;
     let mut verbose = false;
     let mut iter = std::env::args().skip(1);

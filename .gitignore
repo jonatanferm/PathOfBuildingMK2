@@ -1,6 +1,7 @@
 /target
 /reference
 /data
+/.PathOfBuilding
 **/*.rs.bk
 *.pdb
 .DS_Store
