@@ -189,16 +189,20 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
                             && state.enemy_boss != *option
                         {
                             state.enemy_boss = *option;
-                            // Push canonical resist defaults for non-None
-                            // presets. This matches PoB's "set
-                            // placeholders" behaviour — explicit slider
-                            // moves still override.
+                            // Push canonical defaults for non-None presets:
+                            // resists, armour, evasion. Mirrors PoB's
+                            // "set placeholders" behaviour — explicit
+                            // slider moves still override afterwards.
+                            // Pen is engine-side (default_penetration) so
+                            // it lands at compute time, not as a slider.
                             if *option != EnemyBoss::None {
                                 let (fr, cr, lr, ch) = option.default_resists();
                                 state.enemy_fire_resist = fr;
                                 state.enemy_cold_resist = cr;
                                 state.enemy_lightning_resist = lr;
                                 state.enemy_chaos_resist = ch;
+                                state.enemy_armour = option.default_armour();
+                                state.enemy_evasion = option.default_evasion();
                             }
                             changed = true;
                         }
