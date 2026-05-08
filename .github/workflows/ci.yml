@@ -18,7 +18,7 @@ env:
 
 jobs:
   test:
-    name: cargo test --workspace
+    name: cargo test (calc engine)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,14 +31,20 @@ jobs:
         with:
           workspaces: . -> target
 
-      - name: cargo build --workspace
-        run: cargo build --workspace --all-targets
+      # Strict gate runs against the headless calc-engine crates (no native
+      # UI deps). `pob-ui` / `pob-desktop` / `pob-web` pull in `winit` /
+      # `wgpu` / `eframe`, which need extra system libs on Linux runners
+      # (libxkbcommon, libwayland, libxcb, mesa-egl, …) — not worth the CI
+      # surface area for a calc-focused regression suite. UI breakage is
+      # caught locally and via the existing Pages deploy workflow.
+      - name: cargo build (engine)
+        run: cargo build -p pob-engine -p pob-data -p pob-extract --all-targets
 
-      - name: cargo test --workspace
+      - name: cargo test (engine)
         # Some integration tests require generated data (under `data/`, which
         # is gitignored) and self-skip when it's missing. Data-independent
         # tests (mod_parser, mod_db, parser coverage, validation) still run.
-        run: cargo test --workspace
+        run: cargo test -p pob-engine -p pob-data -p pob-extract
 
   fmt:
     name: cargo fmt --check
@@ -77,8 +83,10 @@ jobs:
         with:
           workspaces: . -> target
 
-      - name: cargo clippy --workspace --all-targets
-        run: cargo clippy --workspace --all-targets
+      - name: cargo clippy (engine)
+        # Same deal as the test job: limit to the headless calc-engine crates
+        # so we don't need the Linux UI system packages.
+        run: cargo clippy -p pob-engine -p pob-data -p pob-extract --all-targets
 
   # Optional: run pob_diff against an upstream PoB checkout. Manual trigger
   # only — the upstream PoB repo is not redistributable as a CI artifact, so

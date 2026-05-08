@@ -35,11 +35,13 @@ gitignored. Round-trip tests skip silently when it's missing.
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every PR and push to
 `main`:
 
-- `cargo build --workspace --all-targets`
-- `cargo test --workspace` (data-dependent integration tests self-skip)
-- `cargo fmt --check` and `cargo clippy --workspace --all-targets` run as
-  *advisory* jobs while the existing fmt/clippy drift is cleaned up — they do
-  not block merge today.
+- `cargo build` and `cargo test` against the headless calc-engine crates
+  (`pob-engine`, `pob-data`, `pob-extract`). UI crates (`pob-ui`,
+  `pob-desktop`, `pob-web`) pull in `winit` / `wgpu` / `eframe`, which need
+  extra Linux system packages — not worth the CI surface area for a
+  calc-focused regression suite.
+- `cargo fmt --check` and `cargo clippy` run as *advisory* jobs while the
+  existing fmt/clippy drift is cleaned up — they do not block merge today.
 
 The optional `pob_diff` regression job (`workflow_dispatch` only — see issue
 [#7](https://github.com/jonatanferm/PathOfBuildingMK2/issues/7)) runs the
