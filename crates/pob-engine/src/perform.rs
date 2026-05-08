@@ -2524,6 +2524,72 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     let main_dps = raw_main_dps * exerted_dps_factor;
     env.output.set("MainSkillDPS", main_dps);
 
+    // Issue #20: Minion build support. PoB models a parallel `env.minion`
+    // sub-environment with its own ModDB, level, and output. MK2 doesn't
+    // run a separate perform pass for minions yet — modelling per-minion
+    // granted-skill damage needs `Data/Minions.lua` extracted into our
+    // skill data. What we *can* do is detect a minion-summoning gem and
+    // surface the player-side minion-buff aggregates: how much
+    // `Minion Damage` / `Minion Life` / `Minion Attack Speed` / etc. the
+    // player has stacked. These are the values that drive a minion's
+    // effective DPS once the granted-skill side lands.
+    //
+    // Detection: `baseFlags.minion = true` is the upstream marker for
+    // any skill that summons a permanent / temporary minion. Gem-data
+    // examples: RaiseZombie, SummonSkeletons, RaiseSpectre, AnimateGuardian.
+    let is_minion_skill = skill.base_flags.get("minion").copied().unwrap_or(false);
+    if is_minion_skill {
+        let inc = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "MinionDamage");
+        let more = env.mod_db.more(&cfg, &env.state, "MinionDamage");
+        env.output.set("MinionDamageMod", (1.0 + inc / 100.0) * more);
+        env.output.set("MinionDamageInc", inc);
+
+        let life_inc = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "MinionLife");
+        let life_more = env.mod_db.more(&cfg, &env.state, "MinionLife");
+        env.output
+            .set("MinionLifeMod", (1.0 + life_inc / 100.0) * life_more);
+
+        let attack_speed_inc =
+            env.mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "MinionAttackSpeed");
+        env.output.set(
+            "MinionAttackSpeedMod",
+            1.0 + attack_speed_inc / 100.0,
+        );
+
+        let move_speed_inc =
+            env.mod_db
+                .sum(ModType::Inc, &cfg, &env.state, "MinionMovementSpeed");
+        env.output
+            .set("MinionMovementSpeedMod", 1.0 + move_speed_inc / 100.0);
+
+        // Number of minions: pick the relevant `Max*` BASE depending on
+        // the skill's name. Mirrors PoB's per-skill `MaxZombies` /
+        // `MaxSkeletons` / etc. dispatch in CalcOffence's minion branch.
+        let max_mod_name = match main.skill_id.as_str() {
+            "RaiseZombie" => "MaxZombies",
+            "SummonSkeletons" | "VaalSummonSkeletons" => "MaxSkeletons",
+            "RaiseSpectre" => "MaxSpectres",
+            "AnimateGuardian" => "MaxAnimatedGuardians",
+            "AnimateWeapon" => "MaxAnimatedWeapons",
+            "SummonHolyRelic" => "MaxHolyRelics",
+            // Generic minion gems without a known cap fall back to 1
+            // (the default the player's ModDB exposes via passive nodes).
+            _ => "MaxMinions",
+        };
+        // PoE's count = 1 base + sum of `+N to maximum number of <X>`
+        // mods. Items / supports add to that — e.g. Mistress of
+        // Sacrifice grants +1 zombie. Floor at 1 so a no-mod build
+        // still summons one minion.
+        let extras = env.mod_db.sum(ModType::Base, &cfg, &env.state, max_mod_name);
+        let minion_count = (1.0 + extras).max(1.0);
+        env.output.set("NumberOfMinions", minion_count);
+    }
+
     // Impale: a stack-based physical-only damage layer. PoB models 5 stacks of
     // 10% (default) of the original physical hit, applied when the next hit
     // lands. We use the simplified per-cast rollup from the issue:

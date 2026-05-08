@@ -1536,6 +1536,83 @@ fn enemies_hit_by_aoe_multiplies_aoe_skill_dps() {
     );
 }
 
+// Issue #20: Minion build support — first slice. The engine detects
+// minion-summoning gems via `baseFlags.minion` and emits the player-
+// side aggregates that drive minion DPS once the granted-skill calc
+// lands: MinionDamageMod / MinionLifeMod / MinionAttackSpeedMod /
+// MinionMovementSpeedMod / NumberOfMinions. These light up only on
+// minion gems — non-minion skills (Cleave, Arc) emit nothing.
+#[test]
+fn minion_skill_emits_minion_buff_aggregates() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    // RaiseZombie has baseFlags.minion = true.
+    let Some(_) = skills.get("RaiseZombie") else {
+        eprintln!("skip: RaiseZombie not found");
+        return;
+    };
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.main_skill = Some(MainSkill::new("RaiseZombie"));
+
+    // Default: no Minion mods set, so the multipliers are 1.0 and
+    // NumberOfMinions defaults to 1.
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        (baseline.get("MinionDamageMod") - 1.0).abs() < 0.001,
+        "MinionDamageMod default should be 1.0 (no buffs), got {}",
+        baseline.get("MinionDamageMod")
+    );
+    assert!(
+        (baseline.get("MinionLifeMod") - 1.0).abs() < 0.001,
+        "MinionLifeMod default should be 1.0"
+    );
+    assert!(
+        (baseline.get("NumberOfMinions") - 1.0).abs() < 0.001,
+        "NumberOfMinions defaults to 1 before MaxZombies / supports raise it"
+    );
+
+    // Equip a body armour granting "+30% increased Minion Damage" and
+    // "+1 to maximum number of Summoned Zombies" — both already parsed
+    // by mod_parser.
+    let body = parse_item(
+        "Item Class: Body Armours\nRarity: RARE\nMinion Vest\nFull Plate\n--------\n30% increased Minion Damage\n+1 to maximum number of Raised Zombies\n--------",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::BodyArmour, body);
+    let buffed = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        (buffed.get("MinionDamageMod") - 1.30).abs() < 0.01,
+        "MinionDamageMod with +30% should be 1.30, got {}",
+        buffed.get("MinionDamageMod")
+    );
+    assert!(
+        (buffed.get("NumberOfMinions") - 2.0).abs() < 0.01,
+        "NumberOfMinions should be 2 with +1 zombie (1 base + 1), got {}",
+        buffed.get("NumberOfMinions")
+    );
+
+    // Non-minion skill (Arc) emits no minion outputs.
+    let Some(_) = skills.get("Arc") else { return };
+    let mut arc_c = Character::new(ClassRef::witch(), 90);
+    arc_c.main_skill = Some(MainSkill::new("Arc"));
+    let arc_out = pob_engine::compute_full(&arc_c, &tree, Some(&skills), Some(&bases));
+    assert_eq!(
+        arc_out.try_get("MinionDamageMod"),
+        None,
+        "Arc (non-minion skill) must not emit MinionDamageMod"
+    );
+    assert_eq!(
+        arc_out.try_get("NumberOfMinions"),
+        None,
+        "Arc (non-minion skill) must not emit NumberOfMinions"
+    );
+}
+
 // Issue #52: Every AoE-tagged skill must emit AoERadius / FinalAoERadius
 // outputs (PoB exposes these on the Calcs tab) and FinalAoERadius must
 // scale with `increased Area of Effect` mods according to PoB's
