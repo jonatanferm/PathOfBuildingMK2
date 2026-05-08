@@ -315,6 +315,13 @@ pub fn init_env_with_bases(
             pob_data::Slot::Belt => "Belt",
             pob_data::Slot::Weapon1 => "Weapon 1",
             pob_data::Slot::Weapon2 => "Weapon 2",
+            // Issue #109: swap-set weapons don't drive the live
+            // `SlotName:` condition flags — only the active pair
+            // does. The swap pair is reachable via
+            // `character.items.get(Weapon1Swap/Weapon2Swap)` for
+            // tooling, but doesn't influence the calc until the user
+            // toggles `use_second_weapon_set` (slice 2).
+            pob_data::Slot::Weapon1Swap | pob_data::Slot::Weapon2Swap => continue,
             pob_data::Slot::Flask1 => "Flask 1",
             pob_data::Slot::Flask2 => "Flask 2",
             pob_data::Slot::Flask3 => "Flask 3",

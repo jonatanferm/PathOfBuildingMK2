@@ -177,6 +177,14 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                             .unwrap_or((item_sets.len() + 1) as u32);
                         let title = attr_str(&e, "title").filter(|s| !s.is_empty());
                         current_item_set = Some((id, title, SlotMap::new()));
+                        // Issue #109: PoB writes `useSecondWeaponSet`
+                        // on the per-set element; mirror it onto the
+                        // build-level toggle so a swap-on build
+                        // imports correctly even when the parent
+                        // `<Items>` element doesn't carry the flag.
+                        if let Some(v) = attr_str(&e, "useSecondWeaponSet") {
+                            character.config.use_second_weapon_set = v == "true";
+                        }
                     }
                     "Config" => in_config = true,
                     "Override" => {
@@ -521,6 +529,10 @@ pub(crate) fn pob_slot_from_name(name: &str) -> Option<Slot> {
         "Belt" => Slot::Belt,
         "Weapon 1" | "Weapon1" | "Weapon" => Slot::Weapon1,
         "Weapon 2" | "Weapon2" | "Off-hand" => Slot::Weapon2,
+        // Issue #109: swap-set weapon slots. PoB writes them as
+        // "Weapon 1 Swap" / "Weapon 2 Swap" inside `<ItemSet>`.
+        "Weapon 1 Swap" | "Weapon1Swap" => Slot::Weapon1Swap,
+        "Weapon 2 Swap" | "Weapon2Swap" => Slot::Weapon2Swap,
         "Flask 1" | "Flask1" => Slot::Flask1,
         "Flask 2" | "Flask2" => Slot::Flask2,
         "Flask 3" | "Flask3" => Slot::Flask3,
@@ -544,6 +556,8 @@ pub(crate) fn pob_slot_to_name(slot: Slot) -> &'static str {
         Slot::Belt => "Belt",
         Slot::Weapon1 => "Weapon 1",
         Slot::Weapon2 => "Weapon 2",
+        Slot::Weapon1Swap => "Weapon 1 Swap",
+        Slot::Weapon2Swap => "Weapon 2 Swap",
         Slot::Flask1 => "Flask 1",
         Slot::Flask2 => "Flask 2",
         Slot::Flask3 => "Flask 3",
@@ -678,6 +692,14 @@ fn handle_start_attrs(
                     if let Ok(n) = val.parse::<u32>() {
                         *active_item_set_id = Some(n);
                     }
+                } else if key == "useSecondWeaponSet" {
+                    // Issue #109: PoB stores this per-ItemSet, but
+                    // MK2 lifts it to a build-level toggle. The
+                    // `<Items>`-level attribute is what we emit on
+                    // export; on import we accept either location and
+                    // last-write wins (PoB doesn't enforce
+                    // consistency between sets either).
+                    character.config.use_second_weapon_set = val == "true";
                 }
             }
         }
