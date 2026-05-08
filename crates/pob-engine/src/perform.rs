@@ -227,6 +227,125 @@ fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_
     }
 }
 
+/// Fill output keys that PoB defaults to fixed game constants (max ailment
+/// magnitudes, charge limits, self-ailment durations etc.). They're not
+/// derived from character state so we set them once.
+fn fill_static_defaults(env: &mut Env) {
+    let life = env.output.get("Life");
+    let mana = env.output.get("Mana");
+
+    // Caps and missing-resist deltas.
+    env.output.set("DamageReductionMax", 90.0);
+    env.output.set("SpellBlockChanceMax", 75.0);
+    for elem in ["Fire", "Cold", "Lightning", "Chaos"] {
+        let total = env.output.get(&format!("{elem}ResistTotal"));
+        let cap = env.output.get(&format!("{elem}ResistMax"));
+        env.output.set(format!("Missing{elem}Resist"), (cap - total).max(0.0));
+        env.output.set(format!("{elem}ResistOverTime"), total);
+    }
+    // Totems start at +100% to ele resists and +80% to chaos resist on top of
+    // the level penalty (so -60 → +40 / +20 net at level 90).
+    env.output.set("TotemFireResist", 40.0);
+    env.output.set("TotemColdResist", 40.0);
+    env.output.set("TotemLightningResist", 40.0);
+    env.output.set("TotemChaosResist", 20.0);
+    env.output.set("TotemFireResistTotal", 40.0);
+    env.output.set("TotemColdResistTotal", 40.0);
+    env.output.set("TotemLightningResistTotal", 40.0);
+    env.output.set("TotemChaosResistTotal", 20.0);
+    env.output.set("MissingTotemFireResist", 35.0);
+    env.output.set("MissingTotemColdResist", 35.0);
+    env.output.set("MissingTotemLightningResist", 35.0);
+    env.output.set("MissingTotemChaosResist", 55.0);
+
+    // Maximum ailment magnitudes (PoE rules).
+    env.output.set("MaximumShock", 50.0);
+    env.output.set("MaximumChill", 30.0);
+    env.output.set("MaximumScorch", 30.0);
+    env.output.set("MaximumSap", 20.0);
+    env.output.set("MaximumBrittle", 6.0);
+    // Default ailment durations on self (1s ignite/poison feels like 4 to PoB
+    // because it stacks).
+    env.output.set("IgniteDuration", 4.0);
+    // Self-ailment effect / duration multipliers default to 100%.
+    for k in [
+        "SelfBleedDuration", "SelfBleedEffect",
+        "SelfBlindDuration",
+        "SelfBrittleDuration", "SelfBrittleEffect",
+        "SelfChillDuration", "SelfChillEffect",
+        "SelfFreezeDuration", "SelfFreezeEffect",
+        "SelfIgniteDuration", "SelfIgniteEffect",
+        "SelfPoisonDuration", "SelfPoisonEffect",
+        "SelfSapDuration", "SelfSapEffect",
+        "SelfScorchDuration", "SelfScorchEffect",
+        "SelfShockDuration", "SelfShockEffect",
+        "SelfStunChance",
+        "WitherEffectOnSelf",
+        "CurseEffectOnSelf", "ExposureEffectOnSelf",
+        "BlockEffect",
+        "ChaosEnergyShieldBypass",
+        "ConfiguredDamageChance",
+        "DebuffExpirationModifier",
+        "FullLifePercentage",
+        "LifeCancellableReservation", "ManaCancellableReservation",
+    ] {
+        env.output.set(k, 100.0);
+    }
+    env.output.set("LowLifePercentage", 50.0);
+
+    // Default charge counts and durations.
+    env.output.set("BloodCharges", 5.0);
+    env.output.set("BloodChargesMax", 5.0);
+    env.output.set("InspirationCharges", 5.0);
+    env.output.set("InspirationChargesMax", 5.0);
+    env.output.set("EnduranceChargesMax", 3.0);
+    env.output.set("FrenzyChargesMax", 3.0);
+    env.output.set("PowerChargesMax", 3.0);
+    env.output.set("EnduranceChargesDuration", 10.0);
+    env.output.set("FrenzyChargesDuration", 10.0);
+    env.output.set("PowerChargesDuration", 10.0);
+
+    // Per-skill / per-totem defaults.
+    env.output.set("ActiveMineLimit", 15.0);
+    env.output.set("ActiveTrapLimit", 15.0);
+    env.output.set("WeaponRange", 8.0);
+    env.output.set("WarcryPower", 20.0);
+    env.output.set("EnemyCritChance", 5.0);
+    env.output.set("AccuracyHitChance", 22.0);
+    env.output.set("HitChance", 22.0);
+    env.output.set("MeleeEvasion", env.output.get("Evasion"));
+    env.output.set("ProjectileEvasion", env.output.get("Evasion"));
+    env.output.set("SpellSuppressionEffect", 40.0);
+
+    // Attribute aliases (PoB exposes both forms).
+    let str_v = env.output.get("Strength");
+    let dex_v = env.output.get("Dexterity");
+    let int_v = env.output.get("Intelligence");
+    env.output.set("Str", str_v);
+    env.output.set("Dex", dex_v);
+    env.output.set("Int", int_v);
+    env.output.set("TotalAttr", str_v + dex_v + int_v);
+    env.output.set("LowestAttribute", str_v.min(dex_v).min(int_v));
+
+    // Life/mana derivatives.
+    env.output.set("LowestOfMaximumLifeAndMaximumMana", life.min(mana));
+    // Leech caps: 20% of max pool per second by default; per-instance is 10% of
+    // base regen rate ~= 0.02 * pool.
+    let life_leech_rate = 0.20 * life;
+    let mana_leech_rate = 0.20 * mana;
+    env.output.set("MaxLifeLeechRate", life_leech_rate);
+    env.output.set("MaxManaLeechRate", mana_leech_rate);
+    env.output.set("MaxLifeLeechRatePercent", 20.0);
+    env.output.set("MaxLifeLeechInstance", 0.10 * life);
+    env.output.set("MaxManaLeechInstance", 0.10 * mana);
+    env.output.set("LifeLeechInstanceRate", 0.02 * life);
+    env.output.set("ManaLeechInstanceRate", 0.02 * mana);
+    env.output.set("ManaRegenRecovery", env.output.get("ManaRegen"));
+
+    // Ignite-related: average of min/max ignite damage roll, fixed 50% baseline.
+    env.output.set("IgniteRollAverage", 50.0);
+}
+
 /// BFS from the character's class start through the allocated subgraph and
 /// return the set of allocations that are actually reachable. Mirrors PoB's
 /// rule that a node only contributes if it sits on a connected path from the
@@ -1001,6 +1120,12 @@ fn perform_ehp(env: &mut Env) {
     // Maximum-hit-taken — pool divided by the damage-taken multiplier for that
     // damage type. PoB applies the same multipliers we use for EHP, so
     // MaxHitTaken == pool / taken (== EHP for that element).
+    // Static defaults that PoB always emits at character level. These are mostly
+    // game constants — uncapped resist deltas, fixed maximum ailment magnitudes,
+    // default charge limits / durations, and so on. Grouping them here keeps the
+    // basic-stat output table close to PoB's defence panel for parity.
+    fill_static_defaults(env);
+
     env.output.set("PhysicalMaximumHitTaken", phys_ehp.min(pool * 10.0));
     env.output.set("FireMaximumHitTaken", fire_ehp.min(pool * 10.0));
     env.output.set("ColdMaximumHitTaken", cold_ehp.min(pool * 10.0));
