@@ -585,6 +585,19 @@ fn ascendancy_point_cap_is_8() {
 }
 
 #[test]
+fn fireball_emits_base_ignite_chance_via_global_stat_map() {
+    let Some(skills) = load_skills() else { return };
+    let fireball = skills.get("Fireball").expect("Fireball");
+    let mods = pob_engine::skill::skill_mods(fireball, 0);
+    let ignite_chance = mods
+        .iter()
+        .find(|m| m.name == "IgniteChance" && m.kind == pob_engine::ModType::Base)
+        .expect("Fireball should grant a BASE IgniteChance via global stat-map");
+    // Fireball constantStats has ["base_chance_to_ignite_%", 25].
+    assert_eq!(ignite_chance.value.as_f64(), Some(25.0));
+}
+
+#[test]
 fn arc_intrinsic_mods_land_in_modlist() {
     let (Some(_tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
         return;

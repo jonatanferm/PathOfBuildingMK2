@@ -1642,31 +1642,53 @@ fn try_parse_special_phrase(line: &str) -> Option<ParsedMod> {
             }
         }
     }
-    // "Bleeding you inflict deals Damage N% faster"
+    // "Bleeding you inflict deals Damage N% faster" → INC BleedFaster (PoB key).
     if line.starts_with("Bleeding you inflict deals Damage ") {
         let rest = &line["Bleeding you inflict deals Damage ".len()..];
         if let Some((n, rest)) = consume_simple_number(rest) {
             let rest = rest.strip_prefix('%').unwrap_or(rest).trim_start();
             if rest.starts_with("faster") {
                 return Some(ParsedMod {
-                    mod_: Mod::inc("BleedSpeed", n),
+                    mod_: Mod::inc("BleedFaster", n),
                 });
             }
         }
     }
-    // "<Ailment> you inflict deal damage N% faster"
+    // "Ignites you inflict deal damage N% faster" → INC IgniteBurnFaster.
     if let Some(rest) = line.strip_prefix("Ignites you inflict deal damage ") {
-        if let Some((n, _)) = consume_simple_number(rest) {
-            return Some(ParsedMod {
-                mod_: Mod::inc("IgniteSpeed", n),
-            });
+        if let Some((n, suffix)) = consume_simple_number(rest) {
+            let suffix = suffix.strip_prefix('%').unwrap_or(suffix).trim_start();
+            if suffix.starts_with("faster") {
+                return Some(ParsedMod {
+                    mod_: Mod::inc("IgniteBurnFaster", n),
+                });
+            }
         }
     }
+    // "Poisons you inflict deal damage N% faster" → INC PoisonFaster.
     if let Some(rest) = line.strip_prefix("Poisons you inflict deal damage ") {
-        if let Some((n, _)) = consume_simple_number(rest) {
-            return Some(ParsedMod {
-                mod_: Mod::inc("PoisonSpeed", n),
-            });
+        if let Some((n, suffix)) = consume_simple_number(rest) {
+            let suffix = suffix.strip_prefix('%').unwrap_or(suffix).trim_start();
+            if suffix.starts_with("faster") {
+                return Some(ParsedMod {
+                    mod_: Mod::inc("PoisonFaster", n),
+                });
+            }
+        }
+    }
+    // "Damaging Ailments deal damage N% faster" → INC each of the three faster keys.
+    if let Some(rest) = line.strip_prefix("Damaging Ailments deal damage ") {
+        if let Some((n, suffix)) = consume_simple_number(rest) {
+            let suffix = suffix.strip_prefix('%').unwrap_or(suffix).trim_start();
+            if suffix.starts_with("faster") {
+                // The wider cluster lands as a Misc:DamagingAilmentsFaster and we
+                // expand on the calc side. Single-line emission stays one Mod for
+                // the parser contract; the consumer treats the name as expanding to
+                // Bleed/Poison/Ignite.
+                return Some(ParsedMod {
+                    mod_: Mod::inc("DamagingAilmentsFaster", n),
+                });
+            }
         }
     }
     // "Marked Enemy grants N% increased Flask Charges to you"
@@ -3200,6 +3222,35 @@ mod tests {
         // (e.g. `SocketedGemsInBody Armour`); we mirror that.
         let m = parse("8% increased Damage while you have a Rare Body Armour equipped");
         assert_condition_tag(&m, "HaveRareBody ArmourEquipped");
+    }
+
+    #[test]
+    fn bleeding_you_inflict_deals_damage_faster_uses_pob_key() {
+        let m = parse("Bleeding you inflict deals Damage 30% faster");
+        assert_eq!(m.name, "BleedFaster");
+        assert_eq!(m.kind, ModType::Inc);
+        assert_eq!(m.value.as_f64(), Some(30.0));
+    }
+
+    #[test]
+    fn poisons_you_inflict_deal_damage_faster_uses_pob_key() {
+        let m = parse("Poisons you inflict deal damage 25% faster");
+        assert_eq!(m.name, "PoisonFaster");
+        assert_eq!(m.kind, ModType::Inc);
+    }
+
+    #[test]
+    fn ignites_you_inflict_deal_damage_faster_uses_pob_key() {
+        let m = parse("Ignites you inflict deal damage 20% faster");
+        assert_eq!(m.name, "IgniteBurnFaster");
+        assert_eq!(m.kind, ModType::Inc);
+    }
+
+    #[test]
+    fn damaging_ailments_faster_emits_cluster_key() {
+        let m = parse("Damaging Ailments deal damage 15% faster");
+        assert_eq!(m.name, "DamagingAilmentsFaster");
+        assert_eq!(m.kind, ModType::Inc);
     }
 
     #[test]

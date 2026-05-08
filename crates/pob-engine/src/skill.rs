@@ -252,21 +252,72 @@ pub fn parse_extractor_mod(v: &serde_json::Value, value: f64) -> Option<crate::M
 pub fn skill_mods(skill: &Skill, quality: u32) -> Vec<crate::Mod> {
     let mut out = Vec::new();
     for (stat_id, value) in iter_skill_stats(skill, quality) {
-        // statMap is keyed by stat id; values are arrays of mod recordings.
-        let Some(stat_map) = skill_stat_map(skill).get(&stat_id) else {
-            continue;
-        };
-        let Some(arr) = stat_map.as_array() else {
-            continue;
-        };
-        for entry in arr {
-            if let Some(mut m) = parse_extractor_mod(entry, value) {
-                m.source = Some(crate::Source::Skill(skill.name.clone()));
-                out.push(m);
+        // Per-skill statMap is the primary source. Each entry is an array of mod
+        // recordings.
+        if let Some(arr) = skill_stat_map(skill).get(&stat_id).and_then(|v| v.as_array()) {
+            for entry in arr {
+                if let Some(mut m) = parse_extractor_mod(entry, value) {
+                    m.source = Some(crate::Source::Skill(skill.name.clone()));
+                    out.push(m);
+                }
             }
+            continue;
+        }
+        // Fallback: PoB's global SkillStatMap (`src/Data/SkillStatMap.lua`) catches
+        // common stats that aren't carried per-skill — currently only the small set
+        // of ailment-chance stats most skills use. This avoids re-extracting that
+        // entire 1.5k-line table; we hand-port the entries we need.
+        for m in global_skill_stat_mods(&stat_id, value, &skill.name) {
+            out.push(m);
         }
     }
     out
+}
+
+/// Hand-ported subset of PoB's `Data/SkillStatMap.lua`. Returns the BASE/INC mods a
+/// stat id contributes when a skill's per-skill statMap doesn't already own it.
+/// Currently scoped to ailment-chance entries used by Phase 6d. Add more here as
+/// the calc engine starts consuming additional stat names.
+fn global_skill_stat_mods(stat_id: &str, value: f64, skill_name: &str) -> Vec<crate::Mod> {
+    use crate::{Mod, ModType, ModValue, Source};
+    use pob_data::{KeywordFlag, ModFlag};
+
+    let mk = |name: &str, kind: ModType| Mod {
+        name: name.to_owned(),
+        kind,
+        value: ModValue::Number(value),
+        flags: ModFlag::empty(),
+        keyword_flags: KeywordFlag::empty(),
+        source: Some(Source::Skill(skill_name.to_owned())),
+        tags: smallvec::SmallVec::new(),
+    };
+
+    match stat_id {
+        // Ailment chance from skill data (e.g. Fireball's 25% base chance to ignite).
+        "base_chance_to_ignite_%" | "always_ignite" => vec![mk("IgniteChance", ModType::Base)],
+        "base_chance_to_poison_on_hit_%" | "global_poison_on_hit" => {
+            vec![mk("PoisonChance", ModType::Base)]
+        }
+        "bleed_on_hit_with_attacks_%" => vec![mk("BleedChance", ModType::Base)],
+        "base_chance_to_shock_%" | "always_shock" => vec![mk("EnemyShockChance", ModType::Base)],
+        "base_chance_to_freeze_%" | "always_freeze" => vec![mk("EnemyFreezeChance", ModType::Base)],
+        "chance_to_freeze_shock_ignite_%" => vec![
+            mk("EnemyFreezeChance", ModType::Base),
+            mk("EnemyShockChance", ModType::Base),
+            mk("IgniteChance", ModType::Base),
+        ],
+
+        // Ailment-flavoured `more` damage multipliers PoB labels as "ailment damage final".
+        "active_skill_bleeding_damage_+%_final" => vec![mk("BleedDamage", ModType::More)],
+        "active_skill_poison_damage_+%_final" => vec![mk("PoisonDamage", ModType::More)],
+        "active_skill_ignite_damage_+%_final" => vec![mk("IgniteDamage", ModType::More)],
+        "active_skill_poison_duration_+%_final" => vec![mk("PoisonDuration", ModType::More)],
+
+        // Faster ailments — PoB key for bleed is `BleedFaster` etc.
+        "faster_bleed_%" => vec![mk("BleedFaster", ModType::Inc)],
+
+        _ => Vec::new(),
+    }
 }
 
 /// Produce the buff mods an aura/herald skill grants its allies — i.e. the
