@@ -486,6 +486,15 @@ fn apply_config_number(c: &mut Character, name: &str, value: f64) {
         "enemyColdResist" => c.config.enemy_cold_resist = value as i32,
         "enemyLightningResist" => c.config.enemy_lightning_resist = value as i32,
         "enemyChaosResist" => c.config.enemy_chaos_resist = value as i32,
+        "enemyBlockChance" => {
+            c.config.enemy_block_chance = (value as i32).clamp(0, 75) as u32;
+        }
+        "enemyDodgeChance" => {
+            c.config.enemy_dodge_chance = (value as i32).clamp(0, 75) as u32;
+        }
+        "enemySuppressionChance" => {
+            c.config.enemy_suppression_chance = (value as i32).clamp(0, 100) as u32;
+        }
         "powerCharges" => {
             c.config.multipliers.insert("PowerCharge".into(), value);
         }
