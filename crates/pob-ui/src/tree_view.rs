@@ -5,12 +5,15 @@
 //! tooltip path stay on egui for now; Phase 8b takes edges to wgpu too.
 
 use ahash::HashMap;
-use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke, Vec2};
+use eframe::egui::{self, Color32, Pos2, Sense, Vec2};
 use eframe::egui_wgpu;
 use pob_data::{NodeId, NodeKind, PassiveTree};
 
 use crate::tree_layout::{compute_node_positions, NodePos};
-use crate::tree_renderer::{kind_to_u32, state_bits, NodeInstance, TreeNodeCallback};
+use crate::tree_renderer::{
+    edge_state_bits, kind_to_u32, state_bits, EdgeInstance, NodeInstance, TreeEdgeCallback,
+    TreeNodeCallback,
+};
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct TreeInteraction {
@@ -94,51 +97,47 @@ impl TreeView {
             )
         };
 
-        // Edges first (so nodes draw on top).
-        // Use a HashSet of (min, max) pairs to draw each edge once.
-        let mut drawn_edges: ahash::HashSet<(NodeId, NodeId)> = ahash::HashSet::default();
+        // Edges (and the path overlay, which rides the same pipeline via bit 1
+        // of the state byte). Build a (lo,hi) → state map so duplicate
+        // out_edge/in_edge entries collapse into a single instance.
+        let path_pairs: ahash::HashSet<(NodeId, NodeId)> = self
+            .path_overlay
+            .windows(2)
+            .map(|w| if w[0] < w[1] { (w[0], w[1]) } else { (w[1], w[0]) })
+            .collect();
+
+        let mut edge_state: ahash::HashMap<(NodeId, NodeId), u32> =
+            ahash::HashMap::default();
         for (id, node) in &tree.nodes {
-            let Some(p_a) = self.positions.get(id).copied() else {
-                continue;
-            };
             for nb_id in node.out_edges.iter().chain(node.in_edges.iter()) {
                 if id == nb_id {
                     continue;
                 }
                 let pair = if id < nb_id { (*id, *nb_id) } else { (*nb_id, *id) };
-                if !drawn_edges.insert(pair) {
-                    continue;
+                let mut state = 0u32;
+                if allocated.contains(&pair.0) && allocated.contains(&pair.1) {
+                    state |= edge_state_bits::ALLOCATED;
                 }
-                let Some(p_b) = self.positions.get(nb_id).copied() else {
-                    continue;
-                };
-                let a = to_screen(p_a);
-                let b = to_screen(p_b);
-                if !rect_contains_segment(viewport, a, b) {
-                    continue;
+                if path_pairs.contains(&pair) {
+                    state |= edge_state_bits::PATH;
                 }
-                let both_alloc = allocated.contains(id) && allocated.contains(nb_id);
-                let stroke = if both_alloc {
-                    Stroke::new(1.5, Color32::from_rgb(180, 220, 255))
-                } else {
-                    Stroke::new(0.6, Color32::from_rgb(70, 70, 80))
-                };
-                painter.line_segment([a, b], stroke);
+                edge_state.insert(pair, state);
             }
         }
 
-        // Path overlay (drawn over edges, under nodes).
-        if !self.path_overlay.is_empty() {
-            for win in self.path_overlay.windows(2) {
-                let (a, b) = (win[0], win[1]);
-                let (Some(pa), Some(pb)) = (self.positions.get(&a), self.positions.get(&b)) else {
-                    continue;
-                };
-                painter.line_segment(
-                    [to_screen(*pa), to_screen(*pb)],
-                    Stroke::new(2.5, Color32::from_rgb(255, 200, 80)),
-                );
-            }
+        let mut edges: Vec<EdgeInstance> = Vec::with_capacity(edge_state.len());
+        for ((a_id, b_id), state) in edge_state {
+            let (Some(pa), Some(pb)) =
+                (self.positions.get(&a_id).copied(), self.positions.get(&b_id).copied())
+            else {
+                continue;
+            };
+            edges.push(EdgeInstance {
+                a: [pa.x, pa.y],
+                b: [pb.x, pb.y],
+                state,
+                _pad: 0,
+            });
         }
 
         // Nodes — hit-test in CPU and emit a single wgpu draw callback for the
@@ -204,28 +203,35 @@ impl TreeView {
             });
         }
 
-        // Hand the per-frame state to the wgpu pipeline. The pixels-per-point
-        // factor lets us compute pixel sizes inside the shader without
-        // re-deriving them from the projection.
+        // Hand the per-frame state to the wgpu pipelines. Edges first (so node
+        // SDFs occlude their endpoints), nodes second.
         let pixels_per_point = ui.ctx().pixels_per_point();
         let viewport_size_px = [
             viewport.width() * pixels_per_point,
             viewport.height() * pixels_per_point,
         ];
-        let viewport_pixel_rect = egui::Rect::from_min_size(
-            viewport.min * pixels_per_point,
-            egui::Vec2::new(viewport_size_px[0], viewport_size_px[1]),
-        );
-        let _ = viewport_pixel_rect;
-        let cb = TreeNodeCallback {
-            instances,
-            viewport_center: [self.center.x, self.center.y],
-            zoom: self.zoom * pixels_per_point,
-            viewport_size: viewport_size_px,
-            pixels_per_point,
-        };
-        let paint_cb = egui_wgpu::Callback::new_paint_callback(viewport, cb);
-        painter.add(paint_cb);
+        let viewport_center_world = [self.center.x, self.center.y];
+        let zoom_px = self.zoom * pixels_per_point;
+        painter.add(egui_wgpu::Callback::new_paint_callback(
+            viewport,
+            TreeEdgeCallback {
+                edges,
+                viewport_center: viewport_center_world,
+                zoom: zoom_px,
+                viewport_size: viewport_size_px,
+                pixels_per_point,
+            },
+        ));
+        painter.add(egui_wgpu::Callback::new_paint_callback(
+            viewport,
+            TreeNodeCallback {
+                instances,
+                viewport_center: viewport_center_world,
+                zoom: zoom_px,
+                viewport_size: viewport_size_px,
+                pixels_per_point,
+            },
+        ));
 
         if let Some(id) = hovered {
             if let Some(node) = tree.nodes.get(&id) {
@@ -284,8 +290,4 @@ fn world_radius_for(node: &pob_data::Node) -> f32 {
 
 fn node_radius(node: &pob_data::Node, zoom: f32) -> f32 {
     (world_radius_for(node) * zoom).max(2.0)
-}
-
-fn rect_contains_segment(rect: Rect, a: Pos2, b: Pos2) -> bool {
-    rect.expand(50.0).contains(a) || rect.expand(50.0).contains(b)
 }

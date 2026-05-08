@@ -33,12 +33,28 @@ pub struct NodeInstance {
     pub _pad: u32,
 }
 
+/// Per-instance vertex data for an edge — matches `Edge` in `tree_edges.wgsl`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct EdgeInstance {
+    pub a: [f32; 2],
+    pub b: [f32; 2],
+    /// Bitfield: 0=both endpoints allocated, 1=path overlay.
+    pub state: u32,
+    pub _pad: u32,
+}
+
 /// State bits — keep in sync with the shader.
 pub mod state_bits {
     pub const ALLOCATED: u32 = 1 << 0;
     pub const SEARCH: u32 = 1 << 1;
     pub const HOVERED: u32 = 1 << 2;
     pub const PATH: u32 = 1 << 3;
+}
+
+pub mod edge_state_bits {
+    pub const ALLOCATED: u32 = 1 << 0;
+    pub const PATH: u32 = 1 << 1;
 }
 
 /// Uniform block — must match the WGSL `Uniforms` struct.
@@ -54,14 +70,18 @@ struct Uniforms {
 }
 
 const INITIAL_INSTANCE_CAPACITY: u64 = 4096;
+const INITIAL_EDGE_CAPACITY: u64 = 8192;
 
 pub struct TreeRenderer {
-    pipeline: wgpu::RenderPipeline,
+    node_pipeline: wgpu::RenderPipeline,
+    edge_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
     instance_buffer: wgpu::Buffer,
     instance_capacity: u64,
-    bind_group: wgpu::BindGroup,
+    edge_buffer: wgpu::Buffer,
+    edge_capacity: u64,
 }
 
 impl TreeRenderer {
@@ -71,16 +91,9 @@ impl TreeRenderer {
     pub fn install(render_state: &egui_wgpu::RenderState) {
         let device = &render_state.device;
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("tree_nodes.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("../shaders/tree_nodes.wgsl").into(),
-            ),
-        });
-
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("tree_nodes.bind_group_layout"),
+                label: Some("tree.bind_group_layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
@@ -95,56 +108,16 @@ impl TreeRenderer {
 
         let pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("tree_nodes.pipeline_layout"),
+                label: Some("tree.pipeline_layout"),
                 bind_group_layouts: &[&bind_group_layout],
                 push_constant_ranges: &[],
             });
 
-        // Match the shader's Instance struct; offsets are explicit so we don't
-        // accidentally drift if the struct grows.
-        let instance_attrs = wgpu::vertex_attr_array![
-            0 => Float32x2, // world_pos
-            1 => Float32,   // world_radius
-            2 => Uint32,    // kind
-            3 => Uint32,    // state
-        ];
-        let instance_layout = wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<NodeInstance>() as u64,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &instance_attrs,
-        };
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("tree_nodes.pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[instance_layout],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: render_state.target_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        let node_pipeline = build_node_pipeline(device, &pipeline_layout, render_state.target_format);
+        let edge_pipeline = build_edge_pipeline(device, &pipeline_layout, render_state.target_format);
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tree_nodes.uniform_buffer"),
+            label: Some("tree.uniform_buffer"),
             size: std::mem::size_of::<Uniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -152,14 +125,22 @@ impl TreeRenderer {
 
         let instance_capacity = INITIAL_INSTANCE_CAPACITY;
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tree_nodes.instance_buffer"),
+            label: Some("tree.node_instance_buffer"),
             size: instance_capacity * std::mem::size_of::<NodeInstance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
+        let edge_capacity = INITIAL_EDGE_CAPACITY;
+        let edge_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree.edge_instance_buffer"),
+            size: edge_capacity * std::mem::size_of::<EdgeInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("tree_nodes.bind_group"),
+            label: Some("tree.bind_group"),
             layout: &bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -168,12 +149,15 @@ impl TreeRenderer {
         });
 
         let renderer = Self {
-            pipeline,
+            node_pipeline,
+            edge_pipeline,
             bind_group_layout,
             uniform_buffer,
+            bind_group,
             instance_buffer,
             instance_capacity,
-            bind_group,
+            edge_buffer,
+            edge_capacity,
         };
 
         render_state
@@ -183,19 +167,32 @@ impl TreeRenderer {
             .insert(renderer);
     }
 
-    fn ensure_capacity(&mut self, device: &wgpu::Device, needed: u64) {
+    fn ensure_node_capacity(&mut self, device: &wgpu::Device, needed: u64) {
         if needed <= self.instance_capacity {
             return;
         }
-        // Grow geometrically so frequent re-allocations don't churn.
         let new_capacity = needed.next_power_of_two().max(self.instance_capacity * 2);
         self.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tree_nodes.instance_buffer"),
+            label: Some("tree.node_instance_buffer"),
             size: new_capacity * std::mem::size_of::<NodeInstance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         self.instance_capacity = new_capacity;
+    }
+
+    fn ensure_edge_capacity(&mut self, device: &wgpu::Device, needed: u64) {
+        if needed <= self.edge_capacity {
+            return;
+        }
+        let new_capacity = needed.next_power_of_two().max(self.edge_capacity * 2);
+        self.edge_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree.edge_instance_buffer"),
+            size: new_capacity * std::mem::size_of::<EdgeInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.edge_capacity = new_capacity;
     }
 
     fn write_uniforms(
@@ -223,6 +220,119 @@ impl TreeRenderer {
         }
         queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(instances));
     }
+
+    fn write_edges(&self, queue: &wgpu::Queue, edges: &[EdgeInstance]) {
+        if edges.is_empty() {
+            return;
+        }
+        queue.write_buffer(&self.edge_buffer, 0, bytemuck::cast_slice(edges));
+    }
+}
+
+fn build_node_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    target_format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("tree_nodes.wgsl"),
+        source: wgpu::ShaderSource::Wgsl(
+            include_str!("../shaders/tree_nodes.wgsl").into(),
+        ),
+    });
+    let attrs = wgpu::vertex_attr_array![
+        0 => Float32x2, // world_pos
+        1 => Float32,   // world_radius
+        2 => Uint32,    // kind
+        3 => Uint32,    // state
+    ];
+    let buffer_layout = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<NodeInstance>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &attrs,
+    };
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("tree_nodes.pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[buffer_layout],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
+}
+
+fn build_edge_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    target_format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("tree_edges.wgsl"),
+        source: wgpu::ShaderSource::Wgsl(
+            include_str!("../shaders/tree_edges.wgsl").into(),
+        ),
+    });
+    // EdgeInstance: a (vec2), b (vec2), state (u32), _pad (u32). Shader uses
+    // locations 0 (a), 1 (b), 2 (state); the trailing pad word doesn't get a
+    // shader binding.
+    let attrs = wgpu::vertex_attr_array![
+        0 => Float32x2, // a
+        1 => Float32x2, // b
+        2 => Uint32,    // state
+    ];
+    let buffer_layout = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<EdgeInstance>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &attrs,
+    };
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("tree_edges.pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[buffer_layout],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
 }
 
 /// Per-frame paint callback. Carries just the inputs needed for one draw —
@@ -248,7 +358,7 @@ impl egui_wgpu::CallbackTrait for TreeNodeCallback {
         let Some(renderer) = callback_resources.get_mut::<TreeRenderer>() else {
             return Vec::new();
         };
-        renderer.ensure_capacity(device, self.instances.len() as u64);
+        renderer.ensure_node_capacity(device, self.instances.len() as u64);
         renderer.write_uniforms(
             queue,
             self.viewport_center,
@@ -257,18 +367,15 @@ impl egui_wgpu::CallbackTrait for TreeNodeCallback {
             self.pixels_per_point,
         );
         renderer.write_instances(queue, &self.instances);
-        // Rebind in case ensure_capacity replaced the instance buffer (the
-        // bind group only references the uniform buffer, so it stays valid;
-        // but we recreate it defensively).
-        renderer.bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("tree_nodes.bind_group"),
-                layout: &renderer.bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: renderer.uniform_buffer.as_entire_binding(),
-                }],
-            });
+        // Rebind defensively in case any of the buffers got reallocated.
+        renderer.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tree.bind_group"),
+            layout: &renderer.bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: renderer.uniform_buffer.as_entire_binding(),
+            }],
+        });
         Vec::new()
     }
 
@@ -284,11 +391,62 @@ impl egui_wgpu::CallbackTrait for TreeNodeCallback {
         if self.instances.is_empty() {
             return;
         }
-        render_pass.set_pipeline(&renderer.pipeline);
+        render_pass.set_pipeline(&renderer.node_pipeline);
         render_pass.set_bind_group(0, &renderer.bind_group, &[]);
         render_pass.set_vertex_buffer(0, renderer.instance_buffer.slice(..));
-        // 6 vertices (two triangles) per instance.
         render_pass.draw(0..6, 0..self.instances.len() as u32);
+    }
+}
+
+/// Edge paint callback. Drawn before nodes so node SDFs cover edge endpoints.
+pub struct TreeEdgeCallback {
+    pub edges: Vec<EdgeInstance>,
+    pub viewport_center: [f32; 2],
+    pub zoom: f32,
+    pub viewport_size: [f32; 2],
+    pub pixels_per_point: f32,
+}
+
+impl egui_wgpu::CallbackTrait for TreeEdgeCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        _egui_encoder: &mut wgpu::CommandEncoder,
+        callback_resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let Some(renderer) = callback_resources.get_mut::<TreeRenderer>() else {
+            return Vec::new();
+        };
+        renderer.ensure_edge_capacity(device, self.edges.len() as u64);
+        renderer.write_uniforms(
+            queue,
+            self.viewport_center,
+            self.zoom,
+            self.viewport_size,
+            self.pixels_per_point,
+        );
+        renderer.write_edges(queue, &self.edges);
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        callback_resources: &egui_wgpu::CallbackResources,
+    ) {
+        let Some(renderer) = callback_resources.get::<TreeRenderer>() else {
+            return;
+        };
+        if self.edges.is_empty() {
+            return;
+        }
+        render_pass.set_pipeline(&renderer.edge_pipeline);
+        render_pass.set_bind_group(0, &renderer.bind_group, &[]);
+        render_pass.set_vertex_buffer(0, renderer.edge_buffer.slice(..));
+        render_pass.draw(0..6, 0..self.edges.len() as u32);
     }
 }
 
