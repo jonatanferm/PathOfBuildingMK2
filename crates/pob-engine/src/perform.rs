@@ -293,6 +293,27 @@ pub fn init_env_with_bases(
                 .add(parsed.mod_.with_source(Source::Other("Custom".into())));
         }
     }
+    // 6c. Party members — group-play teammates whose auras / curses /
+    // banners propagate onto the player. Mirrors PoB's `partyTab` in
+    // `Modules/Build.lua`. Each enabled member's `mod_lines` are parsed
+    // through `parse_mod_line` and added to the player modDB with
+    // `source = Source::Other("Party:<name>")`.
+    for member in &character.party_members {
+        if !member.enabled {
+            continue;
+        }
+        let source_label = format!("Party:{}", member.name);
+        for line in member.mod_lines.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(parsed) = crate::mod_parser::parse_mod_line(trimmed) {
+                env.mod_db
+                    .add(parsed.mod_.with_source(Source::Other(source_label.clone())));
+            }
+        }
+    }
 
     // 7. Act 2 bandit reward. KillAll grants +2 passive points (counted
     // against the tree-budget elsewhere); the named bandits inject a small

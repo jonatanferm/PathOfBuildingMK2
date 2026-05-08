@@ -39,6 +39,12 @@ pub struct CharacterSnapshot {
     /// the user can swap in.
     #[serde(default)]
     pub item_sets: Vec<NamedItemSet>,
+    /// Party members — group-play teammates whose auras / curses /
+    /// banners propagate onto the player. Each member's `mod_lines`
+    /// are parsed by `mod_parser` and added to the player's modDB
+    /// during `init_env` (skipped when `enabled = false`).
+    #[serde(default)]
+    pub party_members: Vec<PartyMember>,
 }
 
 /// One stored item-loadout save. `items` is the same `ItemSet` the
@@ -48,6 +54,31 @@ pub struct CharacterSnapshot {
 pub struct NamedItemSet {
     pub name: String,
     pub items: ItemSet,
+}
+
+/// Party member — a teammate's projected buffs / curses / banners.
+/// `mod_lines` is free-form text the user pastes (one line per mod);
+/// each line goes through `mod_parser::parse_mod_line` at compute time
+/// with `source = Source::Other("Party:<name>")`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PartyMember {
+    /// Display name shown in the Party tab and used as the mod source
+    /// tag (so the Calcs-tab breakdown can attribute buffs to a
+    /// specific teammate).
+    pub name: String,
+    /// Newline-separated mod lines (e.g. `25% increased Damage`,
+    /// `+15% to all Elemental Resistances`). Parsed through the same
+    /// path as `ConfigState::custom_mods`.
+    pub mod_lines: String,
+    /// Toggle to A/B with vs. without this teammate's contribution.
+    /// Default true so adding a member immediately applies their
+    /// buffs.
+    #[serde(default = "true_default_party")]
+    pub enabled: bool,
+}
+
+fn true_default_party() -> bool {
+    true
 }
 
 fn one() -> u32 {
@@ -117,6 +148,7 @@ impl CharacterSnapshot {
             pantheon_major: c.pantheon_major,
             pantheon_minor: c.pantheon_minor,
             item_sets: c.item_sets.clone(),
+            party_members: c.party_members.clone(),
         }
     }
     pub fn into_character(self) -> Character {
@@ -160,6 +192,7 @@ impl CharacterSnapshot {
             pantheon_major: self.pantheon_major,
             pantheon_minor: self.pantheon_minor,
             item_sets: self.item_sets,
+            party_members: self.party_members,
         }
     }
 }
@@ -401,6 +434,11 @@ pub struct Character {
     /// list keeps inactive copies that the user can swap in via
     /// `activate_item_set`.
     pub item_sets: Vec<NamedItemSet>,
+    /// Party members — group-play teammates whose auras / curses /
+    /// banners propagate onto the player. Each member's `mod_lines`
+    /// are parsed by `mod_parser` and added to the player's modDB
+    /// during `init_env_with_bases` (skipped when `enabled = false`).
+    pub party_members: Vec<PartyMember>,
 }
 
 /// Encounter / condition configuration. Mirrors PoB's Config tab:
@@ -640,6 +678,7 @@ impl Character {
             pantheon_major: MajorGod::default(),
             pantheon_minor: MinorGod::default(),
             item_sets: Vec::new(),
+            party_members: Vec::new(),
         }
     }
 

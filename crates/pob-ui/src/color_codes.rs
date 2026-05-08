@@ -9,7 +9,7 @@
 //! Returns an [`egui::text::LayoutJob`] so callers can drop it directly
 //! into `ui.label(job)`.
 
-use eframe::egui::{self, Color32, FontId, TextFormat, text::LayoutJob};
+use eframe::egui::{self, text::LayoutJob, Color32, FontId, TextFormat};
 
 /// Single-digit `^N` palette. PoE convention plus PoB's defaults
 /// (white-ish for `^7`, gray for `^8`, etc.). Indices 0..=9.
@@ -35,12 +35,11 @@ pub fn to_layout_job(text: &str, default: Color32, font: FontId) -> LayoutJob {
     let mut i = 0;
     let mut chunk_start = 0;
 
-    let flush =
-        |job: &mut LayoutJob, slice: &str, color: Color32, font: &FontId| {
-            if !slice.is_empty() {
-                job.append(slice, 0.0, TextFormat::simple(font.clone(), color));
-            }
-        };
+    let flush = |job: &mut LayoutJob, slice: &str, color: Color32, font: &FontId| {
+        if !slice.is_empty() {
+            job.append(slice, 0.0, TextFormat::simple(font.clone(), color));
+        }
+    };
 
     while i < bytes.len() {
         if bytes[i] == b'^' {
@@ -163,11 +162,7 @@ mod tests {
     #[test]
     fn layout_job_segments_match_escape_count() {
         // `^x00FF00green^7white` should yield two segments.
-        let job = to_layout_job(
-            "^x00FF00green^7white",
-            Color32::WHITE,
-            FontId::default(),
-        );
+        let job = to_layout_job("^x00FF00green^7white", Color32::WHITE, FontId::default());
         // Concatenated text drops the escapes.
         assert_eq!(job.text, "greenwhite");
         // Two style runs — one green, one white.

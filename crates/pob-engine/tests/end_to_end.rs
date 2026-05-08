@@ -172,6 +172,77 @@ fn custom_mods_textarea_lines_inject_into_mod_db() {
     );
 }
 
+// Issue #25: Party members propagate auras / curses / banners onto
+// the player. Each member's `mod_lines` are parsed by `mod_parser`
+// and added with `source = "Party:<name>"`. Disabling a member
+// removes their contribution from the next compute pass.
+#[test]
+fn party_members_inject_mods_and_toggle_off_cleanly() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    use pob_engine::character::PartyMember;
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let baseline = compute_with_skills(&c, &tree, None);
+    let baseline_str = baseline.get("Strength");
+
+    // Add a teammate that grants +50 to Strength.
+    c.party_members.push(PartyMember {
+        name: "Aura Bot".into(),
+        mod_lines: "+50 to Strength".into(),
+        enabled: true,
+    });
+    let with_aura = compute_with_skills(&c, &tree, None).get("Strength");
+    assert!(
+        (with_aura - baseline_str - 50.0).abs() < 0.5,
+        "Enabled party member should add 50 Strength (baseline={baseline_str}, after={with_aura})"
+    );
+
+    // Disabling the member removes the contribution.
+    c.party_members[0].enabled = false;
+    let toggled_off = compute_with_skills(&c, &tree, None).get("Strength");
+    assert!(
+        (toggled_off - baseline_str).abs() < 0.5,
+        "Disabled party member must not contribute"
+    );
+
+    // Multiple members compose additively.
+    c.party_members[0].enabled = true;
+    c.party_members.push(PartyMember {
+        name: "Curse Bot".into(),
+        mod_lines: "+50 to Strength\n+30 to Dexterity".into(),
+        enabled: true,
+    });
+    let combined = compute_with_skills(&c, &tree, None);
+    assert!(
+        (combined.get("Strength") - baseline_str - 100.0).abs() < 0.5,
+        "Two members each granting +50 Str should add to +100 Str"
+    );
+    let baseline_dex = baseline.get("Dexterity");
+    assert!(
+        (combined.get("Dexterity") - baseline_dex - 30.0).abs() < 0.5,
+        "Curse Bot should add +30 Dexterity"
+    );
+
+    // The mods are tagged with the member name as their source — the
+    // Calcs-tab breakdown can attribute who contributed which buff.
+    let env = pob_engine::perform::init_env(&c, &tree);
+    use pob_engine::ModStore as _;
+    let aura_bot_mods = env
+        .mod_db
+        .iter_all()
+        .filter(
+            |m| matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Party:Aura Bot"),
+        )
+        .count();
+    assert!(
+        aura_bot_mods >= 1,
+        "Aura Bot's mods must show up in the modDB sourced as Party:Aura Bot"
+    );
+}
+
 // Issue #27: Item sets — multiple equipment loadouts. The `items`
 // field on Character is the active loadout; `item_sets` holds named
 // inactive copies. `save_item_set` snapshots the current loadout;
