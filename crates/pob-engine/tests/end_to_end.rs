@@ -1329,6 +1329,70 @@ fn aoe_skills_emit_radius_outputs_that_scale_with_area_mods() {
     );
 }
 
+// Issue #53: Equipped flasks must surface per-flask LifeRecovery /
+// ManaRecovery output keys (PoB exposes these on the Calcs tab side panel
+// for flask-stacking builds — Pathfinder, Forbidden Rite Hierophant) and
+// they must scale with FlaskLifeRecovery / FlaskEffect / FlaskDuration /
+// LifeRecovery (rate) / FlaskLifeRecoveryRate INC mods.
+#[test]
+fn flask_recovery_outputs_scale_with_flask_mods() {
+    let (Some(tree), Some(skills), Some(bases)) =
+        (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+
+    // Colossal Life Flask: life=1000, duration=3.5s. Magic flask on Flask 1.
+    let life_flask = parse_item(
+        "Item Class: Life Flasks\nRarity: NORMAL\nColossal Life Flask\n--------\n",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::Flask1, life_flask);
+
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        (baseline.get("Flask1LifeRecovery") - 1000.0).abs() < 0.01,
+        "Colossal Life Flask should grant LifeRecovery = 1000, got {}",
+        baseline.get("Flask1LifeRecovery")
+    );
+    // Recovery rate = 1000 / 3.5 ≈ 285.71/s.
+    let expected_rate = 1000.0 / 3.5;
+    assert!(
+        (baseline.get("Flask1LifeRecoveryRate") - expected_rate).abs() < 0.5,
+        "Recovery rate should be ~285.71/s (life/duration), got {}",
+        baseline.get("Flask1LifeRecoveryRate")
+    );
+    // Aggregate.
+    assert!(
+        (baseline.get("LifeFlaskRecovery") - 1000.0).abs() < 0.01,
+        "LifeFlaskRecovery aggregate should track the max across flasks"
+    );
+
+    // Mana flask in slot 2 should populate Flask2ManaRecovery without
+    // touching the life-flask outputs.
+    let mana_flask = parse_item(
+        "Item Class: Mana Flasks\nRarity: NORMAL\nColossal Mana Flask\n--------\n",
+    )
+    .unwrap();
+    c.items.equip(pob_data::Slot::Flask2, mana_flask);
+    let with_mana = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        with_mana.get("Flask2ManaRecovery") > 0.0,
+        "Colossal Mana Flask should populate Flask2ManaRecovery"
+    );
+    assert!(
+        with_mana.get("Flask2ManaRecoveryRate") > 0.0,
+        "Flask2ManaRecoveryRate should be positive"
+    );
+    assert!(
+        with_mana.get("ManaFlaskRecovery") > 0.0,
+        "ManaFlaskRecovery aggregate should be set"
+    );
+}
+
 #[test]
 fn fireball_emits_base_ignite_chance_via_global_stat_map() {
     let Some(skills) = load_skills() else { return };
