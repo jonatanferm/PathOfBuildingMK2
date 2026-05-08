@@ -344,6 +344,28 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
         });
     });
 
+    // Issue #109 (slice 3): swap-weapon set toggle. Mirrors PoB's
+    // X-key swap from `Classes/ItemsTab.lua`. When checked the calc
+    // engine reads `Weapon1Swap` / `Weapon2Swap` instead of the
+    // primary pair via `effective_items_for_compute`. Empty swap
+    // slots fall through to the primary pair (no-op), so flipping
+    // the toggle on a single-pair build is harmless.
+    ui.separator();
+    if ui
+        .checkbox(
+            &mut state.use_second_weapon_set,
+            "Use swap weapon set",
+        )
+        .on_hover_text(
+            "When checked, the calc engine reads the swap-pair weapons \
+             (Weapon1Swap / Weapon2Swap) as the live pair. Useful for \
+             caster off-hand-buff stacking + Storm Brand swap-trap builds.",
+        )
+        .changed()
+    {
+        changed = true;
+    }
+
     // Issue #19 (slice 2): Warcry Power config knob. Mirrors PoB's
     // `multiplierWarcryPower` Config-tab input from
     // `Modules/ConfigOptions.lua:723-725`. Power is the strength of
