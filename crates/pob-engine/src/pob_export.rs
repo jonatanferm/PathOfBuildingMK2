@@ -45,12 +45,40 @@ pub fn export_pob_xml(character: &Character) -> String {
         msg = character.main_socket_group.max(1),
     );
     out.push_str("    <Tree activeSpec=\"1\">\n");
-    let _ = writeln!(
-        out,
-        "        <Spec masteryEffects=\"\" treeVersion=\"3_25\" classId=\"{cid}\" ascendClassId=\"0\" nodes=\"{nodes}\"/>",
-        cid = class_id,
-        nodes = nodes_str,
-    );
+    if character.tattoo_overrides.is_empty() {
+        let _ = writeln!(
+            out,
+            "        <Spec masteryEffects=\"\" treeVersion=\"3_25\" classId=\"{cid}\" ascendClassId=\"0\" nodes=\"{nodes}\"/>",
+            cid = class_id,
+            nodes = nodes_str,
+        );
+    } else {
+        // Issue #98: tattoos persist via PoB's `<Overrides>` block
+        // inside `<Spec>`. Each override carries a node id + the mod
+        // text lines. We emit a stripped-down version (no icon /
+        // activeEffectImage / dn metadata yet — those are display-only
+        // attributes the calc engine doesn't read; tattoo data
+        // extraction will populate them in slice 2).
+        let _ = writeln!(
+            out,
+            "        <Spec masteryEffects=\"\" treeVersion=\"3_25\" classId=\"{cid}\" ascendClassId=\"0\" nodes=\"{nodes}\">",
+            cid = class_id,
+            nodes = nodes_str,
+        );
+        out.push_str("            <Overrides>\n");
+        let mut entries: Vec<(&pob_data::NodeId, &String)> =
+            character.tattoo_overrides.iter().collect();
+        entries.sort_by_key(|(id, _)| **id);
+        for (node_id, mod_text) in entries {
+            let body = xml_escape(mod_text.trim());
+            let _ = writeln!(
+                out,
+                "                <Override nodeId=\"{node_id}\">{body}</Override>"
+            );
+        }
+        out.push_str("            </Overrides>\n");
+        out.push_str("        </Spec>\n");
+    }
     out.push_str("    </Tree>\n");
     let _ = writeln!(out, "    <Notes>{notes}</Notes>");
     write_items(&mut out, character);

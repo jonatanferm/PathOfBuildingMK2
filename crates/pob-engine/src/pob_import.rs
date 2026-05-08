@@ -112,6 +112,14 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
     let mut socket_group_index: u32 = 0;
     // Config: name/value pairs.
     let mut in_config = false;
+    // Issue #98: tattoos. PoB stores them as `<Spec> <Overrides> <Override
+    // nodeId="…">mod text</Override> </Overrides> </Spec>`. We accumulate
+    // (nodeId, body) pairs here and write them onto `character.tattoo_overrides`
+    // after the parse loop, ignoring blocks under non-active specs.
+    let mut current_override_node_id: Option<u32> = None;
+    let mut current_override_body = String::new();
+    let mut tattoo_overrides_pending: std::collections::HashMap<u32, String> =
+        std::collections::HashMap::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
@@ -171,6 +179,15 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                         current_item_set = Some((id, title, SlotMap::new()));
                     }
                     "Config" => in_config = true,
+                    "Override" => {
+                        // <Override nodeId="…" icon="…" activeEffectImage="…"
+                        // dn="…">mod text lines</Override>. We only need the
+                        // nodeId attribute and the body text for the calc
+                        // pipeline; metadata fields are display-only.
+                        current_override_node_id =
+                            attr_str(&e, "nodeId").and_then(|s| s.parse::<u32>().ok());
+                        current_override_body.clear();
+                    }
                     _ => {}
                 }
                 depth_stack.push(name);
@@ -272,6 +289,12 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                         }
                     }
                     "Config" => in_config = false,
+                    "Override" => {
+                        if let Some(node_id) = current_override_node_id.take() {
+                            let body = std::mem::take(&mut current_override_body);
+                            tattoo_overrides_pending.insert(node_id, body);
+                        }
+                    }
                     _ => {}
                 }
                 depth_stack.pop();
@@ -280,6 +303,13 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                 if in_notes {
                     if let Ok(s) = t.unescape() {
                         notes_collect.push_str(&s);
+                    }
+                } else if current_override_node_id.is_some() {
+                    if let Ok(s) = t.unescape() {
+                        if !current_override_body.is_empty() {
+                            current_override_body.push('\n');
+                        }
+                        current_override_body.push_str(&s);
                     }
                 } else if current_item_id.is_some() {
                     if let Ok(s) = t.unescape() {
@@ -313,6 +343,19 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
 
     if let Some(nodes) = active_spec_pending {
         character.allocated = nodes.into_iter().collect();
+    }
+    // Issue #98: install captured tattoo overrides. PoB strips the
+    // outer XML escaping when reading; we round-trip the body verbatim
+    // so multi-line mod text survives. Empty entries are dropped.
+    if !tattoo_overrides_pending.is_empty() {
+        for (node_id, body) in tattoo_overrides_pending {
+            let trimmed = body.trim();
+            if !trimmed.is_empty() {
+                character
+                    .tattoo_overrides
+                    .insert(node_id, trimmed.to_owned());
+            }
+        }
     }
     // Spec-level class attribute is sometimes a name (`className`) and sometimes a
     // numeric class id (`classId`). Only override the Build-level value when the spec
