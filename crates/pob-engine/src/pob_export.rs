@@ -37,10 +37,11 @@ pub fn export_pob_xml(character: &Character) -> String {
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<PathOfBuilding>\n");
     let _ = writeln!(
         out,
-        "    <Build level=\"{level}\" targetVersion=\"3_0\" className=\"{class}\" ascendClassName=\"{asc}\" mainSocketGroup=\"{msg}\"/>",
+        "    <Build level=\"{level}\" targetVersion=\"3_0\" className=\"{class}\" ascendClassName=\"{asc}\" bandit=\"{bandit}\" mainSocketGroup=\"{msg}\"/>",
         level = character.level.max(1),
         class = class,
         asc = ascendancy,
+        bandit = character.bandit.as_pob_name(),
         msg = character.main_socket_group.max(1),
     );
     out.push_str("    <Tree activeSpec=\"1\">\n");

@@ -1306,6 +1306,63 @@ fn flask_armour_mod_gates_on_using_flask_toggle() {
     );
 }
 
+// Issue #10 (Bandit half): Act 2 reward injects a small package of stats.
+// Each named bandit grants a distinct mod set (Alira: mana regen + crit
+// multi + resists; Kraityn: speed/evasion/dodge; Oak: phys reduction +
+// life regen + life). KillAll is the no-op default — its "+2 passive
+// points" reward is tracked outside the modDB.
+#[test]
+fn bandit_grants_stat_package() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::marauder(), 90);
+
+    // Default (KillAll) baseline — no bandit mods land.
+    assert_eq!(c.bandit, pob_engine::character::Bandit::KillAll);
+    let baseline = compute_with_skills(&c, &tree, None);
+    let baseline_fire = baseline.get("FireResistTotal");
+    let baseline_crit_mult = baseline.get("CritMultiplier");
+    let baseline_life = baseline.get("Life");
+
+    // Alira: +20% Crit Multi, +15 to all Resists.
+    c.bandit = pob_engine::character::Bandit::Alira;
+    let alira = compute_with_skills(&c, &tree, None);
+    assert!(
+        alira.get("FireResistTotal") - baseline_fire > 14.5,
+        "Alira should add +15 to Fire Resist Total (baseline={}, after={})",
+        baseline_fire,
+        alira.get("FireResistTotal")
+    );
+    // CritMultiplier is stored in decimal form (1.5 == 150%); +20 BASE adds 0.2.
+    assert!(
+        (alira.get("CritMultiplier") - baseline_crit_mult - 0.20).abs() < 0.001,
+        "Alira should add +0.20 to CritMultiplier"
+    );
+
+    // Oak: +20 Life (plus regen, plus phys reduction; we just assert life here).
+    c.bandit = pob_engine::character::Bandit::Oak;
+    let oak = compute_with_skills(&c, &tree, None);
+    assert!(
+        oak.get("Life") - baseline_life >= 20.0,
+        "Oak should add at least +20 to Life ({} vs {})",
+        oak.get("Life"),
+        baseline_life
+    );
+
+    // Kraityn: 6% increased Movement Speed lifts the move-speed multiplier.
+    c.bandit = pob_engine::character::Bandit::Kraityn;
+    let kraityn = compute_with_skills(&c, &tree, None);
+    let baseline_move = baseline.get("MovementSpeedMod");
+    let kraityn_move = kraityn.get("MovementSpeedMod");
+    assert!(
+        (kraityn_move - baseline_move - 0.06).abs() < 0.001,
+        "Kraityn should add +0.06 to MovementSpeedMod ({} vs baseline {})",
+        kraityn_move,
+        baseline_move
+    );
+}
+
 #[test]
 fn config_charges_drive_per_charge_mod() {
     let Some(tree) = load_3_25_tree() else {

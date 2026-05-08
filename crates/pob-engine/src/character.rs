@@ -28,6 +28,8 @@ pub struct CharacterSnapshot {
     pub skill_groups: Vec<SocketGroupSnapshot>,
     #[serde(default = "one")]
     pub main_socket_group: u32,
+    #[serde(default)]
+    pub bandit: Bandit,
 }
 
 fn one() -> u32 {
@@ -93,6 +95,7 @@ impl CharacterSnapshot {
                 })
                 .collect(),
             main_socket_group: c.main_socket_group,
+            bandit: c.bandit,
         }
     }
     pub fn into_character(self) -> Character {
@@ -132,6 +135,7 @@ impl CharacterSnapshot {
             config: self.config,
             notes: self.notes,
             mastery_selections: self.mastery_selections.into_iter().collect(),
+            bandit: self.bandit,
         }
     }
 }
@@ -166,6 +170,46 @@ pub struct SocketGroup {
     pub enabled: bool,
 }
 
+/// Act 2 bandit reward — see `Data/Misc.lua` and `CalcSetup.lua` in PoB.
+/// `KillAll` is the default; the other three each grant a small package of
+/// stats. PoB stores this as a string attribute on `<Build bandit="…">`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Bandit {
+    KillAll,
+    Alira,
+    Kraityn,
+    Oak,
+}
+
+impl Default for Bandit {
+    fn default() -> Self {
+        Self::KillAll
+    }
+}
+
+impl Bandit {
+    /// PoB's serialised name on the `<Build bandit="…">` attribute and on
+    /// CharacterSnapshot share codes.
+    pub fn as_pob_name(self) -> &'static str {
+        match self {
+            Self::KillAll => "None",
+            Self::Alira => "Alira",
+            Self::Kraityn => "Kraityn",
+            Self::Oak => "Oak",
+        }
+    }
+
+    pub fn from_pob_name(name: &str) -> Option<Self> {
+        match name {
+            "None" | "Kill All" | "KillAll" | "" => Some(Self::KillAll),
+            "Alira" => Some(Self::Alira),
+            "Kraityn" => Some(Self::Kraityn),
+            "Oak" => Some(Self::Oak),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Character {
     pub class: ClassRef,
@@ -186,6 +230,10 @@ pub struct Character {
     /// `PassiveSpec.masterySelections`. Without an entry, an allocated mastery node
     /// contributes no stats (because the user hasn't picked an effect).
     pub mastery_selections: HashMap<NodeId, u32>,
+    /// Act 2 bandit choice. KillAll grants +2 passive points (tracked
+    /// elsewhere); the named bandits each apply a small reward via
+    /// `apply_bandit_mods` at compute time.
+    pub bandit: Bandit,
 }
 
 /// Encounter / condition configuration. Mirrors PoB's Config tab:
@@ -285,6 +333,7 @@ impl Character {
             config: ConfigState::default_with_enemy(),
             notes: String::new(),
             mastery_selections: HashMap::default(),
+            bandit: Bandit::default(),
         }
     }
 

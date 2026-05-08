@@ -556,6 +556,11 @@ fn handle_start_attrs(
                             character.ascendancy = Some(val);
                         }
                     }
+                    "bandit" => {
+                        if let Some(b) = crate::character::Bandit::from_pob_name(&val) {
+                            character.bandit = b;
+                        }
+                    }
                     "mainSocketGroup" => {
                         if let Ok(n) = val.parse::<u32>() {
                             *main_socket_group = Some(n);

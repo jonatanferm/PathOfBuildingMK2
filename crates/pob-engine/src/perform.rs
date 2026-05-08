@@ -208,7 +208,50 @@ pub fn init_env_with_bases(
         env.state.set_multiplier(k.clone(), *v);
     }
 
+    // 7. Act 2 bandit reward. KillAll grants +2 passive points (counted
+    // against the tree-budget elsewhere); the named bandits inject a small
+    // package of static mods. Mirrors PoB's bandit branch in
+    // `Modules/CalcSetup.lua`.
+    apply_bandit_mods(character.bandit, &mut env.mod_db);
+
     env
+}
+
+/// Inject the static mods awarded by the chosen Act 2 bandit. Numbers come
+/// from `Data/Bandits.lua` (PoE 3.x); `KillAll` is a no-op here because the
+/// "+2 passive points" reward is counted against the tree-budget UI rather
+/// than the modDB.
+fn apply_bandit_mods(bandit: crate::character::Bandit, db: &mut crate::ModDB) {
+    use crate::character::Bandit;
+    let source = Source::Other(format!("Bandit:{}", bandit.as_pob_name()));
+    match bandit {
+        Bandit::KillAll => {}
+        Bandit::Alira => {
+            db.add(Mod::inc("ManaRegen", 15.0).with_source(source.clone()));
+            db.add(Mod::base("CritMultiplier", 20.0).with_source(source.clone()));
+            for stat in [
+                "FireResist",
+                "ColdResist",
+                "LightningResist",
+                "ChaosResist",
+            ] {
+                db.add(Mod::base(stat, 15.0).with_source(source.clone()));
+            }
+        }
+        Bandit::Kraityn => {
+            db.add(Mod::inc("AttackSpeed", 6.0).with_source(source.clone()));
+            db.add(Mod::inc("MovementSpeed", 6.0).with_source(source.clone()));
+            db.add(Mod::inc("Evasion", 8.0).with_source(source.clone()));
+            db.add(Mod::base("AttackDodgeChance", 6.0).with_source(source.clone()));
+        }
+        Bandit::Oak => {
+            db.add(Mod::base("LifeRegenPercent", 1.0).with_source(source.clone()));
+            db.add(
+                Mod::base("PhysicalDamageReduction", 2.0).with_source(source.clone()),
+            );
+            db.add(Mod::base("Life", 20.0).with_source(source.clone()));
+        }
+    }
 }
 
 fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_db::EvalState) {
