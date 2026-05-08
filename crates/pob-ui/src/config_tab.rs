@@ -7,7 +7,7 @@
 //! `recent_event_var`, `strip_if_havent_clause`, "Nearby Enemies are X").
 
 use eframe::egui;
-use pob_engine::character::ConfigState;
+use pob_engine::character::{ConfigState, EnemyBoss};
 
 /// Groups of `(key, label)` condition checkboxes. Group title is the section
 /// label; each item flips `config.conditions[key]`.
@@ -162,6 +162,48 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
             ui.set_min_width(220.0);
             ui.heading("Enemy");
             ui.separator();
+            // Issue #35: Boss preset dropdown. Selecting a preset writes
+            // PoB's canonical resist defaults into the resist sliders so
+            // the user sees what's about to apply; the engine handles
+            // RareOrUnique / PinnacleBoss conditions and AilmentThreshold
+            // MORE in init_env_with_bases. Switching to None keeps
+            // current resists (the user might want to compare).
+            let boss_options: &[(EnemyBoss, &str)] = &[
+                (EnemyBoss::None, "No boss preset"),
+                (EnemyBoss::Boss, "Standard Boss"),
+                (EnemyBoss::Pinnacle, "Pinnacle Boss"),
+                (EnemyBoss::Uber, "Uber Pinnacle Boss"),
+            ];
+            let current_boss_label = boss_options
+                .iter()
+                .find(|(b, _)| *b == state.enemy_boss)
+                .map(|(_, l)| *l)
+                .unwrap_or("No boss preset");
+            egui::ComboBox::from_label("Is the enemy a boss?")
+                .selected_text(current_boss_label)
+                .show_ui(ui, |ui| {
+                    for (option, label) in boss_options {
+                        if ui
+                            .selectable_label(state.enemy_boss == *option, *label)
+                            .clicked()
+                            && state.enemy_boss != *option
+                        {
+                            state.enemy_boss = *option;
+                            // Push canonical resist defaults for non-None
+                            // presets. This matches PoB's "set
+                            // placeholders" behaviour — explicit slider
+                            // moves still override.
+                            if *option != EnemyBoss::None {
+                                let (fr, cr, lr, ch) = option.default_resists();
+                                state.enemy_fire_resist = fr;
+                                state.enemy_cold_resist = cr;
+                                state.enemy_lightning_resist = lr;
+                                state.enemy_chaos_resist = ch;
+                            }
+                            changed = true;
+                        }
+                    }
+                });
             let mut lvl = state.enemy_level as i32;
             if ui
                 .add(egui::Slider::new(&mut lvl, 1..=100).text("Enemy level"))

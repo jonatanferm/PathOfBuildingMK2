@@ -297,6 +297,61 @@ pub struct ConfigState {
     /// Used for what-if testing without editing items / tree.
     #[serde(default)]
     pub custom_mods: String,
+    /// Encounter preset that injects PoB's standard Boss / Pinnacle / Uber
+    /// enemy modifiers (resist defaults, ailment threshold MORE,
+    /// `Condition:RareOrUnique` and `Condition:PinnacleBoss` flags).
+    /// Mirrors PoB's `enemyIsBoss` ConfigOption.
+    #[serde(default)]
+    pub enemy_boss: EnemyBoss,
+}
+
+/// PoB's `enemyIsBoss` four-option preset. The serialised PoB-XML
+/// attribute is "None" / "Boss" / "Pinnacle" / "Uber" — see
+/// `as_pob_name` / `from_pob_name`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EnemyBoss {
+    None,
+    Boss,
+    Pinnacle,
+    Uber,
+}
+
+impl Default for EnemyBoss {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl EnemyBoss {
+    pub fn as_pob_name(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Boss => "Boss",
+            Self::Pinnacle => "Pinnacle",
+            Self::Uber => "Uber",
+        }
+    }
+
+    pub fn from_pob_name(name: &str) -> Option<Self> {
+        match name {
+            "None" | "" => Some(Self::None),
+            "Boss" => Some(Self::Boss),
+            "Pinnacle" => Some(Self::Pinnacle),
+            "Uber" => Some(Self::Uber),
+            _ => None,
+        }
+    }
+
+    /// Default elemental resist (%) the preset implies. PoB's Pinnacle
+    /// boss is 50% all-ele / 30% chaos; Boss is 40 / 25; None is 0.
+    pub fn default_resists(self) -> (i32, i32, i32, i32) {
+        // (fire, cold, lightning, chaos)
+        match self {
+            Self::None => (0, 0, 0, 0),
+            Self::Boss => (40, 40, 40, 25),
+            Self::Pinnacle | Self::Uber => (50, 50, 50, 30),
+        }
+    }
 }
 
 impl ConfigState {

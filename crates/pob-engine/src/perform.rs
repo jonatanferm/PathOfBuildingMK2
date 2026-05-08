@@ -225,6 +225,14 @@ pub fn init_env_with_bases(
     // `Modules/CalcSetup.lua`.
     apply_bandit_mods(character.bandit, &mut env.mod_db);
 
+    // 8. Enemy preset (Boss / Pinnacle / Uber). Sets the
+    // RareOrUnique / PinnacleBoss conditions and the AilmentThreshold MORE
+    // multiplier that PoB's `enemyIsBoss` ConfigOption applies. Defensive
+    // resist defaults are surfaced via the UI (which writes them into
+    // ConfigState directly), not injected here, to keep the user's
+    // explicit overrides intact.
+    apply_enemy_boss_preset(character.config.enemy_boss, &mut env);
+
     env
 }
 
@@ -247,6 +255,32 @@ fn apply_bandit_mods(bandit: crate::character::Bandit, db: &mut crate::ModDB) {
         }
         Bandit::Oak => {
             db.add(Mod::base("Life", 40.0).with_source(source));
+        }
+    }
+}
+
+/// Apply the chosen enemy-boss preset. Mirrors `enemyIsBoss` in
+/// upstream PoB (`Modules/ConfigOptions.lua:2014`), which on selection
+/// emits `Condition:RareOrUnique` (Boss/Pinnacle/Uber) and
+/// `Condition:PinnacleBoss` (Pinnacle/Uber) flags into the enemy mod
+/// list, plus an `AilmentThreshold` MORE multiplier that scales how
+/// much hit damage is needed to apply ailments. The threshold values
+/// match upstream: 488 for standard Boss, 404 for Pinnacle/Uber.
+fn apply_enemy_boss_preset(boss: crate::character::EnemyBoss, env: &mut Env) {
+    use crate::character::EnemyBoss;
+    let source = Source::Other(format!("EnemyBoss:{}", boss.as_pob_name()));
+    match boss {
+        EnemyBoss::None => {}
+        EnemyBoss::Boss => {
+            env.state.set_condition("RareOrUnique", true);
+            env.mod_db
+                .add(Mod::more("AilmentThreshold", 488.0).with_source(source));
+        }
+        EnemyBoss::Pinnacle | EnemyBoss::Uber => {
+            env.state.set_condition("RareOrUnique", true);
+            env.state.set_condition("PinnacleBoss", true);
+            env.mod_db
+                .add(Mod::more("AilmentThreshold", 404.0).with_source(source));
         }
     }
 }
