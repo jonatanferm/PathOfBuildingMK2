@@ -1204,10 +1204,23 @@ fn perform_ehp(env: &mut Env) {
     let spell_block = (env.output.get("SpellBlockChance") / 100.0).clamp(0.0, 1.0);
     let suppress = (env.output.get("SpellSuppressionChance") / 100.0).clamp(0.0, 1.0);
 
-    let fire = (env.output.get("FireResistTotal") / 100.0).clamp(-2.0, 0.95);
-    let cold = (env.output.get("ColdResistTotal") / 100.0).clamp(-2.0, 0.95);
-    let lightning = (env.output.get("LightningResistTotal") / 100.0).clamp(-2.0, 0.95);
-    let chaos = (env.output.get("ChaosResistTotal") / 100.0).clamp(-2.0, 0.95);
+    // Apply enemy penetration to the effective resist before clamping. PoB's
+    // default Pinnacle Boss preset penetrates 3% of elemental resists (no chaos
+    // pen). Pulling these in here lines up MaxHitTaken with PoB's iterative
+    // solver to within rounding (690 in PoB; ~690 here).
+    // Hit calculations (MaxHitTaken, EHP) account for enemy pen; DoT EHP does not.
+    const FIRE_PEN: f64 = 0.03;
+    const COLD_PEN: f64 = 0.03;
+    const LIGHTNING_PEN: f64 = 0.03;
+    const CHAOS_PEN: f64 = 0.0;
+    let fire_raw = (env.output.get("FireResistTotal") / 100.0).clamp(-2.0, 0.95);
+    let cold_raw = (env.output.get("ColdResistTotal") / 100.0).clamp(-2.0, 0.95);
+    let lightning_raw = (env.output.get("LightningResistTotal") / 100.0).clamp(-2.0, 0.95);
+    let chaos_raw = (env.output.get("ChaosResistTotal") / 100.0).clamp(-2.0, 0.95);
+    let fire = (fire_raw - FIRE_PEN).clamp(-2.0, 0.95);
+    let cold = (cold_raw - COLD_PEN).clamp(-2.0, 0.95);
+    let lightning = (lightning_raw - LIGHTNING_PEN).clamp(-2.0, 0.95);
+    let chaos = (chaos_raw - CHAOS_PEN).clamp(-2.0, 0.95);
 
     // Damage-taken multipliers per element.
     let phys_taken = (1.0 - phys_red) * (1.0 - block);
@@ -1266,13 +1279,19 @@ fn perform_ehp(env: &mut Env) {
     env.output.set("sharedManaEffectiveLife", mom_hit_pool);
     env.output.set("sharedMoMHitPool", mom_hit_pool);
 
-    // DoT EHP per element. Phase 2: same as the hit-EHP because we don't yet
-    // separate DoT-specific defences. PoB names these `*DotEHP`.
-    env.output.set("PhysicalDotEHP", phys_ehp);
-    env.output.set("FireDotEHP", fire_ehp);
-    env.output.set("ColdDotEHP", cold_ehp);
-    env.output.set("LightningDotEHP", lightning_ehp);
-    env.output.set("ChaosDotEHP", chaos_ehp);
+    // DoT EHP per element. Same shape as hit-EHP but DoT damage doesn't go
+    // through the enemy-pen step (or block / suppression), so the taken multi
+    // is just `(1 - resist)`.
+    let fire_dot_taken = (1.0 - fire_raw).max(0.05);
+    let cold_dot_taken = (1.0 - cold_raw).max(0.05);
+    let lightning_dot_taken = (1.0 - lightning_raw).max(0.05);
+    let chaos_dot_taken = (1.0 - chaos_raw).max(0.05);
+    let phys_dot_taken = (1.0 - phys_red).max(0.05);
+    env.output.set("PhysicalDotEHP", pool / phys_dot_taken);
+    env.output.set("FireDotEHP", pool / fire_dot_taken);
+    env.output.set("ColdDotEHP", pool / cold_dot_taken);
+    env.output.set("LightningDotEHP", pool / lightning_dot_taken);
+    env.output.set("ChaosDotEHP", pool / chaos_dot_taken);
 
     // Maximum-hit-taken — pool divided by the damage-taken multiplier for that
     // damage type. PoB applies the same multipliers we use for EHP, so
