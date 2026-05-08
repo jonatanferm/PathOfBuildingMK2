@@ -435,6 +435,14 @@ pub struct ConfigState {
     /// Mirrors PoB's `enemyIsBoss` ConfigOption.
     #[serde(default)]
     pub enemy_boss: EnemyBoss,
+    /// "Enemies hit by AoE" — for shotgun-overlap skills like Earthquake,
+    /// Tectonic Slam, or Vaal Ground Slam, the player can hit a single
+    /// enemy more than once per cast. PoB exposes this as a Config-tab
+    /// slider (default 1). The engine multiplies the per-cast hit
+    /// average for AoE-tagged skills by this value. 0 / 1 = single hit;
+    /// higher values stack overlapping AoE hits on the same target.
+    #[serde(default)]
+    pub enemies_hit_by_aoe: u32,
 }
 
 /// PoB's `enemyIsBoss` four-option preset. The serialised PoB-XML
