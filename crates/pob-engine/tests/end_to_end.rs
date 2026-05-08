@@ -457,6 +457,53 @@ fn dual_wielding_averages_dps_across_per_hand_passes() {
         (main_dps - expected_avg).abs() < 0.01,
         "MainSkillDPS should equal (Weapon1DPS + Weapon2DPS) / 2; got {main_dps} vs {expected_avg}"
     );
+
+    // Issue #74: per-hand hit-average / hit-chance / full-DPS outputs
+    // for the Calcs tab. Skills like Cleave / Reave / Frenzy strike
+    // with one hand per repetition, so the per-hand pre-averaging
+    // values are the right thing to display alongside MainSkillDPS.
+    assert!(
+        dual.get("Weapon1AverageHit") > 0.0,
+        "dual-wielding should emit positive Weapon1AverageHit"
+    );
+    assert!(
+        dual.get("Weapon2AverageHit") > 0.0,
+        "dual-wielding should emit positive Weapon2AverageHit"
+    );
+    let main_avg = dual.get("MainSkillAverageHit");
+    let expected_avg_hit = (dual.get("Weapon1AverageHit") + dual.get("Weapon2AverageHit")) / 2.0;
+    assert!(
+        (main_avg - expected_avg_hit).abs() < 0.01,
+        "MainSkillAverageHit should equal (Weapon1AverageHit + Weapon2AverageHit) / 2"
+    );
+    // Hit chance + full DPS per hand are also exposed.
+    assert!(
+        dual.get("Weapon1HitChance") > 0.0,
+        "dual-wielding should emit Weapon1HitChance"
+    );
+    assert!(
+        dual.get("Weapon2HitChance") > 0.0,
+        "dual-wielding should emit Weapon2HitChance"
+    );
+    assert!(
+        dual.get("Weapon1FullDPS") > 0.0,
+        "dual-wielding should emit Weapon1FullDPS"
+    );
+    assert!(
+        dual.get("Weapon2FullDPS") > 0.0,
+        "dual-wielding should emit Weapon2FullDPS"
+    );
+    // Single-weapon builds must not emit any of the per-hand keys.
+    assert_eq!(
+        single.try_get("Weapon1AverageHit"),
+        None,
+        "single-weapon builds must not emit Weapon1AverageHit"
+    );
+    assert_eq!(
+        single.try_get("Weapon2HitChance"),
+        None,
+        "single-weapon builds must not emit Weapon2HitChance"
+    );
 }
 
 #[test]

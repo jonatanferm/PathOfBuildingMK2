@@ -108,9 +108,19 @@ fn perform_dual_wield_skill_dps(character: &Character, reg: &SkillRegistry, env:
     env.state.set_condition("SlotName:Weapon 1", main_was);
     env.state.set_condition("SlotName:Weapon 2", off_was);
 
-    // Average the headline keys and emit per-hand breakdowns.
+    // Average the headline keys and emit per-hand breakdowns. Issue
+    // #74 added the per-hand hit-average / hit-chance / full-DPS keys
+    // so the Calcs tab can show the alternation explicitly — Cleave /
+    // Reave / Frenzy etc. strike with one hand per repetition, so the
+    // per-hand pre-averaging values are the right thing to display.
     env.output.set("Weapon1DPS", weapon1_dps);
     env.output.set("Weapon2DPS", weapon2_dps);
+    env.output.set("Weapon1AverageHit", weapon1_avg_hit);
+    env.output.set("Weapon2AverageHit", weapon2_avg_hit);
+    env.output.set("Weapon1HitChance", weapon1_hit_chance);
+    env.output.set("Weapon2HitChance", weapon2_hit_chance);
+    env.output.set("Weapon1FullDPS", weapon1_full_dps);
+    env.output.set("Weapon2FullDPS", weapon2_full_dps);
     env.output.set("MainSkillDPS", (weapon1_dps + weapon2_dps) / 2.0);
     env.output.set("MainSkillAverageHit", (weapon1_avg_hit + weapon2_avg_hit) / 2.0);
     env.output.set("MainSkillHitChance", (weapon1_hit_chance + weapon2_hit_chance) / 2.0);
