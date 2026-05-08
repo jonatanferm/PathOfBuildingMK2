@@ -404,7 +404,8 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
     ui.heading("Custom Modifiers");
     ui.label(
         "One PoB-style mod line per row (e.g. `+50 to Strength`, `100% increased Fire Damage`). \
-         Unparseable lines are silently skipped.",
+         Unparseable lines are highlighted below — fix or remove them so the engine can apply \
+         the rest.",
     );
     let response = ui.add(
         egui::TextEdit::multiline(&mut state.custom_mods)
@@ -418,25 +419,53 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
     }
     // Surface a quick parse-status summary so users can spot bad lines
     // without leaving the tab. Each line is checked through the same
-    // `parse_mod_line` the engine uses at perform time.
-    let total = state
-        .custom_mods
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .count();
+    // `parse_mod_line` the engine uses at perform time. Issue #28
+    // closes the "inline parse error" acceptance criterion: when at
+    // least one line fails we list the first few offending lines
+    // (with line numbers) so the user can fix them in place instead
+    // of guessing which row is the problem.
+    let mut total = 0usize;
+    let mut failing: Vec<(usize, String)> = Vec::new();
+    for (idx, raw_line) in state.custom_mods.lines().enumerate() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        total += 1;
+        if pob_engine::mod_parser::parse_mod_line(trimmed).is_none() {
+            failing.push((idx + 1, trimmed.to_owned()));
+        }
+    }
     if total > 0 {
-        let parsed = state
-            .custom_mods
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter(|l| pob_engine::mod_parser::parse_mod_line(l.trim()).is_some())
-            .count();
-        let color = if parsed == total {
+        let parsed = total - failing.len();
+        let color = if failing.is_empty() {
             egui::Color32::from_rgb(0x33, 0xFF, 0x77)
         } else {
             egui::Color32::from_rgb(0xFF, 0x99, 0x22)
         };
         ui.colored_label(color, format!("{parsed} / {total} lines parse"));
+        // List up to 3 failing lines verbatim — enough to guide the
+        // user without flooding the panel when they paste a 50-line
+        // chunk of garbage. The remainder collapses to a "+N more"
+        // hint.
+        const MAX_FAILED_SHOWN: usize = 3;
+        for (line_no, body) in failing.iter().take(MAX_FAILED_SHOWN) {
+            ui.colored_label(
+                egui::Color32::from_rgb(0xFF, 0x99, 0x22),
+                format!("  L{line_no}: {body}"),
+            );
+        }
+        if failing.len() > MAX_FAILED_SHOWN {
+            ui.weak(format!(
+                "  …+{} more failing line{}",
+                failing.len() - MAX_FAILED_SHOWN,
+                if failing.len() - MAX_FAILED_SHOWN == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
+        }
     }
 
     changed
