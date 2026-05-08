@@ -115,26 +115,30 @@ consumers come online they replace Misc: keys with real calc paths.
 
 ## What's next
 
-In rough priority order:
+Closed since the previous status snapshot:
 
-1. **Slot-conditional item mods**: items currently apply unconditionally. PoB filters
-   "while using a shield" mods to slots that match the body. Fix: emit `SlotName` /
-   `SocketedIn` tags from the item-paste parser; the engine already supports them in
-   `eval_mod`.
-2. **POB-format export**: we read PoB XML but write only MK2. Adding XML write means
-   round-tripping back to PoB, which a lot of users will want.
-3. **More accurate ailment DPS**: poison stacking, ignite chance, ailment scaling
-   damage, faster ailment damage, ailment magnitude. PoB's CalcOffence has thousands of
-   lines for this; we have a rough single-stack model today.
-4. **More parser coverage** to ~70%: the remaining unparsed tree lines are mostly
-   conditional / weapon-class / chance-to forms. Each expansion is small and well-
-   isolated.
-5. **Validation harness driven by live PoB**: hardcoded reference values are useful as
-   regression detectors, but the right shape is to run PoB headless under Lua, drive a
-   build through both engines, and diff `env.player.output`. Most of the substrate is
-   already there (mlua + sandbox in `pob-extract`).
-6. **Wgpu custom paint for the tree** if profiling reveals it. Currently 2.2ms per
-   compute pass on the full tree (in release), well under a 60Hz frame budget.
+- Slot-conditional item mods, ascendancy 8-point cap, PoB XML export
+  round-trip, ailment DPS overhaul (faster-* + EnemyMoving + AdditionalPoisonChance
+  + PoisonStackLimit), paren-range averaging, `unless` clause parsing,
+  CurseEffect / AuraEffect outgoing scaling, wgpu tree renderer.
+
+Still open (in rough priority):
+
+1. **Per-skill chain damage averaging** (Arc-style "+15% MORE damage per chain
+   remaining"): currently dropped from the average hit because applying the full
+   bonus overshoots — needs an iterative chain-count average.
+2. **Skill DPS missing AoE/projectile/enemy-armour mitigation**: we land hit + ailment
+   per-target but don't model AoE rolloff, projectile chain/pierce variance, or enemy
+   armour absorbing physical hits.
+3. **Defender block / dodge / suppression from the player perspective**: PoB walks
+   these in CalcOffence; we don't yet apply them when computing outgoing DPS against
+   bossy targets.
+4. **Per-weapon active-hand calc loop**: items now carry `SlotName` tags but the calc
+   layer doesn't yet evaluate the main skill once per active weapon and average the
+   results — needed for accurate dual-wield DPS.
+5. **Live `pob_diff` ailment baselines in CI**: a reference build exists
+   (`marauder_l90_bleeding_cleave.xml`), but locking PoB-vs-engine deltas behind a
+   regression test still requires running pob_diff in the test environment.
 
 ## Build commands cheat sheet
 

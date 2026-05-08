@@ -175,9 +175,10 @@ Closed in this phase:
 - Side panel grew a per-element defence section showing per-damage-type
   EHP and MaxHitTaken numbers.
 
-### Tree rendering uses egui shapes, not wgpu — Phase 4a (open)
+### Tree rendering uses egui shapes, not wgpu — Phase 4a (closed in 8a/8b)
 
-Performance is fine at typical zooms (~3000 nodes, sub-millisecond paint), but egui's
-fixed-vertex pipeline allocates more per frame than necessary. A wgpu custom paint
-callback would let us upload the static tree geometry once and only update colours on
-allocation change. Optimisation; not correctness.
+Closed: `crates/pob-ui/src/tree_renderer.rs` runs two wgpu pipelines (`tree_nodes.wgsl`
+SDF circles + `tree_edges.wgsl` thin-quad strips) behind egui_wgpu paint callbacks. Per
+frame `tree_view::ui` builds two instance vectors (~3000 nodes + ~2000 edges), the
+prepare hook uploads them, paint issues two instanced draws. State (allocated, search,
+hover, path-overlay) rides the per-instance state byte. Hit-testing stays CPU-side.
