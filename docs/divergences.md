@@ -9,12 +9,12 @@ phase that should fix it.
 
 ## Modifier system
 
-### Range mod values collapse to min — Phase 3a (open)
+### Range mod values collapse to min — Phase 3a (closed in 7a)
 
-`+(20-30) to Strength` parses as `+20 Base Strength`. PoB uses the average of the range
-when displaying a non-itemised stat (e.g. on a passive node) and the rolled value
-otherwise. Targeted fix: `ModValue::Range` is already first-class; surface min/avg/max
-in `eval_mod` so the calc layer uses the average for tree mods.
+Closed: `consume_number` now returns the average of the bounds for `(a-b)` paren-range
+forms, so `+(20-30) to Strength` evaluates to +25 — matching PoB's display semantic for
+non-itemised stats. The `Adds N to M Damage` form still emits `ModValue::Range { min, max }`
+so range-aware consumers (the hit-damage calc) keep both bounds.
 
 ### Per-X scaling on parser-produced mods drops the multiplier — Phase 3a (closed)
 

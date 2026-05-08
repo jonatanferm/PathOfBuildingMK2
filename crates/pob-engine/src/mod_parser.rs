@@ -8,7 +8,8 @@
 //!   `Chaos`, `Physical`, `Elemental`, `Projectile`, `Spell`, `Attack`, `Area`, `Bow`, `Sword`,
 //!   `Mace`, `Axe`, `Claw`, `Dagger`, `Staff`, `Wand`, `Two Handed`, `One Handed`.
 //! - `Regenerate N <Pool> per second` (Base) / `Regenerate N% of <Pool> per second` (Inc on regen-rate stat)
-//! - Range mods (`+(20-30) to Strength`) — collapse to *min*. Phase 4 will keep both bounds.
+//! - Range mods (`+(20-30) to Strength`) — collapse to the *average* of the bounds
+//!   (matches PoB's display semantic for non-itemised stats).
 //! - Trailing `with Ailments`, `to Spells`, `to Attacks` (sets keyword/mod flags).
 //! - Leading `Minions deal` / `Minions have` (sets a "minion" namespace prefix on the
 //!   stat name — calc layer routes minion mods to a different ModDB).
@@ -2569,9 +2570,13 @@ fn consume_number(s: &str) -> Option<(f64, &str)> {
     if let Some(rest) = s.strip_prefix('(') {
         let (a, rest) = consume_simple_number(rest)?;
         let rest = rest.strip_prefix('-')?;
-        let (_b, rest) = consume_simple_number(rest)?;
+        let (b, rest) = consume_simple_number(rest)?;
         let rest = rest.strip_prefix(')')?;
-        return Some((a, rest));
+        // PoB displays a non-itemised paren-range value as the average of the
+        // bounds (e.g. `+(20-30) to Strength` on a tree node shows as +25). The
+        // Range-aware `Adds N to M Damage` form has its own ModValue::Range path
+        // at the call site below; this helper is for the bare `+(20-30)` shape.
+        return Some(((a + b) * 0.5, rest));
     }
     consume_simple_number(s)
 }
@@ -3271,6 +3276,22 @@ mod tests {
         let m = parse("Damaging Ailments deal damage 15% faster");
         assert_eq!(m.name, "DamagingAilmentsFaster");
         assert_eq!(m.kind, ModType::Inc);
+    }
+
+    #[test]
+    fn paren_range_value_uses_average() {
+        // PoB tree nodes display `+(20-30) to Strength` as +25; mirror that.
+        let m = parse("+(20-30) to Strength");
+        assert_eq!(m.name, "Strength");
+        assert_eq!(m.kind, ModType::Base);
+        assert_eq!(m.value.as_f64(), Some(25.0));
+    }
+
+    #[test]
+    fn paren_range_value_uses_average_for_resistances() {
+        let m = parse("+(10-20)% to Fire Resistance");
+        assert_eq!(m.name, "FireResist");
+        assert_eq!(m.value.as_f64(), Some(15.0));
     }
 
     #[test]
