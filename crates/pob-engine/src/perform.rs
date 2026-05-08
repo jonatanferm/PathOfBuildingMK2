@@ -579,6 +579,19 @@ fn perform_enemy_damage_sim(env: &mut Env, character: &Character) {
 /// return the set of allocations that are actually reachable. Mirrors PoB's
 /// rule that a node only contributes if it sits on a connected path from the
 /// character's class root.
+///
+/// When the character has picked an ascendancy class, this also seeds the BFS
+/// from that ascendancy's start node (the synthetic `AscendancyStart` node
+/// whose `ascendancy_name` matches the picked class) so allocated ascendancy
+/// nodes from the matching tree are credited. PoB allocates the ascendancy
+/// start automatically on pick (`PassiveSpec:SelectAscendClass`); we mirror it.
+///
+/// Ascendancy nodes that don't match the picked class are stripped from the
+/// final effective set. This catches both "no ascendancy picked" (all
+/// ascendancy nodes filtered) and "ascendancy nodes from a different tree
+/// allocated" (filtered by name). The traversal itself is unrestricted so
+/// existing tests that allocate paths via cross-class ascendancy bridges
+/// keep finding their non-ascendancy targets.
 fn connected_allocations(
     character: &Character,
     tree: &PassiveTree,
@@ -600,7 +613,7 @@ fn connected_allocations(
     };
     let class_idx = class_idx as u32;
     // Find class-start node ID(s).
-    let starts: Vec<pob_data::NodeId> = tree
+    let mut starts: Vec<pob_data::NodeId> = tree
         .nodes
         .iter()
         .filter_map(|(id, node)| {
@@ -613,6 +626,21 @@ fn connected_allocations(
         .collect();
     if starts.is_empty() {
         return character.allocated.iter().copied().collect();
+    }
+
+    // Seed the BFS from the ascendancy start as well (when picked). Match by
+    // ascendancy name, case-insensitively, against the AscendancyStart kind.
+    let picked_asc = character.ascendancy.as_deref();
+    if let Some(picked) = picked_asc {
+        if let Some((id, _)) = tree.nodes.iter().find(|(_, n)| {
+            matches!(n.kind, pob_data::NodeKind::AscendancyStart)
+                && n.ascendancy_name
+                    .as_deref()
+                    .map(|s| s.eq_ignore_ascii_case(picked))
+                    .unwrap_or(false)
+        }) {
+            starts.push(*id);
+        }
     }
 
     let allocated: ahash::AHashSet<_> = character.allocated.iter().copied().collect();
@@ -630,12 +658,24 @@ fn connected_allocations(
             }
         }
     }
-    // The class-start nodes themselves are visited but should not contribute
-    // mods (they're synthetic). Strip them.
+    // The class-start and ascendancy-start nodes themselves are visited but
+    // should not contribute mods (they're synthetic). Also strip any
+    // ascendancy nodes whose tree doesn't match the picked ascendancy: an
+    // unpicked Ascendant tree still appears as a graph bridge between class
+    // areas, but allocating its nodes shouldn't credit Ascendant mods.
     effective.retain(|id| {
-        tree.nodes
-            .get(id)
-            .map_or(false, |n| n.class_start_index.is_none())
+        let Some(n) = tree.nodes.get(id) else { return false };
+        if n.class_start_index.is_some() {
+            return false;
+        }
+        if matches!(n.kind, pob_data::NodeKind::AscendancyStart) {
+            return false;
+        }
+        if let Some(asc_name) = n.ascendancy_name.as_deref() {
+            // Allocated ascendancy node — only keep if it matches the picked one.
+            return picked_asc.map_or(false, |p| p.eq_ignore_ascii_case(asc_name));
+        }
+        true
     });
     effective
 }
