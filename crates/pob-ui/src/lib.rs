@@ -59,6 +59,11 @@ struct LoadedApp {
     notes_state: notes_tab::NotesTabState,
     skills: SkillRegistry,
     bases: Option<pob_data::bases::ItemBaseSet>,
+    /// Issue #110: cached sprite metadata so the per-frame class
+    /// portrait gating can call `tree_view.set_active_class` on
+    /// class changes without re-reading `sprite_atlases.json` from
+    /// disk each time.
+    sprites: Option<pob_data::sprites::SpriteSet>,
     /// Path of the currently-open build file, if any. Used by Save vs Save As.
     current_build_path: Option<std::path::PathBuf>,
     status_message: Option<(StatusKind, String)>,
@@ -189,8 +194,13 @@ impl PobApp {
         let skills = SkillRegistry::from_files(skill_sets);
 
         let sprites = load_sprite_metadata();
-        let tree_view = TreeView::new(&tree, sprites.as_ref());
+        let mut tree_view = TreeView::new(&tree, sprites.as_ref());
         let character = Character::new(ClassRef::marauder(), 1);
+        // Issue #110: gate the class portrait sprites on the active
+        // class up-front so the initial render shows only the
+        // Marauder portrait (other six fall back to the inactive
+        // background).
+        tree_view.set_active_class(Some(&character.class.0), &tree, sprites.as_ref());
         let (output, env) =
             pob_engine::compute_full_with_env(&character, &tree, Some(&skills), bases.as_ref());
 
@@ -212,6 +222,7 @@ impl PobApp {
             notes_state: notes_tab::NotesTabState::default(),
             skills,
             bases,
+            sprites,
             current_build_path: None,
             status_message: None,
             tree_versions,
@@ -237,8 +248,9 @@ impl PobApp {
         let bases = pob_data::load_bases(bases_json).ok();
         let skills = SkillRegistry::default();
         let sprites = load_sprite_metadata();
-        let tree_view = TreeView::new(&tree, sprites.as_ref());
+        let mut tree_view = TreeView::new(&tree, sprites.as_ref());
         let character = Character::new(ClassRef::marauder(), 1);
+        tree_view.set_active_class(Some(&character.class.0), &tree, sprites.as_ref());
         let (output, env) =
             pob_engine::compute_full_with_env(&character, &tree, Some(&skills), bases.as_ref());
         Ok(LoadedApp {
@@ -259,6 +271,7 @@ impl PobApp {
             notes_state: notes_tab::NotesTabState::default(),
             skills,
             bases,
+            sprites,
             current_build_path: None,
             status_message: None,
             tree_versions: vec!["3_25".to_owned()],
@@ -1041,6 +1054,15 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         app.output = output;
         app.last_env = Some(env);
     }
+    // Issue #110: re-gate the class portrait sprites whenever the
+    // active class might have changed. `set_active_class` is a no-op
+    // when the class index hasn't actually changed since the last
+    // call, so calling it every frame is cheap.
+    app.tree_view.set_active_class(
+        Some(&app.character.class.0),
+        &app.tree,
+        app.sprites.as_ref(),
+    );
     // Issue #100: track dirty state relative to what's currently on
     // disk. When the recomputed input hash diverges from the
     // last-saved hash, mark the build dirty (unless we already are);

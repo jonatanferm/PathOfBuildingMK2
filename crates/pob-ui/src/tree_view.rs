@@ -34,6 +34,10 @@ pub struct TreeView {
     icon_uvs: HashMap<NodeId, [f32; 4]>,
     /// Pre-computed `GroupInstance`s for the cluster halos.
     group_instances: Vec<GroupInstance>,
+    /// Issue #110: class-start portrait gating. Cached so we can
+    /// detect a class change in `set_active_class` without re-running
+    /// the costly `compute_group_instances` walk every frame.
+    active_class_index: Option<u32>,
     /// Frame UV rects per kind × state. Indexed [kind][state]: kind is one
     /// of Normal/Notable/Keystone/JewelSocket; state is 0=Unallocated,
     /// 1=CanAllocate, 2=Allocated. Each entry carries the atlas-relative UV
@@ -59,10 +63,11 @@ impl TreeView {
             zoom: 0.06,
             positions: compute_node_positions(tree),
             icon_uvs: compute_icon_uvs(tree, sprites),
-            group_instances: compute_group_instances(tree, sprites),
+            group_instances: compute_group_instances(tree, sprites, None),
             frame_table: compute_frame_table(sprites),
             search_matches: ahash::HashSet::default(),
             path_overlay: Vec::new(),
+            active_class_index: None,
         }
     }
 
@@ -82,6 +87,26 @@ impl TreeView {
         // re-key the icon-uv table by NodeId. New tree versions would need a
         // matching sprite set — until then keep the existing mapping (icons
         // for missing nodes simply render as flat colours).
+    }
+
+    /// Issue #110: gate the class-portrait sprites on the player's
+    /// allocated class. Each non-allocated class start gets the
+    /// `PSStartNodeBackgroundInactive` background instead of its
+    /// dedicated portrait. Pass `None` for "no class selected" to
+    /// suppress every portrait. No-op when the index hasn't changed
+    /// since the last call.
+    pub fn set_active_class(
+        &mut self,
+        class_name: Option<&str>,
+        tree: &PassiveTree,
+        sprites: Option<&pob_data::sprites::SpriteSet>,
+    ) {
+        let next = class_name.and_then(class_name_to_start_index);
+        if next == self.active_class_index {
+            return;
+        }
+        self.active_class_index = next;
+        self.group_instances = compute_group_instances(tree, sprites, next);
     }
 
     /// Render the tree. Returns `(hovered, clicked)` node ids.
@@ -423,6 +448,23 @@ impl TreeView {
     }
 }
 
+/// Map a class name (e.g. "Witch", "Marauder") to its canonical
+/// `class_start_index` per the PoE convention used in tree node data.
+/// Indices are stable across tree versions: 0=Scion, 1=Marauder,
+/// 2=Ranger, 3=Witch, 4=Duelist, 5=Templar, 6=Shadow.
+fn class_name_to_start_index(name: &str) -> Option<u32> {
+    Some(match name {
+        "Scion" => 0,
+        "Marauder" => 1,
+        "Ranger" => 2,
+        "Witch" => 3,
+        "Duelist" => 4,
+        "Templar" => 5,
+        "Shadow" => 6,
+        _ => return None,
+    })
+}
+
 /// Build a `GroupInstance` per non-proxy group: pick the right
 /// `PSGroupBackground{1,2,3}` sprite based on the group's largest orbit
 /// (mirrors PoB's `if group.oo[3] then PSGroupBackground3 ...` ladder), and
@@ -431,6 +473,7 @@ impl TreeView {
 fn compute_group_instances(
     tree: &PassiveTree,
     sprites: Option<&pob_data::sprites::SpriteSet>,
+    active_class_index: Option<u32>,
 ) -> Vec<GroupInstance> {
     let mut out = Vec::new();
     let Some(sprites) = sprites else { return out };
@@ -509,10 +552,18 @@ fn compute_group_instances(
         let Some(idx) = node.class_start_index else {
             continue;
         };
-        let key = CLASS_CENTER_KEYS
-            .get(idx as usize)
-            .copied()
-            .unwrap_or("PSStartNodeBackgroundInactive");
+        // Issue #110: only the allocated class shows its dedicated
+        // portrait. The other six start nodes get the inactive
+        // background sprite — matching upstream PoB. Passing `None`
+        // for `active_class_index` falls back to the inactive
+        // background for every class (initial scratch build state).
+        let key = match active_class_index {
+            Some(active) if active == idx => CLASS_CENTER_KEYS
+                .get(idx as usize)
+                .copied()
+                .unwrap_or("PSStartNodeBackgroundInactive"),
+            _ => "PSStartNodeBackgroundInactive",
+        };
         let Some(rect) = cat.coords.get(key) else {
             continue;
         };
@@ -705,4 +756,27 @@ fn try_classify_arc(
         state,
         _pad: [0; 2],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::class_name_to_start_index;
+
+    #[test]
+    fn class_name_maps_to_pob_canonical_index() {
+        // Indices are stable PoE convention: 0..6 in this exact order.
+        assert_eq!(class_name_to_start_index("Scion"), Some(0));
+        assert_eq!(class_name_to_start_index("Marauder"), Some(1));
+        assert_eq!(class_name_to_start_index("Ranger"), Some(2));
+        assert_eq!(class_name_to_start_index("Witch"), Some(3));
+        assert_eq!(class_name_to_start_index("Duelist"), Some(4));
+        assert_eq!(class_name_to_start_index("Templar"), Some(5));
+        assert_eq!(class_name_to_start_index("Shadow"), Some(6));
+        // Unknown / lowercase / empty all collapse to None so the
+        // tree view falls back to the inactive background sprite for
+        // every class start.
+        assert_eq!(class_name_to_start_index(""), None);
+        assert_eq!(class_name_to_start_index("witch"), None);
+        assert_eq!(class_name_to_start_index("Necromancer"), None);
+    }
 }
