@@ -1013,6 +1013,59 @@ fn arc_chain_remaining_is_full_chain_count_by_default() {
     );
 }
 
+// Issue #4: PoB multiplies AverageDamage by `(1 - block/100) × (1 - dodge/100)`
+// for hit damage, plus a `(1 - suppress/100 × 0.5)` factor on spells.
+// MK2 mirrors that here. This test exercises a witch + Arc spell to verify
+// the spell-suppress factor lands and an attack to verify block/dodge.
+#[test]
+fn enemy_block_dodge_suppress_reduce_dps() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        return;
+    };
+
+    // Spell: Arc on a bare witch. Suppression should halve the impact of the
+    // suppress chance (50% suppress -> 25% damage reduction).
+    let mut witch = Character::new(ClassRef::witch(), 90);
+    witch.main_skill = Some(MainSkill::new("Arc"));
+    let baseline = compute_with_skills(&witch, &tree, Some(&skills));
+    let baseline_dps = baseline.get("MainSkillDPS");
+    assert!(baseline_dps > 0.0, "Arc baseline should produce non-zero DPS");
+
+    witch.config.enemy_suppression_chance = 50;
+    let suppressed = compute_with_skills(&witch, &tree, Some(&skills));
+    let suppressed_dps = suppressed.get("MainSkillDPS");
+    let ratio = suppressed_dps / baseline_dps;
+    assert!(
+        (ratio - 0.75).abs() < 0.001,
+        "Spell suppression at 50% should leave 75% of DPS; ratio={ratio}"
+    );
+
+    witch.config.enemy_suppression_chance = 0;
+    witch.config.enemy_block_chance = 50;
+    let blocked = compute_with_skills(&witch, &tree, Some(&skills));
+    let blocked_dps = blocked.get("MainSkillDPS");
+    let block_ratio = blocked_dps / baseline_dps;
+    assert!(
+        (block_ratio - 0.5).abs() < 0.001,
+        "50% enemy block should halve spell DPS; ratio={block_ratio}"
+    );
+
+    witch.config.enemy_block_chance = 50;
+    witch.config.enemy_dodge_chance = 30;
+    let combined = compute_with_skills(&witch, &tree, Some(&skills));
+    let combined_dps = combined.get("MainSkillDPS");
+    let combined_ratio = combined_dps / baseline_dps;
+    let expected = 0.5 * 0.7;
+    assert!(
+        (combined_ratio - expected).abs() < 0.001,
+        "Block 50% × dodge 30% should leave {expected} of DPS; ratio={combined_ratio}"
+    );
+
+    // Output keys land for the Calcs tab.
+    assert_eq!(combined.get("EnemyBlockChance"), 50.0);
+    assert_eq!(combined.get("EnemyDodgeChance"), 30.0);
+}
+
 #[test]
 fn config_charges_drive_per_charge_mod() {
     let Some(tree) = load_3_25_tree() else {

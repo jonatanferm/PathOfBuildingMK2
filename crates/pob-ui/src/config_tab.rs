@@ -185,6 +185,30 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
                 state.enemy_evasion = ev.max(0) as u32;
                 changed = true;
             }
+            let mut block = state.enemy_block_chance as i32;
+            if ui
+                .add(egui::Slider::new(&mut block, 0..=75).text("Enemy block (%)"))
+                .changed()
+            {
+                state.enemy_block_chance = block.max(0) as u32;
+                changed = true;
+            }
+            let mut dodge = state.enemy_dodge_chance as i32;
+            if ui
+                .add(egui::Slider::new(&mut dodge, 0..=75).text("Enemy dodge (%)"))
+                .changed()
+            {
+                state.enemy_dodge_chance = dodge.max(0) as u32;
+                changed = true;
+            }
+            let mut sup = state.enemy_suppression_chance as i32;
+            if ui
+                .add(egui::Slider::new(&mut sup, 0..=100).text("Enemy spell suppression (%)"))
+                .changed()
+            {
+                state.enemy_suppression_chance = sup.max(0) as u32;
+                changed = true;
+            }
         });
 
         ui.separator();

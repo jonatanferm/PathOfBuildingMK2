@@ -201,6 +201,16 @@ pub struct ConfigState {
     /// iLvl-84 monster — matches PoB's standard map mob.
     #[serde(default)]
     pub enemy_evasion: u32,
+    /// Defender-side avoidance against the player's hits. Each value is the
+    /// percentage chance the enemy avoids/halves the hit. Mirrors PoB's
+    /// `enemyBlockChance`, `enemyDodgeChance`, and `enemySuppressionChance`
+    /// config inputs from the Enemy section of the Config tab.
+    #[serde(default)]
+    pub enemy_block_chance: u32,
+    #[serde(default)]
+    pub enemy_dodge_chance: u32,
+    #[serde(default)]
+    pub enemy_suppression_chance: u32,
     /// Player-side condition toggles (`FullLife`, `LowLife`, …) — applied to
     /// `EvalState.conditions` at perform time so tagged mods activate.
     pub conditions: HashMap<String, bool>,

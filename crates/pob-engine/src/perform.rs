@@ -1916,7 +1916,39 @@ fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mut En
     };
     let cps = baseline * speed_mult;
     env.output.set("MainSkillSpeed", cps);
-    let final_avg = env.output.get("MainSkillAverageHitAfterAccuracy");
+
+    // Defender-side avoidance: PoB multiplies AverageDamage by
+    // `(1 - block/100) × (1 - dodge/100)` and, for spells, an extra
+    // `(1 - suppress/100 × 0.5)` factor — see `CalcOffence.lua` and the
+    // Enemy section of the Config tab. We mirror that here. Output keys
+    // surface the percentages so the Calcs tab can show them.
+    let block = f64::from(character.config.enemy_block_chance.min(75)) / 100.0;
+    let dodge = f64::from(character.config.enemy_dodge_chance.min(75)) / 100.0;
+    let suppress = f64::from(character.config.enemy_suppression_chance.min(100)) / 100.0;
+    let suppress_factor = if is_spell {
+        (1.0 - suppress * 0.5).max(0.0)
+    } else {
+        1.0
+    };
+    let avoidance_factor =
+        ((1.0 - block) * (1.0 - dodge) * suppress_factor).clamp(0.0, 1.0);
+    env.output.set(
+        "EnemyBlockChance",
+        f64::from(character.config.enemy_block_chance),
+    );
+    env.output.set(
+        "EnemyDodgeChance",
+        f64::from(character.config.enemy_dodge_chance),
+    );
+    if is_spell {
+        env.output.set(
+            "EnemySuppressionChance",
+            f64::from(character.config.enemy_suppression_chance),
+        );
+    }
+
+    let final_avg =
+        env.output.get("MainSkillAverageHitAfterAccuracy") * avoidance_factor;
     let main_dps = final_avg * cps;
     env.output.set("MainSkillDPS", main_dps);
 

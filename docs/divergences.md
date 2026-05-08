@@ -73,7 +73,6 @@ chance, but do not model:
 - AoE / projectile stat-derived mods (e.g. AoE radius rolloff, projectile shotgun
   multiplier).
 - Enemy armour mitigation against physical hits.
-- Block / dodge / suppression on the *defender* side from the player's perspective.
 
 PoB walks all of these; ours doesn't yet.
 
