@@ -11,8 +11,8 @@ use pob_data::{NodeId, NodeKind, PassiveTree};
 
 use crate::tree_layout::{compute_node_positions, NodePos};
 use crate::tree_renderer::{
-    edge_state_bits, kind_to_u32, state_bits, EdgeInstance, NodeInstance, TreeEdgeCallback,
-    TreeNodeCallback,
+    edge_state_bits, kind_to_u32, state_bits, EdgeInstance, GroupInstance, NodeInstance,
+    TreeEdgeCallback, TreeGroupCallback, TreeNodeCallback,
 };
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -31,6 +31,8 @@ pub struct TreeView {
     /// Per-node icon UV rect into the skills atlas: `[u, v, du, dv]` in
     /// [0, 1]. Empty rect means "no icon — render flat colour".
     icon_uvs: HashMap<NodeId, [f32; 4]>,
+    /// Pre-computed `GroupInstance`s for the cluster halos.
+    group_instances: Vec<GroupInstance>,
     /// Nodes matching the current search filter — drawn with a highlight ring.
     pub search_matches: ahash::HashSet<NodeId>,
     /// Path overlay (set externally, drawn on top of edges).
@@ -44,6 +46,7 @@ impl TreeView {
             zoom: 0.06,
             positions: compute_node_positions(tree),
             icon_uvs: compute_icon_uvs(tree, sprites),
+            group_instances: compute_group_instances(tree, sprites),
             search_matches: ahash::HashSet::default(),
             path_overlay: Vec::new(),
         }
@@ -240,8 +243,9 @@ impl TreeView {
             });
         }
 
-        // Hand the per-frame state to the wgpu pipelines. Edges first (so node
-        // SDFs occlude their endpoints), nodes second.
+        // Hand the per-frame state to the wgpu pipelines. Order matches
+        // PoB's `Draw`: group backgrounds first (under everything), then
+        // edges (the SDFs cover endpoints), then nodes on top.
         let pixels_per_point = ui.ctx().pixels_per_point();
         let viewport_size_px = [
             viewport.width() * pixels_per_point,
@@ -249,6 +253,16 @@ impl TreeView {
         ];
         let viewport_center_world = [self.center.x, self.center.y];
         let zoom_px = self.zoom * pixels_per_point;
+        painter.add(egui_wgpu::Callback::new_paint_callback(
+            viewport,
+            TreeGroupCallback {
+                groups: self.group_instances.clone(),
+                viewport_center: viewport_center_world,
+                zoom: zoom_px,
+                viewport_size: viewport_size_px,
+                pixels_per_point,
+            },
+        ));
         painter.add(egui_wgpu::Callback::new_paint_callback(
             viewport,
             TreeEdgeCallback {
@@ -309,6 +323,55 @@ impl TreeView {
         self.center = center;
         self.zoom = zoom;
     }
+}
+
+/// Build a `GroupInstance` per non-proxy group: pick the right
+/// `PSGroupBackground{1,2,3}` sprite based on the group's largest orbit
+/// (mirrors PoB's `if group.oo[3] then PSGroupBackground3 ...` ladder), and
+/// render a quad of native sprite size centered at the group's tree-space
+/// position.
+fn compute_group_instances(
+    tree: &PassiveTree,
+    sprites: Option<&pob_data::sprites::SpriteSet>,
+) -> Vec<GroupInstance> {
+    let mut out = Vec::new();
+    let Some(sprites) = sprites else { return out };
+    let Some(cat) = sprites.get("groupBackground") else { return out };
+    // Sprite-size mapping: per PoB, the native pixel size at scale=1. We
+    // scale by 2.5 in the shader-equivalent (matching PoB's apparent ~2.5x
+    // factor on background draws — the raw atlas slice is much smaller than
+    // the cluster of nodes it backs).
+    const BG_SCALE: f32 = 2.5;
+    for group in tree.groups.values() {
+        if group.is_proxy {
+            continue;
+        }
+        let key = if group.orbits.contains(&3) {
+            "PSGroupBackground3"
+        } else if group.orbits.contains(&2) {
+            "PSGroupBackground2"
+        } else if group.orbits.contains(&1) {
+            "PSGroupBackground1"
+        } else {
+            continue;
+        };
+        let Some(rect) = cat.coords.get(key) else { continue };
+        let uv = rect.uv(cat.w as f32, cat.h as f32);
+        // PSGroupBackground3 is a 'half image' in PoB — drawn twice, once
+        // mirrored — to bridge wide clusters. We approximate as a single
+        // wider quad (height stays the sprite height, width doubles).
+        let (w, h) = if key == "PSGroupBackground3" {
+            (rect.w() * 2.0 * BG_SCALE, rect.h() * BG_SCALE)
+        } else {
+            (rect.w() * BG_SCALE, rect.h() * BG_SCALE)
+        };
+        out.push(GroupInstance {
+            world_pos: [group.x, group.y],
+            world_size: [w, h],
+            uv_rect: uv,
+        });
+    }
+    out
 }
 
 /// Look up each node's atlas-relative icon rect. Picks the sprite category

@@ -249,26 +249,36 @@ fn load_atlases() -> Option<tree_renderer::AtlasInputs> {
     let dir = candidates.iter().find(|p| p.join("skills.jpg").is_file())?;
     let active = std::fs::read(dir.join("skills.jpg")).ok()?;
     let inactive = std::fs::read(dir.join("skills-disabled.jpg")).ok()?;
-    decode_atlas_pair(&active, &inactive)
+    let group = std::fs::read(dir.join("group-background.png")).ok()?;
+    decode_atlas_inputs(&active, &inactive, &group)
 }
 
 #[cfg(target_arch = "wasm32")]
 fn load_atlases() -> Option<tree_renderer::AtlasInputs> {
     let active = include_bytes!("../../../data/sprites/3_25/skills.jpg");
     let inactive = include_bytes!("../../../data/sprites/3_25/skills-disabled.jpg");
-    decode_atlas_pair(active, inactive)
+    let group = include_bytes!("../../../data/sprites/3_25/group-background.png");
+    decode_atlas_inputs(active, inactive, group)
 }
 
-fn decode_atlas_pair(active: &[u8], inactive: &[u8]) -> Option<tree_renderer::AtlasInputs> {
+fn decode_atlas_inputs(
+    active: &[u8],
+    inactive: &[u8],
+    group: &[u8],
+) -> Option<tree_renderer::AtlasInputs> {
     let active_img = image::load_from_memory(active).ok()?.to_rgba8();
     let inactive_img = image::load_from_memory(inactive).ok()?.to_rgba8();
+    let group_img = image::load_from_memory(group).ok()?.to_rgba8();
     let active_size = (active_img.width(), active_img.height());
     let inactive_size = (inactive_img.width(), inactive_img.height());
+    let group_size = (group_img.width(), group_img.height());
     Some(tree_renderer::AtlasInputs {
         active_rgba8: active_img.into_raw(),
         active_size,
         inactive_rgba8: inactive_img.into_raw(),
         inactive_size,
+        group_rgba8: group_img.into_raw(),
+        group_size,
     })
 }
 

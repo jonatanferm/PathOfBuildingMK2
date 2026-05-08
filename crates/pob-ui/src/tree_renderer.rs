@@ -46,6 +46,16 @@ pub struct EdgeInstance {
     pub _pad: u32,
 }
 
+/// Per-instance vertex data for a group-background quad. Sampled from
+/// `group-background.png`. Matches `Instance` in `tree_groups.wgsl`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct GroupInstance {
+    pub world_pos: [f32; 2],
+    pub world_size: [f32; 2],
+    pub uv_rect: [f32; 4],
+}
+
 /// State bits — keep in sync with the shader.
 pub mod state_bits {
     pub const ALLOCATED: u32 = 1 << 0;
@@ -73,32 +83,41 @@ struct Uniforms {
 
 const INITIAL_INSTANCE_CAPACITY: u64 = 4096;
 const INITIAL_EDGE_CAPACITY: u64 = 8192;
+const INITIAL_GROUP_CAPACITY: u64 = 1024;
 
 pub struct TreeRenderer {
     node_pipeline: wgpu::RenderPipeline,
     edge_pipeline: wgpu::RenderPipeline,
+    group_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    group_bind_group_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    group_bind_group: wgpu::BindGroup,
     instance_buffer: wgpu::Buffer,
     instance_capacity: u64,
     edge_buffer: wgpu::Buffer,
     edge_capacity: u64,
-    /// Cached views + sampler so we can rebuild the bind group in `prepare`
+    group_buffer: wgpu::Buffer,
+    group_capacity: u64,
+    /// Cached views + sampler so we can rebuild bind groups in `prepare`
     /// after a buffer reallocation (the bindings must reference the same
     /// objects; we keep them around).
     atlas_active_view: wgpu::TextureView,
     atlas_inactive_view: wgpu::TextureView,
     atlas_sampler: wgpu::Sampler,
+    group_atlas_view: wgpu::TextureView,
 }
 
-/// Inputs to `TreeRenderer::install`: the two skill atlases as RGBA8 byte
-/// arrays plus their dimensions.
+/// Inputs to `TreeRenderer::install`: the two skill atlases plus the group-
+/// background atlas, all as RGBA8 byte arrays + their dimensions.
 pub struct AtlasInputs {
     pub active_rgba8: Vec<u8>,
     pub active_size: (u32, u32),
     pub inactive_rgba8: Vec<u8>,
     pub inactive_size: (u32, u32),
+    pub group_rgba8: Vec<u8>,
+    pub group_size: (u32, u32),
 }
 
 fn upload_atlas(
@@ -151,8 +170,10 @@ impl TreeRenderer {
 
         let active_tex = upload_atlas(device, queue, &atlases.active_rgba8, atlases.active_size, "atlas_active");
         let inactive_tex = upload_atlas(device, queue, &atlases.inactive_rgba8, atlases.inactive_size, "atlas_inactive");
+        let group_tex = upload_atlas(device, queue, &atlases.group_rgba8, atlases.group_size, "atlas_group");
         let active_view = active_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let inactive_view = inactive_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let group_view = group_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("tree.atlas_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -217,6 +238,53 @@ impl TreeRenderer {
         let node_pipeline = build_node_pipeline(device, &pipeline_layout, render_state.target_format);
         let edge_pipeline = build_edge_pipeline(device, &pipeline_layout, render_state.target_format);
 
+        // Group-background pipeline uses a 3-binding layout: uniform + atlas
+        // + sampler (the node pipeline binds two atlases; we don't need the
+        // active/inactive split here).
+        let group_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("tree.group_bind_group_layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let group_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("tree.group_pipeline_layout"),
+                bind_group_layouts: &[&group_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let group_pipeline = build_group_pipeline(
+            device,
+            &group_pipeline_layout,
+            render_state.target_format,
+        );
+
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tree.uniform_buffer"),
             size: std::mem::size_of::<Uniforms>() as u64,
@@ -236,6 +304,14 @@ impl TreeRenderer {
         let edge_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tree.edge_instance_buffer"),
             size: edge_capacity * std::mem::size_of::<EdgeInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let group_capacity = INITIAL_GROUP_CAPACITY;
+        let group_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree.group_instance_buffer"),
+            size: group_capacity * std::mem::size_of::<GroupInstance>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -263,19 +339,44 @@ impl TreeRenderer {
             ],
         });
 
+        let group_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tree.group_bind_group"),
+            layout: &group_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&group_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
         let renderer = Self {
             node_pipeline,
             edge_pipeline,
+            group_pipeline,
             bind_group_layout,
+            group_bind_group_layout,
             uniform_buffer,
             bind_group,
+            group_bind_group,
             instance_buffer,
             instance_capacity,
             edge_buffer,
             edge_capacity,
+            group_buffer,
+            group_capacity,
             atlas_active_view: active_view,
             atlas_inactive_view: inactive_view,
             atlas_sampler: sampler,
+            group_atlas_view: group_view,
         };
 
         render_state
@@ -313,6 +414,20 @@ impl TreeRenderer {
         self.edge_capacity = new_capacity;
     }
 
+    fn ensure_group_capacity(&mut self, device: &wgpu::Device, needed: u64) {
+        if needed <= self.group_capacity {
+            return;
+        }
+        let new_capacity = needed.next_power_of_two().max(self.group_capacity * 2);
+        self.group_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree.group_instance_buffer"),
+            size: new_capacity * std::mem::size_of::<GroupInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.group_capacity = new_capacity;
+    }
+
     fn write_uniforms(
         &self,
         queue: &wgpu::Queue,
@@ -345,6 +460,13 @@ impl TreeRenderer {
         }
         queue.write_buffer(&self.edge_buffer, 0, bytemuck::cast_slice(edges));
     }
+
+    fn write_groups(&self, queue: &wgpu::Queue, groups: &[GroupInstance]) {
+        if groups.is_empty() {
+            return;
+        }
+        queue.write_buffer(&self.group_buffer, 0, bytemuck::cast_slice(groups));
+    }
 }
 
 fn build_node_pipeline(
@@ -372,6 +494,57 @@ fn build_node_pipeline(
     };
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("tree_nodes.pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[buffer_layout],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
+}
+
+fn build_group_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    target_format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("tree_groups.wgsl"),
+        source: wgpu::ShaderSource::Wgsl(
+            include_str!("../shaders/tree_groups.wgsl").into(),
+        ),
+    });
+    let attrs = wgpu::vertex_attr_array![
+        0 => Float32x2, // world_pos     @ 0
+        1 => Float32x2, // world_size    @ 8
+        2 => Float32x4, // uv_rect       @ 16
+    ];
+    let buffer_layout = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<GroupInstance>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &attrs,
+    };
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("tree_groups.pipeline"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: &shader,
@@ -528,6 +701,77 @@ impl egui_wgpu::CallbackTrait for TreeNodeCallback {
         render_pass.set_bind_group(0, &renderer.bind_group, &[]);
         render_pass.set_vertex_buffer(0, renderer.instance_buffer.slice(..));
         render_pass.draw(0..6, 0..self.instances.len() as u32);
+    }
+}
+
+/// Group-background paint callback. Drawn FIRST so it sits beneath edges
+/// + nodes — like PoB's `renderGroup` pass.
+pub struct TreeGroupCallback {
+    pub groups: Vec<GroupInstance>,
+    pub viewport_center: [f32; 2],
+    pub zoom: f32,
+    pub viewport_size: [f32; 2],
+    pub pixels_per_point: f32,
+}
+
+impl egui_wgpu::CallbackTrait for TreeGroupCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        _egui_encoder: &mut wgpu::CommandEncoder,
+        callback_resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let Some(renderer) = callback_resources.get_mut::<TreeRenderer>() else {
+            return Vec::new();
+        };
+        renderer.ensure_group_capacity(device, self.groups.len() as u64);
+        renderer.write_uniforms(
+            queue,
+            self.viewport_center,
+            self.zoom,
+            self.viewport_size,
+            self.pixels_per_point,
+        );
+        renderer.write_groups(queue, &self.groups);
+        renderer.group_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tree.group_bind_group"),
+            layout: &renderer.group_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: renderer.uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&renderer.group_atlas_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&renderer.atlas_sampler),
+                },
+            ],
+        });
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        callback_resources: &egui_wgpu::CallbackResources,
+    ) {
+        let Some(renderer) = callback_resources.get::<TreeRenderer>() else {
+            return;
+        };
+        if self.groups.is_empty() {
+            return;
+        }
+        render_pass.set_pipeline(&renderer.group_pipeline);
+        render_pass.set_bind_group(0, &renderer.group_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, renderer.group_buffer.slice(..));
+        render_pass.draw(0..6, 0..self.groups.len() as u32);
     }
 }
 
