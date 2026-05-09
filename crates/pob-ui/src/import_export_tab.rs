@@ -4,7 +4,8 @@
 
 use eframe::egui;
 use pob_engine::{
-    export_code, export_pob_code, import_code, import_pob_code, import_pob_xml, Character,
+    export_code, export_pob_code, import_code, import_pob_code, import_pob_xml, resolve_share_url,
+    Character,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -14,6 +15,11 @@ use pob_engine::GggCharacterSummary;
 use crate::ggg_fetch::{
     spawn_character_fetch, spawn_character_list_fetch, CharacterFetchJob, CharacterFetchResult,
     CharacterListFetchJob, CharacterListFetchResult,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::share_url_fetch::{
+    site_label_for_url, spawn_share_url_fetch, unsupported_site, ShareUrlFetchJob,
+    ShareUrlFetchResult,
 };
 
 #[derive(Default)]
@@ -27,6 +33,11 @@ pub struct ImportExportTabState {
     /// stub there.
     #[cfg(not(target_arch = "wasm32"))]
     pub ggg: GggImportState,
+    /// Issue #33: in-flight pobb.in / pastebin fetch — when a URL
+    /// is pasted, the auto-import button spawns a background fetch
+    /// instead of decoding inline, and we drain the result here.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub share_url_job: Option<ShareUrlFetchJob>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -62,6 +73,9 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut C
     #[cfg(not(target_arch = "wasm32"))]
     {
         if poll_ggg_jobs(&mut state.ggg, character) {
+            changed = true;
+        }
+        if poll_share_url_job(state, character) {
             changed = true;
         }
     }
@@ -116,34 +130,35 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut C
             ui.set_min_width(360.0);
             ui.heading("Import build");
             ui.separator();
-            ui.label("Paste an MK2 build code:");
+            ui.label("Paste an MK2 build code or share URL:");
             ui.add(
                 egui::TextEdit::multiline(&mut state.paste)
                     .desired_width(f32::INFINITY)
                     .desired_rows(8)
                     .font(egui::TextStyle::Monospace)
-                    .hint_text("MK2|..."),
+                    .hint_text("MK2|...   or   https://pobb.in/<id>"),
             );
+            #[cfg(not(target_arch = "wasm32"))]
+            let fetch_in_flight = state.share_url_job.is_some();
+            #[cfg(target_arch = "wasm32")]
+            let fetch_in_flight = false;
             ui.horizontal(|ui| {
-                if ui.button("Import (auto)").clicked() {
-                    match auto_import(&state.paste) {
-                        Ok((c, kind)) => {
-                            *character = c;
-                            state.last_message = Some((true, format!("Imported as {kind}.")));
-                            state.paste.clear();
-                            changed = true;
-                        }
-                        Err(e) => {
-                            state.last_message = Some((false, format!("Import failed: {e}")));
-                        }
-                    }
+                let import_btn = ui.add_enabled(
+                    !fetch_in_flight,
+                    egui::Button::new("Import (auto)"),
+                );
+                if import_btn.clicked() {
+                    handle_import_click(state, character, &mut changed);
                 }
                 if ui.button("Clear").clicked() {
                     state.paste.clear();
                     state.last_message = None;
                 }
             });
-            ui.weak("Auto-detects MK2 codes, raw PoB XML, or PoB share codes (zlib+base64).");
+            ui.weak(
+                "Auto-detects MK2 codes, raw PoB XML, PoB share codes (zlib+base64), \
+                 or share URLs from pobb.in / pastebin.com.",
+            );
         });
     });
 
@@ -177,6 +192,79 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut C
     }
 
     changed
+}
+
+/// Dispatch the "Import (auto)" button click. Three cases:
+///
+/// 1. The pasted text is a recognised share URL → spawn a background
+///    fetch (native only) and surface the result via `poll_share_url_job`.
+/// 2. The pasted text is a recognised share URL on a host that doesn't
+///    expose a POB-format raw endpoint (poeplanner.com today) → tell the
+///    user to paste the code directly. No network call.
+/// 3. Otherwise → run the existing in-process `auto_import` (MK2 code,
+///    raw XML, or PoB share code).
+///
+/// The wasm build skips spawning entirely (no `std::thread`, CORS
+/// blocked) and reports a "desktop only" hint instead.
+fn handle_import_click(
+    state: &mut ImportExportTabState,
+    character: &mut Character,
+    changed: &mut bool,
+) {
+    let trimmed = state.paste.trim();
+    if trimmed.is_empty() {
+        state.last_message = Some((false, "Nothing to import — paste a code or URL.".into()));
+        return;
+    }
+    // URL branch — same recognition logic on native and wasm so the
+    // user gets a consistent message in both, but only native can
+    // actually run the fetch.
+    if let Some(raw_url) = resolve_share_url(trimmed) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(host) = unsupported_site(trimmed) {
+                state.last_message = Some((
+                    false,
+                    format!(
+                        "{host} doesn't expose a full-build POB export. \
+                         Open the build there, copy the PoB code from the page, \
+                         and paste it here.",
+                    ),
+                ));
+                return;
+            }
+            let label = site_label_for_url(trimmed);
+            state.share_url_job = Some(spawn_share_url_fetch(raw_url, label));
+            state.last_message = Some((true, format!("Fetching from {label}…")));
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // The browser build can't reach pobb.in / pastebin
+            // directly (CORS). Mirror the GGG-section wording.
+            let _ = raw_url;
+            state.last_message = Some((
+                false,
+                "Build-share URL fetch is desktop-only for now \
+                 (browser CORS blocks the raw endpoints). \
+                 Open the share link, copy the PoB code, paste it here."
+                    .to_owned(),
+            ));
+            return;
+        }
+    }
+    // Not a URL — fall through to in-process decode.
+    match auto_import(trimmed) {
+        Ok((c, kind)) => {
+            *character = c;
+            state.last_message = Some((true, format!("Imported as {kind}.")));
+            state.paste.clear();
+            *changed = true;
+        }
+        Err(e) => {
+            state.last_message = Some((false, format!("Import failed: {e}")));
+        }
+    }
 }
 
 /// Try the formats in order of specificity.
@@ -432,4 +520,38 @@ fn poll_ggg_jobs(state: &mut GggImportState, character: &mut Character) -> bool 
     }
 
     character_changed
+}
+
+/// Issue #33: drain the in-flight share-URL fetch (pobb.in / pastebin)
+/// and apply the resulting `Character` to the active build. Returns
+/// `true` when this frame's drain swapped the character so the host
+/// app knows to recompute.
+#[cfg(not(target_arch = "wasm32"))]
+fn poll_share_url_job(state: &mut ImportExportTabState, character: &mut Character) -> bool {
+    let Some(job) = state.share_url_job.as_ref() else {
+        return false;
+    };
+    match job.try_recv() {
+        Ok(Some(ShareUrlFetchResult::Ok {
+            character: imported,
+            site,
+        })) => {
+            *character = imported;
+            state.last_message = Some((true, format!("Imported from {site}.")));
+            state.paste.clear();
+            state.share_url_job = None;
+            true
+        }
+        Ok(Some(ShareUrlFetchResult::Err(err))) => {
+            state.last_message = Some((false, format!("Import failed: {err}")));
+            state.share_url_job = None;
+            false
+        }
+        Ok(None) => false,
+        Err(_) => {
+            state.last_message = Some((false, "Background fetch thread disconnected.".into()));
+            state.share_url_job = None;
+            false
+        }
+    }
 }
