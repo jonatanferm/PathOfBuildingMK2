@@ -1181,7 +1181,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         // alongside the player's output. No-op for non-minion builds and missing
         // data — the helper returns false.
         if let Some(minions) = app.minions.as_ref() {
-            pob_engine::apply_minion_outputs(&app.character, &app.skills, minions, &mut output);
+            pob_engine::apply_minion_outputs(
+                &app.character,
+                &app.skills,
+                minions,
+                &env,
+                &mut output,
+            );
         }
         app.output = output;
         app.last_env = Some(env);

@@ -22,7 +22,7 @@ use pob_data::{
     MinionData, MinionType,
 };
 
-use crate::{Character, Output, SkillRegistry};
+use crate::{mod_db::QueryCfg, Character, Env, ModStore, ModType, Output, SkillRegistry};
 
 /// Snapshot of the minion summoned by the active main skill. Slice 3 only carries the
 /// scalars the Calcs tab needs — slice 4 will add `mod_db`, an `output` map, and a
@@ -100,25 +100,40 @@ fn life_base_for(_data: &MinionType, level: u32) -> u32 {
 /// Designed for the UI to call after `compute_full_with_env`, since the existing
 /// pipeline doesn't yet take a `MinionData` parameter and threading one through every
 /// caller would churn ~30 test sites.
+///
+/// Slice 4 of [#20](https://github.com/jonatanferm/PathOfBuildingMK2/issues/20) takes
+/// the live `Env` so it can scale `MinionLife` by the player-side `MinionLife` INC /
+/// MORE mods (jewel passives, ascendancy notables, support gems). Slice 5 will route
+/// the minion's intrinsic mod_list onto a parallel mod_db and add `MinionDPS`.
 pub fn apply_minion_outputs(
     character: &Character,
     registry: &SkillRegistry,
     minions: &MinionData,
+    env: &Env,
     output: &mut Output,
 ) -> bool {
     let Some(state) = select_minion_type(character, registry, minions) else {
         return false;
     };
-    write_minion_outputs(&state, output);
+    write_minion_outputs(&state, env, output);
     true
 }
 
 /// Emit the minion's basic stats into the player's output dictionary so the Calcs tab
-/// can surface them. Slice 3 only writes `MinionLifeBase` and a placeholder
-/// `MinionLife` (= base, no mods). Slice 4 will run a real perform pass.
-pub fn write_minion_outputs(state: &MinionState<'_>, output: &mut Output) {
+/// can surface them.
+///
+/// `MinionLife` is now scaled by the player-side `MinionLife` INC / MORE mods (slice 4
+/// of #20); the intermediate `MinionLifeBase` reports the unscaled value so the
+/// breakdown panel can show the contribution chain. Resists pass through unmodified —
+/// slice 5 will handle minion-side resist scaling.
+pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Output) {
+    let cfg = QueryCfg::default();
+    let inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "MinionLife");
+    let more = env.mod_db.more(&cfg, &env.state, "MinionLife");
+    let scaled = (state.life_base as f64) * (1.0 + inc / 100.0) * more;
+
     output.set("MinionLifeBase", state.life_base as f64);
-    output.set("MinionLife", state.life_base as f64);
+    output.set("MinionLife", scaled.round());
     output.set("MinionFireResist", state.data.fire_resist as f64);
     output.set("MinionColdResist", state.data.cold_resist as f64);
     output.set("MinionLightningResist", state.data.lightning_resist as f64);
@@ -165,6 +180,12 @@ mod tests {
         let reg = SkillRegistry::default();
         let minions = fake_minion();
         assert!(select_minion_type(&c, &reg, &minions).is_none());
+
+        // apply_minion_outputs short-circuits to false in the same case.
+        let env = Env::default();
+        let mut output = Output::default();
+        let applied = apply_minion_outputs(&c, &reg, &minions, &env, &mut output);
+        assert!(!applied);
     }
 
     #[test]
@@ -177,12 +198,49 @@ mod tests {
             level: 20,
             life_base: 1000,
         };
+        let env = Env::default();
         let mut output = Output::default();
-        write_minion_outputs(&state, &mut output);
+        write_minion_outputs(&state, &env, &mut output);
+        // No mods → MinionLife == MinionLifeBase.
         assert_eq!(output.get("MinionLife"), 1000.0);
         assert_eq!(output.get("MinionLifeBase"), 1000.0);
         assert_eq!(output.get("MinionFireResist"), 75.0);
         assert_eq!(output.get("MinionChaosResist"), 0.0);
+    }
+
+    #[test]
+    fn write_minion_outputs_scales_life_by_inc_and_more() {
+        use crate::{Mod, ModDB};
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+
+        // 50% inc + 20% more → 1000 × 1.5 × 1.2 = 1800.
+        let mut env = Env::default();
+        env.mod_db.add(Mod::inc("MinionLife", 50.0));
+        env.mod_db.add(Mod::more("MinionLife", 20.0));
+        let _ = ModDB::new; // suppress unused-import lint when feature gated
+
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        assert_eq!(output.get("MinionLifeBase"), 1000.0);
+        assert_eq!(output.get("MinionLife"), 1800.0);
+
+        // Multiple INCs add together, multiple MOREs multiply.
+        let mut env2 = Env::default();
+        env2.mod_db.add(Mod::inc("MinionLife", 30.0));
+        env2.mod_db.add(Mod::inc("MinionLife", 70.0));
+        env2.mod_db.add(Mod::more("MinionLife", 50.0));
+        env2.mod_db.add(Mod::more("MinionLife", 50.0));
+        // 1000 × (1 + 1.0) × (1.5 × 1.5) = 1000 × 2 × 2.25 = 4500.
+        let mut out2 = Output::default();
+        write_minion_outputs(&state, &env2, &mut out2);
+        assert_eq!(out2.get("MinionLife"), 4500.0);
     }
 
     #[test]
