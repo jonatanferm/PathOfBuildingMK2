@@ -406,24 +406,31 @@ fn extract_into(
             if !is_projection {
                 continue;
             }
-            let new_aura = ExtractedAura {
-                skill_id: gem.skill_id.clone(),
-                level: gem.level.max(1),
-                quality: gem.quality,
-                enabled: true,
-                effect_pct: auto_effect_pct,
-            };
-            // Replace any existing entry with the same skill_id so a
-            // re-import refreshes levels in place rather than
-            // accumulating duplicates.
+            // Issue #97 (slice 4): preserve user edits on re-import.
+            // The teammate-level data (skill_id, level, quality)
+            // gets refreshed from the new paste, but the user's
+            // manually-flipped `enabled` toggle and any
+            // hand-overridden `effect_pct` survive across
+            // re-extractions. Only auras the user hadn't seen
+            // before pick up the auto-detected effect_pct from
+            // the slice-3 path.
             if let Some(existing) = member
                 .extracted_auras
                 .iter_mut()
-                .find(|a| a.skill_id == new_aura.skill_id)
+                .find(|a| a.skill_id == gem.skill_id)
             {
-                *existing = new_aura;
+                existing.level = gem.level.max(1);
+                existing.quality = gem.quality;
+                // `enabled` and `effect_pct` deliberately not
+                // touched — those carry the user's intent.
             } else {
-                member.extracted_auras.push(new_aura);
+                member.extracted_auras.push(ExtractedAura {
+                    skill_id: gem.skill_id.clone(),
+                    level: gem.level.max(1),
+                    quality: gem.quality,
+                    enabled: true,
+                    effect_pct: auto_effect_pct,
+                });
                 added += 1;
             }
         }
