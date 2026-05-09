@@ -905,6 +905,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new("Minion").strong());
                     stat_row_decimal(ui, "Life", &app.output, "MinionLife");
+                    // Issue #20 (slice 13): show ES only when the minion has
+                    // any — most summons (Zombies, Skeletons, golems other
+                    // than Carrion / Stone) emit zero, and a row of "0" adds
+                    // noise without information.
+                    if app.output.get("MinionEnergyShield") > 0.0 {
+                        stat_row_decimal(ui, "ES", &app.output, "MinionEnergyShield");
+                    }
                     stat_row_decimal(ui, "Avg hit", &app.output, "MinionAverageDamage");
                     stat_row_decimal(ui, "Speed (cps)", &app.output, "MinionAttacksPerSecond");
                     stat_row_decimal(ui, "Crit chance %", &app.output, "MinionCritChance");

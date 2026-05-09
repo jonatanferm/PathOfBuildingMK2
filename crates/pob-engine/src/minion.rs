@@ -316,8 +316,8 @@ fn minion_hit_chance(accuracy: f64, enemy_evasion: f64, is_attack: bool) -> f64 
 ///
 /// What's still **not** modelled:
 /// - Hit-chance vs enemy evasion for melee minions.
-/// - Minion-side energy shield as a separate pool (the intrinsic `Armour` mod is
-///   surfaced but armour-vs-hit mitigation is deferred).
+/// - Armour-vs-hit mitigation (the intrinsic `Armour` INC mod is surfaced but the
+///   per-hit reduction formula is deferred).
 /// - Per-minion `lifeScaling` (spectres etc.) — every minion still uses the ally
 ///   life table.
 pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Output) {
@@ -343,6 +343,52 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
         * life_more_intrinsic;
     output.set("MinionLifeBase", state.life_base as f64);
     output.set("MinionLife", life_scaled.round());
+
+    // Slice 13 of #20: minion energy shield. PoB stores `data.energy_shield`
+    // as a multiplier the same way `data.life` is — the base value is
+    // `life_table[level] × data.life × data.energy_shield`, then scaled by
+    // the minion's `EnergyShield` INC/MORE chain (intrinsic + player-side
+    // `MinionEnergyShield`). Most summoned minions don't have ES (the field
+    // is `None`), but Skeleton Mages, Animated Guardian, and several
+    // spectre bases do. The intrinsic `mod_list` is also where Mirror Arrow
+    // / Blink Arrow add a flat `EnergyShield BASE 10` — captured via the
+    // intrinsic Base sum below.
+    //
+    // The life-table choice mirrors `life_base_for`: a "spectre" minion
+    // (any non-None `life_scaling`) draws ES from the same base monster
+    // table its life uses, while standard summoned minions use the ally
+    // table. This keeps allies and spectres on the same scaling ladder
+    // without having to rebuild the lookup here.
+    let es_multiplier = state.data.energy_shield.unwrap_or(0.0);
+    let es_intrinsic_base = intrinsic.sum(ModType::Base, &cfg, &env.state, "EnergyShield");
+    let es_player_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionEnergyShield");
+    let es_table_base = if es_multiplier > 0.0 {
+        f64::from(life_base_for(state.data, state.level)) * state.data.life * es_multiplier
+    } else {
+        0.0
+    };
+    let es_total_base = es_table_base.floor() + es_intrinsic_base + es_player_base;
+    if es_total_base > 0.0 {
+        let es_inc_player = env
+            .mod_db
+            .sum(ModType::Inc, &cfg, &env.state, "MinionEnergyShield");
+        let es_more_player = env.mod_db.more(&cfg, &env.state, "MinionEnergyShield");
+        let es_inc_intrinsic = intrinsic.sum(ModType::Inc, &cfg, &env.state, "EnergyShield");
+        let es_more_intrinsic = intrinsic.more(&cfg, &env.state, "EnergyShield");
+        let es_scaled = es_total_base
+            * (1.0 + (es_inc_player + es_inc_intrinsic) / 100.0)
+            * es_more_player
+            * es_more_intrinsic;
+        output.set("MinionEnergyShieldBase", es_total_base);
+        output.set("MinionEnergyShield", es_scaled.round());
+    } else {
+        // Surface a zero so consumers can branch on "minion has ES" without
+        // having to call `try_get` everywhere.
+        output.set("MinionEnergyShieldBase", 0.0);
+        output.set("MinionEnergyShield", 0.0);
+    }
 
     // Resists. PoB minion resists are layered:
     //   resist = base + MinionFireResist BASE + MinionElementalResist BASE,
@@ -1129,5 +1175,164 @@ mod tests {
         // didn't run, so the key is missing and `output.get` returns 0.
         super::propagate_minion_dps_to_main_skill(&env, &mut output);
         assert_eq!(output.get("MainSkillDPS"), 2500.0);
+    }
+
+    /// Slice 13 of #20: minion energy shield is `None` for most summons; the
+    /// output keys must still be set (to zero) so consumers can branch on
+    /// "has ES" without juggling Option<f64> through every read path.
+    #[test]
+    fn write_minion_outputs_es_zero_when_data_missing() {
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+        let env = Env::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        assert_eq!(output.get("MinionEnergyShield"), 0.0);
+        assert_eq!(output.get("MinionEnergyShieldBase"), 0.0);
+    }
+
+    /// Slice 13 of #20: when `data.energy_shield` is set (Skeleton Mage,
+    /// Animated Guardian, several spectres) the base ES is
+    /// `life_table[level] × data.life × data.energy_shield`. Verify the
+    /// formula against pinned numbers from the ally life table at level 20:
+    /// ally_life[20] = 38.94, life = 6, es_mult = 0.4 → base ≈ 38.94 × 6 ×
+    /// 0.4 = 93.456, floor → 93. With no mods, MinionEnergyShield equals
+    /// the floored base.
+    #[test]
+    fn write_minion_outputs_es_uses_life_table_formula() {
+        let mut minions = fake_minion();
+        let data = minions
+            .minions
+            .get_mut("SummonedFlameGolem")
+            .expect("flame golem present");
+        data.energy_shield = Some(0.4);
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+        let env = Env::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+
+        // Pinned: monster_ally_life[level=20] × data.life (=6.0) × es (=0.4),
+        // floored to match PoB's `m_floor(baseES)`.
+        let expected_base =
+            (f64::from(pob_data::monster_tables::monster_ally_life_at_level(20)) * 6.0 * 0.4)
+                .floor();
+        assert_eq!(output.get("MinionEnergyShieldBase"), expected_base);
+        // No mods → scaled equals base.
+        assert_eq!(output.get("MinionEnergyShield"), expected_base.round());
+        // Sanity: actual life table value is non-trivial, so the test isn't
+        // a tautology against zeroes.
+        assert!(expected_base > 50.0 && expected_base < 200.0);
+    }
+
+    /// Slice 13 of #20: player-side `MinionEnergyShield` INC / MORE / BASE
+    /// mods compose with the minion's intrinsic `EnergyShield` chain. Verify
+    /// each multiplier slot independently by stacking mods that produce a
+    /// known scaling.
+    #[test]
+    fn write_minion_outputs_es_scales_by_player_mods() {
+        use crate::Mod;
+        let mut minions = fake_minion();
+        let data = minions
+            .minions
+            .get_mut("SummonedFlameGolem")
+            .expect("flame golem present");
+        data.energy_shield = Some(0.5);
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 1,
+            life_base: 1000,
+        };
+
+        // Pin a clean base by clamping level: ally_life[1] × 6 × 0.5.
+        let base_unscaled =
+            f64::from(pob_data::monster_tables::monster_ally_life_at_level(1)) * 6.0 * 0.5;
+        let base_floor = base_unscaled.floor();
+
+        // 50% INC + 20% MORE → base × 1.5 × 1.2.
+        let mut env = Env::default();
+        env.mod_db.add(Mod::inc("MinionEnergyShield", 50.0));
+        env.mod_db.add(Mod::more("MinionEnergyShield", 20.0));
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        let expected = (base_floor * 1.5 * 1.2).round();
+        assert_eq!(output.get("MinionEnergyShield"), expected);
+
+        // BASE adders apply before INC/MORE, so a +25 BASE on a base of 12
+        // becomes 37 before scaling. Use a fresh env to isolate from above.
+        let mut env2 = Env::default();
+        env2.mod_db.add(Mod::base("MinionEnergyShield", 25.0));
+        env2.mod_db.add(Mod::inc("MinionEnergyShield", 100.0));
+        let mut out2 = Output::default();
+        write_minion_outputs(&state, &env2, &mut out2);
+        let expected2 = ((base_floor + 25.0) * 2.0).round();
+        assert_eq!(out2.get("MinionEnergyShield"), expected2);
+        assert_eq!(out2.get("MinionEnergyShieldBase"), base_floor + 25.0);
+    }
+
+    /// Slice 13 of #20: Mirror Arrow / Blink Arrow add a flat `EnergyShield
+    /// BASE 10` via their intrinsic `mod_list`, even when the minion data
+    /// itself doesn't carry an `energyShield` multiplier. Verify the
+    /// intrinsic Base feeds the same compose chain as the player-side
+    /// Base.
+    #[test]
+    fn write_minion_outputs_es_picks_up_intrinsic_base() {
+        use serde_json::json;
+        let mut minions: IndexMap<String, MinionType> = IndexMap::new();
+        minions.insert(
+            "MirrorArrow".into(),
+            MinionType {
+                name: "Mirror Arrow Clone".into(),
+                monster_tags: vec![],
+                life: 1.0,
+                energy_shield: None, // base ES comes purely from the intrinsic mod
+                armour: None,
+                fire_resist: 0,
+                cold_resist: 0,
+                lightning_resist: 0,
+                chaos_resist: 0,
+                damage: 1.0,
+                damage_spread: 0.0,
+                attack_time: 1.0,
+                attack_range: 1.0,
+                accuracy: 1.0,
+                limit: None,
+                skill_list: vec![],
+                mod_list: vec![
+                    json!({"__kind": "mod", "name": "EnergyShield", "type": "BASE", "value": 10, "flags": 0, "keywordFlags": 0}),
+                ],
+                life_scaling: None,
+                weapon_type1: None,
+                weapon_type2: None,
+                base_damage_ignores_attack_speed: false,
+            },
+        );
+        let data = minions.get("MirrorArrow").unwrap();
+        let state = MinionState {
+            id: "MirrorArrow".into(),
+            data,
+            level: 20,
+            life_base: 100,
+        };
+
+        let env = Env::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        // Base = 0 (no es multiplier) + 10 intrinsic + 0 player = 10.
+        assert_eq!(output.get("MinionEnergyShieldBase"), 10.0);
+        assert_eq!(output.get("MinionEnergyShield"), 10.0);
     }
 }
