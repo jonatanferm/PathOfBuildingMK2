@@ -4000,6 +4000,110 @@ fn ancestral_cry_injects_elemental_resist_buff() {
     );
 }
 
+// Issue #19 (slice 10): Seismic Cry's defensive buff — Armour
+// MORE and StunThreshold INC, both scaling with WarcryPower. PoB's
+// `act_str.lua` SeismicCry statMap pins the formulas:
+//   Armour MORE       = 5  × min(power, 25) / 5
+//   StunThreshold INC = 15 × min(power, 25) / 5
+#[test]
+fn seismic_cry_injects_armour_and_stun_threshold_buff() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("SeismicCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: SeismicCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+    use pob_engine::ModStore as _;
+
+    fn seismic_buff(env: &pob_engine::Env, name: &str) -> f64 {
+        env.mod_db
+            .iter_all()
+            .filter(|m| {
+                m.name == name
+                    && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Seismic Cry")
+            })
+            .filter_map(|m| m.value.as_f64())
+            .sum()
+    }
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("SeismicCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcry".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+
+    // No flag → no injection.
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        seismic_buff(&env, "Armour") < 1e-9,
+        "Without UsedWarcryRecently, SeismicCry must not inject Armour MORE"
+    );
+
+    // Default WarcryPower 20 → Armour MORE = 20, StunThreshold INC = 60.
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (seismic_buff(&env, "Armour") - 20.0).abs() < 1e-6,
+        "SeismicCry at default WarcryPower (20) should give +20% MORE Armour; got {}",
+        seismic_buff(&env, "Armour")
+    );
+    assert!(
+        (seismic_buff(&env, "StunThreshold") - 60.0).abs() < 1e-6,
+        "SeismicCry at default WarcryPower (20) should give +60% INC StunThreshold; got {}",
+        seismic_buff(&env, "StunThreshold")
+    );
+    assert!(
+        (env.output.get("SeismicCryArmourBonus") - 20.0).abs() < 1e-6,
+        "SeismicCryArmourBonus output should mirror Armour MORE"
+    );
+    assert!(
+        (env.output.get("SeismicCryStunThresholdBonus") - 60.0).abs() < 1e-6,
+        "SeismicCryStunThresholdBonus output should mirror StunThreshold INC"
+    );
+
+    // WarcryPower 25 → cap. Armour MORE = 25, StunThreshold INC = 75.
+    c.config.warcry_power = Some(25);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (seismic_buff(&env, "Armour") - 25.0).abs() < 1e-6,
+        "SeismicCry at WarcryPower 25 should hit the +25% Armour MORE cap"
+    );
+    assert!(
+        (seismic_buff(&env, "StunThreshold") - 75.0).abs() < 1e-6,
+        "SeismicCry at WarcryPower 25 should hit the +75% StunThreshold INC cap"
+    );
+
+    // WarcryPower 100 → still capped at 25-power.
+    c.config.warcry_power = Some(100);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (seismic_buff(&env, "Armour") - 25.0).abs() < 1e-6,
+        "SeismicCry at WarcryPower 100 must still cap at +25% Armour MORE"
+    );
+
+    // Disabled gem → no buff.
+    if let Some(group) = c.skill_groups.first_mut() {
+        if let Some(gem) = group.gems.iter_mut().find(|g| g.skill_id == "SeismicCry") {
+            gem.enabled = false;
+        }
+    }
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        seismic_buff(&env, "Armour") < 1e-9,
+        "Disabled SeismicCry must not contribute Armour MORE"
+    );
+}
+
 // Issue #19 (slice 4): `ExertedAttackUptime` auto-derives from the
 // slice-3 warcry aggregates when the user hasn't pinned it
 // manually. Auto-uptime = `total_exert / (cps × cooldown)`, capped

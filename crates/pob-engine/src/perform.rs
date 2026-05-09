@@ -1859,6 +1859,7 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     let mut intimidating_cry_present = false;
     let mut enduring_cry_present = false;
     let mut ancestral_cry_present = false;
+    let mut seismic_cry_present = false;
     for group in &character.skill_groups {
         if !group.enabled {
             continue;
@@ -1899,6 +1900,9 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
             }
             if gem.skill_id == "AncestralCry" {
                 ancestral_cry_present = true;
+            }
+            if gem.skill_id == "SeismicCry" {
+                seismic_cry_present = true;
             }
             if let Some(&(_, marker)) = WARCRY_MARKERS.iter().find(|(id, _)| *id == gem.skill_id) {
                 if !detected_cries.contains(&marker) {
@@ -2014,6 +2018,32 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
         );
         env.output.set("AncestralCryResistBonus", resist);
         env.output.set("AncestralCryMaxResistBonus", max_resist);
+    }
+
+    // Issue #19 (slice 10): Seismic Cry's defensive buff — Armour
+    // MORE and StunThreshold INC, both scaling with WarcryPower.
+    // Per PoB's `act_str.lua` SeismicCry statMap:
+    //   Armour MORE         = 5  × min(power, 25) / 5
+    //   StunThreshold INC   = 15 × min(power, 25) / 5
+    // (constant × min(power, limit) / div). At default WarcryPower
+    // = 20: +20% MORE armour and +60% INC stun threshold. At the
+    // 25-power cap: +25% / +75%. Same `UsedWarcryRecently` gate.
+    // Note: Seismic Cry's offensive piece (the slam-skill exert
+    // bonus and the `seismic_cry_base_slam_skill_area_+%_final`
+    // AoE multiplier) requires per-skill exert handling that the
+    // current uniform `ExertedAttackDamage` model doesn't carry —
+    // those are follow-up slices.
+    if seismic_cry_present && env.state.condition("UsedWarcryRecently") {
+        let power = character.config.warcry_power.unwrap_or(20).min(25);
+        let armour_more = 5.0 * f64::from(power) / 5.0;
+        let stun_inc = 15.0 * f64::from(power) / 5.0;
+        env.mod_db
+            .add(Mod::more("Armour", armour_more).with_source(Source::Skill("Seismic Cry".into())));
+        env.mod_db.add(
+            Mod::inc("StunThreshold", stun_inc).with_source(Source::Skill("Seismic Cry".into())),
+        );
+        env.output.set("SeismicCryArmourBonus", armour_more);
+        env.output.set("SeismicCryStunThresholdBonus", stun_inc);
     }
 }
 
