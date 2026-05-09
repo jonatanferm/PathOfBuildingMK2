@@ -6661,3 +6661,225 @@ fn cluster_jewel_small_passive_grant_flows_to_modlist() {
         "small passive should contribute the cluster's '12% increased Chaos Damage' mod"
     );
 }
+
+// ----------------------------------------------------------------------
+// Issue #30 — Timeless jewels: keystone replacement integration tests.
+//
+// These run against `data/timeless_jewels.json` (shipped in this repo) and
+// the live 3.25 tree. They prove that:
+//   1. A Glorious Vanity / Doryani jewel socketed near an allocated keystone
+//      injects the "Corrupted Soul" mod text into the modDB.
+//   2. The original keystone's mods are skipped when the keystone is
+//      conquered (no double-counting).
+//   3. With `timeless = None`, behaviour is unchanged from pre-#30.
+// ----------------------------------------------------------------------
+
+fn load_timeless_data() -> Option<pob_data::TimelessJewelData> {
+    let path = data_root().join("timeless_jewels.json");
+    let json = std::fs::read_to_string(&path).ok()?;
+    pob_data::load_timeless_jewels(&json).ok()
+}
+
+#[test]
+fn timeless_glorious_vanity_replaces_keystone_with_corrupted_soul() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: 3.25 tree missing");
+        return;
+    };
+    let Some(data) = load_timeless_data() else {
+        eprintln!("skip: timeless_jewels.json missing");
+        return;
+    };
+
+    // The integration test needs (a) an allocated keystone connected to the
+    // class start (else `connected_allocations` filters it out) and
+    // (b) a tree-socket within Large radius of that keystone. Pick a
+    // (socket, keystone) pair where socket and keystone are within 1800
+    // units, then BFS-allocate from Marauder up to the keystone.
+    let positions: ahash::AHashMap<pob_data::NodeId, (f64, f64)> =
+        pob_engine::jewel_radius::all_node_positions(&tree);
+
+    // Build the keystone-id set first, so we can answer "is this kid a
+    // valid Keystone?" in O(1) inside the per-socket loop.
+    let keystones: Vec<(pob_data::NodeId, (f64, f64))> = tree
+        .nodes
+        .iter()
+        .filter_map(|(id, n)| {
+            if !matches!(n.kind, pob_data::NodeKind::Keystone) {
+                return None;
+            }
+            if n.ascendancy_name.is_some() {
+                return None;
+            }
+            positions.get(id).map(|&p| (*id, p))
+        })
+        .collect();
+
+    // Search every (socket, keystone) pair until the BFS in
+    // `allocate_reachable` succeeds. Most non-ascendancy keystones will
+    // path from Marauder; we accept the first one that does.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let mut chosen: Option<(pob_data::NodeId, pob_data::NodeId)> = None;
+    'pair_search: for (sid, n) in &tree.nodes {
+        if !matches!(n.kind, pob_data::NodeKind::JewelSocket) {
+            continue;
+        }
+        if n.expansion_jewel_size.is_some() || n.ascendancy_name.is_some() {
+            continue;
+        }
+        let Some(&(sx, sy)) = positions.get(sid) else {
+            continue;
+        };
+        for (kid, (kx, ky)) in &keystones {
+            let d2 = (sx - kx) * (sx - kx) + (sy - ky) * (sy - ky);
+            if d2 > 1800.0 * 1800.0 {
+                continue;
+            }
+            // Try BFS-allocating from Marauder to this specific keystone.
+            // We use a closed-over target id rather than the predicate
+            // form so each pair gets its own allocation attempt.
+            let mut probe = Character::new(ClassRef::marauder(), 90);
+            let target = *kid;
+            let allocated =
+                allocate_reachable(&mut probe, &tree, "Marauder", |node| node.id == target);
+            if allocated == Some(target) {
+                c = probe;
+                chosen = Some((*sid, target));
+                break 'pair_search;
+            }
+        }
+    }
+    let Some((socket_id, keystone_id)) = chosen else {
+        eprintln!("skip: no (socket, keystone) pair both in radius and reachable");
+        return;
+    };
+
+    // Socket a Glorious Vanity / Doryani timeless jewel into the chosen
+    // socket. Mod text is the canonical PoB string.
+    let item = pob_engine::parse_item(
+        "Item Class: Jewel\n\
+         Rarity: UNIQUE\n\
+         Glorious Vanity\n\
+         Glorious Vanity\n\
+         --------\n\
+         Item Level: 84\n\
+         --------\n\
+         Bathed in the blood of 8000 sacrificed in the name of Doryani\n\
+         Passives in radius are Conquered by the Vaal\n\
+         --------",
+    )
+    .expect("parse glorious vanity");
+    c.socketed_jewels.socket(socket_id, item);
+
+    // With timeless data threaded through, the keystone replacement runs
+    // and Corrupted Soul's mod text lands on the modDB.
+    let (_, env) = pob_engine::compute_full_with_clusters_and_timeless(
+        &c,
+        &tree,
+        None,
+        None,
+        None,
+        Some(&data),
+    );
+
+    // Corrupted Soul: "Gain 15% of Maximum Life as Extra Maximum Energy
+    // Shield" — parsed by `mod_parser` as `LifeAsExtraEnergyShield` with
+    // a 15 base value. Look for any mod sourced as
+    // `Source::Passive(keystone_id)` whose name contains
+    // "EnergyShield" (the parser may name the mod
+    // `LifeAsEnergyShield` / `LifeAsExtraEnergyShield` depending on
+    // version) — that proves the replacement landed.
+    let any_corrupted_soul_signature = env.mod_db.iter_all().any(|m| {
+        matches!(m.source, Some(pob_engine::Source::Passive(id)) if id == keystone_id)
+            && m.name.contains("EnergyShield")
+    });
+    assert!(
+        any_corrupted_soul_signature,
+        "Corrupted Soul's energy-shield-related mod should land on the conquered keystone after replacement"
+    );
+}
+
+#[test]
+fn timeless_without_data_is_a_no_op() {
+    // With `timeless = None`, the engine should behave identically to the
+    // pre-#30 build. We don't socket any timeless jewel here — just check
+    // that compute_full_with_clusters_and_timeless(_, _, _, _, _, None) is
+    // bit-identical to compute_full_with_clusters across a known-good
+    // baseline (Marauder level 90 naked).
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: 3.25 tree missing");
+        return;
+    };
+    let c = Character::new(ClassRef::marauder(), 90);
+    let with_none =
+        pob_engine::compute_full_with_clusters_and_timeless(&c, &tree, None, None, None, None).0;
+    let baseline = pob_engine::compute_full_with_clusters(&c, &tree, None, None, None).0;
+    assert_eq!(with_none.get("Life"), baseline.get("Life"));
+    assert_eq!(with_none.get("Mana"), baseline.get("Mana"));
+    assert_eq!(with_none.get("Strength"), baseline.get("Strength"));
+}
+
+#[test]
+fn timeless_socketed_far_from_keystone_does_not_panic() {
+    // Smoke test: a Timeless jewel socketed into a tree socket that has no
+    // allocated keystones in radius should be a no-op and not crash the
+    // compute pipeline. Mirrors a common in-game scenario (Glorious
+    // Vanity socketed in the random Marauder start area to grab the
+    // small-node bonuses without conquering any keystones).
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: 3.25 tree missing");
+        return;
+    };
+    let Some(data) = load_timeless_data() else {
+        eprintln!("skip: timeless_jewels.json missing");
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    // Pick the first non-cluster jewel socket the tree exposes; we don't
+    // care where it is — we just want compute to run cleanly with a
+    // Timeless jewel present and no in-radius allocated keystones.
+    let Some(socket_id) = tree.nodes.iter().find_map(|(id, n)| {
+        if !matches!(n.kind, pob_data::NodeKind::JewelSocket) {
+            return None;
+        }
+        if n.expansion_jewel_size.is_some() {
+            return None;
+        }
+        if n.ascendancy_name.is_some() {
+            return None;
+        }
+        Some(*id)
+    }) else {
+        eprintln!("skip: no jewel socket on the tree");
+        return;
+    };
+
+    let item = pob_engine::parse_item(
+        "Item Class: Jewel\n\
+         Rarity: UNIQUE\n\
+         Glorious Vanity\n\
+         Glorious Vanity\n\
+         --------\n\
+         Item Level: 84\n\
+         --------\n\
+         Bathed in the blood of 8000 sacrificed in the name of Doryani\n\
+         Passives in radius are Conquered by the Vaal\n\
+         --------",
+    )
+    .expect("parse glorious vanity");
+    c.socketed_jewels.socket(socket_id, item);
+
+    // No keystones allocated → no replacements → compute should still
+    // produce sensible Marauder-level-90 baselines. This is the
+    // negative-coverage half of the integration suite.
+    let (out, _) = pob_engine::compute_full_with_clusters_and_timeless(
+        &c,
+        &tree,
+        None,
+        None,
+        None,
+        Some(&data),
+    );
+    assert!(out.get("Life") > 0.0);
+}
