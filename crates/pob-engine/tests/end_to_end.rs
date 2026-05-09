@@ -99,6 +99,12 @@ fn load_3_25_tree() -> Option<pob_data::PassiveTree> {
     pob_data::load_passive_tree(&json).ok()
 }
 
+fn load_minions() -> Option<pob_data::MinionData> {
+    let path = data_root().join("minions.json");
+    let json = std::fs::read_to_string(&path).ok()?;
+    pob_data::load_minions(&json).ok()
+}
+
 fn load_skills() -> Option<SkillRegistry> {
     let dir = data_root().join("skills");
     let mut sets = Vec::new();
@@ -2159,6 +2165,76 @@ fn minion_skill_emits_minion_buff_aggregates() {
         None,
         "Arc (non-minion skill) must not emit NumberOfMinions"
     );
+}
+
+/// Issue #20 slices 3-10: end-to-end summoner-build smoke test. Bind a
+/// summon-skill main skill, run `compute_full_with_env` followed by
+/// `apply_minion_outputs`, and verify the full chain — Life / resists /
+/// damage / accuracy / hit-chance / DPS — lights up in the output dict.
+#[test]
+fn summon_flame_golem_lights_up_minion_outputs_end_to_end() {
+    let (Some(tree), Some(skills), Some(minions)) =
+        (load_3_25_tree(), load_skills(), load_minions())
+    else {
+        eprintln!("skip: data missing (run pob-extract first)");
+        return;
+    };
+    if skills.get("SummonFlameGolem").is_none() {
+        eprintln!("skip: SummonFlameGolem not in registry");
+        return;
+    }
+    if !minions.minions.contains_key("SummonedFlameGolem") {
+        eprintln!("skip: SummonedFlameGolem not in extracted catalogue");
+        return;
+    }
+
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.main_skill = Some(MainSkill::new("SummonFlameGolem"));
+
+    let (mut output, env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    assert!(
+        pob_engine::apply_minion_outputs(&c, &skills, &minions, &env, &mut output),
+        "apply_minion_outputs should return true for SummonFlameGolem"
+    );
+
+    // Headline outputs land alongside the player's MainSkillDPS / etc.
+    let life = output.get("MinionLife");
+    assert!(
+        life > 0.0,
+        "MinionLife should be non-zero for an L90 Flame Golem, got {life}"
+    );
+    let life_base = output.get("MinionLifeBase");
+    assert!(
+        life >= life_base,
+        "MinionLife (post-mods) >= MinionLifeBase, got {life} vs {life_base}"
+    );
+    // Flame Golem has fire_resist 70, cold/lightning 40, chaos 20 in the
+    // extracted catalogue (verified via the live data file).
+    assert_eq!(output.get("MinionFireResist"), 70.0);
+    assert_eq!(output.get("MinionColdResist"), 40.0);
+    assert_eq!(output.get("MinionLightningResist"), 40.0);
+    assert_eq!(output.get("MinionChaosResist"), 20.0);
+
+    // Damage / rate / DPS chain.
+    let avg_dmg = output.get("MinionAverageDamage");
+    let rate = output.get("MinionAttacksPerSecond");
+    let dps_pre_acc = output.get("MinionDPSBeforeHitChance");
+    let dps = output.get("MinionDPS");
+    let chance = output.get("MinionHitChance");
+    assert!(avg_dmg > 0.0, "MinionAverageDamage should be > 0");
+    assert!(rate > 0.0, "MinionAttacksPerSecond should be > 0");
+    assert!(
+        (5.0..=100.0).contains(&chance),
+        "MinionHitChance should be in [5, 100], got {chance}"
+    );
+    // DPS = pre × chance / 100, allowing for f64 round-trip noise.
+    assert!(
+        (dps - dps_pre_acc * chance / 100.0).abs() < 1e-6,
+        "MinionDPS = pre × chance/100; got dps={dps}, pre={dps_pre_acc}, chance={chance}"
+    );
+    // Crit chance defaults to 5% (no MinionCritChance mods on a fresh witch).
+    assert_eq!(output.get("MinionCritChance"), 5.0);
+    assert_eq!(output.get("MinionCritMultiplier"), 150.0);
 }
 
 // Issue #52: Every AoE-tagged skill must emit AoERadius / FinalAoERadius
