@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Context, Result};
 use mlua::{Lua, Table, Value};
 
+mod calc_sections;
 mod cli;
 mod tree;
 
@@ -57,6 +58,17 @@ fn main() -> Result<()> {
     let index_path = skills_dir.join("index.json");
     std::fs::write(&index_path, serde_json::to_string_pretty(&skill_index)?)?;
     wrote.push(index_path);
+
+    // Calc sections — one JSON for the Calcs-tab section layout.
+    let calc_sections_path = args.out.join("calc_sections.json");
+    let calc_sections = calc_sections::extract(&args.pob)
+        .with_context(|| "extracting calc sections".to_string())?;
+    std::fs::write(
+        &calc_sections_path,
+        serde_json::to_string_pretty(&calc_sections)?,
+    )
+    .with_context(|| format!("writing {}", calc_sections_path.display()))?;
+    wrote.push(calc_sections_path);
 
     // Trees — one JSON per tree version directory under data/trees/.
     let trees_dir = args.out.join("trees");
