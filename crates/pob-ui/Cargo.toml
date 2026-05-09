@@ -59,5 +59,8 @@ web-sys = { version = "0.3", features = [
     "Window",
 ] }
 
+[dev-dependencies]
+indexmap.workspace = true
+
 [lints]
 workspace = true

@@ -2303,6 +2303,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "image",
+ "indexmap",
  "js-sys",
  "pob-data",
  "pob-engine",
