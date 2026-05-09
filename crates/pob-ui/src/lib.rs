@@ -884,6 +884,26 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     stat_row_decimal(ui, "Ignite DPS", &app.output, "IgniteDPS");
                 }
                 stat_row_decimal(ui, "Full DPS", &app.output, "FullDPS");
+
+                // Issue #20 (slices 3-10): summoner builds want the headline
+                // minion numbers next to the player's main-skill block. The
+                // pipeline emits MinionLife > 0 only when the active skill
+                // resolves to a minion in the catalogue, so this gate cleanly
+                // suppresses the section for non-summoners.
+                if app.output.get("MinionLife") > 0.0 {
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Minion").strong());
+                    stat_row_decimal(ui, "Life", &app.output, "MinionLife");
+                    stat_row_decimal(ui, "Avg hit", &app.output, "MinionAverageDamage");
+                    stat_row_decimal(ui, "Speed (cps)", &app.output, "MinionAttacksPerSecond");
+                    stat_row_decimal(ui, "Crit chance %", &app.output, "MinionCritChance");
+                    stat_row_decimal(ui, "Hit chance %", &app.output, "MinionHitChance");
+                    stat_row_decimal(ui, "DPS", &app.output, "MinionDPS");
+                    stat_row_decimal(ui, "Fire res %", &app.output, "MinionFireResist");
+                    stat_row_decimal(ui, "Cold res %", &app.output, "MinionColdResist");
+                    stat_row_decimal(ui, "Lightning res %", &app.output, "MinionLightningResist");
+                    stat_row_decimal(ui, "Chaos res %", &app.output, "MinionChaosResist");
+                }
             } else if ui.link("Pick a skill →").clicked() {
                 app.active_tab = Tab::Skills;
             }
