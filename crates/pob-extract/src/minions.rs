@@ -97,6 +97,7 @@ fn parse_minion(v: &J) -> Result<MinionType> {
     let life = obj.get("life").and_then(J::as_f64).unwrap_or(0.0);
     let energy_shield = obj.get("energyShield").and_then(J::as_f64);
     let armour = obj.get("armour").and_then(J::as_f64);
+    let evasion = obj.get("evasion").and_then(J::as_f64);
     let fire_resist = obj.get("fireResist").and_then(J::as_i64).unwrap_or(0) as i32;
     let cold_resist = obj.get("coldResist").and_then(J::as_i64).unwrap_or(0) as i32;
     let lightning_resist = obj.get("lightningResist").and_then(J::as_i64).unwrap_or(0) as i32;
@@ -132,6 +133,7 @@ fn parse_minion(v: &J) -> Result<MinionType> {
         life,
         energy_shield,
         armour,
+        evasion,
         fire_resist,
         cold_resist,
         lightning_resist,

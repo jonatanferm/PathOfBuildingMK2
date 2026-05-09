@@ -32,6 +32,12 @@ pub struct MinionType {
     pub energy_shield: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub armour: Option<f64>,
+    /// Slice 14 of #20: evasion multiplier vs the per-level monster evasion
+    /// table. Defaults to `None` for minions whose Lua entry omits it, in
+    /// which case PoB treats the multiplier as 1.0. Mirrors the same
+    /// `(armour or 1)` pattern PoB uses for armour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evasion: Option<f64>,
     #[serde(default)]
     pub fire_resist: i32,
     #[serde(default)]

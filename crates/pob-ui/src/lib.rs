@@ -979,6 +979,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     if app.output.get("MinionEnergyShield") > 0.0 {
                         stat_row_decimal(ui, "ES", &app.output, "MinionEnergyShield");
                     }
+                    // Issue #20 (slice 14): armour and evasion are always
+                    // non-zero (the monster table values are non-zero at
+                    // every level), so unlike ES they're rendered
+                    // unconditionally.
+                    stat_row_decimal(ui, "Armour", &app.output, "MinionArmour");
+                    stat_row_decimal(ui, "Evasion", &app.output, "MinionEvasion");
                     stat_row_decimal(ui, "Avg hit", &app.output, "MinionAverageDamage");
                     stat_row_decimal(ui, "Speed (cps)", &app.output, "MinionAttacksPerSecond");
                     stat_row_decimal(ui, "Crit chance %", &app.output, "MinionCritChance");

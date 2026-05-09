@@ -1092,6 +1092,11 @@ mod tests {
             // Slice 13: energy shield base + scaled output.
             "MinionEnergyShieldBase",
             "MinionEnergyShield",
+            // Slice 14: armour and evasion base + scaled output.
+            "MinionArmourBase",
+            "MinionArmour",
+            "MinionEvasionBase",
+            "MinionEvasion",
         ] {
             let group = group_for(key);
             assert_eq!(
