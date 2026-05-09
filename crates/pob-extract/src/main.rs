@@ -20,6 +20,7 @@ use mlua::{Lua, Table, Value};
 
 mod calc_sections;
 mod cli;
+mod cluster_jewel_mods;
 mod cluster_jewels;
 mod tattoos;
 mod tree;
@@ -68,6 +69,14 @@ fn main() -> Result<()> {
     std::fs::write(&cj_path, serde_json::to_string_pretty(&cj)?)
         .with_context(|| format!("writing {}", cj_path.display()))?;
     wrote.push(cj_path);
+
+    // Cluster jewel mods — notable + corrupted mods that roll on cluster jewels.
+    let cjm_path = args.out.join("cluster_jewel_mods.json");
+    let cjm = cluster_jewel_mods::extract(&args.pob)
+        .with_context(|| "extracting cluster jewel mods".to_string())?;
+    std::fs::write(&cjm_path, serde_json::to_string_pretty(&cjm)?)
+        .with_context(|| format!("writing {}", cjm_path.display()))?;
+    wrote.push(cjm_path);
 
     // Tattoos — one JSON for the Tree-tab tattoo picker.
     let tattoos_path = args.out.join("tattoos.json");
