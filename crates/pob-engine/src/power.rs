@@ -86,6 +86,57 @@ pub fn score_node_addition(
     })
 }
 
+/// Score the contribution of an allocated `target_node` by recomputing the
+/// build with that node removed and reporting the resulting losses. Returns
+/// `None` when the target isn't currently allocated (you can't measure the
+/// contribution of a node that isn't pulling its weight).
+///
+/// **Sign convention**: matches [`score_node_addition`] — positive deltas
+/// mean "the player gains by acting on this node". For removal, that
+/// translates to "the player loses by not having this node", so the
+/// implementation returns `baseline − after` (rather than the raw
+/// `after − baseline` used for additions). Both functions therefore agree
+/// that a positive number is *good for the player*: take an
+/// addition-positive node, keep a removal-positive node.
+///
+/// **Cascade handling**: removing a node that bridges to other notables
+/// will orphan-cascade those notables out of the active calc through the
+/// existing `connected_allocations` BFS, so the reported delta naturally
+/// includes the chain's full contribution. This matches PoB's Power
+/// Report semantics — a single-node bridge "contributes" everything its
+/// subtree was carrying. Callers that want pure per-node scoring should
+/// pre-filter to leaf or notable-with-no-downstream candidates.
+pub fn score_node_removal(
+    character: &Character,
+    tree: &PassiveTree,
+    target_node: NodeId,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> Option<NodeScore> {
+    if !character.allocated.contains(&target_node) {
+        return None;
+    }
+    let (baseline, _) = compute_full_with_clusters_and_timeless(
+        character,
+        tree,
+        skills,
+        bases,
+        cluster_ctx,
+        timeless,
+    );
+    let mut probe = character.clone();
+    probe.allocated.remove(&target_node);
+    let (after, _) =
+        compute_full_with_clusters_and_timeless(&probe, tree, skills, bases, cluster_ctx, timeless);
+    Some(NodeScore {
+        node_id: target_node,
+        dps_delta: baseline.get("MainSkillDPS") - after.get("MainSkillDPS"),
+        ehp_delta: baseline.get("TotalEHP") - after.get("TotalEHP"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +263,59 @@ mod tests {
         let mut c = fresh_character();
         c.allocate(2);
         let score = score_node_addition(&c, &tree, 2, None, None, None, None);
+        assert!(score.is_none());
+    }
+
+    /// Issue #207 (slice 2): scoring the removal of an allocated Life
+    /// notable returns a *positive* `ehp_delta`. The sign convention
+    /// flips — for removal, "positive = good for the player to keep" —
+    /// so a notable contributing +50 Life shows up as a positive delta
+    /// the same magnitude `score_node_addition` would have reported on
+    /// the inverse direction.
+    #[test]
+    fn score_node_removal_picks_up_life_notable_loss() {
+        let tree = life_notable_tree();
+        let mut c = fresh_character();
+        c.allocate(2);
+        let score = score_node_removal(&c, &tree, 2, None, None, None, None).expect("scored");
+        assert_eq!(score.node_id, 2);
+        assert!(
+            score.ehp_delta > 0.0,
+            "removing a +50 Life notable should report a positive (lost) EHP; got {}",
+            score.ehp_delta
+        );
+        assert_eq!(score.dps_delta, 0.0);
+    }
+
+    /// Issue #207 (slice 2): symmetry check — scoring the addition of
+    /// node 2 starting from an empty allocation, then scoring the removal
+    /// of node 2 starting from an allocated set with node 2 present,
+    /// should report the *same* `ehp_delta` magnitude (with the sign
+    /// flipped). This pins both sign conventions: addition reports
+    /// `after - before`, removal reports `before - after`, so both
+    /// surface the same positive number for the same effect.
+    #[test]
+    fn score_node_addition_and_removal_are_symmetric_for_simple_node() {
+        let tree = life_notable_tree();
+        let baseline = fresh_character();
+        let mut allocated = fresh_character();
+        allocated.allocate(2);
+        let added = score_node_addition(&baseline, &tree, 2, None, None, None, None).unwrap();
+        let removed = score_node_removal(&allocated, &tree, 2, None, None, None, None).unwrap();
+        // Magnitude matches; both report a positive number under the
+        // "good for the player" sign convention.
+        assert!((added.ehp_delta - removed.ehp_delta).abs() < 1e-6);
+    }
+
+    /// Issue #207 (slice 2): scoring removal of a node that isn't in
+    /// the allocation returns `None`. Mirrors the addition's "None for
+    /// already allocated" guard so the API uses the same idiom on both
+    /// directions.
+    #[test]
+    fn score_node_removal_returns_none_for_unallocated() {
+        let tree = life_notable_tree();
+        let c = fresh_character(); // nothing allocated
+        let score = score_node_removal(&c, &tree, 2, None, None, None, None);
         assert!(score.is_none());
     }
 }
