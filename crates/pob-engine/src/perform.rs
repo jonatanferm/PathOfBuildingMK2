@@ -1555,10 +1555,19 @@ pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut
     // for attacks it folds in HitChance (= chance to crit per swing).
     // perform_skill_dps overrides this once a main skill is bound.
     let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
+    // Issue #19 (slice 14): "additional base critical strike
+    // chance" mods (Battlemage's Cry, Diamond Flask buffs, certain
+    // jewels) add to the base before INC scales it. PoB sums the
+    // intrinsic skill crit + every BASE-typed CritChance mod and
+    // applies INC on the total. Without the BASE add we lose the
+    // contribution entirely.
+    let crit_base_addn = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "CritChance");
     let crit_chance_base = if character.main_skill.is_some() {
-        5.0
+        5.0 + crit_base_addn
     } else {
-        0.0
+        crit_base_addn
     };
     env.output
         .set("CritChance", crit_chance_base * (1.0 + crit_inc / 100.0));
@@ -2561,7 +2570,14 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
         5.0
     };
     let crit_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "CritChance");
-    let crit_chance = ((base_crit * (1.0 + crit_inc / 100.0)) / 100.0).clamp(0.0, 1.0);
+    // Issue #19 (slice 14): same BASE-addition path as the
+    // basic-stats pass — Battlemage's Cry / Diamond Flask /
+    // certain jewels add to the intrinsic crit before INC.
+    let crit_base_addn = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "CritChance");
+    let crit_chance =
+        (((base_crit + crit_base_addn) * (1.0 + crit_inc / 100.0)) / 100.0).clamp(0.0, 1.0);
     env.output.set("MainSkillCritChance", crit_chance * 100.0);
     // CritMultiplier is stored in decimal form (1.5 == 150%) — see the
     // basic-stats pass. Earlier code divided by 100 here, which made non-crit
