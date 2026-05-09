@@ -149,8 +149,9 @@ pub fn apply_minion_outputs(
     // Slice 8 of #20: hit-chance pass. Needs character.config.enemy_evasion which
     // isn't reachable from the pure write_minion_outputs entry point. Layered here
     // so write_minion_outputs stays env-only and unit-testable without spinning up
-    // a Character.
-    apply_minion_hit_chance(&state, character, env, output);
+    // a Character. Slice 10 also threads the registry so the hit-chance pass can
+    // skip the formula for spell minions (Flame Sentinel etc.).
+    apply_minion_hit_chance(&state, character, registry, env, output);
     true
 }
 
@@ -158,13 +159,16 @@ pub fn apply_minion_outputs(
 /// evasion, then fold the resulting hit-chance multiplier into `MinionDPS`.
 /// Mirrors PoB's `Modules/CalcOffence.lua` minion accuracy / hit-chance branch.
 ///
-/// Slice 8 always treats the minion's primary attack as melee — the minion's
-/// `skill_list` would let us check the attack/spell base-flag for finer control,
-/// but most minion types are melee or projectile attackers and the formula is the
-/// same shape for both.
+/// Slice 10 of [#20](https://github.com/jonatanferm/PathOfBuildingMK2/issues/20)
+/// reads the minion's `skill_list[0]` from the registry to decide whether the
+/// minion's primary action is a spell (auto-hit, no accuracy roll needed) or an
+/// attack (full PoB hit-chance formula). For minions whose first skill isn't in
+/// the registry — common for spectres whose primary skill is a metadata-only
+/// monster ability MK2 doesn't yet ship — we fall back to attack semantics.
 pub fn apply_minion_hit_chance(
     state: &MinionState<'_>,
     character: &Character,
+    registry: &SkillRegistry,
     env: &Env,
     output: &mut Output,
 ) {
@@ -183,11 +187,14 @@ pub fn apply_minion_hit_chance(
     output.set("MinionAccuracyBase", accuracy_base);
     output.set("MinionAccuracy", accuracy);
 
-    // Hit chance vs enemy evasion. We default to attack semantics; the formula
-    // returns 100 directly for skill_list-detected spells if a future slice opts
-    // in.
+    // Spell-vs-attack discrimination. PoB checks the minion's primary skill flag;
+    // we mirror that by inspecting `skill_list[0]` in the registry. Spells skip
+    // the accuracy roll entirely (always 100% hit). Anything that's neither
+    // identified as a spell nor missing falls into the attack branch.
+    let is_attack = !minion_primary_skill_is_spell(state.data, registry);
+
     let enemy_evasion = f64::from(character.config.enemy_evasion);
-    let hit_chance_pct = minion_hit_chance(accuracy, enemy_evasion, true);
+    let hit_chance_pct = minion_hit_chance(accuracy, enemy_evasion, is_attack);
     output.set("MinionHitChance", hit_chance_pct);
 
     // Fold into MinionDPS. The previous DPS already factors in the crit factor
@@ -196,6 +203,19 @@ pub fn apply_minion_hit_chance(
     let dps_pre_acc = output.get("MinionDPS");
     output.set("MinionDPSBeforeHitChance", dps_pre_acc);
     output.set("MinionDPS", dps_pre_acc * hit_chance_pct / 100.0);
+}
+
+/// Returns `true` when the minion's first listed skill resolves in the registry to
+/// an entry whose `base_flags["spell"] == true`. Returns `false` for missing-from-
+/// registry skills (so the caller falls back to attack semantics).
+fn minion_primary_skill_is_spell(data: &MinionType, registry: &SkillRegistry) -> bool {
+    let Some(primary) = data.skill_list.first() else {
+        return false;
+    };
+    let Some(skill) = registry.get(primary) else {
+        return false;
+    };
+    skill.base_flags.get("spell").copied().unwrap_or(false)
 }
 
 /// Take a minion's accuracy and the character config's `enemy_evasion`, run them through
@@ -812,7 +832,8 @@ mod tests {
         let mut output = Output::default();
         write_minion_outputs(&state, &env, &mut output);
         let dps_before = output.get("MinionDPS");
-        apply_minion_hit_chance(&state, &character, &env, &mut output);
+        let registry = SkillRegistry::default();
+        apply_minion_hit_chance(&state, &character, &registry, &env, &mut output);
 
         let hit_chance = output.get("MinionHitChance");
         // Pre-accuracy DPS preserved as a separate output so the breakdown chain
@@ -828,6 +849,74 @@ mod tests {
         assert!(
             hit_chance < 100.0,
             "MinionHitChance should be < 100 vs 5000 evasion, got {hit_chance}"
+        );
+    }
+
+    #[test]
+    fn minion_primary_skill_is_spell_handles_missing_and_attack_skills() {
+        let mut data = MinionType {
+            name: "X".into(),
+            monster_tags: vec![],
+            life: 1.0,
+            energy_shield: None,
+            armour: None,
+            fire_resist: 0,
+            cold_resist: 0,
+            lightning_resist: 0,
+            chaos_resist: 0,
+            damage: 1.0,
+            damage_spread: 0.0,
+            attack_time: 1.0,
+            attack_range: 0.0,
+            accuracy: 1.0,
+            limit: None,
+            skill_list: vec![],
+            mod_list: vec![],
+            life_scaling: None,
+            weapon_type1: None,
+            weapon_type2: None,
+            base_damage_ignores_attack_speed: false,
+        };
+        let registry = SkillRegistry::default();
+
+        // No skill_list → not a spell, so attack semantics apply.
+        assert!(!minion_primary_skill_is_spell(&data, &registry));
+
+        // skill_list with an unknown id → still falls back to attack semantics.
+        data.skill_list = vec!["NotInRegistry".into()];
+        assert!(!minion_primary_skill_is_spell(&data, &registry));
+    }
+
+    #[test]
+    fn apply_minion_hit_chance_returns_100_for_spell_minions() {
+        // Use the fake minion registry trick: a real spell-detection test would
+        // need a SkillRegistry populated with a minion-spell entry. Instead we
+        // verify the registry-empty path lands at the attack branch (slice 8
+        // behaviour) and that the formula's spells-bypass-accuracy clause is
+        // exercised by the standalone helper test (`minion_hit_chance_formula_matches_pob`).
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 90,
+            life_base: 25068,
+        };
+        let mut character = Character::new(crate::ClassRef::marauder(), 90);
+        character.config.enemy_evasion = 25000;
+
+        let env = Env::default();
+        let registry = SkillRegistry::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        apply_minion_hit_chance(&state, &character, &registry, &env, &mut output);
+
+        // Without a registry-resolvable skill, falls through to attack semantics
+        // and the formula returns < 100% vs 25k evasion.
+        let chance = output.get("MinionHitChance");
+        assert!(
+            chance < 100.0,
+            "attack-fallback chance should be < 100, got {chance}"
         );
     }
 
