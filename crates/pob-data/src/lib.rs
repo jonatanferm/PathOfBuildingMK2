@@ -4,6 +4,7 @@
 //! loaders take readers/strings, callers handle I/O.
 
 pub mod bases;
+pub mod calc_sections;
 pub mod flags;
 pub mod gem;
 pub mod item;
@@ -13,6 +14,7 @@ pub mod sprites;
 pub mod tree;
 
 pub use bases::{ArmourStats, FlaskStats, ItemBase, ItemBaseKind, ItemReq, WeaponStats};
+pub use calc_sections::{load_calc_sections, CalcSection, CalcSubsection};
 pub use flags::{KeywordFlag, ModFlag, SkillType};
 pub use gem::Gem;
 pub use item::{Item, ItemSet, ModLine, ModSection, Rarity, Slot};
