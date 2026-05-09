@@ -908,6 +908,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     stat_row_decimal(ui, "Crit chance %", &app.output, "MinionCritChance");
                     stat_row_decimal(ui, "Hit chance %", &app.output, "MinionHitChance");
                     stat_row_decimal(ui, "DPS", &app.output, "MinionDPS");
+                    if app.output.get("MinionLifeRegen") > 0.0 {
+                        stat_row_decimal(ui, "Life regen", &app.output, "MinionLifeRegen");
+                    }
                     stat_row_decimal(ui, "Fire res %", &app.output, "MinionFireResist");
                     stat_row_decimal(ui, "Cold res %", &app.output, "MinionColdResist");
                     stat_row_decimal(ui, "Lightning res %", &app.output, "MinionLightningResist");

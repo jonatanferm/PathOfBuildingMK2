@@ -1075,6 +1075,9 @@ mod tests {
             "MinionChaosResistBase",
             "MinionCritChance",
             "MinionCritMultiplier",
+            // Slice 11: life regen rate.
+            "MinionLifeRegenPercent",
+            "MinionLifeRegen",
         ] {
             let group = group_for(key);
             assert_eq!(
