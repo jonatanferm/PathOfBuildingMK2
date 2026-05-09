@@ -4201,6 +4201,112 @@ fn battlemages_cry_injects_crit_chance_buff() {
     );
 }
 
+// Issue #19 (slice 13): the warcry buff injections from slices
+// 8-10 + 12 (Enduring's LifeRegenPercent, Ancestral's
+// ElementalResist, Seismic's Armour MORE, Battlemage's
+// CritChance) need to flow through to the headline basic-stat
+// outputs, not just sit in the modDB. Slice 13 re-ordered
+// `detect_warcries` to run before `perform_basic_stats`; this
+// test pins that the basic-stat outputs actually pick up the
+// warcry buffs end-to-end.
+#[test]
+fn warcry_buff_chain_flows_through_to_basic_stats() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    let needed = [
+        "EnduringCry",
+        "AncestralCry",
+        "SeismicCry",
+        "BattlemagesCry",
+        "Cleave",
+    ];
+    for id in &needed {
+        if skills.get(id).is_none() {
+            eprintln!("skip: {id} not in registry");
+            return;
+        }
+    }
+    use pob_engine::character::SocketGroup;
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+
+    // Baseline: no warcries socketed → no warcry-derived buffs.
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    let baseline_life_regen = baseline.get("LifeRegen");
+    let baseline_fire_resist = baseline.get("FireResist");
+    let baseline_armour = baseline.get("Armour");
+
+    // Add all four buff-shipping warcries + UsedWarcryRecently +
+    // WarcryPower 25 (cap for most). Every basic-stat output
+    // should now reflect the corresponding cry's buff.
+    let mut warcry_gems = Vec::new();
+    for id in [
+        "EnduringCry",
+        "AncestralCry",
+        "SeismicCry",
+        "BattlemagesCry",
+    ] {
+        let mut m = MainSkill::new(id);
+        m.level = 20;
+        warcry_gems.push(m);
+    }
+    c.skill_groups.push(SocketGroup {
+        label: "Warcries".into(),
+        gems: warcry_gems,
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    c.config.warcry_power = Some(25);
+    let buffed = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+
+    // Enduring Cry → +10%/s LifeRegenPercent. Player life × 0.10
+    // should land in the LifeRegen output as additional regen.
+    let life = baseline.get("Life");
+    assert!(
+        life > 0.0,
+        "baseline must have non-zero Life pool to test life-regen scaling"
+    );
+    let buffed_life_regen = buffed.get("LifeRegen");
+    let expected_extra = life * 0.10;
+    assert!(
+        buffed_life_regen >= baseline_life_regen + expected_extra * 0.99,
+        "EnduringCry must add +10%/s of Life to LifeRegen (baseline {baseline_life_regen}, expected ≥ +{expected_extra:.2}, got {buffed_life_regen})"
+    );
+
+    // Ancestral Cry → +30% ElementalResist (cap at WarcryPower 25
+    // → power-cap 30 not yet hit, so 25 → +25% ElementalResist).
+    let buffed_fire_resist = buffed.get("FireResist");
+    assert!(
+        buffed_fire_resist >= baseline_fire_resist + 24.0,
+        "AncestralCry must lift FireResist by ~+25% (baseline {baseline_fire_resist}, got {buffed_fire_resist})"
+    );
+
+    // Seismic Cry → +25% MORE Armour at WarcryPower 25.
+    let buffed_armour = buffed.get("Armour");
+    if baseline_armour > 0.0 {
+        let expected_armour_floor = baseline_armour * 1.24;
+        assert!(
+            buffed_armour >= expected_armour_floor,
+            "SeismicCry must scale Armour by ≥1.25× (baseline {baseline_armour}, expected ≥ {expected_armour_floor:.2}, got {buffed_armour})"
+        );
+    }
+
+    // Battlemage's Cry's CritChance BASE injection is currently
+    // a no-op for the headline `CritChance` output because
+    // perform_skill_dps reads only INC on the skill's hardcoded
+    // 5% baseline; the BASE add-on path is a separate slice.
+    // The mod is still in the modDB sourced as Battlemage's Cry,
+    // so the slice-12 unit test continues to verify it. Skipped
+    // here so this re-ordering test focuses on what the slice 13
+    // re-order actually unblocks (LifeRegen / Resists / Armour).
+}
+
 // Issue #19 (slice 11): integration test locking the warcry buff
 // chain. Slices 6-10 each ship one warcry's per-skill buff
 // (Intimidating's enemy debuff, Enduring's life regen,
