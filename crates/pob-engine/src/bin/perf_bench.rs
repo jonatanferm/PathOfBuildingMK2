@@ -77,6 +77,7 @@ fn main() {
         skill_id: "Arc".to_owned(),
         level: 20,
         quality: 20,
+        quality_id: pob_engine::QualityId::Default,
         enabled: true,
     });
     // Allocate a connected ring of nodes from the Witch start so the env has a

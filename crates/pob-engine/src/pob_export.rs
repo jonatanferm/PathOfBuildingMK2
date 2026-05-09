@@ -198,10 +198,11 @@ fn write_skills(out: &mut String, c: &Character) {
         for gem in &group.gems {
             let _ = writeln!(
                 out,
-                "            <Gem skillId=\"{id}\" level=\"{lvl}\" quality=\"{q}\" enabled=\"{en}\"/>",
+                "            <Gem skillId=\"{id}\" level=\"{lvl}\" quality=\"{q}\" qualityId=\"{qid}\" enabled=\"{en}\"/>",
                 id = xml_escape(&gem.skill_id),
                 lvl = gem.level,
                 q = gem.quality,
+                qid = gem.quality_id.as_pob_name(),
                 en = gem.enabled,
             );
         }
@@ -448,12 +449,14 @@ mod tests {
                     skill_id: "Arc".into(),
                     level: 20,
                     quality: 20,
+                    quality_id: crate::QualityId::Default,
                     enabled: true,
                 },
                 MainSkill {
                     skill_id: "ArcaneSurge".into(),
                     level: 1,
                     quality: 0,
+                    quality_id: crate::QualityId::Default,
                     enabled: false,
                 },
             ],

@@ -1359,6 +1359,7 @@ fn full_demo_witch_arc_produces_reasonable_dps() {
         skill_id: "Arc".into(),
         level: 20,
         quality: 20,
+        quality_id: pob_engine::QualityId::Default,
         enabled: true,
     });
     c.config.enemy_lightning_resist = 50;
@@ -5941,6 +5942,7 @@ fn ms_share_code_round_trips_full_character() {
         skill_id: "TornadoShot".into(),
         level: 21,
         quality: 23,
+        quality_id: pob_engine::QualityId::Default,
         enabled: true,
     });
     c.config.enemy_lightning_resist = 50;
@@ -6100,12 +6102,14 @@ fn pob_xml_round_trip_items_and_skills() {
                 skill_id: "Arc".to_owned(),
                 level: 20,
                 quality: 23,
+                quality_id: pob_engine::QualityId::Default,
                 enabled: true,
             },
             MainSkill {
                 skill_id: "AddedLightningDamage".to_owned(),
                 level: 18,
                 quality: 0,
+                quality_id: pob_engine::QualityId::Default,
                 enabled: false,
             },
         ],
@@ -6144,6 +6148,165 @@ fn pob_xml_round_trip_items_and_skills() {
     assert_eq!(group.gems[1].skill_id, "AddedLightningDamage");
     assert_eq!(group.gems[1].level, 18);
     assert!(!group.gems[1].enabled);
+}
+
+// Issue #36: alt-quality variant resolution. `skill_for_quality(reg, "Arc",
+// QualityId::Anomalous)` should pick up `ArcAltX` when the registry carries
+// it; `Phantasmal` should fall back to the base `Arc` because no `ArcAltZ`
+// exists in upstream data. Skips when the test fixture is missing the alt
+// variants — running this from a fresh checkout requires `pob-extract`.
+#[test]
+fn skill_for_quality_resolves_alt_variants_or_falls_back() {
+    let Some(skills) = load_skills() else {
+        eprintln!("skip: skill data missing");
+        return;
+    };
+    if skills.get("Arc").is_none() {
+        eprintln!("skip: Arc not in registry");
+        return;
+    }
+
+    let (default_skill, used_alt) =
+        pob_engine::skill_for_quality(&skills, "Arc", pob_engine::QualityId::Default);
+    assert!(default_skill.is_some());
+    assert!(!used_alt, "Default never consults an alt variant");
+
+    if let Some(_arc_x) = skills.get("ArcAltX") {
+        let (alt_skill, used_alt) =
+            pob_engine::skill_for_quality(&skills, "Arc", pob_engine::QualityId::Anomalous);
+        let alt_skill = alt_skill.expect("alt skill should resolve");
+        assert!(used_alt, "Anomalous should use the alt variant");
+        // The resolved skill is `ArcAltX` (transfigured "Arc of Surging").
+        assert_eq!(alt_skill.base_type_name, "Arc of Surging");
+    }
+
+    // Phantasmal maps to AltZ — Arc has no AltZ in current PoB data, so
+    // we should silently fall back to the bare Arc skill.
+    let (fallback, used_alt) =
+        pob_engine::skill_for_quality(&skills, "Arc", pob_engine::QualityId::Phantasmal);
+    assert!(fallback.is_some());
+    assert!(!used_alt, "Phantasmal Arc has no upstream data → fallback");
+}
+
+// Issue #36: end-to-end quality-id swap. With `quality_id = Anomalous` and
+// quality > 0, the engine should consult `ArcAltX.qualityStats` for the
+// quality-driven part of skill mods, not the bare `Arc.qualityStats`.
+// Concretely: at Q20, default Arc gains +1 chain (so ChainMax = 8 at L20);
+// the AltX variant's quality stat is `projectile_number_to_split` instead,
+// so its quality contribution toward ChainMax is 0 — and we expect a
+// different ChainMax output between the two `quality_id`s.
+#[test]
+fn quality_id_anomalous_changes_arc_chain_count() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Arc").is_none() || skills.get("ArcAltX").is_none() {
+        eprintln!("skip: Arc / ArcAltX not in registry");
+        return;
+    }
+
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.ascendancy = Some("Occultist".into());
+    let mut ms = MainSkill::new("Arc");
+    ms.level = 20;
+    ms.quality = 20;
+    ms.quality_id = pob_engine::QualityId::Default;
+    c.main_skill = Some(ms);
+    let default_out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let default_chain = default_out.get("ChainMax");
+
+    let mut ms = MainSkill::new("Arc");
+    ms.level = 20;
+    ms.quality = 20;
+    ms.quality_id = pob_engine::QualityId::Anomalous;
+    c.main_skill = Some(ms);
+    let alt_out = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let alt_chain = alt_out.get("ChainMax");
+
+    // Default gains a chain at Q20 from `qualityStats=[number_of_chains, 0.05]`.
+    // Anomalous swaps in `[projectile_number_to_split, 0.1]` — no chain
+    // contribution — so the chain count is lower (typically by 1) for the
+    // same gem.
+    if default_chain == 0.0 && alt_chain == 0.0 {
+        eprintln!("skip: ChainMax not surfaced by this fixture");
+        return;
+    }
+    assert!(
+        default_chain > alt_chain,
+        "Anomalous Arc loses the +chain quality bonus; got default={default_chain} alt={alt_chain}"
+    );
+}
+
+// Issue #36: PoB XML round-trip for `qualityId="Anomalous"`. Importing
+// such a build should produce a gem with `quality_id == Anomalous`,
+// and re-exporting must preserve the attribute so downstream PoB
+// reads recover the original choice.
+#[test]
+fn pob_xml_round_trips_quality_id() {
+    use pob_engine::{export_pob_xml, import_pob_xml};
+
+    let xml = r#"<PathOfBuilding>
+    <Build level="90" className="Witch" ascendClassName="Occultist"/>
+    <Tree activeSpec="1"><Spec/></Tree>
+    <Skills>
+        <Skill mainActiveSkill="1" enabled="true" label="Main">
+            <Gem skillId="Arc" level="20" quality="20" qualityId="Anomalous" enabled="true"/>
+            <Gem skillId="AddedLightningDamage" level="20" quality="0" qualityId="Divergent" enabled="true"/>
+        </Skill>
+    </Skills>
+</PathOfBuilding>"#;
+
+    let c = import_pob_xml(xml).expect("import pob xml");
+    let group = c.skill_groups.first().expect("at least one group");
+    assert_eq!(group.gems.len(), 2);
+    assert_eq!(
+        group.gems[0].quality_id,
+        pob_engine::QualityId::Anomalous,
+        "Anomalous qualityId on Arc must round-trip on import"
+    );
+    assert_eq!(
+        group.gems[1].quality_id,
+        pob_engine::QualityId::Divergent,
+        "Divergent qualityId on support must round-trip on import"
+    );
+
+    // The main skill copy of the active gem should also pick up the
+    // alt quality so compute paths see the right variant.
+    let main = c.main_skill.as_ref().expect("main skill set");
+    assert_eq!(main.quality_id, pob_engine::QualityId::Anomalous);
+
+    // Re-export and confirm the canonical PoB attribute is present.
+    let out = export_pob_xml(&c);
+    assert!(
+        out.contains("qualityId=\"Anomalous\""),
+        "exported XML should carry the Anomalous qualityId attribute, got:\n{out}"
+    );
+    assert!(
+        out.contains("qualityId=\"Divergent\""),
+        "exported XML should carry the Divergent qualityId attribute, got:\n{out}"
+    );
+}
+
+// Issue #36: missing-attribute tolerance. Legacy PoB exports without
+// the `qualityId` attribute should default to `Default` so existing
+// tests / fixtures are unaffected.
+#[test]
+fn pob_xml_missing_quality_id_defaults_to_default() {
+    use pob_engine::import_pob_xml;
+    let xml = r#"<PathOfBuilding>
+    <Build level="90" className="Witch" ascendClassName="Occultist"/>
+    <Tree activeSpec="1"><Spec/></Tree>
+    <Skills>
+        <Skill mainActiveSkill="1" enabled="true" label="Main">
+            <Gem skillId="Arc" level="20" quality="20" enabled="true"/>
+        </Skill>
+    </Skills>
+</PathOfBuilding>"#;
+    let c = import_pob_xml(xml).expect("import legacy xml");
+    let gem = &c.skill_groups[0].gems[0];
+    assert_eq!(gem.quality_id, pob_engine::QualityId::Default);
 }
 
 #[test]

@@ -70,4 +70,4 @@ pub use perform::{
 pub use pob_export::{export_pob_code, export_pob_xml};
 pub use pob_import::{import_pob_code, import_pob_xml, resolve_share_url, PobImportError};
 pub use share::{export_code, import_code, ShareError};
-pub use skill::{skill_mods, MainSkill, SkillRegistry};
+pub use skill::{skill_for_quality, skill_mods, MainSkill, QualityId, SkillRegistry};
