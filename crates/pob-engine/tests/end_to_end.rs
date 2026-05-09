@@ -1710,10 +1710,25 @@ fn enemy_evasion_changes_main_skill_hit_chance() {
         return;
     };
 
-    let attack_id = skills
-        .iter_active()
-        .find(|(_, s)| s.base_flags.get("attack").copied().unwrap_or(false))
-        .map(|(id, _)| id.to_owned());
+    // Pick a stable attack skill: prefer Cleave (a known phys
+    // melee strike that always rolls hit chance), else fall back
+    // to the lexicographically smallest attack-flagged skill.
+    // The previous `iter_active().find(...)` walked the
+    // SkillRegistry's HashMap in non-deterministic order, so
+    // different test runs picked different skills — some
+    // produced identical hit-chance values at low and high
+    // evasion, failing the strictly-decreasing assertion below.
+    let attack_id = if skills.get("Cleave").is_some() {
+        Some("Cleave".to_owned())
+    } else {
+        let mut candidates: Vec<String> = skills
+            .iter_active()
+            .filter(|(_, s)| s.base_flags.get("attack").copied().unwrap_or(false))
+            .map(|(id, _)| id.to_owned())
+            .collect();
+        candidates.sort_unstable();
+        candidates.into_iter().next()
+    };
     let Some(attack_id) = attack_id else {
         return;
     };
