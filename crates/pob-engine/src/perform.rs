@@ -737,30 +737,41 @@ fn apply_pantheon_mods(
 
 /// Issue #109 slice 2: materialise the "live" item set the calc
 /// engine should read for this compute pass. When
-/// `config.use_second_weapon_set` is `false` (default) this is just
-/// `character.items` — no allocation. When `true` the swap pair
-/// (`Weapon1Swap` / `Weapon2Swap`) replaces the primary pair and the
-/// originals are dropped from the projection. Mirrors PoB's "swap
-/// active / passive" UI gesture.
+/// `config.use_second_weapon_set` is `false` (default) the swap-set
+/// weapons are stripped from the projection so their mods don't
+/// leak into the live calc — `pob_data::Slot::Weapon1Swap`'s doc
+/// comment guarantees that "mods on swap-set items only apply when
+/// `ConfigState::use_second_weapon_set` is on". When `true` the
+/// swap pair (`Weapon1Swap` / `Weapon2Swap`) replaces the primary
+/// pair and the originals are dropped from the projection. Mirrors
+/// PoB's `Modules/CalcSetup.lua:720` per-slot `weaponSet` filter.
 fn effective_items_for_compute(character: &Character) -> std::borrow::Cow<'_, pob_data::ItemSet> {
     use pob_data::Slot;
+    let has_swap_main = character.items.get(Slot::Weapon1Swap).is_some();
+    let has_swap_off = character.items.get(Slot::Weapon2Swap).is_some();
+    let has_any_swap = has_swap_main || has_swap_off;
+
     if !character.config.use_second_weapon_set {
+        if !has_any_swap {
+            // No swap pair at all → primary is already the full set.
+            return std::borrow::Cow::Borrowed(&character.items);
+        }
+        // Strip the swap pair so its mods don't leak into the live calc.
+        let mut projected = character.items.clone();
+        projected.unequip(Slot::Weapon1Swap);
+        projected.unequip(Slot::Weapon2Swap);
+        return std::borrow::Cow::Owned(projected);
+    }
+
+    // Toggle on. If there's no swap pair at all we leave the primary
+    // pair in place (toggling on with empty swap shouldn't strip the
+    // live weapons — same behaviour as PoB).
+    if !has_any_swap {
         return std::borrow::Cow::Borrowed(&character.items);
     }
-    // Only allocate the swapped view when the user has actually
-    // toggled the swap on AND the swap pair carries at least one
-    // weapon. Otherwise fall through — toggling on with no swap pair
-    // shouldn't silently strip the live weapons.
     let swap_main = character.items.get(Slot::Weapon1Swap).cloned();
     let swap_off = character.items.get(Slot::Weapon2Swap).cloned();
-    if swap_main.is_none() && swap_off.is_none() {
-        return std::borrow::Cow::Borrowed(&character.items);
-    }
     let mut projected = character.items.clone();
-    // Drop both swap entries from the projection so they don't
-    // double-count downstream, then install them onto the primary
-    // slots. Empty swap slots fall through to "no weapon equipped"
-    // for that hand.
     projected.unequip(Slot::Weapon1Swap);
     projected.unequip(Slot::Weapon2Swap);
     projected.unequip(Slot::Weapon1);

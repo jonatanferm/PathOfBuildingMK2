@@ -719,6 +719,95 @@ fn use_second_weapon_set_swaps_live_weapons() {
     );
 }
 
+// Issue #109: when `use_second_weapon_set` is on, the *mods* on
+// the swap weapons should drive the calc engine — not just
+// wielding-condition flags. Equip a primary dagger with +50 Str
+// and a swap dagger with +99 Str: the live Strength output should
+// follow whichever pair is active. This verifies the slice-2
+// `effective_items_for_compute` projection actually drives the
+// item-mod injection path end-to-end (via
+// `apply_item_set_with_bases`), not just the auto-wield flags.
+#[test]
+fn use_second_weapon_set_swaps_weapon_mods_into_live_pool() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: tree missing");
+        return;
+    };
+    let primary =
+        parse_item("Item Class: Daggers\nRarity: RARE\nGlass Shank\n--------\n+50 to Strength\n")
+            .expect("parse primary dagger");
+    let swap =
+        parse_item("Item Class: Daggers\nRarity: RARE\nGlass Shank\n--------\n+99 to Strength\n")
+            .expect("parse swap dagger");
+
+    let mut c = Character::new(ClassRef::shadow(), 90);
+    c.items.equip(pob_data::Slot::Weapon1, primary);
+    c.items.equip(pob_data::Slot::Weapon1Swap, swap);
+
+    // Default: primary live → +50 Str on top of base.
+    let baseline = compute_with_skills(&c, &tree, None);
+    let primary_str = baseline.get("Strength");
+
+    // Toggle on: swap live → +99 Str on top of base, so we expect
+    // the difference (99 - 50 = 49) to land on Strength.
+    c.config.use_second_weapon_set = true;
+    let after = compute_with_skills(&c, &tree, None);
+    let swap_str = after.get("Strength");
+
+    assert!(
+        swap_str - primary_str == 49.0,
+        "swap-pair mods should replace primary-pair mods when use_second_weapon_set is on; \
+         got primary={primary_str}, swap={swap_str} (delta {} should be 49)",
+        swap_str - primary_str
+    );
+}
+
+// Issue #109: `.mk2` save format (serde-driven Character) must
+// preserve both the swap pair items and the use_second_weapon_set
+// toggle. Mirrors the JSON round-trip the desktop app performs
+// when the user clicks Save / Open. We round-trip through
+// serde_json directly — same path the .mk2 file format uses.
+#[test]
+fn mk2_serde_round_trip_preserves_swap_weapons() {
+    let primary =
+        parse_item("Item Class: One Hand Swords\nRarity: NORMAL\nRusted Sword\n--------\n")
+            .expect("parse primary");
+    let swap =
+        parse_item("Item Class: Daggers\nRarity: RARE\nGlass Shank\n--------\n+50 to Strength")
+            .expect("parse swap");
+
+    let mut c = Character::new(ClassRef::shadow(), 90);
+    c.items.equip(pob_data::Slot::Weapon1, primary.clone());
+    c.items.equip(pob_data::Slot::Weapon1Swap, swap.clone());
+    c.items.equip(pob_data::Slot::Weapon2Swap, primary.clone());
+    c.config.use_second_weapon_set = true;
+
+    // The desktop app stores Character via CharacterSnapshot. Round
+    // trip through that to make sure both ends survive.
+    let snap = pob_engine::CharacterSnapshot::from_character(&c);
+    let json = serde_json::to_string(&snap).expect("serialize");
+    let snap_back: pob_engine::CharacterSnapshot =
+        serde_json::from_str(&json).expect("deserialize");
+    let restored = snap_back.into_character();
+
+    assert!(
+        restored.config.use_second_weapon_set,
+        ".mk2 snapshot must preserve use_second_weapon_set toggle"
+    );
+    assert!(
+        restored.items.get(pob_data::Slot::Weapon1Swap).is_some(),
+        ".mk2 snapshot must preserve Weapon1Swap entry"
+    );
+    assert!(
+        restored.items.get(pob_data::Slot::Weapon2Swap).is_some(),
+        ".mk2 snapshot must preserve Weapon2Swap entry"
+    );
+    assert!(
+        restored.items.get(pob_data::Slot::Weapon1).is_some(),
+        ".mk2 snapshot must preserve Weapon1 entry alongside the swap pair"
+    );
+}
+
 #[test]
 fn equipping_an_amulet_changes_stats() {
     let Some(tree) = load_3_25_tree() else {

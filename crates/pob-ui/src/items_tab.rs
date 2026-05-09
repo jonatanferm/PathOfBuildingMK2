@@ -82,6 +82,45 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Characte
     });
     ui.separator();
 
+    // Issue #109 (slice 4): Weapon Set I / II toggle buttons.
+    // Mirrors PoB's `Classes/ItemsTab.lua:208-247` weaponSwap1 /
+    // weaponSwap2 buttons that flip `useSecondWeaponSet` on the
+    // active item set. We expose them on the items tab itself so
+    // users don't have to dive into the Config tab to swap. The
+    // active button is rendered as "selected" so it's obvious which
+    // pair is currently driving the calc engine.
+    ui.horizontal(|ui| {
+        ui.label("Weapon Set:");
+        let active_one = !character.config.use_second_weapon_set;
+        if ui
+            .selectable_label(active_one, "I (Primary)")
+            .on_hover_text("Use the primary weapon pair (Weapon 1 / Weapon 2) as the live pair.")
+            .clicked()
+            && !active_one
+        {
+            character.config.use_second_weapon_set = false;
+            changed = true;
+        }
+        if ui
+            .selectable_label(!active_one, "II (Swap)")
+            .on_hover_text(
+                "Use the swap weapon pair (Weapon 1 Swap / Weapon 2 Swap) as the live \
+                 pair. Mirrors PoB's X-key weapon swap. Useful for caster off-hand-buff \
+                 stacking and Storm Brand swap-trap setups.",
+            )
+            .clicked()
+            && active_one
+        {
+            character.config.use_second_weapon_set = true;
+            changed = true;
+        }
+        if !active_one {
+            ui.weak("(swap pair is live)");
+        }
+    });
+    ui.separator();
+
+    let use_swap = character.config.use_second_weapon_set;
     let items: &mut ItemSet = &mut character.items;
     ui.horizontal(|ui| {
         // Left: slot grid
@@ -93,7 +132,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Characte
             // from the primary pair so it's clear which entries the
             // calc engine reads when `use_second_weapon_set` is on.
             // We render the slot list in three groups: primary
-            // equipment, the swap pair, and flasks.
+            // equipment, the swap pair, and flasks. Slice 4 marks
+            // the active pair with a small marker so the user
+            // doesn't have to mentally cross-reference the toggle.
+            let is_primary_weapon = |s: &Slot| matches!(s, Slot::Weapon1 | Slot::Weapon2);
             let is_swap = |s: &Slot| matches!(s, Slot::Weapon1Swap | Slot::Weapon2Swap);
             let is_flask = |s: &Slot| {
                 matches!(
@@ -101,38 +143,53 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Characte
                     Slot::Flask1 | Slot::Flask2 | Slot::Flask3 | Slot::Flask4 | Slot::Flask5
                 )
             };
-            let render_slot = |ui: &mut egui::Ui, slot: &Slot, state: &mut ItemsTabState| {
-                let equipped = items.get(*slot);
-                let label = if let Some(item) = equipped {
-                    let rarity_glyph = rarity_glyph(item.rarity);
-                    if item.name.is_empty() {
-                        format!("{rarity_glyph} {} — {}", slot.label(), item.base_name)
+            let render_slot =
+                |ui: &mut egui::Ui, slot: &Slot, state: &mut ItemsTabState, inactive: bool| {
+                    let equipped = items.get(*slot);
+                    let label = if let Some(item) = equipped {
+                        let rarity_glyph = rarity_glyph(item.rarity);
+                        if item.name.is_empty() {
+                            format!("{rarity_glyph} {} — {}", slot.label(), item.base_name)
+                        } else {
+                            format!("{rarity_glyph} {} — {}", slot.label(), item.name)
+                        }
                     } else {
-                        format!("{rarity_glyph} {} — {}", slot.label(), item.name)
+                        format!("· {} — (empty)", slot.label())
+                    };
+                    let selected = state.selected_slot == Some(*slot);
+                    let response = if inactive {
+                        // Dim weapons that are *not* the current live pair so it's
+                        // clear at a glance which weapons drive the calc engine.
+                        let dim = egui::RichText::new(label).weak();
+                        ui.selectable_label(selected, dim)
+                    } else {
+                        ui.selectable_label(selected, label)
+                    };
+                    if response.clicked() {
+                        state.selected_slot = Some(*slot);
+                        state.paste_buffer.clear();
+                        state.last_error = None;
                     }
-                } else {
-                    format!("· {} — (empty)", slot.label())
                 };
-                let selected = state.selected_slot == Some(*slot);
-                if ui.selectable_label(selected, label).clicked() {
-                    state.selected_slot = Some(*slot);
-                    state.paste_buffer.clear();
-                    state.last_error = None;
-                }
-            };
             for slot in Slot::all() {
                 if is_swap(slot) || is_flask(slot) {
                     continue;
                 }
-                render_slot(ui, slot, state);
+                let inactive = is_primary_weapon(slot) && use_swap;
+                render_slot(ui, slot, state, inactive);
             }
             ui.add_space(4.0);
-            ui.weak("Swap weapon set");
+            if use_swap {
+                ui.label(egui::RichText::new("Swap weapon set (live)").strong());
+            } else {
+                ui.weak("Swap weapon set");
+            }
             for slot in Slot::all() {
                 if !is_swap(slot) {
                     continue;
                 }
-                render_slot(ui, slot, state);
+                let inactive = !use_swap;
+                render_slot(ui, slot, state, inactive);
             }
             ui.add_space(4.0);
             ui.weak("Flasks");
@@ -140,7 +197,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Characte
                 if !is_flask(slot) {
                     continue;
                 }
-                render_slot(ui, slot, state);
+                render_slot(ui, slot, state, false);
             }
         });
 
@@ -200,7 +257,9 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Characte
                         .on_hover_text(
                             "Parse the pasted item and equip it to whichever \
                              slot its `Item Class:` line maps to (e.g. amulets \
-                             → Amulet slot).",
+                             → Amulet slot). When the swap pair is live, \
+                             detected weapons go to the swap slots so the \
+                             paste targets the visible/active pair.",
                         )
                         .clicked()
                     {
@@ -208,6 +267,21 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ItemsTabState, character: &mut Characte
                             Ok(item) => {
                                 let detected = detect_slot(&item.base_name)
                                     .or_else(|| detect_slot_from_class(&state.paste_buffer));
+                                // Issue #109 (slice 4): when the swap pair
+                                // is live, detected weapons should target
+                                // the swap slots — that's the pair the
+                                // user is staring at and wants to fill.
+                                let detected = detected.map(|s| {
+                                    if use_swap {
+                                        match s {
+                                            Slot::Weapon1 => Slot::Weapon1Swap,
+                                            Slot::Weapon2 => Slot::Weapon2Swap,
+                                            other => other,
+                                        }
+                                    } else {
+                                        s
+                                    }
+                                });
                                 if let Some(target) = detected {
                                     items.equip(target, item);
                                     state.selected_slot = Some(target);
