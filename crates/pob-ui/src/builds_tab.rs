@@ -1,273 +1,200 @@
-//! Builds tab — disk-backed build browser. Resolves a platform-
-//! specific builds directory at startup, lists every `.mk2` and
-//! `.xml` build file in it, and hands click events back to the host
-//! so it can run its existing load path.
+//! Builds tab — UI shell for the cross-platform build browser.
 //!
-//! Intentionally minimal — no auto-save and no category subdirs yet
-//! (PoB has those; they're tracked as #37 follow-ups). A non-wasm
-//! build that can't resolve a builds directory falls through to a
-//! "no builds folder available" message rather than panicking.
+//! On desktop the host backs this with the platform-specific builds
+//! directory (see [`build_store_disk`]). On wasm the host backs it
+//! with [`build_store_wasm`], which stores `.mk2` payloads in
+//! IndexedDB and optionally mirrors a real folder via the File System
+//! Access API. Either way, this module is concerned only with
+//! rendering the listing + emitting [`BuildsAction`]s; it never
+//! touches storage directly.
+
+use std::path::PathBuf;
 
 use eframe::egui;
-use std::path::{Path, PathBuf};
+
+/// Opaque handle for a saved build. Concrete shape depends on the
+/// active storage backend; the UI treats it as an equality-checkable
+/// token. Variants are cross-platform — the unused ones are dead-code
+/// per cfg, but suppressing the warning keeps both source-tree and
+/// downstream pattern-matching uniform.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BuildId {
+    /// Absolute filesystem path. Desktop only.
+    Disk(PathBuf),
+    /// IndexedDB record key (uuid). Wasm only.
+    Idb(String),
+    /// Filename (relative to the connected directory) inside a File
+    /// System Access folder. Wasm only.
+    Folder(String),
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct BuildsTabState {
-    /// Most recent listing of the builds folder. Populated lazily on
-    /// the first frame and refreshed via the "Refresh" button or
-    /// after the user saves a new build.
+    /// Most recent listing supplied by the host. Refresh requests are
+    /// emitted as `BuildsAction::Refresh`; the host populates this
+    /// field and bumps `loaded`.
     pub entries: Vec<BuildEntry>,
-    /// Whether we've populated `entries` at least once. Avoids
-    /// repeated I/O on every frame.
+    /// Cleared by the host whenever it serves a fresh listing. The UI
+    /// treats `false` as "ask host to refresh on next frame."
     pub loaded: bool,
     /// Buffer for the "save current as <name>" input.
     pub save_buffer: String,
     /// Issue #100 (slice 3): inline rename state. When `Some`, the
-    /// matching build entry renders a TextEdit in place of its
-    /// label until the user confirms or cancels.
-    pub pending_rename: Option<(PathBuf, String)>,
+    /// matching build entry renders a TextEdit in place of its label
+    /// until the user confirms or cancels.
+    pub pending_rename: Option<(BuildId, String)>,
     /// Issue #100 (slice 3): two-step delete confirmation. The first
-    /// click on Delete records the path here; the second click on
-    /// the same row's now-red "Confirm?" button fires the action.
-    /// Cleared if the user clicks anywhere else (rescan + frame
-    /// reset cycle).
-    pub pending_delete: Option<PathBuf>,
+    /// click on Delete records the id here; the second click on the
+    /// same row's now-red "Confirm?" button fires the action.
+    pub pending_delete: Option<BuildId>,
     /// Issue #100 (slice 3): buffer for the "+ New category" input.
     pub new_category_buffer: String,
+    /// Caption shown above the list. Desktop sets this to the resolved
+    /// builds dir; wasm sets it to "Browser storage" or the connected
+    /// folder name. Empty means hide the caption.
+    pub folder_caption: String,
+    /// Whether the host's current backend is a File System Access
+    /// folder (wasm only). Drives the visibility of the
+    /// connect/disconnect controls.
+    pub folder_connected: bool,
+    /// Whether the running browser exposes `showDirectoryPicker`. On
+    /// desktop / unsupported wasm browsers this is false and the
+    /// "Connect folder" button doesn't render. The host updates this
+    /// at boot.
+    pub folder_supported: bool,
+    /// Wasm-only: whether the host is mid-write of the most recent
+    /// save and we should disable Save-here briefly. Currently unused
+    /// (writes happen synchronously from the UI's perspective) but
+    /// reserved so a future debounce can hook in.
+    pub busy: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct BuildEntry {
     /// File-stem display label (e.g. "MyBuild").
     pub label: String,
-    /// Absolute path to the file on disk.
-    pub path: PathBuf,
+    /// Backend handle for load/rename/delete operations.
+    pub id: BuildId,
     /// File extension lowercased (`mk2` / `xml`).
     pub ext: String,
     /// Issue #100 (slice 2): subdirectory the build lives under,
     /// relative to the builds root. `None` means the file is in the
     /// root itself ("Uncategorised" group). Mirrors PoB's
-    /// "Levelling/", "Bossing/", "Mapping/" folder convention. We
-    /// only walk one level deep — nested categories are out of scope.
+    /// "Levelling/", "Bossing/", "Mapping/" folder convention.
     pub category: Option<String>,
 }
 
 /// Action the host should take based on the user's interaction.
+/// Variants prefixed with "wasm only" never construct on desktop —
+/// the `dead_code` allow keeps both targets sharing one match arm
+/// surface in the host without per-cfg variants.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildsAction {
-    /// User asked to load this file. The host runs its normal load
-    /// path and updates the live build.
-    LoadFile(PathBuf),
-    /// User asked to save the current build to this filename inside
-    /// the builds dir. Host calls its save path with the resolved
-    /// absolute path.
-    SaveAs(PathBuf),
-    /// User clicked "Open builds folder" — host should open the
-    /// directory in the platform file manager.
-    OpenFolder(PathBuf),
-    /// Issue #100 (slice 3): rename a build on disk. Host issues
-    /// `fs::rename(from, to)` and refreshes the listing. If the
-    /// renamed file was the currently-open build the host should
-    /// also update its `current_build_path`.
-    Rename { from: PathBuf, to: PathBuf },
-    /// Issue #100 (slice 3): duplicate a build via `fs::copy(from,
-    /// to)`. The destination defaults to `<name> copy.<ext>` in the
-    /// same category subdir.
-    Duplicate { from: PathBuf, to: PathBuf },
-    /// Issue #100 (slice 3): permanently delete the named build via
-    /// `fs::remove_file(path)`. Surfaced from a two-step confirm in
-    /// the UI; the host doesn't need to ask again.
-    Delete(PathBuf),
-    /// Issue #100 (slice 3): create an empty category subdirectory
-    /// under the builds root. Host issues `fs::create_dir_all(dir)`
-    /// and refreshes.
-    CreateCategory(PathBuf),
-}
-
-/// Resolve the platform-specific builds directory. Returns `None` if
-/// the environment doesn't carry the relevant home/appdata variable
-/// (test runners, daemons running as root, etc.). Mirrors PoB's
-/// `~/Path of Building/Builds/` on Linux and the equivalents on macOS
-/// / Windows but uses our app name so we don't collide with upstream
-/// PoB's installation.
-#[must_use]
-pub fn builds_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var_os("HOME")?;
-        let mut p = PathBuf::from(home);
-        p.push("Library");
-        p.push("Application Support");
-        p.push("PathOfBuildingMK2");
-        p.push("Builds");
-        Some(p)
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let base = std::env::var_os("XDG_DATA_HOME").map_or_else(
-            || {
-                std::env::var_os("HOME").map(|h| {
-                    let mut p = PathBuf::from(h);
-                    p.push(".local");
-                    p.push("share");
-                    p
-                })
-            },
-            |x| Some(PathBuf::from(x)),
-        )?;
-        let mut p = base;
-        p.push("PathOfBuildingMK2");
-        p.push("Builds");
-        Some(p)
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let appdata = std::env::var_os("APPDATA")?;
-        let mut p = PathBuf::from(appdata);
-        p.push("PathOfBuildingMK2");
-        p.push("Builds");
-        Some(p)
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        None
-    }
-}
-
-/// Refresh the entry list from disk. Creates the builds dir if it
-/// doesn't exist (so the user has somewhere to save into). Issue
-/// #100 (slice 2): walks one level of subdirectories so the user
-/// can organise builds into categories (e.g. `Levelling/MyAcrobat`,
-/// `Bossing/HC-DD`). Files in the root itself are tagged with
-/// `category = None` and render under "Uncategorised". Nested
-/// subdirectories are flattened — only the immediate parent of each
-/// build file becomes a category label.
-fn rescan(dir: &Path) -> Vec<BuildEntry> {
-    let _ = std::fs::create_dir_all(dir);
-    let mut out: Vec<BuildEntry> = Vec::new();
-    if let Ok(read) = std::fs::read_dir(dir) {
-        for entry in read.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            let file_type = entry.file_type().ok();
-            if file_type.map(|t| t.is_dir()).unwrap_or(false) {
-                // One-level-deep walk into subdirectories. Skip
-                // hidden / metadata dirs (anything starting with
-                // `.`) so cache directories don't pollute the list.
-                let category = path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .filter(|s| !s.starts_with('.'))
-                    .map(str::to_owned);
-                let Some(category) = category else { continue };
-                if let Ok(child) = std::fs::read_dir(&path) {
-                    for f in child.filter_map(|e| e.ok()) {
-                        if let Some(be) = build_entry_from_path(f.path(), Some(category.clone())) {
-                            out.push(be);
-                        }
-                    }
-                }
-            } else if let Some(be) = build_entry_from_path(path, None) {
-                out.push(be);
-            }
-        }
-    }
-    out.sort_by(|a, b| {
-        // Stable category-then-label ordering keeps the rendered
-        // groups deterministic. `None` (Uncategorised) sorts first
-        // so users see their root-level builds without scrolling.
-        let ca = a.category.as_deref().unwrap_or("");
-        let cb = b.category.as_deref().unwrap_or("");
-        let by_cat = match (a.category.is_some(), b.category.is_some()) {
-            (false, true) => std::cmp::Ordering::Less,
-            (true, false) => std::cmp::Ordering::Greater,
-            _ => ca.to_ascii_lowercase().cmp(&cb.to_ascii_lowercase()),
-        };
-        by_cat.then_with(|| {
-            a.label
-                .to_ascii_lowercase()
-                .cmp(&b.label.to_ascii_lowercase())
-        })
-    });
-    out
-}
-
-/// Issue #100 (slice 3): pick an unused destination path for a
-/// duplicate of `entry`. Tries `<name> copy.<ext>` first, then
-/// `<name> copy 2.<ext>`, etc. until it finds one that doesn't
-/// already exist on disk. Returns `None` if `entry.path` has no
-/// parent directory (shouldn't happen for a real build file).
-fn duplicate_target(entry: &BuildEntry) -> Option<PathBuf> {
-    let parent = entry.path.parent()?;
-    for n in 1..100 {
-        let suffix = if n == 1 {
-            "copy".to_owned()
-        } else {
-            format!("copy {n}")
-        };
-        let candidate = parent.join(format!("{} {}.{}", entry.label, suffix, entry.ext));
-        if !candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-/// Helper for `rescan`: build an `Option<BuildEntry>` from a
-/// candidate path, filtering out non-build extensions and rejecting
-/// paths whose stem doesn't decode as UTF-8.
-fn build_entry_from_path(path: PathBuf, category: Option<String>) -> Option<BuildEntry> {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .map(|s| s.to_ascii_lowercase())?;
-    if ext != "mk2" && ext != "xml" {
-        return None;
-    }
-    let label = path.file_stem().and_then(|s| s.to_str())?.to_owned();
-    Some(BuildEntry {
-        label,
-        path,
-        ext,
-        category,
-    })
+    /// User asked to load this build.
+    Load(BuildId),
+    /// User asked to save the current build under this name. The host
+    /// resolves the destination (disk path / IDB record / folder file)
+    /// and stores the payload.
+    Save {
+        name: String,
+        category: Option<String>,
+    },
+    /// Re-list builds. Emitted on first frame and after the
+    /// Refresh button.
+    Refresh,
+    /// User clicked "Open folder" — desktop opens the builds dir in
+    /// the platform file manager. Wasm: ignored.
+    OpenFolder,
+    /// Rename a build to a new label (no extension).
+    Rename { id: BuildId, new_label: String },
+    /// Duplicate a build. Host picks a `<name> copy.<ext>`-style new
+    /// name that doesn't clash.
+    Duplicate(BuildId),
+    /// Permanently delete a build.
+    Delete(BuildId),
+    /// Create an empty category (subdirectory on disk, virtual on
+    /// wasm).
+    CreateCategory(String),
+    /// Wasm only: open a file picker, parse the chosen file, store it
+    /// as a new build. No-op on desktop (use the File menu instead).
+    ImportFile,
+    /// Wasm only: prompt the user to grant access to a folder via the
+    /// File System Access API and switch to folder-backed storage.
+    ConnectFolder,
+    /// Wasm only: drop the connected folder and revert to IndexedDB
+    /// storage.
+    DisconnectFolder,
 }
 
 /// Render the builds tab. Returns an action for the host to execute
-/// (load file, save current under a name, open folder), or `None` if
-/// the user only browsed.
+/// (load file, save current under a name, refresh, etc.), or `None`
+/// if the user only browsed.
 pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction> {
-    let Some(dir) = builds_dir() else {
-        ui.heading("Builds");
-        ui.separator();
-        ui.label(
-            "Couldn't resolve a builds directory for this platform. Set $HOME (or %APPDATA% \
-             on Windows) to enable disk-backed builds.",
-        );
-        return None;
-    };
+    let mut action: Option<BuildsAction> = None;
 
     if !state.loaded {
-        state.entries = rescan(&dir);
+        // First frame after a state reset — ask the host to populate
+        // the listing. We optimistically flip `loaded` so we don't
+        // re-emit on every subsequent frame; the host clears it again
+        // if it wants another refresh.
         state.loaded = true;
+        action = Some(BuildsAction::Refresh);
     }
-
-    let mut action: Option<BuildsAction> = None;
 
     ui.horizontal(|ui| {
         ui.heading("Builds");
         ui.separator();
         if ui.button("Refresh").clicked() {
-            state.entries = rescan(&dir);
+            // Direct emit overrides the implicit first-frame Refresh
+            // we may have already queued; the host treats them
+            // identically.
+            action = Some(BuildsAction::Refresh);
         }
         if ui.button("Open folder").clicked() {
-            action = Some(BuildsAction::OpenFolder(dir.clone()));
+            action = Some(BuildsAction::OpenFolder);
+        }
+        // Wasm only: show File System Access controls when the
+        // browser supports them. Hidden on desktop and unsupported
+        // browsers, so the desktop UI doesn't grow a useless button.
+        if state.folder_supported {
+            if state.folder_connected {
+                if ui
+                    .button("Disconnect folder")
+                    .on_hover_text("Stop using the connected folder; revert to browser storage.")
+                    .clicked()
+                {
+                    action = Some(BuildsAction::DisconnectFolder);
+                }
+            } else if ui
+                .button("Connect folder")
+                .on_hover_text(
+                    "Pick a folder on your computer that the app can read and write directly.",
+                )
+                .clicked()
+            {
+                action = Some(BuildsAction::ConnectFolder);
+            }
+        }
+        // Wasm only: explicit upload entry-point. Desktop users have
+        // File → Open instead.
+        #[cfg(target_arch = "wasm32")]
+        if ui
+            .button("Import file…")
+            .on_hover_text("Pick a .mk2 / .xml file from your computer and add it to the list.")
+            .clicked()
+        {
+            action = Some(BuildsAction::ImportFile);
         }
     });
-    ui.weak(format!("Folder: {}", dir.display()));
+    if !state.folder_caption.is_empty() {
+        ui.weak(&state.folder_caption);
+    }
 
-    // Issue #100 (slice 3): "+ New category" creates an empty
-    // subdirectory under the builds root so the user can drop saves
-    // into it via the regular Save flow next time.
+    // Issue #100 (slice 3): "+ New category" creates an empty subdir
+    // (or a virtual category in wasm IDB mode) so subsequent Save
+    // calls can drop builds into it.
     ui.horizontal(|ui| {
         ui.label("New category:");
         ui.add(
@@ -282,15 +209,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
             && !trimmed.starts_with('.');
         if ui
             .add_enabled(create_enabled, egui::Button::new("+ Create"))
-            .on_hover_text(
-                "Creates an empty subdirectory under the builds root. \
-                 Drop saves into it via Save here later.",
-            )
+            .on_hover_text("Creates an empty category. Drop saves into it via Save here later.")
             .clicked()
         {
-            let mut path = dir.clone();
-            path.push(trimmed);
-            action = Some(BuildsAction::CreateCategory(path));
+            action = Some(BuildsAction::CreateCategory(trimmed.to_owned()));
             state.new_category_buffer.clear();
             state.loaded = false;
         }
@@ -299,20 +221,14 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
 
     if state.entries.is_empty() {
         ui.label(
-            "No builds saved yet. Save the current build into this folder via \
-             \"Save here\" below — or use File → Save As to pick any path manually.",
+            "No builds saved yet. Save the current build into the list via \"Save here\" \
+             below — or use Import file… to load one from your computer.",
         );
     } else {
         // Issue #100 (slice 2): group entries by category so users
-        // can collapse rare-use folders. Entries in the root land
-        // under "Uncategorised"; every named subdir gets its own
-        // collapsing header. `state.entries` is already
-        // category-then-label sorted, so we can stream straight
-        // through it.
-        // Pre-compute the (category → entry index) groupings once so
-        // the render loop can stream through ScrollArea without
-        // borrowing tricks. `state.entries` is already
-        // category-then-label sorted from rescan.
+        // can collapse rare-use folders. Entries with no category
+        // land under "Uncategorised". `state.entries` is assumed to
+        // be category-then-label sorted by the host.
         let mut groups: Vec<(Option<String>, Vec<usize>)> = Vec::new();
         let entries_clone: Vec<BuildEntry> = state.entries.clone();
         for (i, entry) in entries_clone.iter().enumerate() {
@@ -336,15 +252,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
                         .show(ui, |ui| {
                             for &i in indices {
                                 let entry = &entries_clone[i];
-                                // Issue #100 (slice 3): per-row controls.
-                                // Either an inline rename TextEdit or the
-                                // standard click-to-load label, plus
-                                // duplicate / delete buttons.
                                 ui.horizontal(|ui| {
                                     let renaming_this = state
                                         .pending_rename
                                         .as_ref()
-                                        .map(|(p, _)| p == &entry.path)
+                                        .map(|(id, _)| id == &entry.id)
                                         .unwrap_or(false);
                                     if renaming_this {
                                         let buf = state
@@ -368,18 +280,9 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
                                         if confirm {
                                             let new_name = buf.trim().to_owned();
                                             if !new_name.is_empty() && new_name != entry.label {
-                                                let mut to = entry
-                                                    .path
-                                                    .parent()
-                                                    .map(Path::to_path_buf)
-                                                    .unwrap_or_else(|| dir.clone());
-                                                to.push(format!(
-                                                    "{new_name}.{ext}",
-                                                    ext = entry.ext
-                                                ));
                                                 action = Some(BuildsAction::Rename {
-                                                    from: entry.path.clone(),
-                                                    to,
+                                                    id: entry.id.clone(),
+                                                    new_label: new_name,
                                                 });
                                                 state.loaded = false;
                                             }
@@ -397,7 +300,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
                                         .on_hover_text("Click to load")
                                         .clicked()
                                     {
-                                        action = Some(BuildsAction::LoadFile(entry.path.clone()));
+                                        action = Some(BuildsAction::Load(entry.id.clone()));
                                     }
 
                                     ui.weak(format!(".{}", entry.ext));
@@ -406,23 +309,19 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
                                         if ui.small_button("✎").on_hover_text("Rename").clicked()
                                         {
                                             state.pending_rename =
-                                                Some((entry.path.clone(), entry.label.clone()));
+                                                Some((entry.id.clone(), entry.label.clone()));
                                             state.pending_delete = None;
                                         }
                                         if ui.small_button("⎘").on_hover_text("Duplicate").clicked()
                                         {
-                                            if let Some(to) = duplicate_target(entry) {
-                                                action = Some(BuildsAction::Duplicate {
-                                                    from: entry.path.clone(),
-                                                    to,
-                                                });
-                                                state.loaded = false;
-                                            }
+                                            action =
+                                                Some(BuildsAction::Duplicate(entry.id.clone()));
+                                            state.loaded = false;
                                         }
                                         let pending = state
                                             .pending_delete
                                             .as_ref()
-                                            .map(|p| p == &entry.path)
+                                            .map(|id| id == &entry.id)
                                             .unwrap_or(false);
                                         if pending {
                                             if ui
@@ -440,7 +339,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
                                                 .clicked()
                                             {
                                                 action =
-                                                    Some(BuildsAction::Delete(entry.path.clone()));
+                                                    Some(BuildsAction::Delete(entry.id.clone()));
                                                 state.pending_delete = None;
                                                 state.loaded = false;
                                             }
@@ -449,7 +348,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
                                             .on_hover_text("Delete (click again to confirm)")
                                             .clicked()
                                         {
-                                            state.pending_delete = Some(entry.path.clone());
+                                            state.pending_delete = Some(entry.id.clone());
                                         }
                                     }
                                 });
@@ -461,181 +360,26 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
 
     ui.separator();
     ui.horizontal(|ui| {
-        ui.label("Save current build into folder as:");
+        ui.label("Save current build as:");
         ui.add(
             egui::TextEdit::singleline(&mut state.save_buffer)
                 .desired_width(220.0)
                 .hint_text("filename (no extension)"),
         );
         let trimmed = state.save_buffer.trim();
-        let save_enabled = !trimmed.is_empty();
+        let save_enabled = !trimmed.is_empty() && !state.busy;
         if ui
             .add_enabled(save_enabled, egui::Button::new("Save here"))
             .clicked()
         {
-            let mut path = dir.clone();
-            path.push(format!("{trimmed}.mk2"));
-            action = Some(BuildsAction::SaveAs(path));
+            action = Some(BuildsAction::Save {
+                name: trimmed.to_owned(),
+                category: None,
+            });
             state.save_buffer.clear();
             state.loaded = false; // refresh after the host writes
         }
     });
 
     action
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rescan_picks_mk2_and_xml_only() {
-        // Use a temp dir under target/ so cargo test cleans it up.
-        let dir = std::env::temp_dir().join(format!("pob-ui-builds-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        std::fs::write(dir.join("alpha.mk2"), "MK2|...").unwrap();
-        std::fs::write(dir.join("beta.xml"), "<x/>").unwrap();
-        std::fs::write(dir.join("readme.txt"), "ignored").unwrap();
-        std::fs::write(dir.join("hidden.json"), "ignored").unwrap();
-
-        let entries = rescan(&dir);
-        let labels: Vec<_> = entries.iter().map(|e| e.label.as_str()).collect();
-        let exts: Vec<_> = entries.iter().map(|e| e.ext.as_str()).collect();
-        assert_eq!(labels, vec!["alpha", "beta"]);
-        // Extensions are lowercased.
-        assert!(exts.contains(&"mk2"));
-        assert!(exts.contains(&"xml"));
-        assert!(!exts.contains(&"txt"));
-        assert!(!exts.contains(&"json"));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn rescan_alphabetises_case_insensitively() {
-        let dir = std::env::temp_dir().join(format!("pob-ui-builds-sort-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        std::fs::write(dir.join("Zeta.mk2"), "").unwrap();
-        std::fs::write(dir.join("alpha.mk2"), "").unwrap();
-        std::fs::write(dir.join("MIDDLE.mk2"), "").unwrap();
-
-        let entries = rescan(&dir);
-        let labels: Vec<_> = entries.iter().map(|e| e.label.clone()).collect();
-        assert_eq!(labels, vec!["alpha", "MIDDLE", "Zeta"]);
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    // Issue #100 (slice 2): one-level subdirectory walk groups
-    // builds into categories. Files in the root carry
-    // `category = None` (rendered as "Uncategorised"); files inside a
-    // subdir carry the directory name as their category. Hidden
-    // dirs (starting with `.`) and nested-deeper files don't show.
-    #[test]
-    fn rescan_walks_one_level_of_subdirs_into_categories() {
-        let dir =
-            std::env::temp_dir().join(format!("pob-ui-builds-categories-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        // Root-level build.
-        std::fs::write(dir.join("scratch.mk2"), "").unwrap();
-        // Two named categories with builds inside each.
-        std::fs::create_dir_all(dir.join("Levelling")).unwrap();
-        std::fs::write(dir.join("Levelling/Phys-RT.mk2"), "").unwrap();
-        std::fs::write(dir.join("Levelling/Spell-CI.xml"), "").unwrap();
-        std::fs::create_dir_all(dir.join("Bossing")).unwrap();
-        std::fs::write(dir.join("Bossing/HC-DD.mk2"), "").unwrap();
-        // Hidden dir is ignored.
-        std::fs::create_dir_all(dir.join(".cache")).unwrap();
-        std::fs::write(dir.join(".cache/old.mk2"), "").unwrap();
-        // Nested-deeper builds are ignored (only one level of subdir).
-        std::fs::create_dir_all(dir.join("Bossing/sub")).unwrap();
-        std::fs::write(dir.join("Bossing/sub/deep.mk2"), "").unwrap();
-
-        let entries = rescan(&dir);
-        let categories: Vec<Option<&str>> = entries.iter().map(|e| e.category.as_deref()).collect();
-        let labels: Vec<&str> = entries.iter().map(|e| e.label.as_str()).collect();
-
-        assert_eq!(
-            categories,
-            vec![None, Some("Bossing"), Some("Levelling"), Some("Levelling")],
-            "Uncategorised first, then categories alphabetised; deeper / hidden dirs skipped"
-        );
-        assert_eq!(
-            labels,
-            vec!["scratch", "HC-DD", "Phys-RT", "Spell-CI"],
-            "labels stable within each category"
-        );
-        // The deeper build "deep" must not appear at all.
-        assert!(
-            !entries.iter().any(|e| e.label == "deep"),
-            "files inside nested subdirs must not be flattened up; got {:?}",
-            labels
-        );
-        // The hidden-dir build is ignored too.
-        assert!(
-            !entries.iter().any(|e| e.label == "old"),
-            "files inside hidden dirs must be skipped"
-        );
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    // Issue #100 (slice 3): duplicate target picks the next free
-    // `<name> copy.<ext>` filename, then `<name> copy 2.<ext>` if
-    // that one's taken.
-    #[test]
-    fn duplicate_target_picks_unused_copy_name() {
-        let dir = std::env::temp_dir().join(format!("pob-ui-builds-dup-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        let path = dir.join("MyBuild.mk2");
-        std::fs::write(&path, "").unwrap();
-        let entry = BuildEntry {
-            label: "MyBuild".into(),
-            path: path.clone(),
-            ext: "mk2".into(),
-            category: None,
-        };
-
-        // First call: picks `MyBuild copy.mk2`.
-        let target = duplicate_target(&entry).expect("first target");
-        assert_eq!(
-            target.file_name().and_then(|s| s.to_str()),
-            Some("MyBuild copy.mk2"),
-            "first duplicate should land at `<name> copy.<ext>`; got {target:?}"
-        );
-
-        // Pre-create that file to force the helper to pick a higher
-        // suffix on the next call.
-        std::fs::write(&target, "").unwrap();
-        let target2 = duplicate_target(&entry).expect("second target");
-        assert_eq!(
-            target2.file_name().and_then(|s| s.to_str()),
-            Some("MyBuild copy 2.mk2"),
-            "second duplicate should land at `<name> copy 2.<ext>`; got {target2:?}"
-        );
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn builds_dir_is_under_app_namespace() {
-        // Whichever platform this test runs on, the path must end with
-        // `PathOfBuildingMK2/Builds` so we don't collide with upstream
-        // PoB's own folder.
-        if let Some(p) = builds_dir() {
-            let s = p.to_string_lossy();
-            assert!(
-                s.ends_with("PathOfBuildingMK2/Builds") || s.ends_with("PathOfBuildingMK2\\Builds"),
-                "unexpected builds_dir suffix: {s}"
-            );
-        }
-    }
 }

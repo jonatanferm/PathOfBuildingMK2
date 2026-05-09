@@ -82,3 +82,36 @@ sibling checkout of [PathOfBuildingCommunity/PathOfBuilding](https://github.com/
 at `../PathOfBuilding/` (or specify with `--pob`). Extraction runs once and produces
 `bases.json` (~870 KB), `gems.json` (~445 KB), `skills/*.json` (~5 MB), and
 `trees/*.json` (~40 MB across 28 modern tree versions).
+
+## Build storage
+
+Where saved builds live depends on which build you're running.
+
+**Desktop.** Saves land in a per-OS app-data folder:
+
+- macOS: `~/Library/Application Support/PathOfBuildingMK2/Builds/`
+- Linux: `$XDG_DATA_HOME/PathOfBuildingMK2/Builds/` (falls back to `~/.local/share/...`)
+- Windows: `%APPDATA%\PathOfBuildingMK2\Builds\`
+
+Each build is a `.mk2` (compact share-code) or `.xml` (PoB-compatible) file. One
+level of subdirectories acts as categories ("Levelling/", "Bossing/", etc.).
+
+**Wasm (browser).** No real filesystem to write into, so the Builds tab uses up to
+three layers, in priority order:
+
+1. **Connected folder** (Chromium-only, opt-in). If the browser exposes the
+   File System Access API and the user clicks "Connect folder," the app reads/writes
+   `.mk2` / `.xml` files directly in the chosen directory. The directory handle is
+   persisted in IndexedDB so the connection survives reload (the browser may re-prompt
+   for permission). Click "Disconnect folder" to fall back to layer 2.
+2. **IndexedDB** (default). Saves the `.mk2` payload + metadata in a per-origin
+   IndexedDB store (`pob_mk2_builds`). The list survives reload but is wiped by
+   "Clear site data" / "Clear browsing data → Cookies and other site data."
+3. **Manual download** (always). Every Save also triggers a browser download of the
+   `.mk2` file so the user keeps a real file on disk regardless of the active layer.
+   Use **Import file…** in the Builds tab (or `File → Open…`) to bring a saved file
+   back in.
+
+Storage quota errors (e.g. `QuotaExceededError`) surface a toast in the status bar
+rather than failing silently — typically a sign to delete old saves or connect a
+folder.

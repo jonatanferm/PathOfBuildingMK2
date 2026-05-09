@@ -10,6 +10,10 @@ use pob_engine::{
     Character, Output, SkillRegistry,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+mod build_store_disk;
+#[cfg(target_arch = "wasm32")]
+mod build_store_wasm;
 mod builds_tab;
 mod calcs_tab;
 mod color_codes;
@@ -118,6 +122,11 @@ struct LoadedApp {
     /// freshly-loaded build as already on disk, suppressing the
     /// no-op auto-save that would otherwise fire next tick).
     pending_seed_saved_hash: bool,
+    /// Issue #101: wasm-only storage shim backing the Builds tab with
+    /// IndexedDB (and optionally a File System Access folder).
+    /// Drained each frame for completed async ops.
+    #[cfg(target_arch = "wasm32")]
+    wasm_storage: build_store_wasm::WasmStorage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -339,6 +348,7 @@ impl PobApp {
             last_compute_hash: 0,
             last_saved_hash: 0,
             pending_seed_saved_hash: false,
+            wasm_storage: build_store_wasm::WasmStorage::new(),
         })
     }
 }
@@ -444,6 +454,17 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // Tab switches don't count as input changes, only modifications to the character
     // (class, level, allocated nodes, items, skills, config, notes).
     let mut recompute = false;
+
+    // Issue #101: drain async storage events first thing each frame
+    // so list refreshes / load completions / status toasts surface
+    // before any UI rendering touches them.
+    #[cfg(target_arch = "wasm32")]
+    {
+        if apply_storage_events(app) {
+            recompute = true;
+            ctx.request_repaint();
+        }
+    }
 
     // Keyboard shortcuts at the app level. egui::Key + Modifiers are tested in
     // `Context::input` so they fire regardless of which panel has focus (unless an
@@ -1348,11 +1369,10 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
             }
             #[cfg(target_arch = "wasm32")]
             {
-                app.status_message = Some((
-                    StatusKind::Error,
-                    "Open is not supported in the web build yet — paste a build via Import/Export."
-                        .into(),
-                ));
+                // Web build: re-use the Builds tab's import-file path
+                // (file picker → parse → store in IDB / folder).
+                app.wasm_storage
+                    .handle_action(builds_tab::BuildsAction::ImportFile, &app.character);
             }
         }
         MenuAction::Save => save_build(app, false),
@@ -1444,8 +1464,25 @@ fn handle_compare_action(_app: &mut LoadedApp, _action: compare_tab::CompareActi
 /// platform-specific builds directory.
 #[cfg(not(target_arch = "wasm32"))]
 fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
+    use builds_tab::{BuildId, BuildsAction};
+
+    let dir = build_store_disk::builds_dir();
+
     match action {
-        builds_tab::BuildsAction::LoadFile(path) => {
+        BuildsAction::Refresh => {
+            if let Some(d) = &dir {
+                app.builds_state.entries = build_store_disk::rescan(d);
+                app.builds_state.folder_caption = format!("Folder: {}", d.display());
+            } else {
+                app.builds_state.entries.clear();
+                app.builds_state.folder_caption =
+                    "Couldn't resolve a builds directory for this platform.".into();
+            }
+            // Folder mode is wasm-only; never advertised on desktop.
+            app.builds_state.folder_supported = false;
+            app.builds_state.folder_connected = false;
+        }
+        BuildsAction::Load(BuildId::Disk(path)) => {
             let load = std::fs::read_to_string(&path).map_err(|e| e.to_string());
             let parsed: Result<Character, String> = load.and_then(|s| {
                 let trimmed = s.trim();
@@ -1461,6 +1498,8 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 Ok(c) => {
                     app.character = c;
                     app.current_build_path = Some(path.clone());
+                    app.pending_seed_saved_hash = true;
+                    app.dirty_since = None;
                     app.status_message =
                         Some((StatusKind::Info, format!("Opened {}", path.display())));
                 }
@@ -1469,14 +1508,26 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 }
             }
         }
-        builds_tab::BuildsAction::SaveAs(path) => {
-            // Write the current character to the chosen path inside
-            // the builds dir. This matches `save_build`'s logic but
-            // with a pre-resolved path (no rfd dialog).
+        BuildsAction::Save { name, category } => {
+            let Some(dir) = dir else {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    "Couldn't resolve a builds directory.".into(),
+                ));
+                return;
+            };
+            let mut path = dir;
+            if let Some(cat) = &category {
+                path.push(cat);
+                let _ = std::fs::create_dir_all(&path);
+            }
+            path.push(format!("{name}.mk2"));
             let payload = pob_engine::export_code(&app.character).map_err(|e| e.to_string());
             match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
                 Ok(()) => {
                     app.current_build_path = Some(path.clone());
+                    app.last_saved_hash = app.last_compute_hash;
+                    app.dirty_since = None;
                     app.status_message =
                         Some((StatusKind::Info, format!("Saved to {}", path.display())));
                 }
@@ -1485,9 +1536,10 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 }
             }
         }
-        builds_tab::BuildsAction::OpenFolder(dir) => {
-            // Try platform-native "open in file manager" — fall back
-            // to a status message if the spawn fails.
+        BuildsAction::OpenFolder => {
+            let Some(dir) = dir else {
+                return;
+            };
             let result = if cfg!(target_os = "macos") {
                 std::process::Command::new("open").arg(&dir).spawn()
             } else if cfg!(target_os = "linux") {
@@ -1504,17 +1556,26 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 ));
             }
         }
-        // Issue #100 (slice 3): rename / duplicate / delete + create
-        // category. Each action does the corresponding fs:: call and
-        // surfaces success / failure via `app.status_message`. The
-        // builds-tab state is reset to force a rescan on the next
-        // frame.
-        builds_tab::BuildsAction::Rename { from, to } => {
+        BuildsAction::Rename {
+            id: BuildId::Disk(from),
+            new_label,
+        } => {
+            let parent = from.parent().map(std::path::Path::to_path_buf);
+            let ext = from
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("mk2")
+                .to_owned();
+            let Some(parent) = parent else {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    "Refusing to rename: no parent dir".into(),
+                ));
+                return;
+            };
+            let to = parent.join(format!("{new_label}.{ext}"));
             match std::fs::rename(&from, &to) {
                 Ok(()) => {
-                    // If the renamed file was the open build, follow
-                    // the rename so subsequent saves go to the new
-                    // path instead of leaving a stale orphan.
                     if app.current_build_path.as_ref() == Some(&from) {
                         app.current_build_path = Some(to.clone());
                     }
@@ -1526,16 +1587,41 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 }
             }
         }
-        builds_tab::BuildsAction::Duplicate { from, to } => match std::fs::copy(&from, &to) {
-            Ok(_) => {
-                app.status_message =
-                    Some((StatusKind::Info, format!("Duplicated to {}", to.display())));
+        BuildsAction::Duplicate(BuildId::Disk(from)) => {
+            // Resolve duplicate-target by looking up the entry in
+            // `state.entries` so we share the helper that picks a
+            // non-clashing `<name> copy.<ext>` slot.
+            let entry = app
+                .builds_state
+                .entries
+                .iter()
+                .find(|e| matches!(&e.id, BuildId::Disk(p) if p == &from));
+            let Some(entry) = entry else {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    "Duplicate failed: source not found".into(),
+                ));
+                return;
+            };
+            let Some(to) = build_store_disk::duplicate_target(entry) else {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    "Duplicate failed: no free copy slot".into(),
+                ));
+                return;
+            };
+            match std::fs::copy(&from, &to) {
+                Ok(_) => {
+                    app.status_message =
+                        Some((StatusKind::Info, format!("Duplicated to {}", to.display())));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Duplicate failed: {e}")));
+                }
             }
-            Err(e) => {
-                app.status_message = Some((StatusKind::Error, format!("Duplicate failed: {e}")));
-            }
-        },
-        builds_tab::BuildsAction::Delete(path) => match std::fs::remove_file(&path) {
+        }
+        BuildsAction::Delete(BuildId::Disk(path)) => match std::fs::remove_file(&path) {
             Ok(()) => {
                 if app.current_build_path.as_ref() == Some(&path) {
                     app.current_build_path = None;
@@ -1547,25 +1633,104 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 app.status_message = Some((StatusKind::Error, format!("Delete failed: {e}")));
             }
         },
-        builds_tab::BuildsAction::CreateCategory(dir) => match std::fs::create_dir_all(&dir) {
-            Ok(()) => {
-                app.status_message = Some((
-                    StatusKind::Info,
-                    format!("Created category {}", dir.display()),
-                ));
+        BuildsAction::CreateCategory(name) => {
+            let Some(dir) = dir else {
+                return;
+            };
+            let target = dir.join(&name);
+            match std::fs::create_dir_all(&target) {
+                Ok(()) => {
+                    app.status_message = Some((
+                        StatusKind::Info,
+                        format!("Created category {}", target.display()),
+                    ));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Create category failed: {e}")));
+                }
             }
-            Err(e) => {
-                app.status_message =
-                    Some((StatusKind::Error, format!("Create category failed: {e}")));
-            }
-        },
+        }
+        // Wasm-only handle types or unreachable variants on desktop.
+        BuildsAction::Load(_)
+        | BuildsAction::Rename { .. }
+        | BuildsAction::Duplicate(_)
+        | BuildsAction::Delete(_)
+        | BuildsAction::ImportFile
+        | BuildsAction::ConnectFolder
+        | BuildsAction::DisconnectFolder => {}
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-fn handle_builds_action(_app: &mut LoadedApp, _action: builds_tab::BuildsAction) {
-    // No-op on wasm — the Builds tab itself shows a "no folder
-    // available" hint when `builds_dir()` returns None on this target.
+fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
+    app.wasm_storage.handle_action(action, &app.character);
+}
+
+/// Wasm-only: pump completed async storage ops into the live UI state
+/// at the start of each frame. Returns `true` if a [`StorageEvent::Loaded`]
+/// landed (i.e. the host imported a new character and the caller
+/// should force a recompute).
+#[cfg(target_arch = "wasm32")]
+fn apply_storage_events(app: &mut LoadedApp) -> bool {
+    use build_store_wasm::StorageEvent;
+    let events = app.wasm_storage.drain_events();
+    if events.is_empty() {
+        return false;
+    }
+    let mut character_changed = false;
+    for event in events {
+        match event {
+            StorageEvent::Refreshed(entries) => {
+                app.builds_state.entries = entries;
+                app.builds_state.loaded = true;
+            }
+            StorageEvent::Loaded { label, payload } => {
+                let trimmed = payload.trim();
+                let parsed: Result<Character, String> = if trimmed.starts_with("MK2|") {
+                    pob_engine::import_code(trimmed).map_err(|e| e.to_string())
+                } else if trimmed.starts_with('<') {
+                    pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
+                } else {
+                    pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
+                };
+                match parsed {
+                    Ok(c) => {
+                        app.character = c;
+                        app.pending_seed_saved_hash = true;
+                        app.status_message =
+                            Some((StatusKind::Info, format!("Opened \"{label}\"")));
+                        character_changed = true;
+                    }
+                    Err(e) => {
+                        app.status_message = Some((StatusKind::Error, format!("Load failed: {e}")));
+                    }
+                }
+            }
+            StorageEvent::Status(kind, msg) => {
+                app.status_message = Some((kind, msg));
+            }
+            StorageEvent::FolderState { connected, name } => {
+                app.builds_state.folder_connected = connected;
+                app.builds_state.folder_caption = if connected {
+                    match name {
+                        Some(n) => format!("Folder: {n} (read/write via your filesystem)"),
+                        None => "Folder connected".to_owned(),
+                    }
+                } else {
+                    "Browser storage (IndexedDB) — Save also downloads the file.".to_owned()
+                };
+            }
+            StorageEvent::FolderSupport(supported) => {
+                app.builds_state.folder_supported = supported;
+                if app.builds_state.folder_caption.is_empty() {
+                    app.builds_state.folder_caption =
+                        "Browser storage (IndexedDB) — Save also downloads the file.".to_owned();
+                }
+            }
+        }
+    }
+    character_changed
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1610,10 +1775,28 @@ fn save_build(app: &mut LoadedApp, force_dialog: bool) {
 
 #[cfg(target_arch = "wasm32")]
 fn save_build(app: &mut LoadedApp, _force_dialog: bool) {
-    app.status_message = Some((
-        StatusKind::Error,
-        "Save is not supported in the web build yet — copy from Import/Export.".into(),
-    ));
+    // Web build: route File → Save through the Builds tab's storage
+    // shim. Picks a filename based on class+ascendancy so the
+    // resulting download has a sensible default; users can rename
+    // afterwards from the Builds tab.
+    let name = default_save_name(&app.character);
+    app.wasm_storage.handle_action(
+        builds_tab::BuildsAction::Save {
+            name,
+            category: None,
+        },
+        &app.character,
+    );
+}
+
+#[cfg(target_arch = "wasm32")]
+fn default_save_name(character: &Character) -> String {
+    let class = character.class.0.replace(' ', "_");
+    if let Some(asc) = &character.ascendancy {
+        format!("{class}_{asc}_L{lvl}", lvl = character.level)
+    } else {
+        format!("{class}_L{lvl}", lvl = character.level)
+    }
 }
 
 fn stat_row(ui: &mut egui::Ui, label: &str, out: &Output, key: &str) {
