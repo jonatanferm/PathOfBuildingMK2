@@ -362,6 +362,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Healthy Mind" => Some(build_life_to_mana(socket_id, item)),
         "Fertile Mind" => Some(build_dex_to_int(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
+        "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
     }
 }
@@ -432,6 +433,29 @@ fn build_pure_talent(socket_id: NodeId, item: &Item) -> RadiusJewel {
         mods: Vec::new(),
         source_label: format!("RadiusJewel:{}", item.name),
         kind: HandlerKind::PureTalent,
+    }
+}
+
+/// Intuitive Leap: a Viridian Jewel whose only effect is the pathfinder
+/// bypass — `Passive Skills in Radius can be Allocated without being
+/// connected to your tree`. The dispatch in [`apply_radius_jewels`] is a
+/// no-op for [`HandlerKind::Pathfinder`]; the actual bypass logic lives in
+/// [`intuitive_leap_reachable`] and is consumed by `Character::allocate_path`
+/// / `Character::unallocate`. The radius is `Small`.
+fn build_intuitive_leap(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    let idx = radius_index_for_label("Small").unwrap_or(0);
+    let radii = radii_for_tree_version(&item_tree_version(item));
+    let radius = radii
+        .get(idx)
+        .copied()
+        .unwrap_or_else(|| pob_data::JewelRadiusInfo::new(0.0, 800.0, "Small"));
+    RadiusJewel {
+        socket_id,
+        radius,
+        radius_index: idx,
+        mods: Vec::new(),
+        source_label: format!("RadiusJewel:{}", item.name),
+        kind: HandlerKind::Pathfinder,
     }
 }
 
@@ -858,10 +882,19 @@ pub fn apply_radius_jewels(
                 let n = apply_pure_talent_lines(item, &connected, &jewel.source_label, db);
                 report.mod_emissions += n;
             }
-            // SelfAllocated (default), All, Threshold, SelfUnalloc, Pathfinder
-            // all currently route through the vanilla per-allocated-node mod
+            HandlerKind::Pathfinder => {
+                // Issue #196: Intuitive Leap. The jewel doesn't emit mods —
+                // its effect is the path-finder bypass surfaced via
+                // `intuitive_leap_reachable` and consumed by
+                // `Character::allocate_path` / `Character::unallocate`.
+                // Counted as `applied_jewels` upstream so the dispatch
+                // report still reflects "we recognised this jewel"; the
+                // mod-emission count stays at zero.
+            }
+            // SelfAllocated (default), All, Threshold, SelfUnalloc all
+            // currently route through the vanilla per-allocated-node mod
             // copy. The non-Self variants will get their own dispatch arms
-            // when the timeless / cluster / intuitive-leap follow-ups land.
+            // when the timeless / cluster follow-ups land.
             _ => {
                 let in_radius =
                     allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
@@ -877,6 +910,96 @@ pub fn apply_radius_jewels(
         }
     }
     report
+}
+
+/// Issue #196: Intuitive Leap pathfinder bypass. Returns `true` when
+/// `target` lies within the radius of any socketed Intuitive Leap whose
+/// host socket is itself allocated — those nodes can be allocated without
+/// being connected to the tree by a normal path. Used by
+/// [`crate::Character::allocate_path`] to short-circuit path-finding for
+/// in-radius targets and by [`crate::Character::unallocate`]'s orphan
+/// detection so floaters remain allocated when the connection that brought
+/// them within radius is removed.
+///
+/// Performance: linear in the number of socketed jewels × in-radius nodes.
+/// Cheap enough to call per-allocation; the rare-jewel filter
+/// (`item.name == "Intuitive Leap"`) skips most sockets without hitting
+/// the radius scan.
+pub fn intuitive_leap_reachable(
+    tree: &PassiveTree,
+    socketed: &SocketedJewels,
+    allocated: &AHashSet<NodeId>,
+    target: NodeId,
+) -> bool {
+    intuitive_leap_radius_set(tree, socketed, allocated).contains(&target)
+}
+
+/// Issue #196: every node in the radius of any allocated Intuitive Leap
+/// socket. The set is the universe of "free-floating" allocatable nodes
+/// (allocated or not). `Character::allocate_path` uses this to short-
+/// circuit pathing for in-radius targets via [`intuitive_leap_reachable`].
+pub fn intuitive_leap_radius_set(
+    tree: &PassiveTree,
+    socketed: &SocketedJewels,
+    allocated: &AHashSet<NodeId>,
+) -> AHashSet<NodeId> {
+    let mut out: AHashSet<NodeId> = AHashSet::default();
+    for (socket_id, item) in socketed.iter() {
+        if item.name != "Intuitive Leap" {
+            continue;
+        }
+        // The IL effect requires the host socket to itself be allocated.
+        // PoB enforces this via `JewelData.applies = function(...) return
+        // build.spec.allocSubgraphNodes[node.id] end`-style guards; a
+        // jewel sitting in an unallocated socket is considered inactive.
+        if !allocated.contains(socket_id) {
+            continue;
+        }
+        let jewel = build_intuitive_leap(*socket_id, item);
+        for (id, _) in nodes_in_radius(tree, *socket_id, &jewel.radius) {
+            out.insert(id);
+        }
+    }
+    out
+}
+
+/// Issue #196: orphan-detection extension for Intuitive Leap. Given the
+/// classic anchored set (BFS from class-start through allocated edges),
+/// iterate to add nodes that should also be treated as anchored because
+/// they sit in the radius of an Intuitive Leap socket whose host node IS
+/// already anchored. Iterates to a fixed point so a chained IL — IL `A`'s
+/// host inside IL `B`'s radius — settles correctly. Returns the extended
+/// anchored set (a superset of the input).
+///
+/// Pure helper; doesn't read or mutate the character's allocation. Cheap
+/// enough to call inside `Character::unallocate`'s orphan pass.
+pub fn extend_anchored_with_intuitive_leap(
+    tree: &PassiveTree,
+    socketed: &SocketedJewels,
+    allocated: &std::collections::HashSet<NodeId>,
+    mut anchored: std::collections::HashSet<NodeId>,
+) -> std::collections::HashSet<NodeId> {
+    loop {
+        let mut added = false;
+        for (socket_id, item) in socketed.iter() {
+            if item.name != "Intuitive Leap" {
+                continue;
+            }
+            if !anchored.contains(socket_id) {
+                continue;
+            }
+            let jewel = build_intuitive_leap(*socket_id, item);
+            for (id, _) in nodes_in_radius(tree, *socket_id, &jewel.radius) {
+                if allocated.contains(&id) && anchored.insert(id) {
+                    added = true;
+                }
+            }
+        }
+        if !added {
+            break;
+        }
+    }
+    anchored
 }
 
 /// Issue #196: walk an in-radius node list, parse each node's stat lines, and
