@@ -909,7 +909,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     egui::CentralPanel::default().show(ctx, |ui| match app.active_tab {
         Tab::Tree => {
             let allocated: HashSet<NodeId> = app.character.allocated.iter().copied().collect();
-            let interaction = app.tree_view.ui(ui, &app.tree, &allocated);
+            // Issue #98 (slice 3): tattoo badge overlay. Read the tattooed-node set
+            // straight from `Character::tattoo_overrides` (engine source of truth) and
+            // pass it into the renderer so it can paint a gold accent ring on each one.
+            let tattooed: HashSet<NodeId> =
+                app.character.tattoo_overrides.keys().copied().collect();
+            let interaction = app.tree_view.ui(ui, &app.tree, &allocated, &tattooed);
 
             // Path-overlay preview: when the user hovers an unallocated node, plot the
             // shortest path from any allocated node (or the class-start anchor) to it.
