@@ -3,7 +3,7 @@
 ## Headline numbers
 
 - 5 crates, 100+ commits, ~13 000 lines of Rust.
-- 224 tests pass workspace-wide.
+- 228 tests pass workspace-wide.
 - Release `pob-desktop` binary: ~9.6 MB on macOS arm64.
 - Engine `compute()` averages 2.2 ms per call against the full 3.25 tree
   in release.
@@ -22,7 +22,7 @@ real calc output.
   passive trees, 1062 item bases, 810 skill gems, and 1488 skill effects from the
   upstream PoB checkout (`.PathOfBuilding/` in-repo, or `../PathOfBuilding/` legacy)
   into `data/`.
-- **`cargo test --workspace`** — 224 tests pass across the workspace.
+- **`cargo test --workspace`** — 228 tests pass across the workspace.
 - **`cargo run -p pob-desktop --release`** — opens the app.
 
 ## End-to-end demo
@@ -134,13 +134,28 @@ Closed since the previous status snapshot:
   cooldown gating, DoT-only throw timing, cast-speed isolation.
 - Warcry layer: WarcryPower config, loadout aggregates, auto-uptime,
   per-cry active markers (Intimidating / Enduring / Ancestral / Seismic /
-  Battlemage's), Intimidate enemy debuff, Enduring Cry life regen,
-  Ancestral Cry elemental resists, Seismic Cry armour + stun threshold,
-  Battlemage's Cry crit chance.
+  Battlemage's / Rallying / General's), Intimidate enemy debuff,
+  Enduring Cry life regen, Ancestral Cry elemental resists, Seismic
+  Cry armour + stun threshold, Battlemage's Cry crit chance, Rallying
+  Cry per-ally exert damage. Buff injection re-ordered so basic-stat
+  outputs reflect the cry buffs end-to-end (LifeRegen, FireResist,
+  Armour, MainSkillCritChance). Remaining infra-blocked warcries
+  (Rallying ally projection / Infernal phys-to-fire / General's
+  parallel actor) tracked in [#145](https://github.com/jonatanferm/PathOfBuildingMK2/issues/145).
 - Pantheon: soul levels 1-4 + NearbyEnemies / OnlyOneNearbyEnemy condition.
 - Flask recovery: instant/gradual split, low-life multiplier, LifeAdditional.
-- Party tab auto-extraction with manual aura-effect % override.
+- Party tab auto-extraction with auto AuraEffect detection and
+  manual % override; user edits preserved across re-paste.
 - External-site URL recogniser (pobb.in / pastebin / poeplanner).
+- NearbyAllies config + Multiplier:NearbyAlly for Rallying Cry's
+  per-ally exert damage and ally-scaling PerStat mods.
+- CritChance BASE addition path in both `perform_basic_stats` and
+  `perform_skill_dps`, enabling Battlemage's Cry / Diamond Flask /
+  Watcher's Eye / Power Charge On Critical Strike to lift headline
+  crit instead of being silently dropped.
+- AscendancyStart medallion placeholder so each ascendancy
+  sub-tree gets a visible center while the `ascendancy.png` atlas
+  bundling stays a follow-up.
 - CI: `cargo fmt --check` and `cargo clippy -D warnings` are gated, not
   advisory.
 
