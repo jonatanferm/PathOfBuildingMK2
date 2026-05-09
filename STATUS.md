@@ -3,7 +3,7 @@
 ## Headline numbers
 
 - 5 crates, 100+ commits, ~13 000 lines of Rust.
-- 259 tests pass workspace-wide.
+- 444 tests pass workspace-wide.
 - Release `pob-desktop` binary: ~9.6 MB on macOS arm64.
 - Engine `compute()` averages 2.2 ms per call against the full 3.25 tree
   in release.
@@ -22,7 +22,7 @@ real calc output.
   passive trees, 1062 item bases, 810 skill gems, and 1488 skill effects from the
   upstream PoB checkout (`.PathOfBuilding/` in-repo, or `../PathOfBuilding/` legacy)
   into `data/`.
-- **`cargo test --workspace`** — 259 tests pass across the workspace.
+- **`cargo test --workspace`** — 444 tests pass across the workspace.
 - **`cargo run -p pob-desktop --release`** — opens the app.
 
 ## End-to-end demo
@@ -253,40 +253,95 @@ Closed since the previous status snapshot:
 - Wasm Builds tab via IndexedDB (#101): `app/pob-web` users can save and
   load `.mk2` builds across page reloads using IndexedDB, with manual
   download as a fallback.
+- Jewel sockets PoB-XML round-trip (#195): `<Slot name="Jewel <NodeId>"
+  itemId="…"/>` now imports + exports for both cluster jewels (routed
+  through `character.jewels`) and radius / timeless / abyss jewels
+  (routed through `character.socketed_jewels`). Builds with jewels
+  round-trip cleanly through the wire format.
+- Tree-tab search QoL (#205): Cmd/Ctrl+F focuses, Enter cycles through
+  matches in deterministic node-id order, Esc clears. The matching
+  walks node `name` + every `stats` line, case-insensitive.
+- Cluster jewel paste UI (#197): right-click a Large jewel socket,
+  paste a Cluster Jewel item, and the sub-graph renders near the
+  host socket. Corruption-roll handling reads `cluster_jewel_mods.json`.
+- Timeless jewel keystone replacement slice 1 (#30 → #219): the 23
+  conqueror keystones across the six Timeless jewels swap into
+  `output.Keystone:<replacement>` when a Timeless jewel is socketed
+  in a radius that contains the original. Notable / small-node
+  replacement (the per-seed LUT half) is tracked separately under
+  #227.
+- Cluster jewel sub-graph synthesis (#21 → #190): full sub-graph
+  materialisation for socketed Cluster Jewels — every notable / small
+  / inner-socket node spawns with collision-free synthetic node ids,
+  and `compute_full_with_clusters` injects mods from any allocated
+  synthesised node connected to an allocated parent socket.
+- Generic radius-jewel framework (#31 → #191): the framework slice
+  ships, with `HandlerKind` covering vanilla `SelfAllocated`, the
+  named-unique handlers, and the Pathfinder dispatch arm.
+- Named-unique radius-jewel handlers (#196 → #226 / #228 / #233 /
+  #234): Watcher's Eye (aura-conditional global buff), Healthy Mind
+  (`Inc Life` → `Inc Mana × 2` transform), Fertile Mind (Dex → Int
+  attribute swap), Conqueror's Efficiency-style non-radius jewels
+  (item mods apply globally instead of being silently dropped),
+  Pure Talent (per-class bonuses gated on connected starts), and
+  Intuitive Leap (path-finder bypass — in-radius nodes allocate
+  without a connecting chain, with iterative orphan-protection
+  on un-allocate).
+- Live character API import (#32 → #188): paste a POESESSID +
+  account name, fetch the character list, pick a character; class +
+  ascendancy + level + allocated tree + equipped items land
+  end-to-end. Char API follow-ups (skills + masteries + cluster
+  jewel nodes + POESESSID persistence + wasm fetch) are tracked
+  under #194.
+- Alt-quality variants (#36 → #192): Anomalous / Divergent /
+  Phantasmal variants pick the right `qualityStats` at compute time
+  and round-trip the `<Gem qualityId>` attribute through PoB XML.
+- Calcs-tab `CalcBreakdown.lua` port (#34 → #189): Damage / Speed /
+  Crit headline keys grow click-through breakdowns that walk
+  Base → INC → MORE → quality → crit factor → speed → DPS in a
+  step-by-step panel. Rows without a custom breakdown still render
+  the legacy contributing-mods view.
+- Minion build pass slices 3-16 (#20 → #172 / #175 / #176 / #177 /
+  #179 / #180 / #181 / #182 / #193 / #201 / #218 / #232): real
+  minion-side perform pass with `MinionState`, intrinsic mod
+  parsing, life / ES / armour / evasion / resists / damage / DPS,
+  hit-chance vs enemy evasion, life regen, alt-life-table support,
+  spectre lifeScaling. `MainSkillDPS` mirrors `MinionDPS ×
+  NumberOfMinions` for summoner builds. Slices 15 + 16 (movement
+  speed, total HP pool, crit factor) are in flight.
+- External-site URL fetch + import (#33 → #202): pasting a
+  `https://pobb.in/<id>` or `https://pastebin.com/<id>` URL into the
+  Import-Export tab spawns a background `ureq` GET, decodes the
+  body, and swaps the active character. Errors surface as readable
+  banner messages.
 
 Still open (in rough priority):
 
 1. **AoE radius rolloff and projectile pierce/chain variance**: we now model
    shotgun overlap and the per-target multiplier, but not AoE damage falloff
    or pierce/chain damage variance per hop.
-2. ~~**Damage conversion calc-side read (`PhysicalDamageGainAs<Element>`)**:~~
-   *Closed (issue #145):* `perform_skill_dps` now reads each
-   `PhysicalDamageGainAs<Element>` BASE percentage and adds an extra
-   element hit attenuated by that element's resist + penetration.
-   Infernal Cry's phys-as-fire piece routes through this consumer.
-   The remaining gain-as gap is per-element source aggregation (e.g.
-   `ColdDamageGainAsFire` for Avatar of Fire builds) — the four
-   `Physical*` keys cover the dominant phys-build use case.
-3. **Live `pob_diff` ailment baselines in CI**: reference builds exist
+2. **Live `pob_diff` ailment baselines in CI**: reference builds exist
    (`marauder_l90_bleeding_cleave.xml`, `witch_l90_arc_with_items.xml`,
    etc.), but locking PoB-vs-engine deltas behind a regression test still
    requires running pob_diff in the test environment.
-4. **Cluster jewel UI + PoB-XML round-trip (#21)**: synthesis pass
-   landed (engine-side `cluster_synth` + `compute_full_with_clusters`),
-   but the Tree tab still doesn't render the synthesised nodes near
-   their host socket and the Items tab can't paste a cluster jewel into
-   a Large socket — both UI affordances are the next slice. PoB-XML
-   `<Slot name="Jewel N">` import / export so cluster builds round-trip
-   through the wire format is also still open. Timeless jewels (#30)
-   and the generic radius-jewel framework (#31) are separate follow-ups.
-5. **Real minion perform pass (#20)**: `MinionState` is wired and Life /
-   resists land on the player's output, but the next slice needs a real
-   minion-side `ModDB` so player-side `MinionLife` INC / MORE scaling and
-   support-gem mods route through, and `MinionDPS` becomes a real number.
-6. **Vaal / alternate skill variants per gem (#36)**: variant-picker UI
-   ships, but alt-quality (Anomalous / Divergent / Phantasmal) needs the
-   per-variant `qualityStats` selected at compute time + PoB XML
-   `qualityId` round-trip.
+3. **Timeless jewel notable / small-node replacement (#227)**: keystone
+   swaps shipped in slice 1, but the bulk of what these jewels do —
+   per-seed notable rolls — needs the compressed-binary LUT extraction
+   from `Data/TimelessJewelData/*.zip` + a compute-time lookup keyed by
+   `(jewel_id, seed, original_node_id)`. Multiple-choice notables (Vaal
+   "Might / Legacy of the Vaal") are a sub-deferral.
+4. **Per-mod power scoring (#207)**: engine-side single-node + batch
+   ranking primitives are wired (`pob_engine::power::score_node_addition`,
+   `score_node_removal`, `rank_node_additions`). Tree-overlay heatmap
+   rendering, items-tab top-modlines list, and compare-tab per-source
+   delta are the UI consumers.
+5. **Char API import follow-ups (#194)**: live import lands class +
+   ascendancy + level + tree + items, but skills, masteries,
+   cluster-jewel sub-graph nodes, POESESSID persistence (OS keyring),
+   and the wasm fetch path remain.
+6. **Build power overlay UI on the tree tab (#220)**: per-node DPS / EHP
+   shading driven by #207's scoring primitives, plus the version
+   converter / spec compare overlay / spec dropdown rich tooltips.
 
 ## Build commands cheat sheet
 
