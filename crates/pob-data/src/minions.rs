@@ -61,6 +61,21 @@ pub struct MinionType {
     /// `pob_engine::skill::parse_extractor_mod` when the perform pass needs them.
     #[serde(default)]
     pub mod_list: Vec<serde_json::Value>,
+    /// Slice 9 of #20: which monster-life table to use (`None` = ally life table,
+    /// `"AltLife1"` / `"AltLife2"` for the variants). Spectres carry this; standard
+    /// minions in `Data/Minions.lua` don't.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub life_scaling: Option<String>,
+    /// Spectre-only: the weapon-base type the spectre wields (e.g. `"Wand"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weapon_type1: Option<String>,
+    /// Spectre-only: off-hand / shield slot weapon type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weapon_type2: Option<String>,
+    /// Spectre-only: when `true`, the spectre's per-hit damage doesn't scale with its
+    /// attack speed (used for skills that fire at a fixed cadence).
+    #[serde(default)]
+    pub base_damage_ignores_attack_speed: bool,
 }
 
 pub fn load_minions(json: &str) -> serde_json::Result<MinionData> {

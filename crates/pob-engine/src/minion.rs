@@ -105,16 +105,22 @@ pub fn parse_minion_intrinsic_mods(data: &MinionType) -> ModDB {
 }
 
 /// Pick the right monster-life table for a given minion. Mirrors PoB's
-/// `Modules/CalcActiveSkill.lua:697-699` ladder.
-fn life_base_for(_data: &MinionType, level: u32) -> u32 {
-    // PoB's MinionType currently doesn't expose `lifeScaling`; use the ally table for
-    // every "normal" minion. Spectres (lifeScaling unset) fall back to monsterLifeTable
-    // — but MK2 doesn't yet distinguish spectre selection from regular minion summons.
-    // The placeholder helpers stay wired so a future slice can switch on the field.
-    let _ = monster_life_at_level;
-    let _ = monster_life2_at_level;
-    let _ = monster_life3_at_level;
-    monster_ally_life_at_level(level)
+/// `Modules/CalcActiveSkill.lua:697-699` ladder:
+///
+/// - `lifeScaling = "AltLife1"` → `monster_life_table_2`
+/// - `lifeScaling = "AltLife2"` → `monster_life_table_3`
+/// - Spectre (any other `lifeScaling`) → base `monster_life_table`
+/// - Standard summoned minion (no `lifeScaling`) → `monster_ally_life_table`
+fn life_base_for(data: &MinionType, level: u32) -> u32 {
+    match data.life_scaling.as_deref() {
+        Some("AltLife1") => monster_life2_at_level(level),
+        Some("AltLife2") => monster_life3_at_level(level),
+        // PoB treats any unrecognised `lifeScaling` value as a spectre on the base
+        // monsterLifeTable. Standard summoned minions (no `lifeScaling`) drop to the
+        // ally life table.
+        Some(_) => monster_life_at_level(level),
+        None => monster_ally_life_at_level(level),
+    }
 }
 
 /// One-shot helper: detect the active minion (if any) and write its outputs into the
@@ -404,6 +410,10 @@ mod tests {
                 limit: Some("ActiveGolemLimit".into()),
                 skill_list: vec![],
                 mod_list: vec![],
+                life_scaling: None,
+                weapon_type1: None,
+                weapon_type2: None,
+                base_damage_ignores_attack_speed: false,
             },
         );
         MinionData { minions }
@@ -636,6 +646,48 @@ mod tests {
     }
 
     #[test]
+    fn life_base_for_picks_right_table_per_scaling() {
+        let mut data = MinionType {
+            name: "T".into(),
+            monster_tags: vec![],
+            life: 1.0,
+            energy_shield: None,
+            armour: None,
+            fire_resist: 0,
+            cold_resist: 0,
+            lightning_resist: 0,
+            chaos_resist: 0,
+            damage: 1.0,
+            damage_spread: 0.0,
+            attack_time: 1.0,
+            attack_range: 0.0,
+            accuracy: 1.0,
+            limit: None,
+            skill_list: vec![],
+            mod_list: vec![],
+            life_scaling: None,
+            weapon_type1: None,
+            weapon_type2: None,
+            base_damage_ignores_attack_speed: false,
+        };
+
+        // None → ally life table.
+        assert_eq!(life_base_for(&data, 90), 4178);
+
+        // "AltLife1" → variant 2.
+        data.life_scaling = Some("AltLife1".into());
+        assert_eq!(life_base_for(&data, 90), 24840);
+
+        // "AltLife2" → variant 3.
+        data.life_scaling = Some("AltLife2".into());
+        assert_eq!(life_base_for(&data, 90), 26380);
+
+        // Any other lifeScaling → base monsterLifeTable (spectre default).
+        data.life_scaling = Some("WhateverElse".into());
+        assert_eq!(life_base_for(&data, 90), 23250);
+    }
+
+    #[test]
     fn life_base_uses_ally_life_table_at_clamped_level() {
         // Level 90 ally life is 4178 (pinned in monster_tables tests).
         let minions = fake_minion();
@@ -687,6 +739,10 @@ mod tests {
                 limit: None,
                 skill_list: vec![],
                 mod_list,
+                life_scaling: None,
+                weapon_type1: None,
+                weapon_type2: None,
+                base_damage_ignores_attack_speed: false,
             },
         );
         MinionData { minions }
