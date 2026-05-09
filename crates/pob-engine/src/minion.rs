@@ -16,8 +16,8 @@
 
 use pob_data::{
     monster_tables::{
-        monster_ally_life_at_level, monster_life2_at_level, monster_life3_at_level,
-        monster_life_at_level,
+        monster_ally_damage_at_level, monster_ally_life_at_level, monster_life2_at_level,
+        monster_life3_at_level, monster_life_at_level,
     },
     MinionData, MinionType,
 };
@@ -122,22 +122,74 @@ pub fn apply_minion_outputs(
 /// Emit the minion's basic stats into the player's output dictionary so the Calcs tab
 /// can surface them.
 ///
-/// `MinionLife` is now scaled by the player-side `MinionLife` INC / MORE mods (slice 4
-/// of #20); the intermediate `MinionLifeBase` reports the unscaled value so the
-/// breakdown panel can show the contribution chain. Resists pass through unmodified —
-/// slice 5 will handle minion-side resist scaling.
+/// Slice 4 added player-side `MinionLife` INC / MORE scaling. Slice 5 extends the same
+/// pattern to `MinionDamage` and the minion's attack rate, then derives a baseline
+/// `MinionDPS = average_damage × attacks_per_second`. Both `*Base` keys report the
+/// pre-mods values so the breakdown panel can show the contribution chain.
+///
+/// What's still **not** modelled:
+/// - Crit factor on the minion side (uses the player's `MinionCritChance` /
+///   `MinionCritMultiplier` mods, which slice 6 will wire in).
+/// - Hit-chance vs enemy evasion for melee minions (uses the minion's accuracy table
+///   and the player-side enemy-evasion config).
+/// - Minion-side resist scaling, armour, evasion, energy shield.
+/// - Minion's intrinsic `mod_list` (slice 5 keeps it inert; the perform pass needs it).
+/// - Per-minion `lifeScaling` (spectres etc.) — every minion still uses the ally
+///   life table.
+///
+/// All of these land in slice 6+.
 pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Output) {
     let cfg = QueryCfg::default();
-    let inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "MinionLife");
-    let more = env.mod_db.more(&cfg, &env.state, "MinionLife");
-    let scaled = (state.life_base as f64) * (1.0 + inc / 100.0) * more;
 
+    // Life — same pattern as slice 4.
+    let life_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "MinionLife");
+    let life_more = env.mod_db.more(&cfg, &env.state, "MinionLife");
+    let life_scaled = (state.life_base as f64) * (1.0 + life_inc / 100.0) * life_more;
     output.set("MinionLifeBase", state.life_base as f64);
-    output.set("MinionLife", scaled.round());
+    output.set("MinionLife", life_scaled.round());
+
+    // Resists pass through. Slice 6 will scale by player-side
+    // `MinionFireResist` BASE / `MinionElementalResist` BASE.
     output.set("MinionFireResist", state.data.fire_resist as f64);
     output.set("MinionColdResist", state.data.cold_resist as f64);
     output.set("MinionLightningResist", state.data.lightning_resist as f64);
     output.set("MinionChaosResist", state.data.chaos_resist as f64);
+
+    // Damage — `monster_ally_damage[level] × minion.damage × (1 + inc/100) × more`.
+    // The `damage_spread` field captures the per-hit damage variance (PoB uses ±20%
+    // for most minion types); we expose Min / Max / Average so consumers can pick
+    // the value that matches what they're computing.
+    let damage_base = f64::from(monster_ally_damage_at_level(state.level)) * state.data.damage;
+    let dmg_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "MinionDamage");
+    let dmg_more = env.mod_db.more(&cfg, &env.state, "MinionDamage");
+    let damage_scaled = damage_base * (1.0 + dmg_inc / 100.0) * dmg_more;
+    let spread = state.data.damage_spread;
+    let dmg_min = damage_scaled * (1.0 - spread);
+    let dmg_max = damage_scaled * (1.0 + spread);
+    let dmg_avg = damage_scaled;
+    output.set("MinionDamageBase", damage_base);
+    output.set("MinionAverageDamage", dmg_avg);
+    output.set("MinionMinDamage", dmg_min);
+    output.set("MinionMaxDamage", dmg_max);
+
+    // Attack rate — `1 / attack_time × (1 + inc/100) × more`. PoB uses the
+    // `MinionAttackSpeed` key for player-side passives like Necromancer's
+    // `Mistress of Sacrifice` minion-haste effect; we read that here.
+    let attack_time = state.data.attack_time.max(0.001);
+    let speed_base = 1.0 / attack_time;
+    let spd_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "MinionAttackSpeed");
+    let spd_more = env.mod_db.more(&cfg, &env.state, "MinionAttackSpeed");
+    let attacks_per_second = speed_base * (1.0 + spd_inc / 100.0) * spd_more;
+    output.set("MinionAttacksPerSecondBase", speed_base);
+    output.set("MinionAttacksPerSecond", attacks_per_second);
+
+    // Baseline DPS: average per-hit × rate. No crit / hit-chance / per-element
+    // mitigation modelled yet — slice 6+ will fold those in.
+    output.set("MinionDPS", dmg_avg * attacks_per_second);
 }
 
 #[cfg(test)]
@@ -241,6 +293,69 @@ mod tests {
         let mut out2 = Output::default();
         write_minion_outputs(&state, &env2, &mut out2);
         assert_eq!(out2.get("MinionLife"), 4500.0);
+    }
+
+    #[test]
+    fn write_minion_outputs_emits_damage_and_dps() {
+        // Flame Golem at level 20 with no mods. Pinned values come from
+        // monster_ally_damage_at_level(20) × minion.damage × (1 ± spread).
+        // From monster_tables tests: monster_ally_damage[20] = 19.46. Times
+        // damage = 1.5 → 29.19 average. spread = 0.2 → ±20%.
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+        let env = Env::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+
+        let avg = output.get("MinionAverageDamage");
+        assert!((avg - 29.19).abs() < 0.5, "MinionAverageDamage = {avg}");
+        // ±20% spread.
+        let dmg_min = output.get("MinionMinDamage");
+        let dmg_max = output.get("MinionMaxDamage");
+        assert!((dmg_min - avg * 0.8).abs() < 0.001);
+        assert!((dmg_max - avg * 1.2).abs() < 0.001);
+
+        // attack_time = 1.0s → 1 attack/sec base.
+        assert_eq!(output.get("MinionAttacksPerSecondBase"), 1.0);
+        assert_eq!(output.get("MinionAttacksPerSecond"), 1.0);
+
+        // DPS = avg × rate.
+        let dps = output.get("MinionDPS");
+        assert!((dps - avg).abs() < 0.001, "MinionDPS = {dps}");
+    }
+
+    #[test]
+    fn write_minion_outputs_scales_damage_and_speed_by_player_mods() {
+        use crate::Mod;
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+
+        let mut env = Env::default();
+        env.mod_db.add(Mod::inc("MinionDamage", 100.0)); // 2× damage
+        env.mod_db.add(Mod::inc("MinionAttackSpeed", 50.0)); // 1.5× rate
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+
+        // Base damage avg from previous test was ~29.19. With 100% INC → ~58.38.
+        let avg = output.get("MinionAverageDamage");
+        assert!((avg - 58.38).abs() < 1.0, "MinionAverageDamage = {avg}");
+        // Rate: 1.0 × 1.5 = 1.5.
+        assert_eq!(output.get("MinionAttacksPerSecond"), 1.5);
+        // DPS = 58.38 × 1.5 = ~87.57.
+        let dps = output.get("MinionDPS");
+        assert!((dps - 87.57).abs() < 1.5, "MinionDPS = {dps}");
     }
 
     #[test]
