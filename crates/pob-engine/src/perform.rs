@@ -250,6 +250,19 @@ pub fn init_env_with_bases(
         );
     }
 
+    // Issue #19 (slice 15): NearbyAllies multiplier. Mirrors PoB's
+    // `multiplierNearbyAlly` Config-tab input. Drives Rallying
+    // Cry's per-ally exert damage bonus, Banner skill ally
+    // scaling, and the various "+X% to Y per nearby ally" mods.
+    // PoB defaults to 0 (solo); skip injection at 0 to keep the
+    // modDB clean for builds that aren't running party content.
+    if character.config.nearby_allies > 0 {
+        let val = f64::from(character.config.nearby_allies);
+        env.mod_db.add(
+            Mod::base("Multiplier:NearbyAlly", val).with_source(Source::Other("Config".into())),
+        );
+    }
+
     // 3. Tree node stats. Parse each allocated node's stat lines. PoB only credits
     // nodes that form a connected path from the character's class start, so we
     // filter the allocation set to the connected subgraph before applying mods.
@@ -400,6 +413,13 @@ pub fn init_env_with_bases(
         if character.config.nearby_enemies == 1 {
             env.state.set_condition("OnlyOneNearbyEnemy", true);
         }
+    }
+    // Issue #19 (slice 15): mirror NearbyAllies into EvalState so
+    // PerStat-tagged mods (e.g. "+X% damage per nearby Ally")
+    // read it directly without going through the modDB.
+    if character.config.nearby_allies > 0 {
+        let val = f64::from(character.config.nearby_allies);
+        env.state.set_multiplier("NearbyAlly", val);
     }
     // 6b. Custom modifiers — user-typed lines from the Config-tab textarea.
     // Parse each non-empty line through `mod_parser` and add it with

@@ -310,6 +310,19 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
                 state.nearby_enemies = nearby.max(0) as u32;
                 changed = true;
             }
+            // Issue #19 (slice 15): "# of nearby Allies" feeds
+            // Multiplier:NearbyAlly. Drives Rallying Cry's
+            // per-ally exert damage bonus, banner skill ally
+            // scaling, and party-build "+X% per ally" mods. PoB
+            // defaults to 0 (solo).
+            let mut nearby_allies = state.nearby_allies as i32;
+            if ui
+                .add(egui::Slider::new(&mut nearby_allies, 0..=10).text("# of nearby Allies"))
+                .changed()
+            {
+                state.nearby_allies = nearby_allies.max(0) as u32;
+                changed = true;
+            }
         });
 
         ui.separator();

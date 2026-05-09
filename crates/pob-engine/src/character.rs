@@ -580,6 +580,14 @@ pub struct ConfigState {
     /// mod injection.
     #[serde(default)]
     pub nearby_enemies: u32,
+    /// Issue #19 (slice 15): "# of nearby Allies" — drives the
+    /// `Multiplier:NearbyAlly` BASE that PoB exposes from
+    /// `ConfigOptions.lua:1199`. Used by Rallying Cry's per-ally
+    /// exert damage bonus, Banner skill ally scaling, and party
+    /// builds where allies grant the player passives. 0 = solo
+    /// (PoB's default), no mod injection.
+    #[serde(default)]
+    pub nearby_allies: u32,
 }
 
 /// PoB's `enemyIsBoss` four-option preset. The serialised PoB-XML
