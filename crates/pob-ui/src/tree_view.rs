@@ -22,6 +22,14 @@ pub struct TreeInteraction {
     pub clicked: Option<NodeId>,
     /// Issue #98 (slice 2): right-click on a node opens the tattoo picker.
     pub right_clicked: Option<NodeId>,
+    /// Issue #197 (slice B): the user clicked an overlay-rendered cluster
+    /// jewel synth node (returned by `crate::cluster_overlay::hit_test`).
+    /// Distinct from `clicked` because synth nodes are not in
+    /// `PassiveTree::nodes` and don't go through the standard pathfinder.
+    pub synth_clicked: Option<NodeId>,
+    /// Issue #197 (slice B): user is hovering an overlay synth node.
+    /// Used by `lib.rs` to render a tooltip above the tree-tab tooltip.
+    pub synth_hovered: Option<NodeId>,
 }
 
 pub struct TreeView {
@@ -131,6 +139,22 @@ impl TreeView {
         tree: &PassiveTree,
         allocated: &std::collections::HashSet<NodeId>,
         tattooed: &std::collections::HashSet<NodeId>,
+    ) -> TreeInteraction {
+        self.ui_with_overlay(ui, tree, allocated, tattooed, None)
+    }
+
+    /// Issue #197 (slice B): same as [`Self::ui`] but also renders a cluster
+    /// jewel synth-node overlay over the wgpu pipeline output. Pass `None`
+    /// for builds without socketed cluster jewels — equivalent to `Self::ui`.
+    /// Hit-tests the overlay's synth nodes and surfaces the result via
+    /// `TreeInteraction::synth_clicked` / `synth_hovered`.
+    pub fn ui_with_overlay(
+        &mut self,
+        ui: &mut egui::Ui,
+        tree: &PassiveTree,
+        allocated: &std::collections::HashSet<NodeId>,
+        tattooed: &std::collections::HashSet<NodeId>,
+        overlay: Option<&crate::cluster_overlay::OverlayInputs<'_>>,
     ) -> TreeInteraction {
         let available = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(available, Sense::click_and_drag());
@@ -494,10 +518,89 @@ impl TreeView {
             }
         }
 
+        // Issue #197 (slice B): render the cluster jewel synth-node overlay
+        // on top of the tree pipeline output. Has to come after the wgpu
+        // callbacks so the overlay sits visually above the regular nodes.
+        // Hit-tested separately because synth nodes don't live in
+        // `tree.nodes` — surfaced through `TreeInteraction::synth_*`.
+        let mut synth_clicked: Option<NodeId> = None;
+        let mut synth_hovered: Option<NodeId> = None;
+        if let Some(inputs) = overlay {
+            // Compose a `to_screen` closure that mirrors the projection used
+            // for the tree's own nodes. Captures `viewport.center()`, the
+            // current `self.center` and `self.zoom`.
+            let viewport_center = viewport.center();
+            let zoom = self.zoom;
+            let center = self.center;
+            let to_screen = |w: [f32; 2]| -> Pos2 {
+                Pos2::new(
+                    viewport_center.x + (w[0] - center.x) * zoom,
+                    viewport_center.y + (w[1] - center.y) * zoom,
+                )
+            };
+            let host_pos_lookup = |host_id: NodeId| -> Option<Pos2> {
+                self.positions.get(&host_id).map(|p| {
+                    Pos2::new(
+                        viewport_center.x + (p.x - self.center.x) * self.zoom,
+                        viewport_center.y + (p.y - self.center.y) * self.zoom,
+                    )
+                })
+            };
+            let ctx = crate::cluster_overlay::ClusterOverlayCtx {
+                character: inputs.character,
+                tree,
+                cluster_jewels: inputs.cluster_jewels,
+                cluster_jewel_mods: inputs.cluster_jewel_mods,
+                to_screen: &to_screen,
+                synth_radius_world: inputs.synth_radius_world,
+                synth_world_size: inputs.synth_world_size,
+            };
+            let ov = crate::cluster_overlay::compute_overlay(&ctx);
+            crate::cluster_overlay::render(&painter, &ov, inputs.character, &host_pos_lookup);
+            // Hit-test under the cursor. We allow ~10px tolerance — matches
+            // the rendered notable radius. If a synth hit is found we suppress
+            // the regular `clicked` so a click on an overlay node doesn't
+            // also trigger pathfind on whatever real node sits behind it.
+            if let Some(p) = pointer {
+                if let Some(hit) = crate::cluster_overlay::hit_test(&ov, p, 12.0) {
+                    synth_hovered = Some(hit);
+                    if response.clicked() {
+                        synth_clicked = Some(hit);
+                        clicked = None;
+                    }
+                    if response.secondary_clicked() {
+                        right_clicked = None;
+                    }
+                    // Tooltip for the synth node — the hovered tree-node
+                    // tooltip is suppressed for the same reason.
+                    if let Some(node) = ov.nodes.iter().find(|n| n.id == hit) {
+                        let mut text = node
+                            .display_name
+                            .clone()
+                            .unwrap_or_else(|| format!("Synth #{hit:08X}"));
+                        for s in &node.stat_lines {
+                            text.push('\n');
+                            text.push_str(s);
+                        }
+                        egui::show_tooltip_at_pointer(
+                            ui.ctx(),
+                            egui::LayerId::new(egui::Order::Tooltip, ui.id()),
+                            egui::Id::new(("tree-synth-tooltip", hit)),
+                            |ui| {
+                                ui.label(text);
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
         TreeInteraction {
             hovered,
             clicked,
             right_clicked,
+            synth_clicked,
+            synth_hovered,
         }
     }
 

@@ -105,6 +105,13 @@ pub struct ParsedClusterJewel {
     /// in upstream PoB — currently unused, reserved for the future stat-stack
     /// build slice).
     pub added_small_mods: Vec<String>,
+    /// Corruption-roll: `Added Small Passive Skills have N% increased Effect`
+    /// (`clusterJewelIncEffect` in upstream). When present and non-zero, the
+    /// synthesis pass appends a synthetic `N% increased Effect of Small Passive
+    /// Skills` line to every small (Normal) node so its mods scale up. PoB
+    /// emits a literal `PassiveSkillEffect INC N` mod here; we go through the
+    /// stat line so the existing parse_mod_line pipeline does the work.
+    pub small_passive_inc_effect: u32,
 }
 
 impl ParsedClusterJewel {
@@ -183,6 +190,27 @@ pub fn parse_cluster_jewel(
         }
         if line_is_added_socket(line) {
             parsed.socket_count = parsed.socket_count.saturating_add(1);
+            continue;
+        }
+        // Corruption-roll: `2 Added Passive Skills are Jewel Sockets` (multi-socket
+        // alt phrasing; mirrors upstream `(%d+) added passive skills are jewel sockets`).
+        if let Some(n) = line_is_added_sockets_count(line) {
+            parsed.socket_count = parsed.socket_count.saturating_add(n);
+            continue;
+        }
+        // Corruption-roll: `Adds N Jewel Socket Passive Skills` (override; mirrors
+        // upstream `clusterJewelSocketCountOverride`). PoB uses an override here
+        // rather than addition; treat it as a direct override of the running
+        // socket_count when larger.
+        if let Some(n) = line_is_added_sockets_override(line) {
+            parsed.socket_count = parsed.socket_count.max(n);
+            continue;
+        }
+        // Corruption-roll: `Added Small Passive Skills have N% increased Effect`.
+        // Stored on `small_passive_inc_effect` and surfaced as a synthetic stat
+        // line on each small node by the synthesiser.
+        if let Some(n) = line_is_small_passive_inc_effect(line) {
+            parsed.small_passive_inc_effect = parsed.small_passive_inc_effect.saturating_add(n);
             continue;
         }
         if let Some((skill_name, stat)) = line_is_small_passive_grant(line) {
@@ -280,12 +308,41 @@ fn line_is_added_socket(line: &str) -> bool {
     line == "1 Added Passive Skill is a Jewel Socket"
 }
 
+/// Recognise `N Added Passive Skills are Jewel Sockets` (multi-socket
+/// corruption-roll phrasing). Returns N.
+fn line_is_added_sockets_count(line: &str) -> Option<u32> {
+    let rest = line.strip_suffix(" Added Passive Skills are Jewel Sockets")?;
+    rest.trim().parse().ok()
+}
+
+/// Recognise `Adds N Jewel Socket Passive Skills` (corruption-roll override
+/// — `clusterJewelSocketCountOverride` upstream). Returns N.
+fn line_is_added_sockets_override(line: &str) -> Option<u32> {
+    let rest = line
+        .strip_prefix("Adds ")?
+        .strip_suffix(" Jewel Socket Passive Skills")?;
+    rest.trim().parse().ok()
+}
+
+/// Recognise `Added Small Passive Skills have N% increased Effect`
+/// (corruption-roll, `clusterJewelIncEffect` upstream). Returns N.
+fn line_is_small_passive_inc_effect(line: &str) -> Option<u32> {
+    let rest = line
+        .strip_prefix("Added Small Passive Skills have ")?
+        .strip_suffix("% increased Effect")?;
+    rest.trim().parse().ok()
+}
+
 /// Recognise `Adds N Passive Skills` / `Adds 1 Passive Skill`. Returns N.
 fn line_is_added_passives_count(line: &str) -> Option<u32> {
     let rest = line.strip_prefix("Adds ").and_then(|s| {
         s.strip_suffix(" Passive Skills")
             .or(s.strip_suffix(" Passive Skill"))
     })?;
+    // Reject `Adds N Jewel Socket Passive Skills` etc. — only plain count.
+    if rest.contains(' ') {
+        return None;
+    }
     rest.trim().parse().ok()
 }
 
@@ -450,8 +507,20 @@ pub fn synthesise_for_socket(
                 }
             }
             SynthRole::Small => {
-                let mut stats = parsed.small_passive_stats.clone();
-                stats.extend(parsed.added_small_mods.iter().cloned());
+                let mut stats: Vec<String> = parsed
+                    .small_passive_stats
+                    .iter()
+                    .map(|s| scale_stat_line(s, parsed.small_passive_inc_effect))
+                    .collect();
+                // `clusterJewelAddedMods` lines also scale with `clusterJewelIncEffect`
+                // upstream — they share the small node's mod list so the
+                // `PassiveSkillEffect INC N` mod scales them all uniformly.
+                stats.extend(
+                    parsed
+                        .added_small_mods
+                        .iter()
+                        .map(|s| scale_stat_line(s, parsed.small_passive_inc_effect)),
+                );
                 small_ids.push(id);
                 Node {
                     id,
@@ -572,6 +641,75 @@ enum SynthRole {
     Notable(String),
     Small,
     Socket,
+}
+
+/// Scale every leading numeric value in `line` by `(1 + inc_pct/100)` and
+/// re-emit the line. `inc_pct == 0` returns the line unchanged. Mirrors PoB's
+/// `clusterJewelIncEffect` semantics — the `PassiveSkillEffect INC N` mod gets
+/// applied to the small node's mod list, which uniformly scales every value
+/// the node produces. Since MK2 doesn't yet have the
+/// `PassiveSkillEffect`-INC-scales-co-located-mods machinery, we fold the
+/// scalar in numerically at synthesis time.
+///
+/// Handles both integer and decimal forms (`5`, `5.5`) and signed values
+/// (`+12`, `-3`). Returns the original string when no leading numeric is
+/// recognised — e.g. flag-style lines like `"Cannot be Frozen"`.
+fn scale_stat_line(line: &str, inc_pct: u32) -> String {
+    if inc_pct == 0 {
+        return line.to_string();
+    }
+    let scale = 1.0 + (f64::from(inc_pct) / 100.0);
+    let bytes = line.as_bytes();
+    // Find the first numeric run, optionally preceded by `+` / `-`.
+    let mut i = 0;
+    while i < bytes.len() && !bytes[i].is_ascii_digit() && bytes[i] != b'+' && bytes[i] != b'-' {
+        i += 1;
+    }
+    if i == bytes.len() {
+        return line.to_string();
+    }
+    let sign_start = i;
+    if bytes[i] == b'+' || bytes[i] == b'-' {
+        i += 1;
+    }
+    let num_start = i;
+    while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+        i += 1;
+    }
+    if num_start == i {
+        return line.to_string();
+    }
+    let num_end = i;
+    let raw: f64 = match line[num_start..num_end].parse() {
+        Ok(v) => v,
+        Err(_) => return line.to_string(),
+    };
+    let leading_sign = bytes[sign_start];
+    let was_signed = leading_sign == b'+' || leading_sign == b'-';
+    let signed_value = if leading_sign == b'-' { -raw } else { raw };
+    let scaled = signed_value * scale;
+    // Round half-up to one decimal place; emit integer when exact.
+    let rounded = (scaled * 10.0).round() / 10.0;
+    let abs_value = rounded.abs();
+    let formatted = if (abs_value.fract()).abs() < 1e-9 {
+        format!("{}", abs_value as i64)
+    } else {
+        format!("{abs_value}")
+    };
+    let mut out = String::with_capacity(line.len() + 4);
+    out.push_str(&line[..sign_start]);
+    if was_signed {
+        if rounded < 0.0 {
+            out.push('-');
+        } else if leading_sign == b'+' {
+            out.push('+');
+        }
+    } else if rounded < 0.0 {
+        out.push('-');
+    }
+    out.push_str(&formatted);
+    out.push_str(&line[num_end..]);
+    out
 }
 
 /// Build a synthetic NodeId. Mirrors PoB's `BuildSubgraph` id scheme — see the
@@ -938,4 +1076,100 @@ mod tests {
     }
 
     // Tests for the engine integration live in `perform.rs` test module.
+
+    /// Issue #197 (slice C): corruption-roll `+1 socket` should bump the
+    /// synthesised socket count by one without affecting the count of smalls
+    /// the parser otherwise produces. This is the canonical acceptance
+    /// criterion from the issue body — pasting a corrupted cluster jewel
+    /// that rolled `1 Added Passive Skill is a Jewel Socket` (the corruption
+    /// implicit form) must spawn one extra socket in the synth sub-graph.
+    #[test]
+    fn corruption_extra_socket_bumps_synth_socket_count() {
+        let tree = make_tree();
+        // Base jewel: 8 nodes, 1 notable, no rolled sockets. The corruption
+        // implicit then adds a socket on top.
+        let mut item = cluster_jewel_item("Prodigious Defence", 8, 0);
+        item.corrupted = true;
+        item.mod_lines.push(pob_data::ModLine {
+            line: "1 Added Passive Skill is a Jewel Socket".into(),
+            section: pob_data::ModSection::Corrupted,
+        });
+        let data = small_jewel_data();
+        let parsed = parse_cluster_jewel(&item, &data).expect("parses");
+        assert_eq!(parsed.socket_count, 1, "corruption rolled +1 socket");
+        let spec = synthesise_for_socket(1000, 0, &parsed, &data, &tree).expect("synthesised");
+        assert_eq!(spec.socket_ids.len(), 1, "+1 socket → one synth socket");
+    }
+
+    /// Issue #197 (slice C): corruption-roll `2 Added Passive Skills are
+    /// Jewel Sockets` (multi-socket alt phrasing) and `Adds N Jewel Socket
+    /// Passive Skills` (override phrasing). Both should bump socket_count.
+    #[test]
+    fn corruption_multi_socket_phrasings_recognised() {
+        let mut item1 = cluster_jewel_item("", 8, 0);
+        item1.mod_lines.push(pob_data::ModLine {
+            line: "2 Added Passive Skills are Jewel Sockets".into(),
+            section: pob_data::ModSection::Corrupted,
+        });
+        let data = small_jewel_data();
+        let parsed1 = parse_cluster_jewel(&item1, &data).expect("parses");
+        assert_eq!(parsed1.socket_count, 2);
+
+        let mut item2 = cluster_jewel_item("", 8, 0);
+        item2.mod_lines.push(pob_data::ModLine {
+            line: "Adds 3 Jewel Socket Passive Skills".into(),
+            section: pob_data::ModSection::Corrupted,
+        });
+        let parsed2 = parse_cluster_jewel(&item2, &data).expect("parses");
+        assert_eq!(parsed2.socket_count, 3);
+    }
+
+    /// Issue #197 (slice C): corruption-roll `Added Small Passive Skills
+    /// have N% increased Effect`. Stored on `small_passive_inc_effect` and
+    /// scales every numeric value in the small's stat lines uniformly.
+    #[test]
+    fn corruption_inc_effect_scales_small_stat_lines() {
+        let tree = make_tree();
+        let mut item = cluster_jewel_item("", 8, 0);
+        item.mod_lines.push(pob_data::ModLine {
+            line: "Added Small Passive Skills have 50% increased Effect".into(),
+            section: pob_data::ModSection::Corrupted,
+        });
+        let data = small_jewel_data();
+        let parsed = parse_cluster_jewel(&item, &data).expect("parses");
+        assert_eq!(parsed.small_passive_inc_effect, 50);
+        let spec = synthesise_for_socket(1000, 0, &parsed, &data, &tree).expect("synthesised");
+        // Each small originally grants `12% increased Chaos Damage`; with
+        // +50% effect we expect `18% increased Chaos Damage`.
+        let small_id = spec.small_ids[0];
+        let small = &spec.nodes[&small_id];
+        let line = small
+            .stats
+            .iter()
+            .find(|s| s.contains("Chaos Damage"))
+            .expect("small has chaos damage line");
+        assert_eq!(line, "18% increased Chaos Damage");
+    }
+
+    #[test]
+    fn scale_stat_line_handles_signed_and_decimal() {
+        // No-op when inc=0.
+        assert_eq!(
+            scale_stat_line("12% increased Life", 0),
+            "12% increased Life"
+        );
+        // Plain integer.
+        assert_eq!(
+            scale_stat_line("12% increased Life", 50),
+            "18% increased Life"
+        );
+        // Signed positive.
+        assert_eq!(scale_stat_line("+10 to Strength", 50), "+15 to Strength");
+        // Signed negative — corruption could stack with negative-effect mods.
+        assert_eq!(scale_stat_line("-10 to Strength", 50), "-15 to Strength");
+        // Decimal that stays decimal after scale.
+        assert_eq!(scale_stat_line("0.5% Life Regen", 50), "0.8% Life Regen");
+        // Non-numeric leading content (flag mod): unchanged.
+        assert_eq!(scale_stat_line("Cannot be Frozen", 50), "Cannot be Frozen");
+    }
 }
