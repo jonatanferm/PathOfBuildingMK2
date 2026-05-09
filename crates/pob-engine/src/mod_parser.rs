@@ -55,6 +55,14 @@ pub fn parse_mod_line(line: &str) -> Option<ParsedMod> {
     if let Some(p) = try_parse_penetrates(line) {
         return Some(p);
     }
+    // "Shock enemies as though dealing N% more Damage" / variants for each
+    // ailment plus the "Inflict non-damaging ailments as though dealing N%
+    // more Damage" aggregator. Emits MORE mods on `<Ailment>AsThoughDealing`
+    // keys that perform.rs's ailment branches read alongside the generic
+    // `AilmentEffect` MORE.
+    if let Some(p) = try_parse_as_though_dealing(line) {
+        return Some(p);
+    }
 
     // "+N% Chance to Block Attack Damage" / "N% chance to Suppress Spell Damage" /
     // "4% Chance to Block Spell Damage" — sign optional.
@@ -2280,6 +2288,67 @@ fn try_parse_penetrates(line: &str) -> Option<ParsedMod> {
     Some(ParsedMod { mod_: m })
 }
 
+/// Parse "<Ailment> enemies as though dealing N% more Damage" and the broad
+/// "Inflict non-damaging ailments as though dealing N% more Damage" form.
+///
+/// Per upstream `Modules/ModParser.lua` these surface as MORE mods on
+/// `<Ailment>AsThoughDealing` keys that the ailment-source pass scales the
+/// pre-ailment hit damage by (CalcOffence.lua:5147 `damage = ... × More(cfg,
+/// ailment.."AsThoughDealing")`).
+///
+/// We emit a single key per call. The "non-damaging ailments" aggregator
+/// resolves to `NonDamagingAilmentAsThoughDealing`; perform.rs's non-damaging
+/// ailment branches query it alongside the per-ailment `*AsThoughDealing`
+/// keys so a single mod scales all six non-damaging ailment branches at once.
+/// (Mirrors the upstream behaviour where one mod-line emits six MORE mods.)
+fn try_parse_as_though_dealing(line: &str) -> Option<ParsedMod> {
+    // The verb-led forms ("Shock enemies as though dealing X% more Damage",
+    // etc) start with the ailment verb. Recognise that first; bail otherwise.
+    let (key, rest) = if let Some(r) = line.strip_prefix("Shock enemies as though dealing ") {
+        ("ShockAsThoughDealing", r)
+    } else if let Some(r) = line.strip_prefix("Chill enemies as though dealing ") {
+        ("ChillAsThoughDealing", r)
+    } else if let Some(r) = line.strip_prefix("Freeze enemies as though dealing ") {
+        ("FreezeAsThoughDealing", r)
+    } else if let Some(r) = line.strip_prefix("Scorch enemies as though dealing ") {
+        ("ScorchAsThoughDealing", r)
+    } else if let Some(r) = line
+        .strip_prefix("Sap enemies as though dealing ")
+        .or_else(|| line.strip_prefix("Sap Enemies as though dealing "))
+    {
+        ("SapAsThoughDealing", r)
+    } else if let Some(r) = line
+        .strip_prefix("Inflict Brittle on enemies as though dealing ")
+        .or_else(|| line.strip_prefix("Brittle enemies as though dealing "))
+    {
+        ("BrittleAsThoughDealing", r)
+    } else if let Some(r) = line.strip_prefix("Bleed enemies as though dealing ") {
+        ("BleedAsThoughDealing", r)
+    } else if let Some(r) = line.strip_prefix("Poison enemies as though dealing ") {
+        ("PoisonAsThoughDealing", r)
+    } else if let Some(r) = line.strip_prefix("Ignite enemies as though dealing ") {
+        ("IgniteAsThoughDealing", r)
+    } else if let Some(r) = line
+        .strip_prefix("Inflict non-damaging Ailments as though dealing ")
+        .or_else(|| line.strip_prefix("Inflict Non-Damaging Ailments as though dealing "))
+        .or_else(|| line.strip_prefix("Inflict non-damaging ailments as though dealing "))
+    {
+        ("NonDamagingAilmentAsThoughDealing", r)
+    } else {
+        return None;
+    };
+    let (n, rest) = consume_simple_number(rest)?;
+    let rest = rest.strip_prefix('%')?.trim_start();
+    // Body must be exactly "more Damage" — protect against future
+    // "less Damage" or other suffixes accidentally matching.
+    if rest != "more Damage" {
+        return None;
+    }
+    Some(ParsedMod {
+        mod_: Mod::more(key, n),
+    })
+}
+
 fn try_parse_to(line: &str) -> Option<ParsedMod> {
     let (sign, rest) = if let Some(r) = line.strip_prefix('+') {
         (1.0, r)
@@ -3502,6 +3571,69 @@ mod tests {
             !m.name.starts_with("FireDamageGainAs"),
             "self-loop should not produce a structured gain key, got `{}`",
             m.name
+        );
+    }
+
+    // Issue #68: parsing "<Ailment> enemies as though dealing N% more Damage"
+    // emits a MORE mod on the matching `<Ailment>AsThoughDealing` key. The
+    // perform.rs ailment branches read these alongside the generic
+    // `AilmentEffect` MORE so a single mod-line scales the right ailment.
+    #[test]
+    fn as_though_dealing_per_ailment_emits_more_keys() {
+        let m = parse("Shock enemies as though dealing 50% more Damage");
+        assert_eq!(m.kind, ModType::More);
+        assert_eq!(m.name, "ShockAsThoughDealing");
+        assert_eq!(m.value.as_f64(), Some(50.0));
+
+        let m = parse("Chill enemies as though dealing 30% more Damage");
+        assert_eq!(m.name, "ChillAsThoughDealing");
+        assert_eq!(m.kind, ModType::More);
+
+        let m = parse("Freeze enemies as though dealing 200% more Damage");
+        assert_eq!(m.name, "FreezeAsThoughDealing");
+
+        let m = parse("Scorch enemies as though dealing 25% more Damage");
+        assert_eq!(m.name, "ScorchAsThoughDealing");
+
+        let m = parse("Bleed enemies as though dealing 40% more Damage");
+        assert_eq!(m.name, "BleedAsThoughDealing");
+        let m = parse("Poison enemies as though dealing 40% more Damage");
+        assert_eq!(m.name, "PoisonAsThoughDealing");
+        let m = parse("Ignite enemies as though dealing 40% more Damage");
+        assert_eq!(m.name, "IgniteAsThoughDealing");
+    }
+
+    // Issue #68: the broad "Inflict non-damaging Ailments as though dealing
+    // N% more Damage" form (e.g. cluster-jewel notables) collapses into a
+    // single `NonDamagingAilmentAsThoughDealing` key. Perform.rs's per-ailment
+    // shock/chill/freeze/etc. branches query this aggregator alongside the
+    // specific `<Ailment>AsThoughDealing` keys so one mod scales all six
+    // non-damaging ailments — matching upstream where one mod-line emits six
+    // MORE mods.
+    #[test]
+    fn as_though_dealing_non_damaging_aggregator() {
+        let m = parse("Inflict non-damaging Ailments as though dealing 35% more Damage");
+        assert_eq!(m.kind, ModType::More);
+        assert_eq!(m.name, "NonDamagingAilmentAsThoughDealing");
+        assert_eq!(m.value.as_f64(), Some(35.0));
+
+        // Lowercase "ailments" is also accepted (matches PoB's match-pattern
+        // which is case-insensitive on the leading word).
+        let m = parse("Inflict non-damaging ailments as though dealing 50% more Damage");
+        assert_eq!(m.name, "NonDamagingAilmentAsThoughDealing");
+    }
+
+    // Negative case: "less Damage" is not an upstream form for this phrase
+    // and parsing must NOT mint a MORE mod with a synthetic sign flip.
+    #[test]
+    fn as_though_dealing_rejects_less_form() {
+        // The body must be exactly "more Damage" — the parser falls through
+        // to other rules / catch-all when it isn't.
+        assert!(
+            parse_mod_line("Shock enemies as though dealing 50% less Damage").is_none()
+                || parse_mod_line("Shock enemies as though dealing 50% less Damage")
+                    .map(|p| p.mod_.name != "ShockAsThoughDealing")
+                    .unwrap_or(true)
         );
     }
 

@@ -4903,6 +4903,94 @@ fn fist_of_war_only_applies_to_slam_skills() {
     );
 }
 
+// Issue #68: parsed "<Ailment> enemies as though dealing N% more Damage"
+// mods feed `<Ailment>AsThoughDealing` MORE multipliers into the ailment
+// branch, scaling BleedDPS / PoisonDPS / IgniteDPS by `1 + N/100`.
+// Mirrors upstream `Modules/CalcOffence.lua:5147 damage = ... ×
+// More(cfg, ailment.."AsThoughDealing")`. Bleed only reads the
+// `BleedAsThoughDealing` MORE — adding 100% should double BleedDPS.
+#[test]
+fn bleed_as_though_dealing_doubles_bleed_dps() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Cleave").is_none() {
+        eprintln!("skip: Cleave not in registry");
+        return;
+    }
+
+    // Baseline Cleave with bleed chance — pick up `BleedDPS > 0`.
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_bleed = baseline.get("BleedDPS");
+    if baseline_bleed <= 0.0 {
+        eprintln!("skip: Cleave doesn't bleed in this fixture");
+        return;
+    }
+
+    // Inject the "Bleed enemies as though dealing 100% more Damage" mod-line
+    // through `custom_mods`. The mod-parser converts it into a MORE on
+    // `BleedAsThoughDealing`; the ailment branch reads it and lifts BleedDPS
+    // by exactly 2×.
+    c.config.custom_mods = "Bleed enemies as though dealing 100% more Damage".to_owned();
+    let scaled = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let scaled_bleed = scaled.get("BleedDPS");
+    let ratio = scaled_bleed / baseline_bleed;
+    assert!(
+        (ratio - 2.0).abs() < 0.02,
+        "BleedAsThoughDealing 100% MORE should double BleedDPS; ratio={ratio} (baseline={baseline_bleed}, scaled={scaled_bleed})"
+    );
+}
+
+// Issue #68: the same parser path handles Poison / Ignite. Verifies that the
+// stat name lookup is wired correctly per-ailment (no copy-paste bug
+// pointing all three branches at the same key) by injecting a Poison-only
+// mod and confirming PoisonDPS scales but BleedDPS does not.
+#[test]
+fn poison_as_though_dealing_only_scales_poison() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        return;
+    };
+    if skills.get("Cleave").is_none() {
+        return;
+    }
+    use pob_engine::{Mod, Source};
+
+    // Equip a weapon and inject both Bleed + Poison chance so both ailment
+    // branches land. Use `compute_full_with_env` so we can stamp the
+    // PoisonAsThoughDealing MORE directly into the mod_db post-init —
+    // this isolates the stat-name dispatch from any parser bug.
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    c.config.custom_mods = "30% chance to Poison on Hit".to_owned();
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_poison = baseline.get("PoisonDPS");
+    let baseline_bleed = baseline.get("BleedDPS");
+    if baseline_poison <= 0.0 || baseline_bleed <= 0.0 {
+        eprintln!("skip: Cleave fixture lacks both poison and bleed paths");
+        return;
+    }
+
+    let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
+    env.mod_db
+        .add(Mod::more("PoisonAsThoughDealing", 100.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
+    let poison_ratio = env.output.get("PoisonDPS") / baseline_poison;
+    let bleed_ratio = env.output.get("BleedDPS") / baseline_bleed;
+    assert!(
+        (poison_ratio - 2.0).abs() < 0.02,
+        "PoisonAsThoughDealing 100% MORE should double PoisonDPS; ratio={poison_ratio}"
+    );
+    assert!(
+        (bleed_ratio - 1.0).abs() < 0.02,
+        "PoisonAsThoughDealing must NOT scale BleedDPS; bleed ratio={bleed_ratio}"
+    );
+}
+
 // Issue #19 (composition): INC and MORE for ExertedAttackDamage compose
 // multiplicatively, matching PoE's `(1 + inc/100) × more` chain. With
 // 50% INC and a separate 50% MORE the per-exerted-attack factor is
