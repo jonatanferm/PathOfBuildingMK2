@@ -23,12 +23,42 @@ use serde_json::Value as J;
 use crate::{lua_to_json, make_lua};
 
 pub fn extract(pob_root: &Path) -> Result<MinionData> {
-    let path = pob_root.join("src/Data/Minions.lua");
     let lua = make_lua()?;
     install_mod_recorder(&lua)?;
+    install_flag_recorder(&lua)?;
 
+    let mut minions = IndexMap::new();
+
+    // Standard minion catalogue (`local minions, mod = ...`).
+    let std_path = pob_root.join("src/Data/Minions.lua");
+    load_minions_lua(&lua, &std_path, /*pass_flag=*/ false, &mut minions)
+        .with_context(|| format!("loading {}", std_path.display()))?;
+
+    // Spectres (`local minions, mod, flag = ...`). 264 entries with extra fields like
+    // `lifeScaling`, `weaponType1`, `baseDamageIgnoresAttackSpeed`. We merge into the
+    // same map; spectre keys are full metadata paths
+    // (`Metadata/Monsters/Axis/AxisCaster`) and don't collide with standard minion ids.
+    let spectres_path = pob_root.join("src/Data/Spectres.lua");
+    if spectres_path.exists() {
+        load_minions_lua(&lua, &spectres_path, /*pass_flag=*/ true, &mut minions)
+            .with_context(|| format!("loading {}", spectres_path.display()))?;
+    }
+
+    Ok(MinionData { minions })
+}
+
+/// Load one PoB minion-data Lua chunk and merge each entry into `minions`.
+/// `pass_flag = true` invokes the chunk with `(minions_table, __pob_mod, __pob_flag)`
+/// (Spectres.lua takes 3 positional args); `false` invokes it with `(minions_table,
+/// __pob_mod)` (Minions.lua takes 2).
+fn load_minions_lua(
+    lua: &Lua,
+    path: &Path,
+    pass_flag: bool,
+    minions: &mut IndexMap<String, MinionType>,
+) -> Result<()> {
     let src =
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let chunk = lua.load(&src).set_name(path.to_string_lossy().as_ref());
     let func = chunk
         .into_function()
@@ -36,20 +66,25 @@ pub fn extract(pob_root: &Path) -> Result<MinionData> {
 
     let minions_table = lua.create_table()?;
     let mod_fn = lua.globals().get::<LuaFn>("__pob_mod")?;
-    func.call::<()>((minions_table.clone(), mod_fn))
-        .with_context(|| format!("executing {}", path.display()))?;
+    if pass_flag {
+        let flag_fn = lua.globals().get::<LuaFn>("__pob_flag")?;
+        func.call::<()>((minions_table.clone(), mod_fn, flag_fn))
+            .with_context(|| format!("executing {}", path.display()))?;
+    } else {
+        func.call::<()>((minions_table.clone(), mod_fn))
+            .with_context(|| format!("executing {}", path.display()))?;
+    }
 
     let json = lua_to_json(Value::Table(minions_table))?;
     let raw_obj = json
         .as_object()
-        .ok_or_else(|| anyhow!("Minions.lua did not return a table"))?;
+        .ok_or_else(|| anyhow!("{} did not return a table", path.display()))?;
 
-    let mut minions = IndexMap::with_capacity(raw_obj.len());
     for (id, raw) in raw_obj {
         let parsed = parse_minion(raw).with_context(|| format!("parsing minion `{id}`"))?;
         minions.insert(id.clone(), parsed);
     }
-    Ok(MinionData { minions })
+    Ok(())
 }
 
 fn parse_minion(v: &J) -> Result<MinionType> {
@@ -74,6 +109,22 @@ fn parse_minion(v: &J) -> Result<MinionType> {
     let limit = obj.get("limit").and_then(J::as_str).map(str::to_owned);
     let skill_list = string_array(obj.get("skillList"));
     let mod_list = mod_array(obj.get("modList"));
+    let life_scaling = obj
+        .get("lifeScaling")
+        .and_then(J::as_str)
+        .map(str::to_owned);
+    let weapon_type1 = obj
+        .get("weaponType1")
+        .and_then(J::as_str)
+        .map(str::to_owned);
+    let weapon_type2 = obj
+        .get("weaponType2")
+        .and_then(J::as_str)
+        .map(str::to_owned);
+    let base_damage_ignores_attack_speed = obj
+        .get("baseDamageIgnoresAttackSpeed")
+        .and_then(J::as_bool)
+        .unwrap_or(false);
 
     Ok(MinionType {
         name,
@@ -93,6 +144,10 @@ fn parse_minion(v: &J) -> Result<MinionType> {
         limit,
         skill_list,
         mod_list,
+        life_scaling,
+        weapon_type1,
+        weapon_type2,
+        base_damage_ignores_attack_speed,
     })
 }
 
@@ -163,6 +218,31 @@ fn install_mod_recorder(lua: &Lua) -> Result<()> {
         Ok(t)
     })?;
     globals.set("__pob_mod", mod_fn)?;
+    Ok(())
+}
+
+/// Mirror the `__pob_flag` helper from the skills extractor. Spectres.lua's chunk
+/// signature is `(minions, mod, flag)`; the flag fn records `flag()` calls into the
+/// same JSON shape used by skill statMaps so a future minion perform pass can decode
+/// them with `pob_engine::skill::parse_extractor_mod`.
+fn install_flag_recorder(lua: &Lua) -> Result<()> {
+    let globals = lua.globals();
+    let flag_fn = lua.create_function(|lua, args: mlua::MultiValue| {
+        let mut iter = args.into_iter();
+        let name: Value = iter.next().unwrap_or(Value::Nil);
+        let t = lua.create_table()?;
+        t.set("__kind", "flag")?;
+        t.set("name", name)?;
+        t.set("type", "FLAG")?;
+        t.set("value", true)?;
+        let mut idx = 1i64;
+        for v in iter {
+            t.set(idx, v)?;
+            idx += 1;
+        }
+        Ok(t)
+    })?;
+    globals.set("__pob_flag", flag_fn)?;
     Ok(())
 }
 
