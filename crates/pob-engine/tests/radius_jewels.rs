@@ -154,7 +154,7 @@ fn apply_against_real_tree_emits_per_node_mods() {
     );
 
     let mut db = ModDB::default();
-    let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+    let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
     assert_eq!(report.applied_jewels, 1);
     assert_eq!(report.skipped, 0);
     assert_eq!(
@@ -193,7 +193,7 @@ fn cluster_jewel_in_socketed_map_is_skipped_not_misapplied() {
     );
     let alloc: ahash::AHashSet<pob_data::NodeId> = ahash::AHashSet::default();
     let mut db = ModDB::default();
-    let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+    let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
     assert_eq!(report.applied_jewels, 0);
     assert_eq!(report.skipped, 1);
     assert_eq!(report.mod_emissions, 0);
@@ -418,7 +418,7 @@ fn healthy_mind_emits_transformed_mana_from_real_tree() {
     );
 
     let mut db = ModDB::default();
-    let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+    let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
     assert_eq!(report.applied_jewels, 1);
     assert!(
         report.mod_emissions >= 1,
@@ -479,7 +479,7 @@ fn end_to_end_radius_jewel_lifts_life_output() {
         mk_radius_jewel("10% increased Maximum Life to nearby allocated passives"),
     );
     let mut db = ModDB::default();
-    let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+    let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
     assert_eq!(report.applied_jewels, 1);
     assert_eq!(report.mod_emissions, 1);
 
