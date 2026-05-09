@@ -521,6 +521,18 @@ pub fn init_env_with_bases(
         &mut env.mod_db,
     );
 
+    // Issue #196: socketed unique jewels with no radius mods (Conqueror's
+    // Efficiency, Conqueror's Potency, Conqueror's Longevity, and any rare
+    // Crimson / Viridian / Cobalt / Prismatic jewel without a "to Passives in
+    // Radius" line) still need their item-level stats to land in the global
+    // modDB. `apply_radius_jewels` skips them; this fallback applies their
+    // mods globally, sourced as `SocketedJewel:<base>:<socket_id>` so the
+    // Calcs-tab breakdown attributes each mod to the contributing item.
+    let _ = crate::jewel_radius::apply_non_radius_socketed_jewels(
+        &character.socketed_jewels,
+        &mut env.mod_db,
+    );
+
     env
 }
 
