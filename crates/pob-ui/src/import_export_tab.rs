@@ -5,16 +5,21 @@
 use eframe::egui;
 use pob_engine::{
     export_code, export_pob_code, import_code, import_pob_code, import_pob_xml, resolve_share_url,
-    Character,
+    Character, GggCharacterSummary,
 };
-
-#[cfg(not(target_arch = "wasm32"))]
-use pob_engine::GggCharacterSummary;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ggg_fetch::{
     spawn_character_fetch, spawn_character_list_fetch, CharacterFetchJob, CharacterFetchResult,
-    CharacterListFetchJob, CharacterListFetchResult,
+    CharacterListFetchJob, CharacterListFetchResult, GemTypeLineMap,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::keyring_store;
+
+#[cfg(target_arch = "wasm32")]
+use crate::ggg_fetch_wasm::{
+    spawn_character_fetch, spawn_character_list_fetch, CharacterFetchJob, CharacterFetchResult,
+    CharacterListFetchJob, CharacterListFetchResult, GemTypeLineMap,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::share_url_fetch::{
@@ -27,11 +32,10 @@ pub struct ImportExportTabState {
     pub paste: String,
     pub generated: String,
     pub last_message: Option<(bool, String)>,
-    /// Issue #32: live-import inputs and in-flight job state. Wasm
-    /// has different network constraints (CORS, no `std::thread`),
-    /// so the UI half is also gated; the user sees a "desktop only"
-    /// stub there.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Issue #32 / #194: live-import inputs and in-flight job state.
+    /// Available on both desktop (via `ureq`) and wasm (via
+    /// `web_sys::fetch`). The browser path may need a CORS proxy
+    /// — see `crate::ggg_fetch_wasm` for deployment notes.
     pub ggg: GggImportState,
     /// Issue #33: in-flight pobb.in / pastebin fetch — when a URL
     /// is pasted, the auto-import button spawns a background fetch
@@ -40,17 +44,29 @@ pub struct ImportExportTabState {
     pub share_url_job: Option<ShareUrlFetchJob>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+/// Pre-built `(gem typeLine -> canonical PoB skill_id)` lookup
+/// shared across fetch jobs. Constructed once at app startup from
+/// `data/gems.json` (when available) and held by the tab state so
+/// every spawn picks it up without re-iterating the registry.
 #[derive(Default)]
 pub struct GggImportState {
     /// Account name field — accepts `Hero#1234` or `Hero-1234`.
     pub account_name: String,
     /// Realm — defaults to `pc`. PoB exposes `pc / xbox / sony`.
     pub realm: String,
-    /// Optional POESESSID for private profiles. Stored in memory
-    /// only; not persisted to disk yet (see issue body for the
-    /// cache-in-keyring follow-up).
+    /// Optional POESESSID for private profiles. On desktop we
+    /// hydrate from the OS keyring at construction time and
+    /// persist to it whenever the field changes (slice 4). On
+    /// wasm we don't touch the cookie ourselves — the browser
+    /// already manages it via `credentials: include`.
     pub session_id: String,
+    /// True when `session_id` was loaded from the keyring at
+    /// construction. Tracks "should I clear the keyring entry on
+    /// the next blur?" without forcing an extra prompt every
+    /// keystroke. Wasm has no keyring; the field is unused there
+    /// (the cookie lives in the browser).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub session_id_loaded_from_keyring: bool,
     /// Character name. Either populated by the user manually or
     /// chosen from the dropdown after the character list fetch.
     pub character_name: String,
@@ -63,18 +79,60 @@ pub struct GggImportState {
     /// One-line status text shown under the GGG section. `Some
     /// ((ok, msg))` mirrors the rest of the tab's banner colours.
     pub status: Option<(bool, String)>,
+    /// Issue #194 (slice 2): optional gem-name → canonical PoB
+    /// skill_id lookup, populated from the loaded `GemSet` at app
+    /// startup. Each fetch job clones the `Arc` so the spawn
+    /// thread / future doesn't need to walk the registry.
+    pub gem_lookup: Option<GemTypeLineMap>,
 }
 
-pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut Character) -> bool {
+impl ImportExportTabState {
+    /// Construct the tab state, populating the POESESSID from the
+    /// OS keyring on desktop. Wasm builds skip the keyring (the
+    /// cookie lives in the browser itself).
+    pub fn new_with_keyring() -> Self {
+        #[allow(unused_mut)]
+        let mut state = Self::default();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(stored) = keyring_store::load_session_id() {
+                state.ggg.session_id = stored;
+                state.ggg.session_id_loaded_from_keyring = true;
+            }
+        }
+        state
+    }
+
+    /// Install a `(typeLine -> skill_id)` lookup, derived from the
+    /// app's loaded `GemSet`. The tab clones the `Arc` into each
+    /// fetch job so gem name resolution lands the canonical PoB
+    /// skill id (e.g. `"Spell Echo Support"` →
+    /// `"SupportSpellEcho"`) instead of the engine's permissive
+    /// fallback.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub fn set_gem_lookup(&mut self, lookup: GemTypeLineMap) {
+        self.ggg.gem_lookup = Some(lookup);
+    }
+}
+
+pub fn ui(
+    ui: &mut egui::Ui,
+    state: &mut ImportExportTabState,
+    character: &mut Character,
+    tree: &pob_data::PassiveTree,
+) -> bool {
     let mut changed = false;
 
-    // Drain any in-flight GGG jobs first so the panel below renders
-    // the freshest status. On wasm this is a no-op stub.
+    // Drain any in-flight jobs first so the panel below renders the freshest status.
+    // GGG fetch works on desktop (ureq + std::thread) and wasm (web_sys::fetch +
+    // spawn_local) — both routes share the same poll-once-per-frame pattern (#194 slice 5).
+    if poll_ggg_jobs(&mut state.ggg, character, tree) {
+        changed = true;
+    }
+    // Share-URL fetch (pobb.in / pastebin) is desktop-only — CORS blocks the
+    // browser path. See #202.
     #[cfg(not(target_arch = "wasm32"))]
     {
-        if poll_ggg_jobs(&mut state.ggg, character) {
-            changed = true;
-        }
         if poll_share_url_job(state, character) {
             changed = true;
         }
@@ -172,23 +230,14 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ImportExportTabState, character: &mut C
         ui.colored_label(colour, msg);
     }
 
-    // Issue #32: live character import section. Native-only — wasm
-    // gets a brief explanatory stub.
+    // Issue #32 / #194: live character import section. Available
+    // on desktop and wasm — wasm needs a CORS-capable proxy
+    // configured via the `POB_MK2_GGG_PROXY` env var at build
+    // time (see `ggg_fetch_wasm.rs` for deployment notes).
     ui.add_space(8.0);
     ui.separator();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        if ggg_section(ui, &mut state.ggg, character) {
-            changed = true;
-        }
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        ui.heading("Import from PoE account");
-        ui.weak(
-            "Live character import via the GGG character-window API is desktop-only for now. \
-             The browser can't reach the endpoint without CORS support.",
-        );
+    if ggg_section(ui, &mut state.ggg, character) {
+        changed = true;
     }
 
     changed
@@ -286,7 +335,6 @@ fn auto_import(input: &str) -> Result<(Character, &'static str), String> {
         .map_err(|e| e.to_string())
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn ggg_section(ui: &mut egui::Ui, state: &mut GggImportState, _character: &mut Character) -> bool {
     ui.heading("Import from PoE account (live)");
     ui.weak(
@@ -325,13 +373,55 @@ fn ggg_section(ui: &mut egui::Ui, state: &mut GggImportState, _character: &mut C
             ui.end_row();
 
             ui.label("POESESSID (optional):");
-            ui.add_enabled(
-                !in_flight,
-                egui::TextEdit::singleline(&mut state.session_id)
-                    .password(true)
-                    .hint_text("32-char hex; needed for private profiles")
-                    .desired_width(320.0),
-            );
+            ui.horizontal(|ui| {
+                ui.add_enabled(
+                    !in_flight,
+                    egui::TextEdit::singleline(&mut state.session_id)
+                        .password(true)
+                        .hint_text("32-char hex; needed for private profiles")
+                        .desired_width(220.0),
+                );
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if ui
+                        .add_enabled(
+                            !in_flight && !state.session_id.trim().is_empty(),
+                            egui::Button::new("Save"),
+                        )
+                        .on_hover_text("Persist this POESESSID to the OS keyring (Keychain / Credential Manager / secret-service) so you don't have to re-paste it next session.")
+                        .clicked()
+                    {
+                        match keyring_store::save_session_id(state.session_id.trim()) {
+                            Ok(()) => {
+                                state.session_id_loaded_from_keyring = true;
+                                state.status = Some((true, "POESESSID saved to OS keyring.".to_owned()));
+                            }
+                            Err(e) => {
+                                state.status = Some((false, format!("Couldn't save POESESSID: {e}")));
+                            }
+                        }
+                    }
+                    if ui
+                        .add_enabled(
+                            !in_flight && state.session_id_loaded_from_keyring,
+                            egui::Button::new("Forget"),
+                        )
+                        .on_hover_text("Remove the saved POESESSID from the OS keyring.")
+                        .clicked()
+                    {
+                        match keyring_store::clear_session_id() {
+                            Ok(()) => {
+                                state.session_id.clear();
+                                state.session_id_loaded_from_keyring = false;
+                                state.status = Some((true, "POESESSID cleared.".to_owned()));
+                            }
+                            Err(e) => {
+                                state.status = Some((false, format!("Couldn't clear POESESSID: {e}")));
+                            }
+                        }
+                    }
+                }
+            });
             ui.end_row();
         });
 
@@ -427,6 +517,7 @@ fn ggg_section(ui: &mut egui::Ui, state: &mut GggImportState, _character: &mut C
                 state.realm.clone(),
                 session,
                 summary_hint,
+                state.gem_lookup.clone(),
             ));
             state.status = Some((true, "Fetching character data…".to_owned()));
         }
@@ -449,11 +540,15 @@ fn ggg_section(ui: &mut egui::Ui, state: &mut GggImportState, _character: &mut C
 
 /// Drain any in-flight GGG jobs. Returns `true` when this frame's
 /// drain produced a new active character, signalling to the parent
-/// app that a recompute is needed. Background threads send their
-/// result through an `mpsc` channel; we poll-once-per-frame so
+/// app that a recompute is needed. Desktop uses background threads
+/// through an `mpsc` channel; wasm uses `wasm_bindgen_futures`
+/// dropping into a `Rc<RefCell>`. We poll-once-per-frame so
 /// repeated UI redraws don't pile up duplicate spawns.
-#[cfg(not(target_arch = "wasm32"))]
-fn poll_ggg_jobs(state: &mut GggImportState, character: &mut Character) -> bool {
+fn poll_ggg_jobs(
+    state: &mut GggImportState,
+    character: &mut Character,
+    tree: &pob_data::PassiveTree,
+) -> bool {
     let mut character_changed = false;
 
     // Character-list job.
@@ -489,20 +584,41 @@ fn poll_ggg_jobs(state: &mut GggImportState, character: &mut Character) -> bool 
             Ok(Some(CharacterFetchResult::Ok {
                 character: imported,
                 summary,
+                passive,
             })) => {
                 *character = imported;
+                // Issue #194 (slice 3): wire passive-tree jewels
+                // (cluster + radius + abyss + timeless) into the
+                // character via the live tree. Cluster jewels land
+                // on `character.jewels`, others on
+                // `character.socketed_jewels`.
+                let jewel_count = pob_engine::apply_ggg_passive_jewels(character, tree, &passive);
                 state.status = Some((
                     true,
-                    format!(
-                        "Imported '{}' ({} lvl {}).",
-                        summary.name,
-                        if summary.class.is_empty() {
-                            "?"
-                        } else {
-                            summary.class.as_str()
-                        },
-                        summary.level,
-                    ),
+                    if jewel_count > 0 {
+                        format!(
+                            "Imported '{}' ({} lvl {}, {} tree jewels).",
+                            summary.name,
+                            if summary.class.is_empty() {
+                                "?"
+                            } else {
+                                summary.class.as_str()
+                            },
+                            summary.level,
+                            jewel_count,
+                        )
+                    } else {
+                        format!(
+                            "Imported '{}' ({} lvl {}).",
+                            summary.name,
+                            if summary.class.is_empty() {
+                                "?"
+                            } else {
+                                summary.class.as_str()
+                            },
+                            summary.level,
+                        )
+                    },
                 ));
                 state.import_job = None;
                 character_changed = true;

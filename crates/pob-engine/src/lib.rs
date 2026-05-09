@@ -46,9 +46,11 @@ pub use cluster_synth::{
 };
 pub use env::{Env, Output};
 pub use ggg_import::{
-    build_character as build_character_from_ggg, encode_account_name as ggg_encode_account_name,
-    get_characters_url as ggg_get_characters_url, get_items_url as ggg_get_items_url,
-    get_passive_skills_url as ggg_get_passive_skills_url,
+    apply_passive_jewels as apply_ggg_passive_jewels, build_character as build_character_from_ggg,
+    build_character_with_skills as build_character_from_ggg_with_skills,
+    decode_mastery_effects as decode_ggg_mastery_effects, default_skill_id_from_type_line,
+    encode_account_name as ggg_encode_account_name, get_characters_url as ggg_get_characters_url,
+    get_items_url as ggg_get_items_url, get_passive_skills_url as ggg_get_passive_skills_url,
     parse_character_list as parse_ggg_character_list, parse_items as parse_ggg_items,
     parse_passive_skills as parse_ggg_passive_skills, CharacterList as GggCharacterList,
     CharacterSummary as GggCharacterSummary, GggImportError, ItemsResponse as GggItemsResponse,

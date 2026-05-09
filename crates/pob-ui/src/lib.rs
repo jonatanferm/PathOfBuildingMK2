@@ -23,8 +23,12 @@ mod compare_tab;
 mod config_tab;
 #[cfg(not(target_arch = "wasm32"))]
 mod ggg_fetch;
+#[cfg(target_arch = "wasm32")]
+mod ggg_fetch_wasm;
 mod import_export_tab;
 mod items_tab;
+#[cfg(not(target_arch = "wasm32"))]
+mod keyring_store;
 mod mastery_picker;
 mod notes_tab;
 mod party_tab;
@@ -252,6 +256,24 @@ impl PobApp {
         }
         let skills = SkillRegistry::from_files(skill_sets);
 
+        // Issue #194: gem name → canonical skill id lookup, used
+        // by the GGG live-import path to resolve `socketedItems`
+        // typeLines into PoB skill ids. Lower-cased base names
+        // match how PoB does the lookup.
+        let gem_lookup = std::fs::read_to_string(data_root.join("gems.json"))
+            .ok()
+            .and_then(|json| pob_data::load_gems(&json).ok())
+            .map(|gems| {
+                let mut map: ahash::HashMap<String, String> = ahash::HashMap::default();
+                for (_meta_id, gem) in &gems {
+                    let key = gem.base_type_name.to_ascii_lowercase();
+                    if !key.is_empty() && !map.contains_key(&key) {
+                        map.insert(key, gem.granted_effect_id.clone());
+                    }
+                }
+                std::sync::Arc::new(map)
+            });
+
         let sprites = load_sprite_metadata();
         let calc_sections = std::fs::read_to_string(data_root.join("calc_sections.json"))
             .ok()
@@ -295,7 +317,13 @@ impl PobApp {
             compare_state: compare_tab::CompareTabState::default(),
             party_state: party_tab::PartyTabState::default(),
             builds_state: builds_tab::BuildsTabState::default(),
-            import_export_state: import_export_tab::ImportExportTabState::default(),
+            import_export_state: {
+                let mut s = import_export_tab::ImportExportTabState::new_with_keyring();
+                if let Some(map) = gem_lookup.clone() {
+                    s.set_gem_lookup(map);
+                }
+                s
+            },
             notes_state: notes_tab::NotesTabState::default(),
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
             mastery_picker_state: mastery_picker::MasteryPickerState::default(),
@@ -357,7 +385,7 @@ impl PobApp {
             compare_state: compare_tab::CompareTabState::default(),
             party_state: party_tab::PartyTabState::default(),
             builds_state: builds_tab::BuildsTabState::default(),
-            import_export_state: import_export_tab::ImportExportTabState::default(),
+            import_export_state: import_export_tab::ImportExportTabState::new_with_keyring(),
             notes_state: notes_tab::NotesTabState::default(),
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
             mastery_picker_state: mastery_picker::MasteryPickerState::default(),
@@ -1354,7 +1382,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             notes_tab::ui(ui, &mut app.character.notes, &mut app.notes_state);
         }
         Tab::ImportExport => {
-            if import_export_tab::ui(ui, &mut app.import_export_state, &mut app.character) {
+            if import_export_tab::ui(
+                ui,
+                &mut app.import_export_state,
+                &mut app.character,
+                &app.tree,
+            ) {
                 // Imported character: rebind the tree view (positions stay valid since
                 // the tree didn't change) and force recompute.
                 app.tree_view.rebind(&app.tree);

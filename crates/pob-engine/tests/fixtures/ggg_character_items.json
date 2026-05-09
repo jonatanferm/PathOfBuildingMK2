@@ -37,6 +37,38 @@
                 "+95 to maximum Energy Shield",
                 "+39% to Cold Resistance",
                 "+41% to Lightning Resistance"
+            ],
+            "sockets": [
+                {"group": 0, "sColour": "B"},
+                {"group": 0, "sColour": "B"},
+                {"group": 0, "sColour": "B"},
+                {"group": 0, "sColour": "B"},
+                {"group": 0, "sColour": "B"},
+                {"group": 0, "sColour": "B"}
+            ],
+            "socketedItems": [
+                {
+                    "name": "",
+                    "typeLine": "Fireball",
+                    "frameType": 4,
+                    "socket": 0,
+                    "support": false,
+                    "properties": [
+                        {"name": "Level", "values": [["20", 0]]},
+                        {"name": "Quality", "values": [["+20%", 1]]}
+                    ]
+                },
+                {
+                    "name": "",
+                    "typeLine": "Spell Echo Support",
+                    "frameType": 4,
+                    "socket": 1,
+                    "support": true,
+                    "properties": [
+                        {"name": "Level", "values": [["20", 0]]},
+                        {"name": "Quality", "values": [["+20%", 1]]}
+                    ]
+                }
             ]
         },
         {

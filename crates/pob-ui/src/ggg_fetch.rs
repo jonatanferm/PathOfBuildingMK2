@@ -9,14 +9,23 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use ahash::HashMap;
 use pob_engine::{
-    build_character_from_ggg, ggg_get_characters_url, ggg_get_items_url,
+    build_character_from_ggg_with_skills, ggg_get_characters_url, ggg_get_items_url,
     ggg_get_passive_skills_url, parse_ggg_character_list, parse_ggg_items,
     parse_ggg_passive_skills, Character, GggCharacterList, GggCharacterSummary, GggImportError,
+    GggPassiveSkillsResponse,
 };
+
+/// Pre-built `(typeLine -> skill_id)` map for the live importer.
+/// Built from the loaded `GemSet` at app startup so each fetch
+/// thread doesn't have to re-iterate the registry. `Arc` because
+/// the spawn-thread closure needs an owned handle.
+pub type GemTypeLineMap = Arc<HashMap<String, String>>;
 
 /// Why a GGG fetch failed. Mirrors the user-facing buckets PoB
 /// surfaces in `ImportTab.lua:459-475`.
@@ -66,10 +75,17 @@ impl From<GggImportError> for FetchError {
 /// Final result of an "import character" job — either a fully-built
 /// `Character` (with its summary kept for status messages) or a
 /// typed error.
+///
+/// Issue #194 (slice 3): the parsed passive-skills response is
+/// also returned so the main thread can wire `passive.items`
+/// into `Character::jewels` / `Character::socketed_jewels` (the
+/// tree-socket → NodeId mapping needs the live `PassiveTree` and
+/// can't run on the fetch thread).
 pub enum CharacterFetchResult {
     Ok {
         character: Character,
         summary: GggCharacterSummary,
+        passive: GggPassiveSkillsResponse,
     },
     Err(FetchError),
 }
@@ -132,13 +148,17 @@ pub fn spawn_character_list_fetch(
 }
 
 /// Spawn a background thread that fetches passive-skills + items
-/// for the named character and assembles a [`Character`].
+/// for the named character and assembles a [`Character`]. When
+/// `gem_lookup` is supplied, gem typeLines on socketed items are
+/// resolved to canonical PoB skill ids via that map; otherwise
+/// the engine falls back to its default identifier-style transform.
 pub fn spawn_character_fetch(
     account: String,
     character_name: String,
     realm: String,
     session_id: Option<String>,
     summary_hint: Option<GggCharacterSummary>,
+    gem_lookup: Option<GemTypeLineMap>,
 ) -> CharacterFetchJob {
     let (tx, rx) = channel();
     thread::spawn(move || {
@@ -148,6 +168,7 @@ pub fn spawn_character_fetch(
             &realm,
             session_id.as_deref(),
             summary_hint,
+            gem_lookup.as_deref(),
         );
         let _ = tx.send(result);
     });
@@ -160,6 +181,7 @@ fn run_character_fetch(
     realm: &str,
     session_id: Option<&str>,
     summary_hint: Option<GggCharacterSummary>,
+    gem_lookup: Option<&HashMap<String, String>>,
 ) -> CharacterFetchResult {
     let passive_url = ggg_get_passive_skills_url(account, character_name, realm);
     let items_url = ggg_get_items_url(account, character_name, realm);
@@ -182,7 +204,22 @@ fn run_character_fetch(
         Err(e) => return CharacterFetchResult::Err(FetchError::Parse(e.to_string())),
     };
 
-    let character = build_character_from_ggg(summary_hint.as_ref(), &passive, &items_resp);
+    let character = build_character_from_ggg_with_skills(
+        summary_hint.as_ref(),
+        &passive,
+        &items_resp,
+        |type_line| {
+            if let Some(map) = gem_lookup {
+                if let Some(id) = map.get(&type_line.to_ascii_lowercase()) {
+                    return Some(id.clone());
+                }
+            }
+            // Fall back to the engine default — strip spaces /
+            // punctuation and use the typeLine. Matches what
+            // `build_character_from_ggg` would have produced.
+            Some(pob_engine::default_skill_id_from_type_line(type_line))
+        },
+    );
     let summary = summary_hint.unwrap_or_else(|| GggCharacterSummary {
         name: items_resp
             .character
@@ -210,7 +247,11 @@ fn run_character_fetch(
             .map(|c| c.league.clone())
             .unwrap_or_default(),
     });
-    CharacterFetchResult::Ok { character, summary }
+    CharacterFetchResult::Ok {
+        character,
+        summary,
+        passive,
+    }
 }
 
 /// Issue a single `ureq` GET, attaching the optional POESESSID
