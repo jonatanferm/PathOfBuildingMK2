@@ -397,14 +397,43 @@ mod tests {
     fn warcry_outputs_land_under_warcry_section() {
         // Slice 3-6 outputs all need the dedicated Warcry section so
         // they don't end up in the "Other" overflow at the bottom.
+        // Slice 7 added the per-cry `<Cry>Active` markers; slices 8-10,
+        // 12 and 16 added the per-cry buff outputs (LifeRegenPct,
+        // ResistBonus, ArmourBonus, etc.). All of them carry "Cry"
+        // or "Warcry" or "Exerted" substrings and must land in the
+        // dedicated section.
         for key in [
+            // Slice 3 aggregates.
             "ActiveWarcryCount",
             "WarcryExertedAttackCountTotal",
             "WarcryMinCooldown",
+            // Slice 2 config knob.
             "WarcryPower",
+            // Slice 4 auto-uptime.
             "ExertedAttackUptime",
             "ExertedAttackDamageBonus",
+            // Slice 7 per-cry active markers.
             "IntimidatingCryActive",
+            "EnduringCryActive",
+            "AncestralCryActive",
+            "SeismicCryActive",
+            "BattlemagesCryActive",
+            "RallyingCryActive",
+            "InfernalCryActive",
+            "GeneralsCryActive",
+            // Slice 8: Enduring Cry life regen.
+            "EnduringCryLifeRegenPct",
+            // Slice 9: Ancestral Cry resists.
+            "AncestralCryResistBonus",
+            "AncestralCryMaxResistBonus",
+            // Slice 10: Seismic Cry armour + stun threshold.
+            "SeismicCryArmourBonus",
+            "SeismicCryStunThresholdBonus",
+            // Slice 12: Battlemage's Cry crit chance.
+            "BattlemagesCryCritBonus",
+            // Slice 16: Rallying Cry per-ally exert.
+            "RallyingCryExertDamageBonus",
+            "RallyingCryAllyCount",
         ] {
             let group = group_for(key);
             assert_eq!(
