@@ -1,7 +1,14 @@
 //! Calcs tab — flat dump of every computed output stat plus a click-to-drill-down
 //! panel that walks the contributing modifiers from the live ModDB.
+//!
+//! Slice 2 of [#34](https://github.com/jonatanferm/PathOfBuildingMK2/issues/34)
+//! adds an opt-in "PoB layout" view that renders the imported
+//! [`pob_data::CalcSection`] tree in PoB's three-column group layout. The legacy
+//! flat-key view remains the default until enough breakdown rows have been ported
+//! to make the section view pull its weight.
 
 use eframe::egui;
+use pob_data::{CalcRow, CalcSection};
 use pob_engine::{Env, Mod, ModStore as _, ModType, Output, Source, Tag};
 
 #[derive(Default)]
@@ -10,6 +17,9 @@ pub struct CalcsTabState {
     pub hide_zero: bool,
     /// Stat the user clicked to inspect. `None` collapses the breakdown panel.
     pub focused_stat: Option<String>,
+    /// When `true` and `calc_sections` is loaded, render the PoB-style grouped
+    /// section layout instead of the flat key list.
+    pub use_pob_layout: bool,
 }
 
 /// Stat category groupings — each (heading, prefix-or-substring-list).
@@ -93,7 +103,13 @@ const GROUPS: &[(&str, &[&str])] = &[
     ("Misc", &["Misc:", "Keystone:"]),
 ];
 
-pub fn ui(ui: &mut egui::Ui, state: &mut CalcsTabState, output: &Output, env: Option<&Env>) {
+pub fn ui(
+    ui: &mut egui::Ui,
+    state: &mut CalcsTabState,
+    output: &Output,
+    env: Option<&Env>,
+    calc_sections: Option<&[CalcSection]>,
+) {
     ui.horizontal(|ui| {
         ui.label("Filter:");
         ui.add(
@@ -102,6 +118,13 @@ pub fn ui(ui: &mut egui::Ui, state: &mut CalcsTabState, output: &Output, env: Op
                 .hint_text("Life, FireResist, MainSkill, …"),
         );
         ui.checkbox(&mut state.hide_zero, "Hide zero values");
+        if calc_sections.is_some() {
+            ui.checkbox(&mut state.use_pob_layout, "PoB layout")
+                .on_hover_text(
+                    "Render the Calcs tab in PoB's three-column section layout, sourced from \
+                     Modules/CalcSections.lua. Falls back to the flat key list when off.",
+                );
+        }
         ui.separator();
         ui.label(format!("{} stats", output.len()));
         if state.focused_stat.is_some() {
@@ -111,6 +134,13 @@ pub fn ui(ui: &mut egui::Ui, state: &mut CalcsTabState, output: &Output, env: Op
         }
     });
     ui.separator();
+
+    if state.use_pob_layout {
+        if let Some(sections) = calc_sections {
+            render_pob_layout(ui, state, sections, output, env);
+            return;
+        }
+    }
 
     let q = state.filter.trim().to_lowercase();
     let mut entries: Vec<(&str, f64)> = output.iter().collect();
@@ -197,6 +227,227 @@ pub fn ui(ui: &mut egui::Ui, state: &mut CalcsTabState, output: &Output, env: Op
             });
         }
     });
+}
+
+/// PoB-layout renderer: lays the section list out in three columns by group
+/// (1 = Offence, 2 = Core, 3 = Defence) and, inside each section, a collapsible
+/// per-subsection grid of (label, value) rows. Filter and hide-zero from
+/// [`CalcsTabState`] still apply: the filter substring matches against
+/// `section.id` / `subsection.label` / `row.label` / `row.output_key`,
+/// and hide-zero hides rows whose `output_key` resolves to a zero value.
+///
+/// Slice 2 keeps two large simplifications vs upstream:
+/// * Skill-flag visibility (`flag = "spell"`, `notFlag = "attack"`) is not
+///   evaluated against the active skill — every row is shown — so single-handed
+///   builds may see "OH …" rows and triggered-skill builds may see attack-time
+///   rows. Empty values render as "—" so the noise is at least obviously
+///   irrelevant. Slice 3 will wire the active-skill flag set in.
+/// * Mod-only rows (`{0:mod:1}%` formats with no `output_key`) render as
+///   "—" too — the breakdown port lands later.
+fn render_pob_layout(
+    ui: &mut egui::Ui,
+    state: &mut CalcsTabState,
+    sections: &[CalcSection],
+    output: &Output,
+    env: Option<&Env>,
+) {
+    let q = state.filter.trim().to_lowercase();
+    // Bucket sections by their column-group (1 = Offence, 2 = Core, 3 = Defence).
+    // PoB orders sections within a group by their declaration order, so we preserve that.
+    let mut by_group: [Vec<&CalcSection>; 3] = Default::default();
+    for s in sections {
+        let g = (s.group.saturating_sub(1).min(2)) as usize;
+        by_group[g].push(s);
+    }
+
+    ui.horizontal(|ui| {
+        // Left pane: 3-column section grid.
+        ui.vertical(|ui| {
+            let breakdown_open = state.focused_stat.is_some();
+            if breakdown_open {
+                ui.set_max_width(820.0);
+            }
+            egui::ScrollArea::vertical()
+                .id_salt("calcs_pob_layout")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.horizontal_top(|ui| {
+                        for (col_idx, col) in by_group.iter().enumerate() {
+                            ui.vertical(|ui| {
+                                ui.set_min_width(260.0);
+                                ui.set_max_width(360.0);
+                                ui.label(
+                                    egui::RichText::new(group_heading(col_idx))
+                                        .strong()
+                                        .underline(),
+                                );
+                                ui.add_space(2.0);
+                                for section in col {
+                                    render_section(
+                                        ui,
+                                        section,
+                                        output,
+                                        &q,
+                                        state.hide_zero,
+                                        &mut state.focused_stat,
+                                    );
+                                }
+                            });
+                            if col_idx < 2 {
+                                ui.separator();
+                            }
+                        }
+                    });
+                });
+        });
+
+        // Right pane: breakdown.
+        if let Some(focus) = state.focused_stat.clone() {
+            ui.separator();
+            ui.vertical(|ui| {
+                ui.heading(&focus);
+                ui.weak("contributing modifiers");
+                ui.separator();
+                if let Some(env) = env {
+                    render_breakdown(ui, env, &focus);
+                } else {
+                    ui.weak("ModDB unavailable.");
+                }
+            });
+        }
+    });
+}
+
+fn group_heading(group: usize) -> &'static str {
+    match group {
+        0 => "OFFENCE",
+        1 => "CORE",
+        _ => "DEFENCE",
+    }
+}
+
+/// Render one section: a stack of `egui::CollapsingHeader`s, one per subsection,
+/// each housing a 2-column (label, value) grid.
+fn render_section(
+    ui: &mut egui::Ui,
+    section: &CalcSection,
+    output: &Output,
+    filter_q: &str,
+    hide_zero: bool,
+    focused: &mut Option<String>,
+) {
+    for sub in &section.subsections {
+        let visible_rows: Vec<&CalcRow> = sub
+            .rows
+            .iter()
+            .filter(|r| row_matches_filter(r, &section.id, &sub.label, filter_q))
+            .filter(|r| {
+                // hide_zero: drop rows whose resolvable output is zero. Rows with no
+                // resolvable output_key are always kept so the layout stays meaningful.
+                if !hide_zero {
+                    return true;
+                }
+                match r.output_key.as_deref() {
+                    Some(k) => output.try_get(k).is_some_and(|v| v.abs() > 1e-9),
+                    None => false,
+                }
+            })
+            .filter(|r| {
+                // haveOutput visibility gate from PoB.
+                match r.have_output.as_deref() {
+                    Some(k) => output.try_get(k).is_some_and(|v| v.abs() > 1e-9),
+                    None => true,
+                }
+            })
+            .collect();
+        if visible_rows.is_empty() {
+            continue;
+        }
+        let header = if sub.label.is_empty() {
+            section.id.clone()
+        } else if sub.label == section.id {
+            sub.label.clone()
+        } else {
+            format!("{}: {}", section.id, sub.label)
+        };
+        let id = egui::Id::new(("pob_calc_section", &section.id, &sub.label));
+        egui::CollapsingHeader::new(header)
+            .id_salt(id)
+            .default_open(!sub.default_collapsed)
+            .show(ui, |ui| {
+                egui::Grid::new(id.with("grid"))
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for row in visible_rows {
+                            render_calc_row(ui, row, output, focused);
+                        }
+                    });
+            });
+    }
+}
+
+/// Substring filter against the row + section + subsection labels and the row's
+/// output key. Empty filter matches everything.
+fn row_matches_filter(row: &CalcRow, section_id: &str, sub_label: &str, q: &str) -> bool {
+    if q.is_empty() {
+        return true;
+    }
+    let hay = [
+        section_id,
+        sub_label,
+        row.label.as_str(),
+        row.output_key.as_deref().unwrap_or(""),
+    ];
+    hay.iter().any(|s| s.to_lowercase().contains(q))
+}
+
+fn render_calc_row(
+    ui: &mut egui::Ui,
+    row: &CalcRow,
+    output: &Output,
+    focused: &mut Option<String>,
+) {
+    let label_text = if row.label.is_empty() {
+        row.output_key.as_deref().unwrap_or("(unnamed)").to_owned()
+    } else {
+        row.label.clone()
+    };
+    let label =
+        ui.add(egui::Label::new(egui::RichText::new(&label_text)).sense(egui::Sense::click()));
+    if label.clicked() {
+        if let Some(key) = &row.output_key {
+            *focused = Some(key.clone());
+        }
+    }
+    if label.hovered() && row.output_key.is_some() {
+        label.on_hover_text(format!(
+            "{} — click to see contributing modifiers",
+            row.output_key.as_deref().unwrap_or(""),
+        ));
+    }
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+        let value = row.output_key.as_deref().and_then(|k| output.try_get(k));
+        match value {
+            Some(v) if v.abs() > 1e-9 => {
+                ui.monospace(format_value(v));
+            }
+            _ => {
+                ui.weak("—");
+            }
+        }
+    });
+    ui.end_row();
+}
+
+fn format_value(v: f64) -> String {
+    if v.fract().abs() < 1e-9 {
+        format!("{v:>10.0}")
+    } else if v.abs() < 100.0 {
+        format!("{v:>10.4}")
+    } else {
+        format!("{v:>10.2}")
+    }
 }
 
 fn render_row(ui: &mut egui::Ui, k: &str, v: f64, focused: &mut Option<String>) {
@@ -442,6 +693,71 @@ mod tests {
                 "{key} should bucket under Warcry, got {group:?}"
             );
         }
+    }
+
+    #[test]
+    fn pob_layout_filter_matches_against_section_subsection_and_label() {
+        use pob_data::CalcRow;
+        let row = CalcRow {
+            label: "Attacks per second".to_owned(),
+            output_key: Some("Speed".to_owned()),
+            have_output: None,
+            format: None,
+            flag: None,
+            not_flag: None,
+        };
+        // Empty filter accepts everything.
+        assert!(super::row_matches_filter(
+            &row,
+            "Speed",
+            "Attack/Cast Rate",
+            ""
+        ));
+        // Filter against the row label.
+        assert!(super::row_matches_filter(
+            &row,
+            "Speed",
+            "Attack/Cast Rate",
+            "attacks"
+        ));
+        // Filter against the section id.
+        assert!(super::row_matches_filter(
+            &row,
+            "Speed",
+            "Attack/Cast Rate",
+            "speed"
+        ));
+        // Filter against the subsection label.
+        assert!(super::row_matches_filter(
+            &row,
+            "Speed",
+            "Attack/Cast Rate",
+            "cast"
+        ));
+        // Filter against the output key.
+        assert!(super::row_matches_filter(
+            &row,
+            "Speed",
+            "Attack/Cast Rate",
+            "speed"
+        ));
+        // Non-matching filter rejects.
+        assert!(!super::row_matches_filter(
+            &row,
+            "Speed",
+            "Attack/Cast Rate",
+            "lightning"
+        ));
+    }
+
+    #[test]
+    fn pob_layout_value_format_picks_compact_precision() {
+        // Whole-integer outputs render zero fractional digits.
+        assert_eq!(super::format_value(123.0).trim(), "123");
+        // Small-magnitude outputs get the fine-grained 4-digit format.
+        assert!(super::format_value(0.5).trim().starts_with("0.5"));
+        // Large outputs round to 2 decimals.
+        assert_eq!(super::format_value(12345.6789).trim(), "12345.68");
     }
 
     #[test]

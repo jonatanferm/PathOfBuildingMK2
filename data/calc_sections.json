@@ -1,0 +1,3900 @@
+[
+  {
+    "id": "HitDamage",
+    "width": 3,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Skill Hit Damage",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Added Min",
+            "format": "{0:mod:1,2}"
+          },
+          {
+            "label": "Added Max",
+            "format": "{0:mod:1,2}"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Effective DPS Mod",
+            "output_key": "PhysicalEffMult",
+            "format": "x {3:output:PhysicalEffMult}",
+            "flag": "effective",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Skill Hit Damage",
+            "output_key": "TotalMin",
+            "format": "{0:output:TotalMin} to {0:output:TotalMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Skill Average Hit",
+            "output_key": "AverageHit",
+            "format": "{1:output:AverageHit}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Skill PvP Average Hit",
+            "output_key": "PvpAverageHit",
+            "format": "{1:output:PvpAverageHit}",
+            "flag": "notAttackPvP"
+          },
+          {
+            "label": "MH Total Increased",
+            "format": "{0:mod:1}%",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH Total More",
+            "format": "{0:mod:1}%",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH Eff. DPS Mod",
+            "output_key": "MainHand.PhysicalEffMult",
+            "format": "x {3:output:MainHand.PhysicalEffMult}",
+            "flag": "weapon1Attack,effective"
+          },
+          {
+            "label": "MH Hit Damage",
+            "output_key": "MainHand.TotalMin",
+            "format": "{0:output:MainHand.TotalMin} to {0:output:MainHand.TotalMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH Average Hit",
+            "output_key": "MainHand.AverageHit",
+            "format": "{1:output:MainHand.AverageHit}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH PvP Average Hit",
+            "output_key": "MainHand.PvpAverageHit",
+            "format": "{1:output:MainHand.PvpAverageHit}",
+            "flag": "weapon1AttackPvP"
+          },
+          {
+            "label": "OH Total Increased",
+            "format": "{0:mod:1}%",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH Total More",
+            "format": "{0:mod:1}%",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH Eff. DPS Mod",
+            "output_key": "OffHand.PhysicalEffMult",
+            "format": "x {3:output:OffHand.PhysicalEffMult}",
+            "flag": "weapon2Attack,effective"
+          },
+          {
+            "label": "OH Hit Damage",
+            "output_key": "OffHand.TotalMin",
+            "format": "{0:output:OffHand.TotalMin} to {0:output:OffHand.TotalMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH Average Hit",
+            "output_key": "OffHand.AverageHit",
+            "format": "{1:output:OffHand.AverageHit}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH PvP Average Hit",
+            "output_key": "OffHand.PvpAverageHit",
+            "format": "{1:output:OffHand.PvpAverageHit}",
+            "flag": "weapon2AttackPvP"
+          },
+          {
+            "label": "Average Damage",
+            "output_key": "AverageDamage",
+            "format": "{1:output:AverageDamage}",
+            "flag": "attack"
+          },
+          {
+            "label": "Chance to Hit",
+            "output_key": "HitChance",
+            "have_output": "enemyHasSpellBlock",
+            "format": "{0:output:HitChance}%"
+          },
+          {
+            "label": "Average Damage",
+            "output_key": "AverageDamage",
+            "have_output": "enemyHasSpellBlock",
+            "format": "{1:output:AverageDamage}"
+          },
+          {
+            "label": "Chance to Explode",
+            "output_key": "ExplodeChance",
+            "have_output": "ExplodeChance",
+            "format": "{0:output:ExplodeChance}%"
+          },
+          {
+            "label": "Average Damage",
+            "output_key": "AverageDamage",
+            "have_output": "ExplodeChance",
+            "format": "{1:output:AverageDamage}"
+          },
+          {
+            "label": "PvP Average Dmg",
+            "output_key": "PvpAverageDamage",
+            "format": "{1:output:PvpAverageDamage}",
+            "flag": "attackPvP"
+          },
+          {
+            "label": "Skill DPS",
+            "output_key": "TotalDPS",
+            "format": "{1:output:TotalDPS}",
+            "flag": "notAverage",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Skill PvP DPS",
+            "output_key": "PvpTotalDPS",
+            "format": "{1:output:PvpTotalDPS}",
+            "flag": "notAveragePvP"
+          },
+          {
+            "label": "Skill DPS",
+            "output_key": "TotalDPS",
+            "format": "{1:output:TotalDPS}",
+            "flag": "triggered"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Warcries",
+    "width": 3,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Exerting Warcries",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "",
+            "have_output": "CreateWarcryOffensiveCalcSection",
+            "format": "Effective Impact"
+          },
+          {
+            "label": "Seismic Cry",
+            "output_key": "SeismicHitEffect",
+            "have_output": "SeismicUpTimeRatio",
+            "format": "{2:output:SeismicHitEffect}"
+          },
+          {
+            "label": "Intimidating Cry",
+            "output_key": "IntimidatingHitEffect",
+            "have_output": "IntimidatingUpTimeRatio",
+            "format": "{2:output:IntimidatingHitEffect}"
+          },
+          {
+            "label": "Rallying Cry",
+            "output_key": "RallyingHitEffect",
+            "have_output": "RallyingUpTimeRatio",
+            "format": "{2:output:RallyingHitEffect}"
+          },
+          {
+            "label": "Infernal Cry",
+            "have_output": "InfernalUpTimeRatio",
+            "format": ""
+          },
+          {
+            "label": "Battlemage's Cry",
+            "have_output": "BattlemageUpTimeRatio",
+            "format": ""
+          },
+          {
+            "label": "Ancestral Cry",
+            "have_output": "AncestralUpTimeRatio",
+            "format": ""
+          },
+          {
+            "label": "Exerted Attacks",
+            "output_key": "ExertedAttackHitEffect",
+            "have_output": "ExertedAttackUptimeRatio",
+            "format": "{2:output:ExertedAttackHitEffect}"
+          },
+          {
+            "label": "Fist of War",
+            "output_key": "AvgFistOfWarDamageEffect",
+            "have_output": "FistOfWarUptimeRatio",
+            "format": "{2:output:AvgFistOfWarDamageEffect}"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Dot",
+    "width": 3,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Skill Damage over Time",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total Multiplier",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Effective DPS Mod",
+            "output_key": "PhysicalDotEffMult",
+            "format": "x {3:output:PhysicalDotEffMult}",
+            "flag": "effective"
+          },
+          {
+            "label": "Damage over Time",
+            "output_key": "TotalDotInstance",
+            "format": "{1:output:TotalDotInstance}"
+          },
+          {
+            "label": "Skill DoT DPS",
+            "output_key": "TotalDotCalcSection",
+            "format": "{1:output:TotalDotCalcSection}"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Speed",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Attack/Cast Rate",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "MH Inc. Att. Speed",
+            "format": "{0:mod:1}%",
+            "flag": "weapon1Attack",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "MH More Att. Speed",
+            "format": "{0:mod:1}%",
+            "flag": "weapon1Attack",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "MH Att. per second",
+            "output_key": "MainHand.Speed",
+            "format": "{2:output:MainHand.Speed}",
+            "flag": "weapon1Attack",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "OH Inc. Att. Speed",
+            "format": "{0:mod:1}%",
+            "flag": "weapon2Attack",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "OH More Att. Speed",
+            "format": "{0:mod:1}%",
+            "flag": "weapon2Attack",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "OH Att. per second",
+            "output_key": "OffHand.Speed",
+            "format": "{2:output:OffHand.Speed}",
+            "flag": "weapon2Attack",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Attacks per second",
+            "output_key": "Speed",
+            "format": "{2:output:Speed}",
+            "flag": "bothWeaponAttack",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Attack time",
+            "output_key": "Time",
+            "format": "{2:output:Time}s",
+            "flag": "attack",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Inc. Cast Speed",
+            "format": "{0:mod:1}%",
+            "flag": "spell",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "More Cast Speed",
+            "format": "{0:mod:1}%",
+            "flag": "spell",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Casts per second",
+            "output_key": "Speed",
+            "format": "{2:output:Speed}",
+            "flag": "spell",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Cast Time",
+            "output_key": "addsCastTime",
+            "format": "{2:output:addsCastTime}",
+            "flag": "addsCastTime"
+          },
+          {
+            "label": "Trigger Rate Cap",
+            "output_key": "TriggerRateCap",
+            "format": "{2:output:TriggerRateCap}",
+            "flag": "triggered",
+            "not_flag": "focused,hasOverride,skipEffectiveRate"
+          },
+          {
+            "label": "Trigger Rate Cap",
+            "output_key": "TriggerRateCap",
+            "format": "{2:output:TriggerRateCap}",
+            "flag": "triggered,hasOverride",
+            "not_flag": "focused,skipEffectiveRate"
+          },
+          {
+            "label": "Trigger Rate Cap",
+            "output_key": "TriggerRateCap",
+            "format": "{2:output:TriggerRateCap}",
+            "flag": "triggered,focused",
+            "not_flag": "skipEffectiveRate"
+          },
+          {
+            "label": "Eff. Source Rate",
+            "output_key": "EffectiveSourceRate",
+            "format": "{2:output:EffectiveSourceRate}",
+            "flag": "triggered",
+            "not_flag": "focused,globalTrigger,skipEffectiveRate"
+          },
+          {
+            "label": "Skill Trigger Rate",
+            "output_key": "SkillTriggerRate",
+            "format": "{2:output:SkillTriggerRate}",
+            "flag": "triggered",
+            "not_flag": "focused,skipEffectiveRate"
+          },
+          {
+            "label": "Skill Trigger Rate",
+            "output_key": "SkillTriggerRate",
+            "format": "{2:output:SkillTriggerRate}",
+            "flag": "triggered,focused",
+            "not_flag": "skipEffectiveRate"
+          },
+          {
+            "label": "Cast time",
+            "output_key": "Time",
+            "format": "{2:output:Time}s",
+            "flag": "spell",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "CWDT Threshold",
+            "output_key": "CWDTThreshold",
+            "have_output": "CWDTThreshold",
+            "format": "{2:output:CWDTThreshold}",
+            "flag": "triggered"
+          },
+          {
+            "label": "Channel time",
+            "output_key": "HitTime",
+            "have_output": "HitTime",
+            "format": "{2:output:HitTime}s",
+            "flag": "channelRelease"
+          },
+          {
+            "label": "Hit Rate",
+            "output_key": "HitSpeed",
+            "have_output": "HitSpeed",
+            "format": "{2:output:HitSpeed}"
+          },
+          {
+            "label": "Inc. Warcry Speed",
+            "format": "{0:mod:2}%",
+            "flag": "warcry"
+          },
+          {
+            "label": "More Warcry Speed",
+            "format": "{0:mod:2}%",
+            "flag": "warcry"
+          },
+          {
+            "label": "Uses per second",
+            "output_key": "Speed",
+            "format": "{2:output:Speed}",
+            "flag": "warcry"
+          },
+          {
+            "label": "Warcry Cast Time",
+            "output_key": "WarcryCastTime",
+            "format": "{2:output:WarcryCastTime}s",
+            "flag": "warcry"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Crit",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Crits",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Inc. Crit Chance",
+            "format": "{0:mod:1,2}%",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Crit Chance",
+            "output_key": "CritChance",
+            "format": "{2:output:CritChance}%",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Crit Multiplier",
+            "output_key": "CritMultiplier",
+            "format": "x {2:output:CritMultiplier}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Crit Effect Mod",
+            "output_key": "CritEffect",
+            "format": "x {3:output:CritEffect}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Inc. Crit Chance",
+            "format": "{0:mod:1,2}%",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH Crit Chance",
+            "output_key": "MainHand.CritChance",
+            "format": "{2:output:MainHand.CritChance}%",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH Crit Multiplier",
+            "output_key": "MainHand.CritMultiplier",
+            "format": "x {2:output:MainHand.CritMultiplier}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH Crit Effect Mod",
+            "output_key": "MainHand.CritEffect",
+            "format": "x {3:output:MainHand.CritEffect}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Inc. Crit Chance",
+            "format": "{0:mod:1,2}%",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH Crit Chance",
+            "output_key": "OffHand.CritChance",
+            "format": "{2:output:OffHand.CritChance}%",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH Crit Multiplier",
+            "output_key": "OffHand.CritMultiplier",
+            "format": "x {2:output:OffHand.CritMultiplier}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH Crit Effect Mod",
+            "output_key": "OffHand.CritEffect",
+            "format": "x {3:output:OffHand.CritEffect}",
+            "flag": "weapon2Attack"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Impale",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Impale",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Max Impale Stacks",
+            "output_key": "ImpaleStacksMax",
+            "format": "{1:output:ImpaleStacksMax}"
+          },
+          {
+            "label": "Stacks on Enemy",
+            "output_key": "ImpaleStacks",
+            "format": "{1:output:ImpaleStacks}"
+          },
+          {
+            "label": "Impale Chance",
+            "output_key": "ImpaleChance",
+            "have_output": "ImpaleChance",
+            "format": "{0:output:ImpaleChance}%",
+            "flag": "spell"
+          },
+          {
+            "label": "Crit Impale Chance",
+            "output_key": "ImpaleChanceOnCrit",
+            "have_output": "ImpaleChanceOnCrit",
+            "format": "{0:output:ImpaleChanceOnCrit}%",
+            "flag": "spell"
+          },
+          {
+            "label": "Impale Dur. Mod",
+            "output_key": "ImpaleDurationMod",
+            "format": "x {4:output:ImpaleDurationMod}"
+          },
+          {
+            "label": "Impale Duration",
+            "output_key": "ImpaleDuration",
+            "format": "{3:output:ImpaleDuration}s"
+          },
+          {
+            "label": "Stored Damage",
+            "output_key": "ImpaleStoredDamage",
+            "have_output": "ImpaleStoredDamage",
+            "format": "{1:output:ImpaleStoredDamage}%",
+            "flag": "spell"
+          },
+          {
+            "label": "Damage Mod.",
+            "output_key": "ImpaleModifier",
+            "have_output": "ImpaleModifier",
+            "format": "{3:output:ImpaleModifier}",
+            "flag": "spell"
+          },
+          {
+            "label": "MH Impale Chance",
+            "output_key": "MainHand.ImpaleChance",
+            "have_output": "MainHand.ImpaleChance",
+            "format": "{0:output:MainHand.ImpaleChance}%",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH Stored Damage",
+            "output_key": "MainHand.ImpaleStoredDamage",
+            "have_output": "MainHand.ImpaleStoredDamage",
+            "format": "{1:output:MainHand.ImpaleStoredDamage}%",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH DMG Mod.",
+            "output_key": "MainHand.ImpaleModifier",
+            "have_output": "MainHand.ImpaleModifier",
+            "format": "{3:output:MainHand.ImpaleModifier}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Impale Chance",
+            "output_key": "OffHand.ImpaleChance",
+            "have_output": "OffHand.ImpaleChance",
+            "format": "{0:output:OffHand.ImpaleChance}%",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH Stored Damage",
+            "output_key": "OffHand.ImpaleStoredDamage",
+            "have_output": "OffHand.ImpaleStoredDamage",
+            "format": "{1:output:OffHand.ImpaleStoredDamage}%",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH DMG Mod.",
+            "output_key": "OffHand.ImpaleModifier",
+            "have_output": "OffHand.ImpaleModifier",
+            "format": "{3:output:OffHand.ImpaleModifier}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Impale DPS",
+            "output_key": "ImpaleDPS",
+            "format": "{1:output:ImpaleDPS}",
+            "flag": "notAverage"
+          },
+          {
+            "label": "Impale Damage",
+            "output_key": "ImpaleDPS",
+            "format": "{1:output:ImpaleDPS}",
+            "flag": "showAverage"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "SkillTypeStats",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Skill type-specific Stats",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Gem Level",
+            "output_key": "GemLevel",
+            "have_output": "GemHasLevel",
+            "format": "{0:output:GemLevel}"
+          },
+          {
+            "label": "Gem Quality",
+            "output_key": "GemQuality",
+            "have_output": "GemHasQuality",
+            "format": "{0:output:GemQuality}"
+          },
+          {
+            "label": "Mana Cost",
+            "output_key": "ManaCost",
+            "have_output": "ManaHasCost",
+            "format": "{0:output:ManaCost}"
+          },
+          {
+            "label": "Mana % Cost",
+            "output_key": "ManaPercentCost",
+            "have_output": "ManaPercentHasCost",
+            "format": "{0:output:ManaPercentCost}"
+          },
+          {
+            "label": "Mana per second",
+            "output_key": "ManaPerSecondCost",
+            "have_output": "ManaPerSecondHasCost",
+            "format": "{2:output:ManaPerSecondCost}"
+          },
+          {
+            "label": "Mana % per second",
+            "output_key": "ManaPercentPerSecondCost",
+            "have_output": "ManaPercentPerSecondHasCost",
+            "format": "{2:output:ManaPercentPerSecondCost}"
+          },
+          {
+            "label": "Life Cost",
+            "output_key": "LifeCost",
+            "have_output": "LifeHasCost",
+            "format": "{0:output:LifeCost}"
+          },
+          {
+            "label": "Life % Cost",
+            "output_key": "LifePercentCost",
+            "have_output": "LifePercentHasCost",
+            "format": "{0:output:LifePercentCost}"
+          },
+          {
+            "label": "Life per second",
+            "output_key": "LifePerSecondCost",
+            "have_output": "LifePerSecondHasCost",
+            "format": "{2:output:LifePerSecondCost}"
+          },
+          {
+            "label": "Life % per second",
+            "output_key": "LifePercentPerSecondCost",
+            "have_output": "LifePercentPerSecondHasCost",
+            "format": "{2:output:LifePercentPerSecondCost}"
+          },
+          {
+            "label": "ES Cost",
+            "output_key": "ESCost",
+            "have_output": "ESHasCost",
+            "format": "{0:output:ESCost}"
+          },
+          {
+            "label": "ES per second",
+            "output_key": "ESPerSecondCost",
+            "have_output": "ESPerSecondHasCost",
+            "format": "{2:output:ESPerSecondCost}"
+          },
+          {
+            "label": "ES % per second",
+            "output_key": "ESPercentPerSecondCost",
+            "have_output": "ESPercentPerSecondHasCost",
+            "format": "{2:output:ESPercentPerSecondCost}"
+          },
+          {
+            "label": "Rage Cost",
+            "output_key": "RageCost",
+            "have_output": "RageHasCost",
+            "format": "{0:output:RageCost}"
+          },
+          {
+            "label": "Rage per second",
+            "output_key": "RagePerSecondCost",
+            "have_output": "RagePerSecondHasCost",
+            "format": "{2:output:RagePerSecondCost}"
+          },
+          {
+            "label": "Soul Cost",
+            "output_key": "SoulCost",
+            "have_output": "SoulHasCost",
+            "format": "{0:output:SoulCost}"
+          },
+          {
+            "label": "Active Minion Limit",
+            "output_key": "ActiveMinionLimit",
+            "have_output": "ActiveMinionLimit",
+            "format": "{0:output:ActiveMinionLimit}"
+          },
+          {
+            "label": "Quantity Multiplier",
+            "output_key": "QuantityMultiplier",
+            "have_output": "QuantityMultiplier",
+            "format": "{0:output:QuantityMultiplier}"
+          },
+          {
+            "label": "Skill Cooldown",
+            "output_key": "Cooldown",
+            "have_output": "Cooldown",
+            "format": "{3:output:Cooldown}s",
+            "not_flag": "skipEffectiveRate"
+          },
+          {
+            "label": "Stored Uses",
+            "have_output": "StoredUses",
+            "format": "{output:StoredUses}"
+          },
+          {
+            "label": "Duration Mod",
+            "output_key": "DurationMod",
+            "format": "x {4:output:DurationMod}",
+            "flag": "duration"
+          },
+          {
+            "label": "Skill Duration",
+            "output_key": "Duration",
+            "have_output": "Duration",
+            "format": "{3:output:Duration}s",
+            "flag": "duration"
+          },
+          {
+            "label": "Secondary Duration",
+            "output_key": "DurationSecondary",
+            "have_output": "DurationSecondary",
+            "format": "{3:output:DurationSecondary}s",
+            "flag": "duration"
+          },
+          {
+            "label": "Tertiary Duration",
+            "output_key": "DurationTertiary",
+            "have_output": "DurationTertiary",
+            "format": "{3:output:DurationTertiary}s",
+            "flag": "duration"
+          },
+          {
+            "label": "Aura Duration",
+            "output_key": "AuraDuration",
+            "have_output": "AuraDuration",
+            "format": "{3:output:AuraDuration}s"
+          },
+          {
+            "label": "Reserve Duration",
+            "output_key": "ReserveDuration",
+            "have_output": "ReserveDuration",
+            "format": "{3:output:ReserveDuration}s"
+          },
+          {
+            "label": "Soul Gain Prevent.",
+            "output_key": "SoulGainPreventionDuration",
+            "have_output": "SoulGainPreventionDuration",
+            "format": "{3:output:SoulGainPreventionDuration}s"
+          },
+          {
+            "label": "Uptime",
+            "output_key": "DurationUptime",
+            "have_output": "DurationUptime",
+            "format": "{2:output:DurationUptime}%"
+          },
+          {
+            "label": "Secondary Uptime",
+            "output_key": "DurationSecondaryUptime",
+            "have_output": "DurationSecondaryUptime",
+            "format": "{2:output:DurationSecondaryUptime}%"
+          },
+          {
+            "label": "Tertiary Uptime",
+            "output_key": "DurationTertiaryUptime",
+            "have_output": "DurationTertiaryUptime",
+            "format": "{2:output:DurationTertiaryUptime}%"
+          },
+          {
+            "label": "Aura Uptime",
+            "output_key": "AuraDurationUptime",
+            "have_output": "AuraDurationUptime",
+            "format": "{2:output:AuraDurationUptime}%"
+          },
+          {
+            "label": "Reserve Uptime",
+            "output_key": "ReserveDurationUptime",
+            "have_output": "ReserveDurationUptime",
+            "format": "{2:output:ReserveDurationUptime}%"
+          },
+          {
+            "label": "Sustainable Trauma",
+            "output_key": "SustainableTrauma",
+            "have_output": "SustainableTrauma",
+            "format": "{0:output:SustainableTrauma}"
+          },
+          {
+            "label": "Repeat Count",
+            "have_output": "RepeatCount",
+            "format": "{output:Repeats}"
+          },
+          {
+            "label": "Projectile Count",
+            "format": "{output:ProjectileCount}",
+            "flag": "projectile"
+          },
+          {
+            "label": "Pierce Count",
+            "have_output": "PierceCount",
+            "format": "{output:PierceCountString}"
+          },
+          {
+            "label": "Fork Count",
+            "have_output": "ForkCountMax",
+            "format": "{output:ForkCountString}"
+          },
+          {
+            "label": "Max Chain Count",
+            "have_output": "ChainMax",
+            "format": "{output:ChainMaxString}"
+          },
+          {
+            "label": "Split Count",
+            "have_output": "SplitCountString",
+            "format": "{output:SplitCountString}"
+          },
+          {
+            "label": "Proj. Speed Mod",
+            "output_key": "ProjectileSpeedMod",
+            "format": "x {2:output:ProjectileSpeedMod}",
+            "flag": "projectile"
+          },
+          {
+            "label": "Self hit Damage",
+            "output_key": "SelfHitDamage",
+            "have_output": "SelfHitDamage",
+            "format": "{0:output:SelfHitDamage}"
+          },
+          {
+            "label": "Bounces Count",
+            "format": "{output:BounceCount}",
+            "flag": "bounce"
+          },
+          {
+            "label": "Aura Effect Mod",
+            "output_key": "AuraEffectMod",
+            "have_output": "AuraEffectMod",
+            "format": "x {2:output:AuraEffectMod}"
+          },
+          {
+            "label": "Herald Buff Mod",
+            "output_key": "HeraldBuffEffectMod",
+            "have_output": "HeraldBuffEffectMod",
+            "format": "x {2:output:HeraldBuffEffectMod}",
+            "flag": "buffs"
+          },
+          {
+            "label": "Mana Reserve Mod",
+            "output_key": "ManaReservedMod",
+            "have_output": "ManaReservedMod",
+            "format": "x {2:output:ManaReservedMod}"
+          },
+          {
+            "label": "Life Reserve Mod",
+            "output_key": "LifeReservedMod",
+            "have_output": "LifeReservedMod",
+            "format": "x {2:output:LifeReservedMod}"
+          },
+          {
+            "label": "Curse Effect Mod",
+            "output_key": "CurseEffectMod",
+            "have_output": "CurseEffectMod",
+            "format": "x {2:output:CurseEffectMod}"
+          },
+          {
+            "label": "Curse Limit",
+            "output_key": "EnemyCurseLimit",
+            "have_output": "EnemyCurseLimit",
+            "format": "{0:output:EnemyCurseLimit}"
+          },
+          {
+            "label": "Warcry Effect Mod",
+            "output_key": "WarcryEffectMod",
+            "have_output": "WarcryEffectMod",
+            "format": "x {2:output:WarcryEffectMod}"
+          },
+          {
+            "label": "Link Effect Mod",
+            "output_key": "LinkEffectMod",
+            "have_output": "LinkEffectMod",
+            "format": "x {2:output:LinkEffectMod}"
+          },
+          {
+            "label": "Area of Effect Mod",
+            "output_key": "AreaOfEffectMod",
+            "have_output": "AreaOfEffectMod",
+            "format": "x {2:output:AreaOfEffectMod}"
+          },
+          {
+            "label": "Radius",
+            "output_key": "AreaOfEffectRadiusMetres",
+            "have_output": "AreaOfEffectRadius",
+            "format": "{1:output:AreaOfEffectRadiusMetres}m"
+          },
+          {
+            "label": "Secondary Radius",
+            "output_key": "AreaOfEffectRadiusSecondaryMetres",
+            "have_output": "AreaOfEffectRadiusSecondary",
+            "format": "{1:output:AreaOfEffectRadiusSecondaryMetres}m"
+          },
+          {
+            "label": "Tertiary Radius",
+            "output_key": "AreaOfEffectRadiusTertiaryMetres",
+            "have_output": "AreaOfEffectRadiusTertiary",
+            "format": "{1:output:AreaOfEffectRadiusTertiaryMetres}m"
+          },
+          {
+            "label": "Weapon Range",
+            "output_key": "WeaponRangeMetre",
+            "have_output": "WeaponRange",
+            "format": "{1:output:WeaponRangeMetre}m"
+          },
+          {
+            "label": "Strike Targets",
+            "output_key": "StrikeTargets",
+            "have_output": "StrikeTargets",
+            "format": "{1:output:StrikeTargets}"
+          },
+          {
+            "label": "Attachment Range",
+            "output_key": "BrandAttachmentRangeMetre",
+            "have_output": "BrandAttachmentRangeMetre",
+            "format": "{1:output:BrandAttachmentRangeMetre}m"
+          },
+          {
+            "label": "Max Sust. Fuses",
+            "output_key": "MaxExplosiveArrowFuseCalculated",
+            "have_output": "MaxExplosiveArrowFuseCalculated",
+            "format": "{0:output:MaxExplosiveArrowFuseCalculated} Fuses"
+          },
+          {
+            "label": "Explosions /s",
+            "output_key": "HitSpeed",
+            "have_output": "MaxExplosiveArrowFuseCalculated",
+            "format": "{2:output:HitSpeed}"
+          },
+          {
+            "label": "Overlap Chance",
+            "output_key": "OverlapChance",
+            "have_output": "OverlapChance",
+            "format": "{2:output:OverlapChance}%"
+          },
+          {
+            "label": "Trap Cooldown",
+            "output_key": "TrapCooldown",
+            "have_output": "TrapCooldown",
+            "format": "{3:output:TrapCooldown}s"
+          },
+          {
+            "label": "Wave Pulse Rate",
+            "output_key": "WavePulseRate",
+            "have_output": "WavePulseRate",
+            "format": "{2:output:WavePulseRate}/s"
+          },
+          {
+            "label": "Pulses Per Trap",
+            "output_key": "PulsesPerTrap",
+            "have_output": "PulsesPerTrap",
+            "format": "{0:output:PulsesPerTrap}"
+          },
+          {
+            "label": "Small Explosions",
+            "output_key": "SmallExplosionsPerTrap",
+            "have_output": "SmallExplosionsPerTrap",
+            "format": "{0:output:SmallExplosionsPerTrap}"
+          },
+          {
+            "label": "Normal Hits/Cast",
+            "output_key": "NormalHitsPerCast",
+            "have_output": "NormalHitsPerCast",
+            "format": "{3:output:NormalHitsPerCast}"
+          },
+          {
+            "label": "Super Hits/Cast",
+            "output_key": "SuperchargedHitsPerCast",
+            "have_output": "SuperchargedHitsPerCast",
+            "format": "{3:output:SuperchargedHitsPerCast}"
+          },
+          {
+            "label": "DPS Multiplier",
+            "output_key": "SkillDPSMultiplier",
+            "have_output": "SkillDPSMultiplier",
+            "format": "{3:output:SkillDPSMultiplier}"
+          },
+          {
+            "label": "Average Seq More",
+            "output_key": "KineticFusilladeAvgMoreMult",
+            "have_output": "KineticFusilladeAvgMoreMult",
+            "format": "{1:output:KineticFusilladeAvgMoreMult}%"
+          },
+          {
+            "label": "Max Effective APS",
+            "output_key": "KineticFusilladeMaxEffectiveAPS",
+            "have_output": "KineticFusilladeMaxEffectiveAPS",
+            "format": "{2:output:KineticFusilladeMaxEffectiveAPS}"
+          },
+          {
+            "label": "Avg. Active Traps",
+            "output_key": "AverageActiveTraps",
+            "have_output": "AverageActiveTraps",
+            "format": "{2:output:AverageActiveTraps}"
+          },
+          {
+            "label": "Active Trap Limit",
+            "output_key": "ActiveTrapLimit",
+            "format": "{0:output:ActiveTrapLimit}",
+            "flag": "trap"
+          },
+          {
+            "label": "Trap Throw Rate",
+            "output_key": "TrapThrowingSpeed",
+            "format": "{2:output:TrapThrowingSpeed}",
+            "flag": "trap"
+          },
+          {
+            "label": "Trap Throw Time",
+            "output_key": "TrapThrowingTime",
+            "format": "{2:output:TrapThrowingTime}s",
+            "flag": "trap"
+          },
+          {
+            "label": "Avg. Traps per Throw",
+            "output_key": "TrapThrowCount",
+            "format": "{2:output:TrapThrowCount}",
+            "flag": "trap"
+          },
+          {
+            "label": "Trap Trigg. Radius",
+            "output_key": "TrapTriggerRadiusMetre",
+            "format": "{1:output:TrapTriggerRadiusMetre}m",
+            "flag": "trap"
+          },
+          {
+            "label": "Seal Gain Rate",
+            "output_key": "SealCooldown",
+            "have_output": "SealMax",
+            "format": "{2:output:SealCooldown}s"
+          },
+          {
+            "label": "Active Mine Limit",
+            "output_key": "ActiveMineLimit",
+            "format": "{0:output:ActiveMineLimit}",
+            "flag": "mine"
+          },
+          {
+            "label": "Mine Throw Rate",
+            "output_key": "MineLayingSpeed",
+            "format": "{2:output:MineLayingSpeed}",
+            "flag": "mine"
+          },
+          {
+            "label": "Mine Throw Time",
+            "output_key": "MineLayingTime",
+            "format": "{2:output:MineLayingTime}s",
+            "flag": "mine"
+          },
+          {
+            "label": "Avg. Mines per Throw",
+            "output_key": "MineThrowCount",
+            "format": "{2:output:MineThrowCount}",
+            "flag": "mine"
+          },
+          {
+            "label": "Mine Deton. Radius",
+            "output_key": "MineDetonationRadiusMetre",
+            "format": "{1:output:MineDetonationRadiusMetre}m",
+            "flag": "mine"
+          },
+          {
+            "label": "Mine Aura Radius",
+            "output_key": "MineAuraRadiusMetre",
+            "have_output": "MineAuraRadius",
+            "format": "{1:output:MineAuraRadiusMetre}m"
+          },
+          {
+            "label": "Totem Place Time",
+            "output_key": "TotemPlacementTime",
+            "format": "{2:output:TotemPlacementTime}s",
+            "flag": "totem",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Active Totem Limit",
+            "output_key": "ActiveTotemLimit",
+            "format": "{0:output:ActiveTotemLimit}",
+            "flag": "totem",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Totem Dur. Mod",
+            "output_key": "TotemDurationMod",
+            "format": "x {4:output:TotemDurationMod}",
+            "flag": "duration,totem"
+          },
+          {
+            "label": "Totem Duration",
+            "output_key": "TotemDuration",
+            "format": "{3:output:TotemDuration}s",
+            "flag": "duration,totem"
+          },
+          {
+            "label": "Totem Life Mod",
+            "output_key": "TotemLifeMod",
+            "format": "x {2:output:TotemLifeMod}",
+            "flag": "totem",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Totem Life",
+            "output_key": "TotemLife",
+            "format": "{0:output:TotemLife}",
+            "flag": "totem",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Totem ES",
+            "output_key": "TotemEnergyShield",
+            "have_output": "TotemEnergyShield",
+            "format": "{0:output:TotemEnergyShield}"
+          },
+          {
+            "label": "Totem Block Chance",
+            "output_key": "TotemBlockChance",
+            "have_output": "TotemBlockChance",
+            "format": "{0:output:TotemBlockChance}%"
+          },
+          {
+            "label": "Totem Armour",
+            "output_key": "TotemArmour",
+            "have_output": "TotemArmour",
+            "format": "{0:output:TotemArmour}"
+          },
+          {
+            "label": "Active Brand Limit",
+            "output_key": "ActiveBrandLimit",
+            "have_output": "ActiveBrandLimit",
+            "format": "{0:output:ActiveBrandLimit}"
+          },
+          {
+            "label": "Totem Fire Res",
+            "output_key": "TotemFireResist",
+            "format": "{0:output:TotemFireResist}% (+{0:output:TotemFireResistOverCap}%)",
+            "flag": "totem",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Totem Cold Res",
+            "output_key": "TotemColdResist",
+            "format": "{0:output:TotemColdResist}% (+{0:output:TotemColdResistOverCap}%)",
+            "flag": "totem",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Totem Light. Res",
+            "output_key": "TotemLightningResist",
+            "format": "{0:output:TotemLightningResist}% (+{0:output:TotemLightningResistOverCap}%)",
+            "flag": "totem",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Totem Chaos Res",
+            "output_key": "TotemChaosResist",
+            "format": "{0:output:TotemChaosResist}% (+{0:output:TotemChaosResistOverCap}%)",
+            "flag": "totem",
+            "not_flag": "triggered"
+          },
+          {
+            "label": "Corpse Level",
+            "output_key": "CorpseLevel",
+            "have_output": "CorpseLevel",
+            "format": "{0:output:CorpseLevel}"
+          },
+          {
+            "label": "Corpse Life",
+            "output_key": "CorpseLife",
+            "have_output": "CorpseLife",
+            "format": "{0:output:CorpseLife}"
+          },
+          {
+            "label": "Burst Damage",
+            "output_key": "AverageBurstDamage",
+            "have_output": "ShowBurst",
+            "format": "{1:output:AverageBurstDamage}"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "HitChance",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Accuracy",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "MH Accuracy",
+            "output_key": "MainHand.Accuracy",
+            "format": "{0:output:MainHand.Accuracy}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH Chance to Hit",
+            "output_key": "MainHand.AccuracyHitChance",
+            "format": "{0:output:MainHand.AccuracyHitChance}%",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "MH Chance to Hit",
+            "output_key": "MainHand.HitChance",
+            "have_output": "MainHand.enemyBlockChance",
+            "format": "{0:output:MainHand.HitChance}%",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Accuracy",
+            "output_key": "OffHand.Accuracy",
+            "format": "{0:output:OffHand.Accuracy}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH Chance to Hit",
+            "output_key": "OffHand.AccuracyHitChance",
+            "format": "{0:output:OffHand.AccuracyHitChance}%",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "OH Chance to Hit",
+            "output_key": "OffHand.HitChance",
+            "have_output": "OffHand.enemyBlockChance",
+            "format": "{0:output:OffHand.HitChance}%",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Effect of Blind",
+            "output_key": "BlindEffectMod",
+            "have_output": "BlindEffectMod",
+            "format": "{0:output:BlindEffectMod}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Bleed",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Bleed",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Max Bleed Stacks",
+            "output_key": "BleedStacksMax",
+            "format": "{0:output:BleedStacksMax}"
+          },
+          {
+            "label": "Stack Potential",
+            "output_key": "BleedStackPotential",
+            "format": "{2:output:BleedStackPotential}"
+          },
+          {
+            "label": "Average Bleed Roll",
+            "output_key": "BleedRollAverage",
+            "format": "{2:output:BleedRollAverage}%"
+          },
+          {
+            "label": "Chance to Bleed",
+            "output_key": "BleedChance",
+            "format": "{0:output:BleedChance}%"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "MH Eff. DoT Multi",
+            "output_key": "MainHand.BleedDotMulti",
+            "have_output": "MainHand.BleedDotMulti",
+            "format": "x {2:output:MainHand.BleedDotMulti}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Eff. DoT Multi",
+            "output_key": "OffHand.BleedDotMulti",
+            "have_output": "OffHand.BleedDotMulti",
+            "format": "x {2:output:OffHand.BleedDotMulti}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "MH Source Physical",
+            "output_key": "MainHand.BleedPhysicalMin",
+            "format": "{0:output:MainHand.BleedPhysicalMin} to {0:output:MainHand.BleedPhysicalMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Physical",
+            "output_key": "OffHand.BleedPhysicalMin",
+            "format": "{0:output:OffHand.BleedPhysicalMin} to {0:output:OffHand.BleedPhysicalMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Effective DPS Mod",
+            "output_key": "BleedEffMult",
+            "format": "x {3:output:BleedEffMult}",
+            "flag": "effective"
+          },
+          {
+            "label": "Bleed DPS",
+            "output_key": "BleedDPS",
+            "format": "{1:output:BleedDPS}"
+          },
+          {
+            "label": "Bleed Duration",
+            "output_key": "BleedDuration",
+            "format": "{2:output:BleedDuration}s"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Poison",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Poison",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Chance to Poison",
+            "output_key": "PoisonChance",
+            "format": "{0:output:PoisonChance}%"
+          },
+          {
+            "label": "Poison Stacks",
+            "output_key": "PoisonStacks",
+            "format": "{2:output:PoisonStacks}"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Eff. DoT Multi",
+            "output_key": "PoisonDotMulti",
+            "have_output": "PoisonDotMulti",
+            "format": "x {2:output:PoisonDotMulti}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Eff. DoT Multi",
+            "output_key": "MainHand.PoisonDotMulti",
+            "have_output": "MainHand.PoisonDotMulti",
+            "format": "x {2:output:MainHand.PoisonDotMulti}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Eff. DoT Multi",
+            "output_key": "OffHand.PoisonDotMulti",
+            "have_output": "OffHand.PoisonDotMulti",
+            "format": "x {2:output:OffHand.PoisonDotMulti}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Physical",
+            "output_key": "PoisonPhysicalMin",
+            "have_output": "PoisonPhysicalMax",
+            "format": "{0:output:PoisonPhysicalMin} to {0:output:PoisonPhysicalMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Physical",
+            "output_key": "MainHand.PoisonPhysicalMin",
+            "have_output": "MainHand.PoisonPhysicalMax",
+            "format": "{0:output:MainHand.PoisonPhysicalMin} to {0:output:MainHand.PoisonPhysicalMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Physical",
+            "output_key": "OffHand.PoisonPhysicalMin",
+            "have_output": "OffHand.PoisonPhysicalMax",
+            "format": "{0:output:OffHand.PoisonPhysicalMin} to {0:output:OffHand.PoisonPhysicalMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Lightning",
+            "output_key": "PoisonLightningMin",
+            "have_output": "PoisonLightningMax",
+            "format": "{0:output:PoisonLightningMin} to {0:output:PoisonLightningMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Lightning",
+            "output_key": "MainHand.PoisonLightningMin",
+            "have_output": "MainHand.PoisonLightningMax",
+            "format": "{0:output:MainHand.PoisonLightningMin} to {0:output:MainHand.PoisonLightningMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Lightning",
+            "output_key": "OffHand.PoisonLightningMin",
+            "have_output": "OffHand.PoisonLightningMax",
+            "format": "{0:output:OffHand.PoisonLightningMin} to {0:output:OffHand.PoisonLightningMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Cold",
+            "output_key": "PoisonColdMin",
+            "have_output": "PoisonColdMax",
+            "format": "{0:output:PoisonColdMin} to {0:output:PoisonColdMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Cold",
+            "output_key": "MainHand.PoisonColdMin",
+            "have_output": "MainHand.PoisonColdMax",
+            "format": "{0:output:MainHand.PoisonColdMin} to {0:output:MainHand.PoisonColdMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Cold",
+            "output_key": "OffHand.PoisonColdMin",
+            "have_output": "OffHand.PoisonColdMax",
+            "format": "{0:output:OffHand.PoisonColdMin} to {0:output:OffHand.PoisonColdMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Fire",
+            "output_key": "PoisonFireMin",
+            "have_output": "PoisonFireMax",
+            "format": "{0:output:PoisonFireMin} to {0:output:PoisonFireMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Fire",
+            "output_key": "MainHand.PoisonFireMin",
+            "have_output": "MainHand.PoisonFireMax",
+            "format": "{0:output:MainHand.PoisonFireMin} to {0:output:MainHand.PoisonFireMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Fire",
+            "output_key": "OffHand.PoisonFireMin",
+            "have_output": "OffHand.PoisonFireMax",
+            "format": "{0:output:OffHand.PoisonFireMin} to {0:output:OffHand.PoisonFireMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Chaos",
+            "output_key": "PoisonChaosMin",
+            "have_output": "PoisonChaosMax",
+            "format": "{0:output:PoisonChaosMin} to {0:output:PoisonChaosMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Chaos",
+            "output_key": "MainHand.PoisonChaosMin",
+            "have_output": "MainHand.PoisonChaosMax",
+            "format": "{0:output:MainHand.PoisonChaosMin} to {0:output:MainHand.PoisonChaosMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Chaos",
+            "output_key": "OffHand.PoisonChaosMin",
+            "have_output": "OffHand.PoisonChaosMax",
+            "format": "{0:output:OffHand.PoisonChaosMin} to {0:output:OffHand.PoisonChaosMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Effective DPS Mod",
+            "output_key": "PoisonEffMult",
+            "format": "x {3:output:PoisonEffMult}",
+            "flag": "effective"
+          },
+          {
+            "label": "Poison DPS",
+            "output_key": "PoisonDPS",
+            "format": "{1:output:PoisonDPS}"
+          },
+          {
+            "label": "Caustic Ground",
+            "output_key": "CausticGroundDPS",
+            "have_output": "CausticGroundFromPoison",
+            "format": "{0:output:CausticGroundDPS}"
+          },
+          {
+            "label": "Poison Duration",
+            "output_key": "PoisonDuration",
+            "format": "{2:output:PoisonDuration}s"
+          },
+          {
+            "label": "Dmg. per Poison",
+            "output_key": "PoisonDamage",
+            "format": "{1:output:PoisonDamage}"
+          },
+          {
+            "label": "Total Poison DPS",
+            "output_key": "TotalPoisonDPS",
+            "format": "{1:output:TotalPoisonDPS}"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Ignite",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Ignite",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Max Ignite Stacks",
+            "output_key": "IgniteStacksMax",
+            "format": "{1:output:IgniteStacksMax}"
+          },
+          {
+            "label": "Stack Potential",
+            "output_key": "IgniteStackPotential",
+            "format": "{2:output:IgniteStackPotential}"
+          },
+          {
+            "label": "Average Ignite Roll",
+            "output_key": "IgniteRollAverage",
+            "format": "{2:output:IgniteRollAverage}%"
+          },
+          {
+            "label": "Chance to Ignite",
+            "output_key": "IgniteChancePerHit",
+            "format": "{0:output:IgniteChancePerHit}%"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Eff. DoT Multi",
+            "output_key": "IgniteDotMulti",
+            "have_output": "IgniteDotMulti",
+            "format": "x {2:output:IgniteDotMulti}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Eff. DoT Multi",
+            "output_key": "MainHand.IgniteDotMulti",
+            "have_output": "MainHand.IgniteDotMulti",
+            "format": "x {2:output:MainHand.IgniteDotMulti}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Eff. DoT Multi",
+            "output_key": "OffHand.IgniteDotMulti",
+            "have_output": "OffHand.IgniteDotMulti",
+            "format": "x {2:output:OffHand.IgniteDotMulti}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Physical",
+            "output_key": "IgnitePhysicalMin",
+            "have_output": "IgnitePhysicalMax",
+            "format": "{0:output:IgnitePhysicalMin} to {0:output:IgnitePhysicalMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Physical",
+            "output_key": "MainHand.IgnitePhysicalMin",
+            "have_output": "MainHand.IgnitePhysicalMax",
+            "format": "{0:output:MainHand.IgnitePhysicalMin} to {0:output:MainHand.IgnitePhysicalMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Physical",
+            "output_key": "OffHand.IgnitePhysicalMin",
+            "have_output": "OffHand.IgnitePhysicalMax",
+            "format": "{0:output:OffHand.IgnitePhysicalMin} to {0:output:OffHand.IgnitePhysicalMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Lightning",
+            "output_key": "IgniteLightningMin",
+            "have_output": "IgniteLightningMax",
+            "format": "{0:output:IgniteLightningMin} to {0:output:IgniteLightningMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Lightning",
+            "output_key": "MainHand.IgniteLightningMin",
+            "have_output": "MainHand.IgniteLightningMax",
+            "format": "{0:output:MainHand.IgniteLightningMin} to {0:output:MainHand.IgniteLightningMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Lightning",
+            "output_key": "OffHand.IgniteLightningMin",
+            "have_output": "OffHand.IgniteLightningMax",
+            "format": "{0:output:OffHand.IgniteLightningMin} to {0:output:OffHand.IgniteLightningMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Cold",
+            "output_key": "IgniteColdMin",
+            "have_output": "IgniteColdMax",
+            "format": "{0:output:IgniteColdMin} to {0:output:IgniteColdMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Cold",
+            "output_key": "MainHand.IgniteColdMin",
+            "have_output": "MainHand.IgniteColdMax",
+            "format": "{0:output:MainHand.IgniteColdMin} to {0:output:MainHand.IgniteColdMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Cold",
+            "output_key": "OffHand.IgniteColdMin",
+            "have_output": "OffHand.IgniteColdMax",
+            "format": "{0:output:OffHand.IgniteColdMin} to {0:output:OffHand.IgniteColdMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Fire",
+            "output_key": "IgniteFireMin",
+            "have_output": "IgniteFireMax",
+            "format": "{0:output:IgniteFireMin} to {0:output:IgniteFireMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Fire",
+            "output_key": "MainHand.IgniteFireMin",
+            "have_output": "MainHand.IgniteFireMax",
+            "format": "{0:output:MainHand.IgniteFireMin} to {0:output:MainHand.IgniteFireMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Fire",
+            "output_key": "OffHand.IgniteFireMin",
+            "have_output": "OffHand.IgniteFireMax",
+            "format": "{0:output:OffHand.IgniteFireMin} to {0:output:OffHand.IgniteFireMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Source Chaos",
+            "output_key": "IgniteChaosMin",
+            "have_output": "IgniteChaosMax",
+            "format": "{0:output:IgniteChaosMin} to {0:output:IgniteChaosMax}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Source Chaos",
+            "output_key": "MainHand.IgniteChaosMin",
+            "have_output": "MainHand.IgniteChaosMax",
+            "format": "{0:output:MainHand.IgniteChaosMin} to {0:output:MainHand.IgniteChaosMax}",
+            "flag": "weapon1Attack"
+          },
+          {
+            "label": "OH Source Chaos",
+            "output_key": "OffHand.IgniteChaosMin",
+            "have_output": "OffHand.IgniteChaosMax",
+            "format": "{0:output:OffHand.IgniteChaosMin} to {0:output:OffHand.IgniteChaosMax}",
+            "flag": "weapon2Attack"
+          },
+          {
+            "label": "Effective DPS Mod",
+            "output_key": "IgniteEffMult",
+            "format": "x {3:output:IgniteEffMult}",
+            "flag": "effective",
+            "not_flag": "igniteToChaos"
+          },
+          {
+            "label": "Effective DPS Mod",
+            "output_key": "IgniteEffMult",
+            "format": "x {3:output:IgniteEffMult}",
+            "flag": "effective,igniteToChaos"
+          },
+          {
+            "label": "Ignite DPS",
+            "output_key": "IgniteDPS",
+            "format": "{1:output:IgniteDPS}"
+          },
+          {
+            "label": "Burning Ground",
+            "output_key": "BurningGroundDPS",
+            "have_output": "BurningGroundFromIgnite",
+            "format": "{0:output:BurningGroundDPS}"
+          },
+          {
+            "label": "Ignite Duration",
+            "output_key": "IgniteDuration",
+            "format": "{2:output:IgniteDuration}s"
+          },
+          {
+            "label": "Dmg. per Ignite",
+            "output_key": "IgniteDamage",
+            "format": "{1:output:IgniteDamage}"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Decay",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Decay",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Effective DPS Mod",
+            "output_key": "DecayEffMult",
+            "format": "x {3:output:DecayEffMult}",
+            "flag": "effective"
+          },
+          {
+            "label": "Decay DPS",
+            "output_key": "DecayDPS",
+            "format": "{1:output:DecayDPS}"
+          },
+          {
+            "label": "Decay Duration",
+            "output_key": "DecayDuration",
+            "format": "{2:output:DecayDuration}s"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "LeechGain",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Leech & Gain on Hit",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Life Leech Cap",
+            "output_key": "MaxLifeLeechRate",
+            "format": "{1:output:MaxLifeLeechRate}",
+            "flag": "leechLife"
+          },
+          {
+            "label": "Life Leech Rate",
+            "output_key": "LifeLeechRate",
+            "format": "{1:output:LifeLeechRate}",
+            "flag": "leechLife",
+            "not_flag": "showAverage"
+          },
+          {
+            "label": "Life Leech per Hit",
+            "output_key": "LifeLeechPerHit",
+            "format": "{1:output:LifeLeechPerHit}",
+            "flag": "leechLife,showAverage"
+          },
+          {
+            "label": "Life Gain Rate",
+            "output_key": "LifeOnHitRate",
+            "have_output": "LifeOnHitRate",
+            "format": "{1:output:LifeOnHitRate}",
+            "not_flag": "showAverage"
+          },
+          {
+            "label": "Life Gain per Hit",
+            "output_key": "LifeOnHit",
+            "have_output": "LifeOnHit",
+            "format": "{1:output:LifeOnHit}",
+            "flag": "showAverage"
+          },
+          {
+            "label": "Life Gain on Kill",
+            "output_key": "LifeOnKill",
+            "have_output": "LifeOnKill",
+            "format": "{1:output:LifeOnKill}"
+          },
+          {
+            "label": "ES Leech Cap",
+            "output_key": "MaxEnergyShieldLeechRate",
+            "format": "{1:output:MaxEnergyShieldLeechRate}",
+            "flag": "leechES"
+          },
+          {
+            "label": "ES Leech Rate",
+            "output_key": "EnergyShieldLeechRate",
+            "format": "{1:output:EnergyShieldLeechRate}",
+            "flag": "leechES",
+            "not_flag": "showAverage"
+          },
+          {
+            "label": "ES Leech per Hit",
+            "output_key": "EnergyShieldLeechPerHit",
+            "format": "{1:output:EnergyShieldLeechPerHit}",
+            "flag": "leechES,showAverage"
+          },
+          {
+            "label": "ES Gain Rate",
+            "output_key": "EnergyShieldOnHitRate",
+            "have_output": "EnergyShieldOnHitRate",
+            "format": "{1:output:EnergyShieldOnHitRate}",
+            "not_flag": "showAverage"
+          },
+          {
+            "label": "ES Gain per Hit",
+            "output_key": "EnergyShieldOnHit",
+            "have_output": "EnergyShieldOnHit",
+            "format": "{1:output:EnergyShieldOnHit}",
+            "flag": "showAverage"
+          },
+          {
+            "label": "ES Gain on Kill",
+            "output_key": "EnergyShieldOnKill",
+            "have_output": "EnergyShieldOnKill",
+            "format": "{1:output:EnergyShieldOnKill}"
+          },
+          {
+            "label": "Mana Leech Cap",
+            "output_key": "MaxManaLeechRate",
+            "format": "{1:output:MaxManaLeechRate}",
+            "flag": "leechMana"
+          },
+          {
+            "label": "Mana Leech Rate",
+            "output_key": "ManaLeechRate",
+            "format": "{1:output:ManaLeechRate}",
+            "flag": "leechMana",
+            "not_flag": "showAverage"
+          },
+          {
+            "label": "Mana Leech per Hit",
+            "output_key": "ManaLeechPerHit",
+            "format": "{1:output:ManaLeechPerHit}",
+            "flag": "leechMana,showAverage"
+          },
+          {
+            "label": "Mana Gain Rate",
+            "output_key": "ManaOnHitRate",
+            "have_output": "ManaOnHitRate",
+            "format": "{1:output:ManaOnHitRate}",
+            "not_flag": "showAverage"
+          },
+          {
+            "label": "Mana Gain per Hit",
+            "output_key": "ManaOnHit",
+            "have_output": "ManaOnHit",
+            "format": "{1:output:ManaOnHit}",
+            "flag": "showAverage"
+          },
+          {
+            "label": "Mana Gain on Kill",
+            "output_key": "ManaOnKill",
+            "have_output": "ManaOnKill",
+            "format": "{1:output:ManaOnKill}"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "EleAilments",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Non-Damaging Ailments",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Scorch Effect Mod",
+            "output_key": "ScorchEffectMod",
+            "format": "x {2:output:ScorchEffectMod}",
+            "flag": "scorch"
+          },
+          {
+            "label": "Chance to Scorch",
+            "output_key": "ScorchChance",
+            "format": "{0:output:ScorchChance}%",
+            "flag": "scorch"
+          },
+          {
+            "label": "Scorch Duration",
+            "output_key": "ScorchDuration",
+            "format": "{2:output:ScorchDuration}s",
+            "flag": "scorch"
+          },
+          {
+            "label": "Maximum Scorch",
+            "output_key": "MaximumScorch",
+            "format": "{0:output:MaximumScorch}%",
+            "flag": "scorch"
+          },
+          {
+            "label": "Current Scorch",
+            "output_key": "CurrentScorch",
+            "have_output": "CurrentScorch",
+            "format": "{0:output:CurrentScorch}%"
+          },
+          {
+            "label": "Effect of Chill",
+            "output_key": "ChillSourceEffect",
+            "have_output": "ChillSourceEffect",
+            "format": "{0:output:ChillSourceEffect}%",
+            "flag": "chill"
+          },
+          {
+            "label": "Chill Effect Mod",
+            "output_key": "ChillEffectMod",
+            "format": "x {2:output:ChillEffectMod}",
+            "flag": "chill"
+          },
+          {
+            "label": "Chill Duration",
+            "output_key": "ChillDuration",
+            "format": "{2:output:ChillDuration}s",
+            "flag": "chill"
+          },
+          {
+            "label": "Maximum Chill",
+            "output_key": "MaximumChill",
+            "format": "{0:output:MaximumChill}%",
+            "flag": "chill"
+          },
+          {
+            "label": "Current Chill",
+            "output_key": "CurrentChill",
+            "have_output": "CurrentChill",
+            "format": "{0:output:CurrentChill}%"
+          },
+          {
+            "label": "Chance to Freeze",
+            "output_key": "FreezeChance",
+            "format": "{0:output:FreezeChance}%",
+            "flag": "freeze"
+          },
+          {
+            "label": "Freeze Duration",
+            "output_key": "FreezeDurationMod",
+            "format": "x {2:output:FreezeDurationMod}",
+            "flag": "freeze"
+          },
+          {
+            "label": "Brittle Effect Mod",
+            "output_key": "BrittleEffectMod",
+            "format": "x {2:output:BrittleEffectMod}",
+            "flag": "brittle"
+          },
+          {
+            "label": "Chance to Brittle",
+            "output_key": "BrittleChance",
+            "format": "{0:output:BrittleChance}%",
+            "flag": "brittle"
+          },
+          {
+            "label": "Brittle Duration",
+            "output_key": "BrittleDuration",
+            "format": "{2:output:BrittleDuration}s",
+            "flag": "brittle"
+          },
+          {
+            "label": "Maximum Brittle",
+            "output_key": "MaximumBrittle",
+            "format": "{0:output:MaximumBrittle}%",
+            "flag": "brittle"
+          },
+          {
+            "label": "Current Brittle",
+            "output_key": "CurrentBrittle",
+            "have_output": "CurrentBrittle",
+            "format": "{0:output:CurrentBrittle}%"
+          },
+          {
+            "label": "Shock Effect Mod",
+            "output_key": "ShockEffectMod",
+            "format": "x {2:output:ShockEffectMod}",
+            "flag": "shock"
+          },
+          {
+            "label": "Chance to Shock",
+            "output_key": "ShockChance",
+            "format": "{0:output:ShockChance}%",
+            "flag": "shock"
+          },
+          {
+            "label": "Shock Duration",
+            "output_key": "ShockDuration",
+            "format": "{2:output:ShockDuration}s",
+            "flag": "shock"
+          },
+          {
+            "label": "Maximum Shock",
+            "output_key": "MaximumShock",
+            "format": "{0:output:MaximumShock}%",
+            "flag": "shock"
+          },
+          {
+            "label": "Current Shock",
+            "output_key": "CurrentShock",
+            "have_output": "CurrentShock",
+            "format": "{0:output:CurrentShock}%"
+          },
+          {
+            "label": "Sap Effect Mod",
+            "output_key": "SapEffectMod",
+            "format": "x {2:output:SapEffectMod}",
+            "flag": "sap"
+          },
+          {
+            "label": "Chance to Sap",
+            "output_key": "SapChance",
+            "format": "{0:output:SapChance}%",
+            "flag": "sap"
+          },
+          {
+            "label": "Sap Duration",
+            "output_key": "SapDuration",
+            "format": "{2:output:SapDuration}s",
+            "flag": "sap"
+          },
+          {
+            "label": "Maximum Sap",
+            "output_key": "MaximumSap",
+            "format": "{0:output:MaximumSap}%",
+            "flag": "sap"
+          },
+          {
+            "label": "Current Sap",
+            "output_key": "CurrentSap",
+            "have_output": "CurrentSap",
+            "format": "{0:output:CurrentSap}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "MiscEffects",
+    "width": 1,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Other Effects",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Stun Threshold",
+            "output_key": "EnemyStunThresholdMod",
+            "format": "x {2:output:EnemyStunThresholdMod}",
+            "flag": "hit",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Stun Duration",
+            "output_key": "EnemyStunDuration",
+            "format": "{2:output:EnemyStunDuration}s",
+            "flag": "hit",
+            "not_flag": "attack"
+          },
+          {
+            "label": "MH Stun Threshold",
+            "output_key": "MainHand.EnemyStunThresholdMod",
+            "format": "x {2:output:MainHand.EnemyStunThresholdMod}",
+            "flag": "hit,weapon1Attack"
+          },
+          {
+            "label": "MH Stun Duration",
+            "output_key": "MainHand.EnemyStunDuration",
+            "format": "{2:output:MainHand.EnemyStunDuration}s",
+            "flag": "hit,weapon1Attack"
+          },
+          {
+            "label": "OH Stun Threshold",
+            "output_key": "OffHand.EnemyStunThresholdMod",
+            "format": "x {2:output:OffHand.EnemyStunThresholdMod}",
+            "flag": "hit,weapon2Attack"
+          },
+          {
+            "label": "OH Stun Duration",
+            "output_key": "OffHand.EnemyStunDuration",
+            "format": "{2:output:OffHand.EnemyStunDuration}s",
+            "flag": "hit,weapon2Attack"
+          },
+          {
+            "label": "Knockback Chance",
+            "output_key": "KnockbackChance",
+            "have_output": "KnockbackChance",
+            "format": "{0:output:KnockbackChance}%"
+          },
+          {
+            "label": "Knockback Dist.",
+            "output_key": "KnockbackDistance",
+            "have_output": "KnockbackChance",
+            "format": "{0:output:KnockbackDistance}"
+          },
+          {
+            "label": "MH K.B. Chance",
+            "output_key": "MainHand.KnockbackChance",
+            "have_output": "MainHand.KnockbackChance",
+            "format": "{0:output:MainHand.KnockbackChance}%"
+          },
+          {
+            "label": "MH K.B. Dist.",
+            "output_key": "MainHand.KnockbackDistance",
+            "have_output": "MainHand.KnockbackChance",
+            "format": "{0:output:MainHand.KnockbackDistance}"
+          },
+          {
+            "label": "OH K.B. Chance",
+            "output_key": "OffHand.KnockbackChance",
+            "have_output": "OffHand.KnockbackChance",
+            "format": "{0:output:OffHand.KnockbackChance}%"
+          },
+          {
+            "label": "OH K.B. Dist.",
+            "output_key": "OffHand.KnockbackDistance",
+            "have_output": "OffHand.KnockbackChance",
+            "format": "{0:output:OffHand.KnockbackDistance}"
+          },
+          {
+            "label": "Inc. Item Quantity",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "IIQ for Normal Mobs",
+            "output_key": "LootQuantityNormalEnemies",
+            "have_output": "LootQuantityNormalEnemies",
+            "format": "{0:output:LootQuantityNormalEnemies}%"
+          },
+          {
+            "label": "Inc. Item Rarity",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "IIR for Magic Mobs",
+            "output_key": "LootRarityMagicEnemies",
+            "have_output": "LootRarityMagicEnemies",
+            "format": "{0:output:LootRarityMagicEnemies}%"
+          },
+          {
+            "label": "Culling Strike",
+            "output_key": "CullPercent",
+            "have_output": "CullPercent",
+            "format": "{0:output:CullPercent}%"
+          },
+          {
+            "label": "Enemy Life Recovery",
+            "output_key": "EnemyLifeRegen",
+            "have_output": "EnemyLifeRegen",
+            "format": "{0:output:EnemyLifeRegen}%"
+          },
+          {
+            "label": "Enemy Mana Recovery",
+            "output_key": "EnemyManaRegen",
+            "have_output": "EnemyManaRegen",
+            "format": "{0:output:EnemyManaRegen}%"
+          },
+          {
+            "label": "Enemy ES Recovery",
+            "output_key": "EnemyEnergyShieldRegen",
+            "have_output": "EnemyEnergyShieldRegen",
+            "format": "{0:output:EnemyEnergyShieldRegen}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Attributes",
+    "width": 1,
+    "group": 2,
+    "color": "^xC8C8C8",
+    "subsections": [
+      {
+        "label": "Attributes",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Strength",
+            "output_key": "Str",
+            "format": "{0:output:Str}"
+          },
+          {
+            "label": "Dexterity",
+            "output_key": "Dex",
+            "format": "{0:output:Dex}"
+          },
+          {
+            "label": "Intelligence",
+            "output_key": "Int",
+            "format": "{0:output:Int}"
+          },
+          {
+            "label": "Omniscience",
+            "output_key": "Omni",
+            "have_output": "Omni",
+            "format": "{0:output:Omni}"
+          },
+          {
+            "label": "Str. Required",
+            "format": "{output:ReqStrString}",
+            "not_flag": "minionSkill"
+          },
+          {
+            "label": "Dex. Required",
+            "format": "{output:ReqDexString}",
+            "not_flag": "minionSkill"
+          },
+          {
+            "label": "Int. Required",
+            "format": "{output:ReqIntString}",
+            "not_flag": "minionSkill"
+          },
+          {
+            "label": "Omni. Required",
+            "have_output": "Omni",
+            "format": "{output:ReqOmniString}",
+            "not_flag": "minionSkill"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Life",
+    "width": 1,
+    "group": 2,
+    "color": "^xE05030",
+    "subsections": [
+      {
+        "label": "Life",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Base from Gear",
+            "format": "{0:mod:1}"
+          },
+          {
+            "label": "Inc. from Tree",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total Base",
+            "format": "{0:mod:1}"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total",
+            "output_key": "Life",
+            "format": "{0:output:Life}"
+          },
+          {
+            "label": "Reserved",
+            "output_key": "LifeReserved",
+            "format": "{0:output:LifeReserved} ({0:output:LifeReservedPercent}%)"
+          },
+          {
+            "label": "Unreserved",
+            "output_key": "LifeUnreserved",
+            "format": "{0:output:LifeUnreserved} ({0:output:LifeUnreservedPercent}%)"
+          },
+          {
+            "label": "Total Recoverable",
+            "output_key": "LifeRecoverable",
+            "have_output": "CappingLife",
+            "format": "{0:output:LifeRecoverable}"
+          },
+          {
+            "label": "Recharge Rate",
+            "output_key": "LifeRecharge",
+            "have_output": "EnergyShieldRechargeAppliesToLife",
+            "format": "{1:output:LifeRecharge}"
+          },
+          {
+            "label": "Recharge Delay",
+            "output_key": "EnergyShieldRechargeDelay",
+            "have_output": "EnergyShieldRechargeAppliesToLife",
+            "format": "{2:output:EnergyShieldRechargeDelay}s"
+          },
+          {
+            "label": "Recovery",
+            "output_key": "LifeRegenRecovery",
+            "format": "{1:output:LifeRegenRecovery} ({1:output:LifeRegenPercent}%)"
+          },
+          {
+            "label": "Recoup",
+            "output_key": "LifeRecoup",
+            "have_output": "LifeRecoup",
+            "format": "{1:output:LifeRecoup}%"
+          },
+          {
+            "label": "Phys Recoup",
+            "output_key": "PhysicalLifeRecoup",
+            "have_output": "PhysicalLifeRecoup",
+            "format": "{1:output:PhysicalLifeRecoup}%"
+          },
+          {
+            "label": "Light Recoup",
+            "output_key": "LightningLifeRecoup",
+            "have_output": "LightningLifeRecoup",
+            "format": "{1:output:LightningLifeRecoup}%"
+          },
+          {
+            "label": "Cold Recoup",
+            "output_key": "ColdLifeRecoup",
+            "have_output": "ColdLifeRecoup",
+            "format": "{1:output:ColdLifeRecoup}%"
+          },
+          {
+            "label": "Fire Recoup",
+            "output_key": "FireLifeRecoup",
+            "have_output": "FireLifeRecoup",
+            "format": "{1:output:FireLifeRecoup}%"
+          },
+          {
+            "label": "Chaos Recoup",
+            "output_key": "ChaosLifeRecoup",
+            "have_output": "ChaosLifeRecoup",
+            "format": "{1:output:ChaosLifeRecoup}%"
+          },
+          {
+            "label": "Dmg. Mit. Regen",
+            "output_key": "PhysicalDamageMitigatedLifePseudoRecoup",
+            "have_output": "PhysicalDamageMitigatedLifePseudoRecoup",
+            "format": "{1:output:PhysicalDamageMitigatedLifePseudoRecoup}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Mana",
+    "width": 1,
+    "group": 2,
+    "color": "^x7070FF",
+    "subsections": [
+      {
+        "label": "Mana",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Base from Gear",
+            "format": "{0:mod:1}"
+          },
+          {
+            "label": "Inc. from Tree",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total Base",
+            "format": "{0:mod:1}"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total",
+            "output_key": "Mana",
+            "format": "{0:output:Mana}"
+          },
+          {
+            "label": "Reserved",
+            "output_key": "ManaReserved",
+            "format": "{0:output:ManaReserved} ({0:output:ManaReservedPercent}%)"
+          },
+          {
+            "label": "Unreserved",
+            "output_key": "ManaUnreserved",
+            "format": "{0:output:ManaUnreserved} ({0:output:ManaUnreservedPercent}%)"
+          },
+          {
+            "label": "Recovery",
+            "output_key": "ManaRegenRecovery",
+            "format": "{1:output:ManaRegenRecovery} ({1:output:ManaRegenPercent}%)"
+          },
+          {
+            "label": "Recoup",
+            "output_key": "ManaRecoup",
+            "have_output": "ManaRecoup",
+            "format": "{1:output:ManaRecoup}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "EnergyShield",
+    "width": 1,
+    "group": 2,
+    "color": "^x88FFFF",
+    "subsections": [
+      {
+        "label": "Energy Shield",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Base from Armours",
+            "format": "{0:output:Gear:EnergyShield}"
+          },
+          {
+            "label": "Global Base",
+            "format": "{0:mod:1}"
+          },
+          {
+            "label": "Inc. from Tree",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total",
+            "output_key": "EnergyShield",
+            "format": "{0:output:EnergyShield}"
+          },
+          {
+            "label": "Total Recoverable",
+            "output_key": "EnergyShieldRecoveryCap",
+            "have_output": "CappingES",
+            "format": "{0:output:EnergyShieldRecoveryCap}"
+          },
+          {
+            "label": "Recharge Rate",
+            "output_key": "EnergyShieldRecharge",
+            "have_output": "EnergyShieldRechargeAppliesToEnergyShield",
+            "format": "{1:output:EnergyShieldRecharge}"
+          },
+          {
+            "label": "Recharge Delay",
+            "output_key": "EnergyShieldRechargeDelay",
+            "have_output": "EnergyShieldRechargeAppliesToEnergyShield",
+            "format": "{2:output:EnergyShieldRechargeDelay}s"
+          },
+          {
+            "label": "Recovery",
+            "output_key": "EnergyShieldRegenRecovery",
+            "format": "{1:output:EnergyShieldRegenRecovery} ({1:output:EnergyShieldRegenPercent}%)"
+          },
+          {
+            "label": "Recoup",
+            "output_key": "EnergyShieldRecoup",
+            "have_output": "EnergyShieldRecoup",
+            "format": "{1:output:EnergyShieldRecoup}%"
+          },
+          {
+            "label": "Phys Recoup",
+            "output_key": "PhysicalEnergyShieldRecoup",
+            "have_output": "PhysicalEnergyShieldRecoup",
+            "format": "{1:output:PhysicalEnergyShieldRecoup}%"
+          },
+          {
+            "label": "Light Recoup",
+            "output_key": "LightningEnergyShieldRecoup",
+            "have_output": "LightningEnergyShieldRecoup",
+            "format": "{1:output:LightningEnergyShieldRecoup}%"
+          },
+          {
+            "label": "Cold Recoup",
+            "output_key": "ColdEnergyShieldRecoup",
+            "have_output": "ColdEnergyShieldRecoup",
+            "format": "{1:output:ColdEnergyShieldRecoup}%"
+          },
+          {
+            "label": "Fire Recoup",
+            "output_key": "FireEnergyShieldRecoup",
+            "have_output": "FireEnergyShieldRecoup",
+            "format": "{1:output:FireEnergyShieldRecoup}%"
+          },
+          {
+            "label": "Chaos Recoup",
+            "output_key": "ChaosEnergyShieldRecoup",
+            "have_output": "ChaosEnergyShieldRecoup",
+            "format": "{1:output:ChaosEnergyShieldRecoup}%"
+          },
+          {
+            "label": "Dmg. Mit. Regen",
+            "output_key": "PhysicalDamageMitigatedEnergyShieldPseudoRecoup",
+            "have_output": "PhysicalDamageMitigatedEnergyShieldPseudoRecoup",
+            "format": "{1:output:PhysicalDamageMitigatedEnergyShieldPseudoRecoup}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Ward",
+    "width": 1,
+    "group": 2,
+    "color": "^xFFFF77",
+    "subsections": [
+      {
+        "label": "Ward",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Base from Armours",
+            "format": "{0:output:Gear:Ward}"
+          },
+          {
+            "label": "Global Base",
+            "format": "{0:mod:1}"
+          },
+          {
+            "label": "Inc. from Tree",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total",
+            "output_key": "Ward",
+            "format": "{0:output:Ward}"
+          },
+          {
+            "label": "Recharge Delay",
+            "output_key": "WardRechargeDelay",
+            "format": "{2:output:WardRechargeDelay}s"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Resist",
+    "width": 1,
+    "group": 3,
+    "color": "^x8080E0",
+    "subsections": [
+      {
+        "label": "Resists",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Fire Resist",
+            "output_key": "FireResist",
+            "format": "{0:output:FireResist}% (+{0:output:FireResistOverCap}%)"
+          },
+          {
+            "label": "Cold Resist",
+            "output_key": "ColdResist",
+            "format": "{0:output:ColdResist}% (+{0:output:ColdResistOverCap}%)"
+          },
+          {
+            "label": "Lightning Resist",
+            "output_key": "LightningResist",
+            "format": "{0:output:LightningResist}% (+{0:output:LightningResistOverCap}%)"
+          },
+          {
+            "label": "Chaos Resist",
+            "output_key": "ChaosResist",
+            "format": "{0:output:ChaosResist}% (+{0:output:ChaosResistOverCap}%)"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Armour",
+    "width": 1,
+    "group": 3,
+    "color": "^xC8C8C8",
+    "subsections": [
+      {
+        "label": "Armour",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Base from Armours",
+            "format": "{0:output:Gear:Armour}"
+          },
+          {
+            "label": "Global Base",
+            "format": "{0:mod:1}"
+          },
+          {
+            "label": "Inc. from Tree",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total",
+            "output_key": "Armour",
+            "format": "{0:output:Armour}"
+          },
+          {
+            "label": "Armour Defense",
+            "output_key": "RawArmourDefense",
+            "have_output": "RawArmourDefense",
+            "format": "{0:output:RawArmourDefense}%"
+          },
+          {
+            "label": "Phys. Dmg. Reduct",
+            "output_key": "PhysicalDamageReduction",
+            "format": "{0:output:PhysicalDamageReduction}%"
+          },
+          {
+            "label": "Fire Dmg. Reduct",
+            "output_key": "FireDamageReduction",
+            "have_output": "FireDamageReduction",
+            "format": "{0:output:FireDamageReduction}%"
+          },
+          {
+            "label": "Cold Dmg. Reduct",
+            "output_key": "ColdDamageReduction",
+            "have_output": "ColdDamageReduction",
+            "format": "{0:output:ColdDamageReduction}%"
+          },
+          {
+            "label": "Light. Dmg. Reduct",
+            "output_key": "LightningDamageReduction",
+            "have_output": "LightningDamageReduction",
+            "format": "{0:output:LightningDamageReduction}%"
+          },
+          {
+            "label": "Chaos Dmg. Reduct",
+            "output_key": "ChaosDamageReduction",
+            "have_output": "ChaosDamageReduction",
+            "format": "{0:output:ChaosDamageReduction}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Evasion",
+    "width": 1,
+    "group": 3,
+    "color": "^x33FF77",
+    "subsections": [
+      {
+        "label": "Evasion",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Base from Armours",
+            "format": "{0:output:Gear:Evasion}"
+          },
+          {
+            "label": "Global Base",
+            "format": "{0:mod:1}"
+          },
+          {
+            "label": "Inc. from Tree",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total Increased",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total More",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Total",
+            "output_key": "Evasion",
+            "format": "{0:output:Evasion}"
+          },
+          {
+            "label": "Evade Chance",
+            "output_key": "EvadeChance",
+            "have_output": "noSplitEvade",
+            "format": "{0:output:EvadeChance}%"
+          },
+          {
+            "label": "Melee Evade Ch.",
+            "output_key": "MeleeEvadeChance",
+            "have_output": "splitEvade",
+            "format": "{0:output:MeleeEvadeChance}%"
+          },
+          {
+            "label": "Proj. Evade Ch.",
+            "output_key": "ProjectileEvadeChance",
+            "have_output": "splitEvade",
+            "format": "{0:output:ProjectileEvadeChance}%"
+          },
+          {
+            "label": "Effect of Blind",
+            "output_key": "BlindEffectMod",
+            "have_output": "BlindEffectMod",
+            "format": "{0:output:BlindEffectMod}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "DamageAvoidance",
+    "width": 1,
+    "group": 3,
+    "color": "^x8080E0",
+    "subsections": [
+      {
+        "label": "Damage Avoidance",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Avoid All Dmg Ch.",
+            "output_key": "AvoidAllDamageFromHitsChance",
+            "have_output": "AvoidAllDamageFromHitsChance",
+            "format": "{0:output:AvoidAllDamageFromHitsChance}%"
+          },
+          {
+            "label": "Avoid Physical Ch.",
+            "output_key": "AvoidPhysicalDamageChance",
+            "have_output": "AvoidPhysicalDamageChance",
+            "format": "{0:output:AvoidPhysicalDamageChance}%"
+          },
+          {
+            "label": "Avoid Lightning Ch.",
+            "output_key": "AvoidLightningDamageChance",
+            "have_output": "AvoidLightningDamageChance",
+            "format": "{0:output:AvoidLightningDamageChance}%"
+          },
+          {
+            "label": "Avoid Cold Chance",
+            "output_key": "AvoidColdDamageChance",
+            "have_output": "AvoidColdDamageChance",
+            "format": "{0:output:AvoidColdDamageChance}%"
+          },
+          {
+            "label": "Avoid Fire Chance",
+            "output_key": "AvoidFireDamageChance",
+            "have_output": "AvoidFireDamageChance",
+            "format": "{0:output:AvoidFireDamageChance}%"
+          },
+          {
+            "label": "Avoid Chaos Chance",
+            "output_key": "AvoidChaosDamageChance",
+            "have_output": "AvoidChaosDamageChance",
+            "format": "{0:output:AvoidChaosDamageChance}%"
+          },
+          {
+            "label": "Avoid Proj Ch.",
+            "output_key": "AvoidProjectilesChance",
+            "have_output": "AvoidProjectilesChance",
+            "format": "{0:output:AvoidProjectilesChance}%"
+          }
+        ]
+      },
+      {
+        "label": "Block",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Block Chance",
+            "output_key": "BlockChance",
+            "format": "{0:output:BlockChance}% (+{0:output:BlockChanceOverCap}%)"
+          },
+          {
+            "label": "Spell Block Chance",
+            "output_key": "SpellBlockChance",
+            "format": "{0:output:SpellBlockChance}% (+{0:output:SpellBlockChanceOverCap}%)"
+          },
+          {
+            "label": "Taken From Block",
+            "output_key": "DamageTakenOnBlock",
+            "have_output": "ShowBlockEffect",
+            "format": "{0:output:DamageTakenOnBlock}%"
+          },
+          {
+            "label": "Life on Block",
+            "output_key": "LifeOnBlock",
+            "have_output": "LifeOnBlock",
+            "format": "{0:output:LifeOnBlock}"
+          },
+          {
+            "label": "Mana on Block",
+            "output_key": "ManaOnBlock",
+            "have_output": "ManaOnBlock",
+            "format": "{0:output:ManaOnBlock}"
+          },
+          {
+            "label": "ES on Block",
+            "output_key": "EnergyShieldOnBlock",
+            "have_output": "EnergyShieldOnBlock",
+            "format": "{0:output:EnergyShieldOnBlock}"
+          },
+          {
+            "label": "ES on Spell Block",
+            "output_key": "EnergyShieldOnSpellBlock",
+            "have_output": "EnergyShieldOnSpellBlock",
+            "format": "{0:output:EnergyShieldOnSpellBlock}"
+          }
+        ]
+      },
+      {
+        "label": "Dodge",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Dodge Chance",
+            "output_key": "AttackDodgeChance",
+            "format": "{0:output:AttackDodgeChance}% (+{0:output:AttackDodgeChanceOverCap}%)"
+          },
+          {
+            "label": "Spell Ddg. Chance",
+            "output_key": "SpellDodgeChance",
+            "format": "{0:output:SpellDodgeChance}% (+{0:output:SpellDodgeChanceOverCap}%)"
+          }
+        ]
+      },
+      {
+        "label": "Spell Suppression",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Suppression Ch.",
+            "output_key": "SpellSuppressionChance",
+            "format": "{0:output:SpellSuppressionChance}% (+{0:output:SpellSuppressionChanceOverCap}%)"
+          },
+          {
+            "label": "Suppression Effect",
+            "output_key": "SpellSuppressionEffect",
+            "format": "{0:output:SpellSuppressionEffect}%"
+          },
+          {
+            "label": "Life on Suppression",
+            "output_key": "LifeOnSuppress",
+            "have_output": "LifeOnSuppress",
+            "format": "{0:output:LifeOnSuppress}"
+          },
+          {
+            "label": "ES on Suppression",
+            "output_key": "EnergyShieldOnSuppress",
+            "have_output": "EnergyShieldOnSuppress",
+            "format": "{0:output:EnergyShieldOnSuppress}"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Flasks",
+    "width": 1,
+    "group": 3,
+    "color": "^xB8DAF1",
+    "subsections": [
+      {
+        "label": "Flasks",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Inc. Effect",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Inc. Duration",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Inc. Charges Gain",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Inc. Charges Used",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "% to not Consume",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Charge on crit %",
+            "output_key": "FlaskChargeOnCritChance",
+            "format": "{0:output:FlaskChargeOnCritChance}%"
+          },
+          {
+            "label": "Charges/s",
+            "output_key": "FlaskChargeGen",
+            "format": "{2:output:FlaskChargeGen}"
+          }
+        ]
+      },
+      {
+        "label": "Utility Flasks",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Inc. Magic Effect",
+            "format": "{0:mod:1,2}%"
+          },
+          {
+            "label": "Charges/s",
+            "output_key": "UtilityFlaskChargeGen",
+            "format": "{2:output:UtilityFlaskChargeGen}"
+          }
+        ]
+      },
+      {
+        "label": "Life Flasks",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Inc. Recovery",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "More Recovery",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Inc. Recovery Rate",
+            "format": "{0:mod:1,2}%"
+          },
+          {
+            "label": "Charges/s",
+            "output_key": "LifeFlaskChargeGen",
+            "format": "{2:output:LifeFlaskChargeGen}"
+          }
+        ]
+      },
+      {
+        "label": "Mana Flasks",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Inc. Recovery",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Inc. Recovery Rate",
+            "format": "{0:mod:1,2}%"
+          },
+          {
+            "label": "Charges/s",
+            "output_key": "ManaFlaskChargeGen",
+            "format": "{2:output:ManaFlaskChargeGen}"
+          }
+        ]
+      },
+      {
+        "label": "Tinctures",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Inc. Effect",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Tincture Limit",
+            "format": "{0:mod:1}"
+          },
+          {
+            "label": "ManaBurn inc Rate",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "ManaBurn more Rate",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "% Not Inflict ManaBurn",
+            "format": "{0:mod:1}%"
+          },
+          {
+            "label": "Cooldown Recovery",
+            "format": "{0:mod:1}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Rage",
+    "width": 1,
+    "group": 3,
+    "color": "^xFF9922",
+    "subsections": [
+      {
+        "label": "Rage",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Total",
+            "output_key": "Rage",
+            "format": "{0:output:Rage}"
+          },
+          {
+            "label": "Rage Effect",
+            "output_key": "RageEffect",
+            "format": "{1:output:RageEffect}"
+          },
+          {
+            "label": "Maximum Rage",
+            "output_key": "MaximumRage",
+            "format": "{0:output:MaximumRage}"
+          },
+          {
+            "label": "Recovery",
+            "output_key": "RageRegenRecovery",
+            "format": "{1:output:RageRegenRecovery} ({1:output:RageRegenPercent}%)"
+          },
+          {
+            "label": "Rage Loss Delay",
+            "output_key": "InherentRageLossDelay",
+            "format": "{1:output:InherentRageLossDelay}s"
+          },
+          {
+            "label": "Inherent Rage Loss",
+            "output_key": "InherentRageLoss",
+            "format": "{1:output:InherentRageLoss} /s"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Charges",
+    "width": 1,
+    "group": 3,
+    "color": "^xC8C8C8",
+    "subsections": [
+      {
+        "label": "Charges",
+        "default_collapsed": true,
+        "rows": []
+      },
+      {
+        "label": "Endurance",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Max",
+            "output_key": "EnduranceChargesMax",
+            "format": "{0:output:EnduranceChargesMax}"
+          },
+          {
+            "label": "Current",
+            "output_key": "EnduranceCharges",
+            "format": "{0:output:EnduranceCharges}"
+          },
+          {
+            "label": "Spendable",
+            "output_key": "RemovableEnduranceCharges",
+            "format": "{0:output:RemovableEnduranceCharges}"
+          },
+          {
+            "label": "Duration",
+            "output_key": "EnduranceChargesDuration",
+            "format": "{0:output:EnduranceChargesDuration}s"
+          }
+        ]
+      },
+      {
+        "label": "Frenzy",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Max",
+            "output_key": "FrenzyChargesMax",
+            "format": "{0:output:FrenzyChargesMax}"
+          },
+          {
+            "label": "Current",
+            "output_key": "FrenzyCharges",
+            "format": "{0:output:FrenzyCharges}"
+          },
+          {
+            "label": "Spendable",
+            "output_key": "RemovableFrenzyCharges",
+            "format": "{0:output:RemovableFrenzyCharges}"
+          },
+          {
+            "label": "Duration",
+            "output_key": "FrenzyChargesDuration",
+            "format": "{0:output:FrenzyChargesDuration}s"
+          }
+        ]
+      },
+      {
+        "label": "Power",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Max",
+            "output_key": "PowerChargesMax",
+            "format": "{0:output:PowerChargesMax}"
+          },
+          {
+            "label": "Current",
+            "output_key": "PowerCharges",
+            "format": "{0:output:PowerCharges}"
+          },
+          {
+            "label": "Spendable",
+            "output_key": "RemovablePowerCharges",
+            "format": "{0:output:RemovablePowerCharges}"
+          },
+          {
+            "label": "Duration",
+            "output_key": "PowerChargesDuration",
+            "format": "{0:output:PowerChargesDuration}s"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "MiscDefences",
+    "width": 1,
+    "group": 3,
+    "color": "^x8080E0",
+    "subsections": [
+      {
+        "label": "Other Defences",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Movement Speed",
+            "output_key": "EffectiveMovementSpeedMod",
+            "format": "x {2:output:EffectiveMovementSpeedMod}"
+          },
+          {
+            "label": "Effect of Elusive",
+            "output_key": "ElusiveEffectMod",
+            "have_output": "ElusiveEffectMod",
+            "format": "{0:output:ElusiveEffectMod}%"
+          },
+          {
+            "label": "Light Radius Mod",
+            "output_key": "LightRadiusMod",
+            "format": "x {2:output:LightRadiusMod}"
+          },
+          {
+            "label": "Curse Effect on You",
+            "output_key": "CurseEffectOnSelf",
+            "format": "{1:output:CurseEffectOnSelf}%"
+          },
+          {
+            "label": "Exposure Effect",
+            "output_key": "ExposureEffectOnSelf",
+            "format": "{1:output:ExposureEffectOnSelf}%"
+          },
+          {
+            "label": "Wither Effect",
+            "output_key": "WitherEffectOnSelf",
+            "format": "{1:output:WitherEffectOnSelf}%"
+          },
+          {
+            "label": "Debuff Dur. Mult.",
+            "output_key": "DebuffExpirationModifier",
+            "have_output": "showDebuffExpirationModifier",
+            "format": "{1:output:DebuffExpirationModifier}%"
+          }
+        ]
+      },
+      {
+        "label": "Fortification",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Maximum Stacks",
+            "output_key": "MaximumFortification",
+            "have_output": "MaximumFortification",
+            "format": "{0:output:MaximumFortification}"
+          },
+          {
+            "label": "Minimum Stacks",
+            "output_key": "MinimumFortification",
+            "have_output": "MinimumFortification",
+            "format": "{0:output:MinimumFortification}"
+          },
+          {
+            "label": "Duration",
+            "output_key": "FortifyDuration",
+            "have_output": "FortifyDuration",
+            "format": "{2:output:FortifyDuration}s"
+          },
+          {
+            "label": "Less Dmg. Taken",
+            "have_output": "FortificationEffect",
+            "format": "{output:FortificationEffect}%"
+          }
+        ]
+      },
+      {
+        "label": "Stun Duration",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Stun Avoid Chance",
+            "output_key": "StunAvoidChance",
+            "have_output": "StunAvoidChance",
+            "format": "{0:output:StunAvoidChance}%"
+          },
+          {
+            "label": "Stun Threshold",
+            "output_key": "StunThreshold",
+            "format": "{0:output:StunThreshold}"
+          },
+          {
+            "label": "Stun Chance",
+            "output_key": "SelfStunChance",
+            "format": "{0:output:SelfStunChance}%"
+          },
+          {
+            "label": "Interrupt Avoid Ch.",
+            "output_key": "InterruptStunAvoidChance",
+            "have_output": "InterruptStunAvoidChance",
+            "format": "{0:output:InterruptStunAvoidChance}%"
+          },
+          {
+            "label": "Stun Duration",
+            "output_key": "StunDuration",
+            "format": "{2:output:StunDuration}s"
+          },
+          {
+            "label": "Block Stun Duration",
+            "output_key": "BlockDuration",
+            "format": "{2:output:BlockDuration}s"
+          }
+        ]
+      },
+      {
+        "label": "Other Avoidance",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Blind Avoid Ch.",
+            "output_key": "BlindAvoidChance",
+            "have_output": "BlindAvoidChance",
+            "format": "{0:output:BlindAvoidChance}%"
+          },
+          {
+            "label": "Shock Avoid Ch.",
+            "output_key": "ShockAvoidChance",
+            "have_output": "ShockAvoidChance",
+            "format": "{0:output:ShockAvoidChance}%"
+          },
+          {
+            "label": "Freeze Avoid Ch.",
+            "output_key": "FreezeAvoidChance",
+            "have_output": "FreezeAvoidChance",
+            "format": "{0:output:FreezeAvoidChance}%"
+          },
+          {
+            "label": "Chill Avoid Ch.",
+            "output_key": "ChillAvoidChance",
+            "have_output": "ChillAvoidChance",
+            "format": "{0:output:ChillAvoidChance}%"
+          },
+          {
+            "label": "Ignite Avoid Ch.",
+            "output_key": "IgniteAvoidChance",
+            "have_output": "IgniteAvoidChance",
+            "format": "{0:output:IgniteAvoidChance}%"
+          },
+          {
+            "label": "Sap Avoid Ch.",
+            "output_key": "SapAvoidChance",
+            "have_output": "SapAvoidChance",
+            "format": "{0:output:SapAvoidChance}%"
+          },
+          {
+            "label": "Brittle Avoid Ch.",
+            "output_key": "BrittleAvoidChance",
+            "have_output": "BrittleAvoidChance",
+            "format": "{0:output:BrittleAvoidChance}%"
+          },
+          {
+            "label": "Scorch Avoid Ch.",
+            "output_key": "ScorchAvoidChance",
+            "have_output": "ScorchAvoidChance",
+            "format": "{0:output:ScorchAvoidChance}%"
+          },
+          {
+            "label": "Bleed Avoid Ch.",
+            "output_key": "BleedAvoidChance",
+            "have_output": "BleedAvoidChance",
+            "format": "{0:output:BleedAvoidChance}%"
+          },
+          {
+            "label": "Poison Avoid Ch.",
+            "output_key": "PoisonAvoidChance",
+            "have_output": "PoisonAvoidChance",
+            "format": "{0:output:PoisonAvoidChance}%"
+          },
+          {
+            "label": "Impale Avoid Ch.",
+            "output_key": "ImpaleAvoidChance",
+            "have_output": "ImpaleAvoidChance",
+            "format": "{0:output:ImpaleAvoidChance}%"
+          },
+          {
+            "label": "Curse Avoid Ch.",
+            "output_key": "CurseAvoidChance",
+            "have_output": "CurseAvoidChance",
+            "format": "{0:output:CurseAvoidChance}%"
+          },
+          {
+            "label": "Silence Avoid Ch.",
+            "output_key": "SilenceAvoidChance",
+            "have_output": "SilenceAvoidChance",
+            "format": "{0:output:SilenceAvoidChance}%"
+          },
+          {
+            "label": "Crit Reduction",
+            "output_key": "CritExtraDamageReduction",
+            "have_output": "CritExtraDamageReduction",
+            "format": "{0:output:CritExtraDamageReduction}%"
+          },
+          {
+            "label": "Corr Blood Immune",
+            "have_output": "CorruptedBloodImmunity",
+            "format": "True"
+          },
+          {
+            "label": "Maim Immune",
+            "have_output": "MaimImmunity",
+            "format": "True"
+          },
+          {
+            "label": "Hinder Immune",
+            "have_output": "HinderImmunity",
+            "format": "True"
+          },
+          {
+            "label": "Knockback Immune",
+            "have_output": "KnockbackImmunity",
+            "format": "True"
+          },
+          {
+            "label": "Blind Duration",
+            "output_key": "SelfBlindDuration",
+            "have_output": "SelfBlindDuration",
+            "format": "{0:output:SelfBlindDuration}%"
+          }
+        ]
+      },
+      {
+        "label": "Other Ailment Defences",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Freeze Duration",
+            "output_key": "SelfFreezeDuration",
+            "format": "{1:output:SelfFreezeDuration}%"
+          },
+          {
+            "label": "Chill Duration",
+            "output_key": "SelfChillDuration",
+            "format": "{1:output:SelfChillDuration}%"
+          },
+          {
+            "label": "Shock Duration",
+            "output_key": "SelfShockDuration",
+            "format": "{1:output:SelfShockDuration}%"
+          },
+          {
+            "label": "Ignite Duration",
+            "output_key": "SelfIgniteDuration",
+            "format": "{1:output:SelfIgniteDuration}%"
+          },
+          {
+            "label": "Sap Duration",
+            "output_key": "SelfSapDuration",
+            "format": "{1:output:SelfSapDuration}%"
+          },
+          {
+            "label": "Brittle Duration",
+            "output_key": "SelfBrittleDuration",
+            "format": "{1:output:SelfBrittleDuration}%"
+          },
+          {
+            "label": "Scorch Duration",
+            "output_key": "SelfScorchDuration",
+            "format": "{1:output:SelfScorchDuration}%"
+          },
+          {
+            "label": "Bleed Duration",
+            "output_key": "SelfBleedDuration",
+            "format": "{1:output:SelfBleedDuration}%"
+          },
+          {
+            "label": "Poison Duration",
+            "output_key": "SelfPoisonDuration",
+            "format": "{1:output:SelfPoisonDuration}%"
+          },
+          {
+            "label": "Freeze Effect",
+            "output_key": "SelfFreezeEffect",
+            "format": "{1:output:SelfFreezeEffect}%"
+          },
+          {
+            "label": "Chill Effect",
+            "output_key": "SelfChillEffect",
+            "format": "{1:output:SelfChillEffect}%"
+          },
+          {
+            "label": "Shock Effect",
+            "output_key": "SelfShockEffect",
+            "format": "{1:output:SelfShockEffect}%"
+          },
+          {
+            "label": "Ignite Effect",
+            "output_key": "SelfIgniteEffect",
+            "format": "{1:output:SelfIgniteEffect}%"
+          },
+          {
+            "label": "Sap Effect",
+            "output_key": "SelfSapEffect",
+            "format": "{1:output:SelfSapEffect}%"
+          },
+          {
+            "label": "Brittle Effect",
+            "output_key": "SelfBrittleEffect",
+            "format": "{1:output:SelfBrittleEffect}%"
+          },
+          {
+            "label": "Scorch Effect",
+            "output_key": "SelfScorchEffect",
+            "format": "{1:output:SelfScorchEffect}%"
+          },
+          {
+            "label": "Bleed Effect",
+            "output_key": "SelfBleedEffect",
+            "format": "{1:output:SelfBleedEffect}%"
+          },
+          {
+            "label": "Poison Effect",
+            "output_key": "SelfPoisonEffect",
+            "format": "{1:output:SelfPoisonEffect}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "DamageTaken",
+    "width": 3,
+    "group": 1,
+    "color": "^x8080E0",
+    "subsections": [
+      {
+        "label": "Damage Taken",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Enemy Damage",
+            "output_key": "totalEnemyDamage",
+            "format": "{2:output:totalEnemyDamage}"
+          },
+          {
+            "label": "Taken As",
+            "output_key": "totalTakenDamage",
+            "format": "{2:output:totalTakenDamage}"
+          }
+        ]
+      },
+      {
+        "label": "Damaging Hits",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Hit taken Mult.",
+            "format": ""
+          },
+          {
+            "label": "Reflect taken",
+            "have_output": "AnyTakenReflect",
+            "format": ""
+          },
+          {
+            "label": "Hit taken",
+            "output_key": "totalTakenHit",
+            "format": "{2:output:totalTakenHit}"
+          },
+          {
+            "label": "PvP Hit taken",
+            "output_key": "PvPTotalTakenHit",
+            "have_output": "PvPTotalTakenHit",
+            "format": "{2:output:PvPTotalTakenHit}"
+          },
+          {
+            "label": "ES Bypass %",
+            "have_output": "AnyBypass",
+            "format": " "
+          },
+          {
+            "label": "",
+            "have_output": "ehpSectionAnySpecificTypes",
+            "format": "Shared:"
+          },
+          {
+            "label": "Prevented Life Loss",
+            "output_key": "preventedLifeLossTotal",
+            "have_output": "preventedLifeLossTotal",
+            "format": "{0:output:preventedLifeLossTotal}"
+          },
+          {
+            "label": "Mind over Matter %",
+            "output_key": "sharedMindOverMatter",
+            "have_output": "OnlySharedMindOverMatter",
+            "format": "{0:output:sharedMindOverMatter}%"
+          },
+          {
+            "label": "Mind over Matter %",
+            "output_key": "sharedMindOverMatter",
+            "have_output": "AnySpecificMindOverMatter",
+            "format": "{0:output:sharedMindOverMatter}%"
+          },
+          {
+            "label": "Guard",
+            "output_key": "sharedGuardAbsorb",
+            "have_output": "OnlySharedGuard",
+            "format": "{0:output:sharedGuardAbsorb}"
+          },
+          {
+            "label": "Guard",
+            "output_key": "sharedGuardAbsorb",
+            "have_output": "AnyGuard",
+            "format": "{0:output:sharedGuardAbsorb}"
+          },
+          {
+            "label": "Aegis",
+            "output_key": "sharedAegis",
+            "have_output": "AnyAegis",
+            "format": "{0:output:sharedAegis}"
+          },
+          {
+            "label": "Frost Shield",
+            "output_key": "FrostShieldLife",
+            "have_output": "FrostShieldLife",
+            "format": "{0:output:FrostShieldLife}"
+          },
+          {
+            "label": "Spectre Ally",
+            "output_key": "TotalSpectreLife",
+            "have_output": "TotalSpectreLife",
+            "format": "{0:output:TotalSpectreLife}"
+          },
+          {
+            "label": "Totem Ally",
+            "output_key": "TotalTotemLife",
+            "have_output": "TotalTotemLife",
+            "format": "{0:output:TotalTotemLife}"
+          },
+          {
+            "label": "Vaal Rejuv. Totem",
+            "output_key": "TotalVaalRejuvenationTotemLife",
+            "have_output": "TotalVaalRejuvenationTotemLife",
+            "format": "{0:output:TotalVaalRejuvenationTotemLife}"
+          },
+          {
+            "label": "Soul Link",
+            "output_key": "AlliedEnergyShield",
+            "have_output": "AlliedEnergyShield",
+            "format": "{0:output:AlliedEnergyShield}"
+          },
+          {
+            "label": "Hits before death",
+            "output_key": "NumberOfDamagingHits",
+            "format": "{2:output:NumberOfDamagingHits}"
+          }
+        ]
+      },
+      {
+        "label": "Effective \"Health\" Pool",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Unmitigated %",
+            "output_key": "ConfiguredDamageChance",
+            "format": "{0:output:ConfiguredDamageChance}%"
+          },
+          {
+            "label": "Mitigated hits",
+            "output_key": "NumberOfMitigatedDamagingHits",
+            "format": "{2:output:NumberOfMitigatedDamagingHits}"
+          },
+          {
+            "label": "Enemy miss chance",
+            "output_key": "ConfiguredNotHitChance",
+            "format": "{0:output:ConfiguredNotHitChance}%"
+          },
+          {
+            "label": "Hits before death",
+            "output_key": "TotalNumberOfHits",
+            "format": "{2:output:TotalNumberOfHits}"
+          },
+          {
+            "label": "Effective Hit Pool",
+            "output_key": "TotalEHP",
+            "format": "{0:output:TotalEHP}"
+          },
+          {
+            "label": "Time before death",
+            "output_key": "EHPSurvivalTime",
+            "format": "{2:output:EHPSurvivalTime}s"
+          }
+        ]
+      },
+      {
+        "label": "Maximum Hit Taken",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "Maximum Hit Taken",
+            "output_key": "PhysicalMaximumHitTaken",
+            "format": "{0:output:PhysicalMaximumHitTaken}"
+          }
+        ]
+      },
+      {
+        "label": "Recoup and Hit Taken Over Time",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Recoup Max.",
+            "output_key": "LifeRecoupRecoveryMax",
+            "have_output": "anyRecoup",
+            "format": "{0:output:LifeRecoupRecoveryMax}"
+          },
+          {
+            "label": "Recoup Avg.",
+            "output_key": "LifeRecoupRecoveryAvg",
+            "have_output": "anyRecoup",
+            "format": "{0:output:LifeRecoupRecoveryAvg}"
+          },
+          {
+            "label": "Hit Over Time Max.",
+            "output_key": "LifeLossLostMax",
+            "have_output": "preventedLifeLossTotal",
+            "format": "{0:output:LifeLossLostMax}"
+          },
+          {
+            "label": "Hit Over Time Avg.",
+            "output_key": "LifeLossLostAvg",
+            "have_output": "preventedLifeLossTotal",
+            "format": "{0:output:LifeLossLostAvg}"
+          },
+          {
+            "label": "Net Max.",
+            "output_key": "netLifeRecoupAndLossLostOverTimeMax",
+            "have_output": "showNetRecoup",
+            "format": "{0:output:netLifeRecoupAndLossLostOverTimeMax}"
+          },
+          {
+            "label": "Net Avg.",
+            "output_key": "netLifeRecoupAndLossLostOverTimeAvg",
+            "have_output": "showNetRecoup",
+            "format": "{0:output:netLifeRecoupAndLossLostOverTimeAvg}"
+          }
+        ]
+      },
+      {
+        "label": "Dots and Build Degens",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "DoT taken",
+            "output_key": "PhysicalTakenDotMult",
+            "format": "x {2:output:PhysicalTakenDotMult}"
+          },
+          {
+            "label": "Total Pool",
+            "output_key": "PhysicalTotalPool",
+            "format": "{0:output:PhysicalTotalPool}"
+          },
+          {
+            "label": "Effective DoT Pool",
+            "output_key": "PhysicalDotEHP",
+            "format": "{0:output:PhysicalDotEHP}"
+          },
+          {
+            "label": "Degens",
+            "output_key": "PhysicalBuildDegen",
+            "have_output": "TotalBuildDegen",
+            "format": "{0:output:PhysicalBuildDegen}"
+          },
+          {
+            "label": "Total Degen",
+            "output_key": "TotalBuildDegen",
+            "have_output": "TotalBuildDegen",
+            "format": "{1:output:TotalBuildDegen}"
+          },
+          {
+            "label": "Total Net Recovery",
+            "output_key": "TotalNetRegen",
+            "have_output": "TotalNetRegen",
+            "format": "{1:output:TotalNetRegen}"
+          },
+          {
+            "label": "Net Life Recovery",
+            "output_key": "NetLifeRegen",
+            "have_output": "NetLifeRegen",
+            "format": "{1:output:NetLifeRegen}"
+          },
+          {
+            "label": "Net Mana Recovery",
+            "output_key": "NetManaRegen",
+            "have_output": "NetManaRegen",
+            "format": "{1:output:NetManaRegen}"
+          },
+          {
+            "label": "Net ES Recovery",
+            "output_key": "NetEnergyShieldRegen",
+            "have_output": "NetEnergyShieldRegen",
+            "format": "{1:output:NetEnergyShieldRegen}"
+          }
+        ]
+      },
+      {
+        "label": "Enemy Degens",
+        "default_collapsed": true,
+        "rows": [
+          {
+            "label": "Degens",
+            "output_key": "PhysicalEnemyDegen",
+            "have_output": "TotalDegen",
+            "format": "{0:output:PhysicalEnemyDegen}"
+          },
+          {
+            "label": "Total Degen",
+            "output_key": "TotalDegen",
+            "have_output": "TotalDegen",
+            "format": "{1:output:TotalDegen}"
+          },
+          {
+            "label": "Total Net Recovery",
+            "output_key": "ComprehensiveTotalNetRegen",
+            "have_output": "ComprehensiveTotalNetRegen",
+            "format": "{1:output:ComprehensiveTotalNetRegen}"
+          },
+          {
+            "label": "Net Life Recovery",
+            "output_key": "ComprehensiveNetLifeRegen",
+            "have_output": "ComprehensiveNetLifeRegen",
+            "format": "{1:output:ComprehensiveNetLifeRegen}"
+          },
+          {
+            "label": "Net Mana Recovery",
+            "output_key": "ComprehensiveNetManaRegen",
+            "have_output": "ComprehensiveNetManaRegen",
+            "format": "{1:output:ComprehensiveNetManaRegen}"
+          },
+          {
+            "label": "Net ES Recovery",
+            "output_key": "ComprehensiveNetEnergyShieldRegen",
+            "have_output": "ComprehensiveNetEnergyShieldRegen",
+            "format": "{1:output:ComprehensiveNetEnergyShieldRegen}"
+          }
+        ]
+      }
+    ]
+  }
+]
