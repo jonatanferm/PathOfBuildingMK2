@@ -49,7 +49,26 @@ pub fn compute_full_with_env(
     skills: Option<&SkillRegistry>,
     bases: Option<&pob_data::bases::ItemBaseSet>,
 ) -> (Output, Env) {
+    compute_full_with_clusters(character, tree, skills, bases, None)
+}
+
+/// Issue #21: full-fat compute that also takes a cluster-jewel context so
+/// allocated synthesised cluster nodes contribute their mods. The
+/// `cluster_ctx` is the loaded `data/cluster_jewels.json` +
+/// `data/cluster_jewel_mods.json` payloads — passed through here rather than
+/// stored on `Character` so the calc layer stays I/O-free and wasm-clean.
+/// `None` skips synthesis entirely (mirrors the engine's pre-#21 behaviour).
+pub fn compute_full_with_clusters(
+    character: &Character,
+    tree: &PassiveTree,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+) -> (Output, Env) {
     let mut env = init_env_with_bases(character, tree, bases);
+    if let Some(ctx) = cluster_ctx {
+        apply_cluster_jewel_mods(character, tree, &mut env, ctx);
+    }
     // Issue #19 (slice 13): warcry buff injection happens BEFORE
     // perform_basic_stats so the per-cry buffs (Enduring's
     // LifeRegen, Ancestral's ElementalResist + Max, Seismic's
@@ -483,6 +502,78 @@ pub fn init_env_with_bases(
     apply_enemy_boss_preset(character.config.enemy_boss, &mut env);
 
     env
+}
+
+/// Issue #21: cluster-jewel synthesis context. Carries the loaded
+/// `data/cluster_jewels.json` + `data/cluster_jewel_mods.json` payloads that
+/// the calc engine needs to materialise sub-graphs from the user's socketed
+/// cluster jewels. Bundled so callers thread one struct through `compute_full_with_clusters`
+/// instead of two parallel options.
+#[derive(Debug, Copy, Clone)]
+pub struct ClusterContext<'a> {
+    pub jewels: &'a pob_data::ClusterJewelData,
+    pub mods: &'a pob_data::cluster_jewel_mods::ClusterModSet,
+}
+
+impl<'a> ClusterContext<'a> {
+    pub fn new(
+        jewels: &'a pob_data::ClusterJewelData,
+        mods: &'a pob_data::cluster_jewel_mods::ClusterModSet,
+    ) -> Self {
+        Self { jewels, mods }
+    }
+}
+
+/// Issue #21: walk every cluster jewel socketed in `character.jewels`,
+/// synthesise its sub-graph, and inject mods for every synthesised node that
+/// is _both_ allocated by the user _and_ whose host jewel socket is itself
+/// allocated. Mirrors PoB's `BuildClusterJewelGraphs` followed by the
+/// implicit allocation-check inside `CalcSetup.lua` — a synthesised node
+/// only contributes if you can actually reach it through the parent socket.
+fn apply_cluster_jewel_mods(
+    character: &Character,
+    tree: &PassiveTree,
+    env: &mut Env,
+    ctx: ClusterContext<'_>,
+) {
+    if character.jewels.is_empty() {
+        return;
+    }
+    // Run the synthesis once. The result is stable wrt input so the UI can
+    // call `synthesise_all` separately for rendering without a second pass.
+    let specs = crate::cluster_synth::synthesise_all(tree, &character.jewels, ctx.jewels, ctx.mods);
+    if specs.is_empty() {
+        return;
+    }
+    for spec in &specs {
+        // Gate the sub-graph on the host socket being allocated. If the
+        // player hasn't pathed to the socket, the cluster's nodes are
+        // unreachable — same behaviour as PoB's path-anchored alloc check.
+        if !character.allocated.contains(&spec.parent_socket) {
+            continue;
+        }
+        for (id, node) in &spec.nodes {
+            if !character.allocated.contains(id) {
+                continue;
+            }
+            for raw in &node.stats {
+                for line in raw.lines() {
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    if let Some(parsed) = parse_mod_line(line) {
+                        env.mod_db
+                            .add(parsed.mod_.with_source(Source::Passive(*id)));
+                    }
+                }
+            }
+        }
+    }
+    let _ = tree; // synthesised stats have already been parsed onto env.mod_db; tree is
+                  // retained on the signature for future per-tree-version notable
+                  // template lookups (e.g. orphan-notable resolution that varies between
+                  // 3.10 and 3.28 cluster catalogues).
 }
 
 /// Inject the static mods awarded by the chosen Act 2 bandit. Numbers mirror

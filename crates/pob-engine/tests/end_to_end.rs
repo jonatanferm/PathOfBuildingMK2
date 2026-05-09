@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 
 use pob_engine::{
-    character::ClassRef, parse_item, perform::compute_with_skills, Character, MainSkill,
+    character::ClassRef, parse_item, perform::compute_with_skills, Character, MainSkill, ModStore,
     SkillRegistry,
 };
 
@@ -5907,4 +5907,214 @@ fn level_up_increases_life_and_mana() {
     // Life formula: 50 + 12*(L-1) + Str/2 with no items / nodes
     assert_eq!(l1.get("Life"), 66.0);
     assert_eq!(l90.get("Life"), 50.0 + 12.0 * 89.0 + 16.0);
+}
+
+// Issue #21: cluster-jewel sub-graph synthesis. When a Cluster Jewel
+// item is socketed into a Large jewel socket and the player allocates
+// a synthesised notable, the notable's mods should flow through to
+// `MainSkillDPS` / `Strength` / etc. via the standard perform pipeline.
+#[test]
+fn cluster_jewel_notable_contributes_mods_when_allocated() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: tree data missing");
+        return;
+    };
+    // Load the cluster jewel data files if present. CI extracts them via
+    // pob-extract; if missing the test silently skips so it doesn't gate
+    // CI on the data being available.
+    let cluster_jewels_path = data_root().join("cluster_jewels.json");
+    let cluster_mods_path = data_root().join("cluster_jewel_mods.json");
+    let Ok(cj_json) = std::fs::read_to_string(&cluster_jewels_path) else {
+        eprintln!("skip: cluster_jewels.json missing");
+        return;
+    };
+    let Ok(cm_json) = std::fs::read_to_string(&cluster_mods_path) else {
+        eprintln!("skip: cluster_jewel_mods.json missing");
+        return;
+    };
+    let cluster_jewels = pob_data::load_cluster_jewels(&cj_json).expect("decode cluster_jewels");
+    let cluster_mods =
+        pob_data::load_cluster_jewel_mods(&cm_json).expect("decode cluster_jewel_mods");
+
+    // Find a Large jewel socket on the live tree.
+    let large_socket_id = tree
+        .nodes
+        .iter()
+        .find_map(|(id, n)| (n.expansion_jewel_size == Some(2)).then_some(*id))
+        .expect("3.25 tree should have at least one Large jewel socket");
+
+    // Build a Marauder with the parent socket allocated. We don't bother
+    // pathing to it through the full tree — Character mod application
+    // honours the `allocated` set directly when synth nodes are injected
+    // outside `connected_allocations`.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.allocate(large_socket_id);
+
+    // Equip a Large Cluster Jewel with one notable: Heraldry. We pick
+    // Heraldry because the 3.25 tree's orphan-notable template carries
+    // an explicit "+12% to all Resistances" line that we can spot in
+    // the output (post-synthesis the notable must flow into the
+    // resists pass).
+    let notable_name = "Heraldry";
+    // Confirm the orphan-notable template exists (skip otherwise to
+    // avoid false negatives across tree-version refreshes).
+    let template_exists = tree
+        .nodes
+        .values()
+        .any(|n| n.group.is_none() && n.name.as_deref() == Some(notable_name));
+    if !template_exists {
+        eprintln!("skip: 3.25 tree doesn't carry a {notable_name} template");
+        return;
+    }
+
+    let cluster_item = parse_item(&format!(
+        "Item Class: Jewel\n\
+         Rarity: MAGIC\n\
+         Strident Large Cluster Jewel\n\
+         Large Cluster Jewel\n\
+         --------\n\
+         Item Level: 84\n\
+         --------\n\
+         Adds 8 Passive Skills\n\
+         1 Added Passive Skill is {notable_name}\n\
+         Added Small Passive Skills grant: 12% increased Chaos Damage\n\
+         --------"
+    ))
+    .expect("parse cluster jewel");
+    c.jewels.insert(large_socket_id, cluster_item);
+
+    let ctx = pob_engine::ClusterContext::new(&cluster_jewels, &cluster_mods);
+
+    // Without any synth-node allocation, the cluster's notable should NOT
+    // contribute mods (parent socket alloc alone isn't enough).
+    let no_alloc = pob_engine::compute_full_with_clusters(&c, &tree, None, None, Some(ctx)).0;
+
+    // Allocate the synthesised notable. We need its synth id, which is
+    // deterministic given the Large-socket index + size + slot. The
+    // synthesis pass exposes them via `synthesise_all`.
+    let mut jewels_map: ahash::HashMap<pob_data::NodeId, pob_data::Item> =
+        ahash::HashMap::default();
+    for (id, it) in &c.jewels {
+        jewels_map.insert(*id, it.clone());
+    }
+    let specs = pob_engine::cluster_synth::synthesise_all(
+        &tree,
+        &jewels_map,
+        &cluster_jewels,
+        &cluster_mods,
+    );
+    assert_eq!(specs.len(), 1, "expected one synthesised cluster sub-graph");
+    let spec = &specs[0];
+    assert!(
+        !spec.notable_ids.is_empty(),
+        "expected at least one notable"
+    );
+
+    let notable_id = spec.notable_ids[0];
+    c.allocate(notable_id);
+
+    let with_alloc = pob_engine::compute_full_with_clusters(&c, &tree, None, None, Some(ctx)).0;
+
+    // Heraldry's stats include exposure mods which don't show up on the
+    // basic-stats output (they're enemy-side). To keep the assertion
+    // resilient across tree-version drift in the Heraldry template, we
+    // probe a generic delta: the modDB should now carry _at least one_
+    // additional mod with `Source::Passive(notable_id)`. We use the
+    // env-returning entry point so we can inspect the mod_db directly.
+    let (_, env) = pob_engine::compute_full_with_clusters(&c, &tree, None, None, Some(ctx));
+    let synth_mod_count = env
+        .mod_db
+        .iter_all()
+        .filter(|m| matches!(m.source, Some(pob_engine::Source::Passive(id)) if id == notable_id))
+        .count();
+    assert!(
+        synth_mod_count > 0,
+        "synth notable {notable_id} should contribute at least one mod via Source::Passive — \
+         no_alloc keys={}, with_alloc keys={}",
+        no_alloc.len(),
+        with_alloc.len()
+    );
+}
+
+// Issue #21: cluster-jewel sub-graph synthesis — small-passive grant.
+// `Added Small Passive Skills grant: <stat>` mods on the cluster jewel
+// should propagate to every synthesised small node, and allocating a
+// small node should land its stats in the modDB.
+#[test]
+fn cluster_jewel_small_passive_grant_flows_to_modlist() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let cluster_jewels_path = data_root().join("cluster_jewels.json");
+    let cluster_mods_path = data_root().join("cluster_jewel_mods.json");
+    let Ok(cj_json) = std::fs::read_to_string(&cluster_jewels_path) else {
+        return;
+    };
+    let Ok(cm_json) = std::fs::read_to_string(&cluster_mods_path) else {
+        return;
+    };
+    let cluster_jewels = pob_data::load_cluster_jewels(&cj_json).expect("decode cluster_jewels");
+    let cluster_mods =
+        pob_data::load_cluster_jewel_mods(&cm_json).expect("decode cluster_jewel_mods");
+
+    let large_socket_id = tree
+        .nodes
+        .iter()
+        .find_map(|(id, n)| (n.expansion_jewel_size == Some(2)).then_some(*id))
+        .expect("Large jewel socket");
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.allocate(large_socket_id);
+
+    let cluster_item = parse_item(
+        "Item Class: Jewel\n\
+         Rarity: MAGIC\n\
+         Strident Large Cluster Jewel\n\
+         Large Cluster Jewel\n\
+         --------\n\
+         Item Level: 84\n\
+         --------\n\
+         Adds 8 Passive Skills\n\
+         Added Small Passive Skills grant: 12% increased Chaos Damage\n\
+         --------",
+    )
+    .expect("parse cluster jewel");
+    c.jewels.insert(large_socket_id, cluster_item);
+
+    let ctx = pob_engine::ClusterContext::new(&cluster_jewels, &cluster_mods);
+    let mut jewels_map: ahash::HashMap<pob_data::NodeId, pob_data::Item> =
+        ahash::HashMap::default();
+    for (id, it) in &c.jewels {
+        jewels_map.insert(*id, it.clone());
+    }
+    let specs = pob_engine::cluster_synth::synthesise_all(
+        &tree,
+        &jewels_map,
+        &cluster_jewels,
+        &cluster_mods,
+    );
+    let spec = &specs[0];
+    assert_eq!(
+        spec.small_ids.len(),
+        8,
+        "8 added passives, no notables / sockets → 8 smalls"
+    );
+
+    // Allocate one small. Its stats should mention "12% increased Chaos Damage".
+    let small_id = spec.small_ids[0];
+    c.allocate(small_id);
+
+    let (_, env) = pob_engine::compute_full_with_clusters(&c, &tree, None, None, Some(ctx));
+    let chaos_dmg_mod_count = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            matches!(m.source, Some(pob_engine::Source::Passive(id)) if id == small_id)
+                && m.name.contains("ChaosDamage")
+        })
+        .count();
+    assert!(
+        chaos_dmg_mod_count > 0,
+        "small passive should contribute the cluster's '12% increased Chaos Damage' mod"
+    );
 }
