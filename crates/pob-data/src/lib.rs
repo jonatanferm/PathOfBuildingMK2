@@ -12,6 +12,7 @@ pub mod gem;
 pub mod item;
 pub mod load;
 pub mod minions;
+pub mod monster_tables;
 pub mod skill;
 pub mod sprites;
 pub mod tattoos;
