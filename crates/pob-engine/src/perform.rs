@@ -5009,4 +5009,117 @@ Skinning Knife
             "expected +25 Strength when dual wielding; got delta={delta}"
         );
     }
+
+    /// Issue #210: switching `mastery_selections` between two effects on the
+    /// same allocated mastery node must change the stats the engine emits.
+    /// We BFS for any mastery whose effect set spans two distinct stat lines
+    /// (so toggling between them is observable), allocate the path to it, then
+    /// flip selections and assert at least one parsed mod stops contributing.
+    #[test]
+    fn mastery_selection_changes_emitted_stats() {
+        let Some(tree) = load_3_25_tree() else {
+            eprintln!("skip: data/trees/3_25.json missing");
+            return;
+        };
+        // Find a Marauder-rooted path to a mastery node that has at least two
+        // distinct effects with non-empty stats. Sticking with Marauder keeps
+        // the connectivity check simple — `connected_allocations` BFS-walks
+        // from the class start.
+        let class_idx = tree
+            .classes
+            .iter()
+            .position(|c| c.name == "Marauder")
+            .unwrap() as u32;
+        let start = tree
+            .nodes
+            .iter()
+            .find_map(|(id, n)| (n.class_start_index == Some(class_idx)).then_some(*id))
+            .expect("Marauder class start");
+        let mut prev: std::collections::HashMap<pob_data::NodeId, pob_data::NodeId> =
+            std::collections::HashMap::new();
+        let mut queue: std::collections::VecDeque<_> = [start].into();
+        let mut target: Option<(pob_data::NodeId, u32, u32)> = None;
+        while let Some(n) = queue.pop_front() {
+            if let Some(node) = tree.nodes.get(&n) {
+                if matches!(node.kind, pob_data::NodeKind::Mastery)
+                    && node.mastery_effects.len() >= 2
+                {
+                    // Pick the first two effects whose stat sets differ.
+                    let a = &node.mastery_effects[0];
+                    if let Some(b) = node.mastery_effects[1..]
+                        .iter()
+                        .find(|e| e.stats != a.stats && !e.stats.is_empty())
+                    {
+                        if !a.stats.is_empty() {
+                            target = Some((n, a.effect, b.effect));
+                            break;
+                        }
+                    }
+                }
+                for &nb in node.out_edges.iter().chain(node.in_edges.iter()) {
+                    if !prev.contains_key(&nb) && nb != start {
+                        prev.insert(nb, n);
+                        queue.push_back(nb);
+                    }
+                }
+            }
+        }
+        let Some((mastery, eff_a, eff_b)) = target else {
+            eprintln!("no reachable mastery with two distinct effects — skip");
+            return;
+        };
+        // Walk back from the mastery, allocating every node on the path.
+        let mut c = Character::new(ClassRef::marauder(), 1);
+        let mut walk = mastery;
+        loop {
+            c.allocate(walk);
+            match prev.get(&walk) {
+                Some(&p) => walk = p,
+                None => break,
+            }
+        }
+
+        // With effect A selected: capture the full mod-db snapshot tagged by
+        // the mastery node so we can compare against effect B.
+        c.mastery_selections.insert(mastery, eff_a);
+        let env_a = build_env_for_perform(&c, &tree);
+        let mods_a = collect_mastery_mods(&env_a, mastery);
+
+        c.mastery_selections.insert(mastery, eff_b);
+        let env_b = build_env_for_perform(&c, &tree);
+        let mods_b = collect_mastery_mods(&env_b, mastery);
+
+        assert_ne!(
+            mods_a, mods_b,
+            "switching mastery effect (A={eff_a}, B={eff_b}) should change emitted mods"
+        );
+
+        // Clearing the selection (right-click flow) should drop us back to
+        // the default (first effect). Since A is the first effect, an
+        // explicit `eff_a` and an empty selection should match.
+        c.mastery_selections.remove(&mastery);
+        let env_default = build_env_for_perform(&c, &tree);
+        let mods_default = collect_mastery_mods(&env_default, mastery);
+        assert_eq!(
+            mods_a, mods_default,
+            "no explicit selection should fall back to the first mastery effect"
+        );
+    }
+
+    fn build_env_for_perform(character: &Character, tree: &PassiveTree) -> Env {
+        let mut env = init_env(character, tree);
+        perform_basic_stats(character, tree, &mut env);
+        env
+    }
+
+    fn collect_mastery_mods(env: &Env, node_id: pob_data::NodeId) -> Vec<String> {
+        let mut out: Vec<String> = env
+            .mod_db
+            .iter_all()
+            .filter(|m| matches!(m.source, Some(Source::Passive(id)) if id == node_id))
+            .map(|m| format!("{m:?}"))
+            .collect();
+        out.sort();
+        out
+    }
 }

@@ -25,6 +25,7 @@ mod config_tab;
 mod ggg_fetch;
 mod import_export_tab;
 mod items_tab;
+mod mastery_picker;
 mod notes_tab;
 mod party_tab;
 #[cfg(not(target_arch = "wasm32"))]
@@ -80,6 +81,8 @@ struct LoadedApp {
     notes_state: notes_tab::NotesTabState,
     /// Issue #98 (slice 2): right-click tattoo picker state.
     tattoo_picker_state: tattoo_picker::TattooPickerState,
+    /// Issue #210: click-to-pick mastery effect dialog state.
+    mastery_picker_state: mastery_picker::MasteryPickerState,
     /// Issue #197 (slice A): right-click "Paste cluster jewel" picker state.
     /// Owns the modal that lets the user paste a Cluster Jewel into a Large
     /// jewel socket on the Tree tab; the resulting `Item` is stored in
@@ -295,6 +298,7 @@ impl PobApp {
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
+            mastery_picker_state: mastery_picker::MasteryPickerState::default(),
             cluster_paste_state: cluster_paste::ClusterPasteState::default(),
             skills,
             bases,
@@ -356,6 +360,7 @@ impl PobApp {
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
+            mastery_picker_state: mastery_picker::MasteryPickerState::default(),
             cluster_paste_state: cluster_paste::ClusterPasteState::default(),
             skills,
             bases,
@@ -1103,12 +1108,24 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     })
                     .unwrap_or(true);
                 let toggling_off = app.character.allocated.contains(&id);
+                // Issue #210: clicking an allocated mastery node opens the
+                // effect picker instead of unallocating. Mastery nodes need a
+                // selection to contribute stats, so toggling them off via
+                // primary-click would surprise the user. Unallocation still
+                // works through the path-aware unallocate flow on neighbours
+                // (the engine drops mastery selections when the node leaves
+                // the connected sub-graph).
+                let is_mastery = node
+                    .map(|n| matches!(n.kind, pob_data::NodeKind::Mastery))
+                    .unwrap_or(false);
 
                 if !allowed_ascend {
                     app.status_message = Some((
                         StatusKind::Error,
                         "Node belongs to a different ascendancy class.".into(),
                     ));
+                } else if toggling_off && is_mastery {
+                    app.mastery_picker_state.open_for(id);
                 } else if toggling_off {
                     // Unallocate: removes the clicked node *and* any nodes that
                     // are now disconnected from the class start.
@@ -1225,6 +1242,16 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         // its synthesised nodes. Matches PoB's UX.
                         app.cluster_paste_state.open_for(id);
                     } else if app.character.allocated.contains(&id)
+                        && matches!(node.kind, NodeKind::Mastery)
+                    {
+                        // Issue #210: right-click reverts (clears) the
+                        // selected mastery effect. The node stays allocated;
+                        // unallocation still goes through primary-click on
+                        // a neighbour or the existing unallocate path.
+                        if app.character.mastery_selections.remove(&id).is_some() {
+                            recompute = true;
+                        }
+                    } else if app.character.allocated.contains(&id)
                         && matches!(
                             node.kind,
                             NodeKind::Normal | NodeKind::Notable | NodeKind::Keystone
@@ -1251,6 +1278,16 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             if cluster_paste::ui(
                 ui.ctx(),
                 &mut app.cluster_paste_state,
+                &app.tree,
+                &mut app.character,
+            ) {
+                recompute = true;
+            }
+            // Issue #210: mastery effect picker, opened by primary-click on an
+            // allocated mastery node.
+            if mastery_picker::ui(
+                ui.ctx(),
+                &mut app.mastery_picker_state,
                 &app.tree,
                 &mut app.character,
             ) {
