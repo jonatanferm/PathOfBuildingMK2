@@ -20,6 +20,7 @@
 
 pub mod character;
 pub mod env;
+pub mod ggg_import;
 pub mod item_parser;
 pub mod minion;
 pub mod mod_db;
@@ -34,6 +35,15 @@ pub mod skill;
 
 pub use character::{Character, CharacterSnapshot, ClassRef, ConfigState};
 pub use env::{Env, Output};
+pub use ggg_import::{
+    build_character as build_character_from_ggg, encode_account_name as ggg_encode_account_name,
+    get_characters_url as ggg_get_characters_url, get_items_url as ggg_get_items_url,
+    get_passive_skills_url as ggg_get_passive_skills_url,
+    parse_character_list as parse_ggg_character_list, parse_items as parse_ggg_items,
+    parse_passive_skills as parse_ggg_passive_skills, CharacterList as GggCharacterList,
+    CharacterSummary as GggCharacterSummary, GggImportError, ItemsResponse as GggItemsResponse,
+    PassiveSkillsResponse as GggPassiveSkillsResponse,
+};
 pub use item_parser::{apply_item_set, apply_item_set_with_bases, parse_item, ItemApplyReport};
 pub use minion::{
     apply_minion_hit_chance, apply_minion_outputs, parse_minion_intrinsic_mods, select_minion_type,

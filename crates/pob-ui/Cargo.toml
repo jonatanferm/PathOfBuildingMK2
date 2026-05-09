@@ -20,6 +20,11 @@ serde_json.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rfd.workspace = true
+# Issue #32: live character import via the GGG character-window API.
+# `ureq` is sync, blocking, and has a tiny dependency graph (no
+# tokio / hyper) — fits the egui main-thread fetch pattern. We
+# spawn a `std::thread` per request so the UI stays responsive.
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
