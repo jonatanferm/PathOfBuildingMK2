@@ -120,6 +120,9 @@ filter_next = "allow"
 unnecessary_to_owned = "allow"
 if_not_else = "allow"
 
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
