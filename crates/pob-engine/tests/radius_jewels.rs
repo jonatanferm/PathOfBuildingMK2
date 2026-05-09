@@ -228,6 +228,211 @@ fn empty_alloc_means_no_compute_drift() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Issue #196: named-unique handlers — integration tests against the real tree.
+// ---------------------------------------------------------------------------
+
+fn data_skills_root() -> PathBuf {
+    data_root().join("skills")
+}
+
+fn load_skills() -> Option<pob_engine::SkillRegistry> {
+    let dir = data_skills_root();
+    let mut sets = Vec::new();
+    for entry in std::fs::read_dir(&dir).ok()? {
+        let entry = entry.ok()?;
+        let p = entry.path();
+        if p.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        if p.file_stem().and_then(|s| s.to_str()) == Some("index") {
+            continue;
+        }
+        let json = std::fs::read_to_string(&p).ok()?;
+        if let Ok(set) = pob_data::load_skill_file(&json) {
+            sets.push(set);
+        }
+    }
+    Some(pob_engine::SkillRegistry::from_files(sets))
+}
+
+/// Watcher's Eye end-to-end: with Hatred enabled in a skill group, the
+/// `+X% increased Cold Damage while affected by Hatred` mod must land in the
+/// player's modDB *and* its `AffectedByHatred` Condition tag must be flipped
+/// on by `detect_active_auras`.
+#[test]
+fn watchers_eye_with_hatred_active_lands_per_aura_condition() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Hatred").is_none() {
+        eprintln!("skip: Hatred not in registry");
+        return;
+    }
+    let socket_id = first_jewel_socket(&tree).expect("socket present");
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    // Reservation-flagged Hatred gem in an enabled group.
+    c.skill_groups.push(pob_engine::character::SocketGroup {
+        label: "Aura".into(),
+        gems: vec![pob_engine::MainSkill::new("Hatred")],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.socketed_jewels.socket(
+        socket_id,
+        Item {
+            name: "Watcher's Eye".into(),
+            base_name: "Prismatic Jewel".into(),
+            rarity: Rarity::Unique,
+            item_level: 84,
+            quality: 0,
+            tags: ahash::HashSet::default(),
+            mod_lines: vec![ModLine {
+                line: "40% increased Cold Damage while affected by Hatred".into(),
+                section: ModSection::Explicit,
+            }],
+            sockets: String::new(),
+            raw: String::new(),
+            corrupted: false,
+            mirrored: false,
+        },
+    );
+
+    let (_, env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    assert!(
+        env.state.condition("AffectedByHatred"),
+        "detect_active_auras should flip on AffectedByHatred when Hatred is enabled"
+    );
+    let cold = env.mod_db.slice_named("ColdDamage");
+    assert!(
+        cold.iter().any(|m| matches!(m.kind, pob_engine::ModType::Inc)
+            && (m.value.as_f64().unwrap_or(0.0) - 40.0).abs() < 1e-6
+            && m.tags.iter().any(|t| matches!(&t.kind, pob_engine::TagKind::Condition { var, .. } if var == "AffectedByHatred"))),
+        "expected gated +40% Inc ColdDamage from Watcher's Eye, got {cold:#?}",
+    );
+}
+
+/// Disabling the Hatred gem must drop the `AffectedByHatred` condition so the
+/// Watcher's Eye mod no longer contributes — the gated mod is still present
+/// in the modDB, but `eval_mod` will return `None` for it.
+#[test]
+fn watchers_eye_aura_condition_clears_when_aura_disabled() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Hatred").is_none() {
+        eprintln!("skip: Hatred not in registry");
+        return;
+    }
+    let socket_id = first_jewel_socket(&tree).expect("socket present");
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let mut hatred_gem = pob_engine::MainSkill::new("Hatred");
+    hatred_gem.enabled = false;
+    c.skill_groups.push(pob_engine::character::SocketGroup {
+        label: "Aura".into(),
+        gems: vec![hatred_gem],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.socketed_jewels.socket(
+        socket_id,
+        Item {
+            name: "Watcher's Eye".into(),
+            base_name: "Prismatic Jewel".into(),
+            rarity: Rarity::Unique,
+            item_level: 84,
+            quality: 0,
+            tags: ahash::HashSet::default(),
+            mod_lines: vec![ModLine {
+                line: "40% increased Cold Damage while affected by Hatred".into(),
+                section: ModSection::Explicit,
+            }],
+            sockets: String::new(),
+            raw: String::new(),
+            corrupted: false,
+            mirrored: false,
+        },
+    );
+
+    let (_, env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    assert!(
+        !env.state.condition("AffectedByHatred"),
+        "Disabled Hatred gem must not flip AffectedByHatred"
+    );
+}
+
+/// Healthy Mind end-to-end: socket the unique into a real tree socket,
+/// allocate a node with `+N to Maximum Life` (simulated through the framework
+/// by directly seeding the alloc set), and verify the modDB carries an
+/// Inc Mana mod sourced from that node.
+#[test]
+fn healthy_mind_emits_transformed_mana_from_real_tree() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let socket_id = first_jewel_socket(&tree).expect("socket present");
+    // Walk in-radius nodes for a Large ring and find one with a `% Life`
+    // stat — a real tree always has a notable nearby with such a mod.
+    let large = RADII_3_16[2];
+    let in_radius = nodes_in_radius(&tree, socket_id, &large);
+    let life_node = in_radius
+        .iter()
+        .find(|(id, _)| {
+            tree.nodes
+                .get(id)
+                .is_some_and(|n| n.stats.iter().any(|s| s.contains("increased Life")))
+        })
+        .map(|(id, _)| *id);
+    let Some(life_node) = life_node else {
+        eprintln!("skip: no in-radius node with `% increased Life` in this tree fixture");
+        return;
+    };
+    let mut alloc: ahash::AHashSet<pob_data::NodeId> = ahash::AHashSet::default();
+    alloc.insert(life_node);
+
+    let mut socketed = SocketedJewels::new();
+    socketed.socket(
+        socket_id,
+        Item {
+            name: "Healthy Mind".into(),
+            base_name: "Cobalt Jewel".into(),
+            rarity: Rarity::Unique,
+            item_level: 84,
+            quality: 0,
+            tags: ahash::HashSet::default(),
+            mod_lines: vec![ModLine {
+                line:
+                    "Increases and Reductions to Life in Radius are Transformed to apply to Mana at 200% of their value"
+                        .into(),
+                section: ModSection::Explicit,
+            }],
+            sockets: String::new(),
+            raw: String::new(),
+            corrupted: false,
+            mirrored: false,
+        },
+    );
+
+    let mut db = ModDB::default();
+    let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+    assert_eq!(report.applied_jewels, 1);
+    assert!(
+        report.mod_emissions >= 1,
+        "Healthy Mind should emit at least one transformed Inc Mana mod"
+    );
+    let mana = db.slice_named("Mana");
+    assert!(
+        mana.iter()
+            .any(|m| matches!(m.kind, pob_engine::ModType::Inc)
+                && matches!(&m.source, Some(pob_engine::Source::Passive(id)) if *id == life_node)),
+        "expected Inc Mana mod sourced from Passive({life_node}), got {mana:#?}",
+    );
+}
+
 /// End-to-end: a radius jewel that says "10% increased Maximum Life" lands a
 /// `+10% Inc Life` mod for each in-radius allocated node. With one such node
 /// the player's headline Life output should reflect a 10% increase from the

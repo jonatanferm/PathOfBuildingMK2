@@ -80,6 +80,14 @@ pub fn compute_full_with_clusters(
     // CritChance numbers — only the modDB carried them.
     if let Some(reg) = skills {
         detect_warcries(character, reg, &mut env);
+        // Issue #196: flip on `AffectedBy<Aura>` conditions for every
+        // enabled, reservation-flagged aura/herald skill the player has
+        // socketed. Watcher's Eye mods carry per-aura Condition tags
+        // (`AffectedByHatred`, `AffectedByDetermination`, …) that gate
+        // their application; the conditions need to be set *before*
+        // `perform_basic_stats` so the conditional mods reach the basic
+        // outputs (life, ES, mana) along with everything else.
+        detect_active_auras(character, reg, &mut env);
     }
     perform_basic_stats(character, tree, &mut env);
     if let Some(b) = bases {
@@ -1987,6 +1995,122 @@ fn perform_curses(character: &Character, skills: &SkillRegistry, env: &mut Env) 
     env.output.set("CurseFreezeChanceOnHit", freeze_chance);
     env.output.set("CurseIgniteChanceOnHit", ignite_chance);
     env.output.set("CurseChillChanceOnHit", chill_chance);
+}
+
+/// Issue #196: flip the `AffectedBy<SkillName>` and `AffectedByAura` /
+/// `AffectedByHerald` conditions for every enabled aura / herald gem the
+/// player has socketed. Mirrors the `data.specialModList` entries PoB sets in
+/// `Modules/CalcPerform.lua` when an aura is reserved. The condition is read
+/// by Watcher's Eye mods (which carry an `AffectedByHatred` /
+/// `AffectedByDetermination` / … Condition tag) and any other "while affected
+/// by aura" mods elsewhere in the build (e.g. Inya's Epiphany, ascendancy
+/// nodes that key off the active-aura set).
+///
+/// The check is deliberately permissive: we don't gate on whether the aura
+/// has actually been reserved (i.e. the player has the mana / life pool).
+/// PoB models reservation as a separate check; the affecting-condition is
+/// just "is the gem enabled and an aura/herald". Reservation failures are
+/// surfaced through a different output channel.
+fn detect_active_auras(character: &Character, skills: &SkillRegistry, env: &mut Env) {
+    if character.skill_groups.is_empty() {
+        return;
+    }
+    let mut any_aura = false;
+    let mut any_herald = false;
+    for group in &character.skill_groups {
+        if !group.enabled {
+            continue;
+        }
+        for gem in &group.gems {
+            if !gem.enabled {
+                continue;
+            }
+            let Some(skill) = skills.get(&gem.skill_id) else {
+                continue;
+            };
+            let is_aura = skill.base_flags.get("aura").copied().unwrap_or(false);
+            let is_herald = skill.base_flags.get("herald").copied().unwrap_or(false);
+            if !is_aura && !is_herald {
+                continue;
+            }
+            // Watcher's Eye uses the bare aura name (Hatred / Determination /
+            // Wrath / Anger / Discipline / Grace / Vitality / Clarity /
+            // Malevolence / Zealotry / Purity Of Fire/Cold/Lightning/Elements/
+            // Pride/Envy). The skill's display name is what shows up in the
+            // unique's mod text after "while affected by", so the condition
+            // key uses `pascal_case(name)` to match `AffectedByPurityOfFire`
+            // etc.
+            let key = pascal_case(&skill.name);
+            if !key.is_empty() {
+                env.state.set_condition(format!("AffectedBy{key}"), true);
+            }
+            // Also extracted-party auras propagate through here on the player
+            // side because they emit aura buffs onto the player's modDB; the
+            // bare `AffectedByAura` / `AffectedByHerald` flag covers mods
+            // gated on "any aura" / "any herald".
+            if is_aura {
+                any_aura = true;
+            }
+            if is_herald {
+                any_herald = true;
+            }
+        }
+    }
+    // Issue #97: extracted-party auras count as affecting the player too —
+    // mirror Watcher's Eye + Generic Aura/Herald conditions.
+    for member in &character.party_members {
+        for aura in &member.extracted_auras {
+            if !aura.enabled {
+                continue;
+            }
+            let Some(skill) = skills.get(&aura.skill_id) else {
+                continue;
+            };
+            let is_aura = skill.base_flags.get("aura").copied().unwrap_or(false);
+            let is_herald = skill.base_flags.get("herald").copied().unwrap_or(false);
+            if !is_aura && !is_herald {
+                continue;
+            }
+            let key = pascal_case(&skill.name);
+            if !key.is_empty() {
+                env.state.set_condition(format!("AffectedBy{key}"), true);
+            }
+            if is_aura {
+                any_aura = true;
+            }
+            if is_herald {
+                any_herald = true;
+            }
+        }
+    }
+    if any_aura {
+        env.state.set_condition("AffectedByAura", true);
+    }
+    if any_herald {
+        env.state.set_condition("AffectedByHerald", true);
+    }
+}
+
+/// Lower→PascalCase converter. Drops trailing punctuation, splits on
+/// whitespace, capitalises each token's first character. ASCII-clean — every
+/// PoE aura name is ASCII so this matches the parser-side conversion exactly
+/// (see `mod_parser::pascal_case_words`).
+fn pascal_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for word in s.split_whitespace() {
+        let mut chars = word.chars();
+        if let Some(c) = chars.next() {
+            for u in c.to_uppercase() {
+                out.push(u);
+            }
+            for c in chars {
+                for u in c.to_lowercase() {
+                    out.push(u);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Issue #19 (slice 3): walk the gem list for warcry skills and

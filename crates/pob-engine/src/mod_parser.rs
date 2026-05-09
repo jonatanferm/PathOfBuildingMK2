@@ -974,24 +974,21 @@ fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>)
     } else if let Some(rest) = text.strip_prefix("while ") {
         // body=empty, suffix=rest
         let suffix = rest.trim().trim_end_matches('.');
-        let var = match_while_var(suffix);
-        if !var.is_empty() {
+        if let Some(var) = match_while_var_dyn(suffix) {
             out.push(Tag::condition(var));
             return "";
         }
         return text;
     } else if let Some(rest) = text.strip_prefix("when ") {
         let suffix = rest.trim().trim_end_matches('.');
-        let var = match_while_var(suffix);
-        if !var.is_empty() {
+        if let Some(var) = match_while_var_dyn(suffix) {
             out.push(Tag::condition(var));
             return "";
         }
         return text;
     } else if let Some(rest) = text.strip_prefix("during ") {
         let suffix = rest.trim().trim_end_matches('.');
-        let var = match_while_var(suffix);
-        if !var.is_empty() {
+        if let Some(var) = match_while_var_dyn(suffix) {
             out.push(Tag::condition(var));
             return "";
         }
@@ -1001,12 +998,69 @@ fn strip_while_clause<'a>(text: &'a str, out: &mut smallvec::SmallVec<[Tag; 2]>)
     };
     let body = text[..idx].trim_end_matches(',').trim_end();
     let suffix = text[idx + sep_len..].trim().trim_end_matches('.');
-    let var = match_while_var(suffix);
-    if !var.is_empty() {
+    if let Some(var) = match_while_var_dyn(suffix) {
         out.push(Tag::condition(var));
         return body;
     }
     text
+}
+
+/// Try the static condition table first, then fall back to the dynamic
+/// `affected by <Aura>` form. Returns the canonical `Condition` variable name
+/// (e.g. `AffectedByHatred`) or `None` if no rule matched. Used by
+/// [`strip_while_clause`] so Watcher's-Eye-style mods get the right per-aura
+/// condition tag emitted on parse — Issue #196.
+fn match_while_var_dyn(suffix: &str) -> Option<String> {
+    let static_var = match_while_var(suffix);
+    if !static_var.is_empty() {
+        return Some(static_var.to_string());
+    }
+    // PoB's `specialModList` includes a wide-cased "affected by <skill>"
+    // entry that produces the per-skill `AffectedBy<SkillName>` condition.
+    // The dynamic side covers Watcher's Eye text like
+    //   "10% increased Cold Damage while affected by Hatred"
+    // → `AffectedByHatred` condition.
+    let lc = suffix.to_ascii_lowercase();
+    for prefix in [
+        "affected by your ",
+        "affected by ",
+        "you are affected by your ",
+        "you are affected by ",
+    ] {
+        if let Some(rest) = lc.strip_prefix(prefix) {
+            // Find the matching slice on the original (case-preserving) text
+            // and PascalCase it so `AffectedByHatred` / `AffectedByPrideOfFlesh`
+            // round-trip cleanly.
+            let original = &suffix[suffix.len() - rest.len()..];
+            let camel = pascal_case_words(original);
+            if camel.is_empty() {
+                return None;
+            }
+            return Some(format!("AffectedBy{camel}"));
+        }
+    }
+    None
+}
+
+/// Lower→PascalCase converter used to build dynamic `AffectedBy<...>` keys.
+/// Drops trailing punctuation, splits on whitespace, capitalises each token's
+/// first byte. ASCII-only — every PoB aura name is ASCII.
+fn pascal_case_words(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for word in s.trim().trim_end_matches('.').split_whitespace() {
+        let mut chars = word.chars();
+        if let Some(c) = chars.next() {
+            for u in c.to_uppercase() {
+                out.push(u);
+            }
+            for c in chars {
+                for u in c.to_lowercase() {
+                    out.push(u);
+                }
+            }
+        }
+    }
+    out
 }
 
 fn match_while_var(suffix: &str) -> &'static str {
@@ -3372,6 +3426,35 @@ mod tests {
         let m = parse("18% increased Damage while wielding a Bow");
         assert_eq!(m.name, "Damage");
         assert_condition_tag(&m, "UsingBow");
+    }
+
+    /// Issue #196: Watcher's Eye mods carry "while affected by <Aura>" — the
+    /// parser should produce a per-aura `AffectedBy<Aura>` Condition tag so
+    /// the resulting mod is gated on the corresponding aura being active.
+    #[test]
+    fn while_affected_by_hatred_emits_per_aura_condition_tag() {
+        let m = parse("40% increased Cold Damage while affected by Hatred");
+        assert_eq!(m.name, "ColdDamage");
+        assert_eq!(m.kind, ModType::Inc);
+        assert_condition_tag(&m, "AffectedByHatred");
+    }
+
+    #[test]
+    fn while_affected_by_two_word_aura_pascal_cases_correctly() {
+        // Multi-word aura names PascalCase together: `Purity Of Fire` →
+        // `AffectedByPurityOfFire`. Watcher's Eye's "Purity of Fire" mods
+        // are the canonical example of this.
+        let m = parse("Damage Penetrates 10% Fire Resistance while affected by Purity of Fire");
+        assert_condition_tag(&m, "AffectedByPurityOfFire");
+    }
+
+    #[test]
+    fn while_affected_by_unknown_aura_still_emits_condition_tag() {
+        // A new aura the engine doesn't track yet should still produce a
+        // condition tag — the dynamic match accepts any name. This matches
+        // PoB, which generates the condition key on the fly.
+        let m = parse("10% increased Damage while affected by Anger");
+        assert_condition_tag(&m, "AffectedByAnger");
     }
 
     #[test]
