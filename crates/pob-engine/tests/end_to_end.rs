@@ -12,6 +12,29 @@ use pob_engine::{
     SkillRegistry,
 };
 
+/// Pick a stable skill ID matching `predicate` from the active
+/// skill registry. Avoids the flaky `iter_active().find(...)`
+/// pattern (PR #155) that walks the underlying HashMap in
+/// non-deterministic order. The candidates are sorted
+/// lexicographically and the first one is returned — same
+/// matching skill across runs and platforms.
+///
+/// Tests that just need *some* attack / mine / trap skill should
+/// use this rather than calling `iter_active().find(...)` so a
+/// gem fixture refresh doesn't silently change the test subject.
+fn pick_stable_skill<F: Fn(&pob_data::Skill) -> bool>(
+    skills: &SkillRegistry,
+    predicate: F,
+) -> Option<String> {
+    let mut candidates: Vec<String> = skills
+        .iter_active()
+        .filter(|(_, s)| predicate(s))
+        .map(|(id, _)| id.to_owned())
+        .collect();
+    candidates.sort_unstable();
+    candidates.into_iter().next()
+}
+
 /// BFS from the named class start through `tree` for a node where `pick`
 /// returns true. Allocates EVERY node along the path to satisfy pob-engine's
 /// path-validation rule. Returns the target node id.
@@ -988,14 +1011,11 @@ fn dual_wielding_averages_dps_across_per_hand_passes() {
         return;
     };
 
-    let attack_id = skills
-        .iter_active()
-        .find(|(_, s)| {
-            s.base_flags.get("attack").copied().unwrap_or(false)
-                && !s.base_flags.get("totem").copied().unwrap_or(false)
-                && s.base_flags.get("melee").copied().unwrap_or(false)
-        })
-        .map(|(id, _)| id.to_owned());
+    let attack_id = pick_stable_skill(&skills, |s| {
+        s.base_flags.get("attack").copied().unwrap_or(false)
+            && !s.base_flags.get("totem").copied().unwrap_or(false)
+            && s.base_flags.get("melee").copied().unwrap_or(false)
+    });
     let Some(attack_id) = attack_id else {
         eprintln!("skip: no melee attack found");
         return;
@@ -1194,11 +1214,11 @@ fn attack_skill_with_weapon_produces_dps() {
     let bases = load_bases();
     let Some(bases) = bases else { return };
 
-    // Find any active attack skill (e.g. HeavyStrike).
-    let attack_id = skills
-        .iter_active()
-        .find(|(_, s)| s.base_flags.get("attack").copied().unwrap_or(false))
-        .map(|(id, _)| id.to_owned());
+    // Find a stable attack skill — see `pick_stable_skill` for why
+    // this matters across HashMap-iter test runs.
+    let attack_id = pick_stable_skill(&skills, |s| {
+        s.base_flags.get("attack").copied().unwrap_or(false)
+    });
     let Some(attack_id) = attack_id else {
         eprintln!("no attack skill found — skip");
         return;
@@ -1710,25 +1730,12 @@ fn enemy_evasion_changes_main_skill_hit_chance() {
         return;
     };
 
-    // Pick a stable attack skill: prefer Cleave (a known phys
-    // melee strike that always rolls hit chance), else fall back
-    // to the lexicographically smallest attack-flagged skill.
-    // The previous `iter_active().find(...)` walked the
-    // SkillRegistry's HashMap in non-deterministic order, so
-    // different test runs picked different skills — some
-    // produced identical hit-chance values at low and high
-    // evasion, failing the strictly-decreasing assertion below.
-    let attack_id = if skills.get("Cleave").is_some() {
-        Some("Cleave".to_owned())
-    } else {
-        let mut candidates: Vec<String> = skills
-            .iter_active()
-            .filter(|(_, s)| s.base_flags.get("attack").copied().unwrap_or(false))
-            .map(|(id, _)| id.to_owned())
-            .collect();
-        candidates.sort_unstable();
-        candidates.into_iter().next()
-    };
+    // Stable attack-skill pick — see `pick_stable_skill` at the
+    // top of the file. PR #155 fixed the original flake here
+    // (HashMap-iteration leaking into `iter_active().find(...)`).
+    let attack_id = pick_stable_skill(&skills, |s| {
+        s.base_flags.get("attack").copied().unwrap_or(false)
+    });
     let Some(attack_id) = attack_id else {
         return;
     };
@@ -1772,10 +1779,9 @@ fn bleed_faster_and_enemy_moving_scale_bleed_dps() {
     // Build a Duelist with an attack skill + sword + a body armour that grants
     // 100% chance to bleed. With those alone we get a non-zero BleedDPS to
     // measure ailment-rate scaling against.
-    let attack_id = skills
-        .iter_active()
-        .find(|(_, s)| s.base_flags.get("attack").copied().unwrap_or(false))
-        .map(|(id, _)| id.to_owned());
+    let attack_id = pick_stable_skill(&skills, |s| {
+        s.base_flags.get("attack").copied().unwrap_or(false)
+    });
     let Some(attack_id) = attack_id else {
         return;
     };
@@ -2862,12 +2868,10 @@ fn mine_and_trap_skills_emit_throw_count_outputs() {
         return;
     };
 
-    // Pick the first mine skill we can find. baseFlags.mine is the upstream
-    // flag.
-    let mine_id = skills
-        .iter_active()
-        .find(|(_, s)| s.base_flags.get("mine").copied().unwrap_or(false))
-        .map(|(id, _)| id.to_owned());
+    // Pick a stable mine skill — see `pick_stable_skill`.
+    let mine_id = pick_stable_skill(&skills, |s| {
+        s.base_flags.get("mine").copied().unwrap_or(false)
+    });
     let Some(mine_id) = mine_id else {
         eprintln!("skip: no mine skills available");
         return;
@@ -2891,11 +2895,10 @@ fn mine_and_trap_skills_emit_throw_count_outputs() {
         mine_out.get("MinesPlaced")
     );
 
-    // Same for trap skills.
-    let trap_id = skills
-        .iter_active()
-        .find(|(_, s)| s.base_flags.get("trap").copied().unwrap_or(false))
-        .map(|(id, _)| id.to_owned());
+    // Same for trap skills — stable pick.
+    let trap_id = pick_stable_skill(&skills, |s| {
+        s.base_flags.get("trap").copied().unwrap_or(false)
+    });
     let Some(trap_id) = trap_id else {
         eprintln!("skip: no trap skills available");
         return;
@@ -2952,11 +2955,10 @@ fn cast_speed_does_not_scale_mine_or_trap_dps() {
     };
     use pob_engine::{Mod, Source};
 
-    // Pick a mine skill that produces non-zero DPS in the fixture.
-    let mine_id = skills
-        .iter_active()
-        .find(|(_, s)| s.base_flags.get("mine").copied().unwrap_or(false))
-        .map(|(id, _)| id.to_owned());
+    // Pick a stable mine skill — see `pick_stable_skill`.
+    let mine_id = pick_stable_skill(&skills, |s| {
+        s.base_flags.get("mine").copied().unwrap_or(false)
+    });
     let Some(mine_id) = mine_id else {
         eprintln!("skip: no mine skills available");
         return;
@@ -2989,11 +2991,10 @@ fn cast_speed_does_not_scale_mine_or_trap_dps() {
         "Mine skill MainSkillSpeed must stay pinned to MineLayingSpeed (baseline {baseline_speed}, +200% CastSpeed {scaled_speed})"
     );
 
-    // Same for traps.
-    let trap_id = skills
-        .iter_active()
-        .find(|(_, s)| s.base_flags.get("trap").copied().unwrap_or(false))
-        .map(|(id, _)| id.to_owned());
+    // Same for traps — stable pick.
+    let trap_id = pick_stable_skill(&skills, |s| {
+        s.base_flags.get("trap").copied().unwrap_or(false)
+    });
     let Some(trap_id) = trap_id else {
         eprintln!("skip: no trap skills available");
         return;
