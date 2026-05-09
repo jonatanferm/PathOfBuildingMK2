@@ -16,6 +16,8 @@ mod build_store_disk;
 mod build_store_wasm;
 mod builds_tab;
 mod calcs_tab;
+mod cluster_overlay;
+mod cluster_paste;
 mod color_codes;
 mod compare_tab;
 mod config_tab;
@@ -68,6 +70,12 @@ struct LoadedApp {
     notes_state: notes_tab::NotesTabState,
     /// Issue #98 (slice 2): right-click tattoo picker state.
     tattoo_picker_state: tattoo_picker::TattooPickerState,
+    /// Issue #197 (slice A): right-click "Paste cluster jewel" picker state.
+    /// Owns the modal that lets the user paste a Cluster Jewel into a Large
+    /// jewel socket on the Tree tab; the resulting `Item` is stored in
+    /// `Character::jewels[socket_id]` and picked up by
+    /// `compute_full_with_clusters` on the next compute pass.
+    cluster_paste_state: cluster_paste::ClusterPasteState,
     skills: SkillRegistry,
     bases: Option<pob_data::bases::ItemBaseSet>,
     /// Issue #110: cached sprite metadata so the per-frame class
@@ -274,6 +282,7 @@ impl PobApp {
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
+            cluster_paste_state: cluster_paste::ClusterPasteState::default(),
             skills,
             bases,
             sprites,
@@ -331,6 +340,7 @@ impl PobApp {
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
+            cluster_paste_state: cluster_paste::ClusterPasteState::default(),
             skills,
             bases,
             sprites,
@@ -976,7 +986,31 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // pass it into the renderer so it can paint a gold accent ring on each one.
             let tattooed: HashSet<NodeId> =
                 app.character.tattoo_overrides.keys().copied().collect();
-            let interaction = app.tree_view.ui(ui, &app.tree, &allocated, &tattooed);
+            // Issue #197 (slice B): hand the tree view the cluster jewel
+            // overlay inputs when both data files are loaded — the renderer
+            // computes synth specs and draws them around their host sockets.
+            let overlay_inputs = match (&app.cluster_jewels, &app.cluster_jewel_mods) {
+                (Some(cj), Some(cm)) => Some(cluster_overlay::OverlayInputs {
+                    character: &app.character,
+                    cluster_jewels: cj,
+                    cluster_jewel_mods: cm,
+                    // Tree-space layout radius around the host socket. The
+                    // host's own world radius is ~75 (see
+                    // `tree_view::world_radius_for(JewelSocket)`); 220 puts
+                    // the synth ring well outside it without colliding with
+                    // adjacent tree clusters.
+                    synth_radius_world: 220.0,
+                    synth_world_size: 35.0,
+                }),
+                _ => None,
+            };
+            let interaction = app.tree_view.ui_with_overlay(
+                ui,
+                &app.tree,
+                &allocated,
+                &tattooed,
+                overlay_inputs.as_ref(),
+            );
 
             // Path-overlay preview: when the user hovers an unallocated node, plot the
             // shortest path from any allocated node (or the class-start anchor) to it.
@@ -1065,18 +1099,75 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 }
             }
 
-            // Issue #98 (slice 2): right-click on an allocated normal/notable/keystone
-            // node opens the tattoo picker. Mastery / unallocated nodes are no-ops.
+            // Issue #197 (slice B): clicks on a synth (overlay) node toggle
+            // its allocation directly. The synth node sits on the cluster
+            // jewel sub-graph, which only contributes mods when the host
+            // socket is allocated (see `apply_cluster_jewel_mods` in the
+            // engine), so we gate allocation on `host_socket ∈ allocated`.
+            // We bypass the regular pathfinder because synth NodeIds aren't
+            // in `tree.nodes` and BFS over them would walk the synth-only
+            // edges that PoB processes inline during compute.
+            if let Some(synth_id) = interaction.synth_clicked {
+                if app.character.allocated.contains(&synth_id) {
+                    app.character.allocated.remove(&synth_id);
+                    recompute = true;
+                } else {
+                    // Determine the host socket by re-deriving it from the
+                    // synth id's bit layout — bits 6-8 carry the parent
+                    // socket index. Easier: walk the current jewels to find
+                    // which socket owns this id by recomputing the spec.
+                    if let (Some(cj), Some(cm)) =
+                        (app.cluster_jewels.as_ref(), app.cluster_jewel_mods.as_ref())
+                    {
+                        let specs = pob_engine::cluster_synth::synthesise_all(
+                            &app.tree,
+                            &app.character.jewels,
+                            cj,
+                            cm,
+                        );
+                        let host = specs
+                            .iter()
+                            .find(|s| s.nodes.contains_key(&synth_id))
+                            .map(|s| s.parent_socket);
+                        if let Some(host) = host {
+                            if app.character.allocated.contains(&host) {
+                                app.character.allocated.insert(synth_id);
+                                recompute = true;
+                            } else {
+                                app.status_message = Some((
+                                    StatusKind::Error,
+                                    "Allocate the host jewel socket first to reach this cluster node."
+                                        .into(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Issue #98 (slice 2) + #197 (slice A): right-click dispatches to
+            // either the tattoo picker (allocated normal/notable/keystone) or
+            // the cluster-jewel paste picker (Large jewel socket — has a
+            // cluster jewel hosted in `expansion_jewel_size == 2`). Mastery
+            // and unallocated non-socket nodes are no-ops.
             if let Some(id) = interaction.right_clicked {
-                if app.character.allocated.contains(&id) {
-                    if let Some(node) = app.tree.nodes.get(&id) {
-                        use pob_data::NodeKind;
-                        if matches!(
+                if let Some(node) = app.tree.nodes.get(&id) {
+                    use pob_data::NodeKind;
+                    if matches!(node.kind, NodeKind::JewelSocket)
+                        && node.expansion_jewel_size == Some(2)
+                    {
+                        // Cluster paste flow doesn't require the socket to
+                        // be allocated — the user pastes the jewel first,
+                        // then walks the tree to allocate the socket and
+                        // its synthesised nodes. Matches PoB's UX.
+                        app.cluster_paste_state.open_for(id);
+                    } else if app.character.allocated.contains(&id)
+                        && matches!(
                             node.kind,
                             NodeKind::Normal | NodeKind::Notable | NodeKind::Keystone
-                        ) {
-                            app.tattoo_picker_state.open_for(id);
-                        }
+                        )
+                    {
+                        app.tattoo_picker_state.open_for(id);
                     }
                 }
             }
@@ -1088,6 +1179,15 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 ui.ctx(),
                 &mut app.tattoo_picker_state,
                 app.tattoos.as_ref(),
+                &app.tree,
+                &mut app.character,
+            ) {
+                recompute = true;
+            }
+            // Issue #197 (slice A): cluster-jewel paste modal, same pattern.
+            if cluster_paste::ui(
+                ui.ctx(),
+                &mut app.cluster_paste_state,
                 &app.tree,
                 &mut app.character,
             ) {

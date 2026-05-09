@@ -7354,3 +7354,198 @@ fn timeless_socketed_far_from_keystone_does_not_panic() {
     );
     assert!(out.get("Life") > 0.0);
 }
+
+// Issue #197 (slice C): a corrupted cluster jewel rolling
+// `1 Added Passive Skill is a Jewel Socket` should synthesise an extra
+// jewel socket on top of whatever sockets were already present from the
+// item's prefix/suffix rolls. This is the canonical acceptance criterion
+// straight from the issue body.
+#[test]
+fn corrupted_cluster_jewel_extra_socket_synth_spawns_one_more_socket() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let cluster_jewels_path = data_root().join("cluster_jewels.json");
+    let cluster_mods_path = data_root().join("cluster_jewel_mods.json");
+    let Ok(cj_json) = std::fs::read_to_string(&cluster_jewels_path) else {
+        return;
+    };
+    let Ok(cm_json) = std::fs::read_to_string(&cluster_mods_path) else {
+        return;
+    };
+    let cluster_jewels = pob_data::load_cluster_jewels(&cj_json).expect("decode cluster_jewels");
+    let cluster_mods =
+        pob_data::load_cluster_jewel_mods(&cm_json).expect("decode cluster_jewel_mods");
+
+    let large_socket_id = tree
+        .nodes
+        .iter()
+        .find_map(|(id, n)| (n.expansion_jewel_size == Some(2)).then_some(*id))
+        .expect("Large jewel socket");
+
+    // Build an 8-node Large Cluster Jewel. The rolled jewel has _no_ explicit
+    // sockets — only the corruption implicit grants `+1 socket`. Compare
+    // against a non-corrupted version of the same jewel: sockets should be
+    // exactly +1 with the corruption mod present.
+    let baseline = parse_item(
+        "Item Class: Jewel\n\
+         Rarity: MAGIC\n\
+         Strident Large Cluster Jewel\n\
+         Large Cluster Jewel\n\
+         --------\n\
+         Item Level: 84\n\
+         --------\n\
+         Adds 8 Passive Skills\n\
+         Added Small Passive Skills grant: 12% increased Chaos Damage\n\
+         --------",
+    )
+    .expect("parse baseline");
+    let corrupted = parse_item(
+        "Item Class: Jewel\n\
+         Rarity: MAGIC\n\
+         Strident Large Cluster Jewel\n\
+         Large Cluster Jewel\n\
+         --------\n\
+         Item Level: 84\n\
+         --------\n\
+         Adds 8 Passive Skills\n\
+         Added Small Passive Skills grant: 12% increased Chaos Damage\n\
+         --------\n\
+         1 Added Passive Skill is a Jewel Socket (corrupted)\n\
+         --------\n\
+         Corrupted",
+    )
+    .expect("parse corrupted");
+    assert!(
+        corrupted.corrupted,
+        "item parser should mark corrupted = true"
+    );
+
+    let parsed_baseline =
+        pob_engine::cluster_synth::parse_cluster_jewel(&baseline, &cluster_jewels)
+            .expect("parses baseline");
+    let parsed_corrupted =
+        pob_engine::cluster_synth::parse_cluster_jewel(&corrupted, &cluster_jewels)
+            .expect("parses corrupted");
+    assert_eq!(parsed_baseline.socket_count, 0);
+    assert_eq!(
+        parsed_corrupted.socket_count, 1,
+        "corruption-rolled +1 socket bumps socket_count by exactly 1"
+    );
+
+    // End-to-end: build characters with each jewel socketed, run synthesis,
+    // count the resulting jewel-socket synth nodes.
+    let mut c_baseline = Character::new(ClassRef::marauder(), 90);
+    c_baseline.allocate(large_socket_id);
+    c_baseline.jewels.insert(large_socket_id, baseline);
+
+    let mut c_corrupted = Character::new(ClassRef::marauder(), 90);
+    c_corrupted.allocate(large_socket_id);
+    c_corrupted.jewels.insert(large_socket_id, corrupted);
+
+    let baseline_specs = pob_engine::cluster_synth::synthesise_all(
+        &tree,
+        &c_baseline.jewels,
+        &cluster_jewels,
+        &cluster_mods,
+    );
+    let corrupted_specs = pob_engine::cluster_synth::synthesise_all(
+        &tree,
+        &c_corrupted.jewels,
+        &cluster_jewels,
+        &cluster_mods,
+    );
+    assert_eq!(baseline_specs[0].socket_ids.len(), 0);
+    assert_eq!(
+        corrupted_specs[0].socket_ids.len(),
+        1,
+        "corruption-rolled +1 socket → exactly one synth jewel socket"
+    );
+}
+
+// Issue #197 (slice C): `Added Small Passive Skills have N% increased Effect`
+// is the headline corruption-roll mod for cluster small-passive stat-stack
+// builds. With a Chaos Damage roll baseline of 12%, +50% effect should
+// scale every small to "18% increased Chaos Damage" — and the engine
+// should reflect that in the modDB when the small is allocated.
+#[test]
+fn corrupted_cluster_jewel_small_inc_effect_scales_modlist_values() {
+    let Some(tree) = load_3_25_tree() else {
+        return;
+    };
+    let cluster_jewels_path = data_root().join("cluster_jewels.json");
+    let cluster_mods_path = data_root().join("cluster_jewel_mods.json");
+    let Ok(cj_json) = std::fs::read_to_string(&cluster_jewels_path) else {
+        return;
+    };
+    let Ok(cm_json) = std::fs::read_to_string(&cluster_mods_path) else {
+        return;
+    };
+    let cluster_jewels = pob_data::load_cluster_jewels(&cj_json).expect("decode cluster_jewels");
+    let cluster_mods =
+        pob_data::load_cluster_jewel_mods(&cm_json).expect("decode cluster_jewel_mods");
+
+    let large_socket_id = tree
+        .nodes
+        .iter()
+        .find_map(|(id, n)| (n.expansion_jewel_size == Some(2)).then_some(*id))
+        .expect("Large jewel socket");
+
+    let item = parse_item(
+        "Item Class: Jewel\n\
+         Rarity: MAGIC\n\
+         Strident Large Cluster Jewel\n\
+         Large Cluster Jewel\n\
+         --------\n\
+         Item Level: 84\n\
+         --------\n\
+         Adds 8 Passive Skills\n\
+         Added Small Passive Skills grant: 12% increased Chaos Damage\n\
+         --------\n\
+         Added Small Passive Skills have 50% increased Effect (corrupted)\n\
+         --------\n\
+         Corrupted",
+    )
+    .expect("parse corrupted item");
+    let parsed = pob_engine::cluster_synth::parse_cluster_jewel(&item, &cluster_jewels)
+        .expect("parses corrupted");
+    assert_eq!(parsed.small_passive_inc_effect, 50);
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.allocate(large_socket_id);
+    c.jewels.insert(large_socket_id, item);
+
+    let specs =
+        pob_engine::cluster_synth::synthesise_all(&tree, &c.jewels, &cluster_jewels, &cluster_mods);
+    let spec = &specs[0];
+    let small_id = spec.small_ids[0];
+    let small = &spec.nodes[&small_id];
+    let line = small
+        .stats
+        .iter()
+        .find(|s| s.contains("Chaos Damage"))
+        .expect("small carries scaled chaos damage line");
+    assert_eq!(
+        line, "18% increased Chaos Damage",
+        "12% scaled by +50% effect = 18%"
+    );
+
+    // End-to-end: allocate the small and confirm the modDB carries the
+    // scaled value, not the unscaled 12%.
+    c.allocate(small_id);
+    let ctx = pob_engine::ClusterContext::new(&cluster_jewels, &cluster_mods);
+    let (_, env) = pob_engine::compute_full_with_clusters(&c, &tree, None, None, Some(ctx));
+    let scaled_value: f64 = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            matches!(m.source, Some(pob_engine::Source::Passive(id)) if id == small_id)
+                && m.name.contains("ChaosDamage")
+        })
+        .filter_map(|m| m.value.as_f64())
+        .sum();
+    assert!(
+        (scaled_value - 18.0).abs() < 1e-6,
+        "scaled chaos damage from corrupted +50% effect should be 18.0, got {scaled_value}"
+    );
+}
