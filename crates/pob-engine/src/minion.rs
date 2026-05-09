@@ -17,7 +17,8 @@
 use pob_data::{
     monster_tables::{
         monster_accuracy_at_level, monster_ally_damage_at_level, monster_ally_life_at_level,
-        monster_life2_at_level, monster_life3_at_level, monster_life_at_level,
+        monster_armour_at_level, monster_evasion_at_level, monster_life2_at_level,
+        monster_life3_at_level, monster_life_at_level,
     },
     MinionData, MinionType,
 };
@@ -471,16 +472,63 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
     output.set("MinionAttacksPerSecondBase", speed_base);
     output.set("MinionAttacksPerSecond", attacks_per_second);
 
-    // Surface armour / stun-threshold from the minion's intrinsic mod_list. PoB
-    // computes minion armour from a base × (1 + INC/100) × MORE chain anchored on
-    // monster_armour_at_level, but slice 7 stops short of the per-hit mitigation
-    // formula — we just report what the intrinsic mods contribute so the user can
-    // see the chain.
+    // Slice 14 of #20: minion armour and evasion. Mirrors PoB's
+    // `Modules/CalcPerform.lua:1146-1148`:
+    //
+    //     baseArmour  = monsterArmourTable[level]  × (data.armour  or 1)
+    //     baseEvasion = monsterEvasionTable[level] × (data.evasion or 1)
+    //
+    // The base then composes through the standard `(1 + INC/100) × MORE`
+    // chain on the minion-side, layering the minion's intrinsic `Armour` /
+    // `Evasion` mods (e.g. Raised Zombie's intrinsic `Armour INC 40`) with
+    // the player-side `MinionArmour` / `MinionEvasion` adders.
+    //
+    // Slice 7 only surfaced the INC %; this slice closes the loop with
+    // the absolute scaled values so the side-panel can show real "X
+    // armour / Y evasion" numbers. Per-hit mitigation against incoming
+    // damage is still deferred — there's no minion defence sim yet.
+    let armour_multiplier = state.data.armour.unwrap_or(1.0);
+    let armour_table_base = f64::from(monster_armour_at_level(state.level)) * armour_multiplier;
+    let armour_intrinsic_base = intrinsic.sum(ModType::Base, &cfg, &env.state, "Armour");
+    let armour_player_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionArmour");
+    let armour_total_base = armour_table_base.round() + armour_intrinsic_base + armour_player_base;
     let armour_inc_intrinsic = intrinsic.sum(ModType::Inc, &cfg, &env.state, "Armour");
     let armour_inc_player = env
         .mod_db
         .sum(ModType::Inc, &cfg, &env.state, "MinionArmour");
+    let armour_more_intrinsic = intrinsic.more(&cfg, &env.state, "Armour");
+    let armour_more_player = env.mod_db.more(&cfg, &env.state, "MinionArmour");
+    let armour_scaled = armour_total_base
+        * (1.0 + (armour_inc_player + armour_inc_intrinsic) / 100.0)
+        * armour_more_player
+        * armour_more_intrinsic;
+    output.set("MinionArmourBase", armour_total_base);
     output.set("MinionArmourInc", armour_inc_player + armour_inc_intrinsic);
+    output.set("MinionArmour", armour_scaled.round());
+
+    let evasion_multiplier = state.data.evasion.unwrap_or(1.0);
+    let evasion_table_base = f64::from(monster_evasion_at_level(state.level)) * evasion_multiplier;
+    let evasion_intrinsic_base = intrinsic.sum(ModType::Base, &cfg, &env.state, "Evasion");
+    let evasion_player_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionEvasion");
+    let evasion_total_base =
+        evasion_table_base.round() + evasion_intrinsic_base + evasion_player_base;
+    let evasion_inc_intrinsic = intrinsic.sum(ModType::Inc, &cfg, &env.state, "Evasion");
+    let evasion_inc_player = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "MinionEvasion");
+    let evasion_more_intrinsic = intrinsic.more(&cfg, &env.state, "Evasion");
+    let evasion_more_player = env.mod_db.more(&cfg, &env.state, "MinionEvasion");
+    let evasion_scaled = evasion_total_base
+        * (1.0 + (evasion_inc_player + evasion_inc_intrinsic) / 100.0)
+        * evasion_more_player
+        * evasion_more_intrinsic;
+    output.set("MinionEvasionBase", evasion_total_base);
+    output.set("MinionEvasion", evasion_scaled.round());
+
     let stun_threshold_inc_intrinsic =
         intrinsic.sum(ModType::Inc, &cfg, &env.state, "StunThreshold");
     output.set("MinionStunThresholdInc", stun_threshold_inc_intrinsic);
@@ -543,6 +591,7 @@ mod tests {
                 life: 6.0,
                 energy_shield: None,
                 armour: None,
+                evasion: None,
                 fire_resist: 75,
                 cold_resist: 40,
                 lightning_resist: 40,
@@ -798,6 +847,7 @@ mod tests {
             life: 1.0,
             energy_shield: None,
             armour: None,
+            evasion: None,
             fire_resist: 0,
             cold_resist: 0,
             lightning_resist: 0,
@@ -872,6 +922,7 @@ mod tests {
                 life: 6.0,
                 energy_shield: None,
                 armour: None,
+                evasion: None,
                 fire_resist: 40,
                 cold_resist: 40,
                 lightning_resist: 40,
@@ -985,6 +1036,7 @@ mod tests {
             life: 1.0,
             energy_shield: None,
             armour: None,
+            evasion: None,
             fire_resist: 0,
             cold_resist: 0,
             lightning_resist: 0,
@@ -1300,6 +1352,7 @@ mod tests {
                 life: 1.0,
                 energy_shield: None, // base ES comes purely from the intrinsic mod
                 armour: None,
+                evasion: None,
                 fire_resist: 0,
                 cold_resist: 0,
                 lightning_resist: 0,
@@ -1334,5 +1387,181 @@ mod tests {
         // Base = 0 (no es multiplier) + 10 intrinsic + 0 player = 10.
         assert_eq!(output.get("MinionEnergyShieldBase"), 10.0);
         assert_eq!(output.get("MinionEnergyShield"), 10.0);
+    }
+
+    /// Slice 14 of #20: when `data.armour` is `None` PoB treats the
+    /// multiplier as 1.0, so the base armour is exactly the
+    /// `monster_armour_at_level` table value. The test fake_minion()
+    /// emits `armour: None`, so the base equals the table reading
+    /// rounded.
+    #[test]
+    fn write_minion_outputs_armour_uses_table_with_default_multiplier() {
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+        let env = Env::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        let table_value = f64::from(pob_data::monster_tables::monster_armour_at_level(20));
+        assert_eq!(output.get("MinionArmourBase"), table_value.round());
+        // No mods → MinionArmour equals base.
+        assert_eq!(output.get("MinionArmour"), table_value.round());
+    }
+
+    /// Slice 14 of #20: `data.armour = Some(0.75)` scales the table
+    /// value before adding intrinsic / player BASE adders. Verify the
+    /// multiplier is applied first, then the player-side BASE is layered
+    /// on, then INC / MORE round-trip cleanly.
+    #[test]
+    fn write_minion_outputs_armour_scales_by_data_multiplier_and_player_mods() {
+        use crate::Mod;
+        let mut minions = fake_minion();
+        let data = minions
+            .minions
+            .get_mut("SummonedFlameGolem")
+            .expect("present");
+        data.armour = Some(0.75);
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 1,
+            life_base: 1000,
+        };
+
+        let table_v = f64::from(pob_data::monster_tables::monster_armour_at_level(1));
+        let base_floor = (table_v * 0.75).round();
+
+        // 100% INC + 25% MORE + 5 BASE → (base+5) × 2.0 × 1.25.
+        let mut env = Env::default();
+        env.mod_db.add(Mod::base("MinionArmour", 5.0));
+        env.mod_db.add(Mod::inc("MinionArmour", 100.0));
+        env.mod_db.add(Mod::more("MinionArmour", 25.0));
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        let expected_base = base_floor + 5.0;
+        let expected_armour = (expected_base * 2.0 * 1.25).round();
+        assert_eq!(output.get("MinionArmourBase"), expected_base);
+        assert_eq!(output.get("MinionArmour"), expected_armour);
+    }
+
+    /// Slice 14 of #20: parallel coverage for evasion. `data.evasion =
+    /// None` defaults the multiplier to 1.0, so the base is the
+    /// `monster_evasion_at_level` reading rounded.
+    #[test]
+    fn write_minion_outputs_evasion_uses_table_with_default_multiplier() {
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+        let env = Env::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        let table_value = f64::from(pob_data::monster_tables::monster_evasion_at_level(20));
+        assert_eq!(output.get("MinionEvasionBase"), table_value.round());
+        assert_eq!(output.get("MinionEvasion"), table_value.round());
+    }
+
+    /// Slice 14 of #20: `data.evasion = Some(0.4)` scales the table
+    /// value, and player-side `MinionEvasion` INC + MORE compose. Mirror
+    /// of the armour test so each output's chain has its own regression
+    /// guard.
+    #[test]
+    fn write_minion_outputs_evasion_scales_by_data_multiplier_and_player_mods() {
+        use crate::Mod;
+        let mut minions = fake_minion();
+        let data = minions
+            .minions
+            .get_mut("SummonedFlameGolem")
+            .expect("present");
+        data.evasion = Some(0.4);
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 50,
+            life_base: 5000,
+        };
+
+        let table_v = f64::from(pob_data::monster_tables::monster_evasion_at_level(50));
+        let base_floor = (table_v * 0.4).round();
+
+        // 50% INC + 20% MORE → base × 1.5 × 1.2.
+        let mut env = Env::default();
+        env.mod_db.add(Mod::inc("MinionEvasion", 50.0));
+        env.mod_db.add(Mod::more("MinionEvasion", 20.0));
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        let expected = (base_floor * 1.5 * 1.2).round();
+        assert_eq!(output.get("MinionEvasionBase"), base_floor);
+        assert_eq!(output.get("MinionEvasion"), expected);
+    }
+
+    /// Slice 14 of #20: intrinsic `Armour` / `Evasion` BASE adders from
+    /// the minion's `mod_list` layer alongside the table-derived base
+    /// before scaling. Synthetic minion with intrinsic mods that match
+    /// the shape PoB recordings for spectres / unique minions.
+    #[test]
+    fn write_minion_outputs_armour_evasion_pick_up_intrinsic_base() {
+        use serde_json::json;
+        let mut minions: IndexMap<String, MinionType> = IndexMap::new();
+        minions.insert(
+            "TestMinion".into(),
+            MinionType {
+                name: "Test".into(),
+                monster_tags: vec![],
+                life: 1.0,
+                energy_shield: None,
+                armour: None,
+                evasion: None,
+                fire_resist: 0,
+                cold_resist: 0,
+                lightning_resist: 0,
+                chaos_resist: 0,
+                damage: 1.0,
+                damage_spread: 0.0,
+                attack_time: 1.0,
+                attack_range: 1.0,
+                accuracy: 1.0,
+                limit: None,
+                skill_list: vec![],
+                mod_list: vec![
+                    json!({"__kind": "mod", "name": "Armour", "type": "BASE", "value": 50, "flags": 0, "keywordFlags": 0}),
+                    json!({"__kind": "mod", "name": "Evasion", "type": "BASE", "value": 25, "flags": 0, "keywordFlags": 0}),
+                ],
+                life_scaling: None,
+                weapon_type1: None,
+                weapon_type2: None,
+                base_damage_ignores_attack_speed: false,
+            },
+        );
+        let data = minions.get("TestMinion").unwrap();
+        let state = MinionState {
+            id: "TestMinion".into(),
+            data,
+            level: 1,
+            life_base: 100,
+        };
+        let env = Env::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+
+        let armour_table = f64::from(pob_data::monster_tables::monster_armour_at_level(1));
+        let evasion_table = f64::from(pob_data::monster_tables::monster_evasion_at_level(1));
+        // Base = table.round() × 1.0 + intrinsic Base + player Base.
+        assert_eq!(output.get("MinionArmourBase"), armour_table.round() + 50.0);
+        assert_eq!(
+            output.get("MinionEvasionBase"),
+            evasion_table.round() + 25.0
+        );
     }
 }
