@@ -3791,6 +3791,110 @@ fn each_warcry_emits_active_marker_with_recent_use() {
     }
 }
 
+// Issue #19 (slice 8): Enduring Cry's signature buff — life regen
+// scaling with WarcryPower. PoB's data ties
+// `LifeRegenPercent BASE = 120 / 60 × min(power, 25) / 5` to the
+// gem's GlobalEffect:Warcry tag (act_str.lua:3837-3840); we
+// approximate the gate with `UsedWarcryRecently` since MK2 doesn't
+// yet model the warcry uptime as a discrete buff window.
+// WarcryPower defaults to PoB's 20 when the user hasn't pinned it.
+#[test]
+fn enduring_cry_injects_life_regen_scaling_with_warcry_power() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("EnduringCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: EnduringCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+    use pob_engine::ModStore as _;
+
+    fn enduring_regen(env: &pob_engine::Env) -> f64 {
+        env.mod_db
+            .iter_all()
+            .filter(|m| {
+                m.name == "LifeRegenPercent"
+                    && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Enduring Cry")
+            })
+            .filter_map(|m| m.value.as_f64())
+            .sum()
+    }
+
+    // Cleave + Enduring Cry, no UsedWarcryRecently → no LifeRegen
+    // injection. Without the gate flag, the cry isn't considered
+    // active in the rotation.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("EnduringCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcry".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        enduring_regen(&env) < 1e-9,
+        "Without UsedWarcryRecently, Enduring Cry must NOT inject LifeRegenPercent (got {})",
+        enduring_regen(&env)
+    );
+    assert!(
+        env.output.get("EnduringCryLifeRegenPct") < 1e-9,
+        "EnduringCryLifeRegenPct should not be emitted without the warcry gate"
+    );
+
+    // Tick UsedWarcryRecently with default warcry_power (None →
+    // PoB 20). Expected regen = 120 / 60 × 20 / 5 = 8.0%/s.
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    let regen_default = enduring_regen(&env);
+    assert!(
+        (regen_default - 8.0).abs() < 1e-6,
+        "Enduring Cry at default WarcryPower (20) should give 8%/s regen; got {regen_default}"
+    );
+    assert!(
+        (env.output.get("EnduringCryLifeRegenPct") - 8.0).abs() < 1e-6,
+        "EnduringCryLifeRegenPct should mirror the injected regen"
+    );
+
+    // Pin WarcryPower = 25 (the cap). Expected = 120 / 60 × 25 / 5 = 10%/s.
+    c.config.warcry_power = Some(25);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (enduring_regen(&env) - 10.0).abs() < 1e-6,
+        "Enduring Cry at WarcryPower 25 should hit the 10%/s cap; got {}",
+        enduring_regen(&env)
+    );
+
+    // Pin WarcryPower = 100 (above cap). Should clamp to 25 → 10%/s.
+    c.config.warcry_power = Some(100);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (enduring_regen(&env) - 10.0).abs() < 1e-6,
+        "Enduring Cry at WarcryPower 100 must still cap at 10%/s (limit = 25); got {}",
+        enduring_regen(&env)
+    );
+
+    // Disable the cry gem. Even with UsedWarcryRecently, no regen
+    // should be injected — the buff source is gone.
+    if let Some(group) = c.skill_groups.first_mut() {
+        if let Some(gem) = group.gems.iter_mut().find(|g| g.skill_id == "EnduringCry") {
+            gem.enabled = false;
+        }
+    }
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        enduring_regen(&env) < 1e-9,
+        "Disabled EnduringCry must not contribute LifeRegenPercent; got {}",
+        enduring_regen(&env)
+    );
+}
+
 // Issue #19 (slice 4): `ExertedAttackUptime` auto-derives from the
 // slice-3 warcry aggregates when the user hasn't pinned it
 // manually. Auto-uptime = `total_exert / (cps × cooldown)`, capped

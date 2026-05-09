@@ -1857,6 +1857,7 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     // intimidating-cry pattern from slice 6.
     let mut detected_cries: Vec<&'static str> = Vec::new();
     let mut intimidating_cry_present = false;
+    let mut enduring_cry_present = false;
     for group in &character.skill_groups {
         if !group.enabled {
             continue;
@@ -1891,6 +1892,9 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
             ];
             if gem.skill_id == "IntimidatingCry" {
                 intimidating_cry_present = true;
+            }
+            if gem.skill_id == "EnduringCry" {
+                enduring_cry_present = true;
             }
             if let Some(&(_, marker)) = WARCRY_MARKERS.iter().find(|(id, _)| *id == gem.skill_id) {
                 if !detected_cries.contains(&marker) {
@@ -1964,6 +1968,25 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
         && !env.state.condition("EnemyIntimidated")
     {
         env.state.set_condition("EnemyIntimidated", true);
+    }
+
+    // Issue #19 (slice 8): Enduring Cry's signature buff — life
+    // regen scaling with WarcryPower. PoB models it as
+    // `LifeRegenPercent BASE = 120 / 60 * min(power, 25) / 5`,
+    // sourced from `act_str.lua:3837-3840`'s statMap entry
+    // (constant = 120, div = 60 for per-minute → per-second, div =
+    // 5 for per-5-power, limit = 25 max effective power). At
+    // WarcryPower = 20 (PoB default) this is `120/60 * 20/5 = 8%`
+    // life regen per second; at the 25-power cap it tops out at 10%.
+    // Same `UsedWarcryRecently` gate as the intimidate auto-flip.
+    if enduring_cry_present && env.state.condition("UsedWarcryRecently") {
+        let power = character.config.warcry_power.unwrap_or(20).min(25);
+        let regen_pct = 120.0 * f64::from(power) / 5.0 / 60.0;
+        env.mod_db.add(
+            Mod::base("LifeRegenPercent", regen_pct)
+                .with_source(Source::Skill("Enduring Cry".into())),
+        );
+        env.output.set("EnduringCryLifeRegenPct", regen_pct);
     }
 }
 
