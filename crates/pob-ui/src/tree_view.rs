@@ -115,6 +115,7 @@ impl TreeView {
         ui: &mut egui::Ui,
         tree: &PassiveTree,
         allocated: &std::collections::HashSet<NodeId>,
+        tattooed: &std::collections::HashSet<NodeId>,
     ) -> TreeInteraction {
         let available = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(available, Sense::click_and_drag());
@@ -406,6 +407,33 @@ impl TreeView {
                 pixels_per_point,
             },
         ));
+
+        // Issue #98 (slice 3): tattoo badge overlay. PoB renders a small T-style badge
+        // on each tattooed node so the user can spot at a glance which nodes are
+        // overridden. We paint a filled gold ring on top of the wgpu node draw — the
+        // egui painter runs after the wgpu callbacks within the same layer, so the
+        // badge always sits on top of the regular ring.
+        if !tattooed.is_empty() {
+            let badge_color = Color32::from_rgb(255, 198, 41); // PoB's tattoo gold
+            for &id in tattooed {
+                let Some(node) = tree.nodes.get(&id) else {
+                    continue;
+                };
+                let Some(p) = self.positions.get(&id).copied() else {
+                    continue;
+                };
+                let s = to_screen(p);
+                if !viewport.expand(20.0).contains(s) {
+                    continue;
+                }
+                let radius = node_radius(node, self.zoom);
+                // Outer accent ring sits just outside the node's existing ring.
+                painter.circle_stroke(s, radius + 2.5, egui::Stroke::new(2.0, badge_color));
+                // Centre dot picks the same accent so the marker reads against any
+                // background (active group bg, search highlight, etc.).
+                painter.circle_filled(s, (radius * 0.18).max(2.0), badge_color);
+            }
+        }
 
         if let Some(id) = hovered {
             if let Some(node) = tree.nodes.get(&id) {
