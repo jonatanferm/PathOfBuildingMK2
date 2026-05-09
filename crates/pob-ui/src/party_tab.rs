@@ -9,6 +9,7 @@
 //! pulls auras out of a teammate's tree + skill bar automatically.
 
 use eframe::egui;
+use pob_data::{bases::ItemBaseSet, PassiveTree};
 use pob_engine::{
     character::{ExtractedAura, PartyMember},
     Character, SkillRegistry,
@@ -31,11 +32,22 @@ pub struct PartyTabState {
 }
 
 /// Returns true if any member field changed (so the caller can recompute).
+///
+/// `tree` and `bases` are threaded through for issue #97 slice 3:
+/// the auto-extraction path runs `compute_full` on the teammate's
+/// imported character to derive their effective AuraEffect % at
+/// extract time, so the projected mods reflect Generosity Support
+/// / item AuraEffect bonuses without the user having to dial them
+/// in by hand. They're optional in spirit (the parent app always
+/// has them today, but threading them as required keeps the
+/// signature honest).
 pub fn ui(
     ui: &mut egui::Ui,
     state: &mut PartyTabState,
     character: &mut Character,
     registry: &SkillRegistry,
+    tree: &PassiveTree,
+    bases: Option<&ItemBaseSet>,
 ) -> bool {
     let mut changed = false;
     // Keep the per-member buffer arrays sized to the member list. Adds /
@@ -298,7 +310,7 @@ pub fn ui(
                     let import = run_import(&buf.trim().to_owned());
                     match import {
                         Ok(extracted) => {
-                            let count = extract_into(member, &extracted, registry);
+                            let count = extract_into(member, &extracted, registry, tree, bases);
                             if let Some(slot) = state.import_status.get_mut(idx) {
                                 *slot = Some(format!("Extracted {count} aura/curse/banner gem(s)"));
                             }
@@ -361,7 +373,21 @@ fn extract_into(
     member: &mut PartyMember,
     teammate: &pob_engine::Character,
     registry: &SkillRegistry,
+    tree: &PassiveTree,
+    bases: Option<&ItemBaseSet>,
 ) -> usize {
+    // Issue #97 (slice 3): derive the teammate's effective
+    // AuraEffect % by running the full calc pipeline on their
+    // imported character. The mod_db at the end of compute_full
+    // carries every aura-effect contribution from items, supports
+    // (Generosity), and tree nodes — summed as INC + MORE here
+    // and converted to a single `effect_pct` scalar PoB-style:
+    //   scalar = (1 + AuraEffect_inc/100) × AuraEffect_more
+    // We round to the nearest integer percent for storage in the
+    // ExtractedAura slot (slice 2's user-overridable knob). The
+    // user can still hand-edit per aura after extraction.
+    let auto_effect_pct = teammate_aura_effect_pct(teammate, tree, registry, bases);
+
     let mut added = 0;
     for group in &teammate.skill_groups {
         if !group.enabled {
@@ -385,7 +411,7 @@ fn extract_into(
                 level: gem.level.max(1),
                 quality: gem.quality,
                 enabled: true,
-                effect_pct: 0,
+                effect_pct: auto_effect_pct,
             };
             // Replace any existing entry with the same skill_id so a
             // re-import refreshes levels in place rather than
@@ -403,4 +429,27 @@ fn extract_into(
         }
     }
     added
+}
+
+/// Issue #97 (slice 3): compute the teammate's effective
+/// AuraEffect % at the moment of extraction. Runs `compute_full`
+/// on the imported character and reads the AuraEffect INC + MORE
+/// totals from the resulting modDB. Returns a rounded percent
+/// suitable for `ExtractedAura.effect_pct` (`+30` = 1.30× scalar
+/// applied to projected mod values). Any compute path that fails
+/// (no tree, no skills loaded) falls back to 0.
+fn teammate_aura_effect_pct(
+    teammate: &pob_engine::Character,
+    tree: &PassiveTree,
+    registry: &SkillRegistry,
+    bases: Option<&ItemBaseSet>,
+) -> i32 {
+    use pob_engine::{ModStore as _, ModType};
+    let (_out, env) = pob_engine::compute_full_with_env(teammate, tree, Some(registry), bases);
+    let cfg = pob_engine::mod_db::QueryCfg::default();
+    let inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AuraEffect");
+    let more = env.mod_db.more(&cfg, &env.state, "AuraEffect");
+    let scalar = (1.0 + inc / 100.0) * more;
+    // Convert to a percent delta from 1.0 and round.
+    ((scalar - 1.0) * 100.0).round() as i32
 }

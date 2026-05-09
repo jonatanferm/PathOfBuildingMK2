@@ -965,7 +965,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Party => {
-            if party_tab::ui(ui, &mut app.party_state, &mut app.character, &app.skills) {
+            if party_tab::ui(
+                ui,
+                &mut app.party_state,
+                &mut app.character,
+                &app.skills,
+                &app.tree,
+                app.bases.as_ref(),
+            ) {
                 recompute = true;
             }
         }
