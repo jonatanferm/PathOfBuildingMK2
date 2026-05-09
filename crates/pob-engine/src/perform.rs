@@ -50,6 +50,18 @@ pub fn compute_full_with_env(
     bases: Option<&pob_data::bases::ItemBaseSet>,
 ) -> (Output, Env) {
     let mut env = init_env_with_bases(character, tree, bases);
+    // Issue #19 (slice 13): warcry buff injection happens BEFORE
+    // perform_basic_stats so the per-cry buffs (Enduring's
+    // LifeRegen, Ancestral's ElementalResist + Max, Seismic's
+    // Armour MORE + StunThreshold INC, Battlemage's CritChance)
+    // actually flow through the basic-stat outputs. Slices 8-10
+    // and 12 originally added the mods after basic-stats had
+    // already snapshotted the modDB, so the buffs were silently
+    // a no-op for the headline LifeRegen / Resists / Armour /
+    // CritChance numbers — only the modDB carried them.
+    if let Some(reg) = skills {
+        detect_warcries(character, reg, &mut env);
+    }
     perform_basic_stats(character, tree, &mut env);
     if let Some(b) = bases {
         perform_flask_recovery(character, b, &mut env);
@@ -62,11 +74,6 @@ pub fn compute_full_with_env(
         apply_party_extracted_auras(character, reg, &mut env);
         perform_reservations(character, reg, &mut env);
         perform_curses(character, reg, &mut env);
-        // Issue #19 (slice 3): emit aggregate warcry-loadout outputs
-        // (count + total exert + min cooldown). Auto-uptime
-        // derivation lives in slice 4; this slice ships the data
-        // pipeline for it.
-        detect_warcries(character, reg, &mut env);
         // Issue #5: Dual-wield per-weapon calc loop. PoB's CalcOffence.lua
         // runs the skill calc twice for dual-wielders — once with
         // `SlotName:Weapon 1` active and `SlotName:Weapon 2` inactive,
