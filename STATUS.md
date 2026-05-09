@@ -3,7 +3,7 @@
 ## Headline numbers
 
 - 5 crates, 100+ commits, ~13 000 lines of Rust.
-- 228 tests pass workspace-wide.
+- 259 tests pass workspace-wide.
 - Release `pob-desktop` binary: ~9.6 MB on macOS arm64.
 - Engine `compute()` averages 2.2 ms per call against the full 3.25 tree
   in release.
@@ -22,7 +22,7 @@ real calc output.
   passive trees, 1062 item bases, 810 skill gems, and 1488 skill effects from the
   upstream PoB checkout (`.PathOfBuilding/` in-repo, or `../PathOfBuilding/` legacy)
   into `data/`.
-- **`cargo test --workspace`** — 228 tests pass across the workspace.
+- **`cargo test --workspace`** — 259 tests pass across the workspace.
 - **`cargo run -p pob-desktop --release`** — opens the app.
 
 ## End-to-end demo
@@ -158,28 +158,68 @@ Closed since the previous status snapshot:
   bundling stays a follow-up.
 - CI: `cargo fmt --check` and `cargo clippy -D warnings` are gated, not
   advisory.
+- Calcs-tab section layout port (#34): `data/calc_sections.json` ships
+  the full PoB section tree (29 sections, 600+ rows). The Calcs tab has
+  an opt-in **PoB layout** view that renders the imported sections in
+  three columns (Offence / Core / Defence) with per-row output values.
+  Skill-flag visibility (`flag = "spell"` / `notFlag = "attack"`) is
+  honoured against the active main skill's `baseFlags` so spell builds
+  stop seeing weapon-attack rows.
+- Cluster jewel data foundation (#21): `data/cluster_jewels.json` and
+  `data/cluster_jewel_mods.json` capture the three jewel categories
+  (Small / Medium / Large with their ring slots + small-passive
+  options) and 557 prefix / suffix / corruption mods. Sub-graph
+  synthesis (placing synthesised notable nodes into the live tree) is
+  the next slice.
+- Tattoo full pipeline (#98): catalogue (167 tattoos in
+  `data/tattoos.json`) + right-click picker on the Tree tab + gold
+  badge overlay on tattooed nodes. PoB-XML round-trip already worked
+  via PR #93's engine-side override mechanism.
+- Minion build foundation (#20): `data/minions.json` (62 minions with
+  base life / damage / resists / cap counters / mod recordings); the
+  four `monster_*_life_table` arrays from `Data/Misc.lua`; and a
+  `MinionState` skeleton that surfaces `MinionLife` / `MinionFireResist`
+  etc. on the player's output for the active main skill's primary
+  minion. A real minion perform pass (with `MinionLife` INC / MORE
+  scaling, support-gem mods, and minion DPS) is the next slice.
+- mod_parser canonical key naming for `Gain N% of <Source> as Extra
+  <Target>` mods. Item-text mods now mint `<Source>DamageGainAs<Target>`
+  (matching PoB) instead of MK2-internal `<Target>DamageGain`, so they
+  combine with the same key `aura_buff_mods` already produces from
+  Hatred-shape skill statMaps.
+- pob-ui scaffold: `LoadedApp` carries `cluster_jewels`,
+  `cluster_jewel_mods`, `tattoos`, `minions`, and `calc_sections` so
+  feature slices don't have to re-do the load plumbing.
+- Wasm Builds tab via IndexedDB (#101): `app/pob-web` users can save and
+  load `.mk2` builds across page reloads using IndexedDB, with manual
+  download as a fallback.
 
 Still open (in rough priority):
 
 1. **AoE radius rolloff and projectile pierce/chain variance**: we now model
    shotgun overlap and the per-target multiplier, but not AoE damage falloff
    or pierce/chain damage variance per hop.
-2. **Per-weapon active-hand calc loop**: items now carry `SlotName` tags but
-   the calc layer doesn't yet evaluate the main skill once per active weapon
-   and average the results — needed for accurate dual-wield DPS.
-3. **Damage conversion (`PhysicalDamageGainAs<Element>`)**: Hatred-style auras
-   already inject the gain mod via `aura_buff_mods`, but the calc pipeline
-   doesn't yet read `Gain%` to add the converted element to the hit total.
+2. **Damage conversion calc-side read (`PhysicalDamageGainAs<Element>`)**:
+   the mod_parser now mints PoB-canonical keys, but the calc pipeline still
+   doesn't *read* them to add converted element damage to the hit total.
    Same gap blocks Infernal Cry's phys-as-fire piece.
-4. **Live `pob_diff` ailment baselines in CI**: reference builds exist
+3. **Live `pob_diff` ailment baselines in CI**: reference builds exist
    (`marauder_l90_bleeding_cleave.xml`, `witch_l90_arc_with_items.xml`,
    etc.), but locking PoB-vs-engine deltas behind a regression test still
    requires running pob_diff in the test environment.
-5. **Cluster jewels + Timeless jewels + radius jewels**: tree-data heavy;
-   tracked separately as #21, #30, #31.
-6. **Vaal / alternate skill variants per gem (#36)** and **minion build
-   support (#20)**: large engine extensions that need their own design slices
-   before incremental PRs make sense.
+4. **Cluster jewel sub-graph synthesis (#21)**: data is extracted; the
+   tree-side synthesis pass that places synthesised notables into the
+   allocated tree when a Cluster Jewel is socketed is the next slice.
+   Timeless jewels (#30) and the generic radius-jewel framework (#31) are
+   separate follow-ups.
+5. **Real minion perform pass (#20)**: `MinionState` is wired and Life /
+   resists land on the player's output, but the next slice needs a real
+   minion-side `ModDB` so player-side `MinionLife` INC / MORE scaling and
+   support-gem mods route through, and `MinionDPS` becomes a real number.
+6. **Vaal / alternate skill variants per gem (#36)**: variant-picker UI
+   ships, but alt-quality (Anomalous / Divergent / Phantasmal) needs the
+   per-variant `qualityStats` selected at compute time + PoB XML
+   `qualityId` round-trip.
 
 ## Build commands cheat sheet
 
