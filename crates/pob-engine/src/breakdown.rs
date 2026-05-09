@@ -162,6 +162,14 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // Life / Mana.
         "EnergyShield" => Some(pool_basic(env, "EnergyShield")),
 
+        // Resists. Total = min(raw, cap) where raw = BASE(<elem>Resist) +
+        // BASE(ElementalResist) + level-penalty, and cap = 75 +
+        // BASE(<elem>ResistMax). Chaos has no umbrella adder.
+        "FireResistTotal" => Some(elemental_resist(env, "Fire")),
+        "ColdResistTotal" => Some(elemental_resist(env, "Cold")),
+        "LightningResistTotal" => Some(elemental_resist(env, "Lightning")),
+        "ChaosResistTotal" => Some(chaos_resist(env)),
+
         _ => None,
     }
 }
@@ -192,6 +200,11 @@ pub const COVERED_KEYS: &[&str] = &[
     "Life",
     "Mana",
     "EnergyShield",
+    // Resists.
+    "FireResistTotal",
+    "ColdResistTotal",
+    "LightningResistTotal",
+    "ChaosResistTotal",
 ];
 
 // --- Damage ---------------------------------------------------------
@@ -811,6 +824,160 @@ fn crit_effect(env: &Env) -> Breakdown {
     }
 }
 
+// --- Resists --------------------------------------------------------
+
+/// Issue #34 follow-up: re-derive an elemental resist's effective
+/// value (Fire / Cold / Lightning). Mirrors `perform_basic_stats`:
+///
+///   raw   = Σ BASE(<elem>Resist) + Σ BASE(ElementalResist) + level penalty
+///   cap   = 75 + Σ BASE(<elem>ResistMax)
+///   total = min(raw, cap)
+///
+/// The level penalty mirrors PoE's Act 5 / Act 10 -30 / -60 story
+/// hits (PoB applies -60 for any character of level ≥ 68). MK2's
+/// engine bakes this into the BASE sum implicitly; the breakdown
+/// surfaces it separately as a recovered value so users can see
+/// where their starting hole comes from.
+fn elemental_resist(env: &Env, elem: &str) -> Breakdown {
+    let cfg = QueryCfg::default();
+    let resist_key = format!("{elem}Resist");
+    let max_key = format!("{elem}ResistMax");
+    let total_key = format!("{elem}ResistTotal");
+
+    let elem_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, &resist_key);
+    let umbrella = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ElementalResist");
+    // Recover the level penalty from the difference between the
+    // computed `<elem>Resist` output and the BASE sums. The penalty
+    // is -60 for level ≥ 68 characters and 0 otherwise; this lets
+    // the breakdown stay accurate even if the formula evolves.
+    let raw = env.output.get(&resist_key);
+    let level_penalty = raw - elem_base - umbrella;
+    let max = env.output.get(&max_key);
+    let max_bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, &max_key);
+    let total = env.output.get(&total_key);
+
+    let mut steps = Vec::new();
+    let elem_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named(&resist_key)
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label(format!("{elem} Resist BASE"))
+            .with_value(elem_base)
+            .with_explain(format!("+{elem_base:.0}% from {elem}Resist BASE mods"))
+            .with_sources(elem_mods),
+    );
+
+    if umbrella.abs() > 1e-9 {
+        let umbrella_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("ElementalResist")
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Elemental Resist BASE")
+                .with_value(umbrella)
+                .with_explain(format!("+{umbrella:.0}% umbrella adders"))
+                .with_sources(umbrella_mods),
+        );
+    }
+
+    if level_penalty.abs() > 1e-9 {
+        steps.push(
+            BreakdownStep::label("Level penalty")
+                .with_value(level_penalty)
+                .with_explain(
+                    "Act 5 / Act 10 story penalty (-30 / -60 by post-act level threshold)"
+                        .to_owned(),
+                ),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Cap")
+            .with_value(max)
+            .with_explain(format!("75 + {max_bonus:.0}% from {elem}ResistMax mods")),
+    );
+
+    steps.push(
+        BreakdownStep::label(format!("{elem} Resist (effective)"))
+            .with_value(total)
+            .with_explain(format!("min({raw:.0}, {max:.0}) = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: total_key,
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: chaos resist mirrors the elemental shape but
+/// with no umbrella `ElementalResist` adder (chaos doesn't pick up
+/// `+all elemental resistances` mods). Same level penalty + cap
+/// formulation.
+fn chaos_resist(env: &Env) -> Breakdown {
+    let cfg = QueryCfg::default();
+    let chaos_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ChaosResist");
+    let raw = env.output.get("ChaosResist");
+    let level_penalty = raw - chaos_base;
+    let max = env.output.get("ChaosResistMax");
+    let max_bonus = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ChaosResistMax");
+    let total = env.output.get("ChaosResistTotal");
+
+    let mut steps = Vec::new();
+    let chaos_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named("ChaosResist")
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label("Chaos Resist BASE")
+            .with_value(chaos_base)
+            .with_explain(format!("+{chaos_base:.0}% from ChaosResist BASE mods"))
+            .with_sources(chaos_mods),
+    );
+
+    if level_penalty.abs() > 1e-9 {
+        steps.push(
+            BreakdownStep::label("Level penalty")
+                .with_value(level_penalty)
+                .with_explain(
+                    "Act 5 / Act 10 story penalty (-30 / -60 by post-act level threshold)"
+                        .to_owned(),
+                ),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Cap")
+            .with_value(max)
+            .with_explain(format!("75 + {max_bonus:.0}% from ChaosResistMax mods")),
+    );
+
+    steps.push(
+        BreakdownStep::label("Chaos Resist (effective)")
+            .with_value(total)
+            .with_explain(format!("min({raw:.0}, {max:.0}) = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: "ChaosResistTotal".to_owned(),
+        total,
+        steps,
+    }
+}
+
 // --- Helpers --------------------------------------------------------
 
 /// Issue #34 follow-up: re-derive a pool stat that has no primary
@@ -1066,6 +1233,33 @@ mod tests {
             .add(Mod::base("Mana", 200.0).with_source(Source::Item(1)));
         env.mod_db
             .add(Mod::inc("Mana", 50.0).with_source(Source::Tree));
+        // Resist outputs + their underlying BASE mods so the resist
+        // breakdowns have something to walk. Numbers track a typical
+        // L90 character: -60 level penalty + 75 from items + 60 from
+        // an "all elemental" tree umbrella → 75 raw per element →
+        // capped at 75. ChaosResist sits at -55 (no umbrella adder).
+        env.output.set("FireResist", 75.0);
+        env.output.set("FireResistMax", 75.0);
+        env.output.set("FireResistTotal", 75.0);
+        env.output.set("ColdResist", 75.0);
+        env.output.set("ColdResistMax", 75.0);
+        env.output.set("ColdResistTotal", 75.0);
+        env.output.set("LightningResist", 75.0);
+        env.output.set("LightningResistMax", 75.0);
+        env.output.set("LightningResistTotal", 75.0);
+        env.output.set("ChaosResist", -55.0);
+        env.output.set("ChaosResistMax", 75.0);
+        env.output.set("ChaosResistTotal", -55.0);
+        env.mod_db
+            .add(Mod::base("FireResist", 75.0).with_source(Source::Item(2)));
+        env.mod_db
+            .add(Mod::base("ColdResist", 75.0).with_source(Source::Item(2)));
+        env.mod_db
+            .add(Mod::base("LightningResist", 75.0).with_source(Source::Item(2)));
+        env.mod_db
+            .add(Mod::base("ElementalResist", 60.0).with_source(Source::Tree));
+        env.mod_db
+            .add(Mod::base("ChaosResist", 5.0).with_source(Source::Item(1)));
         // Tree-typed INC and MORE damage mods so the breakdown enumerates them.
         env.mod_db
             .add(Mod::inc("Damage", 50.0).with_source(Source::Tree));
@@ -1300,5 +1494,85 @@ mod tests {
         let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
         assert_eq!(labels[0], "Base");
         assert_eq!(*labels.last().unwrap(), "EnergyShield");
+    }
+
+    /// Issue #34 follow-up: FireResistTotal walks element-specific
+    /// BASE → ElementalResist umbrella BASE → level penalty → cap →
+    /// effective. Verify each stage lands and the source attribution
+    /// preserves item / tree provenance.
+    #[test]
+    fn fire_resist_breakdown_walks_base_umbrella_penalty_cap() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "FireResistTotal").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.iter().any(|l| l.starts_with("Fire Resist BASE")));
+        assert!(labels.contains(&"Elemental Resist BASE"));
+        assert!(labels.contains(&"Level penalty"));
+        assert!(labels.contains(&"Cap"));
+        assert!(labels.iter().any(|l| l.contains("(effective)")));
+        // Final value matches the env's FireResistTotal output.
+        assert_eq!(bd.total, 75.0);
+        // Element-specific BASE step shows the item-slot 2 source.
+        let base = bd
+            .steps
+            .iter()
+            .find(|s| s.label.starts_with("Fire Resist BASE"))
+            .unwrap();
+        assert!(
+            base.sources
+                .iter()
+                .any(|s| s.source.contains("item slot 2")),
+            "expected item slot 2 source on Fire Resist BASE step; got {:?}",
+            base.sources
+        );
+    }
+
+    /// Issue #34 follow-up: ChaosResistTotal mirrors the elemental
+    /// shape but skips the umbrella `ElementalResist` step (chaos
+    /// doesn't pick up `+all elemental resistances` mods). Verify
+    /// the helper's structure matches.
+    #[test]
+    fn chaos_resist_breakdown_skips_umbrella_step() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "ChaosResistTotal").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.iter().any(|l| l.starts_with("Chaos Resist BASE")));
+        // Crucially, the elemental umbrella step does NOT appear for chaos.
+        assert!(!labels.contains(&"Elemental Resist BASE"));
+        assert!(labels.contains(&"Cap"));
+        assert!(labels.iter().any(|l| l.contains("(effective)")));
+        // Pinned env: -55 raw, capped at 75.
+        assert_eq!(bd.total, -55.0);
+    }
+
+    /// Issue #34 follow-up: when a resist isn't capped (e.g. the user
+    /// is over-capped at 80% but the cap allows it via gear), the
+    /// effective step shows the value clamped to the cap. Test by
+    /// raising LightningResist to 100 raw with a default cap of 75 —
+    /// the effective value should clamp to 75.
+    #[test]
+    fn elemental_resist_breakdown_clamps_to_cap() {
+        let mut env = env_with_output();
+        env.mod_db
+            .add(Mod::base("LightningResist", 25.0).with_source(Source::Item(3)));
+        // The compute pipeline normally wires this through, but we
+        // manually set the output to mirror what perform_basic_stats
+        // would write: 75 (existing) + 25 (added) - 60 penalty + 60
+        // umbrella = 100 raw, capped at 75.
+        env.output.set("LightningResist", 100.0);
+        env.output.set("LightningResistTotal", 75.0);
+        let bd = derive_for(&env, "LightningResistTotal").unwrap();
+        let effective = bd
+            .steps
+            .iter()
+            .find(|s| s.label.contains("(effective)"))
+            .unwrap();
+        let explain = effective.explain.as_deref().unwrap_or("");
+        // The effective explain should call out the min(raw, cap) clamp.
+        assert!(
+            explain.contains("min(") && explain.contains(", 75)"),
+            "expected min(raw, 75) in effective explain; got {explain}"
+        );
+        assert_eq!(bd.total, 75.0);
     }
 }

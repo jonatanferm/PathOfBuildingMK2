@@ -18,6 +18,14 @@ ahash.workspace = true
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 serde_json.workspace = true
 
+[dev-dependencies]
+# Issue #209 (#238): the items-tab item-DB browser tests construct
+# synthetic `ItemBase` fixtures whose `influence_tags` field is an
+# `indexmap::IndexMap`. PR #238 used `indexmap::IndexMap::new()` in
+# the test scaffold without adding the dev-dep, so the lib test
+# build fails on main. Pulling indexmap in here closes that.
+indexmap.workspace = true
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rfd.workspace = true
 # Issue #32: live character import via the GGG character-window API.
@@ -75,9 +83,6 @@ web-sys = { version = "0.3", features = [
     "Url",
     "Window",
 ] }
-
-[dev-dependencies]
-indexmap.workspace = true
 
 [lints]
 workspace = true
