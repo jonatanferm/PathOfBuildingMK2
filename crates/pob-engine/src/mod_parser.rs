@@ -1197,20 +1197,28 @@ fn try_parse_gain_on_event(line: &str) -> Option<ParsedMod> {
     };
     let rest = rest.trim_start();
 
-    // "Gain N% of <X> as Extra <Y> Damage"
+    // "Gain N% of <Source> Damage as Extra <Target> Damage". The emitted key is
+    // `<Source>DamageGainAs<Target>` (BASE) — matches PoB's canonical naming
+    // (`Modules/CalcOffence.lua` reads `PhysicalDamageGainAsCold` etc.) and lines
+    // up with the same key `aura_buff_mods` already produces from skill statMaps.
+    // Without this alignment, item-text mods and aura-skill mods couldn't combine
+    // even though they're the same calc concept.
+    //
+    // Older releases of MK2 emitted `<Target>DamageGain` (implicitly assuming the
+    // source was Physical). The calc engine never read those keys, so the rename
+    // is purely a naming fix; no calc behaviour changes.
     if is_percent {
         if let Some(rest) = rest.strip_prefix("of ") {
-            if let Some(rest) = rest
-                .find(" as Extra ")
-                .map(|i| &rest[i + " as Extra ".len()..])
-            {
-                let stat = match rest.trim_end_matches(" Damage") {
-                    "Fire" => "FireDamageGain",
-                    "Cold" => "ColdDamageGain",
-                    "Lightning" => "LightningDamageGain",
-                    "Chaos" => "ChaosDamageGain",
-                    _ => return None,
-                };
+            // Split on " as Extra " so we can read both source and target.
+            if let Some((src_raw, tgt_raw)) = rest.split_once(" as Extra ") {
+                let source = src_raw.trim_end_matches(" Damage").trim();
+                let target = tgt_raw.trim_end_matches(" Damage").trim();
+                let source = canonical_damage_type(source)?;
+                let target = canonical_damage_type(target)?;
+                if source == target {
+                    return None;
+                }
+                let stat = format!("{source}DamageGainAs{target}");
                 return Some(ParsedMod {
                     mod_: Mod::base(stat, n),
                 });
@@ -2678,6 +2686,23 @@ fn consume_number(s: &str) -> Option<(f64, &str)> {
     consume_simple_number(s)
 }
 
+/// Map a PoE damage-type label to its canonical PoB modifier-key prefix.
+/// Returns `None` for anything we don't recognise so the caller can bail out
+/// without minting a synthetic key like `WeirdDamageGainAsCold`.
+fn canonical_damage_type(label: &str) -> Option<&'static str> {
+    match label {
+        "Physical" => Some("Physical"),
+        "Fire" => Some("Fire"),
+        "Cold" => Some("Cold"),
+        "Lightning" => Some("Lightning"),
+        "Chaos" => Some("Chaos"),
+        // PoB spells "Non-Chaos" two ways; both legal in modifier text.
+        "Non-Chaos" | "non-Chaos" => Some("NonChaos"),
+        "Elemental" => Some("Elemental"),
+        _ => None,
+    }
+}
+
 fn consume_simple_number(s: &str) -> Option<(f64, &str)> {
     let mut end = 0;
     let bytes = s.as_bytes();
@@ -3436,6 +3461,48 @@ mod tests {
         assert_eq!(m.name, "AdditionalPoisonChance");
         assert_eq!(m.kind, ModType::Base);
         assert_eq!(m.value.as_f64(), Some(20.0));
+    }
+
+    #[test]
+    fn gain_extra_damage_emits_pob_canonical_keys() {
+        // The Hatred-style "Gain N% of <Source> Damage as Extra <Target> Damage"
+        // text on items / passives must mint the same key PoB uses
+        // (`PhysicalDamageGainAsCold` etc.) so it lines up with the same keys
+        // skill statMaps already emit via `aura_buff_mods`. Without this they
+        // would land in different buckets and the calc engine — once it learns
+        // to read the gain — would only see one source.
+        let m = parse("Gain 39% of Physical Damage as Extra Cold Damage");
+        assert_eq!(m.kind, ModType::Base);
+        assert_eq!(m.name, "PhysicalDamageGainAsCold");
+        assert_eq!(m.value.as_f64(), Some(39.0));
+
+        let m = parse("Gain 25% of Physical Damage as Extra Lightning Damage");
+        assert_eq!(m.name, "PhysicalDamageGainAsLightning");
+
+        let m = parse("Gain 10% of Physical Damage as Extra Chaos Damage");
+        assert_eq!(m.name, "PhysicalDamageGainAsChaos");
+
+        // Cross-element gains (Lightning Coil-style "Gain X% of Cold as Extra
+        // Fire") emit `<Source>DamageGainAs<Target>` with the right source.
+        let m = parse("Gain 50% of Cold Damage as Extra Fire Damage");
+        assert_eq!(m.name, "ColdDamageGainAsFire");
+    }
+
+    #[test]
+    fn gain_extra_damage_rejects_self_loop() {
+        // "Fire as Extra Fire" is meaningless. Previously the parser silently
+        // mapped *any* "Gain N% of <X> as Extra <Y>" line to `<Y>DamageGain`
+        // regardless of <X>, so this would emit `FireDamageGain`. The structured
+        // gain branch must now bail out for self-loops (callers fall through to
+        // the misc-mod data-preservation fallback).
+        let m = parse("Gain 5% of Fire Damage as Extra Fire Damage");
+        // Whatever the fallback path produces, it must NOT mint a phantom
+        // `<Element>DamageGainAs<SameElement>` key.
+        assert!(
+            !m.name.starts_with("FireDamageGainAs"),
+            "self-loop should not produce a structured gain key, got `{}`",
+            m.name
+        );
     }
 
     #[test]
