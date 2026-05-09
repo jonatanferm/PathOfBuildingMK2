@@ -59,6 +59,16 @@ struct LoadedApp {
     /// underlying Mod list with sources / tags.
     last_env: Option<pob_engine::Env>,
     search: String,
+    /// Issue #205: tree-tab search QoL. `search_match_order` is the
+    /// `search_matches` set in a stable, sorted order so the "Focus
+    /// next match" cycler lands on a different node each time. The
+    /// index advances modulo the order's length on each Enter press.
+    /// `focus_search_request` is a one-shot flag set by the Cmd-F /
+    /// Ctrl-F shortcut so the next frame can `request_focus()` the
+    /// search text box.
+    search_match_order: Vec<NodeId>,
+    search_focus_index: usize,
+    focus_search_request: bool,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
     skills_state: skills_tab::SkillsTabState,
@@ -272,6 +282,9 @@ impl PobApp {
             output,
             last_env: Some(env),
             search: String::new(),
+            search_match_order: Vec::new(),
+            search_focus_index: 0,
+            focus_search_request: false,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             skills_state: skills_tab::SkillsTabState::default(),
@@ -330,6 +343,9 @@ impl PobApp {
             output,
             last_env: Some(env),
             search: String::new(),
+            search_match_order: Vec::new(),
+            search_focus_index: 0,
+            focus_search_request: false,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             skills_state: skills_tab::SkillsTabState::default(),
@@ -492,6 +508,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // egui widget is consuming text input — e.g. the search box).
     let mut menu_action: Option<MenuAction> = None;
     let mut tab_jump: Option<Tab> = None;
+    // Issue #205: tree-tab search keyboard shortcuts. Cmd/Ctrl-F jumps to
+    // the Tree tab and focuses the search box; Esc clears the box (and
+    // matches) when the search has content. Captured at the app level so
+    // they fire regardless of which panel has focus, including from
+    // inside the search input itself (egui's TextEdit doesn't swallow
+    // Esc by default).
+    let mut focus_tree_search = false;
+    let mut clear_tree_search = false;
     ctx.input(|i| {
         let cmd = i.modifiers.command;
         let shift = i.modifiers.shift;
@@ -505,6 +529,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             menu_action = Some(MenuAction::Open);
         } else if cmd && i.key_pressed(egui::Key::N) {
             menu_action = Some(MenuAction::New);
+        } else if cmd && i.key_pressed(egui::Key::F) {
+            focus_tree_search = true;
         } else if cmd && i.key_pressed(egui::Key::Num1) {
             tab_jump = Some(Tab::Tree);
         } else if cmd && i.key_pressed(egui::Key::Num2) {
@@ -520,7 +546,24 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         } else if cmd && i.key_pressed(egui::Key::Num7) {
             tab_jump = Some(Tab::ImportExport);
         }
+        // Esc clears the search only when there's something to clear and
+        // we're on the Tree tab. Without the tab gate the shortcut would
+        // surprise users typing in unrelated panels (Items / Skills /
+        // Notes), and without the non-empty gate it'd swallow Esc presses
+        // intended for popups / modals.
+        if i.key_pressed(egui::Key::Escape) && app.active_tab == Tab::Tree && !app.search.is_empty()
+        {
+            clear_tree_search = true;
+        }
     });
+    if focus_tree_search {
+        app.active_tab = Tab::Tree;
+        app.focus_search_request = true;
+    }
+    if clear_tree_search {
+        app.search.clear();
+        update_search(app);
+    }
     if let Some(action) = menu_action {
         apply_menu_action(app, action);
     }
@@ -609,13 +652,31 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         egui::TopBottomPanel::top("search_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Search:");
-                let resp = ui.add(
-                    egui::TextEdit::singleline(&mut app.search)
-                        .desired_width(220.0)
-                        .hint_text("notable name, keyword, stat..."),
-                );
+                let edit = egui::TextEdit::singleline(&mut app.search)
+                    .desired_width(220.0)
+                    .hint_text("notable name, keyword, stat...");
+                let resp = ui.add(edit);
+                // Issue #205: Cmd-F / Ctrl-F focuses the search box. The
+                // shortcut is detected at the app-level keyboard handler
+                // earlier in this frame; it sets `focus_search_request`
+                // and we consume it here so the next user keystroke
+                // lands in the text input.
+                if app.focus_search_request {
+                    resp.request_focus();
+                    app.focus_search_request = false;
+                }
                 if resp.changed() {
                     update_search(app);
+                }
+                // Issue #205: Enter cycles through matches when the
+                // input has focus. egui doesn't surface a "lost focus
+                // because of Enter" event distinctly from a blur
+                // click, so we read the raw key the frame the input
+                // is focused. Wrapping `tree_view.focus` recentres the
+                // viewport on each successive match so the user can
+                // walk the tree without leaving the keyboard.
+                if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    focus_next_search_match(app);
                 }
                 if ui.button("Clear").clicked() {
                     app.search.clear();
@@ -623,12 +684,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 }
                 ui.separator();
                 ui.label(format!("{} matches", app.tree_view.search_matches.len()));
-                if ui.button("Focus first match").clicked() {
-                    if let Some(&id) = app.tree_view.search_matches.iter().next() {
-                        if let Some(p) = app.tree_view.position_of(id) {
-                            app.tree_view.focus(p.x, p.y);
-                        }
-                    }
+                if ui.button("Focus next match").clicked() {
+                    focus_next_search_match(app);
                 }
             });
         });
@@ -1419,13 +1476,18 @@ fn try_autosave(app: &mut LoadedApp) {
     }
 }
 
-fn update_search(app: &mut LoadedApp) {
-    app.tree_view.search_matches.clear();
-    let q = app.search.trim().to_lowercase();
+/// Issue #205: case-insensitive substring search over the tree. Returns every
+/// node whose `name` or any line of `stats` contains the query, in
+/// ascending node-id order so callers (Enter-cycle, Focus-next-match) see
+/// a deterministic walk independent of the tree's `HashMap` iteration
+/// order. An empty query returns an empty list. Pure; safe to unit-test.
+fn compute_search_matches(query: &str, tree: &PassiveTree) -> Vec<NodeId> {
+    let q = query.trim().to_lowercase();
     if q.is_empty() {
-        return;
+        return Vec::new();
     }
-    for (id, node) in &app.tree.nodes {
+    let mut out = Vec::new();
+    for (id, node) in &tree.nodes {
         let name_match = node
             .name
             .as_deref()
@@ -1433,9 +1495,43 @@ fn update_search(app: &mut LoadedApp) {
             .unwrap_or(false);
         let stat_match = node.stats.iter().any(|s| s.to_lowercase().contains(&q));
         if name_match || stat_match {
-            app.tree_view.search_matches.insert(*id);
+            out.push(*id);
         }
     }
+    out.sort_unstable();
+    out
+}
+
+/// Issue #205: re-run the tree-tab search and refresh the renderer's
+/// `search_matches` set + the stable-ordered match list the "Focus next
+/// match" cycler walks. Resetting `search_focus_index` to zero keeps
+/// Enter cycling consistent — without it, removing matches as the query
+/// narrows could leave the index pointing past the new end.
+fn update_search(app: &mut LoadedApp) {
+    let order = compute_search_matches(&app.search, &app.tree);
+    app.tree_view.search_matches.clear();
+    for id in &order {
+        app.tree_view.search_matches.insert(*id);
+    }
+    app.search_match_order = order;
+    app.search_focus_index = 0;
+}
+
+/// Issue #205: focus the viewport on the next search match in `search_match_order`,
+/// advancing `search_focus_index` so successive Enter presses cycle through every
+/// match. No-op when the match list is empty. Returns `true` when a match was focused
+/// so callers can suppress other Enter handlers if they want.
+fn focus_next_search_match(app: &mut LoadedApp) -> bool {
+    if app.search_match_order.is_empty() {
+        return false;
+    }
+    let idx = app.search_focus_index % app.search_match_order.len();
+    let id = app.search_match_order[idx];
+    if let Some(p) = app.tree_view.position_of(id) {
+        app.tree_view.focus(p.x, p.y);
+    }
+    app.search_focus_index = (idx + 1) % app.search_match_order.len();
+    true
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1981,4 +2077,136 @@ fn stat_row_decimal(ui: &mut egui::Ui, label: &str, out: &Output, key: &str) {
             ui.monospace(format!("{:>9.2}", v));
         });
     });
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+    use ahash::HashMap as AHashMap;
+    use pob_data::{Node, NodeKind, TreeConstants, TreePoints};
+
+    fn empty_tree() -> PassiveTree {
+        PassiveTree {
+            version: "test".into(),
+            tree: "test".into(),
+            classes: vec![],
+            groups: AHashMap::default(),
+            nodes: AHashMap::default(),
+            jewel_slots: vec![],
+            min_x: 0,
+            min_y: 0,
+            max_x: 0,
+            max_y: 0,
+            constants: TreeConstants {
+                skills_per_orbit: vec![],
+                orbit_radii: vec![],
+                classes: AHashMap::default(),
+                character_attributes: AHashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: TreePoints::default(),
+        }
+    }
+
+    fn add_node(tree: &mut PassiveTree, id: NodeId, name: Option<&str>, stats: &[&str]) {
+        tree.nodes.insert(
+            id,
+            Node {
+                id,
+                name: name.map(str::to_owned),
+                icon: None,
+                ascendancy_name: None,
+                stats: stats.iter().map(|s| (*s).to_owned()).collect(),
+                reminder_text: vec![],
+                kind: NodeKind::Notable,
+                class_start_index: None,
+                group: None,
+                orbit: None,
+                orbit_index: None,
+                out_edges: Default::default(),
+                in_edges: Default::default(),
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            },
+        );
+    }
+
+    /// Issue #205: empty / whitespace-only queries return zero matches so
+    /// the renderer's highlight ring stays off.
+    #[test]
+    fn empty_query_returns_no_matches() {
+        let mut tree = empty_tree();
+        add_node(&mut tree, 1, Some("Frenzy Charge"), &[]);
+        assert!(compute_search_matches("", &tree).is_empty());
+        assert!(compute_search_matches("   ", &tree).is_empty());
+    }
+
+    /// Issue #205: substring matches against `name`.
+    #[test]
+    fn name_substring_match() {
+        let mut tree = empty_tree();
+        add_node(&mut tree, 1, Some("Frenzy Adept"), &[]);
+        add_node(&mut tree, 2, Some("Mana Wraith"), &[]);
+        add_node(&mut tree, 3, Some("Berserker Frenzy"), &[]);
+        let matches = compute_search_matches("Frenzy", &tree);
+        assert_eq!(matches, vec![1, 3]);
+    }
+
+    /// Issue #205: substring matches against any `stats` line, even when
+    /// the node name itself is missing or doesn't contain the keyword.
+    #[test]
+    fn stats_substring_match() {
+        let mut tree = empty_tree();
+        add_node(&mut tree, 1, Some("Generic"), &["+10 to maximum Life"]);
+        add_node(
+            &mut tree,
+            2,
+            Some("Generic"),
+            &["10% increased Frenzy Charge Duration"],
+        );
+        add_node(&mut tree, 3, None, &["Gain a Frenzy Charge on Kill"]);
+        let matches = compute_search_matches("Frenzy", &tree);
+        assert_eq!(matches, vec![2, 3]);
+    }
+
+    /// Issue #205: search is case-insensitive — "frenzy" must match
+    /// "Frenzy Adept" and "FRENZY" must match "frenzy charge".
+    #[test]
+    fn case_insensitive_match() {
+        let mut tree = empty_tree();
+        add_node(&mut tree, 1, Some("Frenzy Adept"), &[]);
+        add_node(&mut tree, 2, None, &["frenzy charge"]);
+        assert_eq!(compute_search_matches("frenzy", &tree), vec![1, 2]);
+        assert_eq!(compute_search_matches("FRENZY", &tree), vec![1, 2]);
+        assert_eq!(compute_search_matches("FrEnZy", &tree), vec![1, 2]);
+    }
+
+    /// Issue #205: returned ids are sorted ascending so the Enter-cycle
+    /// walks the tree deterministically frame-to-frame, independent of
+    /// the underlying HashMap iteration order.
+    #[test]
+    fn matches_returned_in_ascending_node_id_order() {
+        let mut tree = empty_tree();
+        // Insert in non-sorted order on purpose so HashMap iteration would
+        // typically return them out-of-order.
+        add_node(&mut tree, 42, Some("Frenzy Notable"), &[]);
+        add_node(&mut tree, 7, Some("Frenzy Mover"), &[]);
+        add_node(&mut tree, 100, Some("Frenzy Stand"), &[]);
+        add_node(&mut tree, 3, Some("Frenzy First"), &[]);
+        let matches = compute_search_matches("Frenzy", &tree);
+        assert_eq!(matches, vec![3, 7, 42, 100]);
+    }
+
+    /// Issue #205: a node that doesn't match by name OR stats is dropped.
+    /// Guards against accidentally matching against `reminder_text` or
+    /// other fields that PoB doesn't search.
+    #[test]
+    fn unrelated_nodes_are_excluded() {
+        let mut tree = empty_tree();
+        add_node(&mut tree, 1, Some("Alacrity"), &["+10 Strength"]);
+        add_node(&mut tree, 2, Some("Frenzy Adept"), &[]);
+        let matches = compute_search_matches("Frenzy", &tree);
+        assert_eq!(matches, vec![2]);
+    }
 }
