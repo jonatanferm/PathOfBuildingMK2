@@ -2292,11 +2292,15 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "image",
+ "js-sys",
  "pob-data",
  "pob-engine",
  "rfd",
  "serde_json",
  "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "wgpu",
 ]
 
