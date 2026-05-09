@@ -21,6 +21,7 @@
 pub mod character;
 pub mod env;
 pub mod item_parser;
+pub mod minion;
 pub mod mod_db;
 pub mod mod_parser;
 pub mod modifier;
@@ -34,6 +35,7 @@ pub mod skill;
 pub use character::{Character, CharacterSnapshot, ClassRef, ConfigState};
 pub use env::{Env, Output};
 pub use item_parser::{apply_item_set, apply_item_set_with_bases, parse_item, ItemApplyReport};
+pub use minion::{apply_minion_outputs, select_minion_type, write_minion_outputs, MinionState};
 pub use mod_db::{ModDB, ModList, ModStore};
 pub use mod_parser::{parse_mod_line, ParsedMod};
 pub use modifier::{Mod, ModType, ModValue, Source, Tag, TagKind};

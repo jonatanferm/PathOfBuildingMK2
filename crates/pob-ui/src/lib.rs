@@ -92,9 +92,9 @@ struct LoadedApp {
     /// Issue #98 (slice 1+2): tattoo catalogue, surfaced by the Tree-tab right-click
     /// picker (`tattoo_picker.rs`).
     tattoos: Option<pob_data::TattooSet>,
-    /// Issue #20 (slice 1): per-minion-type base stats. Used by the upcoming
-    /// parallel minion calc env.
-    #[allow(dead_code, reason = "consumed by upcoming MinionState perform pass")]
+    /// Issue #20 (slice 1+3): per-minion-type base stats. Surfaced alongside the
+    /// player's output via `pob_engine::apply_minion_outputs` when the active main
+    /// skill summons a minion.
     minions: Option<pob_data::MinionData>,
     /// Path of the currently-open build file, if any. Used by Save vs Save As.
     current_build_path: Option<std::path::PathBuf>,
@@ -1170,12 +1170,19 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
     if recompute || h != app.last_compute_hash {
         app.last_compute_hash = h;
-        let (output, env) = pob_engine::compute_full_with_env(
+        let (mut output, env) = pob_engine::compute_full_with_env(
             &app.character,
             &app.tree,
             Some(&app.skills),
             app.bases.as_ref(),
         );
+        // Issue #20 (slice 3): if the active main skill summons a minion and the
+        // catalogue is loaded, surface the minion's basic stats (Life / resists)
+        // alongside the player's output. No-op for non-minion builds and missing
+        // data — the helper returns false.
+        if let Some(minions) = app.minions.as_ref() {
+            pob_engine::apply_minion_outputs(&app.character, &app.skills, minions, &mut output);
+        }
         app.output = output;
         app.last_env = Some(env);
     }

@@ -159,6 +159,10 @@ pub struct Skill {
     pub base_effectiveness: f64,
     #[serde(default, rename = "incrementalEffectiveness")]
     pub incremental_effectiveness: f64,
+    /// Issue #20 (slice 3): `minionList = { "RaisedZombie", ... }` upstream — the
+    /// minion type ids this active skill summons. Empty for non-minion skills.
+    #[serde(default, rename = "minionList", deserialize_with = "de_lenient_vec")]
+    pub minion_list: Vec<String>,
 }
 
 impl Skill {
