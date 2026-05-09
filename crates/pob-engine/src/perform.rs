@@ -1897,6 +1897,7 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     let mut ancestral_cry_present = false;
     let mut seismic_cry_present = false;
     let mut battlemages_cry_present = false;
+    let mut rallying_cry_present = false;
     for group in &character.skill_groups {
         if !group.enabled {
             continue;
@@ -1943,6 +1944,9 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
             }
             if gem.skill_id == "BattlemagesCry" {
                 battlemages_cry_present = true;
+            }
+            if gem.skill_id == "RallyingCry" {
+                rallying_cry_present = true;
             }
             if let Some(&(_, marker)) = WARCRY_MARKERS.iter().find(|(id, _)| *id == gem.skill_id) {
                 if !detected_cries.contains(&marker) {
@@ -2104,6 +2108,30 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
                 .with_source(Source::Skill("Battlemage's Cry".into())),
         );
         env.output.set("BattlemagesCryCritBonus", crit_bonus);
+    }
+
+    // Issue #19 (slice 16): Rallying Cry's per-ally exert damage
+    // bonus. Per PoB's `act_str.lua` RallyingCry statMap +
+    // `CalcOffence.lua:2633`:
+    //   ExertedAttackDamage MORE = 5 × min(NearbyAlly, 5)
+    // (constant 5%/ally, ally count capped at 5). At the cap with
+    // 5 nearby allies and Rallying Cry in the loadout: +25% MORE
+    // damage on exerted attacks. Stacks multiplicatively with the
+    // generic `ExertedAttackDamage` MORE applied in slice 4. The
+    // NearbyAlly multiplier is set by `nearby_allies` config
+    // (slice 15); same `UsedWarcryRecently` gate as the other
+    // per-cry buffs.
+    if rallying_cry_present && env.state.condition("UsedWarcryRecently") {
+        let allies = character.config.nearby_allies.min(5);
+        if allies > 0 {
+            let exert_more = 5.0 * f64::from(allies);
+            env.mod_db.add(
+                Mod::more("ExertedAttackDamage", exert_more)
+                    .with_source(Source::Skill("Rallying Cry".into())),
+            );
+            env.output.set("RallyingCryExertDamageBonus", exert_more);
+            env.output.set("RallyingCryAllyCount", f64::from(allies));
+        }
     }
 }
 
