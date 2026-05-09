@@ -11,9 +11,9 @@ use pob_data::{NodeId, NodeKind, PassiveTree};
 
 use crate::tree_layout::{compute_node_positions, orbit_angles_rad, NodePos};
 use crate::tree_renderer::{
-    edge_state_bits, kind_to_u32, state_bits, ArcInstance, EdgeInstance, FrameInstance,
-    GroupInstance, NodeInstance, TreeArcCallback, TreeEdgeCallback, TreeFrameCallback,
-    TreeGroupCallback, TreeNodeCallback,
+    edge_state_bits, kind_to_u32, state_bits, ArcInstance, AscendancyInstance, EdgeInstance,
+    FrameInstance, GroupInstance, NodeInstance, TreeArcCallback, TreeAscendancyCallback,
+    TreeEdgeCallback, TreeFrameCallback, TreeGroupCallback, TreeNodeCallback,
 };
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -36,6 +36,10 @@ pub struct TreeView {
     icon_uvs: HashMap<NodeId, [f32; 4]>,
     /// Pre-computed `GroupInstance`s for the cluster halos.
     group_instances: Vec<GroupInstance>,
+    /// Issue #110: ascendancy-start medallion instances. One
+    /// `AscendancyMiddle` sprite per `AscendancyStart` node, drawn
+    /// from the dedicated `ascendancy.png` atlas.
+    ascendancy_instances: Vec<AscendancyInstance>,
     /// Issue #110: class-start portrait gating. Cached so we can
     /// detect a class change in `set_active_class` without re-running
     /// the costly `compute_group_instances` walk every frame.
@@ -66,6 +70,7 @@ impl TreeView {
             positions: compute_node_positions(tree),
             icon_uvs: compute_icon_uvs(tree, sprites),
             group_instances: compute_group_instances(tree, sprites, None),
+            ascendancy_instances: compute_ascendancy_instances(tree, sprites),
             frame_table: compute_frame_table(sprites),
             search_matches: ahash::HashSet::default(),
             path_overlay: Vec::new(),
@@ -89,6 +94,14 @@ impl TreeView {
         // re-key the icon-uv table by NodeId. New tree versions would need a
         // matching sprite set — until then keep the existing mapping (icons
         // for missing nodes simply render as flat colours).
+    }
+
+    /// Issue #110: count of cached AscendancyStart medallion
+    /// instances. Class-independent (the ascendancy medallion is
+    /// the same sprite regardless of allocated class) so it isn't
+    /// recomputed on `set_active_class`. Exposed for tests.
+    pub fn ascendancy_instance_count(&self) -> usize {
+        self.ascendancy_instances.len()
     }
 
     /// Issue #110: gate the class-portrait sprites on the player's
@@ -370,6 +383,20 @@ impl TreeView {
                 pixels_per_point,
             },
         ));
+        // Issue #110: ascendancy medallions are drawn alongside the
+        // group halos (under edges + nodes). Same pipeline as group
+        // backgrounds, different atlas — so it's a separate callback
+        // rather than appending to `group_instances`.
+        painter.add(egui_wgpu::Callback::new_paint_callback(
+            viewport,
+            TreeAscendancyCallback {
+                ascendancies: self.ascendancy_instances.clone(),
+                viewport_center: viewport_center_world,
+                zoom: zoom_px,
+                viewport_size: viewport_size_px,
+                pixels_per_point,
+            },
+        ));
         painter.add(egui_wgpu::Callback::new_paint_callback(
             viewport,
             TreeEdgeCallback {
@@ -617,42 +644,52 @@ fn compute_group_instances(
         });
     }
 
-    // Issue #110 part 2: AscendancyStart medallion placeholder.
-    // Without an `ascendancy.png` atlas binding (the canonical
-    // `AscendancyMiddle` sprite lives in upstream PoB's
-    // `passive-skill/ascendancy-3.png` CDN asset, which we don't
-    // bundle locally yet) we render the existing
-    // `PSStartNodeBackgroundInactive` sprite scaled down to ~40px
-    // so each ascendancy sub-tree's center has a visible
-    // medallion. The result isn't pixel-identical to PoB but
-    // closes the "ascendancy sub-trees look unfinished" gap from
-    // the issue body. Bundling the upstream sprite is a
-    // follow-up.
-    if let Some(rect) = cat
-        .coords
-        .get("PSStartNodeBackgroundInactive")
-        .or_else(|| cat.coords.get("PSGroupBackground1"))
-    {
-        let uv = rect.uv(cat.w as f32, cat.h as f32);
-        // Scale to roughly the size of PoB's AscendancyMiddle
-        // sprite (~31×31 vs the inactive background's ~110×110).
-        let placeholder_size = 40.0;
-        for node in tree.nodes.values() {
-            if !matches!(node.kind, pob_data::NodeKind::AscendancyStart) {
-                continue;
-            }
-            let group = match node.group.and_then(|gid| tree.groups.get(&gid)) {
-                Some(g) => g,
-                None => continue,
-            };
-            out.push(GroupInstance {
-                world_pos: [group.x, group.y],
-                world_size: [placeholder_size, placeholder_size],
-                uv_rect: uv,
-            });
-        }
-    }
+    // Issue #110 part 2: AscendancyStart medallions are emitted by
+    // `compute_ascendancy_instances` against a different atlas
+    // (`ascendancy.png`); they ride a dedicated callback so the
+    // shader can sample from that texture. See below.
 
+    out
+}
+
+/// Issue #110: build one instance per `AscendancyStart` node sampling
+/// the `AscendancyMiddle` sprite from the dedicated `ascendancy`
+/// atlas. The medallion is small (~31x31 in the atlas) and we render
+/// it at native pixel size. Returns an empty vec when the atlas or
+/// rect lookup fails — the caller's pipeline tolerates an empty buffer.
+fn compute_ascendancy_instances(
+    tree: &PassiveTree,
+    sprites: Option<&pob_data::sprites::SpriteSet>,
+) -> Vec<AscendancyInstance> {
+    let mut out = Vec::new();
+    let Some(sprites) = sprites else { return out };
+    let Some(cat) = sprites.get("ascendancy") else {
+        return out;
+    };
+    let Some(rect) = cat.coords.get("AscendancyMiddle") else {
+        return out;
+    };
+    let uv = rect.uv(cat.w as f32, cat.h as f32);
+    // PoB blits AscendancyMiddle at 2x its native pixel size in
+    // `Draw` (sprite is 31x31, drawn at ~62px). Mirror that so the
+    // medallion reads at the same scale relative to the ascendancy
+    // sub-tree's halo.
+    const ASCENDANCY_MIDDLE_SCALE: f32 = 2.0;
+    let world_w = rect.w() * ASCENDANCY_MIDDLE_SCALE;
+    let world_h = rect.h() * ASCENDANCY_MIDDLE_SCALE;
+    for node in tree.nodes.values() {
+        if !matches!(node.kind, pob_data::NodeKind::AscendancyStart) {
+            continue;
+        }
+        let Some(group) = node.group.and_then(|gid| tree.groups.get(&gid)) else {
+            continue;
+        };
+        out.push(AscendancyInstance {
+            world_pos: [group.x, group.y],
+            world_size: [world_w, world_h],
+            uv_rect: uv,
+        });
+    }
     out
 }
 
