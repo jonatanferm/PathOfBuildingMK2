@@ -19,6 +19,8 @@ mod calcs_tab;
 mod color_codes;
 mod compare_tab;
 mod config_tab;
+#[cfg(not(target_arch = "wasm32"))]
+mod ggg_fetch;
 mod import_export_tab;
 mod items_tab;
 mod notes_tab;
