@@ -4454,6 +4454,7 @@ fn warcry_buff_chain_flows_through_to_basic_stats() {
     let baseline_life_regen = baseline.get("LifeRegen");
     let baseline_fire_resist = baseline.get("FireResist");
     let baseline_armour = baseline.get("Armour");
+    let baseline_main_crit = baseline.get("MainSkillCritChance");
 
     // Add all four buff-shipping warcries + UsedWarcryRecently +
     // WarcryPower 25 (cap for most). Every basic-stat output
@@ -4513,14 +4514,22 @@ fn warcry_buff_chain_flows_through_to_basic_stats() {
         );
     }
 
-    // Battlemage's Cry's CritChance BASE injection is currently
-    // a no-op for the headline `CritChance` output because
-    // perform_skill_dps reads only INC on the skill's hardcoded
-    // 5% baseline; the BASE add-on path is a separate slice.
-    // The mod is still in the modDB sourced as Battlemage's Cry,
-    // so the slice-12 unit test continues to verify it. Skipped
-    // here so this re-ordering test focuses on what the slice 13
-    // re-order actually unblocks (LifeRegen / Resists / Armour).
+    // Battlemage's Cry → +2.5 base CritChance at WarcryPower 25.
+    // Slice 14 ([PR #149]) added the BASE-addition path on top of
+    // the skill's intrinsic 5% baseline, so this now actually
+    // lifts MainSkillCritChance. The math:
+    //   crit_chance = (5 + 2.5) × (1 + inc/100) × hit_chance
+    //   baseline    =  5         × (1 + inc/100) × hit_chance
+    // The lift is `2.5 / 5 = 50%` of baseline. Cleave default has
+    // ~70% hit chance, so the absolute delta is at least 50% of
+    // baseline_main_crit — assert that.
+    let buffed_main_crit = buffed.get("MainSkillCritChance");
+    let crit_lift_floor = baseline_main_crit * 0.49;
+    assert!(
+        buffed_main_crit >= baseline_main_crit + crit_lift_floor,
+        "BattlemagesCry must lift MainSkillCritChance by ≥50% of baseline (baseline {baseline_main_crit}, expected ≥ {:.4}, got {buffed_main_crit})",
+        baseline_main_crit + crit_lift_floor
+    );
 }
 
 // Issue #19 (slice 11): integration test locking the warcry buff
