@@ -966,12 +966,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Calcs => {
+            let flags = calcs_tab::active_skill_flags(&app.character, &app.skills);
             calcs_tab::ui(
                 ui,
                 &mut app.calcs_state,
                 &app.output,
                 app.last_env.as_ref(),
                 app.calc_sections.as_deref(),
+                &flags,
             );
         }
         Tab::Compare => {
