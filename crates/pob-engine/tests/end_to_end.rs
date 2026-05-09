@@ -3492,6 +3492,55 @@ fn nearby_enemies_config_emits_multiplier_and_condition() {
     );
 }
 
+// Issue #19 (slice 15): NearbyAllies config drives the
+// `Multiplier:NearbyAlly` BASE that Rallying Cry's per-ally exert
+// damage bonus, banner skill ally scaling, and similar PerStat
+// mods read. PoB defaults to 0 (solo); the multiplier is only
+// injected when the user pins a non-zero count.
+#[test]
+fn nearby_allies_config_emits_multiplier() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: tree missing");
+        return;
+    };
+    use pob_engine::ModStore as _;
+
+    // Default (0) → no Config-sourced injection.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let injected = env.mod_db.iter_all().any(|m| {
+        m.name == "Multiplier:NearbyAlly"
+            && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Config")
+    });
+    assert!(
+        !injected,
+        "Default nearby_allies = 0 should not inject any Config-sourced Multiplier:NearbyAlly"
+    );
+
+    // 4 nearby allies → BASE = 4, EvalState multiplier reads 4.
+    c.config.nearby_allies = 4;
+    let env = pob_engine::perform::init_env(&c, &tree);
+    let val = env.mod_db.iter_all().find_map(|m| {
+        if m.name == "Multiplier:NearbyAlly"
+            && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == "Config")
+        {
+            m.value.as_f64()
+        } else {
+            None
+        }
+    });
+    assert_eq!(
+        val,
+        Some(4.0),
+        "nearby_allies = 4 should inject Multiplier:NearbyAlly BASE = 4"
+    );
+    assert!(
+        (env.state.multiplier("NearbyAlly") - 4.0).abs() < 1e-6,
+        "EvalState multiplier(NearbyAlly) should mirror the config; got {}",
+        env.state.multiplier("NearbyAlly")
+    );
+}
+
 // Issue #19 (slice 3): warcry-loadout detection. Each enabled warcry
 // gem in the gem list contributes to `ActiveWarcryCount`,
 // `WarcryExertedAttackCountTotal`, and (for cooldown-having warcries)
