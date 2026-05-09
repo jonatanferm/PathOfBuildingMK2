@@ -833,6 +833,59 @@ pub struct RadiusJewelReport {
     pub mod_emissions: usize,
 }
 
+/// Issue #196: apply mods from socketed jewels that don't identify as radius
+/// jewels and aren't a special subtype (cluster / abyss / timeless / charm).
+/// Mirrors PoB's behaviour where any socketed jewel still contributes its
+/// item-level stats to the global modDB — only the *radius-conditional* piece
+/// is per-allocated-node. Without this, modern unique jewels whose entire
+/// effect is global (Conqueror's Efficiency / Conqueror's Potency / Conqueror's
+/// Longevity, plus most rare-rolled Crimson / Viridian / Cobalt / Prismatic
+/// jewels with no radius modifiers) silently drop everything they grant.
+///
+/// Subtype gates:
+/// - Cluster jewels feed `cluster_synth` and shouldn't apply their item-level
+///   "Adds N Passive Skills" lines globally — those are synthesis metadata.
+/// - Abyss / Eye / Timeless / Charm jewels follow their own dispatch paths
+///   (#30 timeless, future abyss / charm follow-ups). We bail here so this
+///   helper doesn't double-apply mods that the dedicated path will own.
+/// - Cluster jewels are also caught by [`is_special_jewel_subtype`] above.
+///
+/// Mods are sourced as `Source::Other("SocketedJewel:<base>:<socket_id>")` so
+/// the Calcs-tab breakdown can attribute each mod back to the socketed item
+/// that contributed it. Returns the number of mods successfully parsed and
+/// added so callers can spot unparseable mod text in tests.
+pub fn apply_non_radius_socketed_jewels(socketed: &SocketedJewels, db: &mut crate::ModDB) -> usize {
+    let mut emitted = 0usize;
+    for (socket_id, item) in socketed.iter() {
+        if !is_jewel_base(&item.base_name) {
+            continue;
+        }
+        if is_special_jewel_subtype(item) {
+            continue;
+        }
+        // Identifiable as a radius jewel → already handled by
+        // `apply_radius_jewels`. We only fill the gap for jewels whose
+        // *entire* mod set is non-radius.
+        if identify_radius_jewel(*socket_id, item).is_some() {
+            continue;
+        }
+        let source = Source::Other(format!("SocketedJewel:{}:{}", item.base_name, socket_id));
+        for ml in &item.mod_lines {
+            // Defensive: skip the metadata-only ring-size selectors that some
+            // hand-crafted jewels still ship (rare, but cheap to filter).
+            if explicit_ring_label(&ml.line).is_some() {
+                continue;
+            }
+            if let Some(parsed) = parse_mod_line(&ml.line) {
+                let m = parsed.mod_.with_source(source.clone());
+                db.add(m);
+                emitted += 1;
+            }
+        }
+    }
+    emitted
+}
+
 /// Convenience wrapper: collect node positions for every node in `tree`. Useful
 /// for UI / debug; the radius scan computes positions on demand.
 pub fn all_node_positions(tree: &PassiveTree) -> AHashMap<NodeId, (f64, f64)> {
@@ -1193,6 +1246,123 @@ mod tests {
         let mut db = crate::ModDB::default();
         let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
         assert_eq!(report, RadiusJewelReport::default());
+    }
+
+    /// Issue #196: a non-radius unique jewel like Conqueror's Efficiency
+    /// (Crimson Jewel base) carries plain global mods — no "to Passives in
+    /// Radius" markers. `apply_radius_jewels` correctly skips it. The
+    /// fallback `apply_non_radius_socketed_jewels` must pick it up so the
+    /// global stats actually land in the modDB.
+    #[test]
+    fn non_radius_unique_jewel_applies_mods_globally() {
+        use crate::mod_db::{EvalState, QueryCfg};
+        use crate::{ModStore, ModType};
+        // Conqueror's Efficiency mod text — three plain global mods, none
+        // mention radius. The Crimson Jewel base is a vanilla jewel base so
+        // it survives the subtype gate.
+        let item = mk_item(
+            "Crimson Jewel",
+            &[
+                ("4% increased Skill Effect Duration", ModSection::Explicit),
+                (
+                    "4% increased Mana Reservation Efficiency of Skills",
+                    ModSection::Explicit,
+                ),
+            ],
+        );
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(42, item);
+        let mut db = crate::ModDB::default();
+
+        // The radius pass skips this item — applied_jewels stays at 0.
+        let tree = mk_tree();
+        let alloc: AHashSet<NodeId> = AHashSet::default();
+        let radius_report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        assert_eq!(radius_report.applied_jewels, 0);
+        assert_eq!(radius_report.skipped, 1);
+
+        // The fallback picks it up and emits both mods globally.
+        let emitted = apply_non_radius_socketed_jewels(&socketed, &mut db);
+        assert_eq!(emitted, 2);
+        let cfg = QueryCfg::default();
+        let st = EvalState::default();
+        assert_eq!(db.sum(ModType::Inc, &cfg, &st, "SkillEffectDuration"), 4.0);
+        assert_eq!(
+            db.sum(ModType::Inc, &cfg, &st, "ManaReservationEfficiency"),
+            4.0
+        );
+    }
+
+    /// Issue #196: special-subtype jewels (Cluster, Abyss, Eye, Timeless,
+    /// Charm) follow their own dispatch paths. The fallback must NOT
+    /// double-apply their item-level mods globally — that would be a
+    /// regression for cluster sub-graph synthesis (#21) and the timeless
+    /// override path (#30).
+    #[test]
+    fn non_radius_fallback_skips_special_subtypes() {
+        // Cluster jewel with a stat line that, if applied globally, would
+        // pollute Damage. Verify the fallback leaves it alone.
+        let cluster = mk_item(
+            "Large Cluster Jewel",
+            &[("Adds 8 Passive Skills", ModSection::Implicit)],
+        );
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(1, cluster);
+        let mut db = crate::ModDB::default();
+        let emitted = apply_non_radius_socketed_jewels(&socketed, &mut db);
+        // Cluster jewel skipped — zero mods emitted.
+        assert_eq!(emitted, 0);
+
+        // Same for an abyss eye-jewel base.
+        let abyss = mk_item(
+            "Searching Eye Jewel",
+            &[("+50 to maximum Life", ModSection::Explicit)],
+        );
+        let mut socketed2 = SocketedJewels::new();
+        socketed2.socket(2, abyss);
+        let mut db2 = crate::ModDB::default();
+        let emitted2 = apply_non_radius_socketed_jewels(&socketed2, &mut db2);
+        assert_eq!(emitted2, 0);
+
+        // And for a timeless jewel.
+        let timeless = mk_item(
+            "Lethal Pride",
+            &[(
+                "Commanded leadership over 10000 warriors",
+                ModSection::Explicit,
+            )],
+        );
+        let mut socketed3 = SocketedJewels::new();
+        socketed3.socket(3, timeless);
+        let mut db3 = crate::ModDB::default();
+        let emitted3 = apply_non_radius_socketed_jewels(&socketed3, &mut db3);
+        assert_eq!(emitted3, 0);
+    }
+
+    /// Issue #196: a vanilla radius jewel must also be skipped by the
+    /// fallback — `apply_radius_jewels` already owns it. Otherwise the
+    /// jewel's mods would land twice (once per allocated passive in
+    /// radius and once globally), badly inflating the stat.
+    #[test]
+    fn non_radius_fallback_skips_radius_jewels() {
+        use crate::mod_db::{EvalState, QueryCfg};
+        use crate::{ModStore, ModType};
+        let item = mk_item(
+            "Crimson Jewel",
+            &[(
+                "10% increased Maximum Life to nearby allocated passives",
+                ModSection::Explicit,
+            )],
+        );
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(1, item);
+        let mut db = crate::ModDB::default();
+        let emitted = apply_non_radius_socketed_jewels(&socketed, &mut db);
+        // identify_radius_jewel returns Some for this item → fallback skips.
+        assert_eq!(emitted, 0);
+        let cfg = QueryCfg::default();
+        let st = EvalState::default();
+        assert_eq!(db.sum(ModType::Inc, &cfg, &st, "Life"), 0.0);
     }
 
     // Suppress "unused-import" lint for the convenience re-export when this
