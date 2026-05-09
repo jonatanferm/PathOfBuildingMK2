@@ -21,6 +21,7 @@ use mlua::{Lua, Table, Value};
 mod calc_sections;
 mod cli;
 mod cluster_jewels;
+mod tattoos;
 mod tree;
 
 fn main() -> Result<()> {
@@ -67,6 +68,13 @@ fn main() -> Result<()> {
     std::fs::write(&cj_path, serde_json::to_string_pretty(&cj)?)
         .with_context(|| format!("writing {}", cj_path.display()))?;
     wrote.push(cj_path);
+
+    // Tattoos — one JSON for the Tree-tab tattoo picker.
+    let tattoos_path = args.out.join("tattoos.json");
+    let tattoos = tattoos::extract(&args.pob).with_context(|| "extracting tattoos".to_string())?;
+    std::fs::write(&tattoos_path, serde_json::to_string_pretty(&tattoos)?)
+        .with_context(|| format!("writing {}", tattoos_path.display()))?;
+    wrote.push(tattoos_path);
 
     // Calc sections — one JSON for the Calcs-tab section layout.
     let calc_sections_path = args.out.join("calc_sections.json");
