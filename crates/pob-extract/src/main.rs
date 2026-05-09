@@ -20,6 +20,7 @@ use mlua::{Lua, Table, Value};
 
 mod calc_sections;
 mod cli;
+mod cluster_jewels;
 mod tree;
 
 fn main() -> Result<()> {
@@ -58,6 +59,14 @@ fn main() -> Result<()> {
     let index_path = skills_dir.join("index.json");
     std::fs::write(&index_path, serde_json::to_string_pretty(&skill_index)?)?;
     wrote.push(index_path);
+
+    // Cluster jewels — one JSON for cluster-jewel sub-graph synthesis.
+    let cj_path = args.out.join("cluster_jewels.json");
+    let cj = cluster_jewels::extract(&args.pob)
+        .with_context(|| "extracting cluster jewels".to_string())?;
+    std::fs::write(&cj_path, serde_json::to_string_pretty(&cj)?)
+        .with_context(|| format!("writing {}", cj_path.display()))?;
+    wrote.push(cj_path);
 
     // Calc sections — one JSON for the Calcs-tab section layout.
     let calc_sections_path = args.out.join("calc_sections.json");
