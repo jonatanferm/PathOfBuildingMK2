@@ -70,6 +70,12 @@ struct LoadedApp {
     search_match_order: Vec<NodeId>,
     search_focus_index: usize,
     focus_search_request: bool,
+    /// Issue #225: keyboard-shortcuts help dialog visibility. Toggled
+    /// by the Help → "Keyboard shortcuts" menu item; the dialog
+    /// renders an anchored egui window listing every shortcut the
+    /// app recognises, mirroring PoB's inline `Ctrl+C copy` /
+    /// `Ctrl+Click toggle` cheatsheets.
+    show_hotkey_help: bool,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
     skills_state: skills_tab::SkillsTabState,
@@ -288,6 +294,7 @@ impl PobApp {
             search_match_order: Vec::new(),
             search_focus_index: 0,
             focus_search_request: false,
+            show_hotkey_help: false,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             skills_state: skills_tab::SkillsTabState::default(),
@@ -350,6 +357,7 @@ impl PobApp {
             search_match_order: Vec::new(),
             search_focus_index: 0,
             focus_search_request: false,
+            show_hotkey_help: false,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             skills_state: skills_tab::SkillsTabState::default(),
@@ -607,6 +615,16 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 ui.separator();
                 if ui.button("Quit").clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            });
+            // Issue #225: Help menu surfaces the keyboard-shortcuts
+            // cheatsheet PoB scatters inline across each tab. One
+            // discoverable entry point matches modern desktop-app
+            // convention better than tab-local hint strings.
+            ui.menu_button("Help", |ui| {
+                if ui.button("Keyboard shortcuts…").clicked() {
+                    app.show_hotkey_help = true;
+                    ui.close_menu();
                 }
             });
             ui.separator();
@@ -1045,6 +1063,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         });
     });
+
+    // Issue #225: keyboard-shortcuts help dialog. Renders above the
+    // central panel via egui's natural z-ordering; gated on
+    // `show_hotkey_help` so it only appears when the user toggled it
+    // through the Help menu.
+    if app.show_hotkey_help {
+        render_hotkey_help_modal(ctx, &mut app.show_hotkey_help);
+    }
 
     egui::CentralPanel::default().show(ctx, |ui| match app.active_tab {
         Tab::Tree => {
@@ -1580,6 +1606,70 @@ fn focus_next_search_match(app: &mut LoadedApp) -> bool {
     }
     app.search_focus_index = (idx + 1) % app.search_match_order.len();
     true
+}
+
+/// Issue #225: keyboard-shortcuts cheatsheet. Lists every shortcut the
+/// app recognises in a two-column table (shortcut | action) so users
+/// have a single discoverable reference instead of having to find
+/// each tab's local hint strings. Mirrors PoB's
+/// `SkillsTab.lua:110-118` inline cheatsheets, consolidated.
+///
+/// On Mac the natural modifier glyph is `⌘`; on Windows / Linux it's
+/// `Ctrl`. egui's `Modifiers::command` already abstracts that for the
+/// shortcut listener — for display, we render the platform-appropriate
+/// label so users see what they'd actually press.
+fn render_hotkey_help_modal(ctx: &egui::Context, show: &mut bool) {
+    let cmd_label = if cfg!(target_os = "macos") {
+        "⌘"
+    } else {
+        "Ctrl"
+    };
+    // Pairs of (shortcut, action) — kept compact so the modal fits in
+    // a single column even on narrow screens. New shortcuts get added
+    // in the same order as the keyboard handler in `render_loaded`.
+    let rows: Vec<(String, &'static str)> = vec![
+        (format!("{cmd_label}+N"), "New build"),
+        (format!("{cmd_label}+O"), "Open build"),
+        (format!("{cmd_label}+S"), "Save build"),
+        (format!("{cmd_label}+Shift+S"), "Save build as…"),
+        (format!("{cmd_label}+1"), "Switch to Tree tab"),
+        (format!("{cmd_label}+2"), "Switch to Items tab"),
+        (format!("{cmd_label}+3"), "Switch to Skills tab"),
+        (format!("{cmd_label}+4"), "Switch to Config tab"),
+        (format!("{cmd_label}+5"), "Switch to Calcs tab"),
+        (format!("{cmd_label}+6"), "Switch to Notes tab"),
+        (format!("{cmd_label}+7"), "Switch to Import / Export tab"),
+        (format!("{cmd_label}+F"), "Focus the Tree-tab search box"),
+        ("Enter".into(), "Cycle to next search match (in box)"),
+        ("Esc".into(), "Clear the Tree-tab search"),
+        (
+            "Click (tree)".into(),
+            "Allocate node + path from class start",
+        ),
+        (
+            "Click allocated".into(),
+            "Unallocate node + cascading orphans",
+        ),
+        ("Right-click (tree)".into(), "Open the tattoo picker"),
+    ];
+    egui::Window::new("Keyboard shortcuts")
+        .open(show)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.set_min_width(360.0);
+            egui::Grid::new("hotkey_help_grid")
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| {
+                    for (shortcut, action) in &rows {
+                        ui.monospace(shortcut);
+                        ui.label(*action);
+                        ui.end_row();
+                    }
+                });
+        });
 }
 
 #[derive(Debug, Clone, Copy)]
