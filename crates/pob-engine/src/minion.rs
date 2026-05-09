@@ -122,22 +122,25 @@ pub fn apply_minion_outputs(
 /// Emit the minion's basic stats into the player's output dictionary so the Calcs tab
 /// can surface them.
 ///
-/// Slice 4 added player-side `MinionLife` INC / MORE scaling. Slice 5 extends the same
-/// pattern to `MinionDamage` and the minion's attack rate, then derives a baseline
-/// `MinionDPS = average_damage × attacks_per_second`. Both `*Base` keys report the
-/// pre-mods values so the breakdown panel can show the contribution chain.
+/// Cumulative coverage as of slice 6:
+/// - **Life** — `MinionLife` INC / MORE (slice 4).
+/// - **Damage** — `MinionDamage` INC / MORE × `damage_spread` (slice 5).
+/// - **Attack rate** — `MinionAttackSpeed` INC / MORE (slice 5).
+/// - **Resists** — player-side BASE adders for `MinionFireResist` /
+///   `MinionColdResist` / `MinionLightningResist` / `MinionChaosResist`, plus the
+///   `MinionElementalResist` umbrella that scales fire/cold/lightning together.
+///   Each resist is capped at 75% (the PoE default; minion max-resist mods land in
+///   slice 7 if they ever surface).
+/// - **Crit** — base 5% × `MinionCritChance` INC, with a 150% base
+///   `MinionCritMultiplier` and BASE adders folded in. Crit factor multiplies
+///   `MinionDPS`.
 ///
 /// What's still **not** modelled:
-/// - Crit factor on the minion side (uses the player's `MinionCritChance` /
-///   `MinionCritMultiplier` mods, which slice 6 will wire in).
-/// - Hit-chance vs enemy evasion for melee minions (uses the minion's accuracy table
-///   and the player-side enemy-evasion config).
-/// - Minion-side resist scaling, armour, evasion, energy shield.
+/// - Hit-chance vs enemy evasion for melee minions.
+/// - Minion-side armour, evasion, energy shield.
 /// - Minion's intrinsic `mod_list` (slice 5 keeps it inert; the perform pass needs it).
 /// - Per-minion `lifeScaling` (spectres etc.) — every minion still uses the ally
 ///   life table.
-///
-/// All of these land in slice 6+.
 pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Output) {
     let cfg = QueryCfg::default();
 
@@ -148,12 +151,44 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
     output.set("MinionLifeBase", state.life_base as f64);
     output.set("MinionLife", life_scaled.round());
 
-    // Resists pass through. Slice 6 will scale by player-side
-    // `MinionFireResist` BASE / `MinionElementalResist` BASE.
-    output.set("MinionFireResist", state.data.fire_resist as f64);
-    output.set("MinionColdResist", state.data.cold_resist as f64);
-    output.set("MinionLightningResist", state.data.lightning_resist as f64);
-    output.set("MinionChaosResist", state.data.chaos_resist as f64);
+    // Resists. PoB minion resists are layered:
+    //   resist = base + MinionFireResist BASE + MinionElementalResist BASE,
+    //   capped at the resist max (default 75%). Chaos resist doesn't get the
+    //   elemental-umbrella adder.
+    let elemental_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionElementalResist");
+    let fire_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionFireResist");
+    let cold_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionColdResist");
+    let lightning_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionLightningResist");
+    let chaos_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionChaosResist");
+    const MINION_RESIST_CAP: f64 = 75.0;
+    let fire =
+        (f64::from(state.data.fire_resist) + fire_base + elemental_base).min(MINION_RESIST_CAP);
+    let cold =
+        (f64::from(state.data.cold_resist) + cold_base + elemental_base).min(MINION_RESIST_CAP);
+    let lightning = (f64::from(state.data.lightning_resist) + lightning_base + elemental_base)
+        .min(MINION_RESIST_CAP);
+    let chaos = (f64::from(state.data.chaos_resist) + chaos_base).min(MINION_RESIST_CAP);
+    output.set("MinionFireResistBase", state.data.fire_resist as f64);
+    output.set("MinionColdResistBase", state.data.cold_resist as f64);
+    output.set(
+        "MinionLightningResistBase",
+        state.data.lightning_resist as f64,
+    );
+    output.set("MinionChaosResistBase", state.data.chaos_resist as f64);
+    output.set("MinionFireResist", fire);
+    output.set("MinionColdResist", cold);
+    output.set("MinionLightningResist", lightning);
+    output.set("MinionChaosResist", chaos);
 
     // Damage — `monster_ally_damage[level] × minion.damage × (1 + inc/100) × more`.
     // The `damage_spread` field captures the per-hit damage variance (PoB uses ±20%
@@ -174,9 +209,7 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
     output.set("MinionMinDamage", dmg_min);
     output.set("MinionMaxDamage", dmg_max);
 
-    // Attack rate — `1 / attack_time × (1 + inc/100) × more`. PoB uses the
-    // `MinionAttackSpeed` key for player-side passives like Necromancer's
-    // `Mistress of Sacrifice` minion-haste effect; we read that here.
+    // Attack rate — `1 / attack_time × (1 + inc/100) × more`.
     let attack_time = state.data.attack_time.max(0.001);
     let speed_base = 1.0 / attack_time;
     let spd_inc = env
@@ -187,9 +220,29 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
     output.set("MinionAttacksPerSecondBase", speed_base);
     output.set("MinionAttacksPerSecond", attacks_per_second);
 
-    // Baseline DPS: average per-hit × rate. No crit / hit-chance / per-element
-    // mitigation modelled yet — slice 6+ will fold those in.
-    output.set("MinionDPS", dmg_avg * attacks_per_second);
+    // Crit. PoB minions start with a 5% crit chance and the player-side
+    // `MinionCritChance` INC / BASE chain, with a 150% base multiplier scaled by
+    // `MinionCritMultiplier` BASE. Cap chance at 100%.
+    const MINION_BASE_CRIT_CHANCE: f64 = 5.0;
+    const MINION_BASE_CRIT_MULT: f64 = 150.0;
+    let crit_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionCritChance");
+    let crit_inc = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "MinionCritChance");
+    let crit_chance =
+        ((MINION_BASE_CRIT_CHANCE + crit_base) * (1.0 + crit_inc / 100.0)).clamp(0.0, 100.0);
+    let crit_mult_add = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionCritMultiplier");
+    let crit_mult = MINION_BASE_CRIT_MULT + crit_mult_add;
+    let crit_factor = (1.0 - crit_chance / 100.0) + (crit_chance / 100.0) * (crit_mult / 100.0);
+    output.set("MinionCritChance", crit_chance);
+    output.set("MinionCritMultiplier", crit_mult);
+
+    // Final DPS: average per-hit × rate × crit factor.
+    output.set("MinionDPS", dmg_avg * attacks_per_second * crit_factor);
 }
 
 #[cfg(test)]
@@ -325,9 +378,13 @@ mod tests {
         assert_eq!(output.get("MinionAttacksPerSecondBase"), 1.0);
         assert_eq!(output.get("MinionAttacksPerSecond"), 1.0);
 
-        // DPS = avg × rate.
+        // Crit baseline: 5% chance × 150% multiplier → factor = 0.95 + 0.05 × 1.5 = 1.025.
+        assert_eq!(output.get("MinionCritChance"), 5.0);
+        assert_eq!(output.get("MinionCritMultiplier"), 150.0);
+
+        // DPS = avg × rate × crit_factor.
         let dps = output.get("MinionDPS");
-        assert!((dps - avg).abs() < 0.001, "MinionDPS = {dps}");
+        assert!((dps - avg * 1.025).abs() < 0.001, "MinionDPS = {dps}");
     }
 
     #[test]
@@ -353,9 +410,98 @@ mod tests {
         assert!((avg - 58.38).abs() < 1.0, "MinionAverageDamage = {avg}");
         // Rate: 1.0 × 1.5 = 1.5.
         assert_eq!(output.get("MinionAttacksPerSecond"), 1.5);
-        // DPS = 58.38 × 1.5 = ~87.57.
+        // DPS = 58.38 × 1.5 × 1.025 (baseline crit factor) = ~89.76.
         let dps = output.get("MinionDPS");
-        assert!((dps - 87.57).abs() < 1.5, "MinionDPS = {dps}");
+        assert!((dps - 89.76).abs() < 1.5, "MinionDPS = {dps}");
+    }
+
+    #[test]
+    fn write_minion_outputs_layers_resist_adders_with_cap() {
+        use crate::Mod;
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        // Drop the fake minion to a more realistic baseline so we can see the cap take
+        // effect (Flame Golem starts at fire 75 already).
+        let mut data = data.clone();
+        data.fire_resist = 30;
+        data.cold_resist = 40;
+        data.lightning_resist = 40;
+        data.chaos_resist = 0;
+        let state = MinionState {
+            id: "Custom".into(),
+            data: &data,
+            level: 20,
+            life_base: 1000,
+        };
+
+        let mut env = Env::default();
+        // +20% to all elemental resists (raises each by 20).
+        env.mod_db.add(Mod::base("MinionElementalResist", 20.0));
+        // +10% to fire only on top of that.
+        env.mod_db.add(Mod::base("MinionFireResist", 10.0));
+        // +50% chaos resist — should land at 50, not capped.
+        env.mod_db.add(Mod::base("MinionChaosResist", 50.0));
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+
+        // fire = 30 + 10 + 20 = 60.
+        assert_eq!(output.get("MinionFireResist"), 60.0);
+        // cold = 40 + 0 + 20 = 60.
+        assert_eq!(output.get("MinionColdResist"), 60.0);
+        // lightning = 40 + 0 + 20 = 60.
+        assert_eq!(output.get("MinionLightningResist"), 60.0);
+        // chaos = 0 + 50 = 50 (no elemental adder).
+        assert_eq!(output.get("MinionChaosResist"), 50.0);
+        // Base values are preserved separately.
+        assert_eq!(output.get("MinionFireResistBase"), 30.0);
+        assert_eq!(output.get("MinionChaosResistBase"), 0.0);
+    }
+
+    #[test]
+    fn write_minion_outputs_resist_caps_at_75() {
+        use crate::Mod;
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+
+        let mut env = Env::default();
+        // Massive over-cap — sum should cap at 75.
+        env.mod_db.add(Mod::base("MinionElementalResist", 100.0));
+        env.mod_db.add(Mod::base("MinionFireResist", 50.0));
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        // fire would be 75 + 100 + 50 = 225 → capped at 75.
+        assert_eq!(output.get("MinionFireResist"), 75.0);
+    }
+
+    #[test]
+    fn write_minion_outputs_crit_chance_and_multiplier_scale() {
+        use crate::Mod;
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+
+        let mut env = Env::default();
+        env.mod_db.add(Mod::inc("MinionCritChance", 200.0)); // 5% × 3 = 15%
+        env.mod_db.add(Mod::base("MinionCritMultiplier", 100.0)); // 150 + 100 = 250%
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        assert_eq!(output.get("MinionCritChance"), 15.0);
+        assert_eq!(output.get("MinionCritMultiplier"), 250.0);
+        // Crit factor = 0.85 + 0.15 × 2.5 = 0.85 + 0.375 = 1.225.
+        // Average damage at level 20 ≈ 29.19; rate = 1.0; DPS = 29.19 × 1.225 ≈ 35.76.
+        let dps = output.get("MinionDPS");
+        assert!((dps - 35.76).abs() < 1.0, "MinionDPS = {dps}");
     }
 
     #[test]
