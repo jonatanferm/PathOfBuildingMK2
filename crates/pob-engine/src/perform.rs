@@ -483,10 +483,12 @@ pub fn init_env_with_bases(
     // `Modules/CalcSetup.lua`.
     apply_bandit_mods(character.bandit, &mut env.mod_db);
 
-    // 7b. Pantheon. Major + Minor god each contribute their soul[1]
-    // (level-1) effect — a single mod text run through `mod_parser`
-    // and added with `source = "Pantheon:<god>"`. Mirrors PoB's
-    // `Data/Pantheons.lua` data, applied in CalcSetup.lua:545-554.
+    // 7b. Pantheon. Major + Minor god each contribute every soul-tier
+    // mod for the selected god — PoB applies all 4 (major) / 2 (minor)
+    // levels at once because players configure their build at the
+    // fully-upgraded end-state. Each mod line runs through
+    // `mod_parser` and lands with `source = "Pantheon:<god>"`.
+    // Mirrors PoB's `Data/Pantheons.lua` applied in CalcSetup.lua:545-554.
     apply_pantheon_mods(
         character.pantheon_major,
         character.pantheon_minor,
