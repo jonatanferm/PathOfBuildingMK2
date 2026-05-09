@@ -22,15 +22,14 @@
 //! through the same parsers (the GGG endpoints currently allow CORS
 //! for browser-side reads, but that's not guaranteed long-term).
 //!
-//! The mapping is intentionally shallow for slice 1: we set class,
-//! ascendancy, level, allocated tree nodes, and equipped items.
-//! Skills are out of scope (the GGG endpoint surfaces gems under
-//! `socketedItems`; mapping those into PoB skill groups is a
-//! follow-up). Mastery effects, jewel data, and the cluster-jewel
-//! subgraph (`hashes_ex`) are captured into the right shape but the
-//! engine doesn't yet model them — the imported character matches
-//! what `pob_diff` would compute against a PoB import within the
-//! existing divergence budget.
+//! Issue #194 follow-up: this module now imports skills (gems socketed
+//! into equipped items via `socketedItems`), masteries (encoded in
+//! `mastery_effects` as `mastery | (effect << 16)` per PoB), and
+//! cluster-jewel subgraph nodes (`hashes_ex` mapped into the synth
+//! NodeId namespace established by `cluster_synth`). Cluster jewel
+//! items socketed into the tree (from `passive.items`) are now also
+//! routed into `Character::jewels` so the synthesis pass can produce
+//! the matching sub-graph at compute time.
 
 use std::fmt::Write as _;
 
@@ -185,6 +184,18 @@ pub struct GggItem {
     /// raw JSON noise.
     #[serde(default)]
     pub properties: Vec<ItemProperty>,
+    /// Issue #194: gems socketed into this item. PoE's API nests a
+    /// per-gem item under `socketedItems`, with each entry carrying
+    /// its own typeLine, properties (Level / Quality), and a `socket`
+    /// index. We use this to build [`SocketGroup`]s on the imported
+    /// character.
+    #[serde(default, rename = "socketedItems")]
+    pub socketed_items: Vec<SocketedGggItem>,
+    /// `[{group, attr, sColour}]` — one entry per physical socket,
+    /// used to bucket socketedItems into linked groups via the
+    /// shared `group` field. Mirrors `item.sockets` in PoB's Lua.
+    #[serde(default)]
+    pub sockets: Vec<GggSocket>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -193,6 +204,72 @@ pub struct ItemProperty {
     pub name: String,
     #[serde(default)]
     pub values: Vec<serde_json::Value>,
+}
+
+/// One socket on a piece of equipment. PoE returns one entry per
+/// physical socket; the `group` field is what links sockets together
+/// (sockets sharing a `group` value form one linked socket group).
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct GggSocket {
+    /// Linked-group id (0..N). Sockets with the same `group` are
+    /// linked.
+    #[serde(default)]
+    pub group: u32,
+    /// `S` / `D` / `I` / `G` / `A` / `DV` — the colour requirement.
+    /// We don't act on this (the calc engine doesn't model
+    /// off-colour socketing) but keep it in the schema for parity.
+    #[serde(default, rename = "sColour")]
+    pub s_colour: String,
+}
+
+/// A skill or support gem socketed into an equipped item. Mirrors
+/// the `socketedItems[].…` shape returned by the GGG `get-items`
+/// endpoint. PoB's reference parser is `Classes/ImportTab.lua:1281
+/// — ImportSocketedItems`.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SocketedGggItem {
+    /// Inherited gem display name (often empty for non-rare gems).
+    #[serde(default)]
+    pub name: String,
+    /// Base type — `"Fireball"`, `"Spell Echo Support"`, etc. Used
+    /// to resolve the canonical skill_id via the gem registry.
+    #[serde(default, rename = "typeLine")]
+    pub type_line: String,
+    /// Frame type — informational; the `support` flag is what we
+    /// branch on.
+    #[serde(default, rename = "frameType")]
+    pub frame_type: u32,
+    /// Index into the parent item's `sockets[]` array. Maps the
+    /// gem to its linked-group id.
+    #[serde(default)]
+    pub socket: u32,
+    /// Whether this is an Abyss jewel rather than an active/support
+    /// gem. We skip those for skill-group purposes; the user can
+    /// model them as items separately.
+    #[serde(default, rename = "abyssJewel")]
+    pub abyss_jewel: bool,
+    /// Whether this is a support gem.
+    #[serde(default)]
+    pub support: bool,
+    /// Properties — we scan for `Level` and `Quality`.
+    #[serde(default)]
+    pub properties: Vec<ItemProperty>,
+    /// Per-gem hybrid data — used by transfigured / dual-skill gems
+    /// (e.g. Stormbind). When present, `hybrid.baseTypeName` is the
+    /// effective type to resolve.
+    #[serde(default)]
+    pub hybrid: Option<HybridGem>,
+}
+
+/// `socketedItems[i].hybrid` shape — present on transfigured /
+/// dual-skill gems. PoB's `ImportSocketedItems` falls back to
+/// `hybrid.baseTypeName` to look the gem up.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HybridGem {
+    #[serde(default, rename = "baseTypeName")]
+    pub base_type_name: String,
+    #[serde(default, rename = "isVaalGem")]
+    pub is_vaal_gem: bool,
 }
 
 #[derive(Debug)]
@@ -251,13 +328,46 @@ pub fn parse_items(json: &str) -> Result<ItemsResponse, GggImportError> {
 /// `summary` is optional — when provided it acts as a fallback for
 /// `class` / `level` if the items envelope is missing them. The
 /// passive-skills response drives the allocated nodes; the items
-/// response drives equipped gear. Skills are not yet imported (see
-/// the module-level docstring for the slice-1 scope statement).
+/// response drives equipped gear. Skills inside `socketedItems`
+/// land on `Character::skill_groups` with raw (unresolved) typeLines
+/// as their `skill_id`. Use [`build_character_with_skills`] to
+/// resolve canonical PoB skill ids via a gem-registry lookup.
 pub fn build_character(
     summary: Option<&CharacterSummary>,
     passive: &PassiveSkillsResponse,
     items_resp: &ItemsResponse,
 ) -> Character {
+    build_character_with_skills(summary, passive, items_resp, |type_line| {
+        // Default lookup: fall back to a permissive identifier-style
+        // transformation when no gem registry is supplied. Strip
+        // spaces, drop the trailing " Support" qualifier (collapsed
+        // into a `Support` prefix per PoB's data convention), and
+        // hand back what we have. This is a useful approximation
+        // for stat-display and round-trip but won't always match the
+        // canonical id (e.g. "Spell Echo Support" should resolve to
+        // "SupportSpellEcho" but this fallback yields
+        // "SpellEchoSupport"). Callers with a real `GemSet` should
+        // use `build_character_with_skills` and an exact lookup.
+        Some(default_skill_id_from_type_line(type_line))
+    })
+}
+
+/// Like [`build_character`] but threads a gem-name resolver through
+/// to the skill-group construction. `gem_lookup(type_line)` should
+/// return the canonical `granted_effect_id` (a.k.a. PoB skill id)
+/// for the given gem typeLine, or `None` to skip the gem.
+///
+/// Wasm-clean — the engine doesn't load the gem registry, the
+/// caller does.
+pub fn build_character_with_skills<F>(
+    summary: Option<&CharacterSummary>,
+    passive: &PassiveSkillsResponse,
+    items_resp: &ItemsResponse,
+    mut gem_lookup: F,
+) -> Character
+where
+    F: FnMut(&str) -> Option<String>,
+{
     let envelope = items_resp.character.as_ref();
 
     // Resolve class / ascendancy / level. Priority: items.character
@@ -318,7 +428,10 @@ pub fn build_character(
     // synthesise the PoE-format paste text the existing item parser
     // already accepts, and equip the result. We swallow per-slot
     // failures so an exotic item the parser doesn't yet handle
-    // doesn't block the whole import.
+    // doesn't block the whole import. Each item's `socketedItems`
+    // also yields one `SocketGroup` per linked-group on the gear,
+    // labelled with the slot for UI clarity.
+    let mut skill_groups: Vec<crate::character::SocketGroup> = Vec::new();
     for ggg_item in &items_resp.items {
         let Some(slot) = ggg_slot_to_pob(&ggg_item.inventory_id, ggg_item.x) else {
             continue;
@@ -327,9 +440,328 @@ pub fn build_character(
         if let Ok(item) = parse_item(&raw) {
             character.items.equip(slot, item);
         }
+        let groups = build_socket_groups_for_item(ggg_item, slot, &mut gem_lookup);
+        skill_groups.extend(groups);
+    }
+
+    // Issue #194 (slice 2): mastery selections. The GGG payload
+    // encodes each pick as `mastery | (effect << 16)`. We decode
+    // back to `(mastery_node_id, effect_id)` pairs and feed them
+    // into `Character::mastery_selections`. Unknown shape (e.g.
+    // empty `[]`) collapses to "no selections", matching PoB.
+    for (mastery_node, effect_id) in decode_mastery_effects(&passive.mastery_effects) {
+        character.mastery_selections.insert(mastery_node, effect_id);
+    }
+
+    // Pick a "main" socket group: the largest one wins, matching
+    // PoB's `GuessMainSocketGroup`. The user can re-pick later from
+    // the Skills tab; this is just a sensible default so the calc
+    // engine has something to crunch immediately after import.
+    if !skill_groups.is_empty() {
+        let (main_idx, _) = skill_groups
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, g)| g.gems.len())
+            .unwrap();
+        character.main_socket_group = (main_idx + 1) as u32;
+        character.skill_groups = skill_groups;
+        character.sync_main_skill();
     }
 
     character
+}
+
+/// Issue #194 (slice 2): default `(typeLine -> skill_id)` resolver
+/// when the caller has no real gem registry. Strips spaces and
+/// punctuation, leaving an identifier-style id. Imperfect — see
+/// [`build_character`] for the docstring caveat — but a useful
+/// approximation for many vanilla active-skill gems where the
+/// granted_effect_id literally matches the gem name with spaces
+/// stripped (e.g. `"Fireball"` → `"Fireball"`).
+pub fn default_skill_id_from_type_line(type_line: &str) -> String {
+    let mut out = String::with_capacity(type_line.len());
+    for ch in type_line.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Build one [`SocketGroup`](crate::character::SocketGroup) per
+/// linked socket group on `item`. The `socketedItems[].socket`
+/// index is used to bucket gems via the parent item's `sockets[]`
+/// list; gems with the same `sockets[s].group` end up in the same
+/// linked group. Mirrors `ImportTab.lua:1277-1356`.
+fn build_socket_groups_for_item<F>(
+    item: &GggItem,
+    slot: Slot,
+    gem_lookup: &mut F,
+) -> Vec<crate::character::SocketGroup>
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    use std::collections::BTreeMap;
+
+    if item.socketed_items.is_empty() {
+        return Vec::new();
+    }
+    // Order linked groups stably by their first-seen group id so
+    // the resulting `SocketGroup` order is deterministic.
+    let mut groups: BTreeMap<u32, crate::character::SocketGroup> = BTreeMap::new();
+    let slot_label = ggg_slot_label_for_ui(slot, item.x);
+    for gem in &item.socketed_items {
+        if gem.abyss_jewel {
+            continue;
+        }
+        // Resolve the gem's typeLine (or the hybrid baseTypeName
+        // for transfigured / Vaal forms) into a skill_id.
+        let type_line = gem
+            .hybrid
+            .as_ref()
+            .map(|h| h.base_type_name.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(gem.type_line.as_str());
+        if type_line.is_empty() {
+            continue;
+        }
+        let Some(skill_id) = gem_lookup(type_line) else {
+            continue;
+        };
+        if skill_id.is_empty() {
+            continue;
+        }
+        let (level, quality) = parse_gem_level_and_quality(&gem.properties);
+        let group_id = item
+            .sockets
+            .get(gem.socket as usize)
+            .map(|s| s.group)
+            .unwrap_or(gem.socket);
+        let group = groups
+            .entry(group_id)
+            .or_insert_with(|| crate::character::SocketGroup {
+                label: slot_label.clone(),
+                gems: Vec::new(),
+                main_active_skill_index: 1,
+                enabled: true,
+            });
+        group.gems.push(crate::skill::MainSkill {
+            skill_id,
+            level: level.clamp(1, 40),
+            quality: quality.min(100),
+            quality_id: crate::skill::QualityId::Default,
+            enabled: true,
+        });
+    }
+    // Pick `main_active_skill_index` to point at the first
+    // non-support gem in each group (PoB's default). Falls back to
+    // 1 if every gem is a support.
+    let mut out: Vec<crate::character::SocketGroup> = groups.into_values().collect();
+    for group in &mut out {
+        if let Some(idx) = group
+            .gems
+            .iter()
+            .position(|g| !is_support_skill_id(&g.skill_id))
+        {
+            group.main_active_skill_index = (idx + 1) as u32;
+        }
+    }
+    out.retain(|g| !g.gems.is_empty());
+    out
+}
+
+/// Heuristic — a skill_id starting with "Support" is a support gem.
+/// Mirrors how PoB's `gemForBaseName` table maps `* Support`
+/// typeLines to `Support*` ids.
+fn is_support_skill_id(id: &str) -> bool {
+    id.starts_with("Support")
+}
+
+/// Pull `Level` and `Quality` numeric values out of the gem's
+/// `properties` array. PoE returns them as the first value of the
+/// matching property entry. Defaults: level 20, quality 0.
+fn parse_gem_level_and_quality(props: &[ItemProperty]) -> (u32, u32) {
+    let mut level = 20u32;
+    let mut quality = 0u32;
+    for prop in props {
+        let Some(s) = prop
+            .values
+            .first()
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .and_then(|s| s.as_str())
+        else {
+            continue;
+        };
+        match prop.name.as_str() {
+            "Level" => {
+                if let Some(n) = parse_leading_u32(s) {
+                    level = n;
+                }
+            }
+            "Quality" => {
+                if let Some(n) = parse_leading_u32(s.trim_start_matches('+').trim_end_matches('%'))
+                {
+                    quality = n;
+                }
+            }
+            _ => {}
+        }
+    }
+    (level, quality)
+}
+
+fn parse_leading_u32(s: &str) -> Option<u32> {
+    let mut acc = 0u32;
+    let mut any = false;
+    for ch in s.chars() {
+        if let Some(d) = ch.to_digit(10) {
+            acc = acc.saturating_mul(10).saturating_add(d);
+            any = true;
+        } else if any {
+            break;
+        }
+    }
+    if any {
+        Some(acc)
+    } else {
+        None
+    }
+}
+
+/// Friendly per-slot label for the SocketGroup picker. Matches the
+/// PoB-XML slot label scheme so a re-export round-trips with the
+/// expected value.
+fn ggg_slot_label_for_ui(slot: Slot, flask_x: u32) -> String {
+    match slot {
+        Slot::Helmet => "Helmet".to_owned(),
+        Slot::BodyArmour => "Body Armour".to_owned(),
+        Slot::Gloves => "Gloves".to_owned(),
+        Slot::Boots => "Boots".to_owned(),
+        Slot::Amulet => "Amulet".to_owned(),
+        Slot::Ring1 => "Ring 1".to_owned(),
+        Slot::Ring2 => "Ring 2".to_owned(),
+        Slot::Belt => "Belt".to_owned(),
+        Slot::Weapon1 => "Weapon 1".to_owned(),
+        Slot::Weapon2 => "Weapon 2".to_owned(),
+        Slot::Weapon1Swap => "Weapon 1 Swap".to_owned(),
+        Slot::Weapon2Swap => "Weapon 2 Swap".to_owned(),
+        Slot::Flask1 | Slot::Flask2 | Slot::Flask3 | Slot::Flask4 | Slot::Flask5 => {
+            format!("Flask {}", flask_x + 1)
+        }
+    }
+}
+
+/// Issue #194 (slice 2): decode the GGG `mastery_effects` payload
+/// into `(mastery_node_id, effect_id)` pairs.
+///
+/// The GGG endpoint encodes each pick as `mastery | (effect << 16)`
+/// — see PoB's `Classes/ImportTab.lua:698-708`. The wire form is
+/// **either** an object (newer responses, keyed by the mastery
+/// node id with a string-encoded numeric value) **or** a flat
+/// numeric array (older responses where the index *is* the
+/// mastery node id). We accept both shapes; anything we can't
+/// crack yields an empty result so the import still succeeds.
+pub fn decode_mastery_effects(value: &serde_json::Value) -> Vec<(NodeId, u32)> {
+    let mut out = Vec::new();
+    let parse_encoded = |encoded: u64| -> (NodeId, u32) {
+        let mastery_id = (encoded & 0xFFFF) as NodeId;
+        let effect_id = ((encoded >> 16) & 0xFFFF) as u32;
+        (mastery_id, effect_id)
+    };
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, val) in map {
+                // Two valid shapes for `val`:
+                //   "1234567890" — string-encoded `mastery |
+                //                  (effect << 16)`. Most common.
+                //   123456789    — bare numeric.
+                // The key is sometimes the mastery node id and
+                // sometimes redundant — we trust the encoded
+                // value's low 16 bits regardless.
+                let encoded_opt = match val {
+                    serde_json::Value::String(s) => s.parse::<u64>().ok(),
+                    serde_json::Value::Number(n) => n.as_u64(),
+                    _ => None,
+                };
+                if let Some(encoded) = encoded_opt {
+                    let (mastery_id, effect_id) = parse_encoded(encoded);
+                    if mastery_id != 0 {
+                        out.push((mastery_id, effect_id));
+                        continue;
+                    }
+                }
+                // Fall back to (key, value-as-effect) if the
+                // encoded form failed to decode.
+                if let Ok(node_id) = key.parse::<NodeId>() {
+                    let effect = val.as_u64().unwrap_or(0) as u32;
+                    if effect != 0 {
+                        out.push((node_id, effect));
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for entry in arr {
+                let encoded = match entry {
+                    serde_json::Value::String(s) => s.parse::<u64>().ok(),
+                    serde_json::Value::Number(n) => n.as_u64(),
+                    _ => None,
+                };
+                if let Some(enc) = encoded {
+                    let (mastery_id, effect_id) = parse_encoded(enc);
+                    if mastery_id != 0 {
+                        out.push((mastery_id, effect_id));
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// Issue #194 (slice 3): socket the jewels listed in `passive.items`
+/// onto `character`. Each entry's `x` field indexes into
+/// `tree.jewel_slots`; the resulting tree node id receives the
+/// jewel. Cluster jewels (whose host socket is a Large jewel
+/// socket — `expansion_jewel_size == Some(2)`) land in
+/// `Character::jewels` so the cluster-synth pass picks them up;
+/// other jewels (radius / abyss / timeless) land in
+/// `Character::socketed_jewels`.
+///
+/// Returns the number of jewels socketed. Items the parser can't
+/// crack (or whose `x` is out of range) are silently skipped — a
+/// best-effort import is more useful than a hard fail.
+pub fn apply_passive_jewels(
+    character: &mut Character,
+    tree: &pob_data::PassiveTree,
+    passive: &PassiveSkillsResponse,
+) -> usize {
+    let mut count = 0;
+    for ggg_item in &passive.items {
+        // PoB's mapping: `tree.jewel_slots[x + 1]` (1-based). Our
+        // tree stores the same list 0-based, so we use `x` directly.
+        let Some(host_node) = tree.jewel_slots.get(ggg_item.x as usize).copied() else {
+            continue;
+        };
+        let raw = render_item_paste(ggg_item);
+        let Ok(item) = parse_item(&raw) else {
+            continue;
+        };
+        let is_cluster_socket = tree
+            .nodes
+            .get(&host_node)
+            .map(|n| n.expansion_jewel_size == Some(2))
+            .unwrap_or(false);
+        if is_cluster_socket {
+            character.jewels.insert(host_node, item);
+        } else {
+            character.socketed_jewels.socket(host_node, item);
+        }
+        count += 1;
+    }
+    count
 }
 
 /// Translate a GGG `inventoryId` (+ stash `x` for flasks) to our
@@ -856,5 +1288,249 @@ mod tests {
         assert!(c.allocated.contains(&59530));
         assert!(c.items.get(Slot::Amulet).is_some());
         assert!(c.items.get(Slot::BodyArmour).is_some());
+        // Issue #194 (slice 2): masteries from the fixture come
+        // through as `(node_id, effect_id)` pairs.
+        // 3289145 = 12345 + (50 << 16) → (12345, 50)
+        // 5397408 = 23456 + (82 << 16) → (23456, 82)
+        assert_eq!(c.mastery_selections.get(&12345).copied(), Some(50));
+        assert_eq!(c.mastery_selections.get(&23456).copied(), Some(82));
+    }
+
+    #[test]
+    fn decode_mastery_effects_handles_object_form() {
+        let v: serde_json::Value =
+            serde_json::from_str(r#"{"12345":"3289145","23456":"5397408"}"#).unwrap();
+        let mut decoded = decode_mastery_effects(&v);
+        decoded.sort_unstable();
+        assert_eq!(decoded, vec![(12345, 50), (23456, 82)]);
+    }
+
+    #[test]
+    fn decode_mastery_effects_handles_array_form() {
+        let v: serde_json::Value = serde_json::from_str(r#"["3289145","5397408"]"#).unwrap();
+        let mut decoded = decode_mastery_effects(&v);
+        decoded.sort_unstable();
+        assert_eq!(decoded, vec![(12345, 50), (23456, 82)]);
+    }
+
+    #[test]
+    fn decode_mastery_effects_tolerates_empty() {
+        let v: serde_json::Value = serde_json::from_str("{}").unwrap();
+        assert!(decode_mastery_effects(&v).is_empty());
+        let v: serde_json::Value = serde_json::from_str("[]").unwrap();
+        assert!(decode_mastery_effects(&v).is_empty());
+        assert!(decode_mastery_effects(&serde_json::Value::Null).is_empty());
+    }
+
+    #[test]
+    fn build_character_extracts_socket_groups_from_socketed_items() {
+        let raw_items = include_str!("../tests/fixtures/ggg_character_items.json");
+        let items = parse_items(raw_items).unwrap();
+        let c = build_character(None, &PassiveSkillsResponse::default(), &items);
+        // BodyArmour has Fireball + Spell Echo Support in one
+        // linked group → one SocketGroup, two gems.
+        assert_eq!(c.skill_groups.len(), 1);
+        let group = &c.skill_groups[0];
+        assert_eq!(group.gems.len(), 2);
+        // Default lookup: typeLine with spaces stripped.
+        assert_eq!(group.gems[0].skill_id, "Fireball");
+        assert_eq!(group.gems[1].skill_id, "SpellEchoSupport");
+        assert_eq!(group.gems[0].level, 20);
+        assert_eq!(group.gems[0].quality, 20);
+        // main_active_skill_index points at Fireball (the
+        // non-support gem) — index 1 (1-based).
+        assert_eq!(group.main_active_skill_index, 1);
+        assert_eq!(c.main_socket_group, 1);
+        assert_eq!(c.main_skill.as_ref().unwrap().skill_id, "Fireball");
+    }
+
+    #[test]
+    fn build_character_with_skills_uses_custom_lookup() {
+        let raw_items = include_str!("../tests/fixtures/ggg_character_items.json");
+        let items = parse_items(raw_items).unwrap();
+        let c = build_character_with_skills(
+            None,
+            &PassiveSkillsResponse::default(),
+            &items,
+            |type_line| {
+                // Pretend we have a real gem registry that maps
+                // `Spell Echo Support` to its canonical id.
+                Some(match type_line {
+                    "Fireball" => "Fireball".to_owned(),
+                    "Spell Echo Support" => "SupportSpellEcho".to_owned(),
+                    _ => return None,
+                })
+            },
+        );
+        let group = c
+            .skill_groups
+            .first()
+            .expect("BodyArmour socket group built");
+        assert_eq!(group.gems[0].skill_id, "Fireball");
+        assert_eq!(group.gems[1].skill_id, "SupportSpellEcho");
+    }
+
+    #[test]
+    fn build_socket_groups_returns_empty_when_no_socketed_items() {
+        let json = r#"{
+            "items": [
+                {"typeLine":"Onyx Amulet","frameType":2,"inventoryId":"Amulet"}
+            ]
+        }"#;
+        let items = parse_items(json).unwrap();
+        let c = build_character(None, &PassiveSkillsResponse::default(), &items);
+        assert!(c.skill_groups.is_empty());
+    }
+
+    #[test]
+    fn apply_passive_jewels_routes_cluster_jewels_to_character_jewels() {
+        // Synthesise a tiny tree with two jewel slots: one Large
+        // (cluster) socket + one regular socket. Then run a
+        // PassiveSkillsResponse with one cluster jewel + one
+        // ordinary jewel and verify routing.
+        use ahash::HashMapExt;
+        use pob_data::{Group, Node, NodeKind, PassiveTree};
+        use smallvec::SmallVec;
+
+        let mut nodes = ahash::HashMap::new();
+        nodes.insert(
+            1000,
+            Node {
+                id: 1000,
+                name: Some("Large Jewel Socket".into()),
+                icon: None,
+                ascendancy_name: None,
+                stats: vec![],
+                reminder_text: vec![],
+                kind: NodeKind::JewelSocket,
+                class_start_index: None,
+                group: Some(7),
+                orbit: Some(0),
+                orbit_index: Some(0),
+                out_edges: SmallVec::new(),
+                in_edges: SmallVec::new(),
+                mastery_effects: vec![],
+                expansion_jewel_size: Some(2),
+                jewel_radius: None,
+            },
+        );
+        nodes.insert(
+            2000,
+            Node {
+                id: 2000,
+                name: Some("Jewel Socket".into()),
+                icon: None,
+                ascendancy_name: None,
+                stats: vec![],
+                reminder_text: vec![],
+                kind: NodeKind::JewelSocket,
+                class_start_index: None,
+                group: Some(8),
+                orbit: Some(0),
+                orbit_index: Some(0),
+                out_edges: SmallVec::new(),
+                in_edges: SmallVec::new(),
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: Some(2),
+            },
+        );
+        let mut groups = ahash::HashMap::new();
+        groups.insert(
+            7,
+            Group {
+                x: 0.0,
+                y: 0.0,
+                orbits: SmallVec::new(),
+                background: None,
+                nodes: vec![1000],
+                is_proxy: false,
+            },
+        );
+        groups.insert(
+            8,
+            Group {
+                x: 100.0,
+                y: 0.0,
+                orbits: SmallVec::new(),
+                background: None,
+                nodes: vec![2000],
+                is_proxy: false,
+            },
+        );
+        let tree = PassiveTree {
+            version: "test".into(),
+            tree: "Default".into(),
+            classes: vec![],
+            groups,
+            nodes,
+            jewel_slots: vec![1000, 2000],
+            min_x: 0,
+            min_y: 0,
+            max_x: 200,
+            max_y: 200,
+            constants: pob_data::TreeConstants {
+                skills_per_orbit: vec![1, 6, 16, 16, 40, 72, 72],
+                orbit_radii: vec![0, 82, 162, 335, 493, 662, 846],
+                classes: ahash::HashMap::default(),
+                character_attributes: ahash::HashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: pob_data::TreePoints::default(),
+        };
+
+        let passive_json = r#"{
+            "hashes": [],
+            "items": [
+                {
+                    "name": "",
+                    "typeLine": "Large Cluster Jewel",
+                    "frameType": 1,
+                    "inventoryId": "PassiveJewels",
+                    "x": 0,
+                    "ilvl": 84,
+                    "explicitMods": ["Adds 8 Passive Skills"]
+                },
+                {
+                    "name": "",
+                    "typeLine": "Crimson Jewel",
+                    "frameType": 1,
+                    "inventoryId": "PassiveJewels",
+                    "x": 1,
+                    "ilvl": 84,
+                    "explicitMods": ["+5% increased Attack Damage"]
+                }
+            ]
+        }"#;
+        let passive = parse_passive_skills(passive_json).unwrap();
+        let mut character = Character::new(ClassRef::witch(), 90);
+        let count = apply_passive_jewels(&mut character, &tree, &passive);
+        assert_eq!(count, 2);
+        assert!(
+            character.jewels.contains_key(&1000),
+            "cluster jewel should land on Large socket 1000"
+        );
+        assert_eq!(character.socketed_jewels.len(), 1);
+        assert!(
+            character.socketed_jewels.get(2000).is_some(),
+            "ordinary jewel should land on regular socket 2000"
+        );
+    }
+
+    #[test]
+    fn default_skill_id_strips_spaces_and_punctuation() {
+        assert_eq!(default_skill_id_from_type_line("Fireball"), "Fireball");
+        assert_eq!(
+            default_skill_id_from_type_line("Spell Echo Support"),
+            "SpellEchoSupport"
+        );
+        assert_eq!(
+            default_skill_id_from_type_line("Cast on Critical Strike Support"),
+            "CastonCriticalStrikeSupport"
+        );
+        assert_eq!(
+            default_skill_id_from_type_line("Lightning Arrow"),
+            "LightningArrow"
+        );
     }
 }

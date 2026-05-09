@@ -25,6 +25,17 @@ rfd.workspace = true
 # tokio / hyper) — fits the egui main-thread fetch pattern. We
 # spawn a `std::thread` per request so the UI stays responsive.
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
+# Issue #194: persist POESESSID in the OS keyring so users don't
+# have to re-paste it each session. `keyring` v3 abstracts over
+# Keychain (macOS), Credential Manager (Windows), and
+# secret-service / kwallet (Linux). `apple-native` etc. select the
+# OS-native backend at compile time per platform.
+keyring = { version = "3", default-features = false, features = [
+    "apple-native",
+    "windows-native",
+    "sync-secret-service",
+    "vendored",
+] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
@@ -42,6 +53,7 @@ web-sys = { version = "0.3", features = [
     "File",
     "FileList",
     "FileReader",
+    "Headers",
     "HtmlAnchorElement",
     "HtmlElement",
     "HtmlInputElement",
@@ -55,6 +67,11 @@ web-sys = { version = "0.3", features = [
     "IdbTransaction",
     "IdbTransactionMode",
     "IdbVersionChangeEvent",
+    "Request",
+    "RequestCredentials",
+    "RequestInit",
+    "RequestMode",
+    "Response",
     "Url",
     "Window",
 ] }

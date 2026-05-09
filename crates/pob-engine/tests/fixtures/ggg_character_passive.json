@@ -5,6 +5,9 @@
     "ascendancy": 1,
     "items": [],
     "jewel_data": {},
-    "mastery_effects": {},
+    "mastery_effects": {
+        "12345": "3289145",
+        "23456": "5397408"
+    },
     "skill_overrides": {}
 }
