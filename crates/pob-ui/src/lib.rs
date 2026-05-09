@@ -653,6 +653,51 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     }
                 }
             }
+            // Issue #225: build-pane quick-action buttons. PoB shows
+            // Save / Save As / Export at the top of the window —
+            // discoverable to users who don't know the keyboard
+            // shortcuts and don't want to drill into the File menu.
+            // The buttons route through the same `MenuAction` path as
+            // their menu-item counterparts so the behaviour stays in
+            // sync. Right-aligned via the inverted layout so they
+            // hug the trailing edge of the menu bar without colliding
+            // with the dirty indicator.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .button("Export…")
+                    .on_hover_text("Jump to the Import / Export tab to copy build XML.")
+                    .clicked()
+                {
+                    app.active_tab = Tab::ImportExport;
+                }
+                if ui
+                    .button("Save As…")
+                    .on_hover_text("Save the build to a new file (Cmd/Ctrl+Shift+S).")
+                    .clicked()
+                {
+                    apply_menu_action(app, MenuAction::SaveAs);
+                }
+                // Save is gated on having unsaved changes (or no
+                // path at all) — on native; wasm doesn't track
+                // dirty state, so the button stays enabled there
+                // and lets the user kick off an IndexedDB write
+                // unconditionally.
+                #[cfg(not(target_arch = "wasm32"))]
+                let save_enabled = app.dirty_since.is_some() || app.current_build_path.is_none();
+                #[cfg(target_arch = "wasm32")]
+                let save_enabled = true;
+                if ui
+                    .add_enabled(save_enabled, egui::Button::new("Save"))
+                    .on_hover_text(
+                        "Save the build (Cmd/Ctrl+S). Disabled \
+                             when nothing has changed since the last \
+                             save.",
+                    )
+                    .clicked()
+                {
+                    apply_menu_action(app, MenuAction::Save);
+                }
+            });
         });
     });
 
