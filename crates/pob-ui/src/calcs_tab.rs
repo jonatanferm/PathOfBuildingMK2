@@ -7,9 +7,11 @@
 //! flat-key view remains the default until enough breakdown rows have been ported
 //! to make the section view pull its weight.
 
+use std::collections::HashSet;
+
 use eframe::egui;
 use pob_data::{CalcRow, CalcSection};
-use pob_engine::{Env, Mod, ModStore as _, ModType, Output, Source, Tag};
+use pob_engine::{Character, Env, Mod, ModStore as _, ModType, Output, SkillRegistry, Source, Tag};
 
 #[derive(Default)]
 pub struct CalcsTabState {
@@ -109,6 +111,7 @@ pub fn ui(
     output: &Output,
     env: Option<&Env>,
     calc_sections: Option<&[CalcSection]>,
+    active_skill_flags: &HashSet<String>,
 ) {
     ui.horizontal(|ui| {
         ui.label("Filter:");
@@ -137,7 +140,7 @@ pub fn ui(
 
     if state.use_pob_layout {
         if let Some(sections) = calc_sections {
-            render_pob_layout(ui, state, sections, output, env);
+            render_pob_layout(ui, state, sections, output, env, active_skill_flags);
             return;
         }
     }
@@ -250,6 +253,7 @@ fn render_pob_layout(
     sections: &[CalcSection],
     output: &Output,
     env: Option<&Env>,
+    active_skill_flags: &HashSet<String>,
 ) {
     let q = state.filter.trim().to_lowercase();
     // Bucket sections by their column-group (1 = Offence, 2 = Core, 3 = Defence).
@@ -289,6 +293,7 @@ fn render_pob_layout(
                                         output,
                                         &q,
                                         state.hide_zero,
+                                        active_skill_flags,
                                         &mut state.focused_stat,
                                     );
                                 }
@@ -334,6 +339,7 @@ fn render_section(
     output: &Output,
     filter_q: &str,
     hide_zero: bool,
+    active_skill_flags: &HashSet<String>,
     focused: &mut Option<String>,
 ) {
     for sub in &section.subsections {
@@ -341,6 +347,7 @@ fn render_section(
             .rows
             .iter()
             .filter(|r| row_matches_filter(r, &section.id, &sub.label, filter_q))
+            .filter(|r| row_passes_skill_flags(r, active_skill_flags))
             .filter(|r| {
                 // hide_zero: drop rows whose resolvable output is zero. Rows with no
                 // resolvable output_key are always kept so the layout stays meaningful.
@@ -385,6 +392,70 @@ fn render_section(
                     });
             });
     }
+}
+
+/// PoB-style skill-flag visibility gate. A row's `flag` field is a comma-joined list of
+/// flag names (`spell`, `attack`, `weapon1Attack`, `warcry`, …); the row should appear
+/// only when the active skill carries at least one of those flags. `not_flag` is the
+/// inverse — the row is hidden when *any* listed flag is on the active skill.
+///
+/// When `active_skill_flags` is empty (no main skill bound), rows with `flag` set are
+/// hidden — the same way PoB suppresses skill-specific rows on a fresh build.
+fn row_passes_skill_flags(row: &CalcRow, active: &HashSet<String>) -> bool {
+    if let Some(flag) = row.flag.as_deref() {
+        let any = flag
+            .split(',')
+            .map(str::trim)
+            .any(|f| !f.is_empty() && active.contains(f));
+        if !any {
+            return false;
+        }
+    }
+    if let Some(not_flag) = row.not_flag.as_deref() {
+        let any = not_flag
+            .split(',')
+            .map(str::trim)
+            .any(|f| !f.is_empty() && active.contains(f));
+        if any {
+            return false;
+        }
+    }
+    true
+}
+
+/// Derive the set of PoB-style skill flags that apply to the bound main skill. The set
+/// names mirror the keys PoB uses in `skillFlags` (`attack`, `spell`, `warcry`, `area`,
+/// `projectile`, `melee`, `triggered`, …) plus the synthetic `weapon1Attack` /
+/// `weapon2Attack` / `bothWeaponAttack` markers attack rows expect.
+///
+/// Slice 3 of [#34](https://github.com/jonatanferm/PathOfBuildingMK2/issues/34) is
+/// deliberately conservative: we mirror the skill's `base_flags` straight through and
+/// always set `weapon1Attack` + `bothWeaponAttack` on attack skills (since MK2 always
+/// runs the per-cast pass against the main hand). Off-hand-only context, channel-state,
+/// triggered-by-CWDT, and per-element flag context are all follow-ups.
+#[must_use]
+pub fn active_skill_flags(character: &Character, skills: &SkillRegistry) -> HashSet<String> {
+    let mut out = HashSet::new();
+    let Some(main) = character.main_skill.as_ref() else {
+        return out;
+    };
+    let Some(skill) = skills.get(&main.skill_id) else {
+        return out;
+    };
+    for (k, v) in &skill.base_flags {
+        if *v {
+            out.insert(k.clone());
+        }
+    }
+    // PoB's "weapon1Attack" / "bothWeaponAttack" markers are context-derived, not
+    // base-flag values — set them ourselves so the matching attack rows in CalcSections
+    // become visible. We assume a main-hand cast (MK2 doesn't yet split per-hand passes
+    // for these calcs).
+    if out.contains("attack") {
+        out.insert("weapon1Attack".to_owned());
+        out.insert("bothWeaponAttack".to_owned());
+    }
+    out
 }
 
 /// Substring filter against the row + section + subsection labels and the row's
@@ -758,6 +829,106 @@ mod tests {
         assert!(super::format_value(0.5).trim().starts_with("0.5"));
         // Large outputs round to 2 decimals.
         assert_eq!(super::format_value(12345.6789).trim(), "12345.68");
+    }
+
+    #[test]
+    fn pob_layout_skill_flags_hide_attack_only_rows_for_spells() {
+        use pob_data::CalcRow;
+        use std::collections::HashSet;
+
+        let attack_row = CalcRow {
+            label: "MH Att. Speed".into(),
+            output_key: Some("MainHand.Speed".into()),
+            have_output: None,
+            format: None,
+            flag: Some("weapon1Attack".into()),
+            not_flag: Some("triggered".into()),
+        };
+        let spell_row = CalcRow {
+            label: "Casts per second".into(),
+            output_key: Some("Speed".into()),
+            have_output: None,
+            format: None,
+            flag: Some("spell".into()),
+            not_flag: Some("triggered".into()),
+        };
+        let warcry_row = CalcRow {
+            label: "Uses per second".into(),
+            output_key: Some("Speed".into()),
+            have_output: None,
+            format: None,
+            flag: Some("warcry".into()),
+            not_flag: None,
+        };
+        let unconditional_row = CalcRow {
+            label: "Inc. Att. Speed".into(),
+            output_key: None,
+            have_output: None,
+            format: None,
+            flag: None,
+            not_flag: None,
+        };
+
+        // Spell-flagged build: hides attack-only rows, shows spell rows.
+        let mut spell: HashSet<String> = HashSet::new();
+        spell.insert("spell".into());
+        spell.insert("hit".into());
+        assert!(!super::row_passes_skill_flags(&attack_row, &spell));
+        assert!(super::row_passes_skill_flags(&spell_row, &spell));
+        assert!(!super::row_passes_skill_flags(&warcry_row, &spell));
+        assert!(super::row_passes_skill_flags(&unconditional_row, &spell));
+
+        // Attack build: shows the attack row, hides the spell row.
+        let mut attack: HashSet<String> = HashSet::new();
+        attack.insert("attack".into());
+        attack.insert("weapon1Attack".into());
+        attack.insert("hit".into());
+        assert!(super::row_passes_skill_flags(&attack_row, &attack));
+        assert!(!super::row_passes_skill_flags(&spell_row, &attack));
+
+        // Triggered attack: notFlag = "triggered" should hide the row even though it
+        // matches `weapon1Attack`.
+        let mut triggered_attack: HashSet<String> = HashSet::new();
+        triggered_attack.insert("attack".into());
+        triggered_attack.insert("weapon1Attack".into());
+        triggered_attack.insert("triggered".into());
+        assert!(!super::row_passes_skill_flags(
+            &attack_row,
+            &triggered_attack
+        ));
+
+        // No active skill: rows with `flag` set are hidden; unconditional rows still
+        // render so the layout doesn't go blank on a fresh build.
+        let none: HashSet<String> = HashSet::new();
+        assert!(!super::row_passes_skill_flags(&attack_row, &none));
+        assert!(!super::row_passes_skill_flags(&spell_row, &none));
+        assert!(super::row_passes_skill_flags(&unconditional_row, &none));
+    }
+
+    #[test]
+    fn pob_layout_flag_supports_comma_separated_lists() {
+        use pob_data::CalcRow;
+        use std::collections::HashSet;
+
+        // PoB sometimes targets multiple flags via flagList = {"a", "b"}; the extractor
+        // joins those with commas. The visibility check has to OR them.
+        let row = CalcRow {
+            label: "Trigger Rate Cap".into(),
+            output_key: Some("TriggerRateCap".into()),
+            have_output: None,
+            format: None,
+            flag: Some("triggered,hasOverride".into()),
+            not_flag: Some("focused,skipEffectiveRate".into()),
+        };
+
+        let mut active: HashSet<String> = HashSet::new();
+        active.insert("triggered".into());
+        // hasOverride absent — but `flag` is OR, so triggered alone is enough.
+        assert!(super::row_passes_skill_flags(&row, &active));
+
+        // notFlag matching focused → hide.
+        active.insert("focused".into());
+        assert!(!super::row_passes_skill_flags(&row, &active));
     }
 
     #[test]
