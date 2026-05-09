@@ -168,10 +168,18 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
     // `<ItemSet>` blocks, each pointing back at items by id. We capture
     // every set so saved-loadout names round-trip; the slot map for the
     // *active* set drives `character.items`.
+    //
+    // Issue #195: jewel sockets land as `<Slot name="Jewel <NodeId>" itemId="…"/>`
+    // alongside the usual gear slots. We capture them on a parallel
+    // `JewelMap` keyed by the parsed node id; only the active set's
+    // jewels are materialised onto `character.{jewels, socketed_jewels}`
+    // since those collections are build-level in MK2 (per-set jewel
+    // sockets aren't surfaced yet).
     type SlotMap = std::collections::HashMap<String, u32>;
-    let mut item_sets: Vec<(u32, Option<String>, SlotMap)> = Vec::new();
+    type JewelMap = std::collections::HashMap<NodeId, u32>;
+    let mut item_sets: Vec<(u32, Option<String>, SlotMap, JewelMap)> = Vec::new();
     let mut active_item_set_id: Option<u32> = None;
-    let mut current_item_set: Option<(u32, Option<String>, SlotMap)> = None;
+    let mut current_item_set: Option<(u32, Option<String>, SlotMap, JewelMap)> = None;
     // Skills: capture all skill groups; track which has mainActiveSkill.
     let mut skill_groups: Vec<SkillGroup> = Vec::new();
     let mut current_skill_group: Option<SkillGroup> = None;
@@ -241,7 +249,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                             .and_then(|s| s.parse::<u32>().ok())
                             .unwrap_or((item_sets.len() + 1) as u32);
                         let title = attr_str(&e, "title").filter(|s| !s.is_empty());
-                        current_item_set = Some((id, title, SlotMap::new()));
+                        current_item_set = Some((id, title, SlotMap::new(), JewelMap::new()));
                         // Issue #109: PoB writes `useSecondWeaponSet`
                         // on the per-set element; mirror it onto the
                         // build-level toggle so a swap-on build
@@ -284,17 +292,37 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                         // ItemSet (current schema); some legacy files place
                         // Slot directly inside Items, in which case we
                         // synthesise a default set on first sight.
+                        //
+                        // Issue #195: PoB writes jewel sockets as
+                        // `<Slot name="Jewel <NodeId>" itemId="…"/>` (where
+                        // `<NodeId>` is the tree-socket node id, e.g.
+                        // `Jewel 32763`). They land in the per-set
+                        // `JewelMap` and get materialised onto
+                        // `character.{jewels, socketed_jewels}` after
+                        // items_by_id is fully populated.
                         let slot_name = attr_str(&e, "name").unwrap_or_default();
                         let item_id = attr_str(&e, "itemId").and_then(|s| s.parse::<u32>().ok());
                         if let (false, Some(id)) = (slot_name.is_empty(), item_id) {
                             if id > 0 {
-                                if let Some((_, _, ref mut m)) = current_item_set {
-                                    m.insert(slot_name, id);
+                                let jewel_node_id = parse_jewel_slot_name(&slot_name);
+                                if let Some((_, _, ref mut slots, ref mut jewels)) =
+                                    current_item_set
+                                {
+                                    if let Some(node_id) = jewel_node_id {
+                                        jewels.insert(node_id, id);
+                                    } else {
+                                        slots.insert(slot_name, id);
+                                    }
                                 } else if item_sets.is_empty() {
                                     // Legacy: <Slot> outside any <ItemSet>.
-                                    let mut m = SlotMap::new();
-                                    m.insert(slot_name, id);
-                                    item_sets.push((1, None, m));
+                                    let mut slots = SlotMap::new();
+                                    let mut jewels = JewelMap::new();
+                                    if let Some(node_id) = jewel_node_id {
+                                        jewels.insert(node_id, id);
+                                    } else {
+                                        slots.insert(slot_name, id);
+                                    }
+                                    item_sets.push((1, None, slots, jewels));
                                 }
                             }
                         }
@@ -472,15 +500,22 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
             .or_else(|| {
                 item_sets
                     .iter()
-                    .find(|(id, _, _)| *id == 1)
-                    .map(|(id, _, _)| *id)
+                    .find(|(id, _, _, _)| *id == 1)
+                    .map(|(id, _, _, _)| *id)
             })
-            .or_else(|| item_sets.first().map(|(id, _, _)| *id));
+            .or_else(|| item_sets.first().map(|(id, _, _, _)| *id));
         let mut saved: Vec<crate::character::NamedItemSet> = Vec::new();
-        for (idx, (id, title, slots)) in item_sets.iter().enumerate() {
+        for (idx, (id, title, slots, jewels)) in item_sets.iter().enumerate() {
             let materialised = materialise_set(slots);
             if Some(*id) == active_id {
                 character.items = materialised;
+                // Issue #195: materialise jewel sockets onto the
+                // build-level collections only for the active set.
+                // Per-set jewel sockets aren't surfaced in MK2's UI;
+                // saved loadouts that ship their own jewels would need
+                // a parallel `NamedItemSet::jewels` field, which is
+                // tracked separately.
+                materialise_jewels(jewels, &items_by_id, &mut character);
             } else {
                 let display = title.clone().unwrap_or_else(|| {
                     // PoB doesn't always emit titles; default to a stable
@@ -618,6 +653,40 @@ pub(crate) fn pob_slot_from_name(name: &str) -> Option<Slot> {
         "Flask 5" | "Flask5" => Slot::Flask5,
         _ => return None,
     })
+}
+
+/// Issue #195: PoB writes jewel sockets as `<Slot name="Jewel <NodeId>" itemId="…"/>`.
+/// `<NodeId>` is the literal tree-socket node id (e.g. `Jewel 32763`). Returns the
+/// parsed node id when the name matches, `None` otherwise.
+pub(crate) fn parse_jewel_slot_name(name: &str) -> Option<NodeId> {
+    let rest = name.strip_prefix("Jewel ")?;
+    rest.parse::<NodeId>().ok()
+}
+
+/// Issue #195: install captured jewel-slot bindings onto `character.{jewels,
+/// socketed_jewels}`. The two collections are split by item base name —
+/// cluster jewels route through `cluster_synth` (`character.jewels`) while
+/// vanilla / radius / timeless / abyss jewels route through `apply_radius_jewels`
+/// (`character.socketed_jewels`). Items the parser can't handle are dropped
+/// silently, mirroring the regular gear-slot materialisation policy.
+fn materialise_jewels(
+    jewels: &std::collections::HashMap<NodeId, u32>,
+    items_by_id: &std::collections::HashMap<u32, ItemSpec>,
+    character: &mut Character,
+) {
+    for (node_id, item_id) in jewels {
+        let Some(spec) = items_by_id.get(item_id) else {
+            continue;
+        };
+        let Ok(item) = parse_item(spec.raw.trim()) else {
+            continue;
+        };
+        if item.base_name.ends_with("Cluster Jewel") {
+            character.jewels.insert(*node_id, item);
+        } else {
+            character.socketed_jewels.socket(*node_id, item);
+        }
+    }
 }
 
 /// Inverse of `pob_slot_from_name`: the canonical PoB-XML slot label for a `Slot`.

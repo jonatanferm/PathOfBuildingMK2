@@ -89,7 +89,8 @@ pub fn export_pob_xml(character: &Character) -> String {
 
 fn write_items(out: &mut String, c: &Character) {
     let active_empty = c.items.iter().next().is_none();
-    if active_empty && c.item_sets.is_empty() {
+    let no_jewels = c.jewels.is_empty() && c.socketed_jewels.is_empty();
+    if active_empty && c.item_sets.is_empty() && no_jewels {
         out.push_str("    <Items/>\n");
         return;
     }
@@ -107,6 +108,22 @@ fn write_items(out: &mut String, c: &Character) {
     for (idx, named) in c.item_sets.iter().enumerate() {
         sets.push(((idx + 2) as u32, Some(named.name.as_str()), &named.items));
     }
+
+    // Issue #195: collect jewel-socket bindings keyed by node id, sorted
+    // for stable output. Cluster jewels in `c.jewels` and radius /
+    // timeless / abyss jewels in `c.socketed_jewels` share the same
+    // `<Slot name="Jewel <NodeId>" itemId="…"/>` wire format, so we
+    // merge them into one ordered list. They land in the active set
+    // only — MK2's jewel collections are build-level, not per-set.
+    let mut jewel_entries: Vec<(pob_data::NodeId, &pob_data::Item)> =
+        Vec::with_capacity(c.jewels.len() + c.socketed_jewels.len());
+    for (node_id, item) in &c.jewels {
+        jewel_entries.push((*node_id, item));
+    }
+    for (node_id, item) in c.socketed_jewels.iter() {
+        jewel_entries.push((*node_id, item));
+    }
+    jewel_entries.sort_by_key(|(id, _)| *id);
 
     // Stable ordering of items: walk every set in declaration order and
     // assign ids the first time we see each (slot, raw) tuple. We key by
@@ -128,6 +145,19 @@ fn write_items(out: &mut String, c: &Character) {
                 item_blocks.push((next_item_id, item));
                 next_item_id += 1;
             }
+        }
+    }
+    // Issue #195: jewel items also need an id assigned in the
+    // `<Items>` block so the active set's `<Slot>` rows can reference
+    // them. Dedupe against the gear list — a jewel that happens to
+    // share its raw text with an equipped item collapses to one
+    // `<Item>` block, mirroring how PoB writes shared text only once.
+    for (_, item) in &jewel_entries {
+        let key: &str = item.raw.as_str();
+        if !item_id_by_raw.contains_key(key) {
+            item_id_by_raw.insert(key, next_item_id);
+            item_blocks.push((next_item_id, item));
+            next_item_id += 1;
         }
     }
 
@@ -175,6 +205,18 @@ fn write_items(out: &mut String, c: &Character) {
                 "            <Slot name=\"{name}\" itemId=\"{item_id}\"/>",
                 name = pob_slot_to_name(slot),
             );
+        }
+        // Issue #195: jewel sockets ride along inside the active set.
+        // Saved sets get gear-only entries — see `materialise_jewels`
+        // on the import side for the matching policy.
+        if *set_id == active_id {
+            for (node_id, item) in &jewel_entries {
+                let item_id = item_id_by_raw.get(item.raw.as_str()).copied().unwrap_or(0);
+                let _ = writeln!(
+                    out,
+                    "            <Slot name=\"Jewel {node_id}\" itemId=\"{item_id}\"/>",
+                );
+            }
         }
         out.push_str("        </ItemSet>\n");
     }
