@@ -985,6 +985,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     // unconditionally.
                     stat_row_decimal(ui, "Armour", &app.output, "MinionArmour");
                     stat_row_decimal(ui, "Evasion", &app.output, "MinionEvasion");
+                    // Issue #20 (slice 15): movement speed as a percentage
+                    // (`MinionMovementSpeed`); always non-zero (baseline 100%).
+                    stat_row_decimal(ui, "Move speed %", &app.output, "MinionMovementSpeed");
                     stat_row_decimal(ui, "Avg hit", &app.output, "MinionAverageDamage");
                     stat_row_decimal(ui, "Speed (cps)", &app.output, "MinionAttacksPerSecond");
                     stat_row_decimal(ui, "Crit chance %", &app.output, "MinionCritChance");

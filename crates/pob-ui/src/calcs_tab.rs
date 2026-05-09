@@ -1097,6 +1097,9 @@ mod tests {
             "MinionArmour",
             "MinionEvasionBase",
             "MinionEvasion",
+            // Slice 15: movement speed multiplier + percentage output.
+            "MinionMovementSpeedMod",
+            "MinionMovementSpeed",
         ] {
             let group = group_for(key);
             assert_eq!(
