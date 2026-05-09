@@ -579,6 +579,42 @@ fn compute_group_instances(
         });
     }
 
+    // Issue #110 part 2: AscendancyStart medallion placeholder.
+    // Without an `ascendancy.png` atlas binding (the canonical
+    // `AscendancyMiddle` sprite lives in upstream PoB's
+    // `passive-skill/ascendancy-3.png` CDN asset, which we don't
+    // bundle locally yet) we render the existing
+    // `PSStartNodeBackgroundInactive` sprite scaled down to ~40px
+    // so each ascendancy sub-tree's center has a visible
+    // medallion. The result isn't pixel-identical to PoB but
+    // closes the "ascendancy sub-trees look unfinished" gap from
+    // the issue body. Bundling the upstream sprite is a
+    // follow-up.
+    if let Some(rect) = cat
+        .coords
+        .get("PSStartNodeBackgroundInactive")
+        .or_else(|| cat.coords.get("PSGroupBackground1"))
+    {
+        let uv = rect.uv(cat.w as f32, cat.h as f32);
+        // Scale to roughly the size of PoB's AscendancyMiddle
+        // sprite (~31×31 vs the inactive background's ~110×110).
+        let placeholder_size = 40.0;
+        for node in tree.nodes.values() {
+            if !matches!(node.kind, pob_data::NodeKind::AscendancyStart) {
+                continue;
+            }
+            let group = match node.group.and_then(|gid| tree.groups.get(&gid)) {
+                Some(g) => g,
+                None => continue,
+            };
+            out.push(GroupInstance {
+                world_pos: [group.x, group.y],
+                world_size: [placeholder_size, placeholder_size],
+                uv_rect: uv,
+            });
+        }
+    }
+
     out
 }
 
