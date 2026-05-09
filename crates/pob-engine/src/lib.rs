@@ -24,6 +24,7 @@ pub mod cluster_synth;
 pub mod env;
 pub mod ggg_import;
 pub mod item_parser;
+pub mod jewel_radius;
 pub mod minion;
 pub mod mod_db;
 pub mod mod_parser;
@@ -52,6 +53,10 @@ pub use ggg_import::{
     PassiveSkillsResponse as GggPassiveSkillsResponse,
 };
 pub use item_parser::{apply_item_set, apply_item_set_with_bases, parse_item, ItemApplyReport};
+pub use jewel_radius::{
+    allocated_nodes_in_radius, apply_radius_jewels, identify_radius_jewel, node_position,
+    nodes_in_radius, HandlerKind, RadiusJewel, RadiusJewelReport, SocketedJewels,
+};
 pub use minion::{
     apply_minion_hit_chance, apply_minion_outputs, parse_minion_intrinsic_mods, select_minion_type,
     write_minion_outputs, MinionState,

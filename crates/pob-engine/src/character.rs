@@ -7,6 +7,7 @@ use ahash::HashMap;
 use pob_data::{Class, Item, ItemSet, NodeId, PassiveTree};
 use serde::{Deserialize, Serialize};
 
+use crate::jewel_radius::SocketedJewels;
 use crate::skill::MainSkill;
 
 // Re-export so character.rs is the canonical Character module.
@@ -57,6 +58,16 @@ pub struct CharacterSnapshot {
     /// `PassiveSpec.jewels` map.
     #[serde(default)]
     pub jewels: Vec<(NodeId, Item)>,
+    /// Issue #31: jewels socketed into tree sockets. Keyed by tree-socket
+    /// node id. Vanilla radius jewels (`Crimson Jewel` etc. with mod text
+    /// like "10% increased X to Passives in Radius") are identified in
+    /// `init_env_with_bases` and their mods are replayed onto every
+    /// in-radius allocated passive. Cluster / Abyss / Timeless jewels are
+    /// stored here too — they share the storage but route through their
+    /// own dispatch paths (#21, #30) and are filtered out by
+    /// `identify_radius_jewel`'s subtype check.
+    #[serde(default)]
+    pub socketed_jewels: SocketedJewels,
 }
 
 /// One stored item-loadout save. `items` is the same `ItemSet` the
@@ -211,6 +222,7 @@ impl CharacterSnapshot {
                 .map(|(k, v)| (*k, v.clone()))
                 .collect(),
             jewels: c.jewels.iter().map(|(k, v)| (*k, v.clone())).collect(),
+            socketed_jewels: c.socketed_jewels.clone(),
         }
     }
     pub fn into_character(self) -> Character {
@@ -257,6 +269,7 @@ impl CharacterSnapshot {
             party_members: self.party_members,
             tattoo_overrides: self.tattoo_overrides.into_iter().collect(),
             jewels: self.jewels.into_iter().collect(),
+            socketed_jewels: self.socketed_jewels,
         }
     }
 }
@@ -501,6 +514,11 @@ pub struct Character {
     /// that get appended to the live tree at compute time.
     /// Mirrors PoB's `PassiveSpec.jewels` map (which keys by node id).
     pub jewels: HashMap<NodeId, Item>,
+    /// Issue #31: jewels socketed into tree sockets. Keyed by tree-socket
+    /// node id. The radius framework in `jewel_radius` reads this map at
+    /// compute time and projects each radius jewel's mods onto the
+    /// allocated passives inside its radius.
+    pub socketed_jewels: SocketedJewels,
 }
 
 /// Encounter / condition configuration. Mirrors PoB's Config tab:
@@ -764,6 +782,7 @@ impl Character {
             party_members: Vec::new(),
             tattoo_overrides: HashMap::default(),
             jewels: HashMap::default(),
+            socketed_jewels: SocketedJewels::new(),
         }
     }
 
