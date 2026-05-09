@@ -22,7 +22,10 @@ use pob_data::{
     MinionData, MinionType,
 };
 
-use crate::{mod_db::QueryCfg, Character, Env, ModStore, ModType, Output, SkillRegistry};
+use crate::{
+    mod_db::QueryCfg, skill::parse_extractor_mod, Character, Env, ModDB, ModStore, ModType, Output,
+    SkillRegistry,
+};
 
 /// Snapshot of the minion summoned by the active main skill. Slice 3 only carries the
 /// scalars the Calcs tab needs — slice 4 will add `mod_db`, an `output` map, and a
@@ -78,6 +81,27 @@ pub fn select_minion_type<'a>(
         level,
         life_base,
     })
+}
+
+/// Parse the minion's intrinsic `mod_list` recordings into a fresh `ModDB` keyed by
+/// the minion-side stat names PoB uses (`Life` / `Armour` / `StunThreshold` / etc.).
+/// Returns an empty `ModDB` when the minion has no intrinsic mods.
+///
+/// PoB's CalcActiveSkill.lua:697-790 builds `env.minion.modDB` from the same recordings
+/// and queries it with the minion as the active actor; we mirror that locally so the
+/// player-side ModDB stays untouched.
+#[must_use]
+pub fn parse_minion_intrinsic_mods(data: &MinionType) -> ModDB {
+    let mut db = ModDB::new();
+    for entry in &data.mod_list {
+        let Some(value) = entry.get("value").and_then(serde_json::Value::as_f64) else {
+            continue;
+        };
+        if let Some(m) = parse_extractor_mod(entry, value) {
+            db.add(m);
+        }
+    }
+    db
 }
 
 /// Pick the right monster-life table for a given minion. Mirrors PoB's
@@ -137,17 +161,31 @@ pub fn apply_minion_outputs(
 ///
 /// What's still **not** modelled:
 /// - Hit-chance vs enemy evasion for melee minions.
-/// - Minion-side armour, evasion, energy shield.
-/// - Minion's intrinsic `mod_list` (slice 5 keeps it inert; the perform pass needs it).
+/// - Minion-side energy shield as a separate pool (the intrinsic `Armour` mod is
+///   surfaced but armour-vs-hit mitigation is deferred).
 /// - Per-minion `lifeScaling` (spectres etc.) — every minion still uses the ally
 ///   life table.
 pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Output) {
     let cfg = QueryCfg::default();
 
-    // Life — same pattern as slice 4.
-    let life_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "MinionLife");
-    let life_more = env.mod_db.more(&cfg, &env.state, "MinionLife");
-    let life_scaled = (state.life_base as f64) * (1.0 + life_inc / 100.0) * life_more;
+    // Slice 7 of #20: minion's intrinsic mod_list (e.g. Raised Zombie's
+    // `mod("Armour", "INC", 40)` and `mod("StunThreshold", "INC", 30)`). PoB lays
+    // these onto a per-minion modDB and queries minion-side stat names without the
+    // "Minion" prefix — we mirror that locally so the player-side ModDB stays
+    // untouched.
+    let intrinsic = parse_minion_intrinsic_mods(state.data);
+
+    // Life — `MinionLife` INC/MORE on the player side stack with `Life` INC/MORE
+    // on the intrinsic side; the player-side scaling lifts a value the minion
+    // already carries, so the two layers compose multiplicatively.
+    let life_inc_player = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "MinionLife");
+    let life_more_player = env.mod_db.more(&cfg, &env.state, "MinionLife");
+    let life_inc_intrinsic = intrinsic.sum(ModType::Inc, &cfg, &env.state, "Life");
+    let life_more_intrinsic = intrinsic.more(&cfg, &env.state, "Life");
+    let life_scaled = (state.life_base as f64)
+        * (1.0 + (life_inc_player + life_inc_intrinsic) / 100.0)
+        * life_more_player
+        * life_more_intrinsic;
     output.set("MinionLifeBase", state.life_base as f64);
     output.set("MinionLife", life_scaled.round());
 
@@ -193,13 +231,19 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
     // Damage — `monster_ally_damage[level] × minion.damage × (1 + inc/100) × more`.
     // The `damage_spread` field captures the per-hit damage variance (PoB uses ±20%
     // for most minion types); we expose Min / Max / Average so consumers can pick
-    // the value that matches what they're computing.
+    // the value that matches what they're computing. Player-side `MinionDamage`
+    // INC/MORE composes with the minion's intrinsic `Damage` INC/MORE.
     let damage_base = f64::from(monster_ally_damage_at_level(state.level)) * state.data.damage;
-    let dmg_inc = env
+    let dmg_inc_player = env
         .mod_db
         .sum(ModType::Inc, &cfg, &env.state, "MinionDamage");
-    let dmg_more = env.mod_db.more(&cfg, &env.state, "MinionDamage");
-    let damage_scaled = damage_base * (1.0 + dmg_inc / 100.0) * dmg_more;
+    let dmg_more_player = env.mod_db.more(&cfg, &env.state, "MinionDamage");
+    let dmg_inc_intrinsic = intrinsic.sum(ModType::Inc, &cfg, &env.state, "Damage");
+    let dmg_more_intrinsic = intrinsic.more(&cfg, &env.state, "Damage");
+    let damage_scaled = damage_base
+        * (1.0 + (dmg_inc_player + dmg_inc_intrinsic) / 100.0)
+        * dmg_more_player
+        * dmg_more_intrinsic;
     let spread = state.data.damage_spread;
     let dmg_min = damage_scaled * (1.0 - spread);
     let dmg_max = damage_scaled * (1.0 + spread);
@@ -209,16 +253,38 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
     output.set("MinionMinDamage", dmg_min);
     output.set("MinionMaxDamage", dmg_max);
 
-    // Attack rate — `1 / attack_time × (1 + inc/100) × more`.
+    // Attack rate — `1 / attack_time × (1 + inc/100) × more`. Intrinsic `Speed`
+    // mods compose with the player-side `MinionAttackSpeed` chain.
     let attack_time = state.data.attack_time.max(0.001);
     let speed_base = 1.0 / attack_time;
-    let spd_inc = env
+    let spd_inc_player = env
         .mod_db
         .sum(ModType::Inc, &cfg, &env.state, "MinionAttackSpeed");
-    let spd_more = env.mod_db.more(&cfg, &env.state, "MinionAttackSpeed");
-    let attacks_per_second = speed_base * (1.0 + spd_inc / 100.0) * spd_more;
+    let spd_more_player = env.mod_db.more(&cfg, &env.state, "MinionAttackSpeed");
+    let spd_inc_intrinsic = intrinsic.sum(ModType::Inc, &cfg, &env.state, "Speed");
+    let spd_more_intrinsic = intrinsic.more(&cfg, &env.state, "Speed");
+    let attacks_per_second = speed_base
+        * (1.0 + (spd_inc_player + spd_inc_intrinsic) / 100.0)
+        * spd_more_player
+        * spd_more_intrinsic;
     output.set("MinionAttacksPerSecondBase", speed_base);
     output.set("MinionAttacksPerSecond", attacks_per_second);
+
+    // Surface armour / stun-threshold from the minion's intrinsic mod_list. PoB
+    // computes minion armour from a base × (1 + INC/100) × MORE chain anchored on
+    // monster_armour_at_level, but slice 7 stops short of the per-hit mitigation
+    // formula — we just report what the intrinsic mods contribute so the user can
+    // see the chain.
+    let armour_inc_intrinsic = intrinsic.sum(ModType::Inc, &cfg, &env.state, "Armour");
+    let armour_inc_player = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "MinionArmour");
+    output.set("MinionArmourInc", armour_inc_player + armour_inc_intrinsic);
+    let stun_threshold_inc_intrinsic =
+        intrinsic.sum(ModType::Inc, &cfg, &env.state, "StunThreshold");
+    output.set("MinionStunThresholdInc", stun_threshold_inc_intrinsic);
+    let life_regen_pct = intrinsic.sum(ModType::Base, &cfg, &env.state, "LifeRegenPercent");
+    output.set("MinionLifeRegenPercent", life_regen_pct);
 
     // Crit. PoB minions start with a 5% crit chance and the player-side
     // `MinionCritChance` INC / BASE chain, with a 150% base multiplier scaled by
@@ -518,5 +584,89 @@ mod tests {
         assert_eq!(life_clamped_high, (6916.0_f64 * 6.0).round() as u32);
         let life_clamped_low = (life_base_for(data, 0) as f64 * data.life).round() as u32;
         assert_eq!(life_clamped_low, (15.0_f64 * 6.0).round() as u32);
+    }
+
+    /// Build a fake minion that carries the same intrinsic mod_list a Raised Zombie
+    /// has in the real catalogue plus a Life INC mod that we can verify flows into
+    /// the player-side compose chain.
+    fn fake_minion_with_intrinsic_mods() -> MinionData {
+        use serde_json::json;
+        let mut minions = IndexMap::new();
+        let mod_list = vec![
+            // mod("Armour", "INC", 40) — like Raised Zombie's intrinsic.
+            json!({"__kind": "mod", "name": "Armour", "type": "INC", "value": 40, "flags": 0, "keywordFlags": 0}),
+            // mod("StunThreshold", "INC", 30) — same source.
+            json!({"__kind": "mod", "name": "StunThreshold", "type": "INC", "value": 30, "flags": 0, "keywordFlags": 0}),
+            // mod("Life", "INC", 25) — fictional but exercises the player+intrinsic compose.
+            json!({"__kind": "mod", "name": "Life", "type": "INC", "value": 25, "flags": 0, "keywordFlags": 0}),
+            // mod("LifeRegenPercent", "BASE", 1) — like Chaos Golem's intrinsic.
+            json!({"__kind": "mod", "name": "LifeRegenPercent", "type": "BASE", "value": 1, "flags": 0, "keywordFlags": 0}),
+        ];
+        minions.insert(
+            "TestMinion".into(),
+            MinionType {
+                name: "Test Minion".into(),
+                monster_tags: vec![],
+                life: 6.0,
+                energy_shield: None,
+                armour: None,
+                fire_resist: 40,
+                cold_resist: 40,
+                lightning_resist: 40,
+                chaos_resist: 0,
+                damage: 1.5,
+                damage_spread: 0.2,
+                attack_time: 1.0,
+                attack_range: 8.0,
+                accuracy: 3.4,
+                limit: None,
+                skill_list: vec![],
+                mod_list,
+            },
+        );
+        MinionData { minions }
+    }
+
+    #[test]
+    fn parse_minion_intrinsic_mods_decodes_recordings() {
+        let minions = fake_minion_with_intrinsic_mods();
+        let data = minions.minions.get("TestMinion").unwrap();
+        let db = parse_minion_intrinsic_mods(data);
+
+        let cfg = QueryCfg::default();
+        let state = crate::mod_db::EvalState::default();
+        // 4 recordings → 4 mods (Armour, StunThreshold, Life, LifeRegenPercent).
+        assert_eq!(db.iter_all().count(), 4);
+        assert_eq!(db.sum(ModType::Inc, &cfg, &state, "Armour"), 40.0);
+        assert_eq!(db.sum(ModType::Inc, &cfg, &state, "StunThreshold"), 30.0);
+        assert_eq!(db.sum(ModType::Inc, &cfg, &state, "Life"), 25.0);
+        assert_eq!(db.sum(ModType::Base, &cfg, &state, "LifeRegenPercent"), 1.0);
+    }
+
+    #[test]
+    fn write_minion_outputs_composes_intrinsic_with_player_mods() {
+        use crate::Mod;
+        let minions = fake_minion_with_intrinsic_mods();
+        let data = minions.minions.get("TestMinion").unwrap();
+        let state = MinionState {
+            id: "TestMinion".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+
+        // Player-side: 50% MinionLife INC, 0% MORE.
+        let mut env = Env::default();
+        env.mod_db.add(Mod::inc("MinionLife", 50.0));
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+
+        // Combined: 1000 × (1 + 0.50 + 0.25) = 1750. Both INCs sum additively.
+        assert_eq!(output.get("MinionLife"), 1750.0);
+        // Intrinsic StunThreshold and Armour bubble through.
+        assert_eq!(output.get("MinionStunThresholdInc"), 30.0);
+        assert_eq!(output.get("MinionArmourInc"), 40.0);
+        // LifeRegenPercent BASE 1 lands on a dedicated key.
+        assert_eq!(output.get("MinionLifeRegenPercent"), 1.0);
     }
 }
