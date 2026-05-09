@@ -16,8 +16,8 @@
 
 use pob_data::{
     monster_tables::{
-        monster_ally_damage_at_level, monster_ally_life_at_level, monster_life2_at_level,
-        monster_life3_at_level, monster_life_at_level,
+        monster_accuracy_at_level, monster_ally_damage_at_level, monster_ally_life_at_level,
+        monster_life2_at_level, monster_life3_at_level, monster_life_at_level,
     },
     MinionData, MinionType,
 };
@@ -140,7 +140,72 @@ pub fn apply_minion_outputs(
         return false;
     };
     write_minion_outputs(&state, env, output);
+    // Slice 8 of #20: hit-chance pass. Needs character.config.enemy_evasion which
+    // isn't reachable from the pure write_minion_outputs entry point. Layered here
+    // so write_minion_outputs stays env-only and unit-testable without spinning up
+    // a Character.
+    apply_minion_hit_chance(&state, character, env, output);
     true
+}
+
+/// Compute the minion's accuracy + hit-chance vs the character config's enemy
+/// evasion, then fold the resulting hit-chance multiplier into `MinionDPS`.
+/// Mirrors PoB's `Modules/CalcOffence.lua` minion accuracy / hit-chance branch.
+///
+/// Slice 8 always treats the minion's primary attack as melee — the minion's
+/// `skill_list` would let us check the attack/spell base-flag for finer control,
+/// but most minion types are melee or projectile attackers and the formula is the
+/// same shape for both.
+pub fn apply_minion_hit_chance(
+    state: &MinionState<'_>,
+    character: &Character,
+    env: &Env,
+    output: &mut Output,
+) {
+    let cfg = QueryCfg::default();
+    let intrinsic = parse_minion_intrinsic_mods(state.data);
+
+    // Accuracy = `monster_accuracy[level] × minion.accuracy × (1 + inc/100)`. PoB
+    // applies player-side `MinionAccuracy` INC (rare) plus the minion's intrinsic
+    // `Accuracy` INC.
+    let accuracy_base = f64::from(monster_accuracy_at_level(state.level)) * state.data.accuracy;
+    let acc_inc_player = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "MinionAccuracy");
+    let acc_inc_intrinsic = intrinsic.sum(ModType::Inc, &cfg, &env.state, "Accuracy");
+    let accuracy = accuracy_base * (1.0 + (acc_inc_player + acc_inc_intrinsic) / 100.0);
+    output.set("MinionAccuracyBase", accuracy_base);
+    output.set("MinionAccuracy", accuracy);
+
+    // Hit chance vs enemy evasion. We default to attack semantics; the formula
+    // returns 100 directly for skill_list-detected spells if a future slice opts
+    // in.
+    let enemy_evasion = f64::from(character.config.enemy_evasion);
+    let hit_chance_pct = minion_hit_chance(accuracy, enemy_evasion, true);
+    output.set("MinionHitChance", hit_chance_pct);
+
+    // Fold into MinionDPS. The previous DPS already factors in the crit factor
+    // from slice 6; multiply through one more time to land on the
+    // accuracy-adjusted number.
+    let dps_pre_acc = output.get("MinionDPS");
+    output.set("MinionDPSBeforeHitChance", dps_pre_acc);
+    output.set("MinionDPS", dps_pre_acc * hit_chance_pct / 100.0);
+}
+
+/// Take a minion's accuracy and the character config's `enemy_evasion`, run them through
+/// PoB's `accuracy / (accuracy + (evasion/5)^0.9) × 125` formula, and clamp the result
+/// to `[5, 100]`. Spells always hit (returns 100); pass `is_attack = false` for those.
+fn minion_hit_chance(accuracy: f64, enemy_evasion: f64, is_attack: bool) -> f64 {
+    if !is_attack {
+        return 100.0;
+    }
+    let evasion = enemy_evasion.max(1.0);
+    let raw = if accuracy <= 0.0 {
+        5.0
+    } else {
+        accuracy / (accuracy + f64::powf(evasion / 5.0, 0.9)) * 125.0
+    };
+    raw.round().clamp(5.0, 100.0)
 }
 
 /// Emit the minion's basic stats into the player's output dictionary so the Calcs tab
@@ -641,6 +706,73 @@ mod tests {
         assert_eq!(db.sum(ModType::Inc, &cfg, &state, "StunThreshold"), 30.0);
         assert_eq!(db.sum(ModType::Inc, &cfg, &state, "Life"), 25.0);
         assert_eq!(db.sum(ModType::Base, &cfg, &state, "LifeRegenPercent"), 1.0);
+    }
+
+    #[test]
+    fn minion_hit_chance_formula_matches_pob() {
+        // Spells always hit.
+        assert_eq!(super::minion_hit_chance(0.0, 0.0, false), 100.0);
+        assert_eq!(super::minion_hit_chance(1000.0, 5000.0, false), 100.0);
+
+        // Zero accuracy floors at 5%.
+        assert_eq!(super::minion_hit_chance(0.0, 1000.0, true), 5.0);
+
+        // 1000 acc vs 0 evasion — capped at 100 not at the raw 1000/(1000+0)*125 = 125.
+        assert_eq!(super::minion_hit_chance(1000.0, 0.0, true), 100.0);
+
+        // Spot-check the canonical formula. accuracy = 1000, evasion = 1000:
+        //   raw = 1000 / (1000 + (1000/5)^0.9) * 125
+        //       = 1000 / (1000 + 130.49…) * 125
+        //       ≈ 110.6 → clamps to 100.
+        assert_eq!(super::minion_hit_chance(1000.0, 1000.0, true), 100.0);
+
+        // accuracy = 500, evasion = 5000:
+        //   raw = 500 / (500 + (5000/5)^0.9) * 125
+        //       = 500 / (500 + (1000)^0.9) * 125
+        //       = 500 / (500 + 501.2) * 125
+        //       ≈ 62.4 → 62.
+        let chance = super::minion_hit_chance(500.0, 5000.0, true);
+        assert!((58.0..=66.0).contains(&chance), "got {chance}");
+    }
+
+    #[test]
+    fn apply_minion_hit_chance_folds_into_dps() {
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 90,
+            life_base: 25068,
+        };
+        let mut character = Character::new(crate::ClassRef::marauder(), 90);
+        // High enemy evasion so the formula meaningfully bites the chance below 100.
+        // monster_accuracy[90] × minion.accuracy = 675 × 3.4 ≈ 2295. Pair with a
+        // 25k evasion target so the formula lands well below the 100% cap.
+        character.config.enemy_evasion = 25000;
+
+        let env = Env::default();
+
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        let dps_before = output.get("MinionDPS");
+        apply_minion_hit_chance(&state, &character, &env, &mut output);
+
+        let hit_chance = output.get("MinionHitChance");
+        // Pre-accuracy DPS preserved as a separate output so the breakdown chain
+        // stays inspectable.
+        assert!((output.get("MinionDPSBeforeHitChance") - dps_before).abs() < 0.001);
+        // Post-accuracy DPS = pre × chance/100.
+        let dps_after = output.get("MinionDPS");
+        assert!(
+            (dps_after - dps_before * hit_chance / 100.0).abs() < 0.001,
+            "dps_after={dps_after}, dps_before={dps_before}, chance={hit_chance}"
+        );
+        // Hit chance should be < 100 against a 5000-evasion target.
+        assert!(
+            hit_chance < 100.0,
+            "MinionHitChance should be < 100 vs 5000 evasion, got {hit_chance}"
+        );
     }
 
     #[test]
