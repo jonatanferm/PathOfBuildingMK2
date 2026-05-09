@@ -4201,6 +4201,65 @@ fn battlemages_cry_injects_crit_chance_buff() {
     );
 }
 
+// Issue #19 (slice 14): `CritChance BASE` mods (Battlemage's Cry,
+// Diamond Flask, certain jewels) need to land before the INC
+// scaling, on top of the skill's intrinsic 5% baseline. PoB sums
+// them as `(intrinsic + base_addn) × (1 + inc/100)`. Without the
+// BASE-addition path, Battlemage's Cry's +2 / +2.5 base crit was
+// silently dropped from `CritChance` and `MainSkillCritChance`.
+#[test]
+fn critchance_base_addition_lifts_main_skill_crit() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Cleave").is_none() {
+        eprintln!("skip: Cleave not in registry");
+        return;
+    }
+    use pob_engine::{Mod, Source};
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    let baseline_main = baseline.get("MainSkillCritChance");
+
+    // Inject +20 base CritChance via the modDB (what a stack of
+    // BattlemagesCry / Diamond Flask / Watcher's Eye would add).
+    let (_, mut env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    env.mod_db
+        .add(Mod::base("CritChance", 20.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_basic_stats(&c, &tree, &mut env);
+    pob_engine::perform::perform_skill_dps(&c, &skills, &mut env);
+
+    // MainSkillCritChance reflects the attack-side crit chance:
+    //   (skill_base + crit_base_addn) × (1 + inc/100) × hit_chance
+    // baseline ~ 5 × 1.0 × 0.7 = 3.5; with +20 BASE lift becomes
+    // (5 + 20) × 0.7 = 17.5. So the lift must be roughly 4-5×
+    // baseline in attacks — assert at least +10.
+    let lifted_main = env.output.get("MainSkillCritChance");
+    assert!(
+        lifted_main > baseline_main + 10.0,
+        "+20 base CritChance must lift MainSkillCritChance significantly (baseline {baseline_main}, got {lifted_main})"
+    );
+
+    // The basic-stat `CritChance` output gets overwritten by
+    // perform_skill_dps to the attack-side effective crit, so it
+    // tracks `MainSkillCritChance` here rather than the raw
+    // basic-stats value. The basic-stats branch is exercised by
+    // running it alone with the BASE injection in env-only form:
+    let mut bare = pob_engine::perform::init_env(&c, &tree);
+    bare.mod_db
+        .add(Mod::base("CritChance", 20.0).with_source(Source::Other("test".into())));
+    pob_engine::perform::perform_basic_stats(&c, &tree, &mut bare);
+    let bare_crit = bare.output.get("CritChance");
+    assert!(
+        bare_crit >= 25.0,
+        "perform_basic_stats with skill + 20 base CritChance should set CritChance to (5 + 20) × 1 = 25; got {bare_crit}"
+    );
+}
+
 // Issue #19 (slice 13): the warcry buff injections from slices
 // 8-10 + 12 (Enduring's LifeRegenPercent, Ancestral's
 // ElementalResist, Seismic's Armour MORE, Battlemage's
