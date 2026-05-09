@@ -2,8 +2,8 @@
 
 ## Headline numbers
 
-- 5 crates, 40+ commits, ~13 000 lines of Rust.
-- 79 tests pass workspace-wide.
+- 5 crates, 100+ commits, ~13 000 lines of Rust.
+- 224 tests pass workspace-wide.
 - Release `pob-desktop` binary: ~9.6 MB on macOS arm64.
 - Engine `compute()` averages 2.2 ms per call against the full 3.25 tree
   in release.
@@ -22,8 +22,7 @@ real calc output.
   passive trees, 1062 item bases, 810 skill gems, and 1488 skill effects from the
   upstream PoB checkout (`.PathOfBuilding/` in-repo, or `../PathOfBuilding/` legacy)
   into `data/`.
-- **`cargo test --workspace`** — 61 tests pass (engine: 45 unit + 1 parser-coverage
-  + 4 validation + 2 pathfind + 1 layout, data: 4 unit + 5 round-trip).
+- **`cargo test --workspace`** — 224 tests pass across the workspace.
 - **`cargo run -p pob-desktop --release`** — opens the app.
 
 ## End-to-end demo
@@ -121,24 +120,51 @@ Closed since the previous status snapshot:
   round-trip, ailment DPS overhaul (faster-* + EnemyMoving + AdditionalPoisonChance
   + PoisonStackLimit), paren-range averaging, `unless` clause parsing,
   CurseEffect / AuraEffect outgoing scaling, wgpu tree renderer.
+- Per-skill chain damage scaling (issue #11): `output.ChainRemaining = ChainMax
+  - skillChainCount` (default 0) restored, so Arc-style PerStat:ChainRemaining
+  MORE bonuses now apply at full strength on the per-cast average.
+- Enemy physical mitigation: enemy armour reduces physical hit damage via PoB's
+  `armour / (armour + 5 × raw)` formula, with a config slider + boss-preset
+  defaults. Hit-side block / dodge / suppression are read from
+  `enemy_block_chance` / `enemy_dodge_chance` / `enemy_suppression_chance` and
+  fold into `MainSkillDPS`.
+- Projectile shotgun multiplier (`projectiles_hitting_target` config, capped at
+  `ProjectileCount`); AoE shotgun overlap (`enemies_hit_by_aoe`).
+- Trap / mine timing model: per-throw counts, multi-throw penalty, per-skill
+  cooldown gating, DoT-only throw timing, cast-speed isolation.
+- Warcry layer: WarcryPower config, loadout aggregates, auto-uptime,
+  per-cry active markers (Intimidating / Enduring / Ancestral / Seismic /
+  Battlemage's), Intimidate enemy debuff, Enduring Cry life regen,
+  Ancestral Cry elemental resists, Seismic Cry armour + stun threshold,
+  Battlemage's Cry crit chance.
+- Pantheon: soul levels 1-4 + NearbyEnemies / OnlyOneNearbyEnemy condition.
+- Flask recovery: instant/gradual split, low-life multiplier, LifeAdditional.
+- Party tab auto-extraction with manual aura-effect % override.
+- External-site URL recogniser (pobb.in / pastebin / poeplanner).
+- CI: `cargo fmt --check` and `cargo clippy -D warnings` are gated, not
+  advisory.
 
 Still open (in rough priority):
 
-1. **Per-skill chain damage averaging** (Arc-style "+15% MORE damage per chain
-   remaining"): currently dropped from the average hit because applying the full
-   bonus overshoots — needs an iterative chain-count average.
-2. **Skill DPS missing AoE/projectile/enemy-armour mitigation**: we land hit + ailment
-   per-target but don't model AoE rolloff, projectile chain/pierce variance, or enemy
-   armour absorbing physical hits.
-3. **Defender block / dodge / suppression from the player perspective**: PoB walks
-   these in CalcOffence; we don't yet apply them when computing outgoing DPS against
-   bossy targets.
-4. **Per-weapon active-hand calc loop**: items now carry `SlotName` tags but the calc
-   layer doesn't yet evaluate the main skill once per active weapon and average the
-   results — needed for accurate dual-wield DPS.
-5. **Live `pob_diff` ailment baselines in CI**: a reference build exists
-   (`marauder_l90_bleeding_cleave.xml`), but locking PoB-vs-engine deltas behind a
-   regression test still requires running pob_diff in the test environment.
+1. **AoE radius rolloff and projectile pierce/chain variance**: we now model
+   shotgun overlap and the per-target multiplier, but not AoE damage falloff
+   or pierce/chain damage variance per hop.
+2. **Per-weapon active-hand calc loop**: items now carry `SlotName` tags but
+   the calc layer doesn't yet evaluate the main skill once per active weapon
+   and average the results — needed for accurate dual-wield DPS.
+3. **Damage conversion (`PhysicalDamageGainAs<Element>`)**: Hatred-style auras
+   already inject the gain mod via `aura_buff_mods`, but the calc pipeline
+   doesn't yet read `Gain%` to add the converted element to the hit total.
+   Same gap blocks Infernal Cry's phys-as-fire piece.
+4. **Live `pob_diff` ailment baselines in CI**: reference builds exist
+   (`marauder_l90_bleeding_cleave.xml`, `witch_l90_arc_with_items.xml`,
+   etc.), but locking PoB-vs-engine deltas behind a regression test still
+   requires running pob_diff in the test environment.
+5. **Cluster jewels + Timeless jewels + radius jewels**: tree-data heavy;
+   tracked separately as #21, #30, #31.
+6. **Vaal / alternate skill variants per gem (#36)** and **minion build
+   support (#20)**: large engine extensions that need their own design slices
+   before incremental PRs make sense.
 
 ## Build commands cheat sheet
 
