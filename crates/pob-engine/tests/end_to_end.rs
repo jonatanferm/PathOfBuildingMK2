@@ -4250,6 +4250,114 @@ fn battlemages_cry_injects_crit_chance_buff() {
     );
 }
 
+// Issue #19 (slice 16): Rallying Cry's per-ally exert damage
+// bonus. PoB's RallyingCry statMap + CalcOffence.lua:2633:
+//   ExertedAttackDamage MORE = 5 × min(NearbyAlly, 5)
+// Constant 5%/ally, ally count capped at 5. Same
+// `UsedWarcryRecently` gate; needs `nearby_allies > 0` config.
+#[test]
+fn rallying_cry_injects_per_ally_exerted_damage() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("RallyingCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: RallyingCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+    use pob_engine::ModStore as _;
+
+    fn rallying_more(env: &pob_engine::Env) -> f64 {
+        env.mod_db
+            .iter_all()
+            .filter(|m| {
+                m.name == "ExertedAttackDamage"
+                    && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Rallying Cry")
+            })
+            .filter_map(|m| m.value.as_f64())
+            .sum()
+    }
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("RallyingCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcry".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+
+    // No flag, no allies → no injection.
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        rallying_more(&env) < 1e-9,
+        "Without UsedWarcryRecently, RallyingCry must not inject ExertedAttackDamage"
+    );
+
+    // Flag on but no allies → still no injection (multiplier × 0 = 0).
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        rallying_more(&env) < 1e-9,
+        "With nearby_allies = 0, RallyingCry must not inject any exert damage"
+    );
+
+    // 3 allies → +15% MORE on exerted attacks.
+    c.config.nearby_allies = 3;
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    let more = rallying_more(&env);
+    assert!(
+        (more - 15.0).abs() < 1e-6,
+        "RallyingCry with 3 allies should give +15% MORE ExertedAttackDamage; got {more}"
+    );
+    assert!(
+        (env.output.get("RallyingCryExertDamageBonus") - 15.0).abs() < 1e-6,
+        "RallyingCryExertDamageBonus output should mirror the MORE value"
+    );
+    assert!(
+        (env.output.get("RallyingCryAllyCount") - 3.0).abs() < 1e-6,
+        "RallyingCryAllyCount should mirror the (capped) ally count"
+    );
+
+    // 5 allies → +25% MORE (cap).
+    c.config.nearby_allies = 5;
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (rallying_more(&env) - 25.0).abs() < 1e-6,
+        "RallyingCry with 5 allies should give +25% MORE (the cap); got {}",
+        rallying_more(&env)
+    );
+
+    // 10 allies → still capped at 5 → +25% MORE.
+    c.config.nearby_allies = 10;
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (rallying_more(&env) - 25.0).abs() < 1e-6,
+        "RallyingCry with 10 allies must still cap at +25% MORE"
+    );
+    assert!(
+        (env.output.get("RallyingCryAllyCount") - 5.0).abs() < 1e-6,
+        "RallyingCryAllyCount should clamp to 5 even when config is higher"
+    );
+
+    // Disabled gem → no buff.
+    if let Some(group) = c.skill_groups.first_mut() {
+        if let Some(gem) = group.gems.iter_mut().find(|g| g.skill_id == "RallyingCry") {
+            gem.enabled = false;
+        }
+    }
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        rallying_more(&env) < 1e-9,
+        "Disabled RallyingCry must not contribute ExertedAttackDamage"
+    );
+}
+
 // Issue #19 (slice 14): `CritChance BASE` mods (Battlemage's Cry,
 // Diamond Flask, certain jewels) need to land before the INC
 // scaling, on top of the skill's intrinsic 5% baseline. PoB sums
