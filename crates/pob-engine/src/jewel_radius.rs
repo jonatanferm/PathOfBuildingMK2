@@ -23,14 +23,25 @@
 //!    bonus to the in-radius node and a `RadiusJewel:<base>` source label so the
 //!    Calcs-tab can find it.
 //!
+//! ## What's covered (Issue #196 named uniques)
+//!
+//! - **Watcher's Eye** ([`HandlerKind::WatchersEye`]) — aura-conditional global
+//!   buff; mods carry per-aura `AffectedBy<Aura>` Condition tags emitted by the
+//!   parser, gated by the `detect_active_auras` pass in `perform.rs`.
+//! - **Healthy Mind** ([`HandlerKind::LifeToManaTransform`]) — transforms each
+//!   in-radius allocated node's `Inc Life` mod into an `Inc Mana` mod at 200%.
+//! - **Fertile Mind** ([`HandlerKind::DexToIntTransform`]) — transforms each
+//!   in-radius allocated node's `+N Dex` BASE mod into an `+N Int` BASE plus a
+//!   counter `-N Dex` so the source attribute is moved, not duplicated.
+//!
 //! ## What's deferred
 //!
 //! - Timeless jewels (#30): keystone / notable substitution.
 //! - Cluster jewel sub-graph synthesis (#21): nodes spawned by a Cluster jewel.
-//! - Per-handler closures for named uniques (Watcher's Eye, Healthy Mind, Karui
-//!   Heart, Pure Talent, Intuitive Leap, Conqueror's Efficiency, …). The handler
-//!   dispatch table is wired up here and a default "Self" handler covers vanilla
-//!   passive-multiplying jewels; named uniques attach via [`HandlerKind`].
+//! - Intuitive Leap (#196 follow-up): pathfind-side connectivity skip.
+//! - Pure Talent (#196 follow-up): class-conditional notable buff.
+//! - Conqueror's Efficiency (#196 deferred): not actually radius-scoped — the
+//!   live unique grants flat global mods only.
 
 use ahash::{AHashMap, AHashSet};
 use pob_data::{
@@ -150,10 +161,9 @@ pub fn allocated_nodes_in_radius(
         .collect()
 }
 
-/// Handler kind. Mirrors PoB's `radiusJewelList[i].type` field. We only implement
-/// `SelfAllocated` (PoB's `"Self"`) for vanilla node-modifying jewels in this slice;
-/// the other variants exist as named placeholders so timeless / cluster /
-/// intuitive-leap / Watcher's-Eye follow-ups can plug in cleanly.
+/// Handler kind. Mirrors PoB's `radiusJewelList[i].type` field. The framework's
+/// default is `SelfAllocated` (PoB's `"Self"`); named-unique handlers — Issue
+/// #196 — extend this enum with bespoke per-jewel logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HandlerKind {
     /// Apply the jewel's mods to every allocated passive in radius, copying each
@@ -176,6 +186,26 @@ pub enum HandlerKind {
     /// for Intuitive-Leap-like behaviour. Doesn't itself emit mods; flips a
     /// pathfinder bit. Reserved.
     Pathfinder,
+    /// Issue #196: Watcher's Eye. Despite being labelled a radius jewel by
+    /// base, in PoB it's actually an aura-conditional global buff — every mod
+    /// on the jewel is gated on `AffectedByHatred` / `AffectedByDetermination`
+    /// / etc., set when the player has the corresponding aura active. The
+    /// radius scan is bypassed; mods land in the player's modDB once with
+    /// their parsed condition tag.
+    WatchersEye,
+    /// Issue #196: Healthy Mind. `Increases and Reductions to Life in Radius
+    /// are Transformed to apply to Mana at 200% of their value`. Reads each
+    /// in-radius allocated node's `Inc Life` / `Reduce Life` mods and emits
+    /// equivalent `Inc Mana` / `Reduce Mana` mods at 2× value. The jewel's own
+    /// flat mods (e.g. `+15% increased maximum Mana`) still apply globally
+    /// like vanilla.
+    LifeToManaTransform,
+    /// Issue #196: Fertile Mind. `Dexterity from Passives in Radius is
+    /// Transformed to Intelligence`. Reads each in-radius allocated node's
+    /// `+N Dex` BASE mods and emits an equivalent `+N Int` BASE mod sourced as
+    /// the in-radius node, suppressing the original Dex contribution by
+    /// emitting a counter `-N Dex` BASE.
+    DexToIntTransform,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -221,6 +251,14 @@ pub struct RadiusJewel {
 pub fn identify_radius_jewel(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> {
     if !is_jewel_base(&item.base_name) {
         return None;
+    }
+    // Issue #196: named-unique handlers. Detected by item *name* (the unique
+    // name, not the base) so we don't conflate the unique with vanilla rolls
+    // on the same base. Each named-unique routes through a dedicated
+    // [`HandlerKind`] in [`apply_radius_jewels`]; their parsed mods, radius,
+    // and source label come from per-handler constructors below.
+    if let Some(j) = identify_named_unique(socket_id, item) {
+        return Some(j);
     }
     if is_special_jewel_subtype(item) {
         return None;
@@ -296,6 +334,130 @@ pub fn identify_radius_jewel(socket_id: NodeId, item: &Item) -> Option<RadiusJew
         source_label,
         kind: HandlerKind::SelfAllocated,
     })
+}
+
+/// Issue #196: dispatch on the unique's display name to pick a bespoke
+/// [`HandlerKind`]. PoB tracks these in `data.jewelData.funcList` per unique;
+/// we model them inline as a small lookup. Returns `None` for non-named
+/// jewels — the caller then falls through to the vanilla
+/// `SelfAllocated`-on-radius-marker path.
+fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> {
+    // The PoB-canonical "is this a named unique" check is `item.title ~= ""`
+    // plus a name match. Items synthesised in tests / from PoB import keep the
+    // unique name in `item.name`; the base lives in `base_name`. We compare
+    // against `name` so a rare `Cobalt Jewel` named "Healthy Mind" by accident
+    // doesn't trip the dispatch.
+    let n = item.name.as_str();
+    match n {
+        "Watcher's Eye" => Some(build_watchers_eye(socket_id, item)),
+        "Healthy Mind" => Some(build_life_to_mana(socket_id, item)),
+        "Fertile Mind" => Some(build_dex_to_int(socket_id, item)),
+        _ => None,
+    }
+}
+
+/// Watcher's Eye: build a `RadiusJewel` whose mods are the parsed jewel-text
+/// lines, sized to whatever radius the base claims (irrelevant — the
+/// `WatchersEye` handler ignores radius). Each parsed mod retains the
+/// `AffectedBy<Aura>` Condition tag emitted by `mod_parser`'s
+/// `match_while_var_dyn`. Lines that don't carry a "while affected by" clause
+/// (like the base `+X% maximum Energy Shield/Life/Mana`) parse as plain
+/// global mods and apply unconditionally — matching PoB's behaviour where
+/// those base implicits are unguarded.
+fn build_watchers_eye(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    let mut mods = Vec::with_capacity(item.mod_lines.len());
+    for ml in &item.mod_lines {
+        if let Some(parsed) = parse_mod_line(ml.line.as_str()) {
+            mods.push(parsed.mod_);
+        }
+    }
+    RadiusJewel {
+        socket_id,
+        radius: pob_data::JewelRadiusInfo::new(0.0, 0.0, "Watcher's Eye"),
+        radius_index: 0,
+        mods,
+        source_label: format!("RadiusJewel:{}", item.base_name),
+        kind: HandlerKind::WatchersEye,
+    }
+}
+
+/// Healthy Mind: parse the jewel's *non-transform* mods (e.g.
+/// `(15-20)% increased maximum Mana`) like a vanilla jewel, but drop the
+/// `Increases and Reductions to Life in Radius are Transformed to apply to
+/// Mana at 200% of their value` line — that's a metadata marker the
+/// [`HandlerKind::LifeToManaTransform`] handler reads directly. The radius
+/// defaults to Large (`Radius: Large` per upstream `Data/Uniques/jewel.lua`).
+fn build_life_to_mana(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::LifeToManaTransform,
+        is_life_mana_transform_marker,
+    )
+}
+
+/// Fertile Mind: parse the `+(16-24) to Intelligence` flat mod normally and
+/// drop the transform marker line. Default radius Large.
+fn build_dex_to_int(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::DexToIntTransform,
+        is_dex_int_transform_marker,
+    )
+}
+
+fn build_transformer(
+    socket_id: NodeId,
+    item: &Item,
+    kind: HandlerKind,
+    marker: fn(&str) -> bool,
+) -> RadiusJewel {
+    let mods = parse_non_transform_mods(item, marker);
+    let idx = radius_index_for_label("Large").unwrap_or(2);
+    let radii = radii_for_tree_version(&item_tree_version(item));
+    let radius = radii
+        .get(idx)
+        .copied()
+        .unwrap_or_else(|| pob_data::JewelRadiusInfo::new(0.0, 1500.0, "Large"));
+    RadiusJewel {
+        socket_id,
+        radius,
+        radius_index: idx,
+        mods,
+        source_label: format!("RadiusJewel:{}", item.base_name),
+        kind,
+    }
+}
+
+fn parse_non_transform_mods(item: &Item, is_marker: fn(&str) -> bool) -> Vec<Mod> {
+    let mut mods = Vec::with_capacity(item.mod_lines.len());
+    for ml in &item.mod_lines {
+        let raw = ml.line.as_str();
+        if is_marker(raw) || explicit_ring_label(raw).is_some() {
+            continue;
+        }
+        let stripped = strip_radius_suffix(raw);
+        let target = stripped.as_deref().unwrap_or(raw);
+        if let Some(parsed) = parse_mod_line(target) {
+            mods.push(parsed.mod_);
+        } else if stripped.is_some() {
+            if let Some(parsed) = parse_mod_line(raw) {
+                mods.push(parsed.mod_);
+            }
+        }
+    }
+    mods
+}
+
+fn is_life_mana_transform_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("increases and reductions to life in radius") && l.contains("to apply to mana")
+}
+
+fn is_dex_int_transform_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("dexterity from passives in radius") && l.contains("transformed to intelligence")
 }
 
 fn is_jewel_base(base: &str) -> bool {
@@ -497,17 +659,166 @@ pub fn apply_radius_jewels(
             continue;
         };
         report.applied_jewels += 1;
-        let in_radius = allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
-        for (target_node, _) in in_radius {
-            for m in &jewel.mods {
-                let mut clone = m.clone();
-                clone.source = Some(Source::Passive(target_node));
-                db.add(clone);
-                report.mod_emissions += 1;
+        match jewel.kind {
+            HandlerKind::WatchersEye => {
+                // Aura-conditional global buff: emit each parsed mod once into
+                // the player's modDB. The mod's `AffectedBy<Aura>` Condition
+                // tag (set by the parser) gates application; the conditions
+                // themselves are flipped on by the active-aura detection in
+                // perform.rs. The base implicits (`X% increased maximum Life`
+                // etc.) parse without a condition tag and apply globally.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+            }
+            HandlerKind::LifeToManaTransform => {
+                // First, emit the jewel's plain mods (e.g. `+15% increased
+                // maximum Mana`) globally — these aren't transforms and apply
+                // exactly like vanilla jewel bonuses.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                // Then walk the in-radius allocated nodes' stats, find any
+                // Inc/Reduce Life mod, and emit an equivalent Inc/Reduce Mana
+                // mod at 200% of the source value sourced as the in-radius
+                // node so per-node breakdowns attribute the bonus correctly.
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let n = transform_radius_attribute(
+                    tree,
+                    db,
+                    &in_radius,
+                    "Life",
+                    "Mana",
+                    crate::ModType::Inc,
+                    2.0,
+                    &jewel.source_label,
+                );
+                report.mod_emissions += n;
+            }
+            HandlerKind::DexToIntTransform => {
+                // Emit base mods (`+(16-24) to Intelligence`) globally first.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                // For each in-radius allocated node, find `+N Dex` BASE mods
+                // and emit an equivalent `+N Int` BASE; do not double-count
+                // the Dex (PoB's transform fully replaces it). We model that
+                // by emitting an offsetting `-N Dex` BASE so the original
+                // node-side Dex contribution cancels out.
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let n = transform_radius_attribute(
+                    tree,
+                    db,
+                    &in_radius,
+                    "Dexterity",
+                    "Intelligence",
+                    crate::ModType::Base,
+                    1.0,
+                    &jewel.source_label,
+                );
+                report.mod_emissions += n;
+            }
+            // SelfAllocated (default), All, Threshold, SelfUnalloc, Pathfinder
+            // all currently route through the vanilla per-allocated-node mod
+            // copy. The non-Self variants will get their own dispatch arms
+            // when the timeless / cluster / intuitive-leap follow-ups land.
+            _ => {
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                for (target_node, _) in in_radius {
+                    for m in &jewel.mods {
+                        let mut clone = m.clone();
+                        clone.source = Some(Source::Passive(target_node));
+                        db.add(clone);
+                        report.mod_emissions += 1;
+                    }
+                }
             }
         }
     }
     report
+}
+
+/// Issue #196: walk an in-radius node list, parse each node's stat lines, and
+/// emit a transformed mod for any line that produces a `<from>` mod of the
+/// requested kind. The transformed mod targets `<to>` at `scale ×` the source
+/// value, sourced as the same in-radius node so per-node breakdowns line up
+/// with PoB's. Returns the number of mod copies emitted.
+///
+/// Used for Healthy Mind (`Inc Life` → `Inc Mana` × 2) and Fertile Mind
+/// (`Base Dex` → `Base Int` × 1, plus a counter `-N Dex` so the original Dex
+/// contribution from the in-radius node cancels out).
+fn transform_radius_attribute(
+    tree: &PassiveTree,
+    db: &mut crate::ModDB,
+    in_radius: &[(NodeId, f64)],
+    from: &str,
+    to: &str,
+    kind: crate::ModType,
+    scale: f64,
+    source_label: &str,
+) -> usize {
+    let mut emitted = 0usize;
+    for (node_id, _) in in_radius {
+        let Some(node) = tree.nodes.get(node_id) else {
+            continue;
+        };
+        for raw in &node.stats {
+            for line in raw.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                let Some(parsed) = parse_mod_line(line) else {
+                    continue;
+                };
+                let m = &parsed.mod_;
+                if m.kind != kind || m.name != from {
+                    continue;
+                }
+                let Some(value) = m.value.as_f64() else {
+                    continue;
+                };
+                // Emit the transformed mod (e.g. Inc Mana += value × scale)
+                // sourced as the in-radius passive so the per-node breakdown
+                // attributes the gain to that node.
+                let mut to_mod = m.clone();
+                to_mod.name = to.to_string();
+                to_mod.value = crate::ModValue::Number(value * scale);
+                to_mod.source = Some(Source::Passive(*node_id));
+                // Drop tags — the transformer ignores conditional clauses on
+                // the source mod (PoB's Healthy Mind transforms unconditional
+                // Inc Life only, mirroring the simplification).
+                to_mod.tags.clear();
+                db.add(to_mod);
+                emitted += 1;
+                // For BASE attribute transforms (Fertile Mind), also emit a
+                // counter mod so the original Dex contribution cancels out.
+                // This matches PoB's "Transformed to" semantics where the
+                // attribute is *moved*, not duplicated.
+                if kind == crate::ModType::Base {
+                    let mut counter = m.clone();
+                    counter.value = crate::ModValue::Number(-value);
+                    counter.source = Some(Source::Other(source_label.to_string()));
+                    counter.tags.clear();
+                    db.add(counter);
+                    emitted += 1;
+                }
+            }
+        }
+    }
+    emitted
 }
 
 /// Diagnostic summary returned by [`apply_radius_jewels`].
@@ -670,10 +981,14 @@ mod tests {
     }
 
     fn mk_item(base: &str, mod_lines: &[(&str, ModSection)]) -> Item {
+        mk_item_named(base, base, mod_lines)
+    }
+
+    fn mk_item_named(name: &str, base: &str, mod_lines: &[(&str, ModSection)]) -> Item {
         Item {
-            name: base.into(),
+            name: name.into(),
             base_name: base.into(),
-            rarity: Rarity::Magic,
+            rarity: Rarity::Unique,
             item_level: 84,
             quality: 0,
             tags: ahash::HashSet::default(),
@@ -885,5 +1200,190 @@ mod tests {
     #[test]
     fn item_set_alias_compiles() {
         let _: ItemSet = ItemSet::new();
+    }
+
+    // ---- Issue #196: named-unique handlers ---------------------------------
+
+    /// Watcher's Eye is identified by `item.name`, not by the radius marker —
+    /// the unique's mod text is "while affected by <Aura>", not "in Radius".
+    #[test]
+    fn identify_watchers_eye_routes_to_aura_handler() {
+        let item = mk_item_named(
+            "Watcher's Eye",
+            "Prismatic Jewel",
+            &[(
+                "40% increased Cold Damage while affected by Hatred",
+                ModSection::Explicit,
+            )],
+        );
+        let jewel = identify_radius_jewel(1, &item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::WatchersEye);
+        assert_eq!(jewel.mods.len(), 1);
+        // The parser stamps `AffectedByHatred` as a Condition tag on the mod.
+        assert!(
+            jewel.mods[0]
+                .tags
+                .iter()
+                .any(|t| matches!(&t.kind, crate::TagKind::Condition { var, .. } if var == "AffectedByHatred")),
+            "expected AffectedByHatred Condition tag on Watcher's Eye mod, got {:?}",
+            jewel.mods[0].tags,
+        );
+    }
+
+    #[test]
+    fn watchers_eye_mods_apply_globally_with_condition() {
+        let tree = mk_tree();
+        let alloc: AHashSet<NodeId> = AHashSet::default(); // no allocations needed
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Watcher's Eye",
+                "Prismatic Jewel",
+                &[(
+                    "40% increased Cold Damage while affected by Hatred",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        assert_eq!(report.applied_jewels, 1);
+        // One global emission — the radius scan is bypassed entirely.
+        assert_eq!(report.mod_emissions, 1);
+        // The mod is in the modDB with its condition tag intact.
+        let cold = db.slice_named("ColdDamage");
+        assert!(
+            cold.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && m.tags.iter().any(|t| matches!(&t.kind, crate::TagKind::Condition { var, .. } if var == "AffectedByHatred"))),
+            "expected gated Inc ColdDamage mod, got {cold:#?}",
+        );
+    }
+
+    /// Healthy Mind: in-radius Inc Life mods should produce Inc Mana mods at 2×
+    /// scale, sourced as the in-radius node.
+    #[test]
+    fn healthy_mind_transforms_inc_life_to_inc_mana_double() {
+        let tree = mk_tree();
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        // Node 2 is in radius (600 units away from socket at 0,0 with Medium ring 1440).
+        // The mock test tree node 2 has stats `["10% increased Life"]`.
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Healthy Mind",
+                "Cobalt Jewel",
+                &[
+                    ("15% increased maximum Mana", ModSection::Explicit),
+                    (
+                        "Increases and Reductions to Life in Radius are Transformed to apply to Mana at 200% of their value",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        assert_eq!(report.applied_jewels, 1);
+        // Exactly one global Mana mod (the +15% line) plus one transformed
+        // Inc Mana mod from node 2's `10% increased Life`.
+        assert!(report.mod_emissions >= 2);
+        let mana = db.slice_named("Mana");
+        // The +15% global Mana mod.
+        assert!(
+            mana.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 15.0).abs() < 1e-6),
+            "expected global +15% Inc Mana, got {mana:#?}",
+        );
+        // The transformed mod: 10% Inc Life × 200% = +20% Inc Mana sourced from node 2.
+        assert!(
+            mana.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                && (m.value.as_f64().unwrap_or(0.0) - 20.0).abs() < 1e-6),
+            "expected transformed +20% Inc Mana sourced from Passive(2), got {mana:#?}",
+        );
+    }
+
+    #[test]
+    fn fertile_mind_transforms_dex_base_to_int() {
+        // Custom tree where node 2 has a `+30 to Dexterity` BASE stat.
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Fertile Mind",
+                "Cobalt Jewel",
+                &[
+                    ("+20 to Intelligence", ModSection::Explicit),
+                    (
+                        "Dexterity from Passives in Radius is Transformed to Intelligence",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        assert_eq!(report.applied_jewels, 1);
+        // Plain mod (+20 Int) is one emission. Transform of +30 Dex emits two
+        // (Int + counter Dex) for at least three emissions total.
+        assert!(report.mod_emissions >= 3);
+        let int_mods = db.slice_named("Intelligence");
+        // +20 global Int
+        assert!(
+            int_mods
+                .iter()
+                .any(|m| (m.value.as_f64().unwrap_or(0.0) - 20.0).abs() < 1e-6),
+            "expected global +20 Int, got {int_mods:#?}",
+        );
+        // Transformed +30 Int sourced from node 2.
+        assert!(
+            int_mods.iter().any(
+                |m| matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - 30.0).abs() < 1e-6
+            ),
+            "expected +30 Int sourced from Passive(2), got {int_mods:#?}",
+        );
+        // Counter -30 Dex offsetting the source contribution.
+        let dex = db.slice_named("Dexterity");
+        assert!(
+            dex.iter()
+                .any(|m| (m.value.as_f64().unwrap_or(0.0) + 30.0).abs() < 1e-6),
+            "expected counter -30 Dex from Fertile Mind, got {dex:#?}",
+        );
+    }
+
+    /// A radius jewel that transforms Inc Life out of radius shouldn't fire
+    /// on a node *outside* the medium ring.
+    #[test]
+    fn healthy_mind_skips_out_of_radius_nodes() {
+        let tree = mk_tree();
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        // Node 3 sits at (2000, 0) — outside Large ring (~1800).
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Healthy Mind",
+                "Cobalt Jewel",
+                &[(
+                    "Increases and Reductions to Life in Radius are Transformed to apply to Mana at 200% of their value",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        // No transformed mods (node 3 is out of Large ring) and no plain
+        // global mods (the only line was the metadata marker).
+        assert_eq!(report.applied_jewels, 1);
+        assert_eq!(report.mod_emissions, 0);
     }
 }
