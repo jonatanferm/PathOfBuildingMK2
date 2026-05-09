@@ -153,9 +153,11 @@ Closed since the previous status snapshot:
   `perform_skill_dps`, enabling Battlemage's Cry / Diamond Flask /
   Watcher's Eye / Power Charge On Critical Strike to lift headline
   crit instead of being silently dropped.
-- AscendancyStart medallion placeholder so each ascendancy
-  sub-tree gets a visible center while the `ascendancy.png` atlas
-  bundling stays a follow-up.
+- AscendancyStart medallions render the real `AscendancyMiddle`
+  sprite from a bundled `ascendancy.png` atlas; class-start
+  portraits are gated on the allocated class so only the active
+  class shows its dedicated portrait, the other six fall back to
+  the inactive background. (Issue #110.)
 - CI: `cargo fmt --check` and `cargo clippy -D warnings` are gated, not
   advisory.
 - Calcs-tab section layout port (#34): `data/calc_sections.json` ships

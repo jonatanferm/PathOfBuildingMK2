@@ -77,6 +77,11 @@ pub struct GroupInstance {
 /// Frames share the same shader-side layout as group backgrounds.
 pub type FrameInstance = GroupInstance;
 
+/// Ascendancy-medallion instances ride the same shader-side layout as
+/// group backgrounds. The dedicated callback exists so we can sample
+/// from the `ascendancy.png` atlas instead of `group-background.png`.
+pub type AscendancyInstance = GroupInstance;
+
 /// State bits — keep in sync with the shader.
 pub mod state_bits {
     pub const ALLOCATED: u32 = 1 << 0;
@@ -120,6 +125,7 @@ pub struct TreeRenderer {
     bind_group: wgpu::BindGroup,
     group_bind_group: wgpu::BindGroup,
     frame_bind_group: wgpu::BindGroup,
+    ascendancy_bind_group: wgpu::BindGroup,
     instance_buffer: wgpu::Buffer,
     instance_capacity: u64,
     edge_buffer: wgpu::Buffer,
@@ -130,6 +136,8 @@ pub struct TreeRenderer {
     group_capacity: u64,
     frame_buffer: wgpu::Buffer,
     frame_capacity: u64,
+    ascendancy_buffer: wgpu::Buffer,
+    ascendancy_capacity: u64,
     /// Cached views + sampler so we can rebuild bind groups in `prepare`
     /// after a buffer reallocation (the bindings must reference the same
     /// objects; we keep them around).
@@ -139,6 +147,7 @@ pub struct TreeRenderer {
     atlas_sampler: wgpu::Sampler,
     group_atlas_view: wgpu::TextureView,
     frame_atlas_view: wgpu::TextureView,
+    ascendancy_atlas_view: wgpu::TextureView,
 }
 
 /// Inputs to `TreeRenderer::install`: the two skill atlases plus the group-
@@ -154,6 +163,10 @@ pub struct AtlasInputs {
     pub frame_size: (u32, u32),
     pub mastery_rgba8: Vec<u8>,
     pub mastery_size: (u32, u32),
+    /// `ascendancy.png` — carries `AscendancyMiddle` plus the
+    /// per-ascendancy frame variants. Issue #110.
+    pub ascendancy_rgba8: Vec<u8>,
+    pub ascendancy_size: (u32, u32),
 }
 
 fn upload_atlas(
@@ -239,11 +252,19 @@ impl TreeRenderer {
             atlases.mastery_size,
             "atlas_mastery",
         );
+        let ascendancy_tex = upload_atlas(
+            device,
+            queue,
+            &atlases.ascendancy_rgba8,
+            atlases.ascendancy_size,
+            "atlas_ascendancy",
+        );
         let active_view = active_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let inactive_view = inactive_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let group_view = group_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let frame_view = frame_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let mastery_view = mastery_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let ascendancy_view = ascendancy_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("tree.atlas_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -414,6 +435,19 @@ impl TreeRenderer {
             mapped_at_creation: false,
         });
 
+        // Issue #110: dedicated buffer for AscendancyStart medallion
+        // instances. Capacity is small — there are 19 ascendancies in
+        // 3.25, each contributing one instance — so we share the
+        // group's initial size constant rather than introducing a
+        // sub-page-sized buffer.
+        let ascendancy_capacity = INITIAL_GROUP_CAPACITY;
+        let ascendancy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree.ascendancy_instance_buffer"),
+            size: ascendancy_capacity * std::mem::size_of::<AscendancyInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("tree.bind_group"),
             layout: &bind_group_layout,
@@ -479,6 +513,29 @@ impl TreeRenderer {
             ],
         });
 
+        // Issue #110: ascendancy bind group reuses the same 3-binding
+        // layout (uniform + texture + sampler) as the group/frame
+        // pipelines. The only difference is which atlas texture is
+        // bound — the ascendancy pipeline samples `ascendancy.png`.
+        let ascendancy_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tree.ascendancy_bind_group"),
+            layout: &group_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&ascendancy_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
         let renderer = Self {
             node_pipeline,
             edge_pipeline,
@@ -491,6 +548,7 @@ impl TreeRenderer {
             bind_group,
             group_bind_group,
             frame_bind_group,
+            ascendancy_bind_group,
             instance_buffer,
             instance_capacity,
             edge_buffer,
@@ -501,12 +559,15 @@ impl TreeRenderer {
             group_capacity,
             frame_buffer,
             frame_capacity,
+            ascendancy_buffer,
+            ascendancy_capacity,
             atlas_active_view: active_view,
             atlas_inactive_view: inactive_view,
             atlas_mastery_view: mastery_view,
             atlas_sampler: sampler,
             group_atlas_view: group_view,
             frame_atlas_view: frame_view,
+            ascendancy_atlas_view: ascendancy_view,
         };
 
         render_state
@@ -586,6 +647,20 @@ impl TreeRenderer {
         self.frame_capacity = new_capacity;
     }
 
+    fn ensure_ascendancy_capacity(&mut self, device: &wgpu::Device, needed: u64) {
+        if needed <= self.ascendancy_capacity {
+            return;
+        }
+        let new_capacity = needed.next_power_of_two().max(self.ascendancy_capacity * 2);
+        self.ascendancy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree.ascendancy_instance_buffer"),
+            size: new_capacity * std::mem::size_of::<AscendancyInstance>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.ascendancy_capacity = new_capacity;
+    }
+
     fn write_uniforms(
         &self,
         queue: &wgpu::Queue,
@@ -638,6 +713,13 @@ impl TreeRenderer {
             return;
         }
         queue.write_buffer(&self.frame_buffer, 0, bytemuck::cast_slice(frames));
+    }
+
+    fn write_ascendancies(&self, queue: &wgpu::Queue, ascs: &[AscendancyInstance]) {
+        if ascs.is_empty() {
+            return;
+        }
+        queue.write_buffer(&self.ascendancy_buffer, 0, bytemuck::cast_slice(ascs));
     }
 }
 
@@ -1116,6 +1198,83 @@ impl egui_wgpu::CallbackTrait for TreeFrameCallback {
         render_pass.set_bind_group(0, &renderer.frame_bind_group, &[]);
         render_pass.set_vertex_buffer(0, renderer.frame_buffer.slice(..));
         render_pass.draw(0..6, 0..self.frames.len() as u32);
+    }
+}
+
+/// Ascendancy-medallion paint callback. Issue #110: each
+/// `AscendancyStart` node gets one instance of `AscendancyMiddle`
+/// sampled from the dedicated `ascendancy.png` atlas. Reuses the
+/// `tree_groups.wgsl` pipeline (same vertex layout: world_pos +
+/// world_size + uv_rect; same fragment shape: textured quad with
+/// alpha) — only the bound texture differs.
+pub struct TreeAscendancyCallback {
+    pub ascendancies: Vec<AscendancyInstance>,
+    pub viewport_center: [f32; 2],
+    pub zoom: f32,
+    pub viewport_size: [f32; 2],
+    pub pixels_per_point: f32,
+}
+
+impl egui_wgpu::CallbackTrait for TreeAscendancyCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        _egui_encoder: &mut wgpu::CommandEncoder,
+        callback_resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let Some(renderer) = callback_resources.get_mut::<TreeRenderer>() else {
+            return Vec::new();
+        };
+        renderer.ensure_ascendancy_capacity(device, self.ascendancies.len() as u64);
+        renderer.write_uniforms(
+            queue,
+            self.viewport_center,
+            self.zoom,
+            self.viewport_size,
+            self.pixels_per_point,
+        );
+        renderer.write_ascendancies(queue, &self.ascendancies);
+        renderer.ascendancy_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tree.ascendancy_bind_group"),
+            layout: &renderer.group_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: renderer.uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&renderer.ascendancy_atlas_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&renderer.atlas_sampler),
+                },
+            ],
+        });
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        callback_resources: &egui_wgpu::CallbackResources,
+    ) {
+        let Some(renderer) = callback_resources.get::<TreeRenderer>() else {
+            return;
+        };
+        if self.ascendancies.is_empty() {
+            return;
+        }
+        // Reuse the group pipeline — same vertex layout, same shader,
+        // just a different bound texture.
+        render_pass.set_pipeline(&renderer.group_pipeline);
+        render_pass.set_bind_group(0, &renderer.ascendancy_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, renderer.ascendancy_buffer.slice(..));
+        render_pass.draw(0..6, 0..self.ascendancies.len() as u32);
     }
 }
 
