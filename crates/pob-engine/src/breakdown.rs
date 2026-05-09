@@ -161,6 +161,13 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // EnergyShield wiring, not from a divisor-based contribution like
         // Life / Mana.
         "EnergyShield" => Some(pool_basic(env, "EnergyShield")),
+        // Armour / Evasion / Ward share the same `BASE × (1+Inc/100) × MORE`
+        // shape — Strength → Inc Armour and Dex → Inc Evasion show up
+        // as INC mods sourced as `Other("Strength")` / `Other("Dexterity")`,
+        // landing under the Increased step's source list.
+        "Armour" => Some(pool_basic(env, "Armour")),
+        "Evasion" => Some(pool_basic(env, "Evasion")),
+        "Ward" => Some(pool_basic(env, "Ward")),
 
         // Resists. Total = min(raw, cap) where raw = BASE(<elem>Resist) +
         // BASE(ElementalResist) + level-penalty, and cap = 75 +
@@ -200,6 +207,9 @@ pub const COVERED_KEYS: &[&str] = &[
     "Life",
     "Mana",
     "EnergyShield",
+    "Armour",
+    "Evasion",
+    "Ward",
     // Resists.
     "FireResistTotal",
     "ColdResistTotal",
@@ -1260,6 +1270,22 @@ mod tests {
             .add(Mod::base("ElementalResist", 60.0).with_source(Source::Tree));
         env.mod_db
             .add(Mod::base("ChaosResist", 5.0).with_source(Source::Item(1)));
+        // Defence-pool outputs. Armour and Evasion both go through
+        // `pool_basic`; INC mods sourced as Strength / Dexterity show
+        // up under the Increased step. Ward is rare on real builds —
+        // populate it lightly so `covered_keys_is_complete` still
+        // walks the dispatch arm.
+        env.output.set("Armour", 4500.0);
+        env.output.set("Evasion", 3200.0);
+        env.output.set("Ward", 0.0);
+        env.mod_db
+            .add(Mod::base("Armour", 1500.0).with_source(Source::Item(2)));
+        env.mod_db
+            .add(Mod::inc("Armour", 80.0).with_source(Source::Other("Strength".into())));
+        env.mod_db
+            .add(Mod::base("Evasion", 1100.0).with_source(Source::Item(4)));
+        env.mod_db
+            .add(Mod::inc("Evasion", 50.0).with_source(Source::Other("Dexterity".into())));
         // Tree-typed INC and MORE damage mods so the breakdown enumerates them.
         env.mod_db
             .add(Mod::inc("Damage", 50.0).with_source(Source::Tree));
@@ -1574,5 +1600,59 @@ mod tests {
             "expected min(raw, 75) in effective explain; got {explain}"
         );
         assert_eq!(bd.total, 75.0);
+    }
+
+    /// Issue #34 follow-up: Armour walks Base → Increased → Final.
+    /// Strength-sourced INC Armour shows up under Increased; the
+    /// item-slot 2 BASE survives in the Base step's source list.
+    #[test]
+    fn armour_breakdown_walks_base_inc_to_total() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "Armour").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base"));
+        assert!(labels.contains(&"Increased"));
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        assert!(
+            base.sources
+                .iter()
+                .any(|s| s.source.contains("item slot 2")),
+            "expected item slot 2 source on Armour Base step; got {:?}",
+            base.sources
+        );
+        let inc = bd.steps.iter().find(|s| s.label == "Increased").unwrap();
+        assert!(
+            inc.sources.iter().any(|s| s.source.contains("Strength")),
+            "expected Strength source on Armour Increased step; got {:?}",
+            inc.sources
+        );
+        assert_eq!(bd.total, 4500.0);
+    }
+
+    /// Issue #34 follow-up: Evasion mirrors Armour but Dexterity →
+    /// Inc Evasion lands as the attribute INC source.
+    #[test]
+    fn evasion_breakdown_dex_sourced_inc() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "Evasion").unwrap();
+        let inc = bd.steps.iter().find(|s| s.label == "Increased").unwrap();
+        assert!(
+            inc.sources.iter().any(|s| s.source.contains("Dexterity")),
+            "expected Dexterity source on Evasion Increased step; got {:?}",
+            inc.sources
+        );
+    }
+
+    /// Issue #34 follow-up: Ward routes through the same `pool_basic`
+    /// helper but most builds have zero Ward. Verify the breakdown
+    /// still returns sensibly with no mods at all — Base step value
+    /// is 0 and the Ward final step is 0.
+    #[test]
+    fn ward_breakdown_returns_zero_baseline() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "Ward").unwrap();
+        assert_eq!(bd.total, 0.0);
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        assert_eq!(base.value, Some(0.0));
     }
 }
