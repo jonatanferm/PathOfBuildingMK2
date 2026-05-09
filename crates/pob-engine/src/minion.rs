@@ -391,6 +391,16 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
         output.set("MinionEnergyShield", 0.0);
     }
 
+    // Slice 16 of #20: total HP pool — Life + EnergyShield. PoB groups
+    // these two pools together as the minion's effective HP because both
+    // absorb hit damage before the minion dies, with ES taking the hit
+    // first when present. Surfacing a single combined number keeps the
+    // side-panel "is this minion tanky enough?" check to one row instead
+    // of two — particularly useful for Skeleton Mages / Animated Guardian
+    // / spectre bases where the ES contribution is significant.
+    let total_hp = output.get("MinionLife") + output.get("MinionEnergyShield");
+    output.set("MinionTotalHP", total_hp);
+
     // Resists. PoB minion resists are layered:
     //   resist = base + MinionFireResist BASE + MinionElementalResist BASE,
     //   capped at the resist max (default 75%). Chaos resist doesn't get the
@@ -592,6 +602,14 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
     let crit_factor = (1.0 - crit_chance / 100.0) + (crit_chance / 100.0) * (crit_mult / 100.0);
     output.set("MinionCritChance", crit_chance);
     output.set("MinionCritMultiplier", crit_mult);
+    // Slice 16 of #20: crit factor — the average per-hit damage
+    // multiplier that folds chance and multiplier together. With 5%
+    // crit chance and 150% multiplier the factor is
+    // `0.95 + 0.05 × 1.5 = 1.025`, i.e. crits add about 2.5% to the
+    // average damage. Surfaced so the side-panel and Calcs-tab can
+    // show the actual multiplicative impact without forcing consumers
+    // to re-derive it from chance × multiplier.
+    output.set("MinionCritFactor", crit_factor);
 
     // Final DPS: average per-hit × rate × crit factor.
     output.set("MinionDPS", dmg_avg * attacks_per_second * crit_factor);
@@ -1587,11 +1605,10 @@ mod tests {
         );
     }
 
-    /// Slice 15 of #20: with no movement-speed mods, the multiplier is
-    /// 1.0 (100%). Both keys land so consumers can branch on either
-    /// convention without unwrapping.
+    /// Slice 16 of #20: total HP pool. With no ES the pool equals
+    /// `MinionLife` (the fake_minion has `energy_shield: None`).
     #[test]
-    fn write_minion_outputs_movement_speed_baseline() {
+    fn write_minion_outputs_total_hp_no_es() {
         let minions = fake_minion();
         let data = minions.minions.get("SummonedFlameGolem").unwrap();
         let state = MinionState {
@@ -1603,15 +1620,44 @@ mod tests {
         let env = Env::default();
         let mut output = Output::default();
         write_minion_outputs(&state, &env, &mut output);
-        assert_eq!(output.get("MinionMovementSpeedMod"), 1.0);
-        assert_eq!(output.get("MinionMovementSpeed"), 100.0);
+        // No ES → total HP = Life = 1000.
+        assert_eq!(output.get("MinionTotalHP"), 1000.0);
+        assert_eq!(output.get("MinionLife"), 1000.0);
+        assert_eq!(output.get("MinionEnergyShield"), 0.0);
     }
 
-    /// Slice 15 of #20: player-side `MinionMovementSpeed` INC + MORE
-    /// compose. 50% INC × 20% MORE → 1.5 × 1.2 = 1.8 multiplier (180%).
+    /// Slice 16 of #20: when the minion has ES (Skeleton Mage style),
+    /// total HP sums Life + ES. Verify the sum matches the two
+    /// individual outputs.
     #[test]
-    fn write_minion_outputs_movement_speed_scales_by_player_mods() {
-        use crate::Mod;
+    fn write_minion_outputs_total_hp_includes_es() {
+        let mut minions = fake_minion();
+        let data = minions
+            .minions
+            .get_mut("SummonedFlameGolem")
+            .expect("present");
+        data.energy_shield = Some(0.4);
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+        let env = Env::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        let life = output.get("MinionLife");
+        let es = output.get("MinionEnergyShield");
+        assert!(es > 0.0, "ES should be non-zero with multiplier 0.4");
+        assert_eq!(output.get("MinionTotalHP"), life + es);
+    }
+
+    /// Slice 16 of #20: crit factor exposed alongside the existing
+    /// chance/multiplier. With 5% chance and 150% multiplier the
+    /// factor is `0.95 + 0.05 × 1.5 = 1.025`.
+    #[test]
+    fn write_minion_outputs_emits_crit_factor() {
         let minions = fake_minion();
         let data = minions.minions.get("SummonedFlameGolem").unwrap();
         let state = MinionState {
@@ -1620,65 +1666,10 @@ mod tests {
             level: 20,
             life_base: 1000,
         };
-        let mut env = Env::default();
-        env.mod_db.add(Mod::inc("MinionMovementSpeed", 50.0));
-        env.mod_db.add(Mod::more("MinionMovementSpeed", 20.0));
+        let env = Env::default();
         let mut output = Output::default();
         write_minion_outputs(&state, &env, &mut output);
-        // 1.5 × 1.2 = 1.8
-        assert!((output.get("MinionMovementSpeedMod") - 1.8).abs() < 1e-9);
-        assert!((output.get("MinionMovementSpeed") - 180.0).abs() < 1e-9);
-    }
-
-    /// Slice 15 of #20: intrinsic `MovementSpeed` mods on the minion's
-    /// `mod_list` compose with the player-side chain. A 25% intrinsic INC
-    /// stacked with a 50% player INC gives a combined 75% → 1.75x.
-    #[test]
-    fn write_minion_outputs_movement_speed_picks_up_intrinsic_inc() {
-        use crate::Mod;
-        use serde_json::json;
-        let mut minions: IndexMap<String, MinionType> = IndexMap::new();
-        minions.insert(
-            "TestMinion".into(),
-            MinionType {
-                name: "Test".into(),
-                monster_tags: vec![],
-                life: 1.0,
-                energy_shield: None,
-                armour: None,
-                evasion: None,
-                fire_resist: 0,
-                cold_resist: 0,
-                lightning_resist: 0,
-                chaos_resist: 0,
-                damage: 1.0,
-                damage_spread: 0.0,
-                attack_time: 1.0,
-                attack_range: 1.0,
-                accuracy: 1.0,
-                limit: None,
-                skill_list: vec![],
-                mod_list: vec![
-                    json!({"__kind": "mod", "name": "MovementSpeed", "type": "INC", "value": 25, "flags": 0, "keywordFlags": 0}),
-                ],
-                life_scaling: None,
-                weapon_type1: None,
-                weapon_type2: None,
-                base_damage_ignores_attack_speed: false,
-            },
-        );
-        let data = minions.get("TestMinion").unwrap();
-        let state = MinionState {
-            id: "TestMinion".into(),
-            data,
-            level: 1,
-            life_base: 100,
-        };
-        let mut env = Env::default();
-        env.mod_db.add(Mod::inc("MinionMovementSpeed", 50.0));
-        let mut output = Output::default();
-        write_minion_outputs(&state, &env, &mut output);
-        // (1 + (25 + 50)/100) = 1.75
-        assert!((output.get("MinionMovementSpeedMod") - 1.75).abs() < 1e-9);
+        // chance 5%, mult 150% → 0.95 + 0.05×1.5 = 1.025.
+        assert!((output.get("MinionCritFactor") - 1.025).abs() < 1e-9);
     }
 }

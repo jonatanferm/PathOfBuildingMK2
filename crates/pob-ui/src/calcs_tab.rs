@@ -1086,6 +1086,9 @@ mod tests {
             "MinionChaosResistBase",
             "MinionCritChance",
             "MinionCritMultiplier",
+            // Slice 16: crit factor + total HP pool.
+            "MinionCritFactor",
+            "MinionTotalHP",
             // Slice 11: life regen rate.
             "MinionLifeRegenPercent",
             "MinionLifeRegen",
