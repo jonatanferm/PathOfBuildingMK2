@@ -137,6 +137,92 @@ pub fn score_node_removal(
     })
 }
 
+/// Score every unallocated, allocatable tree node and return the results
+/// sorted by maximum impact descending. The "impact" sort key is
+/// `max(dps_delta, ehp_delta)` so a node that boosts only EHP ranks
+/// alongside one that boosts only DPS — both surface to the user as
+/// "this is a good thing to take next".
+///
+/// **Filtering**: nodes whose `kind` isn't allocatable
+/// (`Mastery` / `Root` / `ClassStart` / `AscendancyStart`) are skipped
+/// outright. Nodes that score zero on both axes are also dropped — the
+/// list returned represents only candidates with measurable impact, so
+/// callers can render it directly without re-filtering.
+///
+/// **Performance**: N+1 perform calls — one baseline + one per
+/// candidate. On a real ~2000-node tree this is multi-second; the
+/// future tree-overlay heatmap will need caching / incremental compute
+/// to stay smooth at hover-over rates. Acceptable for one-shot
+/// "show me the Power Report" button clicks.
+///
+/// Mirrors PoB's `Modules/CalcsTab.lua:powerReport` driver.
+pub fn rank_node_additions(
+    character: &Character,
+    tree: &PassiveTree,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> Vec<NodeScore> {
+    use pob_data::NodeKind;
+    let (baseline, _) = compute_full_with_clusters_and_timeless(
+        character,
+        tree,
+        skills,
+        bases,
+        cluster_ctx,
+        timeless,
+    );
+    let baseline_dps = baseline.get("MainSkillDPS");
+    let baseline_ehp = baseline.get("TotalEHP");
+
+    let mut scores: Vec<NodeScore> = Vec::new();
+    for (&id, node) in &tree.nodes {
+        if character.allocated.contains(&id) {
+            continue;
+        }
+        // Skip non-allocatable kinds. The runtime engine filters these
+        // anyway via `connected_allocations`, but pre-skipping saves an
+        // entire perform call per non-allocatable node.
+        if matches!(
+            node.kind,
+            NodeKind::Mastery | NodeKind::Root | NodeKind::ClassStart | NodeKind::AscendancyStart
+        ) {
+            continue;
+        }
+        let mut probe = character.clone();
+        probe.allocated.insert(id);
+        let (after, _) = compute_full_with_clusters_and_timeless(
+            &probe,
+            tree,
+            skills,
+            bases,
+            cluster_ctx,
+            timeless,
+        );
+        let dps_delta = after.get("MainSkillDPS") - baseline_dps;
+        let ehp_delta = after.get("TotalEHP") - baseline_ehp;
+        if dps_delta.abs() < 1e-9 && ehp_delta.abs() < 1e-9 {
+            continue;
+        }
+        scores.push(NodeScore {
+            node_id: id,
+            dps_delta,
+            ehp_delta,
+        });
+    }
+    scores.sort_by(|a, b| {
+        let ka = a.dps_delta.max(a.ehp_delta);
+        let kb = b.dps_delta.max(b.ehp_delta);
+        // Descending impact; tie-break on node id so the order is stable
+        // across runs (HashMap iteration is not).
+        kb.partial_cmp(&ka)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.node_id.cmp(&b.node_id))
+    });
+    scores
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,5 +403,101 @@ mod tests {
         let c = fresh_character(); // nothing allocated
         let score = score_node_removal(&c, &tree, 2, None, None, None, None);
         assert!(score.is_none());
+    }
+
+    /// Tree with a Life notable, a Strength notable, and a stat-less
+    /// notable — used to verify ranking sorts impactful nodes ahead of
+    /// inert ones and excludes zero-score candidates.
+    fn ranking_tree() -> PassiveTree {
+        let mut tree = empty_tree();
+        tree.classes.push(Class {
+            name: "Test".into(),
+            base_str: 32,
+            base_dex: 14,
+            base_int: 14,
+            ascendancies: vec![],
+        });
+        let mut add = |id: NodeId, stats: Vec<String>, kind: NodeKind, neighbours: &[NodeId]| {
+            let node = Node {
+                id,
+                name: Some(format!("n{id}")),
+                icon: None,
+                ascendancy_name: None,
+                stats,
+                reminder_text: vec![],
+                kind,
+                class_start_index: None,
+                group: None,
+                orbit: None,
+                orbit_index: None,
+                out_edges: neighbours.iter().copied().collect::<SmallVec<_>>(),
+                in_edges: SmallVec::new(),
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            };
+            tree.nodes.insert(id, node);
+        };
+        // Class start anchored on node 1 with edges to every candidate so
+        // the engine's `connected_allocations` BFS picks them up when
+        // they're allocated.
+        add(1, vec![], NodeKind::Normal, &[2, 3, 4, 5]);
+        add(
+            2,
+            vec!["+50 to maximum Life".into()],
+            NodeKind::Notable,
+            &[1],
+        );
+        add(3, vec!["+10 to Strength".into()], NodeKind::Notable, &[1]);
+        add(4, vec![], NodeKind::Notable, &[1]); // stat-less — should be excluded
+        add(5, vec![], NodeKind::Mastery, &[1]); // wrong kind — should be excluded
+        if let Some(n) = tree.nodes.get_mut(&1) {
+            n.class_start_index = Some(0);
+            n.kind = NodeKind::ClassStart;
+        }
+        tree
+    }
+
+    /// Issue #207 (slice 3): the ranker walks every allocatable
+    /// unallocated node, scores it, drops zero-score candidates, and
+    /// returns the rest sorted by impact desc. The Life notable
+    /// (largest EHP impact) ranks first.
+    #[test]
+    fn rank_node_additions_returns_impactful_nodes_sorted() {
+        let tree = ranking_tree();
+        let c = fresh_character();
+        let ranked = rank_node_additions(&c, &tree, None, None, None, None);
+        // Both notables score non-zero; the stat-less notable and the
+        // mastery node drop out via the kind / zero-score filters.
+        let ids: Vec<NodeId> = ranked.iter().map(|s| s.node_id).collect();
+        assert_eq!(ids, vec![2, 3]);
+        // Spot-check the first entry's EHP delta is positive.
+        assert!(ranked[0].ehp_delta > 0.0);
+    }
+
+    /// Issue #207 (slice 3): ranking on an empty tree returns an empty
+    /// list — guards against a panic when there's nothing to score.
+    #[test]
+    fn rank_node_additions_empty_tree_is_no_op() {
+        let tree = empty_tree();
+        let c = fresh_character();
+        let ranked = rank_node_additions(&c, &tree, None, None, None, None);
+        assert!(ranked.is_empty());
+    }
+
+    /// Issue #207 (slice 3): allocated nodes are skipped in the ranker
+    /// — only unallocated candidates appear. Without this guard, the
+    /// caller would have to filter the result by allocation status, and
+    /// the score values would be wrong (0 for already-allocated since
+    /// inserting them into a clone is a no-op for the basic-stats pass).
+    #[test]
+    fn rank_node_additions_skips_already_allocated() {
+        let tree = ranking_tree();
+        let mut c = fresh_character();
+        c.allocate(2); // pre-allocate the Life notable.
+        let ranked = rank_node_additions(&c, &tree, None, None, None, None);
+        let ids: Vec<NodeId> = ranked.iter().map(|s| s.node_id).collect();
+        // Only node 3 (Strength) remains allocatable + impactful.
+        assert_eq!(ids, vec![3]);
     }
 }
