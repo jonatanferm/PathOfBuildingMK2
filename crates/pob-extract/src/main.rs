@@ -22,6 +22,7 @@ mod calc_sections;
 mod cli;
 mod cluster_jewel_mods;
 mod cluster_jewels;
+mod minions;
 mod tattoos;
 mod tree;
 
@@ -77,6 +78,13 @@ fn main() -> Result<()> {
     std::fs::write(&cjm_path, serde_json::to_string_pretty(&cjm)?)
         .with_context(|| format!("writing {}", cjm_path.display()))?;
     wrote.push(cjm_path);
+
+    // Minions — one JSON for the parallel minion calc env.
+    let minions_path = args.out.join("minions.json");
+    let minions = minions::extract(&args.pob).with_context(|| "extracting minions".to_string())?;
+    std::fs::write(&minions_path, serde_json::to_string_pretty(&minions)?)
+        .with_context(|| format!("writing {}", minions_path.display()))?;
+    wrote.push(minions_path);
 
     // Tattoos — one JSON for the Tree-tab tattoo picker.
     let tattoos_path = args.out.join("tattoos.json");
