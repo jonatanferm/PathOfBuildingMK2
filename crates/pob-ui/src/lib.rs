@@ -1046,6 +1046,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     // noise without information.
                     if app.output.get("MinionEnergyShield") > 0.0 {
                         stat_row_decimal(ui, "ES", &app.output, "MinionEnergyShield");
+                        // Issue #20 (slice 16): combined Life + ES pool —
+                        // only meaningful when ES is non-zero, otherwise it
+                        // duplicates the Life row.
+                        stat_row_decimal(ui, "Total HP", &app.output, "MinionTotalHP");
                     }
                     // Issue #20 (slice 14): armour and evasion are always
                     // non-zero (the monster table values are non-zero at
