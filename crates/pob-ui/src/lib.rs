@@ -68,6 +68,28 @@ struct LoadedApp {
     /// `None` if `data/calc_sections.json` is missing — the Calcs tab
     /// silently falls back to its legacy flat-key view in that case.
     calc_sections: Option<Vec<pob_data::CalcSection>>,
+    /// Issue #21 (slice 1): cluster jewel category catalogue. Used by the
+    /// upcoming sub-graph synthesis pass when a Cluster Jewel is socketed.
+    #[allow(
+        dead_code,
+        reason = "consumed by upcoming cluster-jewel synthesis slice"
+    )]
+    cluster_jewels: Option<pob_data::ClusterJewelData>,
+    /// Issue #21 (slice 2): cluster jewel notable / corrupted mods. Used by
+    /// the same synthesis pass to populate notable nodes' mod lines.
+    #[allow(
+        dead_code,
+        reason = "consumed by upcoming cluster-jewel synthesis slice"
+    )]
+    cluster_jewel_mods: Option<pob_data::ClusterModSet>,
+    /// Issue #98 (slice 1): tattoo catalogue. Used by the upcoming Tree-tab
+    /// right-click picker.
+    #[allow(dead_code, reason = "consumed by upcoming tattoo-picker UI slice")]
+    tattoos: Option<pob_data::TattooSet>,
+    /// Issue #20 (slice 1): per-minion-type base stats. Used by the upcoming
+    /// parallel minion calc env.
+    #[allow(dead_code, reason = "consumed by upcoming MinionState perform pass")]
+    minions: Option<pob_data::MinionData>,
     /// Path of the currently-open build file, if any. Used by Save vs Save As.
     current_build_path: Option<std::path::PathBuf>,
     status_message: Option<(StatusKind, String)>,
@@ -201,6 +223,18 @@ impl PobApp {
         let calc_sections = std::fs::read_to_string(data_root.join("calc_sections.json"))
             .ok()
             .and_then(|json| pob_data::load_calc_sections(&json).ok());
+        let cluster_jewels = std::fs::read_to_string(data_root.join("cluster_jewels.json"))
+            .ok()
+            .and_then(|json| pob_data::load_cluster_jewels(&json).ok());
+        let cluster_jewel_mods = std::fs::read_to_string(data_root.join("cluster_jewel_mods.json"))
+            .ok()
+            .and_then(|json| pob_data::load_cluster_jewel_mods(&json).ok());
+        let tattoos = std::fs::read_to_string(data_root.join("tattoos.json"))
+            .ok()
+            .and_then(|json| pob_data::load_tattoos(&json).ok());
+        let minions = std::fs::read_to_string(data_root.join("minions.json"))
+            .ok()
+            .and_then(|json| pob_data::load_minions(&json).ok());
         let mut tree_view = TreeView::new(&tree, sprites.as_ref());
         let character = Character::new(ClassRef::marauder(), 1);
         // Issue #110: gate the class portrait sprites on the active
@@ -231,6 +265,10 @@ impl PobApp {
             bases,
             sprites,
             calc_sections,
+            cluster_jewels,
+            cluster_jewel_mods,
+            tattoos,
+            minions,
             current_build_path: None,
             status_message: None,
             tree_versions,
@@ -283,6 +321,12 @@ impl PobApp {
             bases,
             sprites,
             calc_sections,
+            // wasm doesn't bundle these yet — when a feature picks one up it can
+            // decide whether to ship the JSON via include_str! or fetch it lazily.
+            cluster_jewels: None,
+            cluster_jewel_mods: None,
+            tattoos: None,
+            minions: None,
             current_build_path: None,
             status_message: None,
             tree_versions: vec!["3_25".to_owned()],
