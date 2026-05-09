@@ -76,6 +76,11 @@ struct LoadedApp {
     /// app recognises, mirroring PoB's inline `Ctrl+C copy` /
     /// `Ctrl+Click toggle` cheatsheets.
     show_hotkey_help: bool,
+    /// Issue #220: pending tree-tab destructive-action confirmation. `Some`
+    /// renders a modal asking the user to confirm. `None` means no
+    /// dialog is open. Mirrors PoB's `TreeTab.lua:129-150` two-button
+    /// modal popup for Reset Tree / Remove all Tattoos.
+    pending_tree_reset: Option<TreeResetKind>,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
     skills_state: skills_tab::SkillsTabState,
@@ -161,6 +166,18 @@ struct LoadedApp {
 enum StatusKind {
     Info,
     Error,
+}
+
+/// Issue #220: which destructive tree-tab action the user has armed but
+/// not yet confirmed. Drives the confirmation modal on the Tree tab.
+/// PoB shows distinct "Reset Tree" / "Remove all Tattoos" prompts —
+/// mirroring with two variants keeps the dialog text accurate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TreeResetKind {
+    /// Drop every allocated passive node.
+    Allocation,
+    /// Drop every tattoo override.
+    Tattoos,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,6 +312,7 @@ impl PobApp {
             search_focus_index: 0,
             focus_search_request: false,
             show_hotkey_help: false,
+            pending_tree_reset: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             skills_state: skills_tab::SkillsTabState::default(),
@@ -358,6 +376,7 @@ impl PobApp {
             search_focus_index: 0,
             focus_search_request: false,
             show_hotkey_help: false,
+            pending_tree_reset: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             skills_state: skills_tab::SkillsTabState::default(),
@@ -913,10 +932,33 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         }
                     }
                 });
-            if ui.button("Reset allocation").clicked() {
-                app.character.allocated.clear();
-                recompute = true;
-            }
+            // Issue #220: arm the destructive-action confirmation modal
+            // instead of wiping allocation immediately. PoB requires a
+            // confirmation click for both Reset Tree and Remove all
+            // Tattoos because misclicks here lose hours of work.
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Reset allocation")
+                    .on_hover_text(
+                        "Drop every allocated passive node. Asks for \
+                         confirmation before applying.",
+                    )
+                    .clicked()
+                {
+                    app.pending_tree_reset = Some(TreeResetKind::Allocation);
+                }
+                if !app.character.tattoo_overrides.is_empty()
+                    && ui
+                        .button("Remove all tattoos")
+                        .on_hover_text(
+                            "Clear every tattoo override on the tree. Asks \
+                             for confirmation before applying.",
+                        )
+                        .clicked()
+                {
+                    app.pending_tree_reset = Some(TreeResetKind::Tattoos);
+                }
+            });
             let asc_alloc = app.character.ascendancy_alloc_count(&app.tree);
             let total_alloc = app.character.allocated.len() as u32;
             ui.label(format!(
@@ -1122,6 +1164,20 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // through the Help menu.
     if app.show_hotkey_help {
         render_hotkey_help_modal(ctx, &mut app.show_hotkey_help);
+    }
+
+    // Issue #220: tree-tab destructive-action confirmation modal.
+    // Renders above the central panel via egui's natural z-ordering;
+    // gated on `pending_tree_reset` so it appears only when the user
+    // armed an action.
+    if app.pending_tree_reset.is_some() {
+        if let Some(applied) = render_tree_reset_modal(ctx, app) {
+            // Apply the user's choice and trigger a recompute so the
+            // side-panel stats refresh to the new state.
+            if applied {
+                recompute = true;
+            }
+        }
     }
 
     egui::CentralPanel::default().show(ctx, |ui| match app.active_tab {
@@ -1722,6 +1778,66 @@ fn render_hotkey_help_modal(ctx: &egui::Context, show: &mut bool) {
                     }
                 });
         });
+}
+
+/// Issue #220: render the destructive-action confirmation modal armed
+/// by `LoadedApp::pending_tree_reset`. Returns:
+/// - `Some(true)` when the user confirmed and the action ran (caller
+///   should trigger a recompute).
+/// - `Some(false)` when the user cancelled (no recompute needed).
+/// - `None` when the modal stayed open this frame.
+///
+/// The modal clears `pending_tree_reset` on either button press so the
+/// caller doesn't need to manage the lifecycle.
+fn render_tree_reset_modal(ctx: &egui::Context, app: &mut LoadedApp) -> Option<bool> {
+    let kind = app.pending_tree_reset?;
+    let (title, body, confirm_label) = match kind {
+        TreeResetKind::Allocation => (
+            "Reset tree?",
+            "This will drop every allocated passive node from the build. Are you sure?",
+            "Reset tree",
+        ),
+        TreeResetKind::Tattoos => (
+            "Remove all tattoos?",
+            "This will clear every tattoo override on the tree. Are you sure?",
+            "Remove tattoos",
+        ),
+    };
+    let mut applied: Option<bool> = None;
+    egui::Window::new(title)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.set_min_width(280.0);
+            ui.label(body);
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    applied = Some(false);
+                }
+                if ui
+                    .add(
+                        egui::Button::new(confirm_label).fill(egui::Color32::from_rgb(140, 50, 50)),
+                    )
+                    .clicked()
+                {
+                    match kind {
+                        TreeResetKind::Allocation => {
+                            app.character.allocated.clear();
+                        }
+                        TreeResetKind::Tattoos => {
+                            app.character.tattoo_overrides.clear();
+                        }
+                    }
+                    applied = Some(true);
+                }
+            });
+        });
+    if applied.is_some() {
+        app.pending_tree_reset = None;
+    }
+    applied
 }
 
 #[derive(Debug, Clone, Copy)]
