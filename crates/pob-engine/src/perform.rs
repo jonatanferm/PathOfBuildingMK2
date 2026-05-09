@@ -1850,6 +1850,12 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     let mut active = 0u32;
     let mut total_exert: f64 = 0.0;
     let mut min_cooldown: Option<f64> = None;
+    // Issue #19 (slice 7): per-warcry presence flags for the active
+    // markers we surface to the Calcs tab. Each detected enabled
+    // warcry gem flips the corresponding bool; the post-loop block
+    // gates each marker on `UsedWarcryRecently` to match the
+    // intimidating-cry pattern from slice 6.
+    let mut detected_cries: Vec<&'static str> = Vec::new();
     let mut intimidating_cry_present = false;
     for group in &character.skill_groups {
         if !group.enabled {
@@ -1866,12 +1872,30 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
                 continue;
             }
             active += 1;
-            // Issue #19 (slice 6): track Intimidating Cry separately
-            // — its core effect is an enemy debuff (Intimidate), not
-            // an exert bonus, so it needs to flip a condition rather
-            // than contribute to the exert aggregates.
+            // Issue #19 (slice 6): Intimidating Cry needs special
+            // tracking for its enemy-debuff effect. Slice 7 widens
+            // the same pattern to every warcry as a Calcs-tab
+            // marker, so users can see at a glance which cries are
+            // contributing to the headline DPS. Lookup table keyed
+            // on `skill_id` keeps the per-cry list flat — adding a
+            // future warcry is a one-line addition.
+            const WARCRY_MARKERS: &[(&str, &str)] = &[
+                ("IntimidatingCry", "IntimidatingCryActive"),
+                ("AncestralCry", "AncestralCryActive"),
+                ("EnduringCry", "EnduringCryActive"),
+                ("InfernalCry", "InfernalCryActive"),
+                ("RallyingCry", "RallyingCryActive"),
+                ("SeismicCry", "SeismicCryActive"),
+                ("GeneralsCry", "GeneralsCryActive"),
+                ("BattlemagesCry", "BattlemagesCryActive"),
+            ];
             if gem.skill_id == "IntimidatingCry" {
                 intimidating_cry_present = true;
+            }
+            if let Some(&(_, marker)) = WARCRY_MARKERS.iter().find(|(id, _)| *id == gem.skill_id) {
+                if !detected_cries.contains(&marker) {
+                    detected_cries.push(marker);
+                }
             }
             // Each warcry gem stores its exert count in
             // `constantStats[skill_empowers_next_x_melee_attacks]` —
@@ -1909,6 +1933,21 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     if let Some(cd) = min_cooldown {
         env.output.set("WarcryMinCooldown", cd);
     }
+    // Issue #19 (slice 7): emit a `<Cry>Active = 1` output key per
+    // detected warcry when the user has flagged
+    // `UsedWarcryRecently`. The Calcs tab's slice-6 Warcry section
+    // already buckets any `Cry` substring, so these markers land in
+    // a coherent place for users to scan their warcry uptime
+    // without flipping back to the Skills tab. Buff-mod injection
+    // for each cry's specific effect (Enduring's life regen,
+    // Ancestral's strike-skill damage range, etc.) needs per-skill
+    // mod-extraction logic; the markers just answer "what's
+    // currently contributing" pending that work.
+    if env.state.condition("UsedWarcryRecently") {
+        for key in &detected_cries {
+            env.output.set(*key, 1.0);
+        }
+    }
     // Issue #19 (slice 6): Intimidating Cry's core effect — enemies
     // hit by the warcry are Intimidated, taking 10% more attack
     // damage. PoB models this as the `EnemyIntimidated` condition
@@ -1925,7 +1964,6 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
         && !env.state.condition("EnemyIntimidated")
     {
         env.state.set_condition("EnemyIntimidated", true);
-        env.output.set("IntimidatingCryActive", 1.0);
     }
 }
 

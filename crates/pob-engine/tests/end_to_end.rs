@@ -3682,6 +3682,115 @@ fn intimidating_cry_loadout_flips_enemy_intimidated_with_warcry_use() {
     );
 }
 
+// Issue #19 (slice 7): each detected warcry emits a
+// `<Cry>Active = 1` output marker when `UsedWarcryRecently` is on.
+// Lets the Calcs tab show which warcries are contributing to the
+// headline DPS without flipping back to the Skills tab. Markers
+// are gated on UsedWarcryRecently so a build with the gem
+// socketed but no active rotation doesn't claim the buffs.
+#[test]
+fn each_warcry_emits_active_marker_with_recent_use() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    use pob_engine::character::SocketGroup;
+
+    // Pick the warcry skill IDs that exist in the registry. Some
+    // gem fixtures may not carry every alt-quality variant, so we
+    // skip any that aren't present rather than failing.
+    let candidates: Vec<&str> = [
+        "AncestralCry",
+        "EnduringCry",
+        "InfernalCry",
+        "RallyingCry",
+        "SeismicCry",
+        "GeneralsCry",
+        "BattlemagesCry",
+        "IntimidatingCry",
+    ]
+    .iter()
+    .copied()
+    .filter(|id| skills.get(id).is_some())
+    .collect();
+    if candidates.len() < 2 {
+        eprintln!(
+            "skip: need at least 2 warcry skills in the registry (have {})",
+            candidates.len()
+        );
+        return;
+    }
+    let Some(_) = skills.get("Cleave") else {
+        eprintln!("skip: Cleave not in registry");
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry_gems: Vec<MainSkill> = Vec::new();
+    for id in &candidates {
+        let mut m = MainSkill::new(*id);
+        m.level = 20;
+        warcry_gems.push(m);
+    }
+    c.skill_groups.push(SocketGroup {
+        label: "Warcries".into(),
+        gems: warcry_gems,
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+
+    // Without UsedWarcryRecently → no markers.
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    for id in &candidates {
+        let key = format!("{id}Active");
+        assert!(
+            env.output.get(&key) < 0.5,
+            "{key} should NOT be emitted without UsedWarcryRecently — got {}",
+            env.output.get(&key)
+        );
+    }
+
+    // With UsedWarcryRecently → every detected warcry gets its marker.
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    for id in &candidates {
+        let key = format!("{id}Active");
+        assert!(
+            (env.output.get(&key) - 1.0).abs() < 1e-6,
+            "{key} should be 1 with UsedWarcryRecently and {id} in the loadout — got {}",
+            env.output.get(&key)
+        );
+    }
+
+    // Disabling the gem (per-gem toggle) should drop its marker
+    // even though the group is still enabled. Pick the first
+    // candidate to flip off.
+    if let Some(group) = c.skill_groups.first_mut() {
+        if let Some(gem) = group.gems.iter_mut().find(|g| g.skill_id == candidates[0]) {
+            gem.enabled = false;
+        }
+    }
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    let dropped_key = format!("{}Active", candidates[0]);
+    assert!(
+        env.output.get(&dropped_key) < 0.5,
+        "{dropped_key} should drop when its gem is disabled — got {}",
+        env.output.get(&dropped_key)
+    );
+    // Other warcries still active.
+    if candidates.len() > 1 {
+        let still_key = format!("{}Active", candidates[1]);
+        assert!(
+            (env.output.get(&still_key) - 1.0).abs() < 1e-6,
+            "{still_key} should still be 1 after disabling a different cry — got {}",
+            env.output.get(&still_key)
+        );
+    }
+}
+
 // Issue #19 (slice 4): `ExertedAttackUptime` auto-derives from the
 // slice-3 warcry aggregates when the user hasn't pinned it
 // manually. Auto-uptime = `total_exert / (cps × cooldown)`, capped
