@@ -7549,3 +7549,209 @@ fn corrupted_cluster_jewel_small_inc_effect_scales_modlist_values() {
         "scaled chaos damage from corrupted +50% effect should be 18.0, got {scaled_value}"
     );
 }
+
+// Issue #197 (final acceptance criterion — pob_diff against a corrupted
+// cluster jewel build): pick up the canonical reference build at
+// `crates/pob-extract/test-builds/marauder_l90_corrupted_cluster.xml`
+// — a Marauder with one Large Cluster Jewel rolling Fettle as the
+// notable, plus the two corruption implicits the issue body calls out
+// (`+1 Jewel Socket`, `Added Small Passive Skills have 50% increased
+// Effect`) — and exercise the full XML→synth→compute pipeline as a
+// `pob_diff` would. This is the standalone Rust mirror of the
+// `cargo run -p pob-extract --bin pob_diff -- --build …` flow: the
+// pob_diff binary still requires the upstream PoB Lua codebase, but
+// every intermediate value the diff would compare on (notable mod
+// presence, scaled small-passive value, +1-socket spawn) is asserted
+// here against pob-engine's own output. If a future regression diverges
+// the engine from PoB on a corrupted cluster jewel build, this fires
+// without needing the Lua harness at all.
+#[test]
+fn pob_diff_corrupted_cluster_jewel_baseline() {
+    let Some(tree) = load_3_25_tree() else {
+        eprintln!("skip: 3_25 tree fixture missing");
+        return;
+    };
+    let cluster_jewels_path = data_root().join("cluster_jewels.json");
+    let cluster_mods_path = data_root().join("cluster_jewel_mods.json");
+    let Ok(cj_json) = std::fs::read_to_string(&cluster_jewels_path) else {
+        eprintln!("skip: cluster_jewels.json missing");
+        return;
+    };
+    let Ok(cm_json) = std::fs::read_to_string(&cluster_mods_path) else {
+        eprintln!("skip: cluster_jewel_mods.json missing");
+        return;
+    };
+    let cluster_jewels = pob_data::load_cluster_jewels(&cj_json).expect("decode cluster_jewels");
+    let cluster_mods =
+        pob_data::load_cluster_jewel_mods(&cm_json).expect("decode cluster_jewel_mods");
+
+    // The fixture targets node 32763 (a real Large jewel socket on the
+    // 3.25 tree — same id used by `pob_xml_round_trip_preserves_jewel_sockets`).
+    // If the live tree drifts past that socket it'll surface here as a
+    // missing-socket assertion rather than a silent pass.
+    let large_socket_id: pob_data::NodeId = 32763;
+    let socket_node = tree
+        .nodes
+        .get(&large_socket_id)
+        .expect("3.25 tree should still have the fixture's Large jewel socket");
+    assert_eq!(
+        socket_node.expansion_jewel_size,
+        Some(2),
+        "fixture target node {large_socket_id} must remain a Large jewel socket"
+    );
+
+    // Likewise — Fettle is one of the few orphan-notable templates with
+    // simple, predictable Life mods (`+20 to maximum Life`,
+    // `10% increased maximum Life`). If a tree refresh drops or renames
+    // it, fall back to a soft skip so unrelated PRs aren't gated on the
+    // template surviving verbatim.
+    let fettle_template_present = tree
+        .nodes
+        .values()
+        .any(|n| n.group.is_none() && n.name.as_deref() == Some("Fettle"));
+    if !fettle_template_present {
+        eprintln!("skip: 3.25 tree no longer carries a Fettle orphan-notable template");
+        return;
+    }
+
+    let xml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("crates/pob-extract/test-builds/marauder_l90_corrupted_cluster.xml");
+    let xml = std::fs::read_to_string(&xml_path)
+        .unwrap_or_else(|_| panic!("read fixture {}", xml_path.display()));
+
+    // Step 1 — XML→Character. The cluster jewel must land in `c.jewels`
+    // (cluster route) and NOT `c.socketed_jewels` (radius route), and the
+    // parent socket must be allocated from the `<Spec nodes>` list.
+    let mut c = pob_engine::import_pob_xml(&xml).expect("import corrupted-cluster fixture");
+    assert!(
+        c.jewels.contains_key(&large_socket_id),
+        "cluster jewel must import into c.jewels at the parent socket"
+    );
+    assert!(
+        c.socketed_jewels.get(large_socket_id).is_none(),
+        "cluster jewel must NOT also leak into c.socketed_jewels"
+    );
+    assert!(
+        c.allocated.contains(&large_socket_id),
+        "fixture allocates the host Large jewel socket so synth alloc gate opens"
+    );
+
+    let cluster = c
+        .jewels
+        .get(&large_socket_id)
+        .expect("cluster jewel present");
+    assert!(
+        cluster.corrupted,
+        "fixture jewel must round-trip the Corrupted flag through the item parser"
+    );
+
+    // Step 2 — synth. The corruption mods must produce: Fettle notable
+    // present, exactly one synthesised socket (from the corrupt `+1 socket`),
+    // and every small node carries `18% increased Chaos Damage` (the 12% base
+    // scaled by +50% effect → the canonical Slice C assertion).
+    let parsed = pob_engine::cluster_synth::parse_cluster_jewel(cluster, &cluster_jewels)
+        .expect("parse cluster metadata");
+    assert_eq!(parsed.notables, vec!["Fettle".to_owned()]);
+    assert_eq!(
+        parsed.socket_count, 1,
+        "corrupt `+1 Added Passive Skill is a Jewel Socket` → socket_count == 1"
+    );
+    assert_eq!(
+        parsed.small_passive_inc_effect, 50,
+        "corrupt `Added Small Passive Skills have 50% increased Effect` → 50"
+    );
+
+    let specs =
+        pob_engine::cluster_synth::synthesise_all(&tree, &c.jewels, &cluster_jewels, &cluster_mods);
+    assert_eq!(specs.len(), 1, "exactly one synthesised cluster sub-graph");
+    let spec = &specs[0];
+    assert_eq!(
+        spec.notable_ids.len(),
+        1,
+        "Fettle notable must materialise as a synth notable"
+    );
+    assert_eq!(
+        spec.socket_ids.len(),
+        1,
+        "corrupt +1 socket must produce exactly one synth jewel socket"
+    );
+    let fettle_id = spec.notable_ids[0];
+    let fettle_node = &spec.nodes[&fettle_id];
+    assert_eq!(fettle_node.name.as_deref(), Some("Fettle"));
+    assert!(
+        fettle_node
+            .stats
+            .iter()
+            .any(|s| s.contains("+20 to maximum Life")),
+        "synth Fettle must inherit the orphan template's `+20 to maximum Life` stat; got {:?}",
+        fettle_node.stats,
+    );
+    // Smalls carry the corruption-scaled chaos damage line.
+    let small_id = spec.small_ids[0];
+    let small = &spec.nodes[&small_id];
+    assert!(
+        small
+            .stats
+            .iter()
+            .any(|s| s == "18% increased Chaos Damage"),
+        "small passive must carry corruption-scaled `18% increased Chaos Damage`; got {:?}",
+        small.stats,
+    );
+
+    // Step 3 — pob_diff: drive `compute_full_with_clusters` with and without
+    // the synth notable allocated and confirm Fettle's Life mods land in the
+    // modDB only when the notable is allocated. This mirrors the user-visible
+    // diff that `pob_diff` would surface against PoB itself.
+    let ctx = pob_engine::ClusterContext::new(&cluster_jewels, &cluster_mods);
+
+    // Without the synth notable allocated: parent socket alloc alone does NOT
+    // contribute the notable's mods (it's just an empty Large socket with
+    // `expansion_jewel_size` metadata).
+    let no_alloc_out = pob_engine::compute_full_with_clusters(&c, &tree, None, None, Some(ctx)).0;
+
+    // Allocate the synth notable.
+    c.allocate(fettle_id);
+    let (with_alloc_out, with_alloc_env) =
+        pob_engine::compute_full_with_clusters(&c, &tree, None, None, Some(ctx));
+
+    // Fettle: +20 to maximum Life flat + 10% increased maximum Life. Both
+    // should land in the modDB tagged with `Source::Passive(fettle_id)`.
+    let mut flat_life: f64 = 0.0;
+    let mut inc_life: f64 = 0.0;
+    for m in with_alloc_env.mod_db.iter_all() {
+        if !matches!(m.source, Some(pob_engine::Source::Passive(id)) if id == fettle_id) {
+            continue;
+        }
+        let Some(v) = m.value.as_f64() else { continue };
+        let name = &m.name;
+        if name.contains("Life") {
+            match m.kind {
+                pob_engine::ModType::Base => flat_life += v,
+                pob_engine::ModType::Inc => inc_life += v,
+                _ => {}
+            }
+        }
+    }
+    assert!(
+        (flat_life - 20.0).abs() < 1e-6,
+        "Fettle should contribute exactly +20 flat Life; got {flat_life}"
+    );
+    assert!(
+        (inc_life - 10.0).abs() < 1e-6,
+        "Fettle should contribute exactly +10% inc Life; got {inc_life}"
+    );
+
+    // The `Life` output scalar should also strictly grow when the notable
+    // is allocated — proves the synth-notable path actually reaches the
+    // life-recompute pipeline (not just the modDB pre-aggregation).
+    let life_baseline = no_alloc_out.get("Life");
+    let life_with = with_alloc_out.get("Life");
+    assert!(
+        life_with > life_baseline,
+        "Life must grow when the synth Fettle notable is allocated; baseline={life_baseline}, with={life_with}"
+    );
+}

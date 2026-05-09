@@ -123,3 +123,11 @@ jobs:
         run: |
           cargo run --release -p pob-extract --bin pob_diff -- \
             --build crates/pob-extract/test-builds/marauder_l90_bleeding_cleave.xml
+
+      # Issue #197: corrupted cluster jewel build — exercises the full
+      # XML→synth pipeline against PoB's authoritative output, covering
+      # both `+1 socket` and `+50% increased Effect` corruption rolls.
+      - name: pob_diff (marauder L90 corrupted cluster jewel)
+        run: |
+          cargo run --release -p pob-extract --bin pob_diff -- \
+            --build crates/pob-extract/test-builds/marauder_l90_corrupted_cluster.xml

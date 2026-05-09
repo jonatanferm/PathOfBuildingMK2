@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+  <Build level="90" targetVersion="3_0" pantheonMajorGod="None" pantheonMinorGod="None" className="Marauder" ascendClassName="None" mainSocketGroup="1" viewMode="TREE">
+  </Build>
+  <Items>
+    <Item id="1" variant="">Rarity: MAGIC
+Strident Large Cluster Jewel
+Large Cluster Jewel
+--------
+Item Level: 84
+--------
+Adds 8 Passive Skills
+1 Added Passive Skill is Fettle
+Added Small Passive Skills grant: 12% increased Chaos Damage
+--------
+1 Added Passive Skill is a Jewel Socket (corrupted)
+Added Small Passive Skills have 50% increased Effect (corrupted)
+--------
+Corrupted</Item>
+    <ItemSet id="1" useSecondWeaponSet="false">
+      <Slot name="Jewel 32763" itemId="1"/>
+    </ItemSet>
+  </Items>
+  <Skills sortGemsByDPSField="CombinedDPS" sortGemsByDPS="true" defaultGemQuality="0" defaultGemLevel="normalMaximum" showSupportGemTypes="ALL" showAltQualityGems="false"/>
+  <Tree activeSpec="1">
+    <Spec title="Default" classId="1" ascendClassId="0" treeVersion="3_25" masteryEffects="" nodes="32763">
+      <Sockets/>
+    </Spec>
+  </Tree>
+  <Notes/>
+  <TreeView searchStr="" zoomY="0" showHeatMap="false" zoomLevel="2" showStatDifferences="true" zoomX="0"/>
+  <Calcs>
+    <Input name="enemyIsBoss" string="None"/>
+  </Calcs>
+  <Config/>
+</PathOfBuilding>
