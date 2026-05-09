@@ -860,6 +860,7 @@ mod tests {
             exclude_skill_types: IndexMap::new(),
             base_effectiveness: 1.0,
             incremental_effectiveness: 0.0,
+            minion_list: Vec::new(),
         }
     }
 

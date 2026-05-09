@@ -1133,6 +1133,18 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     stat_row_decimal(ui, "Avg hit", &app.output, "MinionAverageDamage");
                     stat_row_decimal(ui, "Speed (cps)", &app.output, "MinionAttacksPerSecond");
                     stat_row_decimal(ui, "Crit chance %", &app.output, "MinionCritChance");
+                    // Issue #20 (slice 16 follow-up): crit factor folds
+                    // chance × multiplier into the average per-hit damage
+                    // multiplier the DPS calc actually uses. PoB exposes
+                    // it as a headline number; surfacing it here lets
+                    // users see "5% × 150% → 1.025" without re-deriving.
+                    stat_row_decimal(ui, "Crit factor", &app.output, "MinionCritFactor");
+                    // Issue #20 (slice 8 follow-up): accuracy was already
+                    // computed but only the derived hit-chance landed on
+                    // the side panel. Surfacing the raw accuracy value
+                    // alongside hit-chance lets the user see how much
+                    // headroom they have vs the enemy's evasion.
+                    stat_row_decimal(ui, "Accuracy", &app.output, "MinionAccuracy");
                     stat_row_decimal(ui, "Hit chance %", &app.output, "MinionHitChance");
                     stat_row_decimal(ui, "DPS", &app.output, "MinionDPS");
                     if app.output.get("MinionLifeRegen") > 0.0 {
