@@ -157,6 +157,10 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // Pools.
         "Life" => Some(pool_with_attribute(env, "Life", "Strength", 2.0)),
         "Mana" => Some(pool_with_attribute(env, "Mana", "Intelligence", 2.0)),
+        // Energy Shield draws from item-base intrinsics + the Int → Inc
+        // EnergyShield wiring, not from a divisor-based contribution like
+        // Life / Mana.
+        "EnergyShield" => Some(pool_basic(env, "EnergyShield")),
 
         _ => None,
     }
@@ -187,6 +191,7 @@ pub const COVERED_KEYS: &[&str] = &[
     // Pools.
     "Life",
     "Mana",
+    "EnergyShield",
 ];
 
 // --- Damage ---------------------------------------------------------
@@ -808,6 +813,92 @@ fn crit_effect(env: &Env) -> Breakdown {
 
 // --- Helpers --------------------------------------------------------
 
+/// Issue #34 follow-up: re-derive a pool stat that has no primary
+/// attribute driver — Energy Shield (drawn from item-base intrinsics +
+/// the Int → Inc EnergyShield wiring already captured as INC mods),
+/// Ward, etc. Walks Base → Increased → More → Final, with each step's
+/// contributor mods enumerated under its source list. Pure helper —
+/// shape mirrors `pool_with_attribute` but skips the attribute step.
+fn pool_basic(env: &Env, key: &str) -> Breakdown {
+    let cfg = QueryCfg::default();
+    let pool_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, key);
+    let inc_total = env.mod_db.sum(ModType::Inc, &cfg, &env.state, key);
+    let more_total = env.mod_db.more(&cfg, &env.state, key);
+    let total = env.output.get(key);
+
+    let mut steps = Vec::new();
+    let base_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named(key)
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label("Base")
+            .with_value(pool_base)
+            .with_explain(format!("+{pool_base:.0} from BASE mods"))
+            .with_sources(base_mods),
+    );
+
+    let mut inc_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named(key)
+        .filter(|m| m.kind == ModType::Inc)
+        .map(ModSource::from_mod)
+        .collect();
+    if !inc_mods.is_empty() || inc_total != 0.0 {
+        inc_mods.sort_by(|a, b| {
+            b.value
+                .unwrap_or(0.0)
+                .abs()
+                .partial_cmp(&a.value.unwrap_or(0.0).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        steps.push(
+            BreakdownStep::label("Increased")
+                .with_value(1.0 + inc_total / 100.0)
+                .with_explain(format!("{inc_total:+.0}% sum"))
+                .with_sources(inc_mods),
+        );
+    }
+
+    let mut more_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named(key)
+        .filter(|m| m.kind == ModType::More)
+        .map(ModSource::from_mod)
+        .collect();
+    if !more_mods.is_empty() || (more_total - 1.0).abs() > 1e-9 {
+        more_mods.sort_by(|a, b| {
+            b.value
+                .unwrap_or(0.0)
+                .abs()
+                .partial_cmp(&a.value.unwrap_or(0.0).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        steps.push(
+            BreakdownStep::label("More")
+                .with_value(more_total)
+                .with_explain("multiplicative".to_owned())
+                .with_sources(more_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label(key)
+            .with_value(total)
+            .with_explain(format!(
+                "{pool_base:.0} × (1 + {inc_total:.0}%) × {more_total:.3} = {total:.0}"
+            )),
+    );
+
+    Breakdown {
+        output_key: key.to_owned(),
+        total,
+        steps,
+    }
+}
+
 fn source_label(s: Option<&Source>) -> String {
     match s {
         Some(Source::Tree) => "tree".into(),
@@ -1167,5 +1258,47 @@ mod tests {
             explain.contains("Intelligence"),
             "Mana Base step should call out Intelligence; got {explain}"
         );
+    }
+
+    /// Issue #34 follow-up: EnergyShield walks Base → Increased →
+    /// Final. Item-base ES (e.g. body armour roll) lands as the Base
+    /// contributor; tree INC mods show up under Increased.
+    #[test]
+    fn energy_shield_breakdown_walks_base_inc_to_total() {
+        let mut env = env_with_output();
+        env.mod_db
+            .add(Mod::base("EnergyShield", 200.0).with_source(Source::Item(2)));
+        env.mod_db
+            .add(Mod::inc("EnergyShield", 80.0).with_source(Source::Tree));
+        env.output.set("EnergyShield", 360.0);
+        let bd = derive_for(&env, "EnergyShield").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.iter().any(|l| l.starts_with("Base")));
+        assert!(labels.iter().any(|l| l.starts_with("Increased")));
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        assert_eq!(base.value, Some(200.0));
+        assert!(
+            base.sources
+                .iter()
+                .any(|s| s.source.contains("item slot 2")),
+            "expected item slot 2 in Base sources; got {:?}",
+            base.sources
+        );
+        let inc = bd.steps.iter().find(|s| s.label == "Increased").unwrap();
+        assert!(inc.sources.iter().any(|s| s.source == "tree"));
+        assert_eq!(bd.total, 360.0);
+    }
+
+    /// Issue #34 follow-up: empty-pool case — no mods at all on
+    /// EnergyShield. The breakdown still emits a Base step (with value
+    /// 0) and the final EnergyShield step. The Increased / More steps
+    /// are skipped since there's nothing to enumerate.
+    #[test]
+    fn energy_shield_breakdown_no_mods_still_returns_breakdown() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "EnergyShield").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert_eq!(labels[0], "Base");
+        assert_eq!(*labels.last().unwrap(), "EnergyShield");
     }
 }
