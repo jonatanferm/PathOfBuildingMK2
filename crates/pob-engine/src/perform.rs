@@ -602,6 +602,7 @@ pub fn init_env_with_bases_and_timeless(
         tree,
         &effective,
         &character.socketed_jewels,
+        &character.class.0,
         &mut env.mod_db,
     );
 

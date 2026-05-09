@@ -206,6 +206,15 @@ pub enum HandlerKind {
     /// the in-radius node, suppressing the original Dex contribution by
     /// emitting a counter `-N Dex` BASE.
     DexToIntTransform,
+    /// Issue #196: Pure Talent / Replica Pure Talent. The jewel grants per-class
+    /// bonuses gated on whether the player's tree connects to that class's
+    /// starting location. Each mod_line on the jewel is prefixed with a class
+    /// name (`Marauder: …`, `Witch: …`); the handler emits only those whose
+    /// prefix matches a connected class — the player's own class always counts,
+    /// and any other class's `ClassStart` node that's allocated is treated as
+    /// connected. The radius scan is bypassed; mods land in the player's modDB
+    /// once with no per-radius copying.
+    PureTalent,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -352,6 +361,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Watcher's Eye" => Some(build_watchers_eye(socket_id, item)),
         "Healthy Mind" => Some(build_life_to_mana(socket_id, item)),
         "Fertile Mind" => Some(build_dex_to_int(socket_id, item)),
+        "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         _ => None,
     }
 }
@@ -407,6 +417,24 @@ fn build_dex_to_int(socket_id: NodeId, item: &Item) -> RadiusJewel {
     )
 }
 
+/// Pure Talent / Replica Pure Talent: build a [`RadiusJewel`] whose `mods` list
+/// is empty — the actual class-conditional bonuses come from the dispatch
+/// handler reading the item's raw `mod_lines` and filtering by class
+/// connection. The radius is irrelevant (PoB ignores it for this jewel) but we
+/// still pin it to a `(0.0, 0.0)` band so the dispatch's radius-scan branch
+/// short-circuits with an empty in-radius set if it accidentally falls
+/// through.
+fn build_pure_talent(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    RadiusJewel {
+        socket_id,
+        radius: pob_data::JewelRadiusInfo::new(0.0, 0.0, "Pure Talent"),
+        radius_index: 0,
+        mods: Vec::new(),
+        source_label: format!("RadiusJewel:{}", item.name),
+        kind: HandlerKind::PureTalent,
+    }
+}
+
 fn build_transformer(
     socket_id: NodeId,
     item: &Item,
@@ -453,6 +481,89 @@ fn parse_non_transform_mods(item: &Item, is_marker: fn(&str) -> bool) -> Vec<Mod
 fn is_life_mana_transform_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("increases and reductions to life in radius") && l.contains("to apply to mana")
+}
+
+/// Issue #196 (Pure Talent): the seven base classes whose starting locations
+/// the jewel checks for connection. Mirrors PoB's `PureTalent` handler list
+/// and the upstream jewel text. Replica Pure Talent uses the same set.
+const PURE_TALENT_CLASSES: &[&str] = &[
+    "Marauder", "Duelist", "Ranger", "Shadow", "Witch", "Templar", "Scion",
+];
+
+/// Issue #196: build the set of classes the player's tree currently connects
+/// to for Pure Talent purposes. The player's own class always counts (PoB
+/// treats the class-start anchor as connected even when not in the allocated
+/// set). Any other class's `ClassStart` node that's been allocated also
+/// counts — that's how a path that crosses through an adjacent class start
+/// picks up its bonus.
+fn pure_talent_connected_classes(
+    player_class: &str,
+    tree: &PassiveTree,
+    allocated: &AHashSet<NodeId>,
+) -> std::collections::HashSet<String> {
+    let mut connected: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if PURE_TALENT_CLASSES.contains(&player_class) {
+        connected.insert(player_class.to_owned());
+    }
+    for &id in allocated {
+        let Some(node) = tree.nodes.get(&id) else {
+            continue;
+        };
+        if node.kind != NodeKind::ClassStart {
+            continue;
+        }
+        let Some(idx) = node.class_start_index else {
+            continue;
+        };
+        // `tree.classes` is indexed positionally — `class_start_index` is the
+        // same index PoB uses for `Build.targetVersion` class lookups.
+        let Some(class) = tree.classes.get(idx as usize) else {
+            continue;
+        };
+        if PURE_TALENT_CLASSES.contains(&class.name.as_str()) {
+            connected.insert(class.name.clone());
+        }
+    }
+    connected
+}
+
+/// Issue #196: walk Pure Talent's `mod_lines`, strip the leading `<Class>: `
+/// prefix from each, and emit the resulting mod globally only when the class
+/// is in `connected`. Returns the number of mods successfully emitted so the
+/// dispatch's `RadiusJewelReport.mod_emissions` stays accurate.
+fn apply_pure_talent_lines(
+    item: &Item,
+    connected: &std::collections::HashSet<String>,
+    source_label: &str,
+    db: &mut crate::ModDB,
+) -> usize {
+    let mut emitted = 0usize;
+    for ml in &item.mod_lines {
+        let raw = ml.line.trim();
+        let Some((prefix, body)) = raw.split_once(": ") else {
+            continue;
+        };
+        if !PURE_TALENT_CLASSES.contains(&prefix) {
+            // Non-class metadata like `Limited to: 1` or PoB's
+            // `Variant: Current` lines are intentionally dropped here —
+            // they don't contribute mods to the build.
+            continue;
+        }
+        if !connected.contains(prefix) {
+            continue;
+        }
+        let body = body.trim();
+        if body.is_empty() {
+            continue;
+        }
+        if let Some(parsed) = parse_mod_line(body) {
+            let mut clone = parsed.mod_;
+            clone.source = Some(Source::Other(format!("{source_label}:{prefix}")));
+            db.add(clone);
+            emitted += 1;
+        }
+    }
+    emitted
 }
 
 fn is_dex_int_transform_marker(line: &str) -> bool {
@@ -650,6 +761,7 @@ pub fn apply_radius_jewels(
     tree: &PassiveTree,
     allocated: &AHashSet<NodeId>,
     socketed: &SocketedJewels,
+    player_class: &str,
     db: &mut crate::ModDB,
 ) -> RadiusJewelReport {
     let mut report = RadiusJewelReport::default();
@@ -727,6 +839,23 @@ pub fn apply_radius_jewels(
                     1.0,
                     &jewel.source_label,
                 );
+                report.mod_emissions += n;
+            }
+            HandlerKind::PureTalent => {
+                // Pure Talent grants per-class bonuses gated on the player's
+                // tree connecting to that class' starting location. The own
+                // class is always considered connected; any other class's
+                // `ClassStart` node that lives in the allocated set counts as
+                // connected too. Each `<Class>: <mod>` line on the jewel only
+                // emits when its prefix matches a connected class.
+                //
+                // We read the raw `mod_lines` rather than a pre-parsed list
+                // because the class prefix isn't a stat the mod parser
+                // understands — stripping it here keeps the parser's per-line
+                // mod-text grammar untouched and avoids minting bogus
+                // `Marauder` named mods.
+                let connected = pure_talent_connected_classes(player_class, tree, allocated);
+                let n = apply_pure_talent_lines(item, &connected, &jewel.source_label, db);
                 report.mod_emissions += n;
             }
             // SelfAllocated (default), All, Threshold, SelfUnalloc, Pathfinder
@@ -1179,7 +1308,7 @@ mod tests {
             ),
         );
         let mut db = crate::ModDB::default();
-        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
         assert_eq!(report.applied_jewels, 1);
         assert_eq!(report.skipped, 0);
         // One in-radius allocated node × one mod = one emission.
@@ -1244,7 +1373,7 @@ mod tests {
         let alloc: AHashSet<NodeId> = AHashSet::default();
         let socketed = SocketedJewels::new();
         let mut db = crate::ModDB::default();
-        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
         assert_eq!(report, RadiusJewelReport::default());
     }
 
@@ -1277,7 +1406,7 @@ mod tests {
         // The radius pass skips this item — applied_jewels stays at 0.
         let tree = mk_tree();
         let alloc: AHashSet<NodeId> = AHashSet::default();
-        let radius_report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        let radius_report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
         assert_eq!(radius_report.applied_jewels, 0);
         assert_eq!(radius_report.skipped, 1);
 
@@ -1417,7 +1546,7 @@ mod tests {
             ),
         );
         let mut db = crate::ModDB::default();
-        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
         assert_eq!(report.applied_jewels, 1);
         // One global emission — the radius scan is bypassed entirely.
         assert_eq!(report.mod_emissions, 1);
@@ -1455,7 +1584,7 @@ mod tests {
             ),
         );
         let mut db = crate::ModDB::default();
-        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
         assert_eq!(report.applied_jewels, 1);
         // Exactly one global Mana mod (the +15% line) plus one transformed
         // Inc Mana mod from node 2's `10% increased Life`.
@@ -1499,7 +1628,7 @@ mod tests {
             ),
         );
         let mut db = crate::ModDB::default();
-        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
         assert_eq!(report.applied_jewels, 1);
         // Plain mod (+20 Int) is one emission. Transform of +30 Dex emits two
         // (Int + counter Dex) for at least three emissions total.
@@ -1529,6 +1658,292 @@ mod tests {
         );
     }
 
+    /// Issue #196: Pure Talent test scaffold. Build a tree that has both
+    /// ClassStart nodes (for Marauder + Witch) and a regular jewel-socket
+    /// node so the dispatch can identify the connected class set. The
+    /// tree's positions don't matter for this handler — the radius is
+    /// pinned to (0, 0) by `build_pure_talent`.
+    fn mk_class_start_tree() -> PassiveTree {
+        use pob_data::Class;
+        let mut groups = ahash::HashMap::default();
+        groups.insert(
+            10,
+            Group {
+                x: 0.0,
+                y: 0.0,
+                orbits: smallvec::smallvec![0],
+                background: None,
+                nodes: vec![1, 100, 200],
+                is_proxy: false,
+            },
+        );
+        let mut nodes = ahash::HashMap::default();
+        nodes.insert(
+            1,
+            Node {
+                id: 1,
+                name: Some("Jewel Socket".into()),
+                icon: None,
+                ascendancy_name: None,
+                stats: vec![],
+                reminder_text: vec![],
+                kind: NodeKind::JewelSocket,
+                class_start_index: None,
+                group: Some(10),
+                orbit: Some(0),
+                orbit_index: Some(0),
+                out_edges: smallvec::smallvec![],
+                in_edges: smallvec::smallvec![],
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            },
+        );
+        // Class start for Marauder (index 0).
+        nodes.insert(
+            100,
+            Node {
+                id: 100,
+                name: Some("Marauder Start".into()),
+                icon: None,
+                ascendancy_name: None,
+                stats: vec![],
+                reminder_text: vec![],
+                kind: NodeKind::ClassStart,
+                class_start_index: Some(0),
+                group: Some(10),
+                orbit: Some(0),
+                orbit_index: Some(0),
+                out_edges: smallvec::smallvec![],
+                in_edges: smallvec::smallvec![],
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            },
+        );
+        // Class start for Witch (index 1).
+        nodes.insert(
+            200,
+            Node {
+                id: 200,
+                name: Some("Witch Start".into()),
+                icon: None,
+                ascendancy_name: None,
+                stats: vec![],
+                reminder_text: vec![],
+                kind: NodeKind::ClassStart,
+                class_start_index: Some(1),
+                group: Some(10),
+                orbit: Some(0),
+                orbit_index: Some(0),
+                out_edges: smallvec::smallvec![],
+                in_edges: smallvec::smallvec![],
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            },
+        );
+        PassiveTree {
+            version: "3_25".into(),
+            tree: "Default".into(),
+            classes: vec![
+                Class {
+                    name: "Marauder".into(),
+                    base_str: 32,
+                    base_dex: 14,
+                    base_int: 14,
+                    ascendancies: vec![],
+                },
+                Class {
+                    name: "Witch".into(),
+                    base_str: 14,
+                    base_dex: 14,
+                    base_int: 32,
+                    ascendancies: vec![],
+                },
+            ],
+            groups,
+            nodes,
+            jewel_slots: vec![1],
+            min_x: -100,
+            min_y: -100,
+            max_x: 100,
+            max_y: 100,
+            constants: TreeConstants {
+                skills_per_orbit: vec![1, 6, 16, 16, 40, 72, 72],
+                orbit_radii: vec![0, 82, 162, 335, 493, 662, 846],
+                classes: ahash::HashMap::default(),
+                character_attributes: ahash::HashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: pob_data::TreePoints::default(),
+        }
+    }
+
+    /// Issue #196: a Pure Talent socketed by a Marauder (own class) only
+    /// emits the `Marauder:` line — the other six class lines are gated.
+    /// Verify the Marauder bonus lands as `AreaOfEffect Inc 25`.
+    #[test]
+    fn pure_talent_emits_only_player_class_line_by_default() {
+        use crate::{ModStore as _, ModType};
+        let tree = mk_class_start_tree();
+        // Marauder allocation only — no other class start node allocated.
+        let alloc: AHashSet<NodeId> = AHashSet::default();
+        let item = mk_item_named(
+            "Pure Talent",
+            "Viridian Jewel",
+            &[
+                (
+                    "Marauder: Melee Skills have 25% increased Area of Effect",
+                    ModSection::Explicit,
+                ),
+                (
+                    "Duelist: 1% of Attack Damage Leeched as Life",
+                    ModSection::Explicit,
+                ),
+                ("Ranger: 7% increased Movement Speed", ModSection::Explicit),
+                (
+                    "Witch: 0.5% of Mana Regenerated per second",
+                    ModSection::Explicit,
+                ),
+            ],
+        );
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(1, item);
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+        // Only the Marauder line emits.
+        assert_eq!(report.mod_emissions, 1);
+        // Walk the modDB looking for the emitted mod. The Marauder line
+        // parses as `AreaOfEffect Inc 25` with a `melee` flag — both flag
+        // and name are inspected by the assertion so future parser
+        // changes that rename the stat surface here.
+        let mut found = false;
+        for m in db.iter_all() {
+            if m.kind == ModType::Inc && m.name == "AreaOfEffect" {
+                found = true;
+                assert!(matches!(m.value, crate::ModValue::Number(v) if (v - 25.0).abs() < 0.001));
+            }
+        }
+        assert!(
+            found,
+            "expected an AreaOfEffect Inc mod from the Marauder line"
+        );
+        // None of the gated classes' bonuses landed: Witch's "Mana
+        // Regenerated per second" would target ManaRegen if it had landed.
+        let mut witch_found = false;
+        for m in db.iter_all() {
+            if m.name == "ManaRegen" {
+                witch_found = true;
+            }
+        }
+        assert!(
+            !witch_found,
+            "Witch line should be gated when Marauder is the player class"
+        );
+    }
+
+    /// Issue #196: when the player's tree allocates a non-own ClassStart
+    /// (e.g. a Marauder pathing into the Witch start), Pure Talent grants
+    /// that other class's bonus too. Verify Witch's `Mana Regenerated per
+    /// second` bonus lands when node 200 (Witch start) is in `allocated`.
+    #[test]
+    fn pure_talent_emits_other_class_when_class_start_allocated() {
+        let tree = mk_class_start_tree();
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(200); // Witch start allocated.
+        let item = mk_item_named(
+            "Pure Talent",
+            "Viridian Jewel",
+            &[
+                (
+                    "Marauder: Melee Skills have 25% increased Area of Effect",
+                    ModSection::Explicit,
+                ),
+                (
+                    "Witch: 0.5% of Mana Regenerated per second",
+                    ModSection::Explicit,
+                ),
+            ],
+        );
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(1, item);
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        // Both Marauder (own) and Witch (path-connected) emit.
+        assert_eq!(report.mod_emissions, 2);
+    }
+
+    /// Issue #196: Replica Pure Talent uses the same handler. A non-jewel
+    /// item with the Pure Talent name should still be ignored — the
+    /// identifier checks `is_jewel_base` first.
+    #[test]
+    fn replica_pure_talent_uses_same_handler() {
+        let tree = mk_class_start_tree();
+        let alloc: AHashSet<NodeId> = AHashSet::default();
+        let item = mk_item_named(
+            "Replica Pure Talent",
+            "Viridian Jewel",
+            &[(
+                "Marauder: Melee Skills have 25% increased Area of Effect",
+                ModSection::Explicit,
+            )],
+        );
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(1, item);
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+        assert_eq!(report.mod_emissions, 1);
+    }
+
+    /// Issue #196: `Limited to: 1` and other non-class metadata lines on
+    /// Pure Talent must be silently dropped — they're informational, not
+    /// stat mods.
+    #[test]
+    fn pure_talent_drops_metadata_lines() {
+        let tree = mk_class_start_tree();
+        let alloc: AHashSet<NodeId> = AHashSet::default();
+        let item = mk_item_named(
+            "Pure Talent",
+            "Viridian Jewel",
+            &[
+                ("Limited to: 1", ModSection::Explicit),
+                (
+                    "Marauder: Melee Skills have 25% increased Area of Effect",
+                    ModSection::Explicit,
+                ),
+            ],
+        );
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(1, item);
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        // One mod (Marauder), no error from the `Limited to: 1` line.
+        assert_eq!(report.mod_emissions, 1);
+    }
+
+    /// Issue #196: connected_classes computes the same set the dispatch
+    /// uses. Sanity-check the helper directly so a future refactor that
+    /// changes the call shape can't silently break the trigger logic.
+    #[test]
+    fn pure_talent_connected_classes_resolves_player_and_allocated_starts() {
+        let tree = mk_class_start_tree();
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        // Player class only.
+        let connected = pure_talent_connected_classes("Marauder", &tree, &alloc);
+        assert!(connected.contains("Marauder"));
+        assert!(!connected.contains("Witch"));
+
+        // Plus an allocated Witch start.
+        alloc.insert(200);
+        let connected = pure_talent_connected_classes("Marauder", &tree, &alloc);
+        assert!(connected.contains("Marauder"));
+        assert!(connected.contains("Witch"));
+        assert_eq!(connected.len(), 2);
+    }
+
     /// A radius jewel that transforms Inc Life out of radius shouldn't fire
     /// on a node *outside* the medium ring.
     #[test]
@@ -1550,7 +1965,7 @@ mod tests {
             ),
         );
         let mut db = crate::ModDB::default();
-        let report = apply_radius_jewels(&tree, &alloc, &socketed, &mut db);
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
         // No transformed mods (node 3 is out of Large ring) and no plain
         // global mods (the only line was the metadata marker).
         assert_eq!(report.applied_jewels, 1);
