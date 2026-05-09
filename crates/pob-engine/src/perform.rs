@@ -4,7 +4,7 @@
 //! Mirrors `Modules/CalcSetup.lua` (env construction) + a tiny slice of
 //! `Modules/CalcPerform.lua` (basic life/mana/attribute computation).
 
-use pob_data::{KeywordFlag, ModFlag, PassiveTree};
+use pob_data::{KeywordFlag, ModFlag, PassiveTree, Skill};
 
 use crate::character::Character;
 use crate::env::{Env, Output};
@@ -1819,7 +1819,16 @@ fn perform_reservations(character: &Character, skills: &SkillRegistry, env: &mut
             let aura_inc = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "AuraEffect");
             let aura_more = env.mod_db.more(&cfg, &env.state, "AuraEffect");
             let aura_scale = (1.0 + aura_inc / 100.0) * aura_more;
-            for mut m in crate::skill::aura_buff_mods(skill, level, gem.quality) {
+            // Issue #36: alt-quality variant lookup — `Anomalous` /
+            // `Divergent` / `Phantasmal` substitute the alt skill's
+            // `qualityStats` while keeping the active skill's
+            // `constantStats` and per-level `stats[]`.
+            let (quality_source, _) =
+                crate::skill::skill_for_quality(skills, &gem.skill_id, gem.quality_id);
+            let quality_source = quality_source.filter(|alt| !std::ptr::eq(*alt, skill));
+            for mut m in
+                crate::skill::aura_buff_mods_with_quality(skill, level, gem.quality, quality_source)
+            {
                 m.value = scale_mod_value(m.value, aura_scale);
                 env.mod_db.add(m);
             }
@@ -2296,7 +2305,17 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
     // Apply the skill's intrinsic mods (from constantStats + qualityStats × statMap)
     // to the env. These produce things like Arc's "+15% MORE damage per chain
     // remaining" which the calc layer needs to see before the damage query runs.
-    let intrinsic_mods = crate::skill::skill_mods(skill, main.quality);
+    //
+    // Issue #36: when the gem's `quality_id` is non-default, swap in the
+    // alt-variant skill's `qualityStats` (the `AltX/Y/Z` cousin of the
+    // active id). `skill_for_quality` falls back to the bare skill when
+    // the variant isn't present in the registry, so default behaviour is
+    // unchanged for gems without alt-quality data.
+    let (alt_quality_skill, _) =
+        crate::skill::skill_for_quality(skills, &main.skill_id, main.quality_id);
+    let alt_quality_skill = alt_quality_skill.filter(|alt| !std::ptr::eq(*alt, skill));
+    let intrinsic_mods =
+        crate::skill::skill_mods_with_quality(skill, main.quality, alt_quality_skill);
     for m in intrinsic_mods {
         env.mod_db.add(m);
     }
@@ -2352,7 +2371,13 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
                 if !compatible {
                     continue;
                 }
-                for m in crate::skill::skill_mods(support, gem.quality) {
+                // Issue #36: alt-quality on supports. The Vaal /
+                // alt-variant of a support replaces only the
+                // `qualityStats` line, same as active skills.
+                let (support_alt, _) =
+                    crate::skill::skill_for_quality(skills, &gem.skill_id, gem.quality_id);
+                let support_alt = support_alt.filter(|alt| !std::ptr::eq(*alt, support));
+                for m in crate::skill::skill_mods_with_quality(support, gem.quality, support_alt) {
                     env.mod_db.add(m);
                 }
             }
@@ -2396,8 +2421,14 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
             if let Some(eval_key) = mapped {
                 // Quality stats add to per-level positionals — e.g. Arc Q20 grants
                 // +1 chain via qualityStats=[["number_of_chains", 0.05]].
+                //
+                // Issue #36: alt-quality variant — read `qualityStats` from
+                // the resolved alt skill so e.g. an Anomalous Arc that
+                // grants `projectile_number_to_split` instead of `number_of_chains`
+                // doesn't double-up the default chain bonus on top.
                 let mut value = v;
-                for qs in skill.quality_stats.iter() {
+                let qs_source: &Skill = alt_quality_skill.unwrap_or(skill);
+                for qs in qs_source.quality_stats.iter() {
                     let Some(arr) = qs.as_array() else { continue };
                     let Some(qstat) = arr.first().and_then(|x| x.as_str()) else {
                         continue;
@@ -3817,13 +3848,14 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
     // AreaOfEffectRadius / AreaOfEffectRadiusMetres so the Calcs tab can
     // display them and pob_diff can compare against PoB's outputs.
     if skill.base_flags.get("area").copied().unwrap_or(false) {
-        let base_radius: f64 = crate::skill::iter_skill_stats(skill, main.quality)
-            .filter(|(id, _)| id == "active_skill_base_area_of_effect_radius")
-            .map(|(_, v)| v)
-            .sum::<f64>()
-            + env
-                .mod_db
-                .sum(ModType::Base, &cfg, &env.state, "AreaOfEffect");
+        let base_radius: f64 =
+            crate::skill::iter_skill_stats(skill, main.quality, alt_quality_skill)
+                .filter(|(id, _)| id == "active_skill_base_area_of_effect_radius")
+                .map(|(_, v)| v)
+                .sum::<f64>()
+                + env
+                    .mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "AreaOfEffect");
         if base_radius > 0.0 {
             let inc_area = env
                 .mod_db

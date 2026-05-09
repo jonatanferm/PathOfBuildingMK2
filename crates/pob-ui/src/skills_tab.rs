@@ -8,7 +8,8 @@
 
 use eframe::egui;
 use pob_engine::character::SocketGroup;
-use pob_engine::{Character, MainSkill, SkillRegistry};
+use pob_engine::skill::base_skill_id;
+use pob_engine::{Character, MainSkill, QualityId, SkillRegistry};
 
 use crate::color_codes;
 
@@ -304,6 +305,41 @@ pub fn ui(
                             changed = true;
                         }
                     }
+
+                    // Issue #36: alt-quality (Anomalous / Divergent /
+                    // Phantasmal) picker. Always rendered with all
+                    // four standard options; a small marker after the
+                    // label tells the user which variants have alt
+                    // data (the `<base>AltX/Y/Z` skill exists in the
+                    // registry). Picking an unsupported variant is
+                    // allowed — `skill_for_quality` falls back to the
+                    // default qualityStats — but the marker makes it
+                    // obvious the dropdown isn't taking effect.
+                    let base = base_skill_id(&gem.skill_id).to_owned();
+                    let mut chosen_qid = gem.quality_id;
+                    egui::ComboBox::from_label("Alt quality")
+                        .selected_text(chosen_qid.display())
+                        .show_ui(ui, |ui| {
+                            for qid in QualityId::all() {
+                                let has_data = match qid.alt_suffix() {
+                                    None => true,
+                                    Some(suffix) => {
+                                        registry.get(&format!("{base}{suffix}")).is_some()
+                                    }
+                                };
+                                let label = if has_data {
+                                    qid.display().to_owned()
+                                } else {
+                                    format!("{} (no data)", qid.display())
+                                };
+                                ui.selectable_value(&mut chosen_qid, qid, label);
+                            }
+                        });
+                    if chosen_qid != gem.quality_id {
+                        gem.quality_id = chosen_qid;
+                        changed = true;
+                    }
+
                     if !skill.description.is_empty() {
                         ui.add_space(4.0);
                         // Gem descriptions in upstream PoB carry inline

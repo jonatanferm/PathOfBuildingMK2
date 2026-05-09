@@ -7,6 +7,7 @@
 
 use ahash::HashMap;
 use pob_data::{Skill, SkillSet};
+use serde::{Deserialize, Serialize};
 
 /// Library of skills loaded from `data/skills/*.json`. Phase 3d treats this as a
 /// read-only lookup keyed by skill id (e.g. `"Arc"`, `"Fireball"`).
@@ -97,6 +98,91 @@ pub fn base_skill_id(skill_id: &str) -> &str {
     skill_id
 }
 
+/// Issue #36: alt-quality variant selector. Each gem can be flagged
+/// `Default` / `Anomalous` / `Divergent` / `Phantasmal`; PoB's XML
+/// persists the choice as `<Gem ... qualityId="Anomalous"/>`. Maps onto
+/// the upstream Alt-skill suffix convention:
+///
+/// - `Default`    → the bare skill id (e.g. `"Arc"`)
+/// - `Anomalous`  → the `AltX` variant (`"ArcAltX"`)
+/// - `Divergent`  → the `AltY` variant (`"ArcAltY"`)
+/// - `Phantasmal` → the `AltZ` variant (`"ArcAltZ"`)
+///
+/// When the requested variant doesn't exist in the registry the engine
+/// falls back to the gem's bare id — the alt picker stays visible but
+/// has no effect. Test fixture: a Phantasmal-quality Cleave with no
+/// `CleaveAltZ` shipped should compute identically to Default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum QualityId {
+    #[default]
+    Default,
+    Anomalous,
+    Divergent,
+    Phantasmal,
+}
+
+impl QualityId {
+    /// PoB's persisted attribute name on `<Gem qualityId="…"/>`. Used
+    /// by both `pob_export` and the build-file format so the wire
+    /// representation stays stable.
+    pub fn as_pob_name(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Anomalous => "Anomalous",
+            Self::Divergent => "Divergent",
+            Self::Phantasmal => "Phantasmal",
+        }
+    }
+
+    /// Inverse of `as_pob_name`. Recognises both the canonical PoB
+    /// names and the integer aliases (`"0"`..`"3"`) PoB legacy data
+    /// occasionally uses. Anything unrecognised maps to `Default`
+    /// — keeps imports tolerant.
+    pub fn from_pob_name(name: &str) -> Self {
+        match name {
+            "Anomalous" | "1" => Self::Anomalous,
+            "Divergent" | "2" => Self::Divergent,
+            "Phantasmal" | "3" => Self::Phantasmal,
+            _ => Self::Default,
+        }
+    }
+
+    /// Skill-id suffix this quality maps onto. `None` for `Default`
+    /// — the engine then uses the gem's bare id. The Alt-suffix
+    /// convention is upstream PoB's: `AltX` / `AltY` / `AltZ` are
+    /// reserved for the three alt-quality reworks of an active
+    /// skill, mirrored in `Data/Skills/*.lua` and the corresponding
+    /// extracted JSON.
+    pub fn alt_suffix(self) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::Anomalous => Some("AltX"),
+            Self::Divergent => Some("AltY"),
+            Self::Phantasmal => Some("AltZ"),
+        }
+    }
+
+    /// Human-readable label for the UI dropdown.
+    pub fn display(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Anomalous => "Anomalous",
+            Self::Divergent => "Divergent",
+            Self::Phantasmal => "Phantasmal",
+        }
+    }
+
+    /// All four variants, in display order.
+    pub fn all() -> [Self; 4] {
+        [
+            Self::Default,
+            Self::Anomalous,
+            Self::Divergent,
+            Self::Phantasmal,
+        ]
+    }
+}
+
 /// User's choice of skill, level, and quality. Doubles as the per-gem entry in
 /// `SocketGroup`, with `enabled` letting the UI toggle individual supports
 /// without removing them.
@@ -105,6 +191,9 @@ pub struct MainSkill {
     pub skill_id: String,
     pub level: u32,
     pub quality: u32,
+    /// Issue #36: alt-quality variant. Defaults to `QualityId::Default`
+    /// (legacy gems), so existing builds round-trip unchanged.
+    pub quality_id: QualityId,
     pub enabled: bool,
 }
 
@@ -114,9 +203,45 @@ impl MainSkill {
             skill_id: skill_id.into(),
             level: 20,
             quality: 0,
+            quality_id: QualityId::Default,
             enabled: true,
         }
     }
+}
+
+/// Resolve the actual `Skill` to consult for `qualityStats` given a
+/// `(skill_id, quality_id)` pair. When the user picks `Anomalous` /
+/// `Divergent` / `Phantasmal` we look up `<base>AltX` / `<base>AltY` /
+/// `<base>AltZ` in the registry; if it's not present (most skills
+/// don't ship alt-variant data), returns the bare-id skill so the
+/// caller still gets the default `qualityStats`.
+///
+/// Returns `(skill_for_quality_stats, alt_resolved)` — the second
+/// flag tells the caller whether the alt-variant was actually
+/// consulted. Used by the UI to grey out alt-quality picks that have
+/// no upstream data.
+pub fn skill_for_quality<'a>(
+    registry: &'a SkillRegistry,
+    skill_id: &str,
+    quality_id: QualityId,
+) -> (Option<&'a Skill>, bool) {
+    if quality_id == QualityId::Default {
+        return (registry.get(skill_id), false);
+    }
+    let Some(suffix) = quality_id.alt_suffix() else {
+        return (registry.get(skill_id), false);
+    };
+    // The bare skill id is the base — we want `<base><suffix>`. If the
+    // user already started from an Alt id, reuse the existing `base_skill_id`
+    // helper so we don't double-suffix (e.g. `"ArcAltX" + "AltY"` is wrong;
+    // the right answer is `"ArcAltY"`).
+    let base = base_skill_id(skill_id);
+    let alt_id = format!("{base}{suffix}");
+    if let Some(s) = registry.get(&alt_id) {
+        return (Some(s), true);
+    }
+    // Fallback to the bare skill — alt picker has no effect for this gem.
+    (registry.get(skill_id), false)
 }
 
 /// PoE's universal damage-by-level constants (`Data/Misc.lua`).
@@ -160,7 +285,18 @@ pub fn skill_base_damage(skill: &Skill, gem_level: u32, character_level: u32) ->
 /// scales linearly so we contribute `quality_pct × scale_per_quality` per entry)*.
 /// `stats` (positional, level-indexed via statInterpolation) is *not* included here —
 /// that's the per-level damage data which the dedicated `skill_base_damage` handles.
-pub fn iter_skill_stats(skill: &Skill, quality: u32) -> impl Iterator<Item = (String, f64)> + '_ {
+///
+/// Issue #36: when `quality_source` is `Some(other_skill)` (the alt-quality
+/// variant resolved via `skill_for_quality`), this function consults the
+/// alt skill's `quality_stats` instead of `skill.quality_stats`. The
+/// `constantStats` always come from the active skill itself — alt quality
+/// only swaps the *quality* line, not the constant baseline. Pass `None`
+/// for the legacy "use the active skill's own qualityStats" path.
+pub fn iter_skill_stats<'a>(
+    skill: &'a Skill,
+    quality: u32,
+    quality_source: Option<&'a Skill>,
+) -> impl Iterator<Item = (String, f64)> + 'a {
     let q = f64::from(quality);
     let constant = skill.constant_stats.iter().filter_map(|v| {
         let arr = v.as_array()?;
@@ -168,7 +304,8 @@ pub fn iter_skill_stats(skill: &Skill, quality: u32) -> impl Iterator<Item = (St
         let val = arr.get(1)?.as_f64()?;
         Some((id, val))
     });
-    let quality_iter = skill.quality_stats.iter().filter_map(move |v| {
+    let quality_skill = quality_source.unwrap_or(skill);
+    let quality_iter = quality_skill.quality_stats.iter().filter_map(move |v| {
         let arr = v.as_array()?;
         let id = arr.first()?.as_str()?.to_owned();
         let scale = arr.get(1)?.as_f64()?;
@@ -291,8 +428,25 @@ pub fn parse_extractor_mod(v: &serde_json::Value, value: f64) -> Option<crate::M
 /// Produce all the `Mod`s a skill grants from its statMap + constantStats + qualityStats
 /// data. Each emitted Mod is sourced as `Source::Skill(skill.name)`.
 pub fn skill_mods(skill: &Skill, quality: u32) -> Vec<crate::Mod> {
+    skill_mods_with_quality(skill, quality, None)
+}
+
+/// Issue #36: alt-quality variant of `skill_mods`. When `quality_source`
+/// is `Some(alt_skill)` (the resolved `<base>AltX/Y/Z` variant) the
+/// `quality_stats` line is sourced from that alt skill instead of the
+/// active skill's own `quality_stats`. The `statMap` still belongs to
+/// the active skill so the alt's stat ids resolve through the same set
+/// of mod recordings.
+///
+/// Falls back to `global_skill_stat_mods` for stats not in the active
+/// skill's per-skill `statMap` — same path as the legacy `skill_mods`.
+pub fn skill_mods_with_quality(
+    skill: &Skill,
+    quality: u32,
+    quality_source: Option<&Skill>,
+) -> Vec<crate::Mod> {
     let mut out = Vec::new();
-    for (stat_id, value) in iter_skill_stats(skill, quality) {
+    for (stat_id, value) in iter_skill_stats(skill, quality, quality_source) {
         // Per-skill statMap is the primary source. Each entry is an array of mod
         // recordings.
         if let Some(arr) = skill_stat_map(skill)
@@ -374,7 +528,21 @@ fn global_skill_stat_mods(stat_id: &str, value: f64, skill_name: &str) -> Vec<cr
 /// JSON, since the extractor already resolves the interpolation during data
 /// generation. Each emitted `Mod` is sourced as `Source::Skill(skill.name)`.
 pub fn aura_buff_mods(skill: &Skill, gem_level: u32, quality: u32) -> Vec<crate::Mod> {
-    let mut out = skill_mods(skill, quality);
+    aura_buff_mods_with_quality(skill, gem_level, quality, None)
+}
+
+/// Issue #36: alt-quality variant of `aura_buff_mods`. Substitutes the
+/// alt-quality `quality_stats` exactly like `skill_mods_with_quality`;
+/// per-level `stats[]` positionals stay with the active skill (so the
+/// aura's per-level numbers don't get clobbered by an alt with a
+/// different progression).
+pub fn aura_buff_mods_with_quality(
+    skill: &Skill,
+    gem_level: u32,
+    quality: u32,
+    quality_source: Option<&Skill>,
+) -> Vec<crate::Mod> {
+    let mut out = skill_mods_with_quality(skill, quality, quality_source);
     // Per-level positional stats. The extractor-emitted values in `levels[L][i+1]`
     // are already post-interpolation, so we use them directly.
     for (i, stat_id) in skill.stats.iter().enumerate() {

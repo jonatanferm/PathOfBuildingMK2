@@ -8,7 +8,7 @@ use pob_data::{Class, Item, ItemSet, NodeId, PassiveTree};
 use serde::{Deserialize, Serialize};
 
 use crate::jewel_radius::SocketedJewels;
-use crate::skill::MainSkill;
+use crate::skill::{MainSkill, QualityId};
 
 // Re-export so character.rs is the canonical Character module.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -21,6 +21,11 @@ pub struct CharacterSnapshot {
     pub main_skill_id: Option<String>,
     pub main_skill_level: u32,
     pub main_skill_quality: u32,
+    /// Issue #36: alt-quality variant for the main skill. Defaults to
+    /// `Default` so legacy build files (without this field) round-trip
+    /// to the same compute output.
+    #[serde(default)]
+    pub main_skill_quality_id: QualityId,
     pub config: ConfigState,
     pub notes: String,
     #[serde(default)]
@@ -169,6 +174,10 @@ pub struct GemSnapshot {
     pub level: u32,
     #[serde(default)]
     pub quality: u32,
+    /// Issue #36: alt-quality variant. Defaults to `QualityId::Default`
+    /// so existing `.mk2` saves load identically.
+    #[serde(default)]
+    pub quality_id: QualityId,
     #[serde(default = "true_default")]
     pub enabled: bool,
 }
@@ -188,6 +197,10 @@ impl CharacterSnapshot {
             main_skill_id: c.main_skill.as_ref().map(|m| m.skill_id.clone()),
             main_skill_level: c.main_skill.as_ref().map_or(20, |m| m.level),
             main_skill_quality: c.main_skill.as_ref().map_or(0, |m| m.quality),
+            main_skill_quality_id: c
+                .main_skill
+                .as_ref()
+                .map_or(QualityId::Default, |m| m.quality_id),
             config: c.config.clone(),
             notes: c.notes.clone(),
             mastery_selections: c.mastery_selections.iter().map(|(k, v)| (*k, *v)).collect(),
@@ -203,6 +216,7 @@ impl CharacterSnapshot {
                             skill_id: m.skill_id.clone(),
                             level: m.level,
                             quality: m.quality,
+                            quality_id: m.quality_id,
                             enabled: m.enabled,
                         })
                         .collect(),
@@ -238,6 +252,7 @@ impl CharacterSnapshot {
                         skill_id: gem.skill_id,
                         level: gem.level.max(1),
                         quality: gem.quality,
+                        quality_id: gem.quality_id,
                         enabled: gem.enabled,
                     })
                     .collect(),
@@ -255,6 +270,7 @@ impl CharacterSnapshot {
                 skill_id: id,
                 level: self.main_skill_level,
                 quality: self.main_skill_quality,
+                quality_id: self.main_skill_quality_id,
                 enabled: true,
             }),
             skill_groups: groups,

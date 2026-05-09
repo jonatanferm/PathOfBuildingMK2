@@ -309,6 +309,10 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                                 quality: attr_str(&e, "quality")
                                     .and_then(|s| s.parse::<u32>().ok())
                                     .unwrap_or(0),
+                                quality_id: attr_str(&e, "qualityId")
+                                    .as_deref()
+                                    .map(crate::skill::QualityId::from_pob_name)
+                                    .unwrap_or_default(),
                                 enabled: attr_str(&e, "enabled").is_none_or(|s| s != "false"),
                             });
                         }
@@ -516,6 +520,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                 let mut ms = MainSkill::new(gem.skill_id.clone());
                 ms.level = gem.level.clamp(1, 40);
                 ms.quality = gem.quality.min(100);
+                ms.quality_id = gem.quality_id;
                 character.main_skill = Some(ms);
             }
         }
@@ -536,6 +541,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                     let mut ms = MainSkill::new(gem.skill_id);
                     ms.level = gem.level.clamp(1, 40);
                     ms.quality = gem.quality.min(100);
+                    ms.quality_id = gem.quality_id;
                     ms.enabled = gem.enabled;
                     ms
                 })
@@ -564,6 +570,10 @@ struct GemSpec {
     skill_id: String,
     level: u32,
     quality: u32,
+    /// Issue #36: alt-quality variant from `<Gem qualityId="…"/>`.
+    /// Defaults to `Default` for legacy PoB exports without the
+    /// attribute.
+    quality_id: crate::skill::QualityId,
     /// PoB persists the toggle but pob-engine doesn't yet differentiate disabled
     /// gems from absent ones. Kept on the parsed shape so callers that read this
     /// later don't need a re-import.
