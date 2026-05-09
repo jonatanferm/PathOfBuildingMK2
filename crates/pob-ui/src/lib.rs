@@ -20,6 +20,7 @@ mod items_tab;
 mod notes_tab;
 mod party_tab;
 mod skills_tab;
+mod tattoo_picker;
 mod tree_layout;
 mod tree_renderer;
 mod tree_view;
@@ -57,6 +58,8 @@ struct LoadedApp {
     builds_state: builds_tab::BuildsTabState,
     import_export_state: import_export_tab::ImportExportTabState,
     notes_state: notes_tab::NotesTabState,
+    /// Issue #98 (slice 2): right-click tattoo picker state.
+    tattoo_picker_state: tattoo_picker::TattooPickerState,
     skills: SkillRegistry,
     bases: Option<pob_data::bases::ItemBaseSet>,
     /// Issue #110: cached sprite metadata so the per-frame class
@@ -82,9 +85,8 @@ struct LoadedApp {
         reason = "consumed by upcoming cluster-jewel synthesis slice"
     )]
     cluster_jewel_mods: Option<pob_data::ClusterModSet>,
-    /// Issue #98 (slice 1): tattoo catalogue. Used by the upcoming Tree-tab
-    /// right-click picker.
-    #[allow(dead_code, reason = "consumed by upcoming tattoo-picker UI slice")]
+    /// Issue #98 (slice 1+2): tattoo catalogue, surfaced by the Tree-tab right-click
+    /// picker (`tattoo_picker.rs`).
     tattoos: Option<pob_data::TattooSet>,
     /// Issue #20 (slice 1): per-minion-type base stats. Used by the upcoming
     /// parallel minion calc env.
@@ -261,6 +263,7 @@ impl PobApp {
             builds_state: builds_tab::BuildsTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
+            tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
             skills,
             bases,
             sprites,
@@ -317,6 +320,7 @@ impl PobApp {
             builds_state: builds_tab::BuildsTabState::default(),
             import_export_state: import_export_tab::ImportExportTabState::default(),
             notes_state: notes_tab::NotesTabState::default(),
+            tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
             skills,
             bases,
             sprites,
@@ -992,6 +996,35 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         ));
                     }
                 }
+            }
+
+            // Issue #98 (slice 2): right-click on an allocated normal/notable/keystone
+            // node opens the tattoo picker. Mastery / unallocated nodes are no-ops.
+            if let Some(id) = interaction.right_clicked {
+                if app.character.allocated.contains(&id) {
+                    if let Some(node) = app.tree.nodes.get(&id) {
+                        use pob_data::NodeKind;
+                        if matches!(
+                            node.kind,
+                            NodeKind::Normal | NodeKind::Notable | NodeKind::Keystone
+                        ) {
+                            app.tattoo_picker_state.open_for(id);
+                        }
+                    }
+                }
+            }
+
+            // The picker window is rendered as a floating egui::Window so it can sit on
+            // top of the tree canvas. Returns `true` when the user applied or removed a
+            // tattoo, which forces a recompute.
+            if tattoo_picker::ui(
+                ui.ctx(),
+                &mut app.tattoo_picker_state,
+                app.tattoos.as_ref(),
+                &app.tree,
+                &mut app.character,
+            ) {
+                recompute = true;
             }
         }
         Tab::Items => {

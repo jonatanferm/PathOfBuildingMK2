@@ -20,6 +20,8 @@ use crate::tree_renderer::{
 pub struct TreeInteraction {
     pub hovered: Option<NodeId>,
     pub clicked: Option<NodeId>,
+    /// Issue #98 (slice 2): right-click on a node opens the tattoo picker.
+    pub right_clicked: Option<NodeId>,
 }
 
 pub struct TreeView {
@@ -254,6 +256,7 @@ impl TreeView {
         // visuals based on the per-instance state byte.
         let mut hovered: Option<NodeId> = None;
         let mut clicked: Option<NodeId> = None;
+        let mut right_clicked: Option<NodeId> = None;
         let pointer = response.hover_pos();
 
         // Path-overlay set for fast lookup when building the state byte.
@@ -431,9 +434,16 @@ impl TreeView {
             if response.clicked() {
                 clicked = Some(id);
             }
+            if response.secondary_clicked() {
+                right_clicked = Some(id);
+            }
         }
 
-        TreeInteraction { hovered, clicked }
+        TreeInteraction {
+            hovered,
+            clicked,
+            right_clicked,
+        }
     }
 
     pub fn center(&self) -> Vec2 {
