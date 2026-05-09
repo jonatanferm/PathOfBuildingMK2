@@ -20,6 +20,7 @@
 
 pub mod breakdown;
 pub mod character;
+pub mod cluster_synth;
 pub mod env;
 pub mod ggg_import;
 pub mod item_parser;
@@ -36,6 +37,10 @@ pub mod skill;
 
 pub use breakdown::{derive_for, Breakdown, BreakdownStep, ModSource, COVERED_KEYS};
 pub use character::{Character, CharacterSnapshot, ClassRef, ConfigState};
+pub use cluster_synth::{
+    parse_cluster_jewel, synthesise_all, synthesise_for_socket, ClusterJewelSpec,
+    ParsedClusterJewel,
+};
 pub use env::{Env, Output};
 pub use ggg_import::{
     build_character as build_character_from_ggg, encode_account_name as ggg_encode_account_name,
@@ -54,7 +59,9 @@ pub use minion::{
 pub use mod_db::{ModDB, ModList, ModStore};
 pub use mod_parser::{parse_mod_line, ParsedMod};
 pub use modifier::{Mod, ModType, ModValue, Source, Tag, TagKind};
-pub use perform::{compute, compute_full, compute_full_with_env};
+pub use perform::{
+    compute, compute_full, compute_full_with_clusters, compute_full_with_env, ClusterContext,
+};
 pub use pob_export::{export_pob_code, export_pob_xml};
 pub use pob_import::{import_pob_code, import_pob_xml, resolve_share_url, PobImportError};
 pub use share::{export_code, import_code, ShareError};

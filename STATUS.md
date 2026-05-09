@@ -178,9 +178,20 @@ Closed since the previous status snapshot:
 - Cluster jewel data foundation (#21): `data/cluster_jewels.json` and
   `data/cluster_jewel_mods.json` capture the three jewel categories
   (Small / Medium / Large with their ring slots + small-passive
-  options) and 557 prefix / suffix / corruption mods. Sub-graph
-  synthesis (placing synthesised notable nodes into the live tree) is
-  the next slice.
+  options) and 557 prefix / suffix / corruption mods.
+- Cluster jewel sub-graph synthesis (#21):
+  `pob_engine::cluster_synth` parses a cluster jewel item's
+  `Adds N Passive Skills` / `1 Added Passive Skill is X` /
+  `Added Small Passive Skills grant: …` mod lines, materialises a
+  synth sub-graph of notable / small / inner-socket nodes around the
+  parent Large jewel socket, and emits collision-free synthetic
+  `NodeId`s following PoB's `BuildSubgraph` id scheme. The new
+  `Character.jewels` map keys those parsed jewels by host socket id;
+  the perform entry point `compute_full_with_clusters` injects mods
+  from any synthesised node that's both allocated and connected to
+  an allocated parent socket. UI plumbing (Tree-tab right-click to
+  paste a cluster jewel + sub-graph rendering near the host socket)
+  and PoB-XML `<Slot name="Jewel N">` round-trip are follow-up slices.
 - Tattoo full pipeline (#98): catalogue (167 tattoos in
   `data/tattoos.json`) + right-click picker on the Tree tab + gold
   badge overlay on tattooed nodes. PoB-XML round-trip already worked
@@ -217,11 +228,14 @@ Still open (in rough priority):
    (`marauder_l90_bleeding_cleave.xml`, `witch_l90_arc_with_items.xml`,
    etc.), but locking PoB-vs-engine deltas behind a regression test still
    requires running pob_diff in the test environment.
-4. **Cluster jewel sub-graph synthesis (#21)**: data is extracted; the
-   tree-side synthesis pass that places synthesised notables into the
-   allocated tree when a Cluster Jewel is socketed is the next slice.
-   Timeless jewels (#30) and the generic radius-jewel framework (#31) are
-   separate follow-ups.
+4. **Cluster jewel UI + PoB-XML round-trip (#21)**: synthesis pass
+   landed (engine-side `cluster_synth` + `compute_full_with_clusters`),
+   but the Tree tab still doesn't render the synthesised nodes near
+   their host socket and the Items tab can't paste a cluster jewel into
+   a Large socket — both UI affordances are the next slice. PoB-XML
+   `<Slot name="Jewel N">` import / export so cluster builds round-trip
+   through the wire format is also still open. Timeless jewels (#30)
+   and the generic radius-jewel framework (#31) are separate follow-ups.
 5. **Real minion perform pass (#20)**: `MinionState` is wired and Life /
    resists land on the player's output, but the next slice needs a real
    minion-side `ModDB` so player-side `MinionLife` INC / MORE scaling and

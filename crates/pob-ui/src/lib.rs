@@ -77,19 +77,16 @@ struct LoadedApp {
     /// `None` if `data/calc_sections.json` is missing — the Calcs tab
     /// silently falls back to its legacy flat-key view in that case.
     calc_sections: Option<Vec<pob_data::CalcSection>>,
-    /// Issue #21 (slice 1): cluster jewel category catalogue. Used by the
-    /// upcoming sub-graph synthesis pass when a Cluster Jewel is socketed.
-    #[allow(
-        dead_code,
-        reason = "consumed by upcoming cluster-jewel synthesis slice"
-    )]
+    /// Issue #21: cluster jewel category catalogue. Consumed by the
+    /// sub-graph synthesis pass during compute when a Cluster Jewel is
+    /// socketed; also surfaced to the Tree tab so synthesised notables
+    /// can be highlighted near their host socket.
     cluster_jewels: Option<pob_data::ClusterJewelData>,
-    /// Issue #21 (slice 2): cluster jewel notable / corrupted mods. Used by
-    /// the same synthesis pass to populate notable nodes' mod lines.
-    #[allow(
-        dead_code,
-        reason = "consumed by upcoming cluster-jewel synthesis slice"
-    )]
+    /// Issue #21: cluster jewel notable / corrupted mods. Threaded into
+    /// the engine alongside `cluster_jewels` to construct the cluster
+    /// context that drives sub-graph synthesis. The data file is also
+    /// reserved for a future corrupt-implicit handling slice that
+    /// projects rolled-corrupt mods without re-plumbing.
     cluster_jewel_mods: Option<pob_data::ClusterModSet>,
     /// Issue #98 (slice 1+2): tattoo catalogue, surfaced by the Tree-tab right-click
     /// picker (`tattoo_picker.rs`).
@@ -1202,11 +1199,20 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
     if recompute || h != app.last_compute_hash {
         app.last_compute_hash = h;
-        let (mut output, env) = pob_engine::compute_full_with_env(
+        // Issue #21: thread the cluster-jewel context through so any
+        // socketed cluster jewels with allocated synth nodes flow their
+        // mods into the calc. `None` data → fall back to non-cluster
+        // compute (matches the engine's pre-#21 behaviour).
+        let cluster_ctx = match (&app.cluster_jewels, &app.cluster_jewel_mods) {
+            (Some(cj), Some(cm)) => Some(pob_engine::ClusterContext::new(cj, cm)),
+            _ => None,
+        };
+        let (mut output, env) = pob_engine::compute_full_with_clusters(
             &app.character,
             &app.tree,
             Some(&app.skills),
             app.bases.as_ref(),
+            cluster_ctx,
         );
         // Issue #20 (slice 3): if the active main skill summons a minion and the
         // catalogue is loaded, surface the minion's basic stats (Life / resists)

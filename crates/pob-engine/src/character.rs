@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use ahash::HashMap;
-use pob_data::{Class, ItemSet, NodeId, PassiveTree};
+use pob_data::{Class, Item, ItemSet, NodeId, PassiveTree};
 use serde::{Deserialize, Serialize};
 
 use crate::skill::MainSkill;
@@ -50,6 +50,13 @@ pub struct CharacterSnapshot {
     /// ordering; converted to a HashMap on the Character.
     #[serde(default)]
     pub tattoo_overrides: Vec<(NodeId, String)>,
+    /// Issue #21: cluster jewels socketed into Large jewel sockets on
+    /// the passive tree, keyed by host socket node id. Stored as a
+    /// Vec on the snapshot for deterministic save ordering; converted
+    /// to a HashMap on the Character. Mirrors PoB's
+    /// `PassiveSpec.jewels` map.
+    #[serde(default)]
+    pub jewels: Vec<(NodeId, Item)>,
 }
 
 /// One stored item-loadout save. `items` is the same `ItemSet` the
@@ -203,6 +210,7 @@ impl CharacterSnapshot {
                 .iter()
                 .map(|(k, v)| (*k, v.clone()))
                 .collect(),
+            jewels: c.jewels.iter().map(|(k, v)| (*k, v.clone())).collect(),
         }
     }
     pub fn into_character(self) -> Character {
@@ -248,6 +256,7 @@ impl CharacterSnapshot {
             item_sets: self.item_sets,
             party_members: self.party_members,
             tattoo_overrides: self.tattoo_overrides.into_iter().collect(),
+            jewels: self.jewels.into_iter().collect(),
         }
     }
 }
@@ -484,6 +493,14 @@ pub struct Character {
     /// the tattoo's mod lines during compute. Removing an entry restores
     /// the original node. Mirrors PoB's `PassiveSpec.tattooOverrides`.
     pub tattoo_overrides: HashMap<NodeId, String>,
+    /// Issue #21: cluster jewels equipped into Large jewel sockets on
+    /// the passive tree. Keyed by host socket `NodeId`. Each entry is
+    /// the parsed jewel `Item`; the synthesis pass in
+    /// [`crate::cluster_synth`] reads its `mod_lines` to produce a
+    /// sub-graph of synthesised notable / small / inner-socket nodes
+    /// that get appended to the live tree at compute time.
+    /// Mirrors PoB's `PassiveSpec.jewels` map (which keys by node id).
+    pub jewels: HashMap<NodeId, Item>,
 }
 
 /// Encounter / condition configuration. Mirrors PoB's Config tab:
@@ -746,6 +763,7 @@ impl Character {
             item_sets: Vec::new(),
             party_members: Vec::new(),
             tattoo_overrides: HashMap::default(),
+            jewels: HashMap::default(),
         }
     }
 
