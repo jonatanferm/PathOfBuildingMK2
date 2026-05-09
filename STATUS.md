@@ -192,6 +192,26 @@ Closed since the previous status snapshot:
   an allocated parent socket. UI plumbing (Tree-tab right-click to
   paste a cluster jewel + sub-graph rendering near the host socket)
   and PoB-XML `<Slot name="Jewel N">` round-trip are follow-up slices.
+- Radius-jewel framework (#31): `pob_data::jewel_radius` ships the
+  canonical 3.16+ radii table (Small=960, Medium=1440, Large=1800,
+  Very Large=2400, Massive=2880) plus the 3.15-and-older fallback,
+  and `pob_engine::jewel_radius` exposes node-position math, in-radius
+  scans, vanilla "X% increased Y to Passives in Radius" identification,
+  and `apply_radius_jewels` — for each jewel socketed into a tree
+  socket, the framework parses every mod line (stripping the "to
+  nearby allocated passives" / "from Passives in Radius" trailers),
+  identifies the radius bucket (defaults to Medium; explicit "Only
+  affects Passives in <Size> Ring" overrides), and emits one mod copy
+  per in-radius allocated node sourced as `Source::Passive(node_id)`.
+  `Character::socketed_jewels` (a `SocketedJewels` Vec keyed by tree
+  socket node id) round-trips through `CharacterSnapshot`, so saves
+  preserve socketed jewels. Cluster / Abyss / Timeless / Charm jewels
+  are stored in the same map but routed through their own dispatch
+  paths and skipped by `identify_radius_jewel`'s subtype check.
+  Timeless jewels (#30) and the named-unique handlers
+  (Watcher's Eye / Healthy Mind / Karui Heart / Pure Talent /
+  Intuitive Leap / Conqueror's Efficiency) build on the
+  `HandlerKind` enum exposed by this slice.
 - Tattoo full pipeline (#98): catalogue (167 tattoos in
   `data/tattoos.json`) + right-click picker on the Tree tab + gold
   badge overlay on tattooed nodes. PoB-XML round-trip already worked

@@ -501,6 +501,24 @@ pub fn init_env_with_bases(
     // explicit overrides intact.
     apply_enemy_boss_preset(character.config.enemy_boss, &mut env);
 
+    // 9. Issue #31: radius-jewel framework. For each jewel socketed into
+    // a tree socket, identify whether it's a node-modifying radius jewel
+    // (vanilla "X% increased Y to Passives in Radius" or similar) and
+    // replay its mods onto every allocated passive inside the radius.
+    // Cluster / Abyss / Timeless jewels are stored in the same map but
+    // route through their own dispatch paths (#21, #30) and are filtered
+    // out by `identify_radius_jewel`'s subtype check.
+    //
+    // This runs after items so a radius jewel can itself be detected /
+    // disabled by item rules (jewel-limit, etc.) when those land. Today
+    // every jewel in `socketed_jewels` is considered active.
+    let _ = crate::jewel_radius::apply_radius_jewels(
+        tree,
+        &effective,
+        &character.socketed_jewels,
+        &mut env.mod_db,
+    );
+
     env
 }
 

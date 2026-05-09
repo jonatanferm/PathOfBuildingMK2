@@ -10,6 +10,7 @@ pub mod cluster_jewels;
 pub mod flags;
 pub mod gem;
 pub mod item;
+pub mod jewel_radius;
 pub mod load;
 pub mod minions;
 pub mod monster_tables;
@@ -25,6 +26,10 @@ pub use cluster_jewels::{load_cluster_jewels, ClusterJewelData, ClusterJewelType
 pub use flags::{KeywordFlag, ModFlag, SkillType};
 pub use gem::Gem;
 pub use item::{Item, ItemSet, ModLine, ModSection, Rarity, Slot};
+pub use jewel_radius::{
+    max_outer, radii_for_tree_version, radius_index_for_label, JewelRadiusInfo, RADII_3_15,
+    RADII_3_16,
+};
 pub use load::{load_bases, load_gems, load_passive_tree, load_skill_file, load_tree_index};
 pub use minions::{load_minions, MinionData, MinionType};
 pub use skill::{Skill, SkillSet};
