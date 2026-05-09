@@ -374,8 +374,23 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
     let stun_threshold_inc_intrinsic =
         intrinsic.sum(ModType::Inc, &cfg, &env.state, "StunThreshold");
     output.set("MinionStunThresholdInc", stun_threshold_inc_intrinsic);
-    let life_regen_pct = intrinsic.sum(ModType::Base, &cfg, &env.state, "LifeRegenPercent");
+    // Life regen: combine the intrinsic LifeRegenPercent BASE (e.g. Chaos Golem's
+    // +1% baked into modList) with the player-side MinionLifeRegen BASE (rare —
+    // e.g. some belt rolls). Surface both the percent and the absolute life/sec
+    // value so the breakdown panel can show what scales the regen.
+    let life_regen_pct_intrinsic =
+        intrinsic.sum(ModType::Base, &cfg, &env.state, "LifeRegenPercent");
+    let life_regen_pct_player = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "MinionLifeRegen");
+    let life_regen_pct = life_regen_pct_intrinsic + life_regen_pct_player;
     output.set("MinionLifeRegenPercent", life_regen_pct);
+    // Absolute life/sec = MinionLife × percent / 100. Reads back the just-set
+    // MinionLife so any scaling layered above (player INC/MORE) flows through.
+    output.set(
+        "MinionLifeRegen",
+        output.get("MinionLife") * life_regen_pct / 100.0,
+    );
 
     // Crit. PoB minions start with a 5% crit chance and the player-side
     // `MinionCritChance` INC / BASE chain, with a 150% base multiplier scaled by
@@ -945,5 +960,32 @@ mod tests {
         assert_eq!(output.get("MinionArmourInc"), 40.0);
         // LifeRegenPercent BASE 1 lands on a dedicated key.
         assert_eq!(output.get("MinionLifeRegenPercent"), 1.0);
+        // Life regen rate = MinionLife (1750) × 1% / 100 = 17.5 life/sec.
+        assert_eq!(output.get("MinionLifeRegen"), 17.5);
+    }
+
+    #[test]
+    fn write_minion_outputs_combines_intrinsic_and_player_life_regen() {
+        use crate::Mod;
+        let minions = fake_minion_with_intrinsic_mods();
+        let data = minions.minions.get("TestMinion").unwrap();
+        let state = MinionState {
+            id: "TestMinion".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+
+        // Player-side MinionLifeRegen 2 BASE adds to the intrinsic LifeRegenPercent
+        // 1 BASE → total 3%. The fake minion's intrinsic Life INC 25 scales
+        // MinionLife to 1000 × 1.25 = 1250, so regen lands at 1250 × 3 / 100 = 37.5
+        // life/sec.
+        let mut env = Env::default();
+        env.mod_db.add(Mod::base("MinionLifeRegen", 2.0));
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        assert_eq!(output.get("MinionLifeRegenPercent"), 3.0);
+        assert_eq!(output.get("MinionLife"), 1250.0);
+        assert_eq!(output.get("MinionLifeRegen"), 37.5);
     }
 }
