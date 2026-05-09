@@ -48,6 +48,16 @@ const GROUPS: &[(&str, &[&str])] = &[
     // `TrapThrowingSpeed` aren't absorbed by the generic "Speed"
     // pattern.
     ("Mines / Traps", &["Mine", "Trap"]),
+    // Issue #20 (slices 3-6): minion outputs. Listed before
+    // "Skill Hit Damage" / "Pools" / "Resists" so keys like
+    // `MinionLife` / `MinionFireResist` / `MinionDPS` don't get
+    // absorbed by the generic `Life` / `FireResist` / `Damage`
+    // patterns. The single-prefix `Minion` substring catches every
+    // key the engine emits today (`MinionLife*`, `MinionDamage*`,
+    // `MinionAttacksPerSecond*`, `MinionCritChance` /
+    // `MinionCritMultiplier`, `Minion{Fire,Cold,Lightning,Chaos}Resist*`,
+    // `MinionDPS`).
+    ("Minion", &["Minion"]),
     // OFFENCE column.
     (
         "Skill Hit Damage",
@@ -929,6 +939,44 @@ mod tests {
         // notFlag matching focused → hide.
         active.insert("focused".into());
         assert!(!super::row_passes_skill_flags(&row, &active));
+    }
+
+    #[test]
+    fn minion_outputs_land_under_minion_section() {
+        // Issue #20 slices 3-6: every minion-side output the engine emits today
+        // must bucket under the dedicated "Minion" group so it's not absorbed by
+        // the generic Life / Damage / Resists / Crits patterns.
+        for key in [
+            // Slice 3: detection + life / resists.
+            "MinionLifeBase",
+            "MinionLife",
+            "MinionFireResist",
+            "MinionColdResist",
+            "MinionLightningResist",
+            "MinionChaosResist",
+            // Slice 5: damage + attack rate + DPS.
+            "MinionDamageBase",
+            "MinionAverageDamage",
+            "MinionMinDamage",
+            "MinionMaxDamage",
+            "MinionAttacksPerSecondBase",
+            "MinionAttacksPerSecond",
+            "MinionDPS",
+            // Slice 6: resist breakdown + crit factor.
+            "MinionFireResistBase",
+            "MinionColdResistBase",
+            "MinionLightningResistBase",
+            "MinionChaosResistBase",
+            "MinionCritChance",
+            "MinionCritMultiplier",
+        ] {
+            let group = group_for(key);
+            assert_eq!(
+                group,
+                Some("Minion"),
+                "{key} should bucket under Minion, got {group:?}"
+            );
+        }
     }
 
     #[test]
