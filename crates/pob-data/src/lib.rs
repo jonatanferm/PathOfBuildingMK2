@@ -14,7 +14,7 @@ pub mod sprites;
 pub mod tree;
 
 pub use bases::{ArmourStats, FlaskStats, ItemBase, ItemBaseKind, ItemReq, WeaponStats};
-pub use calc_sections::{load_calc_sections, CalcSection, CalcSubsection};
+pub use calc_sections::{load_calc_sections, CalcRow, CalcSection, CalcSubsection};
 pub use flags::{KeywordFlag, ModFlag, SkillType};
 pub use gem::Gem;
 pub use item::{Item, ItemSet, ModLine, ModSection, Rarity, Slot};

@@ -64,6 +64,10 @@ struct LoadedApp {
     /// class changes without re-reading `sprite_atlases.json` from
     /// disk each time.
     sprites: Option<pob_data::sprites::SpriteSet>,
+    /// Issue #34 (slice 1+2): the imported PoB Calcs-tab section layout.
+    /// `None` if `data/calc_sections.json` is missing — the Calcs tab
+    /// silently falls back to its legacy flat-key view in that case.
+    calc_sections: Option<Vec<pob_data::CalcSection>>,
     /// Path of the currently-open build file, if any. Used by Save vs Save As.
     current_build_path: Option<std::path::PathBuf>,
     status_message: Option<(StatusKind, String)>,
@@ -194,6 +198,9 @@ impl PobApp {
         let skills = SkillRegistry::from_files(skill_sets);
 
         let sprites = load_sprite_metadata();
+        let calc_sections = std::fs::read_to_string(data_root.join("calc_sections.json"))
+            .ok()
+            .and_then(|json| pob_data::load_calc_sections(&json).ok());
         let mut tree_view = TreeView::new(&tree, sprites.as_ref());
         let character = Character::new(ClassRef::marauder(), 1);
         // Issue #110: gate the class portrait sprites on the active
@@ -223,6 +230,7 @@ impl PobApp {
             skills,
             bases,
             sprites,
+            calc_sections,
             current_build_path: None,
             status_message: None,
             tree_versions,
@@ -243,9 +251,11 @@ impl PobApp {
     fn load_initial() -> Result<LoadedApp, String> {
         let tree_json = include_str!("../../../data/trees/3_25.json");
         let bases_json = include_str!("../../../data/bases.json");
+        let calc_sections_json = include_str!("../../../data/calc_sections.json");
         let tree =
             pob_data::load_passive_tree(tree_json).map_err(|e| format!("parsing tree: {e}"))?;
         let bases = pob_data::load_bases(bases_json).ok();
+        let calc_sections = pob_data::load_calc_sections(calc_sections_json).ok();
         let skills = SkillRegistry::default();
         let sprites = load_sprite_metadata();
         let mut tree_view = TreeView::new(&tree, sprites.as_ref());
@@ -272,6 +282,7 @@ impl PobApp {
             skills,
             bases,
             sprites,
+            calc_sections,
             current_build_path: None,
             status_message: None,
             tree_versions: vec!["3_25".to_owned()],
@@ -955,7 +966,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Calcs => {
-            calcs_tab::ui(ui, &mut app.calcs_state, &app.output, app.last_env.as_ref());
+            calcs_tab::ui(
+                ui,
+                &mut app.calcs_state,
+                &app.output,
+                app.last_env.as_ref(),
+                app.calc_sections.as_deref(),
+            );
         }
         Tab::Compare => {
             if let Some(action) =
