@@ -5,6 +5,7 @@
 
 pub mod bases;
 pub mod calc_sections;
+pub mod cluster_jewels;
 pub mod flags;
 pub mod gem;
 pub mod item;
@@ -15,6 +16,7 @@ pub mod tree;
 
 pub use bases::{ArmourStats, FlaskStats, ItemBase, ItemBaseKind, ItemReq, WeaponStats};
 pub use calc_sections::{load_calc_sections, CalcRow, CalcSection, CalcSubsection};
+pub use cluster_jewels::{load_cluster_jewels, ClusterJewelData, ClusterJewelType, ClusterSkill};
 pub use flags::{KeywordFlag, ModFlag, SkillType};
 pub use gem::Gem;
 pub use item::{Item, ItemSet, ModLine, ModSection, Rarity, Slot};
