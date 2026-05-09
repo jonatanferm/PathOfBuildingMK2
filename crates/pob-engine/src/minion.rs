@@ -472,6 +472,28 @@ pub fn write_minion_outputs(state: &MinionState<'_>, env: &Env, output: &mut Out
     output.set("MinionAttacksPerSecondBase", speed_base);
     output.set("MinionAttacksPerSecond", attacks_per_second);
 
+    // Slice 15 of #20: minion movement speed. PoB minions start at the
+    // standard 100% baseline and scale through the same INC / MORE chain
+    // as the player. Aura-style movement speed support gems (Haste,
+    // Onslaught buff effect) wire in through the player-side
+    // `MinionMovementSpeed` chain; intrinsic `MovementSpeed` mods on the
+    // minion's `mod_list` (rare — most stock minions inherit the 100%
+    // baseline) compose multiplicatively. Output the result both as a
+    // multiplier (`1.20` = 20% faster than base) and as a percentage
+    // (`120.0`) so callers can pick the convention that matches their
+    // existing display chain.
+    let move_inc_player = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "MinionMovementSpeed");
+    let move_more_player = env.mod_db.more(&cfg, &env.state, "MinionMovementSpeed");
+    let move_inc_intrinsic = intrinsic.sum(ModType::Inc, &cfg, &env.state, "MovementSpeed");
+    let move_more_intrinsic = intrinsic.more(&cfg, &env.state, "MovementSpeed");
+    let move_multiplier = (1.0 + (move_inc_player + move_inc_intrinsic) / 100.0)
+        * move_more_player
+        * move_more_intrinsic;
+    output.set("MinionMovementSpeedMod", move_multiplier);
+    output.set("MinionMovementSpeed", move_multiplier * 100.0);
+
     // Slice 14 of #20: minion armour and evasion. Mirrors PoB's
     // `Modules/CalcPerform.lua:1146-1148`:
     //
@@ -1563,5 +1585,100 @@ mod tests {
             output.get("MinionEvasionBase"),
             evasion_table.round() + 25.0
         );
+    }
+
+    /// Slice 15 of #20: with no movement-speed mods, the multiplier is
+    /// 1.0 (100%). Both keys land so consumers can branch on either
+    /// convention without unwrapping.
+    #[test]
+    fn write_minion_outputs_movement_speed_baseline() {
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+        let env = Env::default();
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        assert_eq!(output.get("MinionMovementSpeedMod"), 1.0);
+        assert_eq!(output.get("MinionMovementSpeed"), 100.0);
+    }
+
+    /// Slice 15 of #20: player-side `MinionMovementSpeed` INC + MORE
+    /// compose. 50% INC × 20% MORE → 1.5 × 1.2 = 1.8 multiplier (180%).
+    #[test]
+    fn write_minion_outputs_movement_speed_scales_by_player_mods() {
+        use crate::Mod;
+        let minions = fake_minion();
+        let data = minions.minions.get("SummonedFlameGolem").unwrap();
+        let state = MinionState {
+            id: "SummonedFlameGolem".into(),
+            data,
+            level: 20,
+            life_base: 1000,
+        };
+        let mut env = Env::default();
+        env.mod_db.add(Mod::inc("MinionMovementSpeed", 50.0));
+        env.mod_db.add(Mod::more("MinionMovementSpeed", 20.0));
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        // 1.5 × 1.2 = 1.8
+        assert!((output.get("MinionMovementSpeedMod") - 1.8).abs() < 1e-9);
+        assert!((output.get("MinionMovementSpeed") - 180.0).abs() < 1e-9);
+    }
+
+    /// Slice 15 of #20: intrinsic `MovementSpeed` mods on the minion's
+    /// `mod_list` compose with the player-side chain. A 25% intrinsic INC
+    /// stacked with a 50% player INC gives a combined 75% → 1.75x.
+    #[test]
+    fn write_minion_outputs_movement_speed_picks_up_intrinsic_inc() {
+        use crate::Mod;
+        use serde_json::json;
+        let mut minions: IndexMap<String, MinionType> = IndexMap::new();
+        minions.insert(
+            "TestMinion".into(),
+            MinionType {
+                name: "Test".into(),
+                monster_tags: vec![],
+                life: 1.0,
+                energy_shield: None,
+                armour: None,
+                evasion: None,
+                fire_resist: 0,
+                cold_resist: 0,
+                lightning_resist: 0,
+                chaos_resist: 0,
+                damage: 1.0,
+                damage_spread: 0.0,
+                attack_time: 1.0,
+                attack_range: 1.0,
+                accuracy: 1.0,
+                limit: None,
+                skill_list: vec![],
+                mod_list: vec![
+                    json!({"__kind": "mod", "name": "MovementSpeed", "type": "INC", "value": 25, "flags": 0, "keywordFlags": 0}),
+                ],
+                life_scaling: None,
+                weapon_type1: None,
+                weapon_type2: None,
+                base_damage_ignores_attack_speed: false,
+            },
+        );
+        let data = minions.get("TestMinion").unwrap();
+        let state = MinionState {
+            id: "TestMinion".into(),
+            data,
+            level: 1,
+            life_base: 100,
+        };
+        let mut env = Env::default();
+        env.mod_db.add(Mod::inc("MinionMovementSpeed", 50.0));
+        let mut output = Output::default();
+        write_minion_outputs(&state, &env, &mut output);
+        // (1 + (25 + 50)/100) = 1.75
+        assert!((output.get("MinionMovementSpeedMod") - 1.75).abs() < 1e-9);
     }
 }
