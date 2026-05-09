@@ -4104,6 +4104,173 @@ fn seismic_cry_injects_armour_and_stun_threshold_buff() {
     );
 }
 
+// Issue #19 (slice 11): integration test locking the warcry buff
+// chain. Slices 6-10 each ship one warcry's per-skill buff
+// (Intimidating's enemy debuff, Enduring's life regen,
+// Ancestral's elemental resists, Seismic's armour + stun
+// threshold). This test stacks all four at once with
+// UsedWarcryRecently + WarcryPower = 25 and verifies every
+// buff lands without cross-cancellation, locks the per-source
+// modDB tagging, and pins the marker outputs from slice 7.
+//
+// Acts as a guard against future slices accidentally regressing
+// any of the per-cry effects when adding Rallying / Infernal /
+// Battlemage's / General's.
+#[test]
+fn warcry_buff_chain_stacks_independently() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    let needed = [
+        "IntimidatingCry",
+        "EnduringCry",
+        "AncestralCry",
+        "SeismicCry",
+        "Cleave",
+    ];
+    for id in &needed {
+        if skills.get(id).is_none() {
+            eprintln!("skip: {id} not in registry");
+            return;
+        }
+    }
+    use pob_engine::character::SocketGroup;
+    use pob_engine::ModStore as _;
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry_gems = Vec::new();
+    for id in [
+        "IntimidatingCry",
+        "EnduringCry",
+        "AncestralCry",
+        "SeismicCry",
+    ] {
+        let mut m = MainSkill::new(id);
+        m.level = 20;
+        warcry_gems.push(m);
+    }
+    c.skill_groups.push(SocketGroup {
+        label: "Warcries".into(),
+        gems: warcry_gems,
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    c.config.warcry_power = Some(25);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+
+    // Slice 6: Intimidating Cry's enemy debuff.
+    assert!(
+        env.state.condition("EnemyIntimidated"),
+        "EnemyIntimidated must flip on with IntimidatingCry + UsedWarcryRecently"
+    );
+
+    // Slice 7: per-cry active markers.
+    for key in [
+        "IntimidatingCryActive",
+        "EnduringCryActive",
+        "AncestralCryActive",
+        "SeismicCryActive",
+    ] {
+        assert!(
+            (env.output.get(key) - 1.0).abs() < 1e-6,
+            "{key} should be 1 with the cry in the loadout + UsedWarcryRecently — got {}",
+            env.output.get(key)
+        );
+    }
+
+    // Slice 8: Enduring Cry life regen at WarcryPower 25 (cap) → 10%/s.
+    let regen: f64 = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            m.name == "LifeRegenPercent"
+                && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Enduring Cry")
+        })
+        .filter_map(|m| m.value.as_f64())
+        .sum();
+    assert!(
+        (regen - 10.0).abs() < 1e-6,
+        "Enduring Cry at WarcryPower 25 should give 10%/s LifeRegenPercent; got {regen}"
+    );
+
+    // Slice 9: Ancestral Cry resist + max-resist at cap (30 effective, but
+    // we capped at 25 here since the test sets warcry_power = 25).
+    // ElementalResist BASE = power, ElementalResistMax BASE = power × 0.1.
+    let ancestral_res: f64 = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            m.name == "ElementalResist"
+                && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Ancestral Cry")
+        })
+        .filter_map(|m| m.value.as_f64())
+        .sum();
+    assert!(
+        (ancestral_res - 25.0).abs() < 1e-6,
+        "Ancestral Cry at WarcryPower 25 should give +25% ElementalResist; got {ancestral_res}"
+    );
+    let ancestral_max: f64 = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            m.name == "ElementalResistMax"
+                && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Ancestral Cry")
+        })
+        .filter_map(|m| m.value.as_f64())
+        .sum();
+    assert!(
+        (ancestral_max - 2.5).abs() < 1e-6,
+        "Ancestral Cry at WarcryPower 25 should give +2.5% ElementalResistMax; got {ancestral_max}"
+    );
+
+    // Slice 10: Seismic Cry armour MORE + stun threshold INC (cap 25).
+    let seismic_armour: f64 = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            m.name == "Armour"
+                && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Seismic Cry")
+        })
+        .filter_map(|m| m.value.as_f64())
+        .sum();
+    assert!(
+        (seismic_armour - 25.0).abs() < 1e-6,
+        "Seismic Cry at WarcryPower 25 should give +25% MORE Armour; got {seismic_armour}"
+    );
+    let seismic_stun: f64 = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            m.name == "StunThreshold"
+                && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Seismic Cry")
+        })
+        .filter_map(|m| m.value.as_f64())
+        .sum();
+    assert!(
+        (seismic_stun - 75.0).abs() < 1e-6,
+        "Seismic Cry at WarcryPower 25 should give +75% INC StunThreshold; got {seismic_stun}"
+    );
+
+    // Slice 3 aggregates still work — total exert count is the sum
+    // of each detected cry's `skill_empowers_next_x_melee_attacks`
+    // constant: Intimidating 2, Enduring 0 (no exert), Ancestral 8,
+    // Seismic 6 = 16.
+    let total_exert = env.output.get("WarcryExertedAttackCountTotal");
+    assert!(
+        (total_exert - 16.0).abs() < 1e-6,
+        "All four warcries together should aggregate exactly 16 exerted attacks (got {total_exert})"
+    );
+    assert!(
+        (env.output.get("ActiveWarcryCount") - 4.0).abs() < 1e-6,
+        "ActiveWarcryCount should equal 4 with all warcries socketed"
+    );
+}
+
 // Issue #19 (slice 4): `ExertedAttackUptime` auto-derives from the
 // slice-3 warcry aggregates when the user hasn't pinned it
 // manually. Auto-uptime = `total_exert / (cps × cooldown)`, capped
