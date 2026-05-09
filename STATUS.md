@@ -166,7 +166,15 @@ Closed since the previous status snapshot:
   three columns (Offence / Core / Defence) with per-row output values.
   Skill-flag visibility (`flag = "spell"` / `notFlag = "attack"`) is
   honoured against the active main skill's `baseFlags` so spell builds
-  stop seeing weapon-attack rows.
+  stop seeing weapon-attack rows. Click-through breakdown re-derivation
+  (`pob_engine::breakdown::derive_for`) ports the Damage / Speed / Crit
+  slice of `Modules/CalcBreakdown.lua`: clicking a row in the Calcs tab
+  opens a step-by-step panel that walks Base → INC → MORE → quality →
+  crit factor → speed → DPS for the headline keys
+  (`MainSkillAverageHit`, `MainSkillDPS`, `FullDPS`,
+  `(Cast|Attack|Movement)SpeedMult`, `MainSkillSpeed`, `CritChance`,
+  `CritMultiplier`, `CritEffect`, etc.). Rows without a custom
+  breakdown still render the legacy contributing-mods view.
 - Cluster jewel data foundation (#21): `data/cluster_jewels.json` and
   `data/cluster_jewel_mods.json` capture the three jewel categories
   (Small / Medium / Large with their ring slots + small-passive

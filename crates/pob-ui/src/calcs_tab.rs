@@ -11,7 +11,10 @@ use std::collections::HashSet;
 
 use eframe::egui;
 use pob_data::{CalcRow, CalcSection};
-use pob_engine::{Character, Env, Mod, ModStore as _, ModType, Output, SkillRegistry, Source, Tag};
+use pob_engine::{
+    derive_for, Breakdown, BreakdownStep, Character, Env, Mod, ModSource, ModStore as _, ModType,
+    Output, SkillRegistry, Source, Tag,
+};
 
 #[derive(Default)]
 pub struct CalcsTabState {
@@ -229,14 +232,7 @@ pub fn ui(
         if let Some(focus) = state.focused_stat.clone() {
             ui.separator();
             ui.vertical(|ui| {
-                ui.heading(&focus);
-                ui.weak("contributing modifiers");
-                ui.separator();
-                if let Some(env) = env {
-                    render_breakdown(ui, env, &focus);
-                } else {
-                    ui.weak("ModDB unavailable.");
-                }
+                render_focused_breakdown(ui, env, &focus);
             });
         }
     });
@@ -320,14 +316,7 @@ fn render_pob_layout(
         if let Some(focus) = state.focused_stat.clone() {
             ui.separator();
             ui.vertical(|ui| {
-                ui.heading(&focus);
-                ui.weak("contributing modifiers");
-                ui.separator();
-                if let Some(env) = env {
-                    render_breakdown(ui, env, &focus);
-                } else {
-                    ui.weak("ModDB unavailable.");
-                }
+                render_focused_breakdown(ui, env, &focus);
             });
         }
     });
@@ -551,6 +540,123 @@ fn render_row(ui: &mut egui::Ui, k: &str, v: f64, focused: &mut Option<String>) 
         ui.monospace(formatted);
     });
     ui.end_row();
+}
+
+/// Top-level breakdown panel. Tries the engine's [`derive_for`] helper
+/// first (which produces a step-by-step CalcBreakdown.lua-style derivation
+/// for Damage / Speed / Crit) and falls back to the legacy contributing-
+/// modifiers view when no custom breakdown is registered.
+fn render_focused_breakdown(ui: &mut egui::Ui, env: Option<&Env>, stat: &str) {
+    ui.heading(stat);
+    let Some(env) = env else {
+        ui.weak("ModDB unavailable.");
+        return;
+    };
+    if let Some(breakdown) = derive_for(env, stat) {
+        ui.weak("derivation");
+        ui.separator();
+        render_step_breakdown(ui, &breakdown);
+        ui.add_space(4.0);
+        ui.collapsing("Raw modifiers", |ui| {
+            render_breakdown(ui, env, stat);
+        });
+    } else {
+        ui.weak("contributing modifiers");
+        ui.separator();
+        render_breakdown(ui, env, stat);
+    }
+}
+
+/// Render the engine-derived [`Breakdown`] as one row per step with
+/// optional contributing-source rollouts under each step.
+fn render_step_breakdown(ui: &mut egui::Ui, breakdown: &Breakdown) {
+    egui::ScrollArea::vertical()
+        .id_salt("calcs_step_breakdown")
+        .auto_shrink([false, false])
+        .max_height(420.0)
+        .show(ui, |ui| {
+            for step in &breakdown.steps {
+                render_one_step(ui, step);
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Total").strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                    ui.monospace(format_value(breakdown.total));
+                });
+            });
+        });
+}
+
+fn render_one_step(ui: &mut egui::Ui, step: &BreakdownStep) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(&step.label).strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            if let Some(v) = step.value {
+                ui.monospace(format_step_value(v));
+            }
+        });
+    });
+    if let Some(explain) = &step.explain {
+        ui.weak(format!("    {explain}"));
+    }
+    if !step.sources.is_empty() {
+        // Inline-collapse the source list so a stat with 30 contributors
+        // doesn't dominate the panel — matches PoB's behaviour where the
+        // breakdown is concise by default and the user expands a section
+        // for the long-tail mods.
+        let id = egui::Id::new(("step_sources", &step.label));
+        egui::CollapsingHeader::new(format!("    {} sources", step.sources.len()))
+            .id_salt(id)
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new(id.with("grid"))
+                    .num_columns(3)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for src in &step.sources {
+                            render_mod_source_row(ui, src);
+                        }
+                    });
+            });
+    }
+    ui.add_space(2.0);
+}
+
+fn render_mod_source_row(ui: &mut egui::Ui, src: &ModSource) {
+    let kind = match src.kind {
+        ModType::Base => "BASE",
+        ModType::Inc => "INC",
+        ModType::More => "MORE",
+        ModType::Flag => "FLAG",
+        ModType::Override => "OVERRIDE",
+        ModType::List => "LIST",
+        ModType::Max => "MAX",
+        ModType::Min => "MIN",
+    };
+    ui.monospace(kind);
+    if let Some(v) = src.value {
+        ui.monospace(format!("{v:>+8.2}"));
+    } else {
+        ui.monospace("       —");
+    }
+    ui.label(&src.source);
+    ui.end_row();
+}
+
+fn format_step_value(v: f64) -> String {
+    // Step values can be raw scalars (1.30 cast speed mult), small
+    // percentages (0.06 crit chance), or large numerics (1650 DPS).
+    // Pick a precision that reads cleanly in each regime.
+    if v.fract().abs() < 1e-9 {
+        format!("{v:>10.0}")
+    } else if v.abs() < 10.0 {
+        format!("{v:>10.4}")
+    } else if v.abs() < 1000.0 {
+        format!("{v:>10.2}")
+    } else {
+        format!("{v:>10.0}")
+    }
 }
 
 /// Walk env.mod_db for mods named `stat` and render them in groups by ModType.

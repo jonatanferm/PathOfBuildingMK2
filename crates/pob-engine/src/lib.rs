@@ -18,6 +18,7 @@
 //! - [`env`] — `Env`, `Output`. Computation context.
 //! - [`perform`] — top-level `compute(build) -> Output`. Calls the basic-stats passes.
 
+pub mod breakdown;
 pub mod character;
 pub mod env;
 pub mod ggg_import;
@@ -33,6 +34,7 @@ pub mod pob_import;
 pub mod share;
 pub mod skill;
 
+pub use breakdown::{derive_for, Breakdown, BreakdownStep, ModSource, COVERED_KEYS};
 pub use character::{Character, CharacterSnapshot, ClassRef, ConfigState};
 pub use env::{Env, Output};
 pub use ggg_import::{
