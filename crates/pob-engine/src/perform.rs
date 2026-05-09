@@ -65,7 +65,23 @@ pub fn compute_full_with_clusters(
     bases: Option<&pob_data::bases::ItemBaseSet>,
     cluster_ctx: Option<ClusterContext<'_>>,
 ) -> (Output, Env) {
-    let mut env = init_env_with_bases(character, tree, bases);
+    compute_full_with_clusters_and_timeless(character, tree, skills, bases, cluster_ctx, None)
+}
+
+/// Issue #30: full-fat compute that also threads through a Timeless-jewel
+/// data catalogue. Behaves identically to `compute_full_with_clusters` when
+/// `timeless = None`; with `Some(data)`, allocated keystones inside Timeless
+/// jewels' radii are replaced before mod parsing runs (see
+/// [`init_env_with_bases_and_timeless`] for the mechanism).
+pub fn compute_full_with_clusters_and_timeless(
+    character: &Character,
+    tree: &PassiveTree,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> (Output, Env) {
+    let mut env = init_env_with_bases_and_timeless(character, tree, bases, timeless);
     if let Some(ctx) = cluster_ctx {
         apply_cluster_jewel_mods(character, tree, &mut env, ctx);
     }
@@ -195,6 +211,27 @@ pub fn init_env_with_bases(
     tree: &PassiveTree,
     bases: Option<&pob_data::bases::ItemBaseSet>,
 ) -> Env {
+    init_env_with_bases_and_timeless(character, tree, bases, None)
+}
+
+/// Issue #30: extended init_env that also threads through a Timeless-jewel
+/// data catalogue. When `timeless` is `Some`, every Timeless jewel socketed
+/// into a tree-socket node has its in-radius **allocated keystones** replaced
+/// by the conqueror's keystone (Glorious Vanity / Doryani → Corrupted Soul,
+/// Militant Faith / Maxarius → Transcendence, etc.). The original keystone's
+/// stats are skipped during the tree-stat pass, and the conqueror keystone's
+/// stats are added with `Source::Passive(<conquered_node>)` so per-node
+/// breakdown attribution stays sensible. Notable / small-node replacement is
+/// reserved for a follow-up slice and currently no-ops.
+///
+/// Pass `None` to opt out (mirrors the engine's pre-#30 behaviour). Existing
+/// callers route through `init_env_with_bases`, which forwards `None` here.
+pub fn init_env_with_bases_and_timeless(
+    character: &Character,
+    tree: &PassiveTree,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> Env {
     let mut env = Env::default();
 
     // 1. Class base attributes (Marauder = 32 str / 14 dex / 14 int, etc.).
@@ -296,10 +333,38 @@ pub fn init_env_with_bases(
     // (Disconnected node IDs come from imported XML where the user manually edited
     // the file — the in-app UI only ever allocates valid paths.)
     let effective: ahash::AHashSet<pob_data::NodeId> = connected_allocations(character, tree);
+
+    // Issue #30: if a Timeless-jewel data catalogue was passed in, compute
+    // the keystone-replacement set up front. Each in-radius allocated
+    // keystone whose host jewel is Timeless gets its mods *skipped* by the
+    // tree-stat pass below and *replaced* with the conqueror keystone's
+    // stats afterwards. With `timeless = None` this is an empty Vec and
+    // the loop below behaves exactly as before.
+    let timeless_replacements = if let Some(data) = timeless {
+        crate::timeless::compute_keystone_replacements(
+            tree,
+            &effective,
+            &character.socketed_jewels.entries,
+            data,
+        )
+    } else {
+        Vec::new()
+    };
+    let conquered_keystones = crate::timeless::conquered_keystone_set(&timeless_replacements);
+
     for node_id in &effective {
         let Some(node) = tree.nodes.get(node_id) else {
             continue;
         };
+        // Skip the original keystone's stats when a Timeless jewel is
+        // replacing it; the replacement keystone's stats are applied after
+        // this loop. Without the skip the player would gain *both* the
+        // original and the replacement, double-counting the keystone slot.
+        if matches!(node.kind, pob_data::NodeKind::Keystone)
+            && conquered_keystones.contains(node_id)
+        {
+            continue;
+        }
         // Mastery nodes don't contribute their `stats` directly — the user picks one of
         // the `mastery_effects`. Look up the selection (or default to the first effect
         // if the user hasn't picked one) and use that effect's stats.
@@ -363,6 +428,17 @@ pub fn init_env_with_bases(
                 }
             }
         }
+    }
+
+    // Issue #30: apply Timeless-jewel keystone replacements. Each entry
+    // injects the conqueror keystone's stats sourced as
+    // `Source::Passive(<conquered_node>)` so the per-node breakdown still
+    // attributes the new mods to the conquered passive (mirroring PoB's
+    // `ReplaceNode` keeping the same node id). The original keystone's
+    // stats were skipped above; this is the additive half of the override.
+    if !timeless_replacements.is_empty() {
+        let _ =
+            crate::timeless::apply_keystone_replacements(&timeless_replacements, &mut env.mod_db);
     }
 
     // 4. Items. Issue #109 slice 2: when `use_second_weapon_set` is

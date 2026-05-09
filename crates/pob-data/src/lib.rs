@@ -17,6 +17,7 @@ pub mod monster_tables;
 pub mod skill;
 pub mod sprites;
 pub mod tattoos;
+pub mod timeless_jewels;
 pub mod tree;
 
 pub use bases::{ArmourStats, FlaskStats, ItemBase, ItemBaseKind, ItemReq, WeaponStats};
@@ -34,6 +35,10 @@ pub use load::{load_bases, load_gems, load_passive_tree, load_skill_file, load_t
 pub use minions::{load_minions, MinionData, MinionType};
 pub use skill::{Skill, SkillSet};
 pub use tattoos::{load_tattoos, Tattoo, TattooSet};
+pub use timeless_jewels::{
+    load_timeless_jewels, ConquerorKeystone, TimelessConqueror, TimelessJewelConfig,
+    TimelessJewelData,
+};
 pub use tree::{
     Ascendancy, Class, Group, GroupBackground, MasteryEffect, Node, NodeId, NodeKind, PassiveTree,
     Rect, TreeConstants, TreePoints, ROOT_NODE_ID,
