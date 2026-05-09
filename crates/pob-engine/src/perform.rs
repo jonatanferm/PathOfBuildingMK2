@@ -2029,6 +2029,12 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     let mut seismic_cry_present = false;
     let mut battlemages_cry_present = false;
     let mut rallying_cry_present = false;
+    let mut infernal_cry_present = false;
+    let mut generals_cry_present = false;
+    let mut generals_cry_max_count: f64 = 0.0;
+    let mut generals_cry_quality_inc: f64 = 0.0;
+    let mut generals_cry_level: u32 = 0;
+    let mut generals_cry_cooldown: f64 = 0.0;
     for group in &character.skill_groups {
         if !group.enabled {
             continue;
@@ -2078,6 +2084,35 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
             }
             if gem.skill_id == "RallyingCry" {
                 rallying_cry_present = true;
+            }
+            if gem.skill_id == "InfernalCry" {
+                infernal_cry_present = true;
+            }
+            if gem.skill_id == "GeneralsCry" {
+                generals_cry_present = true;
+                generals_cry_level = gem.level.max(1);
+                generals_cry_quality_inc = f64::from(gem.quality);
+                if let Some(cd) = skill.cooldown(generals_cry_level) {
+                    generals_cry_cooldown = cd;
+                }
+                // PoB GeneralsCry's `maximum_number_of_spiritual_cry_warriors`
+                // baseline = 5; quality adds 0.05 per quality point (capped
+                // by gem). We mirror that with a flat baseline read from
+                // the constantStats array; quality-stat scaling is added
+                // below per slice-4 contract.
+                for entry in &skill.constant_stats {
+                    let Some(arr) = entry.as_array() else {
+                        continue;
+                    };
+                    let Some(id) = arr.first().and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    if id == "maximum_number_of_spiritual_cry_warriors" {
+                        if let Some(v) = arr.get(1).and_then(serde_json::Value::as_f64) {
+                            generals_cry_max_count = v;
+                        }
+                    }
+                }
             }
             if let Some(&(_, marker)) = WARCRY_MARKERS.iter().find(|(id, _)| *id == gem.skill_id) {
                 if !detected_cries.contains(&marker) {
@@ -2262,6 +2297,109 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
             );
             env.output.set("RallyingCryExertDamageBonus", exert_more);
             env.output.set("RallyingCryAllyCount", f64::from(allies));
+        }
+
+        // Issue #145 (slice 1): Rallying Cry's "Nearby allies deal
+        // X% more weapon damage" projection. Per PoB's
+        // `act_str.lua` RallyingCry statMap:
+        //   rallying_cry_weapon_damage_%_for_allies_per_5_monster_power
+        //   = 4 (constant) → at WarcryPower 20 (PoB default)
+        //   that's `4 × 20 / 5 = 16%` per-ally weapon-damage MORE
+        //   each enabled party member projects to the player.
+        // We don't yet run a per-ally compute pass — the cleanest
+        // place to surface this is on the Calcs side panel as a
+        // `RallyingCryAllyWeaponDamageBonus` output (per-ally
+        // amount). Multiplied across N party members it gives the
+        // full party-projection envelope. Same `UsedWarcryRecently`
+        // + `nearby_allies > 0` gate as the per-ally exert.
+        let power = character.config.warcry_power.unwrap_or(20);
+        let per_ally_weapon_damage = 4.0 * f64::from(power) / 5.0;
+        if allies > 0 && per_ally_weapon_damage > 0.0 {
+            // The total ally weapon damage envelope is
+            // `per_ally × allies` — the value the Calcs tab shows
+            // for "Rallying Cry projects W% to N allies".
+            env.output
+                .set("RallyingCryAllyWeaponDamageBonus", per_ally_weapon_damage);
+            env.output.set(
+                "RallyingCryAllyWeaponDamageTotal",
+                per_ally_weapon_damage * f64::from(allies),
+            );
+            // Project the buff to each party member by adding it as
+            // a MORE Damage mod sourced as `Party:<name>:RallyingCry`.
+            // For users with party members configured, this lifts the
+            // teammate's damage envelope on the (future) per-ally DPS
+            // pass; today it lands as an attributable mod the Calcs
+            // breakdown picks up.
+            for member in &character.party_members {
+                if !member.enabled {
+                    continue;
+                }
+                env.mod_db.add(
+                    Mod::more("Damage", per_ally_weapon_damage)
+                        .with_source(Source::Other(format!("Party:{}:RallyingCry", member.name))),
+                );
+            }
+        }
+    }
+
+    // Issue #145 (slice 3): Infernal Cry's phys-as-fire conversion.
+    // Per PoB's `act_str.lua` InfernalCry statMap:
+    //   infernal_cry_physical_damage_%_to_add_as_fire_per_5_power_up_to_cap
+    //   = 5 (constant); div = 5, limit = 25 → at WarcryPower 20 the
+    //   gain is `5 × min(20, 25) / 5 = 20%`; capped at WarcryPower
+    //   25 → 25%.
+    // Inject as a `PhysicalDamageGainAsFire` BASE mod so the slice-2
+    // consumer reads it on the next compute. Same `UsedWarcryRecently`
+    // gate as the other per-cry buffs.
+    if infernal_cry_present && env.state.condition("UsedWarcryRecently") {
+        let power = character.config.warcry_power.unwrap_or(20).min(25);
+        let pct = 5.0 * f64::from(power) / 5.0;
+        if pct > 0.0 {
+            env.mod_db.add(
+                Mod::base("PhysicalDamageGainAsFire", pct)
+                    .with_source(Source::Skill("Infernal Cry".into())),
+            );
+            env.output.set("InfernalCryGainAsFireBonus", pct);
+        }
+    }
+
+    // Issue #145 (slice 4): General's Cry parallel-actor envelope.
+    // Per PoB's `act_str.lua` GeneralsCry: baseline 5 mirage warriors
+    // (constantStats), each scaled by `maximum_number_of_spiritual_cry_warriors`
+    // quality (0.05 / point). PoB models the full Magma Vessel
+    // mirror with its own modDB + per-mirror perform pass; we ship
+    // a simpler envelope here: count × per-mirror weapon damage
+    // contributing as an ExertedAttackDamage layer. The cleanest
+    // headline is the per-cast aggregate the Calcs tab can show:
+    //
+    //   GeneralsCryMirageCount = baseline + quality_inc / 100
+    //   GeneralsCryWeaponDamageBonus = MORE-damage layer for the
+    //     mirage-warrior cast volley vs the player's own attack.
+    //
+    // This is a deliberately conservative envelope — running a full
+    // parallel-actor compute (`compute_full_with_skills`-style) for
+    // each mirage is the heavier follow-up the issue calls out.
+    if generals_cry_present && env.state.condition("UsedWarcryRecently") {
+        let mirage_count = (generals_cry_max_count + generals_cry_quality_inc * 0.05).max(0.0);
+        env.output.set("GeneralsCryMirageCount", mirage_count);
+        env.output
+            .set("GeneralsCryLevel", f64::from(generals_cry_level));
+        if generals_cry_cooldown > 0.0 {
+            env.output.set("GeneralsCryCooldown", generals_cry_cooldown);
+        }
+        // The mirage warrior's per-cast damage scales with the
+        // player's main melee skill. PoB models this as a parallel
+        // active skill on the mirror; without that path our
+        // approximation is: each mirage performs one cast of the
+        // player's main melee skill per cry, amortised over the
+        // cry's cooldown. The DPS envelope folds in below in
+        // `perform_skill_dps` via the `GeneralsCryDpsContribution`
+        // output key.
+        if mirage_count > 0.0 && generals_cry_cooldown > 0.0 {
+            env.output.set(
+                "GeneralsCryCastsPerSecond",
+                mirage_count / generals_cry_cooldown,
+            );
         }
     }
 }
@@ -2897,6 +3035,116 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
     let avg_after_shock = avg_after_res * shock_mult;
     env.output.set("ShockEffectMod", 1.0);
     env.output.set("MainSkillShockMult", shock_mult);
+
+    // Issue #145 (slice 2): `PhysicalDamageGainAs<Element>` consumer.
+    // Mirrors PoB's `Modules/CalcOffence.lua` damage-conversion block
+    // around line 1869:
+    //   add[Fire]      = sum(BASE, "PhysicalDamageGainAsFire",
+    //                                "NonChaosDamageGainAsFire")
+    //   add[Cold]      = sum(BASE, "PhysicalDamageGainAsCold", ...)
+    //   …etc per (Cold|Lightning|Chaos)
+    // Each gain-as percentage adds an EXTRA hit of that element equal
+    // to `phys_damage × percent / 100`, scaled by that element's
+    // resist + penetration (not by physical reduction). It's not a
+    // conversion — the original physical damage stays intact.
+    //
+    // We apply this only when the skill's primary damage type is
+    // physical (the only path with a real physical hit value to gain
+    // off). For non-phys spells (Arc, Fireball, etc.) the consumer is
+    // a no-op even if the mod is present in the modDB.
+    //
+    // Output keys mirror PoB: `PhysicalDamageGainAsFire/Cold/...`
+    // expose the per-element percent the player has stacked.
+    // `PhysicalGainAsExtraDamage` is the summed extra hit avg added
+    // to `MainSkillAverageHitAfterShock`, after each element's
+    // resist/penetration is applied.
+    let mut gain_as_extra = 0.0;
+    if is_physical_hit {
+        // The phys hit avg pre-resist (post-crit averaging) — same as
+        // `avg_with_crit` since we treat the entire avg as phys for
+        // attack-with-no-elem skills.
+        let phys_avg_with_crit = avg_with_crit;
+        for &(stat, label, res_raw) in &[
+            (
+                "PhysicalDamageGainAsFire",
+                "Fire",
+                character.config.enemy_fire_resist,
+            ),
+            (
+                "PhysicalDamageGainAsCold",
+                "Cold",
+                character.config.enemy_cold_resist,
+            ),
+            (
+                "PhysicalDamageGainAsLightning",
+                "Lightning",
+                character.config.enemy_lightning_resist,
+            ),
+            (
+                "PhysicalDamageGainAsChaos",
+                "Chaos",
+                character.config.enemy_chaos_resist,
+            ),
+        ] {
+            // PoB also reads NonChaosDamageGainAs<X> for non-chaos
+            // sources. Physical is non-chaos so we sum both.
+            let mut pct = env.mod_db.sum(ModType::Base, &cfg, &env.state, stat);
+            if stat != "PhysicalDamageGainAsChaos" {
+                let alt = format!("NonChaosDamageGainAs{label}");
+                pct += env.mod_db.sum(ModType::Base, &cfg, &env.state, &alt);
+            }
+            if pct <= 0.0 {
+                continue;
+            }
+            // Penetration + curse-driven resist deltas (same machinery
+            // the dominant-element path uses upstream — we have to
+            // re-read them here because the per-element math depends
+            // on the element actually being added, not the skill's
+            // primary tag). Chaos uses no penetration aggregator
+            // (matches PoB).
+            let curse_delta = match label {
+                "Fire" => env.output.get("CursedFireResistDelta"),
+                "Cold" => env.output.get("CursedColdResistDelta"),
+                "Lightning" => env.output.get("CursedLightningResistDelta"),
+                "Chaos" => env.output.get("CursedChaosResistDelta"),
+                _ => 0.0,
+            };
+            let pen_stat = match label {
+                "Fire" => "FirePenetration",
+                "Cold" => "ColdPenetration",
+                "Lightning" => "LightningPenetration",
+                "Chaos" => "ChaosPenetration",
+                _ => "",
+            };
+            let pen = if pen_stat.is_empty() {
+                0.0
+            } else {
+                env.mod_db.sum(ModType::Base, &cfg, &env.state, pen_stat)
+            } + if label != "Chaos" {
+                env.mod_db
+                    .sum(ModType::Base, &cfg, &env.state, "ElementalPenetration")
+            } else {
+                0.0
+            };
+            let eff_res = (f64::from(res_raw) + curse_delta - pen).clamp(-200.0, 95.0);
+            let res_factor = (1.0 - eff_res / 100.0).max(0.0);
+            // Extra hit damage = phys_pre_resist × pct/100 × res_factor.
+            // Note: we use the pre-physical-resist phys avg here
+            // because gain-as is computed off raw physical damage
+            // (PoB's `output[damageType.."Min/Max"]` before enemy
+            // mitigation), then attenuated by the gained element's
+            // own resist.
+            let extra = phys_avg_with_crit * (pct / 100.0) * res_factor * shock_mult;
+            gain_as_extra += extra;
+            env.output.set(stat, pct);
+            env.output.set_concat(label, "GainAsExtraAvg", extra);
+        }
+    }
+    if gain_as_extra > 0.0 {
+        env.output.set("PhysicalGainAsExtraDamage", gain_as_extra);
+    }
+    let avg_after_shock = avg_after_shock + gain_as_extra;
+
     env.output
         .set("MainSkillAverageHitAfterShock", avg_after_shock);
     // Re-emit `{Element}HitAverage` and `{Element}CritAverage` as post-resist
@@ -3718,12 +3966,40 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
         0.0
     };
 
+    // Issue #145 (slice 4): General's Cry parallel-actor DPS
+    // contribution. PoB models a Magma Vessel / Mirage Warrior NPC
+    // that performs one cast of the player's main melee skill once
+    // before dissipating; the steady-state DPS contribution is
+    // `mirage_count × per_cast_damage / (cooldown + cast_time)`.
+    // We use `final_avg` as the per-cast damage (post-resist,
+    // post-shock, post-accuracy) and the cry's cooldown as the
+    // refresh interval. Only fires for melee attacks — General's
+    // Cry is gated on the linked attack being SkillType.Melee in
+    // PoB. We treat the active skill being an attack and not a
+    // ranged / non-melee cast as the marker.
+    let generals_cry_dps = {
+        let mirage_count = env.output.get("GeneralsCryMirageCount");
+        let cd = env.output.get("GeneralsCryCooldown");
+        let is_melee = skill.base_flags.get("melee").copied().unwrap_or(false);
+        if mirage_count > 0.0 && cd > 0.0 && is_melee && is_attack {
+            // Per-cast damage envelope: post-effects per-cast
+            // average. Each mirage performs one cast per cry, and
+            // the cry refreshes on `cooldown` seconds.
+            let per_cast = final_avg;
+            let dps = mirage_count * per_cast / cd;
+            env.output.set("GeneralsCryDpsContribution", dps);
+            dps
+        } else {
+            0.0
+        }
+    };
+
     // FullDPS aggregator: hit DPS + the highest-impact ailment that this skill can
     // sustain. Real PoB sums all simultaneously sustainable ailments; we approximate.
     let bleed = env.output.get("BleedDPS");
     let poison = env.output.get("PoisonDPS");
     let ignite = env.output.get("IgniteDPS");
-    let full_dps = main_dps + bleed + poison + ignite + impale_dps;
+    let full_dps = main_dps + bleed + poison + ignite + impale_dps + generals_cry_dps;
     env.output.set("FullDPS", full_dps);
 
     // PoB exposes a stack of DPS aliases the UI uses interchangeably. Without

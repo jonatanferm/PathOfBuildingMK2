@@ -134,14 +134,26 @@ Closed since the previous status snapshot:
   cooldown gating, DoT-only throw timing, cast-speed isolation.
 - Warcry layer: WarcryPower config, loadout aggregates, auto-uptime,
   per-cry active markers (Intimidating / Enduring / Ancestral / Seismic /
-  Battlemage's / Rallying / General's), Intimidate enemy debuff,
+  Battlemage's / Rallying / General's / Infernal), Intimidate enemy debuff,
   Enduring Cry life regen, Ancestral Cry elemental resists, Seismic
   Cry armour + stun threshold, Battlemage's Cry crit chance, Rallying
   Cry per-ally exert damage. Buff injection re-ordered so basic-stat
   outputs reflect the cry buffs end-to-end (LifeRegen, FireResist,
-  Armour, MainSkillCritChance). Remaining infra-blocked warcries
-  (Rallying ally projection / Infernal phys-to-fire / General's
-  parallel actor) tracked in [#145](https://github.com/jonatanferm/PathOfBuildingMK2/issues/145).
+  Armour, MainSkillCritChance).
+- Issue #145 ([#145](https://github.com/jonatanferm/PathOfBuildingMK2/issues/145)):
+  remaining warcries — Rallying Cry per-ally weapon-damage projection
+  (lands as `Damage` MORE on each enabled `Party:<name>` source),
+  Infernal Cry phys-as-fire (injects `PhysicalDamageGainAsFire` BASE
+  scaled by WarcryPower / 5, capped at 25), and General's Cry parallel-
+  actor envelope (mirage count + cooldown + DPS contribution to
+  FullDPS for melee-tagged main skills).
+- `PhysicalDamageGainAs<Element>` consumer in the calc pipeline
+  (`perform_skill_dps`): for any physical-hit skill, the four
+  `PhysicalDamageGainAs{Fire,Cold,Lightning,Chaos}` BASE percentages
+  add an extra hit of the gained element scaled by phys avg ×
+  pct/100, then attenuated by that element's resist + penetration.
+  Also reads the `NonChaosDamageGainAs<X>` aggregator. Mirrors PoB's
+  `Modules/CalcOffence.lua:1869` damage-conversion block.
 - Pantheon: soul levels 1-4 + NearbyEnemies / OnlyOneNearbyEnemy condition.
 - Flask recovery: instant/gradual split, low-life multiplier, LifeAdditional.
 - Party tab auto-extraction with auto AuraEffect detection and
@@ -247,10 +259,14 @@ Still open (in rough priority):
 1. **AoE radius rolloff and projectile pierce/chain variance**: we now model
    shotgun overlap and the per-target multiplier, but not AoE damage falloff
    or pierce/chain damage variance per hop.
-2. **Damage conversion calc-side read (`PhysicalDamageGainAs<Element>`)**:
-   the mod_parser now mints PoB-canonical keys, but the calc pipeline still
-   doesn't *read* them to add converted element damage to the hit total.
-   Same gap blocks Infernal Cry's phys-as-fire piece.
+2. ~~**Damage conversion calc-side read (`PhysicalDamageGainAs<Element>`)**:~~
+   *Closed (issue #145):* `perform_skill_dps` now reads each
+   `PhysicalDamageGainAs<Element>` BASE percentage and adds an extra
+   element hit attenuated by that element's resist + penetration.
+   Infernal Cry's phys-as-fire piece routes through this consumer.
+   The remaining gain-as gap is per-element source aggregation (e.g.
+   `ColdDamageGainAsFire` for Avatar of Fire builds) — the four
+   `Physical*` keys cover the dominant phys-build use case.
 3. **Live `pob_diff` ailment baselines in CI**: reference builds exist
    (`marauder_l90_bleeding_cleave.xml`, `witch_l90_arc_with_items.xml`,
    etc.), but locking PoB-vs-engine deltas behind a regression test still

@@ -4667,6 +4667,477 @@ fn rallying_cry_injects_per_ally_exerted_damage() {
     );
 }
 
+// Issue #145 (slice 3): Infernal Cry's phys-as-fire conversion.
+// Per PoB's `act_str.lua` InfernalCry statMap:
+//   infernal_cry_physical_damage_%_to_add_as_fire_per_5_power_up_to_cap
+//   = 5 (constant); div = 5, limit = 25 → at WarcryPower 20 the
+//   gain is `5 × min(20, 25) / 5 = 20%`.
+// Verifies the buff lands as a `PhysicalDamageGainAsFire` BASE mod,
+// flows through the slice-2 consumer, and lifts the player's hit
+// damage end-to-end.
+#[test]
+fn infernal_cry_injects_phys_as_fire_with_warcry_recently() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("InfernalCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: InfernalCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+    use pob_engine::ModStore as _;
+
+    fn infernal_pct_in_db(env: &pob_engine::Env) -> f64 {
+        env.mod_db
+            .iter_all()
+            .filter(|m| {
+                m.name == "PhysicalDamageGainAsFire"
+                    && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Infernal Cry")
+            })
+            .filter_map(|m| m.value.as_f64())
+            .sum()
+    }
+
+    let Some(sword_name) = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone())
+    else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("InfernalCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcries".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+
+    // Without UsedWarcryRecently → no buff lands.
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        infernal_pct_in_db(&env) < 1e-9,
+        "Without UsedWarcryRecently, InfernalCry must not inject PhysicalDamageGainAsFire"
+    );
+
+    // Flag on, default WarcryPower (20) → 5 × 20 / 5 = 20%.
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    let pct = infernal_pct_in_db(&env);
+    assert!(
+        (pct - 20.0).abs() < 1e-6,
+        "InfernalCry at WarcryPower 20 should inject +20% PhysicalDamageGainAsFire; got {pct}"
+    );
+    assert!(
+        (env.output.get("InfernalCryGainAsFireBonus") - 20.0).abs() < 1e-6,
+        "InfernalCryGainAsFireBonus output should mirror the +20% mod"
+    );
+    // The slice-2 consumer should pick this up and produce a non-zero
+    // PhysicalGainAsExtraDamage for the Cleave hit.
+    assert!(
+        env.output.get("PhysicalGainAsExtraDamage") > 0.0,
+        "InfernalCry's gain-as-fire mod should flow through the slice-2 consumer"
+    );
+
+    // WarcryPower 25 (cap) → 25%.
+    c.config.warcry_power = Some(25);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    let pct = infernal_pct_in_db(&env);
+    assert!(
+        (pct - 25.0).abs() < 1e-6,
+        "InfernalCry at WarcryPower 25 should inject the +25% cap; got {pct}"
+    );
+
+    // WarcryPower 30 (over cap) → still 25%.
+    c.config.warcry_power = Some(30);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    let pct = infernal_pct_in_db(&env);
+    assert!(
+        (pct - 25.0).abs() < 1e-6,
+        "InfernalCry at WarcryPower 30 should still cap at +25%; got {pct}"
+    );
+
+    // Disabled gem → no buff.
+    if let Some(group) = c.skill_groups.iter_mut().find(|g| g.label == "Warcries") {
+        if let Some(gem) = group.gems.iter_mut().find(|g| g.skill_id == "InfernalCry") {
+            gem.enabled = false;
+        }
+    }
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        infernal_pct_in_db(&env) < 1e-9,
+        "Disabled InfernalCry must not inject PhysicalDamageGainAsFire"
+    );
+}
+
+// Issue #145 (slice 4): General's Cry's parallel-actor envelope.
+// PoB's GeneralsCry summons N mirage warriors that each perform one
+// cast of the player's main melee skill on cooldown. Verifies the
+// envelope's mirage count, cooldown, and DPS contribution wire up.
+#[test]
+fn generals_cry_emits_mirage_envelope_and_lifts_full_dps() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("GeneralsCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: GeneralsCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+
+    let Some(sword_name) = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone())
+    else {
+        return;
+    };
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("GeneralsCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcries".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+
+    // Without UsedWarcryRecently → no envelope.
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    assert!(
+        baseline.get("GeneralsCryMirageCount") < 1e-6,
+        "Without UsedWarcryRecently, GeneralsCry must not emit envelope; got count {}",
+        baseline.get("GeneralsCryMirageCount")
+    );
+    assert!(
+        baseline.get("GeneralsCryDpsContribution") < 1e-6,
+        "GeneralsCry must not contribute DPS without the warcry-recently flag"
+    );
+    let baseline_full = baseline.get("FullDPS");
+
+    // Flag on → envelope lands.
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let with_cry = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let mirage_count = with_cry.get("GeneralsCryMirageCount");
+    assert!(
+        (mirage_count - 5.0).abs() < 1e-6,
+        "GeneralsCry baseline mirage count should be 5; got {mirage_count}"
+    );
+    let cd = with_cry.get("GeneralsCryCooldown");
+    assert!(
+        cd > 0.0,
+        "GeneralsCryCooldown should be non-zero from the gem's level data; got {cd}"
+    );
+    let cps_envelope = with_cry.get("GeneralsCryCastsPerSecond");
+    assert!(
+        (cps_envelope - mirage_count / cd).abs() < 1e-6,
+        "GeneralsCryCastsPerSecond should equal mirage_count / cooldown; got {cps_envelope}"
+    );
+    let dps_contrib = with_cry.get("GeneralsCryDpsContribution");
+    assert!(
+        dps_contrib > 0.0,
+        "GeneralsCry on a melee attack should contribute non-zero DPS; got {dps_contrib}"
+    );
+    let full = with_cry.get("FullDPS");
+    assert!(
+        full > baseline_full,
+        "FullDPS should rise once GeneralsCry contributes (baseline {baseline_full}, with cry {full})"
+    );
+    assert!(
+        (full - (baseline_full + dps_contrib)).abs() / full < 0.001,
+        "FullDPS lift should equal GeneralsCryDpsContribution exactly: full={full} baseline={baseline_full} contrib={dps_contrib}"
+    );
+}
+
+// Issue #145 (slice 1): Rallying Cry's per-ally weapon damage
+// projection. PoB's RallyingCry statMap +
+// `act_str.lua:8956` constantStats:
+//   rallying_cry_weapon_damage_%_for_allies_per_5_monster_power = 4
+// At WarcryPower 20 (PoB default) that's `4 × 20 / 5 = 16%`
+// per-ally weapon-damage MORE projected to each party member.
+#[test]
+fn rallying_cry_projects_ally_weapon_damage_to_party_members() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("RallyingCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: RallyingCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::{PartyMember, SocketGroup};
+    use pob_engine::ModStore as _;
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("RallyingCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcries".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    c.config.nearby_allies = 3;
+    c.party_members.push(PartyMember {
+        name: "Ally A".into(),
+        mod_lines: String::new(),
+        extracted_auras: Vec::new(),
+        enabled: true,
+    });
+    c.party_members.push(PartyMember {
+        name: "Ally B".into(),
+        mod_lines: String::new(),
+        extracted_auras: Vec::new(),
+        enabled: true,
+    });
+
+    let (out, env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+
+    // At default WarcryPower 20, per-ally weapon damage is 4 × 20 / 5 = 16%.
+    let per_ally = out.get("RallyingCryAllyWeaponDamageBonus");
+    assert!(
+        (per_ally - 16.0).abs() < 1e-6,
+        "RallyingCryAllyWeaponDamageBonus should be 16% at WarcryPower=20; got {per_ally}"
+    );
+    // 3 allies × 16% = 48% total envelope.
+    let total = out.get("RallyingCryAllyWeaponDamageTotal");
+    assert!(
+        (total - 48.0).abs() < 1e-6,
+        "RallyingCryAllyWeaponDamageTotal should be 48% with 3 allies; got {total}"
+    );
+
+    // The MORE Damage projection should land as a Party-sourced mod
+    // for each enabled party member. Verify the Calcs breakdown can
+    // attribute the buff back to each teammate.
+    for name in ["Ally A", "Ally B"] {
+        let source = format!("Party:{name}:RallyingCry");
+        let projected = env
+            .mod_db
+            .iter_all()
+            .filter(|m| {
+                m.name == "Damage"
+                    && matches!(&m.source, Some(pob_engine::Source::Other(s)) if s == &source)
+            })
+            .count();
+        assert!(
+            projected >= 1,
+            "RallyingCry should project a Damage MORE mod sourced as {source}; got {projected}"
+        );
+    }
+
+    // WarcryPower 25 (cap relevant for RallyingCry's per-power scaling):
+    // 4 × 25 / 5 = 20%.
+    c.config.warcry_power = Some(25);
+    let out = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).0;
+    let per_ally = out.get("RallyingCryAllyWeaponDamageBonus");
+    assert!(
+        (per_ally - 20.0).abs() < 1e-6,
+        "At WarcryPower 25, per-ally weapon damage should be 20%; got {per_ally}"
+    );
+}
+
+// Issue #145 (slice 2): `PhysicalDamageGainAs<Element>` consumer in
+// the calc pipeline. Mirrors PoB's `Modules/CalcOffence.lua:1869`
+// damage-conversion block, which adds an EXTRA hit of the gained
+// element equal to `phys_avg × gain_pct/100`, scaled by that
+// element's resist + penetration. Without this consumer the
+// mod_parser was minting `PhysicalDamageGainAsFire` BASE keys but
+// the calc pipeline never read them — same gap STATUS.md flagged
+// as priority 2 of "Still open", and the blocker for Infernal Cry's
+// phys-as-fire piece.
+#[test]
+fn physical_damage_gain_as_element_adds_extra_hit_damage() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Cleave").is_none() {
+        eprintln!("skip: Cleave not in registry");
+        return;
+    }
+    let Some(sword_name) = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone())
+    else {
+        eprintln!("skip: no sword base available");
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+
+    // Pin enemy resist + boss preset to a known value so the math is
+    // reproducible. Default `enemy_fire_resist` may already be 0 for a
+    // bare-config character; set it explicitly anyway.
+    c.config.enemy_fire_resist = 0;
+
+    let baseline = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let baseline_dps = baseline.get("MainSkillDPS");
+    assert!(
+        baseline_dps > 0.0,
+        "Cleave on a bare sword should have a non-zero DPS baseline; got {baseline_dps}"
+    );
+    assert!(
+        baseline.get("PhysicalGainAsExtraDamage") < 1e-6,
+        "Without any gain-as mod, the extra-damage output must be unset (got {})",
+        baseline.get("PhysicalGainAsExtraDamage")
+    );
+
+    // Inject 50% Physical Damage Gained as Fire via custom_mods (same
+    // path the mod_parser uses for item text). At 0% enemy fire resist
+    // this should add (avg × 50%) to the post-shock hit, lifting
+    // MainSkillDPS by ~50%.
+    c.config.custom_mods = "Gain 50% of Physical Damage as Extra Fire Damage".into();
+    let with_gain = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+
+    let gain_dps = with_gain.get("MainSkillDPS");
+    let extra = with_gain.get("PhysicalGainAsExtraDamage");
+    assert!(
+        extra > 0.0,
+        "Gain 50% as Extra Fire should produce a non-zero PhysicalGainAsExtraDamage output (got {extra})"
+    );
+    let pct_out = with_gain.get("PhysicalDamageGainAsFire");
+    assert!(
+        (pct_out - 50.0).abs() < 1e-6,
+        "PhysicalDamageGainAsFire output should mirror the 50% mod value, got {pct_out}"
+    );
+
+    // The extra fire hit average per cast should be roughly avg_after_crit
+    // × 50% × (1 - fire_res/100). At fire_res = 0 that's 0.5×.
+    let crit_avg = with_gain.get("MainSkillAverageHitWithCrit");
+    let expected_extra = crit_avg * 0.5;
+    assert!(
+        (extra - expected_extra).abs() / expected_extra < 0.05,
+        "FireGainAsExtraAvg should be ~{expected_extra} (50% of crit-weighted avg), got {extra}"
+    );
+
+    // DPS lift should track the extra. Approx: `gain_dps ≈ baseline × (1 + 0.5 × phys_share)`.
+    // Cleave on a normal sword has very little non-phys to dilute the
+    // 50% so the lift should be substantial — at least 30%.
+    let lift = gain_dps / baseline_dps;
+    assert!(
+        lift > 1.30,
+        "50% PhysicalDamageGainAsFire should lift MainSkillDPS by >30% on a phys-sword Cleave, got {lift}× ({gain_dps} vs baseline {baseline_dps})"
+    );
+}
+
+// Issue #145 (slice 2): the PhysicalDamageGainAs<Element> consumer
+// must respect the gained element's enemy resist — at +75% fire
+// resist, the same 50% gain-as mod should land roughly 1/4 of the
+// pre-resist extra (since (1 - 75/100) = 0.25). Pen penetrates
+// resist linearly per the existing dominant-element path.
+#[test]
+fn physical_damage_gain_as_fire_respects_enemy_fire_resist() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("Cleave").is_none() {
+        eprintln!("skip: Cleave not in registry");
+        return;
+    }
+    let Some(sword_name) = bases
+        .iter()
+        .find(|(_, b)| b.r#type.contains("Sword") && b.weapon.is_some())
+        .map(|(n, _)| n.clone())
+    else {
+        return;
+    };
+
+    let mut c = Character::new(ClassRef::duelist(), 90);
+    let sword = parse_item(&format!(
+        "Item Class: One Handed Swords\nRarity: NORMAL\n{sword_name}\n--------\n"
+    ))
+    .unwrap();
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    c.config.custom_mods = "Gain 50% of Physical Damage as Extra Fire Damage".into();
+
+    c.config.enemy_fire_resist = 0;
+    let zero_res = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let extra_zero = zero_res.get("PhysicalGainAsExtraDamage");
+    assert!(
+        extra_zero > 0.0,
+        "expected non-zero gain-as extra at 0% res"
+    );
+
+    c.config.enemy_fire_resist = 75;
+    let high_res = pob_engine::compute_full(&c, &tree, Some(&skills), Some(&bases));
+    let extra_high = high_res.get("PhysicalGainAsExtraDamage");
+    let ratio = extra_high / extra_zero;
+    assert!(
+        (ratio - 0.25).abs() < 0.02,
+        "75% fire resist should reduce gain-as extra to ~25% of the 0%-res value, got ratio {ratio} ({extra_high} vs {extra_zero})"
+    );
+}
+
+// Issue #145 (slice 2): a non-physical hit (e.g. a pure-fire spell
+// like Fireball) must NOT pick up `PhysicalDamageGainAsFire` — gain-as
+// reads off the physical component of a hit, and a spell with no
+// physical base damage has nothing to gain off. Verify the consumer
+// is correctly gated on `is_physical_hit`.
+#[test]
+fn physical_damage_gain_as_skips_non_physical_skills() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    // Pick the first pure-fire spell available.
+    let fire_spell = pick_stable_skill(&skills, |s| {
+        s.base_flags.get("spell").copied().unwrap_or(false)
+            && s.stats.iter().any(|st| st.contains("fire"))
+    });
+    let Some(fire_spell) = fire_spell else {
+        eprintln!("skip: no fire spell in registry");
+        return;
+    };
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.main_skill = Some(MainSkill::new(&fire_spell));
+    c.config.custom_mods = "Gain 50% of Physical Damage as Extra Fire Damage".into();
+    c.config.enemy_fire_resist = 0;
+
+    let out = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    assert!(
+        out.get("PhysicalGainAsExtraDamage") < 1e-6,
+        "A pure-fire spell must not pick up phys gain-as extras; got {}",
+        out.get("PhysicalGainAsExtraDamage")
+    );
+}
+
 // Issue #19 (slice 14): `CritChance BASE` mods (Battlemage's Cry,
 // Diamond Flask, certain jewels) need to land before the INC
 // scaling, on top of the skill's intrinsic 5% baseline. PoB sums

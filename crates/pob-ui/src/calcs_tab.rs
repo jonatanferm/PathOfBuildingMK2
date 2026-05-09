@@ -872,6 +872,17 @@ mod tests {
             // Slice 16: Rallying Cry per-ally exert.
             "RallyingCryExertDamageBonus",
             "RallyingCryAllyCount",
+            // Issue #145 (slice 1): Rallying Cry ally weapon-damage projection.
+            "RallyingCryAllyWeaponDamageBonus",
+            "RallyingCryAllyWeaponDamageTotal",
+            // Issue #145 (slice 3): Infernal Cry phys-as-fire.
+            "InfernalCryGainAsFireBonus",
+            // Issue #145 (slice 4): General's Cry mirage envelope.
+            "GeneralsCryMirageCount",
+            "GeneralsCryCooldown",
+            "GeneralsCryCastsPerSecond",
+            "GeneralsCryDpsContribution",
+            "GeneralsCryLevel",
         ] {
             let group = group_for(key);
             assert_eq!(
