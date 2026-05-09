@@ -658,6 +658,105 @@ fn pob_xml_round_trip_preserves_swap_weapons() {
     );
 }
 
+// Issue #195: jewel-socket round-trip. PoB stores both cluster
+// jewels (large jewel sockets, routed through `cluster_synth`) and
+// vanilla / radius / timeless / abyss jewels (tree sockets, routed
+// through `apply_radius_jewels`) as `<Slot name="Jewel <NodeId>"
+// itemId="…"/>` rows inside `<ItemSet>`. Before this slice they
+// were dropped on import and never emitted on export, so a build
+// with jewels lost them all on the round-trip. Exercise both
+// collections plus the empty-build no-op:
+//   * cluster jewel into `character.jewels`
+//   * radius jewel into `character.socketed_jewels`
+//   * mixed → both collections survive a round-trip
+//   * empty build → no `<Slot name="Jewel …"/>` emitted, no diff
+#[test]
+fn pob_xml_round_trip_preserves_jewel_sockets() {
+    use pob_engine::pob_export::export_pob_xml;
+    use pob_engine::{import_pob_xml, parse_item};
+
+    // Rare items take two header lines (`name`, then `base`); the
+    // cluster-classification check on import keys off `base_name`,
+    // so the paste text must put "Large Cluster Jewel" on the base
+    // line. Magic items (Crimson Jewel) collapse name+affix into a
+    // single header line, so the base falls out directly.
+    let cluster = parse_item(
+        "Item Class: Jewels\nRarity: Rare\nDoom Mind\nLarge Cluster Jewel\n--------\nAdds 8 Passive Skills",
+    )
+    .expect("parse cluster jewel");
+    let crimson = parse_item(
+        "Item Class: Jewels\nRarity: Magic\nCrimson Jewel\n--------\n10% increased maximum Life\nOnly affects Passives in Medium Ring",
+    )
+    .expect("parse crimson jewel");
+    assert_eq!(
+        cluster.base_name, "Large Cluster Jewel",
+        "test paste must produce a Cluster Jewel base for the import classifier"
+    );
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    let cluster_node: pob_data::NodeId = 26725;
+    let radius_node: pob_data::NodeId = 32763;
+    c.jewels.insert(cluster_node, cluster);
+    c.socketed_jewels.socket(radius_node, crimson);
+
+    let xml = export_pob_xml(&c);
+    assert!(
+        xml.contains(&format!("Jewel {cluster_node}")),
+        "cluster jewel slot must appear in exported XML; got:\n{xml}"
+    );
+    assert!(
+        xml.contains(&format!("Jewel {radius_node}")),
+        "radius jewel slot must appear in exported XML; got:\n{xml}"
+    );
+
+    let reparsed = import_pob_xml(&xml).expect("re-import jewel-bearing XML");
+    assert!(
+        reparsed.jewels.contains_key(&cluster_node),
+        "cluster jewel must round-trip into character.jewels; got keys {:?}",
+        reparsed.jewels.keys().collect::<Vec<_>>(),
+    );
+    assert!(
+        reparsed.socketed_jewels.get(radius_node).is_some(),
+        "radius jewel must round-trip into character.socketed_jewels; got entries {:?}",
+        reparsed
+            .socketed_jewels
+            .iter()
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>(),
+    );
+    // Cluster classification holds — the Crimson must NOT have leaked
+    // into `jewels` (which is cluster-only) and the Cluster must NOT
+    // have leaked into `socketed_jewels`.
+    assert!(
+        reparsed.socketed_jewels.get(cluster_node).is_none(),
+        "cluster jewel should not also live in socketed_jewels"
+    );
+    assert!(
+        !reparsed.jewels.contains_key(&radius_node),
+        "radius jewel should not also live in character.jewels"
+    );
+
+    // Re-export the round-tripped character and confirm the second
+    // round-trip is stable (idempotency on the wire).
+    let xml2 = export_pob_xml(&reparsed);
+    let reparsed2 = import_pob_xml(&xml2).expect("re-import second-round XML");
+    assert!(reparsed2.jewels.contains_key(&cluster_node));
+    assert!(reparsed2.socketed_jewels.get(radius_node).is_some());
+
+    // Empty-build invariant: a build with no jewels must not emit any
+    // `<Slot name="Jewel …"/>` rows, and must round-trip with empty
+    // collections so unrelated builds aren't perturbed.
+    let plain = Character::new(ClassRef::marauder(), 90);
+    let plain_xml = export_pob_xml(&plain);
+    assert!(
+        !plain_xml.contains("name=\"Jewel "),
+        "plain build must not emit phantom Jewel slot rows; got:\n{plain_xml}"
+    );
+    let plain_reparsed = import_pob_xml(&plain_xml).expect("re-import plain build");
+    assert!(plain_reparsed.jewels.is_empty());
+    assert!(plain_reparsed.socketed_jewels.is_empty());
+}
+
 // Issue #109 (slice 2): when `use_second_weapon_set` is on, the
 // engine reads `Weapon1Swap` / `Weapon2Swap` as the live weapons
 // and ignores the primary pair. We assert this through the
