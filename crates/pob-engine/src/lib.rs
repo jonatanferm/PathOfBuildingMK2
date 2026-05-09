@@ -33,6 +33,7 @@ pub mod pathfind;
 pub mod perform;
 pub mod pob_export;
 pub mod pob_import;
+pub mod power;
 pub mod share;
 pub mod skill;
 pub mod timeless;
@@ -72,6 +73,7 @@ pub use perform::{
 };
 pub use pob_export::{export_pob_code, export_pob_xml};
 pub use pob_import::{import_pob_code, import_pob_xml, resolve_share_url, PobImportError};
+pub use power::{score_node_addition, NodeScore};
 pub use share::{export_code, import_code, ShareError};
 pub use skill::{skill_for_quality, skill_mods, MainSkill, QualityId, SkillRegistry};
 pub use timeless::{
