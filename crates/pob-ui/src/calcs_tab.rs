@@ -1078,6 +1078,9 @@ mod tests {
             // Slice 11: life regen rate.
             "MinionLifeRegenPercent",
             "MinionLifeRegen",
+            // Slice 13: energy shield base + scaled output.
+            "MinionEnergyShieldBase",
+            "MinionEnergyShield",
         ] {
             let group = group_for(key);
             assert_eq!(
