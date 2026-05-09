@@ -147,6 +147,13 @@ Closed since the previous status snapshot:
 - Party tab auto-extraction with auto AuraEffect detection and
   manual % override; user edits preserved across re-paste.
 - External-site URL recogniser (pobb.in / pastebin / poeplanner).
+- Issue #33: external-site **fetch** + import. Pasting a `https://pobb.in/<id>`
+  or `https://pastebin.com/<id>` URL into the Import-Export tab spawns a
+  background `ureq` GET, decodes the body via `import_pob_code`, and swaps
+  the active character. Errors (404 / 429 / network / decode) surface as
+  readable banner messages. Wasm shows a "desktop only" stub for the URL
+  branch (CORS). Poeplanner is recognised but flagged as unsupported for
+  full-build import — upstream PoB only imports its passive-tree URLs.
 - NearbyAllies config + Multiplier:NearbyAlly for Rallying Cry's
   per-ally exert damage and ally-scaling PerStat mods.
 - CritChance BASE addition path in both `perform_basic_stats` and

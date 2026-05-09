@@ -25,6 +25,8 @@ mod import_export_tab;
 mod items_tab;
 mod notes_tab;
 mod party_tab;
+#[cfg(not(target_arch = "wasm32"))]
+mod share_url_fetch;
 mod skills_tab;
 mod tattoo_picker;
 mod tree_layout;
