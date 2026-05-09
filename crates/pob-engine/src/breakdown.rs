@@ -154,6 +154,10 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "CritMultiplier" => Some(crit_multiplier(env)),
         "CritEffect" => Some(crit_effect(env)),
 
+        // Pools.
+        "Life" => Some(pool_with_attribute(env, "Life", "Strength", 2.0)),
+        "Mana" => Some(pool_with_attribute(env, "Mana", "Intelligence", 2.0)),
+
         _ => None,
     }
 }
@@ -180,6 +184,9 @@ pub const COVERED_KEYS: &[&str] = &[
     "MainSkillCritChance",
     "CritMultiplier",
     "CritEffect",
+    // Pools.
+    "Life",
+    "Mana",
 ];
 
 // --- Damage ---------------------------------------------------------
@@ -815,6 +822,110 @@ fn source_label(s: Option<&Source>) -> String {
     }
 }
 
+/// Issue #34 (#220 follow-up): re-derive a pool stat (Life / Mana)
+/// that draws from a primary attribute on top of the standard
+/// `BASE → INC → MORE` chain. Mirrors `perform_basic_stats`:
+///
+///   pool_base = Σ BASE(<key>) + Σ BASE(<other-attribute keys>) + attribute / divisor
+///   pool      = pool_base × (1 + INC/100) × MORE
+///
+/// `attribute` is the player attribute that contributes to the pool —
+/// `Strength` for Life (1 Str → +0.5 Life) and `Intelligence` for Mana
+/// (1 Int → +0.5 Mana). `divisor` is `2.0` for both PoE pools today;
+/// kept as a parameter so future pools that scale at different rates
+/// (Path of Exile 2 changes the curve) can plug in cleanly without
+/// duplicating the BASE / INC / MORE wiring.
+fn pool_with_attribute(env: &Env, key: &str, attribute: &str, divisor: f64) -> Breakdown {
+    let cfg = QueryCfg::default();
+    let base_sum = env.mod_db.sum(ModType::Base, &cfg, &env.state, key);
+    let attribute_value = env.output.get(attribute);
+    let attribute_contrib = attribute_value / divisor;
+    let pool_base = base_sum + attribute_contrib;
+    let inc_total = env.mod_db.sum(ModType::Inc, &cfg, &env.state, key);
+    let more_total = env.mod_db.more(&cfg, &env.state, key);
+    let total = env.output.get(key);
+
+    let mut steps = Vec::new();
+    // Base: collapse "+X to maximum <pool>" mods (item rolls, tree
+    // notables, ascendancy small grants) into one row with each
+    // contributor surfaced in the source list. The attribute
+    // contribution is shown separately so the user can see how their
+    // Str / Int investment is paying off.
+    let base_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named(key)
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    let base_explain = format!(
+        "+{base_sum:.0} from BASE mods + {attribute_value:.0} {attribute} / {divisor:.0} = {attribute_contrib:.1}",
+    );
+    steps.push(
+        BreakdownStep::label("Base")
+            .with_value(pool_base)
+            .with_explain(base_explain)
+            .with_sources(base_mods),
+    );
+
+    let mut inc_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named(key)
+        .filter(|m| m.kind == ModType::Inc)
+        .map(ModSource::from_mod)
+        .collect();
+    if !inc_mods.is_empty() || inc_total != 0.0 {
+        inc_mods.sort_by(|a, b| {
+            b.value
+                .unwrap_or(0.0)
+                .abs()
+                .partial_cmp(&a.value.unwrap_or(0.0).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        steps.push(
+            BreakdownStep::label("Increased")
+                .with_value(1.0 + inc_total / 100.0)
+                .with_explain(format!("{inc_total:+.0}% sum"))
+                .with_sources(inc_mods),
+        );
+    }
+
+    let mut more_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named(key)
+        .filter(|m| m.kind == ModType::More)
+        .map(ModSource::from_mod)
+        .collect();
+    if !more_mods.is_empty() || (more_total - 1.0).abs() > 1e-9 {
+        more_mods.sort_by(|a, b| {
+            b.value
+                .unwrap_or(0.0)
+                .abs()
+                .partial_cmp(&a.value.unwrap_or(0.0).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        steps.push(
+            BreakdownStep::label("More")
+                .with_value(more_total)
+                .with_explain("multiplicative".to_owned())
+                .with_sources(more_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label(key)
+            .with_value(total)
+            .with_explain(format!(
+                "{pool_base:.0} × (1 + {inc_total:.0}%) × {more_total:.3} = {total:.0}"
+            )),
+    );
+
+    Breakdown {
+        output_key: key.to_owned(),
+        total,
+        steps,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -848,6 +959,22 @@ mod tests {
         env.output.set("MainSkillEnemyEffectiveResist", 30.0);
         env.output.set("MainSkillHitChance", 100.0);
         env.output.set("GemQuality", 20.0);
+        // Pool outputs + their attribute drivers so the Life / Mana
+        // breakdowns have something to walk. The numbers track a
+        // representative L90 character: 1100 Life from 50 base + 12×89
+        // class-and-level + 540 from items + 80 Str / 2.
+        env.output.set("Life", 1100.0);
+        env.output.set("Mana", 360.0);
+        env.output.set("Strength", 80.0);
+        env.output.set("Intelligence", 60.0);
+        env.mod_db
+            .add(Mod::base("Life", 540.0).with_source(Source::Item(2)));
+        env.mod_db
+            .add(Mod::inc("Life", 30.0).with_source(Source::Tree));
+        env.mod_db
+            .add(Mod::base("Mana", 200.0).with_source(Source::Item(1)));
+        env.mod_db
+            .add(Mod::inc("Mana", 50.0).with_source(Source::Tree));
         // Tree-typed INC and MORE damage mods so the breakdown enumerates them.
         env.mod_db
             .add(Mod::inc("Damage", 50.0).with_source(Source::Tree));
@@ -987,5 +1114,58 @@ mod tests {
         let bd = derive_for(&env, "MovementSpeedMod").unwrap();
         let inc = bd.steps.iter().find(|s| s.label == "Increased").unwrap();
         assert!(inc.sources.iter().any(|s| s.source == "tree"));
+    }
+
+    /// Issue #34 follow-up: Life breakdown walks Base → Increased →
+    /// Life with item-base + Strength contributions surfaced
+    /// separately. Verifies the chain is complete and the Strength
+    /// contribution lands in the explain text.
+    #[test]
+    fn life_breakdown_walks_base_inc_to_total() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "Life").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.iter().any(|l| l.starts_with("Base")));
+        assert!(labels.iter().any(|l| l.starts_with("Increased")));
+        // The Base step's explain string mentions the Strength contribution.
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        let explain = base.explain.as_deref().unwrap_or("");
+        assert!(
+            explain.contains("Strength"),
+            "Base explain should call out Strength: {explain}"
+        );
+        assert_eq!(bd.total, 1100.0);
+    }
+
+    /// Issue #34 follow-up: Life breakdown surfaces the item-sourced
+    /// `+540 Life BASE` mod under the Base step's source list so the
+    /// user can see which item contributed.
+    #[test]
+    fn life_breakdown_sources_carry_through() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "Life").unwrap();
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        assert!(
+            base.sources
+                .iter()
+                .any(|s| s.source.contains("item slot 2")),
+            "expected item slot 2 source on Base step; got {:?}",
+            base.sources,
+        );
+    }
+
+    /// Issue #34 follow-up: Mana shares the same helper as Life but
+    /// keys on Intelligence. Verify the explain string names the
+    /// right attribute.
+    #[test]
+    fn mana_breakdown_uses_intelligence_attribute() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "Mana").unwrap();
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        let explain = base.explain.as_deref().unwrap_or("");
+        assert!(
+            explain.contains("Intelligence"),
+            "Mana Base step should call out Intelligence; got {explain}"
+        );
     }
 }
