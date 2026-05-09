@@ -2424,6 +2424,34 @@ fn summon_flame_golem_lights_up_minion_outputs_end_to_end() {
     // Crit chance defaults to 5% (no MinionCritChance mods on a fresh witch).
     assert_eq!(output.get("MinionCritChance"), 5.0);
     assert_eq!(output.get("MinionCritMultiplier"), 150.0);
+
+    // Slice 12 of #20: MainSkillDPS picks up MinionDPS × NumberOfMinions so the
+    // side panel and FullDPS readout reflect the real (minion) DPS instead of
+    // the dummy direct-hit number perform.rs lands for a summon gem. PoB's
+    // summary value for a summoner build is the minion's DPS — without this,
+    // the headline DPS in the UI would be zero / near-zero for every summoner.
+    let pack = output.get("NumberOfMinions").max(1.0);
+    let main_skill_dps = output.get("MainSkillDPS");
+    assert!(
+        (main_skill_dps - dps * pack).abs() < 1e-6,
+        "MainSkillDPS should equal MinionDPS × NumberOfMinions; got main={main_skill_dps}, minion={dps}, pack={pack}"
+    );
+    // PlayerHitDPS preserves the pre-overwrite player value so the breakdown
+    // chain stays inspectable even after the swap.
+    assert!(
+        output.try_get("PlayerHitDPS").is_some(),
+        "PlayerHitDPS should snapshot the pre-mirror MainSkillDPS"
+    );
+    // FullDPS / TotalDPS / aliases follow MainSkillDPS (no ailment add-ons on
+    // SummonFlameGolem in a fresh witch build).
+    assert!(
+        (output.get("FullDPS") - main_skill_dps).abs() < 1e-6,
+        "FullDPS should mirror the new MainSkillDPS for an ailment-free summoner"
+    );
+    assert!(
+        (output.get("TotalDPS") - main_skill_dps).abs() < 1e-6,
+        "TotalDPS should mirror the new MainSkillDPS"
+    );
 }
 
 // Issue #52: Every AoE-tagged skill must emit AoERadius / FinalAoERadius

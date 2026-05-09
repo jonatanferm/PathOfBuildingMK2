@@ -152,7 +152,71 @@ pub fn apply_minion_outputs(
     // a Character. Slice 10 also threads the registry so the hit-chance pass can
     // skip the formula for spell minions (Flame Sentinel etc.).
     apply_minion_hit_chance(&state, character, registry, env, output);
+    // Slice 12 of #20: mirror minion DPS into MainSkillDPS so the side-panel,
+    // FullDPS aggregator, and all downstream consumers see a meaningful number
+    // when the active skill is a minion-summoning gem. PoB does this in
+    // CalcActiveSkill.lua by setting `output.MainSkillDPS = minion.output.TotalDPS`
+    // (multiplied by `NumberOfMinions` to reflect the whole pack).
+    propagate_minion_dps_to_main_skill(env, output);
     true
+}
+
+/// Replace the player's `MainSkillDPS` (and the small fan-out of DPS aliases that
+/// mirror it for skills with no ailment add-ons) with the minion's pack DPS:
+/// `MinionDPS × NumberOfMinions`. Called from [`apply_minion_outputs`] after
+/// [`write_minion_outputs`] and [`apply_minion_hit_chance`] have settled
+/// `MinionDPS`.
+///
+/// Mirrors PoB's `CalcActiveSkill.lua:830-844` summoner branch: when the active
+/// skill is minion-flagged, the player-side `MainSkillDPS` is rewritten to the
+/// minion's `TotalDPS` so the summary readouts make sense. We use
+/// `NumberOfMinions` (already set by `perform_with_skills`'s minion branch) as
+/// the pack size so a 4-zombie / 6-spectre build shows the full pack's DPS, not
+/// a single creature.
+///
+/// Cheap enough to run unconditionally: when the active skill isn't a minion,
+/// `apply_minion_outputs` short-circuits before reaching this helper. When it
+/// IS a minion but `MinionDPS` happens to be zero (e.g. before the data
+/// catalogue is loaded), we deliberately skip the overwrite so the caller's
+/// existing `MainSkillDPS` value (the player's direct hit, dummy or otherwise)
+/// stays put.
+fn propagate_minion_dps_to_main_skill(env: &Env, output: &mut Output) {
+    let _ = env; // future-proof: a richer perform pass may need env queries here
+    let minion_dps = output.get("MinionDPS");
+    if minion_dps <= 0.0 {
+        return;
+    }
+    // perform.rs already wrote `NumberOfMinions` for any skill flagged
+    // `baseFlags.minion = true`, defaulting to 1 when no MaxZombies / MaxSpectres
+    // mods are stacked. Floor at 1 belt-and-braces in case `apply_minion_outputs`
+    // is exercised against a state where the perform pass hasn't run.
+    let pack_size = output.get("NumberOfMinions").max(1.0);
+    let pack_dps = minion_dps * pack_size;
+
+    // Preserve whatever the player's direct-hit DPS was so the breakdown chain
+    // can still show "of which the player contributes X" if a future slice
+    // wants to surface it.
+    output.set("PlayerHitDPS", output.get("MainSkillDPS"));
+    output.set("MainSkillDPS", pack_dps);
+
+    // Cascade through the DPS aliases perform.rs writes immediately after
+    // MainSkillDPS. With no ailment add-ons (the common summoner case) these
+    // all mirror MainSkillDPS; if BleedDPS/PoisonDPS/IgniteDPS/ImpaleDPS exist
+    // (rare on summon skills, but technically possible via support gems) we
+    // preserve their additive contribution on top of the new pack DPS.
+    let bleed = output.get("BleedDPS");
+    let poison = output.get("PoisonDPS");
+    let ignite = output.get("IgniteDPS");
+    let impale = output.get("ImpaleDPS");
+    let full_dps = pack_dps + bleed + poison + ignite + impale;
+    output.set("FullDPS", full_dps);
+    output.set("CombinedDPS", full_dps);
+    output.set("TotalDPS", pack_dps);
+    output.set("WithBleedDPS", pack_dps + bleed);
+    output.set("WithPoisonDPS", pack_dps + poison);
+    output.set("WithIgniteDPS", pack_dps + ignite);
+    output.set("WithImpaleDPS", pack_dps + impale);
+    output.set("CombinedAvg", full_dps);
 }
 
 /// Compute the minion's accuracy + hit-chance vs the character config's enemy
@@ -987,5 +1051,83 @@ mod tests {
         assert_eq!(output.get("MinionLifeRegenPercent"), 3.0);
         assert_eq!(output.get("MinionLife"), 1250.0);
         assert_eq!(output.get("MinionLifeRegen"), 37.5);
+    }
+
+    /// Slice 12 of #20: when MinionDPS is set and `NumberOfMinions` is the
+    /// perform-pass default of 1, MainSkillDPS should pick up MinionDPS verbatim
+    /// and the FullDPS / TotalDPS / mirror keys should follow.
+    #[test]
+    fn propagate_minion_dps_overwrites_main_skill_dps() {
+        let env = Env::default();
+        let mut output = Output::default();
+        // Simulate the post-perform.rs state for a summon-skill build:
+        // - MinionDPS already computed by write_minion_outputs + hit-chance
+        // - NumberOfMinions = 1 (perform.rs default for any minion-flagged skill
+        //   without max-pack mods)
+        // - MainSkillDPS = a tiny placeholder (the gem's "you can't actually cast
+        //   this on yourself" damage)
+        output.set("MinionDPS", 5000.0);
+        output.set("NumberOfMinions", 1.0);
+        output.set("MainSkillDPS", 1.0);
+        super::propagate_minion_dps_to_main_skill(&env, &mut output);
+        // MainSkillDPS now reflects the minion's DPS.
+        assert_eq!(output.get("MainSkillDPS"), 5000.0);
+        // PlayerHitDPS preserves the pre-overwrite value for breakdown chains.
+        assert_eq!(output.get("PlayerHitDPS"), 1.0);
+        // FullDPS / TotalDPS / aliases mirror MainSkillDPS (no ailments).
+        assert_eq!(output.get("FullDPS"), 5000.0);
+        assert_eq!(output.get("TotalDPS"), 5000.0);
+        assert_eq!(output.get("CombinedDPS"), 5000.0);
+        assert_eq!(output.get("WithBleedDPS"), 5000.0);
+        assert_eq!(output.get("WithPoisonDPS"), 5000.0);
+        assert_eq!(output.get("WithIgniteDPS"), 5000.0);
+        assert_eq!(output.get("WithImpaleDPS"), 5000.0);
+    }
+
+    /// Slice 12 of #20: a 6-spectre build (NumberOfMinions = 6) should multiply
+    /// MainSkillDPS by the pack size — the headline number reflects the whole
+    /// pack, matching PoB's summary readout.
+    #[test]
+    fn propagate_minion_dps_multiplies_by_number_of_minions() {
+        let env = Env::default();
+        let mut output = Output::default();
+        output.set("MinionDPS", 1000.0);
+        output.set("NumberOfMinions", 6.0);
+        super::propagate_minion_dps_to_main_skill(&env, &mut output);
+        assert_eq!(output.get("MainSkillDPS"), 6000.0);
+        assert_eq!(output.get("FullDPS"), 6000.0);
+    }
+
+    /// Slice 12 of #20: if MinionDPS is zero (data catalogue not loaded, or the
+    /// minion's primary skill metadata was absent so write_minion_outputs found
+    /// nothing to compute), leave MainSkillDPS alone. The whole point is to
+    /// surface a meaningful number — a zero overwrite would mask the existing
+    /// player-side value without adding information.
+    #[test]
+    fn propagate_minion_dps_is_a_noop_when_minion_dps_zero() {
+        let env = Env::default();
+        let mut output = Output::default();
+        output.set("MainSkillDPS", 100.0);
+        output.set("MinionDPS", 0.0);
+        output.set("NumberOfMinions", 1.0);
+        super::propagate_minion_dps_to_main_skill(&env, &mut output);
+        assert_eq!(output.get("MainSkillDPS"), 100.0);
+        assert!(output.try_get("PlayerHitDPS").is_none());
+        assert!(output.try_get("FullDPS").is_none());
+    }
+
+    /// Slice 12 of #20: when MinionDPS lands but NumberOfMinions hasn't been
+    /// set (e.g. the test exercises apply_minion_outputs without a real perform
+    /// pass), default the pack size to 1 rather than zero. A single minion's
+    /// DPS is still strictly more useful than overwriting MainSkillDPS with 0.
+    #[test]
+    fn propagate_minion_dps_defaults_pack_size_to_one() {
+        let env = Env::default();
+        let mut output = Output::default();
+        output.set("MinionDPS", 2500.0);
+        // NumberOfMinions deliberately unset: the perform-pass minion branch
+        // didn't run, so the key is missing and `output.get` returns 0.
+        super::propagate_minion_dps_to_main_skill(&env, &mut output);
+        assert_eq!(output.get("MainSkillDPS"), 2500.0);
     }
 }
