@@ -55,6 +55,64 @@ pub const MONSTER_ALLY_LIFE_TABLE: [u32; 100] = [
     5381, 5659, 5951, 6257, 6578, 6916,
 ];
 
+/// Base monster damage by level (the canonical "white mob" table). Used by the minion
+/// damage compute as the per-hit damage baseline. Stored as `f32` because PoB's source
+/// values are non-integer (e.g. 9.8199996948242 at level 8).
+pub const MONSTER_DAMAGE_TABLE: [f32; 100] = [
+    4.99, 5.56, 6.16, 6.81, 7.5, 8.23, 9.0, 9.82, 10.7, 11.62, 12.6, 13.64, 14.74, 15.91, 17.14,
+    18.45, 19.83, 21.29, 22.84, 24.47, 26.19, 28.01, 29.94, 31.96, 34.11, 36.36, 38.75, 41.26,
+    43.91, 46.7, 49.65, 52.75, 56.01, 59.45, 63.08, 66.89, 70.91, 75.13, 79.58, 84.26, 89.18,
+    94.35, 99.8, 105.52, 111.53, 117.86, 124.5, 131.49, 138.83, 146.53, 154.63, 163.14, 172.07,
+    181.45, 191.3, 201.63, 212.48, 223.87, 235.83, 248.37, 261.53, 275.33, 289.82, 305.01, 320.94,
+    337.65, 355.18, 373.55, 392.81, 413.01, 434.18, 456.37, 479.62, 504.0, 529.54, 556.3, 584.35,
+    613.73, 644.5, 676.75, 710.52, 745.89, 782.94, 821.73, 862.36, 904.9, 949.44, 996.07, 1044.89,
+    1096.0, 1149.5, 1205.5, 1264.11, 1325.45, 1389.64, 1456.82, 1527.12, 1600.68, 1677.64, 1758.17,
+];
+
+/// Player-ally damage variant. Used for most summoned minions / totems' damage.
+pub const MONSTER_ALLY_DAMAGE_TABLE: [f32; 100] = [
+    5.62, 6.03, 6.46, 6.92, 7.41, 7.93, 8.48, 9.06, 9.68, 10.33, 11.03, 11.76, 12.54, 13.37, 14.25,
+    15.17, 16.16, 17.2, 18.3, 19.46, 20.7, 22.0, 23.39, 24.85, 26.39, 28.03, 29.76, 31.58, 33.52,
+    35.56, 37.72, 40.0, 42.41, 44.96, 47.64, 50.49, 53.49, 56.66, 60.0, 63.53, 67.26, 71.2, 75.36,
+    79.74, 84.37, 89.25, 94.4, 99.84, 105.57, 111.62, 118.0, 124.73, 131.83, 139.31, 147.2, 155.52,
+    164.28, 173.53, 183.27, 193.54, 204.37, 215.78, 227.8, 240.46, 253.81, 267.87, 282.69, 298.29,
+    314.73, 332.05, 350.29, 369.5, 389.73, 411.04, 433.47, 457.09, 481.97, 508.15, 535.72, 564.75,
+    595.3, 627.46, 661.31, 696.95, 734.45, 773.91, 815.45, 859.16, 905.15, 953.54, 1004.47,
+    1058.04, 1114.41, 1173.71, 1236.1, 1301.73, 1370.76, 1443.38, 1519.76, 1600.09,
+];
+
+/// Base monster armour by level. Used by the per-hit physical mitigation formula on
+/// the minion side once the minion perform pass needs it.
+pub const MONSTER_ARMOUR_TABLE: [u32; 100] = [
+    12, 15, 19, 23, 27, 32, 37, 43, 50, 57, 65, 74, 83, 94, 105, 118, 132, 147, 164, 182, 202, 224,
+    248, 275, 303, 334, 368, 405, 445, 489, 537, 589, 646, 707, 774, 846, 925, 1010, 1103, 1204,
+    1313, 1432, 1560, 1700, 1850, 2014, 2191, 2383, 2591, 2815, 3059, 3322, 3607, 3915, 4248, 4608,
+    4997, 5418, 5873, 6365, 6896, 7469, 8089, 8757, 9480, 10259, 11101, 12009, 12989, 14047, 15188,
+    16419, 17747, 19178, 20722, 22387, 24182, 26117, 28203, 30451, 32873, 35483, 38296, 41326,
+    44591, 48107, 51894, 55973, 60365, 65095, 70188, 75670, 81573, 87926, 94765, 102125, 110047,
+    118571, 127744, 137613,
+];
+
+/// Base monster evasion by level.
+pub const MONSTER_EVASION_TABLE: [u32; 100] = [
+    67, 86, 104, 124, 144, 166, 188, 211, 234, 259, 285, 311, 339, 368, 397, 428, 460, 493, 527,
+    563, 600, 638, 677, 718, 760, 804, 849, 896, 944, 994, 1046, 1100, 1155, 1212, 1271, 1332,
+    1395, 1460, 1528, 1597, 1669, 1743, 1819, 1898, 1979, 2063, 2150, 2239, 2331, 2426, 2524, 2626,
+    2730, 2837, 2948, 3063, 3180, 3302, 3427, 3556, 3689, 3826, 3967, 4112, 4262, 4416, 4575, 4739,
+    4907, 5081, 5260, 5444, 5633, 5828, 6029, 6235, 6448, 6667, 6892, 7124, 7362, 7608, 7860, 8120,
+    8388, 8663, 8946, 9237, 9536, 9844, 10160, 10486, 10821, 11165, 11519, 11883, 12258, 12643,
+    13038, 13445,
+];
+
+/// Base monster accuracy by level.
+pub const MONSTER_ACCURACY_TABLE: [u32; 100] = [
+    14, 15, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 28, 29, 31, 32, 34, 35, 37, 39, 41, 43, 45,
+    47, 49, 52, 54, 57, 59, 62, 65, 68, 71, 74, 77, 81, 84, 88, 92, 96, 100, 105, 109, 114, 119,
+    124, 129, 135, 140, 146, 152, 159, 165, 172, 179, 187, 195, 203, 211, 220, 229, 238, 247, 257,
+    268, 279, 290, 301, 314, 326, 339, 352, 366, 381, 396, 412, 428, 444, 462, 480, 499, 518, 538,
+    559, 580, 603, 626, 650, 675, 701, 728, 755, 784, 814, 845, 877, 910, 945, 980,
+];
+
 /// Per-level lookup helper. Clamps `level` to the `[1, 100]` range PoB supports and
 /// returns the matching life value. Level 0 is treated as level 1, level >100 as 100.
 #[must_use]
@@ -82,6 +140,41 @@ pub fn monster_life3_at_level(level: u32) -> u32 {
 pub fn monster_ally_life_at_level(level: u32) -> u32 {
     let idx = clamp_level_index(level);
     MONSTER_ALLY_LIFE_TABLE[idx]
+}
+
+/// Player-ally life lookup. Used for most summoned minions / totems.
+#[must_use]
+pub fn monster_damage_at_level(level: u32) -> f32 {
+    let idx = clamp_level_index(level);
+    MONSTER_DAMAGE_TABLE[idx]
+}
+
+/// Player-ally damage variant. Used for most summoned minions / totems' damage.
+#[must_use]
+pub fn monster_ally_damage_at_level(level: u32) -> f32 {
+    let idx = clamp_level_index(level);
+    MONSTER_ALLY_DAMAGE_TABLE[idx]
+}
+
+/// Per-level monster armour lookup.
+#[must_use]
+pub fn monster_armour_at_level(level: u32) -> u32 {
+    let idx = clamp_level_index(level);
+    MONSTER_ARMOUR_TABLE[idx]
+}
+
+/// Per-level monster evasion lookup.
+#[must_use]
+pub fn monster_evasion_at_level(level: u32) -> u32 {
+    let idx = clamp_level_index(level);
+    MONSTER_EVASION_TABLE[idx]
+}
+
+/// Per-level monster accuracy lookup.
+#[must_use]
+pub fn monster_accuracy_at_level(level: u32) -> u32 {
+    let idx = clamp_level_index(level);
+    MONSTER_ACCURACY_TABLE[idx]
 }
 
 /// Map a 1-indexed level (matching PoB's table layout) to a clamped 0-indexed slot.
@@ -139,5 +232,58 @@ mod tests {
         // Above 100 → treated as 100.
         assert_eq!(monster_life_at_level(150), MONSTER_LIFE_TABLE[99]);
         assert_eq!(monster_life_at_level(u32::MAX), MONSTER_LIFE_TABLE[99]);
+    }
+
+    #[test]
+    fn damage_armour_evasion_accuracy_tables_have_100_entries() {
+        assert_eq!(MONSTER_DAMAGE_TABLE.len(), 100);
+        assert_eq!(MONSTER_ALLY_DAMAGE_TABLE.len(), 100);
+        assert_eq!(MONSTER_ARMOUR_TABLE.len(), 100);
+        assert_eq!(MONSTER_EVASION_TABLE.len(), 100);
+        assert_eq!(MONSTER_ACCURACY_TABLE.len(), 100);
+    }
+
+    #[test]
+    fn integer_stat_tables_are_monotonic_non_decreasing() {
+        for table in [
+            &MONSTER_ARMOUR_TABLE,
+            &MONSTER_EVASION_TABLE,
+            &MONSTER_ACCURACY_TABLE,
+        ] {
+            for w in table.windows(2) {
+                assert!(w[1] >= w[0], "table not monotonic: {} → {}", w[0], w[1]);
+            }
+        }
+    }
+
+    #[test]
+    fn float_stat_tables_are_monotonic_non_decreasing() {
+        for table in [&MONSTER_DAMAGE_TABLE, &MONSTER_ALLY_DAMAGE_TABLE] {
+            for w in table.windows(2) {
+                assert!(w[1] >= w[0], "table not monotonic: {} → {}", w[0], w[1]);
+            }
+        }
+    }
+
+    #[test]
+    fn extended_lookups_match_canonical_pob_values() {
+        // Spot-check pinned values from PoB's `Data/Misc.lua`. PoB rounded to a few
+        // decimals so we accept ~0.05 tolerance on the f32 helpers.
+        // 1-indexed PoB lookups: level L → MK2's `[L - 1]`.
+        // monsterDamageTable[1] = 4.99; [70] = 413.01.
+        assert!((monster_damage_at_level(1) - 4.99).abs() < 0.05);
+        assert!((monster_damage_at_level(70) - 413.01).abs() < 0.5);
+        // monsterAllyDamageTable[1] = 5.62; [90] = 953.54.
+        assert!((monster_ally_damage_at_level(1) - 5.62).abs() < 0.05);
+        assert!((monster_ally_damage_at_level(90) - 953.54).abs() < 1.0);
+        // monsterArmourTable[1] = 12; [70] = 14047.
+        assert_eq!(monster_armour_at_level(1), 12);
+        assert_eq!(monster_armour_at_level(70), 14047);
+        // monsterEvasionTable[1] = 67; [90] = 9844.
+        assert_eq!(monster_evasion_at_level(1), 67);
+        assert_eq!(monster_evasion_at_level(90), 9844);
+        // monsterAccuracyTable[1] = 14; [90] = 675.
+        assert_eq!(monster_accuracy_at_level(1), 14);
+        assert_eq!(monster_accuracy_at_level(90), 675);
     }
 }
