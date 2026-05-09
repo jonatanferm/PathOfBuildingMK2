@@ -3895,6 +3895,111 @@ fn enduring_cry_injects_life_regen_scaling_with_warcry_power() {
     );
 }
 
+// Issue #19 (slice 9): Ancestral Cry's elemental-resist buff —
+// `ElementalResist BASE = power` and `ElementalResistMax BASE =
+// power × 0.1`, with WarcryPower clamped at 30 per PoB's
+// `act_str.lua` AncestralCry statMap.
+#[test]
+fn ancestral_cry_injects_elemental_resist_buff() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("AncestralCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: AncestralCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+    use pob_engine::ModStore as _;
+
+    fn ancestral_buff(env: &pob_engine::Env, name: &str) -> f64 {
+        env.mod_db
+            .iter_all()
+            .filter(|m| {
+                m.name == name
+                    && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Ancestral Cry")
+            })
+            .filter_map(|m| m.value.as_f64())
+            .sum()
+    }
+
+    // Without UsedWarcryRecently → no injection.
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("AncestralCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcry".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        ancestral_buff(&env, "ElementalResist") < 1e-9,
+        "Without UsedWarcryRecently, AncestralCry must not inject ElementalResist (got {})",
+        ancestral_buff(&env, "ElementalResist")
+    );
+
+    // Default WarcryPower = 20 (None → PoB default). Expected:
+    // ElementalResist = 5 × 20 / 5 = 20, ElementalResistMax =
+    // 20 / 10 = 2.
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    let res = ancestral_buff(&env, "ElementalResist");
+    let max_res = ancestral_buff(&env, "ElementalResistMax");
+    assert!(
+        (res - 20.0).abs() < 1e-6,
+        "AncestralCry at default WarcryPower (20) should give +20% ElementalResist; got {res}"
+    );
+    assert!(
+        (max_res - 2.0).abs() < 1e-6,
+        "AncestralCry at default WarcryPower (20) should give +2% ElementalResistMax; got {max_res}"
+    );
+    assert!(
+        (env.output.get("AncestralCryResistBonus") - 20.0).abs() < 1e-6,
+        "AncestralCryResistBonus output should mirror the BASE value"
+    );
+
+    // WarcryPower = 30 → cap. ElementalResist = 30, Max = 3.
+    c.config.warcry_power = Some(30);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (ancestral_buff(&env, "ElementalResist") - 30.0).abs() < 1e-6,
+        "AncestralCry at WarcryPower 30 should hit the +30% cap; got {}",
+        ancestral_buff(&env, "ElementalResist")
+    );
+    assert!(
+        (ancestral_buff(&env, "ElementalResistMax") - 3.0).abs() < 1e-6,
+        "AncestralCry at WarcryPower 30 should hit the +3% Max cap; got {}",
+        ancestral_buff(&env, "ElementalResistMax")
+    );
+
+    // WarcryPower = 100 → still capped at 30.
+    c.config.warcry_power = Some(100);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (ancestral_buff(&env, "ElementalResist") - 30.0).abs() < 1e-6,
+        "AncestralCry at WarcryPower 100 must still cap at +30%; got {}",
+        ancestral_buff(&env, "ElementalResist")
+    );
+
+    // Disabled gem → no buff.
+    if let Some(group) = c.skill_groups.first_mut() {
+        if let Some(gem) = group.gems.iter_mut().find(|g| g.skill_id == "AncestralCry") {
+            gem.enabled = false;
+        }
+    }
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        ancestral_buff(&env, "ElementalResist") < 1e-9,
+        "Disabled AncestralCry must not contribute ElementalResist; got {}",
+        ancestral_buff(&env, "ElementalResist")
+    );
+}
+
 // Issue #19 (slice 4): `ExertedAttackUptime` auto-derives from the
 // slice-3 warcry aggregates when the user hasn't pinned it
 // manually. Auto-uptime = `total_exert / (cps × cooldown)`, capped

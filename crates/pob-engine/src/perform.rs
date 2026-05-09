@@ -1858,6 +1858,7 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     let mut detected_cries: Vec<&'static str> = Vec::new();
     let mut intimidating_cry_present = false;
     let mut enduring_cry_present = false;
+    let mut ancestral_cry_present = false;
     for group in &character.skill_groups {
         if !group.enabled {
             continue;
@@ -1895,6 +1896,9 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
             }
             if gem.skill_id == "EnduringCry" {
                 enduring_cry_present = true;
+            }
+            if gem.skill_id == "AncestralCry" {
+                ancestral_cry_present = true;
             }
             if let Some(&(_, marker)) = WARCRY_MARKERS.iter().find(|(id, _)| *id == gem.skill_id) {
                 if !detected_cries.contains(&marker) {
@@ -1987,6 +1991,29 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
                 .with_source(Source::Skill("Enduring Cry".into())),
         );
         env.output.set("EnduringCryLifeRegenPct", regen_pct);
+    }
+
+    // Issue #19 (slice 9): Ancestral Cry's elemental-resist buff.
+    // PoB's `act_str.lua` AncestralCry statMap entries:
+    //   ElementalResist BASE    = 5 × min(power, 30) / 5
+    //   ElementalResistMax BASE = 1 × min(power, 30) / 10
+    // (constant × min(power, limit) / div). At default WarcryPower
+    // = 20 this is +20% all elemental resist plus +2% max ele
+    // res; at the 30-power cap it tops out at +30% / +3%. Same
+    // `UsedWarcryRecently` gate as the rest of the per-cry buffs.
+    if ancestral_cry_present && env.state.condition("UsedWarcryRecently") {
+        let power = character.config.warcry_power.unwrap_or(20).min(30);
+        let resist = 5.0 * f64::from(power) / 5.0;
+        let max_resist = f64::from(power) / 10.0;
+        env.mod_db.add(
+            Mod::base("ElementalResist", resist).with_source(Source::Skill("Ancestral Cry".into())),
+        );
+        env.mod_db.add(
+            Mod::base("ElementalResistMax", max_resist)
+                .with_source(Source::Skill("Ancestral Cry".into())),
+        );
+        env.output.set("AncestralCryResistBonus", resist);
+        env.output.set("AncestralCryMaxResistBonus", max_resist);
     }
 }
 
