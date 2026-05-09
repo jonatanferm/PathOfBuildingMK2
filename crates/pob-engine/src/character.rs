@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use ahash::HashMap;
+use ahash::{AHashSet, HashMap};
 use pob_data::{Class, Item, ItemSet, NodeId, PassiveTree};
 use serde::{Deserialize, Serialize};
 
@@ -903,6 +903,21 @@ impl Character {
         if self.allocated.contains(&target) {
             return Some(Vec::new());
         }
+        // Issue #196: Intuitive Leap — `target` is reachable for free if it
+        // sits within the radius of any allocated Intuitive Leap socket.
+        // Allocate it as a single-node path, no connecting chain. Mirrors
+        // PoB's `JewelData.allocSubgraphNodes` shortcut where in-radius
+        // passives count as pre-connected.
+        let allocated_set: AHashSet<NodeId> = self.allocated.iter().copied().collect();
+        if crate::jewel_radius::intuitive_leap_reachable(
+            tree,
+            &self.socketed_jewels,
+            &allocated_set,
+            target,
+        ) {
+            self.allocated.insert(target);
+            return Some(vec![target]);
+        }
         let seeds = self.pathfind_seeds(tree);
         let path = if seeds.is_empty() {
             vec![target]
@@ -942,6 +957,19 @@ impl Character {
         let allocated_set: std::collections::HashSet<NodeId> =
             self.allocated.iter().copied().collect();
         let anchored = crate::pathfind::anchored_subset(tree, &allocated_set, &seeds);
+        // Issue #196: Intuitive Leap — extend `anchored` with allocated
+        // nodes that fall within the radius of any IL socket whose host
+        // node is itself already anchored. Iterates to a fixed point so a
+        // chain of ILs (where one IL sits inside another's radius) settles
+        // correctly. If a chain reaching an IL socket breaks, the socket
+        // doesn't make the extended-anchored cut; its in-radius floaters
+        // then orphan as expected — same behaviour as PoB.
+        let anchored = crate::jewel_radius::extend_anchored_with_intuitive_leap(
+            tree,
+            &self.socketed_jewels,
+            &allocated_set,
+            anchored,
+        );
         let orphans: Vec<NodeId> = self
             .allocated
             .iter()

@@ -239,6 +239,241 @@ fn unallocate_unallocated_node_is_noop() {
     assert_eq!(alloc_set(&c), before);
 }
 
+/// Issue #196: Intuitive Leap test scaffold. Build a tree where node 200
+/// is a "free-floating" notable that has no graph edge connecting it to
+/// the class start. With Intuitive Leap socketed at jewel-socket node 100
+/// (positioned next to node 200), node 200 should be allocatable directly.
+fn build_intuitive_leap_tree() -> PassiveTree {
+    use pob_data::Group;
+    let mut tree = empty_tree();
+    tree.classes.push(Class {
+        name: "Test".into(),
+        base_str: 0,
+        base_dex: 0,
+        base_int: 0,
+        ascendancies: vec![],
+    });
+    // Allocation backbone: class start (1) → 2 → 100 (jewel socket).
+    add_node(&mut tree, 1, &[2]);
+    add_node(&mut tree, 2, &[1, 100]);
+    add_node(&mut tree, 100, &[2]);
+    // Free-floating notable: graph edges go nowhere.
+    add_node(&mut tree, 200, &[]);
+    // Distant notable with no in-radius proximity to the IL socket.
+    add_node(&mut tree, 300, &[]);
+
+    // Class start.
+    if let Some(n) = tree.nodes.get_mut(&1) {
+        n.class_start_index = Some(0);
+        n.kind = NodeKind::ClassStart;
+    }
+    // Jewel socket positioned at (1000, 0).
+    let mut groups = AHashMap::default();
+    groups.insert(
+        100,
+        Group {
+            x: 1000.0,
+            y: 0.0,
+            orbits: smallvec::smallvec![0],
+            background: None,
+            nodes: vec![100],
+            is_proxy: false,
+        },
+    );
+    // Floater notable at (1100, 0) — within the Small radius (≤ 960).
+    groups.insert(
+        200,
+        Group {
+            x: 1100.0,
+            y: 0.0,
+            orbits: smallvec::smallvec![0],
+            background: None,
+            nodes: vec![200],
+            is_proxy: false,
+        },
+    );
+    // Distant notable at (5000, 0) — well outside the Small radius.
+    groups.insert(
+        300,
+        Group {
+            x: 5000.0,
+            y: 0.0,
+            orbits: smallvec::smallvec![0],
+            background: None,
+            nodes: vec![300],
+            is_proxy: false,
+        },
+    );
+    tree.groups = groups;
+    if let Some(n) = tree.nodes.get_mut(&100) {
+        n.kind = NodeKind::JewelSocket;
+        n.group = Some(100);
+        n.orbit = Some(0);
+        n.orbit_index = Some(0);
+    }
+    if let Some(n) = tree.nodes.get_mut(&200) {
+        n.kind = NodeKind::Notable;
+        n.group = Some(200);
+        n.orbit = Some(0);
+        n.orbit_index = Some(0);
+    }
+    if let Some(n) = tree.nodes.get_mut(&300) {
+        n.kind = NodeKind::Notable;
+        n.group = Some(300);
+        n.orbit = Some(0);
+        n.orbit_index = Some(0);
+    }
+    tree.constants = TreeConstants {
+        skills_per_orbit: vec![1, 6, 16, 16, 40, 72, 72],
+        orbit_radii: vec![0, 82, 162, 335, 493, 662, 846],
+        classes: AHashMap::default(),
+        character_attributes: AHashMap::default(),
+        pss_centre_inner_radius: None,
+    };
+    tree
+}
+
+fn intuitive_leap_item() -> pob_data::Item {
+    use pob_data::{item::Rarity, Item};
+    Item {
+        name: "Intuitive Leap".into(),
+        base_name: "Viridian Jewel".into(),
+        rarity: Rarity::Unique,
+        item_level: 84,
+        quality: 0,
+        tags: ahash::HashSet::default(),
+        mod_lines: vec![],
+        sockets: String::new(),
+        raw: String::new(),
+        corrupted: false,
+        mirrored: false,
+    }
+}
+
+#[test]
+fn intuitive_leap_allocates_floating_notable_without_path() {
+    let tree = build_intuitive_leap_tree();
+    let mut c = Character {
+        class: ClassRef("Test".into()),
+        ..Character::default()
+    };
+    c.allocate(1);
+    c.allocate_path(&tree, 100)
+        .expect("jewel socket reachable from class start");
+    c.socketed_jewels.socket(100, intuitive_leap_item());
+
+    // Node 200 has no graph edges connecting it to allocated nodes —
+    // without IL the existing pathfind logic would return None.
+    let added = c
+        .allocate_path(&tree, 200)
+        .expect("IL must let an in-radius node allocate without a path");
+    assert_eq!(added, vec![200]);
+    assert!(c.allocated.contains(&200));
+}
+
+#[test]
+fn intuitive_leap_does_not_short_circuit_out_of_radius_targets() {
+    let tree = build_intuitive_leap_tree();
+    let mut c = Character {
+        class: ClassRef("Test".into()),
+        ..Character::default()
+    };
+    c.allocate(1);
+    c.allocate_path(&tree, 100).expect("ok");
+    c.socketed_jewels.socket(100, intuitive_leap_item());
+
+    // Node 300 is well outside the Small radius — IL should NOT bypass.
+    // It also has no graph edges, so the fallback path-find returns None.
+    let result = c.allocate_path(&tree, 300);
+    assert!(
+        result.is_none(),
+        "IL must not auto-allocate nodes outside its radius"
+    );
+}
+
+#[test]
+fn intuitive_leap_requires_socket_to_be_allocated() {
+    let tree = build_intuitive_leap_tree();
+    let mut c = Character {
+        class: ClassRef("Test".into()),
+        ..Character::default()
+    };
+    c.allocate(1);
+    // Socket the jewel BUT don't allocate node 100.
+    c.socketed_jewels.socket(100, intuitive_leap_item());
+
+    // Without the socket allocated, IL is inactive — node 200 has no edges
+    // so the path-find fails and `allocate_path` returns None.
+    let result = c.allocate_path(&tree, 200);
+    assert!(
+        result.is_none(),
+        "IL effect requires the host socket to itself be allocated"
+    );
+}
+
+#[test]
+fn intuitive_leap_protects_floater_from_orphan_removal() {
+    let tree = build_intuitive_leap_tree();
+    let mut c = Character {
+        class: ClassRef("Test".into()),
+        ..Character::default()
+    };
+    c.allocate(1);
+    c.allocate_path(&tree, 100).expect("ok");
+    c.socketed_jewels.socket(100, intuitive_leap_item());
+    c.allocate_path(&tree, 200)
+        .expect("IL allocation of floater succeeds");
+    assert_eq!(alloc_set(&c), [1, 2, 100, 200].into_iter().collect());
+
+    // Unallocate node 2. Without IL protection, both 100 and 200 would
+    // orphan-cascade off (100 because the path through 2 broke; 200
+    // because IL only protects when the socket is anchored — and we
+    // remove the IL socket along with 100). With IL protection, 200
+    // would survive only if 100 itself were anchored. In this scenario
+    // 100 loses its anchor, so 200 *should* drop too — that's PoB's
+    // behaviour.
+    let removed = c.unallocate(&tree, 2);
+    let removed_set: HashSet<NodeId> = removed.into_iter().collect();
+    assert!(removed_set.contains(&2));
+    assert!(removed_set.contains(&100), "jewel socket loses anchor");
+    assert!(
+        removed_set.contains(&200),
+        "floater drops when IL socket itself orphans"
+    );
+}
+
+#[test]
+fn intuitive_leap_floater_survives_unrelated_unallocate() {
+    // Build a tree where a side branch has a redundant IL socket so
+    // unallocating an unrelated node doesn't disturb the floater. The
+    // floater's protection holds because its IL socket stays anchored.
+    let mut tree = build_intuitive_leap_tree();
+    // Add a side branch off node 1: 1 — 50.
+    add_node(&mut tree, 50, &[]);
+    if let Some(n) = tree.nodes.get_mut(&1) {
+        n.out_edges.push(50);
+    }
+    if let Some(n) = tree.nodes.get_mut(&50) {
+        n.in_edges.push(1);
+    }
+
+    let mut c = Character {
+        class: ClassRef("Test".into()),
+        ..Character::default()
+    };
+    c.allocate(1);
+    c.allocate_path(&tree, 100).expect("ok");
+    c.socketed_jewels.socket(100, intuitive_leap_item());
+    c.allocate_path(&tree, 200).expect("ok");
+    c.allocate_path(&tree, 50).expect("ok");
+
+    let removed = c.unallocate(&tree, 50);
+    let removed_set: HashSet<NodeId> = removed.into_iter().collect();
+    // Only node 50 dropped — floater 200 is still IL-protected.
+    assert_eq!(removed_set, [50].into_iter().collect());
+    assert!(c.allocated.contains(&200));
+}
+
 #[test]
 fn unallocate_keeps_branch_anchored_via_alternate_path() {
     // Build a small loop:  1 — 2 — 3 — 4

@@ -56,7 +56,8 @@ pub use ggg_import::{
 pub use item_parser::{apply_item_set, apply_item_set_with_bases, parse_item, ItemApplyReport};
 pub use jewel_radius::{
     allocated_nodes_in_radius, apply_non_radius_socketed_jewels, apply_radius_jewels,
-    identify_radius_jewel, node_position, nodes_in_radius, HandlerKind, RadiusJewel,
+    extend_anchored_with_intuitive_leap, identify_radius_jewel, intuitive_leap_radius_set,
+    intuitive_leap_reachable, node_position, nodes_in_radius, HandlerKind, RadiusJewel,
     RadiusJewelReport, SocketedJewels,
 };
 pub use minion::{
