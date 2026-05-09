@@ -4104,6 +4104,103 @@ fn seismic_cry_injects_armour_and_stun_threshold_buff() {
     );
 }
 
+// Issue #19 (slice 12): Battlemage's Cry's critical-strike-chance
+// buff. PoB's `act_str.lua` BattlemagesCry statMap pins the
+// formula: CritChance BASE = 50 × min(power, 25) / 5 / 100, i.e.
+// 0.1 × min(power, 25). Same UsedWarcryRecently gate.
+#[test]
+fn battlemages_cry_injects_crit_chance_buff() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("BattlemagesCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: BattlemagesCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::SocketGroup;
+    use pob_engine::ModStore as _;
+
+    fn battlemage_crit(env: &pob_engine::Env) -> f64 {
+        env.mod_db
+            .iter_all()
+            .filter(|m| {
+                m.name == "CritChance"
+                    && matches!(&m.source, Some(pob_engine::Source::Skill(s)) if s == "Battlemage's Cry")
+            })
+            .filter_map(|m| m.value.as_f64())
+            .sum()
+    }
+
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("BattlemagesCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcry".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+
+    // No flag → no injection.
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        battlemage_crit(&env) < 1e-9,
+        "Without UsedWarcryRecently, BattlemagesCry must not inject CritChance"
+    );
+
+    // Default WarcryPower 20 → +2.0 base CritChance.
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (battlemage_crit(&env) - 2.0).abs() < 1e-6,
+        "BattlemagesCry at default WarcryPower (20) should give +2 base CritChance; got {}",
+        battlemage_crit(&env)
+    );
+    assert!(
+        (env.output.get("BattlemagesCryCritBonus") - 2.0).abs() < 1e-6,
+        "BattlemagesCryCritBonus output should mirror the BASE value"
+    );
+
+    // Cap at 25 → +2.5 base CritChance.
+    c.config.warcry_power = Some(25);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (battlemage_crit(&env) - 2.5).abs() < 1e-6,
+        "BattlemagesCry at WarcryPower 25 should hit the +2.5 cap; got {}",
+        battlemage_crit(&env)
+    );
+
+    // Above cap (100) → still 2.5.
+    c.config.warcry_power = Some(100);
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        (battlemage_crit(&env) - 2.5).abs() < 1e-6,
+        "BattlemagesCry at WarcryPower 100 must still cap at +2.5; got {}",
+        battlemage_crit(&env)
+    );
+
+    // Disabled gem → no buff.
+    if let Some(group) = c.skill_groups.first_mut() {
+        if let Some(gem) = group
+            .gems
+            .iter_mut()
+            .find(|g| g.skill_id == "BattlemagesCry")
+        {
+            gem.enabled = false;
+        }
+    }
+    let env = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).1;
+    assert!(
+        battlemage_crit(&env) < 1e-9,
+        "Disabled BattlemagesCry must not contribute CritChance; got {}",
+        battlemage_crit(&env)
+    );
+}
+
 // Issue #19 (slice 11): integration test locking the warcry buff
 // chain. Slices 6-10 each ship one warcry's per-skill buff
 // (Intimidating's enemy debuff, Enduring's life regen,

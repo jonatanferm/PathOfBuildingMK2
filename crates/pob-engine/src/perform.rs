@@ -1860,6 +1860,7 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
     let mut enduring_cry_present = false;
     let mut ancestral_cry_present = false;
     let mut seismic_cry_present = false;
+    let mut battlemages_cry_present = false;
     for group in &character.skill_groups {
         if !group.enabled {
             continue;
@@ -1903,6 +1904,9 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
             }
             if gem.skill_id == "SeismicCry" {
                 seismic_cry_present = true;
+            }
+            if gem.skill_id == "BattlemagesCry" {
+                battlemages_cry_present = true;
             }
             if let Some(&(_, marker)) = WARCRY_MARKERS.iter().find(|(id, _)| *id == gem.skill_id) {
                 if !detected_cries.contains(&marker) {
@@ -2044,6 +2048,26 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
         );
         env.output.set("SeismicCryArmourBonus", armour_more);
         env.output.set("SeismicCryStunThresholdBonus", stun_inc);
+    }
+
+    // Issue #19 (slice 12): Battlemage's Cry's critical-strike-chance
+    // buff. Per PoB's `act_str.lua` BattlemagesCry statMap entry:
+    //   CritChance BASE = 50 × min(power, 25) / 5 / 100
+    //                   = 0.1 × min(power, 25)
+    // (constant = 50, div = 5 per-5-power, div = 100 since
+    // `divine_cry_additional_base_critical_strike_chance` is in
+    // pip-mille rather than percent, limit = 25 max effective
+    // power). At default WarcryPower = 20 this is +2 base crit
+    // chance; at the 25-power cap it tops out at +2.5. Same
+    // `UsedWarcryRecently` gate as the rest of the per-cry buffs.
+    if battlemages_cry_present && env.state.condition("UsedWarcryRecently") {
+        let power = character.config.warcry_power.unwrap_or(20).min(25);
+        let crit_bonus = 50.0 * f64::from(power) / 5.0 / 100.0;
+        env.mod_db.add(
+            Mod::base("CritChance", crit_bonus)
+                .with_source(Source::Skill("Battlemage's Cry".into())),
+        );
+        env.output.set("BattlemagesCryCritBonus", crit_bonus);
     }
 }
 
