@@ -36,6 +36,10 @@
 //! - **Brawn** ([`HandlerKind::StrDoubleTransform`]) — emits an extra `+N
 //!   Strength` BASE per in-radius `+N Strength` BASE, doubling the
 //!   contribution. No counter (cf. [`HandlerKind::StrToLifeTransform`]).
+//! - **Energy from Within** ([`HandlerKind::LifeToEnergyShieldTransform`])
+//!   — transforms each in-radius `Inc Life` into `Inc EnergyShield` at 1×.
+//!   Mirror of Healthy Mind's Life→Mana, with ES instead of Mana and
+//!   without the 2× scale factor.
 //! - **Karui Heart** ([`HandlerKind::StrToLifeTransform`]) — transforms each
 //!   in-radius allocated node's `+N Str` BASE mod into a `+5N Life` BASE plus
 //!   a counter `-N Str` so the strength is moved (not duplicated). The 5×
@@ -240,6 +244,13 @@ pub enum HandlerKind {
     /// node. No counter mod — doubling preserves the source contribution
     /// rather than transforming it away (cf. [`Self::StrToLifeTransform`]).
     StrDoubleTransform,
+    /// Issue #196 (slice 3): Energy from Within. `Increases and Reductions
+    /// to Life in Radius are Transformed to apply to Energy Shield`. Same
+    /// shape as [`Self::LifeToManaTransform`] but routes Inc Life mods to
+    /// EnergyShield at 100% (PoB doesn't double for ES). The plain
+    /// `(15-20)% increased Energy Shield` the jewel rolls still applies
+    /// globally as a vanilla bonus.
+    LifeToEnergyShieldTransform,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -388,6 +399,9 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Fertile Mind" => Some(build_dex_to_int(socket_id, item)),
         "Karui Heart" => Some(build_str_to_life(socket_id, item)),
         "Brawn" => Some(build_str_double(socket_id, item)),
+        "Energy From Within" | "Energy from Within" => {
+            Some(build_life_to_energy_shield(socket_id, item))
+        }
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -470,6 +484,20 @@ fn build_str_double(socket_id: NodeId, item: &Item) -> RadiusJewel {
         item,
         HandlerKind::StrDoubleTransform,
         is_str_double_marker,
+    )
+}
+
+/// Issue #196 (slice 3): Energy from Within. Same shape as Healthy
+/// Mind's builder — the marker line (`Increases and Reductions to Life
+/// in Radius are Transformed to apply to Energy Shield`) is dispatch
+/// metadata; the jewel's plain `(15-20)% increased Energy Shield`
+/// roll still applies globally. Default radius Large.
+fn build_life_to_energy_shield(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::LifeToEnergyShieldTransform,
+        is_life_es_transform_marker,
     )
 }
 
@@ -560,6 +588,12 @@ fn parse_non_transform_mods(item: &Item, is_marker: fn(&str) -> bool) -> Vec<Mod
 fn is_life_mana_transform_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("increases and reductions to life in radius") && l.contains("to apply to mana")
+}
+
+fn is_life_es_transform_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("increases and reductions to life in radius")
+        && l.contains("to apply to energy shield")
 }
 
 /// Issue #196 (Pure Talent): the seven base classes whose starting locations
@@ -874,6 +908,30 @@ pub fn apply_radius_jewels(
                     db.add(clone);
                     report.mod_emissions += 1;
                 }
+            }
+            HandlerKind::LifeToEnergyShieldTransform => {
+                // Issue #196 (slice 3): Energy from Within. Same shape
+                // as the Life→Mana arm but routes Inc Life to
+                // EnergyShield at 1× scale (PoB doesn't double for ES).
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let n = transform_radius_attribute(
+                    tree,
+                    db,
+                    &in_radius,
+                    "Life",
+                    "EnergyShield",
+                    crate::ModType::Inc,
+                    1.0,
+                    &jewel.source_label,
+                );
+                report.mod_emissions += n;
             }
             HandlerKind::LifeToManaTransform => {
                 // First, emit the jewel's plain mods (e.g. `+15% increased
@@ -2229,6 +2287,90 @@ mod tests {
         assert!(connected.contains("Marauder"));
         assert!(connected.contains("Witch"));
         assert_eq!(connected.len(), 2);
+    }
+
+    /// Issue #196 (slice 3): Energy from Within — `Increases and
+    /// Reductions to Life in Radius are Transformed to apply to
+    /// Energy Shield`. Pattern parallels Healthy Mind (Life→Mana at
+    /// 200%) but targets EnergyShield at 100% — PoB doesn't double
+    /// the scale for ES. The plain `(15-20)% increased Energy Shield`
+    /// the jewel rolls still applies globally as a vanilla bonus mod.
+    #[test]
+    fn energy_from_within_transforms_inc_life_to_inc_energy_shield_at_1x() {
+        let mut tree = mk_tree();
+        // Replace node 2's stats with a +20% increased Life mod so the
+        // transform has something to chew on.
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["20% increased maximum Life".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Energy From Within",
+                "Cobalt Jewel",
+                &[
+                    ("(15-20)% increased maximum Energy Shield", ModSection::Explicit),
+                    (
+                        "Increases and Reductions to Life in Radius are Transformed to apply to Energy Shield",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Witch", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        // Dispatch routed to the dedicated handler.
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::LifeToEnergyShieldTransform);
+
+        // The +20% Life Inc on node 2 should appear as +20% EnergyShield
+        // Inc sourced from Passive(2). 1× scale (no doubling) — that's
+        // the structural difference vs Healthy Mind.
+        let es_mods = db.slice_named("EnergyShield");
+        assert!(
+            es_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                && (m.value.as_f64().unwrap_or(0.0) - 20.0).abs() < 1e-6),
+            "expected +20% EnergyShield Inc sourced from Passive(2), got {es_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 3): the transform fires only on in-radius
+    /// allocated nodes. Node 3 (out of radius in `mk_tree`) carrying a
+    /// `+20% Life` Inc must not produce a corresponding EnergyShield Inc.
+    #[test]
+    fn energy_from_within_does_not_transform_out_of_radius_inc_life() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec![];
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["20% increased maximum Life".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Energy From Within",
+                "Cobalt Jewel",
+                &[(
+                    "Increases and Reductions to Life in Radius are Transformed to apply to Energy Shield",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Witch", &mut db);
+
+        let es_mods = db.slice_named("EnergyShield");
+        assert!(
+            !es_mods
+                .iter()
+                .any(|m| matches!(&m.source, Some(Source::Passive(id)) if *id == 3)),
+            "Energy from Within should not transform out-of-radius nodes, got {es_mods:#?}",
+        );
     }
 
     /// Issue #196: Karui Heart — `Strength from Passives in Radius is
