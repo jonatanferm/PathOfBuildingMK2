@@ -43,6 +43,11 @@
 //! - **Inertia** ([`HandlerKind::DexToStrTransform`]) — transforms each
 //!   in-radius `+N Dex` BASE into `+N Str` BASE. Mirror of Fertile
 //!   Mind's Dex→Int, with Strength as the destination.
+//! - **Brute Force Solution / Careful Planning / Efficient Training**
+//!   ([`HandlerKind::StrToIntTransform`] / [`HandlerKind::IntToDexTransform`] /
+//!   [`HandlerKind::IntToStrTransform`]) — the remaining three
+//!   permutations of the BASE attribute transform pattern, all
+//!   sharing one dispatch arm via `transform_radius_attribute`.
 //! - **Karui Heart** ([`HandlerKind::StrToLifeTransform`]) — transforms each
 //!   in-radius allocated node's `+N Str` BASE mod into a `+5N Life` BASE plus
 //!   a counter `-N Str` so the strength is moved (not duplicated). The 5×
@@ -259,6 +264,17 @@ pub enum HandlerKind {
     /// (Fertile Mind) with Strength as the destination — same plumbing,
     /// different `to` parameter to `transform_radius_attribute`.
     DexToStrTransform,
+    /// Issue #196 (slice 5): Brute Force Solution. `Strength from Passives
+    /// in Radius is Transformed to Intelligence`. Same plumbing as the
+    /// other attribute-transform handlers; differs only in `from` /
+    /// `to` parameters to `transform_radius_attribute`.
+    StrToIntTransform,
+    /// Issue #196 (slice 5): Careful Planning. `Intelligence from Passives
+    /// in Radius is Transformed to Dexterity`.
+    IntToDexTransform,
+    /// Issue #196 (slice 5): Efficient Training. `Intelligence from
+    /// Passives in Radius is Transformed to Strength`.
+    IntToStrTransform,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -411,6 +427,9 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
             Some(build_life_to_energy_shield(socket_id, item))
         }
         "Inertia" => Some(build_dex_to_str(socket_id, item)),
+        "Brute Force Solution" => Some(build_str_to_int(socket_id, item)),
+        "Careful Planning" => Some(build_int_to_dex(socket_id, item)),
+        "Efficient Training" => Some(build_int_to_str(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -524,6 +543,36 @@ fn build_dex_to_str(socket_id: NodeId, item: &Item) -> RadiusJewel {
     )
 }
 
+/// Issue #196 (slice 5): Brute Force Solution. Str → Int.
+fn build_str_to_int(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::StrToIntTransform,
+        is_str_int_transform_marker,
+    )
+}
+
+/// Issue #196 (slice 5): Careful Planning. Int → Dex.
+fn build_int_to_dex(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::IntToDexTransform,
+        is_int_dex_transform_marker,
+    )
+}
+
+/// Issue #196 (slice 5): Efficient Training. Int → Str.
+fn build_int_to_str(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::IntToStrTransform,
+        is_int_str_transform_marker,
+    )
+}
+
 /// Pure Talent / Replica Pure Talent: build a [`RadiusJewel`] whose `mods` list
 /// is empty — the actual class-conditional bonuses come from the dispatch
 /// handler reading the item's raw `mod_lines` and filtering by class
@@ -622,6 +671,21 @@ fn is_life_es_transform_marker(line: &str) -> bool {
 fn is_dex_str_transform_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("dexterity from passives in radius") && l.contains("transformed to strength")
+}
+
+fn is_str_int_transform_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("strength from passives in radius") && l.contains("transformed to intelligence")
+}
+
+fn is_int_dex_transform_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("intelligence from passives in radius") && l.contains("transformed to dexterity")
+}
+
+fn is_int_str_transform_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("intelligence from passives in radius") && l.contains("transformed to strength")
 }
 
 /// Issue #196 (Pure Talent): the seven base classes whose starting locations
@@ -1037,6 +1101,39 @@ pub fn apply_radius_jewels(
                     &in_radius,
                     "Dexterity",
                     "Strength",
+                    crate::ModType::Base,
+                    1.0,
+                    &jewel.source_label,
+                );
+                report.mod_emissions += n;
+            }
+            // Issue #196 (slice 5): Brute Force Solution / Careful
+            // Planning / Efficient Training. Each is a 1× BASE
+            // attribute transform with the same shape as Inertia /
+            // Fertile Mind — we differ only in the (from, to) pair.
+            HandlerKind::StrToIntTransform
+            | HandlerKind::IntToDexTransform
+            | HandlerKind::IntToStrTransform => {
+                let (from, to) = match jewel.kind {
+                    HandlerKind::StrToIntTransform => ("Strength", "Intelligence"),
+                    HandlerKind::IntToDexTransform => ("Intelligence", "Dexterity"),
+                    HandlerKind::IntToStrTransform => ("Intelligence", "Strength"),
+                    _ => unreachable!(),
+                };
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let n = transform_radius_attribute(
+                    tree,
+                    db,
+                    &in_radius,
+                    from,
+                    to,
                     crate::ModType::Base,
                     1.0,
                     &jewel.source_label,
@@ -2432,6 +2529,132 @@ mod tests {
     /// Transformed to Life`. Verifies the dispatch routes the unique to the
     /// dedicated [`HandlerKind::StrToLifeTransform`] handler and that the
     /// in-radius `+N Strength` BASE mod becomes `+5N Life` BASE sourced as
+    /// Issue #196 (slice 5): Brute Force Solution —
+    /// `Strength from Passives in Radius is Transformed to Intelligence`.
+    /// Same shape as Fertile Mind / Inertia: BASE attribute transform
+    /// at 1× scale with a counter mod cancelling the source attribute.
+    #[test]
+    fn brute_force_solution_transforms_str_base_to_int_base() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Brute Force Solution",
+                "Cobalt Jewel",
+                &[
+                    ("+20 to Intelligence", ModSection::Explicit),
+                    (
+                        "Strength from Passives in Radius is Transformed to Intelligence",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Witch", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::StrToIntTransform);
+
+        let int_mods = db.slice_named("Intelligence");
+        assert!(
+            int_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - 30.0).abs() < 1e-6),
+            "expected +30 Int BASE sourced from Passive(2), got {int_mods:#?}",
+        );
+        let str_mods = db.slice_named("Strength");
+        assert!(
+            str_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && (m.value.as_f64().unwrap_or(0.0) + 30.0).abs() < 1e-6),
+            "expected counter -30 Str from Brute Force Solution, got {str_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 5): Careful Planning —
+    /// `Intelligence from Passives in Radius is Transformed to Dexterity`.
+    #[test]
+    fn careful_planning_transforms_int_base_to_dex_base() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Intelligence".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Careful Planning",
+                "Viridian Jewel",
+                &[(
+                    "Intelligence from Passives in Radius is Transformed to Dexterity",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::IntToDexTransform);
+
+        let dex_mods = db.slice_named("Dexterity");
+        assert!(
+            dex_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - 30.0).abs() < 1e-6),
+            "expected +30 Dex BASE sourced from Passive(2), got {dex_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 5): Efficient Training —
+    /// `Intelligence from Passives in Radius is Transformed to Strength`.
+    #[test]
+    fn efficient_training_transforms_int_base_to_str_base() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Intelligence".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Efficient Training",
+                "Crimson Jewel",
+                &[(
+                    "Intelligence from Passives in Radius is Transformed to Strength",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::IntToStrTransform);
+
+        let str_mods = db.slice_named("Strength");
+        assert!(
+            str_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - 30.0).abs() < 1e-6),
+            "expected +30 Str BASE sourced from Passive(2), got {str_mods:#?}",
+        );
+    }
+
     /// Issue #196 (slice 4): Inertia — `Dexterity from Passives in
     /// Radius is Transformed to Strength`. Mirror of Fertile Mind
     /// (Dex → Int) with Strength as the destination at 1× scale.
