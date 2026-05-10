@@ -51,6 +51,9 @@
 //! - **Energised Armour** ([`HandlerKind::EnergyShieldToArmourTransform`])
 //!   — transforms each in-radius `Inc EnergyShield` into `Inc Armour`
 //!   at 2× scale. Mirror of Healthy Mind's Life→Mana@2× pattern.
+//! - **Cold Steel** ([`HandlerKind::PhysColdSwapTransform`]) — Phys ↔
+//!   Cold Inc double-transform applied additively (each in-radius
+//!   node contributes to both damage types).
 //! - **Karui Heart** ([`HandlerKind::StrToLifeTransform`]) — transforms each
 //!   in-radius allocated node's `+N Str` BASE mod into a `+5N Life` BASE plus
 //!   a counter `-N Str` so the strength is moved (not duplicated). The 5×
@@ -284,6 +287,11 @@ pub enum HandlerKind {
     /// (Healthy Mind) — Inc transform with the 2× scale on the
     /// destination side, just routed ES → Armour instead of Life → Mana.
     EnergyShieldToArmourTransform,
+    /// Issue #196 (slice 7): Cold Steel. Phys ↔ Cold Inc
+    /// double-transform — both directions applied additively (the
+    /// originals stay), so each in-radius node ends up
+    /// contributing to both damage types.
+    PhysColdSwapTransform,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -440,6 +448,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Careful Planning" => Some(build_int_to_dex(socket_id, item)),
         "Efficient Training" => Some(build_int_to_str(socket_id, item)),
         "Energised Armour" => Some(build_energy_shield_to_armour(socket_id, item)),
+        "Cold Steel" => Some(build_phys_cold_swap(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -597,6 +606,19 @@ fn build_energy_shield_to_armour(socket_id: NodeId, item: &Item) -> RadiusJewel 
     )
 }
 
+/// Issue #196 (slice 7): Cold Steel. Two marker lines (one per
+/// transform direction) are dispatch metadata; the predicate matches
+/// either so the jewel's non-transform mods (none currently rolled,
+/// but defended-in-depth) still flow through the global emission.
+fn build_phys_cold_swap(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::PhysColdSwapTransform,
+        is_phys_cold_swap_marker,
+    )
+}
+
 /// Pure Talent / Replica Pure Talent: build a [`RadiusJewel`] whose `mods` list
 /// is empty — the actual class-conditional bonuses come from the dispatch
 /// handler reading the item's raw `mod_lines` and filtering by class
@@ -716,6 +738,14 @@ fn is_es_armour_transform_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("increases and reductions to energy shield in radius")
         && l.contains("to apply to armour")
+}
+
+fn is_phys_cold_swap_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    (l.contains("increases and reductions to physical damage in radius")
+        && l.contains("to apply to cold damage"))
+        || (l.contains("increases and reductions to cold damage in radius")
+            && l.contains("to apply to physical damage"))
 }
 
 /// Issue #196 (Pure Talent): the seven base classes whose starting locations
@@ -1054,6 +1084,43 @@ pub fn apply_radius_jewels(
                     &jewel.source_label,
                 );
                 report.mod_emissions += n;
+            }
+            HandlerKind::PhysColdSwapTransform => {
+                // Issue #196 (slice 7): Cold Steel. Two passes — Phys
+                // → Cold and Cold → Phys — both at 1× scale. Inc
+                // mods don't get a counter from
+                // `transform_radius_attribute`, so the originals stay
+                // and each in-radius node ends up contributing to
+                // both damage types.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let n1 = transform_radius_attribute(
+                    tree,
+                    db,
+                    &in_radius,
+                    "PhysicalDamage",
+                    "ColdDamage",
+                    crate::ModType::Inc,
+                    1.0,
+                    &jewel.source_label,
+                );
+                let n2 = transform_radius_attribute(
+                    tree,
+                    db,
+                    &in_radius,
+                    "ColdDamage",
+                    "PhysicalDamage",
+                    crate::ModType::Inc,
+                    1.0,
+                    &jewel.source_label,
+                );
+                report.mod_emissions += n1 + n2;
             }
             HandlerKind::EnergyShieldToArmourTransform => {
                 // Issue #196 (slice 6): Energised Armour. Same shape as
@@ -2493,6 +2560,114 @@ mod tests {
         assert!(connected.contains("Marauder"));
         assert!(connected.contains("Witch"));
         assert_eq!(connected.len(), 2);
+    }
+
+    /// Issue #196 (slice 7): Cold Steel — Phys ↔ Cold Inc
+    /// double-transform. The jewel carries two marker lines that
+    /// transform Inc PhysicalDamage to Inc ColdDamage AND Inc
+    /// ColdDamage to Inc PhysicalDamage at 1×, applied additively
+    /// (the original mods stay) so each in-radius node ends up
+    /// contributing to both damage types.
+    #[test]
+    fn cold_steel_transforms_phys_and_cold_inc_in_both_directions() {
+        let mut tree = mk_tree();
+        // Node 2 has both Inc Phys and Inc Cold for the test to pin
+        // both transform directions.
+        tree.nodes.get_mut(&2).unwrap().stats = vec![
+            "20% increased Physical Damage".into(),
+            "30% increased Cold Damage".into(),
+        ];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Cold Steel",
+                "Viridian Jewel",
+                &[
+                    (
+                        "Increases and Reductions to Physical Damage in Radius are Transformed to apply to Cold Damage",
+                        ModSection::Explicit,
+                    ),
+                    (
+                        "Increases and Reductions to Cold Damage in Radius are Transformed to apply to Physical Damage",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::PhysColdSwapTransform);
+
+        // Phys → Cold: +30% Cold sourced from Phys, +20% Cold sourced
+        // from the Cold Damage line is the source of the +20% Cold Inc
+        // mod from passive 2 — wait, that's the Phys side.
+        // Direction 1 (Phys → Cold): Inc Phys 20% on node 2 → Inc Cold 20% sourced from node 2.
+        let cold_mods = db.slice_named("ColdDamage");
+        assert!(
+            cold_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - 20.0).abs() < 1e-6),
+            "expected +20% Cold Inc sourced from Passive(2) (from Phys), got {cold_mods:#?}",
+        );
+        // Direction 2 (Cold → Phys): Inc Cold 30% on node 2 → Inc Phys 30% sourced from node 2.
+        let phys_mods = db.slice_named("PhysicalDamage");
+        assert!(
+            phys_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - 30.0).abs() < 1e-6),
+            "expected +30% Phys Inc sourced from Passive(2) (from Cold), got {phys_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 7): Cold Steel out-of-radius node (3 in
+    /// `mk_tree`) carrying Inc Phys / Inc Cold mods must not be
+    /// transformed in either direction.
+    #[test]
+    fn cold_steel_does_not_transform_out_of_radius_nodes() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec![];
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["20% increased Physical Damage".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Cold Steel",
+                "Viridian Jewel",
+                &[
+                    (
+                        "Increases and Reductions to Physical Damage in Radius are Transformed to apply to Cold Damage",
+                        ModSection::Explicit,
+                    ),
+                    (
+                        "Increases and Reductions to Cold Damage in Radius are Transformed to apply to Physical Damage",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+
+        let cold_mods = db.slice_named("ColdDamage");
+        assert!(
+            !cold_mods
+                .iter()
+                .any(|m| matches!(&m.source, Some(Source::Passive(id)) if *id == 3)),
+            "Cold Steel should not transform out-of-radius nodes, got {cold_mods:#?}",
+        );
     }
 
     /// Issue #196 (slice 6): Energised Armour — `Increases and
