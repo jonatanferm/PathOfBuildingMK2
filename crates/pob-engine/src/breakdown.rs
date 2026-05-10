@@ -233,6 +233,10 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // After-accuracy completes the chain: AfterShock × HitChance.
         // Spells always hit; attacks scale by the formal hit chance.
         "MainSkillAverageHitAfterAccuracy" => Some(after_accuracy(env)),
+        // Spell-resource cost — the active skill's mana cost after
+        // the player's `ManaCost` Inc/Reduce mods. Spell builds tuning
+        // Lifetap / mana-efficiency want this surfaced.
+        "MainSkillManaCost" => Some(main_skill_mana_cost(env)),
 
         // With{Ailment}DPS sums — `MainSkillDPS + <ailment>DPS`. One
         // helper handles all four; the ailment label / source key
@@ -285,6 +289,8 @@ pub const COVERED_KEYS: &[&str] = &[
     "MainSkillAverageHitAfterResist",
     "MainSkillAverageHitAfterShock",
     "MainSkillAverageHitAfterAccuracy",
+    // Spell-resource cost.
+    "MainSkillManaCost",
     // With-ailment DPS rollups.
     "WithBleedDPS",
     "WithPoisonDPS",
@@ -1357,6 +1363,57 @@ fn with_ailment_dps(
     }
 }
 
+/// Issue #34 follow-up: re-derive `MainSkillManaCost`. PoB:
+///
+///   cost = base × (1 + ManaCost Inc / 100)
+///
+/// from `perform.rs:3219-3224`. The base cost comes from the gem's
+/// per-level data and isn't stored separately on output, so the
+/// helper back-derives it from the final cost and the Inc total
+/// (`base = total / (1 + inc/100)`). The Inc step's value carries
+/// the multiplier itself so the chain reads multiplicatively.
+fn main_skill_mana_cost(env: &Env) -> Breakdown {
+    let cfg = QueryCfg::default();
+    let inc_total = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ManaCost");
+    let mult = (1.0 + inc_total / 100.0).max(0.0);
+    let total = env.output.get("MainSkillManaCost");
+    let base = if mult > 1e-9 { total / mult } else { total };
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Base mana cost")
+            .with_value(base)
+            .with_explain(format!("{base:.0} from the gem's per-level cost")),
+    );
+    let inc_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named("ManaCost")
+        .filter(|m| m.kind == ModType::Inc)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label("Increased / Reduced")
+            .with_value(mult)
+            .with_explain(if (inc_total - 0.0).abs() < 1e-9 {
+                "no ManaCost mods (×1.000)".to_owned()
+            } else {
+                format!("{inc_total:+.0}% sum → ×{mult:.3}")
+            })
+            .with_sources(inc_mods),
+    );
+    steps.push(
+        BreakdownStep::label("MainSkillManaCost")
+            .with_value(total)
+            .with_explain(format!("{base:.0} × {mult:.3} = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: "MainSkillManaCost".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `MainSkillAverageHitAfterAccuracy`.
 /// Closes the damage chain — `AfterShock × HitChance/100`. Spells
 /// always hit at 100% (the perform pass pins
@@ -1910,6 +1967,13 @@ mod tests {
         env.output.set("MainSkillEnemyEffectiveResist", 30.0);
         env.output.set("MainSkillHitChance", 100.0);
         env.output.set("GemQuality", 20.0);
+        // Issue #34 follow-up: MainSkillManaCost breakdown reads the
+        // final cost from output and back-derives the base from the
+        // ManaCost Inc total. Fixture: base 16 mana, -25% Inc cost
+        // (a Lifetap support / mana-efficiency build) → 12 final.
+        env.output.set("MainSkillManaCost", 12.0);
+        env.mod_db
+            .add(Mod::inc("ManaCost", -25.0).with_source(Source::Tree));
         // Pool outputs + their attribute drivers so the Life / Mana
         // breakdowns have something to walk. The numbers track a
         // representative L90 character: 1100 Life from 50 base + 12×89
@@ -2562,6 +2626,86 @@ mod tests {
             final_step.explain
         );
         assert_eq!(bd.total, 90.0);
+    }
+
+    /// Issue #34 follow-up: `MainSkillManaCost` walks
+    /// `base × (1 + Inc%)`. Spell builds tuning Lifetap / mana-cost
+    /// reservation chains need to see how much of their final cost
+    /// comes from cost-reduction mods vs the gem's own base value.
+    /// The base is back-derived from `total / (1 + Inc/100)` so the
+    /// helper doesn't need to re-run the perform pass.
+    #[test]
+    fn main_skill_mana_cost_breakdown_walks_base_inc_to_final() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "MainSkillManaCost").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Base mana cost"),
+            "missing base step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Increased / Reduced"),
+            "missing inc/red step: {labels:?}"
+        );
+
+        // Back-derived base: 12 / (1 + (-25)/100) = 12 / 0.75 = 16.
+        let base = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Base mana cost")
+            .unwrap();
+        assert!(
+            (base.value.unwrap_or(0.0) - 16.0).abs() < 1e-6,
+            "expected back-derived base 16; got {:?}",
+            base.value
+        );
+
+        // Inc step value carries the multiplier (0.75) so the chain
+        // reads multiplicatively. Percent surfaced in explain text.
+        let inc = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Increased / Reduced")
+            .unwrap();
+        assert!(
+            (inc.value.unwrap_or(0.0) - 0.75).abs() < 1e-6,
+            "expected mult 0.75; got {:?}",
+            inc.value
+        );
+
+        assert_eq!(bd.total, 12.0);
+    }
+
+    /// Issue #34 follow-up: builds with no cost-reduction mods see a
+    /// 100% multiplier and the breakdown still produces a valid 3-step
+    /// view (so `covered_keys_is_complete` walks both branches).
+    #[test]
+    fn main_skill_mana_cost_breakdown_no_reduction_passes_through() {
+        let mut env = env_with_output();
+        env.mod_db = crate::ModDB::default();
+        env.output.set("MainSkillManaCost", 16.0);
+        let bd = derive_for(&env, "MainSkillManaCost").unwrap();
+        let inc = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Increased / Reduced")
+            .unwrap();
+        assert!(
+            (inc.value.unwrap_or(0.0) - 1.0).abs() < 1e-6,
+            "expected 1.0 with no cost mods; got {:?}",
+            inc.value
+        );
+        let base = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Base mana cost")
+            .unwrap();
+        assert!(
+            (base.value.unwrap_or(0.0) - 16.0).abs() < 1e-6,
+            "expected base 16; got {:?}",
+            base.value
+        );
+        assert_eq!(bd.total, 16.0);
     }
 
     /// Issue #34 follow-up: `WithPoisonDPS` is the simple sum of hit
