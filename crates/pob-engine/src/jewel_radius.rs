@@ -48,6 +48,9 @@
 //!   [`HandlerKind::IntToStrTransform`]) — the remaining three
 //!   permutations of the BASE attribute transform pattern, all
 //!   sharing one dispatch arm via `transform_radius_attribute`.
+//! - **Energised Armour** ([`HandlerKind::EnergyShieldToArmourTransform`])
+//!   — transforms each in-radius `Inc EnergyShield` into `Inc Armour`
+//!   at 2× scale. Mirror of Healthy Mind's Life→Mana@2× pattern.
 //! - **Karui Heart** ([`HandlerKind::StrToLifeTransform`]) — transforms each
 //!   in-radius allocated node's `+N Str` BASE mod into a `+5N Life` BASE plus
 //!   a counter `-N Str` so the strength is moved (not duplicated). The 5×
@@ -275,6 +278,12 @@ pub enum HandlerKind {
     /// Issue #196 (slice 5): Efficient Training. `Intelligence from
     /// Passives in Radius is Transformed to Strength`.
     IntToStrTransform,
+    /// Issue #196 (slice 6): Energised Armour. `Increases and Reductions
+    /// to Energy Shield in Radius are Transformed to apply to Armour
+    /// at 200% of their value`. Mirror of [`Self::LifeToManaTransform`]
+    /// (Healthy Mind) — Inc transform with the 2× scale on the
+    /// destination side, just routed ES → Armour instead of Life → Mana.
+    EnergyShieldToArmourTransform,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -430,6 +439,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Brute Force Solution" => Some(build_str_to_int(socket_id, item)),
         "Careful Planning" => Some(build_int_to_dex(socket_id, item)),
         "Efficient Training" => Some(build_int_to_str(socket_id, item)),
+        "Energised Armour" => Some(build_energy_shield_to_armour(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -573,6 +583,20 @@ fn build_int_to_str(socket_id: NodeId, item: &Item) -> RadiusJewel {
     )
 }
 
+/// Issue #196 (slice 6): Energised Armour. Same shape as Healthy
+/// Mind / Energy from Within — the marker line is dispatch metadata
+/// only; the jewel's plain `(15-20)% increased Armour` roll still
+/// applies globally. Default radius Large per upstream
+/// `Data/Uniques/jewel.lua`.
+fn build_energy_shield_to_armour(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::EnergyShieldToArmourTransform,
+        is_es_armour_transform_marker,
+    )
+}
+
 /// Pure Talent / Replica Pure Talent: build a [`RadiusJewel`] whose `mods` list
 /// is empty — the actual class-conditional bonuses come from the dispatch
 /// handler reading the item's raw `mod_lines` and filtering by class
@@ -686,6 +710,12 @@ fn is_int_dex_transform_marker(line: &str) -> bool {
 fn is_int_str_transform_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("intelligence from passives in radius") && l.contains("transformed to strength")
+}
+
+fn is_es_armour_transform_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("increases and reductions to energy shield in radius")
+        && l.contains("to apply to armour")
 }
 
 /// Issue #196 (Pure Talent): the seven base classes whose starting locations
@@ -1021,6 +1051,30 @@ pub fn apply_radius_jewels(
                     "EnergyShield",
                     crate::ModType::Inc,
                     1.0,
+                    &jewel.source_label,
+                );
+                report.mod_emissions += n;
+            }
+            HandlerKind::EnergyShieldToArmourTransform => {
+                // Issue #196 (slice 6): Energised Armour. Same shape as
+                // the Life→Mana arm but routes Inc EnergyShield to
+                // Armour at 2× scale (PoB doubles per the jewel text).
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let n = transform_radius_attribute(
+                    tree,
+                    db,
+                    &in_radius,
+                    "EnergyShield",
+                    "Armour",
+                    crate::ModType::Inc,
+                    2.0,
                     &jewel.source_label,
                 );
                 report.mod_emissions += n;
@@ -2439,6 +2493,89 @@ mod tests {
         assert!(connected.contains("Marauder"));
         assert!(connected.contains("Witch"));
         assert_eq!(connected.len(), 2);
+    }
+
+    /// Issue #196 (slice 6): Energised Armour — `Increases and
+    /// Reductions to Energy Shield in Radius are Transformed to apply
+    /// to Armour at 200% of their value`. Mirror of Healthy Mind's
+    /// Life→Mana@2× pattern: Inc transform with the doubling factor
+    /// PoB applies on the destination side.
+    #[test]
+    fn energised_armour_transforms_inc_es_to_inc_armour_at_2x() {
+        let mut tree = mk_tree();
+        // +30% Inc EnergyShield on the in-radius node should produce
+        // +60% Inc Armour sourced from the same node (2× scale).
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["30% increased maximum Energy Shield".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Energised Armour",
+                "Crimson Jewel",
+                &[
+                    ("(15-20)% increased Armour", ModSection::Explicit),
+                    (
+                        "Increases and Reductions to Energy Shield in Radius are Transformed to apply to Armour at 200% of their value",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::EnergyShieldToArmourTransform);
+
+        // Doubled +60% Inc Armour sourced from node 2.
+        let armour_mods = db.slice_named("Armour");
+        assert!(
+            armour_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - 60.0).abs() < 1e-6),
+            "expected +60% Armour Inc sourced from Passive(2), got {armour_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 6): out-of-radius node (3 in `mk_tree`)
+    /// carrying an Inc ES mod must not be transformed. Pin node 2 to
+    /// no ES so any Inc Armour sourced from a passive can only have
+    /// come from node 3.
+    #[test]
+    fn energised_armour_does_not_transform_out_of_radius_inc_es() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec![];
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["30% increased maximum Energy Shield".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Energised Armour",
+                "Crimson Jewel",
+                &[(
+                    "Increases and Reductions to Energy Shield in Radius are Transformed to apply to Armour at 200% of their value",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+
+        let armour_mods = db.slice_named("Armour");
+        assert!(
+            !armour_mods
+                .iter()
+                .any(|m| matches!(&m.source, Some(Source::Passive(id)) if *id == 3)),
+            "Energised Armour should not transform out-of-radius nodes, got {armour_mods:#?}",
+        );
     }
 
     /// Issue #196 (slice 3): Energy from Within — `Increases and
