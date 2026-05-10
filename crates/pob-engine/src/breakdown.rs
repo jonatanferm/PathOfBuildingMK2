@@ -177,6 +177,33 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "LightningResistTotal" => Some(elemental_resist(env, "Lightning")),
         "ChaosResistTotal" => Some(chaos_resist(env)),
 
+        // Damage avoidance. Block / Spell Block / Spell Suppression all
+        // share the same `min(Σ BASE, cap)` shape — Block at 75 + max
+        // bonus, Spell Suppression at 100 (no per-mod cap raise).
+        "BlockChance" => Some(capped_chance(
+            env,
+            "BlockChance",
+            Some("BlockChanceMax"),
+            "Attack Block",
+            75.0,
+        )),
+        "SpellBlockChance" => Some(capped_chance(
+            env,
+            "SpellBlockChance",
+            // PoB shares the BlockChanceMax cap with spell block — both
+            // top out at the same percentage.
+            Some("BlockChanceMax"),
+            "Spell Block",
+            75.0,
+        )),
+        "SpellSuppressionChance" => Some(capped_chance(
+            env,
+            "SpellSuppressionChance",
+            None,
+            "Spell Suppression",
+            100.0,
+        )),
+
         _ => None,
     }
 }
@@ -215,6 +242,10 @@ pub const COVERED_KEYS: &[&str] = &[
     "ColdResistTotal",
     "LightningResistTotal",
     "ChaosResistTotal",
+    // Damage avoidance.
+    "BlockChance",
+    "SpellBlockChance",
+    "SpellSuppressionChance",
 ];
 
 // --- Damage ---------------------------------------------------------
@@ -988,6 +1019,82 @@ fn chaos_resist(env: &Env) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive a damage-avoidance chance that
+/// follows the `min(Σ BASE, cap)` shape — Block / Spell Block / Spell
+/// Suppression. `cap_key` names a `Max`-style mod that raises the
+/// default cap by `Σ BASE(cap_key)`; pass `None` for stats with a
+/// fixed cap (e.g. Spell Suppression at 100).
+///
+/// The output step-list mirrors `chaos_resist`: the BASE step
+/// surfaces every contributing mod, an optional cap step shows the
+/// derivation when `cap_key` is present, and the effective step
+/// reports the `min(raw, cap)` clamp.
+fn capped_chance(
+    env: &Env,
+    key: &str,
+    cap_key: Option<&str>,
+    label: &str,
+    default_cap: f64,
+) -> Breakdown {
+    let cfg = QueryCfg::default();
+    let raw = env.mod_db.sum(ModType::Base, &cfg, &env.state, key);
+    let cap = match cap_key {
+        Some(ck) => default_cap + env.mod_db.sum(ModType::Base, &cfg, &env.state, ck),
+        None => default_cap,
+    };
+    let total = env.output.get(key);
+
+    let mut steps = Vec::new();
+    let base_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named(key)
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label(format!("{label} BASE"))
+            .with_value(raw)
+            .with_explain(format!("+{raw:.0}% from {key} BASE mods"))
+            .with_sources(base_mods),
+    );
+
+    if let Some(ck) = cap_key {
+        let cap_bonus = env.mod_db.sum(ModType::Base, &cfg, &env.state, ck);
+        let cap_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named(ck)
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Cap")
+                .with_value(cap)
+                .with_explain(format!(
+                    "{default_cap:.0} + {cap_bonus:.0}% from {ck} mods"
+                ))
+                .with_sources(cap_mods),
+        );
+    } else {
+        steps.push(
+            BreakdownStep::label("Cap")
+                .with_value(cap)
+                .with_explain(format!("hard cap at {default_cap:.0}%")),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label(format!("{label} (effective)"))
+            .with_value(total)
+            .with_explain(format!("min({raw:.0}, {cap:.0}) = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: key.to_owned(),
+        total,
+        steps,
+    }
+}
+
 // --- Helpers --------------------------------------------------------
 
 /// Issue #34 follow-up: re-derive a pool stat that has no primary
@@ -1286,6 +1393,24 @@ mod tests {
             .add(Mod::base("Evasion", 1100.0).with_source(Source::Item(4)));
         env.mod_db
             .add(Mod::inc("Evasion", 50.0).with_source(Source::Other("Dexterity".into())));
+        // Damage avoidance outputs + their underlying BASE mods so the
+        // Block / Spell Block / Spell Suppression breakdowns have
+        // something to walk. 30% block from a shield, +5% block cap
+        // from a tree mastery → cap 80; spell block 20% (clamped to
+        // the same 80 cap); spell suppression 60% (well under the
+        // hard 100% cap).
+        env.output.set("BlockChance", 30.0);
+        env.output.set("BlockChanceMax", 80.0);
+        env.output.set("SpellBlockChance", 20.0);
+        env.output.set("SpellSuppressionChance", 60.0);
+        env.mod_db
+            .add(Mod::base("BlockChance", 30.0).with_source(Source::Item(2)));
+        env.mod_db
+            .add(Mod::base("BlockChanceMax", 5.0).with_source(Source::Tree));
+        env.mod_db
+            .add(Mod::base("SpellBlockChance", 20.0).with_source(Source::Item(1)));
+        env.mod_db
+            .add(Mod::base("SpellSuppressionChance", 60.0).with_source(Source::Tree));
         // Tree-typed INC and MORE damage mods so the breakdown enumerates them.
         env.mod_db
             .add(Mod::inc("Damage", 50.0).with_source(Source::Tree));
@@ -1569,6 +1694,90 @@ mod tests {
         assert!(labels.iter().any(|l| l.contains("(effective)")));
         // Pinned env: -55 raw, capped at 75.
         assert_eq!(bd.total, -55.0);
+    }
+
+    /// Issue #34 follow-up: BlockChance walks BASE → Cap → effective.
+    /// The cap step factors in `BlockChanceMax` (75 + tree bonus)
+    /// and the BASE step's source list surfaces the shield mod.
+    #[test]
+    fn block_chance_breakdown_walks_base_cap_effective() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "BlockChance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.iter().any(|l| l.starts_with("Attack Block BASE")));
+        assert!(labels.contains(&"Cap"));
+        assert!(labels.iter().any(|l| l.contains("(effective)")));
+        // Pinned env: 30 raw, cap 75 + 5 = 80, effective 30.
+        assert_eq!(bd.total, 30.0);
+        let cap = bd.steps.iter().find(|s| s.label == "Cap").unwrap();
+        assert_eq!(cap.value, Some(80.0));
+        let base = bd
+            .steps
+            .iter()
+            .find(|s| s.label.starts_with("Attack Block BASE"))
+            .unwrap();
+        assert!(
+            base.sources
+                .iter()
+                .any(|s| s.source.contains("item slot 2")),
+            "expected item slot 2 source on Attack Block BASE; got {:?}",
+            base.sources
+        );
+    }
+
+    /// Issue #34 follow-up: SpellBlockChance shares the BlockChanceMax
+    /// cap with attack block. Verify the cap step uses the same value.
+    #[test]
+    fn spell_block_breakdown_shares_block_cap() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "SpellBlockChance").unwrap();
+        let cap = bd.steps.iter().find(|s| s.label == "Cap").unwrap();
+        // Cap mirrors BlockChanceMax: 75 + 5 (tree) = 80.
+        assert_eq!(cap.value, Some(80.0));
+        assert_eq!(bd.total, 20.0);
+    }
+
+    /// Issue #34 follow-up: SpellSuppressionChance has a hard 100%
+    /// cap (no per-mod cap raise). The cap step's explain should
+    /// call this out instead of summing a max-key contribution.
+    #[test]
+    fn spell_suppression_breakdown_has_hard_cap() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "SpellSuppressionChance").unwrap();
+        let cap = bd.steps.iter().find(|s| s.label == "Cap").unwrap();
+        assert_eq!(cap.value, Some(100.0));
+        let explain = cap.explain.as_deref().unwrap_or("");
+        assert!(
+            explain.contains("hard cap"),
+            "expected 'hard cap' in cap explain; got {explain}"
+        );
+        assert_eq!(bd.total, 60.0);
+    }
+
+    /// Issue #34 follow-up: when raw block exceeds the cap (e.g.
+    /// Glancing Blows or Bringer of Rain stacked over a 5%-bonus
+    /// shield mastery), the effective step clamps to the cap and the
+    /// explain calls out the `min(raw, cap)` shape.
+    #[test]
+    fn block_chance_breakdown_clamps_to_cap() {
+        let mut env = env_with_output();
+        env.mod_db
+            .add(Mod::base("BlockChance", 70.0).with_source(Source::Item(3)));
+        // Mirror what `perform_basic_stats` would write: raw 100,
+        // cap 75 + 5 = 80, effective 80.
+        env.output.set("BlockChance", 80.0);
+        let bd = derive_for(&env, "BlockChance").unwrap();
+        let effective = bd
+            .steps
+            .iter()
+            .find(|s| s.label.contains("(effective)"))
+            .unwrap();
+        let explain = effective.explain.as_deref().unwrap_or("");
+        assert!(
+            explain.contains("min(") && explain.contains(", 80)"),
+            "expected min(raw, 80) in effective explain; got {explain}"
+        );
+        assert_eq!(bd.total, 80.0);
     }
 
     /// Issue #34 follow-up: when a resist isn't capped (e.g. the user
