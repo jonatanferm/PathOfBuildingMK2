@@ -33,6 +33,9 @@
 //! - **Fertile Mind** ([`HandlerKind::DexToIntTransform`]) — transforms each
 //!   in-radius allocated node's `+N Dex` BASE mod into an `+N Int` BASE plus a
 //!   counter `-N Dex` so the source attribute is moved, not duplicated.
+//! - **Brawn** ([`HandlerKind::StrDoubleTransform`]) — emits an extra `+N
+//!   Strength` BASE per in-radius `+N Strength` BASE, doubling the
+//!   contribution. No counter (cf. [`HandlerKind::StrToLifeTransform`]).
 //! - **Karui Heart** ([`HandlerKind::StrToLifeTransform`]) — transforms each
 //!   in-radius allocated node's `+N Str` BASE mod into a `+5N Life` BASE plus
 //!   a counter `-N Str` so the strength is moved (not duplicated). The 5×
@@ -231,6 +234,12 @@ pub enum HandlerKind {
     /// transformed Str becomes +5 Life directly (replacing the +0.5 Life it
     /// would have given through the standard 1 Str = 0.5 Life ratio).
     StrToLifeTransform,
+    /// Issue #196 (slice 2): Brawn. `Strength from Passives in Radius is
+    /// Doubled`. Reads each in-radius allocated node's `+N Strength` BASE
+    /// mods and emits an extra `+N Strength` BASE sourced as the in-radius
+    /// node. No counter mod — doubling preserves the source contribution
+    /// rather than transforming it away (cf. [`Self::StrToLifeTransform`]).
+    StrDoubleTransform,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -378,6 +387,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Healthy Mind" => Some(build_life_to_mana(socket_id, item)),
         "Fertile Mind" => Some(build_dex_to_int(socket_id, item)),
         "Karui Heart" => Some(build_str_to_life(socket_id, item)),
+        "Brawn" => Some(build_str_double(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -446,6 +456,20 @@ fn build_str_to_life(socket_id: NodeId, item: &Item) -> RadiusJewel {
         item,
         HandlerKind::StrToLifeTransform,
         is_str_life_transform_marker,
+    )
+}
+
+/// Issue #196 (slice 2): Brawn. Same shape as Karui Heart's builder —
+/// the marker line (`Strength from Passives in Radius is Doubled`) is
+/// dispatch metadata only; everything else on the jewel still applies
+/// globally as a vanilla bonus mod. Default radius is Large to mirror
+/// upstream `Data/Uniques/jewel.lua`'s `Radius: Large` for Brawn.
+fn build_str_double(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::StrDoubleTransform,
+        is_str_double_marker,
     )
 }
 
@@ -624,6 +648,11 @@ fn apply_pure_talent_lines(
 fn is_dex_int_transform_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("dexterity from passives in radius") && l.contains("transformed to intelligence")
+}
+
+fn is_str_double_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("strength from passives in radius") && l.contains("doubled")
 }
 
 fn is_str_life_transform_marker(line: &str) -> bool {
@@ -901,6 +930,26 @@ pub fn apply_radius_jewels(
                 );
                 report.mod_emissions += n;
             }
+            HandlerKind::StrDoubleTransform => {
+                // Issue #196 (slice 2): Brawn. Emit jewel-level plain
+                // mods (`+12 to Strength`) globally first — those
+                // aren't subject to the doubling.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                // For each in-radius allocated node's `+N Strength`
+                // BASE, emit an extra `+N Strength` BASE sourced as
+                // the in-radius node. No counter mod — doubling
+                // preserves the source contribution.
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let n =
+                    double_radius_attribute(tree, db, &in_radius, "Strength", crate::ModType::Base);
+                report.mod_emissions += n;
+            }
             HandlerKind::StrToLifeTransform => {
                 // Issue #196: Karui Heart. Emit jewel-level plain mods
                 // (`+(20-30) to Strength`) globally first — those aren't
@@ -1077,6 +1126,55 @@ pub fn extend_anchored_with_intuitive_leap(
 /// Used for Healthy Mind (`Inc Life` → `Inc Mana` × 2) and Fertile Mind
 /// (`Base Dex` → `Base Int` × 1, plus a counter `-N Dex` so the original Dex
 /// contribution from the in-radius node cancels out).
+/// Issue #196 (slice 2): emit one extra copy of each in-radius `+N attr`
+/// mod sourced as the in-radius node. Used by Brawn's "doubled"
+/// semantics — the extra copy stacks with the engine's existing read of
+/// the source mod, so the final attribute value lands at 2× the base
+/// reading. Distinct from [`transform_radius_attribute`] which moves the
+/// stat (with a counter) rather than duplicating it.
+fn double_radius_attribute(
+    tree: &PassiveTree,
+    db: &mut crate::ModDB,
+    in_radius: &[(NodeId, f64)],
+    attr: &str,
+    kind: crate::ModType,
+) -> usize {
+    let mut emitted = 0usize;
+    for (node_id, _) in in_radius {
+        let Some(node) = tree.nodes.get(node_id) else {
+            continue;
+        };
+        for raw in &node.stats {
+            for line in raw.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                let Some(parsed) = parse_mod_line(line) else {
+                    continue;
+                };
+                let m = &parsed.mod_;
+                if m.kind != kind || m.name != attr {
+                    continue;
+                }
+                let Some(value) = m.value.as_f64() else {
+                    continue;
+                };
+                let mut extra = m.clone();
+                extra.value = crate::ModValue::Number(value);
+                extra.source = Some(Source::Passive(*node_id));
+                // Drop tags — we mirror `transform_radius_attribute`'s
+                // simplification of ignoring conditional clauses on the
+                // source mod.
+                extra.tags.clear();
+                db.add(extra);
+                emitted += 1;
+            }
+        }
+    }
+    emitted
+}
+
 fn transform_radius_attribute(
     tree: &PassiveTree,
     db: &mut crate::ModDB,
@@ -2200,6 +2298,115 @@ mod tests {
                 .any(|m| matches!(m.kind, crate::ModType::Base)
                     && (m.value.as_f64().unwrap_or(0.0) + 30.0).abs() < 1e-6),
             "expected counter -30 Str from Karui Heart transform, got {str_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 2): Brawn — `Strength from Passives in Radius is
+    /// Doubled`. Verifies the dispatch routes to the dedicated handler
+    /// kind ([`HandlerKind::StrDoubleTransform`]) and that the in-radius
+    /// `+N Strength` BASE mod produces an extra `+N Strength` BASE
+    /// sourced as the in-radius node — no counter, since doubling
+    /// preserves the source contribution.
+    #[test]
+    fn brawn_doubles_in_radius_str_base() {
+        // Custom tree where node 2 has a `+30 to Strength` BASE stat.
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Brawn",
+                "Crimson Jewel",
+                &[
+                    ("+12 to Strength", ModSection::Explicit),
+                    (
+                        "Strength from Passives in Radius is Doubled",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        // Dispatch routed to the dedicated handler.
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::StrDoubleTransform);
+
+        // The doubled +30 Str should be sourced from Passive(2). The
+        // node's *own* +30 Str isn't (re)added by the jewel handler —
+        // the engine reads it from `node.stats` already — so this
+        // single emission represents the *extra* copy that doubles it.
+        let str_mods = db.slice_named("Strength");
+        assert!(
+            str_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - 30.0).abs() < 1e-6),
+            "expected extra +30 Str BASE sourced from Passive(2), got {str_mods:#?}",
+        );
+
+        // Plain +12 Str global mod still applied (the jewel's own non-
+        // radius bonus isn't consumed by the doubling pass).
+        assert!(
+            str_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && (m.value.as_f64().unwrap_or(0.0) - 12.0).abs() < 1e-6),
+            "expected global +12 Str from Brawn, got {str_mods:#?}",
+        );
+
+        // No counter -30 Str — doubling doesn't transform-away the source.
+        assert!(
+            !str_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && (m.value.as_f64().unwrap_or(0.0) + 30.0).abs() < 1e-6),
+            "Brawn should not emit a counter -30 Str (that's transform semantics, \
+             not double semantics); got {str_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 2): Brawn doubling only fires on in-radius
+    /// allocated nodes. `mk_tree` has node 3 at 2000 units from the
+    /// socket (well outside Large radius); a +30 Str on node 3 must
+    /// not get doubled. Pin node 2 (in radius) to no Str so any Str
+    /// emission sourced from a passive can only have come from node 3.
+    #[test]
+    fn brawn_does_not_double_out_of_radius_str() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec![];
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["+30 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Brawn",
+                "Crimson Jewel",
+                &[(
+                    "Strength from Passives in Radius is Doubled",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+
+        let str_mods = db.slice_named("Strength");
+        // No emission sourced from Passive(3) — it was out of radius.
+        assert!(
+            !str_mods
+                .iter()
+                .any(|m| matches!(&m.source, Some(Source::Passive(id)) if *id == 3)),
+            "Brawn should not double out-of-radius nodes, got {str_mods:#?}",
         );
     }
 
