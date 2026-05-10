@@ -218,6 +218,11 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // attack builds tuning accuracy investment.
         "Accuracy" => Some(accuracy(env)),
 
+        // Damage chain — the after-resist hit shows the multiplicative
+        // step from `AverageHitWithCrit` to the post-resist value. Lets
+        // the user see how much damage the enemy's resist is shaving.
+        "MainSkillAverageHitAfterResist" => Some(after_resist(env)),
+
         // Recovery — Life regen and Mana regen. PoB exposes both with
         // their flat / percent / pool-tied compositions.
         "LifeRegen" => Some(life_regen(env)),
@@ -236,6 +241,8 @@ pub const COVERED_KEYS: &[&str] = &[
     "Intelligence",
     // Hit chance.
     "Accuracy",
+    // Damage chain.
+    "MainSkillAverageHitAfterResist",
     // Damage.
     "MainSkillAverageHit",
     "MainSkillAverageHitWithCrit",
@@ -1209,6 +1216,48 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `MainSkillAverageHitAfterResist`.
+/// The output is `AverageHitWithCrit × (1 - effective_resist/100)`.
+/// We don't recompute the after-resist value — we read it directly
+/// from the output and surface the three components the user wants
+/// to see: the source hit, the resist multiplier, and the final.
+///
+/// Falls back to `MainSkillAverageHit` (no-crit) when
+/// `MainSkillAverageHitWithCrit` isn't set, mirroring the perform
+/// pass's own fallback for spell-only builds.
+fn after_resist(env: &Env) -> Breakdown {
+    let avg = env
+        .output
+        .try_get("MainSkillAverageHitWithCrit")
+        .unwrap_or_else(|| env.output.get("MainSkillAverageHit"));
+    let eff_resist = env.output.get("MainSkillEnemyEffectiveResist");
+    let res_factor = (1.0 - eff_resist / 100.0).max(0.0);
+    let total = env.output.get("MainSkillAverageHitAfterResist");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Average hit (with crit)")
+            .with_value(avg)
+            .with_explain(format!("{avg:.0} pre-resist")),
+    );
+    steps.push(
+        BreakdownStep::label("Enemy resist factor")
+            .with_value(res_factor)
+            .with_explain(format!("1 - {eff_resist:.0}% / 100 = {res_factor:.3}")),
+    );
+    steps.push(
+        BreakdownStep::label("After resist")
+            .with_value(total)
+            .with_explain(format!("{avg:.0} × {res_factor:.3} = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: "MainSkillAverageHitAfterResist".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `Accuracy`. PoB computes
 ///
 ///   Accuracy = Σ BASE(Accuracy) + 2 × (level - 1) + 2 × Dex
@@ -2060,6 +2109,53 @@ mod tests {
             "expected min(raw, 75) in effective explain; got {explain}"
         );
         assert_eq!(bd.total, 75.0);
+    }
+
+    /// Issue #34 follow-up: `MainSkillAverageHitAfterResist` shows
+    /// the multiplicative chain `AverageHitWithCrit × (1 - eff_resist/100)`
+    /// — what the user reads as "your hit, after the enemy's resist".
+    /// The breakdown surfaces the source hit, the resist multiplier
+    /// (with the percent value), and the final number.
+    #[test]
+    fn after_resist_breakdown_walks_avg_with_crit_then_resist_factor() {
+        let mut env = env_with_output();
+        // Re-pin the chain numbers so the test is independent of the
+        // fixture's representative-but-not-consistent baseline:
+        // AvgWithCrit = 400, EffectiveResist = 30%, AfterResist = 280.
+        env.output.set("MainSkillAverageHitWithCrit", 400.0);
+        env.output.set("MainSkillEnemyEffectiveResist", 30.0);
+        env.output.set("MainSkillAverageHitAfterResist", 280.0);
+        let bd = derive_for(&env, "MainSkillAverageHitAfterResist").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Average hit (with crit)"),
+            "missing avg-hit step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Enemy resist factor"),
+            "missing resist factor step: {labels:?}"
+        );
+
+        let avg = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Average hit (with crit)")
+            .unwrap();
+        assert_eq!(avg.value, Some(400.0));
+
+        // Resist factor = 1 - 30/100 = 0.7.
+        let resist = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Enemy resist factor")
+            .unwrap();
+        assert!(
+            (resist.value.unwrap_or(0.0) - 0.7).abs() < 1e-6,
+            "expected resist factor 0.7; got {:?}",
+            resist.value
+        );
+
+        assert_eq!(bd.total, 280.0);
     }
 
     /// Issue #34 follow-up: Accuracy walks Base mods → Level → Dex →
