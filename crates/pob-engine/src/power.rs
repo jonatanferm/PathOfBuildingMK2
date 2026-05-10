@@ -19,6 +19,9 @@
 //! - **item swap** ([`score_item_swap`]) — single-call DPS/EHP delta for
 //!   swapping a candidate item into a slot, powering the items-tab
 //!   "vs equipped" hover (#203 follow-up)
+//! - **shared-item ranking** ([`rank_shared_items_for_slot`]) — batch
+//!   ranker over a candidate list, returning `(candidate_index, score)`
+//!   pairs sorted by impact for the items-tab "best swap-in" panel
 //!
 //! ## Performance
 //!
@@ -283,6 +286,75 @@ pub fn score_item_swap(
         dps_delta: after.get("MainSkillDPS") - baseline.get("MainSkillDPS"),
         ehp_delta: after.get("TotalEHP") - baseline.get("TotalEHP"),
     }
+}
+
+/// Issue #207 (slice 6): rank a list of candidate items for a slot
+/// by [`score_item_swap`] impact, returning `(candidate_index, score)`
+/// pairs sorted by `max(dps_delta, ehp_delta)` descending.
+///
+/// The pairing preserves the caller's original candidate ordering so
+/// the items-tab can map a result row straight back to the source
+/// shared-item entry without re-running the score lookup.
+///
+/// **Filtering**: nothing is dropped — even negative-impact swaps are
+/// returned. A swap that would *lose* DPS or EHP is just as
+/// informative as one that would gain it; the consumer's UI can pick
+/// where to draw the cutoff.
+///
+/// **Performance**: 1 baseline + N candidate perform calls.
+pub fn rank_shared_items_for_slot(
+    character: &Character,
+    tree: &PassiveTree,
+    slot: Slot,
+    candidates: &[pob_data::Item],
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> Vec<(usize, ItemSwapScore)> {
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+    let (baseline, _) = compute_full_with_clusters_and_timeless(
+        character,
+        tree,
+        skills,
+        bases,
+        cluster_ctx,
+        timeless,
+    );
+    let baseline_dps = baseline.get("MainSkillDPS");
+    let baseline_ehp = baseline.get("TotalEHP");
+
+    let mut scored: Vec<(usize, ItemSwapScore)> = Vec::with_capacity(candidates.len());
+    for (idx, candidate) in candidates.iter().enumerate() {
+        let mut probe = character.clone();
+        probe.items.equip(slot, candidate.clone());
+        let (after, _) = compute_full_with_clusters_and_timeless(
+            &probe,
+            tree,
+            skills,
+            bases,
+            cluster_ctx,
+            timeless,
+        );
+        scored.push((
+            idx,
+            ItemSwapScore {
+                slot,
+                dps_delta: after.get("MainSkillDPS") - baseline_dps,
+                ehp_delta: after.get("TotalEHP") - baseline_ehp,
+            },
+        ));
+    }
+    scored.sort_by(|(_, a), (_, b)| {
+        let a_max = a.dps_delta.max(a.ehp_delta);
+        let b_max = b.dps_delta.max(b.ehp_delta);
+        b_max
+            .partial_cmp(&a_max)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    scored
 }
 
 /// Power-score result for a single mod line on an equipped item.
@@ -884,6 +956,75 @@ mod tests {
         assert!(
             score.ehp_delta > 0.0,
             "swap from +30 Life → +80 Life should raise EHP; got {}",
+            score.ehp_delta
+        );
+    }
+
+    /// Issue #207 (slice 6): ranking with an empty candidate slice is
+    /// a no-op. Guards the items-tab "scan shared store" loop against
+    /// a panic when the store has nothing for the slot.
+    #[test]
+    fn rank_shared_items_for_slot_empty_candidates_returns_empty() {
+        let tree = empty_tree();
+        let c = fresh_character();
+        let ranked =
+            rank_shared_items_for_slot(&c, &tree, Slot::Amulet, &[], None, None, None, None);
+        assert!(ranked.is_empty());
+    }
+
+    /// Issue #207 (slice 6): the candidate with the larger Life
+    /// contribution should rank ahead of the smaller one. Pins the
+    /// max(dps_delta, ehp_delta) sort key.
+    #[test]
+    fn rank_shared_items_for_slot_orders_candidates_by_impact_desc() {
+        let tree = empty_tree();
+        let c = fresh_character();
+        let small = mk_amulet(&["+10 to maximum Life"]);
+        let big = mk_amulet(&["+200 to maximum Life"]);
+        let medium = mk_amulet(&["+50 to maximum Life"]);
+        // Intentionally not pre-sorted so the ranker has to do work.
+        let candidates = [small, big, medium];
+        let ranked = rank_shared_items_for_slot(
+            &c,
+            &tree,
+            Slot::Amulet,
+            &candidates,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(ranked.len(), 3);
+        let order: Vec<usize> = ranked.iter().map(|(i, _)| *i).collect();
+        // Indices: small=0, big=1, medium=2 → expected order big, medium, small.
+        assert_eq!(order, vec![1, 2, 0], "got {ranked:?}");
+    }
+
+    /// Issue #207 (slice 6): negative-impact candidates (a swap that
+    /// would *cost* the player Life) are kept in the result. They're
+    /// useful information; the consumer's UI can grey them out.
+    #[test]
+    fn rank_shared_items_for_slot_includes_negative_impact_candidates() {
+        let tree = empty_tree();
+        let mut c = fresh_character();
+        c.items
+            .equip(Slot::Amulet, mk_amulet(&["+200 to maximum Life"]));
+        let downgrade = mk_amulet(&["+10 to maximum Life"]);
+        let ranked = rank_shared_items_for_slot(
+            &c,
+            &tree,
+            Slot::Amulet,
+            std::slice::from_ref(&downgrade),
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(ranked.len(), 1);
+        let (_, score) = &ranked[0];
+        assert!(
+            score.ehp_delta < 0.0,
+            "downgrade should report negative ehp_delta; got {}",
             score.ehp_delta
         );
     }
