@@ -58,6 +58,11 @@
 //!   first per-attribute-tally radius pattern: sums in-radius
 //!   `+N Int` BASE mods, integer-divides by 3, emits `+(N/3) Life`
 //!   sourced as the jewel.
+//! - **Static Electricity** ([`HandlerKind::DexCountToMaxLightningAttack`]) —
+//!   Dexterity summed across in-radius allocated nodes; emits a single
+//!   `LightningDamage` BASE mod with `ModValue::Range { 0, dex }` and the
+//!   ATTACK / LIGHTNING flags so it slots into `perform.rs`'s flat-damage
+//!   adds loop alongside vanilla `Adds N to M Lightning Damage to Attacks`.
 //! - **Eldritch Knowledge** ([`HandlerKind::IntCountToIncChaosDamage`]) —
 //!   Intelligence summed across in-radius allocated nodes, integer-divided
 //!   by 10, then multiplied by 5 to produce an Inc ChaosDamage mod sourced
@@ -325,6 +330,13 @@ pub enum HandlerKind {
     /// Spire of Stone but Int-sourced and emits an Inc `ChaosDamage` mod
     /// (floor(int_sum / 10) × 5).
     IntCountToIncChaosDamage,
+    /// Issue #196: Static Electricity. `Adds 1 maximum Lightning Damage to
+    /// Attacks per 1 Dexterity Allocated in Radius`. Sums in-radius
+    /// allocated `+N Dexterity` BASE mods and emits a single
+    /// `LightningDamage` BASE mod with `ModValue::Range { 0, dex }` and the
+    /// ATTACK / LIGHTNING flags — a max-only adds, since the per-Dex
+    /// scaling only contributes to the upper bound.
+    DexCountToMaxLightningAttack,
     /// Issue #196: Spire of Stone. `3% increased Totem Life per 10 Strength
     /// Allocated in Radius`. Sister handler to Pugilist / Anatomical Knowledge:
     /// sums in-radius allocated `+N Strength` BASE mods, integer-divides by
@@ -493,6 +505,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Pugilist" => Some(build_dex_count_to_inc_evasion(socket_id, item)),
         "Spire of Stone" => Some(build_str_count_to_inc_totem_life(socket_id, item)),
         "Eldritch Knowledge" => Some(build_int_count_to_inc_chaos_damage(socket_id, item)),
+        "Static Electricity" => Some(build_dex_count_to_max_lightning_attack(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -692,6 +705,19 @@ fn build_dex_count_to_inc_evasion(socket_id: NodeId, item: &Item) -> RadiusJewel
     )
 }
 
+/// Issue #196 (slice 12): Static Electricity (`Adds 1 maximum Lightning
+/// Damage to Attacks per 1 Dexterity Allocated in Radius`). Marker matches
+/// only the per-Dex line; the jewel's static `Adds 1 to 2 Lightning Damage
+/// to Attacks` line falls through to vanilla mod_parser.
+fn build_dex_count_to_max_lightning_attack(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::DexCountToMaxLightningAttack,
+        is_dex_count_to_max_lightning_attack_marker,
+    )
+}
+
 /// Issue #196 (slice 11): Eldritch Knowledge (`5% increased Chaos Damage
 /// per 10 Intelligence from Allocated Passives in Radius`). The line is
 /// dispatch-only metadata — the in-radius Int sum × 5 / 10 is computed in
@@ -874,6 +900,13 @@ fn is_int_count_to_inc_chaos_damage_marker(line: &str) -> bool {
     l.contains("5% increased chaos damage")
         && l.contains("per 10 intelligence")
         && l.contains("allocated passives in radius")
+}
+
+fn is_dex_count_to_max_lightning_attack_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("adds 1 maximum lightning damage to attacks")
+        && l.contains("per 1 dexterity")
+        && l.contains("in radius")
 }
 
 /// Issue #196 (Pure Talent): the seven base classes whose starting locations
@@ -1212,6 +1245,38 @@ pub fn apply_radius_jewels(
                     &jewel.source_label,
                 );
                 report.mod_emissions += n;
+            }
+            HandlerKind::DexCountToMaxLightningAttack => {
+                // Issue #196 (slice 12): Static Electricity. Sum
+                // allocated `+N Dexterity` BASE mods across in-radius
+                // nodes; emit a single `LightningDamage` BASE mod
+                // shaped as `Range { 0, dex }` with ATTACK + LIGHTNING
+                // flags. Matches the parser's emission for
+                // `Adds N to M Lightning Damage to Attacks` so
+                // `perform.rs`'s flat-damage adds loop picks it up.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let dex_sum = sum_radius_attribute_base(tree, &in_radius, "Dexterity");
+                if dex_sum > 0.0 {
+                    let mut mod_ = crate::Mod::base(
+                        "LightningDamage",
+                        crate::ModValue::Range {
+                            min: 0.0,
+                            max: dex_sum,
+                        },
+                    );
+                    mod_.flags |= pob_data::ModFlag::ATTACK;
+                    mod_.keyword_flags |= pob_data::KeywordFlag::LIGHTNING;
+                    mod_.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(mod_);
+                    report.mod_emissions += 1;
+                }
             }
             HandlerKind::IntCountToIncChaosDamage => {
                 // Issue #196 (slice 11): Eldritch Knowledge. Sum
@@ -2996,6 +3061,91 @@ mod tests {
                 .any(|m| matches!(m.kind, crate::ModType::Inc)
                     && (m.value.as_f64().unwrap_or(0.0) - 2.0).abs() < 1e-6),
             "expected +2% Inc Evasion (floor(8/3)), got {evasion_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 12): Static Electricity. `Adds 1 maximum
+    /// Lightning Damage to Attacks per 1 Dexterity Allocated in
+    /// Radius`. Sums in-radius allocated Dex and emits a single
+    /// `LightningDamage` BASE mod with `ModValue::Range { 0, dex }`,
+    /// `ATTACK` flag, and `LIGHTNING` keyword — the same shape the
+    /// `Adds N to M Lightning Damage to Attacks` parser emits, which
+    /// `perform.rs`'s flat-damage loop already reads. The jewel's
+    /// static `Adds 1 to 2 Lightning Damage to Attacks` line still
+    /// applies through vanilla mod_parser.
+    #[test]
+    fn static_electricity_emits_max_lightning_per_dex_in_radius() {
+        let mut tree = mk_tree();
+        // Sum = 25 Dex → +0-25 max Lightning to Attacks.
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+25 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Static Electricity",
+                "Viridian Jewel",
+                &[
+                    ("Adds 1 to 2 Lightning Damage to Attacks", ModSection::Explicit),
+                    (
+                        "Adds 1 maximum Lightning Damage to Attacks per 1 Dexterity Allocated in Radius",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::DexCountToMaxLightningAttack);
+
+        let lightning_mods = db.slice_named("LightningDamage");
+        assert!(
+            lightning_mods.iter().any(|m| {
+                matches!(m.kind, crate::ModType::Base)
+                    && match m.value.as_range() {
+                        Some((min, max)) => (min - 0.0).abs() < 1e-6 && (max - 25.0).abs() < 1e-6,
+                        None => false,
+                    }
+            }),
+            "expected Base LightningDamage Range[0,25] from Static Electricity, got {lightning_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 12): the emitted mod must carry the ATTACK
+    /// modflag so `perform.rs` only adds it on attacks (not spells).
+    #[test]
+    fn static_electricity_emits_attack_flagged_mod() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+10 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Static Electricity",
+                "Viridian Jewel",
+                &[(
+                    "Adds 1 maximum Lightning Damage to Attacks per 1 Dexterity Allocated in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let lightning_mods = db.slice_named("LightningDamage");
+        assert!(
+            lightning_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && m.flags.contains(pob_data::ModFlag::ATTACK)),
+            "expected ATTACK-flagged Base LightningDamage, got {lightning_mods:#?}",
         );
     }
 
