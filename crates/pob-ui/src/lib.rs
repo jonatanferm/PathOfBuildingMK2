@@ -89,6 +89,13 @@ struct LoadedApp {
     /// dialog is open. Mirrors PoB's `TreeTab.lua:129-150` two-button
     /// modal popup for Reset Tree / Remove all Tattoos.
     pending_tree_reset: Option<TreeResetKind>,
+    /// Issue #220: pending tree-version swap confirmation. `Some` when
+    /// the user picked a different version and the new tree is missing
+    /// allocated nodes that would otherwise be silently dropped. The
+    /// status-bar dropdown stages the swap here; the modal at frame
+    /// end either applies or discards it. Mirrors PoB's
+    /// `TreeTab.lua:322-339` version-converter dialog.
+    pending_version_swap: Option<PendingVersionSwap>,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
     /// Issue #209: user-global saved-items store. Loaded from disk at
@@ -207,6 +214,58 @@ enum TreeResetKind {
     Allocation,
     /// Drop every tattoo override.
     Tattoos,
+}
+
+/// Issue #220 (tree-tab affordances): pre-staged tree-version swap.
+/// When the user picks a different tree version in the status-bar
+/// dropdown and the new tree is missing one or more nodes the player
+/// has allocated, MK2 holds the new tree here and pops a confirmation
+/// modal. The user can then either confirm (drop the orphan allocs and
+/// swap) or cancel (leave the old version active untouched).
+///
+/// Mirrors PoB's `TreeTab.lua:322-339` version-converter dialog. PoB
+/// also surfaces a respec-cost estimate; MK2 doesn't track point cost
+/// per node, so the dialog reports an allocated-node *count* delta
+/// instead — same UX intent (don't silently lose work).
+struct PendingVersionSwap {
+    /// Target version key (e.g. `"3_27"`) — used for the modal title.
+    target_version: String,
+    /// Pre-loaded tree for the target version. Stored here so confirm
+    /// doesn't re-read from disk and risk a different file state vs.
+    /// the diff calculation.
+    target_tree: pob_data::PassiveTree,
+    /// Allocated node ids that *would* survive the swap (exist in
+    /// `target_tree.nodes`). Sorted ascending so the modal renders
+    /// deterministically across frames.
+    surviving: Vec<pob_data::NodeId>,
+    /// Allocated node ids that *would* be dropped (don't exist in
+    /// `target_tree.nodes`). Sorted ascending.
+    dropped: Vec<pob_data::NodeId>,
+}
+
+/// Compute the allocation diff for a candidate tree-version swap:
+/// allocated node ids that survive the move (still exist in
+/// `target_tree.nodes`) and ones that would be dropped. Both vectors
+/// are sorted ascending so the modal renders deterministically.
+///
+/// Pure function — split out from the dropdown handler so it can be
+/// unit-tested without spinning up an egui context.
+fn compute_version_swap_diff(
+    allocated: &HashSet<pob_data::NodeId>,
+    target_tree: &pob_data::PassiveTree,
+) -> (Vec<pob_data::NodeId>, Vec<pob_data::NodeId>) {
+    let mut surviving: Vec<pob_data::NodeId> = Vec::new();
+    let mut dropped: Vec<pob_data::NodeId> = Vec::new();
+    for &id in allocated {
+        if target_tree.nodes.contains_key(&id) {
+            surviving.push(id);
+        } else {
+            dropped.push(id);
+        }
+    }
+    surviving.sort_unstable();
+    dropped.sort_unstable();
+    (surviving, dropped)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -360,6 +419,7 @@ impl PobApp {
             focus_search_request: false,
             show_hotkey_help: false,
             pending_tree_reset: None,
+            pending_version_swap: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -438,6 +498,7 @@ impl PobApp {
             focus_search_request: false,
             show_hotkey_help: false,
             pending_tree_reset: None,
+            pending_version_swap: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -1253,8 +1314,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     }
                 });
             if let Some(v) = new_version {
-                if let Err(e) = swap_tree(app, &v) {
-                    app.status_message = Some((StatusKind::Error, e));
+                if v != app.tree_version {
+                    handle_version_dropdown_pick(app, &v);
                 }
             }
             ui.separator();
@@ -1294,6 +1355,18 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         if let Some(applied) = render_tree_reset_modal(ctx, app) {
             // Apply the user's choice and trigger a recompute so the
             // side-panel stats refresh to the new state.
+            if applied {
+                recompute = true;
+            }
+        }
+    }
+
+    // Issue #220: tree-version converter confirmation modal. Mirrors
+    // PoB's `TreeTab.lua:322-339` — when the user picks a new tree
+    // version that doesn't carry every allocated node, surface the
+    // diff before silently dropping work.
+    if app.pending_version_swap.is_some() {
+        if let Some(applied) = render_version_swap_modal(ctx, app) {
             if applied {
                 recompute = true;
             }
@@ -2098,21 +2171,142 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn swap_tree(app: &mut LoadedApp, version: &str) -> Result<(), String> {
-    let path = app.data_root.join("trees").join(format!("{version}.json"));
+fn load_passive_tree_for_version(
+    data_root: &std::path::Path,
+    version: &str,
+) -> Result<pob_data::PassiveTree, String> {
+    let path = data_root.join("trees").join(format!("{version}.json"));
     let json = std::fs::read_to_string(&path).map_err(|e| format!("reading {path:?}: {e}"))?;
-    let tree = pob_data::load_passive_tree(&json).map_err(|e| format!("parse: {e}"))?;
-    app.tree_version = version.to_owned();
-    app.tree = tree;
-    app.tree_view.rebind(&app.tree);
-    app.status_message = Some((StatusKind::Info, format!("Loaded tree {version}.")));
-    Ok(())
+    pob_data::load_passive_tree(&json).map_err(|e| format!("parse: {e}"))
 }
 
 #[cfg(target_arch = "wasm32")]
-fn swap_tree(_app: &mut LoadedApp, _version: &str) -> Result<(), String> {
+fn load_passive_tree_for_version(
+    _data_root: &std::path::Path,
+    _version: &str,
+) -> Result<pob_data::PassiveTree, String> {
     // The web build only bundles `3_25.json`, so there's nothing to swap to.
     Err("Tree-version switching is disabled in the web build (only 3_25 bundled).".into())
+}
+
+/// Issue #220: handle the user picking a different tree version in the
+/// status-bar dropdown. Pre-loads the new tree, computes the
+/// allocation diff, and either:
+/// - swaps immediately when no allocated nodes would be dropped (the
+///   common case — version-to-version migrations rarely renumber
+///   nodes), preserving the original silent-swap UX, or
+/// - stages the swap into `pending_version_swap` so the next frame
+///   pops the confirmation modal.
+fn handle_version_dropdown_pick(app: &mut LoadedApp, version: &str) {
+    match load_passive_tree_for_version(&app.data_root, version) {
+        Ok(tree) => {
+            let (surviving, dropped) = compute_version_swap_diff(&app.character.allocated, &tree);
+            if dropped.is_empty() {
+                apply_version_swap(app, version.to_owned(), tree, &dropped);
+            } else {
+                app.pending_version_swap = Some(PendingVersionSwap {
+                    target_version: version.to_owned(),
+                    target_tree: tree,
+                    surviving,
+                    dropped,
+                });
+            }
+        }
+        Err(e) => {
+            app.status_message = Some((StatusKind::Error, e));
+        }
+    }
+}
+
+/// Issue #220: apply a (possibly pre-staged) tree-version swap. Drops
+/// any orphaned allocations, installs the new tree, rebinds the
+/// renderer, and surfaces a status-bar message that calls out how
+/// many allocations were lost.
+fn apply_version_swap(
+    app: &mut LoadedApp,
+    target_version: String,
+    target_tree: pob_data::PassiveTree,
+    dropped: &[pob_data::NodeId],
+) {
+    for id in dropped {
+        app.character.allocated.remove(id);
+    }
+    app.tree = target_tree;
+    app.tree_view.rebind(&app.tree);
+    let msg = if dropped.is_empty() {
+        format!("Loaded tree {target_version}.")
+    } else if dropped.len() == 1 {
+        format!("Loaded tree {target_version} (dropped 1 allocation).")
+    } else {
+        format!(
+            "Loaded tree {target_version} (dropped {} allocations).",
+            dropped.len()
+        )
+    };
+    app.tree_version = target_version;
+    app.status_message = Some((StatusKind::Info, msg));
+}
+
+/// Issue #220: render the tree-version-converter confirmation modal.
+/// Returns:
+/// - `Some(true)` when the user confirmed and the swap ran (caller
+///   should trigger a recompute for the side panel).
+/// - `Some(false)` when the user cancelled (no recompute needed).
+/// - `None` when the modal stayed open this frame.
+///
+/// Mirrors the contract used by `render_tree_reset_modal`. The modal
+/// clears `pending_version_swap` on either button press so the caller
+/// doesn't need to manage the lifecycle.
+fn render_version_swap_modal(ctx: &egui::Context, app: &mut LoadedApp) -> Option<bool> {
+    let pending = app.pending_version_swap.as_ref()?;
+    let total = pending.surviving.len() + pending.dropped.len();
+    let dropped_count = pending.dropped.len();
+    let target_version = pending.target_version.clone();
+    let mut applied: Option<bool> = None;
+    egui::Window::new(format!("Switch tree to {target_version}?"))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.set_min_width(360.0);
+            let plural = if dropped_count == 1 { "" } else { "s" };
+            ui.label(format!(
+                "{dropped_count} of {total} allocated node{plural} \
+                 don't exist in tree {target_version} and will be dropped \
+                 if you continue.",
+            ));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    applied = Some(false);
+                }
+                if ui
+                    .add(
+                        egui::Button::new("Switch and drop")
+                            .fill(egui::Color32::from_rgb(140, 50, 50)),
+                    )
+                    .clicked()
+                {
+                    applied = Some(true);
+                }
+            });
+        });
+    if applied == Some(true) {
+        // Take ownership of the pending swap and apply it.
+        let pending = app
+            .pending_version_swap
+            .take()
+            .expect("just verified Some above");
+        apply_version_swap(
+            app,
+            pending.target_version,
+            pending.target_tree,
+            &pending.dropped,
+        );
+    } else if applied == Some(false) {
+        app.pending_version_swap = None;
+    }
+    applied
 }
 
 /// Handle a Compare-tab action — currently only "load comparison from
@@ -2778,5 +2972,137 @@ mod synthetic_anchor_tests {
     fn missing_node_returns_false() {
         let tree = empty_tree();
         assert!(!is_synthetic_anchor(&tree, 999));
+    }
+}
+
+#[cfg(test)]
+mod version_swap_tests {
+    use super::*;
+    use ahash::HashMap as AHashMap;
+    use pob_data::{Node, NodeKind, TreeConstants, TreePoints};
+
+    fn empty_tree() -> PassiveTree {
+        PassiveTree {
+            version: "test".into(),
+            tree: "test".into(),
+            classes: vec![],
+            groups: AHashMap::default(),
+            nodes: AHashMap::default(),
+            jewel_slots: vec![],
+            min_x: 0,
+            min_y: 0,
+            max_x: 0,
+            max_y: 0,
+            constants: TreeConstants {
+                skills_per_orbit: vec![],
+                orbit_radii: vec![],
+                classes: AHashMap::default(),
+                character_attributes: AHashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: TreePoints::default(),
+        }
+    }
+
+    fn add_blank_node(tree: &mut PassiveTree, id: NodeId) {
+        tree.nodes.insert(
+            id,
+            Node {
+                id,
+                name: None,
+                icon: None,
+                ascendancy_name: None,
+                stats: vec![],
+                reminder_text: vec![],
+                kind: NodeKind::Normal,
+                class_start_index: None,
+                group: None,
+                orbit: None,
+                orbit_index: None,
+                out_edges: Default::default(),
+                in_edges: Default::default(),
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            },
+        );
+    }
+
+    fn alloc_set<I: IntoIterator<Item = NodeId>>(ids: I) -> HashSet<NodeId> {
+        ids.into_iter().collect()
+    }
+
+    /// Issue #220: an empty allocation diffs to two empty vectors —
+    /// no-op swap surfaces no modal. Guards the dropdown's "swap
+    /// silently when no nodes would be lost" branch.
+    #[test]
+    fn diff_empty_allocation_is_empty() {
+        let target = empty_tree();
+        let allocated = alloc_set([]);
+        let (surviving, dropped) = compute_version_swap_diff(&allocated, &target);
+        assert!(surviving.is_empty());
+        assert!(dropped.is_empty());
+    }
+
+    /// Issue #220: when every allocated node still exists in the new
+    /// tree, the diff reports them all as surviving and zero dropped.
+    /// The status-bar handler reads `dropped.is_empty()` to decide
+    /// whether to swap silently — this test pins the contract.
+    #[test]
+    fn diff_all_surviving_when_target_has_every_allocated_node() {
+        let mut target = empty_tree();
+        for id in [1, 2, 3] {
+            add_blank_node(&mut target, id);
+        }
+        let allocated = alloc_set([1, 2, 3]);
+        let (surviving, dropped) = compute_version_swap_diff(&allocated, &target);
+        assert_eq!(surviving, vec![1, 2, 3]);
+        assert!(dropped.is_empty());
+    }
+
+    /// Issue #220: when every allocated node is missing from the new
+    /// tree, the diff reports them all as dropped. The modal renders
+    /// "N of N allocated nodes will be dropped" in this case.
+    #[test]
+    fn diff_all_dropped_when_target_has_no_overlapping_nodes() {
+        let mut target = empty_tree();
+        add_blank_node(&mut target, 99);
+        let allocated = alloc_set([1, 2, 3]);
+        let (surviving, dropped) = compute_version_swap_diff(&allocated, &target);
+        assert!(surviving.is_empty());
+        assert_eq!(dropped, vec![1, 2, 3]);
+    }
+
+    /// Issue #220: a partial overlap reports each side correctly. The
+    /// modal then renders "1 of 3 allocated nodes will be dropped".
+    #[test]
+    fn diff_partial_overlap_splits_correctly() {
+        let mut target = empty_tree();
+        for id in [1, 2] {
+            // node 3 is not present in the target tree.
+            add_blank_node(&mut target, id);
+        }
+        let allocated = alloc_set([1, 2, 3]);
+        let (surviving, dropped) = compute_version_swap_diff(&allocated, &target);
+        assert_eq!(surviving, vec![1, 2]);
+        assert_eq!(dropped, vec![3]);
+    }
+
+    /// Issue #220: both result vectors are sorted ascending so the
+    /// modal renders deterministically frame-to-frame. Without this
+    /// the HashSet iteration order would jitter the displayed counts'
+    /// `n` IDs across re-frames (counts themselves wouldn't change but
+    /// any future "dropped: 7, 12, 19" listing would shuffle).
+    #[test]
+    fn diff_results_are_sorted_ascending() {
+        let mut target = empty_tree();
+        for id in [10, 20] {
+            add_blank_node(&mut target, id);
+        }
+        // Allocated order is intentionally scrambled.
+        let allocated = alloc_set([99, 20, 5, 10, 42]);
+        let (surviving, dropped) = compute_version_swap_diff(&allocated, &target);
+        assert_eq!(surviving, vec![10, 20]);
+        assert_eq!(dropped, vec![5, 42, 99]);
     }
 }
