@@ -40,6 +40,9 @@
 //!   — transforms each in-radius `Inc Life` into `Inc EnergyShield` at 1×.
 //!   Mirror of Healthy Mind's Life→Mana, with ES instead of Mana and
 //!   without the 2× scale factor.
+//! - **Fluid Motion** ([`HandlerKind::StrToDexTransform`]) — mirror of
+//!   Inertia at 1× scale: Strength on in-radius allocated nodes is
+//!   moved into Dexterity (counter `-N Str` cancels the original).
 //! - **Inertia** ([`HandlerKind::DexToStrTransform`]) — transforms each
 //!   in-radius `+N Dex` BASE into `+N Str` BASE. Mirror of Fertile
 //!   Mind's Dex→Int, with Strength as the destination.
@@ -290,6 +293,11 @@ pub enum HandlerKind {
     /// (Fertile Mind) with Strength as the destination — same plumbing,
     /// different `to` parameter to `transform_radius_attribute`.
     DexToStrTransform,
+    /// Issue #196 (slice 13): Fluid Motion. `Strength from Passives in
+    /// Radius is Transformed to Dexterity`. Mirror of
+    /// [`Self::DexToStrTransform`] (Inertia) at 1× scale; the jewel's
+    /// own `+(16-24) to Dexterity` roll still applies globally.
+    StrToDexTransform,
     /// Issue #196 (slice 5): Brute Force Solution. `Strength from Passives
     /// in Radius is Transformed to Intelligence`. Same plumbing as the
     /// other attribute-transform handlers; differs only in `from` /
@@ -496,6 +504,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
             Some(build_life_to_energy_shield(socket_id, item))
         }
         "Inertia" => Some(build_dex_to_str(socket_id, item)),
+        "Fluid Motion" => Some(build_str_to_dex(socket_id, item)),
         "Brute Force Solution" => Some(build_str_to_int(socket_id, item)),
         "Careful Planning" => Some(build_int_to_dex(socket_id, item)),
         "Efficient Training" => Some(build_int_to_str(socket_id, item)),
@@ -602,6 +611,19 @@ fn build_life_to_energy_shield(socket_id: NodeId, item: &Item) -> RadiusJewel {
         item,
         HandlerKind::LifeToEnergyShieldTransform,
         is_life_es_transform_marker,
+    )
+}
+
+/// Issue #196 (slice 13): Fluid Motion. Mirror of Inertia at 1× scale.
+/// Marker line is `Strength from Passives in Radius is Transformed to
+/// Dexterity`; the jewel's plain `+(16-24) to Dexterity` roll still
+/// applies globally.
+fn build_str_to_dex(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::StrToDexTransform,
+        is_str_dex_transform_marker,
     )
 }
 
@@ -843,6 +865,11 @@ fn is_life_es_transform_marker(line: &str) -> bool {
 fn is_dex_str_transform_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("dexterity from passives in radius") && l.contains("transformed to strength")
+}
+
+fn is_str_dex_transform_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("strength from passives in radius") && l.contains("transformed to dexterity")
 }
 
 fn is_str_int_transform_marker(line: &str) -> bool {
@@ -1520,11 +1547,13 @@ pub fn apply_radius_jewels(
             // Fertile Mind — we differ only in the (from, to) pair.
             HandlerKind::StrToIntTransform
             | HandlerKind::IntToDexTransform
-            | HandlerKind::IntToStrTransform => {
+            | HandlerKind::IntToStrTransform
+            | HandlerKind::StrToDexTransform => {
                 let (from, to) = match jewel.kind {
                     HandlerKind::StrToIntTransform => ("Strength", "Intelligence"),
                     HandlerKind::IntToDexTransform => ("Intelligence", "Dexterity"),
                     HandlerKind::IntToStrTransform => ("Intelligence", "Strength"),
+                    HandlerKind::StrToDexTransform => ("Strength", "Dexterity"),
                     _ => unreachable!(),
                 };
                 for m in &jewel.mods {
@@ -3671,6 +3700,107 @@ mod tests {
                     && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
                     && (m.value.as_f64().unwrap_or(0.0) - 30.0).abs() < 1e-6),
             "expected +30 Str BASE sourced from Passive(2), got {str_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 13): Fluid Motion — `Strength from Passives
+    /// in Radius is Transformed to Dexterity`. Mirror of Inertia at
+    /// 1× scale: in-radius `+N Str` BASE becomes `+N Dex` BASE
+    /// sourced as the in-radius node, plus a counter `-N Str` so the
+    /// source attribute is moved rather than duplicated. The jewel's
+    /// plain `+(16-24) to Dexterity` line still applies globally.
+    #[test]
+    fn fluid_motion_transforms_str_base_to_dex_base() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Fluid Motion",
+                "Viridian Jewel",
+                &[
+                    ("+20 to Dexterity", ModSection::Explicit),
+                    (
+                        "Strength from Passives in Radius is Transformed to Dexterity",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::StrToDexTransform);
+
+        // Transformed +30 Dex sourced from node 2.
+        let dex_mods = db.slice_named("Dexterity");
+        assert!(
+            dex_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - 30.0).abs() < 1e-6),
+            "expected +30 Dex BASE sourced from Passive(2), got {dex_mods:#?}",
+        );
+        // Plain +20 Dex global mod still landed.
+        assert!(
+            dex_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && (m.value.as_f64().unwrap_or(0.0) - 20.0).abs() < 1e-6),
+            "expected global +20 Dex from Fluid Motion, got {dex_mods:#?}",
+        );
+        // Counter -30 Str cancelling the source contribution.
+        let str_mods = db.slice_named("Strength");
+        assert!(
+            str_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && (m.value.as_f64().unwrap_or(0.0) + 30.0).abs() < 1e-6),
+            "expected counter -30 Str from Fluid Motion transform, got {str_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 13): out-of-radius node must not be
+    /// transformed. Pin node 2 to no Str so any emission sourced from
+    /// a passive can only have come from out-of-radius node 3.
+    #[test]
+    fn fluid_motion_does_not_transform_out_of_radius_str() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec![];
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["+30 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Fluid Motion",
+                "Viridian Jewel",
+                &[(
+                    "Strength from Passives in Radius is Transformed to Dexterity",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        // Out-of-radius node 3's Str must not be re-emitted as Dex.
+        let dex_mods = db.slice_named("Dexterity");
+        assert!(
+            !dex_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 3)),
+            "out-of-radius Str must not be transformed, got {dex_mods:#?}",
         );
     }
 
