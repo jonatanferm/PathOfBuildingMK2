@@ -174,6 +174,10 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // as INC mods sourced as `Other("Strength")` / `Other("Dexterity")`,
         // landing under the Increased step's source list.
         "Armour" => Some(pool_basic(env, "Armour")),
+        // Defensive: armour vs a 1000-pt baseline phys hit. Surfaces
+        // PoB's `armour / (armour + 12 × baseline)` formula and the
+        // 90% hard cap.
+        "PhysicalDamageReduction" => Some(physical_damage_reduction(env)),
         "Evasion" => Some(pool_basic(env, "Evasion")),
         "Ward" => Some(pool_basic(env, "Ward")),
 
@@ -310,6 +314,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "Mana",
     "EnergyShield",
     "Armour",
+    "PhysicalDamageReduction",
     "Evasion",
     "Ward",
     // Resists.
@@ -1259,6 +1264,52 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `PhysicalDamageReduction`. PoB:
+///
+///   raw = armour / (armour + 12 × baseline_phys)
+///   reduction% = min(raw × 100, 90)
+///
+/// from `perform.rs:1714-1717`. The baseline is fixed at 1000 in the
+/// engine — surfacing it as a discrete step makes the diminishing-
+/// returns curve obvious. The 90% cap is explicit so a min-maxer
+/// stacking +1M armour can see why their reduction stops moving.
+fn physical_damage_reduction(env: &Env) -> Breakdown {
+    const BASELINE_PHYS: f64 = 1000.0;
+    const REDUCTION_CAP: f64 = 90.0;
+    let armour = env.output.get("Armour");
+    let total = env.output.get("PhysicalDamageReduction");
+    let capped = total >= REDUCTION_CAP - 1e-9;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Armour")
+            .with_value(armour)
+            .with_explain(format!("{armour:.0} from gear / passives / mods")),
+    );
+    steps.push(
+        BreakdownStep::label("Baseline phys hit")
+            .with_value(BASELINE_PHYS)
+            .with_explain("PoB's standard 1000-pt baseline reference hit".to_owned()),
+    );
+    steps.push(
+        BreakdownStep::label("PhysicalDamageReduction")
+            .with_value(total)
+            .with_explain(if capped {
+                format!("{total:.0}% (hard cap — further armour wasted)")
+            } else {
+                format!(
+                    "armour / (armour + 12 × baseline) × 100 = {armour:.0} / ({armour:.0} + 12000) × 100 = {total:.2}%"
+                )
+            }),
+    );
+
+    Breakdown {
+        output_key: "PhysicalDamageReduction".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `With<Ailment>DPS`. PoB stores the
 /// rollup as `MainSkillDPS + <ailment>DPS` (see `perform.rs:4298-4301`).
 /// One helper handles all four ailments; the caller passes the
@@ -1928,6 +1979,11 @@ mod tests {
         env.output.set("Armour", 4500.0);
         env.output.set("Evasion", 3200.0);
         env.output.set("Ward", 0.0);
+        // Issue #34 follow-up: PhysicalDamageReduction breakdown reads
+        // Armour from output. Formula: armour / (armour + 12 × baseline)
+        // capped at 90%. With Armour = 4500 against PoB's 1000-pt baseline:
+        // 4500 / (4500 + 12000) ≈ 27.27%.
+        env.output.set("PhysicalDamageReduction", 27.27);
         env.mod_db
             .add(Mod::base("Armour", 1500.0).with_source(Source::Item(2)));
         env.mod_db
@@ -2439,6 +2495,73 @@ mod tests {
             chance.explain
         );
         assert_eq!(bd.total, 100.0);
+    }
+
+    /// Issue #34 follow-up: `PhysicalDamageReduction` breakdown shows
+    /// the components of PoB's `armour / (armour + 12 × baseline)`
+    /// formula against a 1000-pt baseline phys hit, capped at 90%.
+    /// Surfaces Armour, the baseline hit constant, and the resulting
+    /// reduction so the user can see the diminishing-returns curve
+    /// they're climbing.
+    #[test]
+    fn physical_damage_reduction_breakdown_walks_armour_and_baseline() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "PhysicalDamageReduction").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Armour"),
+            "missing Armour step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Baseline phys hit"),
+            "missing baseline-hit step: {labels:?}"
+        );
+
+        let armour = bd.steps.iter().find(|s| s.label == "Armour").unwrap();
+        assert_eq!(armour.value, Some(4500.0));
+
+        let baseline = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Baseline phys hit")
+            .unwrap();
+        assert_eq!(baseline.value, Some(1000.0));
+
+        // Final reading is the stored output value (27.27% for the
+        // fixture's 4500 armour vs 1000 baseline).
+        assert!(
+            (bd.total - 27.27).abs() < 1e-6,
+            "expected total ≈ 27.27; got {}",
+            bd.total
+        );
+    }
+
+    /// Issue #34 follow-up: hard-cap surfacing — at very high armour
+    /// the formula caps at 90%. Verify the breakdown reports that
+    /// cap and labels the explain text appropriately so the user
+    /// knows further armour stacking is wasted.
+    #[test]
+    fn physical_damage_reduction_breakdown_calls_out_90_percent_cap() {
+        let mut env = env_with_output();
+        env.output.set("Armour", 200_000.0);
+        env.output.set("PhysicalDamageReduction", 90.0);
+        let bd = derive_for(&env, "PhysicalDamageReduction").unwrap();
+        let final_step = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "PhysicalDamageReduction")
+            .unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .contains("cap"),
+            "expected cap callout in final-step explain; got {:?}",
+            final_step.explain
+        );
+        assert_eq!(bd.total, 90.0);
     }
 
     /// Issue #34 follow-up: `WithPoisonDPS` is the simple sum of hit
