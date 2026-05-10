@@ -222,6 +222,7 @@ fn party_members_inject_mods_and_toggle_off_cleanly() {
         name: "Aura Bot".into(),
         mod_lines: "+50 to Strength".into(),
         extracted_auras: Vec::new(),
+        weapon_classes: Vec::new(),
         enabled: true,
     });
     let with_aura = compute_with_skills(&c, &tree, None).get("Strength");
@@ -244,6 +245,7 @@ fn party_members_inject_mods_and_toggle_off_cleanly() {
         name: "Curse Bot".into(),
         mod_lines: "+50 to Strength\n+30 to Dexterity".into(),
         extracted_auras: Vec::new(),
+        weapon_classes: Vec::new(),
         enabled: true,
     });
     let combined = compute_with_skills(&c, &tree, None);
@@ -307,6 +309,7 @@ fn party_extracted_auras_inject_skill_mods() {
             enabled: true,
             effect_pct: 0,
         }],
+        weapon_classes: Vec::new(),
         enabled: true,
     });
 
@@ -369,6 +372,7 @@ fn party_extracted_aura_effect_override_scales_mod_values() {
             enabled: true,
             effect_pct: 0,
         }],
+        weapon_classes: Vec::new(),
         enabled: true,
     });
 
@@ -4908,12 +4912,14 @@ fn rallying_cry_projects_ally_weapon_damage_to_party_members() {
         name: "Ally A".into(),
         mod_lines: String::new(),
         extracted_auras: Vec::new(),
+        weapon_classes: Vec::new(),
         enabled: true,
     });
     c.party_members.push(PartyMember {
         name: "Ally B".into(),
         mod_lines: String::new(),
         extracted_auras: Vec::new(),
+        weapon_classes: Vec::new(),
         enabled: true,
     });
 
@@ -4959,6 +4965,228 @@ fn rallying_cry_projects_ally_weapon_damage_to_party_members() {
     assert!(
         (per_ally - 20.0).abs() < 1e-6,
         "At WarcryPower 25, per-ally weapon damage should be 20%; got {per_ally}"
+    );
+}
+
+// Issue #145 (slice 5): Rallying Cry's "your attacks deal X% more
+// damage with weapon types your allies are wielding" projection back
+// to the player. Closes the half of Rallying Cry that the issue's
+// status comment flagged as still open after slice 1: the per-ally
+// weapon-damage MORE only fires when the player's own attacks share
+// the ally's weapon class.
+//
+// Setup: player wields a sword + Rallying Cry. Two enabled allies,
+// one wielding a sword (matches), one wielding a bow (does not).
+// Expectation:
+//   - One `Damage` MORE mod tagged `UsingSword` per matching ally,
+//     sourced as `Party:<name>:RallyingCry:Sword`.
+//   - One `Damage` MORE mod tagged `UsingBow` for the bow ally — but
+//     the player isn't wielding a bow, so it doesn't contribute.
+//   - `RallyingCryAllyWeaponClassesProjected` = 2 (one per ally×class
+//     pair); `RallyingCryAllyWeaponDamageMatched` = per-ally bonus
+//     (16% at default power) since exactly one ally's class matches.
+#[test]
+fn rallying_cry_projects_ally_weapon_class_bonus_to_player() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("RallyingCry").is_none() || skills.get("Cleave").is_none() {
+        eprintln!("skip: RallyingCry / Cleave not in registry");
+        return;
+    }
+    use pob_engine::character::{PartyMember, SocketGroup};
+    use pob_engine::{parse_item, ModStore as _, TagKind};
+
+    let sword = parse_item("Item Class: One Hand Swords\nRarity: NORMAL\nRusted Sword\n--------\n")
+        .expect("parse sword");
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("RallyingCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcries".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    c.config.nearby_allies = 2;
+    c.party_members.push(PartyMember {
+        name: "Sword Ally".into(),
+        mod_lines: String::new(),
+        extracted_auras: Vec::new(),
+        weapon_classes: vec!["Sword".into()],
+        enabled: true,
+    });
+    c.party_members.push(PartyMember {
+        name: "Bow Ally".into(),
+        mod_lines: String::new(),
+        extracted_auras: Vec::new(),
+        weapon_classes: vec!["Bow".into()],
+        enabled: true,
+    });
+
+    let (out, env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+
+    // Both ally×class pairs should generate a projected mod.
+    let projected_count = out.get("RallyingCryAllyWeaponClassesProjected");
+    assert!(
+        (projected_count - 2.0).abs() < 1e-6,
+        "RallyingCry should project one mod per ally×class; got {projected_count}"
+    );
+    // Only the sword ally matches the player's wielded sword. At
+    // default WarcryPower 20 the per-ally bonus is 16%, so matched
+    // total = 16%.
+    let matched = out.get("RallyingCryAllyWeaponDamageMatched");
+    assert!(
+        (matched - 16.0).abs() < 1e-6,
+        "RallyingCry matched total should be 16% (one sword ally only); got {matched}"
+    );
+
+    // The sword ally's mod must carry a Condition(UsingSword) tag and
+    // be sourced as Party:Sword Ally:RallyingCry:Sword.
+    let sword_mod = env
+        .mod_db
+        .iter_all()
+        .find(|m| {
+            m.name == "Damage"
+                && matches!(&m.source, Some(pob_engine::Source::Other(s))
+                    if s == "Party:Sword Ally:RallyingCry:Sword")
+        })
+        .expect("RallyingCry should project a Sword-tagged Damage mod for the sword ally");
+    assert!(
+        sword_mod.tags.iter().any(|t| matches!(
+            &t.kind,
+            TagKind::Condition { var, neg: false } if var == "UsingSword"
+        )),
+        "Projected mod must carry the UsingSword condition tag; got tags {:?}",
+        sword_mod.tags
+    );
+
+    // The bow ally's mod must exist too (but it stays inert because
+    // the player's UsingBow is false). Locks down the projection logic
+    // is per-ally-per-class regardless of whether the player can
+    // actually use the bonus.
+    let bow_mod_exists = env.mod_db.iter_all().any(|m| {
+        m.name == "Damage"
+            && matches!(&m.source, Some(pob_engine::Source::Other(s))
+                if s == "Party:Bow Ally:RallyingCry:Bow")
+    });
+    assert!(
+        bow_mod_exists,
+        "RallyingCry should project a Bow-tagged mod for the bow ally even when the player can't use it"
+    );
+
+    // Sanity: switch the player to a bow → matched total flips to 16%
+    // (only the bow ally contributes), per-ally count stays at 2.
+    let bow =
+        parse_item("Item Class: Bows\nRarity: NORMAL\nCrude Bow\n--------\n").expect("parse bow");
+    let mut c_bow = c.clone();
+    c_bow.items.equip(pob_data::Slot::Weapon1, bow);
+    let out_bow = pob_engine::compute_full_with_env(&c_bow, &tree, Some(&skills), None).0;
+    let matched_bow = out_bow.get("RallyingCryAllyWeaponDamageMatched");
+    assert!(
+        (matched_bow - 16.0).abs() < 1e-6,
+        "Switching player to a bow should match the bow ally only; got {matched_bow}"
+    );
+}
+
+// Issue #145 (slice 5): the projected weapon-class mod must STACK
+// across allies wielding the same class — three sword allies + the
+// player wielding a sword should add three independent 16% MORE
+// Damage mods (gated on UsingSword) to the modDB. Verifies the
+// per-ally MORE composition path (each mod multiplies the next) and
+// that the class projection is gated on `UsedWarcryRecently`.
+#[test]
+fn rallying_cry_weapon_class_projection_stacks_across_allies() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing");
+        return;
+    };
+    if skills.get("RallyingCry").is_none() {
+        eprintln!("skip: RallyingCry not in registry");
+        return;
+    }
+    use pob_engine::character::{PartyMember, SocketGroup};
+    use pob_engine::{parse_item, ModStore as _};
+
+    let sword = parse_item("Item Class: One Hand Swords\nRarity: NORMAL\nRusted Sword\n--------\n")
+        .expect("parse sword");
+    let mut c = Character::new(ClassRef::marauder(), 90);
+    c.items.equip(pob_data::Slot::Weapon1, sword);
+    c.main_skill = Some(MainSkill::new("Cleave"));
+    let mut warcry = MainSkill::new("RallyingCry");
+    warcry.level = 20;
+    c.skill_groups.push(SocketGroup {
+        label: "Warcries".into(),
+        gems: vec![warcry],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.config.nearby_allies = 3;
+    for name in ["A", "B", "C"] {
+        c.party_members.push(PartyMember {
+            name: format!("Sword {name}"),
+            mod_lines: String::new(),
+            extracted_auras: Vec::new(),
+            weapon_classes: vec!["Sword".into()],
+            enabled: true,
+        });
+    }
+
+    // Without UsedWarcryRecently the projection must NOT fire — same
+    // gating shape as the rest of the per-cry buffs.
+    let out = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).0;
+    let proj = out.get("RallyingCryAllyWeaponClassesProjected");
+    assert!(
+        proj == 0.0,
+        "Without UsedWarcryRecently the projection must not emit ally-class mods; got {proj}"
+    );
+
+    // Flip the gate on: 3 allies × Sword class each → 3 mods total.
+    c.config
+        .conditions
+        .insert("UsedWarcryRecently".into(), true);
+    let (out, env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    let proj = out.get("RallyingCryAllyWeaponClassesProjected");
+    assert!(
+        (proj - 3.0).abs() < 1e-6,
+        "3 sword allies should project 3 class-tagged mods; got {proj}"
+    );
+    let matched = out.get("RallyingCryAllyWeaponDamageMatched");
+    assert!(
+        (matched - 48.0).abs() < 1e-6,
+        "3 × 16% MORE Damage matches the player's sword; matched total should be 48%; got {matched}"
+    );
+    // Three Sword-sourced mods land in the modDB.
+    let sword_count = env
+        .mod_db
+        .iter_all()
+        .filter(|m| {
+            m.name == "Damage"
+                && matches!(&m.source, Some(pob_engine::Source::Other(s))
+                    if s.contains(":RallyingCry:Sword"))
+        })
+        .count();
+    assert!(
+        sword_count == 3,
+        "RallyingCry should add one UsingSword-tagged mod per ally; got {sword_count}"
+    );
+
+    // Disabled allies don't project — flip Sword B off and assert
+    // count drops to 2.
+    if let Some(member) = c.party_members.iter_mut().find(|m| m.name == "Sword B") {
+        member.enabled = false;
+    }
+    let out = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None).0;
+    let proj = out.get("RallyingCryAllyWeaponClassesProjected");
+    assert!(
+        (proj - 2.0).abs() < 1e-6,
+        "Disabling a sword ally should drop the projected count to 2; got {proj}"
     );
 }
 
