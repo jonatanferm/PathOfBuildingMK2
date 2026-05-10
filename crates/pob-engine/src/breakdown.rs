@@ -225,6 +225,9 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // After-shock continues the chain: AfterResist × ShockMult plus
         // any `PhysicalGainAsExtraDamage` (gain-as-elemental adders).
         "MainSkillAverageHitAfterShock" => Some(after_shock(env)),
+        // After-accuracy completes the chain: AfterShock × HitChance.
+        // Spells always hit; attacks scale by the formal hit chance.
+        "MainSkillAverageHitAfterAccuracy" => Some(after_accuracy(env)),
 
         // Recovery — Life regen and Mana regen. PoB exposes both with
         // their flat / percent / pool-tied compositions.
@@ -247,6 +250,7 @@ pub const COVERED_KEYS: &[&str] = &[
     // Damage chain.
     "MainSkillAverageHitAfterResist",
     "MainSkillAverageHitAfterShock",
+    "MainSkillAverageHitAfterAccuracy",
     // Damage.
     "MainSkillAverageHit",
     "MainSkillAverageHitWithCrit",
@@ -1220,6 +1224,50 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `MainSkillAverageHitAfterAccuracy`.
+/// Closes the damage chain — `AfterShock × HitChance/100`. Spells
+/// always hit at 100% (the perform pass pins
+/// `MainSkillHitChance = 100` for non-attack skills); attacks scale
+/// by the formal hit chance computed against the enemy's evasion.
+///
+/// The hit-chance step's value carries the *factor* (0..=1) so the
+/// chain reads multiplicatively across the resist / shock / accuracy
+/// triple. The percent itself is in the explain text, with an
+/// "always hits" hint at exactly 100%.
+fn after_accuracy(env: &Env) -> Breakdown {
+    let after_shock = env.output.get("MainSkillAverageHitAfterShock");
+    let hit_pct = env.output.get("MainSkillHitChance");
+    let hit_factor = (hit_pct / 100.0).clamp(0.0, 1.0);
+    let total = env.output.get("MainSkillAverageHitAfterAccuracy");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("After shock")
+            .with_value(after_shock)
+            .with_explain(format!("{after_shock:.0} from after-shock chain")),
+    );
+    steps.push(
+        BreakdownStep::label("Hit chance")
+            .with_value(hit_factor)
+            .with_explain(if (hit_pct - 100.0).abs() < 1e-9 {
+                "100% (always hits — spell or capped attack)".to_owned()
+            } else {
+                format!("{hit_pct:.0}% chance × {after_shock:.0}")
+            }),
+    );
+    steps.push(
+        BreakdownStep::label("After accuracy")
+            .with_value(total)
+            .with_explain(format!("{after_shock:.0} × {hit_factor:.3} = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: "MainSkillAverageHitAfterAccuracy".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `MainSkillAverageHitAfterShock`.
 /// Chain:
 ///
@@ -2173,6 +2221,68 @@ mod tests {
             "expected min(raw, 75) in effective explain; got {explain}"
         );
         assert_eq!(bd.total, 75.0);
+    }
+
+    /// Issue #34 follow-up: `MainSkillAverageHitAfterAccuracy`
+    /// completes the damage chain — `AfterShock × HitChance/100`.
+    /// Spells always hit at 100%, so the breakdown surfaces a
+    /// "100% (always hits)" hint and the value passes through
+    /// unchanged; attacks see the actual hit-chance percentage and
+    /// the multiplicative drop.
+    #[test]
+    fn after_accuracy_breakdown_attack_applies_hit_chance() {
+        let mut env = env_with_output();
+        env.output.set("MainSkillAverageHitAfterShock", 400.0);
+        env.output.set("MainSkillHitChance", 80.0);
+        env.output.set("MainSkillAverageHitAfterAccuracy", 320.0);
+        let bd = derive_for(&env, "MainSkillAverageHitAfterAccuracy").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"After shock"),
+            "missing after-shock step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Hit chance"),
+            "missing hit-chance step: {labels:?}"
+        );
+
+        let after_shock = bd.steps.iter().find(|s| s.label == "After shock").unwrap();
+        assert_eq!(after_shock.value, Some(400.0));
+
+        // Hit-chance step value carries the multiplier (0.80), not
+        // the raw percent — same shape as the resist-factor step.
+        let hit = bd.steps.iter().find(|s| s.label == "Hit chance").unwrap();
+        assert!(
+            (hit.value.unwrap_or(0.0) - 0.8).abs() < 1e-6,
+            "expected hit-chance factor 0.8; got {:?}",
+            hit.value
+        );
+
+        assert_eq!(bd.total, 320.0);
+    }
+
+    /// Issue #34 follow-up: spells always hit. The hit-chance step's
+    /// `explain` must call this out so the user doesn't read a
+    /// `1.0×` factor as "I should invest in accuracy" on a spell
+    /// build.
+    #[test]
+    fn after_accuracy_breakdown_spell_calls_out_always_hits() {
+        let mut env = env_with_output();
+        env.output.set("MainSkillAverageHitAfterShock", 400.0);
+        env.output.set("MainSkillHitChance", 100.0);
+        env.output.set("MainSkillAverageHitAfterAccuracy", 400.0);
+        let bd = derive_for(&env, "MainSkillAverageHitAfterAccuracy").unwrap();
+        let hit = bd.steps.iter().find(|s| s.label == "Hit chance").unwrap();
+        assert!(
+            hit.explain
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .contains("always hits"),
+            "spell hit-chance explain should call out always-hits; got {:?}",
+            hit.explain
+        );
+        assert_eq!(bd.total, 400.0);
     }
 
     /// Issue #34 follow-up: `MainSkillAverageHitAfterShock` walks the
