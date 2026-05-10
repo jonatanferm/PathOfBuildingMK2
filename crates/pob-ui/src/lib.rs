@@ -46,7 +46,7 @@ mod tree_view;
 mod undo;
 
 use pob_engine::pathfind;
-use undo::UndoStack;
+use undo::{PendingSnapshot, UndoStack};
 
 pub use tree_view::TreeView;
 
@@ -1639,9 +1639,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 }
             }
 
-            // The picker window is rendered as a floating egui::Window so it can sit on
-            // top of the tree canvas. Returns `true` when the user applied or removed a
-            // tattoo, which forces a recompute.
+            // Issue #204 (slice 2): the tree-tab picker modals each
+            // mutate Character on apply / remove. Same speculative-
+            // snapshot dance as the Items / Skills / Config tabs above
+            // — the picker fn returns true exactly when state changed,
+            // so we commit only then.
+            let tattoo_pending = PendingSnapshot::capture(&app.character);
             if tattoo_picker::ui(
                 ui.ctx(),
                 &mut app.tattoo_picker_state,
@@ -1649,29 +1652,39 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 &app.tree,
                 &mut app.character,
             ) {
+                tattoo_pending.commit(&mut app.undo_stack);
                 recompute = true;
             }
             // Issue #197 (slice A): cluster-jewel paste modal, same pattern.
+            let cluster_pending = PendingSnapshot::capture(&app.character);
             if cluster_paste::ui(
                 ui.ctx(),
                 &mut app.cluster_paste_state,
                 &app.tree,
                 &mut app.character,
             ) {
+                cluster_pending.commit(&mut app.undo_stack);
                 recompute = true;
             }
             // Issue #210: mastery effect picker, opened by primary-click on an
             // allocated mastery node.
+            let mastery_pending = PendingSnapshot::capture(&app.character);
             if mastery_picker::ui(
                 ui.ctx(),
                 &mut app.mastery_picker_state,
                 &app.tree,
                 &mut app.character,
             ) {
+                mastery_pending.commit(&mut app.undo_stack);
                 recompute = true;
             }
         }
         Tab::Items => {
+            // Issue #204 (slice 2): items_tab returns true on any
+            // mutation (equip / unequip / paste / delete / set load).
+            // Capture pre-mutation Character once before the call, push
+            // it onto the undo stack only when the tab signals change.
+            let pending = PendingSnapshot::capture(&app.character);
             if items_tab::ui(
                 ui,
                 &mut app.items_state,
@@ -1679,6 +1692,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 app.bases.as_ref(),
                 &mut app.shared_items,
             ) {
+                pending.commit(&mut app.undo_stack);
                 recompute = true;
             }
             // Issue #209: flush the shared-items list to disk after any
@@ -1698,12 +1712,22 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Skills => {
+            // Issue #204 (slice 2): same pattern as Items tab — capture
+            // pre-mutation Character, commit only on `changed = true`.
+            let pending = PendingSnapshot::capture(&app.character);
             if skills_tab::ui(ui, &mut app.skills_state, &mut app.character, &app.skills) {
+                pending.commit(&mut app.undo_stack);
                 recompute = true;
             }
         }
         Tab::Config => {
+            // Issue #204 (slice 2): config_tab takes only `&mut
+            // ConfigState`, but `Character::config` is what mutates.
+            // Snapshot the whole character so undo restores everything,
+            // mirroring how the engine treats config as character state.
+            let pending = PendingSnapshot::capture(&app.character);
             if config_tab::ui(ui, &mut app.character.config) {
+                pending.commit(&mut app.undo_stack);
                 recompute = true;
             }
         }
