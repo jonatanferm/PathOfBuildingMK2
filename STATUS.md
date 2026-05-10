@@ -309,11 +309,12 @@ Closed since the previous status snapshot:
   spectre lifeScaling. `MainSkillDPS` mirrors `MinionDPS ×
   NumberOfMinions` for summoner builds. Slices 15 + 16 (movement
   speed, total HP pool, crit factor) are in flight.
-- External-site URL fetch + import (#33 → #202): pasting a
-  `https://pobb.in/<id>` or `https://pastebin.com/<id>` URL into the
-  Import-Export tab spawns a background `ureq` GET, decodes the
-  body, and swaps the active character. Errors surface as readable
-  banner messages.
+- External-site URL fetch + import (#33 → #202 + follow-up): pasting a
+  `https://pobb.in/<id>`, `https://pob.cool/<id>`, `https://poe.ninja/pob/<id>`,
+  or `https://pastebin.com/<id>` URL into the Import-Export tab spawns a
+  background `ureq` GET, decodes the body, and swaps the active character.
+  Already-resolved `/raw` URLs are accepted idempotently. Errors surface
+  as readable banner messages.
 
 Still open (in rough priority):
 

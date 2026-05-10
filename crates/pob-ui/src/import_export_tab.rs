@@ -215,7 +215,7 @@ pub fn ui(
             });
             ui.weak(
                 "Auto-detects MK2 codes, raw PoB XML, PoB share codes (zlib+base64), \
-                 or share URLs from pobb.in / pastebin.com.",
+                 or share URLs from pobb.in / pob.cool / pastebin.com / poe.ninja.",
             );
         });
     });

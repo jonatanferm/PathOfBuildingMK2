@@ -166,8 +166,15 @@ fn fetch_share_text(url: &str) -> Result<String, ShareUrlFetchError> {
 #[must_use]
 pub fn site_label_for_url(input: &str) -> &'static str {
     let lc = input.to_ascii_lowercase();
+    // Order matters: pob.cool must be checked before pobb.in's
+    // substring search would otherwise match the bare "pob" prefix
+    // — they're disjoint hosts but the contains check is loose.
     if lc.contains("pobb.in") {
         "pobb.in"
+    } else if lc.contains("pob.cool") {
+        "pob.cool"
+    } else if lc.contains("poe.ninja") {
+        "poe.ninja"
     } else if lc.contains("pastebin.com") {
         "pastebin.com"
     } else if lc.contains("poeplanner.com") {
@@ -270,6 +277,11 @@ mod tests {
     #[test]
     fn site_label_recognises_each_host() {
         assert_eq!(site_label_for_url("https://pobb.in/abc"), "pobb.in");
+        assert_eq!(site_label_for_url("https://pob.cool/abc"), "pob.cool");
+        assert_eq!(
+            site_label_for_url("https://poe.ninja/pob/abc/raw"),
+            "poe.ninja"
+        );
         assert_eq!(
             site_label_for_url("https://pastebin.com/raw/abc"),
             "pastebin.com"
