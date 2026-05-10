@@ -348,6 +348,40 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_then_undo_restores_tattoo_overrides() {
+        // Issue #204 (slice 3): Tree-tab "Remove all tattoos" wipes
+        // every tattoo override on the spec. The undo wired into the
+        // confirm modal must restore the full map — verifying via the
+        // same snapshot/undo round-trip the destructive action uses.
+        use pob_engine::character::ClassRef;
+        use pob_engine::Character;
+
+        let mut character = Character::new(ClassRef::marauder(), 1);
+        character
+            .tattoo_overrides
+            .insert(7, "+10 to Strength".into());
+        character
+            .tattoo_overrides
+            .insert(11, "+15 to Dexterity".into());
+        let mut stack: UndoStack<Character> = UndoStack::default();
+
+        stack.snapshot(&character);
+        character.tattoo_overrides.clear();
+        assert!(character.tattoo_overrides.is_empty());
+
+        assert!(stack.apply_undo(&mut character));
+        assert_eq!(character.tattoo_overrides.len(), 2);
+        assert_eq!(
+            character.tattoo_overrides.get(&7).map(String::as_str),
+            Some("+10 to Strength")
+        );
+        assert_eq!(
+            character.tattoo_overrides.get(&11).map(String::as_str),
+            Some("+15 to Dexterity")
+        );
+    }
+
+    #[test]
     fn snapshot_then_undo_restores_character_allocation_set() {
         // End-to-end shape: snapshot the live `Character`, mutate the
         // allocation set the way the Tree tab's click handler does,
