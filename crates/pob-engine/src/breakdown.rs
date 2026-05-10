@@ -159,6 +159,8 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "Area of effect modifier",
         )),
         "AreaOfEffectRadius" => area_of_effect_radius(env),
+        "LifeUnreserved" => unreserved_pool(env, "Life"),
+        "ManaUnreserved" => unreserved_pool(env, "Mana"),
 
         // Crit.
         "CritChance" | "MainSkillCritChance" => Some(crit_chance(env, output_key)),
@@ -441,6 +443,8 @@ pub const COVERED_KEYS: &[&str] = &[
     "LifeRegen",
     "ManaRegen",
     "EnergyShieldRegen",
+    "LifeUnreserved",
+    "ManaUnreserved",
     // EnergyShieldRecharge is intentionally absent here — the breakdown
     // returns `None` when EnergyShield = 0, and this fixture pins a
     // pure-Life build (the EHP-pool tests assert against
@@ -2509,6 +2513,58 @@ fn energy_shield_regen(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `LifeUnreserved` / `ManaUnreserved`.
+/// PoB computes these as `pool − reserved` after `perform_reservations`
+/// folds in flat + percent reservation contributions from auras /
+/// heralds. The breakdown surfaces the arithmetic — Pool, Reserved
+/// (with the percent it represents), and the final Unreserved — so
+/// reservation builds can see exactly how much each aura ate into
+/// the pool.
+///
+/// `pool_key` is the underlying pool stat ("Life" or "Mana"); the
+/// reserved / unreserved / percent outputs are looked up by suffix.
+/// Returns `None` when the pool is zero (no character loaded yet, or
+/// a pure-CI build for Life) so the panel falls back to the generic
+/// mods view.
+fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
+    let pool = env.output.get(pool_key);
+    if pool.abs() < 1e-9 {
+        return None;
+    }
+    let reserved = env.output.get(&format!("{pool_key}Reserved"));
+    let reserved_pct = env.output.get(&format!("{pool_key}ReservedPercent"));
+    let unreserved = env.output.get(&format!("{pool_key}Unreserved"));
+    let unreserved_pct = env.output.get(&format!("{pool_key}UnreservedPercent"));
+    let pool_lower = pool_key.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label(format!("{pool_key} pool"))
+            .with_value(pool)
+            .with_explain(format!("{pool:.0} max {pool_lower} from pool derivation")),
+    );
+    steps.push(
+        BreakdownStep::label("Reserved")
+            .with_value(reserved)
+            .with_explain(format!(
+                "−{reserved:.0} ({reserved_pct:.1}%) — see auras / heralds for source mods"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Unreserved")
+            .with_value(unreserved)
+            .with_explain(format!(
+                "{pool:.0} − {reserved:.0} = {unreserved:.0} ({unreserved_pct:.1}% of pool)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: format!("{pool_key}Unreserved"),
+        total: unreserved,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `AreaOfEffectRadius`. Mirrors
 /// `perform_skill_dps`'s AoE block:
 ///
@@ -2858,6 +2914,19 @@ mod tests {
         // class-and-level + 540 from items + 80 Str / 2.
         env.output.set("Life", 1100.0);
         env.output.set("Mana", 360.0);
+        // Issue #34 follow-up: representative reservation outputs so
+        // the COVERED_KEYS guard exercises Life/ManaUnreserved. Witch
+        // running Discipline + Clarity reserves ~145 mana out of 360
+        // (≈40%) and a single life-reservation aura ~ 350 of 1100
+        // (≈32%). Both pools must end up positive after reservation.
+        env.output.set("LifeReserved", 350.0);
+        env.output.set("LifeReservedPercent", 31.8);
+        env.output.set("LifeUnreserved", 750.0);
+        env.output.set("LifeUnreservedPercent", 68.2);
+        env.output.set("ManaReserved", 145.0);
+        env.output.set("ManaReservedPercent", 40.3);
+        env.output.set("ManaUnreserved", 215.0);
+        env.output.set("ManaUnreservedPercent", 59.7);
         env.output.set("Strength", 80.0);
         env.output.set("Dexterity", 50.0);
         env.output.set("Intelligence", 60.0);
@@ -3088,6 +3157,65 @@ mod tests {
         assert!(bd.steps.iter().any(|s| s.label == "FullDPS"));
         // Bleed DPS = 0 → step is suppressed.
         assert!(!bd.steps.iter().any(|s| s.label == "+ Bleed DPS"));
+    }
+
+    /// Issue #34 follow-up: LifeUnreserved walks Pool → Reserved →
+    /// Unreserved. PoB shows the exact arithmetic so reservation
+    /// builds (Auras, Heralds) can see how each aura eats into the
+    /// pool. Worked example: 1100 Life - 350 Reserved = 750
+    /// Unreserved.
+    #[test]
+    fn life_unreserved_breakdown_walks_pool_minus_reserved() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("LifeReserved", 350.0);
+        env.output.set("LifeReservedPercent", 31.8);
+        env.output.set("LifeUnreserved", 750.0);
+        env.output.set("LifeUnreservedPercent", 68.2);
+        let bd = derive_for(&env, "LifeUnreserved").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life pool"));
+        assert!(labels.contains(&"Reserved"));
+        assert!(labels.contains(&"Unreserved"));
+
+        let pool = bd.steps.iter().find(|s| s.label == "Life pool").unwrap();
+        assert!((pool.value.unwrap() - 1100.0).abs() < 1e-9);
+
+        let reserved = bd.steps.iter().find(|s| s.label == "Reserved").unwrap();
+        assert!((reserved.value.unwrap() - 350.0).abs() < 1e-9);
+
+        assert!((bd.total - 750.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ManaUnreserved walks the same Pool →
+    /// Reserved → Unreserved chain. Worked example: 360 Mana - 145
+    /// Reserved (Discipline + Determination on a Witch) = 215
+    /// Unreserved.
+    #[test]
+    fn mana_unreserved_breakdown_walks_pool_minus_reserved() {
+        let mut env = Env::default();
+        env.output.set("Mana", 360.0);
+        env.output.set("ManaReserved", 145.0);
+        env.output.set("ManaReservedPercent", 40.3);
+        env.output.set("ManaUnreserved", 215.0);
+        env.output.set("ManaUnreservedPercent", 59.7);
+        let bd = derive_for(&env, "ManaUnreserved").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Mana pool"));
+        assert!(labels.contains(&"Reserved"));
+        assert!(labels.contains(&"Unreserved"));
+        assert!((bd.total - 215.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: with no Life pool the dispatch returns
+    /// None — the panel falls back rather than rendering 0/0.
+    #[test]
+    fn life_unreserved_breakdown_skipped_when_no_pool() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "LifeUnreserved").is_none(),
+            "expected None when Life is zero",
+        );
     }
 
     /// Issue #34 follow-up: AreaOfEffectRadius walks the
