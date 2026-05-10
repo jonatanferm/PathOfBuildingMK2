@@ -7,7 +7,7 @@
 use ahash::{HashMap, HashMapExt};
 use eframe::egui::{self, Color32, Pos2, Sense, Vec2};
 use eframe::egui_wgpu;
-use pob_data::{NodeId, NodeKind, PassiveTree};
+use pob_data::{Node, NodeId, NodeKind, PassiveTree};
 
 use crate::tree_layout::{compute_node_positions, orbit_angles_rad, NodePos};
 use crate::tree_renderer::{
@@ -491,22 +491,20 @@ impl TreeView {
 
         if let Some(id) = hovered {
             if let Some(node) = tree.nodes.get(&id) {
-                let label = if let Some(name) = &node.name {
-                    name.clone()
-                } else {
-                    format!("#{id}")
-                };
-                let mut text = label;
-                for s in &node.stats {
-                    text.push('\n');
-                    text.push_str(s);
-                }
+                // Issue #203 (slice 3): rich tree-node hover tooltip.
+                // Build the line list via `tree_node_tooltip_lines` so
+                // the formatting stays unit-tested. Each line gets its
+                // own `ui.label` so the rendered tooltip wraps and
+                // styles per-line — not as one fused string.
+                let lines = tree_node_tooltip_lines(node, allocated);
                 egui::show_tooltip_at_pointer(
                     ui.ctx(),
                     egui::LayerId::new(egui::Order::Tooltip, ui.id()),
                     egui::Id::new(("tree-tooltip", id)),
                     |ui| {
-                        ui.label(text);
+                        for line in &lines {
+                            ui.label(line);
+                        }
                     },
                 );
             }
@@ -972,9 +970,147 @@ fn try_classify_arc(
     })
 }
 
+/// Issue #203 (slice 3): build the body of the tree-node hover
+/// tooltip. Mirrors the inline `egui::show_tooltip_at_pointer` block
+/// at the original hover site, but as a `Vec<String>` so the
+/// formatting can be unit-tested.
+///
+/// Lines:
+/// 1. Kind label (Notable / Keystone / Mastery / Jewel Socket /
+///    Tattoo / Blighted / Ascendancy Start / Class Start) — omitted
+///    for `Normal` filler, which carries no decisional weight.
+/// 2. Display name, or `#<id>` fallback for unnamed nodes.
+/// 3. Allocation status (Allocated / Unallocated).
+/// 4. Each `node.stats` line in source order.
+pub fn tree_node_tooltip_lines(
+    node: &Node,
+    allocated: &std::collections::HashSet<NodeId>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let kind_label = match node.kind {
+        NodeKind::Notable => Some("Notable"),
+        NodeKind::Keystone => Some("Keystone"),
+        NodeKind::Mastery => Some("Mastery"),
+        NodeKind::JewelSocket => Some("Jewel Socket"),
+        NodeKind::Tattoo => Some("Tattoo"),
+        NodeKind::Blighted => Some("Blighted"),
+        NodeKind::AscendancyStart => Some("Ascendancy Start"),
+        NodeKind::ClassStart => Some("Class Start"),
+        NodeKind::Root | NodeKind::Normal => None,
+    };
+    if let Some(label) = kind_label {
+        out.push(label.to_owned());
+    }
+    out.push(match &node.name {
+        Some(name) => name.clone(),
+        None => format!("#{}", node.id),
+    });
+    out.push(if allocated.contains(&node.id) {
+        "Allocated".into()
+    } else {
+        "Unallocated".into()
+    });
+    for s in &node.stats {
+        out.push(s.clone());
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::class_name_to_start_index;
+    use super::tree_node_tooltip_lines;
+    use pob_data::{Node, NodeId, NodeKind};
+    use std::collections::HashSet;
+
+    fn mk_node(id: NodeId, name: Option<&str>, kind: NodeKind, stats: &[&str]) -> Node {
+        // Build via JSON so we don't need to import every nested type
+        // (`SmallVec`, `MasteryEffect`, …). The serde defaults cover
+        // all the fields we don't set.
+        let kind_str = serde_json::to_value(kind).unwrap();
+        let v = serde_json::json!({
+            "id": id,
+            "name": name,
+            "stats": stats,
+            "kind": kind_str,
+        });
+        serde_json::from_value(v).expect("valid node json")
+    }
+
+    #[test]
+    fn tree_tooltip_header_shows_kind_label_then_name() {
+        // Issue #203 (slice 3): tree-node hover. The current tooltip
+        // dumps "<name>\n<stat>\n…" with no marker for whether you're
+        // looking at a notable, keystone, or a small node. Notables /
+        // keystones are decision points; small nodes are filler — the
+        // user needs to distinguish them at a glance.
+        let notable = mk_node(
+            42,
+            Some("Heart of Flame"),
+            NodeKind::Notable,
+            &["+10% Fire"],
+        );
+        let allocated: HashSet<NodeId> = HashSet::new();
+        let lines = tree_node_tooltip_lines(&notable, &allocated);
+        assert_eq!(lines.first().map(String::as_str), Some("Notable"));
+        assert_eq!(lines.get(1).map(String::as_str), Some("Heart of Flame"));
+    }
+
+    #[test]
+    fn tree_tooltip_header_for_small_normal_node_omits_kind_when_unnamed() {
+        // Most small / "Normal" filler nodes have no name in the data —
+        // showing "Normal\n#1234" would be redundant. Fall back to the
+        // numeric id only.
+        let small = mk_node(1234, None, NodeKind::Normal, &["+5% Life"]);
+        let allocated: HashSet<NodeId> = HashSet::new();
+        let lines = tree_node_tooltip_lines(&small, &allocated);
+        assert_eq!(lines.first().map(String::as_str), Some("#1234"));
+        // No "Normal" kind line should appear.
+        assert!(
+            !lines.iter().any(|l| l == "Normal"),
+            "spurious Normal label: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn tree_tooltip_marks_allocated_nodes() {
+        // Allocated nodes contribute their stats; the tooltip should
+        // reflect that so the user can tell at a glance whether they
+        // already have this notable picked up.
+        let notable = mk_node(7, Some("Iron Reflexes"), NodeKind::Keystone, &[]);
+        let mut allocated: HashSet<NodeId> = HashSet::new();
+        let unalloc_lines = tree_node_tooltip_lines(&notable, &allocated);
+        assert!(
+            unalloc_lines.iter().any(|l| l == "Unallocated"),
+            "missing unallocated marker: {unalloc_lines:?}"
+        );
+        allocated.insert(7);
+        let alloc_lines = tree_node_tooltip_lines(&notable, &allocated);
+        assert!(
+            alloc_lines.iter().any(|l| l == "Allocated"),
+            "missing allocated marker: {alloc_lines:?}"
+        );
+        assert!(
+            !alloc_lines.iter().any(|l| l == "Unallocated"),
+            "stale unallocated marker: {alloc_lines:?}"
+        );
+    }
+
+    #[test]
+    fn tree_tooltip_appends_stat_lines_after_header() {
+        // The original behaviour — show every granted stat line — must
+        // still hold; the kind / allocation header must not displace it.
+        let notable = mk_node(
+            42,
+            Some("Heart of Flame"),
+            NodeKind::Notable,
+            &["+15% Fire damage", "+10% Burning damage"],
+        );
+        let allocated: HashSet<NodeId> = HashSet::new();
+        let lines = tree_node_tooltip_lines(&notable, &allocated);
+        assert!(lines.contains(&"+15% Fire damage".to_owned()));
+        assert!(lines.contains(&"+10% Burning damage".to_owned()));
+    }
 
     #[test]
     fn class_name_maps_to_pob_canonical_index() {
