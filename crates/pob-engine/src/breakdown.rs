@@ -229,6 +229,34 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // Spells always hit; attacks scale by the formal hit chance.
         "MainSkillAverageHitAfterAccuracy" => Some(after_accuracy(env)),
 
+        // With{Ailment}DPS sums — `MainSkillDPS + <ailment>DPS`. One
+        // helper handles all four; the ailment label / source key
+        // distinguish the rendered steps.
+        "WithBleedDPS" => Some(with_ailment_dps(
+            env,
+            "WithBleedDPS",
+            "BleedDPS",
+            "Bleed DPS",
+        )),
+        "WithPoisonDPS" => Some(with_ailment_dps(
+            env,
+            "WithPoisonDPS",
+            "PoisonDPS",
+            "Poison DPS",
+        )),
+        "WithIgniteDPS" => Some(with_ailment_dps(
+            env,
+            "WithIgniteDPS",
+            "IgniteDPS",
+            "Ignite DPS",
+        )),
+        "WithImpaleDPS" => Some(with_ailment_dps(
+            env,
+            "WithImpaleDPS",
+            "ImpaleDPS",
+            "Impale DPS",
+        )),
+
         // Recovery — Life regen and Mana regen. PoB exposes both with
         // their flat / percent / pool-tied compositions.
         "LifeRegen" => Some(life_regen(env)),
@@ -251,6 +279,11 @@ pub const COVERED_KEYS: &[&str] = &[
     "MainSkillAverageHitAfterResist",
     "MainSkillAverageHitAfterShock",
     "MainSkillAverageHitAfterAccuracy",
+    // With-ailment DPS rollups.
+    "WithBleedDPS",
+    "WithPoisonDPS",
+    "WithIgniteDPS",
+    "WithImpaleDPS",
     // Damage.
     "MainSkillAverageHit",
     "MainSkillAverageHitWithCrit",
@@ -1224,6 +1257,53 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `With<Ailment>DPS`. PoB stores the
+/// rollup as `MainSkillDPS + <ailment>DPS` (see `perform.rs:4298-4301`).
+/// One helper handles all four ailments; the caller passes the
+/// rollup output key, the source ailment key, and the rendered
+/// label.
+///
+/// Each breakdown surfaces:
+/// - Hit DPS — `MainSkillDPS`, the hit damage layer
+/// - <Ailment> DPS — the ailment damage layer (often zero on
+///   non-bleed / non-poison / non-ignite builds, but kept in the
+///   chain so the user can see why their With… reading collapses
+///   to the hit value)
+/// - Final — the stored output rollup
+fn with_ailment_dps(
+    env: &Env,
+    rollup_key: &str,
+    ailment_key: &str,
+    ailment_label: &str,
+) -> Breakdown {
+    let hit = env.output.get("MainSkillDPS");
+    let ailment = env.output.get(ailment_key);
+    let total = env.output.get(rollup_key);
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Hit DPS")
+            .with_value(hit)
+            .with_explain(format!("{hit:.0} hit-damage layer (MainSkillDPS)")),
+    );
+    steps.push(
+        BreakdownStep::label(ailment_label)
+            .with_value(ailment)
+            .with_explain(format!("{ailment:.0} from {ailment_key}")),
+    );
+    steps.push(
+        BreakdownStep::label(rollup_key)
+            .with_value(total)
+            .with_explain(format!("{hit:.0} + {ailment:.0} = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: rollup_key.to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `MainSkillAverageHitAfterAccuracy`.
 /// Closes the damage chain — `AfterShock × HitChance/100`. Spells
 /// always hit at 100% (the perform pass pins
@@ -1700,6 +1780,16 @@ mod tests {
         env.output.set("BleedDPS", 0.0);
         env.output.set("PoisonDPS", 350.0);
         env.output.set("IgniteDPS", 0.0);
+        // Issue #34 follow-up: With{Bleed,Poison,Ignite,Impale}DPS
+        // breakdowns. PoisonDPS = 350 → WithPoisonDPS = 1650 (hit) +
+        // 350 = 2000. The other ailments are zero so the With… values
+        // collapse to MainSkillDPS. ImpaleDPS = 0 keeps the test fixture
+        // matching a pure-spell build (no impale layer).
+        env.output.set("ImpaleDPS", 0.0);
+        env.output.set("WithBleedDPS", 1650.0);
+        env.output.set("WithPoisonDPS", 2000.0);
+        env.output.set("WithIgniteDPS", 1650.0);
+        env.output.set("WithImpaleDPS", 1650.0);
         env.output.set("MainSkillAverageHitAfterResist", 280.0);
         env.output.set("MainSkillAverageHitAfterShock", 280.0);
         // Issue #34 follow-up: shock multiplier defaults to 1.0 (no
@@ -2221,6 +2311,52 @@ mod tests {
             "expected min(raw, 75) in effective explain; got {explain}"
         );
         assert_eq!(bd.total, 75.0);
+    }
+
+    /// Issue #34 follow-up: `WithPoisonDPS` is the simple sum of hit
+    /// DPS plus poison DPS. The breakdown surfaces both contributors
+    /// so the user can see how much of their total comes from the
+    /// hit vs the poison ailment stack.
+    #[test]
+    fn with_poison_dps_breakdown_walks_hit_and_poison() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "WithPoisonDPS").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Hit DPS"),
+            "missing hit DPS step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Poison DPS"),
+            "missing poison DPS step: {labels:?}"
+        );
+
+        let hit = bd.steps.iter().find(|s| s.label == "Hit DPS").unwrap();
+        assert_eq!(hit.value, Some(1650.0));
+
+        let poison = bd.steps.iter().find(|s| s.label == "Poison DPS").unwrap();
+        assert_eq!(poison.value, Some(350.0));
+
+        assert_eq!(bd.total, 2000.0);
+    }
+
+    /// Issue #34 follow-up: zero-ailment cases still produce a valid
+    /// breakdown — the ailment step just shows 0. Without this the
+    /// covered_keys_is_complete sweep would fail on every build that
+    /// doesn't run the matching ailment.
+    #[test]
+    fn with_bleed_ignite_impale_dps_breakdowns_collapse_to_hit_when_zero() {
+        let env = env_with_output();
+        for key in ["WithBleedDPS", "WithIgniteDPS", "WithImpaleDPS"] {
+            let bd = derive_for(&env, key).unwrap_or_else(|| panic!("missing breakdown for {key}"));
+            assert_eq!(bd.total, 1650.0, "wrong total for {key}");
+            assert_eq!(
+                bd.steps.len(),
+                3,
+                "wrong step count for {key}: {:?}",
+                bd.steps
+            );
+        }
     }
 
     /// Issue #34 follow-up: `MainSkillAverageHitAfterAccuracy`
