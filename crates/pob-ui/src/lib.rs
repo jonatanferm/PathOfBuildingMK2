@@ -30,6 +30,7 @@ mod items_tab;
 #[cfg(not(target_arch = "wasm32"))]
 mod keyring_store;
 mod mastery_picker;
+mod notable_db;
 mod notes_tab;
 mod party_tab;
 mod popup;
@@ -112,6 +113,11 @@ struct LoadedApp {
     /// `Character::jewels[socket_id]` and picked up by
     /// `compute_full_with_clusters` on the next compute pass.
     cluster_paste_state: cluster_paste::ClusterPasteState,
+    /// Issue #215: notable / keystone DB browser side-panel state. Owns
+    /// the panel-open toggle and the active node-kind filter. The search
+    /// query is shared with the tree-highlight `search` field above so
+    /// typing in either place narrows both.
+    notable_db_state: notable_db::NotableDbState,
     /// Issue #224: shared popup / modal-dialog host. Tabs route their
     /// dialogs through this LIFO stack so opening / closing /
     /// stacking semantics stay consistent across the app. Today the
@@ -378,6 +384,7 @@ impl PobApp {
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
             mastery_picker_state: mastery_picker::MasteryPickerState::default(),
             cluster_paste_state: cluster_paste::ClusterPasteState::default(),
+            notable_db_state: notable_db::NotableDbState::default(),
             popup_host: popup::PopupHost::new(),
             skills,
             bases,
@@ -449,6 +456,7 @@ impl PobApp {
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
             mastery_picker_state: mastery_picker::MasteryPickerState::default(),
             cluster_paste_state: cluster_paste::ClusterPasteState::default(),
+            notable_db_state: notable_db::NotableDbState::default(),
             popup_host: popup::PopupHost::new(),
             skills,
             bases,
@@ -835,8 +843,47 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 if ui.button("Focus next match").clicked() {
                     focus_next_search_match(app);
                 }
+                ui.separator();
+                // Issue #215: notable / keystone DB browser toggle. Lives
+                // on the search row so the same query drives both the
+                // tree highlight and the catalogue panel.
+                let browse_label = if app.notable_db_state.open {
+                    "Hide browse panel"
+                } else {
+                    "Browse nodes…"
+                };
+                if ui
+                    .button(browse_label)
+                    .on_hover_text(
+                        "Open / close the catalogue of every notable, \
+                         keystone, mastery, and jewel socket on the tree.",
+                    )
+                    .clicked()
+                {
+                    app.notable_db_state.open = !app.notable_db_state.open;
+                }
             });
         });
+    }
+
+    // Issue #215: tree-tab notable / keystone DB browser side panel.
+    // Rendered before the central panel so the tree viewport contracts
+    // to make room rather than overlapping. Gated on the Tree tab being
+    // active so it doesn't surface chrome on other tabs.
+    if app.active_tab == Tab::Tree && app.notable_db_state.open {
+        egui::SidePanel::right("notable_db_panel")
+            .resizable(true)
+            .default_width(320.0)
+            .min_width(260.0)
+            .show(ctx, |ui| {
+                notable_db::render_panel(
+                    ui,
+                    &mut app.notable_db_state,
+                    &app.tree,
+                    &mut app.tree_view,
+                    &app.search,
+                );
+            });
     }
 
     egui::SidePanel::left("class_panel")
