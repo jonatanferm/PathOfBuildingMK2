@@ -247,6 +247,10 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "IgniteChance",
             "Ignite",
         )),
+        // Impale: 4-knob phys-attack damage layer. Stacks (default 5)
+        // are noted in the explain text rather than as their own
+        // step since most builds don't tune them.
+        "ImpaleDPS" => Some(impale_dps(env)),
         "Evasion" => Some(pool_basic(env, "Evasion")),
         "Ward" => Some(pool_basic(env, "Ward")),
 
@@ -406,6 +410,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "PoisonDPS",
     "BleedDPS",
     "IgniteDPS",
+    "ImpaleDPS",
     "Evasion",
     "Ward",
     // Resists.
@@ -1350,6 +1355,59 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
 
     Breakdown {
         output_key: key.to_owned(),
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: re-derive `ImpaleDPS`. PoB:
+/// `stored × (effect/100) × stacks × (chance/100) × cps`
+/// (perform.rs:4248). Phys-attack builds running the impale support
+/// want to see all four knobs that drive the damage. Stack count
+/// (default 5; raised by `ImpaleStacksMax`) goes in the explain
+/// text rather than its own step since most builds don't tune it.
+fn impale_dps(env: &Env) -> Breakdown {
+    let stored = env.output.get("ImpaleStoredHitAvg");
+    let effect_pct = env.output.get("ImpaleEffect");
+    let chance_pct = env.output.get("ImpaleChance");
+    let cps = env.output.get("MainSkillSpeed");
+    let total = env.output.get("ImpaleDPS");
+    let effect_factor = effect_pct / 100.0;
+    let chance_factor = (chance_pct / 100.0).clamp(0.0, 1.0);
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Stored hit average")
+            .with_value(stored)
+            .with_explain(format!("{stored:.0} (post-crit, pre-mitigation phys hit)")),
+    );
+    steps.push(
+        BreakdownStep::label("Effect per stack")
+            .with_value(effect_factor)
+            .with_explain(format!(
+                "{effect_pct:.0}% per stack × default 5 stacks (raise via ImpaleStacksMax)"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Impale chance")
+            .with_value(chance_factor)
+            .with_explain(format!("{chance_pct:.0}% / 100 = {chance_factor:.3}")),
+    );
+    steps.push(
+        BreakdownStep::label("Casts per second")
+            .with_value(cps)
+            .with_explain(format!("{cps:.2} from MainSkillSpeed")),
+    );
+    steps.push(
+        BreakdownStep::label("ImpaleDPS")
+            .with_value(total)
+            .with_explain(format!(
+                "{stored:.0} × {effect_factor:.3} × 5 stacks × {chance_factor:.3} × {cps:.2} = {total:.0}"
+            )),
+    );
+
+    Breakdown {
+        output_key: "ImpaleDPS".to_owned(),
         total,
         steps,
     }
@@ -2568,6 +2626,14 @@ mod tests {
         // rounded to a clean fixture value.
         env.output.set("totalEnemyDamageIn", 1500.0);
         env.output.set("TotalEHP", 6000.0);
+        // Issue #34 follow-up: Impale defaults — phys-attack builds
+        // running the impale support get all four contributors set.
+        // Spell builds leave them at zero; the breakdown handles both.
+        // 400 stored × 10% effect × 5 stacks × 100% chance × 5 cps = 1000.
+        env.output.set("ImpaleStoredHitAvg", 400.0);
+        env.output.set("ImpaleEffect", 10.0);
+        env.output.set("ImpaleChance", 100.0);
+        env.output.set("ImpaleDPS", 1000.0);
         // Pool outputs + their attribute drivers so the Life / Mana
         // breakdowns have something to walk. The numbers track a
         // representative L90 character: 1100 Life from 50 base + 12×89
@@ -3538,6 +3604,76 @@ mod tests {
             .find(|s| s.label == "Per-stack damage")
             .unwrap();
         assert_eq!(per_stack.value, Some(0.0));
+    }
+
+    /// Issue #34 follow-up: `ImpaleDPS` walks the four knobs that
+    /// drive impale damage — stored hit average, per-stack effect,
+    /// impale chance, and cast/swing speed. Stack count is a fixed
+    /// 5 by default (raised by `ImpaleStacksMax`); the breakdown
+    /// surfaces it inside the explain text rather than as its own
+    /// step since most builds don't tune it.
+    #[test]
+    fn impale_dps_breakdown_walks_stored_effect_chance_speed() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "ImpaleDPS").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        for needed in [
+            "Stored hit average",
+            "Effect per stack",
+            "Impale chance",
+            "Casts per second",
+        ] {
+            assert!(
+                labels.contains(&needed),
+                "missing {needed} step: {labels:?}"
+            );
+        }
+
+        let stored = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Stored hit average")
+            .unwrap();
+        assert_eq!(stored.value, Some(400.0));
+
+        let effect = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Effect per stack")
+            .unwrap();
+        // Effect step value carries the factor (0.10), percent in explain.
+        assert!(
+            (effect.value.unwrap_or(0.0) - 0.10).abs() < 1e-6,
+            "expected effect factor 0.10; got {:?}",
+            effect.value
+        );
+
+        let chance = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Impale chance")
+            .unwrap();
+        assert!(
+            (chance.value.unwrap_or(0.0) - 1.0).abs() < 1e-6,
+            "expected chance factor 1.0; got {:?}",
+            chance.value
+        );
+
+        assert_eq!(bd.total, 1000.0);
+    }
+
+    /// Issue #34 follow-up: spell / non-impale build (zero impale
+    /// chance) still produces a valid breakdown so the
+    /// `covered_keys_is_complete` sweep walks the dispatch arm.
+    #[test]
+    fn impale_dps_breakdown_handles_zero_chance() {
+        let mut env = env_with_output();
+        env.output.set("ImpaleChance", 0.0);
+        env.output.set("ImpaleDPS", 0.0);
+        env.output.set("ImpaleStoredHitAvg", 0.0);
+        env.output.set("ImpaleEffect", 0.0);
+        let bd = derive_for(&env, "ImpaleDPS").unwrap();
+        assert_eq!(bd.total, 0.0);
     }
 
     /// Issue #34 follow-up: `TotalEHP` is PoB's headline defensive
