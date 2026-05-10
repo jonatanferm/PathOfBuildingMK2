@@ -16,6 +16,9 @@
 //! - **per-modline contribution** ([`score_item_modline_removal`] /
 //!   [`rank_item_modlines`]) — items-tab "top-N contributing modlines for
 //!   this slot" view, scored by removing one mod line at a time
+//! - **item swap** ([`score_item_swap`]) — single-call DPS/EHP delta for
+//!   swapping a candidate item into a slot, powering the items-tab
+//!   "vs equipped" hover (#203 follow-up)
 //!
 //! ## Performance
 //!
@@ -227,6 +230,59 @@ pub fn rank_node_additions(
             .then(a.node_id.cmp(&b.node_id))
     });
     scores
+}
+
+/// Issue #207 (slice 5): power-score result for swapping a candidate
+/// item into a given slot. Mirrors [`ItemModlineScore`] but with the
+/// **swap** sign convention: positive deltas mean "this swap is an
+/// upgrade for the player" — the natural reading for the items-tab
+/// "vs equipped" hover (#203 follow-up).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemSwapScore {
+    pub slot: Slot,
+    /// `MainSkillDPS_after − MainSkillDPS_baseline` (positive = swap improves DPS).
+    pub dps_delta: f64,
+    /// `TotalEHP_after − TotalEHP_baseline` (positive = swap improves EHP).
+    pub ehp_delta: f64,
+}
+
+/// Score swapping `candidate` into `slot`, replacing whatever's
+/// currently equipped (or filling an empty slot). Returns deltas with
+/// the **swap** sign convention — positive = upgrade. Pure helper:
+/// the input character is unchanged, the candidate is cloned into a
+/// probe.
+///
+/// **Performance**: 2 perform calls — one baseline, one with the
+/// swap applied. Cheap enough for hover-rate refresh on a single
+/// item, but the items-tab "compare every shared item" view would
+/// want batching.
+pub fn score_item_swap(
+    character: &Character,
+    tree: &PassiveTree,
+    slot: Slot,
+    candidate: &pob_data::Item,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> ItemSwapScore {
+    let (baseline, _) = compute_full_with_clusters_and_timeless(
+        character,
+        tree,
+        skills,
+        bases,
+        cluster_ctx,
+        timeless,
+    );
+    let mut probe = character.clone();
+    probe.items.equip(slot, candidate.clone());
+    let (after, _) =
+        compute_full_with_clusters_and_timeless(&probe, tree, skills, bases, cluster_ctx, timeless);
+    ItemSwapScore {
+        slot,
+        dps_delta: after.get("MainSkillDPS") - baseline.get("MainSkillDPS"),
+        ehp_delta: after.get("TotalEHP") - baseline.get("TotalEHP"),
+    }
 }
 
 /// Power-score result for a single mod line on an equipped item.
@@ -774,6 +830,62 @@ mod tests {
         // only lines are filtered out before scoring.
         assert_eq!(ranked.len(), 1);
         assert_eq!(ranked[0].mod_line, "+50 to maximum Life");
+    }
+
+    /// Issue #207 (slice 5): equipping a `+50 to maximum Life` amulet
+    /// into an empty slot raises EHP by the matching delta. Sign
+    /// convention for swap differs from removal — positive = "swap is
+    /// an upgrade" — because the consumer is the items-tab "vs
+    /// equipped" hover that the user reads as "this would gain you N".
+    #[test]
+    fn score_item_swap_into_empty_slot_reports_positive_ehp_gain() {
+        let tree = empty_tree();
+        let c = fresh_character();
+        let candidate = mk_amulet(&["+50 to maximum Life"]);
+        let score = score_item_swap(&c, &tree, Slot::Amulet, &candidate, None, None, None, None);
+        assert_eq!(score.slot, Slot::Amulet);
+        assert!(
+            score.ehp_delta > 0.0,
+            "swapping in a +50 Life amulet should raise EHP; got {}",
+            score.ehp_delta
+        );
+        assert_eq!(score.dps_delta, 0.0);
+    }
+
+    /// Issue #207 (slice 5): swapping the *same* item back in (clone of
+    /// what's currently equipped) reports zero deltas. The engine is
+    /// deterministic across identical inputs, so the baseline + after
+    /// outputs match exactly. UI consumers can suppress zero-delta
+    /// rows from the "vs equipped" hover.
+    #[test]
+    fn score_item_swap_with_clone_of_equipped_reports_zero_deltas() {
+        let tree = empty_tree();
+        let mut c = fresh_character();
+        let amulet = mk_amulet(&["+50 to maximum Life"]);
+        c.items.equip(Slot::Amulet, amulet.clone());
+        let score = score_item_swap(&c, &tree, Slot::Amulet, &amulet, None, None, None, None);
+        assert_eq!(score.dps_delta, 0.0);
+        assert_eq!(score.ehp_delta, 0.0);
+    }
+
+    /// Issue #207 (slice 5): swap-in of a *stronger* amulet (more
+    /// Life) onto a slot with a weaker one already equipped reports a
+    /// positive `ehp_delta` — the swap raises EHP. Pins the swap-sign
+    /// convention and the across-item comparison consumers will rely
+    /// on.
+    #[test]
+    fn score_item_swap_to_stronger_item_reports_positive_ehp_delta() {
+        let tree = empty_tree();
+        let mut c = fresh_character();
+        c.items
+            .equip(Slot::Amulet, mk_amulet(&["+30 to maximum Life"]));
+        let stronger = mk_amulet(&["+80 to maximum Life"]);
+        let score = score_item_swap(&c, &tree, Slot::Amulet, &stronger, None, None, None, None);
+        assert!(
+            score.ehp_delta > 0.0,
+            "swap from +30 Life → +80 Life should raise EHP; got {}",
+            score.ehp_delta
+        );
     }
 
     /// Issue #207 (slice 4): ranking on an empty slot returns an empty
