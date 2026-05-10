@@ -222,6 +222,9 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // step from `AverageHitWithCrit` to the post-resist value. Lets
         // the user see how much damage the enemy's resist is shaving.
         "MainSkillAverageHitAfterResist" => Some(after_resist(env)),
+        // After-shock continues the chain: AfterResist × ShockMult plus
+        // any `PhysicalGainAsExtraDamage` (gain-as-elemental adders).
+        "MainSkillAverageHitAfterShock" => Some(after_shock(env)),
 
         // Recovery — Life regen and Mana regen. PoB exposes both with
         // their flat / percent / pool-tied compositions.
@@ -243,6 +246,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "Accuracy",
     // Damage chain.
     "MainSkillAverageHitAfterResist",
+    "MainSkillAverageHitAfterShock",
     // Damage.
     "MainSkillAverageHit",
     "MainSkillAverageHitWithCrit",
@@ -1216,6 +1220,63 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `MainSkillAverageHitAfterShock`.
+/// Chain:
+///
+///   AfterShock = AfterResist × ShockMult + PhysicalGainAsExtraDamage
+///
+/// Surfaces the source `AfterResist`, the `ShockMult` (= 1.0 for
+/// shock-less builds), and the gain-as-extra layer when non-zero
+/// (most spell builds and unmodded attacks omit it; phys-attack
+/// builds with gain-as-elemental supports surface it). The total is
+/// read directly from the stored output rather than recomputed so
+/// the breakdown matches whatever rounding / clamps the perform
+/// pass applied.
+fn after_shock(env: &Env) -> Breakdown {
+    let after_res = env.output.get("MainSkillAverageHitAfterResist");
+    let shock_mult = env.output.get("MainSkillShockMult");
+    let gain_as = env.output.get("PhysicalGainAsExtraDamage");
+    let total = env.output.get("MainSkillAverageHitAfterShock");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("After resist")
+            .with_value(after_res)
+            .with_explain(format!("{after_res:.0} from after-resist chain")),
+    );
+    steps.push(
+        BreakdownStep::label("Shock multiplier")
+            .with_value(shock_mult)
+            .with_explain(if (shock_mult - 1.0).abs() < 1e-9 {
+                "1.000 (no shock)".to_owned()
+            } else {
+                format!("{shock_mult:.3}× from active shock")
+            }),
+    );
+    if gain_as > 0.0 {
+        steps.push(
+            BreakdownStep::label("Phys gain-as extra")
+                .with_value(gain_as)
+                .with_explain(format!("+{gain_as:.0} from PhysicalDamageGainAs<X>")),
+        );
+    }
+    steps.push(
+        BreakdownStep::label("After shock")
+            .with_value(total)
+            .with_explain(if gain_as > 0.0 {
+                format!("{after_res:.0} × {shock_mult:.3} + {gain_as:.0} = {total:.0}")
+            } else {
+                format!("{after_res:.0} × {shock_mult:.3} = {total:.0}")
+            }),
+    );
+
+    Breakdown {
+        output_key: "MainSkillAverageHitAfterShock".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `MainSkillAverageHitAfterResist`.
 /// The output is `AverageHitWithCrit × (1 - effective_resist/100)`.
 /// We don't recompute the after-resist value — we read it directly
@@ -1593,6 +1654,9 @@ mod tests {
         env.output.set("IgniteDPS", 0.0);
         env.output.set("MainSkillAverageHitAfterResist", 280.0);
         env.output.set("MainSkillAverageHitAfterShock", 280.0);
+        // Issue #34 follow-up: shock multiplier defaults to 1.0 (no
+        // shock active). Tests that exercise shock override this.
+        env.output.set("MainSkillShockMult", 1.0);
         env.output.set("MainSkillAverageHitAfterAccuracy", 280.0);
         env.output.set("MainSkillEnemyEffectiveResist", 30.0);
         env.output.set("MainSkillHitChance", 100.0);
@@ -2109,6 +2173,69 @@ mod tests {
             "expected min(raw, 75) in effective explain; got {explain}"
         );
         assert_eq!(bd.total, 75.0);
+    }
+
+    /// Issue #34 follow-up: `MainSkillAverageHitAfterShock` walks the
+    /// chain `AfterResist × ShockMult (+ PhysGainAsExtraDamage)` →
+    /// AfterShock. Shock-less builds see `ShockMult = 1.0` and a
+    /// no-op step; shocked builds see the multiplier surfaced. The
+    /// gain-as-extra step is only emitted when non-zero (most spell
+    /// builds, all unmodded attacks).
+    #[test]
+    fn after_shock_breakdown_walks_after_resist_and_shock_mult() {
+        let mut env = env_with_output();
+        env.output.set("MainSkillAverageHitAfterResist", 280.0);
+        env.output.set("MainSkillShockMult", 1.30);
+        env.output.set("PhysicalGainAsExtraDamage", 0.0);
+        env.output.set("MainSkillAverageHitAfterShock", 364.0); // 280 × 1.30
+        let bd = derive_for(&env, "MainSkillAverageHitAfterShock").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"After resist"),
+            "missing after-resist step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Shock multiplier"),
+            "missing shock-mult step: {labels:?}"
+        );
+        // Gain-as-extra is zero so its step is omitted to keep the
+        // panel tidy on the common case.
+        assert!(
+            !labels.contains(&"Phys gain-as extra"),
+            "spurious gain-as step on zero value: {labels:?}"
+        );
+
+        let after_res = bd.steps.iter().find(|s| s.label == "After resist").unwrap();
+        assert_eq!(after_res.value, Some(280.0));
+
+        let shock = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Shock multiplier")
+            .unwrap();
+        assert!((shock.value.unwrap_or(0.0) - 1.30).abs() < 1e-6);
+
+        assert_eq!(bd.total, 364.0);
+    }
+
+    /// Issue #34 follow-up: a non-zero `PhysicalGainAsExtraDamage`
+    /// surfaces as its own step — this is how a phys-attack build
+    /// stacking gain-as elemental sees the extra damage layer.
+    #[test]
+    fn after_shock_breakdown_surfaces_phys_gain_as_extra_when_present() {
+        let mut env = env_with_output();
+        env.output.set("MainSkillAverageHitAfterResist", 280.0);
+        env.output.set("MainSkillShockMult", 1.0);
+        env.output.set("PhysicalGainAsExtraDamage", 50.0);
+        env.output.set("MainSkillAverageHitAfterShock", 330.0); // 280 + 50
+        let bd = derive_for(&env, "MainSkillAverageHitAfterShock").unwrap();
+        let gain_as = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Phys gain-as extra")
+            .unwrap_or_else(|| panic!("missing phys gain-as step: {:?}", bd.steps));
+        assert_eq!(gain_as.value, Some(50.0));
+        assert_eq!(bd.total, 330.0);
     }
 
     /// Issue #34 follow-up: `MainSkillAverageHitAfterResist` shows
