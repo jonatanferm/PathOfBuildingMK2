@@ -43,8 +43,10 @@ mod tattoo_picker;
 mod tree_layout;
 mod tree_renderer;
 mod tree_view;
+mod undo;
 
 use pob_engine::pathfind;
+use undo::UndoStack;
 
 pub use tree_view::TreeView;
 
@@ -197,6 +199,13 @@ struct LoadedApp {
     /// Drained each frame for completed async ops.
     #[cfg(target_arch = "wasm32")]
     wasm_storage: build_store_wasm::WasmStorage,
+    /// Issue #204: per-app undo / redo stack snapshotting `Character`
+    /// before each tracked mutation. This slice covers the Tree-tab
+    /// click-to-allocate / click-to-unallocate paths; later slices
+    /// (Items / Skills / Config / dialogs) hook into the same stack.
+    /// Cleared on Build New / Open / Demo so a freshly-loaded build
+    /// can't be undone back into the previous one.
+    undo_stack: UndoStack<Character>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -464,6 +473,7 @@ impl PobApp {
             last_saved_hash: 0,
             dirty_since: None,
             pending_seed_saved_hash: false,
+            undo_stack: UndoStack::default(),
         })
     }
 
@@ -539,6 +549,7 @@ impl PobApp {
             last_saved_hash: 0,
             pending_seed_saved_hash: false,
             wasm_storage: build_store_wasm::WasmStorage::new(),
+            undo_stack: UndoStack::default(),
         })
     }
 }
@@ -679,6 +690,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // Esc by default).
     let mut focus_tree_search = false;
     let mut clear_tree_search = false;
+    // Issue #204: Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) undo
+    // and redo the last tracked mutation. Captured here at the app
+    // level so they fire from any tab — egui's `command` modifier
+    // already abstracts cmd-on-mac vs ctrl-on-other.
+    let mut undo_request = false;
+    let mut redo_request = false;
     ctx.input(|i| {
         let cmd = i.modifiers.command;
         let shift = i.modifiers.shift;
@@ -692,6 +709,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             menu_action = Some(MenuAction::Open);
         } else if cmd && i.key_pressed(egui::Key::N) {
             menu_action = Some(MenuAction::New);
+        } else if cmd && shift && i.key_pressed(egui::Key::Z) {
+            redo_request = true;
+        } else if cmd && i.key_pressed(egui::Key::Z) {
+            undo_request = true;
+        } else if cmd && i.key_pressed(egui::Key::Y) {
+            redo_request = true;
         } else if cmd && i.key_pressed(egui::Key::F) {
             focus_tree_search = true;
         } else if cmd && i.key_pressed(egui::Key::Num1) {
@@ -726,6 +749,17 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     if clear_tree_search {
         app.search.clear();
         update_search(app);
+    }
+    // Issue #204: apply undo / redo before the menu action / tab jump
+    // so a Cmd+Z that races a Cmd+1 (etc.) is processed in arrival
+    // order. Only flag a recompute when the stack actually swapped
+    // state (returns true) — pressing cmd+Z on an empty stack is a
+    // no-op and shouldn't churn the perform pipeline.
+    if undo_request && app.undo_stack.apply_undo(&mut app.character) {
+        recompute = true;
+    }
+    if redo_request && app.undo_stack.apply_redo(&mut app.character) {
+        recompute = true;
     }
     if let Some(action) = menu_action {
         apply_menu_action(app, action);
@@ -1467,6 +1501,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 } else if toggling_off {
                     // Unallocate: removes the clicked node *and* any nodes that
                     // are now disconnected from the class start.
+                    // Issue #204: snapshot before mutation so cmd+Z can
+                    // restore the prior allocation set.
+                    app.undo_stack.snapshot(&app.character);
                     app.character.unallocate(&app.tree, id);
                     recompute = true;
                 } else {
@@ -1505,6 +1542,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                                 format!("Path would exceed the {budget}-point ascendancy budget."),
                             ));
                         } else {
+                            // Issue #204: snapshot before mutation.
+                            app.undo_stack.snapshot(&app.character);
                             app.character.allocate_path(&app.tree, id);
                             recompute = true;
                         }
@@ -2079,6 +2118,9 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
         MenuAction::New => {
             app.character = Character::new(ClassRef::marauder(), 1);
             app.current_build_path = None;
+            // Issue #204: drop history so cmd+Z can't restore the
+            // previous build over the freshly-created one.
+            app.undo_stack.clear();
             app.status_message = Some((StatusKind::Info, "New build.".into()));
         }
         MenuAction::DemoBuild => {
@@ -2111,6 +2153,8 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
             }
             app.character = c;
             app.current_build_path = None;
+            // Issue #204: drop history on build replace.
+            app.undo_stack.clear();
             app.status_message = Some((
                 StatusKind::Info,
                 "Demo build loaded: Witch L90 Occultist Arc.".into(),
@@ -2148,6 +2192,8 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
                             // so auto-save doesn't fire on a no-op write.
                             app.pending_seed_saved_hash = true;
                             app.dirty_since = None;
+                            // Issue #204: drop history on build replace.
+                            app.undo_stack.clear();
                             app.status_message =
                                 Some((StatusKind::Info, format!("Opened {}", path.display())));
                         }
@@ -2412,6 +2458,8 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                     app.current_build_path = Some(path.clone());
                     app.pending_seed_saved_hash = true;
                     app.dirty_since = None;
+                    // Issue #204: drop history on build replace.
+                    app.undo_stack.clear();
                     app.status_message =
                         Some((StatusKind::Info, format!("Opened {}", path.display())));
                 }
@@ -2610,6 +2658,8 @@ fn apply_storage_events(app: &mut LoadedApp) -> bool {
                     Ok(c) => {
                         app.character = c;
                         app.pending_seed_saved_hash = true;
+                        // Issue #204: drop history on build replace.
+                        app.undo_stack.clear();
                         app.status_message =
                             Some((StatusKind::Info, format!("Opened \"{label}\"")));
                         character_changed = true;
