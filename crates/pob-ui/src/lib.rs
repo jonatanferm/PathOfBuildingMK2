@@ -35,6 +35,7 @@ mod party_tab;
 #[cfg(not(target_arch = "wasm32"))]
 mod share_url_fetch;
 mod skills_tab;
+mod sortable_list;
 mod tattoo_picker;
 mod tree_layout;
 mod tree_renderer;
