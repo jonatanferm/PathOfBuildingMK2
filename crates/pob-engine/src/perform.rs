@@ -3701,9 +3701,15 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
     let dex = env.output.get("Dexterity");
     let accuracy = (mod_accuracy + level_accuracy + 2.0 * dex).max(0.0);
     env.output.set("Accuracy", accuracy);
+    // Issue #34 follow-up: surface the enemy evasion the hit-chance
+    // formula reads against, so the breakdown helper can render the
+    // formula without a `Character` field. Stored unconditionally
+    // (spell builds use `MainSkillHitChance = 100`, so the value is
+    // visible but unused on the hot path).
+    let enemy_evasion = f64::from(character.config.enemy_evasion.max(1));
+    env.output.set("EnemyEvasion", enemy_evasion);
 
     if is_attack {
-        let enemy_evasion = f64::from(character.config.enemy_evasion.max(1));
         let raw_chance_pct = if accuracy <= 0.0 {
             5.0
         } else {
