@@ -344,6 +344,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // their flat / percent / pool-tied compositions.
         "LifeRegen" => Some(life_regen(env)),
         "ManaRegen" => Some(mana_regen(env)),
+        "EnergyShieldRegen" => energy_shield_regen(env),
 
         _ => None,
     }
@@ -425,6 +426,7 @@ pub const COVERED_KEYS: &[&str] = &[
     // Recovery.
     "LifeRegen",
     "ManaRegen",
+    "EnergyShieldRegen",
 ];
 
 // --- Damage ---------------------------------------------------------
@@ -2420,6 +2422,73 @@ fn mana_regen(env: &Env) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `EnergyShieldRegen`. ES regen has
+/// no pool-tied baseline term — unlike Life (which has `LifeRegenPercent
+/// × Life`) and Mana (which has the 1.75% × Mana baseline), ES regen
+/// is purely `Σ BASE(EnergyShieldRegen) × (1 + Σ INC(EnergyShieldRegen) / 100)`
+/// (per `perform_basic_stats`). With no flat or inc mods set, the
+/// dispatch returns `None` so the Calcs panel falls back to the
+/// generic contributing-modifiers view rather than rendering an
+/// empty breakdown.
+fn energy_shield_regen(env: &Env) -> Option<Breakdown> {
+    let cfg = QueryCfg::default();
+    let flat = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "EnergyShieldRegen");
+    let inc_total = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "EnergyShieldRegen");
+    if flat.abs() < 1e-9 && inc_total.abs() < 1e-9 {
+        return None;
+    }
+    let total = env.output.get("EnergyShieldRegen");
+
+    let mut steps = Vec::new();
+    if flat.abs() > 1e-9 {
+        let flat_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("EnergyShieldRegen")
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Flat regen")
+                .with_value(flat)
+                .with_explain(format!("+{flat:.1}/sec from EnergyShieldRegen BASE mods"))
+                .with_sources(flat_mods),
+        );
+    }
+
+    if inc_total.abs() > 1e-9 {
+        let inc_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("EnergyShieldRegen")
+            .filter(|m| m.kind == ModType::Inc)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Increased")
+                .with_value(1.0 + inc_total / 100.0)
+                .with_explain(format!("{inc_total:+.0}% sum"))
+                .with_sources(inc_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Energy shield regen")
+            .with_value(total)
+            .with_explain(format!(
+                "{flat:.1} × (1 + {inc_total:.0}%) = {total:.1}/sec"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "EnergyShieldRegen".to_owned(),
+        total,
+        steps,
+    })
+}
+
 fn source_label(s: Option<&Source>) -> String {
     match s {
         Some(Source::Tree) => "tree".into(),
@@ -2792,6 +2861,15 @@ mod tests {
             .add(Mod::inc("CastSpeed", 10.0).with_source(Source::Tree));
         env.mod_db.add(Mod::inc("CritChance", 200.0));
         env.mod_db.add(Mod::base("CritMultiplier", 30.0));
+        // Issue #34 follow-up: representative EnergyShieldRegen so
+        // the COVERED_KEYS guard exercises its breakdown. A Zealot's
+        // Oath ES leech ring would land ~3/sec; pin to that and a
+        // tree-cluster +20% INC for the inc step.
+        env.mod_db
+            .add(Mod::base("EnergyShieldRegen", 3.0).with_source(Source::Item(8)));
+        env.mod_db
+            .add(Mod::inc("EnergyShieldRegen", 20.0).with_source(Source::Tree));
+        env.output.set("EnergyShieldRegen", 3.6);
         env
     }
 
@@ -4281,6 +4359,70 @@ mod tests {
         );
 
         assert_eq!(bd.total, 94.0);
+    }
+
+    /// Issue #34 follow-up: EnergyShieldRegen breakdown. ES regen
+    /// has no baseline pool % term — it's `flat × (1 + inc/100)`.
+    /// With no flat or inc mods the breakdown is empty (the
+    /// dispatch returns `None`).
+    #[test]
+    fn es_regen_breakdown_skipped_when_no_mods() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "EnergyShieldRegen").is_none(),
+            "expected None when no EnergyShieldRegen mods are set",
+        );
+    }
+
+    /// Issue #34 follow-up: EnergyShieldRegen with flat-only mods —
+    /// 8/sec from an item slot lands as the Flat regen step + Final.
+    /// Builds a fresh env so the fixture's representative regen mods
+    /// (added for the COVERED_KEYS guard) don't bleed in.
+    #[test]
+    fn es_regen_breakdown_flat_only() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("EnergyShieldRegen", 8.0).with_source(Source::Item(8)));
+        env.output.set("EnergyShieldRegen", 8.0);
+        let bd = derive_for(&env, "EnergyShieldRegen").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Flat regen"));
+        assert!(!labels.contains(&"Increased"));
+        assert!(labels.contains(&"Energy shield regen"));
+
+        let flat = bd.steps.iter().find(|s| s.label == "Flat regen").unwrap();
+        assert_eq!(flat.value, Some(8.0));
+        assert!(
+            flat.sources
+                .iter()
+                .any(|s| s.source.contains("item slot 8")),
+            "expected item slot 8 source on flat regen step; got {:?}",
+            flat.sources
+        );
+        assert!((bd.total - 8.0).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: EnergyShieldRegen chains Flat → Inc →
+    /// Final. With +5/sec flat from an item and +50% INC from the
+    /// tree the total lands at 5 × 1.5 = 7.5/sec.
+    #[test]
+    fn es_regen_breakdown_chains_flat_and_inc() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("EnergyShieldRegen", 5.0).with_source(Source::Item(7)));
+        env.mod_db
+            .add(Mod::inc("EnergyShieldRegen", 50.0).with_source(Source::Tree));
+        env.output.set("EnergyShieldRegen", 7.5);
+        let bd = derive_for(&env, "EnergyShieldRegen").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Flat regen"));
+        assert!(labels.contains(&"Increased"));
+        assert!(labels.contains(&"Energy shield regen"));
+        assert!(
+            (bd.total - 7.5).abs() < 1e-6,
+            "expected 7.5/sec (5 × 1.5), got {}",
+            bd.total
+        );
     }
 
     /// Issue #34 follow-up: ManaRegen walks Baseline → Final. With
