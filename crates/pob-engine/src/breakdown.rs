@@ -222,6 +222,9 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // Hits-to-die — `pool / total_taken_hit` against PoB's
         // standard Pinnacle Boss preset (mixed elemental + chaos hit).
         "NumberOfDamagingHits" => Some(number_of_damaging_hits(env)),
+        // Survival time in seconds against the same Pinnacle Boss
+        // preset — `hits_to_die × enemySkillTime`.
+        "EHPSurvivalTime" => Some(ehp_survival_time(env)),
         "Evasion" => Some(pool_basic(env, "Evasion")),
         "Ward" => Some(pool_basic(env, "Ward")),
 
@@ -376,6 +379,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "AverageEHP",
     "MinimumEHP",
     "NumberOfDamagingHits",
+    "EHPSurvivalTime",
     "Evasion",
     "Ward",
     // Resists.
@@ -1320,6 +1324,42 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
 
     Breakdown {
         output_key: key.to_owned(),
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: re-derive `EHPSurvivalTime`. PoB:
+/// `hits_to_die × enemySkillTime` (perform.rs:1442). Two
+/// contributors — hits-to-die and the boss tick rate. Lets the
+/// user reason about whether to invest in raw EHP or in mobility /
+/// dodge affixes.
+fn ehp_survival_time(env: &Env) -> Breakdown {
+    let hits = env.output.get("NumberOfDamagingHits");
+    let tick = env.output.get("enemySkillTime");
+    let total = env.output.get("EHPSurvivalTime");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Hits to die")
+            .with_value(hits)
+            .with_explain(format!("{hits:.2} (see NumberOfDamagingHits)")),
+    );
+    steps.push(
+        BreakdownStep::label("Boss tick")
+            .with_value(tick)
+            .with_explain(format!(
+                "{tick:.2}s — PoB's standard Pinnacle Boss tick rate"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("EHPSurvivalTime")
+            .with_value(total)
+            .with_explain(format!("{hits:.2} × {tick:.2} = {total:.2}s")),
+    );
+
+    Breakdown {
+        output_key: "EHPSurvivalTime".to_owned(),
         total,
         steps,
     }
@@ -2355,6 +2395,11 @@ mod tests {
         // mitigation chains land in the 3–8 hits-to-die band.
         env.output.set("totalTakenHit", 275.0);
         env.output.set("NumberOfDamagingHits", 4.0);
+        // Issue #34 follow-up: EHPSurvivalTime = hits_to_die × enemySkillTime.
+        // PoB's `enemySkillTime` defaults to 0.7s — the standard
+        // Pinnacle Boss tick rate. 4 hits × 0.7s = 2.8s of survival.
+        env.output.set("enemySkillTime", 0.7);
+        env.output.set("EHPSurvivalTime", 2.8);
         // Pool outputs + their attribute drivers so the Life / Mana
         // breakdowns have something to walk. The numbers track a
         // representative L90 character: 1100 Life from 50 base + 12×89
@@ -3195,6 +3240,38 @@ mod tests {
         );
 
         assert_eq!(bd.total, 2161.0);
+    }
+
+    /// Issue #34 follow-up: `EHPSurvivalTime` answers "how many
+    /// seconds before the standard boss kills me". Two-component:
+    /// hits-to-die × the boss's tick rate. Lets the user reason
+    /// about whether to invest in raw EHP or in mobility / dodge
+    /// affixes.
+    #[test]
+    fn ehp_survival_time_breakdown_walks_hits_and_tick_rate() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "EHPSurvivalTime").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Hits to die"),
+            "missing hits step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Boss tick"),
+            "missing tick step: {labels:?}"
+        );
+
+        let hits = bd.steps.iter().find(|s| s.label == "Hits to die").unwrap();
+        assert_eq!(hits.value, Some(4.0));
+
+        let tick = bd.steps.iter().find(|s| s.label == "Boss tick").unwrap();
+        assert!(
+            (tick.value.unwrap_or(0.0) - 0.7).abs() < 1e-6,
+            "expected tick 0.7; got {:?}",
+            tick.value
+        );
+
+        assert!((bd.total - 2.8).abs() < 1e-6, "got {}", bd.total);
     }
 
     /// Issue #34 follow-up: `NumberOfDamagingHits` answers "how many
