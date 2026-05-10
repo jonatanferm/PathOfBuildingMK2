@@ -1,3 +1,11 @@
+// Foundation module from issue #224 — shipped ahead of its consumer
+// PRs (mastery picker, notable DB, timeless-jewel socket UI, set
+// switchers, enchant / anoint pickers, rich tooltips, …). Suppress
+// the per-item dead-code lints workspace-wide until those PRs wire
+// through; once any consumer lands the relevant items light up
+// naturally and this can be tightened back to the default deny.
+#![allow(dead_code)]
+
 //! Reusable popup / modal-dialog / tooltip-host infrastructure.
 //!
 //! Issue [#224](https://github.com/jonatanferm/pathofbuildingmk2/issues/224) — a
