@@ -33,6 +33,13 @@
 //! - **Fertile Mind** ([`HandlerKind::DexToIntTransform`]) — transforms each
 //!   in-radius allocated node's `+N Dex` BASE mod into an `+N Int` BASE plus a
 //!   counter `-N Dex` so the source attribute is moved, not duplicated.
+//! - **Karui Heart** ([`HandlerKind::StrToLifeTransform`]) — transforms each
+//!   in-radius allocated node's `+N Str` BASE mod into a `+5N Life` BASE plus
+//!   a counter `-N Str` so the strength is moved (not duplicated). The 5×
+//!   factor mirrors PoB's `data/uniques/jewel.lua` Karui Heart handler: each
+//!   transformed Str converts to +5 Life directly, *replacing* the +0.5 Life
+//!   the Str would otherwise have provided through the standard 1 Str =
+//!   0.5 Life ratio.
 //!
 //! ## What's deferred
 //!
@@ -215,6 +222,15 @@ pub enum HandlerKind {
     /// connected. The radius scan is bypassed; mods land in the player's modDB
     /// once with no per-radius copying.
     PureTalent,
+    /// Issue #196: Karui Heart. `Strength from Passives in Radius is
+    /// Transformed to Life`. Reads each in-radius allocated node's `+N
+    /// Strength` BASE mods and emits an equivalent `+5N Life` BASE sourced as
+    /// the in-radius node, suppressing the original Str contribution by
+    /// emitting a counter `-N Str` BASE. The 5× factor mirrors PoB's
+    /// `data/uniques/jewel.lua` Karui Heart implementation, where each
+    /// transformed Str becomes +5 Life directly (replacing the +0.5 Life it
+    /// would have given through the standard 1 Str = 0.5 Life ratio).
+    StrToLifeTransform,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -361,6 +377,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Watcher's Eye" => Some(build_watchers_eye(socket_id, item)),
         "Healthy Mind" => Some(build_life_to_mana(socket_id, item)),
         "Fertile Mind" => Some(build_dex_to_int(socket_id, item)),
+        "Karui Heart" => Some(build_str_to_life(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -415,6 +432,20 @@ fn build_dex_to_int(socket_id: NodeId, item: &Item) -> RadiusJewel {
         item,
         HandlerKind::DexToIntTransform,
         is_dex_int_transform_marker,
+    )
+}
+
+/// Karui Heart: parse the jewel's plain bonus mods (e.g. `+(20-30) to
+/// Strength`) like a vanilla jewel, but drop the transform marker line —
+/// that metadata feeds the [`HandlerKind::StrToLifeTransform`] dispatch
+/// directly. Default radius Large (matches upstream `Data/Uniques/jewel.lua`'s
+/// `Radius: Large` for Karui Heart).
+fn build_str_to_life(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::StrToLifeTransform,
+        is_str_life_transform_marker,
     )
 }
 
@@ -593,6 +624,11 @@ fn apply_pure_talent_lines(
 fn is_dex_int_transform_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("dexterity from passives in radius") && l.contains("transformed to intelligence")
+}
+
+fn is_str_life_transform_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("strength from passives in radius") && l.contains("transformed to life")
 }
 
 fn is_jewel_base(base: &str) -> bool {
@@ -861,6 +897,36 @@ pub fn apply_radius_jewels(
                     "Intelligence",
                     crate::ModType::Base,
                     1.0,
+                    &jewel.source_label,
+                );
+                report.mod_emissions += n;
+            }
+            HandlerKind::StrToLifeTransform => {
+                // Issue #196: Karui Heart. Emit jewel-level plain mods
+                // (`+(20-30) to Strength`) globally first — those aren't
+                // subject to the radius transform.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                // For each in-radius allocated node, find `+N Strength` BASE
+                // mods and emit an equivalent `+5N Life` BASE sourced as the
+                // in-radius node, plus a counter `-N Strength` BASE so the
+                // original node-side Str contribution (and the implicit
+                // 0.5 × Str → Life chain) is removed in line with PoB's
+                // "Transformed to" semantic.
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let n = transform_radius_attribute(
+                    tree,
+                    db,
+                    &in_radius,
+                    "Strength",
+                    "Life",
+                    crate::ModType::Base,
+                    5.0,
                     &jewel.source_label,
                 );
                 report.mod_emissions += n;
@@ -2065,6 +2131,116 @@ mod tests {
         assert!(connected.contains("Marauder"));
         assert!(connected.contains("Witch"));
         assert_eq!(connected.len(), 2);
+    }
+
+    /// Issue #196: Karui Heart — `Strength from Passives in Radius is
+    /// Transformed to Life`. Verifies the dispatch routes the unique to the
+    /// dedicated [`HandlerKind::StrToLifeTransform`] handler and that the
+    /// in-radius `+N Strength` BASE mod becomes `+5N Life` BASE sourced as
+    /// the in-radius node, plus the counter `-N Strength` so the source Str
+    /// is moved (not duplicated). Also confirms the jewel's plain
+    /// `+(20-30) to Strength` line still applies globally as a vanilla
+    /// `+N Strength` BASE mod (the radius transform doesn't consume it).
+    #[test]
+    fn karui_heart_transforms_str_base_to_life_at_5x() {
+        // Custom tree where node 2 has a `+30 to Strength` BASE stat.
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Karui Heart",
+                "Crimson Jewel",
+                &[
+                    ("+25 to Strength", ModSection::Explicit),
+                    (
+                        "Strength from Passives in Radius is Transformed to Life",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+        // Plain mod (+25 Str) is one emission. Transform of +30 Str emits
+        // two (Life + counter Str) for at least three emissions total.
+        assert!(report.mod_emissions >= 3);
+
+        // Verify the dispatch picked the dedicated handler kind.
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::StrToLifeTransform);
+
+        // Transformed +150 Life sourced from node 2 (30 Str × 5 = 150 Life).
+        let life = db.slice_named("Life");
+        assert!(
+            life.iter().any(|m| matches!(m.kind, crate::ModType::Base)
+                && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                && (m.value.as_f64().unwrap_or(0.0) - 150.0).abs() < 1e-6),
+            "expected +150 Life BASE sourced from Passive(2), got {life:#?}",
+        );
+
+        // Plain +25 Str global mod still landed.
+        let str_mods = db.slice_named("Strength");
+        assert!(
+            str_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && (m.value.as_f64().unwrap_or(0.0) - 25.0).abs() < 1e-6),
+            "expected global +25 Str from Karui Heart, got {str_mods:#?}",
+        );
+        // Counter -30 Str cancelling the source contribution.
+        assert!(
+            str_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && (m.value.as_f64().unwrap_or(0.0) + 30.0).abs() < 1e-6),
+            "expected counter -30 Str from Karui Heart transform, got {str_mods:#?}",
+        );
+    }
+
+    /// Karui Heart on a node outside the radius emits zero transformed mods.
+    /// The plain `+N to Strength` global line still lands (it's not gated on
+    /// the radius), so the dispatch reports `mod_emissions = 1`.
+    #[test]
+    fn karui_heart_skips_out_of_radius_nodes() {
+        let mut tree = mk_tree();
+        // Node 3 sits at (2000, 0) — outside Large ring (~1800).
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["+30 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Karui Heart",
+                "Crimson Jewel",
+                &[
+                    ("+25 to Strength", ModSection::Explicit),
+                    (
+                        "Strength from Passives in Radius is Transformed to Life",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+        // Only the plain +25 Str global line — no transform fires.
+        assert_eq!(report.mod_emissions, 1);
+        // No transformed Life mod sourced from a passive.
+        let life = db.slice_named("Life");
+        assert!(
+            !life
+                .iter()
+                .any(|m| matches!(&m.source, Some(Source::Passive(_)))),
+            "no Life mod should be sourced from a passive when nothing is in radius, got {life:#?}",
+        );
     }
 
     /// A radius jewel that transforms Inc Life out of radius shouldn't fire
