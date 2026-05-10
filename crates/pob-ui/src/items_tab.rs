@@ -8,6 +8,7 @@ use pob_data::{Item, ItemBase, ItemSet, ModLine, ModSection, Rarity, Slot};
 use pob_engine::{parse_item, Character};
 
 use crate::color_codes;
+use crate::shared_items::SharedItemStore;
 use crate::sortable_list::{
     column_header, cycle_sort, sorted_indices, text_filter_matches, SortState,
 };
@@ -32,6 +33,23 @@ pub struct ItemsTabState {
     /// panel showed before this issue. Lives on the tab state so the
     /// chosen sort survives tab switches in the session.
     pub browse_sort: Option<SortState<BrowseColumn>>,
+    /// Issue #209: which sub-list the browse panel is currently
+    /// showing — the bundled item-base catalogue or the user's saved
+    /// shared items. Mirrors PoB's two-tab `ItemDBControl` /
+    /// `SharedItemListControl` split.
+    pub browse_view: BrowseView,
+    /// Issue #209: buffer for the "Save current item as shared" label input.
+    pub new_shared_label: String,
+}
+
+/// Issue #209: which sub-list the browse panel is currently showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BrowseView {
+    /// The bundled item-base catalogue (`bases.json`).
+    #[default]
+    Bases,
+    /// The user's saved shared items (persisted across restarts).
+    Shared,
 }
 
 impl Default for ItemsTabState {
@@ -44,6 +62,8 @@ impl Default for ItemsTabState {
             browse_open: false,
             browse_filter: BrowseFilter::default(),
             browse_sort: None,
+            browse_view: BrowseView::default(),
+            new_shared_label: String::new(),
         }
     }
 }
@@ -316,6 +336,7 @@ pub fn ui(
     state: &mut ItemsTabState,
     character: &mut Character,
     bases: Option<&ItemBaseSet>,
+    shared_items: &mut SharedItemStore,
 ) -> bool {
     let mut changed = false;
     // Issue #27: item-set saves. Top row lets the user save the current
@@ -515,16 +536,52 @@ pub fn ui(
             ui.separator();
 
             if let Some(slot) = state.selected_slot {
-                if let Some(item) = items.get(slot) {
+                // Snapshot the equipped item once so the closures below
+                // can capture it independently of `items` and
+                // `shared_items` mutating borrows.
+                let equipped: Option<Item> = items.get(slot).cloned();
+                if let Some(item) = equipped {
                     egui::ScrollArea::vertical()
                         .max_height(220.0)
                         .show(ui, |ui| {
-                            render_item_summary(ui, item);
+                            render_item_summary(ui, &item);
                         });
                     ui.add_space(4.0);
-                    if ui.button("Unequip").clicked() {
+                    let mut do_unequip = false;
+                    let mut do_save_shared = false;
+                    ui.horizontal(|ui| {
+                        if ui.button("Unequip").clicked() {
+                            do_unequip = true;
+                        }
+                        // Issue #209: snapshot the equipped item into
+                        // the user-global shared-item store so it
+                        // survives across builds + app restarts. The
+                        // label input falls back to the item's own
+                        // name when blank; auto-dedup handles repeat
+                        // saves under the same label.
+                        ui.add(
+                            egui::TextEdit::singleline(&mut state.new_shared_label)
+                                .desired_width(140.0)
+                                .hint_text("Save label"),
+                        );
+                        if ui
+                            .button("Save to shared")
+                            .on_hover_text(
+                                "Save this item into your user-global shared list. \
+                                 Persists across app restarts.",
+                            )
+                            .clicked()
+                        {
+                            do_save_shared = true;
+                        }
+                    });
+                    if do_unequip {
                         items.unequip(slot);
                         changed = true;
+                    }
+                    if do_save_shared {
+                        shared_items.add(state.new_shared_label.clone(), item);
+                        state.new_shared_label.clear();
                     }
                     ui.separator();
                 }
@@ -619,34 +676,142 @@ pub fn ui(
         // Far right: optional browse panel.
         if state.browse_open {
             ui.separator();
-            if let Some(set) = bases {
-                if render_browse_panel(
-                    ui,
-                    &mut state.browse_filter,
-                    &mut state.browse_sort,
-                    set,
-                    items,
-                    &mut state.selected_slot,
-                    use_swap,
-                ) {
-                    changed = true;
-                }
-            } else {
-                ui.vertical(|ui| {
-                    ui.set_min_width(220.0);
-                    ui.heading("Browse");
-                    ui.separator();
-                    ui.colored_label(
-                        egui::Color32::LIGHT_RED,
-                        "No item-base data loaded. Re-run \
-                         `cargo run -p pob-extract --release` from the \
-                         workspace root to populate `data/bases.json`.",
-                    );
+            ui.vertical(|ui| {
+                ui.set_min_width(280.0);
+                // Issue #209: Bases / Shared tab toggle. Switches the
+                // panel between the bundled base catalogue and the
+                // user's saved shared items (which persist across
+                // restarts). Mirrors PoB's `ItemDBControl` /
+                // `SharedItemListControl` two-pane split.
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut state.browse_view, BrowseView::Bases, "Bases");
+                    let shared_label = if shared_items.is_empty() {
+                        "Shared".to_owned()
+                    } else {
+                        format!("Shared ({})", shared_items.len())
+                    };
+                    ui.selectable_value(&mut state.browse_view, BrowseView::Shared, shared_label);
                 });
-            }
+                ui.separator();
+                match state.browse_view {
+                    BrowseView::Bases => {
+                        if let Some(set) = bases {
+                            if render_browse_panel(
+                                ui,
+                                &mut state.browse_filter,
+                                &mut state.browse_sort,
+                                set,
+                                items,
+                                &mut state.selected_slot,
+                                use_swap,
+                            ) {
+                                changed = true;
+                            }
+                        } else {
+                            ui.colored_label(
+                                egui::Color32::LIGHT_RED,
+                                "No item-base data loaded. Re-run \
+                                 `cargo run -p pob-extract --release` from the \
+                                 workspace root to populate `data/bases.json`.",
+                            );
+                        }
+                    }
+                    BrowseView::Shared => {
+                        if render_shared_panel(
+                            ui,
+                            shared_items,
+                            items,
+                            &mut state.selected_slot,
+                            use_swap,
+                        ) {
+                            changed = true;
+                        }
+                    }
+                }
+            });
         }
     });
     changed
+}
+
+/// Issue #209: render the shared-items sub-list inside the Browse panel.
+/// Each row shows the user's label + base name with a Delete button;
+/// double-click equips into the matching slot, mirroring the base-browser
+/// flow. Returns true if an action mutated either `shared_items` or
+/// `items` so the caller can trigger a recompute and disk-flush.
+fn render_shared_panel(
+    ui: &mut egui::Ui,
+    shared_items: &mut SharedItemStore,
+    items: &mut ItemSet,
+    selected_slot: &mut Option<Slot>,
+    use_swap: bool,
+) -> bool {
+    let mut changed = false;
+    if shared_items.is_empty() {
+        ui.weak(
+            "No shared items yet. Use \"Save to shared\" on an equipped \
+             item to add one — saves persist across app restarts.",
+        );
+        return changed;
+    }
+    ui.label(format!("{} saved item(s):", shared_items.len()));
+    ui.weak(
+        "Double-click a row to equip into the currently-selected slot \
+         (left grid). Use Delete to remove a saved item.",
+    );
+    let mut to_delete: Option<usize> = None;
+    let mut to_equip: Option<(Slot, Item)> = None;
+    egui::ScrollArea::vertical()
+        .max_height(420.0)
+        .show(ui, |ui| {
+            for (idx, entry) in shared_items.items.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let label = format!("{} — {}", entry.label, entry.item.base_name);
+                    let resp = ui.selectable_label(false, label);
+                    if resp.double_clicked() {
+                        // Equip into whichever slot the user has selected
+                        // on the slot grid. Routing-by-base-name is more
+                        // ergonomic but needs a separate name→slot
+                        // heuristic — leaving that for a follow-up.
+                        if let Some(slot) = equip_target_for_swap(*selected_slot, use_swap) {
+                            to_equip = Some((slot, entry.item.clone()));
+                        }
+                    }
+                    if ui.small_button("Delete").clicked() {
+                        to_delete = Some(idx);
+                    }
+                });
+            }
+        });
+    if let Some((slot, item)) = to_equip {
+        items.equip(slot, item);
+        *selected_slot = Some(slot);
+        changed = true;
+    }
+    if let Some(idx) = to_delete {
+        shared_items.remove(idx);
+        // Removal mutates the store; the caller's per-frame flush picks
+        // it up via `dirty`. We don't return `changed = true` here
+        // because no calc-affecting state changed — just the saved-list.
+    }
+    changed
+}
+
+/// Issue #209: when equipping a shared item, route the target slot
+/// through the swap-pair when "Use Weapon Set II" is on. Mirrors the
+/// `target_slot_for_base` swap logic but operates purely on the
+/// user's currently-selected slot since shared items don't carry a
+/// resolved `ItemBase` to introspect.
+fn equip_target_for_swap(selected: Option<Slot>, use_swap: bool) -> Option<Slot> {
+    let slot = selected?;
+    if !use_swap {
+        return Some(slot);
+    }
+    Some(match slot {
+        Slot::Weapon1 => Slot::Weapon1Swap,
+        Slot::Weapon2 => Slot::Weapon2Swap,
+        s => s,
+    })
 }
 
 /// Render the right-hand "Browse" panel listing every base in `set`, filtered

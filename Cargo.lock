@@ -2425,6 +2425,7 @@ dependencies = [
  "pob-data",
  "pob-engine",
  "rfd",
+ "serde",
  "serde_json",
  "tracing",
  "ureq",

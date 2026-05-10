@@ -35,6 +35,7 @@ mod party_tab;
 mod popup;
 #[cfg(not(target_arch = "wasm32"))]
 mod share_url_fetch;
+mod shared_items;
 mod skills_tab;
 mod sortable_list;
 mod tattoo_picker;
@@ -89,6 +90,11 @@ struct LoadedApp {
     pending_tree_reset: Option<TreeResetKind>,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
+    /// Issue #209: user-global saved-items store. Loaded from disk at
+    /// boot on native targets; in-memory only on wasm. Mutating it
+    /// inside the Items tab sets `dirty`, and the frame loop flushes
+    /// the JSON file when dirty (native-only).
+    shared_items: shared_items::SharedItemStore,
     skills_state: skills_tab::SkillsTabState,
     calcs_state: calcs_tab::CalcsTabState,
     compare_state: compare_tab::CompareTabState,
@@ -350,6 +356,12 @@ impl PobApp {
             pending_tree_reset: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
+            shared_items: {
+                let mut store = shared_items::SharedItemStore::new();
+                #[cfg(not(target_arch = "wasm32"))]
+                store.set_loaded(shared_items::load_from_disk());
+                store
+            },
             skills_state: skills_tab::SkillsTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
             compare_state: compare_tab::CompareTabState::default(),
@@ -421,6 +433,12 @@ impl PobApp {
             pending_tree_reset: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
+            shared_items: {
+                let mut store = shared_items::SharedItemStore::new();
+                #[cfg(not(target_arch = "wasm32"))]
+                store.set_loaded(shared_items::load_from_disk());
+                store
+            },
             skills_state: skills_tab::SkillsTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
             compare_state: compare_tab::CompareTabState::default(),
@@ -1489,8 +1507,24 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 &mut app.items_state,
                 &mut app.character,
                 app.bases.as_ref(),
+                &mut app.shared_items,
             ) {
                 recompute = true;
+            }
+            // Issue #209: flush the shared-items list to disk after any
+            // mutating browse-panel action. Native-only — wasm keeps the
+            // store in memory until a future IndexedDB slice.
+            #[cfg(not(target_arch = "wasm32"))]
+            if app.shared_items.dirty {
+                if let Err(e) = shared_items::save_to_disk(&app.shared_items) {
+                    tracing::warn!("Couldn't save shared items: {e}");
+                    app.status_message = Some((
+                        StatusKind::Error,
+                        format!("Saving shared items failed: {e}"),
+                    ));
+                } else {
+                    app.shared_items.dirty = false;
+                }
             }
         }
         Tab::Skills => {
