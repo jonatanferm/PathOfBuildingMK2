@@ -472,6 +472,82 @@ fn row_matches_filter(row: &CalcRow, section_id: &str, sub_label: &str, q: &str)
     hay.iter().any(|s| s.to_lowercase().contains(q))
 }
 
+/// Build the hover-tooltip lines for a Calcs-tab output row.
+///
+/// Why a pure formatter: keeps the description table testable and lets
+/// the tree of egui calls in `render_calc_row` / `render_row` stay a
+/// thin wiring layer.
+///
+/// First line is the user-visible label (or the output key when no
+/// label is given). Where the key differs from the label we surface
+/// `Output key: <key>` so the user can correlate the row with the raw
+/// names that appear in calc_breakdown / engine logs. Known keys also
+/// get a one-line plain-English description from
+/// [`describe_output_key`]; unknown keys still get the key + click hint.
+pub fn calc_row_tooltip_lines(label: &str, key: Option<&str>) -> Vec<String> {
+    let mut lines = Vec::new();
+    let header = if !label.is_empty() {
+        label.to_owned()
+    } else {
+        key.unwrap_or("(unnamed)").to_owned()
+    };
+    lines.push(header.clone());
+    if let Some(k) = key {
+        if k != header {
+            lines.push(format!("Output key: {k}"));
+        }
+        if let Some(desc) = describe_output_key(k) {
+            lines.push(desc.to_owned());
+        }
+        lines.push("Click to see contributing modifiers".to_owned());
+    }
+    lines
+}
+
+/// One-line plain-English summary for an engine output key. Returns
+/// `None` for keys we haven't curated yet — the caller still surfaces
+/// the raw key, so this table grows opportunistically rather than
+/// trying to mirror every output up-front.
+fn describe_output_key(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "MainSkillDPS" => "Main skill damage per second after all modifiers.",
+        "FullDPS" => "Combined damage per second across the main skill and all secondary sources (ailments, minions, totems).",
+        "TotalDPS" => "Total damage per second of the main skill before ailment / secondary stacking.",
+        "MainSkillAverageHit" => "Average damage of a single hit of the main skill, before resistances and mitigation.",
+        "MainSkillAverageHitAfterResist" => "Average per-hit damage after the enemy's resistances are applied.",
+        "MainSkillAverageHitAfterShock" => "Average per-hit damage after the enemy's shock effect amplifies it.",
+        "MainSkillAverageHitAfterAccuracy" => "Average per-hit damage after multiplying by hit chance.",
+        "MainSkillSpeed" => "Hits per second of the main skill (attack speed × hits per attack).",
+        "MainSkillHitChance" => "Probability that an attack lands on the configured enemy (0–100%).",
+        "MainSkillManaCost" => "Mana cost per use of the main skill, after cost / efficiency modifiers.",
+        "ManaPerSecondCost" => "Sustained mana drain of the main skill (cost × uses per second).",
+        "WithBleedDPS" => "Combined per-target DPS of the main hit plus bleeding stacks it inflicts.",
+        "WithPoisonDPS" => "Combined per-target DPS of the main hit plus poison stacks it inflicts.",
+        "WithIgniteDPS" => "Combined per-target DPS of the main hit plus the ignite it inflicts.",
+        "WithImpaleDPS" => "Combined per-target DPS of the main hit plus the impale stacks it inflicts.",
+        "BleedDPS" => "DPS of the bleed ailment alone (single application, scaled by hit and ailment modifiers).",
+        "PoisonDPS" => "DPS of the poison ailment alone, summed over the active stack count.",
+        "IgniteDPS" => "DPS of the ignite alone (single ignite, scaled by hit and ailment modifiers).",
+        "ImpaleDPS" => "DPS contribution from impale stacks (stored damage × stacks × proc chance × hits/sec).",
+        "TotalEHP" => "Effective HP — how much raw enemy damage you can take before dying, averaged over hit types.",
+        "AverageEHP" => "Mean effective HP across the configured damage-type distribution.",
+        "MinimumEHP" => "Worst-case effective HP — the damage type the build is least defended against.",
+        "PhysicalEHP" => "Effective HP against physical hits, after armour, evasion, block, and pools.",
+        "FireEHP" => "Effective HP against fire hits, after resistance and pool mitigation.",
+        "ColdEHP" => "Effective HP against cold hits, after resistance and pool mitigation.",
+        "LightningEHP" => "Effective HP against lightning hits, after resistance and pool mitigation.",
+        "ChaosEHP" => "Effective HP against chaos hits (typically bypasses ES unless explicitly mitigated).",
+        "PhysicalDamageReduction" => "Percentage of incoming physical damage cancelled by armour, endurance charges, and similar.",
+        "NumberOfDamagingHits" => "Damaging hits the configured enemy needs to land to deplete the configured pool.",
+        "EHPSurvivalTime" => "Seconds the build survives a continuous stream of the configured enemy hits.",
+        "Str" => "Strength stat after all modifiers — drives life, melee phys, and Str-scaled mods.",
+        "Dex" => "Dexterity stat after all modifiers — drives accuracy, evasion, and Dex-scaled mods.",
+        "Int" => "Intelligence stat after all modifiers — drives mana, ES, and Int-scaled mods.",
+        "Accuracy" => "Total accuracy rating — feeds into MainSkillHitChance against the configured enemy.",
+        _ => return None,
+    })
+}
+
 fn render_calc_row(
     ui: &mut egui::Ui,
     row: &CalcRow,
@@ -491,10 +567,12 @@ fn render_calc_row(
         }
     }
     if label.hovered() && row.output_key.is_some() {
-        label.on_hover_text(format!(
-            "{} — click to see contributing modifiers",
-            row.output_key.as_deref().unwrap_or(""),
-        ));
+        let lines = calc_row_tooltip_lines(&label_text, row.output_key.as_deref());
+        label.on_hover_ui(|ui| {
+            for line in &lines {
+                ui.label(line);
+            }
+        });
     }
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
         let value = row.output_key.as_deref().and_then(|k| output.try_get(k));
@@ -527,7 +605,12 @@ fn render_row(ui: &mut egui::Ui, k: &str, v: f64, focused: &mut Option<String>) 
         *focused = Some(k.to_owned());
     }
     if label.hovered() {
-        label.on_hover_text("Click to see contributing modifiers");
+        let lines = calc_row_tooltip_lines(k, Some(k));
+        label.on_hover_ui(|ui| {
+            for line in &lines {
+                ui.label(line);
+            }
+        });
     }
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
         let formatted = if v.fract().abs() < 1e-9 {
@@ -809,7 +892,77 @@ fn kind_label(k: ModType) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::GROUPS;
+    use super::{calc_row_tooltip_lines, GROUPS};
+
+    #[test]
+    fn tooltip_header_uses_label_when_present() {
+        let lines = calc_row_tooltip_lines("Total DPS", Some("MainSkillDPS"));
+        assert_eq!(lines.first().map(String::as_str), Some("Total DPS"));
+    }
+
+    #[test]
+    fn tooltip_header_falls_back_to_key_when_label_empty() {
+        let lines = calc_row_tooltip_lines("", Some("MainSkillDPS"));
+        assert_eq!(lines.first().map(String::as_str), Some("MainSkillDPS"));
+    }
+
+    #[test]
+    fn tooltip_includes_output_key_line_when_label_differs() {
+        let lines = calc_row_tooltip_lines("Total DPS", Some("MainSkillDPS"));
+        assert!(
+            lines.iter().any(|l| l == "Output key: MainSkillDPS"),
+            "expected output-key disclosure, got {lines:?}"
+        );
+    }
+
+    #[test]
+    fn tooltip_omits_output_key_line_when_label_matches_key() {
+        let lines = calc_row_tooltip_lines("MainSkillDPS", Some("MainSkillDPS"));
+        assert!(
+            !lines.iter().any(|l| l.starts_with("Output key:")),
+            "expected no redundant output-key line, got {lines:?}"
+        );
+    }
+
+    #[test]
+    fn tooltip_adds_known_description_for_main_skill_dps() {
+        let lines = calc_row_tooltip_lines("Total DPS", Some("MainSkillDPS"));
+        assert!(
+            lines.iter().any(|l| l.contains("damage per second")),
+            "expected MainSkillDPS description, got {lines:?}"
+        );
+    }
+
+    #[test]
+    fn tooltip_adds_click_hint_when_key_is_known() {
+        let lines = calc_row_tooltip_lines("Total DPS", Some("MainSkillDPS"));
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("Click to see contributing modifiers")
+        );
+    }
+
+    #[test]
+    fn tooltip_omits_click_hint_when_no_key() {
+        let lines = calc_row_tooltip_lines("Section heading", None);
+        assert!(
+            !lines.iter().any(|l| l.starts_with("Click to see")),
+            "expected no click hint without an output key, got {lines:?}"
+        );
+    }
+
+    #[test]
+    fn tooltip_unknown_key_still_yields_header_and_hint() {
+        let lines = calc_row_tooltip_lines("Some Random", Some("CompletelyUnknownOutputKeyXyz"));
+        assert_eq!(lines.first().map(String::as_str), Some("Some Random"));
+        assert!(lines
+            .iter()
+            .any(|l| l == "Output key: CompletelyUnknownOutputKeyXyz"));
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("Click to see contributing modifiers")
+        );
+    }
 
     /// Returns the first group heading whose patterns match `key`, or
     /// `None` if it falls through to "Other". Matches the same shape
