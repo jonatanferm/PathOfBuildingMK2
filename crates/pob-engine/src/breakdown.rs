@@ -219,6 +219,9 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // can see what's pulling the figure.
         "AverageEHP" => Some(average_ehp(env)),
         "MinimumEHP" => Some(minimum_ehp(env)),
+        // Hits-to-die — `pool / total_taken_hit` against PoB's
+        // standard Pinnacle Boss preset (mixed elemental + chaos hit).
+        "NumberOfDamagingHits" => Some(number_of_damaging_hits(env)),
         "Evasion" => Some(pool_basic(env, "Evasion")),
         "Ward" => Some(pool_basic(env, "Ward")),
 
@@ -372,6 +375,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "ChaosEHP",
     "AverageEHP",
     "MinimumEHP",
+    "NumberOfDamagingHits",
     "Evasion",
     "Ward",
     // Resists.
@@ -1316,6 +1320,47 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
 
     Breakdown {
         output_key: key.to_owned(),
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: re-derive `NumberOfDamagingHits`. PoB:
+/// `pool / total_taken_hit` (perform.rs:1436). Defensive builds
+/// tuning EHP investment want to see whether their hits-to-die
+/// figure is constrained by pool or by mitigation. Two-component
+/// breakdown surfacing both.
+fn number_of_damaging_hits(env: &Env) -> Breakdown {
+    let life = env.output.get("Life");
+    let es = env.output.get("EnergyShield");
+    let ward = env.output.get("Ward");
+    let pool = (life + es + ward).max(1.0);
+    let taken = env.output.get("totalTakenHit");
+    let total = env.output.get("NumberOfDamagingHits");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Pool")
+            .with_value(pool)
+            .with_explain(format!(
+                "Life {life:.0} + EnergyShield {es:.0} + Ward {ward:.0} = {pool:.0}"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Total taken per hit")
+            .with_value(taken)
+            .with_explain(format!(
+                "{taken:.0} from PoB's standard Pinnacle Boss mixed-element hit"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("NumberOfDamagingHits")
+            .with_value(total)
+            .with_explain(format!("{pool:.0} / {taken:.0} = {total:.2}")),
+    );
+
+    Breakdown {
+        output_key: "NumberOfDamagingHits".to_owned(),
         total,
         steps,
     }
@@ -2303,6 +2348,13 @@ mod tests {
         // 12 × 5 = 60 with the existing MainSkillManaCost = 12 and
         // MainSkillSpeed = 5.0 already in the fixture.
         env.output.set("ManaPerSecondCost", 60.0);
+        // Issue #34 follow-up: NumberOfDamagingHits = pool / total_taken_hit.
+        // With pool = 1100 and a representative total_taken_hit = 275
+        // → NumberOfDamagingHits = 4. The test fixture mirrors PoB's
+        // standard Pinnacle Boss preset baseline; real builds with
+        // mitigation chains land in the 3–8 hits-to-die band.
+        env.output.set("totalTakenHit", 275.0);
+        env.output.set("NumberOfDamagingHits", 4.0);
         // Pool outputs + their attribute drivers so the Life / Mana
         // breakdowns have something to walk. The numbers track a
         // representative L90 character: 1100 Life from 50 base + 12×89
@@ -3143,6 +3195,34 @@ mod tests {
         );
 
         assert_eq!(bd.total, 2161.0);
+    }
+
+    /// Issue #34 follow-up: `NumberOfDamagingHits` answers "how many
+    /// hits before I die". `pool / total_taken_hit` — defensive
+    /// builds tuning EHP investment want to see whether their
+    /// hits-to-die figure is constrained by pool or by mitigation.
+    #[test]
+    fn number_of_damaging_hits_breakdown_walks_pool_and_taken() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "NumberOfDamagingHits").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Pool"), "missing Pool: {labels:?}");
+        assert!(
+            labels.contains(&"Total taken per hit"),
+            "missing taken: {labels:?}"
+        );
+
+        let pool = bd.steps.iter().find(|s| s.label == "Pool").unwrap();
+        assert_eq!(pool.value, Some(1100.0));
+
+        let taken = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Total taken per hit")
+            .unwrap();
+        assert_eq!(taken.value, Some(275.0));
+
+        assert_eq!(bd.total, 4.0);
     }
 
     /// Issue #34 follow-up: `ManaPerSecondCost` = mana_cost × cps.
