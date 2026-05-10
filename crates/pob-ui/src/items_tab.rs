@@ -8,7 +8,7 @@ use pob_data::{Item, ItemBase, ItemSet, ModLine, ModSection, Rarity, Slot};
 use pob_engine::{parse_item, Character};
 
 use crate::color_codes;
-use crate::shared_items::SharedItemStore;
+use crate::shared_items::{SharedItem, SharedItemStore};
 use crate::sortable_list::{
     column_header, cycle_sort, sorted_indices, text_filter_matches, SortState,
 };
@@ -75,12 +75,18 @@ impl Default for ItemsTabState {
 /// a base passes only if it satisfies the slot filter, the global
 /// search, and *both* per-column filters. Empty fields are no-ops so
 /// the prior behaviour is preserved when the user ignores the new row.
+///
+/// Issue #209 added the `rarity` filter — meaningful for the shared
+/// items list (each saved row carries the rarity it was saved at) and
+/// excludes the base catalogue when the user picks a non-Normal
+/// rarity (bases conceptually roll Normal).
 #[derive(Debug, Clone, Default)]
 pub struct BrowseFilter {
     pub slot: Option<BrowseSlot>,
     pub search: String,
     pub name_filter: String,
     pub class_filter: String,
+    pub rarity: Option<Rarity>,
 }
 
 /// Columns the browse panel exposes for sorting (and filtering, per
@@ -150,6 +156,84 @@ impl BrowseSlot {
         }
     }
 
+    /// Issue #209: shared-items list rows don't carry a base `type`
+    /// field, only the in-game base name (e.g. "Onyx Amulet"). Use a
+    /// distinct heuristic that looks at name suffixes / keywords so
+    /// the slot filter still narrows the saved list correctly.
+    pub fn from_base_name(name: &str) -> Self {
+        let lower = name.to_ascii_lowercase();
+        if lower.ends_with("amulet") || lower.contains("talisman") {
+            Self::Amulet
+        } else if lower.ends_with("ring") {
+            Self::Ring
+        } else if lower.ends_with("belt") || lower.contains("sash") || lower.contains("girdle") {
+            Self::Belt
+        } else if lower.contains("flask") || lower.contains("tincture") {
+            Self::Flask
+        } else if lower.contains("quiver") {
+            Self::Quiver
+        } else if lower.contains("shield") || lower.contains("buckler") || lower.contains("bundle")
+        {
+            Self::Shield
+        } else if lower.contains("jewel") {
+            Self::Jewel
+        } else if lower.ends_with("boots")
+            || lower.ends_with("greaves")
+            || lower.ends_with("slippers")
+            || lower.ends_with("shoes")
+        {
+            Self::Boots
+        } else if lower.ends_with("gloves")
+            || lower.ends_with("gauntlets")
+            || lower.ends_with("mitts")
+            || lower.ends_with("bracers")
+        {
+            Self::Gloves
+        } else if lower.ends_with("helmet")
+            || lower.ends_with("helm")
+            || lower.ends_with("cap")
+            || lower.ends_with("hood")
+            || lower.ends_with("burgonet")
+            || lower.ends_with("crown")
+            || lower.ends_with("circlet")
+            || lower.ends_with("hat")
+            || lower.ends_with("mask")
+            || lower.ends_with("tricorne")
+            || lower.ends_with("bascinet")
+        {
+            Self::Helmet
+        } else if lower.contains("vest")
+            || lower.contains("plate")
+            || lower.contains("garb")
+            || lower.contains("robe")
+            || lower.contains("jerkin")
+            || lower.contains("doublet")
+            || lower.contains("brigandine")
+            || lower.contains("hauberk")
+            || lower.contains("cuirass")
+            || lower.contains("raiment")
+            || lower.contains("vestments")
+        {
+            Self::BodyArmour
+        } else if lower.contains("axe")
+            || lower.contains("sword")
+            || lower.contains("mace")
+            || lower.contains("dagger")
+            || lower.contains("claw")
+            || lower.contains("staff")
+            || lower.contains("staves")
+            || lower.contains("bow")
+            || lower.contains("wand")
+            || lower.contains("sceptre")
+            || lower.contains("spear")
+            || lower.contains("rod")
+        {
+            Self::Weapon
+        } else {
+            Self::Other
+        }
+    }
+
     /// Heuristic mapping from a base's `type` field to a coarse browse bucket.
     pub fn from_base_type(t: &str) -> Self {
         let lower = t.to_ascii_lowercase();
@@ -208,6 +292,14 @@ pub fn base_matches_filter(name: &str, base: &ItemBase, filter: &BrowseFilter) -
             return false;
         }
     }
+    if let Some(rarity) = filter.rarity {
+        // Bases roll Normal by default; any other rarity filter
+        // excludes the entire base catalogue (they're crafted /
+        // unique items, not raw bases).
+        if rarity != Rarity::Normal {
+            return false;
+        }
+    }
     // Global search — name OR class match (preserves prior behaviour).
     if !text_filter_matches(&filter.search, [name, base.r#type.as_str()]) {
         return false;
@@ -219,6 +311,38 @@ pub fn base_matches_filter(name: &str, base: &ItemBase, filter: &BrowseFilter) -
         return false;
     }
     if !text_filter_matches(&filter.class_filter, [base.r#type.as_str()]) {
+        return false;
+    }
+    true
+}
+
+/// Filter predicate for a saved shared item. Mirrors
+/// [`base_matches_filter`] but the rarity check uses the item's own
+/// rarity (saved rares stay visible when the user picks "Rare", etc.)
+/// and slot mapping goes through the item's `base_name` heuristic
+/// since saved items don't carry a base `type` field.
+#[must_use]
+pub fn shared_matches_filter(saved: &SharedItem, filter: &BrowseFilter) -> bool {
+    if let Some(slot) = filter.slot {
+        let bucket = BrowseSlot::from_base_name(&saved.item.base_name);
+        if bucket != slot {
+            return false;
+        }
+    }
+    if let Some(rarity) = filter.rarity {
+        if saved.item.rarity != rarity {
+            return false;
+        }
+    }
+    // Global search — match label / item name / base name.
+    if !text_filter_matches(
+        &filter.search,
+        [
+            saved.label.as_str(),
+            saved.item.name.as_str(),
+            saved.item.base_name.as_str(),
+        ],
+    ) {
         return false;
     }
     true
@@ -692,6 +816,10 @@ pub fn ui(
                     };
                     ui.selectable_value(&mut state.browse_view, BrowseView::Shared, shared_label);
                 });
+                // Issue #209: shared filter row — search + slot pills +
+                // rarity pills. Rendered above the view body so the user's
+                // active filters carry across the Bases / Shared toggle.
+                render_filter_row(ui, &mut state.browse_filter);
                 ui.separator();
                 match state.browse_view {
                     BrowseView::Bases => {
@@ -719,6 +847,7 @@ pub fn ui(
                     BrowseView::Shared => {
                         if render_shared_panel(
                             ui,
+                            &state.browse_filter,
                             shared_items,
                             items,
                             &mut state.selected_slot,
@@ -736,11 +865,14 @@ pub fn ui(
 
 /// Issue #209: render the shared-items sub-list inside the Browse panel.
 /// Each row shows the user's label + base name with a Delete button;
-/// double-click equips into the matching slot, mirroring the base-browser
-/// flow. Returns true if an action mutated either `shared_items` or
-/// `items` so the caller can trigger a recompute and disk-flush.
+/// double-click equips into the slot detected from the saved item's
+/// base name (or the user's currently-selected slot as a fallback),
+/// mirroring the base-browser flow. Filter is applied via
+/// [`shared_matches_filter`] so search / slot / rarity pills carry
+/// over from the Bases view.
 fn render_shared_panel(
     ui: &mut egui::Ui,
+    filter: &BrowseFilter,
     shared_items: &mut SharedItemStore,
     items: &mut ItemSet,
     selected_slot: &mut Option<Slot>,
@@ -754,30 +886,65 @@ fn render_shared_panel(
         );
         return changed;
     }
-    ui.label(format!("{} saved item(s):", shared_items.len()));
-    ui.weak(
-        "Double-click a row to equip into the currently-selected slot \
-         (left grid). Use Delete to remove a saved item.",
-    );
+    let total = shared_items.len();
+    let mut filtered: Vec<usize> = (0..total)
+        .filter(|i| shared_matches_filter(&shared_items.items[*i], filter))
+        .collect();
+    filtered.sort_by(|a, b| {
+        shared_items.items[*a]
+            .label
+            .to_ascii_lowercase()
+            .cmp(&shared_items.items[*b].label.to_ascii_lowercase())
+    });
+    ui.label(format!("{} of {} saved", filtered.len(), total));
+    ui.weak("Double-click to equip into the matching slot.");
+    ui.add_space(2.0);
+
     let mut to_delete: Option<usize> = None;
     let mut to_equip: Option<(Slot, Item)> = None;
     egui::ScrollArea::vertical()
         .max_height(420.0)
         .show(ui, |ui| {
-            for (idx, entry) in shared_items.items.iter().enumerate() {
+            for idx in filtered {
+                let saved = &shared_items.items[idx];
+                let target = detect_slot(&saved.item.base_name)
+                    .or_else(|| detect_slot_from_class(&saved.item.raw))
+                    .map(|s| match (s, use_swap) {
+                        (Slot::Weapon1, true) => Slot::Weapon1Swap,
+                        (Slot::Weapon2, true) => Slot::Weapon2Swap,
+                        (other, _) => other,
+                    });
+                let target_label = target
+                    .map(|s| s.label().to_owned())
+                    .unwrap_or_else(|| "(pick slot)".to_owned());
+                let glyph = rarity_glyph(saved.item.rarity);
+                let display_name = if saved.item.name.is_empty() {
+                    saved.item.base_name.as_str()
+                } else {
+                    saved.item.name.as_str()
+                };
                 ui.horizontal(|ui| {
-                    let label = format!("{} — {}", entry.label, entry.item.base_name);
-                    let resp = ui.selectable_label(false, label);
-                    if resp.double_clicked() {
-                        // Equip into whichever slot the user has selected
-                        // on the slot grid. Routing-by-base-name is more
-                        // ergonomic but needs a separate name→slot
-                        // heuristic — leaving that for a follow-up.
-                        if let Some(slot) = equip_target_for_swap(*selected_slot, use_swap) {
-                            to_equip = Some((slot, entry.item.clone()));
+                    let row = ui
+                        .add(
+                            egui::Label::new(format!(
+                                "{glyph} {label}\n    {name}  →  {target_label}",
+                                label = saved.label,
+                                name = display_name,
+                            ))
+                            .sense(egui::Sense::click()),
+                        )
+                        .on_hover_text("Double-click to equip this saved item.");
+                    if row.double_clicked() {
+                        let dest = target.or(*selected_slot);
+                        if let Some(slot) = dest {
+                            to_equip = Some((slot, saved.item.clone()));
                         }
                     }
-                    if ui.small_button("Delete").clicked() {
+                    if ui
+                        .small_button("✕")
+                        .on_hover_text(format!("Delete \"{}\" from shared items", saved.label))
+                        .clicked()
+                    {
                         to_delete = Some(idx);
                     }
                 });
@@ -797,23 +964,6 @@ fn render_shared_panel(
     changed
 }
 
-/// Issue #209: when equipping a shared item, route the target slot
-/// through the swap-pair when "Use Weapon Set II" is on. Mirrors the
-/// `target_slot_for_base` swap logic but operates purely on the
-/// user's currently-selected slot since shared items don't carry a
-/// resolved `ItemBase` to introspect.
-fn equip_target_for_swap(selected: Option<Slot>, use_swap: bool) -> Option<Slot> {
-    let slot = selected?;
-    if !use_swap {
-        return Some(slot);
-    }
-    Some(match slot {
-        Slot::Weapon1 => Slot::Weapon1Swap,
-        Slot::Weapon2 => Slot::Weapon2Swap,
-        s => s,
-    })
-}
-
 /// Render the right-hand "Browse" panel listing every base in `set`, filtered
 /// by `filter`. Returns true if a base was double-clicked into a slot.
 ///
@@ -821,6 +971,70 @@ fn equip_target_for_swap(selected: Option<Slot>, use_swap: bool) -> Option<Slot>
 /// the row above the list exposes a per-column text filter. Sort state
 /// is owned by the caller (see [`ItemsTabState::browse_sort`]) so it
 /// persists across tab switches in the session.
+/// Issue #209: render the search + slot + rarity filter pills shared
+/// between the Bases and Shared sub-views. Pulled out so the filter
+/// state is unified — switching between views preserves the user's
+/// active filters.
+fn render_filter_row(ui: &mut egui::Ui, filter: &mut BrowseFilter) {
+    ui.horizontal(|ui| {
+        ui.label("Search:");
+        ui.add(
+            egui::TextEdit::singleline(&mut filter.search)
+                .hint_text("name or class")
+                .desired_width(160.0),
+        );
+        if ui.button("×").on_hover_text("Clear search").clicked() {
+            filter.search.clear();
+        }
+    });
+
+    ui.horizontal_wrapped(|ui| {
+        // "All" pill resets the slot filter.
+        if ui.selectable_label(filter.slot.is_none(), "All").clicked() {
+            filter.slot = None;
+        }
+        for s in BrowseSlot::all() {
+            let active = filter.slot == Some(*s);
+            if ui.selectable_label(active, s.label()).clicked() {
+                filter.slot = if active { None } else { Some(*s) };
+            }
+        }
+    });
+
+    // Issue #209: rarity pill row. Mirrors PoB's
+    // `ItemDBControl.lua` rarity dropdown — fixed buckets matching
+    // the in-game rarities. Rendered as selectable pills to fit
+    // egui's idiom (consistent with the slot row above).
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Rarity:");
+        if ui
+            .selectable_label(filter.rarity.is_none(), "Any")
+            .clicked()
+        {
+            filter.rarity = None;
+        }
+        for r in [
+            Rarity::Normal,
+            Rarity::Magic,
+            Rarity::Rare,
+            Rarity::Unique,
+            Rarity::Relic,
+        ] {
+            let active = filter.rarity == Some(r);
+            let label = match r {
+                Rarity::Normal => "Normal",
+                Rarity::Magic => "Magic",
+                Rarity::Rare => "Rare",
+                Rarity::Unique => "Unique",
+                Rarity::Relic => "Relic",
+            };
+            if ui.selectable_label(active, label).clicked() {
+                filter.rarity = if active { None } else { Some(r) };
+            }
+        }
+    });
+}
+
 fn render_browse_panel(
     ui: &mut egui::Ui,
     filter: &mut BrowseFilter,
@@ -834,33 +1048,6 @@ fn render_browse_panel(
     ui.vertical(|ui| {
         ui.set_min_width(320.0);
         ui.heading("Browse bases");
-        ui.separator();
-
-        ui.horizontal(|ui| {
-            ui.label("Search:");
-            ui.add(
-                egui::TextEdit::singleline(&mut filter.search)
-                    .hint_text("name or class")
-                    .desired_width(160.0),
-            );
-            if ui.button("×").on_hover_text("Clear search").clicked() {
-                filter.search.clear();
-            }
-        });
-
-        ui.horizontal_wrapped(|ui| {
-            // "All" pill resets the slot filter.
-            if ui.selectable_label(filter.slot.is_none(), "All").clicked() {
-                filter.slot = None;
-            }
-            for s in BrowseSlot::all() {
-                let active = filter.slot == Some(*s);
-                if ui.selectable_label(active, s.label()).clicked() {
-                    filter.slot = if active { None } else { Some(*s) };
-                }
-            }
-        });
-
         ui.separator();
 
         // Issue #211: clickable column headers + per-column text filters.
@@ -1269,5 +1456,161 @@ mod tests {
         assert_eq!(BrowseSlot::from_base_type("Quiver"), BrowseSlot::Quiver);
         assert_eq!(BrowseSlot::from_base_type("Jewel"), BrowseSlot::Jewel);
         assert_eq!(BrowseSlot::from_base_type("Tincture"), BrowseSlot::Flask);
+    }
+
+    fn make_item(name: &str, base: &str, rarity: Rarity) -> Item {
+        Item {
+            name: name.to_owned(),
+            base_name: base.to_owned(),
+            rarity,
+            item_level: 84,
+            quality: 0,
+            tags: HashSet::default(),
+            mod_lines: Vec::new(),
+            sockets: String::new(),
+            raw: String::new(),
+            corrupted: false,
+            mirrored: false,
+        }
+    }
+
+    #[test]
+    fn rarity_filter_excludes_bases_when_non_normal() {
+        let base = make_base("Helmet", None, None);
+        let normal = BrowseFilter {
+            rarity: Some(Rarity::Normal),
+            ..Default::default()
+        };
+        // Bases conceptually roll Normal, so Normal keeps them.
+        assert!(base_matches_filter("Iron Hat", &base, &normal));
+
+        for r in [Rarity::Magic, Rarity::Rare, Rarity::Unique, Rarity::Relic] {
+            let filter = BrowseFilter {
+                rarity: Some(r),
+                ..Default::default()
+            };
+            assert!(
+                !base_matches_filter("Iron Hat", &base, &filter),
+                "non-Normal rarity ({r:?}) should hide bases"
+            );
+        }
+    }
+
+    #[test]
+    fn shared_filter_matches_label_name_or_base_and_rarity() {
+        let saved = SharedItem {
+            label: "Bossing belt".into(),
+            item: make_item("Headhunter", "Leather Belt", Rarity::Unique),
+        };
+
+        // Label match.
+        assert!(shared_matches_filter(
+            &saved,
+            &BrowseFilter {
+                search: "bossing".into(),
+                ..Default::default()
+            }
+        ));
+
+        // Item-name match (case insensitive).
+        assert!(shared_matches_filter(
+            &saved,
+            &BrowseFilter {
+                search: "HEADHUNTER".into(),
+                ..Default::default()
+            }
+        ));
+
+        // Base-name match.
+        assert!(shared_matches_filter(
+            &saved,
+            &BrowseFilter {
+                search: "leather".into(),
+                ..Default::default()
+            }
+        ));
+
+        // Mismatched rarity excludes.
+        assert!(!shared_matches_filter(
+            &saved,
+            &BrowseFilter {
+                rarity: Some(Rarity::Rare),
+                ..Default::default()
+            }
+        ));
+
+        // Matching rarity keeps it.
+        assert!(shared_matches_filter(
+            &saved,
+            &BrowseFilter {
+                rarity: Some(Rarity::Unique),
+                ..Default::default()
+            }
+        ));
+
+        // Slot bucket via base name.
+        assert!(shared_matches_filter(
+            &saved,
+            &BrowseFilter {
+                slot: Some(BrowseSlot::Belt),
+                ..Default::default()
+            }
+        ));
+        assert!(!shared_matches_filter(
+            &saved,
+            &BrowseFilter {
+                slot: Some(BrowseSlot::Helmet),
+                ..Default::default()
+            }
+        ));
+    }
+
+    #[test]
+    fn from_base_name_buckets_common_armours_and_jewellery() {
+        assert_eq!(
+            BrowseSlot::from_base_name("Onyx Amulet"),
+            BrowseSlot::Amulet
+        );
+        assert_eq!(
+            BrowseSlot::from_base_name("Two-Stone Ring"),
+            BrowseSlot::Ring
+        );
+        assert_eq!(
+            BrowseSlot::from_base_name("Stygian Vise"),
+            BrowseSlot::Other
+        );
+        assert_eq!(BrowseSlot::from_base_name("Heavy Belt"), BrowseSlot::Belt);
+        assert_eq!(
+            BrowseSlot::from_base_name("Diamond Flask"),
+            BrowseSlot::Flask
+        );
+        assert_eq!(
+            BrowseSlot::from_base_name("Two-Toned Boots"),
+            BrowseSlot::Boots
+        );
+        assert_eq!(
+            BrowseSlot::from_base_name("Sorcerer Gloves"),
+            BrowseSlot::Gloves
+        );
+        assert_eq!(
+            BrowseSlot::from_base_name("Eternal Burgonet"),
+            BrowseSlot::Helmet
+        );
+        assert_eq!(
+            BrowseSlot::from_base_name("Astral Plate"),
+            BrowseSlot::BodyArmour
+        );
+        assert_eq!(
+            BrowseSlot::from_base_name("Imperial Bow"),
+            BrowseSlot::Weapon
+        );
+        assert_eq!(
+            BrowseSlot::from_base_name("Rotfeather Talisman"),
+            BrowseSlot::Amulet
+        );
+        assert_eq!(
+            BrowseSlot::from_base_name("Cobalt Jewel"),
+            BrowseSlot::Jewel
+        );
     }
 }
