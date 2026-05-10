@@ -5083,8 +5083,8 @@ fn rallying_cry_projects_ally_weapon_class_bonus_to_player() {
 
     // Sanity: switch the player to a bow → matched total flips to 16%
     // (only the bow ally contributes), per-ally count stays at 2.
-    let bow = parse_item("Item Class: Bows\nRarity: NORMAL\nCrude Bow\n--------\n")
-        .expect("parse bow");
+    let bow =
+        parse_item("Item Class: Bows\nRarity: NORMAL\nCrude Bow\n--------\n").expect("parse bow");
     let mut c_bow = c.clone();
     c_bow.items.equip(pob_data::Slot::Weapon1, bow);
     let out_bow = pob_engine::compute_full_with_env(&c_bow, &tree, Some(&skills), None).0;
