@@ -908,9 +908,36 @@ fn is_int_count_to_life_marker(line: &str) -> bool {
         && l.contains("in radius")
 }
 
+/// Issue #196 (slice 9 + slice 14): Pugilist marker covering both
+/// the Evasion line AND the per-claw Inc Physical Damage line. Both
+/// lines need to be excluded from `parse_non_transform_mods` so the
+/// radius dispatch owns the scaled emission. The unarmed-melee line
+/// is matched by `is_pugilist_unarmed_marker` and folded into a
+/// future slice — we still keep it pulled out of the global add path
+/// so the placeholder doesn't leak.
 fn is_dex_count_to_inc_evasion_marker(line: &str) -> bool {
+    is_pugilist_evasion_line_marker(line)
+        || is_pugilist_claw_phys_marker(line)
+        || is_pugilist_unarmed_phys_marker(line)
+}
+
+fn is_pugilist_evasion_line_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("1% increased evasion rating")
+        && l.contains("per 3 dexterity")
+        && l.contains("in radius")
+}
+
+fn is_pugilist_claw_phys_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("1% increased claw physical damage")
+        && l.contains("per 3 dexterity")
+        && l.contains("in radius")
+}
+
+fn is_pugilist_unarmed_phys_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("1% increased melee physical damage with unarmed attacks")
         && l.contains("per 3 dexterity")
         && l.contains("in radius")
 }
@@ -1353,12 +1380,18 @@ pub fn apply_radius_jewels(
                 }
             }
             HandlerKind::DexCountToIncEvasion => {
-                // Issue #196 (slice 9): Pugilist (Inc Evasion line).
-                // Sister to Anatomical Knowledge but Dex-sourced and
-                // emits Inc Evasion (multiplicative on the Evasion
-                // pool). The two per-claw / per-unarmed lines on the
-                // same jewel need weapon-condition tags and follow as
-                // a future slice.
+                // Issue #196 (slices 9 + 14): Pugilist. Sums in-radius
+                // allocated Dex once and routes the integer-divided
+                // count into per-line emissions:
+                //   - Evasion line  → Inc Evasion (vanilla)
+                //   - Claw line     → Inc PhysicalDamage with the
+                //                     CLAW modflag (only counts when
+                //                     wielding a claw)
+                // The unarmed-melee line is recognised by the marker
+                // (so it's pulled out of the global add path) but
+                // emission lands in a future slice — needs the
+                // unarmed condition wiring that doesn't yet exist
+                // here.
                 for m in &jewel.mods {
                     let mut clone = m.clone();
                     clone.source = Some(Source::Other(jewel.source_label.clone()));
@@ -1370,10 +1403,28 @@ pub fn apply_radius_jewels(
                 let dex_sum = sum_radius_attribute_base(tree, &in_radius, "Dexterity");
                 let inc_pct = (dex_sum / 3.0).floor();
                 if inc_pct > 0.0 {
-                    let mod_ = crate::Mod::inc("Evasion", inc_pct)
-                        .with_source(Source::Other(jewel.source_label.clone()));
-                    db.add(mod_);
-                    report.mod_emissions += 1;
+                    if item
+                        .mod_lines
+                        .iter()
+                        .any(|ml| is_pugilist_evasion_line_marker(&ml.line))
+                    {
+                        let mod_ = crate::Mod::inc("Evasion", inc_pct)
+                            .with_source(Source::Other(jewel.source_label.clone()));
+                        db.add(mod_);
+                        report.mod_emissions += 1;
+                    }
+                    if item
+                        .mod_lines
+                        .iter()
+                        .any(|ml| is_pugilist_claw_phys_marker(&ml.line))
+                    {
+                        let mut mod_ = crate::Mod::inc("PhysicalDamage", inc_pct);
+                        mod_.flags |= pob_data::ModFlag::CLAW;
+                        mod_.keyword_flags |= pob_data::KeywordFlag::PHYSICAL;
+                        mod_.source = Some(Source::Other(jewel.source_label.clone()));
+                        db.add(mod_);
+                        report.mod_emissions += 1;
+                    }
                 }
             }
             HandlerKind::IntCountToLife => {
@@ -3057,6 +3108,130 @@ mod tests {
                 .any(|m| matches!(m.kind, crate::ModType::Inc)
                     && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
             "expected +10% Inc Evasion from Pugilist, got {evasion_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 14): Pugilist's per-claw line — `1%
+    /// increased Claw Physical Damage per 3 Dexterity Allocated in
+    /// Radius`. Same dex-count source as the Evasion line; emits a
+    /// CLAW-flagged Inc PhysicalDamage so it only applies when
+    /// wielding a claw. Sum = 30 Dex → +10% Inc PhysicalDamage with
+    /// the CLAW modflag.
+    #[test]
+    fn pugilist_emits_claw_phys_per_three_dex_in_radius() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Pugilist",
+                "Viridian Jewel",
+                &[
+                    (
+                        "1% increased Evasion Rating per 3 Dexterity Allocated in Radius",
+                        ModSection::Explicit,
+                    ),
+                    (
+                        "1% increased Claw Physical Damage per 3 Dexterity Allocated in Radius",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let phys_mods = db.slice_named("PhysicalDamage");
+        assert!(
+            phys_mods.iter().any(|m| {
+                matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6
+                    && m.flags.contains(pob_data::ModFlag::CLAW)
+            }),
+            "expected CLAW-flagged +10% Inc PhysicalDamage from Pugilist, got {phys_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 14): the Evasion line still works when both
+    /// lines are present on the jewel — wider marker must not regress
+    /// the Inc Evasion emission.
+    #[test]
+    fn pugilist_emits_both_evasion_and_claw_phys_when_both_lines_present() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Pugilist",
+                "Viridian Jewel",
+                &[
+                    (
+                        "1% increased Evasion Rating per 3 Dexterity Allocated in Radius",
+                        ModSection::Explicit,
+                    ),
+                    (
+                        "1% increased Claw Physical Damage per 3 Dexterity Allocated in Radius",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let evasion_mods = db.slice_named("Evasion");
+        assert!(
+            evasion_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
+            "evasion regression — expected +10% Inc Evasion from Pugilist, got {evasion_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 14): the per-claw line's parsed-mod form
+    /// must NOT also land globally as a flat 1% Inc Phys (the radius
+    /// dispatch owns the scaled emission). Without the wider marker
+    /// the line falls through to vanilla `mod_parser`, which would
+    /// emit an unscaled +1% globally.
+    #[test]
+    fn pugilist_claw_line_is_not_double_applied() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Pugilist",
+                "Viridian Jewel",
+                &[(
+                    "1% increased Claw Physical Damage per 3 Dexterity Allocated in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        // Exactly one Inc PhysicalDamage with CLAW flag (the radius
+        // emission), and no spurious unscaled +1% globally.
+        let phys_inc: Vec<_> = db
+            .slice_named("PhysicalDamage")
+            .iter()
+            .filter(|m| matches!(m.kind, crate::ModType::Inc))
+            .collect();
+        assert_eq!(
+            phys_inc.len(),
+            1,
+            "expected exactly one Inc PhysicalDamage from Pugilist's claw line, got {phys_inc:#?}",
         );
     }
 
