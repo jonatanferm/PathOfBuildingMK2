@@ -5,11 +5,17 @@
 //! `TotalEHP`. Mirrors the engine half of upstream PoB's
 //! `Modules/CalcsTab.lua` power-report driver.
 //!
-//! This slice covers the **single-node addition** path — the foundational
-//! primitive a future tree-overlay heatmap and Power Report list would call
-//! once per candidate. Removal-scoring (per-node DPS / EHP contribution by
-//! "what if I didn't have this") and per-modline scoring on equipped items are
-//! tracked as follow-ups under the same issue.
+//! Slices in this module:
+//!
+//! - **single-node addition** ([`score_node_addition`]) — "what would
+//!   allocating this node be worth"
+//! - **single-node removal** ([`score_node_removal`]) — "what is this
+//!   already-allocated node currently worth to the build"
+//! - **tree-wide ranking** ([`rank_node_additions`]) — Power-Report-style
+//!   sorted list of every unallocated allocatable node
+//! - **per-modline contribution** ([`score_item_modline_removal`] /
+//!   [`rank_item_modlines`]) — items-tab "top-N contributing modlines for
+//!   this slot" view, scored by removing one mod line at a time
 //!
 //! ## Performance
 //!
@@ -19,7 +25,7 @@
 //! the click of a "Show node power" button. The future heatmap will need
 //! caching / incremental compute to stay smooth at hover-over rates.
 
-use pob_data::{NodeId, PassiveTree};
+use pob_data::{NodeId, PassiveTree, Slot};
 
 use crate::character::Character;
 use crate::perform::{compute_full_with_clusters_and_timeless, ClusterContext};
@@ -219,6 +225,163 @@ pub fn rank_node_additions(
         kb.partial_cmp(&ka)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then(a.node_id.cmp(&b.node_id))
+    });
+    scores
+}
+
+/// Power-score result for a single mod line on an equipped item.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemModlineScore {
+    /// Slot of the equipped item the mod line lives on.
+    pub slot: Slot,
+    /// Index into the original `Item::mod_lines` vector — stable across
+    /// the call so callers can map a result row back to the source line
+    /// without re-parsing.
+    pub mod_index: usize,
+    /// The mod line text itself, copied so callers can render it without
+    /// holding a borrow on the character.
+    pub mod_line: String,
+    /// `MainSkillDPS_baseline − MainSkillDPS_after` (sign convention from
+    /// [`score_node_removal`]: positive = good for the player to keep).
+    pub dps_delta: f64,
+    /// `TotalEHP_baseline − TotalEHP_after`.
+    pub ehp_delta: f64,
+}
+
+/// Score the contribution of a single mod line on an equipped item by
+/// recomputing the build with that line stripped from the slot's item
+/// and reporting the resulting losses. Returns `None` when the slot is
+/// empty or `mod_index` is out of range.
+///
+/// The sign convention matches [`score_node_removal`]: positive deltas
+/// mean "this mod is pulling its weight". A neutral or negative delta
+/// flags a mod line that's contributing nothing or actively hurting
+/// (rare — e.g. a "Take X% more Damage from Hits" corruption that costs
+/// EHP).
+///
+/// Only the mod line at `mod_index` is removed; every other line on the
+/// item, every other equipped item, and the rest of the calc context
+/// (cluster sub-graphs, timeless replacements, skills, etc.) flow
+/// through verbatim.
+pub fn score_item_modline_removal(
+    character: &Character,
+    tree: &PassiveTree,
+    slot: Slot,
+    mod_index: usize,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> Option<ItemModlineScore> {
+    let item = character.items.get(slot)?;
+    if mod_index >= item.mod_lines.len() {
+        return None;
+    }
+    let line_text = item.mod_lines[mod_index].line.clone();
+    let (baseline, _) = compute_full_with_clusters_and_timeless(
+        character,
+        tree,
+        skills,
+        bases,
+        cluster_ctx,
+        timeless,
+    );
+    let mut probe = character.clone();
+    if let Some(probe_item) = probe.items.items.get_mut(&slot) {
+        probe_item.mod_lines.remove(mod_index);
+    }
+    let (after, _) =
+        compute_full_with_clusters_and_timeless(&probe, tree, skills, bases, cluster_ctx, timeless);
+    Some(ItemModlineScore {
+        slot,
+        mod_index,
+        mod_line: line_text,
+        dps_delta: baseline.get("MainSkillDPS") - after.get("MainSkillDPS"),
+        ehp_delta: baseline.get("TotalEHP") - after.get("TotalEHP"),
+    })
+}
+
+/// Score every mod line on the item equipped at `slot` and return the
+/// results sorted by maximum impact descending. Empty (whitespace-only)
+/// mod lines are skipped — they'd score zero by definition and clutter
+/// the items-tab "top contributors" list. Zero-score lines are *not*
+/// dropped: a corrupted or veiled line that contributes nothing is
+/// itself useful information for the user.
+///
+/// Returns an empty vector when the slot is empty.
+///
+/// **Performance**: M+1 perform calls for an item with M mod lines. A
+/// fully-modded rare has 6 explicits + implicits + crafted ≈ 8–10 calls
+/// per slot, so the full items-tab pass is ~10 × #equipped ≈ 100
+/// perform calls — fine for an explicit "Show modline contributions"
+/// click, painful for a hover-rate refresh.
+pub fn rank_item_modlines(
+    character: &Character,
+    tree: &PassiveTree,
+    slot: Slot,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> Vec<ItemModlineScore> {
+    let Some(item) = character.items.get(slot) else {
+        return Vec::new();
+    };
+    let line_count = item.mod_lines.len();
+    if line_count == 0 {
+        return Vec::new();
+    }
+    let (baseline, _) = compute_full_with_clusters_and_timeless(
+        character,
+        tree,
+        skills,
+        bases,
+        cluster_ctx,
+        timeless,
+    );
+    let baseline_dps = baseline.get("MainSkillDPS");
+    let baseline_ehp = baseline.get("TotalEHP");
+
+    let mut scores: Vec<ItemModlineScore> = Vec::with_capacity(line_count);
+    for idx in 0..line_count {
+        // Re-borrow per iteration to keep the immutable view fresh — the
+        // outer `item` borrow would conflict with the mutable probe
+        // clone below if we held it across iterations.
+        let line_text = match character.items.get(slot) {
+            Some(it) => it.mod_lines[idx].line.clone(),
+            None => continue,
+        };
+        if line_text.trim().is_empty() {
+            continue;
+        }
+        let mut probe = character.clone();
+        if let Some(probe_item) = probe.items.items.get_mut(&slot) {
+            probe_item.mod_lines.remove(idx);
+        }
+        let (after, _) = compute_full_with_clusters_and_timeless(
+            &probe,
+            tree,
+            skills,
+            bases,
+            cluster_ctx,
+            timeless,
+        );
+        scores.push(ItemModlineScore {
+            slot,
+            mod_index: idx,
+            mod_line: line_text,
+            dps_delta: baseline_dps - after.get("MainSkillDPS"),
+            ehp_delta: baseline_ehp - after.get("TotalEHP"),
+        });
+    }
+    scores.sort_by(|a, b| {
+        let ka = a.dps_delta.max(a.ehp_delta);
+        let kb = b.dps_delta.max(b.ehp_delta);
+        // Descending impact; tie-break on mod index so the order is
+        // stable when several lines tie at zero.
+        kb.partial_cmp(&ka)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.mod_index.cmp(&b.mod_index))
     });
     scores
 }
@@ -499,5 +662,127 @@ mod tests {
         let ids: Vec<NodeId> = ranked.iter().map(|s| s.node_id).collect();
         // Only node 3 (Strength) remains allocatable + impactful.
         assert_eq!(ids, vec![3]);
+    }
+
+    use pob_data::{Item, ModLine, ModSection, Rarity};
+
+    /// Build an amulet with the given mod lines, all classified as
+    /// Explicit. Mirrors the `mk_item` helpers in `timeless.rs` /
+    /// `jewel_radius.rs`.
+    fn mk_amulet(mod_lines: &[&str]) -> Item {
+        Item {
+            name: "Test Amulet".into(),
+            base_name: "Onyx Amulet".into(),
+            rarity: Rarity::Rare,
+            item_level: 84,
+            quality: 0,
+            tags: ahash::HashSet::default(),
+            mod_lines: mod_lines
+                .iter()
+                .map(|l| ModLine {
+                    line: (*l).to_string(),
+                    section: ModSection::Explicit,
+                })
+                .collect(),
+            sockets: String::new(),
+            raw: String::new(),
+            corrupted: false,
+            mirrored: false,
+        }
+    }
+
+    /// Issue #207 (slice 4): scoring removal of a `+50 to maximum Life`
+    /// modline on an equipped amulet returns a positive `ehp_delta` —
+    /// pulling that line out costs the player 50 max Life, so the
+    /// "what is this contributing" reading is positive.
+    #[test]
+    fn score_item_modline_removal_picks_up_life_modline() {
+        let tree = empty_tree();
+        let mut c = fresh_character();
+        c.items
+            .equip(Slot::Amulet, mk_amulet(&["+50 to maximum Life"]));
+        let score = score_item_modline_removal(&c, &tree, Slot::Amulet, 0, None, None, None, None)
+            .expect("scored");
+        assert_eq!(score.slot, Slot::Amulet);
+        assert_eq!(score.mod_index, 0);
+        assert_eq!(score.mod_line, "+50 to maximum Life");
+        assert!(
+            score.ehp_delta > 0.0,
+            "+50 Life mod should report positive contribution; got {}",
+            score.ehp_delta
+        );
+    }
+
+    /// Issue #207 (slice 4): scoring removal on an empty slot returns
+    /// `None`. Mirrors the "None when not allocated" guard on the node
+    /// helpers — keeps the API uniform.
+    #[test]
+    fn score_item_modline_removal_returns_none_for_empty_slot() {
+        let tree = empty_tree();
+        let c = fresh_character(); // nothing equipped
+        let score = score_item_modline_removal(&c, &tree, Slot::Amulet, 0, None, None, None, None);
+        assert!(score.is_none());
+    }
+
+    /// Issue #207 (slice 4): scoring removal at an out-of-range
+    /// `mod_index` returns `None`. Without this guard, callers walking
+    /// `(0..mod_lines.len())` are fine, but a stale index across a
+    /// re-equip would otherwise panic on the `mod_lines.remove(idx)`
+    /// path — defensive `None` is friendlier.
+    #[test]
+    fn score_item_modline_removal_returns_none_for_out_of_range_index() {
+        let tree = empty_tree();
+        let mut c = fresh_character();
+        c.items
+            .equip(Slot::Amulet, mk_amulet(&["+50 to maximum Life"]));
+        let score = score_item_modline_removal(&c, &tree, Slot::Amulet, 5, None, None, None, None);
+        assert!(score.is_none());
+    }
+
+    /// Issue #207 (slice 4): the ranker walks every mod line on the
+    /// equipped item, scores it, and returns the list sorted by impact
+    /// descending. The Life line (large EHP impact) ranks ahead of the
+    /// resist line (smaller EHP impact via the elemental EHP folding).
+    #[test]
+    fn rank_item_modlines_orders_by_impact_desc() {
+        let tree = empty_tree();
+        let mut c = fresh_character();
+        c.items.equip(
+            Slot::Amulet,
+            mk_amulet(&["+50 to maximum Life", "+10 to Strength"]),
+        );
+        let ranked = rank_item_modlines(&c, &tree, Slot::Amulet, None, None, None, None);
+        assert_eq!(ranked.len(), 2);
+        // Life line should rank first (larger EHP swing than the +10
+        // Strength line which only nudges Life via the str/2 conversion).
+        assert_eq!(ranked[0].mod_line, "+50 to maximum Life");
+        assert!(ranked[0].ehp_delta > ranked[1].ehp_delta);
+    }
+
+    /// Issue #207 (slice 4): empty / whitespace-only mod lines are
+    /// dropped from the ranking. Removing a blank line costs zero by
+    /// definition and rendering it as a row would clutter the items-
+    /// tab "top contributors" list with no information.
+    #[test]
+    fn rank_item_modlines_skips_empty_lines() {
+        let tree = empty_tree();
+        let mut c = fresh_character();
+        c.items
+            .equip(Slot::Amulet, mk_amulet(&["+50 to maximum Life", "", "   "]));
+        let ranked = rank_item_modlines(&c, &tree, Slot::Amulet, None, None, None, None);
+        // Only the real mod line survives — the blank and whitespace-
+        // only lines are filtered out before scoring.
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].mod_line, "+50 to maximum Life");
+    }
+
+    /// Issue #207 (slice 4): ranking on an empty slot returns an empty
+    /// list — guards against a panic when there's nothing to score.
+    #[test]
+    fn rank_item_modlines_empty_slot_is_no_op() {
+        let tree = empty_tree();
+        let c = fresh_character();
+        let ranked = rank_item_modlines(&c, &tree, Slot::Amulet, None, None, None, None);
+        assert!(ranked.is_empty());
     }
 }
