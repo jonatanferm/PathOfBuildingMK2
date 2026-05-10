@@ -133,9 +133,65 @@ impl<T: Clone> UndoStack<T> {
     }
 }
 
+/// Speculative-clone guard for the "snapshot before tab::ui()" pattern.
+///
+/// Each tab's `ui` function takes `&mut Character` and returns a `bool`
+/// indicating whether the user mutated state this frame. We need the
+/// snapshot to be the *pre-mutation* state, but we only want to record
+/// it when the tab signals change — otherwise every idle frame would
+/// burn an undo slot. `PendingSnapshot` captures the clone up-front,
+/// then either [`Self::commit`]s it onto the stack or is dropped to
+/// throw it away. The clone-once-up-front cost is fine because it
+/// only fires for the active tab.
+pub struct PendingSnapshot<T: Clone> {
+    snap: T,
+}
+
+impl<T: Clone> PendingSnapshot<T> {
+    pub fn capture(current: &T) -> Self {
+        Self {
+            snap: current.clone(),
+        }
+    }
+
+    /// Promote the captured snapshot to a real undo entry. Only call
+    /// this when the tab returned `changed = true`.
+    pub fn commit(self, stack: &mut UndoStack<T>) {
+        stack.record(self.snap);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_snapshot_commit_pushes_captured_state() {
+        // PendingSnapshot is the speculative-clone helper used at every
+        // tab-call site that returns a `changed` bool. capture() clones
+        // the current state up-front; commit() promotes that clone to
+        // an undo entry only when the tab signals state changed. The
+        // ergonomic win is that the call site doesn't have to thread
+        // the clone-or-not decision through its own `changed` branch.
+        let mut stack: UndoStack<i32> = UndoStack::default();
+        let mut state = 5;
+        let pending = PendingSnapshot::capture(&state);
+        state = 10;
+        pending.commit(&mut stack);
+        assert_eq!(stack.undo(state), Some(5));
+    }
+
+    #[test]
+    fn pending_snapshot_dropped_without_commit_does_not_record() {
+        // Tabs commonly return `changed = false` (no mutation). The
+        // captured snapshot must NOT land on the undo stack — otherwise
+        // every idle frame would burn a slot.
+        let mut stack: UndoStack<i32> = UndoStack::default();
+        let state = 5;
+        let pending = PendingSnapshot::capture(&state);
+        drop(pending);
+        assert!(!stack.can_undo());
+    }
 
     #[test]
     fn undo_after_record_returns_recorded_snapshot() {
@@ -234,6 +290,61 @@ mod tests {
         assert_eq!(state, 42);
         assert!(!stack.apply_redo(&mut state));
         assert_eq!(state, 42);
+    }
+
+    #[test]
+    fn pending_snapshot_round_trip_restores_config_state() {
+        // Mirrors the Config-tab call site: capture pre-tab, run a
+        // ConfigState mutation, commit, undo. The undo restores the
+        // pre-mutation config without touching anything else.
+        use pob_engine::character::ClassRef;
+        use pob_engine::Character;
+
+        let mut character = Character::new(ClassRef::marauder(), 1);
+        let mut stack: UndoStack<Character> = UndoStack::default();
+        character.config.enemy_fire_resist = 25;
+
+        let pending = PendingSnapshot::capture(&character);
+        character.config.enemy_fire_resist = 75;
+        pending.commit(&mut stack);
+
+        assert!(stack.apply_undo(&mut character));
+        assert_eq!(character.config.enemy_fire_resist, 25);
+        assert!(stack.apply_redo(&mut character));
+        assert_eq!(character.config.enemy_fire_resist, 75);
+    }
+
+    #[test]
+    fn pending_snapshot_round_trip_restores_skill_groups() {
+        // Mirrors the Skills-tab call site: snapshot before any gem
+        // mutation, commit on change, undo restores the prior gem list.
+        use pob_engine::character::{ClassRef, SocketGroup};
+        use pob_engine::{Character, MainSkill, QualityId};
+
+        let mut character = Character::new(ClassRef::witch(), 1);
+        let mut stack: UndoStack<Character> = UndoStack::default();
+
+        let pending = PendingSnapshot::capture(&character);
+        character.skill_groups.push(SocketGroup {
+            label: "Main".into(),
+            gems: vec![MainSkill {
+                skill_id: "Arc".into(),
+                level: 20,
+                quality: 0,
+                quality_id: QualityId::Default,
+                enabled: true,
+            }],
+            main_active_skill_index: 1,
+            enabled: true,
+        });
+        assert_eq!(character.skill_groups.len(), 1);
+        pending.commit(&mut stack);
+
+        assert!(stack.apply_undo(&mut character));
+        assert_eq!(character.skill_groups.len(), 0);
+        assert!(stack.apply_redo(&mut character));
+        assert_eq!(character.skill_groups.len(), 1);
+        assert_eq!(character.skill_groups[0].gems[0].skill_id, "Arc");
     }
 
     #[test]
