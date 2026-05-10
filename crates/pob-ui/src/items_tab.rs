@@ -1,11 +1,16 @@
 //! Items tab — slot grid + paste-to-equip + browseable base catalogue.
 
+use std::cmp::Ordering;
+
 use eframe::egui;
 use pob_data::bases::ItemBaseSet;
 use pob_data::{Item, ItemBase, ItemSet, ModLine, ModSection, Rarity, Slot};
 use pob_engine::{parse_item, Character};
 
 use crate::color_codes;
+use crate::sortable_list::{
+    column_header, cycle_sort, sorted_indices, text_filter_matches, SortState,
+};
 
 pub struct ItemsTabState {
     /// Slot the user is currently editing (paste / clear / view).
@@ -22,6 +27,11 @@ pub struct ItemsTabState {
     pub browse_open: bool,
     /// Browse-panel filter state.
     pub browse_filter: BrowseFilter,
+    /// Issue #211: persistent sort state for the browse panel's column
+    /// headers. `None` means "natural (alphabetical) order" — what the
+    /// panel showed before this issue. Lives on the tab state so the
+    /// chosen sort survives tab switches in the session.
+    pub browse_sort: Option<SortState<BrowseColumn>>,
 }
 
 impl Default for ItemsTabState {
@@ -33,15 +43,34 @@ impl Default for ItemsTabState {
             new_set_name: String::new(),
             browse_open: false,
             browse_filter: BrowseFilter::default(),
+            browse_sort: None,
         }
     }
 }
 
 /// Filter predicate inputs for the base browser. Defaults match every base.
+///
+/// Issue #211 added the per-column `name_filter` / `class_filter` text
+/// inputs alongside the existing global `search` box. They're additive:
+/// a base passes only if it satisfies the slot filter, the global
+/// search, and *both* per-column filters. Empty fields are no-ops so
+/// the prior behaviour is preserved when the user ignores the new row.
 #[derive(Debug, Clone, Default)]
 pub struct BrowseFilter {
     pub slot: Option<BrowseSlot>,
     pub search: String,
+    pub name_filter: String,
+    pub class_filter: String,
+}
+
+/// Columns the browse panel exposes for sorting (and filtering, per
+/// Issue #211). The full list of upstream PoB columns (DPS contribution,
+/// level, etc.) is wider; we ship the name + class pair the panel
+/// already renders in this slice and leave the rest as follow-up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowseColumn {
+    Name,
+    Class,
 }
 
 /// Coarse slot bucket the browse panel groups bases under. Aggregates the
@@ -148,6 +177,10 @@ impl BrowseSlot {
 
 /// Returns true if a given base passes the current filter. Pulled out so the
 /// unit tests can exercise it without an egui context.
+///
+/// Issue #211: combines the prior global search with per-column text
+/// filters via [`text_filter_matches`]. The slot pill stays as the
+/// coarsest filter — class search is *additive* on top.
 #[must_use]
 pub fn base_matches_filter(name: &str, base: &ItemBase, filter: &BrowseFilter) -> bool {
     if let Some(slot) = filter.slot {
@@ -155,16 +188,47 @@ pub fn base_matches_filter(name: &str, base: &ItemBase, filter: &BrowseFilter) -
             return false;
         }
     }
-    let q = filter.search.trim();
-    if !q.is_empty() {
-        let q_lower = q.to_ascii_lowercase();
-        let name_match = name.to_ascii_lowercase().contains(&q_lower);
-        let type_match = base.r#type.to_ascii_lowercase().contains(&q_lower);
-        if !name_match && !type_match {
-            return false;
-        }
+    // Global search — name OR class match (preserves prior behaviour).
+    if !text_filter_matches(&filter.search, [name, base.r#type.as_str()]) {
+        return false;
+    }
+    // Per-column text filters: each must independently match its target
+    // field. This is the user-visible hook for the issue's "per-column
+    // filter row" requirement on the items list.
+    if !text_filter_matches(&filter.name_filter, [name]) {
+        return false;
+    }
+    if !text_filter_matches(&filter.class_filter, [base.r#type.as_str()]) {
+        return false;
     }
     true
+}
+
+/// Compare two browse rows by the given column. Always defines an
+/// ascending order; the [`sortable_list`] helper inverts it on demand
+/// for descending sorts. Pulled out so the sort behaviour is unit
+/// testable without spinning up an egui context.
+#[must_use]
+pub fn compare_browse_rows(
+    a: (&str, &ItemBase),
+    b: (&str, &ItemBase),
+    column: BrowseColumn,
+) -> Ordering {
+    match column {
+        BrowseColumn::Name => {
+            a.0.to_ascii_lowercase()
+                .cmp(&b.0.to_ascii_lowercase())
+                // Tie-break on the class column so otherwise-equal names
+                // sort stably (e.g. Iron Hat helm vs Iron Hat dummy).
+                .then_with(|| a.1.r#type.cmp(&b.1.r#type))
+        }
+        BrowseColumn::Class => {
+            a.1.r#type
+                .to_ascii_lowercase()
+                .cmp(&b.1.r#type.to_ascii_lowercase())
+                .then_with(|| a.0.cmp(b.0))
+        }
+    }
 }
 
 /// Equip slot a freshly-rolled `base` should drop into. Mirrors the PoB
@@ -559,6 +623,7 @@ pub fn ui(
                 if render_browse_panel(
                     ui,
                     &mut state.browse_filter,
+                    &mut state.browse_sort,
                     set,
                     items,
                     &mut state.selected_slot,
@@ -586,9 +651,15 @@ pub fn ui(
 
 /// Render the right-hand "Browse" panel listing every base in `set`, filtered
 /// by `filter`. Returns true if a base was double-clicked into a slot.
+///
+/// Issue #211: column headers (Name / Class) are clickable to sort and
+/// the row above the list exposes a per-column text filter. Sort state
+/// is owned by the caller (see [`ItemsTabState::browse_sort`]) so it
+/// persists across tab switches in the session.
 fn render_browse_panel(
     ui: &mut egui::Ui,
     filter: &mut BrowseFilter,
+    sort: &mut Option<SortState<BrowseColumn>>,
     set: &ItemBaseSet,
     items: &mut ItemSet,
     selected_slot: &mut Option<Slot>,
@@ -596,7 +667,7 @@ fn render_browse_panel(
 ) -> bool {
     let mut changed = false;
     ui.vertical(|ui| {
-        ui.set_min_width(280.0);
+        ui.set_min_width(320.0);
         ui.heading("Browse bases");
         ui.separator();
 
@@ -627,20 +698,68 @@ fn render_browse_panel(
 
         ui.separator();
 
-        // Pre-filter into a sortable Vec so we can show "X of Y" and avoid
-        // re-walking the IndexMap during scroll-area culling.
+        // Issue #211: clickable column headers + per-column text filters.
+        // The header row mirrors PoB's `ListControl.lua` layout — header
+        // cell on top, filter input on the bottom row.
+        ui.horizontal(|ui| {
+            if column_header(ui, "Name", BrowseColumn::Name, *sort) {
+                *sort = cycle_sort(*sort, BrowseColumn::Name);
+            }
+            ui.add_space(140.0);
+            if column_header(ui, "Class", BrowseColumn::Class, *sort) {
+                *sort = cycle_sort(*sort, BrowseColumn::Class);
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut filter.name_filter)
+                    .hint_text("filter name…")
+                    .desired_width(160.0),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut filter.class_filter)
+                    .hint_text("filter class…")
+                    .desired_width(140.0),
+            );
+            // Single "clear all column filters" exit hatch — keeps the
+            // header row tidy when the user wants to revert.
+            if ui
+                .small_button("×")
+                .on_hover_text("Clear column filters")
+                .clicked()
+            {
+                filter.name_filter.clear();
+                filter.class_filter.clear();
+            }
+        });
+
+        ui.separator();
+
+        // Pre-filter into a sortable Vec so we can show "X of Y" and
+        // avoid re-walking the IndexMap during scroll-area culling.
         let mut rows: Vec<(&String, &ItemBase)> = set
             .iter()
             .filter(|(name, base)| base_matches_filter(name, base, filter))
             .collect();
-        rows.sort_by(|a, b| a.0.cmp(b.0));
+        // Apply the sort via the shared helper. When `sort` is `None`
+        // we keep the prior alphabetical default so the panel doesn't
+        // change shape until the user clicks a header.
+        let order = sorted_indices(&rows, *sort, |a, b, col| {
+            compare_browse_rows((a.0.as_str(), a.1), (b.0.as_str(), b.1), col)
+        });
+        let permuted: Vec<(&String, &ItemBase)> = if sort.is_some() {
+            order.iter().map(|&i| rows[i]).collect()
+        } else {
+            rows.sort_by(|a, b| a.0.cmp(b.0));
+            rows
+        };
 
-        ui.label(format!("{} of {} bases", rows.len(), set.len()));
+        ui.label(format!("{} of {} bases", permuted.len(), set.len()));
         ui.weak("Double-click to equip a Normal-rarity copy.");
         ui.add_space(2.0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for (name, base) in rows {
+            for (name, base) in permuted {
                 let target = target_slot_for_base(base);
                 // When the swap pair is live, weapons / off-hands target
                 // the swap slots so the user fills the visible pair.
@@ -810,7 +929,7 @@ mod tests {
 
         let mut filter = BrowseFilter {
             slot: Some(BrowseSlot::Amulet),
-            search: String::new(),
+            ..Default::default()
         };
         assert!(base_matches_filter("Onyx Amulet", &amulet, &filter));
         assert!(!base_matches_filter("Iron Hat", &helmet, &filter));
@@ -824,8 +943,8 @@ mod tests {
     fn search_matches_name_or_type_case_insensitive() {
         let base = make_base("One Handed Sword", None, None);
         let filter = BrowseFilter {
-            slot: None,
             search: "rusted".into(),
+            ..Default::default()
         };
         assert!(base_matches_filter("Rusted Sword", &base, &filter));
         assert!(!base_matches_filter("Iron Sword", &base, &filter));
@@ -836,8 +955,8 @@ mod tests {
 
         // Class match — search hits the `type` field.
         let class_filter = BrowseFilter {
-            slot: None,
             search: "one handed".into(),
+            ..Default::default()
         };
         assert!(base_matches_filter("Whatever", &base, &class_filter));
     }
@@ -880,6 +999,94 @@ mod tests {
         let plain = make_base("Belt", None, None);
         let plain_item = item_from_base("Leather Belt", &plain);
         assert!(plain_item.mod_lines.is_empty());
+    }
+
+    #[test]
+    fn per_column_filters_narrow_results_independently() {
+        let amulet = make_base("Amulet", None, None);
+        let helmet = make_base("Helmet", Some("Armour"), None);
+
+        // Name column filter — keeps only matching names regardless of class.
+        let by_name = BrowseFilter {
+            name_filter: "onyx".into(),
+            ..Default::default()
+        };
+        assert!(base_matches_filter("Onyx Amulet", &amulet, &by_name));
+        assert!(!base_matches_filter("Iron Hat", &helmet, &by_name));
+
+        // Class column filter — keeps only matching classes.
+        let by_class = BrowseFilter {
+            class_filter: "helmet".into(),
+            ..Default::default()
+        };
+        assert!(base_matches_filter("Iron Hat", &helmet, &by_class));
+        assert!(!base_matches_filter("Onyx Amulet", &amulet, &by_class));
+
+        // Both filters set — result must satisfy both (AND).
+        let both = BrowseFilter {
+            name_filter: "iron".into(),
+            class_filter: "amulet".into(),
+            ..Default::default()
+        };
+        assert!(!base_matches_filter("Iron Hat", &helmet, &both));
+        assert!(!base_matches_filter("Onyx Amulet", &amulet, &both));
+    }
+
+    #[test]
+    fn compare_browse_rows_sorts_by_chosen_column() {
+        let amulet = make_base("Amulet", None, None);
+        let helmet = make_base("Helmet", Some("Armour"), None);
+
+        // Name asc: "Iron Hat" < "Onyx Amulet" alphabetically.
+        let cmp = compare_browse_rows(
+            ("Iron Hat", &helmet),
+            ("Onyx Amulet", &amulet),
+            BrowseColumn::Name,
+        );
+        assert_eq!(cmp, std::cmp::Ordering::Less);
+
+        // Class asc: "Amulet" < "Helmet".
+        let cmp = compare_browse_rows(
+            ("Iron Hat", &helmet),
+            ("Onyx Amulet", &amulet),
+            BrowseColumn::Class,
+        );
+        assert_eq!(cmp, std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn sorted_indices_with_browse_rows_orders_by_class() {
+        // Build a small Vec of (name, base) tuples and ensure the
+        // shared sort helper orders them by class column ascending.
+        let amulet = make_base("Amulet", None, None);
+        let helmet = make_base("Helmet", None, None);
+        let weapon = make_base("Sword", None, None);
+        let rows: Vec<(&str, &ItemBase)> = vec![
+            ("Iron Hat", &helmet),
+            ("Onyx Amulet", &amulet),
+            ("Foo Blade", &weapon),
+        ];
+        let order = crate::sortable_list::sorted_indices(
+            &rows,
+            Some(crate::sortable_list::SortState::new(
+                BrowseColumn::Class,
+                crate::sortable_list::SortDirection::Asc,
+            )),
+            |a, b, col| compare_browse_rows(*a, *b, col),
+        );
+        // Amulet (1) < Helmet (0) < Sword (2)
+        assert_eq!(order, vec![1, 0, 2]);
+
+        // Descending reverses.
+        let order = crate::sortable_list::sorted_indices(
+            &rows,
+            Some(crate::sortable_list::SortState::new(
+                BrowseColumn::Class,
+                crate::sortable_list::SortDirection::Desc,
+            )),
+            |a, b, col| compare_browse_rows(*a, *b, col),
+        );
+        assert_eq!(order, vec![2, 0, 1]);
     }
 
     #[test]
