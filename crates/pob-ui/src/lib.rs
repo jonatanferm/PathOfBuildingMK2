@@ -135,6 +135,7 @@ struct LoadedApp {
     /// the shared rich-tooltip helper (`popup::show_rich_tooltip`)
     /// callers can use to attach colour-coded breakdown tooltips to
     /// any widget without re-implementing the layout.
+    #[allow(dead_code)]
     popup_host: popup::PopupHost,
     skills: SkillRegistry,
     bases: Option<pob_data::bases::ItemBaseSet>,
