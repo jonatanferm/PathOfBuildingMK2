@@ -225,6 +225,10 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // Survival time in seconds against the same Pinnacle Boss
         // preset — `hits_to_die × enemySkillTime`.
         "EHPSurvivalTime" => Some(ehp_survival_time(env)),
+        // Poison DPS: per-stack × steady-state stack count. Per-stack
+        // back-derived from the stored outputs since the perform pass
+        // doesn't expose it directly.
+        "PoisonDPS" => Some(poison_dps(env)),
         "Evasion" => Some(pool_basic(env, "Evasion")),
         "Ward" => Some(pool_basic(env, "Ward")),
 
@@ -380,6 +384,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "MinimumEHP",
     "NumberOfDamagingHits",
     "EHPSurvivalTime",
+    "PoisonDPS",
     "Evasion",
     "Ward",
     // Resists.
@@ -1324,6 +1329,46 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
 
     Breakdown {
         output_key: key.to_owned(),
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: re-derive `PoisonDPS`. PoB:
+/// `per_stack × steady_state_stacks` (perform.rs:3630). The
+/// per-stack damage isn't stored separately on output, so the
+/// helper back-derives it from `PoisonDPS / PoisonStacks`. Both
+/// contributors are surfaced so the user can see whether their
+/// poison reading comes from per-hit damage or stack-count
+/// investment (cast speed, duration, chance).
+fn poison_dps(env: &Env) -> Breakdown {
+    let total = env.output.get("PoisonDPS");
+    let stacks = env.output.get("PoisonStacks");
+    let per_stack = if stacks > 1e-9 { total / stacks } else { 0.0 };
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Per-stack damage")
+            .with_value(per_stack)
+            .with_explain(format!(
+                "{per_stack:.0} (= PoisonDPS / PoisonStacks back-derived)"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Steady-state stacks")
+            .with_value(stacks)
+            .with_explain(format!(
+                "{stacks:.1} from cast_rate × duration × chance, capped at PoisonStackLimit"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("PoisonDPS")
+            .with_value(total)
+            .with_explain(format!("{per_stack:.0} × {stacks:.1} = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: "PoisonDPS".to_owned(),
         total,
         steps,
     }
@@ -2357,6 +2402,12 @@ mod tests {
         env.output.set("FullDPS", 2000.0);
         env.output.set("BleedDPS", 0.0);
         env.output.set("PoisonDPS", 350.0);
+        // Issue #34 follow-up: PoisonDPS = per_stack × stacks. With
+        // PoisonDPS = 350 and 10 steady-state stacks → per_stack = 35.
+        // Real Arc-style spell builds at 5 cps × 2s base duration ×
+        // 100% chance land around 10–15 stacks against PoB's standard
+        // boss preset.
+        env.output.set("PoisonStacks", 10.0);
         env.output.set("IgniteDPS", 0.0);
         // Issue #34 follow-up: With{Bleed,Poison,Ignite,Impale}DPS
         // breakdowns. PoisonDPS = 350 → WithPoisonDPS = 1650 (hit) +
@@ -3240,6 +3291,62 @@ mod tests {
         );
 
         assert_eq!(bd.total, 2161.0);
+    }
+
+    /// Issue #34 follow-up: `PoisonDPS` walks per-stack damage ×
+    /// steady-state stack count. Players tuning poison-stacking
+    /// builds want to see whether their DPS comes from raw per-hit
+    /// damage or from stack-count investment (cast speed, duration,
+    /// chance). Per-stack damage is back-derived from PoisonDPS /
+    /// PoisonStacks since the perform pass doesn't store it.
+    #[test]
+    fn poison_dps_breakdown_walks_per_stack_and_stacks() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "PoisonDPS").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Per-stack damage"),
+            "missing per-stack: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Steady-state stacks"),
+            "missing stacks: {labels:?}"
+        );
+
+        let per_stack = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Per-stack damage")
+            .unwrap();
+        assert_eq!(per_stack.value, Some(35.0));
+
+        let stacks = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Steady-state stacks")
+            .unwrap();
+        assert_eq!(stacks.value, Some(10.0));
+
+        assert_eq!(bd.total, 350.0);
+    }
+
+    /// Issue #34 follow-up: builds with no poison output (`PoisonDPS = 0`
+    /// or `PoisonStacks = 0`) still produce a valid breakdown so the
+    /// `covered_keys_is_complete` sweep walks the dispatch arm. Per-stack
+    /// degenerates gracefully to 0.
+    #[test]
+    fn poison_dps_breakdown_handles_zero_dps() {
+        let mut env = env_with_output();
+        env.output.set("PoisonDPS", 0.0);
+        env.output.set("PoisonStacks", 0.0);
+        let bd = derive_for(&env, "PoisonDPS").unwrap();
+        assert_eq!(bd.total, 0.0);
+        let per_stack = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Per-stack damage")
+            .unwrap();
+        assert_eq!(per_stack.value, Some(0.0));
     }
 
     /// Issue #34 follow-up: `EHPSurvivalTime` answers "how many
