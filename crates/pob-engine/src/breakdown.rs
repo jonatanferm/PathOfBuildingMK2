@@ -213,6 +213,12 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "ChaosEHP",
             false,
         )),
+        // Aggregate EHPs — average across the five elements (handy
+        // baseline) and minimum (worst-case damage type the build is
+        // weakest to). Both surface all five contributors so the user
+        // can see what's pulling the figure.
+        "AverageEHP" => Some(average_ehp(env)),
+        "MinimumEHP" => Some(minimum_ehp(env)),
         "Evasion" => Some(pool_basic(env, "Evasion")),
         "Ward" => Some(pool_basic(env, "Ward")),
 
@@ -362,6 +368,8 @@ pub const COVERED_KEYS: &[&str] = &[
     "ColdEHP",
     "LightningEHP",
     "ChaosEHP",
+    "AverageEHP",
+    "MinimumEHP",
     "Evasion",
     "Ward",
     // Resists.
@@ -1306,6 +1314,95 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
 
     Breakdown {
         output_key: key.to_owned(),
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: re-derive `AverageEHP` (arithmetic mean of
+/// the five per-element EHPs). Surfaces all five contributors so the
+/// user can see which damage type is dragging the average.
+fn average_ehp(env: &Env) -> Breakdown {
+    let phys = env.output.get("PhysicalEHP");
+    let fire = env.output.get("FireEHP");
+    let cold = env.output.get("ColdEHP");
+    let lightning = env.output.get("LightningEHP");
+    let chaos = env.output.get("ChaosEHP");
+    let total = env.output.get("AverageEHP");
+
+    let mut steps = Vec::new();
+    for (label, value) in [
+        ("Physical", phys),
+        ("Fire", fire),
+        ("Cold", cold),
+        ("Lightning", lightning),
+        ("Chaos", chaos),
+    ] {
+        steps.push(
+            BreakdownStep::label(label)
+                .with_value(value)
+                .with_explain(format!("{value:.0} EHP")),
+        );
+    }
+    steps.push(
+        BreakdownStep::label("AverageEHP")
+            .with_value(total)
+            .with_explain(format!(
+                "({phys:.0} + {fire:.0} + {cold:.0} + {lightning:.0} + {chaos:.0}) / 5 = {total:.0}"
+            )),
+    );
+
+    Breakdown {
+        output_key: "AverageEHP".to_owned(),
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: re-derive `MinimumEHP` (worst-case damage
+/// type — the smallest of the five per-element EHPs). Surfaces all
+/// five contributors and calls out the worst-case element by name in
+/// the final step's explain text so the user knows which damage type
+/// to invest defenses against.
+fn minimum_ehp(env: &Env) -> Breakdown {
+    let phys = env.output.get("PhysicalEHP");
+    let fire = env.output.get("FireEHP");
+    let cold = env.output.get("ColdEHP");
+    let lightning = env.output.get("LightningEHP");
+    let chaos = env.output.get("ChaosEHP");
+    let total = env.output.get("MinimumEHP");
+
+    let entries = [
+        ("Physical", phys),
+        ("Fire", fire),
+        ("Cold", cold),
+        ("Lightning", lightning),
+        ("Chaos", chaos),
+    ];
+    let worst_label = entries
+        .iter()
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(l, _)| *l)
+        .unwrap_or("Physical");
+
+    let mut steps = Vec::new();
+    for (label, value) in entries {
+        steps.push(
+            BreakdownStep::label(label)
+                .with_value(value)
+                .with_explain(format!("{value:.0} EHP")),
+        );
+    }
+    steps.push(
+        BreakdownStep::label("MinimumEHP")
+            .with_value(total)
+            .with_explain(format!(
+                "min of the five = {total:.0} ({worst_label} is the weakest)"
+            )),
+    );
+
+    Breakdown {
+        output_key: "MinimumEHP".to_owned(),
         total,
         steps,
     }
@@ -2258,6 +2355,11 @@ mod tests {
         env.output.set("ColdEHP", 7015.0);
         env.output.set("LightningEHP", 7015.0);
         env.output.set("ChaosEHP", 1267.0);
+        // Issue #34 follow-up: aggregate EHPs.
+        // Average = (2161 + 7015×3 + 1267) / 5 = 24473 / 5 = 4894.6
+        // Minimum = 1267 (Chaos)
+        env.output.set("AverageEHP", 4894.6);
+        env.output.set("MinimumEHP", 1267.0);
         env.mod_db
             .add(Mod::base("Armour", 1500.0).with_source(Source::Item(2)));
         env.mod_db
@@ -2836,6 +2938,52 @@ mod tests {
             final_step.explain
         );
         assert_eq!(bd.total, 90.0);
+    }
+
+    /// Issue #34 follow-up: `AverageEHP` is the simple arithmetic mean
+    /// of the five per-element EHPs. The breakdown surfaces all five
+    /// contributors so the user can see which damage types drag the
+    /// reading down.
+    #[test]
+    fn average_ehp_breakdown_shows_all_five_contributors() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "AverageEHP").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        // One step per element + one final.
+        for elem in ["Physical", "Fire", "Cold", "Lightning", "Chaos"] {
+            assert!(
+                labels.contains(&elem),
+                "missing {elem} contributor: {labels:?}"
+            );
+        }
+        assert!((bd.total - 4894.6).abs() < 0.1, "got {}", bd.total);
+    }
+
+    /// Issue #34 follow-up: `MinimumEHP` highlights the worst-case
+    /// damage type. The breakdown calls out which element is the
+    /// weakest in the explain text so the user can target their
+    /// defensive investment.
+    #[test]
+    fn minimum_ehp_breakdown_calls_out_worst_case_element() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "MinimumEHP").unwrap();
+        // The worst case in the fixture is Chaos at 1267.
+        let final_step = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "MinimumEHP")
+            .expect("missing final step");
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .contains("chaos"),
+            "expected Chaos call-out in MinimumEHP explain; got {:?}",
+            final_step.explain
+        );
+        assert_eq!(bd.total, 1267.0);
     }
 
     /// Issue #34 follow-up: `FireEHP` shows pool, the resist factor
