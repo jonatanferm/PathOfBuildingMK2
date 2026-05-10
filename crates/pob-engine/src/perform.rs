@@ -3479,6 +3479,11 @@ pub fn perform_skill_dps(character: &Character, skills: &SkillRegistry, env: &mu
             .sum(ModType::Base, &cfg, &env.state, "BleedChance")
             / 100.0)
             .clamp(0.0, 1.0);
+        // Issue #34 follow-up: surface bleed chance as an output so the
+        // BleedDPS breakdown helper can read it without re-querying
+        // mod_db / re-applying the clamp. PoB exposes the same value
+        // on its Calcs side panel.
+        env.output.set("BleedChance", bleed_chance * 100.0);
         let poison_chance_raw = env
             .mod_db
             .sum(ModType::Base, &cfg, &env.state, "PoisonChance");
