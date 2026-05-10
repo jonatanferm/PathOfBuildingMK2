@@ -58,6 +58,10 @@
 //!   first per-attribute-tally radius pattern: sums in-radius
 //!   `+N Int` BASE mods, integer-divides by 3, emits `+(N/3) Life`
 //!   sourced as the jewel.
+//! - **Pugilist** ([`HandlerKind::DexCountToIncEvasion`]) — Dex
+//!   variant of the per-attribute-tally pattern emitting Inc
+//!   Evasion. The two per-claw / per-unarmed lines on the same
+//!   jewel need weapon-condition tags and follow as a future slice.
 //! - **Karui Heart** ([`HandlerKind::StrToLifeTransform`]) — transforms each
 //!   in-radius allocated node's `+N Str` BASE mod into a `+5N Life` BASE plus
 //!   a counter `-N Str` so the strength is moved (not duplicated). The 5×
@@ -303,6 +307,12 @@ pub enum HandlerKind {
     /// attribute-tally radius pattern (distinct from the existing
     /// per-node transforms).
     IntCountToLife,
+    /// Issue #196 (slice 9): Pugilist (Inc Evasion line). `1%
+    /// increased Evasion Rating per 3 Dexterity Allocated in Radius`.
+    /// Sister to [`Self::IntCountToLife`] but Dex-sourced and emits
+    /// Inc Evasion. The two per-claw / per-unarmed mods on the same
+    /// jewel need weapon-condition tags and follow as a future slice.
+    DexCountToIncEvasion,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -461,6 +471,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Energised Armour" => Some(build_energy_shield_to_armour(socket_id, item)),
         "Cold Steel" => Some(build_phys_cold_swap(socket_id, item)),
         "Anatomical Knowledge" => Some(build_int_count_to_life(socket_id, item)),
+        "Pugilist" => Some(build_dex_count_to_inc_evasion(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -644,6 +655,22 @@ fn build_int_count_to_life(socket_id: NodeId, item: &Item) -> RadiusJewel {
     )
 }
 
+/// Issue #196 (slice 9): Pugilist (Inc Evasion line). The marker
+/// (`1% increased Evasion Rating per 3 Dexterity Allocated in
+/// Radius`) is dispatch metadata. The two per-claw / per-unarmed
+/// lines on the same jewel are not handled here; the marker
+/// predicate matches only the Evasion line so they fall through
+/// to vanilla globals (which over-applies them — TODO follow-up
+/// slice).
+fn build_dex_count_to_inc_evasion(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::DexCountToIncEvasion,
+        is_dex_count_to_inc_evasion_marker,
+    )
+}
+
 /// Pure Talent / Replica Pure Talent: build a [`RadiusJewel`] whose `mods` list
 /// is empty — the actual class-conditional bonuses come from the dispatch
 /// handler reading the item's raw `mod_lines` and filtering by class
@@ -777,6 +804,13 @@ fn is_int_count_to_life_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("adds 1 to maximum life")
         && l.contains("per 3 intelligence")
+        && l.contains("in radius")
+}
+
+fn is_dex_count_to_inc_evasion_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("1% increased evasion rating")
+        && l.contains("per 3 dexterity")
         && l.contains("in radius")
 }
 
@@ -1116,6 +1150,30 @@ pub fn apply_radius_jewels(
                     &jewel.source_label,
                 );
                 report.mod_emissions += n;
+            }
+            HandlerKind::DexCountToIncEvasion => {
+                // Issue #196 (slice 9): Pugilist (Inc Evasion line).
+                // Sister to Anatomical Knowledge but Dex-sourced and
+                // emits Inc Evasion (multiplicative on the Evasion
+                // pool). The two per-claw / per-unarmed lines on the
+                // same jewel need weapon-condition tags and follow as
+                // a future slice.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let dex_sum = sum_radius_attribute_base(tree, &in_radius, "Dexterity");
+                let inc_pct = (dex_sum / 3.0).floor();
+                if inc_pct > 0.0 {
+                    let mod_ = crate::Mod::inc("Evasion", inc_pct)
+                        .with_source(Source::Other(jewel.source_label.clone()));
+                    db.add(mod_);
+                    report.mod_emissions += 1;
+                }
             }
             HandlerKind::IntCountToLife => {
                 // Issue #196 (slice 8): Anatomical Knowledge. Sum
@@ -2757,6 +2815,81 @@ mod tests {
     }
 
     /// Issue #196 (slice 8): Anatomical Knowledge — `Adds 1 to
+    /// Issue #196 (slice 9): Pugilist — `1% increased Evasion Rating
+    /// per 3 Dexterity Allocated in Radius`. Sister to Anatomical
+    /// Knowledge but Dex-sourced and emits Inc Evasion. The two
+    /// per-claw / per-unarmed mods on the same jewel need
+    /// weapon-condition tags and follow as a future slice.
+    #[test]
+    fn pugilist_emits_inc_evasion_per_three_dex_in_radius() {
+        let mut tree = mk_tree();
+        // Sum = 30 Dex → +10% Inc Evasion.
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Pugilist",
+                "Viridian Jewel",
+                &[(
+                    "1% increased Evasion Rating per 3 Dexterity Allocated in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::DexCountToIncEvasion);
+
+        let evasion_mods = db.slice_named("Evasion");
+        assert!(
+            evasion_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
+            "expected +10% Inc Evasion from Pugilist, got {evasion_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 9): integer-divide. 8 Dex → 2% Inc Evasion
+    /// (floor(8/3)).
+    #[test]
+    fn pugilist_integer_divides_dex_sum() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+8 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Pugilist",
+                "Viridian Jewel",
+                &[(
+                    "1% increased Evasion Rating per 3 Dexterity Allocated in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let evasion_mods = db.slice_named("Evasion");
+        assert!(
+            evasion_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 2.0).abs() < 1e-6),
+            "expected +2% Inc Evasion (floor(8/3)), got {evasion_mods:#?}",
+        );
+    }
+
     /// Maximum Life per 3 Intelligence Allocated in Radius`. Sums
     /// `+N Int` BASE mods across in-radius allocated nodes,
     /// integer-divides by 3, and emits a single `+(N/3) Life` BASE
