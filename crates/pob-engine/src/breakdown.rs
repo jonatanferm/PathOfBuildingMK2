@@ -148,6 +148,16 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "MovementSpeedMod",
             "Movement speed multiplier",
         )),
+        // Issue #34 follow-up: AreaOfEffectMod walks through the same
+        // (1 + INC%/100) × MORE shape as the speed mults, so we can
+        // reuse `speed_simple_mult` against the `AreaOfEffect` mod
+        // store. `perform.rs` populates `AreaOfEffectMod` directly.
+        "AreaOfEffectMod" => Some(speed_simple_mult(
+            env,
+            "AreaOfEffect",
+            "AreaOfEffectMod",
+            "Area of effect modifier",
+        )),
 
         // Crit.
         "CritChance" | "MainSkillCritChance" => Some(crit_chance(env, output_key)),
@@ -387,6 +397,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "AttackSpeedMult",
     "CastSpeedMult",
     "MovementSpeedMod",
+    "AreaOfEffectMod",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2701,6 +2712,7 @@ mod tests {
         env.output.set("CastSpeedMult", 1.30);
         env.output.set("AttackSpeedMult", 1.0);
         env.output.set("MovementSpeedMod", 1.20);
+        env.output.set("AreaOfEffectMod", 1.0);
         env.output.set("CritChance", 6.0);
         env.output.set("FullDPS", 2000.0);
         env.output.set("BleedDPS", 0.0);
@@ -3011,6 +3023,43 @@ mod tests {
         assert!(bd.steps.iter().any(|s| s.label == "FullDPS"));
         // Bleed DPS = 0 → step is suppressed.
         assert!(!bd.steps.iter().any(|s| s.label == "+ Bleed DPS"));
+    }
+
+    /// Issue #34 follow-up: AreaOfEffectMod walks through the same
+    /// `(1 + Σ INC/100) × Π MORE` shape as the speed mults, just on
+    /// the `AreaOfEffect` mod store. Final step is the AoE mod
+    /// multiplier.
+    #[test]
+    fn aoe_mod_breakdown_recovers_inc_and_more() {
+        let mut env = Env::default();
+        // 30% INC + 20% MORE → 1.3 × 1.2 = 1.56 area mod.
+        env.mod_db
+            .add(Mod::inc("AreaOfEffect", 30.0).with_source(Source::Tree));
+        env.mod_db
+            .add(Mod::more("AreaOfEffect", 20.0).with_source(Source::Item(2)));
+        env.output.set("AreaOfEffectMod", 1.56);
+        let bd = derive_for(&env, "AreaOfEffectMod").unwrap();
+        assert!(bd.steps.iter().any(|s| s.label == "Increased"));
+        assert!(bd.steps.iter().any(|s| s.label == "More"));
+        let final_step = bd.steps.last().unwrap();
+        assert_eq!(final_step.label, "Area of effect modifier");
+        assert!((final_step.value.unwrap_or(0.0) - 1.56).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: with no AoE mods at all the dispatch
+    /// still yields a non-empty breakdown — the (empty) Inc / More
+    /// steps are skipped but the final 1.0× line still anchors the
+    /// view, mirroring the speed-mult helper's behaviour.
+    #[test]
+    fn aoe_mod_breakdown_with_no_mods_still_shows_final_step() {
+        let mut env = Env::default();
+        env.output.set("AreaOfEffectMod", 1.0);
+        let bd = derive_for(&env, "AreaOfEffectMod").unwrap();
+        assert!(!bd.steps.iter().any(|s| s.label == "Increased"));
+        assert!(!bd.steps.iter().any(|s| s.label == "More"));
+        let final_step = bd.steps.last().unwrap();
+        assert_eq!(final_step.label, "Area of effect modifier");
+        assert!((final_step.value.unwrap_or(0.0) - 1.0).abs() < 1e-6);
     }
 
     #[test]
