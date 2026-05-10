@@ -32,6 +32,7 @@ mod keyring_store;
 mod mastery_picker;
 mod notes_tab;
 mod party_tab;
+mod popup;
 #[cfg(not(target_arch = "wasm32"))]
 mod share_url_fetch;
 mod skills_tab;
@@ -104,6 +105,17 @@ struct LoadedApp {
     /// `Character::jewels[socket_id]` and picked up by
     /// `compute_full_with_clusters` on the next compute pass.
     cluster_paste_state: cluster_paste::ClusterPasteState,
+    /// Issue #224: shared popup / modal-dialog host. Tabs route their
+    /// dialogs through this LIFO stack so opening / closing /
+    /// stacking semantics stay consistent across the app. Today the
+    /// existing ad-hoc pickers (`tattoo_picker`, `mastery_picker`,
+    /// `cluster_paste`, the `pending_tree_reset` confirmation modal)
+    /// keep their bespoke `Window` rendering — they will migrate onto
+    /// the host as the dependent issues land. The host also exposes
+    /// the shared rich-tooltip helper (`popup::show_rich_tooltip`)
+    /// callers can use to attach colour-coded breakdown tooltips to
+    /// any widget without re-implementing the layout.
+    popup_host: popup::PopupHost,
     skills: SkillRegistry,
     bases: Option<pob_data::bases::ItemBaseSet>,
     /// Issue #110: cached sprite metadata so the per-frame class
@@ -353,6 +365,7 @@ impl PobApp {
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
             mastery_picker_state: mastery_picker::MasteryPickerState::default(),
             cluster_paste_state: cluster_paste::ClusterPasteState::default(),
+            popup_host: popup::PopupHost::new(),
             skills,
             bases,
             sprites,
@@ -417,6 +430,7 @@ impl PobApp {
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
             mastery_picker_state: mastery_picker::MasteryPickerState::default(),
             cluster_paste_state: cluster_paste::ClusterPasteState::default(),
+            popup_host: popup::PopupHost::new(),
             skills,
             bases,
             sprites,
