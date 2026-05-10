@@ -267,15 +267,30 @@ mod tests {
         let mut nodes = HashMap::new();
         nodes.insert(
             1,
-            mk_node(1, "Frenzy Resonance", NodeKind::Notable, vec!["Gain a Frenzy Charge on Hit"]),
+            mk_node(
+                1,
+                "Frenzy Resonance",
+                NodeKind::Notable,
+                vec!["Gain a Frenzy Charge on Hit"],
+            ),
         );
         nodes.insert(
             2,
-            mk_node(2, "Acrobatics", NodeKind::Keystone, vec!["+30% chance to Dodge"]),
+            mk_node(
+                2,
+                "Acrobatics",
+                NodeKind::Keystone,
+                vec!["+30% chance to Dodge"],
+            ),
         );
         nodes.insert(
             3,
-            mk_node(3, "Life Mastery", NodeKind::Mastery, vec!["+50 to maximum Life"]),
+            mk_node(
+                3,
+                "Life Mastery",
+                NodeKind::Mastery,
+                vec!["+50 to maximum Life"],
+            ),
         );
         nodes.insert(
             4,
@@ -283,11 +298,21 @@ mod tests {
         );
         nodes.insert(
             5,
-            mk_node(5, "Plain +10 Strength", NodeKind::Normal, vec!["+10 to Strength"]),
+            mk_node(
+                5,
+                "Plain +10 Strength",
+                NodeKind::Normal,
+                vec!["+10 to Strength"],
+            ),
         );
         nodes.insert(
             6,
-            mk_node(6, "Frenzy Cluster", NodeKind::Notable, vec!["Frenzy Charges last 50% longer"]),
+            mk_node(
+                6,
+                "Frenzy Cluster",
+                NodeKind::Notable,
+                vec!["Frenzy Charges last 50% longer"],
+            ),
         );
         PassiveTree {
             version: "test".into(),
@@ -337,8 +362,14 @@ mod tests {
     #[test]
     fn kind_filter_narrows_results() {
         let tree = fixture_tree();
-        assert_eq!(filter_entries(&tree, "", Some(NodeKindFilter::Keystone)), vec![2]);
-        assert_eq!(filter_entries(&tree, "", Some(NodeKindFilter::Mastery)), vec![3]);
+        assert_eq!(
+            filter_entries(&tree, "", Some(NodeKindFilter::Keystone)),
+            vec![2]
+        );
+        assert_eq!(
+            filter_entries(&tree, "", Some(NodeKindFilter::Mastery)),
+            vec![3]
+        );
         assert_eq!(
             filter_entries(&tree, "", Some(NodeKindFilter::JewelSocket)),
             vec![4]
