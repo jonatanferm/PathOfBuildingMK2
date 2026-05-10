@@ -58,6 +58,9 @@
 //!   first per-attribute-tally radius pattern: sums in-radius
 //!   `+N Int` BASE mods, integer-divides by 3, emits `+(N/3) Life`
 //!   sourced as the jewel.
+//! - **Spire of Stone** ([`HandlerKind::StrCountToIncTotemLife`]) — Strength
+//!   summed across in-radius allocated nodes, integer-divided by 10, then
+//!   multiplied by 3 to produce an Inc TotemLife mod sourced as the jewel.
 //! - **Pugilist** ([`HandlerKind::DexCountToIncEvasion`]) — Dex
 //!   variant of the per-attribute-tally pattern emitting Inc
 //!   Evasion. The two per-claw / per-unarmed lines on the same
@@ -313,6 +316,13 @@ pub enum HandlerKind {
     /// Inc Evasion. The two per-claw / per-unarmed mods on the same
     /// jewel need weapon-condition tags and follow as a future slice.
     DexCountToIncEvasion,
+    /// Issue #196: Spire of Stone. `3% increased Totem Life per 10 Strength
+    /// Allocated in Radius`. Sister handler to Pugilist / Anatomical Knowledge:
+    /// sums in-radius allocated `+N Strength` BASE mods, integer-divides by
+    /// 10, multiplies by 3, and emits a single Inc `TotemLife` mod sourced as
+    /// the jewel. The jewel's static `Totems cannot be Stunned` line is left
+    /// to vanilla mod_parser handling.
+    StrCountToIncTotemLife,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -472,6 +482,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Cold Steel" => Some(build_phys_cold_swap(socket_id, item)),
         "Anatomical Knowledge" => Some(build_int_count_to_life(socket_id, item)),
         "Pugilist" => Some(build_dex_count_to_inc_evasion(socket_id, item)),
+        "Spire of Stone" => Some(build_str_count_to_inc_totem_life(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -671,6 +682,20 @@ fn build_dex_count_to_inc_evasion(socket_id: NodeId, item: &Item) -> RadiusJewel
     )
 }
 
+/// Issue #196 (slice 10): Spire of Stone (`3% increased Totem Life per 10
+/// Strength Allocated in Radius`). The line itself is dispatch-only metadata
+/// — the in-radius Strength sum × 3 / 10 is computed in the dispatch arm.
+/// The marker predicate matches only the Totem Life line; the jewel's
+/// `Totems cannot be Stunned` flag falls through to vanilla mod_parser.
+fn build_str_count_to_inc_totem_life(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::StrCountToIncTotemLife,
+        is_str_count_to_inc_totem_life_marker,
+    )
+}
+
 /// Pure Talent / Replica Pure Talent: build a [`RadiusJewel`] whose `mods` list
 /// is empty — the actual class-conditional bonuses come from the dispatch
 /// handler reading the item's raw `mod_lines` and filtering by class
@@ -811,6 +836,13 @@ fn is_dex_count_to_inc_evasion_marker(line: &str) -> bool {
     let l = line.to_ascii_lowercase();
     l.contains("1% increased evasion rating")
         && l.contains("per 3 dexterity")
+        && l.contains("in radius")
+}
+
+fn is_str_count_to_inc_totem_life_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("3% increased totem life")
+        && l.contains("per 10 strength")
         && l.contains("in radius")
 }
 
@@ -1150,6 +1182,30 @@ pub fn apply_radius_jewels(
                     &jewel.source_label,
                 );
                 report.mod_emissions += n;
+            }
+            HandlerKind::StrCountToIncTotemLife => {
+                // Issue #196 (slice 10): Spire of Stone. Sum allocated
+                // `+N Strength` BASE mods across in-radius nodes,
+                // integer-divide by 10, multiply by 3, emit a single
+                // `Inc TotemLife` mod sourced as the jewel. The
+                // jewel's `Totems cannot be Stunned` line is left to
+                // vanilla mod_parser.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let str_sum = sum_radius_attribute_base(tree, &in_radius, "Strength");
+                let inc_pct = (str_sum / 10.0).floor() * 3.0;
+                if inc_pct > 0.0 {
+                    let mod_ = crate::Mod::inc("TotemLife", inc_pct)
+                        .with_source(Source::Other(jewel.source_label.clone()));
+                    db.add(mod_);
+                    report.mod_emissions += 1;
+                }
             }
             HandlerKind::DexCountToIncEvasion => {
                 // Issue #196 (slice 9): Pugilist (Inc Evasion line).
@@ -2887,6 +2943,81 @@ mod tests {
                 .any(|m| matches!(m.kind, crate::ModType::Inc)
                     && (m.value.as_f64().unwrap_or(0.0) - 2.0).abs() < 1e-6),
             "expected +2% Inc Evasion (floor(8/3)), got {evasion_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 10): Spire of Stone. `3% increased Totem
+    /// Life per 10 Strength Allocated in Radius`. Sister handler to
+    /// Pugilist / Anatomical Knowledge but Str-sourced, divides by
+    /// 10 (not 3), and multiplies the integer count by 3 before
+    /// emitting an Inc TotemLife mod. Sum = 50 Str → floor(50/10) ×
+    /// 3 = 15% Inc TotemLife.
+    #[test]
+    fn spire_of_stone_emits_inc_totem_life_per_ten_str_in_radius() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+50 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Spire of Stone",
+                "Crimson Jewel",
+                &[(
+                    "3% increased Totem Life per 10 Strength Allocated in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::StrCountToIncTotemLife);
+
+        let totem_life_mods = db.slice_named("TotemLife");
+        assert!(
+            totem_life_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 15.0).abs() < 1e-6),
+            "expected +15% Inc TotemLife from Spire of Stone, got {totem_life_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 10): integer-divide on Str sum, then × 3.
+    /// 27 Str → floor(27/10) × 3 = 6% (not 8.1%).
+    #[test]
+    fn spire_of_stone_integer_divides_str_sum() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+27 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Spire of Stone",
+                "Crimson Jewel",
+                &[(
+                    "3% increased Totem Life per 10 Strength Allocated in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+
+        let totem_life_mods = db.slice_named("TotemLife");
+        assert!(
+            totem_life_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 6.0).abs() < 1e-6),
+            "expected +6% Inc TotemLife (floor(27/10) × 3), got {totem_life_mods:#?}",
         );
     }
 
