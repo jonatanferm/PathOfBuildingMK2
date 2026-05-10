@@ -212,6 +212,12 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             100.0,
         )),
 
+        // Hit chance — Accuracy is the input to the formal hit-chance
+        // formula; surfacing its three additive contributors (BASE
+        // mods, level term, Dex term) is the most-asked breakdown for
+        // attack builds tuning accuracy investment.
+        "Accuracy" => Some(accuracy(env)),
+
         // Recovery — Life regen and Mana regen. PoB exposes both with
         // their flat / percent / pool-tied compositions.
         "LifeRegen" => Some(life_regen(env)),
@@ -228,6 +234,8 @@ pub const COVERED_KEYS: &[&str] = &[
     "Strength",
     "Dexterity",
     "Intelligence",
+    // Hit chance.
+    "Accuracy",
     // Damage.
     "MainSkillAverageHit",
     "MainSkillAverageHitWithCrit",
@@ -1201,6 +1209,62 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `Accuracy`. PoB computes
+///
+///   Accuracy = Σ BASE(Accuracy) + 2 × (level - 1) + 2 × Dex
+///
+/// from `perform_basic_stats:3699-3702`. We surface the three
+/// contributors as discrete steps. The level term is back-derived from
+/// `total - mod_acc - dex_term` — `Env` doesn't carry the character
+/// level (the perform pass takes it as a parameter and folds it into
+/// the output), so the helper recovers it from the difference rather
+/// than threading a new field.
+fn accuracy(env: &Env) -> Breakdown {
+    let cfg = QueryCfg::default();
+    let mod_acc = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Accuracy");
+    let dex = env.output.get("Dexterity");
+    let dex_term = 2.0 * dex;
+    let total = env.output.get("Accuracy");
+    let level_term = (total - mod_acc - dex_term).max(0.0);
+
+    let mut steps = Vec::new();
+    let base_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named("Accuracy")
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label("Base mods")
+            .with_value(mod_acc)
+            .with_explain(format!("+{mod_acc:.0} from BASE mods"))
+            .with_sources(base_mods),
+    );
+    steps.push(
+        BreakdownStep::label("Level")
+            .with_value(level_term)
+            .with_explain(format!("+{level_term:.0} from 2 × (character level - 1)")),
+    );
+    steps.push(
+        BreakdownStep::label("Dexterity")
+            .with_value(dex_term)
+            .with_explain(format!("+{dex_term:.0} from 2 × {dex:.0} Dex")),
+    );
+    steps.push(
+        BreakdownStep::label("Accuracy")
+            .with_value(total)
+            .with_explain(format!(
+                "{mod_acc:.0} + {level_term:.0} + {dex_term:.0} = {total:.0}"
+            )),
+    );
+
+    Breakdown {
+        output_key: "Accuracy".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `LifeRegen`. Mirrors
 /// `perform_basic_stats:1742-1748`:
 ///
@@ -1579,6 +1643,15 @@ mod tests {
             .add(Mod::base("SpellBlockChance", 20.0).with_source(Source::Item(1)));
         env.mod_db
             .add(Mod::base("SpellSuppressionChance", 60.0).with_source(Source::Tree));
+        // Issue #34 follow-up: Accuracy breakdown. PoB computes
+        // `Accuracy = Σ BASE(Accuracy) + 2 × (level - 1) + 2 × Dex`.
+        // For an L90 character with +200 Accuracy from items and 50
+        // Dex, the final reading is 200 + 178 + 100 = 478. The level
+        // term is back-derived in the breakdown helper so the test
+        // doesn't need to know the character level directly.
+        env.output.set("Accuracy", 478.0);
+        env.mod_db
+            .add(Mod::base("Accuracy", 200.0).with_source(Source::Item(2)));
         // Recovery outputs + underlying mods. Representative L90:
         // 100/sec life regen from 50 flat (item belt) + 4% LifeRegenPercent
         // tree on 1100 Life = 50 + 44 = 94/sec. Mana regen baseline at
@@ -1987,6 +2060,48 @@ mod tests {
             "expected min(raw, 75) in effective explain; got {explain}"
         );
         assert_eq!(bd.total, 75.0);
+    }
+
+    /// Issue #34 follow-up: Accuracy walks Base mods → Level → Dex →
+    /// Final, surfacing the three contributors PoB's formula has
+    /// (`Σ BASE(Accuracy) + 2(level-1) + 2 × Dex`). The level term is
+    /// back-derived from `total - mod_acc - dex_term` so the helper
+    /// doesn't need direct access to `Character::level`. Item-sourced
+    /// `+200 Accuracy` lands under the Base step's source list.
+    #[test]
+    fn accuracy_breakdown_walks_base_level_dex_to_total() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "Accuracy").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Base mods"),
+            "missing Base mods step: {labels:?}"
+        );
+        assert!(labels.contains(&"Level"), "missing Level step: {labels:?}");
+        assert!(
+            labels.contains(&"Dexterity"),
+            "missing Dexterity step: {labels:?}"
+        );
+
+        let base = bd.steps.iter().find(|s| s.label == "Base mods").unwrap();
+        assert_eq!(base.value, Some(200.0));
+        assert!(
+            base.sources
+                .iter()
+                .any(|s| s.source.contains("item slot 2")),
+            "expected item slot 2 source on Accuracy Base mods step; got {:?}",
+            base.sources
+        );
+
+        // Dex term: 2 × 50 = 100.
+        let dex = bd.steps.iter().find(|s| s.label == "Dexterity").unwrap();
+        assert_eq!(dex.value, Some(100.0));
+
+        // Level term back-derived: 478 - 200 - 100 = 178.
+        let level = bd.steps.iter().find(|s| s.label == "Level").unwrap();
+        assert_eq!(level.value, Some(178.0));
+
+        assert_eq!(bd.total, 478.0);
     }
 
     /// Issue #34 follow-up: Strength walks Base → Final, enumerating
