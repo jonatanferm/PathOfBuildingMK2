@@ -1,9 +1,13 @@
-// Foundation module from issue #224 — shipped ahead of its consumer
-// PRs (mastery picker, notable DB, timeless-jewel socket UI, set
-// switchers, enchant / anoint pickers, rich tooltips, …). Suppress
-// the per-item dead-code lints workspace-wide until those PRs wire
-// through; once any consumer lands the relevant items light up
-// naturally and this can be tightened back to the default deny.
+// Foundation module from issue #224. The tattoo picker (#98) is the
+// first live consumer and exercises `PopupHost::{new, open, close_by_id,
+// is_open, is_top, len, is_empty}` plus `PopupRequest::modal`. The
+// remaining surface — floating popups, rich tooltips, the per-request
+// builder methods — is exercised by the dependent issues' own PRs
+// (#203 tooltips, #208 gem picker, #220 reset / version-converter
+// dialogs, #222 set switchers, …). Until those land, suppress the
+// per-item dead-code lints rather than scattering #[allow] across the
+// file; once each consumer migrates the relevant items light up and
+// this can be tightened in stages.
 #![allow(dead_code)]
 
 //! Reusable popup / modal-dialog / tooltip-host infrastructure.

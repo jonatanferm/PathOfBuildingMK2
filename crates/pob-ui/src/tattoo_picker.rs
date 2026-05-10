@@ -14,6 +14,12 @@ use eframe::egui;
 use pob_data::{NodeId, NodeKind, PassiveTree, TattooSet};
 use pob_engine::Character;
 
+use crate::popup::{PopupHost, PopupId, PopupRequest};
+
+/// Stable popup id used by the tattoo picker. Lives here (not on
+/// `popup.rs`) so each tab owns the id-space for its own dialogs.
+pub const TATTOO_PICKER_POPUP_ID: PopupId = PopupId::from_static("tree.tattoo-picker");
+
 /// Picker state. `node_id` is the node currently being edited; `search` is the live
 /// filter text. `None` collapses the window.
 #[derive(Default)]
@@ -23,13 +29,20 @@ pub struct TattooPickerState {
 }
 
 impl TattooPickerState {
-    pub fn open_for(&mut self, node_id: NodeId) {
+    /// Open the picker for `node_id`, pushing a tracked request onto the
+    /// shared [`PopupHost`] so dialog stacking, focus and dismissal go
+    /// through the same path as every other popup-driven dialog.
+    pub fn open_for(&mut self, host: &mut PopupHost, node_id: NodeId) {
         self.node_id = Some(node_id);
         self.search.clear();
+        host.open(PopupRequest::modal(TATTOO_PICKER_POPUP_ID, "Apply tattoo"));
     }
-    pub fn close(&mut self) {
+
+    /// Close the picker and pop its request off the shared host.
+    pub fn close(&mut self, host: &mut PopupHost) {
         self.node_id = None;
         self.search.clear();
+        host.close_by_id(TATTOO_PICKER_POPUP_ID);
     }
 }
 
@@ -38,6 +51,7 @@ impl TattooPickerState {
 pub fn ui(
     ctx: &egui::Context,
     state: &mut TattooPickerState,
+    host: &mut PopupHost,
     tattoos: Option<&TattooSet>,
     tree: &PassiveTree,
     character: &mut Character,
@@ -46,16 +60,16 @@ pub fn ui(
         return false;
     };
     let Some(node) = tree.nodes.get(&node_id) else {
-        state.close();
+        state.close(host);
         return false;
     };
     let Some(target_type) = node_kind_to_target_type(node.kind) else {
         // Mastery / root: nothing to do.
-        state.close();
+        state.close(host);
         return false;
     };
     if !character.allocated.contains(&node_id) {
-        state.close();
+        state.close(host);
         return false;
     }
 
@@ -154,7 +168,7 @@ pub fn ui(
         should_close = true;
     }
     if should_close {
-        state.close();
+        state.close(host);
     }
     changed
 }
@@ -194,12 +208,63 @@ mod tests {
     #[test]
     fn picker_state_open_close_round_trip() {
         let mut state = TattooPickerState::default();
+        let mut host = PopupHost::new();
         assert!(state.node_id.is_none());
-        state.open_for(42);
+        state.open_for(&mut host, 42);
         assert_eq!(state.node_id, Some(42));
         state.search = "abc".into();
-        state.close();
+        state.close(&mut host);
         assert!(state.node_id.is_none());
         assert!(state.search.is_empty());
+    }
+
+    #[test]
+    fn open_for_pushes_request_onto_popup_host() {
+        let mut state = TattooPickerState::default();
+        let mut host = PopupHost::new();
+        state.open_for(&mut host, 42);
+        assert!(host.is_open(TATTOO_PICKER_POPUP_ID));
+        assert_eq!(host.len(), 1);
+        assert!(host.is_top(TATTOO_PICKER_POPUP_ID));
+    }
+
+    #[test]
+    fn re_opening_does_not_stack_duplicate_requests() {
+        let mut state = TattooPickerState::default();
+        let mut host = PopupHost::new();
+        state.open_for(&mut host, 42);
+        state.open_for(&mut host, 99);
+        assert_eq!(state.node_id, Some(99));
+        // Right-clicking a second node while the picker is already open
+        // must retarget the dialog, not stack a second copy.
+        assert_eq!(host.len(), 1);
+        assert!(host.is_top(TATTOO_PICKER_POPUP_ID));
+    }
+
+    #[test]
+    fn close_removes_request_from_host() {
+        let mut state = TattooPickerState::default();
+        let mut host = PopupHost::new();
+        state.open_for(&mut host, 42);
+        assert!(host.is_open(TATTOO_PICKER_POPUP_ID));
+        state.close(&mut host);
+        assert!(!host.is_open(TATTOO_PICKER_POPUP_ID));
+        assert!(host.is_empty());
+    }
+
+    #[test]
+    fn close_only_removes_own_request_not_unrelated_ones() {
+        // The host is shared with every other dialog. A picker close must
+        // touch only its own request — not whatever else happens to be on
+        // the stack underneath it.
+        let mut state = TattooPickerState::default();
+        let mut host = PopupHost::new();
+        let other = PopupId::from_static("some-other-dialog");
+        host.open(PopupRequest::modal(other, "Other"));
+        state.open_for(&mut host, 42);
+        state.close(&mut host);
+        assert!(host.is_open(other));
+        assert!(!host.is_open(TATTOO_PICKER_POPUP_ID));
+        assert_eq!(host.len(), 1);
     }
 }

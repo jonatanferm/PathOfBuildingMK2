@@ -1595,7 +1595,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                             NodeKind::Normal | NodeKind::Notable | NodeKind::Keystone
                         )
                     {
-                        app.tattoo_picker_state.open_for(id);
+                        app.tattoo_picker_state
+                            .open_for(&mut app.popup_host, id);
                     }
                 }
             }
@@ -1606,6 +1607,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             if tattoo_picker::ui(
                 ui.ctx(),
                 &mut app.tattoo_picker_state,
+                &mut app.popup_host,
                 app.tattoos.as_ref(),
                 &app.tree,
                 &mut app.character,
