@@ -154,6 +154,14 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "CritMultiplier" => Some(crit_multiplier(env)),
         "CritEffect" => Some(crit_effect(env)),
 
+        // Attributes — class-start BASE plus `+N to <attr>` / `+N to all
+        // attributes` mods stack into a single BASE total. INC mods on
+        // attributes (rare, ascendancy / unique jewels) compose through
+        // `pool_basic`'s standard chain.
+        "Strength" => Some(pool_basic(env, "Strength")),
+        "Dexterity" => Some(pool_basic(env, "Dexterity")),
+        "Intelligence" => Some(pool_basic(env, "Intelligence")),
+
         // Pools.
         "Life" => Some(pool_with_attribute(env, "Life", "Strength", 2.0)),
         "Mana" => Some(pool_with_attribute(env, "Mana", "Intelligence", 2.0)),
@@ -216,6 +224,10 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
 /// Names of every output key that has a custom breakdown. Useful for
 /// integration tests / docs.
 pub const COVERED_KEYS: &[&str] = &[
+    // Attributes.
+    "Strength",
+    "Dexterity",
+    "Intelligence",
     // Damage.
     "MainSkillAverageHit",
     "MainSkillAverageHitWithCrit",
@@ -1479,7 +1491,25 @@ mod tests {
         env.output.set("Life", 1100.0);
         env.output.set("Mana", 360.0);
         env.output.set("Strength", 80.0);
+        env.output.set("Dexterity", 50.0);
         env.output.set("Intelligence", 60.0);
+        // Issue #34 follow-up: attribute breakdowns. Add representative
+        // BASE mods so `pool_basic` has something to enumerate. The
+        // class-start contribution is the bulk of each attribute on a
+        // typical character; `+N to <attr>` / `+N to all attributes`
+        // mods stack on top.
+        env.mod_db
+            .add(Mod::base("Strength", 32.0).with_source(Source::Other("class start".into())));
+        env.mod_db
+            .add(Mod::base("Strength", 48.0).with_source(Source::Item(2)));
+        env.mod_db
+            .add(Mod::base("Dexterity", 32.0).with_source(Source::Other("class start".into())));
+        env.mod_db
+            .add(Mod::base("Dexterity", 18.0).with_source(Source::Item(4)));
+        env.mod_db
+            .add(Mod::base("Intelligence", 32.0).with_source(Source::Other("class start".into())));
+        env.mod_db
+            .add(Mod::base("Intelligence", 28.0).with_source(Source::Item(1)));
         env.mod_db
             .add(Mod::base("Life", 540.0).with_source(Source::Item(2)));
         env.mod_db
@@ -1957,6 +1987,58 @@ mod tests {
             "expected min(raw, 75) in effective explain; got {explain}"
         );
         assert_eq!(bd.total, 75.0);
+    }
+
+    /// Issue #34 follow-up: Strength walks Base → Final, enumerating
+    /// the class-start + item BASE sources. Attributes use the same
+    /// `pool_basic` shape as Armour / Evasion / Ward — the test pins
+    /// the dispatch routing and the source-enumeration contract.
+    #[test]
+    fn strength_breakdown_walks_base_to_total() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "Strength").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base"));
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        // Base step value should sum the two BASE mods we seeded.
+        assert_eq!(base.value, Some(80.0));
+        // Both source labels should appear under the Base step.
+        assert!(
+            base.sources
+                .iter()
+                .any(|s| s.source.contains("class start")),
+            "expected class-start source on Strength Base step; got {:?}",
+            base.sources
+        );
+        assert!(
+            base.sources
+                .iter()
+                .any(|s| s.source.contains("item slot 2")),
+            "expected item slot 2 source on Strength Base step; got {:?}",
+            base.sources
+        );
+        assert_eq!(bd.total, 80.0);
+    }
+
+    /// Issue #34 follow-up: Dexterity / Intelligence route through the
+    /// same `pool_basic` helper as Strength. Pin the routing so a
+    /// future dispatch refactor can't silently drop them.
+    #[test]
+    fn dexterity_and_intelligence_breakdowns_route_through_pool_basic() {
+        let env = env_with_output();
+        let dex = derive_for(&env, "Dexterity").unwrap();
+        assert_eq!(dex.total, 50.0);
+        assert!(
+            dex.steps.iter().any(|s| s.label == "Base"),
+            "Dexterity breakdown missing Base step",
+        );
+
+        let int_ = derive_for(&env, "Intelligence").unwrap();
+        assert_eq!(int_.total, 60.0);
+        assert!(
+            int_.steps.iter().any(|s| s.label == "Base"),
+            "Intelligence breakdown missing Base step",
+        );
     }
 
     /// Issue #34 follow-up: Armour walks Base → Increased → Final.
