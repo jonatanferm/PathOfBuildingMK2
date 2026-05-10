@@ -179,10 +179,40 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // 90% hard cap.
         "PhysicalDamageReduction" => Some(physical_damage_reduction(env)),
         // Effective HP per damage type — pool / damage-taken-multiplier.
-        // Phys folds in armour-derived reduction + block; the elemental
-        // / chaos breakdowns will follow as their own slices since the
-        // multiplier composition differs (resist + suppression).
+        // Phys folds in armour-derived reduction + block; elemental and
+        // chaos share one helper that walks the resist + suppression +
+        // spell-block chain, parameterised on the resist key + element
+        // label + 3% pen flag (chaos uses no pen per PoB's standard
+        // Pinnacle Boss preset).
         "PhysicalEHP" => Some(physical_ehp(env)),
+        "FireEHP" => Some(elemental_ehp(
+            env,
+            "Fire",
+            "FireResistTotal",
+            "FireEHP",
+            true,
+        )),
+        "ColdEHP" => Some(elemental_ehp(
+            env,
+            "Cold",
+            "ColdResistTotal",
+            "ColdEHP",
+            true,
+        )),
+        "LightningEHP" => Some(elemental_ehp(
+            env,
+            "Lightning",
+            "LightningResistTotal",
+            "LightningEHP",
+            true,
+        )),
+        "ChaosEHP" => Some(elemental_ehp(
+            env,
+            "Chaos",
+            "ChaosResistTotal",
+            "ChaosEHP",
+            false,
+        )),
         "Evasion" => Some(pool_basic(env, "Evasion")),
         "Ward" => Some(pool_basic(env, "Ward")),
 
@@ -326,8 +356,12 @@ pub const COVERED_KEYS: &[&str] = &[
     "EnergyShield",
     "Armour",
     "PhysicalDamageReduction",
-    // Effective HP — physical layer first; elemental / chaos to follow.
+    // Effective HP — physical layer first; then per-element + chaos.
     "PhysicalEHP",
+    "FireEHP",
+    "ColdEHP",
+    "LightningEHP",
+    "ChaosEHP",
     "Evasion",
     "Ward",
     // Resists.
@@ -1277,6 +1311,96 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: shared helper for the per-element + chaos
+/// EHP breakdowns. PoB's `perform_ehp` (perform.rs:4646) computes:
+///
+///   pool = Life + EnergyShield + Ward
+///   resist_factor = 1 - (resist_total/100 - pen)
+///   spell_mult    = 1 - 0.5 × suppress
+///   spell_block_mult = 1 - spell_block
+///   ele_taken = resist_factor × spell_mult × spell_block_mult
+///   <Element>EHP = pool / max(ele_taken, 0.05)
+///
+/// `apply_pen = true` for Fire/Cold/Lightning (PoB's standard
+/// Pinnacle Boss preset penetrates 3% of elemental resists);
+/// `apply_pen = false` for chaos (no pen).
+fn elemental_ehp(
+    env: &Env,
+    elem_label: &str,
+    resist_key: &str,
+    ehp_key: &str,
+    apply_pen: bool,
+) -> Breakdown {
+    const PEN: f64 = 0.03;
+    let life = env.output.get("Life");
+    let es = env.output.get("EnergyShield");
+    let ward = env.output.get("Ward");
+    let pool = (life + es + ward).max(1.0);
+    let resist_pct = env.output.get(resist_key);
+    let resist_after_pen = if apply_pen {
+        (resist_pct / 100.0).clamp(-2.0, 0.95) - PEN
+    } else {
+        (resist_pct / 100.0).clamp(-2.0, 0.95)
+    }
+    .clamp(-2.0, 0.95);
+    let resist_factor = (1.0 - resist_after_pen).max(0.0);
+    let suppress_pct = env.output.get("SpellSuppressionChance");
+    let spell_block_pct = env.output.get("SpellBlockChance");
+    let suppress_factor = (1.0 - 0.5 * suppress_pct / 100.0).max(0.0);
+    let spell_block_factor = (1.0 - spell_block_pct / 100.0).max(0.0);
+    let raw_taken = resist_factor * suppress_factor * spell_block_factor;
+    let taken = raw_taken.max(0.05);
+    let total = env.output.get(ehp_key);
+    let floored = raw_taken < 0.05;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Pool")
+            .with_value(pool)
+            .with_explain(format!(
+                "Life {life:.0} + EnergyShield {es:.0} + Ward {ward:.0} = {pool:.0}"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(format!("{elem_label} resist"))
+            .with_value(resist_factor)
+            .with_explain(if apply_pen {
+                format!("1 - ({resist_pct:.0}% / 100 - {PEN:.2} pen) = {resist_factor:.3}")
+            } else {
+                format!("1 - {resist_pct:.0}% / 100 = {resist_factor:.3}")
+            }),
+    );
+    steps.push(
+        BreakdownStep::label("Spell suppression")
+            .with_value(suppress_factor)
+            .with_explain(format!(
+                "1 - 0.5 × {suppress_pct:.0}% / 100 = {suppress_factor:.3}"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Spell block")
+            .with_value(spell_block_factor)
+            .with_explain(format!(
+                "1 - {spell_block_pct:.0}% / 100 = {spell_block_factor:.3}"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(ehp_key)
+            .with_value(total)
+            .with_explain(if floored {
+                format!("{pool:.0} / max({raw_taken:.4}, 0.05) = {total:.0} (5% floor active)")
+            } else {
+                format!("{pool:.0} / {taken:.4} = {total:.0}")
+            }),
+    );
+
+    Breakdown {
+        output_key: ehp_key.to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `PhysicalEHP`. PoB:
 ///
 ///   pool = Life + EnergyShield + Ward
@@ -2123,6 +2247,17 @@ mod tests {
         // phys_taken = (1 - 0.2727) × (1 - 0.30) ≈ 0.5091
         // PhysicalEHP = 1100 / 0.5091 ≈ 2161
         env.output.set("PhysicalEHP", 2161.0);
+        // Issue #34 follow-up: elemental + chaos EHP breakdowns.
+        // Same shape per element: pool / [(1 - resist_after_pen) × (1 - 0.5×suppress) × (1 - spell_block)].
+        // With pool=1100, suppress=0.6, spell_block=0.20, all three
+        // ele resists at 75% (with 3% pen → 0.72 effective):
+        //   ele_taken = 0.28 × 0.7 × 0.8 ≈ 0.1568 → EHP ≈ 7015
+        // Chaos at -55% (no pen):
+        //   chaos_taken = 1.55 × 0.7 × 0.8 ≈ 0.868 → EHP ≈ 1267
+        env.output.set("FireEHP", 7015.0);
+        env.output.set("ColdEHP", 7015.0);
+        env.output.set("LightningEHP", 7015.0);
+        env.output.set("ChaosEHP", 1267.0);
         env.mod_db
             .add(Mod::base("Armour", 1500.0).with_source(Source::Item(2)));
         env.mod_db
@@ -2701,6 +2836,84 @@ mod tests {
             final_step.explain
         );
         assert_eq!(bd.total, 90.0);
+    }
+
+    /// Issue #34 follow-up: `FireEHP` shows pool, the resist factor
+    /// (after the 3% enemy pen the perform pass bakes in for the
+    /// standard Pinnacle Boss preset), the spell-suppression factor,
+    /// the spell-block factor, and the final reading. All three
+    /// elemental EHPs share one helper; chaos uses the same shape
+    /// without the 3% pen.
+    #[test]
+    fn fire_ehp_breakdown_walks_pool_resist_suppress_block() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "FireEHP").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Pool"), "missing Pool: {labels:?}");
+        assert!(
+            labels.contains(&"Fire resist"),
+            "missing Fire resist: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Spell suppression"),
+            "missing Spell suppression: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Spell block"),
+            "missing Spell block: {labels:?}"
+        );
+
+        let pool = bd.steps.iter().find(|s| s.label == "Pool").unwrap();
+        assert_eq!(pool.value, Some(1100.0));
+
+        // Fire resist factor with 3% pen: 1 - (0.75 - 0.03) = 0.28
+        let resist = bd.steps.iter().find(|s| s.label == "Fire resist").unwrap();
+        assert!(
+            (resist.value.unwrap_or(0.0) - 0.28).abs() < 0.001,
+            "expected fire factor ~0.28; got {:?}",
+            resist.value
+        );
+
+        // Spell suppression: 1 - 0.5 × 0.6 = 0.7
+        let suppress = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Spell suppression")
+            .unwrap();
+        assert!(
+            (suppress.value.unwrap_or(0.0) - 0.7).abs() < 1e-6,
+            "expected suppress factor 0.7; got {:?}",
+            suppress.value
+        );
+
+        // Spell block: 1 - 0.20 = 0.8
+        let sblock = bd.steps.iter().find(|s| s.label == "Spell block").unwrap();
+        assert!(
+            (sblock.value.unwrap_or(0.0) - 0.8).abs() < 1e-6,
+            "expected spell-block factor 0.8; got {:?}",
+            sblock.value
+        );
+
+        assert_eq!(bd.total, 7015.0);
+    }
+
+    /// Issue #34 follow-up: chaos shares the elemental shape but
+    /// uses no enemy penetration (PoB's standard preset has no chaos
+    /// pen). With ChaosResistTotal = -55 the resist factor is 1.55,
+    /// not the 0.28 the elemental side gets — pinning that the helper
+    /// reads the correct resist key.
+    #[test]
+    fn chaos_ehp_breakdown_skips_enemy_pen_uses_chaos_resist() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "ChaosEHP").unwrap();
+        let resist = bd.steps.iter().find(|s| s.label == "Chaos resist").unwrap();
+        // Chaos at -55%, no pen: 1 - (-0.55) = 1.55
+        assert!(
+            (resist.value.unwrap_or(0.0) - 1.55).abs() < 1e-6,
+            "expected chaos factor 1.55; got {:?}",
+            resist.value
+        );
+        assert_eq!(bd.total, 1267.0);
     }
 
     /// Issue #34 follow-up: `PhysicalEHP` shows pool and the
