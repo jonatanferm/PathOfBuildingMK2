@@ -1069,9 +1069,7 @@ fn capped_chance(
         steps.push(
             BreakdownStep::label("Cap")
                 .with_value(cap)
-                .with_explain(format!(
-                    "{default_cap:.0} + {cap_bonus:.0}% from {ck} mods"
-                ))
+                .with_explain(format!("{default_cap:.0} + {cap_bonus:.0}% from {ck} mods"))
                 .with_sources(cap_mods),
         );
     } else {
