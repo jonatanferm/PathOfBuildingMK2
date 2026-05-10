@@ -217,6 +217,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // mods, level term, Dex term) is the most-asked breakdown for
         // attack builds tuning accuracy investment.
         "Accuracy" => Some(accuracy(env)),
+        "MainSkillHitChance" => Some(hit_chance_main_skill(env)),
 
         // Damage chain — the after-resist hit shows the multiplicative
         // step from `AverageHitWithCrit` to the post-resist value. Lets
@@ -275,6 +276,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "Intelligence",
     // Hit chance.
     "Accuracy",
+    "MainSkillHitChance",
     // Damage chain.
     "MainSkillAverageHitAfterResist",
     "MainSkillAverageHitAfterShock",
@@ -1447,6 +1449,64 @@ fn after_resist(env: &Env) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `MainSkillHitChance`. PoB's
+/// formula:
+///
+///   raw = Accuracy / (Accuracy + (EnemyEvasion / 5)^0.9) × 125
+///   chance = round(raw).clamp(5, 100)
+///
+/// from `perform.rs:3707-3712`. Spells (`is_attack = false`) skip
+/// the formula entirely and pin `MainSkillHitChance = 100`. The
+/// breakdown surfaces both modes:
+/// - Attack: Accuracy / Enemy evasion / Hit chance steps.
+/// - Spell: a single Hit chance step with an "always hits" hint so
+///   the user doesn't go grinding accuracy on a spell build.
+fn hit_chance_main_skill(env: &Env) -> Breakdown {
+    let total = env.output.get("MainSkillHitChance");
+    let mut steps = Vec::new();
+    if (total - 100.0).abs() < 1e-9 && env.output.try_get("Accuracy").unwrap_or(0.0) == 0.0 {
+        // Edge case: no accuracy stored at all (older test fixtures or
+        // partial pipelines). Skip the attack steps and just emit the
+        // always-hits hint so the breakdown is still meaningful.
+        steps.push(
+            BreakdownStep::label("Hit chance")
+                .with_value(100.0)
+                .with_explain("100% (always hits — spell or capped attack)".to_owned()),
+        );
+        return Breakdown {
+            output_key: "MainSkillHitChance".to_owned(),
+            total,
+            steps,
+        };
+    }
+    let acc = env.output.get("Accuracy");
+    let evasion = env.output.get("EnemyEvasion");
+    steps.push(
+        BreakdownStep::label("Accuracy")
+            .with_value(acc)
+            .with_explain(format!("{acc:.0} from BASE + level + Dex (see Accuracy)")),
+    );
+    steps.push(
+        BreakdownStep::label("Enemy evasion")
+            .with_value(evasion)
+            .with_explain(format!("{evasion:.0} from Config tab")),
+    );
+    steps.push(
+        BreakdownStep::label("Hit chance")
+            .with_value(total)
+            .with_explain(if (total - 100.0).abs() < 1e-9 {
+                "100% (always hits — spell or capped attack)".to_owned()
+            } else {
+                format!("round(Accuracy / (Accuracy + (EnemyEvasion/5)^0.9) × 125) = {total:.0}%")
+            }),
+    );
+    Breakdown {
+        output_key: "MainSkillHitChance".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `Accuracy`. PoB computes
 ///
 ///   Accuracy = Σ BASE(Accuracy) + 2 × (level - 1) + 2 × Dex
@@ -1903,6 +1963,13 @@ mod tests {
         env.output.set("Accuracy", 478.0);
         env.mod_db
             .add(Mod::base("Accuracy", 200.0).with_source(Source::Item(2)));
+        // Issue #34 follow-up: HitChance breakdown reads EnemyEvasion
+        // from the output (perform stores it unconditionally for the
+        // breakdown helper to consume). 1500 = PoB's standard
+        // map-monster baseline; combined with Accuracy=478 and the
+        // hit-chance formula it yields ~92%, but tests pin the
+        // values they need explicitly.
+        env.output.set("EnemyEvasion", 1500.0);
         // Recovery outputs + underlying mods. Representative L90:
         // 100/sec life regen from 50 flat (item belt) + 4% LifeRegenPercent
         // tree on 1100 Life = 50 + 44 = 94/sec. Mana regen baseline at
@@ -2311,6 +2378,67 @@ mod tests {
             "expected min(raw, 75) in effective explain; got {explain}"
         );
         assert_eq!(bd.total, 75.0);
+    }
+
+    /// Issue #34 follow-up: `MainSkillHitChance` for an attack walks
+    /// `Accuracy / Enemy evasion / Hit chance` — the three things the
+    /// user can actually move to improve the reading. Spells short-
+    /// circuit to a "100% (always hits)" hint instead.
+    #[test]
+    fn hit_chance_breakdown_attack_surfaces_accuracy_and_enemy_evasion() {
+        let mut env = env_with_output();
+        env.output.set("Accuracy", 478.0);
+        env.output.set("EnemyEvasion", 1500.0);
+        env.output.set("MainSkillHitChance", 92.0);
+        let bd = derive_for(&env, "MainSkillHitChance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Accuracy"),
+            "missing Accuracy step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Enemy evasion"),
+            "missing Enemy evasion step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Hit chance"),
+            "missing Hit chance step: {labels:?}"
+        );
+
+        let acc = bd.steps.iter().find(|s| s.label == "Accuracy").unwrap();
+        assert_eq!(acc.value, Some(478.0));
+
+        let ev = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Enemy evasion")
+            .unwrap();
+        assert_eq!(ev.value, Some(1500.0));
+
+        assert_eq!(bd.total, 92.0);
+    }
+
+    /// Issue #34 follow-up: spell-bound builds always hit. The breakdown
+    /// must call this out (so the user doesn't go grinding accuracy
+    /// for a spell) and still produce a valid 3-step breakdown so the
+    /// `covered_keys_is_complete` sweep walks both branches.
+    #[test]
+    fn hit_chance_breakdown_spell_calls_out_always_hits() {
+        let mut env = env_with_output();
+        env.output.set("MainSkillHitChance", 100.0);
+        let bd = derive_for(&env, "MainSkillHitChance").unwrap();
+        let chance = bd.steps.iter().find(|s| s.label == "Hit chance").unwrap();
+        assert!(
+            chance
+                .explain
+                .as_deref()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .contains("always hits"),
+            "spell hit-chance explain should call out always-hits; got {:?}",
+            chance.explain
+        );
+        assert_eq!(bd.total, 100.0);
     }
 
     /// Issue #34 follow-up: `WithPoisonDPS` is the simple sum of hit
