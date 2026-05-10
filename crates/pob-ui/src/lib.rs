@@ -2110,6 +2110,11 @@ fn render_tree_reset_modal(ctx: &egui::Context, app: &mut LoadedApp) -> Option<b
                     )
                     .clicked()
                 {
+                    // Issue #204 (slice 3): destructive tree-reset
+                    // actions are exactly the kind of mistake undo
+                    // exists for — snapshot before mutating so cmd+Z
+                    // restores the full pre-reset state.
+                    app.undo_stack.snapshot(&app.character);
                     match kind {
                         TreeResetKind::Allocation => {
                             app.character.allocated.clear();
