@@ -158,6 +158,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "AreaOfEffectMod",
             "Area of effect modifier",
         )),
+        "AreaOfEffectRadius" => area_of_effect_radius(env),
 
         // Crit.
         "CritChance" | "MainSkillCritChance" => Some(crit_chance(env, output_key)),
@@ -398,6 +399,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "CastSpeedMult",
     "MovementSpeedMod",
     "AreaOfEffectMod",
+    "AreaOfEffectRadius",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2507,6 +2509,64 @@ fn energy_shield_regen(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `AreaOfEffectRadius`. Mirrors
+/// `perform_skill_dps`'s AoE block:
+///
+///   radius = floor(base × floor(100 × sqrt(area_mod)) / 100)
+///
+/// — the inner floor mirrors PoB's two-decimal rounding before the
+/// outer integer floor. The sqrt is what makes %AoE non-linear vs
+/// circle radius (a +50% area mod is only a +22% radius increase).
+///
+/// Returns `None` when the active skill has no base AoE radius
+/// (non-AoE skills, or builds with no skill selected) so the panel
+/// falls back to the generic mods view.
+fn area_of_effect_radius(env: &Env) -> Option<Breakdown> {
+    let base = env.output.get("AoERadius");
+    if base.abs() < 1e-9 {
+        return None;
+    }
+    let area_mod = env.output.get("AreaOfEffectMod");
+    let scale = area_mod.max(0.0).sqrt();
+    let total = env.output.get("AreaOfEffectRadius");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Base radius")
+            .with_value(base)
+            .with_explain(format!(
+                "{base:.0} from skill base + AreaOfEffect BASE mods"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Area mod")
+            .with_value(area_mod)
+            .with_explain(format!(
+                "{area_mod:.2}× — see AreaOfEffectMod for the (1+inc) × more derivation"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Radius scaling")
+            .with_value(scale)
+            .with_explain(format!(
+                "sqrt({area_mod:.2}) = {scale:.3} — radius scales by sqrt of area"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Area of effect radius")
+            .with_value(total)
+            .with_explain(format!(
+                "floor({base:.0} × floor(100 × {scale:.3}) / 100) = {total:.0}"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "AreaOfEffectRadius".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `EnergyShieldRecharge`. Mirrors
 /// `perform_basic_stats`:
 ///
@@ -2713,6 +2773,11 @@ mod tests {
         env.output.set("AttackSpeedMult", 1.0);
         env.output.set("MovementSpeedMod", 1.20);
         env.output.set("AreaOfEffectMod", 1.0);
+        // Issue #34 follow-up: representative AoE base/final radius
+        // so the COVERED_KEYS guard exercises AreaOfEffectRadius.
+        // Base 22 (Arc default) × sqrt(1.0) = 22.
+        env.output.set("AoERadius", 22.0);
+        env.output.set("AreaOfEffectRadius", 22.0);
         env.output.set("CritChance", 6.0);
         env.output.set("FullDPS", 2000.0);
         env.output.set("BleedDPS", 0.0);
@@ -3023,6 +3088,57 @@ mod tests {
         assert!(bd.steps.iter().any(|s| s.label == "FullDPS"));
         // Bleed DPS = 0 → step is suppressed.
         assert!(!bd.steps.iter().any(|s| s.label == "+ Bleed DPS"));
+    }
+
+    /// Issue #34 follow-up: AreaOfEffectRadius walks the
+    /// PoB formula:
+    ///
+    ///   radius = floor(base × floor(100 × sqrt(area_mod)) / 100)
+    ///
+    /// Surfaced steps walk Base radius → Area-mod multiplier →
+    /// Radius scaling (sqrt(mod)) → final radius. The sqrt step is
+    /// what makes the relationship between %AoE and circle radius
+    /// non-linear (a +50% area mod is only a +22% radius).
+    ///
+    /// Worked example: base 22, area mod 1.44 → sqrt(1.44) = 1.2 →
+    /// floor(22 × 1.20) = floor(26.4) = 26.
+    #[test]
+    fn aoe_radius_breakdown_walks_base_mod_sqrt_to_final() {
+        let mut env = Env::default();
+        env.output.set("AoERadius", 22.0);
+        env.output.set("AreaOfEffectMod", 1.44);
+        env.output.set("AreaOfEffectRadius", 26.0);
+        let bd = derive_for(&env, "AreaOfEffectRadius").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base radius"));
+        assert!(labels.contains(&"Area mod"));
+        assert!(labels.contains(&"Radius scaling"));
+        assert!(labels.contains(&"Area of effect radius"));
+
+        let base = bd.steps.iter().find(|s| s.label == "Base radius").unwrap();
+        assert!((base.value.unwrap() - 22.0).abs() < 1e-9);
+
+        let scale = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Radius scaling")
+            .unwrap();
+        // sqrt(1.44) = 1.2.
+        assert!((scale.value.unwrap() - 1.2).abs() < 1e-6);
+
+        assert!((bd.total - 26.0).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: with base radius 0 the dispatch returns
+    /// None — the panel falls back to the generic mods view rather
+    /// than rendering a 0-radius row with no context.
+    #[test]
+    fn aoe_radius_breakdown_skipped_when_no_base() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "AreaOfEffectRadius").is_none(),
+            "expected None when base AoE radius is zero",
+        );
     }
 
     /// Issue #34 follow-up: AreaOfEffectMod walks through the same
