@@ -43,23 +43,28 @@ impl std::fmt::Display for PobImportError {
 
 impl std::error::Error for PobImportError {}
 
-/// Issue #33 (slice 1): map a build-share URL to the raw-endpoint
-/// URL the existing share-code path can decode. Returns `None` for
-/// non-URL inputs (so the caller's existing "decode as code" path
-/// still runs unchanged) or for hosts we don't recognise.
+/// Issue #33: map a build-share URL to the raw-endpoint URL the
+/// existing share-code path can decode. Returns `None` for non-URL
+/// inputs (so the caller's existing "decode as code" path still
+/// runs unchanged) or for hosts we don't recognise.
 ///
 /// Mirrors upstream PoB's `Classes/BuildSiteTools.lua` host table.
 /// The HTTP fetch itself is intentionally out of scope here — this
 /// is the pure URL-recognition + endpoint-rewrite half. The host UI
-/// or a future fetcher slice can wire `reqwest` / `ureq` on top.
+/// or a fetcher slice can wire `reqwest` / `ureq` on top (see
+/// `pob-ui/src/share_url_fetch.rs`).
 ///
 /// Recognised hosts (case-insensitive on scheme + domain):
 /// - `pobb.in/<id>`         → `https://pobb.in/<id>/raw`
+/// - `pob.cool/<id>`        → `https://pob.cool/<id>/raw`
 /// - `pastebin.com/<id>`    → `https://pastebin.com/raw/<id>`
+/// - `pastebin.com/raw/<id>`→ idempotent (returned as-is, normalised)
+/// - `poe.ninja/pob/<id>`   → `https://poe.ninja/pob/<id>/raw`
 /// - `poeplanner.com/<id>`  → `https://poeplanner.com/api/build/<id>/pob`
 ///
-/// IDs are constrained to ASCII alphanumerics so a stray path
-/// segment (`pobb.in/about`) doesn't accidentally re-target.
+/// IDs are constrained to ASCII alphanumerics (plus `-` and `_`) so
+/// a stray path segment (`pobb.in/about`) doesn't accidentally
+/// re-target.
 #[must_use]
 pub fn resolve_share_url(input: &str) -> Option<String> {
     let trimmed = input.trim();
@@ -82,32 +87,67 @@ pub fn resolve_share_url(input: &str) -> Option<String> {
     let rest = rest.split('?').next()?;
     // Tolerate a `www.` prefix on any of the supported hosts.
     let rest = rest.strip_prefix("www.").unwrap_or(rest);
-    // Pull the host + path. We require exactly one path segment
-    // (the share id) — extra segments mean it's not the share URL
-    // we expect.
     let (host, path) = rest.split_once('/')?;
-    let path = path.trim_end_matches('/');
+    let path = path.trim_matches('/');
     if path.is_empty() {
         return None;
     }
-    // Treat path as the share id only when it's a single segment.
-    let id = path;
+    let host = host.to_ascii_lowercase();
+
+    // Multi-segment path hosts (poe.ninja, pastebin's already-resolved
+    // /raw form). Match these *before* the single-segment id check so
+    // the strict path validators below don't reject legal inputs.
+    match host.as_str() {
+        "poe.ninja" => {
+            // poe.ninja serves PoB builds at /pob/<id> with a /raw
+            // sibling. The slug is alphanumeric.
+            let rest = path.strip_prefix("pob/")?;
+            // Strip trailing /raw if the user already pasted the raw URL.
+            let id = rest.strip_suffix("/raw").unwrap_or(rest);
+            if !is_share_id(id) {
+                return None;
+            }
+            return Some(format!("https://poe.ninja/pob/{id}/raw"));
+        }
+        "pastebin.com" => {
+            // Accept already-resolved /raw/<id> idempotently as well
+            // as the canonical /<id> form.
+            let id = path.strip_prefix("raw/").unwrap_or(path);
+            if !is_share_id(id) || id.contains('/') {
+                return None;
+            }
+            return Some(format!("https://pastebin.com/raw/{id}"));
+        }
+        _ => {}
+    }
+
+    // Single-segment hosts. Treat the entire path as the id; reject
+    // anything with internal slashes to avoid clobbering /about-style
+    // pages.
+    let id = path.strip_suffix("/raw").unwrap_or(path);
     if id.contains('/') {
         return None;
     }
-    let id_ok = !id.is_empty()
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    if !id_ok {
+    if !is_share_id(id) {
         return None;
     }
-    match host.to_ascii_lowercase().as_str() {
+    match host.as_str() {
         "pobb.in" => Some(format!("https://pobb.in/{id}/raw")),
-        "pastebin.com" => Some(format!("https://pastebin.com/raw/{id}")),
+        "pob.cool" => Some(format!("https://pob.cool/{id}/raw")),
         "poeplanner.com" => Some(format!("https://poeplanner.com/api/build/{id}/pob")),
         _ => None,
     }
+}
+
+/// Validate a build-share id. We accept ASCII alphanumerics plus
+/// `-` and `_` so URL-safe base62-style ids round-trip; everything
+/// else (dots, spaces, slashes) is rejected so a stray /about-style
+/// path segment can't masquerade as an id.
+fn is_share_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 pub fn import_pob_code(code: &str) -> Result<Character, PobImportError> {
@@ -1037,6 +1077,11 @@ Quality: +20% (augmented)
             resolve_share_url("https://pastebin.com/abc123"),
             Some("https://pastebin.com/raw/abc123".to_owned())
         );
+        // Already-resolved /raw/<id> stays resolved (idempotent).
+        assert_eq!(
+            resolve_share_url("https://pastebin.com/raw/abc123"),
+            Some("https://pastebin.com/raw/abc123".to_owned())
+        );
     }
 
     #[test]
@@ -1044,6 +1089,55 @@ Quality: +20% (augmented)
         assert_eq!(
             resolve_share_url("https://poeplanner.com/abcXYZ123"),
             Some("https://poeplanner.com/api/build/abcXYZ123/pob".to_owned())
+        );
+    }
+
+    #[test]
+    fn resolve_share_url_recognises_pob_cool() {
+        // pob.cool is a community pobb.in alternative with the same
+        // /<id>/raw shape. Mirror pobb.in tests.
+        assert_eq!(
+            resolve_share_url("https://pob.cool/abc123"),
+            Some("https://pob.cool/abc123/raw".to_owned())
+        );
+        assert_eq!(
+            resolve_share_url("https://www.pob.cool/XYZ-789/"),
+            Some("https://pob.cool/XYZ-789/raw".to_owned())
+        );
+        // Idempotent — already-resolved /raw URL.
+        assert_eq!(
+            resolve_share_url("https://pob.cool/abc123/raw"),
+            Some("https://pob.cool/abc123/raw".to_owned())
+        );
+    }
+
+    #[test]
+    fn resolve_share_url_recognises_poe_ninja_pob() {
+        // poe.ninja serves PoB shares at /pob/<id> with a /raw sibling.
+        assert_eq!(
+            resolve_share_url("https://poe.ninja/pob/abc123"),
+            Some("https://poe.ninja/pob/abc123/raw".to_owned())
+        );
+        // Trailing slash + already-resolved /raw both tolerated.
+        assert_eq!(
+            resolve_share_url("https://poe.ninja/pob/abc123/"),
+            Some("https://poe.ninja/pob/abc123/raw".to_owned())
+        );
+        assert_eq!(
+            resolve_share_url("https://poe.ninja/pob/abc123/raw"),
+            Some("https://poe.ninja/pob/abc123/raw".to_owned())
+        );
+        // poe.ninja ladder/build pages (non-/pob path) shouldn't match.
+        assert_eq!(resolve_share_url("https://poe.ninja/builds/league"), None);
+    }
+
+    #[test]
+    fn resolve_share_url_idempotent_for_pobb_in_raw() {
+        // Pasting an already-resolved /raw URL should resolve to
+        // itself (no double `/raw/raw`).
+        assert_eq!(
+            resolve_share_url("https://pobb.in/abc123/raw"),
+            Some("https://pobb.in/abc123/raw".to_owned())
         );
     }
 
@@ -1064,5 +1158,9 @@ Quality: +20% (augmented)
         // arbitrary path segments into the raw endpoint).
         assert_eq!(resolve_share_url("https://pobb.in/has spaces"), None);
         assert_eq!(resolve_share_url("https://pobb.in/has.dots"), None);
+        // poe.ninja without the /pob prefix.
+        assert_eq!(resolve_share_url("https://poe.ninja/abc123"), None);
+        // pob.cool with multi-segment path beyond /raw.
+        assert_eq!(resolve_share_url("https://pob.cool/abc/def"), None);
     }
 }
