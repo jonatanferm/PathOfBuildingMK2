@@ -597,6 +597,20 @@ pub fn ui(
                     } else {
                         ui.selectable_label(selected, label)
                     };
+                    // Issue #203 (slice 2): rich item-card hover.
+                    // Build the tooltip lines per hover frame — cheap
+                    // (a few clones / formats) and avoids caching that
+                    // would have to invalidate on every item edit.
+                    let response = if let Some(item) = equipped {
+                        let lines = item_tooltip_lines(item);
+                        response.on_hover_ui(|ui| {
+                            for line in &lines {
+                                ui.label(line);
+                            }
+                        })
+                    } else {
+                        response
+                    };
                     if response.clicked() {
                         state.selected_slot = Some(*slot);
                         state.paste_buffer.clear();
@@ -924,16 +938,29 @@ fn render_shared_panel(
                     saved.item.name.as_str()
                 };
                 ui.horizontal(|ui| {
+                    let label_text = format!(
+                        "{glyph} {label}\n    {name}  →  {target_label}",
+                        label = saved.label,
+                        name = display_name,
+                    );
+                    // Issue #203 (slice 2): rich shared-item hover.
+                    // Build the lines once per hover frame and append
+                    // the action hint so it doesn't require its own
+                    // tooltip surface.
+                    let mut lines = item_tooltip_lines(&saved.item);
+                    lines.push(String::new());
+                    lines.push("Double-click to equip this saved item.".into());
                     let row = ui
-                        .add(
-                            egui::Label::new(format!(
-                                "{glyph} {label}\n    {name}  →  {target_label}",
-                                label = saved.label,
-                                name = display_name,
-                            ))
-                            .sense(egui::Sense::click()),
-                        )
-                        .on_hover_text("Double-click to equip this saved item.");
+                        .add(egui::Label::new(label_text).sense(egui::Sense::click()))
+                        .on_hover_ui(|ui| {
+                            for line in &lines {
+                                if line.is_empty() {
+                                    ui.add_space(4.0);
+                                } else {
+                                    ui.label(line);
+                                }
+                            }
+                        });
                     if row.double_clicked() {
                         let dest = target.or(*selected_slot);
                         if let Some(slot) = dest {
@@ -1214,6 +1241,61 @@ fn rarity_glyph(r: Rarity) -> &'static str {
     }
 }
 
+/// Issue #203 (slice 2): build the body of the item-card hover
+/// tooltip. Mirrors the editor-panel layout (`render_item_summary`)
+/// but as a flat `Vec<String>` so it's pure / unit-testable. Each
+/// entry is one rendered line; an empty string is a visual spacer.
+///
+/// Section ordering follows PoB's `Item:BuildAndParseRaw` output:
+/// Enchant → Implicit → Explicit → Fractured → Crafted → Veiled →
+/// Corrupted. We skip empty sections so a basic rare doesn't render
+/// blank section dividers.
+pub fn item_tooltip_lines(item: &Item) -> Vec<String> {
+    let mut out = Vec::new();
+    if item.name.is_empty() {
+        out.push(item.base_name.clone());
+    } else {
+        out.push(item.name.clone());
+        out.push(item.base_name.clone());
+    }
+    if item.quality > 0 {
+        out.push(format!("Quality: +{}%", item.quality));
+    }
+    if item.item_level > 0 {
+        out.push(format!("Item Level: {}", item.item_level));
+    }
+    // Sections rendered in PoB order; we walk this list and emit each
+    // section that has at least one matching mod line.
+    const ORDERED: &[(ModSection, &str)] = &[
+        (ModSection::Enchant, "Enchant"),
+        (ModSection::Implicit, "Implicit"),
+        (ModSection::Explicit, "Explicit"),
+        (ModSection::Fractured, "Fractured"),
+        (ModSection::Crafted, "Crafted"),
+        (ModSection::Veiled, "Veiled"),
+        (ModSection::Corrupted, "Corrupted"),
+    ];
+    for (section, label) in ORDERED {
+        let mut any = false;
+        for ml in &item.mod_lines {
+            if ml.section == *section {
+                if !any {
+                    out.push(format!("--- {label} ---"));
+                    any = true;
+                }
+                out.push(ml.line.clone());
+            }
+        }
+    }
+    if item.corrupted {
+        out.push("Corrupted".into());
+    }
+    if item.mirrored {
+        out.push("Mirrored".into());
+    }
+    out
+}
+
 fn render_item_summary(ui: &mut egui::Ui, item: &Item) {
     let body_font = egui::TextStyle::Body.resolve(ui.style());
     let strong_font = body_font.clone();
@@ -1329,6 +1411,177 @@ mod tests {
 
         let jewel = make_base("Jewel", None, None);
         assert_eq!(target_slot_for_base(&jewel), None);
+    }
+
+    fn mk_item(name: &str, base_name: &str, rarity: Rarity, mods: &[(ModSection, &str)]) -> Item {
+        Item {
+            name: name.to_owned(),
+            base_name: base_name.to_owned(),
+            rarity,
+            item_level: 0,
+            quality: 0,
+            tags: HashSet::default(),
+            mod_lines: mods
+                .iter()
+                .map(|(section, line)| ModLine {
+                    section: *section,
+                    line: (*line).to_owned(),
+                })
+                .collect(),
+            sockets: String::new(),
+            raw: String::new(),
+            corrupted: false,
+            mirrored: false,
+        }
+    }
+
+    #[test]
+    fn item_tooltip_header_shows_name_then_base_for_named_rare() {
+        // Issue #203 (slice 2): item-card hover. The user reads the
+        // name first, then needs the base type to know what mod pool
+        // applies. We mirror PoB's two-line header.
+        let item = mk_item(
+            "Doom Howl",
+            "Vaal Regalia",
+            Rarity::Rare,
+            &[(ModSection::Explicit, "+100 to maximum Life")],
+        );
+        let lines = item_tooltip_lines(&item);
+        assert_eq!(lines.first().map(String::as_str), Some("Doom Howl"));
+        assert_eq!(lines.get(1).map(String::as_str), Some("Vaal Regalia"));
+    }
+
+    #[test]
+    fn item_tooltip_header_uses_base_name_when_unnamed() {
+        // Normal / unidentified items have empty `name`; we shouldn't
+        // render a blank first line.
+        let item = mk_item(
+            "",
+            "Iron Ring",
+            Rarity::Normal,
+            &[(ModSection::Implicit, "+5 to Strength")],
+        );
+        let lines = item_tooltip_lines(&item);
+        assert_eq!(lines.first().map(String::as_str), Some("Iron Ring"));
+        // Second line shouldn't repeat the base when the header
+        // already used it.
+        assert_ne!(lines.get(1).map(String::as_str), Some("Iron Ring"));
+    }
+
+    #[test]
+    fn item_tooltip_groups_mods_by_section_in_pob_order() {
+        // PoB renders sections in fixed order regardless of paste
+        // order: Enchant, Implicit, Explicit, Fractured, Crafted,
+        // Veiled, Corrupted. Each section gets a `--- <Name> ---`
+        // divider. We verify ordering by feeding mods in *reversed*
+        // order — the formatter must reorder them.
+        let item = mk_item(
+            "Doom Howl",
+            "Vaal Regalia",
+            Rarity::Rare,
+            &[
+                (ModSection::Crafted, "+30 to maximum Mana"),
+                (ModSection::Explicit, "+100 to maximum Life"),
+                (ModSection::Implicit, "8% increased maximum Energy Shield"),
+                (ModSection::Enchant, "Increased Damage"),
+            ],
+        );
+        let lines = item_tooltip_lines(&item);
+        // Header lines come first (name + base), then sections in PoB
+        // order. Find each marker and assert ordering.
+        let pos = |needle: &str| lines.iter().position(|l| l == needle);
+        let enchant = pos("--- Enchant ---").expect("missing enchant divider");
+        let implicit = pos("--- Implicit ---").expect("missing implicit divider");
+        let explicit = pos("--- Explicit ---").expect("missing explicit divider");
+        let crafted = pos("--- Crafted ---").expect("missing crafted divider");
+        assert!(
+            enchant < implicit && implicit < explicit && explicit < crafted,
+            "section ordering wrong: enchant={enchant}, implicit={implicit}, explicit={explicit}, crafted={crafted} ({lines:?})"
+        );
+        // Each mod line appears below its section divider.
+        assert!(lines.contains(&"Increased Damage".to_owned()));
+        assert!(lines.contains(&"+100 to maximum Life".to_owned()));
+        assert!(lines.contains(&"8% increased maximum Energy Shield".to_owned()));
+        assert!(lines.contains(&"+30 to maximum Mana".to_owned()));
+    }
+
+    #[test]
+    fn item_tooltip_omits_empty_section_dividers() {
+        // A basic rare with only explicit mods shouldn't render
+        // `--- Enchant ---` blank section markers — that's just noise.
+        let item = mk_item(
+            "Boring Rare",
+            "Iron Ring",
+            Rarity::Rare,
+            &[(ModSection::Explicit, "+5 to all Attributes")],
+        );
+        let lines = item_tooltip_lines(&item);
+        assert!(
+            !lines.iter().any(|l| l == "--- Enchant ---"),
+            "spurious enchant divider in {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|l| l == "--- Implicit ---"),
+            "spurious implicit divider in {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| l == "--- Explicit ---"),
+            "missing explicit divider in {lines:?}"
+        );
+    }
+
+    #[test]
+    fn item_tooltip_surfaces_quality_and_item_level_when_set() {
+        // Quality and ilvl matter for crafting / corruption decisions.
+        // Show them only when non-zero so basic items stay tidy.
+        let mut item = mk_item(
+            "Quality Boots",
+            "Wool Shoes",
+            Rarity::Magic,
+            &[(ModSection::Explicit, "+15% Movement Speed")],
+        );
+        let plain = item_tooltip_lines(&item);
+        assert!(
+            !plain.iter().any(|l| l.starts_with("Quality:")),
+            "spurious quality line in {plain:?}"
+        );
+        assert!(
+            !plain.iter().any(|l| l.starts_with("Item Level:")),
+            "spurious ilvl line in {plain:?}"
+        );
+
+        item.quality = 20;
+        item.item_level = 84;
+        let lines = item_tooltip_lines(&item);
+        assert!(
+            lines.iter().any(|l| l == "Quality: +20%"),
+            "missing quality line in {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| l == "Item Level: 84"),
+            "missing ilvl line in {lines:?}"
+        );
+    }
+
+    #[test]
+    fn item_tooltip_corrupted_marker_appears_when_corrupted() {
+        let mut item = mk_item(
+            "Doom Howl",
+            "Vaal Regalia",
+            Rarity::Rare,
+            &[(ModSection::Explicit, "+100 to maximum Life")],
+        );
+        let plain_lines = item_tooltip_lines(&item);
+        assert!(
+            !plain_lines.iter().any(|l| l == "Corrupted"),
+            "spurious corrupted marker in {plain_lines:?}"
+        );
+        item.corrupted = true;
+        let lines = item_tooltip_lines(&item);
+        assert!(
+            lines.iter().any(|l| l == "Corrupted"),
+            "missing corrupted marker in {lines:?}"
+        );
     }
 
     #[test]
