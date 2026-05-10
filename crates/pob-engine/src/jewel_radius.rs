@@ -58,6 +58,10 @@
 //!   first per-attribute-tally radius pattern: sums in-radius
 //!   `+N Int` BASE mods, integer-divides by 3, emits `+(N/3) Life`
 //!   sourced as the jewel.
+//! - **Eldritch Knowledge** ([`HandlerKind::IntCountToIncChaosDamage`]) —
+//!   Intelligence summed across in-radius allocated nodes, integer-divided
+//!   by 10, then multiplied by 5 to produce an Inc ChaosDamage mod sourced
+//!   as the jewel.
 //! - **Spire of Stone** ([`HandlerKind::StrCountToIncTotemLife`]) — Strength
 //!   summed across in-radius allocated nodes, integer-divided by 10, then
 //!   multiplied by 3 to produce an Inc TotemLife mod sourced as the jewel.
@@ -316,6 +320,11 @@ pub enum HandlerKind {
     /// Inc Evasion. The two per-claw / per-unarmed mods on the same
     /// jewel need weapon-condition tags and follow as a future slice.
     DexCountToIncEvasion,
+    /// Issue #196: Eldritch Knowledge. `5% increased Chaos Damage per 10
+    /// Intelligence from Allocated Passives in Radius`. Sister handler to
+    /// Spire of Stone but Int-sourced and emits an Inc `ChaosDamage` mod
+    /// (floor(int_sum / 10) × 5).
+    IntCountToIncChaosDamage,
     /// Issue #196: Spire of Stone. `3% increased Totem Life per 10 Strength
     /// Allocated in Radius`. Sister handler to Pugilist / Anatomical Knowledge:
     /// sums in-radius allocated `+N Strength` BASE mods, integer-divides by
@@ -483,6 +492,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Anatomical Knowledge" => Some(build_int_count_to_life(socket_id, item)),
         "Pugilist" => Some(build_dex_count_to_inc_evasion(socket_id, item)),
         "Spire of Stone" => Some(build_str_count_to_inc_totem_life(socket_id, item)),
+        "Eldritch Knowledge" => Some(build_int_count_to_inc_chaos_damage(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -682,6 +692,19 @@ fn build_dex_count_to_inc_evasion(socket_id: NodeId, item: &Item) -> RadiusJewel
     )
 }
 
+/// Issue #196 (slice 11): Eldritch Knowledge (`5% increased Chaos Damage
+/// per 10 Intelligence from Allocated Passives in Radius`). The line is
+/// dispatch-only metadata — the in-radius Int sum × 5 / 10 is computed in
+/// the dispatch arm.
+fn build_int_count_to_inc_chaos_damage(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::IntCountToIncChaosDamage,
+        is_int_count_to_inc_chaos_damage_marker,
+    )
+}
+
 /// Issue #196 (slice 10): Spire of Stone (`3% increased Totem Life per 10
 /// Strength Allocated in Radius`). The line itself is dispatch-only metadata
 /// — the in-radius Strength sum × 3 / 10 is computed in the dispatch arm.
@@ -844,6 +867,13 @@ fn is_str_count_to_inc_totem_life_marker(line: &str) -> bool {
     l.contains("3% increased totem life")
         && l.contains("per 10 strength")
         && l.contains("in radius")
+}
+
+fn is_int_count_to_inc_chaos_damage_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("5% increased chaos damage")
+        && l.contains("per 10 intelligence")
+        && l.contains("allocated passives in radius")
 }
 
 /// Issue #196 (Pure Talent): the seven base classes whose starting locations
@@ -1182,6 +1212,29 @@ pub fn apply_radius_jewels(
                     &jewel.source_label,
                 );
                 report.mod_emissions += n;
+            }
+            HandlerKind::IntCountToIncChaosDamage => {
+                // Issue #196 (slice 11): Eldritch Knowledge. Sum
+                // allocated `+N Intelligence` BASE mods across in-
+                // radius nodes, integer-divide by 10, multiply by 5,
+                // emit a single `Inc ChaosDamage` mod sourced as the
+                // jewel.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let int_sum = sum_radius_attribute_base(tree, &in_radius, "Intelligence");
+                let inc_pct = (int_sum / 10.0).floor() * 5.0;
+                if inc_pct > 0.0 {
+                    let mod_ = crate::Mod::inc("ChaosDamage", inc_pct)
+                        .with_source(Source::Other(jewel.source_label.clone()));
+                    db.add(mod_);
+                    report.mod_emissions += 1;
+                }
             }
             HandlerKind::StrCountToIncTotemLife => {
                 // Issue #196 (slice 10): Spire of Stone. Sum allocated
@@ -2943,6 +2996,80 @@ mod tests {
                 .any(|m| matches!(m.kind, crate::ModType::Inc)
                     && (m.value.as_f64().unwrap_or(0.0) - 2.0).abs() < 1e-6),
             "expected +2% Inc Evasion (floor(8/3)), got {evasion_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 11): Eldritch Knowledge. `5% increased
+    /// Chaos Damage per 10 Intelligence from Allocated Passives in
+    /// Radius`. Sister to Spire of Stone but Int-sourced and emits
+    /// Inc ChaosDamage. Sum = 50 Int → floor(50/10) × 5 = 25% Inc
+    /// ChaosDamage.
+    #[test]
+    fn eldritch_knowledge_emits_inc_chaos_per_ten_int_in_radius() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+50 to Intelligence".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Eldritch Knowledge",
+                "Cobalt Jewel",
+                &[(
+                    "5% increased Chaos Damage per 10 Intelligence from Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Witch", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::IntCountToIncChaosDamage);
+
+        let chaos_mods = db.slice_named("ChaosDamage");
+        assert!(
+            chaos_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 25.0).abs() < 1e-6),
+            "expected +25% Inc ChaosDamage from Eldritch Knowledge, got {chaos_mods:#?}",
+        );
+    }
+
+    /// Issue #196 (slice 11): integer-divide on Int sum, then × 5.
+    /// 27 Int → floor(27/10) × 5 = 10% (not 13.5%).
+    #[test]
+    fn eldritch_knowledge_integer_divides_int_sum() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+27 to Intelligence".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Eldritch Knowledge",
+                "Cobalt Jewel",
+                &[(
+                    "5% increased Chaos Damage per 10 Intelligence from Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Witch", &mut db);
+
+        let chaos_mods = db.slice_named("ChaosDamage");
+        assert!(
+            chaos_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
+            "expected +10% Inc ChaosDamage (floor(27/10) × 5), got {chaos_mods:#?}",
         );
     }
 
