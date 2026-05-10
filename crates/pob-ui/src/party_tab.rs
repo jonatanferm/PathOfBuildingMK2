@@ -77,6 +77,7 @@ pub fn ui(
                 name: state.new_name.trim().to_owned(),
                 mod_lines: String::new(),
                 extracted_auras: Vec::new(),
+                weapon_classes: Vec::new(),
                 enabled: true,
             });
             state.import_buffers.push(String::new());
@@ -244,6 +245,46 @@ pub fn ui(
                     changed = true;
                 }
             }
+
+            // Issue #145 (slice 5): weapon classes the teammate is
+            // wielding. Auto-populated by the "Extract auras" import
+            // (see `extract_into`); editable here so users can add /
+            // remove a class for an ally whose imported items didn't
+            // round-trip. Each enabled class drives Rallying Cry's
+            // "your attacks deal X% more damage with weapon types your
+            // allies are wielding" projection — gated on the matching
+            // `Using<Class>` condition so the bonus only fires when
+            // the player's own attacks share the ally's weapon type.
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new("Wielded weapon classes (Rallying Cry)").strong());
+            ui.horizontal_wrapped(|ui| {
+                let known: &[&str] = &[
+                    "Sword",
+                    "Axe",
+                    "Mace",
+                    "Sceptre",
+                    "Bow",
+                    "Wand",
+                    "Claw",
+                    "Dagger",
+                    "Staff",
+                    "Quarterstaff",
+                ];
+                for cls in known {
+                    let mut on = member.weapon_classes.iter().any(|c| c == *cls);
+                    if ui.checkbox(&mut on, *cls).changed() {
+                        if on {
+                            if !member.weapon_classes.iter().any(|c| c == *cls) {
+                                member.weapon_classes.push((*cls).to_owned());
+                            }
+                        } else {
+                            member.weapon_classes.retain(|c| c != *cls);
+                        }
+                        changed = true;
+                    }
+                }
+            });
+            ui.add_space(6.0);
 
             ui.label("Mod lines (one per line, same syntax as Custom Modifiers / item mods):");
             let resp = ui.add(
@@ -432,6 +473,25 @@ fn extract_into(
                     effect_pct: auto_effect_pct,
                 });
                 added += 1;
+            }
+        }
+    }
+    // Issue #145 (slice 5): auto-detect the teammate's wielded weapon
+    // classes from their `Weapon1` / `Weapon2` slots. Used by Rallying
+    // Cry's "your attacks deal X% more damage with weapon types your
+    // allies are wielding" projection — each declared class on a
+    // teammate becomes a `Damage` MORE mod gated on the matching
+    // `Using<Class>` condition. Append + de-dupe so users can
+    // hand-add classes (e.g. for an ally whose imported items didn't
+    // round-trip), and re-importing doesn't double-count the same
+    // sword + sword loadout.
+    use pob_data::Slot;
+    for slot in [Slot::Weapon1, Slot::Weapon2] {
+        if let Some(item) = teammate.items.get(slot) {
+            if let Some(class) = pob_engine::canonical_weapon_class(&item.base_name) {
+                if !member.weapon_classes.iter().any(|c| c == class) {
+                    member.weapon_classes.push(class.to_owned());
+                }
             }
         }
     }

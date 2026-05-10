@@ -71,8 +71,8 @@ pub use mod_db::{ModDB, ModList, ModStore};
 pub use mod_parser::{parse_mod_line, ParsedMod};
 pub use modifier::{Mod, ModType, ModValue, Source, Tag, TagKind};
 pub use perform::{
-    compute, compute_full, compute_full_with_clusters, compute_full_with_clusters_and_timeless,
-    compute_full_with_env, ClusterContext,
+    canonical_weapon_class, compute, compute_full, compute_full_with_clusters,
+    compute_full_with_clusters_and_timeless, compute_full_with_env, ClusterContext,
 };
 pub use pob_export::{export_pob_code, export_pob_xml};
 pub use pob_import::{import_pob_code, import_pob_xml, resolve_share_url, PobImportError};

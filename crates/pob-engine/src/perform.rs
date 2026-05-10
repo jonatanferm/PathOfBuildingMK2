@@ -993,6 +993,39 @@ fn effective_items_for_compute(character: &Character) -> std::borrow::Cow<'_, po
     std::borrow::Cow::Owned(projected)
 }
 
+/// Map an item base name (e.g. `"Eternal Sword"`, `"Imperial Bow"`) to
+/// the canonical PoE weapon-class string used by `Using<Class>`
+/// conditions throughout the engine. Returns `None` for non-weapon
+/// bases (armour, jewels, accessories) so callers can cheaply skip
+/// them. Longest-match-first: `"Quarterstaff"` resolves before
+/// `"Staff"`, `"Sceptre"` before `"Mace"`. Used by
+/// [`detect_wielding_conditions`] for the player's own weapons and by
+/// the Party-tab auto-extract path to label teammate weapons for
+/// Issue #145's Rallying Cry weapon-class projection.
+pub fn canonical_weapon_class(base_name: &str) -> Option<&'static str> {
+    // Order matters: longer/more-specific tokens must come first so
+    // `"Quarterstaff"` doesn't get classified as `"Staff"` and
+    // `"Sceptre"` doesn't get classified as `"Mace"`.
+    const CLASSES: &[&str] = &[
+        "Bow",
+        "Quarterstaff",
+        "Staff",
+        "Wand",
+        "Sword",
+        "Axe",
+        "Sceptre",
+        "Mace",
+        "Claw",
+        "Dagger",
+    ];
+    for cls in CLASSES {
+        if base_name.contains(cls) {
+            return Some(*cls);
+        }
+    }
+    None
+}
+
 fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_db::EvalState) {
     use pob_data::Slot;
     let weapon1 = items.get(Slot::Weapon1);
@@ -1028,27 +1061,12 @@ fn detect_wielding_conditions(items: &pob_data::ItemSet, state: &mut crate::mod_
     // Per-weapon-type conditions ("while wielding a Bow/Staff/Sword/...") so item mods
     // gated on weapon class apply correctly. We use the base name as a heuristic — the
     // canonical PoB approach reads the base type's class from item data, but base-name
-    // matching is sufficient for the common bases.
+    // matching is sufficient for the common bases. The class string is shared with the
+    // Issue #145 Rallying Cry weapon-class projection via `canonical_weapon_class`.
     if let Some(w) = weapon1 {
         let n = &w.base_name;
-        let pairs: &[(&str, &str)] = &[
-            ("Bow", "UsingBow"),
-            ("Quarterstaff", "UsingQuarterstaff"),
-            ("Staff", "UsingStaff"),
-            ("Wand", "UsingWand"),
-            ("Sword", "UsingSword"),
-            ("Axe", "UsingAxe"),
-            ("Mace", "UsingMace"),
-            ("Sceptre", "UsingSceptre"),
-            ("Claw", "UsingClaw"),
-            ("Dagger", "UsingDagger"),
-        ];
-        // Longest-match-first: "Quarterstaff" before "Staff", "Sceptre" before "Mace".
-        for (needle, var) in pairs {
-            if n.contains(needle) {
-                state.set_condition(*var, true);
-                break;
-            }
+        if let Some(cls) = canonical_weapon_class(n) {
+            state.set_condition(format!("Using{cls}"), true);
         }
         // Melee weapon: anything not a Bow / Wand / Staff (Quarterstaff is melee in PoE2).
         let is_ranged = n.contains("Bow") || n.contains("Wand");
@@ -2551,6 +2569,64 @@ fn detect_warcries(character: &Character, skills: &SkillRegistry, env: &mut Env)
                     Mod::more("Damage", per_ally_weapon_damage)
                         .with_source(Source::Other(format!("Party:{}:RallyingCry", member.name))),
                 );
+            }
+
+            // Issue #145 (slice 5): Rallying Cry's "your attacks deal
+            // X% more damage with weapon types your allies are
+            // wielding" projection back to the PLAYER. Per the PoB
+            // tooltip + the issue #145 status comment, this is the
+            // half of Rallying Cry that mirrors the per-ally weapon
+            // damage MORE onto the player when the player is using a
+            // weapon class that one of their allies also wields. Each
+            // declared `weapon_classes` entry on an enabled party
+            // member contributes a `Damage` MORE mod tagged with
+            // `Using<Class>` — so the bonus is gated on the player's
+            // own wielded weapon (set by `detect_wielding_conditions`).
+            // Stacks across allies: 3 allies wielding swords + the
+            // player wielding a sword = 3 × per_ally MORE swords.
+            //
+            // The mod is sourced as
+            // `Party:<member>:RallyingCry:<class>` so the Calcs-tab
+            // breakdown can attribute the bonus back to the specific
+            // teammate + weapon class that's contributing.
+            let mut projected_classes: u32 = 0;
+            let mut projected_total: f64 = 0.0;
+            for member in &character.party_members {
+                if !member.enabled {
+                    continue;
+                }
+                for raw_class in &member.weapon_classes {
+                    let class = raw_class.trim();
+                    if class.is_empty() {
+                        continue;
+                    }
+                    let condition_var = format!("Using{class}");
+                    env.mod_db.add(
+                        Mod::more("Damage", per_ally_weapon_damage)
+                            .with_tag(crate::modifier::Tag::condition(condition_var.clone()))
+                            .with_source(Source::Other(format!(
+                                "Party:{}:RallyingCry:{}",
+                                member.name, class
+                            ))),
+                    );
+                    projected_classes += 1;
+                    // Surface the matched-class envelope only when the
+                    // player's own wielded weapon class matches the
+                    // ally's. `detect_wielding_conditions` runs before
+                    // `detect_warcries`, so `env.state.condition(...)`
+                    // is the right read.
+                    if env.state.condition(&condition_var) {
+                        projected_total += per_ally_weapon_damage;
+                    }
+                }
+            }
+            if projected_classes > 0 {
+                env.output.set(
+                    "RallyingCryAllyWeaponClassesProjected",
+                    f64::from(projected_classes),
+                );
+                env.output
+                    .set("RallyingCryAllyWeaponDamageMatched", projected_total);
             }
         }
     }
@@ -5104,6 +5180,52 @@ Skinning Knife
             mods_a, mods_default,
             "no explicit selection should fall back to the first mastery effect"
         );
+    }
+
+    // Issue #145 (slice 5): `canonical_weapon_class` is shared between
+    // the player's `detect_wielding_conditions` and the Party-tab
+    // auto-extract path. Both rely on longest-match-first semantics so
+    // `"Quarterstaff"` resolves before `"Staff"` and `"Sceptre"`
+    // before `"Mace"`. Lock that down with explicit assertions so any
+    // future reordering of the list trips this test.
+    #[test]
+    fn canonical_weapon_class_resolves_each_class() {
+        for (base_name, expected) in [
+            ("Eternal Sword", "Sword"),
+            ("Imperial Bow", "Bow"),
+            ("Imperial Staff", "Staff"),
+            ("Vile Quarterstaff", "Quarterstaff"),
+            ("Wraith Mace", "Mace"),
+            ("Imperial Sceptre", "Sceptre"),
+            ("Demon Dagger", "Dagger"),
+            ("Imbued Wand", "Wand"),
+            ("Tiger Hook Claw", "Claw"),
+            ("Royal Axe", "Axe"),
+        ] {
+            let got = super::canonical_weapon_class(base_name);
+            assert_eq!(
+                got,
+                Some(expected),
+                "canonical_weapon_class({base_name}) should be {expected}; got {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_weapon_class_rejects_non_weapon_bases() {
+        for base_name in [
+            "Iron Ring",
+            "Leather Belt",
+            "Hubris Circlet",
+            "Crusader Boots",
+            "Cobalt Jewel",
+        ] {
+            let got = super::canonical_weapon_class(base_name);
+            assert!(
+                got.is_none(),
+                "canonical_weapon_class({base_name}) should reject non-weapon bases; got {got:?}"
+            );
+        }
     }
 
     fn build_env_for_perform(character: &Character, tree: &PassiveTree) -> Env {

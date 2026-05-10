@@ -108,6 +108,19 @@ pub struct PartyMember {
     /// even after the source code is forgotten.
     #[serde(default)]
     pub extracted_auras: Vec<ExtractedAura>,
+    /// Issue #145 (slice 5): canonical weapon-class strings for each
+    /// weapon this teammate wields (e.g. `"Sword"`, `"Bow"`,
+    /// `"Quarterstaff"`). Populated either by hand from the Party
+    /// tab or auto-detected from the imported teammate's `Weapon1` /
+    /// `Weapon2` slot when the user pastes their PoB code. Drives
+    /// Rallying Cry's "your attacks deal X% more damage with weapon
+    /// types your allies are wielding" projection: each enabled class
+    /// yields a `Damage` MORE mod tagged with `Using<Class>` so the
+    /// bonus only applies when the player's own attacks share the
+    /// ally's weapon class. Empty by default so existing saves load
+    /// unchanged.
+    #[serde(default)]
+    pub weapon_classes: Vec<String>,
     /// Toggle to A/B with vs. without this teammate's contribution.
     /// Default true so adding a member immediately applies their
     /// buffs.

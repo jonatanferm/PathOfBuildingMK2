@@ -875,6 +875,13 @@ mod tests {
             // Issue #145 (slice 1): Rallying Cry ally weapon-damage projection.
             "RallyingCryAllyWeaponDamageBonus",
             "RallyingCryAllyWeaponDamageTotal",
+            // Issue #145 (slice 5): Rallying Cry ally weapon-class
+            // projection back to the player. `Projected` is the count
+            // of (ally × weapon-class) pairs the cry generated mods
+            // for; `Matched` is the total MORE Damage% the player's
+            // currently-wielded weapon class actually picks up.
+            "RallyingCryAllyWeaponClassesProjected",
+            "RallyingCryAllyWeaponDamageMatched",
             // Issue #145 (slice 3): Infernal Cry phys-as-fire.
             "InfernalCryGainAsFireBonus",
             // Issue #145 (slice 4): General's Cry mirage envelope.
