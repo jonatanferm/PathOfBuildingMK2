@@ -345,6 +345,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "LifeRegen" => Some(life_regen(env)),
         "ManaRegen" => Some(mana_regen(env)),
         "EnergyShieldRegen" => energy_shield_regen(env),
+        "EnergyShieldRecharge" => energy_shield_recharge(env),
 
         _ => None,
     }
@@ -427,6 +428,12 @@ pub const COVERED_KEYS: &[&str] = &[
     "LifeRegen",
     "ManaRegen",
     "EnergyShieldRegen",
+    // EnergyShieldRecharge is intentionally absent here — the breakdown
+    // returns `None` when EnergyShield = 0, and this fixture pins a
+    // pure-Life build (the EHP-pool tests assert against
+    // Life + Ward = 1100). Adding ES to the fixture for the COVERED_KEYS
+    // guard would shift those EHP totals and break unrelated tests; the
+    // recharge breakdown itself has dedicated tests below.
 ];
 
 // --- Damage ---------------------------------------------------------
@@ -2489,6 +2496,71 @@ fn energy_shield_regen(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `EnergyShieldRecharge`. Mirrors
+/// `perform_basic_stats`:
+///
+///   recharge = EnergyShield × 0.33 × (1 + Σ INC(EnergyShieldRecharge) / 100)
+///
+/// 33% per second of the player's ES pool is the PoE constant once
+/// the recharge delay (default 2s, modified by Faster Start of Energy
+/// Shield Recharge mods on a separate stat) elapses. Surfaced steps:
+/// baseline (33% × ES), INC scaling (only when non-zero), and the
+/// final per-second rate.
+///
+/// Returns `None` when the player has no ES pool — the panel falls
+/// back to the generic contributing-modifiers view rather than
+/// rendering a `0/sec` row with no context.
+fn energy_shield_recharge(env: &Env) -> Option<Breakdown> {
+    let es = env.output.get("EnergyShield");
+    if es.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let inc_total = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "EnergyShieldRecharge");
+    let baseline = es * 0.33;
+    let total = env.output.get("EnergyShieldRecharge");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Baseline")
+            .with_value(baseline)
+            .with_explain(format!(
+                "33% × {es:.0} ES = {baseline:.1}/sec (PoE constant)"
+            )),
+    );
+
+    if inc_total.abs() > 1e-9 {
+        let inc_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("EnergyShieldRecharge")
+            .filter(|m| m.kind == ModType::Inc)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Increased")
+                .with_value(1.0 + inc_total / 100.0)
+                .with_explain(format!("{inc_total:+.0}% sum"))
+                .with_sources(inc_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Energy shield recharge")
+            .with_value(total)
+            .with_explain(format!(
+                "{baseline:.1} × (1 + {inc_total:.0}%) = {total:.1}/sec"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "EnergyShieldRecharge".to_owned(),
+        total,
+        steps,
+    })
+}
+
 fn source_label(s: Option<&Source>) -> String {
     match s {
         Some(Source::Tree) => "tree".into(),
@@ -4359,6 +4431,59 @@ mod tests {
         );
 
         assert_eq!(bd.total, 94.0);
+    }
+
+    /// Issue #34 follow-up: EnergyShieldRecharge breakdown. ES
+    /// recharge is `EnergyShield × 0.33 × (1 + Σ INC(EnergyShieldRecharge) / 100)`.
+    /// Baseline-only case: 1000 ES × 0.33 = 330/sec, no INC mods.
+    #[test]
+    fn es_recharge_breakdown_baseline_only() {
+        let mut env = Env::default();
+        env.output.set("EnergyShield", 1000.0);
+        env.output.set("EnergyShieldRecharge", 330.0);
+        let bd = derive_for(&env, "EnergyShieldRecharge").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Baseline"));
+        assert!(!labels.contains(&"Increased"));
+        assert!(labels.contains(&"Energy shield recharge"));
+
+        let baseline = bd.steps.iter().find(|s| s.label == "Baseline").unwrap();
+        // 33% × 1000 = 330.
+        assert!((baseline.value.unwrap() - 330.0).abs() < 1e-6);
+        assert!((bd.total - 330.0).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: EnergyShieldRecharge with INC mods —
+    /// 500 ES × 0.33 × (1 + 50%) = 247.5/sec. Inc step appears with
+    /// the 1.5 multiplier value.
+    #[test]
+    fn es_recharge_breakdown_chains_baseline_and_inc() {
+        let mut env = Env::default();
+        env.output.set("EnergyShield", 500.0);
+        env.mod_db
+            .add(Mod::inc("EnergyShieldRecharge", 50.0).with_source(Source::Tree));
+        env.output.set("EnergyShieldRecharge", 247.5);
+        let bd = derive_for(&env, "EnergyShieldRecharge").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Baseline"));
+        assert!(labels.contains(&"Increased"));
+        assert!(labels.contains(&"Energy shield recharge"));
+        assert!(
+            (bd.total - 247.5).abs() < 1e-6,
+            "expected 247.5/sec (165 × 1.5), got {}",
+            bd.total
+        );
+    }
+
+    /// Issue #34 follow-up: EnergyShieldRecharge with no ES pool
+    /// returns None — there's nothing for the breakdown to display.
+    #[test]
+    fn es_recharge_breakdown_skipped_when_no_pool() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "EnergyShieldRecharge").is_none(),
+            "expected None when EnergyShield is zero",
+        );
     }
 
     /// Issue #34 follow-up: EnergyShieldRegen breakdown. ES regen
