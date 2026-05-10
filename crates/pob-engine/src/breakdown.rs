@@ -278,6 +278,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // the player's `ManaCost` Inc/Reduce mods. Spell builds tuning
         // Lifetap / mana-efficiency want this surfaced.
         "MainSkillManaCost" => Some(main_skill_mana_cost(env)),
+        "ManaPerSecondCost" => Some(mana_per_second_cost(env)),
 
         // With{Ailment}DPS sums — `MainSkillDPS + <ailment>DPS`. One
         // helper handles all four; the ailment label / source key
@@ -332,6 +333,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "MainSkillAverageHitAfterAccuracy",
     // Spell-resource cost.
     "MainSkillManaCost",
+    "ManaPerSecondCost",
     // With-ailment DPS rollups.
     "WithBleedDPS",
     "WithPoisonDPS",
@@ -1653,6 +1655,39 @@ fn with_ailment_dps(
     }
 }
 
+/// Issue #34 follow-up: re-derive `ManaPerSecondCost`. PoB:
+/// `mana_cost × cps` (perform.rs:4445). Two contributors — per-cast
+/// cost and cast/swing rate. Spell builds tuning sustain want to
+/// see whether their mana burn is driven by the cost or the speed.
+fn mana_per_second_cost(env: &Env) -> Breakdown {
+    let cost = env.output.get("MainSkillManaCost");
+    let speed = env.output.get("MainSkillSpeed");
+    let total = env.output.get("ManaPerSecondCost");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Mana cost")
+            .with_value(cost)
+            .with_explain(format!("{cost:.0} per cast (see MainSkillManaCost)")),
+    );
+    steps.push(
+        BreakdownStep::label("Casts per second")
+            .with_value(speed)
+            .with_explain(format!("{speed:.2} cps from MainSkillSpeed")),
+    );
+    steps.push(
+        BreakdownStep::label("ManaPerSecondCost")
+            .with_value(total)
+            .with_explain(format!("{cost:.0} × {speed:.2} = {total:.1}")),
+    );
+
+    Breakdown {
+        output_key: "ManaPerSecondCost".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `MainSkillManaCost`. PoB:
 ///
 ///   cost = base × (1 + ManaCost Inc / 100)
@@ -2264,6 +2299,10 @@ mod tests {
         env.output.set("MainSkillManaCost", 12.0);
         env.mod_db
             .add(Mod::inc("ManaCost", -25.0).with_source(Source::Tree));
+        // Issue #34 follow-up: ManaPerSecondCost = mana_cost × cps.
+        // 12 × 5 = 60 with the existing MainSkillManaCost = 12 and
+        // MainSkillSpeed = 5.0 already in the fixture.
+        env.output.set("ManaPerSecondCost", 60.0);
         // Pool outputs + their attribute drivers so the Life / Mana
         // breakdowns have something to walk. The numbers track a
         // representative L90 character: 1100 Life from 50 base + 12×89
@@ -3104,6 +3143,37 @@ mod tests {
         );
 
         assert_eq!(bd.total, 2161.0);
+    }
+
+    /// Issue #34 follow-up: `ManaPerSecondCost` = mana_cost × cps.
+    /// Spell builds tuning sustain want to see whether their mana
+    /// burn is driven by per-cast cost or by cast speed — the
+    /// breakdown surfaces both contributors.
+    #[test]
+    fn mana_per_second_cost_breakdown_walks_cost_and_cps() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "ManaPerSecondCost").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Mana cost"),
+            "missing Mana cost: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Casts per second"),
+            "missing cps: {labels:?}"
+        );
+
+        let cost = bd.steps.iter().find(|s| s.label == "Mana cost").unwrap();
+        assert_eq!(cost.value, Some(12.0));
+
+        let cps = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Casts per second")
+            .unwrap();
+        assert_eq!(cps.value, Some(5.0));
+
+        assert_eq!(bd.total, 60.0);
     }
 
     /// Issue #34 follow-up: `MainSkillManaCost` walks
