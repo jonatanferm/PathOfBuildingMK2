@@ -178,6 +178,11 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // PoB's `armour / (armour + 12 × baseline)` formula and the
         // 90% hard cap.
         "PhysicalDamageReduction" => Some(physical_damage_reduction(env)),
+        // Effective HP per damage type — pool / damage-taken-multiplier.
+        // Phys folds in armour-derived reduction + block; the elemental
+        // / chaos breakdowns will follow as their own slices since the
+        // multiplier composition differs (resist + suppression).
+        "PhysicalEHP" => Some(physical_ehp(env)),
         "Evasion" => Some(pool_basic(env, "Evasion")),
         "Ward" => Some(pool_basic(env, "Ward")),
 
@@ -321,6 +326,8 @@ pub const COVERED_KEYS: &[&str] = &[
     "EnergyShield",
     "Armour",
     "PhysicalDamageReduction",
+    // Effective HP — physical layer first; elemental / chaos to follow.
+    "PhysicalEHP",
     "Evasion",
     "Ward",
     // Resists.
@@ -1270,6 +1277,68 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `PhysicalEHP`. PoB:
+///
+///   pool = Life + EnergyShield + Ward
+///   phys_taken = (1 - PhysicalDamageReduction/100) × (1 - BlockChance/100)
+///   PhysicalEHP = pool / max(phys_taken, 0.05)
+///
+/// from `perform.rs:4646-4692`. Surfaces the pool, the two
+/// multiplicative defensive factors, and the final reading. The
+/// 5% floor on `phys_taken` (preventing infinite EHP from
+/// extreme stacking) is documented in the explain text on the
+/// final step when it kicks in.
+fn physical_ehp(env: &Env) -> Breakdown {
+    let life = env.output.get("Life");
+    let es = env.output.get("EnergyShield");
+    let ward = env.output.get("Ward");
+    let pool = (life + es + ward).max(1.0);
+    let phys_red_pct = env.output.get("PhysicalDamageReduction");
+    let block_pct = env.output.get("BlockChance");
+    let phys_red_factor = (1.0 - phys_red_pct / 100.0).max(0.0);
+    let block_factor = (1.0 - block_pct / 100.0).max(0.0);
+    let raw_taken = phys_red_factor * block_factor;
+    let taken = raw_taken.max(0.05);
+    let total = env.output.get("PhysicalEHP");
+    let floored = (raw_taken - 0.05).abs() < 1e-9 || raw_taken < 0.05;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Pool")
+            .with_value(pool)
+            .with_explain(format!(
+                "Life {life:.0} + EnergyShield {es:.0} + Ward {ward:.0} = {pool:.0}"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Physical reduction")
+            .with_value(phys_red_factor)
+            .with_explain(format!(
+                "1 - {phys_red_pct:.0}% / 100 = {phys_red_factor:.4}"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Block")
+            .with_value(block_factor)
+            .with_explain(format!("1 - {block_pct:.0}% / 100 = {block_factor:.3}")),
+    );
+    steps.push(
+        BreakdownStep::label("PhysicalEHP")
+            .with_value(total)
+            .with_explain(if floored {
+                format!("{pool:.0} / max({raw_taken:.4}, 0.05) = {total:.0} (5% floor active)")
+            } else {
+                format!("{pool:.0} / {taken:.4} = {total:.0}")
+            }),
+    );
+
+    Breakdown {
+        output_key: "PhysicalEHP".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `PhysicalDamageReduction`. PoB:
 ///
 ///   raw = armour / (armour + 12 × baseline_phys)
@@ -2048,6 +2117,12 @@ mod tests {
         // capped at 90%. With Armour = 4500 against PoB's 1000-pt baseline:
         // 4500 / (4500 + 12000) ≈ 27.27%.
         env.output.set("PhysicalDamageReduction", 27.27);
+        // Issue #34 follow-up: PhysicalEHP breakdown reads pool (Life
+        // + ES + Ward) and the damage-taken multiplier components.
+        // pool = 1100 (Life) + 0 (ES, unset) + 0 (Ward)
+        // phys_taken = (1 - 0.2727) × (1 - 0.30) ≈ 0.5091
+        // PhysicalEHP = 1100 / 0.5091 ≈ 2161
+        env.output.set("PhysicalEHP", 2161.0);
         env.mod_db
             .add(Mod::base("Armour", 1500.0).with_source(Source::Item(2)));
         env.mod_db
@@ -2626,6 +2701,48 @@ mod tests {
             final_step.explain
         );
         assert_eq!(bd.total, 90.0);
+    }
+
+    /// Issue #34 follow-up: `PhysicalEHP` shows pool and the
+    /// physical-damage-taken multiplier components — the
+    /// 1-stop-shop for "how much physical damage can I eat".
+    #[test]
+    fn physical_ehp_breakdown_walks_pool_phys_red_block_to_total() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "PhysicalEHP").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Pool"), "missing Pool step: {labels:?}");
+        assert!(
+            labels.contains(&"Physical reduction"),
+            "missing phys-red step: {labels:?}"
+        );
+        assert!(labels.contains(&"Block"), "missing Block step: {labels:?}");
+
+        let pool = bd.steps.iter().find(|s| s.label == "Pool").unwrap();
+        // Life=1100 + ES=0 + Ward=0 = 1100.
+        assert_eq!(pool.value, Some(1100.0));
+
+        // Phys-red factor = 1 - 0.2727 ≈ 0.7273
+        let red = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Physical reduction")
+            .unwrap();
+        assert!(
+            (red.value.unwrap_or(0.0) - 0.7273).abs() < 0.001,
+            "expected phys-red factor ~0.7273; got {:?}",
+            red.value
+        );
+
+        // Block factor = 1 - 0.3 = 0.7
+        let block = bd.steps.iter().find(|s| s.label == "Block").unwrap();
+        assert!(
+            (block.value.unwrap_or(0.0) - 0.7).abs() < 1e-6,
+            "expected block factor 0.7; got {:?}",
+            block.value
+        );
+
+        assert_eq!(bd.total, 2161.0);
     }
 
     /// Issue #34 follow-up: `MainSkillManaCost` walks
