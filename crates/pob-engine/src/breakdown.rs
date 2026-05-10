@@ -225,6 +225,9 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // Survival time in seconds against the same Pinnacle Boss
         // preset — `hits_to_die × enemySkillTime`.
         "EHPSurvivalTime" => Some(ehp_survival_time(env)),
+        // Headline defensive number — folds the Pinnacle Boss's mixed
+        // damage profile into a single value.
+        "TotalEHP" => Some(total_ehp(env)),
         // Poison DPS: per-stack × steady-state stack count. Per-stack
         // back-derived from the stored outputs since the perform pass
         // doesn't expose it directly.
@@ -399,6 +402,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "MinimumEHP",
     "NumberOfDamagingHits",
     "EHPSurvivalTime",
+    "TotalEHP",
     "PoisonDPS",
     "BleedDPS",
     "IgniteDPS",
@@ -1433,6 +1437,42 @@ fn poison_dps(env: &Env) -> Breakdown {
 
     Breakdown {
         output_key: "PoisonDPS".to_owned(),
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: re-derive `TotalEHP`. PoB:
+/// `NumberOfDamagingHits × totalEnemyDamageIn` (perform.rs:1440).
+/// PoB's headline defensive number — folds the Pinnacle Boss's
+/// mixed-element damage profile into a single value. Distinct from
+/// per-element EHP; usable as the build's "how tanky am I" reading.
+fn total_ehp(env: &Env) -> Breakdown {
+    let hits = env.output.get("NumberOfDamagingHits");
+    let damage_in = env.output.get("totalEnemyDamageIn");
+    let total = env.output.get("TotalEHP");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Hits to die")
+            .with_value(hits)
+            .with_explain(format!("{hits:.2} (see NumberOfDamagingHits)")),
+    );
+    steps.push(
+        BreakdownStep::label("Boss damage per hit")
+            .with_value(damage_in)
+            .with_explain(format!(
+                "{damage_in:.0} from PoB's standard Pinnacle Boss preset (4 elements + chaos)"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("TotalEHP")
+            .with_value(total)
+            .with_explain(format!("{hits:.2} × {damage_in:.0} = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: "TotalEHP".to_owned(),
         total,
         steps,
     }
@@ -2522,6 +2562,12 @@ mod tests {
         // Pinnacle Boss tick rate. 4 hits × 0.7s = 2.8s of survival.
         env.output.set("enemySkillTime", 0.7);
         env.output.set("EHPSurvivalTime", 2.8);
+        // Issue #34 follow-up: TotalEHP = hits_to_die × totalEnemyDamageIn.
+        // 4 × 1500 = 6000. The 1500 mirrors PoB's standard Pinnacle
+        // Boss preset (4 elements × 333 base + chaos at 133 ≈ 1465)
+        // rounded to a clean fixture value.
+        env.output.set("totalEnemyDamageIn", 1500.0);
+        env.output.set("TotalEHP", 6000.0);
         // Pool outputs + their attribute drivers so the Life / Mana
         // breakdowns have something to walk. The numbers track a
         // representative L90 character: 1100 Life from 50 base + 12×89
@@ -3492,6 +3538,37 @@ mod tests {
             .find(|s| s.label == "Per-stack damage")
             .unwrap();
         assert_eq!(per_stack.value, Some(0.0));
+    }
+
+    /// Issue #34 follow-up: `TotalEHP` is PoB's headline defensive
+    /// number — `hits_to_die × totalEnemyDamageIn`. Distinct from
+    /// per-element EHP because it folds the Pinnacle Boss's mixed
+    /// damage profile into a single number. Two-component breakdown.
+    #[test]
+    fn total_ehp_breakdown_walks_hits_and_damage_in() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "TotalEHP").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Hits to die"),
+            "missing hits step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Boss damage per hit"),
+            "missing damage-in step: {labels:?}"
+        );
+
+        let hits = bd.steps.iter().find(|s| s.label == "Hits to die").unwrap();
+        assert_eq!(hits.value, Some(4.0));
+
+        let damage_in = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Boss damage per hit")
+            .unwrap();
+        assert_eq!(damage_in.value, Some(1500.0));
+
+        assert_eq!(bd.total, 6000.0);
     }
 
     /// Issue #34 follow-up: `EHPSurvivalTime` answers "how many
