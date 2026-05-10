@@ -54,6 +54,10 @@
 //! - **Energised Armour** ([`HandlerKind::EnergyShieldToArmourTransform`])
 //!   — transforms each in-radius `Inc EnergyShield` into `Inc Armour`
 //!   at 2× scale. Mirror of Healthy Mind's Life→Mana@2× pattern.
+//! - **Fireborn** ([`HandlerKind::OtherDamageToFireTransform`]) — every
+//!   non-Fire damage type's Inc on in-radius allocated nodes
+//!   (Phys / Cold / Lightning / Chaos) is additively re-emitted as Inc
+//!   FireDamage at 1× scale.
 //! - **Cold Steel** ([`HandlerKind::PhysColdSwapTransform`]) — Phys ↔
 //!   Cold Inc double-transform applied additively (each in-radius
 //!   node contributes to both damage types).
@@ -320,6 +324,12 @@ pub enum HandlerKind {
     /// originals stay), so each in-radius node ends up
     /// contributing to both damage types.
     PhysColdSwapTransform,
+    /// Issue #196 (slice 15): Fireborn. `Increases and Reductions to other
+    /// Damage Types in Radius are Transformed to apply to Fire Damage`. Same
+    /// shape as [`Self::PhysColdSwapTransform`] but with four source
+    /// directions (Phys / Cold / Lightning / Chaos) all rolling additively
+    /// into Inc FireDamage at 1× scale.
+    OtherDamageToFireTransform,
     /// Issue #196 (slice 8): Anatomical Knowledge. `Adds 1 to Maximum
     /// Life per 3 Intelligence Allocated in Radius`. Sums in-radius
     /// `+N Int` BASE mods, integer-divides by 3, emits a single
@@ -510,6 +520,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Efficient Training" => Some(build_int_to_str(socket_id, item)),
         "Energised Armour" => Some(build_energy_shield_to_armour(socket_id, item)),
         "Cold Steel" => Some(build_phys_cold_swap(socket_id, item)),
+        "Fireborn" => Some(build_other_damage_to_fire(socket_id, item)),
         "Anatomical Knowledge" => Some(build_int_count_to_life(socket_id, item)),
         "Pugilist" => Some(build_dex_count_to_inc_evasion(socket_id, item)),
         "Spire of Stone" => Some(build_str_count_to_inc_totem_life(socket_id, item)),
@@ -689,6 +700,18 @@ fn build_energy_shield_to_armour(socket_id: NodeId, item: &Item) -> RadiusJewel 
 /// transform direction) are dispatch metadata; the predicate matches
 /// either so the jewel's non-transform mods (none currently rolled,
 /// but defended-in-depth) still flow through the global emission.
+/// Issue #196 (slice 15): Fireborn. The marker line is dispatch-only metadata
+/// — the radius scan adds an Inc FireDamage emission per (in-radius node,
+/// non-Fire damage type) pair.
+fn build_other_damage_to_fire(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    build_transformer(
+        socket_id,
+        item,
+        HandlerKind::OtherDamageToFireTransform,
+        is_other_damage_to_fire_marker,
+    )
+}
+
 fn build_phys_cold_swap(socket_id: NodeId, item: &Item) -> RadiusJewel {
     build_transformer(
         socket_id,
@@ -899,6 +922,12 @@ fn is_phys_cold_swap_marker(line: &str) -> bool {
         && l.contains("to apply to cold damage"))
         || (l.contains("increases and reductions to cold damage in radius")
             && l.contains("to apply to physical damage"))
+}
+
+fn is_other_damage_to_fire_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("increases and reductions to other damage types in radius")
+        && l.contains("to apply to fire damage")
 }
 
 fn is_int_count_to_life_marker(line: &str) -> bool {
@@ -1447,6 +1476,40 @@ pub fn apply_radius_jewels(
                         .with_source(Source::Other(jewel.source_label.clone()));
                     db.add(mod_);
                     report.mod_emissions += 1;
+                }
+            }
+            HandlerKind::OtherDamageToFireTransform => {
+                // Issue #196 (slice 15): Fireborn. Same shape as
+                // Cold Steel but four source directions all rolling
+                // additively into Inc FireDamage. The original mods
+                // stay (Inc transforms have no counter), so each
+                // in-radius node ends up contributing to both its
+                // original element and Fire.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                for from in [
+                    "PhysicalDamage",
+                    "ColdDamage",
+                    "LightningDamage",
+                    "ChaosDamage",
+                ] {
+                    let n = transform_radius_attribute(
+                        tree,
+                        db,
+                        &in_radius,
+                        from,
+                        "FireDamage",
+                        crate::ModType::Inc,
+                        1.0,
+                        &jewel.source_label,
+                    );
+                    report.mod_emissions += n;
                 }
             }
             HandlerKind::PhysColdSwapTransform => {
@@ -2958,6 +3021,94 @@ mod tests {
         assert!(connected.contains("Marauder"));
         assert!(connected.contains("Witch"));
         assert_eq!(connected.len(), 2);
+    }
+
+    /// Issue #196 (slice 15): Fireborn — `Increases and Reductions
+    /// to other Damage Types in Radius are Transformed to apply to
+    /// Fire Damage`. Same shape as Cold Steel but four source
+    /// directions (Phys / Cold / Lightning / Chaos) all rolling into
+    /// Fire at 1× scale, additively. Each in-radius node's Inc on
+    /// any non-Fire damage type contributes to Inc Fire.
+    #[test]
+    fn fireborn_transforms_other_damage_inc_to_fire() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec![
+            "20% increased Physical Damage".into(),
+            "15% increased Cold Damage".into(),
+            "10% increased Lightning Damage".into(),
+            "5% increased Chaos Damage".into(),
+        ];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Fireborn",
+                "Crimson Jewel",
+                &[(
+                    "Increases and Reductions to other Damage Types in Radius are Transformed to apply to Fire Damage",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::OtherDamageToFireTransform);
+
+        let fire_mods = db.slice_named("FireDamage");
+        for (src_value, src_label) in [
+            (20.0, "Phys"),
+            (15.0, "Cold"),
+            (10.0, "Lightning"),
+            (5.0, "Chaos"),
+        ] {
+            assert!(
+                fire_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 2)
+                    && (m.value.as_f64().unwrap_or(0.0) - src_value).abs() < 1e-6),
+                "expected +{src_value}% Inc Fire sourced from Passive(2) (from {src_label}), got {fire_mods:#?}",
+            );
+        }
+    }
+
+    /// Issue #196 (slice 15): Fireborn out-of-radius node (3 in
+    /// `mk_tree`) carrying Inc Phys must not be transformed.
+    #[test]
+    fn fireborn_does_not_transform_out_of_radius_nodes() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec![];
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["20% increased Physical Damage".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Fireborn",
+                "Crimson Jewel",
+                &[(
+                    "Increases and Reductions to other Damage Types in Radius are Transformed to apply to Fire Damage",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+
+        let fire_mods = db.slice_named("FireDamage");
+        assert!(
+            !fire_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && matches!(&m.source, Some(Source::Passive(id)) if *id == 3)),
+            "out-of-radius Inc Phys must not be transformed, got {fire_mods:#?}",
+        );
     }
 
     /// Issue #196 (slice 7): Cold Steel — Phys ↔ Cold Inc
