@@ -534,10 +534,21 @@ pub fn ui(
                     } else {
                         egui::RichText::new(&label).weak().strikethrough()
                     };
-                    if ui
-                        .selectable_label(state.selected_gem == idx, label_text)
-                        .clicked()
-                    {
+                    let resp = ui.selectable_label(state.selected_gem == idx, label_text);
+                    let resp = if let Some(meta) = skill_meta {
+                        // Issue #203 (slice 1): rich gem hover tooltip.
+                        // The lines vec is built every hover frame —
+                        // cheap (a few formats) and avoids caching.
+                        let tip_lines = gem_tooltip_lines(meta, gem.level, gem.quality);
+                        resp.on_hover_ui(|ui| {
+                            for line in &tip_lines {
+                                ui.label(line);
+                            }
+                        })
+                    } else {
+                        resp
+                    };
+                    if resp.clicked() {
                         state.selected_gem = idx;
                     }
                     if ui
@@ -829,6 +840,47 @@ pub fn ui(
     changed
 }
 
+/// Issue #203: build the body of the gem hover tooltip in the Skills
+/// tab. Mirrors PoB's `Tooltip:AddLine` calls from `SkillsTab.lua` —
+/// the header echoes the row label, then resource cost / cooldown /
+/// cast time / damage effectiveness / reservation if any, then the
+/// gem's tag chips, finishing with active-vs-support classification.
+/// Each entry is one rendered line; an empty string means "spacer".
+pub fn gem_tooltip_lines(skill: &Skill, level: u32, quality: u32) -> Vec<String> {
+    let mut out = Vec::new();
+    out.push(format!(
+        "{} (Level {level}, {quality}% quality)",
+        skill.name
+    ));
+    out.push(if skill.support {
+        "Support gem".into()
+    } else {
+        "Active skill gem".into()
+    });
+    let mana = skill.cost(level, "Mana");
+    if mana > 0.0 {
+        out.push(format!("Mana cost: {}", mana as i64));
+    }
+    let life = skill.cost(level, "Life");
+    if life > 0.0 {
+        out.push(format!("Life cost: {}", life as i64));
+    }
+    if let Some(cd) = skill.cooldown(level) {
+        out.push(format!("Cooldown: {cd:.2}s"));
+    }
+    let mut tags: Vec<&str> = skill
+        .base_flags
+        .iter()
+        .filter(|(_, v)| **v)
+        .map(|(k, _)| k.as_str())
+        .collect();
+    tags.sort_unstable();
+    if !tags.is_empty() {
+        out.push(format!("Tags: {}", tags.join(", ")));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -941,6 +993,115 @@ mod tests {
         assert!(!passes_filters("Removed_Skill", &removed, &state, ""));
         state.hide_legacy = false;
         assert!(passes_filters("Removed_Skill", &removed, &state, ""));
+    }
+
+    #[test]
+    fn gem_tooltip_first_line_shows_name_level_quality() {
+        // Issue #203: rich gem tooltips. The header line is what the
+        // user reads first — it should mirror the row label so the
+        // hover doesn't feel disjointed from the click target.
+        let arc = mk_skill(
+            "Arc",
+            3,
+            &["spell"],
+            &["spell_lightning_base_damage"],
+            false,
+        );
+        let lines = gem_tooltip_lines(&arc, 20, 23);
+        assert!(
+            lines.first().map(String::as_str) == Some("Arc (Level 20, 23% quality)"),
+            "first line was {:?}",
+            lines.first()
+        );
+    }
+
+    #[test]
+    fn gem_tooltip_classifies_active_vs_support() {
+        // Knowing whether you're hovering a support or active gem is
+        // the most actionable bit — supports without an active above
+        // them in the link group do nothing, and the user fishing a
+        // gem out of the catalog tooltip needs to see this immediately.
+        let active = mk_skill("Arc", 3, &["spell"], &[], false);
+        let support = mk_skill("Added Cold Damage", 2, &[], &[], true);
+        let active_lines = gem_tooltip_lines(&active, 1, 0);
+        let support_lines = gem_tooltip_lines(&support, 1, 0);
+        assert!(
+            active_lines.iter().any(|l| l == "Active skill gem"),
+            "missing active marker: {active_lines:?}"
+        );
+        assert!(
+            support_lines.iter().any(|l| l == "Support gem"),
+            "missing support marker: {support_lines:?}"
+        );
+    }
+
+    #[test]
+    fn gem_tooltip_surfaces_mana_cost_when_present() {
+        // Mana cost is read off the level entry's `cost.Mana` field.
+        // We render it whole (no decimals) since PoB writes integer
+        // costs in the data files for active spells.
+        let mut arc = mk_skill("Arc", 3, &["spell"], &[], false);
+        arc.levels = vec![json!({"cost": {"Mana": 16}})];
+        let lines = gem_tooltip_lines(&arc, 1, 0);
+        assert!(
+            lines.iter().any(|l| l == "Mana cost: 16"),
+            "missing mana cost line: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn gem_tooltip_omits_cost_lines_when_zero() {
+        // Cost = 0 means free (e.g. some auras report no mana cost,
+        // or a cosmetic gem). Showing "Mana cost: 0" would be noise.
+        let arc = mk_skill("Arc", 3, &["spell"], &[], false);
+        let lines = gem_tooltip_lines(&arc, 1, 0);
+        assert!(
+            !lines.iter().any(|l| l.starts_with("Mana cost")),
+            "spurious mana cost line: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|l| l.starts_with("Life cost")),
+            "spurious life cost line: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn gem_tooltip_surfaces_cooldown_when_present_omits_when_absent() {
+        // Most attacks / instant spells lack an explicit cooldown.
+        // We render a "Cooldown: <s>s" line only when the level entry
+        // carries one (`Skill::cooldown` returns `Some`).
+        let mut warlords = mk_skill("Warlord's Mark", 3, &["spell"], &[], false);
+        warlords.levels = vec![json!({"cooldown": 1.5})];
+        let lines = gem_tooltip_lines(&warlords, 1, 0);
+        assert!(
+            lines.iter().any(|l| l == "Cooldown: 1.50s"),
+            "missing cooldown line: {lines:?}"
+        );
+
+        let mut arc = mk_skill("Arc", 3, &["spell"], &[], false);
+        arc.levels = vec![json!({})];
+        let lines = gem_tooltip_lines(&arc, 1, 0);
+        assert!(
+            !lines.iter().any(|l| l.starts_with("Cooldown")),
+            "spurious cooldown line: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn gem_tooltip_lists_active_base_flags_as_tags() {
+        // Tags drive support-gem applicability (a Spell support only
+        // sticks to a gem with the "spell" base flag) and the user
+        // needs to see them at a glance. PoB renders these as a
+        // comma-joined tag chip row.
+        let arc = mk_skill("Arc", 3, &["spell", "lightning", "chaining"], &[], false);
+        let lines = gem_tooltip_lines(&arc, 1, 0);
+        let tag_line = lines
+            .iter()
+            .find(|l| l.starts_with("Tags: "))
+            .unwrap_or_else(|| panic!("missing tags line: {lines:?}"));
+        // Tag order is alphabetical (deterministic regardless of
+        // base_flags insertion order).
+        assert_eq!(tag_line, "Tags: chaining, lightning, spell");
     }
 
     #[test]
