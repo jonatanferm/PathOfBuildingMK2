@@ -204,6 +204,11 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             100.0,
         )),
 
+        // Recovery — Life regen and Mana regen. PoB exposes both with
+        // their flat / percent / pool-tied compositions.
+        "LifeRegen" => Some(life_regen(env)),
+        "ManaRegen" => Some(mana_regen(env)),
+
         _ => None,
     }
 }
@@ -246,6 +251,9 @@ pub const COVERED_KEYS: &[&str] = &[
     "BlockChance",
     "SpellBlockChance",
     "SpellSuppressionChance",
+    // Recovery.
+    "LifeRegen",
+    "ManaRegen",
 ];
 
 // --- Damage ---------------------------------------------------------
@@ -1181,6 +1189,138 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
     }
 }
 
+/// Issue #34 follow-up: re-derive `LifeRegen`. Mirrors
+/// `perform_basic_stats:1742-1748`:
+///
+///   total = Σ BASE(LifeRegen) + Life × Σ BASE(LifeRegenPercent) / 100
+///
+/// The two compose linearly (no INC / MORE on the regen output
+/// itself; rate-modifying mods land on the per-pool side via the Life
+/// chain). Surfaced steps: flat regen mods, percent regen mods (with
+/// the Life pool the percent multiplies), and the final sum.
+fn life_regen(env: &Env) -> Breakdown {
+    let cfg = QueryCfg::default();
+    let flat = env.mod_db.sum(ModType::Base, &cfg, &env.state, "LifeRegen");
+    let pct = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "LifeRegenPercent");
+    let life = env.output.get("Life");
+    let pct_contrib = life * pct / 100.0;
+    let total = env.output.get("LifeRegen");
+
+    let mut steps = Vec::new();
+    let flat_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named("LifeRegen")
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label("Flat regen")
+            .with_value(flat)
+            .with_explain(format!("+{flat:.1}/sec from LifeRegen BASE mods"))
+            .with_sources(flat_mods),
+    );
+
+    if pct.abs() > 1e-9 {
+        let pct_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("LifeRegenPercent")
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Percent regen")
+                .with_value(pct_contrib)
+                .with_explain(format!("{pct:.2}% × {life:.0} Life = {pct_contrib:.1}/sec"))
+                .with_sources(pct_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Life regen")
+            .with_value(total)
+            .with_explain(format!("{flat:.1} + {pct_contrib:.1} = {total:.1}/sec")),
+    );
+
+    Breakdown {
+        output_key: "LifeRegen".to_owned(),
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: re-derive `ManaRegen`. Mirrors
+/// `perform_basic_stats:1750-1755`:
+///
+///   total = (Mana × 0.0175 + Σ BASE(ManaRegen)) × (1 + Σ INC(ManaRegen) / 100)
+///
+/// Different shape from Life regen: the baseline is 1.75% of max
+/// Mana per second, then flat ManaRegen BASE mods stack additively,
+/// then INC ManaRegen scales the whole thing. Surfaced steps:
+/// baseline, flat adders, INC scaling, and the final product.
+fn mana_regen(env: &Env) -> Breakdown {
+    let cfg = QueryCfg::default();
+    let mana = env.output.get("Mana");
+    let baseline = mana * 0.0175;
+    let flat = env.mod_db.sum(ModType::Base, &cfg, &env.state, "ManaRegen");
+    let inc_total = env.mod_db.sum(ModType::Inc, &cfg, &env.state, "ManaRegen");
+    let total = env.output.get("ManaRegen");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Baseline")
+            .with_value(baseline)
+            .with_explain(format!(
+                "1.75% × {mana:.0} Mana = {baseline:.2}/sec (PoE constant)"
+            )),
+    );
+
+    if flat.abs() > 1e-9 {
+        let flat_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("ManaRegen")
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Flat regen")
+                .with_value(flat)
+                .with_explain(format!("+{flat:.1}/sec from ManaRegen BASE mods"))
+                .with_sources(flat_mods),
+        );
+    }
+
+    if inc_total.abs() > 1e-9 {
+        let inc_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("ManaRegen")
+            .filter(|m| m.kind == ModType::Inc)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Increased")
+                .with_value(1.0 + inc_total / 100.0)
+                .with_explain(format!("{inc_total:+.0}% sum"))
+                .with_sources(inc_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Mana regen")
+            .with_value(total)
+            .with_explain(format!(
+                "({baseline:.2} + {flat:.1}) × (1 + {inc_total:.0}%) = {total:.1}/sec"
+            )),
+    );
+
+    Breakdown {
+        output_key: "ManaRegen".to_owned(),
+        total,
+        steps,
+    }
+}
+
 fn source_label(s: Option<&Source>) -> String {
     match s {
         Some(Source::Tree) => "tree".into(),
@@ -1409,6 +1549,16 @@ mod tests {
             .add(Mod::base("SpellBlockChance", 20.0).with_source(Source::Item(1)));
         env.mod_db
             .add(Mod::base("SpellSuppressionChance", 60.0).with_source(Source::Tree));
+        // Recovery outputs + underlying mods. Representative L90:
+        // 100/sec life regen from 50 flat (item belt) + 4% LifeRegenPercent
+        // tree on 1100 Life = 50 + 44 = 94/sec. Mana regen baseline at
+        // 1.75% of 360 mana = 6.3/sec, with no extra mods.
+        env.output.set("LifeRegen", 94.0);
+        env.output.set("ManaRegen", 6.3);
+        env.mod_db
+            .add(Mod::base("LifeRegen", 50.0).with_source(Source::Item(8)));
+        env.mod_db
+            .add(Mod::base("LifeRegenPercent", 4.0).with_source(Source::Tree));
         // Tree-typed INC and MORE damage mods so the breakdown enumerates them.
         env.mod_db
             .add(Mod::inc("Damage", 50.0).with_source(Source::Tree));
@@ -1861,5 +2011,85 @@ mod tests {
         assert_eq!(bd.total, 0.0);
         let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
         assert_eq!(base.value, Some(0.0));
+    }
+
+    /// Issue #34 follow-up: LifeRegen walks Flat → Percent → Final.
+    /// Flat regen mods land in the Flat step's source list; the
+    /// percent step's value shows the amount the percent contributes
+    /// (life × pct / 100), not the percent itself.
+    #[test]
+    fn life_regen_breakdown_flat_plus_percent() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "LifeRegen").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Flat regen"));
+        assert!(labels.contains(&"Percent regen"));
+        assert!(labels.contains(&"Life regen"));
+
+        let flat = bd.steps.iter().find(|s| s.label == "Flat regen").unwrap();
+        assert_eq!(flat.value, Some(50.0));
+        assert!(
+            flat.sources
+                .iter()
+                .any(|s| s.source.contains("item slot 8")),
+            "expected item slot 8 source on flat regen step; got {:?}",
+            flat.sources
+        );
+
+        let pct = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Percent regen")
+            .unwrap();
+        // 4% of 1100 Life = 44.0
+        assert!((pct.value.unwrap() - 44.0).abs() < 1e-6);
+        assert!(
+            pct.sources.iter().any(|s| s.source == "tree"),
+            "expected tree source on percent regen step; got {:?}",
+            pct.sources
+        );
+
+        assert_eq!(bd.total, 94.0);
+    }
+
+    /// Issue #34 follow-up: ManaRegen walks Baseline → Final. With
+    /// no extra mods the only step beyond baseline is the final
+    /// Mana regen line.
+    #[test]
+    fn mana_regen_breakdown_baseline_only() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "ManaRegen").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Baseline"));
+        assert!(labels.contains(&"Mana regen"));
+        // No flat / inc mods on ManaRegen in env_with_output — those
+        // steps should be skipped.
+        assert!(!labels.contains(&"Flat regen"));
+        assert!(!labels.contains(&"Increased"));
+
+        let baseline = bd.steps.iter().find(|s| s.label == "Baseline").unwrap();
+        // 1.75% of 360 Mana = 6.3.
+        assert!((baseline.value.unwrap() - 6.3).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ManaRegen walks Baseline → Flat → Increased
+    /// → Final when both adders are present. Verify the chain stays
+    /// stable when an item adds 5/sec flat and a tree adds 50% INC.
+    #[test]
+    fn mana_regen_breakdown_chains_flat_and_inc() {
+        let mut env = env_with_output();
+        env.mod_db
+            .add(Mod::base("ManaRegen", 5.0).with_source(Source::Item(7)));
+        env.mod_db
+            .add(Mod::inc("ManaRegen", 50.0).with_source(Source::Tree));
+        // (6.3 + 5.0) × 1.5 = 16.95
+        env.output.set("ManaRegen", 16.95);
+        let bd = derive_for(&env, "ManaRegen").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Baseline"));
+        assert!(labels.contains(&"Flat regen"));
+        assert!(labels.contains(&"Increased"));
+        assert!(labels.contains(&"Mana regen"));
+        assert!((bd.total - 16.95).abs() < 1e-6);
     }
 }
