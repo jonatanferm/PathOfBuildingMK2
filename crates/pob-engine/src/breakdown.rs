@@ -229,6 +229,21 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // back-derived from the stored outputs since the perform pass
         // doesn't expose it directly.
         "PoisonDPS" => Some(poison_dps(env)),
+        // Bleed / Ignite DPS: single-application × chance. Both share
+        // the same shape, so one helper handles both with the chance
+        // output key + label distinguishing them.
+        "BleedDPS" => Some(single_app_ailment_dps(
+            env,
+            "BleedDPS",
+            "BleedChance",
+            "Bleed",
+        )),
+        "IgniteDPS" => Some(single_app_ailment_dps(
+            env,
+            "IgniteDPS",
+            "IgniteChance",
+            "Ignite",
+        )),
         "Evasion" => Some(pool_basic(env, "Evasion")),
         "Ward" => Some(pool_basic(env, "Ward")),
 
@@ -385,6 +400,8 @@ pub const COVERED_KEYS: &[&str] = &[
     "NumberOfDamagingHits",
     "EHPSurvivalTime",
     "PoisonDPS",
+    "BleedDPS",
+    "IgniteDPS",
     "Evasion",
     "Ward",
     // Resists.
@@ -1329,6 +1346,53 @@ fn pool_basic(env: &Env, key: &str) -> Breakdown {
 
     Breakdown {
         output_key: key.to_owned(),
+        total,
+        steps,
+    }
+}
+
+/// Issue #34 follow-up: re-derive single-application ailment DPS
+/// (Bleed / Ignite). PoB: `per_application × chance` — both
+/// ailments are single-stack (longest overrides), so the long-run
+/// DPS is `chance × per_application`. Per-application back-derived
+/// from the stored DPS / chance since the perform pass doesn't
+/// expose it directly.
+///
+/// Shared helper because the formula is identical apart from which
+/// chance key is read and the rendered label.
+fn single_app_ailment_dps(env: &Env, dps_key: &str, chance_key: &str, label: &str) -> Breakdown {
+    let total = env.output.get(dps_key);
+    let chance_pct = env.output.get(chance_key);
+    let chance_factor = (chance_pct / 100.0).clamp(0.0, 1.0);
+    let per_application = if chance_factor > 1e-9 {
+        total / chance_factor
+    } else {
+        0.0
+    };
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Per-application damage")
+            .with_value(per_application)
+            .with_explain(format!(
+                "{per_application:.0} (= {dps_key} / chance back-derived)"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(format!("{label} chance"))
+            .with_value(chance_factor)
+            .with_explain(format!("{chance_pct:.0}% / 100 = {chance_factor:.3}")),
+    );
+    steps.push(
+        BreakdownStep::label(dps_key)
+            .with_value(total)
+            .with_explain(format!(
+                "{per_application:.0} × {chance_factor:.3} = {total:.0}"
+            )),
+    );
+
+    Breakdown {
+        output_key: dps_key.to_owned(),
         total,
         steps,
     }
@@ -2409,6 +2473,13 @@ mod tests {
         // boss preset.
         env.output.set("PoisonStacks", 10.0);
         env.output.set("IgniteDPS", 0.0);
+        // Issue #34 follow-up: Bleed and Ignite DPS = per_application
+        // × chance. The fixture's spell build has neither active by
+        // default; we re-pin both in the relevant tests with non-zero
+        // values + chance outputs so the back-derived per-application
+        // step has something to walk.
+        env.output.set("BleedChance", 0.0);
+        env.output.set("IgniteChance", 0.0);
         // Issue #34 follow-up: With{Bleed,Poison,Ignite,Impale}DPS
         // breakdowns. PoisonDPS = 350 → WithPoisonDPS = 1650 (hit) +
         // 350 = 2000. The other ailments are zero so the With… values
@@ -3291,6 +3362,80 @@ mod tests {
         );
 
         assert_eq!(bd.total, 2161.0);
+    }
+
+    /// Issue #34 follow-up: `BleedDPS` walks per-application damage ×
+    /// chance. Bleed is single-stack (longest overrides), so the
+    /// long-run DPS is `chance × per_application`. Players tuning
+    /// chance-to-bleed gear / Crimson Dance jewels want to see both
+    /// axes. Per-application back-derived from `BleedDPS / chance`
+    /// since the perform pass doesn't store it.
+    #[test]
+    fn bleed_dps_breakdown_walks_per_application_and_chance() {
+        let mut env = env_with_output();
+        env.output.set("BleedDPS", 800.0);
+        env.output.set("BleedChance", 25.0);
+        let bd = derive_for(&env, "BleedDPS").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Per-application damage"),
+            "missing per-app step: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"Bleed chance"),
+            "missing chance step: {labels:?}"
+        );
+
+        // Per-application = 800 / 0.25 = 3200.
+        let per_app = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Per-application damage")
+            .unwrap();
+        assert_eq!(per_app.value, Some(3200.0));
+
+        // Chance step value carries the factor (0.25), percent in explain.
+        let chance = bd.steps.iter().find(|s| s.label == "Bleed chance").unwrap();
+        assert!(
+            (chance.value.unwrap_or(0.0) - 0.25).abs() < 1e-6,
+            "expected chance factor 0.25; got {:?}",
+            chance.value
+        );
+
+        assert_eq!(bd.total, 800.0);
+    }
+
+    /// Issue #34 follow-up: `IgniteDPS` shares the bleed shape — the
+    /// helper handles both via the same code path with element-
+    /// specific labels. Ignite chance is often 100% (crit-ignite or
+    /// Avatar of Fire builds); the breakdown reads the chance and
+    /// degenerates the per-application value to the DPS itself.
+    #[test]
+    fn ignite_dps_breakdown_walks_per_application_and_chance() {
+        let mut env = env_with_output();
+        env.output.set("IgniteDPS", 1500.0);
+        env.output.set("IgniteChance", 100.0);
+        let bd = derive_for(&env, "IgniteDPS").unwrap();
+        let per_app = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Per-application damage")
+            .unwrap();
+        // 1500 / 1.0 = 1500.
+        assert_eq!(per_app.value, Some(1500.0));
+        assert_eq!(bd.total, 1500.0);
+    }
+
+    /// Issue #34 follow-up: zero-DPS / zero-chance build still
+    /// produces a valid breakdown (covered_keys_is_complete sweep).
+    #[test]
+    fn bleed_and_ignite_dps_breakdowns_handle_zero_chance() {
+        let env = env_with_output();
+        for key in ["BleedDPS", "IgniteDPS"] {
+            let bd = derive_for(&env, key).unwrap_or_else(|| panic!("missing for {key}"));
+            assert_eq!(bd.total, 0.0);
+            assert_eq!(bd.steps.len(), 3, "wrong step count for {key}");
+        }
     }
 
     /// Issue #34 follow-up: `PoisonDPS` walks per-stack damage ×
