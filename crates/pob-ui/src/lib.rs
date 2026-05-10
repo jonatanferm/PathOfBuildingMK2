@@ -1340,7 +1340,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // anchor-aware behaviour, so a fresh Marauder sees the path from the start.
             app.tree_view.path_overlay.clear();
             if let Some(hover) = interaction.hovered {
-                if !allocated.contains(&hover) {
+                if !allocated.contains(&hover) && !is_synthetic_anchor(&app.tree, hover) {
                     let seeds = app.character.pathfind_seeds(&app.tree);
                     if !seeds.is_empty() {
                         if let Some(path) =
@@ -1353,6 +1353,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
 
             if let Some(id) = interaction.clicked {
+                // ClassStart / AscendancyStart medallions are synthetic anchors — they
+                // mark where each class (and each ascendancy) seeds the pathfinder, but
+                // they're not user-allocatable. The active class's start is implicit
+                // (kept out of `allocated` so it doesn't burn a passive point); other
+                // class starts must stay locked off entirely. Silently ignore the
+                // click rather than show an error — it's a hit-test reject, not a
+                // failed action.
+                let synthetic_anchor = is_synthetic_anchor(&app.tree, id);
                 // Block ascendancy nodes that don't belong to the selected ascendancy.
                 let node = app.tree.nodes.get(&id);
                 let allowed_ascend = node
@@ -1373,7 +1381,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     .map(|n| matches!(n.kind, pob_data::NodeKind::Mastery))
                     .unwrap_or(false);
 
-                if !allowed_ascend {
+                if synthetic_anchor {
+                    // no-op
+                } else if !allowed_ascend {
                     app.status_message = Some((
                         StatusKind::Error,
                         "Node belongs to a different ascendancy class.".into(),
@@ -2506,6 +2516,24 @@ fn default_save_name(character: &Character) -> String {
     }
 }
 
+/// True if `id` is a synthetic anchor — `Root`, `ClassStart`, or `AscendancyStart`.
+/// These nodes mark structural seeds for the pathfinder and class portraits, but
+/// they aren't user-allocatable: the active class start is implicit (kept out of
+/// `allocated` so it doesn't burn a passive point), and other class / ascendancy
+/// starts must stay locked off entirely.
+fn is_synthetic_anchor(tree: &PassiveTree, id: NodeId) -> bool {
+    use pob_data::NodeKind;
+    tree.nodes
+        .get(&id)
+        .map(|n| {
+            matches!(
+                n.kind,
+                NodeKind::Root | NodeKind::ClassStart | NodeKind::AscendancyStart
+            )
+        })
+        .unwrap_or(false)
+}
+
 fn stat_row(ui: &mut egui::Ui, label: &str, out: &Output, key: &str) {
     let v = out.get(key);
     ui.horizontal(|ui| {
@@ -2655,5 +2683,100 @@ mod search_tests {
         add_node(&mut tree, 2, Some("Frenzy Adept"), &[]);
         let matches = compute_search_matches("Frenzy", &tree);
         assert_eq!(matches, vec![2]);
+    }
+}
+
+#[cfg(test)]
+mod synthetic_anchor_tests {
+    use super::*;
+    use ahash::HashMap as AHashMap;
+    use pob_data::{Node, NodeKind, TreeConstants, TreePoints};
+
+    fn empty_tree() -> PassiveTree {
+        PassiveTree {
+            version: "test".into(),
+            tree: "test".into(),
+            classes: vec![],
+            groups: AHashMap::default(),
+            nodes: AHashMap::default(),
+            jewel_slots: vec![],
+            min_x: 0,
+            min_y: 0,
+            max_x: 0,
+            max_y: 0,
+            constants: TreeConstants {
+                skills_per_orbit: vec![],
+                orbit_radii: vec![],
+                classes: AHashMap::default(),
+                character_attributes: AHashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: TreePoints::default(),
+        }
+    }
+
+    fn add_node_kind(tree: &mut PassiveTree, id: NodeId, kind: NodeKind) {
+        tree.nodes.insert(
+            id,
+            Node {
+                id,
+                name: None,
+                icon: None,
+                ascendancy_name: None,
+                stats: vec![],
+                reminder_text: vec![],
+                kind,
+                class_start_index: None,
+                group: None,
+                orbit: None,
+                orbit_index: None,
+                out_edges: Default::default(),
+                in_edges: Default::default(),
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            },
+        );
+    }
+
+    /// Root, ClassStart and AscendancyStart all return true — these are
+    /// the structural seeds the pathfinder and class portraits use.
+    #[test]
+    fn root_class_start_ascendancy_start_are_synthetic() {
+        let mut tree = empty_tree();
+        add_node_kind(&mut tree, 1, NodeKind::Root);
+        add_node_kind(&mut tree, 2, NodeKind::ClassStart);
+        add_node_kind(&mut tree, 3, NodeKind::AscendancyStart);
+        assert!(is_synthetic_anchor(&tree, 1));
+        assert!(is_synthetic_anchor(&tree, 2));
+        assert!(is_synthetic_anchor(&tree, 3));
+    }
+
+    /// Real allocatable kinds — Normal / Notable / Keystone / Mastery /
+    /// JewelSocket — must NOT register as synthetic, otherwise the click
+    /// handler would silently swallow the user's input.
+    #[test]
+    fn allocatable_kinds_are_not_synthetic() {
+        let mut tree = empty_tree();
+        add_node_kind(&mut tree, 1, NodeKind::Normal);
+        add_node_kind(&mut tree, 2, NodeKind::Notable);
+        add_node_kind(&mut tree, 3, NodeKind::Keystone);
+        add_node_kind(&mut tree, 4, NodeKind::Mastery);
+        add_node_kind(&mut tree, 5, NodeKind::JewelSocket);
+        for id in 1..=5 {
+            assert!(
+                !is_synthetic_anchor(&tree, id),
+                "kind for id {id} should be allocatable"
+            );
+        }
+    }
+
+    /// An id missing from the tree returns false — guards against an
+    /// out-of-tree click silently no-opping (the caller would then
+    /// surface a real "node not found" error rather than swallowing it).
+    #[test]
+    fn missing_node_returns_false() {
+        let tree = empty_tree();
+        assert!(!is_synthetic_anchor(&tree, 999));
     }
 }
