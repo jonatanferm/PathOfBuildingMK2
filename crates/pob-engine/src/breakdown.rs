@@ -296,6 +296,11 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ManaUnreservedPercent" => reservation_percent(env, "Mana", "Unreserved"),
         "LifeReserved" => reserved_pool(env, "Life"),
         "ManaReserved" => reserved_pool(env, "Mana"),
+        "FireHitAverage" => element_hit_average(env, "Fire"),
+        "ColdHitAverage" => element_hit_average(env, "Cold"),
+        "LightningHitAverage" => element_hit_average(env, "Lightning"),
+        "PhysicalHitAverage" => element_hit_average(env, "Physical"),
+        "ChaosHitAverage" => element_hit_average(env, "Chaos"),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3187,6 +3192,55 @@ fn main_skill_enemy_effective_resist(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for the five
+/// `<Element>HitAverage` outputs (Fire / Cold / Lightning /
+/// Physical / Chaos). PoB derives them as
+/// `(<Element>Min + <Element>Max) / 2` per `perform_skill_dps` —
+/// post-mod hit values for that damage type. Surfaces the bounds
+/// the average is computed from so users can see the range
+/// without click-through.
+///
+/// Returns `None` when the element wasn't the active skill's
+/// damage type (no per-element outputs populated).
+fn element_hit_average(env: &Env, elem: &str) -> Option<Breakdown> {
+    let total = env.output.get(&format!("{elem}HitAverage"));
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let min = env.output.get(&format!("{elem}Min"));
+    let max = env.output.get(&format!("{elem}Max"));
+    let elem_lower = elem.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Min")
+            .with_value(min)
+            .with_explain(format!(
+                "{min:.0} from {elem}Min — see its breakdown for the base × multiplier chain"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Max")
+            .with_value(max)
+            .with_explain(format!(
+                "{max:.0} from {elem}Max — see its breakdown for the base × multiplier chain"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(format!("{elem} hit average"))
+            .with_value(total)
+            .with_explain(format!(
+                "({min:.0} + {max:.0}) / 2 = {total:.1} {elem_lower} damage per hit"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: format!("{elem}HitAverage"),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for `LifeReserved` /
 /// `ManaReserved`. Complementary to the `unreserved_pool` helper —
 /// PoB derives Reserved as `pool - unreserved` after
@@ -5542,6 +5596,55 @@ mod tests {
             derive_for(&env, "MainSkillEnemyEffectiveResist").is_none(),
             "expected None when MainSkillEnemyEffectiveResist is zero",
         );
+    }
+
+    /// Issue #34 follow-up: FireHitAverage walks Min → Max →
+    /// average. PoB exposes per-element `<Element>Min` /
+    /// `<Element>Max` (post-mod hit values) and `<Element>HitAverage`
+    /// = (Min + Max) / 2 for each of the five damage types
+    /// (`perform_skill_dps`). The Calcs panel surfaces the average;
+    /// the breakdown shows the bounds it's averaging.
+    /// Worked example: FireMin 220 + FireMax 440 → average 330.
+    #[test]
+    fn fire_hit_average_breakdown_walks_min_max_to_average() {
+        let mut env = Env::default();
+        env.output.set("FireMin", 220.0);
+        env.output.set("FireMax", 440.0);
+        env.output.set("FireHitAverage", 330.0);
+        let bd = derive_for(&env, "FireHitAverage").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Min"));
+        assert!(labels.contains(&"Max"));
+        assert!(labels.contains(&"Fire hit average"));
+        assert!((bd.total - 330.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ChaosHitAverage / PhysicalHitAverage etc
+    /// share the same shape.
+    #[test]
+    fn other_element_hit_average_breakdowns_share_shape() {
+        for elem in ["Cold", "Lightning", "Physical", "Chaos"] {
+            let mut env = Env::default();
+            env.output.set(format!("{elem}Min"), 100.0);
+            env.output.set(format!("{elem}Max"), 200.0);
+            env.output.set(format!("{elem}HitAverage"), 150.0);
+            let bd = derive_for(&env, &format!("{elem}HitAverage"))
+                .unwrap_or_else(|| panic!("{elem}HitAverage: dispatch missing"));
+            assert!((bd.total - 150.0).abs() < 1e-9, "{elem}: wrong total");
+        }
+    }
+
+    /// Issue #34 follow-up: returns None when the element wasn't
+    /// the active skill's damage type (no per-element outputs).
+    #[test]
+    fn element_hit_average_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        for elem in ["Fire", "Cold", "Lightning", "Physical", "Chaos"] {
+            assert!(
+                derive_for(&env, &format!("{elem}HitAverage")).is_none(),
+                "expected None for {elem}HitAverage when zero",
+            );
+        }
     }
 
     /// Issue #34 follow-up: LifeReserved walks the complementary
