@@ -277,6 +277,8 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "SecondMinimalMaximumHitTaken" => second_min_max_hit_taken(env),
         "MainSkillHitMin" => main_skill_hit_bound(env, "Min"),
         "MainSkillHitMax" => main_skill_hit_bound(env, "Max"),
+        "MainSkillBaseMin" => main_skill_base_bound(env, "Min"),
+        "MainSkillBaseMax" => main_skill_base_bound(env, "Max"),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3129,6 +3131,38 @@ fn dot_ehp(env: &Env, elem: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for `MainSkillBaseMin` /
+/// `MainSkillBaseMax`. Surfaces the raw per-level base damage value
+/// from skill stats — what the gem provides before player mods. The
+/// breakdown is intentionally a single row since the value is raw
+/// skill data and not derived from anything we can decompose
+/// further; the click-through chain stays consistent (every Calcs
+/// row gets a breakdown).
+///
+/// Returns `None` when no skill is loaded.
+fn main_skill_base_bound(env: &Env, bound: &str) -> Option<Breakdown> {
+    let total = env.output.get(&format!("MainSkillBase{bound}"));
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let bound_lower = bound.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label(format!("Base {bound_lower}"))
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0} from skill stats — raw per-level value before player mods (level / quality scaling already folded in)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: format!("MainSkillBase{bound}"),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for `MainSkillHitMin` /
 /// `MainSkillHitMax`. PoB derives both bounds via the same chain in
 /// `perform_skill_dps`:
@@ -4949,6 +4983,62 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: MainSkillBaseMin / MainSkillBaseMax
+    /// surface the raw per-level base damage value from the skill
+    /// stats — what the gem provides before player mods. Surfacing
+    /// the value as a single-step breakdown lets users see the
+    /// gem's contribution alongside the BaseAdd / Inc / More chain
+    /// in MainSkillHit{Min,Max}.
+    ///
+    /// This is intentionally a single-row breakdown — the value is
+    /// raw skill data, not derived from anything we can decompose
+    /// further. Surfacing it lets the click-through chain stay
+    /// consistent (every Calcs row gets a breakdown).
+    #[test]
+    fn main_skill_base_min_breakdown_shows_raw_base() {
+        let mut env = Env::default();
+        env.output.set("MainSkillBaseMin", 100.0);
+        let bd = derive_for(&env, "MainSkillBaseMin").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base min"));
+
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("skill stats") || e.contains("raw")),
+            "expected raw-skill-data hint in explain, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 100.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: MainSkillBaseMax shows the raw upper
+    /// bound. Worked example: 200 from skill stats.
+    #[test]
+    fn main_skill_base_max_breakdown_shows_raw_base() {
+        let mut env = Env::default();
+        env.output.set("MainSkillBaseMax", 200.0);
+        let bd = derive_for(&env, "MainSkillBaseMax").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base max"));
+        assert!((bd.total - 200.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: both base outputs return None when no
+    /// skill is loaded.
+    #[test]
+    fn main_skill_base_breakdowns_skipped_when_no_skill() {
+        let env = Env::default();
+        for key in ["MainSkillBaseMin", "MainSkillBaseMax"] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when no skill is loaded",
+            );
+        }
+    }
+
     /// Issue #34 follow-up: MainSkillHitMin walks Base × Multiplier
     /// → Final. PoB derives both bounds via the same multiplier
     /// (back-derivable from final/base). The breakdown shows the
