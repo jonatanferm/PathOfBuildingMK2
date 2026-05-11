@@ -514,14 +514,25 @@ where
         if gem.abyss_jewel {
             continue;
         }
-        // Resolve the gem's typeLine (or the hybrid baseTypeName
-        // for transfigured / Vaal forms) into a skill_id.
-        let type_line = gem
-            .hybrid
-            .as_ref()
-            .map(|h| h.base_type_name.as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or(gem.type_line.as_str());
+        // Resolve the gem's typeLine into a skill_id. PoE returns
+        // hybrid metadata for both transfigured and Vaal gems, but
+        // their resolution rules differ — see PoB's
+        // `Classes/ImportTab.lua:1281`:
+        //
+        //   if gem.hybrid then
+        //     if gem.hybrid.isVaalGem then gemId = gem.typeLine
+        //     else gemId = gem.hybrid.baseTypeName end
+        //   end
+        //
+        // For Vaal gems, `hybrid.baseTypeName` is the *non*-Vaal
+        // form (e.g. "Cyclone") and the actual gem to instantiate
+        // lives in `gem.typeLine` ("Vaal Cyclone"). Reading the
+        // base name unconditionally silently downgrades every
+        // imported Vaal gem to its non-Vaal counterpart.
+        let type_line = match gem.hybrid.as_ref() {
+            Some(h) if !h.is_vaal_gem && !h.base_type_name.is_empty() => h.base_type_name.as_str(),
+            _ => gem.type_line.as_str(),
+        };
         if type_line.is_empty() {
             continue;
         }
@@ -1368,6 +1379,148 @@ mod tests {
             .expect("BodyArmour socket group built");
         assert_eq!(group.gems[0].skill_id, "Fireball");
         assert_eq!(group.gems[1].skill_id, "SupportSpellEcho");
+    }
+
+    #[test]
+    fn vaal_gem_resolves_via_type_line_not_hybrid_base() {
+        // PoE returns Vaal gems with `hybrid.baseTypeName` set to the
+        // *non-Vaal* form (e.g. "Cyclone") and `hybrid.isVaalGem =
+        // true`; the actual gem to instantiate is in `typeLine`
+        // ("Vaal Cyclone"). Mirrors `ImportTab.lua:1281` —
+        //
+        //   if gem.hybrid then
+        //     if gem.hybrid.isVaalGem then gemId = gem.typeLine
+        //     else gemId = gem.hybrid.baseTypeName end
+        //   end
+        let json = r#"{
+            "items": [{
+                "typeLine":"Tabula Rasa",
+                "frameType":3,
+                "inventoryId":"BodyArmour",
+                "sockets":[{"group":0,"sColour":"R"}],
+                "socketedItems":[
+                    {"typeLine":"Vaal Cyclone","frameType":4,"socket":0,
+                     "support":false,
+                     "hybrid":{"baseTypeName":"Cyclone","isVaalGem":true},
+                     "properties":[
+                        {"name":"Level","values":[["20",0]]},
+                        {"name":"Quality","values":[["+0%",0]]}
+                     ]}
+                ]
+            }]
+        }"#;
+        let items = parse_items(json).unwrap();
+        let c = build_character(None, &PassiveSkillsResponse::default(), &items);
+        let group = c
+            .skill_groups
+            .first()
+            .expect("BodyArmour socket group built");
+        // Default lookup strips spaces — "Vaal Cyclone" → "VaalCyclone".
+        // The bug: previously we read `hybrid.baseTypeName`
+        // unconditionally, yielding "Cyclone".
+        assert_eq!(group.gems[0].skill_id, "VaalCyclone");
+    }
+
+    #[test]
+    fn transfigured_gem_still_resolves_via_hybrid_base_name() {
+        // Transfigured gems (e.g. "Sweep of Endurance") carry
+        // `hybrid.baseTypeName = "Sweep"` with `isVaalGem = false`;
+        // PoB's gem registry keys these on the base name. Make sure
+        // the Vaal fix didn't regress this path.
+        let json = r#"{
+            "items": [{
+                "typeLine":"Tabula Rasa",
+                "frameType":3,
+                "inventoryId":"BodyArmour",
+                "sockets":[{"group":0,"sColour":"R"}],
+                "socketedItems":[
+                    {"typeLine":"Sweep of Endurance","frameType":4,"socket":0,
+                     "support":false,
+                     "hybrid":{"baseTypeName":"Sweep","isVaalGem":false},
+                     "properties":[
+                        {"name":"Level","values":[["20",0]]}
+                     ]}
+                ]
+            }]
+        }"#;
+        let items = parse_items(json).unwrap();
+        let c = build_character(None, &PassiveSkillsResponse::default(), &items);
+        let group = c
+            .skill_groups
+            .first()
+            .expect("BodyArmour socket group built");
+        assert_eq!(group.gems[0].skill_id, "Sweep");
+    }
+
+    #[test]
+    fn vaal_gem_with_empty_hybrid_base_falls_back_to_type_line() {
+        // Defensive — even when `isVaalGem = false` (or absent), an
+        // empty `hybrid.baseTypeName` should still leave us with the
+        // gem's typeLine rather than skipping the gem entirely.
+        let json = r#"{
+            "items": [{
+                "typeLine":"Tabula Rasa",
+                "frameType":3,
+                "inventoryId":"BodyArmour",
+                "sockets":[{"group":0,"sColour":"R"}],
+                "socketedItems":[
+                    {"typeLine":"Fireball","frameType":4,"socket":0,
+                     "support":false,
+                     "hybrid":{"baseTypeName":"","isVaalGem":false},
+                     "properties":[{"name":"Level","values":[["20",0]]}]}
+                ]
+            }]
+        }"#;
+        let items = parse_items(json).unwrap();
+        let c = build_character(None, &PassiveSkillsResponse::default(), &items);
+        let group = c.skill_groups.first().expect("socket group built");
+        assert_eq!(group.gems[0].skill_id, "Fireball");
+    }
+
+    #[test]
+    fn vaal_gem_routes_through_custom_lookup_with_vaal_type_line() {
+        // When the caller supplies a real gem registry, the resolver
+        // must see the "Vaal X" string for Vaal gems, not the base.
+        // Otherwise Vaal Cyclone would silently import as Cyclone.
+        let json = r#"{
+            "items": [{
+                "typeLine":"Tabula Rasa",
+                "frameType":3,
+                "inventoryId":"BodyArmour",
+                "sockets":[{"group":0,"sColour":"R"}],
+                "socketedItems":[
+                    {"typeLine":"Vaal Cyclone","frameType":4,"socket":0,
+                     "support":false,
+                     "hybrid":{"baseTypeName":"Cyclone","isVaalGem":true},
+                     "properties":[{"name":"Level","values":[["20",0]]}]}
+                ]
+            }]
+        }"#;
+        let items = parse_items(json).unwrap();
+        let mut seen: Vec<String> = Vec::new();
+        let c = build_character_with_skills(
+            None,
+            &PassiveSkillsResponse::default(),
+            &items,
+            |type_line| {
+                seen.push(type_line.to_owned());
+                Some(match type_line {
+                    "Vaal Cyclone" => "VaalCyclone".to_owned(),
+                    "Cyclone" => "Cyclone".to_owned(),
+                    _ => return None,
+                })
+            },
+        );
+        assert!(
+            seen.iter().any(|s| s == "Vaal Cyclone"),
+            "lookup should be called with the Vaal typeLine, got {seen:?}"
+        );
+        assert!(
+            !seen.iter().any(|s| s == "Cyclone"),
+            "lookup should NOT be called with the non-Vaal base, got {seen:?}"
+        );
+        let group = c.skill_groups.first().expect("socket group built");
+        assert_eq!(group.gems[0].skill_id, "VaalCyclone");
     }
 
     #[test]
