@@ -275,6 +275,8 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ChaosDotEHP" => dot_ehp(env, "Chaos"),
         "PhysicalMaximumHitTaken" => maximum_hit_taken(env, "Physical"),
         "SecondMinimalMaximumHitTaken" => second_min_max_hit_taken(env),
+        "MainSkillHitMin" => main_skill_hit_bound(env, "Min"),
+        "MainSkillHitMax" => main_skill_hit_bound(env, "Max"),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3127,6 +3129,58 @@ fn dot_ehp(env: &Env, elem: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for `MainSkillHitMin` /
+/// `MainSkillHitMax`. PoB derives both bounds via the same chain in
+/// `perform_skill_dps`:
+///
+///   hit_<bound> = base_<bound> × (1 + Σ INC(Damage*) / 100) × Π MORE(Damage*) × (1 + quality/200)
+///
+/// The combined multiplier collapses to `hit_<bound> / base_<bound>`,
+/// so the breakdown back-derives it from the stored values. Surfaces
+/// the raw skill-base value alongside the composed mult so users can
+/// see what their increased / more / quality stack contributes; for
+/// the per-step decomposition see the MainSkillAverageHit breakdown.
+///
+/// `bound` is `"Min"` or `"Max"`; the relevant base / final outputs
+/// are looked up by suffix. Returns `None` when no skill is loaded
+/// (no MainSkill base values populated).
+fn main_skill_hit_bound(env: &Env, bound: &str) -> Option<Breakdown> {
+    let base = env.output.get(&format!("MainSkillBase{bound}"));
+    if base.abs() < 1e-9 {
+        return None;
+    }
+    let total = env.output.get(&format!("MainSkillHit{bound}"));
+    let mult = if base > 1e-9 { total / base } else { 1.0 };
+    let bound_lower = bound.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label(format!("Base {bound_lower}"))
+            .with_value(base)
+            .with_explain(format!(
+                "{base:.0} from skill stats (raw per-level value before player mods)"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Multiplier")
+            .with_value(mult)
+            .with_explain(format!(
+                "{mult:.2}× from (1 + INC) × MORE × (1 + quality/200) — see MainSkillAverageHit for the per-step decomposition"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(format!("Hit {bound_lower}"))
+            .with_value(total)
+            .with_explain(format!("{base:.0} × {mult:.2} = {total:.1}")),
+    );
+
+    Some(Breakdown {
+        output_key: format!("MainSkillHit{bound}"),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `SecondMinimalMaximumHitTaken`.
 /// PoB sorts the five per-element MaximumHitTaken values and picks
 /// the second-smallest as the "next worst max hit" — what the build
@@ -4895,6 +4949,61 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: MainSkillHitMin walks Base × Multiplier
+    /// → Final. PoB derives both bounds via the same multiplier
+    /// (back-derivable from final/base). The breakdown shows the
+    /// raw skill-base value alongside the composed mult so users
+    /// can see what their increased / more / quality stack
+    /// contributes. Worked example: 100 base × 2.20× mult = 220.
+    #[test]
+    fn main_skill_hit_min_breakdown_walks_base_and_mult() {
+        let mut env = Env::default();
+        env.output.set("MainSkillBaseMin", 100.0);
+        env.output.set("MainSkillHitMin", 220.0);
+        let bd = derive_for(&env, "MainSkillHitMin").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base min"));
+        assert!(labels.contains(&"Multiplier"));
+        assert!(labels.contains(&"Hit min"));
+
+        let base = bd.steps.iter().find(|s| s.label == "Base min").unwrap();
+        assert!((base.value.unwrap() - 100.0).abs() < 1e-9);
+
+        let mult = bd.steps.iter().find(|s| s.label == "Multiplier").unwrap();
+        assert!((mult.value.unwrap() - 2.20).abs() < 1e-6);
+
+        assert!((bd.total - 220.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: MainSkillHitMax walks the same shape
+    /// against the max-bound base. Worked example: 200 base × 2.20×
+    /// = 440.
+    #[test]
+    fn main_skill_hit_max_breakdown_walks_base_and_mult() {
+        let mut env = Env::default();
+        env.output.set("MainSkillBaseMax", 200.0);
+        env.output.set("MainSkillHitMax", 440.0);
+        let bd = derive_for(&env, "MainSkillHitMax").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base max"));
+        assert!(labels.contains(&"Multiplier"));
+        assert!(labels.contains(&"Hit max"));
+        assert!((bd.total - 440.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when no skill is loaded
+    /// (no MainSkill base values populated).
+    #[test]
+    fn main_skill_hit_min_max_breakdowns_skipped_when_no_skill() {
+        let env = Env::default();
+        for key in ["MainSkillHitMin", "MainSkillHitMax"] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when no skill is loaded",
+            );
+        }
+    }
+
     /// Issue #34 follow-up: SecondMinimalMaximumHitTaken walks the
     /// five per-element max-hits, surfaces the smallest (excluded),
     /// and picks the second-smallest. PoB uses this on the defence
