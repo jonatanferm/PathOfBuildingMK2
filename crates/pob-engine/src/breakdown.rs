@@ -196,6 +196,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "Freeze chance",
             "freeze",
         ),
+        "ManaRegenRecovery" => mana_regen_recovery(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -2885,6 +2886,43 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `ManaRegenRecovery`. PoB sets it
+/// to the same value as `ManaRegen` so flask-recovery code can read
+/// the regen rate under that name (`perform_basic_stats:1277`). The
+/// breakdown calls out the alias and links back to ManaRegen so
+/// users don't have to wonder why the two outputs match.
+///
+/// Returns `None` when ManaRegenRecovery is zero.
+fn mana_regen_recovery(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("ManaRegenRecovery");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let mana_regen = env.output.get("ManaRegen");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Mana regen")
+            .with_value(mana_regen)
+            .with_explain(format!(
+                "{mana_regen:.1}/sec from ManaRegen — see its breakdown for the baseline + flat + inc chain"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Mana regen recovery")
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.1}/sec — alias of ManaRegen exposed for flask-recovery code"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "ManaRegenRecovery".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for ailment-chance outputs
 /// that compose on-hit + on-crit (=100%) per PoB's `combine`:
 ///
@@ -4423,6 +4461,45 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: ManaRegenRecovery is just an alias for
+    /// ManaRegen — `perform_basic_stats` sets it to the same value
+    /// so PoB's flask-recovery code can read it under that name.
+    /// Surfacing the alias in the breakdown panel saves users from
+    /// hunting for "why is this the same number as ManaRegen?".
+    #[test]
+    fn mana_regen_recovery_breakdown_aliases_mana_regen() {
+        let mut env = Env::default();
+        env.output.set("ManaRegen", 12.5);
+        env.output.set("ManaRegenRecovery", 12.5);
+        let bd = derive_for(&env, "ManaRegenRecovery").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Mana regen"));
+        assert!(labels.contains(&"Mana regen recovery"));
+
+        let alias = bd.steps.iter().find(|s| s.label == "Mana regen").unwrap();
+        assert!((alias.value.unwrap() - 12.5).abs() < 1e-9);
+        assert!(
+            alias
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("ManaRegen") || e.contains("alias")),
+            "expected alias hint in explain, got {:?}",
+            alias.explain
+        );
+        assert!((bd.total - 12.5).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when ManaRegen is zero
+    /// (no character loaded yet).
+    #[test]
+    fn mana_regen_recovery_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "ManaRegenRecovery").is_none(),
+            "expected None when ManaRegenRecovery is zero",
+        );
+    }
+
     /// Issue #34 follow-up: ShockChance walks the same on-hit +
     /// on-crit composition as IgniteChance, sourced from
     /// ShockChanceOnHit. Worked example: 40% on-hit + 25% crit →
