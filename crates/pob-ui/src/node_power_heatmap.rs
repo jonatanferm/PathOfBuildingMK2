@@ -202,6 +202,26 @@ pub fn nodes_within_depth(
     visited
 }
 
+/// Issue #220 follow-up: count how many unallocated nodes the
+/// depth filter would keep at the given `max_depth`. Lets the UI
+/// preview "Reachable: N" alongside the depth combo so the user
+/// sees the effect of the filter before clicking Refresh.
+///
+/// Pure — wraps [`nodes_within_depth`] and subtracts the allocated
+/// seeds (which always sit at depth 0 inside the BFS result).
+#[must_use]
+pub fn count_unallocated_within_depth(
+    tree: &pob_data::PassiveTree,
+    allocated: &std::collections::HashSet<NodeId>,
+    max_depth: u32,
+) -> usize {
+    let reachable = nodes_within_depth(tree, allocated, max_depth);
+    reachable
+        .iter()
+        .filter(|id| !allocated.contains(id))
+        .count()
+}
+
 /// Issue #207 follow-up: format the top-N candidate nodes as
 /// human-readable strings for the tree-tab "Top candidate nodes"
 /// panel. Each line shows the rank, signed DPS / EHP deltas, and the
@@ -875,6 +895,44 @@ mod tests {
                 w[0].0,
             );
         }
+    }
+
+    #[test]
+    fn count_unallocated_within_depth_skips_seeds() {
+        // ranking_tree node 1 is the seed; depth 1 reaches nodes 2-5.
+        // The seed itself is allocated so the count should drop it.
+        let tree = ranking_tree();
+        let allocated: std::collections::HashSet<NodeId> = [1].into_iter().collect();
+        let count = count_unallocated_within_depth(&tree, &allocated, 1);
+        assert_eq!(count, 4, "expected 4 unallocated neighbours, got {count}");
+    }
+
+    #[test]
+    fn count_unallocated_within_depth_depth_zero_is_zero() {
+        // Depth 0 only seeds the allocated set itself — no unallocated
+        // candidates reach the result.
+        let tree = ranking_tree();
+        let allocated: std::collections::HashSet<NodeId> = [1].into_iter().collect();
+        assert_eq!(count_unallocated_within_depth(&tree, &allocated, 0), 0);
+    }
+
+    #[test]
+    fn count_unallocated_within_depth_empty_allocated_returns_zero() {
+        // No seed → BFS empty → no candidates.
+        let tree = ranking_tree();
+        let allocated: std::collections::HashSet<NodeId> = Default::default();
+        assert_eq!(count_unallocated_within_depth(&tree, &allocated, 5), 0);
+    }
+
+    #[test]
+    fn count_unallocated_within_depth_excludes_already_allocated_neighbours() {
+        // When a neighbour is *also* allocated, it should still drop
+        // from the count — the filter is "unallocated within depth".
+        let tree = ranking_tree();
+        let allocated: std::collections::HashSet<NodeId> = [1, 2].into_iter().collect();
+        // Direct neighbours of 1+2: {3, 4, 5} (plus 1 and 2 which are
+        // allocated). Count is 3.
+        assert_eq!(count_unallocated_within_depth(&tree, &allocated, 1), 3);
     }
 
     #[test]

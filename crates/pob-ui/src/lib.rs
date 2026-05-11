@@ -1310,6 +1310,22 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                          nodes you can actually reach with your unspent points. \
                          Applies on the next Refresh.",
                     );
+                // Issue #220 follow-up: live "reachable candidates" hint
+                // so the user can see the filter's effect before
+                // clicking Refresh. Only rendered when the depth cap is
+                // active — without one, "reachable" is just every
+                // candidate in the tree.
+                if let Some(d) = app.heatmap_max_depth {
+                    let reachable = crate::node_power_heatmap::count_unallocated_within_depth(
+                        &app.tree,
+                        &app.character.allocated,
+                        d,
+                    );
+                    ui.weak(format!("{reachable} reachable")).on_hover_text(
+                        "Number of unallocated nodes the depth cap currently \
+                             keeps. Refresh to apply.",
+                    );
+                }
                 if ui
                     .button("Refresh heatmap")
                     .on_hover_text(
