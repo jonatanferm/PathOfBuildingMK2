@@ -300,6 +300,8 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ChaosResist" => uncapped_chaos_resist(env),
         "WeaponRangeMetre" => weapon_range_metre(env),
         "MainSkillLevel" => main_skill_level(env),
+        "GemLevel" => gem_level(env),
+        "GemQuality" => gem_quality(env),
         "CastRate" => cast_rate(env),
         "EnemyPhysReduction" => enemy_phys_reduction(env),
         "MainSkillEnemyEffectiveResist" => main_skill_enemy_effective_resist(env),
@@ -3664,6 +3666,60 @@ fn main_skill_level(env: &Env) -> Option<Breakdown> {
 
     Some(Breakdown {
         output_key: "MainSkillLevel".to_owned(),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: surface `GemLevel` — the active gem's
+/// level read straight from the SkillSet by `perform_skill_dps`
+/// (`env.output.set("GemLevel", main.level.into())`, perform.rs
+/// ~line 4323). Distinct from `MainSkillLevel`, which clamps to
+/// [1, 40] for damage-scaling lookups; `GemLevel` is the raw gem
+/// level as equipped. Single-row breakdown so the Calcs panel
+/// click-through chain stays consistent.
+///
+/// Returns `None` when no skill is loaded (level 0).
+fn gem_level(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("GemLevel");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+
+    let steps = vec![BreakdownStep::label("Gem level")
+        .with_value(total)
+        .with_explain(format!(
+            "{total:.0} from the active gem in the SkillSet (set in perform_skill_dps)"
+        ))];
+
+    Some(Breakdown {
+        output_key: "GemLevel".to_owned(),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: surface `GemQuality` — the active gem's
+/// quality read straight from the SkillSet by `perform_skill_dps`
+/// (`env.output.set("GemQuality", main.quality.into())`,
+/// perform.rs ~line 4324). Single-row breakdown so the Calcs panel
+/// click-through chain stays consistent.
+///
+/// Returns `None` when no skill is loaded (quality 0).
+fn gem_quality(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("GemQuality");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+
+    let steps = vec![BreakdownStep::label("Gem quality")
+        .with_value(total)
+        .with_explain(format!(
+            "{total:.0}% from the active gem in the SkillSet (set in perform_skill_dps)"
+        ))];
+
+    Some(Breakdown {
+        output_key: "GemQuality".to_owned(),
         total,
         steps,
     })
@@ -9651,5 +9707,71 @@ mod tests {
         let env = Env::default();
         assert!(derive_for(&env, "CombinedDPS").is_none());
         assert!(derive_for(&env, "CombinedAvg").is_none());
+    }
+
+    /// Issue #34 follow-up: GemLevel surfaces the active gem's level
+    /// straight from the SkillSet (set in `perform_skill_dps` ~line
+    /// 4323). Single-row breakdown with a hint that the value comes
+    /// from the equipped gem.
+    #[test]
+    fn gem_level_breakdown_shows_active_gem_level() {
+        let mut env = Env::default();
+        env.output.set("GemLevel", 20.0);
+        let bd = derive_for(&env, "GemLevel").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Gem level"));
+        assert_eq!(bd.steps.len(), 1);
+
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("gem")),
+            "expected active-gem hint in explain, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 20.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: GemQuality surfaces the active gem's
+    /// quality straight from the SkillSet (set in `perform_skill_dps`
+    /// ~line 4324). Single-row breakdown with a hint that the value
+    /// comes from the equipped gem.
+    #[test]
+    fn gem_quality_breakdown_shows_active_gem_quality() {
+        let mut env = Env::default();
+        env.output.set("GemQuality", 23.0);
+        let bd = derive_for(&env, "GemQuality").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Gem quality"));
+        assert_eq!(bd.steps.len(), 1);
+
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("gem")),
+            "expected active-gem hint in explain, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 23.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: when no skill is loaded both GemLevel
+    /// and GemQuality are zero — skip the breakdown to match
+    /// MainSkillLevel's behaviour.
+    #[test]
+    fn gem_level_quality_breakdowns_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "GemLevel").is_none(),
+            "expected None when GemLevel is zero",
+        );
+        assert!(
+            derive_for(&env, "GemQuality").is_none(),
+            "expected None when GemQuality is zero",
+        );
     }
 }
