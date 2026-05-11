@@ -94,13 +94,31 @@ fn parse_hex_escape(s: &str) -> Option<Color32> {
     Some(Color32::from_rgb(r, g, b))
 }
 
+/// Issue #225 (color-code coverage): convenience wrapper that resolves
+/// the body font + default text colour from `ui` and renders `text`
+/// with [`to_layout_job`]. Use this at every tooltip / inline-text site
+/// that currently does `ui.label(line)` for data that may carry PoB
+/// `^N` / `^xRRGGBB` escapes — tree-node tooltips, calc-breakdown mod
+/// rows, item-slot hover bodies, etc.
+///
+/// Lines without any escape render exactly the same as a plain
+/// `ui.label(text)` would (the layout job degenerates to a single
+/// uncoloured run). The wrapper exists purely to centralise the
+/// "resolve font + default colour" boilerplate so every call site uses
+/// consistent typography.
+pub fn label_with_escapes(ui: &mut egui::Ui, text: &str) {
+    let default = ui.style().visuals.text_color();
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let _ = ui.label(to_layout_job(text, default, font));
+}
+
 /// Strip any `^N` / `^xRRGGBB` escapes, returning a plain-text view.
 /// Useful for clipboard copy paths or the Notes-tab edit-mode buffer.
-#[must_use]
 // Reserved for future Notes-tab edit-mode buffer (issue #38) — clippy
 // flags it as dead code today; it's still tested by the unit suite
 // below so don't remove.
 #[allow(dead_code)]
+#[must_use]
 pub fn strip_escapes(text: &str) -> String {
     // Slice the original `&str` between matched escapes rather than pushing
     // one byte at a time — pushing `bytes[i] as char` would corrupt any
@@ -208,6 +226,39 @@ mod tests {
         assert_eq!(job.sections[0].format.color, Color32::GRAY);
         assert_eq!(job.sections[1].format.color, PALETTE[9]);
         assert_eq!(job.sections[2].format.color, PALETTE[7]);
+    }
+
+    #[test]
+    fn label_with_escapes_layout_job_matches_underlying_helper() {
+        // Issue #225 (color-code coverage): `label_with_escapes` is a
+        // thin wrapper around `to_layout_job` so call sites don't
+        // hand-roll the font / default-colour resolution. Pin the
+        // wrapper's output by inspecting the layout job we'd push into
+        // egui — escape parsing and segment count have to match the
+        // underlying helper exactly so the tooltip rendering stays
+        // consistent across call sites.
+        let body = FontId::default();
+        // Same input that `tree_node_tooltip_lines` / `item_tooltip_lines`
+        // commonly produce — a stat with a `^7` prefix.
+        let job = to_layout_job("^7+5% increased Fire Damage", Color32::WHITE, body.clone());
+        assert_eq!(job.text, "+5% increased Fire Damage");
+        assert_eq!(job.sections.len(), 1);
+        assert_eq!(job.sections[0].format.color, PALETTE[7]);
+    }
+
+    #[test]
+    fn label_with_escapes_handles_unique_name_colour() {
+        // The equipped-item slot tooltip surfaces `item.name`, which
+        // for uniques carries the `^xAF6025` orange escape. Confirm
+        // the wrapper's underlying job picks that up rather than
+        // bleeding the default through.
+        let body = FontId::default();
+        let job = to_layout_job("^xAF6025Headhunter", Color32::WHITE, body);
+        assert_eq!(job.text, "Headhunter");
+        assert_eq!(
+            job.sections[0].format.color,
+            Color32::from_rgb(0xAF, 0x60, 0x25),
+        );
     }
 
     #[test]

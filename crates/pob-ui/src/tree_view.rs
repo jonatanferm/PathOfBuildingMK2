@@ -545,8 +545,13 @@ impl TreeView {
                     egui::LayerId::new(egui::Order::Tooltip, ui.id()),
                     egui::Id::new(("tree-tooltip", id)),
                     |ui| {
+                        // Issue #225 (color-code coverage): node stat
+                        // lines often carry `^N` escapes (e.g.
+                        // `"^7+5% increased Fire Damage"` on notable
+                        // mods). Route through `label_with_escapes`
+                        // so the tooltip reads the same as PoB's.
                         for line in &lines {
-                            ui.label(line);
+                            crate::color_codes::label_with_escapes(ui, line);
                         }
                     },
                 );
