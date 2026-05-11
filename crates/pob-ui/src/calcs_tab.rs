@@ -280,12 +280,7 @@ pub fn ui(
             // panel instead of stacking into one narrow strip.
             ui.columns(3, |cols| {
                 for (col_idx, col_ui) in cols.iter_mut().enumerate() {
-                    render_flat_column(
-                        col_ui,
-                        col_idx as u8,
-                        &by_group,
-                        &mut state.focused_stat,
-                    );
+                    render_flat_column(col_ui, col_idx as u8, &by_group, &mut state.focused_stat);
                 }
             });
             if !leftovers.is_empty() {
