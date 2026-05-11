@@ -348,9 +348,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
         // window draws on top.
         render_folder_popup(ui, state, &mut action);
         // Issue #213 (slice 5): "Move to folder…" popup. Sources its
-        // folder list from the same tree the renderer just walked so
-        // every visible folder shows up as a target option.
-        render_move_popup(ui, state, &tree, &mut action);
+        // folder list from the *full* tree (not `tree`, which may be
+        // filtered) so the user can move a build to any folder —
+        // including out of the active folder filter — and so the
+        // emitted target paths are full-tree-relative.
+        render_move_popup(ui, state, &full_tree, &mut action);
     }
 
     ui.separator();
@@ -968,5 +970,49 @@ mod tests {
         // the popup handles the no-op case explicitly).
         let tree = build_folder_tree(&[]);
         assert_eq!(collect_folder_paths(&tree), vec![String::new()]);
+    }
+
+    #[test]
+    fn move_popup_must_use_full_tree_not_filtered_subtree() {
+        // Regression: when the folder-isolation filter is active the
+        // renderer scopes the visible tree to a subtree via
+        // `filter_folder_to_subtree`, but the move-to-folder popup
+        // must still see the *full* hierarchy. Otherwise (a) the user
+        // can't move a build out of the active filter and (b) emitted
+        // target paths are root-relative to the subtree, producing
+        // wrong destinations like "Sirus" instead of "Bossing/Sirus".
+        let entries = vec![
+            entry("a", Some("Bossing")),
+            entry("b", Some("Bossing/Sirus")),
+            entry("c", Some("Levelling")),
+        ];
+        let full = build_folder_tree(&entries);
+        let filtered = crate::builds_folder_tree::filter_folder_to_subtree(&full, "Bossing")
+            .expect("Bossing subtree");
+
+        let mut full_paths = collect_folder_paths(&full);
+        full_paths.sort();
+        assert!(
+            full_paths.contains(&"Bossing/Sirus".to_owned()),
+            "full tree must expose the nested 'Bossing/Sirus' target",
+        );
+        assert!(
+            full_paths.contains(&"Levelling".to_owned()),
+            "full tree must expose folders outside the active filter \
+             so the user can move builds out of the filter",
+        );
+
+        let mut filtered_paths = collect_folder_paths(&filtered);
+        filtered_paths.sort();
+        assert!(
+            !filtered_paths.contains(&"Bossing/Sirus".to_owned()),
+            "filtered subtree truncates nested paths — passing it to \
+             the move popup would emit the wrong target path",
+        );
+        assert!(
+            !filtered_paths.contains(&"Levelling".to_owned()),
+            "filtered subtree hides sibling folders — passing it to \
+             the move popup would strand builds inside the filter",
+        );
     }
 }
