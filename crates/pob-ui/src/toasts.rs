@@ -96,6 +96,20 @@ impl ToastQueue {
         self.entries.retain(|t| t.is_visible(now));
     }
 
+    /// Issue #225 follow-up: dismiss the toast at `index`. Out-of-
+    /// range indices are a no-op so a stale click after a sweep can't
+    /// panic. Returns `true` when a toast was actually removed — the
+    /// renderer reads this to short-circuit the rest of the click
+    /// handler.
+    pub fn dismiss(&mut self, index: usize) -> bool {
+        if index < self.entries.len() {
+            self.entries.remove(index);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Iterate currently-visible toasts (after the last `sweep`).
     /// Order is insertion-order so the most recent message is at the
     /// bottom of the stack — matches the convention most desktop OS
@@ -182,6 +196,42 @@ mod tests {
         let mut q = ToastQueue::default();
         q.sweep(1.0);
         assert!(q.is_empty());
+    }
+
+    #[test]
+    fn dismiss_removes_entry_at_index_and_reports_true() {
+        // Issue #225 follow-up: clicking a toast removes that toast
+        // immediately so the user doesn't have to wait for its
+        // expiry. Confirms the surviving entries shift up so a
+        // subsequent dismiss still indexes correctly.
+        let mut q = ToastQueue::default();
+        q.push_with_lifetime(StatusKind::Info, "a", 0.0, 10.0);
+        q.push_with_lifetime(StatusKind::Info, "b", 0.0, 10.0);
+        q.push_with_lifetime(StatusKind::Info, "c", 0.0, 10.0);
+        assert!(q.dismiss(1));
+        let msgs: Vec<&str> = q.iter().map(|t| t.message.as_str()).collect();
+        assert_eq!(msgs, vec!["a", "c"]);
+        // Dismiss the now-second entry; `c` survives.
+        // Wait — after removal we have [a, c], so dismissing index 0
+        // drops `a` and `c` becomes the only entry.
+        assert!(q.dismiss(0));
+        let msgs: Vec<&str> = q.iter().map(|t| t.message.as_str()).collect();
+        assert_eq!(msgs, vec!["c"]);
+    }
+
+    #[test]
+    fn dismiss_out_of_range_is_noop_and_reports_false() {
+        // Defensive: a stale click index after a sweep / dismiss
+        // shouldn't panic. The renderer relies on the bool return
+        // to decide whether to short-circuit further hit-testing.
+        let mut q = ToastQueue::default();
+        q.push_with_lifetime(StatusKind::Info, "only", 0.0, 10.0);
+        assert!(!q.dismiss(7));
+        assert!(!q.dismiss(1)); // exactly one past the end
+        assert_eq!(q.len(), 1, "no entry was removed");
+        // Empty queue: any index is out of range.
+        let mut empty = ToastQueue::default();
+        assert!(!empty.dismiss(0));
     }
 
     #[test]
