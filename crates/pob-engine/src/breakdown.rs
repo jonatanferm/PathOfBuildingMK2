@@ -287,6 +287,8 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "MainSkillLevel" => main_skill_level(env),
         "EnemyPhysReduction" => enemy_phys_reduction(env),
         "MainSkillEnemyEffectiveResist" => main_skill_enemy_effective_resist(env),
+        "LifeFlaskRecovery" => flask_recovery(env, "Life"),
+        "ManaFlaskRecovery" => flask_recovery(env, "Mana"),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3178,6 +3180,68 @@ fn main_skill_enemy_effective_resist(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for `LifeFlaskRecovery` /
+/// `ManaFlaskRecovery`. PoB takes the `max` across the five flask
+/// slots' per-flask `Flask<N><Pool>Recovery` values because the
+/// user only fires one flask at a time. The Calcs tab surfaced
+/// the max as a single number; users couldn't tell which flask
+/// was contributing or how the slots compared.
+///
+/// Surfaced steps walk all five flask slots (zeros for empty
+/// slots, with their Flask<N><Pool>Recovery value when present)
+/// → Final "<Pool> flask recovery" line whose explain calls out
+/// the source flask.
+///
+/// `pool` is `"Life"` or `"Mana"`; the per-slot and final keys
+/// follow `Flask<N><Pool>Recovery` / `<Pool>FlaskRecovery`. Returns
+/// `None` when no flask of that type is equipped (perform.rs
+/// doesn't write the final key in that case).
+fn flask_recovery(env: &Env, pool: &str) -> Option<Breakdown> {
+    let final_key = format!("{pool}FlaskRecovery");
+    let total = env.output.get(&final_key);
+    if total.abs() < 1e-9 {
+        return None;
+    }
+
+    let mut steps = Vec::new();
+    let mut winner: Option<usize> = None;
+    let mut winner_value = f64::NEG_INFINITY;
+    for slot in 1..=5 {
+        let value = env.output.get(&format!("Flask{slot}{pool}Recovery"));
+        if value > winner_value {
+            winner_value = value;
+            winner = Some(slot);
+        }
+        steps.push(
+            BreakdownStep::label(format!("Flask {slot}"))
+                .with_value(value)
+                .with_explain(if value > 0.0 {
+                    format!("{value:.0} from Flask{slot}{pool}Recovery")
+                } else {
+                    "(empty / no recovery on this flask)".to_owned()
+                }),
+        );
+    }
+
+    let pool_lower = pool.to_ascii_lowercase();
+    let winner_str = winner
+        .map(|s| format!("Flask {s}"))
+        .unwrap_or_else(|| "—".to_owned());
+    steps.push(
+        BreakdownStep::label(format!("{pool} flask recovery"))
+            .with_value(total)
+            .with_explain(format!(
+                "max(slot 1..5) = {total:.0} {pool_lower} (from {winner_str})"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: final_key,
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `EnemyPhysReduction`. PoB
 /// computes it as `armour / (armour + 5 × raw)` capped at 90%
 /// (the `EnemyPhysicalDamageReductionCap` constant), where:
@@ -5314,6 +5378,68 @@ mod tests {
             derive_for(&env, "MainSkillEnemyEffectiveResist").is_none(),
             "expected None when MainSkillEnemyEffectiveResist is zero",
         );
+    }
+
+    /// Issue #34 follow-up: LifeFlaskRecovery walks each flask
+    /// slot's per-flask LifeRecovery and surfaces the max across
+    /// slots. PoB takes the max because the user only fires one
+    /// flask at a time. Worked example: Flask1 350, Flask2 540,
+    /// Flask4 320 → max 540 (Flask 2).
+    #[test]
+    fn life_flask_recovery_breakdown_picks_max_across_slots() {
+        let mut env = Env::default();
+        env.output.set("Flask1LifeRecovery", 350.0);
+        env.output.set("Flask2LifeRecovery", 540.0);
+        env.output.set("Flask4LifeRecovery", 320.0);
+        env.output.set("LifeFlaskRecovery", 540.0);
+        let bd = derive_for(&env, "LifeFlaskRecovery").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Flask 1"));
+        assert!(labels.contains(&"Flask 2"));
+        assert!(labels.contains(&"Flask 3"));
+        assert!(labels.contains(&"Flask 4"));
+        assert!(labels.contains(&"Flask 5"));
+        assert!(labels.contains(&"Life flask recovery"));
+
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("Flask 2") && e.contains("max")),
+            "expected 'max from Flask 2' note, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 540.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ManaFlaskRecovery walks the same per-
+    /// slot pick. Worked example: Flask1 200 mana, Flask3 480 →
+    /// max 480 (Flask 3).
+    #[test]
+    fn mana_flask_recovery_breakdown_picks_max_across_slots() {
+        let mut env = Env::default();
+        env.output.set("Flask1ManaRecovery", 200.0);
+        env.output.set("Flask3ManaRecovery", 480.0);
+        env.output.set("ManaFlaskRecovery", 480.0);
+        let bd = derive_for(&env, "ManaFlaskRecovery").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Mana flask recovery"));
+        assert!((bd.total - 480.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when the user has no flask
+    /// of that type equipped (LifeFlaskRecovery / ManaFlaskRecovery
+    /// = 0 means perform.rs didn't write them).
+    #[test]
+    fn flask_recovery_breakdown_skipped_when_no_flask() {
+        let env = Env::default();
+        for key in ["LifeFlaskRecovery", "ManaFlaskRecovery"] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when no flask is equipped",
+            );
+        }
     }
 
     /// Issue #34 follow-up: EnemyPhysReduction walks the armour
