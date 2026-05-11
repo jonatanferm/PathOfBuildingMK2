@@ -14,6 +14,7 @@ use pob_engine::{
 mod build_store_disk;
 #[cfg(target_arch = "wasm32")]
 mod build_store_wasm;
+mod builds_folder_ops;
 mod builds_folder_tree;
 mod builds_tab;
 mod calcs_tab;
