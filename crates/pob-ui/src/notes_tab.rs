@@ -41,6 +41,34 @@ pub const NOTE_COLOR_BUTTONS: &[(&str, &str)] = &[
     ("Default", "^7"),
 ];
 
+/// Issue #225 follow-up: convert a 0-based character index into
+/// 1-based (line, column) coordinates. `\n` advances the line and
+/// resets the column; every other character advances the column by
+/// one. Out-of-range indices clamp to the position right after the
+/// last character, matching what most editors show for a cursor at
+/// EOF.
+///
+/// Pure / no egui so the rules around `\n` are unit-testable; the
+/// renderer pulls the char index from `egui::TextEdit::load_state`
+/// and feeds it here.
+#[must_use]
+pub fn cursor_position_for_char_index(text: &str, char_idx: usize) -> (u32, u32) {
+    let mut line: u32 = 1;
+    let mut col: u32 = 1;
+    for (i, c) in text.chars().enumerate() {
+        if i >= char_idx {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
+}
+
 /// Pure helper: insert `escape` at the cursor's byte index inside
 /// `text`. Returns `(new_text, new_cursor_byte_index)` so the
 /// `TextEditState` can be repositioned after the insertion.
@@ -75,6 +103,7 @@ fn clamp_to_char_boundary(s: &str, byte_idx: usize) -> usize {
 }
 
 pub fn ui(ui: &mut egui::Ui, notes: &mut String, state: &mut NotesTabState) {
+    let edit_id = egui::Id::new("notes-tab-edit");
     ui.horizontal(|ui| {
         ui.heading("Notes");
         ui.separator();
@@ -87,6 +116,21 @@ pub fn ui(ui: &mut egui::Ui, notes: &mut String, state: &mut NotesTabState) {
                 .count()
                 .max(if notes.is_empty() { 0 } else { 1 });
             let words = notes.split_whitespace().count();
+            // Issue #225 follow-up: cursor position indicator. Only
+            // renders in Edit mode (the cursor is meaningless in
+            // Render mode) and only once the TextEdit has been
+            // focused at least once (else egui has no stored cursor
+            // state).
+            if matches!(state.mode, NotesMode::Edit) {
+                if let Some(char_idx) = egui::TextEdit::load_state(ui.ctx(), edit_id)
+                    .and_then(|st| st.cursor.char_range())
+                    .map(|range| range.primary.index)
+                {
+                    let (line, col) = cursor_position_for_char_index(notes, char_idx);
+                    ui.weak(format!("L{line}:{col}"));
+                    ui.weak("·");
+                }
+            }
             ui.weak(format!("{chars} chars · {words} words · {lines} lines"));
         });
     });
@@ -97,7 +141,6 @@ pub fn ui(ui: &mut egui::Ui, notes: &mut String, state: &mut NotesTabState) {
     // palette is self-documenting — a user shopping for "the green
     // one" can scan the row visually without remembering "^2 means
     // green".
-    let edit_id = egui::Id::new("notes-tab-edit");
     if matches!(state.mode, NotesMode::Edit) {
         ui.horizontal_wrapped(|ui| {
             ui.label("Color:");
@@ -178,6 +221,61 @@ pub fn ui(ui: &mut egui::Ui, notes: &mut String, state: &mut NotesTabState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cursor_position_at_origin_is_line_one_col_one() {
+        // A freshly-opened (empty) buffer starts the cursor at (1, 1)
+        // by convention. A 0-char index in any buffer reads the same.
+        assert_eq!(cursor_position_for_char_index("", 0), (1, 1));
+        assert_eq!(cursor_position_for_char_index("hello", 0), (1, 1));
+    }
+
+    #[test]
+    fn cursor_position_advances_col_per_char() {
+        // No newlines → line stays at 1; column climbs with each
+        // character.
+        assert_eq!(cursor_position_for_char_index("hello", 1), (1, 2));
+        assert_eq!(cursor_position_for_char_index("hello", 3), (1, 4));
+        assert_eq!(cursor_position_for_char_index("hello", 5), (1, 6));
+    }
+
+    #[test]
+    fn cursor_position_resets_col_on_newline() {
+        // `\n` advances the line and resets the column. The index
+        // points at the character *after* the cursor — so `idx=4`
+        // for `abc\n[d]ef` sits at column 1 of line 2.
+        assert_eq!(cursor_position_for_char_index("abc\ndef", 4), (2, 1));
+        assert_eq!(cursor_position_for_char_index("abc\ndef", 7), (2, 4));
+    }
+
+    #[test]
+    fn cursor_position_counts_each_newline() {
+        // Multiple newlines accumulate line counts; an index at the
+        // start of a fresh line reads col 1.
+        assert_eq!(cursor_position_for_char_index("a\nb\nc", 4), (3, 1));
+        // Trailing newline produces a blank line 4 col 1 — useful
+        // for log-style notes ending in `\n`.
+        let s = "a\nb\nc\n";
+        assert_eq!(cursor_position_for_char_index(s, 6), (4, 1));
+    }
+
+    #[test]
+    fn cursor_position_handles_multibyte_chars() {
+        // Multi-byte UTF-8 chars count as one *character* — each
+        // advances the column by one regardless of byte width.
+        assert_eq!(cursor_position_for_char_index("éàü", 2), (1, 3));
+    }
+
+    #[test]
+    fn cursor_position_clamps_index_past_end() {
+        // A stale char index after the buffer shrank shouldn't
+        // panic — clamp to "right after the last char".
+        // "hello" has 5 chars, so any index >= 5 lands at (1, 6).
+        assert_eq!(cursor_position_for_char_index("hello", 100), (1, 6));
+        // After a newline-bearing buffer, the clamp lands at the
+        // visual line + col of the tail.
+        assert_eq!(cursor_position_for_char_index("a\nb", 999), (2, 2));
+    }
 
     #[test]
     fn insert_at_start_prepends_escape() {
