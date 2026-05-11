@@ -107,6 +107,30 @@ fn main() -> Result<()> {
     .with_context(|| format!("writing {}", helmet_enchants_path.display()))?;
     wrote.push(helmet_enchants_path);
 
+    // Glove enchants — flat-tier catalogue. Companion to helmet
+    // enchants for the issue #221 picker; the UI follow-up surfaces
+    // glove + boot picks on those equipped slots.
+    let glove_enchants_path = args.out.join("enchants_gloves.json");
+    let glove_enchants = enchants::extract_gloves(&args.pob)
+        .with_context(|| "extracting glove enchants".to_string())?;
+    std::fs::write(
+        &glove_enchants_path,
+        serde_json::to_string_pretty(&glove_enchants)?,
+    )
+    .with_context(|| format!("writing {}", glove_enchants_path.display()))?;
+    wrote.push(glove_enchants_path);
+
+    // Boot enchants — same flat-tier shape as gloves.
+    let boot_enchants_path = args.out.join("enchants_boots.json");
+    let boot_enchants = enchants::extract_boots(&args.pob)
+        .with_context(|| "extracting boot enchants".to_string())?;
+    std::fs::write(
+        &boot_enchants_path,
+        serde_json::to_string_pretty(&boot_enchants)?,
+    )
+    .with_context(|| format!("writing {}", boot_enchants_path.display()))?;
+    wrote.push(boot_enchants_path);
+
     // Calc sections — one JSON for the Calcs-tab section layout.
     let calc_sections_path = args.out.join("calc_sections.json");
     let calc_sections = calc_sections::extract(&args.pob)
