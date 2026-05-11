@@ -178,6 +178,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "5s base bleed duration (PoE constant)",
             "Bleed duration",
         ),
+        "PoisonStacks" => poison_stacks(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -478,6 +479,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "IgniteDuration",
     "PoisonDuration",
     "BleedDuration",
+    "PoisonStacks",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2865,6 +2867,83 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `PoisonStacks`. PoB computes
+/// steady-state stack count as
+/// `min(MainSkillSpeed × PoisonDuration × poison_chance, PoisonStackLimit)`.
+/// The chance isn't directly stored, so we back-derive it from the
+/// stack count when the cap isn't active. Surfacing the
+/// composition lets users see whether they're cap-limited (cap == result)
+/// or rate-limited (chance × speed × duration == result).
+///
+/// Returns `None` when the build doesn't inflict poison.
+fn poison_stacks(env: &Env) -> Option<Breakdown> {
+    let stacks = env.output.get("PoisonStacks");
+    if stacks.abs() < 1e-9 {
+        return None;
+    }
+    let speed = env.output.get("MainSkillSpeed");
+    let duration = env.output.get("PoisonDuration");
+    let limit = env.output.get("PoisonStackLimit");
+    let nominal = speed * duration;
+    let chance = if nominal > 1e-9 {
+        stacks / nominal
+    } else {
+        0.0
+    };
+    // Cap detection: PoB caps `stacks = min(speed × duration × chance, limit)`.
+    // When the result equals the limit the cap saturated the row;
+    // we treat that as cap-limited and label the explain accordingly.
+    let capped = limit > 0.0 && (stacks - limit).abs() < 1e-9;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Skill speed")
+            .with_value(speed)
+            .with_explain(format!("{speed:.2} cps from MainSkillSpeed")),
+    );
+    steps.push(
+        BreakdownStep::label("Poison duration")
+            .with_value(duration)
+            .with_explain(format!(
+                "{duration:.1}s — see PoisonDuration for the base × inc chain"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Effective chance")
+            .with_value(chance)
+            .with_explain(format!(
+                "{:.0}% (back-derived from stacks ÷ speed × duration)",
+                chance * 100.0
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Stack limit")
+            .with_value(limit)
+            .with_explain(format!(
+                "{limit:.0} from PoisonStackLimit (default 50, raised by uniques like Volkuur's)"
+            )),
+    );
+    let final_explain = if capped {
+        format!("min({nominal:.1}, {limit:.0}) = {stacks:.1} (capped at stack limit)")
+    } else {
+        format!(
+            "{speed:.2} × {duration:.1} × {:.0}% = {stacks:.1}",
+            chance * 100.0
+        )
+    };
+    steps.push(
+        BreakdownStep::label("Poison stacks")
+            .with_value(stacks)
+            .with_explain(final_explain),
+    );
+
+    Some(Breakdown {
+        output_key: "PoisonStacks".to_owned(),
+        total: stacks,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for ailment-duration outputs
 /// (Ignite / Poison / Bleed). All three follow the same shape in
 /// `perform_skill_dps`:
@@ -3431,6 +3510,9 @@ mod tests {
         // 100% chance land around 10–15 stacks against PoB's standard
         // boss preset.
         env.output.set("PoisonStacks", 10.0);
+        // Issue #34 follow-up: PoisonStackLimit default (50) so the
+        // PoisonStacks breakdown has a cap to surface.
+        env.output.set("PoisonStackLimit", 50.0);
         env.output.set("IgniteDPS", 0.0);
         // Issue #34 follow-up: Bleed and Ignite DPS = per_application
         // × chance. The fixture's spell build has neither active by
@@ -4140,6 +4222,77 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: PoisonStacks walks Cast/attack rate ×
+    /// Poison duration → nominal capacity, capped at the stack
+    /// limit. PoB computes steady-state stack count as
+    /// `min(speed × duration × chance, PoisonStackLimit)` where
+    /// chance is back-derived from `stacks / (speed × duration)`
+    /// when the cap isn't active. The breakdown surfaces the
+    /// composition so users can see whether they're cap-limited or
+    /// rate-limited.
+    ///
+    /// Worked example: 5 cps × 3s × 100% = 15 stacks (un-capped).
+    #[test]
+    fn poison_stacks_breakdown_walks_speed_duration_chance() {
+        let mut env = Env::default();
+        env.output.set("MainSkillSpeed", 5.0);
+        env.output.set("PoisonDuration", 3.0);
+        env.output.set("PoisonStacks", 15.0);
+        env.output.set("PoisonStackLimit", 50.0);
+        let bd = derive_for(&env, "PoisonStacks").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Skill speed"));
+        assert!(labels.contains(&"Poison duration"));
+        assert!(labels.contains(&"Effective chance"));
+        assert!(labels.contains(&"Stack limit"));
+        assert!(labels.contains(&"Poison stacks"));
+
+        let chance = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Effective chance")
+            .unwrap();
+        // 15 / (5 × 3) = 1.0 = 100%.
+        assert!((chance.value.unwrap() - 1.0).abs() < 1e-6);
+        assert!((bd.total - 15.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: when the steady-state stack count would
+    /// exceed PoisonStackLimit, the final step's explain calls out
+    /// the cap. Worked example: 5 cps × 5s × 200% chance would yield
+    /// 50 stacks but the default stack limit is 50, so the result
+    /// is exactly the cap and the explain notes it.
+    #[test]
+    fn poison_stacks_breakdown_flags_capped_case() {
+        let mut env = Env::default();
+        env.output.set("MainSkillSpeed", 5.0);
+        env.output.set("PoisonDuration", 5.0);
+        env.output.set("PoisonStacks", 50.0);
+        env.output.set("PoisonStackLimit", 50.0);
+        let bd = derive_for(&env, "PoisonStacks").unwrap();
+        let final_step = bd.steps.last().unwrap();
+        assert_eq!(final_step.label, "Poison stacks");
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("capped")),
+            "expected 'capped' in explain when stacks == limit, got {:?}",
+            final_step.explain
+        );
+    }
+
+    /// Issue #34 follow-up: returns None when the build doesn't
+    /// inflict poison (stacks == 0).
+    #[test]
+    fn poison_stacks_breakdown_skipped_when_no_poison() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "PoisonStacks").is_none(),
+            "expected None when PoisonStacks is zero",
+        );
+    }
+
     /// Issue #34 follow-up: PoisonDuration walks the same Base ×
     /// (1 + INC%) chain as IgniteDuration but with a 2-second base.
     /// Worked example: base 2 × (1 + 50%) = 3s.
