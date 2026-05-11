@@ -21,6 +21,32 @@ pub struct CompareTabState {
     pub snapshot: Option<Snapshot>,
     pub filter: String,
     pub hide_zero_delta: bool,
+    /// Issue #223: sort mode for the diff table. PoB exposes the same
+    /// three orderings on `CompareTab`: alphabetical by key (default),
+    /// by absolute delta descending, by percent delta descending.
+    pub sort_mode: CompareSortMode,
+}
+
+/// Issue #223: how to order the diff rows. PoB sorts by absolute delta
+/// by default (biggest changes first), but the alphabetical fallback
+/// is useful for hunting a specific stat in a long list and the
+/// percent view normalises across magnitudes (a +50 to a 1k stat reads
+/// differently than +50 to a 50 stat — percent collapses that).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CompareSortMode {
+    /// Alphabetical by output key. The pre-#223 default; kept first so
+    /// the existing fmt-only behaviour is preserved when the field
+    /// defaults.
+    #[default]
+    Key,
+    /// Descending by absolute delta — biggest changes first, regardless
+    /// of sign.
+    AbsDelta,
+    /// Descending by percent delta — biggest *relative* changes first.
+    /// Rows where the snapshot value is zero (so percent is undefined)
+    /// fall to the bottom so they don't poison the ordering with
+    /// `inf` / sentinel values.
+    PercentDelta,
 }
 
 #[derive(Debug, Clone)]
@@ -112,46 +138,51 @@ pub fn ui(
                 .hint_text("Life, FireResist, MainSkill, …"),
         );
         ui.checkbox(&mut state.hide_zero_delta, "Hide zero deltas");
+        ui.separator();
+        // Issue #223: sort selector. Three modes mirror PoB —
+        // alphabetical (stable, easy to find a stat), absolute delta
+        // (biggest swings first), percent delta (biggest relative
+        // changes first).
+        ui.label("Sort:");
+        ui.selectable_value(&mut state.sort_mode, CompareSortMode::Key, "Stat")
+            .on_hover_text("Alphabetical by stat name.");
+        ui.selectable_value(&mut state.sort_mode, CompareSortMode::AbsDelta, "|Δ|")
+            .on_hover_text("Descending by absolute delta — biggest swings first.");
+        ui.selectable_value(&mut state.sort_mode, CompareSortMode::PercentDelta, "%Δ")
+            .on_hover_text(
+                "Descending by percent delta — biggest relative changes first. \
+                 Rows where the snapshot was zero have no percent and sort \
+                 to the bottom.",
+            );
     });
     ui.separator();
 
-    // Build the diff list: union of keys from both sides, with the
-    // delta = live - snapshot. Sort by key for stable order.
-    let mut keys: Vec<String> = std::collections::BTreeSet::<String>::from_iter(
-        live_output
-            .iter()
-            .map(|(k, _)| k.to_owned())
-            .chain(snap.output.iter().map(|(k, _)| k.to_owned())),
-    )
-    .into_iter()
-    .collect();
-    let filter_lc = state.filter.to_ascii_lowercase();
-    if !filter_lc.is_empty() {
-        keys.retain(|k| k.to_ascii_lowercase().contains(&filter_lc));
-    }
+    let rows = ordered_diff_rows(
+        &snap.output,
+        live_output,
+        &state.filter,
+        state.hide_zero_delta,
+        state.sort_mode,
+    );
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
             egui::Grid::new("compare_grid")
-                .num_columns(4)
+                .num_columns(5)
                 .striped(true)
                 .show(ui, |ui| {
                     ui.strong("Stat");
                     ui.strong("Snapshot");
                     ui.strong("Live");
                     ui.strong("Delta");
+                    ui.strong("%Δ");
                     ui.end_row();
-                    for key in &keys {
-                        let live = live_output.try_get(key).unwrap_or(0.0);
-                        let snap_v = snap.output.try_get(key).unwrap_or(0.0);
+                    for (key, snap_v, live) in &rows {
                         let delta = live - snap_v;
-                        if state.hide_zero_delta && delta.abs() < 1e-6 {
-                            continue;
-                        }
                         ui.label(key);
-                        ui.label(format_value(snap_v));
-                        ui.label(format_value(live));
+                        ui.label(format_value(*snap_v));
+                        ui.label(format_value(*live));
                         let color = if delta > 1e-6 {
                             egui::Color32::from_rgb(0x33, 0xFF, 0x77)
                         } else if delta < -1e-6 {
@@ -160,6 +191,10 @@ pub fn ui(
                             ui.style().visuals.text_color()
                         };
                         ui.colored_label(color, format_delta(delta));
+                        match percent_delta(*snap_v, *live) {
+                            Some(p) => ui.colored_label(color, format_percent(p)),
+                            None => ui.weak("—"),
+                        };
                         ui.end_row();
                     }
                 });
@@ -196,6 +231,93 @@ fn format_value(v: f64) -> String {
     }
 }
 
+/// Issue #223: percent change from `snap` to `live`. `None` when
+/// `snap == 0` (percent is undefined — the row is still meaningful but
+/// can't carry a percent value, and division would otherwise produce
+/// `inf`). Pulled out so the percent column and the percent-sort key
+/// share one rule. `live - snap` is the underlying delta in absolute
+/// units; the percent is `delta / snap * 100`.
+#[must_use]
+pub fn percent_delta(snap: f64, live: f64) -> Option<f64> {
+    if snap.abs() < 1e-12 {
+        return None;
+    }
+    Some((live - snap) / snap * 100.0)
+}
+
+/// Issue #223: ordered list of `(key, snap, live)` triples for the
+/// compare table, with the user's sort mode applied. Pulled out of
+/// the egui loop so the ordering rule is unit-testable in isolation
+/// (the egui side just walks the returned vec).
+///
+/// `filter` is matched case-insensitively against each key; an empty
+/// filter accepts every key. `hide_zero` drops rows whose absolute
+/// delta is zero. Stable sub-order is alphabetical by key so two rows
+/// with identical sort keys land in a deterministic position.
+#[must_use]
+pub fn ordered_diff_rows(
+    snap: &Output,
+    live: &Output,
+    filter: &str,
+    hide_zero: bool,
+    sort_mode: CompareSortMode,
+) -> Vec<(String, f64, f64)> {
+    let filter_lc = filter.to_ascii_lowercase();
+    let key_set: std::collections::BTreeSet<String> = live
+        .iter()
+        .map(|(k, _)| k.to_owned())
+        .chain(snap.iter().map(|(k, _)| k.to_owned()))
+        .filter(|k| filter_lc.is_empty() || k.to_ascii_lowercase().contains(&filter_lc))
+        .collect();
+
+    let mut rows: Vec<(String, f64, f64)> = key_set
+        .into_iter()
+        .filter_map(|k| {
+            let live_v = live.try_get(&k).unwrap_or(0.0);
+            let snap_v = snap.try_get(&k).unwrap_or(0.0);
+            let delta = live_v - snap_v;
+            if hide_zero && delta.abs() < 1e-6 {
+                return None;
+            }
+            Some((k, snap_v, live_v))
+        })
+        .collect();
+
+    match sort_mode {
+        CompareSortMode::Key => {
+            // BTreeSet already provided alphabetical order.
+        }
+        CompareSortMode::AbsDelta => {
+            rows.sort_by(|a, b| {
+                let da = (a.2 - a.1).abs();
+                let db = (b.2 - b.1).abs();
+                // Descending; ties broken alphabetically.
+                db.partial_cmp(&da)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(&b.0))
+            });
+        }
+        CompareSortMode::PercentDelta => {
+            rows.sort_by(|a, b| {
+                let pa = percent_delta(a.1, a.2).map(f64::abs);
+                let pb = percent_delta(b.1, b.2).map(f64::abs);
+                // Rows with no percent (snap == 0) sort below rows
+                // that have one — they're inherently un-orderable
+                // by percent, so push them to the bottom rather
+                // than tying with literal zero.
+                match (pa, pb) {
+                    (Some(a), Some(b)) => b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                }
+                .then_with(|| a.0.cmp(&b.0))
+            });
+        }
+    }
+    rows
+}
+
 fn format_delta(v: f64) -> String {
     if v.abs() < 1e-6 {
         "0".to_owned()
@@ -203,6 +325,25 @@ fn format_delta(v: f64) -> String {
         format!("+{}", format_value(v))
     } else {
         format_value(v)
+    }
+}
+
+/// Issue #223: render a percent delta. Large magnitudes round to an
+/// integer (a `+412.5%` row reads as `+413%`); small magnitudes keep
+/// one decimal so a 0.4% change isn't squashed to 0%.
+fn format_percent(p: f64) -> String {
+    if p.abs() < 0.05 {
+        "0%".to_owned()
+    } else if p.abs() >= 100.0 {
+        if p > 0.0 {
+            format!("+{p:.0}%")
+        } else {
+            format!("{p:.0}%")
+        }
+    } else if p > 0.0 {
+        format!("+{p:.1}%")
+    } else {
+        format!("{p:.1}%")
     }
 }
 
@@ -232,5 +373,96 @@ mod tests {
         // Big magnitude → integer form regardless of fraction.
         assert_eq!(format_value(1234.56), "1235");
         assert_eq!(format_value(-1234.56), "-1235");
+    }
+
+    #[test]
+    fn percent_delta_returns_none_for_zero_snapshot() {
+        // Division-by-zero guard — percent isn't meaningful when the
+        // snapshot value is zero. Callers render "—" for the percent
+        // column in that case.
+        assert_eq!(percent_delta(0.0, 10.0), None);
+        assert_eq!(percent_delta(-1e-15, 10.0), None);
+    }
+
+    #[test]
+    fn percent_delta_positive_and_negative_cases() {
+        // 50 → 100 is a +100% change; 100 → 50 is -50%.
+        assert!((percent_delta(50.0, 100.0).unwrap() - 100.0).abs() < 1e-9);
+        assert!((percent_delta(100.0, 50.0).unwrap() - -50.0).abs() < 1e-9);
+        // Identity: same value → 0%.
+        assert_eq!(percent_delta(42.0, 42.0), Some(0.0));
+    }
+
+    #[test]
+    fn format_percent_collapses_near_zero_and_signs_otherwise() {
+        assert_eq!(format_percent(0.0), "0%");
+        assert_eq!(format_percent(0.04), "0%");
+        assert_eq!(format_percent(-0.04), "0%");
+        assert_eq!(format_percent(5.5), "+5.5%");
+        assert_eq!(format_percent(-5.5), "-5.5%");
+        // Large magnitude → integer form so the column doesn't blow
+        // up on a "snapshot was 1, live is 50" row.
+        assert_eq!(format_percent(4900.0), "+4900%");
+        assert_eq!(format_percent(-200.0), "-200%");
+    }
+
+    fn out(pairs: &[(&str, f64)]) -> Output {
+        let mut o = Output::default();
+        for (k, v) in pairs {
+            o.set(*k, *v);
+        }
+        o
+    }
+
+    #[test]
+    fn ordered_diff_rows_alphabetical_by_key_under_key_mode() {
+        let snap = out(&[("Life", 100.0), ("FireResist", 30.0)]);
+        let live = out(&[("Life", 150.0), ("FireResist", 75.0)]);
+        let rows = ordered_diff_rows(&snap, &live, "", false, CompareSortMode::Key);
+        let order: Vec<&str> = rows.iter().map(|(k, _, _)| k.as_str()).collect();
+        // BTreeSet ordering → alphabetical.
+        assert_eq!(order, vec!["FireResist", "Life"]);
+    }
+
+    #[test]
+    fn ordered_diff_rows_absdelta_orders_biggest_swing_first() {
+        let snap = out(&[("Life", 100.0), ("FireResist", 30.0), ("Mana", 50.0)]);
+        let live = out(&[("Life", 1000.0), ("FireResist", 75.0), ("Mana", 49.0)]);
+        let rows = ordered_diff_rows(&snap, &live, "", false, CompareSortMode::AbsDelta);
+        let order: Vec<&str> = rows.iter().map(|(k, _, _)| k.as_str()).collect();
+        // |Life Δ| = 900, |FireResist Δ| = 45, |Mana Δ| = 1.
+        assert_eq!(order, vec!["Life", "FireResist", "Mana"]);
+    }
+
+    #[test]
+    fn ordered_diff_rows_percentdelta_pushes_zero_snapshot_rows_to_bottom() {
+        // Mana goes from 0 → 50 (percent undefined) — should sort
+        // *after* every row with a defined percent, even when the
+        // absolute swing is large.
+        let snap = out(&[("Life", 100.0), ("FireResist", 30.0), ("Mana", 0.0)]);
+        let live = out(&[("Life", 150.0), ("FireResist", 60.0), ("Mana", 50.0)]);
+        let rows = ordered_diff_rows(&snap, &live, "", false, CompareSortMode::PercentDelta);
+        let order: Vec<&str> = rows.iter().map(|(k, _, _)| k.as_str()).collect();
+        // FireResist: +100%. Life: +50%. Mana: undefined → bottom.
+        assert_eq!(order, vec!["FireResist", "Life", "Mana"]);
+    }
+
+    #[test]
+    fn ordered_diff_rows_filter_is_case_insensitive() {
+        let snap = out(&[("Life", 100.0), ("FireResist", 30.0)]);
+        let live = out(&[("Life", 150.0), ("FireResist", 60.0)]);
+        let rows = ordered_diff_rows(&snap, &live, "FIRE", false, CompareSortMode::Key);
+        let order: Vec<&str> = rows.iter().map(|(k, _, _)| k.as_str()).collect();
+        assert_eq!(order, vec!["FireResist"]);
+    }
+
+    #[test]
+    fn ordered_diff_rows_hide_zero_drops_unchanged_keys() {
+        let snap = out(&[("Life", 100.0), ("Mana", 50.0)]);
+        let live = out(&[("Life", 150.0), ("Mana", 50.0)]);
+        let rows = ordered_diff_rows(&snap, &live, "", true, CompareSortMode::Key);
+        let order: Vec<&str> = rows.iter().map(|(k, _, _)| k.as_str()).collect();
+        // Mana is unchanged; only Life survives.
+        assert_eq!(order, vec!["Life"]);
     }
 }
