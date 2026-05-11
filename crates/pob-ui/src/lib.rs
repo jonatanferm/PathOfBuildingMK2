@@ -869,6 +869,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // already abstracts cmd-on-mac vs ctrl-on-other.
     let mut undo_request = false;
     let mut redo_request = false;
+    let mut open_settings = false;
     ctx.input(|i| {
         let cmd = i.modifiers.command;
         let shift = i.modifiers.shift;
@@ -904,6 +905,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             tab_jump = Some(Tab::Notes);
         } else if cmd && i.key_pressed(egui::Key::Num7) {
             tab_jump = Some(Tab::ImportExport);
+        } else if cmd && i.key_pressed(egui::Key::Comma) {
+            // Issue #225 polish: macOS-convention shortcut for
+            // Settings. Cross-platform via egui's `command` modifier.
+            open_settings = true;
         }
         // Esc clears the search only when there's something to clear and
         // we're on the Tree tab. Without the tab gate the shortcut would
@@ -939,6 +944,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     }
     if let Some(t) = tab_jump {
         app.active_tab = t;
+    }
+    if open_settings {
+        app.show_settings = true;
     }
 
     egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
@@ -2324,6 +2332,7 @@ fn render_toasts(ctx: &egui::Context, queue: &mut toasts::ToastQueue) {
     // option so we can take the borrow on `queue` for `dismiss`
     // after the layout closure returns.
     let mut dismiss_idx: Option<usize> = None;
+    let mut clear_all = false;
     egui::Area::new(egui::Id::new("toast-overlay"))
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0))
         .interactable(true)
@@ -2362,11 +2371,26 @@ fn render_toasts(ctx: &egui::Context, queue: &mut toasts::ToastQueue) {
                         }
                         ui.add_space(4.0);
                     }
+                    // Issue #225 polish: "Clear all" link when more
+                    // than one toast is visible. Saves a click per
+                    // entry when a burst lands at once.
+                    if queue.len() > 1 {
+                        let resp = ui.add(
+                            egui::Label::new(egui::RichText::new("Clear all").small().italics())
+                                .sense(egui::Sense::click()),
+                        );
+                        if resp.clicked() {
+                            clear_all = true;
+                        }
+                    }
                 },
             );
         });
     if let Some(idx) = dismiss_idx {
         queue.dismiss(idx);
+    }
+    if clear_all {
+        queue.clear();
     }
 }
 
@@ -2473,6 +2497,7 @@ fn render_hotkey_help_modal(ctx: &egui::Context, show: &mut bool) {
         (format!("{cmd_label}+6"), "Switch to Notes tab"),
         (format!("{cmd_label}+7"), "Switch to Import / Export tab"),
         (format!("{cmd_label}+F"), "Focus the Tree-tab search box"),
+        (format!("{cmd_label}+,"), "Open Settings"),
         ("Enter".into(), "Cycle to next search match (in box)"),
         ("Esc".into(), "Clear the Tree-tab search"),
         (
