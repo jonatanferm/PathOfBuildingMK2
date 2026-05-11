@@ -1140,13 +1140,13 @@ fn is_int_count_to_life_marker(line: &str) -> bool {
         && l.contains("in radius")
 }
 
-/// Issue #196 (slice 9 + slice 14): Pugilist marker covering both
-/// the Evasion line AND the per-claw Inc Physical Damage line. Both
-/// lines need to be excluded from `parse_non_transform_mods` so the
-/// radius dispatch owns the scaled emission. The unarmed-melee line
-/// is matched by `is_pugilist_unarmed_marker` and folded into a
-/// future slice — we still keep it pulled out of the global add path
-/// so the placeholder doesn't leak.
+/// Issue #196 (slice 9 + slice 14 + unarmed): Pugilist marker
+/// covering all three per-Dex lines — Evasion, per-claw Inc Physical
+/// Damage, and per-unarmed-melee Inc Physical Damage. All three lines
+/// need to be excluded from `parse_non_transform_mods` so the radius
+/// dispatch owns the scaled emission, and the dispatch arm
+/// ([`HandlerKind::DexCountToIncEvasion`]) emits each present line
+/// independently from a single shared in-radius Dex sum.
 fn is_dex_count_to_inc_evasion_marker(line: &str) -> bool {
     is_pugilist_evasion_line_marker(line)
         || is_pugilist_claw_phys_marker(line)
@@ -1739,18 +1739,27 @@ pub fn apply_radius_jewels(
                 }
             }
             HandlerKind::DexCountToIncEvasion => {
-                // Issue #196 (slices 9 + 14): Pugilist. Sums in-radius
-                // allocated Dex once and routes the integer-divided
-                // count into per-line emissions:
+                // Issue #196 (slices 9 + 14 + unarmed): Pugilist. Sums
+                // in-radius allocated Dex once and routes the
+                // integer-divided count into per-line emissions:
                 //   - Evasion line  → Inc Evasion (vanilla)
                 //   - Claw line     → Inc PhysicalDamage with the
                 //                     CLAW modflag (only counts when
                 //                     wielding a claw)
-                // The unarmed-melee line is recognised by the marker
-                // (so it's pulled out of the global add path) but
-                // emission lands in a future slice — needs the
-                // unarmed condition wiring that doesn't yet exist
-                // here.
+                //   - Unarmed line  → Inc PhysicalDamage with the
+                //                     MELEE+UNARMED modflags (only
+                //                     counts when attacking unarmed
+                //                     in melee)
+                // Mirrors PoB ModParser.lua jewelSelfFuncs at
+                // line 6155 — `getPerStat("PhysicalDamage", "INC",
+                // ModFlag.Unarmed, "Dex", 1 / 3)` — where
+                // `ModFlag.Unarmed` (0x01000000) is OR'd with
+                // `ModFlag.Melee` (0x00000100) by the underlying mod
+                // record. The marker text differs from the jewel's
+                // visible "with Unarmed Attacks" wording (PoB
+                // normalizes to "while Unarmed") but ModCache.lua
+                // line 2287 treats both forms as flags=16777476
+                // (MELEE | UNARMED).
                 for m in &jewel.mods {
                     let mut clone = m.clone();
                     clone.source = Some(Source::Other(jewel.source_label.clone()));
@@ -1779,6 +1788,18 @@ pub fn apply_radius_jewels(
                     {
                         let mut mod_ = crate::Mod::inc("PhysicalDamage", inc_pct);
                         mod_.flags |= pob_data::ModFlag::CLAW;
+                        mod_.keyword_flags |= pob_data::KeywordFlag::PHYSICAL;
+                        mod_.source = Some(Source::Other(jewel.source_label.clone()));
+                        db.add(mod_);
+                        report.mod_emissions += 1;
+                    }
+                    if item
+                        .mod_lines
+                        .iter()
+                        .any(|ml| is_pugilist_unarmed_phys_marker(&ml.line))
+                    {
+                        let mut mod_ = crate::Mod::inc("PhysicalDamage", inc_pct);
+                        mod_.flags |= pob_data::ModFlag::MELEE | pob_data::ModFlag::UNARMED;
                         mod_.keyword_flags |= pob_data::KeywordFlag::PHYSICAL;
                         mod_.source = Some(Source::Other(jewel.source_label.clone()));
                         db.add(mod_);
@@ -3801,6 +3822,119 @@ mod tests {
             phys_inc.len(),
             1,
             "expected exactly one Inc PhysicalDamage from Pugilist's claw line, got {phys_inc:#?}",
+        );
+    }
+
+    /// Issue #196: Pugilist's per-unarmed line — `1% increased Melee
+    /// Physical Damage with Unarmed Attacks per 3 Dexterity Allocated
+    /// in Radius`. Same dex-count source as the Evasion / Claw lines;
+    /// emits a MELEE+UNARMED-flagged Inc PhysicalDamage so it only
+    /// applies to unarmed melee attacks (mirrors PoB ModParser.lua
+    /// line 6155). Sum = 30 Dex → +10% Inc PhysicalDamage with the
+    /// MELEE+UNARMED modflags.
+    #[test]
+    fn pugilist_emits_unarmed_melee_phys_per_three_dex_in_radius() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Pugilist",
+                "Viridian Jewel",
+                &[(
+                    "1% increased Melee Physical Damage with Unarmed Attacks per 3 Dexterity Allocated in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let phys_mods = db.slice_named("PhysicalDamage");
+        assert!(
+            phys_mods.iter().any(|m| {
+                matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6
+                    && m.flags.contains(pob_data::ModFlag::MELEE)
+                    && m.flags.contains(pob_data::ModFlag::UNARMED)
+            }),
+            "expected MELEE+UNARMED-flagged +10% Inc PhysicalDamage from Pugilist, got {phys_mods:#?}",
+        );
+    }
+
+    /// Issue #196: when all three Pugilist per-Dex lines are present,
+    /// each emits the scaled value once (Evasion + Claw-flagged Phys
+    /// + Unarmed/Melee-flagged Phys). 30 Dex → +10% on each.
+    #[test]
+    fn pugilist_emits_all_three_lines_when_all_present() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+30 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Pugilist",
+                "Viridian Jewel",
+                &[
+                    (
+                        "1% increased Evasion Rating per 3 Dexterity Allocated in Radius",
+                        ModSection::Explicit,
+                    ),
+                    (
+                        "1% increased Claw Physical Damage per 3 Dexterity Allocated in Radius",
+                        ModSection::Explicit,
+                    ),
+                    (
+                        "1% increased Melee Physical Damage with Unarmed Attacks per 3 Dexterity Allocated in Radius",
+                        ModSection::Explicit,
+                    ),
+                ],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let evasion_mods = db.slice_named("Evasion");
+        assert!(
+            evasion_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)
+                    && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
+            "expected +10% Inc Evasion from Pugilist, got {evasion_mods:#?}",
+        );
+
+        let phys_inc: Vec<_> = db
+            .slice_named("PhysicalDamage")
+            .iter()
+            .filter(|m| matches!(m.kind, crate::ModType::Inc))
+            .cloned()
+            .collect();
+        // Exactly two Inc PhysicalDamage emissions: one CLAW-flagged,
+        // one MELEE+UNARMED-flagged. Both at +10% from the 30-Dex sum.
+        assert_eq!(
+            phys_inc.len(),
+            2,
+            "expected exactly two Inc PhysicalDamage from Pugilist's two phys lines, got {phys_inc:#?}",
+        );
+        assert!(
+            phys_inc.iter().any(|m| {
+                m.flags.contains(pob_data::ModFlag::CLAW)
+                    && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6
+            }),
+            "expected CLAW-flagged +10% Inc PhysicalDamage, got {phys_inc:#?}",
+        );
+        assert!(
+            phys_inc.iter().any(|m| {
+                m.flags.contains(pob_data::ModFlag::MELEE)
+                    && m.flags.contains(pob_data::ModFlag::UNARMED)
+                    && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6
+            }),
+            "expected MELEE+UNARMED-flagged +10% Inc PhysicalDamage, got {phys_inc:#?}",
         );
     }
 
