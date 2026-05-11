@@ -41,19 +41,56 @@ pub struct FolderNode {
     pub builds: Vec<BuildEntry>,
 }
 
-/// Group a flat list of [`BuildEntry`]s into a folder tree.
+/// Issue #213 follow-up: how the builds list orders within each folder.
+/// `Name` is the historical alphabetical order; `RecentFirst` orders by
+/// filesystem mtime descending (entries without an mtime sort to the
+/// bottom and fall back to label order so the result is deterministic).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BuildsSortMode {
+    /// Case-insensitive alphabetical by label. Default — preserves the
+    /// pre-issue-#213 ordering.
+    #[default]
+    Name,
+    /// Most-recently-modified first. Entries without a known mtime
+    /// fall to the bottom of their folder, ordered alphabetically
+    /// among themselves so the tail is stable.
+    RecentFirst,
+}
+
+impl BuildsSortMode {
+    /// Human-readable label for the UI selector.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Name => "Name",
+            Self::RecentFirst => "Recent",
+        }
+    }
+}
+
+/// Group a flat list of [`BuildEntry`]s into a folder tree, sorted
+/// alphabetically by label within each folder. Convenience wrapper for
+/// the historical default — new callers should prefer
+/// [`build_folder_tree_sorted`] so the sort mode is explicit.
 ///
 /// Each entry's [`BuildEntry::category`] is interpreted as a
 /// `/`-separated path. `None` (or an empty / whitespace-only category)
 /// places the build at the root.
 #[must_use]
 pub fn build_folder_tree(builds: &[BuildEntry]) -> FolderNode {
+    build_folder_tree_sorted(builds, BuildsSortMode::Name)
+}
+
+/// Group a flat list of [`BuildEntry`]s into a folder tree, ordering
+/// each folder's builds by `mode`.
+#[must_use]
+pub fn build_folder_tree_sorted(builds: &[BuildEntry], mode: BuildsSortMode) -> FolderNode {
     let mut root = FolderNode::default();
     for entry in builds {
         let segments = split_category(entry.category.as_deref());
         insert_build(&mut root, &segments, entry.clone());
     }
-    sort_node(&mut root);
+    sort_node(&mut root, mode);
     root
 }
 
@@ -130,19 +167,45 @@ pub fn filter_folder_to_subtree(root: &FolderNode, selected_path: &str) -> Optio
     Some(node.clone())
 }
 
-fn sort_node(node: &mut FolderNode) {
+fn sort_node(node: &mut FolderNode, mode: BuildsSortMode) {
+    // Folders always sort alphabetically — the mode only affects the
+    // build leaves. (PoB doesn't expose a per-folder mtime, and a
+    // shuffling folder list reads poorly when the user expects a
+    // stable layout.)
     node.children.sort_by(|a, b| {
         a.name
             .to_ascii_lowercase()
             .cmp(&b.name.to_ascii_lowercase())
     });
-    node.builds.sort_by(|a, b| {
-        a.label
-            .to_ascii_lowercase()
-            .cmp(&b.label.to_ascii_lowercase())
-    });
+    match mode {
+        BuildsSortMode::Name => {
+            node.builds.sort_by(|a, b| {
+                a.label
+                    .to_ascii_lowercase()
+                    .cmp(&b.label.to_ascii_lowercase())
+            });
+        }
+        BuildsSortMode::RecentFirst => {
+            // Sort by mtime descending. Entries without an mtime sink
+            // to the bottom; ties (including all-None) fall back to
+            // alphabetical so the order is deterministic.
+            node.builds.sort_by(|a, b| match (a.modified, b.modified) {
+                (Some(am), Some(bm)) => bm.cmp(&am).then_with(|| {
+                    a.label
+                        .to_ascii_lowercase()
+                        .cmp(&b.label.to_ascii_lowercase())
+                }),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a
+                    .label
+                    .to_ascii_lowercase()
+                    .cmp(&b.label.to_ascii_lowercase()),
+            });
+        }
+    }
     for child in &mut node.children {
-        sort_node(child);
+        sort_node(child, mode);
     }
 }
 
@@ -160,6 +223,89 @@ mod tests {
             category: category.map(str::to_owned),
             modified: None,
         }
+    }
+
+    fn mk_at(label: &str, category: Option<&str>, mtime_secs: u64) -> BuildEntry {
+        BuildEntry {
+            label: label.to_owned(),
+            id: BuildId::Disk(PathBuf::from(format!("/tmp/{label}.mk2"))),
+            ext: "mk2".to_owned(),
+            category: category.map(str::to_owned),
+            modified: Some(
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(mtime_secs),
+            ),
+        }
+    }
+
+    #[test]
+    fn name_mode_sorts_alphabetically_within_folder() {
+        // Historical default — labels in case-insensitive order, mtime
+        // is irrelevant.
+        let entries = vec![
+            mk_at("Gamma", None, 100),
+            mk_at("alpha", None, 999),
+            mk_at("Beta", None, 1),
+        ];
+        let tree = build_folder_tree_sorted(&entries, BuildsSortMode::Name);
+        let labels: Vec<&str> = tree.builds.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, vec!["alpha", "Beta", "Gamma"]);
+    }
+
+    #[test]
+    fn recent_first_mode_orders_newest_at_top() {
+        // mtime descending — the freshest build comes first.
+        let entries = vec![
+            mk_at("Old", None, 100),
+            mk_at("New", None, 999),
+            mk_at("Middle", None, 500),
+        ];
+        let tree = build_folder_tree_sorted(&entries, BuildsSortMode::RecentFirst);
+        let labels: Vec<&str> = tree.builds.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, vec!["New", "Middle", "Old"]);
+    }
+
+    #[test]
+    fn recent_first_mode_sinks_none_mtime_to_bottom() {
+        // Entries that lack an mtime (wasm IDB, FSA folder backends)
+        // fall to the bottom of their folder so the timed entries
+        // dominate the readable top of the list.
+        let entries = vec![
+            mk("NoMtime1", None),
+            mk_at("Old", None, 100),
+            mk("NoMtime2", None),
+            mk_at("New", None, 999),
+        ];
+        let tree = build_folder_tree_sorted(&entries, BuildsSortMode::RecentFirst);
+        let labels: Vec<&str> = tree.builds.iter().map(|e| e.label.as_str()).collect();
+        // Timed entries first (newest → oldest), then no-mtime entries
+        // in case-insensitive alphabetical order.
+        assert_eq!(labels, vec!["New", "Old", "NoMtime1", "NoMtime2"]);
+    }
+
+    #[test]
+    fn recent_first_mode_breaks_mtime_ties_with_label() {
+        // Two builds touched at exactly the same second — the tail
+        // sort falls through to label-alphabetical for determinism.
+        let entries = vec![
+            mk_at("Zeta", None, 500),
+            mk_at("alpha", None, 500),
+            mk_at("Mu", None, 500),
+        ];
+        let tree = build_folder_tree_sorted(&entries, BuildsSortMode::RecentFirst);
+        let labels: Vec<&str> = tree.builds.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, vec!["alpha", "Mu", "Zeta"]);
+    }
+
+    #[test]
+    fn build_folder_tree_defaults_to_name_mode() {
+        // The wrapper preserves the historical default so existing
+        // call sites don't drift in behaviour.
+        let entries = vec![mk_at("Newer", None, 999), mk_at("Older", None, 100)];
+        let tree = build_folder_tree(&entries);
+        let labels: Vec<&str> = tree.builds.iter().map(|e| e.label.as_str()).collect();
+        // Alphabetical — `Newer` (N) sorts after `Older` (O)... wait,
+        // 'N' < 'O' so `Newer` comes first.
+        assert_eq!(labels, vec!["Newer", "Older"]);
     }
 
     #[test]
