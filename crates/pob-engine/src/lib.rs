@@ -86,7 +86,7 @@ pub use power::{
     format_top_contributors, rank_item_modlines, rank_node_additions, score_item_modline_removal,
     score_node_addition, score_node_removal, ItemModlineScore, NodeScore,
 };
-pub use share::{export_code, import_code, ShareError};
+pub use share::{export_code, export_item_set, import_code, import_item_set, ShareError};
 pub use skill::{skill_for_quality, skill_mods, MainSkill, QualityId, SkillRegistry};
 pub use timeless::{
     apply_keystone_replacements, compute_keystone_replacements, conquered_keystone_set,

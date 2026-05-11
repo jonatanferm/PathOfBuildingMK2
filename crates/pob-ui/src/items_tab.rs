@@ -78,6 +78,17 @@ pub struct ItemsTabState {
     /// one place so the top row stays compact (the inline buttons
     /// remain available for one-click access).
     pub manage_sets_open: bool,
+    /// Issue #212 (slice 2): paste-text buffer for the "Import item set"
+    /// section of the manage popup. The user pastes a `MK2SET|...` code
+    /// produced by [`pob_engine::export_item_set`] (from another build
+    /// session); pressing Import decodes it and appends a new
+    /// [`pob_engine::character::NamedItemSet`] to `character.item_sets`.
+    pub item_set_import_buffer: String,
+    /// Issue #212 (slice 2): last error from the import button, surfaced
+    /// inline so the popup can explain why decode failed (wrong prefix,
+    /// bad base64, malformed JSON). Cleared on successful import or
+    /// when the popup closes.
+    pub item_set_import_error: Option<String>,
 }
 
 /// Issue #211 (slice 3): edit-buffer state for the shared-items rename
@@ -143,6 +154,8 @@ impl Default for ItemsTabState {
             top_contributors_open: false,
             active_item_set_idx: None,
             manage_sets_open: false,
+            item_set_import_buffer: String::new(),
+            item_set_import_error: None,
         }
     }
 }
@@ -1652,7 +1665,8 @@ fn render_manage_sets_popup(
         .show(ui.ctx(), |ui| {
             if character.item_sets.is_empty() {
                 ui.weak("No saved item sets yet — save one from the row below.");
-                return;
+                // Falls through into the Import section so the user
+                // can still paste a code into a fresh build.
             }
             // Snapshot so we can mutate `character.item_sets` inside the
             // loop (rename / clone / delete) without overlapping borrows.
@@ -1706,7 +1720,63 @@ fn render_manage_sets_popup(
                                 shift_active_idx_after_delete(state.active_item_set_idx, idx);
                         }
                     }
+                    // Issue #212 (slice 2): per-row Export button.
+                    // Copies an `MK2SET|...` code to the clipboard so
+                    // the user can paste it into another build's
+                    // Import box.
+                    if ui
+                        .small_button("Export")
+                        .on_hover_text(
+                            "Copy this set to the clipboard as an MK2SET share code. \
+                             Paste it into another build's Import box to reproduce \
+                             the loadout.",
+                        )
+                        .clicked()
+                    {
+                        if let Some(named) = character.item_sets.get(idx) {
+                            match pob_engine::export_item_set(named) {
+                                Ok(code) => ui.ctx().copy_text(code),
+                                Err(e) => {
+                                    state.item_set_import_error =
+                                        Some(format!("Export failed: {e}"));
+                                }
+                            }
+                        }
+                    }
                 });
+            }
+            ui.separator();
+            // Issue #212 (slice 2): import a previously-exported set.
+            // The user pastes an `MK2SET|...` code into the buffer;
+            // Import decodes it and appends to `character.item_sets`.
+            ui.label("Import set from clipboard:");
+            ui.add(
+                egui::TextEdit::multiline(&mut state.item_set_import_buffer)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(2)
+                    .hint_text("Paste an MK2SET|… code here"),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Import").clicked() {
+                    match pob_engine::import_item_set(&state.item_set_import_buffer) {
+                        Ok(named) => {
+                            character.item_sets.push(named);
+                            state.item_set_import_buffer.clear();
+                            state.item_set_import_error = None;
+                            changed = true;
+                        }
+                        Err(e) => {
+                            state.item_set_import_error = Some(format!("Import failed: {e}"));
+                        }
+                    }
+                }
+                if ui.button("Clear").clicked() {
+                    state.item_set_import_buffer.clear();
+                    state.item_set_import_error = None;
+                }
+            });
+            if let Some(err) = state.item_set_import_error.as_ref() {
+                ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), err);
             }
             ui.separator();
             if ui.button("Close").clicked() {
