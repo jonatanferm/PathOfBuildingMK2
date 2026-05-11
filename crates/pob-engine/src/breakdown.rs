@@ -279,6 +279,10 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "MainSkillHitMax" => main_skill_hit_bound(env, "Max"),
         "MainSkillBaseMin" => main_skill_base_bound(env, "Min"),
         "MainSkillBaseMax" => main_skill_base_bound(env, "Max"),
+        "FireResist" => uncapped_elemental_resist(env, "Fire"),
+        "ColdResist" => uncapped_elemental_resist(env, "Cold"),
+        "LightningResist" => uncapped_elemental_resist(env, "Lightning"),
+        "ChaosResist" => uncapped_chaos_resist(env),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3131,6 +3135,139 @@ fn dot_ehp(env: &Env, elem: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for the uncapped `<Element>Resist`
+/// outputs (Fire / Cold / Lightning). PoB exposes both the uncapped
+/// raw resist (`FireResist`) and the capped value (`FireResistTotal`)
+/// — the uncapped row reveals the user's overcap, e.g. a 90% sum
+/// capped at 75% means 15% wasted resist.
+///
+/// Walks BASE + ElementalResist umbrella + level penalty → Final
+/// without the cap clamp (that's a separate row exposed via the
+/// existing `elemental_resist` helper).
+///
+/// Returns `None` when the resist is zero (no character loaded yet).
+fn uncapped_elemental_resist(env: &Env, elem: &str) -> Option<Breakdown> {
+    let total = env.output.get(&format!("{elem}Resist"));
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let resist_key = format!("{elem}Resist");
+    let elem_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, &resist_key);
+    let umbrella = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ElementalResist");
+    let level_penalty = total - elem_base - umbrella;
+
+    let mut steps = Vec::new();
+    let elem_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named(&resist_key)
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label(format!("{elem} Resist BASE"))
+            .with_value(elem_base)
+            .with_explain(format!("+{elem_base:.0}% from {elem}Resist BASE mods"))
+            .with_sources(elem_mods),
+    );
+
+    if umbrella.abs() > 1e-9 {
+        let umbrella_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("ElementalResist")
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Elemental Resist BASE")
+                .with_value(umbrella)
+                .with_explain(format!("+{umbrella:.0}% umbrella adders"))
+                .with_sources(umbrella_mods),
+        );
+    }
+
+    if level_penalty.abs() > 1e-9 {
+        steps.push(
+            BreakdownStep::label("Level penalty")
+                .with_value(level_penalty)
+                .with_explain(
+                    "Act 5 / Act 10 story penalty (-30 / -60 by post-act level threshold)"
+                        .to_owned(),
+                ),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label(format!("{elem} Resist (uncapped)"))
+            .with_value(total)
+            .with_explain(format!(
+                "{elem_base:.0} + {umbrella:.0} + {level_penalty:.0} = {total:.0}% (uncapped — see {elem}ResistTotal for the capped value)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: format!("{elem}Resist"),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: ChaosResist mirror of
+/// `uncapped_elemental_resist` without the umbrella step (chaos
+/// doesn't pick up `ElementalResist` adders).
+fn uncapped_chaos_resist(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("ChaosResist");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let chaos_base = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ChaosResist");
+    let level_penalty = total - chaos_base;
+
+    let mut steps = Vec::new();
+    let chaos_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named("ChaosResist")
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label("Chaos Resist BASE")
+            .with_value(chaos_base)
+            .with_explain(format!("+{chaos_base:.0}% from ChaosResist BASE mods"))
+            .with_sources(chaos_mods),
+    );
+
+    if level_penalty.abs() > 1e-9 {
+        steps.push(
+            BreakdownStep::label("Level penalty")
+                .with_value(level_penalty)
+                .with_explain(
+                    "Act 5 / Act 10 story penalty (-30 / -60 by post-act level threshold)"
+                        .to_owned(),
+                ),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Chaos Resist (uncapped)")
+            .with_value(total)
+            .with_explain(format!(
+                "{chaos_base:.0} + {level_penalty:.0} = {total:.0}% (uncapped — see ChaosResistTotal for the capped value)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "ChaosResist".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for `MainSkillBaseMin` /
 /// `MainSkillBaseMax`. Surfaces the raw per-level base damage value
 /// from skill stats — what the gem provides before player mods. The
@@ -4983,6 +5120,63 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: FireResist (uncapped) walks BASE +
+    /// umbrella + level penalty → Final without the cap step. The
+    /// capped value is exposed separately as FireResistTotal (with
+    /// its own breakdown showing the cap clamp); the uncapped row
+    /// is what shows users their "overcap" — e.g. a 90% sum capped
+    /// at 75% means 15% wasted resist.
+    ///
+    /// Worked example: 80 from BASE - 60 level penalty = 20 final
+    /// uncapped fire resist.
+    #[test]
+    fn fire_resist_uncapped_breakdown_walks_base_and_penalty() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("FireResist", 80.0).with_source(Source::Tree));
+        env.output.set("FireResist", 20.0);
+        let bd = derive_for(&env, "FireResist").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Fire Resist BASE"));
+        assert!(labels.contains(&"Level penalty"));
+        assert!(labels.contains(&"Fire Resist (uncapped)"));
+        // None of the cap-related labels should leak into the
+        // uncapped breakdown.
+        assert!(!labels.contains(&"Cap"));
+        assert!((bd.total - 20.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ColdResist / LightningResist /
+    /// ChaosResist all share the same uncapped chain.
+    #[test]
+    fn other_resist_uncapped_breakdowns_walk_same_chain() {
+        for elem in ["Cold", "Lightning", "Chaos"] {
+            let mut env = Env::default();
+            env.output.set(format!("{elem}Resist"), 75.0);
+            let bd = derive_for(&env, &format!("{elem}Resist"))
+                .unwrap_or_else(|| panic!("{elem}Resist: dispatch missing"));
+            let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+            assert!(
+                labels.contains(&format!("{elem} Resist (uncapped)").as_str()),
+                "{elem}: missing final label"
+            );
+            assert!((bd.total - 75.0).abs() < 1e-9);
+        }
+    }
+
+    /// Issue #34 follow-up: returns None when the resist is zero
+    /// (no character loaded yet).
+    #[test]
+    fn uncapped_resist_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        for key in ["FireResist", "ColdResist", "LightningResist", "ChaosResist"] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when zero",
+            );
+        }
+    }
+
     /// Issue #34 follow-up: MainSkillBaseMin / MainSkillBaseMax
     /// surface the raw per-level base damage value from the skill
     /// stats — what the gem provides before player mods. Surfacing
