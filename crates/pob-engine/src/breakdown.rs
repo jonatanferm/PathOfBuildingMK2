@@ -28,7 +28,8 @@
 //! ## What's covered
 //!
 //! Damage:    `MainSkillAverageHit`, `MainSkillAverageHitWithCrit`,
-//!            `MainSkillDPS`, `TotalDPS`, `FullDPS`, `AverageHit`, `AverageDamage`
+//!            `MainSkillDPS`, `TotalDPS`, `FullDPS`, `AverageHit`, `AverageDamage`,
+//!            `AverageBurstDamage`
 //! Speed:     `Speed`, `MainSkillSpeed`, `AttackSpeedMult`, `CastSpeedMult`,
 //!            `MovementSpeedMod`
 //! Crit:      `CritChance`, `MainSkillCritChance`, `CritMultiplier`, `CritEffect`
@@ -125,6 +126,12 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "MainSkillAverageHitWithCrit" | "AverageHit" | "AverageDamage" => {
             Some(damage_average_hit_with_crit(env, output_key))
         }
+        // Issue #34 follow-up: AverageBurstDamage is set by perform.rs as
+        // an alias of `final_avg` (= MainSkillAverageHit × CritEffect).
+        // The chain matches `damage_average_hit_with_crit` exactly, but
+        // we skip when the value is zero (no active skill / non-hitting
+        // skill) so the UI doesn't show an empty breakdown.
+        "AverageBurstDamage" => damage_average_burst(env),
         "MainSkillDPS" | "TotalDPS" => Some(damage_dps(env, output_key)),
         "FullDPS" => Some(damage_full_dps(env)),
 
@@ -622,6 +629,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "MainSkillAverageHitWithCrit",
     "AverageHit",
     "AverageDamage",
+    "AverageBurstDamage",
     "MainSkillDPS",
     "TotalDPS",
     "FullDPS",
@@ -811,6 +819,20 @@ fn damage_average_hit(env: &Env) -> Breakdown {
         total: avg,
         steps,
     }
+}
+
+/// Issue #34 follow-up: `AverageBurstDamage` is an alias output —
+/// perform.rs sets it to `final_avg` (= MainSkillAverageHit × CritEffect),
+/// the same value as `AverageHit` / `AverageDamage`. The breakdown walks
+/// the same crit chain as `damage_average_hit_with_crit`, but we return
+/// `None` when the value is zero so the UI doesn't surface an empty
+/// breakdown for skills without a damage envelope.
+fn damage_average_burst(env: &Env) -> Option<Breakdown> {
+    let burst = env.output.get("AverageBurstDamage");
+    if burst.abs() < 1e-9 {
+        return None;
+    }
+    Some(damage_average_hit_with_crit(env, "AverageBurstDamage"))
 }
 
 fn damage_average_hit_with_crit(env: &Env, key: &str) -> Breakdown {
@@ -5040,6 +5062,11 @@ mod tests {
         env.output.set("MainSkillCritChance", 6.0);
         env.output.set("CritMultiplier", 1.5);
         env.output.set("CritEffect", 1.03);
+        // Issue #34 follow-up: AverageBurstDamage = MainSkillAverageHit ×
+        // CritEffect (perform.rs sets it to `final_avg`). Provide a
+        // representative non-zero value so the COVERED_KEYS guard
+        // exercises the AverageBurstDamage breakdown.
+        env.output.set("AverageBurstDamage", 339.9);
         env.output.set("MainSkillSpeed", 5.0);
         env.output.set("MainSkillDPS", 1650.0);
         env.output.set("CastSpeedMult", 1.30);
@@ -9375,5 +9402,41 @@ mod tests {
     fn active_totem_limit_breakdown_skipped_when_zero() {
         let env = Env::default();
         assert!(derive_for(&env, "ActiveTotemLimit").is_none());
+    }
+
+    /// Issue #34 follow-up: AverageBurstDamage walks the same shape as
+    /// MainSkillAverageHitWithCrit — no-crit avg × crit factor — since
+    /// perform.rs aliases it to `final_avg`. The chain shows the avg-hit,
+    /// crit chance, crit multi, crit factor, and the final value.
+    #[test]
+    fn average_burst_damage_breakdown_chains_avg_and_crit() {
+        let mut env = env_with_output();
+        // final_avg in perform.rs = avg × crit_factor with the fixture's
+        // 330 avg × 1.03 crit factor = 339.9.
+        env.output.set("AverageBurstDamage", 339.9);
+        let bd = derive_for(&env, "AverageBurstDamage").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Average hit (no crit)"));
+        assert!(labels.contains(&"Crit chance"));
+        assert!(labels.contains(&"Crit multiplier"));
+        assert!(labels.contains(&"Crit factor"));
+        assert!(labels.contains(&"Average with crit"));
+        assert!(
+            (bd.total - 339.9).abs() < 1e-6,
+            "expected 339.9 (330 × 1.03), got {}",
+            bd.total
+        );
+    }
+
+    /// Issue #34 follow-up: AverageBurstDamage with a zero value (no
+    /// active main skill, or skill without a damage envelope) returns
+    /// None — the breakdown has nothing meaningful to display.
+    #[test]
+    fn average_burst_damage_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "AverageBurstDamage").is_none(),
+            "expected None when AverageBurstDamage is zero",
+        );
     }
 }
