@@ -64,6 +64,19 @@ pub struct ItemsTabState {
     /// PoB's `PowerReportListControl.lua` modline view that shows what's
     /// actually pulling weight on the equipped set.
     pub top_contributors_open: bool,
+    /// Issue #222: index of the saved item-set the user most recently
+    /// activated via the switcher [`egui::ComboBox`]. `None` means "no
+    /// switcher selection yet" — typically because the user hasn't
+    /// opened the dropdown or because every named set was deleted.
+    /// Used purely to drive the closed-combo label and the "active"
+    /// marker; the engine's `character.items` is the source of truth
+    /// for what's actually equipped.
+    pub active_item_set_idx: Option<usize>,
+    /// Issue #222: whether the "Manage sets…" popup is open. The popup
+    /// hosts the rename / clone / delete actions for each saved set in
+    /// one place so the top row stays compact (the inline buttons
+    /// remain available for one-click access).
+    pub manage_sets_open: bool,
 }
 
 /// Issue #211 (slice 3): edit-buffer state for the shared-items rename
@@ -96,6 +109,30 @@ pub struct ItemSetRenameState {
     pub last_error: Option<ItemSetOpError>,
 }
 
+/// Issue #222: format the dropdown label shown for each saved item set in the
+/// switcher [`egui::ComboBox`]. Tagged with the 1-based index so users can map
+/// the dropdown to the inline buttons / manage popup, and with a small marker
+/// when the entry is the currently active set so the closed combo communicates
+/// "this is the live set" without an extra label.
+///
+/// Pure / no-`egui` so it lives in the unit-test loop. The `is_active` input is
+/// derived in the UI from [`ItemsTabState::active_item_set_idx`] (which the
+/// switcher writes when the user picks an entry).
+pub fn format_set_dropdown_label(name: &str, idx: usize, is_active: bool) -> String {
+    let trimmed = name.trim();
+    let display = if trimmed.is_empty() {
+        "(unnamed)"
+    } else {
+        trimmed
+    };
+    let one_based = idx + 1;
+    if is_active {
+        format!("● {one_based}. {display}")
+    } else {
+        format!("  {one_based}. {display}")
+    }
+}
+
 /// Issue #209: which sub-list the browse panel is currently showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BrowseView {
@@ -121,6 +158,8 @@ impl Default for ItemsTabState {
             shared_rename: None,
             item_set_rename: None,
             top_contributors_open: false,
+            active_item_set_idx: None,
+            manage_sets_open: false,
         }
     }
 }
@@ -599,6 +638,25 @@ pub fn clone_item_set(character: &mut Character, idx: usize) -> Result<usize, It
     Ok(target_idx)
 }
 
+/// Issue #222: shift the switcher's remembered active index after a delete.
+/// `deleted_idx` is the position the user just removed from
+/// `character.item_sets`. The active marker should:
+/// * clear when the active entry itself was removed (no successor is implied),
+/// * shift down by one when an entry *before* the active one was removed (so
+///   the marker still points at the same set),
+/// * stay put for deletes after the active entry.
+///
+/// Pulled into a pure helper so the rule is documented and unit-testable in
+/// isolation — both the inline chip row and the manage popup call it.
+pub fn shift_active_idx_after_delete(active: Option<usize>, deleted_idx: usize) -> Option<usize> {
+    let active = active?;
+    match active.cmp(&deleted_idx) {
+        std::cmp::Ordering::Equal => None,
+        std::cmp::Ordering::Greater => Some(active - 1),
+        std::cmp::Ordering::Less => Some(active),
+    }
+}
+
 /// Pick the first free " (copy)" / " (copy 2)" / … suffix for `base`.
 fn unique_clone_name(base: &str, character: &Character) -> String {
     let names: std::collections::HashSet<&str> = character
@@ -633,6 +691,64 @@ pub fn ui(
     shared_items: &mut SharedItemStore,
 ) -> bool {
     let mut changed = false;
+    // Issue #222: item-set switcher + manage popup. Above the existing
+    // per-set chip row we render a single `ComboBox` listing every saved
+    // set — picking one calls `Character::activate_item_set` (mirroring
+    // the inline "Load" button). A "Manage sets…" button next to it
+    // opens a popup that surfaces rename / clone / delete in one place
+    // so the chip row stays compact on builds with many sets.
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Active set:");
+        let total = character.item_sets.len();
+        // Clamp the remembered index so a delete-while-popup-closed
+        // doesn't leave a dangling out-of-range pointer.
+        if let Some(idx) = state.active_item_set_idx {
+            if idx >= total {
+                state.active_item_set_idx = None;
+            }
+        }
+        let selected_idx = state.active_item_set_idx;
+        let closed_label = match selected_idx.and_then(|i| character.item_sets.get(i)) {
+            Some(set) => format_set_dropdown_label(&set.name, selected_idx.unwrap(), true),
+            None if total == 0 => "(no saved sets)".to_owned(),
+            None => "Pick a saved set…".to_owned(),
+        };
+        // Snapshot the names so the combo body doesn't hold an
+        // immutable borrow of `character.item_sets` while it tries to
+        // call `character.activate_item_set` (which needs `&mut self`).
+        let entries: Vec<(usize, String)> = character
+            .item_sets
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (i, s.name.clone()))
+            .collect();
+        let combo = egui::ComboBox::from_id_salt("item-set-switcher")
+            .width(220.0)
+            .selected_text(closed_label);
+        combo.show_ui(ui, |ui| {
+            if entries.is_empty() {
+                ui.weak("Save a set below to populate the switcher.");
+                return;
+            }
+            for (idx, name) in &entries {
+                let is_active = selected_idx == Some(*idx);
+                let label = format_set_dropdown_label(name, *idx, is_active);
+                if ui.selectable_label(is_active, label).clicked() && !is_active {
+                    if character.activate_item_set(*idx) {
+                        state.active_item_set_idx = Some(*idx);
+                        changed = true;
+                    }
+                }
+            }
+        });
+        if ui
+            .add_enabled(total > 0, egui::Button::new("Manage sets…"))
+            .on_hover_text("Open the rename / clone / delete popup for saved item sets.")
+            .clicked()
+        {
+            state.manage_sets_open = true;
+        }
+    });
     // Issue #27: item-set saves. Top row lets the user save the current
     // loadout as a named set, swap a saved set in, or delete one.
     ui.horizontal_wrapped(|ui| {
@@ -652,6 +768,10 @@ pub fn ui(
             for (idx, name) in entries {
                 if ui.button(format!("Load {name}")).clicked() {
                     if character.activate_item_set(idx) {
+                        // Issue #222: keep the switcher dropdown in sync
+                        // with the inline chip's load action so both
+                        // entry points agree on the active set.
+                        state.active_item_set_idx = Some(idx);
                         changed = true;
                     }
                 }
@@ -687,8 +807,13 @@ pub fn ui(
                     .clicked()
                 {
                     if character.delete_item_set(idx) {
-                        // No recompute — deleting a saved (inactive)
-                        // set doesn't change `character.items`.
+                        // Issue #222: keep the switcher pointer
+                        // consistent (clear on self-delete, shift down
+                        // on earlier-delete). No recompute — deleting a
+                        // saved (inactive) set doesn't change
+                        // `character.items`.
+                        state.active_item_set_idx =
+                            shift_active_idx_after_delete(state.active_item_set_idx, idx);
                     }
                 }
             }
@@ -711,6 +836,13 @@ pub fn ui(
     // Issue #212 (slice 1): rename popup. Drawn at the top of the tab so
     // it floats over whatever the user is doing.
     render_item_set_rename_popup(ui, character, &mut state.item_set_rename);
+    // Issue #222: manage-sets popup. Same actions as the inline chip
+    // row, surfaced in a dedicated window so the top bar stays compact
+    // on builds with many saved sets. Returns true if a load happened
+    // inside the popup so the calc engine recomputes.
+    if render_manage_sets_popup(ui, character, state) {
+        changed = true;
+    }
     ui.separator();
 
     // Issue #109 (slice 4): Weapon Set I / II toggle buttons.
@@ -1451,6 +1583,99 @@ fn render_item_set_rename_popup(
     } else if cancel || !window_open {
         *rename_state = None;
     }
+}
+
+/// Issue #222: render the "Manage sets…" popup window. Lists every saved
+/// item set with the same Load / Rename / Clone / Delete actions exposed by
+/// the inline chip row, just consolidated in one window so the chip row
+/// doesn't grow unboundedly on builds with many sets.
+///
+/// Returns true if the user activated a set from inside the popup (caller
+/// kicks off a recompute the same way the chip row does).
+fn render_manage_sets_popup(
+    ui: &mut egui::Ui,
+    character: &mut Character,
+    state: &mut ItemsTabState,
+) -> bool {
+    if !state.manage_sets_open {
+        return false;
+    }
+    let mut window_open = true;
+    let mut changed = false;
+    egui::Window::new("Manage item sets")
+        .id(egui::Id::new("item-set-manage-window"))
+        .open(&mut window_open)
+        .resizable(false)
+        .collapsible(false)
+        .default_width(360.0)
+        .show(ui.ctx(), |ui| {
+            if character.item_sets.is_empty() {
+                ui.weak("No saved item sets yet — save one from the row below.");
+                return;
+            }
+            // Snapshot so we can mutate `character.item_sets` inside the
+            // loop (rename / clone / delete) without overlapping borrows.
+            let entries: Vec<(usize, String)> = character
+                .item_sets
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (i, s.name.clone()))
+                .collect();
+            let active = state.active_item_set_idx;
+            for (idx, name) in entries {
+                let is_active = active == Some(idx);
+                let row_label = format_set_dropdown_label(&name, idx, is_active);
+                ui.horizontal(|ui| {
+                    ui.label(row_label);
+                    if ui
+                        .small_button("Load")
+                        .on_hover_text("Activate this set")
+                        .clicked()
+                    {
+                        if character.activate_item_set(idx) {
+                            state.active_item_set_idx = Some(idx);
+                            changed = true;
+                        }
+                    }
+                    if ui
+                        .small_button("Rename")
+                        .on_hover_text("Rename this set")
+                        .clicked()
+                    {
+                        state.item_set_rename = Some(ItemSetRenameState {
+                            index: idx,
+                            buffer: name.clone(),
+                            last_error: None,
+                        });
+                    }
+                    if ui
+                        .small_button("Clone")
+                        .on_hover_text("Duplicate this set in place")
+                        .clicked()
+                    {
+                        let _ = clone_item_set(character, idx);
+                    }
+                    if ui
+                        .small_button("Delete")
+                        .on_hover_text("Remove this set")
+                        .clicked()
+                    {
+                        if character.delete_item_set(idx) {
+                            state.active_item_set_idx =
+                                shift_active_idx_after_delete(state.active_item_set_idx, idx);
+                        }
+                    }
+                });
+            }
+            ui.separator();
+            if ui.button("Close").clicked() {
+                state.manage_sets_open = false;
+            }
+        });
+    if !window_open {
+        state.manage_sets_open = false;
+    }
+    changed
 }
 
 /// Render the right-hand "Browse" panel listing every base in `set`, filtered
@@ -2490,6 +2715,98 @@ mod tests {
         assert_eq!(clone_item_set(&mut c, 9), Err(ItemSetOpError::OutOfRange));
         // No spurious set added.
         assert_eq!(c.item_sets.len(), 1);
+    }
+
+    // ─── Issue #222: switcher dropdown + manage popup helpers ────────────
+    //
+    // Both helpers are pure: `format_set_dropdown_label` formats the entry
+    // shown in the `egui::ComboBox` (active-marker glyph + 1-based index +
+    // name), and `shift_active_idx_after_delete` adjusts the remembered
+    // active pointer when an entry is removed (clear on self-delete, shift
+    // down on earlier-delete, no-op on later-delete). Tested in isolation
+    // since the egui combo can't run in a unit test.
+
+    #[test]
+    fn format_set_dropdown_label_marks_active_entry() {
+        // Active rows get a filled glyph so the closed combo communicates
+        // "this is the live set" without an extra label nearby.
+        let label = format_set_dropdown_label("Tank", 0, true);
+        assert!(label.starts_with('●'), "expected active glyph, got {label}");
+        assert!(
+            label.contains("1. Tank"),
+            "expected 1-based index, got {label}"
+        );
+    }
+
+    #[test]
+    fn format_set_dropdown_label_pads_inactive_entry() {
+        // Inactive rows align with active rows by leading whitespace so
+        // names line up vertically inside the dropdown.
+        let label = format_set_dropdown_label("DPS", 2, false);
+        assert!(
+            !label.starts_with('●'),
+            "no active glyph for inactive: {label}"
+        );
+        assert!(
+            label.contains("3. DPS"),
+            "expected 1-based index, got {label}"
+        );
+        // Leading spaces preserve column alignment with the active glyph.
+        assert!(
+            label.starts_with("  "),
+            "expected leading padding, got {label:?}"
+        );
+    }
+
+    #[test]
+    fn format_set_dropdown_label_substitutes_blank_name() {
+        // Empty / whitespace-only names would render as a void in the
+        // combo; substitute a placeholder so the entry is still pickable.
+        let label = format_set_dropdown_label("   ", 4, false);
+        assert!(
+            label.contains("(unnamed)"),
+            "expected placeholder, got {label}"
+        );
+        assert!(label.contains("5."), "expected 1-based index, got {label}");
+    }
+
+    #[test]
+    fn shift_active_idx_after_delete_clears_when_self_deleted() {
+        // Deleting the entry the switcher points at clears the marker —
+        // there's no obvious "next" to advance to (the entry below
+        // shifts up but isn't necessarily what the user wants).
+        assert_eq!(shift_active_idx_after_delete(Some(2), 2), None);
+    }
+
+    #[test]
+    fn shift_active_idx_after_delete_shifts_when_earlier_deleted() {
+        // Deleting an entry *before* the active one keeps the marker on
+        // the same set, just at a lower index.
+        assert_eq!(shift_active_idx_after_delete(Some(3), 1), Some(2));
+        assert_eq!(shift_active_idx_after_delete(Some(1), 0), Some(0));
+    }
+
+    #[test]
+    fn shift_active_idx_after_delete_unaffected_by_later_deletes() {
+        // Deleting an entry past the active one doesn't move the marker.
+        assert_eq!(shift_active_idx_after_delete(Some(0), 1), Some(0));
+        assert_eq!(shift_active_idx_after_delete(Some(2), 5), Some(2));
+    }
+
+    #[test]
+    fn shift_active_idx_after_delete_handles_no_active() {
+        // No active marker stays no active marker.
+        assert_eq!(shift_active_idx_after_delete(None, 0), None);
+        assert_eq!(shift_active_idx_after_delete(None, 9), None);
+    }
+
+    #[test]
+    fn switcher_state_defaults_are_closed_and_empty() {
+        // Cold-open of the Items tab must NOT pop the manage window or
+        // claim a switcher selection — both should be opt-in.
+        let s = ItemsTabState::default();
+        assert_eq!(s.active_item_set_idx, None);
+        assert!(!s.manage_sets_open);
     }
 
     // ─── Issue #207 (panel slice): top-contributors panel ────────────────
