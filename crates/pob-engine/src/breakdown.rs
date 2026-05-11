@@ -285,6 +285,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ChaosResist" => uncapped_chaos_resist(env),
         "WeaponRangeMetre" => weapon_range_metre(env),
         "MainSkillLevel" => main_skill_level(env),
+        "EnemyPhysReduction" => enemy_phys_reduction(env),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3137,6 +3138,54 @@ fn dot_ehp(env: &Env, elem: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `EnemyPhysReduction`. PoB
+/// computes it as `armour / (armour + 5 × raw)` capped at 90%
+/// (the `EnemyPhysicalDamageReductionCap` constant), where:
+///   - `armour` is the configured enemy armour (boss preset)
+///   - `raw` is the player's per-hit physical average BEFORE crit
+///     averaging
+///
+/// The breakdown surfaces the raw hit value (back-derivable from
+/// `MainSkillAverageHit`) and the cap. The configured enemy armour
+/// is on `Character::config` and not on `env.output`, so the explain
+/// notes that the soak depends on the enemy preset rather than
+/// trying to back-derive armour from a single equation.
+///
+/// Returns `None` when the reduction is zero (non-physical hit, or
+/// no enemy armour).
+fn enemy_phys_reduction(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("EnemyPhysReduction");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let raw = env.output.get("MainSkillAverageHit");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Raw hit")
+            .with_value(raw)
+            .with_explain(format!(
+                "{raw:.0} per-hit damage from MainSkillAverageHit (drives the armour soak)"
+            )),
+    );
+    steps.push(BreakdownStep::label("Cap").with_value(90.0).with_explain(
+        "90% — DamageReductionMax PoE constant (caps the armour formula)".to_owned(),
+    ));
+    steps.push(
+        BreakdownStep::label("Enemy physical damage reduction")
+            .with_value(total)
+            .with_explain(format!(
+                "min(armour / (armour + 5 × {raw:.0}), 90%) = {total:.1}% (armour from configured enemy preset)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "EnemyPhysReduction".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `MainSkillLevel`. PoB clamps the
 /// active gem's level into `[1, 40]` (`perform_skill_dps`'s `let
 /// gem_level = main.level.clamp(1, 40)`). Calcs panel rows that
@@ -5188,6 +5237,41 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: EnemyPhysReduction walks the armour
+    /// formula: PoB derives it as `armour / (armour + 5 × raw)`
+    /// capped at 90% (the DamageReductionMax constant). Surfaces
+    /// the configured enemy armour from the boss preset, the raw
+    /// per-hit damage that drives the soak, and the cap.
+    ///
+    /// Worked example: 25k enemy armour vs 660 raw → 25000 / (25000
+    /// + 5 × 660) = 88.4% reduction.
+    #[test]
+    fn enemy_phys_reduction_breakdown_walks_armour_formula() {
+        let mut env = Env::default();
+        env.output.set("MainSkillAverageHit", 660.0);
+        env.output.set("EnemyPhysReduction", 88.4);
+        let bd = derive_for(&env, "EnemyPhysReduction").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Raw hit"));
+        assert!(labels.contains(&"Cap"));
+        assert!(labels.contains(&"Enemy physical damage reduction"));
+
+        let cap = bd.steps.iter().find(|s| s.label == "Cap").unwrap();
+        assert!((cap.value.unwrap() - 90.0).abs() < 1e-9);
+        assert!((bd.total - 88.4).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: returns None when reduction is zero
+    /// (non-physical hit, or no enemy armour).
+    #[test]
+    fn enemy_phys_reduction_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "EnemyPhysReduction").is_none(),
+            "expected None when EnemyPhysReduction is zero",
+        );
+    }
+
     /// Issue #34 follow-up: MainSkillLevel surfaces the active gem
     /// level (clamped 1-40 per `perform_skill_dps`). Calcs panel
     /// rows that depend on level (base damage, mana cost, area)
