@@ -390,34 +390,73 @@ pub fn ui(
             ui.heading("Groups");
             ui.separator();
             let mut to_remove: Option<usize> = None;
+            // Issue #214 (slice 2): drag-reorder socket groups. Each row
+            // is wrapped in a dnd_drop_zone, with the "≡" handle on the
+            // left as the dnd_drag_source. Source payload is the source
+            // group index; the drop zone reads it back as
+            // `(from, idx_at_drop)` and feeds `move_skill_group`.
+            // Mirrors the gem-row wiring from slice 1 (PR #368).
+            let mut pending_group_move: Option<(usize, usize)> = None;
+            let main_socket_group = character.main_socket_group;
             for (idx, group) in character.skill_groups.iter_mut().enumerate() {
-                ui.horizontal(|ui| {
-                    let main_marker = if (idx as u32 + 1) == character.main_socket_group {
-                        "★"
-                    } else {
-                        " "
-                    };
-                    let label = if group.label.is_empty() {
-                        format!("{} Group {}", main_marker, idx + 1)
-                    } else {
-                        format!("{} {}", main_marker, group.label)
-                    };
-                    let display = format!(
-                        "{label} ({} gem{})",
-                        group.gems.len(),
-                        if group.gems.len() == 1 { "" } else { "s" }
-                    );
-                    if ui
-                        .selectable_label(state.selected_group == idx, display)
-                        .clicked()
-                    {
-                        state.selected_group = idx;
-                        state.selected_gem = 0;
-                    }
-                    if ui.small_button("✕").on_hover_text("Remove group").clicked() {
-                        to_remove = Some(idx);
-                    }
+                let main_marker = if (idx as u32 + 1) == main_socket_group {
+                    "★"
+                } else {
+                    " "
+                };
+                let label = if group.label.is_empty() {
+                    format!("{} Group {}", main_marker, idx + 1)
+                } else {
+                    format!("{} {}", main_marker, group.label)
+                };
+                let display = format!(
+                    "{label} ({} gem{})",
+                    group.gems.len(),
+                    if group.gems.len() == 1 { "" } else { "s" }
+                );
+                let drop = ui.dnd_drop_zone::<usize, _>(egui::Frame::default(), |ui| {
+                    ui.horizontal(|ui| {
+                        let drag_id = egui::Id::new(("group_drag", idx));
+                        ui.dnd_drag_source(drag_id, idx, |ui| {
+                            ui.label(egui::RichText::new("≡").monospace())
+                                .on_hover_text("Drag to reorder this group");
+                        });
+                        if ui
+                            .selectable_label(state.selected_group == idx, display)
+                            .clicked()
+                        {
+                            state.selected_group = idx;
+                            state.selected_gem = 0;
+                        }
+                        if ui.small_button("✕").on_hover_text("Remove group").clicked() {
+                            to_remove = Some(idx);
+                        }
+                    });
                 });
+                if let Some(payload) = drop.1 {
+                    pending_group_move = Some((*payload, idx));
+                }
+            }
+            if let Some((from, to)) = pending_group_move {
+                if move_skill_group(character, from, to) {
+                    // Keep the selection sticky on the dragged group so
+                    // the right-side editor doesn't jump to a sibling
+                    // after a reorder (same pattern as slice 1's gem
+                    // selection handling).
+                    state.selected_group = if state.selected_group == from {
+                        to
+                    } else if from < to && state.selected_group > from && state.selected_group <= to
+                    {
+                        state.selected_group - 1
+                    } else if from > to && state.selected_group >= to && state.selected_group < from
+                    {
+                        state.selected_group + 1
+                    } else {
+                        state.selected_group
+                    };
+                    state.selected_gem = 0;
+                    changed = true;
+                }
             }
             if let Some(rm) = to_remove {
                 character.skill_groups.remove(rm);
@@ -951,6 +990,44 @@ pub(super) fn move_gem(group: &mut SocketGroup, from: usize, to: usize) -> bool 
     true
 }
 
+/// Issue #214 (slice 2): move the socket group at `from` to position
+/// `to` within `character.skill_groups`, keeping `main_socket_group`
+/// pointing at the *same* group (PoB's 1-based index convention is
+/// preserved — mirrors `move_gem`'s `main_active_skill_index` handling).
+/// Returns `true` when the groups vector actually changed.
+///
+/// Out-of-range indices and a same-index move are no-ops returning
+/// `false` — required by issue #214's "drop on invalid targets is a
+/// no-op (no panics)" acceptance criterion.
+///
+/// Caller is responsible for keeping `SkillsTabState::selected_group`
+/// in sync (same pattern slice 1 used for `selected_gem`); the helper
+/// itself stays state-free so it can be unit-tested in isolation.
+pub(super) fn move_skill_group(character: &mut Character, from: usize, to: usize) -> bool {
+    let len = character.skill_groups.len();
+    if from >= len || to >= len || from == to {
+        return false;
+    }
+    let group = character.skill_groups.remove(from);
+    character.skill_groups.insert(to, group);
+    // PoB stores `main_socket_group` as 1-based; `0` (or any value past
+    // the end) means "no main set" and we leave it alone.
+    if character.main_socket_group >= 1 && (character.main_socket_group as usize) <= len {
+        let main = character.main_socket_group as usize - 1;
+        let new_main = if main == from {
+            to
+        } else if from < to && main > from && main <= to {
+            main - 1
+        } else if from > to && main >= to && main < from {
+            main + 1
+        } else {
+            main
+        };
+        character.main_socket_group = new_main as u32 + 1;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1252,6 +1329,89 @@ mod tests {
         let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
         assert_eq!(ids, original_ids.to_vec());
         assert_eq!(g.main_active_skill_index, 1);
+    }
+
+    fn mk_character_with_groups(labels: &[&str], main_one_based: u32) -> Character {
+        use pob_engine::character::ClassRef;
+        let mut c = Character::new(ClassRef::marauder(), 1);
+        c.skill_groups = labels
+            .iter()
+            .map(|l| SocketGroup {
+                label: (*l).into(),
+                gems: Vec::new(),
+                main_active_skill_index: 1,
+                enabled: true,
+            })
+            .collect();
+        c.main_socket_group = main_one_based;
+        c
+    }
+
+    #[test]
+    fn move_skill_group_forward_shifts_intermediate_main_back_one() {
+        // Issue #214 (slice 2): drag-reorder socket groups. Moving group
+        // at idx 0 forward to idx 2 in [A, B, C, D] yields [B, C, A, D].
+        // `main_socket_group` was pointing at B (1-based 2); B is now at
+        // idx 0 so the 1-based pointer drops to 1 — same shift arithmetic
+        // as `move_gem` applies to `main_active_skill_index`.
+        let mut c = mk_character_with_groups(&["A", "B", "C", "D"], 2);
+        assert!(move_skill_group(&mut c, 0, 2));
+        let labels: Vec<&str> = c.skill_groups.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, vec!["B", "C", "A", "D"]);
+        assert_eq!(
+            c.main_socket_group, 1,
+            "main_socket_group should still be B"
+        );
+    }
+
+    #[test]
+    fn move_skill_group_backward_shifts_intermediate_main_forward_one() {
+        // Reverse: idx 3 → idx 0 in [A, B, C, D] yields [D, A, B, C].
+        // main_socket_group was C (idx 2, 1-based 3) → shifts up by 1 → 4.
+        let mut c = mk_character_with_groups(&["A", "B", "C", "D"], 3);
+        assert!(move_skill_group(&mut c, 3, 0));
+        let labels: Vec<&str> = c.skill_groups.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, vec!["D", "A", "B", "C"]);
+        assert_eq!(
+            c.main_socket_group, 4,
+            "main_socket_group should still be C"
+        );
+    }
+
+    #[test]
+    fn move_skill_group_moving_main_itself_follows_to_new_index() {
+        // Drag the *main* group. [A, B, C], main = 2 (B). Move 1→2 ⇒
+        // [A, C, B], main now 3 (B is at idx 2).
+        let mut c = mk_character_with_groups(&["A", "B", "C"], 2);
+        assert!(move_skill_group(&mut c, 1, 2));
+        let labels: Vec<&str> = c.skill_groups.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, vec!["A", "C", "B"]);
+        assert_eq!(c.main_socket_group, 3);
+    }
+
+    #[test]
+    fn move_skill_group_unrelated_position_leaves_main_unchanged() {
+        // Move idx 2 → idx 3 in [A, B, C, D, E] with main = 1 (A). The
+        // main group doesn't move and isn't crossed by the swap, so main
+        // stays at 1.
+        let mut c = mk_character_with_groups(&["A", "B", "C", "D", "E"], 1);
+        assert!(move_skill_group(&mut c, 2, 3));
+        let labels: Vec<&str> = c.skill_groups.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, vec!["A", "B", "D", "C", "E"]);
+        assert_eq!(c.main_socket_group, 1);
+    }
+
+    #[test]
+    fn move_skill_group_no_op_returns_false() {
+        // Issue #214 AC #3: drop on invalid targets is a no-op. Out of
+        // range → false, same-index → false; no mutation in either case.
+        let mut c = mk_character_with_groups(&["A", "B"], 1);
+        assert!(!move_skill_group(&mut c, 0, 0));
+        assert!(!move_skill_group(&mut c, 99, 0));
+        assert!(!move_skill_group(&mut c, 0, 99));
+        let labels: Vec<&str> = c.skill_groups.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, vec!["A", "B"]);
+        assert_eq!(c.main_socket_group, 1);
     }
 
     #[test]
