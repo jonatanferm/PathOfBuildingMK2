@@ -202,7 +202,11 @@ pub enum BuildsAction {
 /// Render the builds tab. Returns an action for the host to execute
 /// (load file, save current under a name, refresh, etc.), or `None`
 /// if the user only browsed.
-pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction> {
+pub fn ui(
+    ui: &mut egui::Ui,
+    state: &mut BuildsTabState,
+    current_path: Option<&std::path::Path>,
+) -> Option<BuildsAction> {
     let mut action: Option<BuildsAction> = None;
 
     if !state.loaded {
@@ -363,7 +367,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
             .max_height(360.0)
             .show(ui, |ui| {
                 let mut path: Vec<&str> = root_path_segments.iter().map(String::as_str).collect();
-                render_folder(ui, &tree, &mut path, state, &mut action);
+                render_folder(ui, &tree, &mut path, state, &mut action, current_path);
             });
         // Issue #213 (slice 4): inline status from the folder
         // context menu (currently "folder not empty" on Delete).
@@ -424,6 +428,7 @@ fn render_folder<'a>(
     path: &mut Vec<&'a str>,
     state: &mut BuildsTabState,
     action: &mut Option<BuildsAction>,
+    current_path: Option<&std::path::Path>,
 ) {
     // Subfolders first (PoB convention also enforced by the data
     // layer's sort).
@@ -437,7 +442,7 @@ fn render_folder<'a>(
             .id_salt(format!("builds_folder_{key}"))
             .default_open(default_open)
             .show(ui, |ui| {
-                render_folder(ui, child, path, state, action);
+                render_folder(ui, child, path, state, action, current_path);
             });
         // Persist the (possibly toggled) open state so it survives
         // refresh / tab switches.
@@ -494,7 +499,7 @@ fn render_folder<'a>(
     }
     // Then builds in this folder.
     for entry in &node.builds {
-        render_build_row(ui, entry, state, action);
+        render_build_row(ui, entry, state, action, current_path);
     }
 }
 
@@ -622,6 +627,23 @@ pub fn apply_build_row_menu_choice(
     }
 }
 
+/// Issue #213 follow-up: tell whether `entry` is the build currently
+/// loaded into the app. Only matches `BuildId::Disk` entries since
+/// the wasm IDB / FSA-folder variants don't carry a comparable
+/// `Path` today. Pure helper so the marker rule is documented + the
+/// edge cases (`None` → never, wasm-only entries → never) are
+/// testable in isolation.
+#[must_use]
+pub fn is_current_build(entry: &BuildEntry, current: Option<&std::path::Path>) -> bool {
+    let Some(current) = current else {
+        return false;
+    };
+    match &entry.id {
+        BuildId::Disk(p) => p == current,
+        BuildId::Idb(_) | BuildId::Folder(_) => false,
+    }
+}
+
 /// delete controls). Extracted so both the root level and every
 /// nested folder share one code path.
 fn render_build_row(
@@ -629,6 +651,7 @@ fn render_build_row(
     entry: &BuildEntry,
     state: &mut BuildsTabState,
     action: &mut Option<BuildsAction>,
+    current_path: Option<&std::path::Path>,
 ) {
     ui.horizontal(|ui| {
         let renaming_this = state
@@ -1238,6 +1261,54 @@ mod tests {
         let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
         let later = now + std::time::Duration::from_secs(60);
         assert_eq!(format_relative_time(now, later), "(future)");
+    }
+
+    #[test]
+    fn is_current_build_matches_disk_path_exactly() {
+        // The build whose `BuildId::Disk` path equals the loaded
+        // `current_path` is the active build.
+        let e = entry("MyBuild", None);
+        let path = PathBuf::from("/tmp/MyBuild.mk2");
+        assert!(is_current_build(&e, Some(&path)));
+    }
+
+    #[test]
+    fn is_current_build_returns_false_for_unrelated_path() {
+        let e = entry("MyBuild", None);
+        let other = PathBuf::from("/tmp/SomethingElse.mk2");
+        assert!(!is_current_build(&e, Some(&other)));
+    }
+
+    #[test]
+    fn is_current_build_returns_false_when_no_current_path() {
+        // No build loaded → no row should be marked. Distinct from
+        // "loaded build doesn't match" so the renderer can short-
+        // circuit cleanly.
+        let e = entry("MyBuild", None);
+        assert!(!is_current_build(&e, None));
+    }
+
+    #[test]
+    fn is_current_build_returns_false_for_wasm_only_entries() {
+        // `BuildId::Idb` / `BuildId::Folder` don't carry a comparable
+        // path, so the marker stays off — wasm parity is a follow-up.
+        let path = PathBuf::from("/tmp/MyBuild.mk2");
+        let idb_entry = BuildEntry {
+            label: "WasmBuild".to_owned(),
+            id: BuildId::Idb("uuid-abc".to_owned()),
+            ext: "mk2".to_owned(),
+            category: None,
+            modified: None,
+        };
+        assert!(!is_current_build(&idb_entry, Some(&path)));
+        let folder_entry = BuildEntry {
+            label: "FsaBuild".to_owned(),
+            id: BuildId::Folder("file.mk2".to_owned()),
+            ext: "mk2".to_owned(),
+            category: None,
+            modified: None,
+        };
+        assert!(!is_current_build(&folder_entry, Some(&path)));
     }
 
     #[test]

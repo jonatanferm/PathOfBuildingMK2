@@ -2223,7 +2223,11 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Builds => {
-            if let Some(action) = builds_tab::ui(ui, &mut app.builds_state) {
+            if let Some(action) = builds_tab::ui(
+                ui,
+                &mut app.builds_state,
+                app.current_build_path.as_deref(),
+            ) {
                 handle_builds_action(app, action);
                 recompute = true;
             }
