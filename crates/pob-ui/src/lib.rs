@@ -14,6 +14,7 @@ use pob_engine::{
 mod build_store_disk;
 #[cfg(target_arch = "wasm32")]
 mod build_store_wasm;
+mod builds_folder_ctx_menu;
 mod builds_folder_ops;
 mod builds_folder_tree;
 mod builds_tab;
@@ -2734,6 +2735,73 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 }
             }
         }
+        BuildsAction::RenameFolder {
+            from_path,
+            new_name,
+        } => {
+            let Some(dir) = dir else {
+                return;
+            };
+            let from = build_folder_path(&dir, &from_path);
+            let parent = from.parent().map(std::path::Path::to_path_buf);
+            let Some(parent) = parent else {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    "Refusing to rename: no parent dir".into(),
+                ));
+                return;
+            };
+            let to = parent.join(&new_name);
+            match std::fs::rename(&from, &to) {
+                Ok(()) => {
+                    app.status_message = Some((
+                        StatusKind::Info,
+                        format!("Renamed folder to {}", to.display()),
+                    ));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Folder rename failed: {e}")));
+                }
+            }
+        }
+        BuildsAction::CreateSubfolder { parent_path, name } => {
+            let Some(dir) = dir else {
+                return;
+            };
+            let parent = build_folder_path(&dir, &parent_path);
+            let target = parent.join(&name);
+            match std::fs::create_dir(&target) {
+                Ok(()) => {
+                    app.status_message = Some((
+                        StatusKind::Info,
+                        format!("Created subfolder {}", target.display()),
+                    ));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Create subfolder failed: {e}")));
+                }
+            }
+        }
+        BuildsAction::DeleteFolder { path } => {
+            let Some(dir) = dir else {
+                return;
+            };
+            let target = build_folder_path(&dir, &path);
+            match std::fs::remove_dir(&target) {
+                Ok(()) => {
+                    app.status_message = Some((
+                        StatusKind::Info,
+                        format!("Deleted folder {}", target.display()),
+                    ));
+                }
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Delete folder failed: {e}")));
+                }
+            }
+        }
         // Wasm-only handle types or unreachable variants on desktop.
         BuildsAction::Load(_)
         | BuildsAction::Rename { .. }
@@ -2743,6 +2811,22 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
         | BuildsAction::ConnectFolder
         | BuildsAction::DisconnectFolder => {}
     }
+}
+
+/// Issue #213 (slice 4): resolve a slash-joined folder-path key
+/// (matches [`crate::builds_folder_tree::folder_path_key`]) to the
+/// full filesystem path under `dir`. The empty string maps to
+/// `dir` itself (root). No path-traversal sanitisation is needed
+/// here because the path key is built from `BuildEntry::category`
+/// segments which were already split on `/` and stripped of empty
+/// pieces by [`crate::builds_folder_tree::build_folder_tree`].
+#[cfg(not(target_arch = "wasm32"))]
+fn build_folder_path(dir: &std::path::Path, key: &str) -> PathBuf {
+    let mut p = dir.to_path_buf();
+    for seg in key.split('/').filter(|s| !s.is_empty()) {
+        p.push(seg);
+    }
+    p
 }
 
 #[cfg(target_arch = "wasm32")]

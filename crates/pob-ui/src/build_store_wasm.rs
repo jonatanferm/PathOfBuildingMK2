@@ -106,6 +106,18 @@ impl WasmStorage {
             BuildsAction::ConnectFolder => self.connect_folder(),
             BuildsAction::DisconnectFolder => self.disconnect_folder(),
             BuildsAction::OpenFolder => {} // no-op on wasm
+            // Issue #213 (slice 4): folder ops only land on desktop
+            // for now — the wasm storage layer will get its own
+            // wiring in a follow-up. Surfacing a status so the user
+            // gets feedback instead of a silent no-op.
+            BuildsAction::RenameFolder { .. }
+            | BuildsAction::CreateSubfolder { .. }
+            | BuildsAction::DeleteFolder { .. } => {
+                self.push(StorageEvent::Status(
+                    StatusKind::Info,
+                    "Folder operations aren't wired to browser storage yet.".to_owned(),
+                ));
+            }
         }
     }
 
