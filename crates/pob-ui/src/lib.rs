@@ -2368,11 +2368,15 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 /// scratch builds need an explicit Save As first).
 #[cfg(not(target_arch = "wasm32"))]
 fn try_autosave(app: &mut LoadedApp) {
-    const IDLE_AUTOSAVE_MS: u128 = 2000;
     let Some(since) = app.dirty_since else {
         return;
     };
-    if since.elapsed().as_millis() < IDLE_AUTOSAVE_MS {
+    // Issue #225 follow-up: user-configurable idle threshold (was a
+    // hard-coded 2.0s). `autosave_idle_secs` is clamped at load /
+    // commit time, but re-clamp defensively in case a hand-edited
+    // settings.json slipped past the bounds.
+    let idle_ms = (app.user_settings.autosave_idle_secs.clamp(0.5, 30.0) * 1000.0) as u128;
+    if since.elapsed().as_millis() < idle_ms {
         return;
     }
     let Some(path) = app.current_build_path.clone() else {
@@ -2676,6 +2680,23 @@ fn render_settings_modal(ctx: &egui::Context, app: &mut LoadedApp) {
                     .step_by(0.5)
                     .text("seconds")
                     .clamping(egui::SliderClamping::Always),
+            );
+            // Issue #225 follow-up: configurable autosave idle delay.
+            // Replaces the previous hard-coded 2.0s. PoB's
+            // `Modules/Build.lua::SaveDBFile` runs on a similar
+            // debounce; exposing the knob lets slow-disk users dial
+            // it up without disabling autosave entirely.
+            ui.label("Autosave idle");
+            ui.add(
+                egui::Slider::new(&mut working.autosave_idle_secs, 0.5..=30.0)
+                    .step_by(0.5)
+                    .text("seconds")
+                    .clamping(egui::SliderClamping::Always),
+            )
+            .on_hover_text(
+                "How long the build must sit without edits before \
+                 autosave kicks in. Increase on slow disks; decrease \
+                 for near-instant persistence.",
             );
             ui.horizontal(|ui| {
                 ui.label("Theme:");

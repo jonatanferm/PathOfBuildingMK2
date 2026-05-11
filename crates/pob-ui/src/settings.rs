@@ -37,6 +37,13 @@ pub struct UserSettings {
     /// both so the toggle is a one-liner at the apply site.
     #[serde(default = "default_theme")]
     pub theme: Theme,
+    /// Issue #225 follow-up: idle delay before the autosave fires, in
+    /// seconds. Mirrors the previous `IDLE_AUTOSAVE_MS` constant
+    /// (2.0s). Lets users dial down on slow disks / network mounts
+    /// or up if they want near-instant persistence. Clamped to
+    /// `0.5..=30.0` on load.
+    #[serde(default = "default_autosave_idle_secs")]
+    pub autosave_idle_secs: f64,
 }
 
 /// Issue #225: theme palette options. egui supplies both built-in;
@@ -74,12 +81,17 @@ fn default_toast_lifetime() -> f64 {
     5.0
 }
 
+fn default_autosave_idle_secs() -> f64 {
+    2.0
+}
+
 impl Default for UserSettings {
     fn default() -> Self {
         Self {
             ui_scale: default_ui_scale(),
             toast_lifetime_secs: default_toast_lifetime(),
             theme: default_theme(),
+            autosave_idle_secs: default_autosave_idle_secs(),
         }
     }
 }
@@ -91,6 +103,7 @@ impl UserSettings {
     pub fn sanitised(mut self) -> Self {
         self.ui_scale = self.ui_scale.clamp(0.5, 2.5);
         self.toast_lifetime_secs = self.toast_lifetime_secs.clamp(1.0, 30.0);
+        self.autosave_idle_secs = self.autosave_idle_secs.clamp(0.5, 30.0);
         self
     }
 
@@ -213,6 +226,7 @@ mod tests {
             ui_scale: 0.01,
             toast_lifetime_secs: 5.0,
             theme: Theme::Dark,
+            autosave_idle_secs: 2.0,
         };
         assert!((tiny.sanitised().ui_scale - 0.5).abs() < f32::EPSILON);
         // Huge scale snaps to the max.
@@ -220,6 +234,7 @@ mod tests {
             ui_scale: 100.0,
             toast_lifetime_secs: 5.0,
             theme: Theme::Dark,
+            autosave_idle_secs: 2.0,
         };
         assert!((huge.sanitised().ui_scale - 2.5).abs() < f32::EPSILON);
     }
@@ -230,14 +245,57 @@ mod tests {
             ui_scale: 1.0,
             toast_lifetime_secs: 0.0,
             theme: Theme::Dark,
+            autosave_idle_secs: 2.0,
         };
         assert!((zero.sanitised().toast_lifetime_secs - 1.0).abs() < f64::EPSILON);
         let huge = UserSettings {
             ui_scale: 1.0,
             toast_lifetime_secs: 1_000.0,
             theme: Theme::Dark,
+            autosave_idle_secs: 2.0,
         };
         assert!((huge.sanitised().toast_lifetime_secs - 30.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn sanitised_clamps_autosave_idle_secs() {
+        // Below the floor — autosave-spam guard. PoB defaults to 2s
+        // and the floor of 0.5s lets paranoid users still dial down
+        // without flooding the disk on every keystroke.
+        let too_eager = UserSettings {
+            ui_scale: 1.0,
+            toast_lifetime_secs: 5.0,
+            theme: Theme::Dark,
+            autosave_idle_secs: 0.01,
+        };
+        assert!((too_eager.sanitised().autosave_idle_secs - 0.5).abs() < f64::EPSILON);
+        // Above the ceiling — defends against a hand-edited absurd
+        // value where the user effectively disables autosave by
+        // accident.
+        let too_lazy = UserSettings {
+            ui_scale: 1.0,
+            toast_lifetime_secs: 5.0,
+            theme: Theme::Dark,
+            autosave_idle_secs: 1_000.0,
+        };
+        assert!((too_lazy.sanitised().autosave_idle_secs - 30.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn autosave_idle_default_is_two_seconds() {
+        // Matches the previous hard-coded `IDLE_AUTOSAVE_MS = 2000`
+        // — pre-issue-#225 builds get the same cadence on upgrade.
+        let s = UserSettings::default();
+        assert!((s.autosave_idle_secs - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn from_json_serde_default_covers_missing_autosave_idle() {
+        // A pre-#225 settings file without `autosave_idle_secs` loads
+        // with the default; the upgrade path is silent.
+        let partial = r#"{"ui_scale": 1.0, "toast_lifetime_secs": 5.0, "theme": "dark"}"#;
+        let s = UserSettings::from_json(partial).expect("parse");
+        assert!((s.autosave_idle_secs - 2.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -270,6 +328,7 @@ mod tests {
             ui_scale: 1.5,
             toast_lifetime_secs: 8.0,
             theme: Theme::Light,
+            autosave_idle_secs: 7.5,
         };
         let json = s.to_json().expect("serialise");
         let back = UserSettings::from_json(&json).expect("parse");
@@ -286,6 +345,7 @@ mod tests {
             ui_scale: 1.0,
             toast_lifetime_secs: 5.0,
             theme: Theme::Light,
+            autosave_idle_secs: 2.0,
         };
         let json = s.to_json().expect("serialise");
         assert!(
