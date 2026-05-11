@@ -203,6 +203,14 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             resist_max(env, "LightningResistMax", "Lightning resistance maximum")
         }
         "ChaosResistMax" => resist_max(env, "ChaosResistMax", "Chaos resistance maximum"),
+        "BlockChanceMax" => default_plus_base_max(
+            env,
+            "BlockChanceMax",
+            "Block chance maximum",
+            75.0,
+            "75% default block cap (PoE constant)",
+            "Glancing Blows / Bone Offering / ascendancy",
+        ),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -2892,31 +2900,37 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
-/// Issue #34 follow-up: shared helper for the four max-resist
-/// outputs (FireResistMax / ColdResistMax / LightningResistMax /
-/// ChaosResistMax). PoB derives all four through the same shape:
+/// Issue #34 follow-up: shared helper for default-plus-BASE-mods
+/// chain outputs. Covers the four max-resist outputs and
+/// `BlockChanceMax` — both shapes follow:
 ///
-///   max = 75 + Σ BASE("<Element>ResistMax")
+///   max = default + Σ BASE("<output_key>")
 ///
-/// Surfaces Default + BASE-mod sources + Final so users can see
-/// whether they're at the default 75% cap or pushing it higher
-/// (e.g. Loreweave, Purity of Elements aura, ascendancies).
+/// `default_explain` and `mods_hint` carry the per-cap PoE-context
+/// strings (resist mods come from Loreweave / Purity / asc, block
+/// max from Glancing Blows / Bone Offering / asc).
 ///
 /// Returns `None` when the max is zero (no character loaded yet).
-fn resist_max(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdown> {
+fn default_plus_base_max(
+    env: &Env,
+    output_key: &str,
+    final_label: &str,
+    default: f64,
+    default_explain: &str,
+    mods_hint: &str,
+) -> Option<Breakdown> {
     let total = env.output.get(output_key);
     if total.abs() < 1e-9 {
         return None;
     }
     let cfg = QueryCfg::default();
     let base_sum = env.mod_db.sum(ModType::Base, &cfg, &env.state, output_key);
-    let default = 75.0;
 
     let mut steps = Vec::new();
     steps.push(
         BreakdownStep::label("Default")
             .with_value(default)
-            .with_explain("75% default max resist (PoE constant)".to_owned()),
+            .with_explain(default_explain.to_owned()),
     );
 
     if base_sum.abs() > 1e-9 {
@@ -2930,7 +2944,7 @@ fn resist_max(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdow
             BreakdownStep::label("BASE mods")
                 .with_value(base_sum)
                 .with_explain(format!(
-                    "+{base_sum:.0}% from {output_key} BASE mods (Loreweave / aura / ascendancy)"
+                    "+{base_sum:.0}% from {output_key} BASE mods ({mods_hint})"
                 ))
                 .with_sources(base_mods),
         );
@@ -2939,7 +2953,7 @@ fn resist_max(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdow
     steps.push(
         BreakdownStep::label(final_label)
             .with_value(total)
-            .with_explain(format!("75 + {base_sum:+.0} = {total:.0}%")),
+            .with_explain(format!("{default:.0} + {base_sum:+.0} = {total:.0}%")),
     );
 
     Some(Breakdown {
@@ -2947,6 +2961,20 @@ fn resist_max(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdow
         total,
         steps,
     })
+}
+
+/// Thin wrapper: the four max-resist outputs all share the
+/// `default_plus_base_max` chain with a 75% default and the resist
+/// mod-source hint.
+fn resist_max(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdown> {
+    default_plus_base_max(
+        env,
+        output_key,
+        final_label,
+        75.0,
+        "75% default max resist (PoE constant)",
+        "Loreweave / aura / ascendancy",
+    )
 }
 
 /// Issue #34 follow-up: re-derive `ManaRegenRecovery`. PoB sets it
@@ -4524,6 +4552,62 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: BlockChanceMax shares the same
+    /// default-plus-BASE chain as the max-resist outputs, just with
+    /// a different mod-source hint (Glancing Blows / Bone Offering /
+    /// ascendancy). Worked example: default 75 + 5 from Glancing
+    /// Blows-style node = 80% max block.
+    #[test]
+    fn block_chance_max_breakdown_walks_default_and_mods() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("BlockChanceMax", 5.0).with_source(Source::Tree));
+        env.output.set("BlockChanceMax", 80.0);
+        let bd = derive_for(&env, "BlockChanceMax").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Default"));
+        assert!(labels.contains(&"BASE mods"));
+        assert!(labels.contains(&"Block chance maximum"));
+
+        let default = bd.steps.iter().find(|s| s.label == "Default").unwrap();
+        assert!((default.value.unwrap() - 75.0).abs() < 1e-9);
+
+        let base = bd.steps.iter().find(|s| s.label == "BASE mods").unwrap();
+        assert!(
+            base.explain
+                .as_deref()
+                .is_some_and(|e| e.contains("Glancing Blows")),
+            "expected Glancing Blows hint in explain, got {:?}",
+            base.explain
+        );
+
+        assert!((bd.total - 80.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: at-default (no BASE mods) BlockChanceMax
+    /// renders Default + Final only.
+    #[test]
+    fn block_chance_max_breakdown_collapses_when_default() {
+        let mut env = Env::default();
+        env.output.set("BlockChanceMax", 75.0);
+        let bd = derive_for(&env, "BlockChanceMax").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Default"));
+        assert!(!labels.contains(&"BASE mods"));
+        assert!((bd.total - 75.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: BlockChanceMax returns None when zero
+    /// (no character loaded yet).
+    #[test]
+    fn block_chance_max_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "BlockChanceMax").is_none(),
+            "expected None when BlockChanceMax is zero",
+        );
+    }
+
     /// Issue #34 follow-up: FireResistMax walks Default (75 PoE
     /// constant) + BASE mods → total. PoB derives all four
     /// max-resist outputs (Fire / Cold / Lightning / Chaos) the same
