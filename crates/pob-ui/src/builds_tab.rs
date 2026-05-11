@@ -18,7 +18,9 @@ use crate::builds_folder_ctx_menu::{
     DeleteFolderError, FolderPopupState,
 };
 use crate::builds_folder_ops::validate_folder_name;
-use crate::builds_folder_tree::{build_folder_tree, folder_path_key, FolderNode};
+use crate::builds_folder_tree::{
+    build_folder_tree, build_folder_tree_sorted, folder_path_key, BuildsSortMode, FolderNode,
+};
 
 /// Opaque handle for a saved build. Concrete shape depends on the
 /// active storage backend; the UI treats it as an equality-checkable
@@ -105,6 +107,12 @@ pub struct BuildsTabState {
     /// renderer hides every sibling branch when this is set and
     /// surfaces a chip row offering to clear the filter.
     pub selected_folder: Option<String>,
+    /// Issue #213 follow-up: which order builds appear in within each
+    /// folder. Defaults to `Name` (the historical case-insensitive
+    /// alphabetical order); `RecentFirst` puts the most-recently-
+    /// modified builds at the top so iterating users find their
+    /// just-saved files without scrolling.
+    pub sort_mode: BuildsSortMode,
 }
 
 #[derive(Debug, Clone)]
@@ -280,6 +288,19 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
             state.loaded = false;
         }
     });
+    // Issue #213 follow-up: sort mode selector. Mirrors PoB's
+    // `Builds sort` dropdown — `Recent` puts the freshly-saved build
+    // at the top of its folder, `Name` is the historical alphabetical
+    // order. Only renders when there's something to sort to keep the
+    // empty-state pane tidy.
+    if !state.entries.is_empty() {
+        ui.horizontal(|ui| {
+            ui.label("Sort by:");
+            for mode in [BuildsSortMode::Name, BuildsSortMode::RecentFirst] {
+                ui.selectable_value(&mut state.sort_mode, mode, mode.label());
+            }
+        });
+    }
     ui.separator();
 
     if state.entries.is_empty() {
@@ -294,7 +315,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
         // Builds with no category land at the root (was
         // "Uncategorised" in slice 1; now they just appear at the top
         // of the tree).
-        let full_tree = build_folder_tree(&state.entries);
+        let full_tree = build_folder_tree_sorted(&state.entries, state.sort_mode);
         // Issue #213 (folder-isolation slice): when the user picks
         // "Show only this folder", drop every sibling branch via the
         // pure subtree-extract helper. The chip row below offers a
