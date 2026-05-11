@@ -182,6 +182,20 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "PoisonStackLimit" => poison_stack_limit(env),
         "BleedChance" => bleed_chance(env),
         "IgniteChance" => ignite_chance(env),
+        "ShockChance" => on_hit_plus_crit_chance(
+            env,
+            "ShockChance",
+            "ShockChanceOnHit",
+            "Shock chance",
+            "shock",
+        ),
+        "FreezeChance" => on_hit_plus_crit_chance(
+            env,
+            "FreezeChance",
+            "FreezeChanceOnHit",
+            "Freeze chance",
+            "freeze",
+        ),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -2871,25 +2885,31 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
-/// Issue #34 follow-up: re-derive `IgniteChance`. PoB combines the
-/// on-hit and on-crit chances per the standard PoE composition
-/// formula:
+/// Issue #34 follow-up: shared helper for ailment-chance outputs
+/// that compose on-hit + on-crit (=100%) per PoB's `combine`:
 ///
-///   chance = on_hit × (1 - crit) + on_crit × crit
+///   chance = on_hit × (1 - crit) + 100 × crit
 ///
-/// Crits always ignite (PoE rule), so on-crit chance is always
-/// 100%. The breakdown surfaces both component chances plus the
-/// crit-chance weighting so users can see how the final percentage
-/// composes.
+/// Crits always inflict the ailment (PoE rule for Ignite / Shock /
+/// Freeze), so the on-crit term is always 100%. Surfaces both
+/// component chances + crit weighting so users can see how the
+/// final percentage composes.
 ///
-/// Returns `None` when the chance is zero (no on-hit ignite mods +
-/// 0% crit chance).
-fn ignite_chance(env: &Env) -> Option<Breakdown> {
-    let total = env.output.get("IgniteChance");
+/// `ailment` is the lowercase noun (`"ignite"`, `"shock"`, `"freeze"`)
+/// used in the explain strings; `output_key` and `on_hit_key` /
+/// `final_label` select the fields and labels.
+fn on_hit_plus_crit_chance(
+    env: &Env,
+    output_key: &str,
+    on_hit_key: &str,
+    final_label: &str,
+    ailment: &str,
+) -> Option<Breakdown> {
+    let total = env.output.get(output_key);
     if total.abs() < 1e-9 {
         return None;
     }
-    let on_hit = env.output.get("IgniteChanceOnHit");
+    let on_hit = env.output.get(on_hit_key);
     let on_crit = 100.0;
     let crit_pct = env.output.get("MainSkillCritChance");
     let crit = crit_pct / 100.0;
@@ -2899,13 +2919,13 @@ fn ignite_chance(env: &Env) -> Option<Breakdown> {
         BreakdownStep::label("On-hit chance")
             .with_value(on_hit)
             .with_explain(format!(
-                "{on_hit:.0}% from IgniteChanceOnHit (gem / curse / passive)"
+                "{on_hit:.0}% from {on_hit_key} (gem / curse / passive)"
             )),
     );
     steps.push(
         BreakdownStep::label("On-crit chance")
             .with_value(on_crit)
-            .with_explain("100% — crits always ignite (PoE rule)".to_owned()),
+            .with_explain(format!("100% — crits always {ailment} (PoE rule)")),
     );
     steps.push(
         BreakdownStep::label("Crit chance")
@@ -2913,7 +2933,7 @@ fn ignite_chance(env: &Env) -> Option<Breakdown> {
             .with_explain(format!("{crit_pct:.1}% from MainSkillCritChance")),
     );
     steps.push(
-        BreakdownStep::label("Ignite chance")
+        BreakdownStep::label(final_label)
             .with_value(total)
             .with_explain(format!(
                 "{on_hit:.0}% × (1 - {crit:.2}) + 100% × {crit:.2} = {total:.1}%"
@@ -2921,10 +2941,22 @@ fn ignite_chance(env: &Env) -> Option<Breakdown> {
     );
 
     Some(Breakdown {
-        output_key: "IgniteChance".to_owned(),
+        output_key: output_key.to_owned(),
         total,
         steps,
     })
+}
+
+/// Issue #34 follow-up: re-derive `IgniteChance`. Thin wrapper
+/// around the shared `on_hit_plus_crit_chance` helper.
+fn ignite_chance(env: &Env) -> Option<Breakdown> {
+    on_hit_plus_crit_chance(
+        env,
+        "IgniteChance",
+        "IgniteChanceOnHit",
+        "Ignite chance",
+        "ignite",
+    )
 }
 
 /// Issue #34 follow-up: re-derive `BleedChance`. PoB stores it as
@@ -4391,6 +4423,79 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: ShockChance walks the same on-hit +
+    /// on-crit composition as IgniteChance, sourced from
+    /// ShockChanceOnHit. Worked example: 40% on-hit + 25% crit →
+    /// 40 × 0.75 + 100 × 0.25 = 55%.
+    #[test]
+    fn shock_chance_breakdown_walks_on_hit_and_crit() {
+        let mut env = Env::default();
+        env.output.set("ShockChanceOnHit", 40.0);
+        env.output.set("MainSkillCritChance", 25.0);
+        env.output.set("ShockChance", 55.0);
+        let bd = derive_for(&env, "ShockChance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"On-hit chance"));
+        assert!(labels.contains(&"On-crit chance"));
+        assert!(labels.contains(&"Crit chance"));
+        assert!(labels.contains(&"Shock chance"));
+
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("shock") || e.contains("100%")),
+            "expected shock formula in explain, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 55.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: FreezeChance walks the same shape with
+    /// FreezeChanceOnHit. Worked example: 0% on-hit + 25% crit →
+    /// 25%.
+    #[test]
+    fn freeze_chance_breakdown_walks_on_hit_and_crit() {
+        let mut env = Env::default();
+        env.output.set("FreezeChanceOnHit", 0.0);
+        env.output.set("MainSkillCritChance", 25.0);
+        env.output.set("FreezeChance", 25.0);
+        let bd = derive_for(&env, "FreezeChance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Freeze chance"));
+        assert!((bd.total - 25.0).abs() < 1e-9);
+
+        let on_crit = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "On-crit chance")
+            .unwrap();
+        assert!(
+            on_crit
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("freeze")),
+            "expected freeze in on-crit explain, got {:?}",
+            on_crit.explain
+        );
+    }
+
+    /// Issue #34 follow-up: both Shock and Freeze return None when
+    /// their final chance is zero.
+    #[test]
+    fn shock_freeze_chance_breakdowns_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "ShockChance").is_none(),
+            "expected None for ShockChance when zero",
+        );
+        assert!(
+            derive_for(&env, "FreezeChance").is_none(),
+            "expected None for FreezeChance when zero",
+        );
+    }
+
     /// Issue #34 follow-up: IgniteChance walks the on-hit + on-crit
     /// composition. PoB derives it as
     /// `IgniteChanceOnHit × (1 - crit) + 100 × crit`, since crits
