@@ -214,6 +214,50 @@ pub fn nodes_within_depth(
 /// user switches the axis selector between Combined / DPS / EHP.
 /// `NodeScore` is `Copy`, so the local sort is cheap and the caller's
 /// cached slice is left untouched.
+/// Issue #220 follow-up: per-row variant of [`format_top_node_candidates`]
+/// that returns `(NodeId, line)` pairs. Lets the renderer attach a
+/// hover tooltip per row by looking up the corresponding node by id.
+#[must_use]
+pub fn format_top_node_candidate_rows(
+    ranked: &[NodeScore],
+    tree: &pob_data::PassiveTree,
+    top_n: usize,
+    stat: HeatmapStat,
+) -> Vec<(NodeId, String)> {
+    let mut sorted: Vec<NodeScore> = ranked.to_vec();
+    sorted.sort_by(|a, b| {
+        let ka = score_impact_key(a, stat);
+        let kb = score_impact_key(b, stat);
+        match (ka.is_nan(), kb.is_nan()) {
+            (true, true) => a.node_id.cmp(&b.node_id),
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            (false, false) => kb
+                .partial_cmp(&ka)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.node_id.cmp(&b.node_id)),
+        }
+    });
+    sorted
+        .into_iter()
+        .take(top_n)
+        .enumerate()
+        .map(|(i, score)| {
+            let rank = i + 1;
+            let name = tree
+                .nodes
+                .get(&score.node_id)
+                .and_then(|n| n.name.clone())
+                .unwrap_or_else(|| format!("#{}", score.node_id));
+            let line = format!(
+                "{rank}. {:>+8.0} DPS {:>+8.0} EHP  {name}",
+                score.dps_delta, score.ehp_delta,
+            );
+            (score.node_id, line)
+        })
+        .collect()
+}
+
 #[must_use]
 pub fn format_top_node_candidates(
     ranked: &[NodeScore],
@@ -942,6 +986,57 @@ mod tests {
         let mut ids: Vec<NodeId> = reachable.into_iter().collect();
         ids.sort_unstable();
         assert_eq!(ids, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn format_top_node_candidate_rows_pairs_node_ids_with_lines() {
+        // The per-row formatter mirrors `format_top_node_candidates`
+        // but also carries the `NodeId` so the renderer can wire a
+        // hover tooltip per row.
+        let tree = ranking_tree();
+        let ranked = vec![
+            NodeScore {
+                node_id: 2,
+                dps_delta: 0.0,
+                ehp_delta: 50.0,
+            },
+            NodeScore {
+                node_id: 3,
+                dps_delta: 30.0,
+                ehp_delta: 0.0,
+            },
+        ];
+        let rows = format_top_node_candidate_rows(&ranked, &tree, 10, HeatmapStat::Combined);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, 2);
+        assert!(rows[0].1.contains("+50 EHP"));
+        assert!(rows[0].1.ends_with("n2"));
+        assert_eq!(rows[1].0, 3);
+        assert!(rows[1].1.contains("+30 DPS"));
+    }
+
+    #[test]
+    fn format_top_node_candidate_rows_respects_axis_and_top_n() {
+        // Axis-aware sort changes the order; top_n truncates.
+        let tree = ranking_tree();
+        let ranked = vec![
+            NodeScore {
+                node_id: 2,
+                dps_delta: 0.0,
+                ehp_delta: 100.0,
+            },
+            NodeScore {
+                node_id: 3,
+                dps_delta: 500.0,
+                ehp_delta: 0.0,
+            },
+        ];
+        // EHP axis: #2 first (100 ehp_delta beats #3's 0)
+        let rows = format_top_node_candidate_rows(&ranked, &tree, 10, HeatmapStat::Ehp);
+        assert_eq!(rows.first().map(|(id, _)| *id), Some(2));
+        // top_n=1 keeps just the head.
+        let one = format_top_node_candidate_rows(&ranked, &tree, 1, HeatmapStat::Combined);
+        assert_eq!(one.len(), 1);
     }
 
     #[test]
