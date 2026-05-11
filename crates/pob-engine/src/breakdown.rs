@@ -221,6 +221,47 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ColdTotalPool" => total_pool(env, "Cold", "TotalPool", "Cold total pool"),
         "LightningTotalPool" => total_pool(env, "Lightning", "TotalPool", "Lightning total pool"),
         "ChaosTotalPool" => total_pool(env, "Chaos", "TotalPool", "Chaos total pool"),
+        // Issue #34 follow-up: per-element MoMHitPool /
+        // ManaEffectiveLife outputs share the same pool sum (Phase
+        // 2 baseline). Plus the shared (non-element) variants.
+        "PhysicalMoMHitPool" => total_pool(env, "Physical", "MoMHitPool", "Physical MoM hit pool"),
+        "FireMoMHitPool" => total_pool(env, "Fire", "MoMHitPool", "Fire MoM hit pool"),
+        "ColdMoMHitPool" => total_pool(env, "Cold", "MoMHitPool", "Cold MoM hit pool"),
+        "LightningMoMHitPool" => {
+            total_pool(env, "Lightning", "MoMHitPool", "Lightning MoM hit pool")
+        }
+        "ChaosMoMHitPool" => total_pool(env, "Chaos", "MoMHitPool", "Chaos MoM hit pool"),
+        "PhysicalManaEffectiveLife" => total_pool(
+            env,
+            "Physical",
+            "ManaEffectiveLife",
+            "Physical mana-effective life",
+        ),
+        "FireManaEffectiveLife" => {
+            total_pool(env, "Fire", "ManaEffectiveLife", "Fire mana-effective life")
+        }
+        "ColdManaEffectiveLife" => {
+            total_pool(env, "Cold", "ManaEffectiveLife", "Cold mana-effective life")
+        }
+        "LightningManaEffectiveLife" => total_pool(
+            env,
+            "Lightning",
+            "ManaEffectiveLife",
+            "Lightning mana-effective life",
+        ),
+        "ChaosManaEffectiveLife" => total_pool(
+            env,
+            "Chaos",
+            "ManaEffectiveLife",
+            "Chaos mana-effective life",
+        ),
+        "sharedMoMHitPool" => total_pool(env, "shared", "MoMHitPool", "Shared MoM hit pool"),
+        "sharedManaEffectiveLife" => total_pool(
+            env,
+            "shared",
+            "ManaEffectiveLife",
+            "Shared mana-effective life",
+        ),
         // Issue #34 follow-up: Phase 2 baseline aliases for Life
         // (no recoup, no MoM split). All three rows collapse to the
         // Life output; the breakdown calls out the alias.
@@ -4801,6 +4842,68 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: per-element MoMHitPool /
+    /// ManaEffectiveLife outputs all collapse to the same `pool`
+    /// sum in Phase 2 (no MoM yet, no per-element split). Surfacing
+    /// the chain shows the pool components.
+    #[test]
+    fn fire_mom_hit_pool_breakdown_walks_pool_components() {
+        let mut env = Env::default();
+        env.output.set("Life", 800.0);
+        env.output.set("EnergyShield", 200.0);
+        env.output.set("Ward", 100.0);
+        env.output.set("FireMoMHitPool", 1100.0);
+        let bd = derive_for(&env, "FireMoMHitPool").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life"));
+        assert!(labels.contains(&"Energy shield"));
+        assert!(labels.contains(&"Ward"));
+        assert!(labels.contains(&"Fire MoM hit pool"));
+        assert!((bd.total - 1100.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: shared (non-element-specific) MoM
+    /// outputs use the same pool sum but no element prefix.
+    #[test]
+    fn shared_mom_hit_pool_breakdown_walks_pool_components() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("EnergyShield", 0.0);
+        env.output.set("Ward", 0.0);
+        env.output.set("sharedMoMHitPool", 1100.0);
+        let bd = derive_for(&env, "sharedMoMHitPool").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life"));
+        assert!(labels.contains(&"Shared MoM hit pool"));
+        assert!((bd.total - 1100.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None for any of the per-element
+    /// MoM outputs when the pool is zero.
+    #[test]
+    fn mom_pool_breakdown_skipped_when_no_pool() {
+        let env = Env::default();
+        for key in [
+            "PhysicalMoMHitPool",
+            "FireMoMHitPool",
+            "ColdMoMHitPool",
+            "LightningMoMHitPool",
+            "ChaosMoMHitPool",
+            "PhysicalManaEffectiveLife",
+            "FireManaEffectiveLife",
+            "ColdManaEffectiveLife",
+            "LightningManaEffectiveLife",
+            "ChaosManaEffectiveLife",
+            "sharedMoMHitPool",
+            "sharedManaEffectiveLife",
+        ] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when pool is zero",
+            );
+        }
+    }
+
     /// Issue #34 follow-up: LifeHitPool / LifeRecoverable /
     /// StunThreshold all collapse to the Life output in Phase 2 (no
     /// recoup mods, no MoM split). Surfacing the alias relationship
