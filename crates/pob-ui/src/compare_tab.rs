@@ -14,6 +14,8 @@
 use eframe::egui;
 use pob_engine::{Character, Output};
 
+use crate::tree_diff::tree_diff;
+
 #[derive(Debug, Clone, Default)]
 pub struct CompareTabState {
     pub snapshot: Option<Snapshot>,
@@ -87,6 +89,20 @@ pub fn ui(
     ui.horizontal(|ui| {
         ui.label("Snapshot:");
         ui.weak(&snap.label);
+    });
+    // Issue #220 slice 1: surface the passive-tree diff between
+    // snapshot and live. Pure data layer — the full in-tree overlay
+    // (PoB's `TreeTab.lua:106-125` "compare to spec") is a follow-up
+    // slice that needs a multi-spec model.
+    let diff = tree_diff(&snap.character.allocated, &live_character.allocated);
+    ui.horizontal(|ui| {
+        ui.label("Tree diff:");
+        let added_color = egui::Color32::from_rgb(0x33, 0xFF, 0x77);
+        let removed_color = egui::Color32::from_rgb(0xDD, 0x00, 0x22);
+        ui.colored_label(added_color, format!("+{} nodes", diff.added.len()));
+        ui.label("/");
+        ui.colored_label(removed_color, format!("-{} nodes", diff.removed.len()));
+        ui.weak(format!("({} shared) vs snapshot", diff.common.len()));
     });
     ui.horizontal(|ui| {
         ui.label("Filter:");

@@ -40,6 +40,7 @@ mod shared_items;
 mod skills_tab;
 mod sortable_list;
 mod tattoo_picker;
+mod tree_diff;
 mod tree_layout;
 mod tree_renderer;
 mod tree_view;
