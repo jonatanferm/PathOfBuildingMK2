@@ -2815,12 +2815,15 @@ mod tests {
                 .map(|(l, s)| ModLine {
                     line: (*l).to_string(),
                     section: *s,
+                    variant_list: None,
                 })
                 .collect(),
             sockets: String::new(),
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         }
     }
 

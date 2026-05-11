@@ -78,6 +78,11 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
     let mut corrupted = false;
     let mut mirrored = false;
     let mut sockets = String::new();
+    // Issue #221: collected variant metadata. `variants` is the ordered
+    // list of display names; `selected_variant` is the 1-based active
+    // index from a `Selected Variant:` line.
+    let mut variants: Vec<String> = Vec::new();
+    let mut selected_variant: Option<u32> = None;
 
     // Walk the first section: "Item Class: ...", "Rarity: ...", name(s).
     let first = sections[0];
@@ -101,11 +106,40 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
         }
         if let Some(b) = first.get(i) {
             base_name = (*b).to_owned();
+            i += 1;
         }
     } else if let Some(n) = first.get(i) {
         // Magic / Normal: leave name = "" and use the line as the base.
         base_name = strip_magic_affixes(n);
         name.clear();
+        i += 1;
+    }
+    // Issue #221: PoB emits `Variant: <name>` and `Selected Variant: N`
+    // immediately after the name/base lines but before the first
+    // `--------`. Scan the rest of the first section for them — the
+    // shared loop below handles the same patterns in later sections so
+    // that hand-edited pastes (which sometimes put them after the
+    // metadata separator) round-trip too.
+    while let Some(line) = first.get(i) {
+        if let Some(rest) = line.strip_prefix("Variant:") {
+            let name = rest.trim();
+            if !name.is_empty() {
+                variants.push(name.to_owned());
+            }
+        } else if let Some(rest) = line.strip_prefix("Selected Variant:") {
+            selected_variant = parse_first_int(rest);
+        } else if !(line.starts_with("Has Alt Variant")
+            || line.starts_with("Selected Alt Variant")
+            || *line == "Has Variants"
+            || line.starts_with("Selected Variants"))
+        {
+            // Unknown metadata line in the header — leave it for the
+            // existing skip-everything-we-don't-recognise behaviour
+            // (the parser is intentionally permissive about extra
+            // PoE-game lines like "Unidentified" / requirement
+            // headers).
+        }
+        i += 1;
     }
 
     // Sweep remaining sections for metadata + mod lines.
@@ -152,12 +186,48 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
             {
                 continue;
             }
+            // Issue #221: variant metadata. `Variant: <name>` lines feed
+            // the variant-name list; `Selected Variant: N` picks the
+            // active 1-based index. PoB emits these in the metadata
+            // section above the mod sections; we accept them anywhere
+            // for resilience against hand-edited paste text. The
+            // `Has Alt Variant`/`Selected Alt Variant` family is
+            // skipped — PoB uses those for items that rotate two
+            // independent axes (anointment + aura combo on
+            // Doryani's), which MK2 doesn't model yet.
+            if let Some(rest) = line.strip_prefix("Variant:") {
+                let name = rest.trim();
+                if !name.is_empty() {
+                    variants.push(name.to_owned());
+                }
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix("Selected Variant:") {
+                selected_variant = parse_first_int(rest);
+                continue;
+            }
+            if line.starts_with("Has Alt Variant")
+                || line.starts_with("Selected Alt Variant")
+                || line == "Has Variants"
+                || line.starts_with("Selected Variants")
+            {
+                continue;
+            }
 
             if !section_is_mod_section {
                 continue;
             }
 
-            let (clean, suffix_section) = strip_mod_suffix(line);
+            // Issue #221: strip a leading `{variant:N,M,…}` prefix off the
+            // mod line. PoB uses a chain of `{key:val}` prefixes
+            // (`{variant:1,3}{range:0.5}+10 to Strength`); we currently
+            // only consume the variant gate and drop any other
+            // bracketed prefixes verbatim, since the calc engine
+            // doesn't model `range` / `tags` yet. Lines without a
+            // variant prefix get `variant_list = None` (= "applies to
+            // every variant"), matching PoB's default.
+            let (raw_line, variant_list) = split_variant_prefix(line);
+            let (clean, suffix_section) = strip_mod_suffix(raw_line);
             let section_kind = suffix_section.unwrap_or({
                 if any_self_tagged {
                     ModSection::Explicit
@@ -170,6 +240,7 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
             mod_lines.push(ModLine {
                 line: clean.to_owned(),
                 section: section_kind,
+                variant_list,
             });
         }
         if section_is_mod_section {
@@ -178,6 +249,16 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
             explicit_section_started = true;
         }
     }
+
+    // Issue #221: clamp the selected variant against the actual variant
+    // count (PoB does this in `BuildModListForItem`). A bogus `Selected
+    // Variant: 9` on a 2-variant item resolves to variant 2 instead of
+    // silently filtering every gated mod line.
+    let variant = if variants.is_empty() {
+        None
+    } else {
+        selected_variant.map(|v| v.clamp(1, u32::try_from(variants.len()).unwrap_or(u32::MAX)))
+    };
 
     Ok(Item {
         name,
@@ -191,7 +272,43 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
         raw: raw.to_owned(),
         corrupted,
         mirrored,
+        variants,
+        variant,
     })
+}
+
+/// Issue #221: split a leading variant prefix off a mod line. Returns the
+/// post-prefix text and the parsed variant ids (`None` when the line had
+/// no `{variant:…}` prefix). Other `{key:val}` prefixes are passed
+/// through verbatim — the calc engine doesn't model `range` / `tags`
+/// yet, and `pob_export` reconstitutes any stripped prefix when needed.
+fn split_variant_prefix(line: &str) -> (&str, Option<Vec<u32>>) {
+    let trimmed = line.trim_start();
+    let rest = match trimmed.strip_prefix("{variant:") {
+        Some(r) => r,
+        None => return (line, None),
+    };
+    let Some(end) = rest.find('}') else {
+        return (line, None);
+    };
+    let body = &rest[..end];
+    let after = &rest[end + 1..];
+    let mut ids = Vec::new();
+    for tok in body.split(',') {
+        let tok = tok.trim();
+        if let Ok(n) = tok.parse::<u32>() {
+            if n > 0 {
+                ids.push(n);
+            }
+        }
+    }
+    if ids.is_empty() {
+        // Malformed prefix (`{variant:}` / `{variant:abc}`) — preserve the
+        // raw text rather than silently filtering the line out of every
+        // variant.
+        return (line, None);
+    }
+    (after, Some(ids))
 }
 
 fn split_sections<'a>(lines: &'a [&'a str]) -> Vec<&'a [&'a str]> {
@@ -295,7 +412,10 @@ fn strip_magic_affixes(line: &str) -> String {
 pub fn item_mods_into_modlist(item: &Item, slot_index: u32, out: &mut crate::ModList) -> usize {
     let mut produced = 0usize;
     let slot_name = slot_name_for_index(slot_index);
-    for ml in &item.mod_lines {
+    // Issue #221: only emit mods for lines that apply to the active
+    // variant. Items without variants short-circuit via
+    // `ModLine::applies_to_variant` returning true for the `None` gate.
+    for ml in item.iter_active_mod_lines() {
         if let Some(parsed) = crate::mod_parser::parse_mod_line(&ml.line) {
             let mut m = parsed.mod_.with_source(crate::Source::Item(slot_index));
             if let Some(name) = slot_name {
@@ -451,7 +571,11 @@ pub fn apply_item_set_with_bases(
         }
 
         let slot_name = slot_name_for_index(slot_index);
-        for ml in &item.mod_lines {
+        // Issue #221: variant-gated mods only contribute to the build
+        // when the gate includes the active variant. Lines without a
+        // gate (the vast majority — every non-Watcher's-Eye / non
+        // Maven's-Invitation item) iterate unchanged.
+        for ml in item.iter_active_mod_lines() {
             if let Some(parsed) = crate::mod_parser::parse_mod_line(&ml.line) {
                 let mut m = parsed.mod_.with_source(crate::Source::Item(slot_index));
                 if let Some(name) = slot_name {
@@ -590,5 +714,243 @@ Item Level: 84
             .collect();
         assert_eq!(implicits.len(), 1);
         assert_eq!(implicits[0].line, "+10 to all Attributes");
+    }
+
+    // Issue #221: variants. Fixture mirrors a Watcher's Eye paste with two
+    // recorded variants (Anger / Hatred) — the canonical multi-variant
+    // unique. PoB serialises this as a `Variant:` line per name and a
+    // single `Selected Variant: N` picking the active 1-based index;
+    // mod lines that vary across variants carry a `{variant:N,M}`
+    // prefix listing the variants they apply to.
+    const SAMPLE_WATCHERS_EYE: &str = r"Rarity: UNIQUE
+Watcher's Eye
+Prismatic Jewel
+Variant: Anger
+Variant: Hatred
+Selected Variant: 2
+--------
+Limited to: 1
+--------
+Item Level: 84
+--------
++50 to maximum Mana
+{variant:1}1% of Damage Leeched as Life while affected by Anger
+{variant:2}10% increased Cold Damage while affected by Hatred
+{variant:2}+1.2% to Critical Strike Chance while affected by Hatred
++25% to all Elemental Resistances
+--------";
+
+    #[test]
+    fn parses_variant_metadata_into_names_and_selected_index() {
+        let item = parse_item(SAMPLE_WATCHERS_EYE).unwrap();
+        assert_eq!(item.variants, vec!["Anger".to_owned(), "Hatred".to_owned()]);
+        assert_eq!(item.variant, Some(2));
+    }
+
+    #[test]
+    fn parses_variant_prefix_into_variant_list_and_strips_text() {
+        let item = parse_item(SAMPLE_WATCHERS_EYE).unwrap();
+        // The Anger leech mod is gated on variant 1 only.
+        let anger = item
+            .mod_lines
+            .iter()
+            .find(|m| m.line.contains("Leeched as Life"))
+            .expect("Anger mod present");
+        assert_eq!(anger.variant_list, Some(vec![1]));
+        assert!(
+            !anger.line.starts_with("{variant"),
+            "expected variant prefix to be stripped, got `{}`",
+            anger.line
+        );
+
+        // The Hatred crit-chance mod is gated on variant 2.
+        let hatred = item
+            .mod_lines
+            .iter()
+            .find(|m| m.line.contains("Critical Strike Chance"))
+            .expect("Hatred mod present");
+        assert_eq!(hatred.variant_list, Some(vec![2]));
+
+        // The shared +25% resists line is ungated.
+        let resists = item
+            .mod_lines
+            .iter()
+            .find(|m| m.line.contains("Elemental Resistances"))
+            .expect("shared mod present");
+        assert_eq!(resists.variant_list, None);
+    }
+
+    #[test]
+    fn iter_active_mod_lines_filters_by_selected_variant() {
+        let item = parse_item(SAMPLE_WATCHERS_EYE).unwrap();
+        // Active variant is 2 (Hatred). The Anger-gated line must be
+        // skipped; the two Hatred lines and every ungated line must
+        // remain.
+        let active: Vec<_> = item
+            .iter_active_mod_lines()
+            .map(|m| m.line.clone())
+            .collect();
+        assert!(
+            !active.iter().any(|l| l.contains("Anger")),
+            "expected Anger-gated mod to be filtered out, got {active:?}"
+        );
+        assert!(active
+            .iter()
+            .any(|l| l.contains("Hatred") && l.contains("Cold")));
+        assert!(active.iter().any(|l| l.contains("Critical Strike Chance")));
+        assert!(active.iter().any(|l| l.contains("Elemental Resistances")));
+        assert!(active.iter().any(|l| l.contains("maximum Mana")));
+    }
+
+    #[test]
+    fn variant_list_supports_multi_id_prefix() {
+        let raw = r"Rarity: UNIQUE
+Test Jewel
+Cobalt Jewel
+Variant: A
+Variant: B
+Variant: C
+Selected Variant: 3
+--------
+Item Level: 84
+--------
+{variant:1,3}+10 to Strength
+{variant:2}+10 to Dexterity
+--------";
+        let item = parse_item(raw).unwrap();
+        let strength = item
+            .mod_lines
+            .iter()
+            .find(|m| m.line.contains("Strength"))
+            .expect("strength mod present");
+        assert_eq!(strength.variant_list, Some(vec![1, 3]));
+        // Active variant 3 picks up the {variant:1,3} line via membership.
+        let active: Vec<_> = item
+            .iter_active_mod_lines()
+            .map(|m| m.line.clone())
+            .collect();
+        assert!(active.iter().any(|l| l.contains("Strength")));
+        assert!(!active.iter().any(|l| l.contains("Dexterity")));
+    }
+
+    #[test]
+    fn parser_clamps_selected_variant_to_existing_range() {
+        let raw = r"Rarity: UNIQUE
+Test Jewel
+Cobalt Jewel
+Variant: A
+Variant: B
+Selected Variant: 9
+--------
+Item Level: 84
+--------
++10 to maximum Life
+--------";
+        let item = parse_item(raw).unwrap();
+        // 9 is out of range for a 2-variant item; PoB clamps to the
+        // highest variant id so the user still sees one of the real
+        // variants instead of every gated mod silently disappearing.
+        assert_eq!(item.variant, Some(2));
+    }
+
+    #[test]
+    fn parser_leaves_variants_empty_for_non_variant_items() {
+        let item = parse_item(SAMPLE_RARE_AMULET).unwrap();
+        assert!(item.variants.is_empty());
+        assert_eq!(item.variant, None);
+        // Backwards-compat: iter_active_mod_lines yields everything.
+        assert_eq!(item.iter_active_mod_lines().count(), item.mod_lines.len());
+    }
+
+    #[test]
+    fn apply_item_set_filters_inactive_variant_mods_from_moddb() {
+        // Issue #221: end-to-end smoke. Equip a two-variant unique
+        // amulet on the active item set and confirm the mods landed
+        // in the ModDB belong to the active variant only.
+        //
+        // The shared explicit (`+50 to maximum Life`) is always
+        // present; the Anger-gated 1% leech line and the Hatred-gated
+        // 10% cold damage line never overlap. Selecting variant 2
+        // (Hatred) means the cold mod is present and the leech mod
+        // is filtered out.
+        let raw = r"Rarity: UNIQUE
+Test Eye
+Onyx Amulet
+Variant: Anger
+Variant: Hatred
+Selected Variant: 2
+--------
+Item Level: 84
+--------
++50 to maximum Life
+{variant:1}1% of Damage Leeched as Life while affected by Anger
+{variant:2}10% increased Cold Damage while affected by Hatred
+--------";
+        use crate::ModStore as _;
+        let item = parse_item(raw).unwrap();
+        let mut set = pob_data::ItemSet::new();
+        set.equip(Slot::Amulet, item);
+        let mut db = crate::ModDB::new();
+        apply_item_set(&set, &mut db);
+
+        // ModDB carries the +50 Life base and the Hatred-gated Cold
+        // INC, but not the Anger-gated Leech INC. `Mod` exposes its
+        // identity through `name`, category through `kind`, and the
+        // scalar value through `value.as_f64()`.
+        let life: f64 = db
+            .iter_all()
+            .filter(|m| m.name == "Life" && matches!(m.kind, crate::ModType::Base))
+            .filter_map(|m| m.value.as_f64())
+            .sum();
+        assert!((life - 50.0).abs() < 1e-9, "expected +50 Life, got {life}");
+
+        let cold_inc: f64 = db
+            .iter_all()
+            .filter(|m| m.name == "ColdDamage" && matches!(m.kind, crate::ModType::Inc))
+            .filter_map(|m| m.value.as_f64())
+            .sum();
+        assert!(
+            (cold_inc - 10.0).abs() < 1e-9,
+            "expected 10% increased Cold Damage (active Hatred variant), got {cold_inc}"
+        );
+
+        // No leech contribution from the gated Anger line. We do a
+        // case-insensitive contains over every mod's `name` so the
+        // test stays valid whether `mod_parser` ends up routing leech
+        // through `LifeLeechRate`, `DamageLifeLeech`, or any future
+        // rename.
+        let leech_any = db
+            .iter_all()
+            .any(|m| m.name.to_ascii_lowercase().contains("leech"));
+        assert!(
+            !leech_any,
+            "expected no leech mod from filtered Anger variant"
+        );
+    }
+
+    #[test]
+    fn malformed_variant_prefix_falls_through_as_plain_text() {
+        let raw = r"Rarity: RARE
+Test
+Onyx Amulet
+--------
+Item Level: 84
+--------
+{variant:}+10 to Strength
+--------";
+        let item = parse_item(raw).unwrap();
+        // A `{variant:}` with no ids isn't a real variant gate — PoB
+        // would treat the line as if the prefix were absent (it would
+        // not strip the prefix); MK2 keeps the raw text so a human can
+        // spot the bad paste. The key invariant is that we don't
+        // silently filter the line out of every variant by recording
+        // `Some(vec![])`.
+        let mod_ = &item.mod_lines[0];
+        assert_eq!(mod_.variant_list, None);
+        assert!(
+            mod_.line.contains("{variant:}"),
+            "expected raw prefix preserved, got `{}`",
+            mod_.line
+        );
     }
 }

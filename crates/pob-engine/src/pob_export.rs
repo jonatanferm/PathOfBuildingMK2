@@ -547,4 +547,70 @@ mod tests {
         assert_eq!(r.config.multipliers.get("PowerCharge"), Some(&3.0));
         assert_eq!(r.config.enemy_lightning_resist, 50);
     }
+
+    /// Issue #221: round-trip a multi-variant unique through PoB-XML. The
+    /// embed-paste-verbatim shape means the variant list, selected
+    /// variant, and `{variant:N}` prefixes survive without `pob_export`
+    /// needing variant-aware serialisation logic — the `<Item>` body is
+    /// the original paste text. This test pins that contract: if a
+    /// future refactor moves to a structured `<Mod>` schema, it must
+    /// preserve the variant gates or the test fails.
+    #[test]
+    fn round_trip_preserves_item_variants_through_pob_xml() {
+        let raw = r"Rarity: UNIQUE
+Watcher's Eye
+Prismatic Jewel
+Variant: Anger
+Variant: Hatred
+Selected Variant: 2
+--------
+Limited to: 1
+--------
+Item Level: 84
+--------
++50 to maximum Mana
+{variant:1}1% of Damage Leeched as Life while affected by Anger
+{variant:2}10% increased Cold Damage while affected by Hatred
++25% to all Elemental Resistances
+--------";
+        let parsed = crate::item_parser::parse_item(raw).unwrap();
+        let mut c = Character::new(crate::character::ClassRef::ranger(), 67);
+        c.items.equip(pob_data::Slot::Amulet, parsed);
+
+        let xml = export_pob_xml(&c);
+        let back = crate::pob_import::import_pob_xml(&xml).expect("re-import");
+        let item = back
+            .items
+            .get(pob_data::Slot::Amulet)
+            .expect("amulet present after re-import");
+
+        assert_eq!(item.variants, vec!["Anger".to_owned(), "Hatred".to_owned()]);
+        assert_eq!(item.variant, Some(2));
+
+        // Variant-gated mod lines preserved with their prefixes
+        // stripped + recorded into `variant_list`.
+        let hatred_cold = item
+            .mod_lines
+            .iter()
+            .find(|m| m.line.contains("increased Cold Damage"))
+            .expect("Hatred cold-damage line round-tripped");
+        assert_eq!(hatred_cold.variant_list, Some(vec![2]));
+        let anger_leech = item
+            .mod_lines
+            .iter()
+            .find(|m| m.line.contains("Leeched as Life"))
+            .expect("Anger leech line round-tripped");
+        assert_eq!(anger_leech.variant_list, Some(vec![1]));
+
+        // Variant 2's filtered iter excludes the Anger mod even after
+        // re-import (proves the round-trip preserved both halves of
+        // the contract: which variant is active AND which mods belong
+        // to it).
+        let active: Vec<_> = item
+            .iter_active_mod_lines()
+            .map(|m| m.line.clone())
+            .collect();
+        assert!(active.iter().any(|l| l.contains("Cold Damage")));
+        assert!(!active.iter().any(|l| l.contains("Leeched as Life")));
+    }
 }

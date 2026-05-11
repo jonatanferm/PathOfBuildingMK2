@@ -951,22 +951,26 @@ mod tests {
         let mut mod_lines = vec![ModLine {
             line: format!("Adds {smalls} Passive Skills"),
             section: ModSection::Enchant,
+            variant_list: None,
         }];
         for _ in 0..sockets {
             mod_lines.push(ModLine {
                 line: "1 Added Passive Skill is a Jewel Socket".into(),
                 section: ModSection::Enchant,
+                variant_list: None,
             });
         }
         if !notable.is_empty() {
             mod_lines.push(ModLine {
                 line: format!("1 Added Passive Skill is {notable}"),
                 section: ModSection::Enchant,
+                variant_list: None,
             });
         }
         mod_lines.push(ModLine {
             line: "Added Small Passive Skills grant: 12% increased Chaos Damage".into(),
             section: ModSection::Enchant,
+            variant_list: None,
         });
         Item {
             name: String::new(),
@@ -980,6 +984,8 @@ mod tests {
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         }
     }
 
@@ -1093,6 +1099,7 @@ mod tests {
         item.mod_lines.push(pob_data::ModLine {
             line: "1 Added Passive Skill is a Jewel Socket".into(),
             section: pob_data::ModSection::Corrupted,
+            variant_list: None,
         });
         let data = small_jewel_data();
         let parsed = parse_cluster_jewel(&item, &data).expect("parses");
@@ -1110,6 +1117,7 @@ mod tests {
         item1.mod_lines.push(pob_data::ModLine {
             line: "2 Added Passive Skills are Jewel Sockets".into(),
             section: pob_data::ModSection::Corrupted,
+            variant_list: None,
         });
         let data = small_jewel_data();
         let parsed1 = parse_cluster_jewel(&item1, &data).expect("parses");
@@ -1119,6 +1127,7 @@ mod tests {
         item2.mod_lines.push(pob_data::ModLine {
             line: "Adds 3 Jewel Socket Passive Skills".into(),
             section: pob_data::ModSection::Corrupted,
+            variant_list: None,
         });
         let parsed2 = parse_cluster_jewel(&item2, &data).expect("parses");
         assert_eq!(parsed2.socket_count, 3);
@@ -1134,6 +1143,7 @@ mod tests {
         item.mod_lines.push(pob_data::ModLine {
             line: "Added Small Passive Skills have 50% increased Effect".into(),
             section: pob_data::ModSection::Corrupted,
+            variant_list: None,
         });
         let data = small_jewel_data();
         let parsed = parse_cluster_jewel(&item, &data).expect("parses");

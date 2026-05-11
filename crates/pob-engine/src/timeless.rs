@@ -298,12 +298,15 @@ mod tests {
                 .map(|l| ModLine {
                     line: (*l).to_string(),
                     section: ModSection::Explicit,
+                    variant_list: None,
                 })
                 .collect(),
             sockets: String::new(),
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         }
     }
 

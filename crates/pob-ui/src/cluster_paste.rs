@@ -190,6 +190,8 @@ mod tests {
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         }
     }
 
@@ -210,6 +212,7 @@ mod tests {
         item.mod_lines.push(ModLine {
             line: "Adds 8 Passive Skills".into(),
             section: ModSection::Enchant,
+            variant_list: None,
         });
         assert!(is_cluster_jewel(&item));
     }
@@ -221,6 +224,7 @@ mod tests {
         item.mod_lines.push(ModLine {
             line: "+30 to Strength".into(),
             section: ModSection::Explicit,
+            variant_list: None,
         });
         assert!(!is_cluster_jewel(&item));
     }
