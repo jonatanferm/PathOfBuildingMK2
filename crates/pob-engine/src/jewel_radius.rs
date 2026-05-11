@@ -85,6 +85,12 @@
 //!   variant of the per-attribute-tally pattern emitting Inc
 //!   Evasion. The two per-claw / per-unarmed lines on the same
 //!   jewel need weapon-condition tags and follow as a future slice.
+//! - **Tempered / Transcendent Spirit**
+//!   ([`HandlerKind::DexCountToIncMovementSpeed`]) — Dex summed across
+//!   in-radius allocated nodes, integer-divided by 10, then multiplied
+//!   by the per-line rate (2 for Tempered Spirit / Transcendent pre-3.10,
+//!   3 for current Transcendent Spirit) to produce an Inc MovementSpeed
+//!   mod sourced as the jewel.
 //! - **Karui Heart** ([`HandlerKind::StrToLifeTransform`]) — transforms each
 //!   in-radius allocated node's `+N Str` BASE mod into a `+5N Life` BASE plus
 //!   a counter `-N Str` so the strength is moved (not duplicated). The 5×
@@ -375,6 +381,19 @@ pub enum HandlerKind {
     /// stat back into the Strength → Melee Damage bonus computation
     /// (`CalcPerform.lua` ~501).
     DexIntToStrMeleeBonus,
+    /// Issue #196: Tempered Spirit / Transcendent Spirit. `(2|3)% increased
+    /// Movement Speed per 10 Dexterity on Allocated Passives in Radius`.
+    /// Sister handler to Spire of Stone / Eldritch Knowledge but Dex-sourced
+    /// and emits Inc `MovementSpeed`. Sums in-radius allocated `+N Dexterity`
+    /// BASE mods, integer-divides by 10, and multiplies by the per-line
+    /// percentage parsed from the marker (2 for Tempered Spirit / Transcendent
+    /// Spirit pre-3.10, 3 for current Transcendent Spirit). Mirrors PoB's
+    /// `jewelSelfFuncs` lines (`ModParser.lua` ~6178-6179) where each rate
+    /// is its own `getPerStat("MovementSpeed", "INC", 0, "Dex", N / 10)`
+    /// entry — we collapse them under one handler so a future Tempered/
+    /// Transcendent Spirit slice for the `-1 Dex per 1 Dex Allocated` and
+    /// the unallocated-side mods can stack additively without re-routing.
+    DexCountToIncMovementSpeed,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -541,6 +560,9 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Eldritch Knowledge" => Some(build_int_count_to_inc_chaos_damage(socket_id, item)),
         "Static Electricity" => Some(build_dex_count_to_max_lightning_attack(socket_id, item)),
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
+        "Tempered Spirit" | "Transcendent Spirit" => {
+            Some(build_dex_count_to_inc_movement_speed(socket_id, item))
+        }
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
     }
@@ -801,6 +823,34 @@ fn build_dex_count_to_max_lightning_attack(socket_id: NodeId, item: &Item) -> Ra
     )
 }
 
+/// Issue #196: Tempered Spirit / Transcendent Spirit. Marker recognises
+/// the `(N)% increased Movement Speed per 10 Dexterity on Allocated
+/// Passives in Radius` line; the dispatch arm reads the leading
+/// percentage off the matching mod_line so 2% (Tempered / Transcendent
+/// pre-3.10) and 3% (Transcendent current) share one handler. Other
+/// jewel-text lines (`-1 Dexterity per 1 Dexterity Allocated`, the
+/// unallocated-side mods) fall through to vanilla mod_parser pending
+/// dedicated slices for the negative-stat / SelfUnalloc patterns.
+/// Default radius Medium (matches upstream `Data/Uniques/jewel.lua`'s
+/// `Radius: Medium` for both jewels — line 749 / 760).
+fn build_dex_count_to_inc_movement_speed(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    let mods = parse_non_transform_mods(item, is_dex_count_to_inc_movement_speed_marker);
+    let idx = radius_index_for_label("Medium").unwrap_or(1);
+    let radii = radii_for_tree_version(&item_tree_version(item));
+    let radius = radii
+        .get(idx)
+        .copied()
+        .unwrap_or_else(|| pob_data::JewelRadiusInfo::new(0.0, 1440.0, "Medium"));
+    RadiusJewel {
+        socket_id,
+        radius,
+        radius_index: idx,
+        mods,
+        source_label: format!("RadiusJewel:{}", item.base_name),
+        kind: HandlerKind::DexCountToIncMovementSpeed,
+    }
+}
+
 /// Issue #196 (slice 11): Eldritch Knowledge (`5% increased Chaos Damage
 /// per 10 Intelligence from Allocated Passives in Radius`). The line is
 /// dispatch-only metadata — the in-radius Int sum × 5 / 10 is computed in
@@ -1028,6 +1078,35 @@ fn is_dex_count_to_max_lightning_attack_marker(line: &str) -> bool {
     l.contains("adds 1 maximum lightning damage to attacks")
         && l.contains("per 1 dexterity")
         && l.contains("in radius")
+}
+
+/// Issue #196: Tempered/Transcendent Spirit marker — the leading rate
+/// (`2%` / `3%`) varies between variants but the rest of the line is
+/// fixed. Returns `true` for any rate so a single dispatch arm can read
+/// the percentage off the matching mod_line.
+fn is_dex_count_to_inc_movement_speed_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("increased movement speed")
+        && l.contains("per 10 dexterity")
+        && l.contains("on allocated passives in radius")
+}
+
+/// Issue #196: extract the leading percentage (`N` from `N% increased
+/// Movement Speed per 10 Dexterity on Allocated Passives in Radius`).
+/// Used by the dispatch arm for [`HandlerKind::DexCountToIncMovementSpeed`]
+/// to scale Tempered Spirit's 2% vs Transcendent Spirit (current)'s 3%
+/// off the same handler.
+fn parse_dex_count_to_inc_movement_speed_rate(line: &str) -> Option<f64> {
+    let l = line.to_ascii_lowercase();
+    let pct_idx = l.find('%')?;
+    let head = &l[..pct_idx];
+    // Walk back from `%` to the first non-numeric char; the slice between
+    // there and `%` is the rate. If the line *starts* with the digits (no
+    // preceding non-digit) the rate is the entire `head` slice.
+    let num_start = head
+        .rfind(|c: char| !c.is_ascii_digit() && c != '.')
+        .map_or(0, |i| i + 1);
+    head[num_start..].trim().parse::<f64>().ok()
 }
 
 /// Issue #196: Might in All Forms marker. The jewel's only radius line is
@@ -1550,6 +1629,37 @@ pub fn apply_radius_jewels(
                 let total = dex_sum + int_sum;
                 if total > 0.0 {
                     let mod_ = crate::Mod::base("DexIntToMeleeBonus", total)
+                        .with_source(Source::Other(jewel.source_label.clone()));
+                    db.add(mod_);
+                    report.mod_emissions += 1;
+                }
+            }
+            HandlerKind::DexCountToIncMovementSpeed => {
+                // Issue #196: Tempered Spirit / Transcendent Spirit. Sum
+                // allocated `+N Dexterity` BASE mods across in-radius
+                // nodes, integer-divide by 10, multiply by the per-line
+                // rate (2 for Tempered Spirit / Transcendent pre-3.10,
+                // 3 for current Transcendent Spirit) parsed off the
+                // matching mod_line, and emit a single Inc
+                // `MovementSpeed` mod sourced as the jewel.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let dex_sum = sum_radius_attribute_base(tree, &in_radius, "Dexterity");
+                let rate = item
+                    .mod_lines
+                    .iter()
+                    .filter(|ml| is_dex_count_to_inc_movement_speed_marker(&ml.line))
+                    .find_map(|ml| parse_dex_count_to_inc_movement_speed_rate(&ml.line))
+                    .unwrap_or(0.0);
+                let inc_pct = (dex_sum / 10.0).floor() * rate;
+                if inc_pct > 0.0 {
+                    let mod_ = crate::Mod::inc("MovementSpeed", inc_pct)
                         .with_source(Source::Other(jewel.source_label.clone()));
                     db.add(mod_);
                     report.mod_emissions += 1;
@@ -4622,6 +4732,152 @@ mod tests {
         assert!(
             bonus_mods.is_empty(),
             "expected no DexIntToMeleeBonus when only out-of-radius nodes carry the attribute, got {bonus_mods:#?}",
+        );
+    }
+
+    /// Issue #196: Transcendent Spirit (current variant). `3% increased
+    /// Movement Speed per 10 Dexterity on Allocated Passives in Radius`.
+    /// Sister to Spire of Stone / Eldritch Knowledge: sums in-radius
+    /// allocated `+N Dexterity` BASE mods, integer-divides by 10, and
+    /// multiplies by the per-line percentage (3 here) before emitting a
+    /// single Inc `MovementSpeed` mod sourced as the jewel. Mirrors PoB's
+    /// `jewelSelfFuncs` line `getPerStat("MovementSpeed", "INC", 0, "Dex",
+    /// 3 / 10)` (`ModParser.lua` ~6179).
+    #[test]
+    fn transcendent_spirit_emits_inc_movement_speed_per_ten_dex_in_radius() {
+        let mut tree = mk_tree();
+        // Sum = 50 Dex → floor(50/10) × 3 = 15% Inc MovementSpeed.
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+50 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Transcendent Spirit",
+                "Viridian Jewel",
+                &[(
+                    "3% increased Movement Speed per 10 Dexterity on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::DexCountToIncMovementSpeed);
+
+        let ms_mods = db.slice_named("MovementSpeed");
+        assert!(
+            ms_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 15.0).abs() < 1e-6),
+            "expected +15% Inc MovementSpeed from Transcendent Spirit, got {ms_mods:#?}",
+        );
+    }
+
+    /// Issue #196: integer-divide on Dex sum, then × 3. 27 Dex →
+    /// floor(27/10) × 3 = 6% (not 8.1%).
+    #[test]
+    fn transcendent_spirit_integer_divides_dex_sum() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+27 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Transcendent Spirit",
+                "Viridian Jewel",
+                &[(
+                    "3% increased Movement Speed per 10 Dexterity on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let ms_mods = db.slice_named("MovementSpeed");
+        assert!(
+            ms_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 6.0).abs() < 1e-6),
+            "expected +6% Inc MovementSpeed (floor(27/10) × 3), got {ms_mods:#?}",
+        );
+    }
+
+    /// Issue #196: out-of-radius / unallocated nodes contribute zero. A
+    /// single far-radius node carrying +50 Dex must produce no Movement
+    /// Speed mod (default Medium radius for Tempered/Transcendent Spirit
+    /// per `Data/Uniques/jewel.lua` line 749/760).
+    #[test]
+    fn transcendent_spirit_skips_out_of_radius_nodes() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["+50 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Transcendent Spirit",
+                "Viridian Jewel",
+                &[(
+                    "3% increased Movement Speed per 10 Dexterity on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let ms_mods = db.slice_named("MovementSpeed");
+        assert!(
+            !ms_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)),
+            "expected no Inc MovementSpeed when only out-of-radius nodes carry Dexterity, got {ms_mods:#?}",
+        );
+    }
+
+    /// Issue #196: Tempered Spirit (current variant) carries the 2%
+    /// rate. 50 Dex → floor(50/10) × 2 = 10% Inc MovementSpeed. Same
+    /// dispatch arm as Transcendent Spirit; the per-line rate is parsed
+    /// off the marker text so both 2% and 3% jewels share one handler.
+    #[test]
+    fn tempered_spirit_emits_inc_movement_speed_at_two_percent_rate() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+50 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Tempered Spirit",
+                "Viridian Jewel",
+                &[(
+                    "2% increased Movement Speed per 10 Dexterity on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::DexCountToIncMovementSpeed);
+
+        let ms_mods = db.slice_named("MovementSpeed");
+        assert!(
+            ms_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
+            "expected +10% Inc MovementSpeed from Tempered Spirit, got {ms_mods:#?}",
         );
     }
 }
