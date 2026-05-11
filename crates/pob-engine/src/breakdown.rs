@@ -294,6 +294,8 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ManaReservedPercent" => reservation_percent(env, "Mana", "Reserved"),
         "LifeUnreservedPercent" => reservation_percent(env, "Life", "Unreserved"),
         "ManaUnreservedPercent" => reservation_percent(env, "Mana", "Unreserved"),
+        "LifeReserved" => reserved_pool(env, "Life"),
+        "ManaReserved" => reserved_pool(env, "Mana"),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3185,6 +3187,54 @@ fn main_skill_enemy_effective_resist(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for `LifeReserved` /
+/// `ManaReserved`. Complementary to the `unreserved_pool` helper —
+/// PoB derives Reserved as `pool - unreserved` after
+/// `perform_reservations` folds in flat + percent contributions
+/// from active auras / heralds. The flat / percent breakdown
+/// happens inside the aura-sweep pass and isn't both stored on
+/// `env.output`, so the breakdown surfaces the high-level
+/// subtraction with a back-link to the auras / heralds.
+///
+/// Returns `None` when the pool is zero.
+fn reserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
+    let pool = env.output.get(pool_key);
+    if pool.abs() < 1e-9 {
+        return None;
+    }
+    let unreserved = env.output.get(&format!("{pool_key}Unreserved"));
+    let reserved = env.output.get(&format!("{pool_key}Reserved"));
+    let reserved_pct = env.output.get(&format!("{pool_key}ReservedPercent"));
+    let pool_lower = pool_key.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label(format!("{pool_key} pool"))
+            .with_value(pool)
+            .with_explain(format!("{pool:.0} max {pool_lower} from pool derivation")),
+    );
+    steps.push(
+        BreakdownStep::label("Unreserved")
+            .with_value(unreserved)
+            .with_explain(format!(
+            "{unreserved:.0} from {pool_key}Unreserved — see its breakdown for the auras / heralds"
+        )),
+    );
+    steps.push(
+        BreakdownStep::label(format!("{pool_key} reserved"))
+            .with_value(reserved)
+            .with_explain(format!(
+                "{pool:.0} − {unreserved:.0} = {reserved:.0} ({reserved_pct:.1}% of pool)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: format!("{pool_key}Reserved"),
+        total: reserved,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for the four reservation-percent
 /// outputs (Life/Mana × Reserved/Unreserved). PoB derives each as
 /// `<absolute> / pool × 100` after `perform_reservations` folds in
@@ -5492,6 +5542,57 @@ mod tests {
             derive_for(&env, "MainSkillEnemyEffectiveResist").is_none(),
             "expected None when MainSkillEnemyEffectiveResist is zero",
         );
+    }
+
+    /// Issue #34 follow-up: LifeReserved walks the complementary
+    /// arithmetic to `LifeUnreserved` — `pool − unreserved`. The
+    /// flat / percent reservation contributions aren't both on
+    /// `env.output` (perform_reservations folds them into the
+    /// totals during the active-aura sweep), so the breakdown
+    /// surfaces the high-level subtraction with a back-link to the
+    /// auras / heralds. Worked example: 1100 pool - 750 unreserved
+    /// = 350 reserved.
+    #[test]
+    fn life_reserved_breakdown_walks_pool_minus_unreserved() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("LifeUnreserved", 750.0);
+        env.output.set("LifeReserved", 350.0);
+        env.output.set("LifeReservedPercent", 31.8);
+        let bd = derive_for(&env, "LifeReserved").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life pool"));
+        assert!(labels.contains(&"Unreserved"));
+        assert!(labels.contains(&"Life reserved"));
+        assert!((bd.total - 350.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ManaReserved walks the same shape.
+    #[test]
+    fn mana_reserved_breakdown_walks_pool_minus_unreserved() {
+        let mut env = Env::default();
+        env.output.set("Mana", 360.0);
+        env.output.set("ManaUnreserved", 215.0);
+        env.output.set("ManaReserved", 145.0);
+        env.output.set("ManaReservedPercent", 40.3);
+        let bd = derive_for(&env, "ManaReserved").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Mana pool"));
+        assert!(labels.contains(&"Mana reserved"));
+        assert!((bd.total - 145.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: both Reserved breakdowns return None
+    /// when the pool is zero.
+    #[test]
+    fn reserved_breakdowns_skipped_when_no_pool() {
+        let env = Env::default();
+        for key in ["LifeReserved", "ManaReserved"] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when pool is zero",
+            );
+        }
     }
 
     /// Issue #34 follow-up: LifeReservedPercent walks the
