@@ -14,6 +14,7 @@
 use std::path::PathBuf;
 
 use eframe::egui;
+use pob_data::{NodeId, PassiveTree};
 use pob_engine::{Character, Output};
 
 use crate::tree_diff::tree_diff;
@@ -94,6 +95,7 @@ pub fn ui(
     state: &mut CompareTabState,
     live_character: &Character,
     live_output: &Output,
+    tree: &PassiveTree,
 ) -> Option<CompareAction> {
     let mut action: Option<CompareAction> = None;
     ui.horizontal(|ui| {
@@ -159,15 +161,41 @@ pub fn ui(
     // (PoB's `TreeTab.lua:106-125` "compare to spec") is a follow-up
     // slice that needs a multi-spec model.
     let diff = tree_diff(&snap.character.allocated, &live_character.allocated);
+    let added_color = egui::Color32::from_rgb(0x33, 0xFF, 0x77);
+    let removed_color = egui::Color32::from_rgb(0xDD, 0x00, 0x22);
     ui.horizontal(|ui| {
         ui.label("Tree diff:");
-        let added_color = egui::Color32::from_rgb(0x33, 0xFF, 0x77);
-        let removed_color = egui::Color32::from_rgb(0xDD, 0x00, 0x22);
         ui.colored_label(added_color, format!("+{} nodes", diff.added.len()));
         ui.label("/");
         ui.colored_label(removed_color, format!("-{} nodes", diff.removed.len()));
         ui.weak(format!("({} shared) vs snapshot", diff.common.len()));
     });
+    // Issue #220 follow-up: expand the +N / -N counts into a
+    // collapsing list of named nodes so the user can see which
+    // notables / keystones actually changed. Closed by default since
+    // a big spec swap can list 50+ entries.
+    if !diff.added.is_empty() || !diff.removed.is_empty() {
+        egui::CollapsingHeader::new("Show changed nodes")
+            .id_salt("compare_tree_diff_details")
+            .default_open(false)
+            .show(ui, |ui| {
+                if !diff.added.is_empty() {
+                    ui.colored_label(added_color, format!("Added ({}):", diff.added.len()));
+                    for label in tree_diff_node_labels(&diff.added, tree) {
+                        ui.label(format!("  + {label}"));
+                    }
+                }
+                if !diff.removed.is_empty() {
+                    if !diff.added.is_empty() {
+                        ui.add_space(4.0);
+                    }
+                    ui.colored_label(removed_color, format!("Removed ({}):", diff.removed.len()));
+                    for label in tree_diff_node_labels(&diff.removed, tree) {
+                        ui.label(format!("  − {label}"));
+                    }
+                }
+            });
+    }
     ui.horizontal(|ui| {
         ui.label("Filter:");
         ui.add(
@@ -425,6 +453,23 @@ fn format_percent(p: f64) -> String {
     }
 }
 
+/// Issue #220 follow-up: look up display labels for a list of node ids
+/// against `tree.nodes`. Nodes with a `name` use it directly; unnamed
+/// or unknown ids fall back to `#<id>` so the list still gives the
+/// user something to click into. Pure / no egui — the call site
+/// renders the returned labels in a `CollapsingHeader`.
+#[must_use]
+pub fn tree_diff_node_labels(ids: &[NodeId], tree: &PassiveTree) -> Vec<String> {
+    ids.iter().map(|id| node_label(*id, tree)).collect()
+}
+
+fn node_label(id: NodeId, tree: &PassiveTree) -> String {
+    tree.nodes
+        .get(&id)
+        .and_then(|n| n.name.clone())
+        .unwrap_or_else(|| format!("#{id}"))
+}
+
 /// Issue #223 follow-up: render the compare-table rows as a Markdown
 /// table the user can paste into a build write-up / Discord / GitHub
 /// issue. Uses the same `format_value` / `format_delta` /
@@ -554,6 +599,80 @@ mod tests {
         let order: Vec<&str> = rows.iter().map(|(k, _, _)| k.as_str()).collect();
         // FireResist: +100%. Life: +50%. Mana: undefined → bottom.
         assert_eq!(order, vec!["FireResist", "Life", "Mana"]);
+    }
+
+    fn make_tree(named: &[(NodeId, &str)]) -> PassiveTree {
+        use ahash::HashMap;
+        use pob_data::{Node, NodeKind, TreeConstants, TreePoints};
+        let mut nodes: HashMap<NodeId, Node> = HashMap::default();
+        for (id, name) in named {
+            nodes.insert(
+                *id,
+                Node {
+                    id: *id,
+                    name: Some((*name).to_owned()),
+                    icon: None,
+                    ascendancy_name: None,
+                    stats: vec![],
+                    reminder_text: vec![],
+                    kind: NodeKind::Notable,
+                    class_start_index: None,
+                    group: None,
+                    orbit: None,
+                    orbit_index: None,
+                    out_edges: Default::default(),
+                    in_edges: Default::default(),
+                    mastery_effects: vec![],
+                    expansion_jewel_size: None,
+                    jewel_radius: None,
+                },
+            );
+        }
+        PassiveTree {
+            version: "test".into(),
+            tree: "test".into(),
+            classes: vec![],
+            groups: HashMap::default(),
+            nodes,
+            jewel_slots: vec![],
+            min_x: 0,
+            min_y: 0,
+            max_x: 0,
+            max_y: 0,
+            constants: TreeConstants {
+                skills_per_orbit: vec![],
+                orbit_radii: vec![],
+                classes: HashMap::default(),
+                character_attributes: HashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: TreePoints::default(),
+        }
+    }
+
+    #[test]
+    fn tree_diff_node_labels_uses_node_name_when_present() {
+        // Looks up names for known node ids; preserves input order.
+        let tree = make_tree(&[(1, "Pure Talent"), (2, "Resolute Technique")]);
+        let labels = tree_diff_node_labels(&[1, 2], &tree);
+        assert_eq!(labels, vec!["Pure Talent", "Resolute Technique"]);
+    }
+
+    #[test]
+    fn tree_diff_node_labels_falls_back_to_hash_id_for_unknown() {
+        // Stale snapshot vs current tree version can list a node id
+        // that the tree no longer carries — fall back to `#<id>` so
+        // the row still gives the user something to recognise.
+        let tree = make_tree(&[(1, "Pure Talent")]);
+        let labels = tree_diff_node_labels(&[1, 999], &tree);
+        assert_eq!(labels, vec!["Pure Talent", "#999"]);
+    }
+
+    #[test]
+    fn tree_diff_node_labels_empty_input_returns_empty_vec() {
+        let tree = make_tree(&[]);
+        let labels = tree_diff_node_labels(&[], &tree);
+        assert!(labels.is_empty());
     }
 
     #[test]

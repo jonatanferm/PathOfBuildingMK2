@@ -2094,9 +2094,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             );
         }
         Tab::Compare => {
-            if let Some(action) =
-                compare_tab::ui(ui, &mut app.compare_state, &app.character, &app.output)
-            {
+            if let Some(action) = compare_tab::ui(
+                ui,
+                &mut app.compare_state,
+                &app.character,
+                &app.output,
+                &app.tree,
+            ) {
                 handle_compare_action(app, action);
             }
         }
