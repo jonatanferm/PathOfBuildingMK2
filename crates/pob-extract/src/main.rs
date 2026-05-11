@@ -131,6 +131,49 @@ fn main() -> Result<()> {
     .with_context(|| format!("writing {}", boot_enchants_path.display()))?;
     wrote.push(boot_enchants_path);
 
+    // Body armour / belt / weapon / flask enchants — same flat
+    // shape as gloves + boots; tier names vary per slot
+    // (HARVEST / DEDICATION / ENKINDLING etc).
+    let body_enchants_path = args.out.join("enchants_body.json");
+    let body_enchants = enchants::extract_body(&args.pob)
+        .with_context(|| "extracting body enchants".to_string())?;
+    std::fs::write(
+        &body_enchants_path,
+        serde_json::to_string_pretty(&body_enchants)?,
+    )
+    .with_context(|| format!("writing {}", body_enchants_path.display()))?;
+    wrote.push(body_enchants_path);
+
+    let belt_enchants_path = args.out.join("enchants_belt.json");
+    let belt_enchants = enchants::extract_belt(&args.pob)
+        .with_context(|| "extracting belt enchants".to_string())?;
+    std::fs::write(
+        &belt_enchants_path,
+        serde_json::to_string_pretty(&belt_enchants)?,
+    )
+    .with_context(|| format!("writing {}", belt_enchants_path.display()))?;
+    wrote.push(belt_enchants_path);
+
+    let weapon_enchants_path = args.out.join("enchants_weapon.json");
+    let weapon_enchants = enchants::extract_weapon(&args.pob)
+        .with_context(|| "extracting weapon enchants".to_string())?;
+    std::fs::write(
+        &weapon_enchants_path,
+        serde_json::to_string_pretty(&weapon_enchants)?,
+    )
+    .with_context(|| format!("writing {}", weapon_enchants_path.display()))?;
+    wrote.push(weapon_enchants_path);
+
+    let flask_enchants_path = args.out.join("enchants_flask.json");
+    let flask_enchants = enchants::extract_flask(&args.pob)
+        .with_context(|| "extracting flask enchants".to_string())?;
+    std::fs::write(
+        &flask_enchants_path,
+        serde_json::to_string_pretty(&flask_enchants)?,
+    )
+    .with_context(|| format!("writing {}", flask_enchants_path.display()))?;
+    wrote.push(flask_enchants_path);
+
     // Calc sections — one JSON for the Calcs-tab section layout.
     let calc_sections_path = args.out.join("calc_sections.json");
     let calc_sections = calc_sections::extract(&args.pob)

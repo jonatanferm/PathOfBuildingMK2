@@ -188,19 +188,12 @@ struct LoadedApp {
     /// Issue #98 (slice 1+2): tattoo catalogue, surfaced by the Tree-tab right-click
     /// picker (`tattoo_picker.rs`).
     tattoos: Option<pob_data::TattooSet>,
-    /// Issue #221: helmet enchant catalogue, surfaced by the
-    /// Items-tab "Apply Enchantment" picker when an equipped item
-    /// is in the Helmet slot. `None` when `data/enchants_helmet.json`
-    /// isn't present — the picker button gates on this so the user
-    /// sees a clear "data not loaded" path instead of an empty
-    /// dialog.
-    helmet_enchants: Option<pob_data::HelmetEnchantSet>,
-    /// Issue #221: glove enchant catalogue (flat tier-keyed list).
-    /// Same shape as `boot_enchants`; the picker UI surfaces either
-    /// catalogue when the active slot matches.
-    glove_enchants: Option<pob_data::FlatEnchantSet>,
-    /// Issue #221: boot enchant catalogue.
-    boot_enchants: Option<pob_data::FlatEnchantSet>,
+    /// Issue #221: per-slot enchant catalogues. Each field is `None`
+    /// when the matching `data/enchants_*.json` file is absent; the
+    /// picker buttons gate on the relevant field being `Some`. The
+    /// helmet catalogue uses a skill-keyed shape; every other slot
+    /// uses the flat tier-keyed `FlatEnchantSet`.
+    enchants: items_tab::LoadedEnchants,
     /// Issue #20 (slice 1+3): per-minion-type base stats. Surfaced alongside the
     /// player's output via `pob_engine::apply_minion_outputs` when the active main
     /// skill summons a minion.
@@ -516,15 +509,29 @@ impl PobApp {
         let tattoos = std::fs::read_to_string(data_root.join("tattoos.json"))
             .ok()
             .and_then(|json| pob_data::load_tattoos(&json).ok());
-        let helmet_enchants = std::fs::read_to_string(data_root.join("enchants_helmet.json"))
-            .ok()
-            .and_then(|json| pob_data::load_helmet_enchants(&json).ok());
-        let glove_enchants = std::fs::read_to_string(data_root.join("enchants_gloves.json"))
-            .ok()
-            .and_then(|json| pob_data::load_glove_enchants(&json).ok());
-        let boot_enchants = std::fs::read_to_string(data_root.join("enchants_boots.json"))
-            .ok()
-            .and_then(|json| pob_data::load_boot_enchants(&json).ok());
+        let enchants = items_tab::LoadedEnchants {
+            helmet: std::fs::read_to_string(data_root.join("enchants_helmet.json"))
+                .ok()
+                .and_then(|json| pob_data::load_helmet_enchants(&json).ok()),
+            gloves: std::fs::read_to_string(data_root.join("enchants_gloves.json"))
+                .ok()
+                .and_then(|json| pob_data::load_glove_enchants(&json).ok()),
+            boots: std::fs::read_to_string(data_root.join("enchants_boots.json"))
+                .ok()
+                .and_then(|json| pob_data::load_boot_enchants(&json).ok()),
+            body: std::fs::read_to_string(data_root.join("enchants_body.json"))
+                .ok()
+                .and_then(|json| pob_data::load_body_enchants(&json).ok()),
+            belt: std::fs::read_to_string(data_root.join("enchants_belt.json"))
+                .ok()
+                .and_then(|json| pob_data::load_belt_enchants(&json).ok()),
+            weapon: std::fs::read_to_string(data_root.join("enchants_weapon.json"))
+                .ok()
+                .and_then(|json| pob_data::load_weapon_enchants(&json).ok()),
+            flask: std::fs::read_to_string(data_root.join("enchants_flask.json"))
+                .ok()
+                .and_then(|json| pob_data::load_flask_enchants(&json).ok()),
+        };
         let minions = std::fs::read_to_string(data_root.join("minions.json"))
             .ok()
             .and_then(|json| pob_data::load_minions(&json).ok());
@@ -586,9 +593,7 @@ impl PobApp {
             cluster_jewels,
             cluster_jewel_mods,
             tattoos,
-            helmet_enchants,
-            glove_enchants,
-            boot_enchants,
+            enchants,
             minions,
             current_build_path: None,
             status_message: None,
@@ -667,9 +672,7 @@ impl PobApp {
             cluster_jewels: None,
             cluster_jewel_mods: None,
             tattoos: None,
-            helmet_enchants: None,
-            glove_enchants: None,
-            boot_enchants: None,
+            enchants: items_tab::LoadedEnchants::default(),
             minions: None,
             current_build_path: None,
             status_message: None,
@@ -1866,9 +1869,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 &app.skills,
                 app.bases.as_ref(),
                 &mut app.shared_items,
-                app.helmet_enchants.as_ref(),
-                app.glove_enchants.as_ref(),
-                app.boot_enchants.as_ref(),
+                &app.enchants,
             ) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;

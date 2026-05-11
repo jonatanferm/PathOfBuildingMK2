@@ -85,9 +85,29 @@ pub fn extract_boots(pob_root: &Path) -> Result<FlatEnchantSet> {
     extract_flat(pob_root, "EnchantmentBoots.lua")
 }
 
-/// Shared implementation for "flat" enchant files (gloves, boots —
-/// possibly body / belt / weapon / flask in later slices). Pulls a
-/// `{ tier: [mods] }` Lua table into the [`FlatEnchantSet`] shape.
+/// Extract `Data/EnchantmentBody.lua` into [`FlatEnchantSet`].
+pub fn extract_body(pob_root: &Path) -> Result<FlatEnchantSet> {
+    extract_flat(pob_root, "EnchantmentBody.lua")
+}
+
+/// Extract `Data/EnchantmentBelt.lua` into [`FlatEnchantSet`].
+pub fn extract_belt(pob_root: &Path) -> Result<FlatEnchantSet> {
+    extract_flat(pob_root, "EnchantmentBelt.lua")
+}
+
+/// Extract `Data/EnchantmentWeapon.lua` into [`FlatEnchantSet`].
+pub fn extract_weapon(pob_root: &Path) -> Result<FlatEnchantSet> {
+    extract_flat(pob_root, "EnchantmentWeapon.lua")
+}
+
+/// Extract `Data/EnchantmentFlask.lua` into [`FlatEnchantSet`].
+pub fn extract_flask(pob_root: &Path) -> Result<FlatEnchantSet> {
+    extract_flat(pob_root, "EnchantmentFlask.lua")
+}
+
+/// Shared implementation for "flat" enchant files (gloves, boots,
+/// body armour, belts, weapons, flasks). Pulls a `{ tier: [mods] }`
+/// Lua table into the [`FlatEnchantSet`] shape.
 fn extract_flat(pob_root: &Path, file_name: &str) -> Result<FlatEnchantSet> {
     let path = pob_root.join("src/Data").join(file_name);
     let lua = make_lua()?;
