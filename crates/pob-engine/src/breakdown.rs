@@ -203,6 +203,24 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             resist_max(env, "LightningResistMax", "Lightning resistance maximum")
         }
         "ChaosResistMax" => resist_max(env, "ChaosResistMax", "Chaos resistance maximum"),
+        // Issue #34 follow-up: per-element TotalHitPool / TotalPool
+        // outputs all collapse to the same `life + es + ward` pool
+        // (Phase 2 — no MoM yet), so dispatch all 10 keys through
+        // the same shared helper.
+        "PhysicalTotalHitPool" => {
+            total_pool(env, "Physical", "TotalHitPool", "Physical total hit pool")
+        }
+        "FireTotalHitPool" => total_pool(env, "Fire", "TotalHitPool", "Fire total hit pool"),
+        "ColdTotalHitPool" => total_pool(env, "Cold", "TotalHitPool", "Cold total hit pool"),
+        "LightningTotalHitPool" => {
+            total_pool(env, "Lightning", "TotalHitPool", "Lightning total hit pool")
+        }
+        "ChaosTotalHitPool" => total_pool(env, "Chaos", "TotalHitPool", "Chaos total hit pool"),
+        "PhysicalTotalPool" => total_pool(env, "Physical", "TotalPool", "Physical total pool"),
+        "FireTotalPool" => total_pool(env, "Fire", "TotalPool", "Fire total pool"),
+        "ColdTotalPool" => total_pool(env, "Cold", "TotalPool", "Cold total pool"),
+        "LightningTotalPool" => total_pool(env, "Lightning", "TotalPool", "Lightning total pool"),
+        "ChaosTotalPool" => total_pool(env, "Chaos", "TotalPool", "Chaos total pool"),
         "PhysicalDotEHP" => dot_ehp(env, "Physical"),
         "FireDotEHP" => dot_ehp(env, "Fire"),
         "ColdDotEHP" => dot_ehp(env, "Cold"),
@@ -2910,6 +2928,59 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for the per-element
+/// `<Element>TotalHitPool` / `<Element>TotalPool` outputs. PoB
+/// exposes both for each of the five damage types (Physical / Fire
+/// / Cold / Lightning / Chaos); in Phase 2 they all collapse to
+/// `life + es + ward` (no MoM yet, no per-element split). Surfacing
+/// the chain shows the additive components.
+///
+/// `elem` selects the canonical element name; `suffix` selects
+/// `"TotalHitPool"` or `"TotalPool"`; `final_label` is the user-
+/// visible row name.
+///
+/// Returns `None` when the underlying pool is zero.
+fn total_pool(env: &Env, elem: &str, suffix: &str, final_label: &str) -> Option<Breakdown> {
+    let life = env.output.get("Life");
+    let es = env.output.get("EnergyShield");
+    let ward = env.output.get("Ward");
+    let pool = life + es + ward;
+    if pool.abs() < 1e-9 {
+        return None;
+    }
+    let total = env.output.get(&format!("{elem}{suffix}"));
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Life")
+            .with_value(life)
+            .with_explain(format!("{life:.0} from the Life pool")),
+    );
+    steps.push(
+        BreakdownStep::label("Energy shield")
+            .with_value(es)
+            .with_explain(format!("{es:.0} from the EnergyShield pool")),
+    );
+    steps.push(
+        BreakdownStep::label("Ward")
+            .with_value(ward)
+            .with_explain(format!("{ward:.0} from the Ward pool")),
+    );
+    steps.push(
+        BreakdownStep::label(final_label)
+            .with_value(total)
+            .with_explain(format!(
+                "{life:.0} + {es:.0} + {ward:.0} = {total:.0} ({elem} pool, Phase 2 single-pool baseline)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: format!("{elem}{suffix}"),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for the five
 /// `<Element>DotEHP` outputs. PoB derives all five through the same
 /// `perform_ehp` shape:
@@ -4686,6 +4757,75 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: FireTotalHitPool walks Life + ES + Ward
+    /// → Pool. PoB exposes per-element `<Element>TotalHitPool` /
+    /// `<Element>TotalPool` outputs that all collapse to the same
+    /// pool sum (Phase 2 — no MoM yet). Surfacing the chain shows
+    /// the additive components so users can see what's contributing.
+    /// Worked example: 1100 life + 0 ES + 0 ward → 1100 pool.
+    #[test]
+    fn fire_total_hit_pool_breakdown_walks_pool_components() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("EnergyShield", 0.0);
+        env.output.set("Ward", 0.0);
+        env.output.set("FireTotalHitPool", 1100.0);
+        let bd = derive_for(&env, "FireTotalHitPool").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life"));
+        assert!(labels.contains(&"Energy shield"));
+        assert!(labels.contains(&"Ward"));
+        assert!(labels.contains(&"Fire total hit pool"));
+        assert!((bd.total - 1100.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ColdTotalPool / ChaosTotalPool / etc
+    /// share the same chain, just under different output keys.
+    /// Worked example: 800 life + 200 ES + 100 ward → 1100 pool.
+    #[test]
+    fn cold_total_pool_breakdown_sums_three_components() {
+        let mut env = Env::default();
+        env.output.set("Life", 800.0);
+        env.output.set("EnergyShield", 200.0);
+        env.output.set("Ward", 100.0);
+        env.output.set("ColdTotalPool", 1100.0);
+        let bd = derive_for(&env, "ColdTotalPool").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Cold total pool"));
+
+        let es = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Energy shield")
+            .unwrap();
+        assert!((es.value.unwrap() - 200.0).abs() < 1e-9);
+        assert!((bd.total - 1100.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None for any of the per-element
+    /// pool outputs when the underlying pool is zero.
+    #[test]
+    fn total_pool_breakdown_skipped_when_no_pool() {
+        let env = Env::default();
+        for key in [
+            "PhysicalTotalHitPool",
+            "FireTotalHitPool",
+            "ColdTotalHitPool",
+            "LightningTotalHitPool",
+            "ChaosTotalHitPool",
+            "PhysicalTotalPool",
+            "FireTotalPool",
+            "ColdTotalPool",
+            "LightningTotalPool",
+            "ChaosTotalPool",
+        ] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when pool is zero",
+            );
+        }
+    }
+
     /// Issue #34 follow-up: FireDotEHP walks Pool → Taken multi
     /// (= 1 - resist) → Final. PoB derives all five `<Element>DotEHP`
     /// outputs as `pool / (1 - resist)`, with no block /
