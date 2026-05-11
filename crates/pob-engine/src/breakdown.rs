@@ -161,6 +161,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "AreaOfEffectRadius" => area_of_effect_radius(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
+        "TotalAttr" => Some(total_attributes(env)),
 
         // Crit.
         "CritChance" | "MainSkillCritChance" => Some(crit_chance(env, output_key)),
@@ -371,6 +372,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "Strength",
     "Dexterity",
     "Intelligence",
+    "TotalAttr",
     // Hit chance.
     "Accuracy",
     "MainSkillHitChance",
@@ -2513,6 +2515,44 @@ fn energy_shield_regen(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `TotalAttr`. The output is just
+/// `Strength + Dexterity + Intelligence`, but surfacing the chain
+/// gives users the contributing attribute breakdown links and makes
+/// the +N to all attributes story explicit. Each attribute step
+/// links back to the per-attribute `pool_basic` derivation.
+fn total_attributes(env: &Env) -> Breakdown {
+    let str_v = env.output.get("Strength");
+    let dex_v = env.output.get("Dexterity");
+    let int_v = env.output.get("Intelligence");
+    let total = env.output.get("TotalAttr");
+
+    let mut steps = Vec::new();
+    for (label, value) in [
+        ("Strength", str_v),
+        ("Dexterity", dex_v),
+        ("Intelligence", int_v),
+    ] {
+        steps.push(
+            BreakdownStep::label(label)
+                .with_value(value)
+                .with_explain(format!(
+                    "+{value:.0} from the {label} pool — see its breakdown for sources"
+                )),
+        );
+    }
+    steps.push(
+        BreakdownStep::label("Total attributes")
+            .with_value(total)
+            .with_explain(format!("{str_v:.0} + {dex_v:.0} + {int_v:.0} = {total:.0}")),
+    );
+
+    Breakdown {
+        output_key: "TotalAttr".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `LifeUnreserved` / `ManaUnreserved`.
 /// PoB computes these as `pool − reserved` after `perform_reservations`
 /// folds in flat + percent reservation contributions from auras /
@@ -2930,6 +2970,7 @@ mod tests {
         env.output.set("Strength", 80.0);
         env.output.set("Dexterity", 50.0);
         env.output.set("Intelligence", 60.0);
+        env.output.set("TotalAttr", 190.0);
         // Issue #34 follow-up: attribute breakdowns. Add representative
         // BASE mods so `pool_basic` has something to enumerate. The
         // class-start contribution is the bulk of each attribute on a
@@ -3157,6 +3198,51 @@ mod tests {
         assert!(bd.steps.iter().any(|s| s.label == "FullDPS"));
         // Bleed DPS = 0 → step is suppressed.
         assert!(!bd.steps.iter().any(|s| s.label == "+ Bleed DPS"));
+    }
+
+    /// Issue #34 follow-up: TotalAttr walks Strength + Dexterity +
+    /// Intelligence → Total. The Calcs tab surfaced a single number
+    /// for the sum even though each attribute already has its own
+    /// breakdown — the chain back makes the relationship explicit.
+    /// Worked example: 80 Str + 50 Dex + 60 Int = 190.
+    #[test]
+    fn total_attr_breakdown_sums_three_attributes() {
+        let mut env = Env::default();
+        env.output.set("Strength", 80.0);
+        env.output.set("Dexterity", 50.0);
+        env.output.set("Intelligence", 60.0);
+        env.output.set("TotalAttr", 190.0);
+        let bd = derive_for(&env, "TotalAttr").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Strength"));
+        assert!(labels.contains(&"Dexterity"));
+        assert!(labels.contains(&"Intelligence"));
+        assert!(labels.contains(&"Total attributes"));
+
+        let str_step = bd.steps.iter().find(|s| s.label == "Strength").unwrap();
+        assert!((str_step.value.unwrap() - 80.0).abs() < 1e-9);
+
+        assert!((bd.total - 190.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: TotalAttr breakdown still renders when
+    /// only one attribute is non-zero — the zero attributes still
+    /// appear in the chain so the structure stays consistent across
+    /// builds.
+    #[test]
+    fn total_attr_breakdown_renders_with_partial_attributes() {
+        let mut env = Env::default();
+        env.output.set("Strength", 100.0);
+        env.output.set("TotalAttr", 100.0);
+        let bd = derive_for(&env, "TotalAttr").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Strength"));
+        assert!(labels.contains(&"Dexterity"));
+        assert!(labels.contains(&"Intelligence"));
+
+        let dex_step = bd.steps.iter().find(|s| s.label == "Dexterity").unwrap();
+        assert!((dex_step.value.unwrap() - 0.0).abs() < 1e-9);
+        assert!((bd.total - 100.0).abs() < 1e-9);
     }
 
     /// Issue #34 follow-up: LifeUnreserved walks Pool → Reserved →
