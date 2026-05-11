@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+  <Build level="90" targetVersion="3_0" pantheonMajorGod="None" pantheonMinorGod="None" className="Marauder" ascendClassName="None" mainSocketGroup="1" viewMode="TREE">
+  </Build>
+  <Items>
+    <Item id="1">Rarity: NORMAL
+Corroded Blade
+Rusted Sword
+--------
+One Handed Sword
+Physical Damage: 8-15
+Critical Strike Chance: 5.00%
+Attacks per Second: 1.55
+Weapon Range: 1.1 metres
+--------
+Requirements:
+Level: 5
+--------
+Item Level: 10
+--------</Item>
+    <ItemSet id="1" useSecondWeaponSet="false">
+      <Slot name="Weapon 1" itemId="1" active="true"/>
+    </ItemSet>
+  </Items>
+  <Skills sortGemsByDPSField="CombinedDPS" sortGemsByDPS="true" defaultGemQuality="0" defaultGemLevel="normalMaximum" showSupportGemTypes="ALL" showAltQualityGems="false">
+    <Skill enabled="true" mainActiveSkill="1" includeInFullDPS="true" label="" slot="">
+      <Gem skillId="Cleave" level="20" quality="0" enabled="true" qualityId="Default"/>
+    </Skill>
+    <Skill enabled="true" mainActiveSkill="1" includeInFullDPS="false" label="" slot="">
+      <Gem skillId="InfernalCry" level="20" quality="0" enabled="true" qualityId="Default"/>
+    </Skill>
+  </Skills>
+  <Tree activeSpec="1">
+    <Spec title="Default" classId="1" ascendClassId="0" treeVersion="3_28" masteryEffects="" nodes="">
+      <Sockets/>
+    </Spec>
+  </Tree>
+  <Notes/>
+  <TreeView searchStr="" zoomY="0" showHeatMap="false" zoomLevel="2" showStatDifferences="true" zoomX="0"/>
+  <Calcs>
+    <Input name="enemyIsBoss" string="None"/>
+  </Calcs>
+  <Config>
+    <Input name="UsedWarcryRecently" boolean="true"/>
+  </Config>
+</PathOfBuilding>

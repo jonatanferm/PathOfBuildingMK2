@@ -8109,3 +8109,61 @@ fn pob_diff_corrupted_cluster_jewel_baseline() {
         "Life must grow when the synth Fettle notable is allocated; baseline={life_baseline}, with={life_with}"
     );
 }
+
+/// Issue #145 (final): `pob_diff`-style fixture test for Infernal Cry.
+/// Imports `marauder_l90_infernal_cry.xml` — a Marauder with Cleave as the main
+/// skill, Infernal Cry in a second skill group, and `UsedWarcryRecently=true`
+/// in the Config section. Verifies the full import → compute pipeline:
+/// the `PhysicalDamageGainAsFire` mod lands in the modDB, flows through the
+/// gain-as consumer, and lifts `PhysicalGainAsExtraDamage` above zero.
+#[test]
+fn infernal_cry_pob_diff_fixture_injects_phys_as_fire() {
+    let (Some(tree), Some(skills), Some(bases)) = (load_3_25_tree(), load_skills(), load_bases())
+    else {
+        eprintln!("skip: data missing (run pob-extract first)");
+        return;
+    };
+    if skills.get("InfernalCry").is_none() {
+        eprintln!("skip: InfernalCry not in skill registry");
+        return;
+    }
+
+    let xml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("crates/pob-extract/test-builds/marauder_l90_infernal_cry.xml");
+    let Ok(xml) = std::fs::read_to_string(&xml_path) else {
+        eprintln!("skip: {} not found", xml_path.display());
+        return;
+    };
+
+    let c = pob_engine::import_pob_xml(&xml).expect("import Infernal Cry fixture");
+
+    // Config condition must survive the round-trip.
+    assert!(
+        c.config
+            .conditions
+            .get("UsedWarcryRecently")
+            .copied()
+            .unwrap_or(false),
+        "UsedWarcryRecently condition should be preserved on import"
+    );
+
+    let (out, _env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), Some(&bases));
+
+    // Infernal Cry at level 20, WarcryPower 20 → 20% phys-as-fire injected.
+    let gain_as = out.get("InfernalCryGainAsFireBonus");
+    assert!(
+        gain_as > 0.0,
+        "InfernalCryGainAsFireBonus should be non-zero with UsedWarcryRecently; got {gain_as}"
+    );
+
+    // The gain-as consumer should produce a non-zero extra hit.
+    let extra = out.get("PhysicalGainAsExtraDamage");
+    assert!(
+        extra > 0.0,
+        "PhysicalGainAsExtraDamage should be non-zero once InfernalCry fires; got {extra}"
+    );
+}
