@@ -904,8 +904,15 @@ pub fn ui(
                     let response = if let Some(item) = equipped {
                         let lines = item_tooltip_lines(item);
                         response.on_hover_ui(|ui| {
+                            // Issue #225 (color-code coverage): item names
+                            // and mod lines from PoB carry `^N` / `^xRRGGBB`
+                            // escapes (uniques use them for the gold
+                            // namebar, corrupted lines for red text, etc.).
+                            // Route through `label_with_escapes` so the
+                            // tooltip shows them coloured instead of as
+                            // raw escape characters.
                             for line in &lines {
-                                ui.label(line);
+                                color_codes::label_with_escapes(ui, line);
                             }
                         })
                     } else {
@@ -1251,8 +1258,12 @@ pub fn ui(
             if lines.is_empty() {
                 ui.weak("(no equipped mod lines to score)");
             } else {
+                // Issue #225 (color-code coverage): mod lines that bleed
+                // into the contributors panel may carry inline PoB
+                // escapes — render them properly rather than as raw
+                // characters.
                 for line in &lines {
-                    ui.label(line);
+                    color_codes::label_with_escapes(ui, line);
                 }
             }
         });
@@ -1375,11 +1386,16 @@ fn render_shared_panel(
                     let row = ui
                         .add(egui::Label::new(label_text).sense(egui::Sense::click()))
                         .on_hover_ui(|ui| {
+                            // Issue #225 (color-code coverage): shared-item
+                            // tooltip mirrors the equipped-slot tooltip; both
+                            // route through `label_with_escapes` so unique
+                            // names + escape-bearing mod lines render with
+                            // their PoB colours.
                             for line in &lines {
                                 if line.is_empty() {
                                     ui.add_space(4.0);
                                 } else {
-                                    ui.label(line);
+                                    color_codes::label_with_escapes(ui, line);
                                 }
                             }
                         });
