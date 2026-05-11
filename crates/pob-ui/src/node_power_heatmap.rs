@@ -109,17 +109,45 @@ pub fn compute_heatmap_inputs(
     cluster_ctx: Option<ClusterContext<'_>>,
     timeless: Option<&pob_data::TimelessJewelData>,
     stat: HeatmapStat,
+    top_n: Option<usize>,
 ) -> AHashMap<NodeId, egui::Color32> {
     let ranked = rank_node_additions(character, tree, skills, bases, cluster_ctx, timeless);
     let scores: Vec<(NodeId, f64)> = ranked
         .iter()
         .map(|s| (s.node_id, score_impact_key(s, stat)))
         .collect();
+    let scores = match top_n {
+        Some(n) => truncate_to_top_n(scores, n),
+        None => scores,
+    };
     let normalised = normalise_scores(&scores);
     normalised
         .into_iter()
         .map(|(id, t)| (id, score_to_colour(t)))
         .collect()
+}
+
+/// Issue #220 follow-up: keep only the top-N highest-scoring entries.
+/// NaN scores fall to the bottom of the ranking so a stray engine NaN
+/// can't displace a real top entry. Pure helper for testability.
+///
+/// `n == 0` returns an empty vector (defensive — the renderer treats
+/// "no top selected" as `None`, never `Some(0)`, but the helper handles
+/// it cleanly anyway).
+#[must_use]
+pub fn truncate_to_top_n(mut scores: Vec<(NodeId, f64)>, n: usize) -> Vec<(NodeId, f64)> {
+    scores.sort_by(|a, b| {
+        // NaN sinks to the bottom: treat NaN as less than every finite
+        // value so the top-N picks finite scores first.
+        match (a.1.is_nan(), b.1.is_nan()) {
+            (true, true) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            (false, false) => b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal),
+        }
+    });
+    scores.truncate(n);
+    scores
 }
 
 /// Reduce a [`NodeScore`]'s `(dps_delta, ehp_delta)` pair to a single
@@ -510,7 +538,16 @@ mod tests {
     fn compute_heatmap_inputs_empty_tree_returns_empty_map() {
         let tree = empty_tree();
         let c = fresh_character();
-        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None, HeatmapStat::default());
+        let out = compute_heatmap_inputs(
+            &c,
+            &tree,
+            None,
+            None,
+            None,
+            None,
+            HeatmapStat::default(),
+            None,
+        );
         assert!(out.is_empty());
     }
 
@@ -523,7 +560,16 @@ mod tests {
     fn compute_heatmap_inputs_only_includes_impactful_unallocated_nodes() {
         let tree = ranking_tree();
         let c = fresh_character();
-        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None, HeatmapStat::default());
+        let out = compute_heatmap_inputs(
+            &c,
+            &tree,
+            None,
+            None,
+            None,
+            None,
+            HeatmapStat::default(),
+            None,
+        );
         // Nodes 2 (Life) and 3 (Strength) score; 4 (stat-less notable),
         // 5 (mastery), and 1 (class start, anchored) drop out.
         let mut ids: Vec<NodeId> = out.keys().copied().collect();
@@ -538,7 +584,16 @@ mod tests {
     fn compute_heatmap_inputs_top_node_is_red_bottom_is_blue() {
         let tree = ranking_tree();
         let c = fresh_character();
-        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None, HeatmapStat::default());
+        let out = compute_heatmap_inputs(
+            &c,
+            &tree,
+            None,
+            None,
+            None,
+            None,
+            HeatmapStat::default(),
+            None,
+        );
         // Node 2 (+50 Life) carries a much larger EHP delta than node 3
         // (+10 Strength), so it should land at the hot end.
         let red = score_to_colour(1.0);
@@ -563,7 +618,16 @@ mod tests {
         let tree = ranking_tree();
         let mut c = fresh_character();
         c.allocate(2);
-        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None, HeatmapStat::default());
+        let out = compute_heatmap_inputs(
+            &c,
+            &tree,
+            None,
+            None,
+            None,
+            None,
+            HeatmapStat::default(),
+            None,
+        );
         assert!(
             !out.contains_key(&2),
             "allocated node 2 must not appear in heatmap"
@@ -598,6 +662,91 @@ mod tests {
         assert!((score_impact_key(&pure_ehp, HeatmapStat::Combined) - 100.0).abs() < 1e-9);
         // Mixed picks the larger axis (DPS here).
         assert!((score_impact_key(&mixed, HeatmapStat::Combined) - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn top_n_filter_keeps_highest_scoring_nodes() {
+        // Five synthetic nodes, descending scores. Top-N=2 keeps the
+        // two hottest entries and drops the rest. Pure helper so we
+        // don't need a real character / tree.
+        let scores: Vec<(NodeId, f64)> = vec![(1, 10.0), (2, 50.0), (3, 5.0), (4, 99.0), (5, 1.0)];
+        let out = truncate_to_top_n(scores, 2);
+        let kept: ahash::HashSet<NodeId> = out.iter().map(|(id, _)| *id).collect();
+        assert_eq!(kept.len(), 2);
+        assert!(kept.contains(&4), "highest-score node should survive");
+        assert!(kept.contains(&2), "second-highest should survive");
+    }
+
+    #[test]
+    fn top_n_filter_with_n_greater_than_len_returns_all() {
+        // Asking for more than we have is a no-op rather than a panic.
+        let scores: Vec<(NodeId, f64)> = vec![(1, 10.0), (2, 20.0)];
+        let out = truncate_to_top_n(scores, 100);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn top_n_filter_with_zero_returns_empty() {
+        // Defensive: explicit zero clears the heatmap rather than
+        // panicking via an underflowed `take`.
+        let scores: Vec<(NodeId, f64)> = vec![(1, 10.0), (2, 20.0)];
+        let out = truncate_to_top_n(scores, 0);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn top_n_filter_ignores_nan_when_picking_top() {
+        // NaN scores fall to the bottom so a stray engine NaN can't
+        // displace a real top entry.
+        let scores: Vec<(NodeId, f64)> =
+            vec![(1, 5.0), (2, f64::NAN), (3, 10.0), (4, f64::NAN), (5, 1.0)];
+        let out = truncate_to_top_n(scores, 2);
+        let kept: ahash::HashSet<NodeId> = out.iter().map(|(id, _)| *id).collect();
+        assert!(kept.contains(&3));
+        assert!(kept.contains(&1));
+        assert!(!kept.contains(&2));
+        assert!(!kept.contains(&4));
+    }
+
+    #[test]
+    fn compute_heatmap_inputs_top_n_keeps_only_best() {
+        // End-to-end: ranking_tree has 2 impactful nodes (2 and 3).
+        // Asking for top 1 keeps the larger-impact Life notable (2)
+        // and drops the Strength notable (3). Defends the wiring
+        // between rank_node_additions and the truncate helper.
+        let tree = ranking_tree();
+        let c = fresh_character();
+        let out = compute_heatmap_inputs(
+            &c,
+            &tree,
+            None,
+            None,
+            None,
+            None,
+            HeatmapStat::default(),
+            Some(1),
+        );
+        assert_eq!(out.len(), 1);
+        assert!(out.contains_key(&2), "top-1 should be the Life notable");
+    }
+
+    #[test]
+    fn compute_heatmap_inputs_top_n_none_keeps_everything() {
+        // `None` means "no cap" — the existing behaviour. Confirms the
+        // refactor doesn't silently truncate.
+        let tree = ranking_tree();
+        let c = fresh_character();
+        let out = compute_heatmap_inputs(
+            &c,
+            &tree,
+            None,
+            None,
+            None,
+            None,
+            HeatmapStat::default(),
+            None,
+        );
+        assert_eq!(out.len(), 2, "Life + Strength notables both kept");
     }
 
     #[test]
