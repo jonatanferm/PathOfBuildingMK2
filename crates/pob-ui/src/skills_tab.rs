@@ -506,6 +506,13 @@ pub fn ui(
             ui.separator();
             // Gem list
             let mut to_remove_gem: Option<usize> = None;
+            // Issue #214 (slice 1): drag-reorder. Each row is wrapped
+            // in a dnd_drop_zone so dropping the dragged gem onto it
+            // calls `move_gem(from, idx)`. The "≡" handle on the left
+            // is the dnd_drag_source; the rest of the row keeps its
+            // existing buttons / hover behaviour.
+            let mut pending_move: Option<(usize, usize)> = None;
+            let group_id = state.selected_group;
             for (idx, gem) in group.gems.iter_mut().enumerate() {
                 let one_based = (idx as u32) + 1;
                 let main_marker = if one_based == group.main_active_skill_index {
@@ -521,48 +528,72 @@ pub fn ui(
                     "{} {} {} (L{} Q{}%)",
                     main_marker, kind_marker, display_name, gem.level, gem.quality
                 );
-                ui.horizontal(|ui| {
-                    if ui
-                        .checkbox(&mut gem.enabled, "")
-                        .on_hover_text("Enable / disable this gem")
-                        .changed()
-                    {
-                        changed = true;
-                    }
-                    let label_text = if gem.enabled {
-                        egui::RichText::new(&label)
-                    } else {
-                        egui::RichText::new(&label).weak().strikethrough()
-                    };
-                    let resp = ui.selectable_label(state.selected_gem == idx, label_text);
-                    let resp = if let Some(meta) = skill_meta {
-                        // Issue #203 (slice 1): rich gem hover tooltip.
-                        // The lines vec is built every hover frame —
-                        // cheap (a few formats) and avoids caching.
-                        let tip_lines = gem_tooltip_lines(meta, gem.level, gem.quality);
-                        resp.on_hover_ui(|ui| {
-                            for line in &tip_lines {
-                                ui.label(line);
-                            }
-                        })
-                    } else {
-                        resp
-                    };
-                    if resp.clicked() {
-                        state.selected_gem = idx;
-                    }
-                    if ui
-                        .small_button("★")
-                        .on_hover_text("Set as main skill")
-                        .clicked()
-                    {
-                        group.main_active_skill_index = one_based;
-                        changed = true;
-                    }
-                    if ui.small_button("✕").on_hover_text("Remove gem").clicked() {
-                        to_remove_gem = Some(idx);
-                    }
+                let drop_id = egui::Id::new(("gem_drop", group_id, idx));
+                let drop = ui.dnd_drop_zone::<usize, _>(egui::Frame::default(), |ui| {
+                    ui.horizontal(|ui| {
+                        // Drag handle. Source payload is the source gem's
+                        // index; the drop zone reads it back as
+                        // `(from, idx_at_drop)` and feeds `move_gem`.
+                        let drag_id = egui::Id::new(("gem_drag", group_id, idx));
+                        ui.dnd_drag_source(drag_id, idx, |ui| {
+                            ui.label(egui::RichText::new("≡").monospace())
+                                .on_hover_text("Drag to reorder this gem");
+                        });
+                        if ui
+                            .checkbox(&mut gem.enabled, "")
+                            .on_hover_text("Enable / disable this gem")
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                        let label_text = if gem.enabled {
+                            egui::RichText::new(&label)
+                        } else {
+                            egui::RichText::new(&label).weak().strikethrough()
+                        };
+                        let resp = ui.selectable_label(state.selected_gem == idx, label_text);
+                        let resp = if let Some(meta) = skill_meta {
+                            // Issue #203 (slice 1): rich gem hover tooltip.
+                            let tip_lines = gem_tooltip_lines(meta, gem.level, gem.quality);
+                            resp.on_hover_ui(|ui| {
+                                for line in &tip_lines {
+                                    ui.label(line);
+                                }
+                            })
+                        } else {
+                            resp
+                        };
+                        if resp.clicked() {
+                            state.selected_gem = idx;
+                        }
+                        if ui
+                            .small_button("★")
+                            .on_hover_text("Set as main skill")
+                            .clicked()
+                        {
+                            group.main_active_skill_index = one_based;
+                            changed = true;
+                        }
+                        if ui.small_button("✕").on_hover_text("Remove gem").clicked() {
+                            to_remove_gem = Some(idx);
+                        }
+                    });
                 });
+                let _ = drop_id; // silence dead-code warning if unused
+                if let Some(payload) = drop.1 {
+                    pending_move = Some((*payload, idx));
+                }
+            }
+            if let Some((from, to)) = pending_move {
+                if move_gem(group, from, to) {
+                    // Keep the selection sticky on the dragged gem so
+                    // the right-side details panel doesn't jump to a
+                    // sibling after a reorder.
+                    if state.selected_gem == from {
+                        state.selected_gem = to;
+                    }
+                    changed = true;
+                }
             }
             if let Some(rm) = to_remove_gem {
                 group.gems.remove(rm);
@@ -881,6 +912,45 @@ pub fn gem_tooltip_lines(skill: &Skill, level: u32, quality: u32) -> Vec<String>
     out
 }
 
+/// Issue #214 (slice 1): move the gem at `from` to position `to`
+/// within `group.gems`, keeping `main_active_skill_index` pointing at
+/// the *same* gem (PoB's 1-based index convention is preserved).
+/// Returns `true` when the gems vector actually changed.
+///
+/// Out-of-range indices and a same-index move are no-ops returning
+/// `false` — required by issue #214's "drop on invalid targets is a
+/// no-op (no panics)" acceptance criterion.
+///
+/// The main-pointer arithmetic is the subtle part: when the moved
+/// gem crosses the main, every gem between the source and target
+/// shifts by one index, so the main-pointer's *new* slot depends on
+/// its position relative to both endpoints (see the unit tests for
+/// each case).
+pub(super) fn move_gem(group: &mut SocketGroup, from: usize, to: usize) -> bool {
+    let len = group.gems.len();
+    if from >= len || to >= len || from == to {
+        return false;
+    }
+    let gem = group.gems.remove(from);
+    group.gems.insert(to, gem);
+    // PoB stores `main_active_skill_index` as 1-based; `0` (or any
+    // value past the end) means "no main set" and we leave it alone.
+    if group.main_active_skill_index >= 1 && (group.main_active_skill_index as usize) <= len {
+        let main = group.main_active_skill_index as usize - 1;
+        let new_main = if main == from {
+            to
+        } else if from < to && main > from && main <= to {
+            main - 1
+        } else if from > to && main >= to && main < from {
+            main + 1
+        } else {
+            main
+        };
+        group.main_active_skill_index = new_main as u32 + 1;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1102,6 +1172,86 @@ mod tests {
         // Tag order is alphabetical (deterministic regardless of
         // base_flags insertion order).
         assert_eq!(tag_line, "Tags: chaining, lightning, spell");
+    }
+
+    fn mk_group(skill_ids: &[&str], main_one_based: u32) -> SocketGroup {
+        SocketGroup {
+            label: "Test".into(),
+            gems: skill_ids
+                .iter()
+                .map(|id| MainSkill {
+                    skill_id: (*id).into(),
+                    level: 20,
+                    quality: 0,
+                    quality_id: QualityId::Default,
+                    enabled: true,
+                })
+                .collect(),
+            main_active_skill_index: main_one_based,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn move_gem_forward_shifts_intermediate_main_back_one() {
+        // Issue #214 (slice 1): drag-reorder helper. Moving gem at
+        // idx 0 forward to idx 2 in [A, B, C, D] yields [B, C, A, D].
+        // The main pointer (1-based, started at 2 = "B") must keep
+        // tracking B — its new home is idx 0, so the index drops to 1.
+        let mut g = mk_group(&["A", "B", "C", "D"], 2);
+        assert!(move_gem(&mut g, 0, 2));
+        let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
+        assert_eq!(ids, vec!["B", "C", "A", "D"]);
+        assert_eq!(g.main_active_skill_index, 1, "main should still be B");
+    }
+
+    #[test]
+    fn move_gem_backward_shifts_intermediate_main_forward_one() {
+        // Reverse direction: idx 3 → idx 0 in [A, B, C, D] yields
+        // [D, A, B, C]. Main pointed at C (idx 2, 1-based 3) which
+        // shifts down by 1 idx → new 1-based index 4.
+        let mut g = mk_group(&["A", "B", "C", "D"], 3);
+        assert!(move_gem(&mut g, 3, 0));
+        let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
+        assert_eq!(ids, vec!["D", "A", "B", "C"]);
+        assert_eq!(g.main_active_skill_index, 4, "main should still be C");
+    }
+
+    #[test]
+    fn move_gem_moving_main_itself_follows_to_new_index() {
+        // Drag the *main* gem. Result: main pointer follows to its
+        // new position. [A, B, C], main=2 (B). Move 1→2 ⇒ [A, C, B],
+        // main now 3 (B is at idx 2).
+        let mut g = mk_group(&["A", "B", "C"], 2);
+        assert!(move_gem(&mut g, 1, 2));
+        let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
+        assert_eq!(ids, vec!["A", "C", "B"]);
+        assert_eq!(g.main_active_skill_index, 3);
+    }
+
+    #[test]
+    fn move_gem_unrelated_position_leaves_main_unchanged() {
+        // Move idx 2 → idx 3 in [A, B, C, D, E] with main = 1 (A).
+        // A doesn't move and isn't crossed by the swap, so main stays.
+        let mut g = mk_group(&["A", "B", "C", "D", "E"], 1);
+        assert!(move_gem(&mut g, 2, 3));
+        let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
+        assert_eq!(ids, vec!["A", "B", "D", "C", "E"]);
+        assert_eq!(g.main_active_skill_index, 1);
+    }
+
+    #[test]
+    fn move_gem_no_op_returns_false() {
+        // Drop on invalid targets is a no-op (issue #214 AC #3): out
+        // of range → false, same-index → false, both with no mutation.
+        let original_ids = ["A", "B"];
+        let mut g = mk_group(&original_ids, 1);
+        assert!(!move_gem(&mut g, 0, 0));
+        assert!(!move_gem(&mut g, 99, 0));
+        assert!(!move_gem(&mut g, 0, 99));
+        let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
+        assert_eq!(ids, original_ids.to_vec());
+        assert_eq!(g.main_active_skill_index, 1);
     }
 
     #[test]
