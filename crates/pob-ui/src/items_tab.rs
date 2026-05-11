@@ -65,6 +65,12 @@ pub struct ItemsTabState {
     /// PoB's `PowerReportListControl.lua` modline view that shows what's
     /// actually pulling weight on the equipped set.
     pub top_contributors_open: bool,
+    /// Issue #207 follow-up: which axis (Combined / DPS / EHP) the
+    /// contributors panel sorts by. Defaults to Combined (the historical
+    /// `max(dps, ehp)` reducer) so existing builds open the panel with
+    /// no behavioural change. Reuses the heatmap's enum because both
+    /// reports score on the same dps/ehp delta pair.
+    pub top_contributors_axis: crate::node_power_heatmap::HeatmapStat,
     /// Issue #222: index of the saved item-set the user most recently
     /// activated via the switcher [`egui::ComboBox`]. `None` means "no
     /// switcher selection yet" — typically because the user hasn't
@@ -223,6 +229,7 @@ impl Default for ItemsTabState {
             shared_rename: None,
             item_set_rename: None,
             top_contributors_open: false,
+            top_contributors_axis: crate::node_power_heatmap::HeatmapStat::default(),
             active_item_set_idx: None,
             manage_sets_open: false,
             item_set_import_buffer: String::new(),
@@ -1425,7 +1432,25 @@ pub fn ui(
                 "Removes one mod line at a time and re-runs the build to score what \
                  each line is actually worth. Slow on full equipped sets.",
             );
-            let lines = compute_top_contributors_panel(character, tree, skills, bases, 10);
+            // Issue #207 follow-up: per-axis sort selector. Mirrors the
+            // heatmap stat-axis dropdown so a defence-focused build can
+            // foreground its EHP-positive lines (otherwise drowned out
+            // by the higher-magnitude DPS column).
+            ui.horizontal(|ui| {
+                ui.label("Sort by:");
+                use crate::node_power_heatmap::HeatmapStat;
+                for stat in [HeatmapStat::Combined, HeatmapStat::Dps, HeatmapStat::Ehp] {
+                    ui.selectable_value(&mut state.top_contributors_axis, stat, stat.label());
+                }
+            });
+            let lines = compute_top_contributors_panel(
+                character,
+                tree,
+                skills,
+                bases,
+                10,
+                state.top_contributors_axis,
+            );
             if lines.is_empty() {
                 ui.weak("(no equipped mod lines to score)");
             } else {
@@ -1460,6 +1485,7 @@ pub fn compute_top_contributors_panel(
     skills: &SkillRegistry,
     bases: Option<&ItemBaseSet>,
     top_n: usize,
+    axis: crate::node_power_heatmap::HeatmapStat,
 ) -> Vec<String> {
     let mut all: Vec<ItemModlineScore> = Vec::new();
     for slot in Slot::all() {
@@ -1469,12 +1495,33 @@ pub fn compute_top_contributors_panel(
         let scores = rank_item_modlines(character, tree, *slot, Some(skills), bases, None, None);
         all.extend(scores);
     }
-    all.sort_by(|a, b| {
-        let ka = a.dps_delta.max(a.ehp_delta);
-        let kb = b.dps_delta.max(b.ehp_delta);
-        kb.partial_cmp(&ka).unwrap_or(std::cmp::Ordering::Equal)
+    sort_and_format_contributors(all, axis, top_n)
+}
+
+/// Issue #207 follow-up: sort + format the equipped-set contributors
+/// by the chosen [`crate::node_power_heatmap::HeatmapStat`] axis. Pure
+/// helper so the axis-specific sort behaviour is unit-testable without
+/// reaching for `rank_item_modlines` and a full character fixture.
+#[must_use]
+pub fn sort_and_format_contributors(
+    mut scores: Vec<ItemModlineScore>,
+    axis: crate::node_power_heatmap::HeatmapStat,
+    top_n: usize,
+) -> Vec<String> {
+    use crate::node_power_heatmap::HeatmapStat;
+    let key = |s: &ItemModlineScore| -> f64 {
+        match axis {
+            HeatmapStat::Combined => s.dps_delta.max(s.ehp_delta),
+            HeatmapStat::Dps => s.dps_delta,
+            HeatmapStat::Ehp => s.ehp_delta,
+        }
+    };
+    scores.sort_by(|a, b| {
+        key(b)
+            .partial_cmp(&key(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
-    format_top_contributors(&all, top_n)
+    format_top_contributors(&scores, top_n)
 }
 
 /// Issue #209: render the shared-items sub-list inside the Browse panel.
@@ -3312,6 +3359,116 @@ mod tests {
     }
 
     #[test]
+    fn sort_and_format_contributors_combined_uses_max_axis() {
+        // Mirrors the previous default. A mod line that's pure DPS
+        // (high dps, zero ehp) and one that's pure EHP (zero dps,
+        // high ehp) of equal magnitude tie at the top — `Combined`
+        // collapses to `max(dps, ehp)`.
+        let scores = vec![
+            ItemModlineScore {
+                slot: pob_data::Slot::Helmet,
+                mod_index: 0,
+                mod_line: "small-defence".to_owned(),
+                dps_delta: 0.0,
+                ehp_delta: 50.0,
+            },
+            ItemModlineScore {
+                slot: pob_data::Slot::Helmet,
+                mod_index: 1,
+                mod_line: "big-offence".to_owned(),
+                dps_delta: 200.0,
+                ehp_delta: 0.0,
+            },
+        ];
+        let lines = sort_and_format_contributors(
+            scores,
+            crate::node_power_heatmap::HeatmapStat::Combined,
+            10,
+        );
+        assert_eq!(lines.len(), 2);
+        // Top row is the larger of the two `max`-collapsed values.
+        assert!(
+            lines[0].contains("big-offence"),
+            "Combined axis should rank +200 DPS above +50 EHP, got {lines:?}",
+        );
+    }
+
+    #[test]
+    fn sort_and_format_contributors_dps_prefers_dps_lines() {
+        // A defence-only line scores 0 on the DPS axis and falls below
+        // every DPS-positive line.
+        let scores = vec![
+            ItemModlineScore {
+                slot: pob_data::Slot::Helmet,
+                mod_index: 0,
+                mod_line: "tiny-dps".to_owned(),
+                dps_delta: 1.0,
+                ehp_delta: 0.0,
+            },
+            ItemModlineScore {
+                slot: pob_data::Slot::Helmet,
+                mod_index: 1,
+                mod_line: "huge-defence".to_owned(),
+                dps_delta: 0.0,
+                ehp_delta: 999.0,
+            },
+        ];
+        let lines =
+            sort_and_format_contributors(scores, crate::node_power_heatmap::HeatmapStat::Dps, 10);
+        assert!(
+            lines[0].contains("tiny-dps"),
+            "DPS axis must rank any DPS-positive line above an EHP-only one, got {lines:?}",
+        );
+    }
+
+    #[test]
+    fn sort_and_format_contributors_ehp_prefers_ehp_lines() {
+        // The mirror of the DPS-axis case.
+        let scores = vec![
+            ItemModlineScore {
+                slot: pob_data::Slot::Helmet,
+                mod_index: 0,
+                mod_line: "tiny-defence".to_owned(),
+                dps_delta: 0.0,
+                ehp_delta: 1.0,
+            },
+            ItemModlineScore {
+                slot: pob_data::Slot::Helmet,
+                mod_index: 1,
+                mod_line: "huge-dps".to_owned(),
+                dps_delta: 999.0,
+                ehp_delta: 0.0,
+            },
+        ];
+        let lines =
+            sort_and_format_contributors(scores, crate::node_power_heatmap::HeatmapStat::Ehp, 10);
+        assert!(
+            lines[0].contains("tiny-defence"),
+            "EHP axis must rank any EHP-positive line above a DPS-only one, got {lines:?}",
+        );
+    }
+
+    #[test]
+    fn sort_and_format_contributors_truncates_to_top_n() {
+        // `format_top_contributors` already truncates; verify the
+        // wrapper honours that contract end-to-end after the sort step.
+        let scores: Vec<ItemModlineScore> = (0i32..5)
+            .map(|i| ItemModlineScore {
+                slot: pob_data::Slot::Helmet,
+                mod_index: i as usize,
+                mod_line: format!("line-{i}"),
+                dps_delta: f64::from(i),
+                ehp_delta: 0.0,
+            })
+            .collect();
+        let lines =
+            sort_and_format_contributors(scores, crate::node_power_heatmap::HeatmapStat::Dps, 2);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("line-4"));
+        assert!(lines[1].contains("line-3"));
+    }
+
+    #[test]
     fn top_contributors_panel_empty_character_is_empty() {
         // No equipped items → no mod lines to score → empty result.
         // Verifies the panel doesn't panic when wired into a fresh
@@ -3341,7 +3498,14 @@ mod tests {
             points: TreePoints::default(),
         };
         let skills = SkillRegistry::default();
-        let lines = compute_top_contributors_panel(&c, &tree, &skills, None, 10);
+        let lines = compute_top_contributors_panel(
+            &c,
+            &tree,
+            &skills,
+            None,
+            10,
+            crate::node_power_heatmap::HeatmapStat::default(),
+        );
         assert!(lines.is_empty());
     }
 }
