@@ -1273,7 +1273,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         .default_open(false)
                         .show(ui, |ui| {
                             let lines = crate::node_power_heatmap::format_top_node_candidates(
-                                ranked, &app.tree, 10,
+                                ranked,
+                                &app.tree,
+                                10,
+                                app.heatmap_stat,
                             );
                             for line in &lines {
                                 ui.monospace(line);

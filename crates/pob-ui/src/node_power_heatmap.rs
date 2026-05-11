@@ -148,18 +148,37 @@ pub fn compute_heatmap_inputs_from_ranked(
 /// node's display name (or `#<id>` for unknown ids). Pure helper —
 /// the renderer walks the returned strings.
 ///
-/// `ranked` is expected to be sorted by the chosen
-/// [`HeatmapStat`] axis descending. Passing the raw
-/// [`rank_node_additions`] output works for `Combined` (the ranker's
-/// own sort key); callers that switch axes should re-sort first.
+/// `ranked` is the raw [`rank_node_additions`] output. This helper
+/// re-sorts a local view by [`score_impact_key`] for `stat` so the
+/// panel's ranking matches the heatmap overlay's colouring when the
+/// user switches the axis selector between Combined / DPS / EHP.
+/// `NodeScore` is `Copy`, so the local sort is cheap and the caller's
+/// cached slice is left untouched.
 #[must_use]
 pub fn format_top_node_candidates(
     ranked: &[NodeScore],
     tree: &pob_data::PassiveTree,
     top_n: usize,
+    stat: HeatmapStat,
 ) -> Vec<String> {
-    ranked
-        .iter()
+    let mut sorted: Vec<NodeScore> = ranked.to_vec();
+    sorted.sort_by(|a, b| {
+        let ka = score_impact_key(a, stat);
+        let kb = score_impact_key(b, stat);
+        // NaN sinks to the bottom so a stray engine NaN can't pin
+        // garbage to rank 1; matches `truncate_to_top_n`.
+        match (ka.is_nan(), kb.is_nan()) {
+            (true, true) => a.node_id.cmp(&b.node_id),
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            (false, false) => kb
+                .partial_cmp(&ka)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.node_id.cmp(&b.node_id)),
+        }
+    });
+    sorted
+        .into_iter()
         .take(top_n)
         .enumerate()
         .map(|(i, score)| {
@@ -732,7 +751,7 @@ mod tests {
                 ehp_delta: 0.0,
             },
         ];
-        let lines = format_top_node_candidates(&ranked, &tree, 10);
+        let lines = format_top_node_candidates(&ranked, &tree, 10, HeatmapStat::Combined);
         assert_eq!(lines.len(), 2);
         // First line carries rank 1 and the input's first node (2 = "n2").
         assert!(
@@ -766,7 +785,7 @@ mod tests {
             dps_delta: 10.0,
             ehp_delta: 5.0,
         }];
-        let lines = format_top_node_candidates(&ranked, &tree, 10);
+        let lines = format_top_node_candidates(&ranked, &tree, 10, HeatmapStat::Combined);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("#999"));
     }
@@ -781,10 +800,41 @@ mod tests {
                 ehp_delta: 0.0,
             })
             .collect();
-        let lines = format_top_node_candidates(&ranked, &tree, 2);
+        let lines = format_top_node_candidates(&ranked, &tree, 2, HeatmapStat::Combined);
         assert_eq!(lines.len(), 2);
         assert!(lines[0].starts_with("1. "));
         assert!(lines[1].starts_with("2. "));
+    }
+
+    #[test]
+    fn format_top_node_candidates_respects_stat_axis() {
+        // Regression for the stat/overlay disagreement: switching the
+        // heatmap stat axis must re-rank the panel so its order
+        // matches `score_impact_key` for the chosen axis. Two nodes,
+        // one DPS-strong, one EHP-strong; Combined keeps the input
+        // order (both score 100), but DPS surfaces the DPS-strong one
+        // first and EHP surfaces the EHP-strong one first.
+        let tree = empty_tree();
+        let ranked = vec![
+            NodeScore {
+                node_id: 1,
+                dps_delta: 100.0,
+                ehp_delta: 10.0,
+            },
+            NodeScore {
+                node_id: 2,
+                dps_delta: 10.0,
+                ehp_delta: 100.0,
+            },
+        ];
+
+        let dps = format_top_node_candidates(&ranked, &tree, 2, HeatmapStat::Dps);
+        assert!(dps[0].contains("+100 DPS"), "DPS axis rank 1: {}", dps[0]);
+        assert!(dps[1].contains("+10 DPS"), "DPS axis rank 2: {}", dps[1]);
+
+        let ehp = format_top_node_candidates(&ranked, &tree, 2, HeatmapStat::Ehp);
+        assert!(ehp[0].contains("+100 EHP"), "EHP axis rank 1: {}", ehp[0]);
+        assert!(ehp[1].contains("+10 EHP"), "EHP axis rank 2: {}", ehp[1]);
     }
 
     #[test]
