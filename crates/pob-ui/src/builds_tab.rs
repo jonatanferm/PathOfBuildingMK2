@@ -627,6 +627,23 @@ pub fn apply_build_row_menu_choice(
     }
 }
 
+/// Issue #213 follow-up: shape the displayed row label so the
+/// currently-loaded build gets a leading `●` marker. Pure helper —
+/// the renderer also bumps the `RichText` to strong, but that lives
+/// at the egui layer; this exists so the prefix rule is documented +
+/// pinned by a unit test (see `current_build_row_label_*`). Without
+/// this seam an earlier draft of the PR plumbed `is_current_build`
+/// to every layer but forgot to actually use it in `render_build_row`
+/// — the seam makes that regression noisy.
+#[must_use]
+pub fn current_build_row_label(label: &str, is_current: bool) -> String {
+    if is_current {
+        format!("● {label}")
+    } else {
+        label.to_owned()
+    }
+}
+
 /// Issue #213 follow-up: tell whether `entry` is the build currently
 /// loaded into the app. Only matches `BuildId::Disk` entries since
 /// the wasm IDB / FSA-folder variants don't carry a comparable
@@ -691,6 +708,17 @@ fn render_build_row(
             // mtime, append "Modified X ago" to the hover so users
             // can spot recently-touched builds without checking the
             // filesystem.
+            // Issue #213 follow-up: surface the build that's currently
+            // loaded so the user can find it at a glance. The renderer
+            // delegates to `current_build_row_label` (pure helper, see
+            // tests) so a future refactor can't silently drop the
+            // wiring like an earlier draft did.
+            let is_current = is_current_build(entry, current_path);
+            let label_text = current_build_row_label(&entry.label, is_current);
+            let mut rich = egui::RichText::new(label_text).monospace();
+            if is_current {
+                rich = rich.strong();
+            }
             let hover_text = if let Some(mtime) = entry.modified {
                 format!(
                     "Click to load · right-click for actions\nModified {}",
@@ -700,10 +728,7 @@ fn render_build_row(
                 "Click to load · right-click for actions".to_owned()
             };
             let label_resp = ui
-                .add(
-                    egui::Label::new(egui::RichText::new(&entry.label).monospace())
-                        .sense(egui::Sense::click()),
-                )
+                .add(egui::Label::new(rich).sense(egui::Sense::click()))
                 .on_hover_text(hover_text);
             if label_resp.clicked() {
                 *action = Some(BuildsAction::Load(entry.id.clone()));
@@ -1309,6 +1334,29 @@ mod tests {
             modified: None,
         };
         assert!(!is_current_build(&folder_entry, Some(&path)));
+    }
+
+    #[test]
+    fn current_build_row_label_prefixes_when_current() {
+        // The "current" row gets a leading "● " marker so the user
+        // can find it at a glance in a dense list.
+        assert_eq!(current_build_row_label("MyBuild", true), "● MyBuild");
+    }
+
+    #[test]
+    fn current_build_row_label_passthrough_when_not_current() {
+        // Every other row keeps its plain label so non-current builds
+        // line up column-wise with the marker on the active one.
+        assert_eq!(current_build_row_label("MyBuild", false), "MyBuild");
+    }
+
+    #[test]
+    fn current_build_row_label_handles_empty_label() {
+        // Defensive — an empty label string still gets the marker if
+        // it's the current build, so the renderer never silently
+        // hides which row is active.
+        assert_eq!(current_build_row_label("", true), "● ");
+        assert_eq!(current_build_row_label("", false), "");
     }
 
     #[test]
