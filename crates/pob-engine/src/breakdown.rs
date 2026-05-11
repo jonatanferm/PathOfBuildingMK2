@@ -163,6 +163,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
         "LowestAttribute" => Some(lowest_attribute(env)),
+        "LowestOfMaximumLifeAndMaximumMana" => lowest_pool(env),
         "MaxLifeLeechRate" => max_leech_rate(env, "Life"),
         "MaxManaLeechRate" => max_leech_rate(env, "Mana"),
         "MaxLifeLeechInstance" => leech_instance(
@@ -413,6 +414,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "Intelligence",
     "TotalAttr",
     "LowestAttribute",
+    "LowestOfMaximumLifeAndMaximumMana",
     "MaxLifeLeechRate",
     "MaxManaLeechRate",
     "MaxLifeLeechInstance",
@@ -2654,6 +2656,48 @@ fn max_leech_rate(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `LowestOfMaximumLifeAndMaximumMana`.
+/// PoB computes this as `life.min(mana)` in `perform_basic_stats`.
+/// Surfacing the chain shows both pool sizes plus which one wins —
+/// used by some unique-item / cluster-jewel mods that scale on the
+/// smaller pool.
+///
+/// Tie-break: PoB's `f64::min` returns the first operand when equal,
+/// so the chain prefers Life over Mana on ties. Returns `None` when
+/// both pools are zero (no character loaded yet).
+fn lowest_pool(env: &Env) -> Option<Breakdown> {
+    let life = env.output.get("Life");
+    let mana = env.output.get("Mana");
+    if life.abs() < 1e-9 && mana.abs() < 1e-9 {
+        return None;
+    }
+    let total = env.output.get("LowestOfMaximumLifeAndMaximumMana");
+    let winner = if life <= mana { "Life" } else { "Mana" };
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Life pool")
+            .with_value(life)
+            .with_explain(format!("{life:.0} max life from pool derivation")),
+    );
+    steps.push(
+        BreakdownStep::label("Mana pool")
+            .with_value(mana)
+            .with_explain(format!("{mana:.0} max mana from pool derivation")),
+    );
+    steps.push(
+        BreakdownStep::label("Lowest of life and mana")
+            .with_value(total)
+            .with_explain(format!("min({life:.0}, {mana:.0}) = {total:.0} ({winner})")),
+    );
+
+    Some(Breakdown {
+        output_key: "LowestOfMaximumLifeAndMaximumMana".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `LowestAttribute`. The output is
 /// `min(Strength, Dexterity, Intelligence)` (PoB's `min().min()`
 /// chain in `perform_basic_stats`). Surfacing the chain shows each
@@ -3162,6 +3206,8 @@ mod tests {
         env.output.set("Intelligence", 60.0);
         env.output.set("TotalAttr", 190.0);
         env.output.set("LowestAttribute", 50.0);
+        // min(1100 Life, 360 Mana) = 360 Mana for the spell fixture.
+        env.output.set("LowestOfMaximumLifeAndMaximumMana", 360.0);
         // Issue #34 follow-up: leech-rate caps. 20% of 1100 Life =
         // 220, 20% of 360 Mana = 72 — exercises MaxLifeLeechRate /
         // MaxManaLeechRate via the COVERED_KEYS guard.
@@ -3539,6 +3585,76 @@ mod tests {
         assert!(
             derive_for(&env, "MaxManaLeechRate").is_none(),
             "expected None when Mana is zero",
+        );
+    }
+
+    /// Issue #34 follow-up: LowestOfMaximumLifeAndMaximumMana walks
+    /// Life → Mana → min, flagging the source pool. Used by some
+    /// unique mods (e.g. Mind over Matter follow-ons) and surfaced
+    /// because it's a "which sustain pool dominates" question users
+    /// genuinely ask. Worked example: 1100 Life + 360 Mana → 360
+    /// (Mana).
+    #[test]
+    fn lowest_pool_breakdown_picks_min_and_flags_winner() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("Mana", 360.0);
+        env.output.set("LowestOfMaximumLifeAndMaximumMana", 360.0);
+        let bd = derive_for(&env, "LowestOfMaximumLifeAndMaximumMana").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life pool"));
+        assert!(labels.contains(&"Mana pool"));
+        assert!(labels.contains(&"Lowest of life and mana"));
+
+        let lowest = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Lowest of life and mana")
+            .unwrap();
+        assert!(
+            lowest
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("Mana")),
+            "expected Mana in winner explain, got {:?}",
+            lowest.explain
+        );
+        assert!((bd.total - 360.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ties pick Life — matches PoB's
+    /// `life.min(mana)` chain. Worked example: 600 Life + 600 Mana →
+    /// 600 (Life).
+    #[test]
+    fn lowest_pool_breakdown_breaks_ties_to_life() {
+        let mut env = Env::default();
+        env.output.set("Life", 600.0);
+        env.output.set("Mana", 600.0);
+        env.output.set("LowestOfMaximumLifeAndMaximumMana", 600.0);
+        let bd = derive_for(&env, "LowestOfMaximumLifeAndMaximumMana").unwrap();
+        let lowest = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Lowest of life and mana")
+            .unwrap();
+        assert!(
+            lowest
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("Life")),
+            "expected Life to win the tie, got {:?}",
+            lowest.explain
+        );
+    }
+
+    /// Issue #34 follow-up: returns None when both pools are zero
+    /// (no character loaded yet).
+    #[test]
+    fn lowest_pool_breakdown_skipped_when_no_pools() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "LowestOfMaximumLifeAndMaximumMana").is_none(),
+            "expected None when both pools are zero",
         );
     }
 
