@@ -444,6 +444,20 @@ pub enum HandlerKind {
     /// Accuracy Rating / DoT Multi unallocated-side mods) can stack
     /// additively with future slices without re-routing.
     IntCountToIncManaRecovery,
+    /// Issue #196: The Light of Meaning (Life variant). `Passive Skills in
+    /// Radius also grant +N to maximum Life`. PoB pattern: per-node grant
+    /// emitted to every passive skill in the radius that isn't a Keystone,
+    /// Jewel Socket, or Class Start (`ModParser.lua` ~6054-6060). The
+    /// player benefits from the per-node contribution only on *allocated*
+    /// nodes (PoB writes to each node's `out` modList; only allocated
+    /// nodes contribute to player stats), so the dispatch counts
+    /// allocated in-radius eligible nodes and emits a single
+    /// `+(count × N) Life` BASE mod sourced as the jewel. The `+N` is
+    /// parsed off the marker line so this handler covers any roll.
+    /// Other variants of The Light of Meaning (Mana, Armour, …) follow
+    /// the same per-node grant shape under sibling handlers in
+    /// follow-up slices.
+    PassiveAlsoGrantBaseLife,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -620,6 +634,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
             Some(build_int_count_to_inc_mana_recovery(socket_id, item))
         }
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
+        "The Light of Meaning" => build_light_of_meaning(socket_id, item),
         _ => None,
     }
 }
@@ -993,6 +1008,42 @@ fn build_int_count_to_inc_mana_recovery(socket_id: NodeId, item: &Item) -> Radiu
     }
 }
 
+/// Issue #196: The Light of Meaning. Prismatic Jewel with 13 variants — this
+/// slice handles the Life variant (`Passive Skills in Radius also grant +N
+/// to maximum Life`). Marker drops the per-node-grant line out of the
+/// vanilla parse path; the dispatch arm reads the `+N` off the line and
+/// emits one `Life BASE` mod scaled by the count of eligible (non-Keystone,
+/// non-JewelSocket, non-ClassStart) allocated in-radius nodes. Default
+/// radius Large (matches `Data/Uniques/jewel.lua:372` — `Radius: Large`).
+/// If the item carries no Life-grant line (e.g. it's a different variant
+/// not yet handled), this builder returns `None` so the named-unique
+/// dispatch falls through and other variant handlers can claim it in
+/// future slices without conflicting.
+fn build_light_of_meaning(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> {
+    if !item
+        .mod_lines
+        .iter()
+        .any(|ml| is_passive_also_grant_base_life_marker(&ml.line))
+    {
+        return None;
+    }
+    let mods = parse_non_transform_mods(item, is_passive_also_grant_base_life_marker);
+    let idx = radius_index_for_label("Large").unwrap_or(2);
+    let radii = radii_for_tree_version(&item_tree_version(item));
+    let radius = radii
+        .get(idx)
+        .copied()
+        .unwrap_or_else(|| pob_data::JewelRadiusInfo::new(0.0, 1500.0, "Large"));
+    Some(RadiusJewel {
+        socket_id,
+        radius,
+        radius_index: idx,
+        mods,
+        source_label: format!("RadiusJewel:{}", item.name),
+        kind: HandlerKind::PassiveAlsoGrantBaseLife,
+    })
+}
+
 /// Pure Talent / Replica Pure Talent: build a [`RadiusJewel`] whose `mods` list
 /// is empty — the actual class-conditional bonuses come from the dispatch
 /// handler reading the item's raw `mod_lines` and filtering by class
@@ -1234,6 +1285,33 @@ fn parse_int_count_to_inc_mana_recovery_rate(line: &str) -> Option<f64> {
         .rfind(|c: char| !c.is_ascii_digit() && c != '.')
         .map_or(0, |i| i + 1);
     head[num_start..].trim().parse::<f64>().ok()
+}
+
+/// Issue #196: The Light of Meaning (Life variant) marker. Recognises the
+/// jewel's `Passive Skills in Radius also grant +N to maximum Life` line —
+/// pulled out of the vanilla parse path so the per-node grant emits via
+/// the [`HandlerKind::PassiveAlsoGrantBaseLife`] dispatch arm rather than
+/// landing globally on the player. Mirrors PoB's `jewelOtherFuncs` entry
+/// at `ModParser.lua:6054-6060` (pattern
+/// `Passive Skills in Radius also grant +(N) to Maximum Life`).
+fn is_passive_also_grant_base_life_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("passive skills in radius also grant")
+        && l.contains("to maximum life")
+        && !l.contains("mana")
+}
+
+/// Issue #196: parse the `+N` off The Light of Meaning's Life-variant
+/// line (`Passive Skills in Radius also grant +5 to maximum Life` →
+/// `5`). Returns `None` when the line doesn't carry an integer grant.
+fn parse_passive_also_grant_base_life_value(line: &str) -> Option<f64> {
+    let l = line.to_ascii_lowercase();
+    let plus_idx = l.find('+')?;
+    let tail = &l[plus_idx + 1..];
+    let end = tail
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(tail.len());
+    tail[..end].trim().parse::<f64>().ok()
 }
 
 fn is_int_count_to_inc_chaos_damage_marker(line: &str) -> bool {
@@ -2204,6 +2282,46 @@ pub fn apply_radius_jewels(
                 // Counted as `applied_jewels` upstream so the dispatch
                 // report still reflects "we recognised this jewel"; the
                 // mod-emission count stays at zero.
+            }
+            HandlerKind::PassiveAlsoGrantBaseLife => {
+                // Issue #196: The Light of Meaning (Life variant).
+                // Per-node grant — mirrors PoB's `jewelOtherFuncs`
+                // entry (`ModParser.lua:6054-6060`) which writes
+                // `+N to Maximum Life` to every passive skill in the
+                // radius that isn't a Keystone, JewelSocket, or
+                // ClassStart. Player benefits from those per-node
+                // mods only on *allocated* nodes — so we count the
+                // eligible allocated in-radius nodes and emit a
+                // single `+(count × N) Life` BASE mod sourced as
+                // the jewel.
+                let per_node = item
+                    .mod_lines
+                    .iter()
+                    .filter(|ml| is_passive_also_grant_base_life_marker(&ml.line))
+                    .find_map(|ml| parse_passive_also_grant_base_life_value(&ml.line))
+                    .unwrap_or(0.0);
+                if per_node > 0.0 {
+                    let in_radius =
+                        allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                    let count = in_radius
+                        .iter()
+                        .filter(|(id, _)| {
+                            tree.nodes
+                                .get(id)
+                                .map(|n| {
+                                    !matches!(n.kind, NodeKind::Keystone | NodeKind::JewelSocket)
+                                })
+                                .unwrap_or(false)
+                        })
+                        .count() as f64;
+                    let total = per_node * count;
+                    if total > 0.0 {
+                        let mod_ = crate::Mod::base("Life", total)
+                            .with_source(Source::Other(jewel.source_label.clone()));
+                        db.add(mod_);
+                        report.mod_emissions += 1;
+                    }
+                }
             }
             // SelfAllocated (default), All, Threshold, SelfUnalloc all
             // currently route through the vanilla per-allocated-node mod
@@ -5537,6 +5655,130 @@ mod tests {
             ms_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
                 && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
             "expected +10% Inc MovementSpeed from Tempered Spirit, got {ms_mods:#?}",
+        );
+    }
+
+    /// Issue #196: The Light of Meaning (Life variant). `Passive Skills in
+    /// Radius also grant +5 to maximum Life`. Per-node grant: with one
+    /// allocated eligible (Notable) node in radius, the player gains
+    /// `5 × 1 = +5 Life` BASE sourced as the jewel. Mirrors PoB's
+    /// `jewelOtherFuncs` entry at `ModParser.lua:6054-6060`.
+    #[test]
+    fn light_of_meaning_life_grant_emits_per_allocated_in_radius_node() {
+        let tree = mk_tree();
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "The Light of Meaning",
+                "Prismatic Jewel",
+                &[(
+                    "Passive Skills in Radius also grant +5 to maximum Life",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::PassiveAlsoGrantBaseLife);
+
+        let life_mods = db.slice_named("Life");
+        assert!(
+            life_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && (m.value.as_f64().unwrap_or(0.0) - 5.0).abs() < 1e-6),
+            "expected +5 Life BASE from The Light of Meaning, got {life_mods:#?}",
+        );
+    }
+
+    /// Issue #196: The Light of Meaning per-node grant must scale with the
+    /// number of *allocated* eligible nodes in radius. Two allocated
+    /// notables in radius → `5 × 2 = +10 Life`. The far node (out of
+    /// radius) must not contribute.
+    #[test]
+    fn light_of_meaning_life_grant_scales_with_allocated_count_and_skips_out_of_radius() {
+        let mut tree = mk_tree();
+        // Add a second in-radius eligible node by relocating Far Notable into
+        // the Large radius. Group 30 currently sits at x=2000 (out of 1500
+        // Large); move it to x=900 so it's inside radius and add it to alloc.
+        tree.groups.get_mut(&30).unwrap().x = 900.0;
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "The Light of Meaning",
+                "Prismatic Jewel",
+                &[(
+                    "Passive Skills in Radius also grant +5 to maximum Life",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let life_mods = db.slice_named("Life");
+        assert!(
+            life_mods.iter().any(|m| matches!(m.kind, crate::ModType::Base)
+                && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
+            "expected +10 Life BASE (5 × 2 allocated nodes) from The Light of Meaning, got {life_mods:#?}",
+        );
+    }
+
+    /// Issue #196: The Light of Meaning per-node grant must NOT count
+    /// Keystone or JewelSocket nodes (mirrors PoB's
+    /// `node.type ~= "Keystone" and node.type ~= "Socket" and node.type
+    /// ~= "ClassStart"` guard at `ModParser.lua:6056`). One allocated
+    /// Notable + one allocated Keystone in radius should still emit only
+    /// `+5 Life` (Notable alone), not `+10`.
+    #[test]
+    fn light_of_meaning_life_grant_skips_keystone_and_socket_nodes() {
+        let mut tree = mk_tree();
+        // Reuse Far Notable's slot for an in-radius Keystone — set kind to
+        // Keystone and pull the group inside the Large radius. The Notable at
+        // node 2 stays as the only eligible counted node.
+        tree.groups.get_mut(&30).unwrap().x = 900.0;
+        tree.nodes.get_mut(&3).unwrap().kind = NodeKind::Keystone;
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "The Light of Meaning",
+                "Prismatic Jewel",
+                &[(
+                    "Passive Skills in Radius also grant +5 to maximum Life",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Ranger", &mut db);
+
+        let life_mods = db.slice_named("Life");
+        let total: f64 = life_mods
+            .iter()
+            .filter(|m| matches!(m.kind, crate::ModType::Base))
+            .filter(|m| {
+                matches!(&m.source, Some(Source::Other(s)) if s.contains("The Light of Meaning"))
+            })
+            .map(|m| m.value.as_f64().unwrap_or(0.0))
+            .sum();
+        assert!(
+            (total - 5.0).abs() < 1e-6,
+            "expected +5 Life BASE (only the Notable counts; Keystone is excluded), got total {total} from {life_mods:#?}",
         );
     }
 }
