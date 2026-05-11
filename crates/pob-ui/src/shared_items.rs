@@ -88,6 +88,37 @@ impl SharedItemStore {
         Some(self.items.len() - 1)
     }
 
+    /// Issue #211 (slice 3): relabel the entry at `index`. The new
+    /// label is run through [`Self::unique_label`] so renaming onto a
+    /// collision (e.g. "Boots" when another "Boots" already exists)
+    /// produces a `Label (2)` suffix — matching the dedup semantics of
+    /// [`Self::add`] and [`Self::clone_at`]. Empty / whitespace-only
+    /// labels are rejected because a blank row is unreadable in the
+    /// dropdown; the caller's inline-edit popup also short-circuits but
+    /// pinning it here keeps the data-layer contract honest for any
+    /// future caller. Returns `true` on success, `false` if `index` is
+    /// out of range or the label was rejected.
+    pub fn rename(&mut self, index: usize, new_label: &str) -> bool {
+        if index >= self.items.len() {
+            return false;
+        }
+        let trimmed = new_label.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        // No-op when the user re-confirms the existing label —
+        // otherwise `unique_label` would see the row itself as a
+        // collision and append "(2)".
+        if self.items[index].label == trimmed {
+            self.dirty = true;
+            return true;
+        }
+        let unique = self.unique_label(trimmed);
+        self.items[index].label = unique;
+        self.dirty = true;
+        true
+    }
+
     /// Remove the entry at `index` (no-op if out of range). Returns
     /// `true` if a row was removed.
     pub fn remove(&mut self, index: usize) -> bool {
@@ -344,6 +375,75 @@ mod tests {
         assert!(store.clone_at(99).is_none());
         assert!(!store.dirty);
         assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn rename_happy_path_updates_label_and_marks_dirty() {
+        // Issue #211 (slice 3): the shared-items right-click context
+        // menu offers an inline "Rename" action so users can fix typos
+        // or relabel imports without re-saving. The data-layer helper
+        // must update the label in place and flip `dirty` so the
+        // per-frame disk-flush picks the change up.
+        let mut store = SharedItemStore::new();
+        store.add("Boots", make_item("Kaom's Roots", "Titan Greaves"));
+        store.dirty = false;
+        assert!(store.rename(0, "My favourite boots"));
+        assert!(store.dirty);
+        assert_eq!(store.items[0].label, "My favourite boots");
+    }
+
+    #[test]
+    fn rename_rejects_empty_or_whitespace_label() {
+        // An empty / whitespace-only label is meaningless on the row
+        // (it would render as a blank line) so the rename must refuse
+        // and leave the store unchanged. The UI also short-circuits on
+        // this, but pinning it at the data layer means the contract
+        // holds for any future caller.
+        let mut store = SharedItemStore::new();
+        store.add("Boots", make_item("Kaom's Roots", "Titan Greaves"));
+        store.dirty = false;
+        assert!(!store.rename(0, ""));
+        assert!(!store.rename(0, "   "));
+        assert!(!store.rename(0, "\t\n"));
+        assert!(!store.dirty);
+        assert_eq!(store.items[0].label, "Boots");
+    }
+
+    #[test]
+    fn rename_out_of_range_returns_false() {
+        let mut store = SharedItemStore::new();
+        store.add("Boots", make_item("Kaom's Roots", "Titan Greaves"));
+        store.dirty = false;
+        assert!(!store.rename(99, "Anything"));
+        assert!(!store.dirty);
+        assert_eq!(store.items[0].label, "Boots");
+    }
+
+    #[test]
+    fn rename_to_existing_label_routes_through_unique_label() {
+        // Renaming "Boots" to "Helm" when a "Helm" already exists
+        // should land as "Helm (2)" so the dropdown stays unambiguous.
+        // Mirrors the dedup behaviour of `add` / `clone_at`.
+        let mut store = SharedItemStore::new();
+        store.add("Helm", make_item("Devoto's Devotion", "Nightmare Bascinet"));
+        store.add("Boots", make_item("Kaom's Roots", "Titan Greaves"));
+        store.dirty = false;
+        assert!(store.rename(1, "Helm"));
+        assert_eq!(store.items[1].label, "Helm (2)");
+        assert!(store.dirty);
+    }
+
+    #[test]
+    fn rename_to_same_label_is_a_noop_but_still_succeeds() {
+        // Renaming a row to its current label shouldn't trip the
+        // dedup path (no "Boots (2)") — the candidate matches its own
+        // entry, not a different one. We still return `true` because
+        // the user's intent (save this label) succeeded.
+        let mut store = SharedItemStore::new();
+        store.add("Boots", make_item("Kaom's Roots", "Titan Greaves"));
+        store.dirty = false;
+        assert!(store.rename(0, "Boots"));
+        assert_eq!(store.items[0].label, "Boots");
     }
 
     #[test]
