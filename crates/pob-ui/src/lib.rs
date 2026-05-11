@@ -1768,6 +1768,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 ui,
                 &mut app.items_state,
                 &mut app.character,
+                &app.tree,
+                &app.skills,
                 app.bases.as_ref(),
                 &mut app.shared_items,
             ) {
