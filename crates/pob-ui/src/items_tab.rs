@@ -145,6 +145,55 @@ pub struct ItemSetRenameState {
 // path live for any external caller (tests, other tabs).
 pub use crate::set_switcher::format_set_dropdown_label;
 
+/// Issue #221: per-slot enchant catalogues bundled together so the
+/// items-tab signature doesn't grow one parameter per slot. Each
+/// field is `None` when the matching `data/enchants_*.json` file
+/// isn't loaded; the picker render gates on the relevant field at
+/// the per-slot dispatch site.
+#[derive(Debug, Clone, Default)]
+pub struct LoadedEnchants {
+    /// Skill-keyed catalogue with two named tiers — unique to helmets.
+    pub helmet: Option<pob_data::HelmetEnchantSet>,
+    /// Flat tier-keyed catalogue for gloves.
+    pub gloves: Option<pob_data::FlatEnchantSet>,
+    /// Flat tier-keyed catalogue for boots.
+    pub boots: Option<pob_data::FlatEnchantSet>,
+    /// Flat tier-keyed catalogue for body armour.
+    pub body: Option<pob_data::FlatEnchantSet>,
+    /// Flat tier-keyed catalogue for belts.
+    pub belt: Option<pob_data::FlatEnchantSet>,
+    /// Flat tier-keyed catalogue shared across both 1H and 2H weapons.
+    pub weapon: Option<pob_data::FlatEnchantSet>,
+    /// Flat tier-keyed catalogue for flasks.
+    pub flask: Option<pob_data::FlatEnchantSet>,
+}
+
+impl LoadedEnchants {
+    /// Resolve the flat catalogue for a slot, if any. Returns `None`
+    /// for slots that either have no enchant catalogue (Amulet,
+    /// Ring1/2) or use the skill-keyed helmet shape (Helmet — the
+    /// caller dispatches to `self.helmet` directly for that one).
+    #[must_use]
+    pub fn flat_for(&self, slot: pob_data::Slot) -> Option<&pob_data::FlatEnchantSet> {
+        match slot {
+            pob_data::Slot::Gloves => self.gloves.as_ref(),
+            pob_data::Slot::Boots => self.boots.as_ref(),
+            pob_data::Slot::BodyArmour => self.body.as_ref(),
+            pob_data::Slot::Belt => self.belt.as_ref(),
+            pob_data::Slot::Weapon1
+            | pob_data::Slot::Weapon2
+            | pob_data::Slot::Weapon1Swap
+            | pob_data::Slot::Weapon2Swap => self.weapon.as_ref(),
+            pob_data::Slot::Flask1
+            | pob_data::Slot::Flask2
+            | pob_data::Slot::Flask3
+            | pob_data::Slot::Flask4
+            | pob_data::Slot::Flask5 => self.flask.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 /// Issue #209: which sub-list the browse panel is currently showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BrowseView {
@@ -693,11 +742,10 @@ pub fn ui(
     skills: &SkillRegistry,
     bases: Option<&ItemBaseSet>,
     shared_items: &mut SharedItemStore,
-    helmet_enchants: Option<&pob_data::HelmetEnchantSet>,
-    glove_enchants: Option<&pob_data::FlatEnchantSet>,
-    boot_enchants: Option<&pob_data::FlatEnchantSet>,
+    enchants: &LoadedEnchants,
 ) -> bool {
     let mut changed = false;
+    let helmet_enchants = enchants.helmet.as_ref();
     // Issue #222: item-set switcher + manage popup. Above the existing
     // per-set chip row we render a single `ComboBox` listing every saved
     // set — picking one calls `Character::activate_item_set` (mirroring
@@ -852,17 +900,16 @@ pub fn ui(
     }
     // Issue #221 (picker slice): the Apply-Enchantment popup.
     // Dispatch on the active slot — helmets use the skill-keyed
-    // `HelmetEnchantSet` picker; gloves/boots use the flat-tier
-    // [`FlatEnchantSet`] picker. Returns true when a pick committed
-    // so the calc engine recomputes the new enchant mods.
+    // `HelmetEnchantSet` picker; every other enchant slot uses the
+    // flat-tier picker via `LoadedEnchants::flat_for`. Returns
+    // true when a pick committed so the calc engine recomputes.
     let picker_changed = match state.selected_slot {
-        Some(Slot::Gloves) => {
-            render_flat_enchant_picker_popup(ui, character, state, Slot::Gloves, glove_enchants)
+        Some(Slot::Helmet) | None => {
+            render_enchant_picker_popup(ui, character, state, helmet_enchants)
         }
-        Some(Slot::Boots) => {
-            render_flat_enchant_picker_popup(ui, character, state, Slot::Boots, boot_enchants)
+        Some(slot) => {
+            render_flat_enchant_picker_popup(ui, character, state, slot, enchants.flat_for(slot))
         }
-        _ => render_enchant_picker_popup(ui, character, state, helmet_enchants),
     };
     if picker_changed {
         changed = true;
@@ -1131,17 +1178,17 @@ pub fn ui(
                             do_save_shared = true;
                         }
                         // Issue #221 (picker slice): "Apply
-                        // Enchantment" renders on every slot that has
-                        // a matching catalogue loaded. Helmets use
-                        // the skill-keyed `HelmetEnchantSet` shape;
-                        // gloves/boots use the flat `FlatEnchantSet`
-                        // shape. The popup gates on whichever
-                        // catalogue applies.
-                        let has_catalogue = match slot {
-                            Slot::Helmet => helmet_enchants.is_some(),
-                            Slot::Gloves => glove_enchants.is_some(),
-                            Slot::Boots => boot_enchants.is_some(),
-                            _ => false,
+                        // Enchantment" renders on every slot that
+                        // has a matching catalogue loaded. Helmet
+                        // uses the skill-keyed `HelmetEnchantSet`
+                        // shape; every other slot (gloves, boots,
+                        // body, belt, weapons, flasks) uses the
+                        // flat `FlatEnchantSet` shape via
+                        // `LoadedEnchants::flat_for`.
+                        let has_catalogue = if slot == Slot::Helmet {
+                            helmet_enchants.is_some()
+                        } else {
+                            enchants.flat_for(slot).is_some()
                         };
                         if has_catalogue
                             && ui

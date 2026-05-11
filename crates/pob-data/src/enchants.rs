@@ -199,6 +199,28 @@ pub fn load_boot_enchants(json: &str) -> Result<FlatEnchantSet, serde_json::Erro
     load_flat_enchants(json)
 }
 
+/// Body armour enchant catalogue — same flat shape; tier names like
+/// `HARVEST` reflect the league mechanic that gates each tier.
+pub fn load_body_enchants(json: &str) -> Result<FlatEnchantSet, serde_json::Error> {
+    load_flat_enchants(json)
+}
+
+/// Belt enchant catalogue.
+pub fn load_belt_enchants(json: &str) -> Result<FlatEnchantSet, serde_json::Error> {
+    load_flat_enchants(json)
+}
+
+/// Weapon enchant catalogue — shared across 1H and 2H weapons
+/// upstream; the picker maps every `Weapon*` slot to this one set.
+pub fn load_weapon_enchants(json: &str) -> Result<FlatEnchantSet, serde_json::Error> {
+    load_flat_enchants(json)
+}
+
+/// Flask enchant catalogue.
+pub fn load_flask_enchants(json: &str) -> Result<FlatEnchantSet, serde_json::Error> {
+    load_flat_enchants(json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
