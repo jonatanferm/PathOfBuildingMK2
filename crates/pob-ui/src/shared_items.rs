@@ -71,6 +71,23 @@ impl SharedItemStore {
         self.items.last().expect("just pushed")
     }
 
+    /// Issue #211 (slice 2): duplicate the entry at `index`, with the
+    /// label run through [`Self::unique_label`] so the new row stays
+    /// distinguishable in the dropdown. Returns the new index, or
+    /// `None` when `index` is out of range. Wired into the
+    /// shared-items right-click context menu's "Clone" entry.
+    pub fn clone_at(&mut self, index: usize) -> Option<usize> {
+        let source = self.items.get(index)?;
+        let new_label = self.unique_label(&source.label);
+        let new_item = source.item.clone();
+        self.items.push(SharedItem {
+            label: new_label,
+            item: new_item,
+        });
+        self.dirty = true;
+        Some(self.items.len() - 1)
+    }
+
     /// Remove the entry at `index` (no-op if out of range). Returns
     /// `true` if a row was removed.
     pub fn remove(&mut self, index: usize) -> bool {
@@ -292,6 +309,41 @@ mod tests {
         store.add("\t", make_item("", "")); // truly empty
         let labels: Vec<&str> = store.items.iter().map(|s| s.label.as_str()).collect();
         assert_eq!(labels, vec!["Headhunter", "Onyx Amulet", "Untitled"]);
+    }
+
+    #[test]
+    fn clone_at_appends_uniquely_labelled_copy_and_marks_dirty() {
+        // Issue #211 (slice 2): the shared-items right-click context
+        // menu offers a "Clone" entry so the user can branch a saved
+        // item before tweaking the copy in their build. The clone
+        // must carry a unique label (otherwise the existing
+        // `unique_label` dedup logic would have to be re-run by the
+        // caller) and the in-memory store must mark itself dirty so
+        // the per-frame disk-flush picks it up. Returning the new
+        // index lets the UI scroll-to / highlight the clone.
+        let mut store = SharedItemStore::new();
+        store.add("Boots", make_item("Kaom's Roots", "Titan Greaves"));
+        store.dirty = false;
+        let new_idx = store.clone_at(0).expect("idx 0 is in range");
+        assert!(store.dirty);
+        assert_eq!(store.len(), 2);
+        // The cloned item shares the underlying item but lives under
+        // a `Label (2)` style suffix so the dropdown stays unambiguous.
+        assert_eq!(store.items[new_idx].label, "Boots (2)");
+        assert_eq!(
+            store.items[new_idx].item.base_name,
+            store.items[0].item.base_name
+        );
+    }
+
+    #[test]
+    fn clone_at_out_of_range_returns_none_and_does_not_mark_dirty() {
+        let mut store = SharedItemStore::new();
+        store.add("Boots", make_item("Kaom's Roots", "Titan Greaves"));
+        store.dirty = false;
+        assert!(store.clone_at(99).is_none());
+        assert!(!store.dirty);
+        assert_eq!(store.len(), 1);
     }
 
     #[test]
