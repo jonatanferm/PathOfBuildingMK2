@@ -139,6 +139,12 @@ struct LoadedApp {
     /// noise from low-impact nodes. Applies on the next Refresh — same
     /// pattern as `heatmap_stat`.
     heatmap_top_n: Option<usize>,
+    /// Issue #207 follow-up: cached ranked list from
+    /// `rank_node_additions`, populated alongside [`Self::power_overlay`]
+    /// on a "Refresh heatmap" click. Drives the new "Top candidate
+    /// nodes" collapsing panel without paying for a second
+    /// N+1-perform-calls pass.
+    heatmap_ranked: Option<Vec<pob_engine::NodeScore>>,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
     /// Issue #209: user-global saved-items store. Loaded from disk at
@@ -603,6 +609,7 @@ impl PobApp {
             show_power_overlay: false,
             heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
             heatmap_top_n: None,
+            heatmap_ranked: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -702,6 +709,7 @@ impl PobApp {
             show_power_overlay: false,
             heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
             heatmap_top_n: None,
+            heatmap_ranked: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -1252,6 +1260,30 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     refresh_power_overlay(app);
                 }
             });
+            // Issue #207 follow-up: dump the cached ranked list as a
+            // human-readable "Top candidate nodes" collapsing panel.
+            // Closed by default — the user opens it when they want
+            // names alongside the heatmap colours. Only renders once
+            // a refresh has actually run so the panel can't sit
+            // empty next to a never-clicked button.
+            if let Some(ranked) = app.heatmap_ranked.as_ref() {
+                if !ranked.is_empty() {
+                    egui::CollapsingHeader::new("Top candidate nodes")
+                        .id_salt("tree_top_candidate_nodes")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            let lines = crate::node_power_heatmap::format_top_node_candidates(
+                                ranked,
+                                &app.tree,
+                                10,
+                                app.heatmap_stat,
+                            );
+                            for line in &lines {
+                                ui.monospace(line);
+                            }
+                        });
+                }
+            }
         });
     }
 
@@ -2374,19 +2406,26 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
         (Some(cj), Some(cm)) => Some(pob_engine::ClusterContext::new(cj, cm)),
         _ => None,
     };
-    let map = crate::node_power_heatmap::compute_heatmap_inputs(
+    // Issue #207 follow-up: rank once, reuse for both the colour map
+    // and the cached Top-candidate-nodes panel. Two consumers of the
+    // same expensive walk share one N+1-perform-calls pass.
+    let ranked = pob_engine::rank_node_additions(
         &app.character,
         &app.tree,
         Some(&app.skills),
         app.bases.as_ref(),
         cluster_ctx,
         None,
+    );
+    let map = crate::node_power_heatmap::compute_heatmap_inputs_from_ranked(
+        &ranked,
         app.heatmap_stat,
         app.heatmap_top_n,
     );
     app.power_overlay = Some(map);
     app.show_power_overlay = true;
     let entries = app.power_overlay.as_ref().map_or(0, |m| m.len());
+    app.heatmap_ranked = Some(ranked);
     app.status_message = Some((
         StatusKind::Info,
         format!("Node-power heatmap refreshed ({entries} candidate nodes)."),
