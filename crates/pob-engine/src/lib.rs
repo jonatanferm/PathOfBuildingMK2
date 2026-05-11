@@ -25,6 +25,7 @@ pub mod env;
 pub mod ggg_import;
 pub mod item_parser;
 pub mod jewel_radius;
+pub mod jewel_threshold;
 pub mod minion;
 pub mod mod_db;
 pub mod mod_parser;
@@ -62,6 +63,10 @@ pub use jewel_radius::{
     extend_anchored_with_intuitive_leap, identify_radius_jewel, intuitive_leap_radius_set,
     intuitive_leap_reachable, node_position, nodes_in_radius, HandlerKind, RadiusJewel,
     RadiusJewelReport, SocketedJewels,
+};
+pub use jewel_threshold::{
+    identify_threshold_jewel, registered_threshold_jewels, threshold_met, Attribute,
+    ThresholdJewelHandler,
 };
 pub use minion::{
     apply_minion_hit_chance, apply_minion_outputs, parse_minion_intrinsic_mods, select_minion_type,
