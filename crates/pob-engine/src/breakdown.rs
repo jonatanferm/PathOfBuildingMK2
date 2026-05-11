@@ -162,6 +162,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "AreaOfEffectRadiusMetres" => area_of_effect_radius_metres(env),
         "ProjectileCount" => projectile_count(env),
         "ProjectileMultiplier" => projectile_multiplier(env),
+        "MainSkillShockMult" => Some(main_skill_shock_mult(env)),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -458,6 +459,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "AreaOfEffectRadiusMetres",
     "ProjectileCount",
     "ProjectileMultiplier",
+    "MainSkillShockMult",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2845,6 +2847,71 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `MainSkillShockMult`. PoB applies
+/// shock as `EnemyDamageTaken INC` weighted by an effective shock
+/// chance:
+///
+///   chance = CurseShockChanceOnHit × (1 - crit) + 100 × crit
+///   mult   = 1 + chance / 100
+///
+/// (PoB only enables the path when CurseShockChanceOnHit > 0; pure
+/// crit-driven ShockChance from spells doesn't propagate.)
+///
+/// When the gate is off the multiplier collapses to 1.0× and the
+/// breakdown shows just the final "no shock active" line. When the
+/// gate is on it walks Curse → Crit → Effective chance → final.
+fn main_skill_shock_mult(env: &Env) -> Breakdown {
+    let mult = env.output.get("MainSkillShockMult");
+    let curse = env.output.get("CurseShockChanceOnHit");
+
+    let mut steps = Vec::new();
+    if curse > 0.0 {
+        let crit_pct = env.output.get("MainSkillCritChance");
+        let crit = crit_pct / 100.0;
+        let chance = (curse * (1.0 - crit) + 100.0 * crit).clamp(0.0, 100.0);
+        steps.push(
+            BreakdownStep::label("Curse-on-hit chance")
+                .with_value(curse)
+                .with_explain(format!(
+                    "{curse:.0}% from CurseShockChanceOnHit (curse / brand / item)"
+                )),
+        );
+        steps.push(
+            BreakdownStep::label("Crit chance")
+                .with_value(crit_pct)
+                .with_explain(format!(
+                    "{crit_pct:.1}% — crits always shock for 100% effective chance"
+                )),
+        );
+        steps.push(
+            BreakdownStep::label("Effective shock chance")
+                .with_value(chance)
+                .with_explain(format!(
+                    "{curse:.0} × (1 - {crit:.2}) + 100 × {crit:.2} = {chance:.1}%"
+                )),
+        );
+        steps.push(
+            BreakdownStep::label("Shock multiplier")
+                .with_value(mult)
+                .with_explain(format!("1 + {chance:.1}% = {mult:.2}×")),
+        );
+    } else {
+        steps.push(
+            BreakdownStep::label("Shock multiplier")
+                .with_value(mult)
+                .with_explain(
+                    "1.0× — no curse / brand / item source of shock-on-hit, so PoB suppresses the dynamic-effect mult".to_owned(),
+                ),
+        );
+    }
+
+    Breakdown {
+        output_key: "MainSkillShockMult".to_owned(),
+        total: mult,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `ProjectileMultiplier`. PoB caps
 /// the user's "projectiles hitting target" Config pick into
 /// `[1, ProjectileCount]` and uses the result as a per-hit damage
@@ -3975,6 +4042,61 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: MainSkillShockMult breakdown. PoB
+    /// applies shock as `EnemyDamageTaken INC` weighted by an
+    /// effective shock chance:
+    ///
+    ///   chance = CurseShockChanceOnHit × (1 - crit) + 100 × crit
+    ///   mult   = 1 + chance / 100
+    ///
+    /// Worked example: 60% curse-on-hit shock + 25% crit chance →
+    /// 60 × 0.75 + 100 × 0.25 = 70% effective → 1.70× damage.
+    #[test]
+    fn shock_mult_breakdown_walks_curse_crit_to_chance() {
+        let mut env = Env::default();
+        env.output.set("CurseShockChanceOnHit", 60.0);
+        env.output.set("MainSkillCritChance", 25.0);
+        env.output.set("MainSkillShockMult", 1.70);
+        let bd = derive_for(&env, "MainSkillShockMult").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Curse-on-hit chance"));
+        assert!(labels.contains(&"Crit chance"));
+        assert!(labels.contains(&"Effective shock chance"));
+        assert!(labels.contains(&"Shock multiplier"));
+
+        let chance = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Effective shock chance")
+            .unwrap();
+        // 60 × 0.75 + 100 × 0.25 = 70.
+        assert!(
+            (chance.value.unwrap() - 70.0).abs() < 1e-6,
+            "expected 70% effective chance, got {:?}",
+            chance.value
+        );
+        assert!((bd.total - 1.70).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: with no curse-on-hit shock chance the
+    /// breakdown collapses to a single "no shock active" line at
+    /// 1.0×. PoB's gate (only emit non-1.0 mult when curse is
+    /// active) is mirrored exactly.
+    #[test]
+    fn shock_mult_breakdown_collapses_when_no_curse() {
+        let mut env = Env::default();
+        env.output.set("MainSkillShockMult", 1.0);
+        let bd = derive_for(&env, "MainSkillShockMult").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Shock multiplier"));
+        // Without curse-shock-on-hit there's no chance composition
+        // to walk, so the intermediate steps are suppressed.
+        assert!(!labels.contains(&"Curse-on-hit chance"));
+        assert!(!labels.contains(&"Effective shock chance"));
+        let final_step = bd.steps.last().unwrap();
+        assert!((final_step.value.unwrap() - 1.0).abs() < 1e-9);
+    }
+
     /// Issue #34 follow-up: ProjectileMultiplier walks the
     /// Config "projectiles hitting target" → projectile cap → final
     /// damage multiplier. PoB caps the user's pick into
