@@ -24,6 +24,7 @@ pub mod cluster_synth;
 pub mod env;
 pub mod ggg_import;
 pub mod item_parser;
+pub mod jewel_geometry;
 pub mod jewel_radius;
 pub mod minion;
 pub mod mod_db;
