@@ -1,0 +1,220 @@
+//! Issue #213 (slice 1): pure data layer for the Builds tab folder
+//! browser.
+//!
+//! Mirrors PoB's `Classes/FolderListControl.lua` — builds can live in
+//! nested folders, and the UI renders an expand/collapse tree.
+//! `crates/pob-ui/src/builds_tab.rs` previously showed a single-level
+//! grouping by [`BuildEntry::category`]; this module turns that flat
+//! category string (which may contain `/`-separated path segments,
+//! mirroring on-disk directory nesting) into a hierarchical
+//! [`FolderNode`] tree.
+//!
+//! Pure helper only: no egui, no filesystem, deterministically sorted
+//! output so the renderer (next slice) can diff frames without
+//! reshuffling. The renderer is intentionally out of scope here — see
+//! issue #213 follow-ups.
+//!
+//! Ordering rules (matches `build_store_disk::rescan`):
+//! * Within each level, subfolders sort before builds (PoB convention).
+//! * Folder names sort case-insensitively, ASCII fold.
+//! * Build labels sort case-insensitively within their folder.
+//! * Empty / whitespace-only path segments are stripped — defensive
+//!   against malformed `category` strings.
+//!
+//! `dead_code` allowed module-wide because the renderer (next slice
+//! of issue #213) is the consumer; the data layer ships independently
+//! to keep the PR focused.
+
+#![allow(dead_code)]
+
+use crate::builds_tab::BuildEntry;
+
+/// Node in the builds folder hierarchy. The root node carries an
+/// empty `name`; all other nodes name a directory segment.
+#[derive(Debug, Clone, Default)]
+pub struct FolderNode {
+    /// Directory segment for this node. Empty for the root.
+    pub name: String,
+    /// Subfolders, sorted case-insensitively by `name`.
+    pub children: Vec<FolderNode>,
+    /// Builds that live directly in this folder, sorted
+    /// case-insensitively by `label`.
+    pub builds: Vec<BuildEntry>,
+}
+
+/// Group a flat list of [`BuildEntry`]s into a folder tree.
+///
+/// Each entry's [`BuildEntry::category`] is interpreted as a
+/// `/`-separated path. `None` (or an empty / whitespace-only category)
+/// places the build at the root.
+#[must_use]
+pub fn build_folder_tree(builds: &[BuildEntry]) -> FolderNode {
+    let mut root = FolderNode::default();
+    for entry in builds {
+        let segments = split_category(entry.category.as_deref());
+        insert_build(&mut root, &segments, entry.clone());
+    }
+    sort_node(&mut root);
+    root
+}
+
+fn split_category(category: Option<&str>) -> Vec<String> {
+    let Some(raw) = category else {
+        return Vec::new();
+    };
+    raw.split('/')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn insert_build(node: &mut FolderNode, segments: &[String], entry: BuildEntry) {
+    let Some((head, tail)) = segments.split_first() else {
+        node.builds.push(entry);
+        return;
+    };
+    if let Some(idx) = node.children.iter().position(|c| c.name == *head) {
+        insert_build(&mut node.children[idx], tail, entry);
+    } else {
+        let mut child = FolderNode {
+            name: head.clone(),
+            ..FolderNode::default()
+        };
+        insert_build(&mut child, tail, entry);
+        node.children.push(child);
+    }
+}
+
+fn sort_node(node: &mut FolderNode) {
+    node.children.sort_by(|a, b| {
+        a.name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase())
+    });
+    node.builds.sort_by(|a, b| {
+        a.label
+            .to_ascii_lowercase()
+            .cmp(&b.label.to_ascii_lowercase())
+    });
+    for child in &mut node.children {
+        sort_node(child);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builds_tab::BuildId;
+    use std::path::PathBuf;
+
+    fn mk(label: &str, category: Option<&str>) -> BuildEntry {
+        BuildEntry {
+            label: label.to_owned(),
+            id: BuildId::Disk(PathBuf::from(format!("/tmp/{label}.mk2"))),
+            ext: "mk2".to_owned(),
+            category: category.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn empty_input_yields_empty_root() {
+        let tree = build_folder_tree(&[]);
+        assert_eq!(tree.name, "");
+        assert!(tree.children.is_empty());
+        assert!(tree.builds.is_empty());
+    }
+
+    #[test]
+    fn single_root_build_lands_in_root() {
+        let entries = vec![mk("Solo", None)];
+        let tree = build_folder_tree(&entries);
+        assert!(tree.children.is_empty());
+        assert_eq!(tree.builds.len(), 1);
+        assert_eq!(tree.builds[0].label, "Solo");
+    }
+
+    #[test]
+    fn nested_folder_structure_mirrors_path_segments() {
+        let entries = vec![
+            mk("PhysRT", Some("Levelling/Marauder")),
+            mk("CI", Some("Levelling/Witch")),
+            mk("HCDD", Some("Bossing")),
+        ];
+        let tree = build_folder_tree(&entries);
+        assert_eq!(tree.children.len(), 2);
+        // Bossing sorts before Levelling.
+        assert_eq!(tree.children[0].name, "Bossing");
+        assert_eq!(tree.children[0].builds.len(), 1);
+        assert_eq!(tree.children[0].builds[0].label, "HCDD");
+
+        let levelling = &tree.children[1];
+        assert_eq!(levelling.name, "Levelling");
+        assert!(levelling.builds.is_empty());
+        assert_eq!(levelling.children.len(), 2);
+        assert_eq!(levelling.children[0].name, "Marauder");
+        assert_eq!(levelling.children[0].builds[0].label, "PhysRT");
+        assert_eq!(levelling.children[1].name, "Witch");
+        assert_eq!(levelling.children[1].builds[0].label, "CI");
+    }
+
+    #[test]
+    fn entries_sort_alphabetically_case_insensitive_within_each_level() {
+        let entries = vec![
+            mk("Zeta", None),
+            mk("alpha", None),
+            mk("MIDDLE", None),
+            mk("beta", Some("Group")),
+            mk("Alpha", Some("Group")),
+        ];
+        let tree = build_folder_tree(&entries);
+        let labels: Vec<&str> = tree.builds.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, vec!["alpha", "MIDDLE", "Zeta"]);
+        assert_eq!(tree.children.len(), 1);
+        let group_labels: Vec<&str> = tree.children[0]
+            .builds
+            .iter()
+            .map(|e| e.label.as_str())
+            .collect();
+        assert_eq!(group_labels, vec!["Alpha", "beta"]);
+    }
+
+    #[test]
+    fn mixed_builds_and_folders_coexist_at_same_level() {
+        let entries = vec![
+            mk("scratch", None),
+            mk("notes", None),
+            mk("PhysRT", Some("Levelling")),
+            mk("HCDD", Some("Bossing")),
+        ];
+        let tree = build_folder_tree(&entries);
+        // Both root-level subfolders present.
+        let folder_names: Vec<&str> = tree.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(folder_names, vec!["Bossing", "Levelling"]);
+        // Both root-level builds present and sorted.
+        let root_labels: Vec<&str> = tree.builds.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(root_labels, vec!["notes", "scratch"]);
+    }
+
+    #[test]
+    fn empty_and_whitespace_segments_are_stripped() {
+        // Defensive: a `/Levelling/` category or `  /  ` shouldn't
+        // produce empty-named folders in the tree.
+        let entries = vec![
+            mk("A", Some("/Levelling/")),
+            mk("B", Some("  ")),
+            mk("C", Some("Bossing//HC")),
+        ];
+        let tree = build_folder_tree(&entries);
+        // "B" with whitespace-only category lands at the root.
+        assert_eq!(tree.builds.len(), 1);
+        assert_eq!(tree.builds[0].label, "B");
+        assert_eq!(tree.children.len(), 2);
+        assert_eq!(tree.children[0].name, "Bossing");
+        assert_eq!(tree.children[0].children.len(), 1);
+        assert_eq!(tree.children[0].children[0].name, "HC");
+        assert_eq!(tree.children[0].children[0].builds[0].label, "C");
+        assert_eq!(tree.children[1].name, "Levelling");
+        assert_eq!(tree.children[1].builds[0].label, "A");
+    }
+}
