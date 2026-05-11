@@ -221,6 +221,12 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ColdTotalPool" => total_pool(env, "Cold", "TotalPool", "Cold total pool"),
         "LightningTotalPool" => total_pool(env, "Lightning", "TotalPool", "Lightning total pool"),
         "ChaosTotalPool" => total_pool(env, "Chaos", "TotalPool", "Chaos total pool"),
+        // Issue #34 follow-up: Phase 2 baseline aliases for Life
+        // (no recoup, no MoM split). All three rows collapse to the
+        // Life output; the breakdown calls out the alias.
+        "LifeHitPool" => life_alias(env, "LifeHitPool", "Life hit pool"),
+        "LifeRecoverable" => life_alias(env, "LifeRecoverable", "Life recoverable"),
+        "StunThreshold" => life_alias(env, "StunThreshold", "Stun threshold"),
         "PhysicalDotEHP" => dot_ehp(env, "Physical"),
         "FireDotEHP" => dot_ehp(env, "Fire"),
         "ColdDotEHP" => dot_ehp(env, "Cold"),
@@ -2928,6 +2934,44 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for the three Life-pool
+/// alias outputs (`LifeHitPool`, `LifeRecoverable`, `StunThreshold`).
+/// All three collapse to the `Life` output in Phase 2 (no recoup
+/// mods, no MoM split); the breakdown calls out the alias so users
+/// don't wonder why three rows on the defence panel show the same
+/// number.
+///
+/// Returns `None` when Life is zero (no character loaded yet).
+fn life_alias(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdown> {
+    let life = env.output.get("Life");
+    if life.abs() < 1e-9 {
+        return None;
+    }
+    let total = env.output.get(output_key);
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Life")
+            .with_value(life)
+            .with_explain(format!(
+                "{life:.0} from the Life pool — see its breakdown for the source mods"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(final_label)
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0} — alias of Life (Phase 2 baseline; no recoup / MoM split yet)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: output_key.to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for the per-element
 /// `<Element>TotalHitPool` / `<Element>TotalPool` outputs. PoB
 /// exposes both for each of the five damage types (Physical / Fire
@@ -4757,6 +4801,70 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: LifeHitPool / LifeRecoverable /
+    /// StunThreshold all collapse to the Life output in Phase 2 (no
+    /// recoup mods, no MoM split). Surfacing the alias relationship
+    /// in the breakdown panel saves users from wondering why three
+    /// rows show the same number.
+    #[test]
+    fn life_hit_pool_breakdown_aliases_life() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("LifeHitPool", 1100.0);
+        let bd = derive_for(&env, "LifeHitPool").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life"));
+        assert!(labels.contains(&"Life hit pool"));
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("alias") || e.contains("Phase 2")),
+            "expected alias hint in explain, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 1100.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: LifeRecoverable shares the same alias
+    /// shape as LifeHitPool — both equal Life in Phase 2.
+    #[test]
+    fn life_recoverable_breakdown_aliases_life() {
+        let mut env = Env::default();
+        env.output.set("Life", 800.0);
+        env.output.set("LifeRecoverable", 800.0);
+        let bd = derive_for(&env, "LifeRecoverable").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life recoverable"));
+        assert!((bd.total - 800.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: StunThreshold also = Life in Phase 2.
+    #[test]
+    fn stun_threshold_breakdown_aliases_life() {
+        let mut env = Env::default();
+        env.output.set("Life", 1500.0);
+        env.output.set("StunThreshold", 1500.0);
+        let bd = derive_for(&env, "StunThreshold").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Stun threshold"));
+        assert!((bd.total - 1500.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: all three life-pool aliases return None
+    /// when Life is zero (no character loaded yet).
+    #[test]
+    fn life_pool_alias_breakdowns_skipped_when_no_life() {
+        let env = Env::default();
+        for key in ["LifeHitPool", "LifeRecoverable", "StunThreshold"] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when Life is zero",
+            );
+        }
+    }
+
     /// Issue #34 follow-up: FireTotalHitPool walks Life + ES + Ward
     /// → Pool. PoB exposes per-element `<Element>TotalHitPool` /
     /// `<Element>TotalPool` outputs that all collapse to the same
