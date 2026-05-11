@@ -110,6 +110,13 @@ impl ToastQueue {
         }
     }
 
+    /// Issue #225 polish: drop every live toast. Used by the overlay
+    /// "Clear all" link when more than one toast is visible — saves
+    /// the user a click per entry when a burst lands at once.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
     /// Iterate currently-visible toasts (after the last `sweep`).
     /// Order is insertion-order so the most recent message is at the
     /// bottom of the stack — matches the convention most desktop OS
@@ -232,6 +239,21 @@ mod tests {
         // Empty queue: any index is out of range.
         let mut empty = ToastQueue::default();
         assert!(!empty.dismiss(0));
+    }
+
+    #[test]
+    fn clear_drops_every_entry() {
+        // Issue #225 polish: "Clear all" link in the overlay calls
+        // ToastQueue::clear. Confirms it empties the queue and that
+        // a subsequent `is_empty` agrees.
+        let mut q = ToastQueue::default();
+        q.push_with_lifetime(StatusKind::Info, "a", 0.0, 10.0);
+        q.push_with_lifetime(StatusKind::Error, "b", 0.0, 10.0);
+        q.push_with_lifetime(StatusKind::Info, "c", 0.0, 10.0);
+        assert_eq!(q.len(), 3);
+        q.clear();
+        assert!(q.is_empty());
+        assert_eq!(q.len(), 0);
     }
 
     #[test]
