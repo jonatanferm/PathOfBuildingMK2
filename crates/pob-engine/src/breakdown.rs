@@ -290,6 +290,10 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "LifeFlaskRecovery" => flask_recovery(env, "Life"),
         "ManaFlaskRecovery" => flask_recovery(env, "Mana"),
         "AoERadius" => aoe_radius_base(env),
+        "LifeReservedPercent" => reservation_percent(env, "Life", "Reserved"),
+        "ManaReservedPercent" => reservation_percent(env, "Mana", "Reserved"),
+        "LifeUnreservedPercent" => reservation_percent(env, "Life", "Unreserved"),
+        "ManaUnreservedPercent" => reservation_percent(env, "Mana", "Unreserved"),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3181,6 +3185,57 @@ fn main_skill_enemy_effective_resist(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for the four reservation-percent
+/// outputs (Life/Mana × Reserved/Unreserved). PoB derives each as
+/// `<absolute> / pool × 100` after `perform_reservations` folds in
+/// the flat + percent reservation contributions from auras / heralds
+/// (the absolute is exposed as `<Pool><Reserved|Unreserved>` and the
+/// percent as `<Pool><Reserved|Unreserved>Percent`).
+///
+/// Surfaces Pool, the absolute reserved/unreserved value (with a
+/// back-link to the matching Life/Mana[Un]reserved row), and the
+/// percentage formula.
+///
+/// `pool_key` selects "Life" / "Mana"; `kind` selects "Reserved" /
+/// "Unreserved". Returns `None` when the pool is zero.
+fn reservation_percent(env: &Env, pool_key: &str, kind: &str) -> Option<Breakdown> {
+    let pool = env.output.get(pool_key);
+    if pool.abs() < 1e-9 {
+        return None;
+    }
+    let absolute_key = format!("{pool_key}{kind}");
+    let percent_key = format!("{absolute_key}Percent");
+    let absolute = env.output.get(&absolute_key);
+    let percent = env.output.get(&percent_key);
+    let pool_lower = pool_key.to_ascii_lowercase();
+    let kind_lower = kind.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label(format!("{pool_key} pool"))
+            .with_value(pool)
+            .with_explain(format!("{pool:.0} max {pool_lower} from pool derivation")),
+    );
+    steps.push(
+        BreakdownStep::label(kind)
+            .with_value(absolute)
+            .with_explain(format!(
+                "{absolute:.0} from {absolute_key} — see its breakdown for the auras / heralds eating the pool"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(format!("{pool_key} {kind_lower} (%)"))
+            .with_value(percent)
+            .with_explain(format!("{absolute:.0} / {pool:.0} × 100 = {percent:.1}%")),
+    );
+
+    Some(Breakdown {
+        output_key: percent_key,
+        total: percent,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `AoERadius` (the base AoE radius
 /// before the area-mod sqrt scaling). PoB derives it as
 /// `skill_base + Σ BASE("AreaOfEffect")` (`perform_skill_dps`).
@@ -5437,6 +5492,68 @@ mod tests {
             derive_for(&env, "MainSkillEnemyEffectiveResist").is_none(),
             "expected None when MainSkillEnemyEffectiveResist is zero",
         );
+    }
+
+    /// Issue #34 follow-up: LifeReservedPercent walks the
+    /// reservation arithmetic — `reserved / pool × 100`. The Calcs
+    /// tab surfaces the percent next to the absolute reserved
+    /// number; the breakdown shows the division explicitly so
+    /// users can see what's eating their pool. Worked example:
+    /// 350 reserved / 1100 pool × 100 = 31.8%.
+    #[test]
+    fn life_reserved_percent_breakdown_walks_reservation_arithmetic() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("LifeReserved", 350.0);
+        env.output.set("LifeReservedPercent", 31.8);
+        let bd = derive_for(&env, "LifeReservedPercent").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life pool"));
+        assert!(labels.contains(&"Reserved"));
+        assert!(labels.contains(&"Life reserved (%)"));
+
+        let pool = bd.steps.iter().find(|s| s.label == "Life pool").unwrap();
+        assert!((pool.value.unwrap() - 1100.0).abs() < 1e-9);
+
+        let reserved = bd.steps.iter().find(|s| s.label == "Reserved").unwrap();
+        assert!((reserved.value.unwrap() - 350.0).abs() < 1e-9);
+
+        assert!((bd.total - 31.8).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: ManaUnreservedPercent walks the
+    /// complementary ratio (`unreserved / pool × 100`). Worked
+    /// example: 215 unreserved / 360 pool = 59.7%.
+    #[test]
+    fn mana_unreserved_percent_breakdown_walks_unreserved_ratio() {
+        let mut env = Env::default();
+        env.output.set("Mana", 360.0);
+        env.output.set("ManaUnreserved", 215.0);
+        env.output.set("ManaUnreservedPercent", 59.7);
+        let bd = derive_for(&env, "ManaUnreservedPercent").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Mana pool"));
+        assert!(labels.contains(&"Unreserved"));
+        assert!(labels.contains(&"Mana unreserved (%)"));
+        assert!((bd.total - 59.7).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: all four reservation-percent
+    /// breakdowns return None when the pool is zero.
+    #[test]
+    fn reservation_percent_breakdowns_skipped_when_no_pool() {
+        let env = Env::default();
+        for key in [
+            "LifeReservedPercent",
+            "ManaReservedPercent",
+            "LifeUnreservedPercent",
+            "ManaUnreservedPercent",
+        ] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when pool is zero",
+            );
+        }
     }
 
     /// Issue #34 follow-up: AoERadius walks the base AoE radius
