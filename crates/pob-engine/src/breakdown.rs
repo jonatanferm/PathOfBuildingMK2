@@ -203,6 +203,11 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             resist_max(env, "LightningResistMax", "Lightning resistance maximum")
         }
         "ChaosResistMax" => resist_max(env, "ChaosResistMax", "Chaos resistance maximum"),
+        "PhysicalDotEHP" => dot_ehp(env, "Physical"),
+        "FireDotEHP" => dot_ehp(env, "Fire"),
+        "ColdDotEHP" => dot_ehp(env, "Cold"),
+        "LightningDotEHP" => dot_ehp(env, "Lightning"),
+        "ChaosDotEHP" => dot_ehp(env, "Chaos"),
         "PhysicalMaximumHitTaken" => maximum_hit_taken(env, "Physical"),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
@@ -2906,6 +2911,66 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
 }
 
 /// Issue #34 follow-up: shared helper for the five
+/// `<Element>DotEHP` outputs. PoB derives all five through the same
+/// `perform_ehp` shape:
+///
+///   dot_ehp = pool / (1 - resist)
+///
+/// — DoT damage doesn't go through hit-time defences (block,
+/// suppression), so the taken multiplier is just the resist factor.
+/// For `Physical` the source value is `PhysicalDamageReduction`
+/// rather than a resist; everything else uses `<Element>ResistTotal`.
+///
+/// Returns `None` when the pool is zero.
+fn dot_ehp(env: &Env, elem: &str) -> Option<Breakdown> {
+    let life = env.output.get("Life");
+    let es = env.output.get("EnergyShield");
+    let ward = env.output.get("Ward");
+    let pool = life + es + ward;
+    if pool.abs() < 1e-9 {
+        return None;
+    }
+    let total = env.output.get(&format!("{elem}DotEHP"));
+    // Back-derive the taken multiplier from pool / dot_ehp so the
+    // breakdown stays correct regardless of which mitigation source
+    // populates it (resist for elements, reduction for physical).
+    let taken = if total > 1e-9 { pool / total } else { 1.0 };
+    let mitigation_pct = (1.0 - taken) * 100.0;
+    let mitigation_label = if elem == "Physical" {
+        "physical damage reduction"
+    } else {
+        "resistance"
+    };
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Pool")
+            .with_value(pool)
+            .with_explain(format!(
+                "{life:.0} life + {es:.0} ES + {ward:.0} ward = {pool:.0}"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Taken multiplier")
+            .with_value(taken)
+            .with_explain(format!(
+                "1 - {mitigation_pct:.0}% {mitigation_label} = {taken:.2}× damage taken"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(format!("{elem} DoT EHP"))
+            .with_value(total)
+            .with_explain(format!("{pool:.0} / {taken:.2} = {total:.0}")),
+    );
+
+    Some(Breakdown {
+        output_key: format!("{elem}DotEHP"),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: shared helper for the five
 /// `<Element>MaximumHitTaken` outputs. PoB derives all five through
 /// the same shape (`perform_ehp`):
 ///
@@ -4621,6 +4686,79 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: FireDotEHP walks Pool → Taken multi
+    /// (= 1 - resist) → Final. PoB derives all five `<Element>DotEHP`
+    /// outputs as `pool / (1 - resist)`, with no block /
+    /// suppression layered (DoT damage doesn't go through hit-time
+    /// defences). Worked example: 1100 pool, 75% fire resist →
+    /// pool / 0.25 = 4400 fire dot EHP.
+    #[test]
+    fn fire_dot_ehp_breakdown_walks_pool_and_resist() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("EnergyShield", 0.0);
+        env.output.set("Ward", 0.0);
+        env.output.set("FireResistTotal", 75.0);
+        env.output.set("FireDotEHP", 4400.0);
+        let bd = derive_for(&env, "FireDotEHP").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Pool"));
+        assert!(labels.contains(&"Taken multiplier"));
+        assert!(labels.contains(&"Fire DoT EHP"));
+
+        let pool = bd.steps.iter().find(|s| s.label == "Pool").unwrap();
+        assert!((pool.value.unwrap() - 1100.0).abs() < 1e-9);
+
+        let taken = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Taken multiplier")
+            .unwrap();
+        // 1 - 0.75 = 0.25.
+        assert!((taken.value.unwrap() - 0.25).abs() < 1e-6);
+
+        assert!((bd.total - 4400.0).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: PhysicalDotEHP uses
+    /// PhysicalDamageReduction instead of element resist. Worked
+    /// example: 1100 pool, 50% phys reduction → pool / 0.50 =
+    /// 2200.
+    #[test]
+    fn physical_dot_ehp_breakdown_walks_pool_and_reduction() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("EnergyShield", 0.0);
+        env.output.set("Ward", 0.0);
+        env.output.set("PhysicalDamageReduction", 50.0);
+        env.output.set("PhysicalDotEHP", 2200.0);
+        let bd = derive_for(&env, "PhysicalDotEHP").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Pool"));
+        assert!(labels.contains(&"Taken multiplier"));
+        assert!(labels.contains(&"Physical DoT EHP"));
+        assert!((bd.total - 2200.0).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: returns None for any of the five DoT
+    /// EHP outputs when the pool is zero.
+    #[test]
+    fn dot_ehp_breakdown_skipped_when_no_pool() {
+        let env = Env::default();
+        for key in [
+            "PhysicalDotEHP",
+            "FireDotEHP",
+            "ColdDotEHP",
+            "LightningDotEHP",
+            "ChaosDotEHP",
+        ] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when pool is zero",
+            );
+        }
+    }
+
     /// Issue #34 follow-up: PhysicalMaximumHitTaken walks
     /// PhysicalEHP → Pool × 10 cap → min. PoB's defence panel uses
     /// the cap to prevent unrealistic numbers when an element has
