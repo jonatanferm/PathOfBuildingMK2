@@ -3172,6 +3172,41 @@ fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction
             };
             load_compare_from_path(app, path);
         }
+        compare_tab::CompareAction::SaveSnapshotToFile => {
+            // Issue #223 follow-up: write the snapshot's character
+            // back to disk. Default filename comes from the snapshot
+            // label (`default_snapshot_filename` already strips the
+            // forbidden chars).
+            let Some(snap) = app.compare_state.snapshot.as_ref() else {
+                return;
+            };
+            let default_name = compare_tab::default_snapshot_filename(&snap.label);
+            let Some(path) = rfd::FileDialog::new()
+                .add_filter("MK2 build", &["mk2"])
+                .set_file_name(&default_name)
+                .save_file()
+            else {
+                return;
+            };
+            match pob_engine::export_code(&snap.character) {
+                Ok(code) => match std::fs::write(&path, code) {
+                    Ok(()) => {
+                        app.status_message = Some((
+                            StatusKind::Info,
+                            format!("Snapshot saved to {}", path.display()),
+                        ));
+                    }
+                    Err(e) => {
+                        app.status_message =
+                            Some((StatusKind::Error, format!("Snapshot save failed: {e}")));
+                    }
+                },
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Snapshot export failed: {e}")));
+                }
+            }
+        }
     }
 }
 

@@ -98,6 +98,13 @@ pub enum CompareAction {
     /// Emitted only when `state.snapshot.source_path` is `Some` — the
     /// renderer hides the button for in-memory snapshots.
     ReimportCurrent,
+    /// Issue #223 follow-up: write the current snapshot's character
+    /// back to disk as a `.mk2` so the user can keep a comparison
+    /// build they constructed in-memory ("Snapshot current build")
+    /// without retreating to the main Save flow. The host opens a
+    /// file picker pre-populated with a sanitised label and writes
+    /// `export_code(snapshot.character)`.
+    SaveSnapshotToFile,
 }
 
 pub fn ui(
@@ -143,6 +150,22 @@ pub fn ui(
                 .clicked()
         {
             action = Some(CompareAction::ReimportCurrent);
+        }
+        // Issue #223 follow-up: persist the in-memory snapshot to a
+        // `.mk2` file so a comparison build constructed via "Snapshot
+        // current build" survives a restart without falling back to
+        // the main Save flow.
+        if state.snapshot.is_some()
+            && ui
+                .button("Save snapshot…")
+                .on_hover_text(
+                    "Write the snapshot's character to a `.mk2` file. The picker \
+                     pre-populates with a sanitised version of the snapshot \
+                     label.",
+                )
+                .clicked()
+        {
+            action = Some(CompareAction::SaveSnapshotToFile);
         }
         if state.snapshot.is_some() && ui.button("Clear snapshot").clicked() {
             state.snapshot = None;
@@ -532,6 +555,39 @@ fn format_percent(p: f64) -> String {
     } else {
         format!("{p:.1}%")
     }
+}
+
+/// Issue #223 follow-up: turn a snapshot's display label into a safe
+/// default filename. Strips characters that would trip the platform
+/// file picker (`/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`, control
+/// chars) and collapses internal whitespace to single spaces so a
+/// label like "Witch Arc (boss / mapping)" becomes
+/// `Witch Arc (boss mapping).mk2`.
+///
+/// Empty input falls back to `snapshot.mk2`. Capped at 64 chars
+/// before the extension so an absurdly long label doesn't blow past
+/// per-platform filename limits (Windows is 255 chars; we leave room
+/// for the directory and a leading marker).
+#[must_use]
+pub fn default_snapshot_filename(label: &str) -> String {
+    const FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+    let cleaned: String = label
+        .chars()
+        .filter(|c| !c.is_control() && !FORBIDDEN.contains(c))
+        .collect();
+    let collapsed: String = cleaned.split_whitespace().collect::<Vec<&str>>().join(" ");
+    let trimmed = collapsed.trim();
+    let stem = if trimmed.is_empty() {
+        "snapshot"
+    } else if trimmed.chars().count() > 64 {
+        // Truncate to char-boundary at 64 graphemes (approximate via
+        // chars — labels are ASCII-dominant in practice).
+        let head: String = trimmed.chars().take(64).collect();
+        return format!("{}.mk2", head.trim_end());
+    } else {
+        trimmed
+    };
+    format!("{stem}.mk2")
 }
 
 /// Issue #223 follow-up: trim + sanitise a user-typed snapshot label.
@@ -928,6 +984,54 @@ mod tests {
             },
             points: TreePoints::default(),
         }
+    }
+
+    #[test]
+    fn default_snapshot_filename_falls_back_for_empty_input() {
+        // Empty / whitespace-only label maps to a stable default so
+        // the file picker isn't pre-populated with junk.
+        assert_eq!(default_snapshot_filename(""), "snapshot.mk2");
+        assert_eq!(default_snapshot_filename("   "), "snapshot.mk2");
+    }
+
+    #[test]
+    fn default_snapshot_filename_strips_filesystem_forbidden_chars() {
+        // Windows/macOS/Linux all forbid some of `/ \ : * ? " < > |`
+        // in filenames. Strip every one of them and collapse the
+        // resulting double-space.
+        let out = default_snapshot_filename(r#"My/build:test*?"<>|"#);
+        assert_eq!(out, "Mybuildtest.mk2");
+    }
+
+    #[test]
+    fn default_snapshot_filename_collapses_interior_whitespace() {
+        // Tabs and runs of spaces collapse to single spaces so the
+        // resulting filename reads cleanly.
+        let out = default_snapshot_filename("Witch  Arc\t L92");
+        assert_eq!(out, "Witch Arc L92.mk2");
+    }
+
+    #[test]
+    fn default_snapshot_filename_truncates_long_labels() {
+        // Defends against a 200-char rare-item-style label blowing
+        // past per-platform filename caps (Windows: 255 chars).
+        let huge = "a".repeat(200);
+        let out = default_snapshot_filename(&huge);
+        // 64 chars + ".mk2" suffix = 68 bytes.
+        assert!(out.ends_with(".mk2"));
+        assert!(
+            out.len() <= 68,
+            "expected truncation to 64+suffix, got {} bytes",
+            out.len()
+        );
+    }
+
+    #[test]
+    fn default_snapshot_filename_preserves_unicode_letters() {
+        // Stripping should be precise: real text characters survive,
+        // only the forbidden punctuation drops.
+        let out = default_snapshot_filename("Boss — Ngamahu");
+        assert_eq!(out, "Boss — Ngamahu.mk2");
     }
 
     #[test]
