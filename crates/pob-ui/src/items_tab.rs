@@ -110,29 +110,11 @@ pub struct ItemSetRenameState {
     pub last_error: Option<ItemSetOpError>,
 }
 
-/// Issue #222: format the dropdown label shown for each saved item set in the
-/// switcher [`egui::ComboBox`]. Tagged with the 1-based index so users can map
-/// the dropdown to the inline buttons / manage popup, and with a small marker
-/// when the entry is the currently active set so the closed combo communicates
-/// "this is the live set" without an extra label.
-///
-/// Pure / no-`egui` so it lives in the unit-test loop. The `is_active` input is
-/// derived in the UI from [`ItemsTabState::active_item_set_idx`] (which the
-/// switcher writes when the user picks an entry).
-pub fn format_set_dropdown_label(name: &str, idx: usize, is_active: bool) -> String {
-    let trimmed = name.trim();
-    let display = if trimmed.is_empty() {
-        "(unnamed)"
-    } else {
-        trimmed
-    };
-    let one_based = idx + 1;
-    if is_active {
-        format!("● {one_based}. {display}")
-    } else {
-        format!("  {one_based}. {display}")
-    }
-}
+// Issue #222: the dropdown-label formatter moved to `crate::set_switcher`
+// so the future skill-set / config-set switchers can share it. The
+// `pub use` keeps the original `items_tab::format_set_dropdown_label`
+// path live for any external caller (tests, other tabs).
+pub use crate::set_switcher::format_set_dropdown_label;
 
 /// Issue #209: which sub-list the browse panel is currently showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -639,24 +621,11 @@ pub fn clone_item_set(character: &mut Character, idx: usize) -> Result<usize, It
     Ok(target_idx)
 }
 
-/// Issue #222: shift the switcher's remembered active index after a delete.
-/// `deleted_idx` is the position the user just removed from
-/// `character.item_sets`. The active marker should:
-/// * clear when the active entry itself was removed (no successor is implied),
-/// * shift down by one when an entry *before* the active one was removed (so
-///   the marker still points at the same set),
-/// * stay put for deletes after the active entry.
-///
-/// Pulled into a pure helper so the rule is documented and unit-testable in
-/// isolation — both the inline chip row and the manage popup call it.
-pub fn shift_active_idx_after_delete(active: Option<usize>, deleted_idx: usize) -> Option<usize> {
-    let active = active?;
-    match active.cmp(&deleted_idx) {
-        std::cmp::Ordering::Equal => None,
-        std::cmp::Ordering::Greater => Some(active - 1),
-        std::cmp::Ordering::Less => Some(active),
-    }
-}
+// Issue #222: the active-idx shift rule moved to `crate::set_switcher`
+// so the future skill-set / config-set switchers can share it. The
+// `pub use` keeps the original `items_tab::shift_active_idx_after_delete`
+// path live for inline-chip / manage-popup callers below.
+pub use crate::set_switcher::shift_active_idx_after_delete;
 
 /// Pick the first free " (copy)" / " (copy 2)" / … suffix for `base`.
 fn unique_clone_name(base: &str, character: &Character) -> String {
@@ -2732,86 +2701,12 @@ mod tests {
 
     // ─── Issue #222: switcher dropdown + manage popup helpers ────────────
     //
-    // Both helpers are pure: `format_set_dropdown_label` formats the entry
-    // shown in the `egui::ComboBox` (active-marker glyph + 1-based index +
-    // name), and `shift_active_idx_after_delete` adjusts the remembered
-    // active pointer when an entry is removed (clear on self-delete, shift
-    // down on earlier-delete, no-op on later-delete). Tested in isolation
-    // since the egui combo can't run in a unit test.
-
-    #[test]
-    fn format_set_dropdown_label_marks_active_entry() {
-        // Active rows get a filled glyph so the closed combo communicates
-        // "this is the live set" without an extra label nearby.
-        let label = format_set_dropdown_label("Tank", 0, true);
-        assert!(label.starts_with('●'), "expected active glyph, got {label}");
-        assert!(
-            label.contains("1. Tank"),
-            "expected 1-based index, got {label}"
-        );
-    }
-
-    #[test]
-    fn format_set_dropdown_label_pads_inactive_entry() {
-        // Inactive rows align with active rows by leading whitespace so
-        // names line up vertically inside the dropdown.
-        let label = format_set_dropdown_label("DPS", 2, false);
-        assert!(
-            !label.starts_with('●'),
-            "no active glyph for inactive: {label}"
-        );
-        assert!(
-            label.contains("3. DPS"),
-            "expected 1-based index, got {label}"
-        );
-        // Leading spaces preserve column alignment with the active glyph.
-        assert!(
-            label.starts_with("  "),
-            "expected leading padding, got {label:?}"
-        );
-    }
-
-    #[test]
-    fn format_set_dropdown_label_substitutes_blank_name() {
-        // Empty / whitespace-only names would render as a void in the
-        // combo; substitute a placeholder so the entry is still pickable.
-        let label = format_set_dropdown_label("   ", 4, false);
-        assert!(
-            label.contains("(unnamed)"),
-            "expected placeholder, got {label}"
-        );
-        assert!(label.contains("5."), "expected 1-based index, got {label}");
-    }
-
-    #[test]
-    fn shift_active_idx_after_delete_clears_when_self_deleted() {
-        // Deleting the entry the switcher points at clears the marker —
-        // there's no obvious "next" to advance to (the entry below
-        // shifts up but isn't necessarily what the user wants).
-        assert_eq!(shift_active_idx_after_delete(Some(2), 2), None);
-    }
-
-    #[test]
-    fn shift_active_idx_after_delete_shifts_when_earlier_deleted() {
-        // Deleting an entry *before* the active one keeps the marker on
-        // the same set, just at a lower index.
-        assert_eq!(shift_active_idx_after_delete(Some(3), 1), Some(2));
-        assert_eq!(shift_active_idx_after_delete(Some(1), 0), Some(0));
-    }
-
-    #[test]
-    fn shift_active_idx_after_delete_unaffected_by_later_deletes() {
-        // Deleting an entry past the active one doesn't move the marker.
-        assert_eq!(shift_active_idx_after_delete(Some(0), 1), Some(0));
-        assert_eq!(shift_active_idx_after_delete(Some(2), 5), Some(2));
-    }
-
-    #[test]
-    fn shift_active_idx_after_delete_handles_no_active() {
-        // No active marker stays no active marker.
-        assert_eq!(shift_active_idx_after_delete(None, 0), None);
-        assert_eq!(shift_active_idx_after_delete(None, 9), None);
-    }
+    // The two pure helpers (`format_set_dropdown_label` and
+    // `shift_active_idx_after_delete`) moved to `crate::set_switcher` so
+    // the future skill-set / config-set switchers can share them. Their
+    // unit tests moved with them — see `set_switcher::tests`. The
+    // `ItemsTabState` default-state guard stays here because it's
+    // tab-specific.
 
     #[test]
     fn switcher_state_defaults_are_closed_and_empty() {
