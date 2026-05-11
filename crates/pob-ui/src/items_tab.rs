@@ -45,6 +45,14 @@ pub struct ItemsTabState {
     /// the row index and the current edit buffer (seeded with the
     /// existing label). Cleared on Save / Cancel / outside-click.
     pub shared_rename: Option<SharedRenameState>,
+    /// Issue #212 (slice 1): pending rename-popup state for an *item set*
+    /// (not a shared item). `Some` when the user clicked Rename on a saved
+    /// item-set chip; carries the set's index, the edit buffer (seeded
+    /// with the existing name), and the most recent error to surface
+    /// (`DuplicateName`, `EmptyName`) inline so the popup explains why
+    /// Save is rejected. Cleared on successful Save / Cancel /
+    /// outside-click.
+    pub item_set_rename: Option<ItemSetRenameState>,
 }
 
 /// Issue #211 (slice 3): edit-buffer state for the shared-items rename
@@ -59,6 +67,22 @@ pub struct SharedRenameState {
     /// Live text-edit buffer. Seeded with the current label so the user
     /// can edit-in-place instead of retyping from scratch.
     pub buffer: String,
+}
+
+/// Issue #212 (slice 1): edit-buffer state for the item-set rename popup.
+/// Mirrors [`SharedRenameState`] but tracks the last validation error so
+/// the popup can show it inline (e.g. "Name already in use") instead of
+/// silently rejecting the click.
+#[derive(Debug, Clone)]
+pub struct ItemSetRenameState {
+    /// Index into [`Character::item_sets`] when the popup was opened.
+    /// Re-validated on Save in case the list shrank in another action.
+    pub index: usize,
+    /// Live text-edit buffer. Seeded with the existing set name.
+    pub buffer: String,
+    /// Last error returned by [`rename_item_set`], surfaced inline so
+    /// the user understands why Save did nothing. `None` on first open.
+    pub last_error: Option<ItemSetOpError>,
 }
 
 /// Issue #209: which sub-list the browse panel is currently showing.
@@ -84,6 +108,7 @@ impl Default for ItemsTabState {
             browse_view: BrowseView::default(),
             new_shared_label: String::new(),
             shared_rename: None,
+            item_set_rename: None,
         }
     }
 }
@@ -474,6 +499,117 @@ pub fn item_from_base(name: &str, base: &ItemBase) -> Item {
     }
 }
 
+/// Outcome of a rename/clone attempt on `character.item_sets`. Distinguishing
+/// between "out of range" and "name conflict" lets the UI surface a meaningful
+/// error to the user (toast / inline label) instead of just no-op'ing.
+///
+/// Issue #212 (slice 1, data layer): full CRUD on item sets. `delete_item_set`
+/// and `save_item_set` already live on `Character`; rename/clone are pure
+/// transformations on `character.item_sets` so we keep them in the UI crate to
+/// avoid bloating the engine API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemSetOpError {
+    /// `idx` did not point at a real entry in `character.item_sets`.
+    OutOfRange,
+    /// New name is empty / whitespace-only — meaningless as a label.
+    EmptyName,
+    /// New name collides with an existing set's name (case-sensitive, matching
+    /// `save_item_set`'s position-by-name semantics). The caller can either
+    /// pick a different name or, for rename, accept the no-op.
+    DuplicateName,
+}
+
+/// Rename `character.item_sets[idx]` to `new_name`. Returns
+/// `Err(OutOfRange)` if `idx` is past the end, `Err(EmptyName)` if the new
+/// name is blank, and `Err(DuplicateName)` if any *other* set already uses
+/// that name. Renaming a set to its own name is a no-op success — avoids
+/// noisy errors when the user clicks rename, types nothing, and confirms.
+pub fn rename_item_set(
+    character: &mut Character,
+    idx: usize,
+    new_name: &str,
+) -> Result<(), ItemSetOpError> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err(ItemSetOpError::EmptyName);
+    }
+    if idx >= character.item_sets.len() {
+        return Err(ItemSetOpError::OutOfRange);
+    }
+    if character.item_sets[idx].name == trimmed {
+        return Ok(());
+    }
+    if character
+        .item_sets
+        .iter()
+        .enumerate()
+        .any(|(i, s)| i != idx && s.name == trimmed)
+    {
+        return Err(ItemSetOpError::DuplicateName);
+    }
+    character.item_sets[idx].name = trimmed.to_owned();
+    Ok(())
+}
+
+/// Clone `character.item_sets[idx]` and insert the copy immediately after the
+/// source. The new entry gets a unique name derived from the source (suffix
+/// " (copy)", " (copy 2)", … until free). Returns the new index, or
+/// `Err(OutOfRange)`.
+///
+/// Implementation note: we go through `Character::save_item_set` to avoid
+/// reaching into the engine crate's private `NamedItemSet` constructor —
+/// `save_item_set` clones the *currently active* `character.items` under a
+/// name. We temporarily swap the source set's items into `character.items`,
+/// save under a fresh name (appending to the end), restore the original
+/// active items, then rotate the new entry into the desired slot. The active
+/// `character.items` is preserved across the call.
+pub fn clone_item_set(character: &mut Character, idx: usize) -> Result<usize, ItemSetOpError> {
+    if idx >= character.item_sets.len() {
+        return Err(ItemSetOpError::OutOfRange);
+    }
+    let source_items = character.item_sets[idx].items.clone();
+    let source_name = character.item_sets[idx].name.clone();
+    let new_name = unique_clone_name(&source_name, character);
+
+    // Stash the active items, swap in the source's items, save under the
+    // new name (which pushes to the tail), then put the active items back.
+    let saved_active = std::mem::replace(&mut character.items, source_items);
+    let pushed_idx = character.save_item_set(new_name);
+    character.items = saved_active;
+
+    // `save_item_set` appended at the tail; rotate it to live right after
+    // the source.
+    let target_idx = idx + 1;
+    if pushed_idx != target_idx {
+        let entry = character.item_sets.remove(pushed_idx);
+        character.item_sets.insert(target_idx, entry);
+    }
+    Ok(target_idx)
+}
+
+/// Pick the first free " (copy)" / " (copy 2)" / … suffix for `base`.
+fn unique_clone_name(base: &str, character: &Character) -> String {
+    let names: std::collections::HashSet<&str> = character
+        .item_sets
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    let first = format!("{base} (copy)");
+    if !names.contains(first.as_str()) {
+        return first;
+    }
+    for n in 2u32.. {
+        let candidate = format!("{base} (copy {n})");
+        if !names.contains(candidate.as_str()) {
+            return candidate;
+        }
+    }
+    // 2^32 collisions on a single name is effectively impossible, but the
+    // loop above is `2u32..` so we need an unreachable terminator for the
+    // type-checker.
+    unreachable!("ran out of u32 suffixes for {base}")
+}
+
 /// Returns true if the equipped items changed (so the caller can recompute).
 pub fn ui(
     ui: &mut egui::Ui,
@@ -505,6 +641,32 @@ pub fn ui(
                         changed = true;
                     }
                 }
+                // Issue #212 (slice 1): rename — opens the popup
+                // seeded with the current name. Validation lives in
+                // `rename_item_set`; the popup surfaces errors inline.
+                if ui
+                    .small_button("✎")
+                    .on_hover_text(format!("Rename {name}"))
+                    .clicked()
+                {
+                    state.item_set_rename = Some(ItemSetRenameState {
+                        index: idx,
+                        buffer: name.clone(),
+                        last_error: None,
+                    });
+                }
+                // Issue #212 (slice 1): clone — duplicates the set in
+                // place (inserted right after the source). Auto-named
+                // " (copy)" / " (copy 2)" / … to avoid collisions.
+                if ui
+                    .small_button("⎘")
+                    .on_hover_text(format!("Clone {name}"))
+                    .clicked()
+                {
+                    let _ = clone_item_set(character, idx);
+                    // No recompute — cloning a saved (inactive) set
+                    // doesn't change `character.items`.
+                }
                 if ui
                     .small_button("✕")
                     .on_hover_text(format!("Delete {name}"))
@@ -532,6 +694,9 @@ pub fn ui(
             state.new_set_name.clear();
         }
     });
+    // Issue #212 (slice 1): rename popup. Drawn at the top of the tab so
+    // it floats over whatever the user is doing.
+    render_item_set_rename_popup(ui, character, &mut state.item_set_rename);
     ui.separator();
 
     // Issue #109 (slice 4): Weapon Set I / II toggle buttons.
@@ -1131,6 +1296,83 @@ fn render_shared_rename_popup(
         let new_label = std::mem::take(&mut state.buffer);
         shared_items.rename(state.index, &new_label);
         *rename_state = None;
+    } else if cancel || !window_open {
+        *rename_state = None;
+    }
+}
+
+/// Issue #212 (slice 1): render the item-set rename popup. Mirrors
+/// `render_shared_rename_popup` but drives [`rename_item_set`] and
+/// surfaces its `ItemSetOpError` inline so the user sees *why* a
+/// duplicate / empty name was rejected. Only commits & closes on
+/// success — keeps the popup open with an error message otherwise.
+fn render_item_set_rename_popup(
+    ui: &mut egui::Ui,
+    character: &mut Character,
+    rename_state: &mut Option<ItemSetRenameState>,
+) {
+    let Some(state) = rename_state.as_mut() else {
+        return;
+    };
+    let current_name = character
+        .item_sets
+        .get(state.index)
+        .map(|s| s.name.clone())
+        .unwrap_or_else(|| "(removed)".to_owned());
+
+    let mut window_open = true;
+    let mut commit = false;
+    let mut cancel = false;
+    egui::Window::new(format!("Rename \"{current_name}\""))
+        .id(egui::Id::new(("item-set-rename-window", state.index)))
+        .open(&mut window_open)
+        .resizable(false)
+        .collapsible(false)
+        .default_width(280.0)
+        .show(ui.ctx(), |ui| {
+            ui.label("New name:");
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut state.buffer)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("e.g. Tank build"),
+            );
+            if !response.has_focus() && response.gained_focus() {
+                response.request_focus();
+            }
+            response.request_focus();
+            // Surface the most recent rejection inline so the user
+            // doesn't have to guess why Save is bouncing.
+            if let Some(err) = state.last_error {
+                let msg = match err {
+                    ItemSetOpError::EmptyName => "Name can't be blank.",
+                    ItemSetOpError::DuplicateName => "Name already in use.",
+                    ItemSetOpError::OutOfRange => "Set was removed.",
+                };
+                ui.colored_label(egui::Color32::LIGHT_RED, msg);
+            }
+            let empty = state.buffer.trim().is_empty();
+            ui.horizontal(|ui| {
+                let save_clicked = ui.add_enabled(!empty, egui::Button::new("Save")).clicked();
+                let enter_pressed = response.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    && !empty;
+                if save_clicked || enter_pressed {
+                    commit = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+            });
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                cancel = true;
+            }
+        });
+    if commit {
+        let new_name = state.buffer.clone();
+        match rename_item_set(character, state.index, &new_name) {
+            Ok(()) => *rename_state = None,
+            Err(err) => state.last_error = Some(err),
+        }
     } else if cancel || !window_open {
         *rename_state = None;
     }
@@ -2010,5 +2252,168 @@ mod tests {
             BrowseSlot::from_base_name("Cobalt Jewel"),
             BrowseSlot::Jewel
         );
+    }
+
+    // ─── Issue #212 (slice 1, data layer): item-set CRUD helpers ────────
+    //
+    // These exercise `rename_item_set` and `clone_item_set` in isolation
+    // — no UI in the loop. Each test seeds a `Character` with a couple of
+    // named sets via the existing `save_item_set` engine API so we don't
+    // depend on UI plumbing.
+
+    use pob_engine::ClassRef;
+
+    fn seeded_character(names: &[&str]) -> Character {
+        let mut c = Character::new(ClassRef::scion(), 1);
+        // Use a distinct active item per saved set so we can later assert
+        // that `clone_item_set` actually copies the *source*'s items, not
+        // whatever happens to be live on `character.items`.
+        for (i, name) in names.iter().enumerate() {
+            // Make each set's "items" distinguishable: stash a different
+            // base_name into a slot before saving.
+            let item = Item {
+                name: String::new(),
+                base_name: format!("Marker-{i}"),
+                rarity: Rarity::Normal,
+                item_level: 1,
+                quality: 0,
+                tags: HashSet::default(),
+                mod_lines: Vec::new(),
+                sockets: String::new(),
+                raw: String::new(),
+                corrupted: false,
+                mirrored: false,
+            };
+            c.items.equip(Slot::Amulet, item);
+            c.save_item_set((*name).to_owned());
+        }
+        c
+    }
+
+    #[test]
+    fn rename_item_set_updates_name_in_place() {
+        let mut c = seeded_character(&["A", "B"]);
+        assert_eq!(rename_item_set(&mut c, 0, "A-renamed"), Ok(()));
+        assert_eq!(c.item_sets[0].name, "A-renamed");
+        assert_eq!(c.item_sets[1].name, "B");
+    }
+
+    #[test]
+    fn rename_item_set_trims_whitespace() {
+        let mut c = seeded_character(&["A"]);
+        assert_eq!(rename_item_set(&mut c, 0, "   spaced   "), Ok(()));
+        assert_eq!(c.item_sets[0].name, "spaced");
+    }
+
+    #[test]
+    fn rename_item_set_rejects_empty_name() {
+        let mut c = seeded_character(&["A"]);
+        assert_eq!(
+            rename_item_set(&mut c, 0, "   "),
+            Err(ItemSetOpError::EmptyName)
+        );
+        // Original name preserved.
+        assert_eq!(c.item_sets[0].name, "A");
+    }
+
+    #[test]
+    fn rename_item_set_rejects_out_of_range() {
+        let mut c = seeded_character(&["A"]);
+        assert_eq!(
+            rename_item_set(&mut c, 5, "x"),
+            Err(ItemSetOpError::OutOfRange)
+        );
+    }
+
+    #[test]
+    fn rename_item_set_rejects_duplicate_name() {
+        let mut c = seeded_character(&["A", "B"]);
+        assert_eq!(
+            rename_item_set(&mut c, 0, "B"),
+            Err(ItemSetOpError::DuplicateName)
+        );
+        // Both sets unchanged.
+        assert_eq!(c.item_sets[0].name, "A");
+        assert_eq!(c.item_sets[1].name, "B");
+    }
+
+    #[test]
+    fn rename_item_set_to_self_is_noop_success() {
+        // Allows the rename UI to commit without distinguishing
+        // "user typed the same thing" from "real rename" — important
+        // because the existence-check would otherwise flag the entry
+        // itself as a duplicate.
+        let mut c = seeded_character(&["A"]);
+        assert_eq!(rename_item_set(&mut c, 0, "A"), Ok(()));
+        assert_eq!(c.item_sets[0].name, "A");
+    }
+
+    #[test]
+    fn clone_item_set_inserts_copy_after_source() {
+        let mut c = seeded_character(&["A", "B"]);
+        let new_idx = clone_item_set(&mut c, 0).expect("clone ok");
+        assert_eq!(new_idx, 1);
+        assert_eq!(c.item_sets.len(), 3);
+        assert_eq!(c.item_sets[0].name, "A");
+        assert_eq!(c.item_sets[1].name, "A (copy)");
+        assert_eq!(c.item_sets[2].name, "B");
+        // The clone's items match the source's items, not the active items.
+        assert_eq!(
+            c.item_sets[1].items.get(Slot::Amulet).map(|i| &i.base_name),
+            c.item_sets[0].items.get(Slot::Amulet).map(|i| &i.base_name),
+        );
+    }
+
+    #[test]
+    fn clone_item_set_preserves_active_items() {
+        // Regression guard for the implementation trick of routing through
+        // `save_item_set`: we must restore `character.items` afterwards.
+        let mut c = seeded_character(&["A"]);
+        // Replace the active items with a known marker.
+        c.items = ItemSet::new();
+        let marker = Item {
+            name: String::new(),
+            base_name: "ActiveMarker".to_owned(),
+            rarity: Rarity::Normal,
+            item_level: 1,
+            quality: 0,
+            tags: HashSet::default(),
+            mod_lines: Vec::new(),
+            sockets: String::new(),
+            raw: String::new(),
+            corrupted: false,
+            mirrored: false,
+        };
+        c.items.equip(Slot::Helmet, marker);
+
+        let _ = clone_item_set(&mut c, 0).expect("clone ok");
+
+        assert_eq!(
+            c.items.get(Slot::Helmet).map(|i| i.base_name.as_str()),
+            Some("ActiveMarker"),
+            "active items must survive a clone"
+        );
+        assert!(
+            c.items.get(Slot::Amulet).is_none(),
+            "active items must NOT have been overwritten by the cloned set"
+        );
+    }
+
+    #[test]
+    fn clone_item_set_avoids_name_collision() {
+        let mut c = seeded_character(&["A", "A (copy)"]);
+        let new_idx = clone_item_set(&mut c, 0).expect("clone ok");
+        assert_eq!(new_idx, 1);
+        assert_eq!(c.item_sets[1].name, "A (copy 2)");
+        // Existing "A (copy)" pushed down by the insert.
+        assert_eq!(c.item_sets[2].name, "A (copy)");
+    }
+
+    #[test]
+    fn clone_item_set_rejects_out_of_range() {
+        let mut c = seeded_character(&["A"]);
+        assert_eq!(clone_item_set(&mut c, 9), Err(ItemSetOpError::OutOfRange));
+        // No spurious set added.
+        assert_eq!(c.item_sets.len(), 1);
     }
 }
