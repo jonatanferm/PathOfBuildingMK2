@@ -206,6 +206,12 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "freeze",
         ),
         "ManaRegenRecovery" => mana_regen_recovery(env),
+        // Issue #34 follow-up: PoB exposes CombinedDPS / CombinedAvg
+        // as alias rows for FullDPS (perform.rs sets them to the same
+        // value). Surface the alias so the Calcs panel shows the
+        // back-link rather than an empty breakdown.
+        "CombinedDPS" => combined_dps_alias(env, "CombinedDPS", "Combined DPS"),
+        "CombinedAvg" => combined_dps_alias(env, "CombinedAvg", "Combined avg"),
         "FireResistMax" => resist_max(env, "FireResistMax", "Fire resistance maximum"),
         "ColdResistMax" => resist_max(env, "ColdResistMax", "Cold resistance maximum"),
         "LightningResistMax" => {
@@ -4186,6 +4192,41 @@ fn accuracy_hit_chance(env: &Env) -> Option<Breakdown> {
 /// users don't have to wonder why the two outputs match.
 ///
 /// Returns `None` when ManaRegenRecovery is zero.
+/// Issue #34 follow-up: shared helper for `CombinedDPS` / `CombinedAvg`.
+/// Both are set to `FullDPS` by `perform_skill_dps` (perform.rs:4307 and
+/// :4316) — the Calcs UI surfaces them under different row names but
+/// they're the same per-second number. Walks: FullDPS (linked back) →
+/// Final "<Output>" with explain noting the alias.
+fn combined_dps_alias(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdown> {
+    let full_dps = env.output.get("FullDPS");
+    if full_dps.abs() < 1e-9 {
+        return None;
+    }
+    let total = env.output.get(output_key);
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Full DPS")
+            .with_value(full_dps)
+            .with_explain(format!(
+                "{full_dps:.1} from FullDPS — see its breakdown for the hit + ailment chain"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(final_label)
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.1} — alias of FullDPS (PoB exposes the same per-second damage under both {output_key} and FullDPS row names)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: output_key.to_owned(),
+        total,
+        steps,
+    })
+}
+
 fn mana_regen_recovery(env: &Env) -> Option<Breakdown> {
     let total = env.output.get("ManaRegenRecovery");
     if total.abs() < 1e-9 {
@@ -9540,5 +9581,75 @@ mod tests {
             derive_for(&env, "AoEStackMultiplier").is_none(),
             "expected None when AoEStackMultiplier output is zero",
         );
+    }
+
+    /// Issue #34 follow-up: PoB exposes a stack of DPS aliases that
+    /// the Calcs UI uses interchangeably. `CombinedDPS` is just
+    /// `FullDPS` under a different row name (perform.rs sets them to
+    /// the same value). Surface the alias so users see the back-link
+    /// to FullDPS rather than getting an empty breakdown.
+    #[test]
+    fn combined_dps_breakdown_aliases_full_dps() {
+        let mut env = Env::default();
+        env.output.set("FullDPS", 2000.0);
+        env.output.set("CombinedDPS", 2000.0);
+        let bd = derive_for(&env, "CombinedDPS").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| l.contains("Full DPS")),
+            "expected back-link to Full DPS, got {labels:?}",
+        );
+        assert!(labels.contains(&"Combined DPS"));
+
+        let alias = bd
+            .steps
+            .iter()
+            .find(|s| s.label.contains("Full DPS"))
+            .unwrap();
+        assert!((alias.value.unwrap() - 2000.0).abs() < 1e-9);
+        assert!(
+            alias
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("FullDPS") || e.contains("alias")),
+            "expected alias hint in explain, got {:?}",
+            alias.explain,
+        );
+        assert!((bd.total - 2000.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: `CombinedAvg` is also surfaced by perform.rs
+    /// as the same FullDPS value (it's combined per-second damage, not
+    /// avg-hit — see the comment at perform.rs:4313). Same alias shape.
+    #[test]
+    fn combined_avg_breakdown_aliases_full_dps() {
+        let mut env = Env::default();
+        env.output.set("FullDPS", 2000.0);
+        env.output.set("CombinedAvg", 2000.0);
+        let bd = derive_for(&env, "CombinedAvg").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| l.contains("Full DPS")),
+            "expected back-link to Full DPS, got {labels:?}",
+        );
+        assert!(labels.contains(&"Combined avg"));
+
+        let alias = bd
+            .steps
+            .iter()
+            .find(|s| s.label.contains("Full DPS"))
+            .unwrap();
+        assert!((alias.value.unwrap() - 2000.0).abs() < 1e-9);
+        assert!((bd.total - 2000.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: when no skill is loaded, FullDPS is zero
+    /// so both alias breakdowns are skipped (matches the other
+    /// "skip when zero" outputs).
+    #[test]
+    fn combined_breakdowns_skipped_when_zero() {
+        let env = Env::default();
+        assert!(derive_for(&env, "CombinedDPS").is_none());
+        assert!(derive_for(&env, "CombinedAvg").is_none());
     }
 }
