@@ -720,7 +720,52 @@ pub fn clone_item_set(character: &mut Character, idx: usize) -> Result<usize, It
 // so the future skill-set / config-set switchers can share it. The
 // `pub use` keeps the original `items_tab::shift_active_idx_after_delete`
 // path live for inline-chip / manage-popup callers below.
-pub use crate::set_switcher::shift_active_idx_after_delete;
+pub use crate::set_switcher::{shift_active_idx_after_delete, shift_active_idx_after_swap};
+
+/// Issue #212 follow-up: direction the user picked on a reorder
+/// arrow-button click. Up moves the entry toward index 0; Down moves
+/// toward the tail. The helper [`move_item_set`] consumes this enum
+/// so the call site doesn't have to do its own bounds math.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveDirection {
+    Up,
+    Down,
+}
+
+/// Issue #212 follow-up: interim non-drag reorder for `character.item_sets`.
+/// Swap `idx` with its neighbour in the chosen direction. Returns the
+/// post-swap index of the moved entry, or `None` if the move can't
+/// happen (out-of-range index, or already at the edge of the list).
+///
+/// Pure / no I/O — pairs with [`shift_active_idx_after_swap`] in
+/// `set_switcher` so the UI's active marker can follow the moved entry
+/// without re-reading the list.
+pub fn move_item_set(
+    character: &mut Character,
+    idx: usize,
+    direction: MoveDirection,
+) -> Option<usize> {
+    let len = character.item_sets.len();
+    if idx >= len {
+        return None;
+    }
+    let other = match direction {
+        MoveDirection::Up => {
+            if idx == 0 {
+                return None;
+            }
+            idx - 1
+        }
+        MoveDirection::Down => {
+            if idx + 1 >= len {
+                return None;
+            }
+            idx + 1
+        }
+    };
+    character.item_sets.swap(idx, other);
+    Some(other)
+}
 
 /// Pick the first free " (copy)" / " (copy 2)" / … suffix for `base`.
 fn unique_clone_name(base: &str, character: &Character) -> String {
@@ -2133,6 +2178,41 @@ fn render_manage_sets_popup(
                 let row_label = format_set_dropdown_label(&name, idx, is_active);
                 ui.horizontal(|ui| {
                     ui.label(row_label);
+                    // Issue #212 follow-up: interim non-drag reorder.
+                    // The Up arrow is disabled on the first row and
+                    // Down on the last so the affordance always renders
+                    // — the grey state communicates the boundary
+                    // without rearranging the row layout per index.
+                    let is_first = idx == 0;
+                    let is_last = idx + 1 >= character.item_sets.len();
+                    if ui
+                        .add_enabled(!is_first, egui::Button::new("▲").small())
+                        .on_hover_text("Move this set up one position")
+                        .clicked()
+                    {
+                        if let Some(new_idx) = move_item_set(character, idx, MoveDirection::Up) {
+                            state.active_item_set_idx = shift_active_idx_after_swap(
+                                state.active_item_set_idx,
+                                idx,
+                                new_idx,
+                            );
+                            changed = true;
+                        }
+                    }
+                    if ui
+                        .add_enabled(!is_last, egui::Button::new("▼").small())
+                        .on_hover_text("Move this set down one position")
+                        .clicked()
+                    {
+                        if let Some(new_idx) = move_item_set(character, idx, MoveDirection::Down) {
+                            state.active_item_set_idx = shift_active_idx_after_swap(
+                                state.active_item_set_idx,
+                                idx,
+                                new_idx,
+                            );
+                            changed = true;
+                        }
+                    }
                     if ui
                         .small_button("Load")
                         .on_hover_text("Activate this set")
@@ -3197,6 +3277,57 @@ mod tests {
             c.save_item_set((*name).to_owned());
         }
         c
+    }
+
+    #[test]
+    fn move_item_set_up_swaps_with_previous() {
+        // Mid-list down→up move. Returned index points at the new
+        // position of the moved entry; the displaced entry now sits
+        // at the original index.
+        let mut c = seeded_character(&["A", "B", "C"]);
+        let new_idx = move_item_set(&mut c, 1, MoveDirection::Up).expect("can move up");
+        assert_eq!(new_idx, 0);
+        let names: Vec<&str> = c.item_sets.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["B", "A", "C"]);
+    }
+
+    #[test]
+    fn move_item_set_down_swaps_with_next() {
+        let mut c = seeded_character(&["A", "B", "C"]);
+        let new_idx = move_item_set(&mut c, 1, MoveDirection::Down).expect("can move down");
+        assert_eq!(new_idx, 2);
+        let names: Vec<&str> = c.item_sets.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["A", "C", "B"]);
+    }
+
+    #[test]
+    fn move_item_set_up_at_top_is_noop() {
+        // First entry can't move up. The list stays put and the helper
+        // returns `None` so the UI can grey out the button.
+        let mut c = seeded_character(&["A", "B"]);
+        assert!(move_item_set(&mut c, 0, MoveDirection::Up).is_none());
+        let names: Vec<&str> = c.item_sets.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn move_item_set_down_at_bottom_is_noop() {
+        let mut c = seeded_character(&["A", "B"]);
+        assert!(move_item_set(&mut c, 1, MoveDirection::Down).is_none());
+        let names: Vec<&str> = c.item_sets.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn move_item_set_out_of_range_is_noop() {
+        // Defensive against a stale click after a delete shrank the
+        // list — same shape as the rename / clone OutOfRange cases.
+        let mut c = seeded_character(&["A"]);
+        assert!(move_item_set(&mut c, 5, MoveDirection::Up).is_none());
+        assert!(move_item_set(&mut c, 5, MoveDirection::Down).is_none());
+        // Empty list — any index is out of range.
+        let mut empty = seeded_character(&[]);
+        assert!(move_item_set(&mut empty, 0, MoveDirection::Up).is_none());
     }
 
     #[test]

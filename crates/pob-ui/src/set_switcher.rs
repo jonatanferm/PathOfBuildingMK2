@@ -84,6 +84,28 @@ pub fn shift_active_idx_after_delete(active: Option<usize>, deleted_idx: usize) 
     }
 }
 
+/// Issue #212 follow-up: update the active-set marker after swapping
+/// two adjacent entries (reorder up / down). Mirrors
+/// [`shift_active_idx_after_delete`] for the swap case — the marker
+/// follows the entry it was pointing at: if `active == a`, it becomes
+/// `b`; if `active == b`, it becomes `a`; otherwise unchanged.
+///
+/// Indices outside `[a, b]` are passed through. `a == b` is a no-op.
+#[must_use]
+pub fn shift_active_idx_after_swap(active: Option<usize>, a: usize, b: usize) -> Option<usize> {
+    let active = active?;
+    if a == b {
+        return Some(active);
+    }
+    if active == a {
+        Some(b)
+    } else if active == b {
+        Some(a)
+    } else {
+        Some(active)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +232,35 @@ mod tests {
         // No active marker stays no active marker.
         assert_eq!(shift_active_idx_after_delete(None, 0), None);
         assert_eq!(shift_active_idx_after_delete(None, 9), None);
+    }
+
+    // ─── shift_active_idx_after_swap ─────────────────────────────────────
+
+    #[test]
+    fn swap_marker_follows_active_entry_when_it_is_a() {
+        // Reorder up: active was at `a`; it now sits at `b`.
+        assert_eq!(shift_active_idx_after_swap(Some(3), 3, 2), Some(2));
+        assert_eq!(shift_active_idx_after_swap(Some(0), 0, 1), Some(1));
+    }
+
+    #[test]
+    fn swap_marker_follows_active_entry_when_it_is_b() {
+        // Mirror case — active was at `b`, ends up at `a`.
+        assert_eq!(shift_active_idx_after_swap(Some(2), 3, 2), Some(3));
+        assert_eq!(shift_active_idx_after_swap(Some(1), 0, 1), Some(0));
+    }
+
+    #[test]
+    fn swap_marker_unaffected_outside_swapped_indices() {
+        // An active marker on an unrelated entry stays put.
+        assert_eq!(shift_active_idx_after_swap(Some(7), 2, 3), Some(7));
+        assert_eq!(shift_active_idx_after_swap(Some(0), 4, 5), Some(0));
+    }
+
+    #[test]
+    fn swap_passes_through_no_active_marker_and_self_swap() {
+        // No marker + non-op swap (`a == b`) both pass through.
+        assert_eq!(shift_active_idx_after_swap(None, 0, 1), None);
+        assert_eq!(shift_active_idx_after_swap(Some(2), 2, 2), Some(2));
     }
 }
