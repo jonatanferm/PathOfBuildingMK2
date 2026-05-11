@@ -57,10 +57,24 @@ pub enum RenderItem {
     Link { x_start: f32, x_end: f32 },
 }
 
+/// Issue #221 follow-up: one hit zone for click-to-toggle-link. Emitted
+/// for every adjacent pair of sockets (within a group → `linked = true`,
+/// across groups → `linked = false`). The renderer turns each zone into
+/// a screen rect and reports `clicked_link` when the user clicks it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GapZone {
+    pub x_start: f32,
+    pub x_end: f32,
+    pub linked: bool,
+}
+
 /// Result of laying out a list of socket groups in a horizontal row.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SocketLayout {
     pub items: Vec<RenderItem>,
+    /// Issue #221 follow-up: per-pair hit zones for the link-toggle UI.
+    /// Indexed left-to-right; entry `n` sits between dot `n` and `n+1`.
+    pub gap_zones: Vec<GapZone>,
     /// Total width consumed, in points. `0.0` for an empty input.
     pub width: f32,
 }
@@ -77,17 +91,23 @@ pub struct SocketLayout {
 /// caller could synthesise) are silently skipped.
 pub fn socket_render_layout(groups: &[SocketGroup], cfg: SocketLayoutConfig) -> SocketLayout {
     let mut items = Vec::new();
+    let mut gap_zones = Vec::new();
     let mut x = 0.0_f32;
     let radius = cfg.dot_diameter * 0.5;
-    let mut first_group = true;
+    let mut last_dot_right: Option<f32> = None;
     for group in groups {
         if group.is_empty() {
             continue;
         }
-        if !first_group {
+        if let Some(prev_right) = last_dot_right {
+            let zone_start = prev_right;
             x += cfg.group_gap;
+            gap_zones.push(GapZone {
+                x_start: zone_start,
+                x_end: x,
+                linked: false,
+            });
         }
-        first_group = false;
         for (i, color) in group.colors.iter().enumerate() {
             if i > 0 {
                 // Link bar fills the gap between previous dot edge and
@@ -98,6 +118,11 @@ pub fn socket_render_layout(groups: &[SocketGroup], cfg: SocketLayoutConfig) -> 
                     x_start: bar_start,
                     x_end: x,
                 });
+                gap_zones.push(GapZone {
+                    x_start: bar_start,
+                    x_end: x,
+                    linked: true,
+                });
             }
             x += radius;
             items.push(RenderItem::Dot {
@@ -105,9 +130,14 @@ pub fn socket_render_layout(groups: &[SocketGroup], cfg: SocketLayoutConfig) -> 
                 color: *color,
             });
             x += radius;
+            last_dot_right = Some(x);
         }
     }
-    SocketLayout { items, width: x }
+    SocketLayout {
+        items,
+        gap_zones,
+        width: x,
+    }
 }
 
 /// Map a `SocketColor` to an on-screen fill colour. Tuned to match
@@ -134,6 +164,13 @@ pub fn socket_fill(color: SocketColor) -> egui::Color32 {
 pub struct SocketsResponse {
     pub response: egui::Response,
     pub clicked_dot: Option<usize>,
+    /// Issue #221 follow-up: 0-based index of the link gap the user
+    /// clicked this frame, if any. Counts both currently-linked and
+    /// currently-unlinked gaps, left-to-right (same order as
+    /// [`SocketLayout::gap_zones`]). Dot clicks take precedence — a
+    /// click that lands on a dot reports `clicked_dot` and leaves
+    /// `clicked_link` as `None`.
+    pub clicked_link: Option<usize>,
 }
 
 /// Issue #221 follow-up: cycle the colour at `dot_index` of `sockets`
@@ -166,6 +203,65 @@ pub fn apply_socket_cycle_at(sockets: &str, dot_index: usize) -> String {
             out.push(c);
         }
     }
+    out
+}
+
+/// Issue #221 follow-up: toggle the link separator at the `link_index`-th
+/// gap between adjacent sockets in `sockets`. A currently-linked gap
+/// (`-`) flips to unlinked (` `), and vice versa. Pure: no egui, no
+/// item state. Gaps are counted left-to-right matching the order
+/// [`SocketLayout::gap_zones`] is emitted.
+///
+/// Returns the original string unchanged when:
+/// - `link_index` is past the last gap (defensive against stale clicks),
+/// - either socket adjacent to the gap is abyss (jewel sockets can't be
+///   part of a link group, so creating or breaking a link there would
+///   produce an invalid socket string).
+#[must_use]
+pub fn apply_socket_link_toggle_at(sockets: &str, link_index: usize) -> String {
+    let chars: Vec<char> = sockets.chars().collect();
+    // Collect (start, end) char-index ranges for each separator run
+    // that sits *between* two sockets — leading and trailing whitespace
+    // are skipped so they can't be addressed by a click.
+    let mut sep_runs: Vec<(usize, usize)> = Vec::new();
+    let mut run_start: Option<usize> = None;
+    let mut seen_socket = false;
+    for (i, &c) in chars.iter().enumerate() {
+        let is_sock = SocketColor::from_letter(c).is_some();
+        if is_sock {
+            if let Some(rs) = run_start {
+                if seen_socket {
+                    sep_runs.push((rs, i));
+                }
+                run_start = None;
+            }
+            seen_socket = true;
+        } else if run_start.is_none() {
+            run_start = Some(i);
+        }
+    }
+    let Some(&(rs, re)) = sep_runs.get(link_index) else {
+        return sockets.to_string();
+    };
+    // Abyss check: the socket immediately before the run is the last
+    // socket character in `chars[..rs]`; the one after is the first
+    // socket character in `chars[re..]`.
+    let left = chars[..rs]
+        .iter()
+        .rev()
+        .find_map(|c| SocketColor::from_letter(*c));
+    let right = chars[re..]
+        .iter()
+        .find_map(|c| SocketColor::from_letter(*c));
+    if left == Some(SocketColor::Abyss) || right == Some(SocketColor::Abyss) {
+        return sockets.to_string();
+    }
+    let run: String = chars[rs..re].iter().collect();
+    let new_sep = if run.contains('-') { " " } else { "-" };
+    let mut out = String::with_capacity(sockets.len());
+    out.extend(chars[..rs].iter().copied());
+    out.push_str(new_sep);
+    out.extend(chars[re..].iter().copied());
     out
 }
 
@@ -211,18 +307,30 @@ pub fn draw_sockets(
             }
         }
     }
-    let clicked_dot = if response.clicked() {
-        response.interact_pointer_pos().and_then(|p| {
-            dot_centers
+    let mut clicked_dot: Option<usize> = None;
+    let mut clicked_link: Option<usize> = None;
+    if response.clicked() {
+        if let Some(p) = response.interact_pointer_pos() {
+            clicked_dot = dot_centers
                 .iter()
-                .position(|c| (*c - p).length() <= radius + 1.0)
-        })
-    } else {
-        None
-    };
+                .position(|c| (*c - p).length() <= radius + 1.0);
+            if clicked_dot.is_none() {
+                // Hit-test gap zones. Each zone spans its layout
+                // x-range and the full dot-height row vertically.
+                clicked_link = layout.gap_zones.iter().position(|zone| {
+                    let zone_rect = egui::Rect::from_min_max(
+                        egui::pos2(rect.left() + zone.x_start, cy - radius),
+                        egui::pos2(rect.left() + zone.x_end, cy + radius),
+                    );
+                    zone_rect.contains(p)
+                });
+            }
+        }
+    }
     SocketsResponse {
         response,
         clicked_dot,
+        clicked_link,
     }
 }
 
@@ -401,6 +509,70 @@ mod tests {
         // them too so a round-trip through "parse → render →
         // cycle → emit" doesn't normalise the user's formatting.
         assert_eq!(apply_socket_cycle_at("R,G,B", 1), "R,B,B");
+    }
+
+    #[test]
+    fn apply_socket_link_toggle_breaks_link_in_group() {
+        // First gap of `R-G-B` is the link between R and G. Toggling
+        // breaks it — the group splits in two so the resulting string
+        // has a space instead of `-` at that position.
+        assert_eq!(apply_socket_link_toggle_at("R-G-B", 0), "R G-B");
+        // Second gap is the link between G and B — toggling that one
+        // only.
+        assert_eq!(apply_socket_link_toggle_at("R-G-B", 1), "R-G B");
+    }
+
+    #[test]
+    fn apply_socket_link_toggle_creates_link_between_groups() {
+        // `R G` is two unlinked sockets. Toggling the gap between them
+        // re-links them, producing `R-G`.
+        assert_eq!(apply_socket_link_toggle_at("R G", 0), "R-G");
+    }
+
+    #[test]
+    fn apply_socket_link_toggle_index_counts_gaps_left_to_right() {
+        // `R-G B-W` has three gaps: link, group, link. Index 1 is the
+        // inter-group gap; toggling re-links all four sockets.
+        assert_eq!(apply_socket_link_toggle_at("R-G B-W", 1), "R-G-B-W");
+    }
+
+    #[test]
+    fn apply_socket_link_toggle_out_of_range_is_noop() {
+        // Defensive against stale clicks or empty inputs.
+        assert_eq!(apply_socket_link_toggle_at("R-G", 5), "R-G");
+        assert_eq!(apply_socket_link_toggle_at("R", 0), "R");
+        assert_eq!(apply_socket_link_toggle_at("", 0), "");
+    }
+
+    #[test]
+    fn apply_socket_link_toggle_refuses_to_link_abyss() {
+        // Abyss sockets can't be part of a link group — they're jewel
+        // sockets. Toggling a gap adjacent to an abyss socket is a
+        // no-op so a stale click can't produce an invalid socket
+        // string.
+        assert_eq!(apply_socket_link_toggle_at("R A", 0), "R A");
+        assert_eq!(apply_socket_link_toggle_at("A R", 0), "A R");
+        assert_eq!(apply_socket_link_toggle_at("A A", 0), "A A");
+    }
+
+    #[test]
+    fn layout_emits_gap_zones_for_links_and_group_gaps() {
+        // The layout reports a `GapZone` for every adjacent socket
+        // pair, distinguishing currently-linked gaps (with a Link
+        // element in `items`) from inter-group gaps (no Link). The
+        // renderer hit-tests against these to support click-to-toggle.
+        let groups = parse_socket_string("R-G B");
+        let layout = socket_render_layout(&groups, cfg());
+        assert_eq!(layout.gap_zones.len(), 2);
+        assert!(layout.gap_zones[0].linked, "first gap is a link");
+        assert!(!layout.gap_zones[1].linked, "second gap is inter-group");
+    }
+
+    #[test]
+    fn layout_emits_no_gap_zones_for_single_socket() {
+        let groups = parse_socket_string("R");
+        let layout = socket_render_layout(&groups, cfg());
+        assert!(layout.gap_zones.is_empty());
     }
 
     #[test]
