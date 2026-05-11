@@ -35,6 +35,9 @@ pub struct CompareTabState {
     /// `snapshot.label`; Escape / blur clears the buffer without
     /// applying.
     pub pending_relabel: Option<String>,
+    /// Issue #223 follow-up: which serialisation the "Copy as ..."
+    /// button emits. Defaults to Markdown — the pre-#223 behaviour.
+    pub export_format: CompareExportFormat,
 }
 
 /// Issue #223: how to order the diff rows. PoB sorts by absolute delta
@@ -298,21 +301,32 @@ pub fn ui(
         state.sort_mode,
     );
 
-    // Issue #223 follow-up: paste-friendly Markdown export. The button
-    // dumps the currently-filtered + sorted rows as a `|`-delimited
-    // table; users paste into a build write-up / Discord / GitHub
-    // issue to share before-and-after comparisons.
+    // Issue #223 follow-up: paste-friendly export. Format combo +
+    // Copy button. Markdown for write-ups / Discord; CSV for
+    // spreadsheets; JSON for scripts diffing builds programmatically.
     ui.horizontal(|ui| {
+        ui.label("Copy as:");
+        egui::ComboBox::from_id_salt("compare_export_format")
+            .selected_text(state.export_format.label())
+            .show_ui(ui, |ui| {
+                for fmt in [
+                    CompareExportFormat::Markdown,
+                    CompareExportFormat::Csv,
+                    CompareExportFormat::Json,
+                ] {
+                    ui.selectable_value(&mut state.export_format, fmt, fmt.label());
+                }
+            });
         if ui
-            .button("Copy as table")
+            .button("Copy")
             .on_hover_text(
-                "Copy the filtered + sorted diff rows to the clipboard as a \
-                 Markdown table. Paste into a build write-up / GitHub issue.",
+                "Copy the filtered + sorted diff rows to the clipboard in \
+                 the chosen format.",
             )
             .clicked()
         {
-            let md = format_compare_markdown(&rows);
-            ui.ctx().copy_text(md);
+            let text = format_compare_export(&rows, state.export_format);
+            ui.ctx().copy_text(text);
         }
         ui.weak(format!("{} rows", rows.len()));
     });
@@ -601,6 +615,139 @@ fn node_label(id: NodeId, tree: &PassiveTree) -> String {
         .get(&id)
         .and_then(|n| n.name.clone())
         .unwrap_or_else(|| format!("#{id}"))
+}
+
+/// Issue #223 follow-up: serialisation choice for the Compare-tab
+/// "Copy as..." button. Markdown is the original (and best for
+/// Discord / GitHub pastes); CSV suits spreadsheet imports; JSON is
+/// machine-friendly for scripts diffing builds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CompareExportFormat {
+    /// Pipe-delimited Markdown table.
+    #[default]
+    Markdown,
+    /// Comma-separated values with a header row. Numbers are emitted
+    /// in `format_value`'s rounded form so the export matches what
+    /// the user sees on screen.
+    Csv,
+    /// JSON array of `{ "stat", "snap", "live", "delta", "percent" }`
+    /// objects. `percent` is `null` for rows with a zero snapshot
+    /// value (matches the on-screen `—` fallback).
+    Json,
+}
+
+impl CompareExportFormat {
+    /// Human-readable label for the format combo.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Markdown => "Markdown",
+            Self::Csv => "CSV",
+            Self::Json => "JSON",
+        }
+    }
+}
+
+/// Issue #223 follow-up: render `rows` in the requested format. Pure
+/// dispatch over [`format_compare_markdown`] /
+/// [`format_compare_csv`] / [`format_compare_json`] so the UI side
+/// stays a thin combo + button.
+#[must_use]
+pub fn format_compare_export(rows: &[(String, f64, f64)], format: CompareExportFormat) -> String {
+    match format {
+        CompareExportFormat::Markdown => format_compare_markdown(rows),
+        CompareExportFormat::Csv => format_compare_csv(rows),
+        CompareExportFormat::Json => format_compare_json(rows),
+    }
+}
+
+/// Issue #223 follow-up: comma-separated values with a header row.
+/// Stat labels are quoted (defensive against names that contain a
+/// comma); numeric columns are unquoted. Percent column uses the
+/// `format_percent` rendering, falling back to an empty string when
+/// the snapshot value is zero (CSV doesn't have a "null" literal).
+#[must_use]
+pub fn format_compare_csv(rows: &[(String, f64, f64)]) -> String {
+    let mut out = String::new();
+    out.push_str("Stat,Snapshot,Live,Delta,PercentDelta\n");
+    for (key, snap, live) in rows {
+        let delta = live - snap;
+        let pct = match percent_delta(*snap, *live) {
+            Some(p) => format_percent(p),
+            None => String::new(),
+        };
+        out.push_str(&format!(
+            "\"{}\",{},{},{},{}\n",
+            // Escape embedded `"` per RFC 4180 doubling rule.
+            key.replace('"', "\"\""),
+            format_value(*snap).trim(),
+            format_value(*live).trim(),
+            format_delta(delta).trim(),
+            pct,
+        ));
+    }
+    out
+}
+
+/// Issue #223 follow-up: JSON array of compact records. Numeric
+/// columns are emitted as numbers (not strings) so a downstream
+/// `jq` / `python -m json.tool` pipe can pivot or sort directly.
+/// `percent` is `null` for zero-snapshot rows.
+#[must_use]
+pub fn format_compare_json(rows: &[(String, f64, f64)]) -> String {
+    let mut out = String::from("[\n");
+    for (i, (key, snap, live)) in rows.iter().enumerate() {
+        let delta = live - snap;
+        let pct = percent_delta(*snap, *live);
+        out.push_str("  {\"stat\":");
+        out.push('"');
+        // JSON string escaping: `\` and `"` get backslash escapes;
+        // other control chars are pass-through (stat keys are
+        // engine-generated ASCII identifiers in practice).
+        out.push_str(&key.replace('\\', "\\\\").replace('"', "\\\""));
+        out.push_str("\",\"snap\":");
+        out.push_str(&json_num(*snap));
+        out.push_str(",\"live\":");
+        out.push_str(&json_num(*live));
+        out.push_str(",\"delta\":");
+        out.push_str(&json_num(delta));
+        out.push_str(",\"percent\":");
+        match pct {
+            Some(p) => out.push_str(&json_num(p)),
+            None => out.push_str("null"),
+        }
+        out.push('}');
+        if i + 1 < rows.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push(']');
+    out
+}
+
+/// Internal helper: format an `f64` for JSON, preferring an integer
+/// form when the value rounds cleanly and falling back to 4 decimal
+/// places otherwise. Avoids `serde_json::to_string`'s trailing `.0`
+/// on small integers and keeps the output stable across platforms.
+fn json_num(v: f64) -> String {
+    if v.is_nan() || v.is_infinite() {
+        // Defensive — JSON has no NaN/Infinity literals; emit `null`.
+        return "null".to_owned();
+    }
+    if v.fract().abs() < 1e-9 {
+        format!("{}", v.round() as i64)
+    } else {
+        let s = format!("{v:.4}");
+        // Strip trailing zeroes after the decimal point so `0.5000`
+        // reads as `0.5` — but keep at least one digit after the dot.
+        let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+        if trimmed == s.trim() {
+            s
+        } else {
+            trimmed.to_owned()
+        }
+    }
 }
 
 /// Issue #223 follow-up: render the compare-table rows as a Markdown
@@ -918,6 +1065,116 @@ mod tests {
         let tree = make_tree(&[]);
         let labels = tree_diff_node_labels(&[], &tree);
         assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn format_compare_csv_emits_header_and_quoted_keys() {
+        // Stat labels are quoted; numeric columns aren't. Confirms the
+        // header line is present even for empty input.
+        let csv = format_compare_csv(&[]);
+        assert!(csv.starts_with("Stat,Snapshot,Live,Delta,PercentDelta\n"));
+        let rows = vec![("Life".to_owned(), 100.0, 150.0)];
+        let csv = format_compare_csv(&rows);
+        assert!(
+            csv.contains("\"Life\",100,150,+50,+50.0%"),
+            "expected quoted-key row, got:\n{csv}"
+        );
+    }
+
+    #[test]
+    fn format_compare_csv_doubles_embedded_quotes_per_rfc_4180() {
+        // A stat key containing a literal `"` should produce `""` in
+        // the CSV output so importers reading RFC 4180 don't choke.
+        let rows = vec![("Weird\"Key".to_owned(), 1.0, 2.0)];
+        let csv = format_compare_csv(&rows);
+        assert!(
+            csv.contains("\"Weird\"\"Key\""),
+            "expected RFC 4180 quote doubling, got:\n{csv}"
+        );
+    }
+
+    #[test]
+    fn format_compare_csv_leaves_percent_empty_when_snap_is_zero() {
+        // CSV has no "null" literal — the empty-string fallback keeps
+        // the column count consistent across rows.
+        let rows = vec![("Mana".to_owned(), 0.0, 50.0)];
+        let csv = format_compare_csv(&rows);
+        assert!(
+            csv.contains("\"Mana\",0,50,+50,\n"),
+            "expected empty percent cell, got:\n{csv}"
+        );
+    }
+
+    #[test]
+    fn format_compare_json_emits_well_formed_array() {
+        // Empty input → empty array (well, `[\n]`). Confirms the
+        // structural prelude / closer is always emitted.
+        let json = format_compare_json(&[]);
+        assert!(json.starts_with("[\n"), "got {json:?}");
+        assert!(json.ends_with(']'), "got {json:?}");
+    }
+
+    #[test]
+    fn format_compare_json_renders_numeric_columns_as_numbers() {
+        let rows = vec![("Life".to_owned(), 100.0, 150.0)];
+        let json = format_compare_json(&rows);
+        assert!(json.contains("\"stat\":\"Life\""));
+        assert!(json.contains("\"snap\":100"));
+        assert!(json.contains("\"live\":150"));
+        assert!(json.contains("\"delta\":50"));
+        assert!(json.contains("\"percent\":50"));
+        // Not a string-quoted number.
+        assert!(!json.contains("\"100\""), "snap should be a number: {json}");
+    }
+
+    #[test]
+    fn format_compare_json_emits_null_percent_for_zero_snap() {
+        // JSON's `null` cleanly distinguishes "undefined percent" from
+        // a real 0% change, matching the on-screen `—` fallback.
+        let rows = vec![("Mana".to_owned(), 0.0, 50.0)];
+        let json = format_compare_json(&rows);
+        assert!(
+            json.contains("\"percent\":null"),
+            "zero-snap should emit null percent, got:\n{json}"
+        );
+    }
+
+    #[test]
+    fn format_compare_json_escapes_quotes_in_stat_keys() {
+        // Engine-generated keys are ASCII identifiers, but defend
+        // against a hand-edited one with embedded quotes anyway.
+        let rows = vec![("Weird\"Key".to_owned(), 1.0, 2.0)];
+        let json = format_compare_json(&rows);
+        assert!(
+            json.contains("\"stat\":\"Weird\\\"Key\""),
+            "expected backslash-escaped quote, got:\n{json}"
+        );
+    }
+
+    #[test]
+    fn format_compare_export_dispatches_to_each_format() {
+        // End-to-end: every format produces a non-empty result for the
+        // same input. Pins that the dispatch wires the right helper.
+        let rows = vec![("Life".to_owned(), 100.0, 150.0)];
+        for format in [
+            CompareExportFormat::Markdown,
+            CompareExportFormat::Csv,
+            CompareExportFormat::Json,
+        ] {
+            let out = format_compare_export(&rows, format);
+            assert!(!out.is_empty(), "{format:?} produced empty output");
+            assert!(out.contains("150"), "{format:?} missing live value: {out}");
+        }
+    }
+
+    #[test]
+    fn compare_export_format_default_is_markdown() {
+        // Markdown is the original (and most-used) format — pre-this
+        // slice it was the only option.
+        assert_eq!(
+            CompareExportFormat::default(),
+            CompareExportFormat::Markdown
+        );
     }
 
     #[test]
