@@ -47,6 +47,7 @@ mod skills_tab;
 mod socket_renderer;
 mod sortable_list;
 mod tattoo_picker;
+mod toasts;
 mod tree_diff;
 mod tree_layout;
 mod tree_renderer;
@@ -202,6 +203,19 @@ struct LoadedApp {
     /// Path of the currently-open build file, if any. Used by Save vs Save As.
     current_build_path: Option<std::path::PathBuf>,
     status_message: Option<(StatusKind, String)>,
+    /// Issue #225: transient toast notifications. Persistent
+    /// `status_message` shows one banner at a time and overwrites on
+    /// each push; the toast queue keeps the last few messages alive
+    /// for ~5s so a burst of activity (open + save + load) doesn't
+    /// drop the trail. See [`toasts`] for the queue model.
+    toasts: toasts::ToastQueue,
+    /// Issue #225: tracks the last status_message that was mirrored
+    /// into the toast queue. The render loop compares
+    /// `status_message` against this each frame and pushes a fresh
+    /// toast whenever they diverge — call sites that already set
+    /// `status_message` get the overlay for free, no per-site
+    /// refactor.
+    last_toasted_status: Option<(StatusKind, String)>,
     /// Available tree versions found in `data/trees/`.
     tree_versions: Vec<String>,
     /// Currently-loaded tree version.
@@ -598,6 +612,8 @@ impl PobApp {
             minions,
             current_build_path: None,
             status_message: None,
+            toasts: toasts::ToastQueue::default(),
+            last_toasted_status: None,
             tree_versions,
             tree_version: default_version,
             data_root,
@@ -677,6 +693,8 @@ impl PobApp {
             minions: None,
             current_build_path: None,
             status_message: None,
+            toasts: toasts::ToastQueue::default(),
+            last_toasted_status: None,
             tree_versions: vec!["3_25".to_owned()],
             tree_version: "3_25".to_owned(),
             data_root: PathBuf::from("/data"),
@@ -1553,6 +1571,24 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         render_hotkey_help_modal(ctx, &mut app.show_hotkey_help);
     }
 
+    // Issue #225: mirror any new `status_message` into the toast
+    // queue before rendering. Compare against the last-toasted
+    // snapshot so we only push once per logical status change —
+    // existing callers can keep their `app.status_message = Some(...)`
+    // lines and pick up the overlay for free.
+    if app.status_message != app.last_toasted_status {
+        if let Some((kind, msg)) = app.status_message.clone() {
+            let now = ctx.input(|i| i.time);
+            app.toasts.push(kind, msg, now);
+        }
+        app.last_toasted_status = app.status_message.clone();
+    }
+    // Issue #225: transient toast notifications. Rendered after the
+    // hotkey modal so the toast overlay never gets obscured by other
+    // dialogs that anchor to the centre of the screen — the toast
+    // stack sits in the bottom-right corner with its own Area.
+    render_toasts(ctx, &mut app.toasts);
+
     // Issue #220: tree-tab destructive-action confirmation modal.
     // Renders above the central panel via egui's natural z-ordering;
     // gated on `pending_tree_reset` so it appears only when the user
@@ -2225,6 +2261,62 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
 /// On Mac the natural modifier glyph is `⌘`; on Windows / Linux it's
 /// `Ctrl`. egui's `Modifiers::command` already abstracts that for the
 /// shortcut listener — for display, we render the platform-appropriate
+/// Issue #225: render the toast-overlay stack in the bottom-right
+/// corner. Sweeps expired entries first so the rendered count never
+/// includes stale messages. No-op when the queue is empty so a quiet
+/// session has zero overlay paint cost.
+fn render_toasts(ctx: &egui::Context, queue: &mut toasts::ToastQueue) {
+    let now = ctx.input(|i| i.time);
+    queue.sweep(now);
+    if queue.is_empty() {
+        return;
+    }
+    // Force a repaint just past each toast's expiry so the stack
+    // visibly drops the entry the moment it should disappear. Without
+    // this, a low-activity session could leave an expired toast on
+    // screen until the next user input nudges the frame loop.
+    if let Some(earliest_expiry) = queue
+        .iter()
+        .map(|t| t.expires_at)
+        .fold(None, |min, e| match min {
+            Some(m) if m <= e => Some(m),
+            _ => Some(e),
+        })
+    {
+        let delay = (earliest_expiry - now).max(0.0);
+        ctx.request_repaint_after(std::time::Duration::from_millis((delay * 1000.0) as u64));
+    }
+    egui::Area::new(egui::Id::new("toast-overlay"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            ui.with_layout(
+                egui::Layout::bottom_up(egui::Align::Max).with_main_wrap(false),
+                |ui| {
+                    for toast in queue.iter() {
+                        let bg = match toast.kind {
+                            StatusKind::Info => {
+                                egui::Color32::from_rgba_unmultiplied(0x22, 0x55, 0x88, 220)
+                            }
+                            StatusKind::Error => {
+                                egui::Color32::from_rgba_unmultiplied(0x88, 0x22, 0x22, 220)
+                            }
+                        };
+                        egui::Frame::none()
+                            .fill(bg)
+                            .stroke(egui::Stroke::NONE)
+                            .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+                            .rounding(4.0)
+                            .show(ui, |ui| {
+                                ui.colored_label(egui::Color32::WHITE, &toast.message);
+                            });
+                        ui.add_space(4.0);
+                    }
+                },
+            );
+        });
+}
+
 /// label so users see what they'd actually press.
 fn render_hotkey_help_modal(ctx: &egui::Context, show: &mut bool) {
     let cmd_label = if cfg!(target_os = "macos") {
