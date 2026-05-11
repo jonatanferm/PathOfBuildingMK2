@@ -179,6 +179,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "Bleed duration",
         ),
         "PoisonStacks" => poison_stacks(env),
+        "PoisonStackLimit" => poison_stack_limit(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -480,6 +481,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "PoisonDuration",
     "BleedDuration",
     "PoisonStacks",
+    "PoisonStackLimit",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2867,6 +2869,64 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `PoisonStackLimit`. PoB takes
+/// `max(50 default, Σ BASE(PoisonStackLimit))` so uniques like
+/// Volkuur's that explicitly raise the cap stack on top of the
+/// default 50, while builds with no such mod land at exactly 50.
+/// Surfacing the chain shows the default + mod sources.
+///
+/// Returns `Option<Breakdown>` rather than `Option<Option<...>>`
+/// because the limit is always defined (default 50) once a build
+/// loads — but we still skip when the output is zero (no skill
+/// loaded).
+fn poison_stack_limit(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("PoisonStackLimit");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let base_sum = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "PoisonStackLimit");
+    let default = 50.0;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Default")
+            .with_value(default)
+            .with_explain("50 default cap (PoE constant)".to_owned()),
+    );
+
+    if base_sum.abs() > 1e-9 {
+        let base_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("PoisonStackLimit")
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("BASE mods")
+                .with_value(base_sum)
+                .with_explain(format!(
+                    "+{base_sum:.0} from PoisonStackLimit BASE mods (uniques like Volkuur's, etc.)"
+                ))
+                .with_sources(base_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Poison stack limit")
+            .with_value(total)
+            .with_explain(format!("max({default:.0}, {base_sum:+.0}) = {total:.0}")),
+    );
+
+    Some(Breakdown {
+        output_key: "PoisonStackLimit".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `PoisonStacks`. PoB computes
 /// steady-state stack count as
 /// `min(MainSkillSpeed × PoisonDuration × poison_chance, PoisonStackLimit)`.
@@ -4222,6 +4282,44 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: PoisonStackLimit walks default + BASE mods.
+    /// PoB derives the limit as `max(50 default, Σ BASE(PoisonStackLimit))`
+    /// — so uniques like Volkuur's that explicitly raise the cap stack
+    /// on top of the default 50, while builds without such mods land
+    /// at exactly 50. The breakdown surfaces the chain so users can
+    /// see whether their cap is the default or is being lifted.
+    /// Worked example: default 50 + 100 from Volkuur's = 150 limit.
+    #[test]
+    fn poison_stack_limit_breakdown_walks_default_and_mods() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("PoisonStackLimit", 100.0).with_source(Source::Item(2)));
+        env.output.set("PoisonStackLimit", 150.0);
+        let bd = derive_for(&env, "PoisonStackLimit").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Default"));
+        assert!(labels.contains(&"BASE mods"));
+        assert!(labels.contains(&"Poison stack limit"));
+
+        let default = bd.steps.iter().find(|s| s.label == "Default").unwrap();
+        assert!((default.value.unwrap() - 50.0).abs() < 1e-9);
+        assert!((bd.total - 150.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: with no PoisonStackLimit BASE mods the
+    /// breakdown collapses to Default + Final at exactly 50.
+    #[test]
+    fn poison_stack_limit_breakdown_collapses_when_default() {
+        let mut env = Env::default();
+        env.output.set("PoisonStackLimit", 50.0);
+        let bd = derive_for(&env, "PoisonStackLimit").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Default"));
+        assert!(!labels.contains(&"BASE mods"));
+        assert!(labels.contains(&"Poison stack limit"));
+        assert!((bd.total - 50.0).abs() < 1e-9);
+    }
+
     /// Issue #34 follow-up: PoisonStacks walks Cast/attack rate ×
     /// Poison duration → nominal capacity, capped at the stack
     /// limit. PoB computes steady-state stack count as
