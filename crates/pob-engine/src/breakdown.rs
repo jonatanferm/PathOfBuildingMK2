@@ -5152,7 +5152,7 @@ mod tests {
     fn other_resist_uncapped_breakdowns_walk_same_chain() {
         for elem in ["Cold", "Lightning", "Chaos"] {
             let mut env = Env::default();
-            env.output.set(&format!("{elem}Resist"), 75.0);
+            env.output.set(format!("{elem}Resist"), 75.0);
             let bd = derive_for(&env, &format!("{elem}Resist"))
                 .unwrap_or_else(|| panic!("{elem}Resist: dispatch missing"));
             let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
