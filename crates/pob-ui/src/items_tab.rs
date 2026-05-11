@@ -107,6 +107,10 @@ pub struct ItemsTabState {
     /// CRUEL/MERCILESS for boots); empty means "the first tier in
     /// the catalogue" and the picker auto-fills on first open.
     pub flat_enchant_picker_tier: String,
+    /// Issue #221 (anoint slice): popup state for the amulet
+    /// anointment picker. Owned here so the search filter survives
+    /// across frames while the popup is open.
+    pub anoint_picker: crate::anoint_picker::AnointPickerState,
 }
 
 /// Issue #211 (slice 3): edit-buffer state for the shared-items rename
@@ -227,6 +231,7 @@ impl Default for ItemsTabState {
             enchant_picker_filter: String::new(),
             enchant_picker_tier: pob_data::HelmetEnchantTier::default(),
             flat_enchant_picker_tier: String::new(),
+            anoint_picker: crate::anoint_picker::AnointPickerState::default(),
         }
     }
 }
@@ -914,6 +919,13 @@ pub fn ui(
     if picker_changed {
         changed = true;
     }
+    // Issue #221 (anoint slice): the Apply-Anointment popup. Same
+    // commit shape as the lab-enchant pickers (lands on
+    // `ModSection::Enchant`); the catalogue is the live passive
+    // tree's notable nodes, surfaced via `anoint_picker`.
+    if crate::anoint_picker::render_picker_popup(ui, character, &mut state.anoint_picker, tree) {
+        changed = true;
+    }
     ui.separator();
 
     // Issue #109 (slice 4): Weapon Set I / II toggle buttons.
@@ -1201,6 +1213,26 @@ pub fn ui(
                         {
                             state.enchant_picker_open = true;
                             state.enchant_picker_filter.clear();
+                        }
+                        // Issue #221 (anoint slice): "Apply
+                        // Anointment…" lives on the Amulet slot.
+                        // Anoint mods are notable stats from the
+                        // live passive tree (no separate catalogue
+                        // — the tree itself is the data source), so
+                        // the picker dispatches into
+                        // `anoint_picker` instead of the lab-enchant
+                        // path.
+                        if slot == Slot::Amulet
+                            && ui
+                                .button("Apply Anointment…")
+                                .on_hover_text(
+                                    "Pick a passive-tree notable to anoint onto \
+                                     this amulet. Replaces any existing anointment.",
+                                )
+                                .clicked()
+                        {
+                            state.anoint_picker.open = true;
+                            state.anoint_picker.filter.clear();
                         }
                     });
                     if do_unequip {

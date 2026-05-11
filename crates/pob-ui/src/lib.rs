@@ -10,6 +10,7 @@ use pob_engine::{
     Character, Output, SkillRegistry,
 };
 
+mod anoint_picker;
 #[cfg(not(target_arch = "wasm32"))]
 mod build_store_disk;
 #[cfg(target_arch = "wasm32")]
