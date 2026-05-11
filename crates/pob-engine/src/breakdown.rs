@@ -274,6 +274,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "LightningDotEHP" => dot_ehp(env, "Lightning"),
         "ChaosDotEHP" => dot_ehp(env, "Chaos"),
         "PhysicalMaximumHitTaken" => maximum_hit_taken(env, "Physical"),
+        "SecondMinimalMaximumHitTaken" => second_min_max_hit_taken(env),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3126,6 +3127,58 @@ fn dot_ehp(env: &Env, elem: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `SecondMinimalMaximumHitTaken`.
+/// PoB sorts the five per-element MaximumHitTaken values and picks
+/// the second-smallest as the "next worst max hit" — what the build
+/// can take if the smallest element's incoming damage is mitigated.
+/// Surfacing the chain shows all five candidates plus which one
+/// won.
+///
+/// Returns `None` when the per-element max-hits aren't yet
+/// populated (no character loaded yet).
+fn second_min_max_hit_taken(env: &Env) -> Option<Breakdown> {
+    let entries: Vec<(&str, f64)> = ["Physical", "Fire", "Cold", "Lightning", "Chaos"]
+        .iter()
+        .map(|elem| {
+            let v = env.output.get(&format!("{elem}MaximumHitTaken"));
+            (*elem, v)
+        })
+        .collect();
+    if entries.iter().all(|(_, v)| v.abs() < 1e-9) {
+        return None;
+    }
+    let total = env.output.get("SecondMinimalMaximumHitTaken");
+    let mut sorted = entries.clone();
+    sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    let smallest = sorted[0].0;
+    let second = sorted[1].0;
+
+    let mut steps = Vec::new();
+    for (elem, value) in &entries {
+        steps.push(
+            BreakdownStep::label(*elem)
+                .with_value(*value)
+                .with_explain(format!(
+                    "{value:.0} from {elem}MaximumHitTaken — see its breakdown"
+                )),
+        );
+    }
+    steps.push(
+        BreakdownStep::label("Second-smallest max hit")
+            .with_value(total)
+            .with_explain(format!(
+                "smallest = {smallest} ({:.0}); second = {second} ({:.0}) — picks the second-smallest as 'next worst max hit'",
+                sorted[0].1, sorted[1].1
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "SecondMinimalMaximumHitTaken".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for the five
 /// `<Element>MaximumHitTaken` outputs. PoB derives all five through
 /// the same shape (`perform_ehp`):
@@ -4842,6 +4895,54 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: SecondMinimalMaximumHitTaken walks the
+    /// five per-element max-hits, surfaces the smallest (excluded),
+    /// and picks the second-smallest. PoB uses this on the defence
+    /// panel as "next worst max hit" — what the build can take if
+    /// the smallest element is mitigated. Worked example: Phys
+    /// 1100, Fire 4400, Cold 4400, Lightning 4400, Chaos 1400 →
+    /// smallest 1100 (Phys), second 1400 (Chaos).
+    #[test]
+    fn second_min_max_hit_breakdown_picks_second_smallest() {
+        let mut env = Env::default();
+        env.output.set("PhysicalMaximumHitTaken", 1100.0);
+        env.output.set("FireMaximumHitTaken", 4400.0);
+        env.output.set("ColdMaximumHitTaken", 4400.0);
+        env.output.set("LightningMaximumHitTaken", 4400.0);
+        env.output.set("ChaosMaximumHitTaken", 1400.0);
+        env.output.set("SecondMinimalMaximumHitTaken", 1400.0);
+        let bd = derive_for(&env, "SecondMinimalMaximumHitTaken").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Physical"));
+        assert!(labels.contains(&"Fire"));
+        assert!(labels.contains(&"Cold"));
+        assert!(labels.contains(&"Lightning"));
+        assert!(labels.contains(&"Chaos"));
+        assert!(labels.contains(&"Second-smallest max hit"));
+
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("Chaos") && e.contains("Physical")),
+            "expected smallest (Physical) and second (Chaos) in explain, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 1400.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when no per-element max-hits
+    /// exist (no character loaded yet).
+    #[test]
+    fn second_min_max_hit_breakdown_skipped_when_no_elements() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "SecondMinimalMaximumHitTaken").is_none(),
+            "expected None when no per-element max-hits are set",
+        );
+    }
+
     /// Issue #34 follow-up: per-element MoMHitPool /
     /// ManaEffectiveLife outputs all collapse to the same `pool`
     /// sum in Phase 2 (no MoM yet, no per-element split). Surfacing
