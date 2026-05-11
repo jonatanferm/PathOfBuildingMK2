@@ -915,6 +915,7 @@ fn render_shared_panel(
     ui.add_space(2.0);
 
     let mut to_delete: Option<usize> = None;
+    let mut to_clone: Option<usize> = None;
     let mut to_equip: Option<(Slot, Item)> = None;
     egui::ScrollArea::vertical()
         .max_height(420.0)
@@ -950,6 +951,7 @@ fn render_shared_panel(
                     let mut lines = item_tooltip_lines(&saved.item);
                     lines.push(String::new());
                     lines.push("Double-click to equip this saved item.".into());
+                    lines.push("Right-click for more actions.".into());
                     let row = ui
                         .add(egui::Label::new(label_text).sense(egui::Sense::click()))
                         .on_hover_ui(|ui| {
@@ -967,6 +969,21 @@ fn render_shared_panel(
                             to_equip = Some((slot, saved.item.clone()));
                         }
                     }
+                    // Issue #211 (slice 2): right-click context menu —
+                    // mirrors PoB's `SharedItemListControl` row menu
+                    // (clone / delete). Equip stays on double-click so
+                    // the menu doesn't need a redundant entry; the
+                    // hover-tooltip's bottom line teaches the gesture.
+                    row.context_menu(|ui| {
+                        if ui.button("Clone").clicked() {
+                            to_clone = Some(idx);
+                            ui.close_menu();
+                        }
+                        if ui.button("Delete").clicked() {
+                            to_delete = Some(idx);
+                            ui.close_menu();
+                        }
+                    });
                     if ui
                         .small_button("✕")
                         .on_hover_text(format!("Delete \"{}\" from shared items", saved.label))
@@ -981,6 +998,13 @@ fn render_shared_panel(
         items.equip(slot, item);
         *selected_slot = Some(slot);
         changed = true;
+    }
+    if let Some(idx) = to_clone {
+        // `clone_at` already runs `unique_label` so the new row gets a
+        // `(2)` / `(3)` suffix and `dirty` flips — the per-frame flush
+        // in lib.rs picks it up. No `changed` flip because the saved
+        // list isn't part of the perform pipeline.
+        shared_items.clone_at(idx);
     }
     if let Some(idx) = to_delete {
         shared_items.remove(idx);
