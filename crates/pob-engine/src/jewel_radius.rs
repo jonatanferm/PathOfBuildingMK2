@@ -77,6 +77,10 @@
 //! - **Spire of Stone** ([`HandlerKind::StrCountToIncTotemLife`]) — Strength
 //!   summed across in-radius allocated nodes, integer-divided by 10, then
 //!   multiplied by 3 to produce an Inc TotemLife mod sourced as the jewel.
+//! - **Might in All Forms** ([`HandlerKind::DexIntToStrMeleeBonus`]) —
+//!   Dex + Int summed across in-radius allocated nodes, emitted straight
+//!   into a single `DexIntToMeleeBonus` BASE mod. PoB folds the same stat
+//!   back into the Strength → Melee Damage bonus formula.
 //! - **Pugilist** ([`HandlerKind::DexCountToIncEvasion`]) — Dex
 //!   variant of the per-attribute-tally pattern emitting Inc
 //!   Evasion. The two per-claw / per-unarmed lines on the same
@@ -362,6 +366,15 @@ pub enum HandlerKind {
     /// the jewel. The jewel's static `Totems cannot be Stunned` line is left
     /// to vanilla mod_parser handling.
     StrCountToIncTotemLife,
+    /// Issue #196: Might in All Forms. `Dexterity and Intelligence from
+    /// passives in Radius count towards Strength Melee Damage bonus`. Sums
+    /// in-radius allocated `+N Dexterity` and `+N Intelligence` BASE mods
+    /// and emits a single `DexIntToMeleeBonus` BASE mod whose value is the
+    /// straight `Dex + Int` total — no per-N integer-divide. Mirrors PoB's
+    /// `jewelSelfFuncs` line (`ModParser.lua` ~6160) which folds the same
+    /// stat back into the Strength → Melee Damage bonus computation
+    /// (`CalcPerform.lua` ~501).
+    DexIntToStrMeleeBonus,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -522,6 +535,7 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Cold Steel" => Some(build_phys_cold_swap(socket_id, item)),
         "Fireborn" => Some(build_other_damage_to_fire(socket_id, item)),
         "Anatomical Knowledge" => Some(build_int_count_to_life(socket_id, item)),
+        "Might in All Forms" => Some(build_dex_int_to_str_melee_bonus(socket_id, item)),
         "Pugilist" => Some(build_dex_count_to_inc_evasion(socket_id, item)),
         "Spire of Stone" => Some(build_str_count_to_inc_totem_life(socket_id, item)),
         "Eldritch Knowledge" => Some(build_int_count_to_inc_chaos_damage(socket_id, item)),
@@ -732,6 +746,30 @@ fn build_int_count_to_life(socket_id: NodeId, item: &Item) -> RadiusJewel {
         HandlerKind::IntCountToLife,
         is_int_count_to_life_marker,
     )
+}
+
+/// Issue #196: Might in All Forms. `Dexterity and Intelligence from
+/// passives in Radius count towards Strength Melee Damage bonus`. The
+/// marker line is dispatch-only metadata; the in-radius Dex + Int sum is
+/// computed in the dispatch arm. Radius is Medium (the jewel's only band)
+/// — `build_transformer`'s Large default doesn't apply here, so we build
+/// the descriptor inline with the right `radius_index_for_label("Medium")`.
+fn build_dex_int_to_str_melee_bonus(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    let mods = parse_non_transform_mods(item, is_dex_int_to_str_melee_bonus_marker);
+    let idx = radius_index_for_label("Medium").unwrap_or(1);
+    let radii = radii_for_tree_version(&item_tree_version(item));
+    let radius = radii
+        .get(idx)
+        .copied()
+        .unwrap_or_else(|| pob_data::JewelRadiusInfo::new(0.0, 1440.0, "Medium"));
+    RadiusJewel {
+        socket_id,
+        radius,
+        radius_index: idx,
+        mods,
+        source_label: format!("RadiusJewel:{}", item.base_name),
+        kind: HandlerKind::DexIntToStrMeleeBonus,
+    }
 }
 
 /// Issue #196 (slice 9): Pugilist (Inc Evasion line). The marker
@@ -990,6 +1028,18 @@ fn is_dex_count_to_max_lightning_attack_marker(line: &str) -> bool {
     l.contains("adds 1 maximum lightning damage to attacks")
         && l.contains("per 1 dexterity")
         && l.contains("in radius")
+}
+
+/// Issue #196: Might in All Forms marker. The jewel's only radius line is
+/// `Dexterity and Intelligence from passives in Radius count towards
+/// Strength Melee Damage bonus`. PoB matches the lowercase form verbatim
+/// in `jewelSelfFuncs`; we use a substring match against the load-bearing
+/// fragments to tolerate trivial whitespace / casing variation from the
+/// item-text parser.
+fn is_dex_int_to_str_melee_bonus_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("dexterity and intelligence from passives in radius")
+        && l.contains("strength melee damage bonus")
 }
 
 /// Issue #196 (Pure Talent): the seven base classes whose starting locations
@@ -1473,6 +1523,33 @@ pub fn apply_radius_jewels(
                 let life = (int_sum / 3.0).floor();
                 if life > 0.0 {
                     let mod_ = crate::Mod::base("Life", life)
+                        .with_source(Source::Other(jewel.source_label.clone()));
+                    db.add(mod_);
+                    report.mod_emissions += 1;
+                }
+            }
+            HandlerKind::DexIntToStrMeleeBonus => {
+                // Issue #196: Might in All Forms. Sum `+N Dexterity`
+                // and `+N Intelligence` BASE mods across in-radius
+                // allocated nodes and emit a single
+                // `DexIntToMeleeBonus` BASE mod whose value is
+                // `Dex + Int`. PoB folds this stat back into the
+                // Strength → Melee Damage bonus computation; we emit
+                // the canonical stat name so future calc consumers
+                // pick it up without further plumbing here.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let dex_sum = sum_radius_attribute_base(tree, &in_radius, "Dexterity");
+                let int_sum = sum_radius_attribute_base(tree, &in_radius, "Intelligence");
+                let total = dex_sum + int_sum;
+                if total > 0.0 {
+                    let mod_ = crate::Mod::base("DexIntToMeleeBonus", total)
                         .with_source(Source::Other(jewel.source_label.clone()));
                     db.add(mod_);
                     report.mod_emissions += 1;
@@ -4467,5 +4544,84 @@ mod tests {
         // global mods (the only line was the metadata marker).
         assert_eq!(report.applied_jewels, 1);
         assert_eq!(report.mod_emissions, 0);
+    }
+
+    /// Issue #196: Might in All Forms. `Dexterity and Intelligence from
+    /// passives in Radius count towards Strength Melee Damage bonus`.
+    /// Sums in-radius allocated `+N Dexterity` and `+N Intelligence` BASE
+    /// mods and emits a single `DexIntToMeleeBonus` BASE mod whose value
+    /// is `Dex + Int`. PoB's `data/uniques/jewel.lua` definition is the
+    /// `Dexterity and Intelligence from passives in Radius count towards
+    /// Strength Melee Damage bonus` line in `ModParser.lua`'s
+    /// `jewelSelfFuncs` (line ~6160 — sums Dex and Int via
+    /// `node.modList:Sum("BASE", nil, ...)` and emits the same stat name
+    /// at radius-finalize time). 20 Dex + 30 Int → 50 `DexIntToMeleeBonus`.
+    #[test]
+    fn might_in_all_forms_emits_dex_int_to_melee_bonus_from_radius() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats =
+            vec!["+20 to Dexterity".into(), "+30 to Intelligence".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Might in All Forms",
+                "Crimson Jewel",
+                &[(
+                    "Dexterity and Intelligence from passives in Radius count towards Strength Melee Damage bonus",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::DexIntToStrMeleeBonus);
+
+        // +50 DexIntToMeleeBonus BASE sourced as the jewel (20 + 30 = 50).
+        let bonus_mods = db.slice_named("DexIntToMeleeBonus");
+        assert!(
+            bonus_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Base)
+                    && (m.value.as_f64().unwrap_or(0.0) - 50.0).abs() < 1e-6),
+            "expected +50 DexIntToMeleeBonus BASE from Might in All Forms, got {bonus_mods:#?}",
+        );
+    }
+
+    /// Issue #196: Might in All Forms only sums Dex+Int from in-radius
+    /// allocated nodes — a node sitting outside Medium ring (node 3 at
+    /// x=2000) should not contribute. Sum of 0 → no emitted mod.
+    #[test]
+    fn might_in_all_forms_skips_out_of_radius_nodes() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["+40 to Dexterity".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Might in All Forms",
+                "Crimson Jewel",
+                &[(
+                    "Dexterity and Intelligence from passives in Radius count towards Strength Melee Damage bonus",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+
+        let bonus_mods = db.slice_named("DexIntToMeleeBonus");
+        assert!(
+            bonus_mods.is_empty(),
+            "expected no DexIntToMeleeBonus when only out-of-radius nodes carry the attribute, got {bonus_mods:#?}",
+        );
     }
 }
