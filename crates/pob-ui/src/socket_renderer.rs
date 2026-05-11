@@ -10,11 +10,11 @@
 //! [`socket_render_layout`], which is pure and unit-tested. The egui
 //! drawing function ([`draw_sockets`]) just walks that layout.
 //!
-//! Click-to-cycle (`SocketColor::cycle_next`) is intentionally NOT
-//! wired in this slice — the Items tab today reads `item.sockets`
-//! straight off the `Item` struct, so a click would need to either
-//! mutate the parsed item back to the string or refactor storage.
-//! Both belong in a follow-up; this slice is render-only.
+//! Issue #221 follow-up: click-to-cycle is wired via [`draw_sockets`]'s
+//! `SocketsResponse::clicked_dot` and the pure [`cycle_socket_color`] /
+//! [`apply_socket_cycle_at`] helpers. Clicking a dot advances its
+//! colour through `R → G → B → W → R`; abyss sockets stay abyss
+//! (`SocketColor::cycle_next` is a no-op on abyss).
 
 use eframe::egui;
 use pob_data::{SocketColor, SocketGroup};
@@ -123,25 +123,76 @@ pub fn socket_fill(color: SocketColor) -> egui::Color32 {
     }
 }
 
+/// Issue #221 follow-up: result of drawing + hit-testing a socket row.
+/// The renderer reports the 0-based index of the dot the user clicked,
+/// counted across every group in left-to-right order (matching the
+/// order [`socket_render_layout`] emits `RenderItem::Dot` elements).
+/// `None` when no dot was clicked this frame. Carries through egui's
+/// own [`egui::Response`] so call sites can still wire up
+/// `on_hover_ui` / focus-style affordances.
+#[derive(Debug)]
+pub struct SocketsResponse {
+    pub response: egui::Response,
+    pub clicked_dot: Option<usize>,
+}
+
+/// Issue #221 follow-up: cycle the colour at `dot_index` of `sockets`
+/// to the next colour in the `R → G → B → W → R` ring (abyss stays
+/// abyss). Pure: doesn't touch egui or item state. Returns the new
+/// socket string with the rest of the layout (link bars, group
+/// separators) preserved verbatim.
+///
+/// `dot_index` is 0-based and counts only **socket characters** (the
+/// same order [`draw_sockets`] paints them in), not raw string
+/// indices. An index past the last socket returns the original string
+/// unchanged — defensive against a stale click after the user just
+/// edited the socket string by hand.
+#[must_use]
+pub fn apply_socket_cycle_at(sockets: &str, dot_index: usize) -> String {
+    let mut out = String::with_capacity(sockets.len());
+    let mut seen = 0usize;
+    let mut applied = false;
+    for c in sockets.chars() {
+        if let Some(col) = SocketColor::from_letter(c) {
+            if !applied && seen == dot_index {
+                out.push(col.cycle_next().letter());
+                applied = true;
+            } else {
+                out.push(c);
+            }
+            seen += 1;
+        } else {
+            // Separator (`-`, ` `, etc.) — pass through unchanged.
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Paint the supplied socket groups inline into `ui`. Allocates a
 /// horizontal slot of exactly the layout width × dot height and draws
-/// the dots + link bars into it. Returns the egui `Response` for
-/// hover/click wiring later.
+/// the dots + link bars into it. Returns a [`SocketsResponse`] so call
+/// sites can react to a click on a specific dot.
 pub fn draw_sockets(
     ui: &mut egui::Ui,
     groups: &[SocketGroup],
     cfg: SocketLayoutConfig,
-) -> egui::Response {
+) -> SocketsResponse {
     let layout = socket_render_layout(groups, cfg);
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(layout.width.max(1.0), cfg.dot_diameter),
-        egui::Sense::hover(),
+        egui::Sense::click(),
     );
     let painter = ui.painter_at(rect);
     let radius = cfg.dot_diameter * 0.5;
     let cy = rect.center().y;
     let stroke_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
     let link_color = ui.visuals().widgets.noninteractive.fg_stroke.color;
+    // Walk the layout once: paint each item, and on each `Dot` build
+    // up the (dot_index, screen_center, radius) hit-test table so we
+    // can map a click pointer back to a dot index after the
+    // `interact()` call resolves below.
+    let mut dot_centers: Vec<egui::Pos2> = Vec::new();
     for item in &layout.items {
         match item {
             RenderItem::Dot { x_center, color } => {
@@ -149,6 +200,7 @@ pub fn draw_sockets(
                 painter.circle_filled(center, radius, socket_fill(*color));
                 // Thin outline so light dots (white) read on a light bg.
                 painter.circle_stroke(center, radius, egui::Stroke::new(1.0, stroke_color));
+                dot_centers.push(center);
             }
             RenderItem::Link { x_start, x_end } => {
                 let bar = egui::Rect::from_min_max(
@@ -159,7 +211,19 @@ pub fn draw_sockets(
             }
         }
     }
-    response
+    let clicked_dot = if response.clicked() {
+        response.interact_pointer_pos().and_then(|p| {
+            dot_centers
+                .iter()
+                .position(|c| (*c - p).length() <= radius + 1.0)
+        })
+    } else {
+        None
+    };
+    SocketsResponse {
+        response,
+        clicked_dot,
+    }
 }
 
 #[cfg(test)]
@@ -281,6 +345,62 @@ mod tests {
         let layout = socket_render_layout(&groups, cfg());
         assert_eq!(layout.items.len(), 1);
         assert_eq!(layout.width, 10.0);
+    }
+
+    #[test]
+    fn apply_socket_cycle_advances_color_at_index() {
+        // First dot in a 3-link cycles R → G; the rest of the layout
+        // (the `-` link bars) survives intact.
+        assert_eq!(apply_socket_cycle_at("R-G-B", 0), "G-G-B");
+        // Mid-group socket cycles independently.
+        assert_eq!(apply_socket_cycle_at("R-G-B", 1), "R-B-B");
+        // Last socket in a 3-link.
+        assert_eq!(apply_socket_cycle_at("R-G-B", 2), "R-G-W");
+    }
+
+    #[test]
+    fn apply_socket_cycle_wraps_w_back_to_r() {
+        assert_eq!(apply_socket_cycle_at("W", 0), "R");
+    }
+
+    #[test]
+    fn apply_socket_cycle_indexes_across_multiple_groups() {
+        // The dot index counts across every group, ignoring the
+        // group separator (` `) and link bars (`-`). So `2` here
+        // points at the third dot (the first dot of the second
+        // group) — `B`, which cycles to `W`.
+        assert_eq!(apply_socket_cycle_at("R-G B-W", 2), "R-G W-W");
+    }
+
+    #[test]
+    fn apply_socket_cycle_keeps_abyss_fixed() {
+        // Abyss sockets are fixed by the base — `cycle_next` is a
+        // no-op on abyss, so the helper passes through unchanged.
+        // (`A-A`-style abyss layouts come from belts with two abyss
+        // sockets — clicking one still has to be valid input even
+        // if the resulting string is the same.)
+        assert_eq!(apply_socket_cycle_at("A", 0), "A");
+        assert_eq!(apply_socket_cycle_at("A A", 1), "A A");
+    }
+
+    #[test]
+    fn apply_socket_cycle_out_of_range_index_is_noop() {
+        // Defensive against a stale click — if the user typed a
+        // shorter socket string between the click and the frame
+        // running this helper, the index could fall past the end.
+        // The helper should just return the input unchanged rather
+        // than panic / wrap into the wrong socket.
+        assert_eq!(apply_socket_cycle_at("R-G", 5), "R-G");
+        assert_eq!(apply_socket_cycle_at("", 0), "");
+    }
+
+    #[test]
+    fn apply_socket_cycle_preserves_unusual_separators_verbatim() {
+        // The parser tolerates `,` and other separators (see
+        // `parse_socket_string`); the cycle helper should preserve
+        // them too so a round-trip through "parse → render →
+        // cycle → emit" doesn't normalise the user's formatting.
+        assert_eq!(apply_socket_cycle_at("R,G,B", 1), "R,B,B");
     }
 
     #[test]
