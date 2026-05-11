@@ -56,12 +56,17 @@ impl MinionState<'_> {
 }
 
 /// Detect the minion type the active main skill summons. Returns `None` if the active
-/// skill isn't a minion-summoning skill, or its `minionList[0]` isn't present in the
-/// catalogue.
+/// skill isn't a minion-summoning skill, or the resolved minion id isn't present in
+/// the catalogue.
 ///
-/// Slice 3 picks `minionList[0]` (PoB's default for the gem's primary minion). General's
-/// Cry alts and Animate Guardian / Animate Weapon are deferred — they pick a non-trivial
-/// secondary minion.
+/// Resolution order mirrors PoB's CalcActiveSkill.lua:641-663:
+/// 1. If `skill.minion_list` is non-empty, pick `minion_list[0]` (gem's primary minion).
+/// 2. Otherwise, if the skill has the `minion` base-flag (e.g. Raise Spectre whose
+///    `minionList` is intentionally empty), fall back to `character.spectre_list[0]`
+///    — the user-chosen spectre from the build's `<Spectre id="...">` elements.
+///
+/// General's Cry alts and Animate Guardian / Animate Weapon are deferred — they pick
+/// a non-trivial secondary minion or require party-member context.
 #[must_use]
 pub fn select_minion_type<'a>(
     character: &Character,
@@ -70,14 +75,26 @@ pub fn select_minion_type<'a>(
 ) -> Option<MinionState<'a>> {
     let main = character.main_skill.as_ref()?;
     let skill = registry.get(&main.skill_id)?;
-    let primary = skill.minion_list.first()?;
+
+    // Determine the minion id. For skills like Raise Spectre where
+    // `minionList` is empty, fall back to the user-chosen spectre list.
+    let primary: &str = if let Some(first) = skill.minion_list.first() {
+        first.as_str()
+    } else {
+        let is_minion_skill = skill.base_flags.get("minion").copied().unwrap_or(false);
+        if !is_minion_skill {
+            return None;
+        }
+        character.spectre_list.first().map(String::as_str)?
+    };
+
     let data = minions.minions.get(primary)?;
 
     let level = main.level.max(1).min(100);
     let life_base = (life_base_for(data, level) as f64 * data.life).round() as u32;
 
     Some(MinionState {
-        id: primary.clone(),
+        id: primary.to_string(),
         data,
         level,
         life_base,

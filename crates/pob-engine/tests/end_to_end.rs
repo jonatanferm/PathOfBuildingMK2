@@ -2458,6 +2458,73 @@ fn summon_flame_golem_lights_up_minion_outputs_end_to_end() {
     );
 }
 
+/// Issue #20 — final acceptance criterion: `pob_diff`-style test for a
+/// Raise Spectre build. `<Spectre id="…">` elements in the build XML are
+/// parsed into `character.spectre_list`; `select_minion_type` falls back
+/// to `spectre_list[0]` when the active skill's `minion_list` is empty
+/// (as it is for Raise Spectre). MinionLife and MinionDPS must be
+/// non-zero, proving the full import → compute → minion-output pipeline
+/// works end-to-end for spectre builds.
+#[test]
+fn raise_spectre_build_imports_and_produces_minion_outputs() {
+    let (Some(tree), Some(skills), Some(minions)) =
+        (load_3_25_tree(), load_skills(), load_minions())
+    else {
+        eprintln!("skip: data missing (run pob-extract first)");
+        return;
+    };
+    if skills.get("RaiseSpectre").is_none() {
+        eprintln!("skip: RaiseSpectre not in skill registry");
+        return;
+    }
+
+    let xml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("crates/pob-extract/test-builds/witch_l90_raise_spectre.xml");
+    let Ok(xml) = std::fs::read_to_string(&xml_path) else {
+        eprintln!("skip: {} not found", xml_path.display());
+        return;
+    };
+
+    let c = pob_engine::import_pob_xml(&xml).expect("import raise spectre fixture");
+
+    // spectre_list must be populated from the <Spectre> elements.
+    assert!(
+        !c.spectre_list.is_empty(),
+        "spectre_list should be populated from <Spectre id=…> elements in the build XML"
+    );
+
+    let (mut output, env) = pob_engine::compute_full_with_env(&c, &tree, Some(&skills), None);
+    let applied = pob_engine::apply_minion_outputs(&c, &skills, &minions, &env, &mut output);
+    assert!(
+        applied,
+        "apply_minion_outputs should return true for a Raise Spectre build with a selected spectre"
+    );
+
+    let life = output.get("MinionLife");
+    assert!(
+        life > 0.0,
+        "MinionLife should be non-zero for a Raise Spectre build, got {life}"
+    );
+
+    let dps = output.get("MinionDPS");
+    assert!(
+        dps > 0.0,
+        "MinionDPS should be non-zero for a Raise Spectre build, got {dps}"
+    );
+
+    // MainSkillDPS is mirrored from MinionDPS × NumberOfMinions (2 spectres in the fixture).
+    let pack = output.get("NumberOfMinions").max(1.0);
+    let main_dps = output.get("MainSkillDPS");
+    assert!(
+        (main_dps - dps * pack).abs() < 1e-6,
+        "MainSkillDPS should equal MinionDPS × NumberOfMinions; got main={main_dps}, minion_dps={dps}, pack={pack}"
+    );
+}
+
 // Issue #52: Every AoE-tagged skill must emit AoERadius / FinalAoERadius
 // outputs (PoB exposes these on the Calcs tab) and FinalAoERadius must
 // scale with `increased Area of Effect` mods according to PoB's

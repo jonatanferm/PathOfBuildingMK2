@@ -861,6 +861,24 @@ fn handle_start_attrs(
                 }
             }
         }
+        "Spectre" => {
+            // Issue #20: <Spectre id="..."> children of <Build> — the list
+            // of monster ids chosen by the user for Raise Spectre builds.
+            // Mirrors PoB's Build.spectreList: CalcActiveSkill.lua falls
+            // back to this list when the active skill's minionList is empty.
+            for attr in e.attributes().with_checks(false).flatten() {
+                let key = String::from_utf8_lossy(attr.key.as_ref()).into_owned();
+                if key == "id" {
+                    let val = attr
+                        .unescape_value()
+                        .map_err(|err| PobImportError::Xml(err.to_string()))?
+                        .into_owned();
+                    if !val.is_empty() {
+                        character.spectre_list.push(val);
+                    }
+                }
+            }
+        }
         "Items" => {
             // PoB pins the active loadout via `<Items activeItemSet="N">`.
             // Capture it so the post-parse reconciliation can pick the

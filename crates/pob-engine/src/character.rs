@@ -73,6 +73,14 @@ pub struct CharacterSnapshot {
     /// `identify_radius_jewel`'s subtype check.
     #[serde(default)]
     pub socketed_jewels: SocketedJewels,
+    /// Issue #20: list of spectre monster ids chosen by the user for Raise
+    /// Spectre builds (e.g.
+    /// `"Metadata/Monsters/KitavaCultist/VaalCultistSpearBloodChampionDelve"`).
+    /// Mirrors PoB's `Build.spectreList`. When the active skill is Raise
+    /// Spectre (empty `minionList`) and this list is non-empty, the engine
+    /// picks `spectre_list[0]` as the minion type for `apply_minion_outputs`.
+    #[serde(default)]
+    pub spectre_list: Vec<String>,
 }
 
 /// One stored item-loadout save. `items` is the same `ItemSet` the
@@ -250,6 +258,7 @@ impl CharacterSnapshot {
                 .collect(),
             jewels: c.jewels.iter().map(|(k, v)| (*k, v.clone())).collect(),
             socketed_jewels: c.socketed_jewels.clone(),
+            spectre_list: c.spectre_list.clone(),
         }
     }
     pub fn into_character(self) -> Character {
@@ -299,6 +308,7 @@ impl CharacterSnapshot {
             tattoo_overrides: self.tattoo_overrides.into_iter().collect(),
             jewels: self.jewels.into_iter().collect(),
             socketed_jewels: self.socketed_jewels,
+            spectre_list: self.spectre_list,
         }
     }
 }
@@ -548,6 +558,11 @@ pub struct Character {
     /// compute time and projects each radius jewel's mods onto the
     /// allocated passives inside its radius.
     pub socketed_jewels: SocketedJewels,
+    /// Issue #20: list of spectre monster ids chosen by the user for Raise
+    /// Spectre builds. Mirrors PoB's `Build.spectreList`. When the active
+    /// skill is Raise Spectre (empty `minionList`) and this list is
+    /// non-empty, the engine picks `spectre_list[0]` as the minion type.
+    pub spectre_list: Vec<String>,
 }
 
 /// Encounter / condition configuration. Mirrors PoB's Config tab:
@@ -812,6 +827,7 @@ impl Character {
             tattoo_overrides: HashMap::default(),
             jewels: HashMap::default(),
             socketed_jewels: SocketedJewels::new(),
+            spectre_list: Vec::new(),
         }
     }
 
