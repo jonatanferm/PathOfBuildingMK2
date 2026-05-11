@@ -31,6 +31,39 @@ pub struct UserSettings {
     /// readers / shoulder-surfing). Clamped to `1.0..=30.0` on load.
     #[serde(default = "default_toast_lifetime")]
     pub toast_lifetime_secs: f64,
+    /// Issue #225: visual theme. Dark by default (matches PoB's
+    /// in-game palette). Light is provided for users on bright
+    /// monitors / outdoor laptops; egui ships built-in palettes for
+    /// both so the toggle is a one-liner at the apply site.
+    #[serde(default = "default_theme")]
+    pub theme: Theme,
+}
+
+/// Issue #225: theme palette options. egui supplies both built-in;
+/// `apply` wires the right `Visuals` onto a context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    /// `egui::Visuals::dark()` — PoB's traditional palette.
+    #[default]
+    Dark,
+    /// `egui::Visuals::light()` — bright backgrounds, dark text.
+    Light,
+}
+
+impl Theme {
+    /// Human-readable label for the radio button.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dark => "Dark",
+            Self::Light => "Light",
+        }
+    }
+}
+
+fn default_theme() -> Theme {
+    Theme::Dark
 }
 
 fn default_ui_scale() -> f32 {
@@ -46,6 +79,7 @@ impl Default for UserSettings {
         Self {
             ui_scale: default_ui_scale(),
             toast_lifetime_secs: default_toast_lifetime(),
+            theme: default_theme(),
         }
     }
 }
@@ -178,12 +212,14 @@ mod tests {
         let tiny = UserSettings {
             ui_scale: 0.01,
             toast_lifetime_secs: 5.0,
+            theme: Theme::Dark,
         };
         assert!((tiny.sanitised().ui_scale - 0.5).abs() < f32::EPSILON);
         // Huge scale snaps to the max.
         let huge = UserSettings {
             ui_scale: 100.0,
             toast_lifetime_secs: 5.0,
+            theme: Theme::Dark,
         };
         assert!((huge.sanitised().ui_scale - 2.5).abs() < f32::EPSILON);
     }
@@ -193,11 +229,13 @@ mod tests {
         let zero = UserSettings {
             ui_scale: 1.0,
             toast_lifetime_secs: 0.0,
+            theme: Theme::Dark,
         };
         assert!((zero.sanitised().toast_lifetime_secs - 1.0).abs() < f64::EPSILON);
         let huge = UserSettings {
             ui_scale: 1.0,
             toast_lifetime_secs: 1_000.0,
+            theme: Theme::Dark,
         };
         assert!((huge.sanitised().toast_lifetime_secs - 30.0).abs() < f64::EPSILON);
     }
@@ -216,11 +254,14 @@ mod tests {
     #[test]
     fn from_json_serde_defaults_cover_missing_fields() {
         // A settings file authored by a previous app version that
-        // didn't have `toast_lifetime_secs` loads with the default.
+        // didn't have `toast_lifetime_secs` / `theme` loads with the
+        // defaults — the user doesn't lose their existing prefs when
+        // upgrading to a version that grew new ones.
         let partial = r#"{"ui_scale": 1.25}"#;
         let s = UserSettings::from_json(partial).expect("parse");
         assert!((s.ui_scale - 1.25).abs() < f32::EPSILON);
         assert!((s.toast_lifetime_secs - 5.0).abs() < f64::EPSILON);
+        assert_eq!(s.theme, Theme::Dark);
     }
 
     #[test]
@@ -228,9 +269,30 @@ mod tests {
         let s = UserSettings {
             ui_scale: 1.5,
             toast_lifetime_secs: 8.0,
+            theme: Theme::Light,
         };
         let json = s.to_json().expect("serialise");
         let back = UserSettings::from_json(&json).expect("parse");
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn theme_serialises_as_lowercase_string() {
+        // Pin the on-disk encoding so hand-edited settings.json
+        // remains readable. `rename_all = "lowercase"` plus the
+        // enum variant names mean Dark/Light serialise as "dark"
+        // / "light" — both directions.
+        let s = UserSettings {
+            ui_scale: 1.0,
+            toast_lifetime_secs: 5.0,
+            theme: Theme::Light,
+        };
+        let json = s.to_json().expect("serialise");
+        assert!(
+            json.contains("\"theme\": \"light\""),
+            "expected lowercase theme key, got {json}"
+        );
+        let parsed = UserSettings::from_json(&json).expect("parse");
+        assert_eq!(parsed.theme, Theme::Light);
     }
 }

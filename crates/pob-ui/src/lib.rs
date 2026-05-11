@@ -1614,6 +1614,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // the picked value takes effect immediately (egui caches the
     // pixels_per_point — a no-op when unchanged, so this is cheap).
     ctx.set_pixels_per_point(app.user_settings.ui_scale);
+    // Apply the theme too — egui's `set_visuals` is also cheap
+    // when the visuals haven't changed (it compares by struct
+    // equality before swapping).
+    ctx.set_visuals(match app.user_settings.theme {
+        settings::Theme::Dark => egui::Visuals::dark(),
+        settings::Theme::Light => egui::Visuals::light(),
+    });
     if app.show_settings {
         render_settings_modal(ctx, app);
     }
@@ -2478,6 +2485,19 @@ fn render_settings_modal(ctx: &egui::Context, app: &mut LoadedApp) {
                     .text("seconds")
                     .clamping(egui::SliderClamping::Always),
             );
+            ui.horizontal(|ui| {
+                ui.label("Theme:");
+                ui.selectable_value(
+                    &mut working.theme,
+                    settings::Theme::Dark,
+                    settings::Theme::Dark.label(),
+                );
+                ui.selectable_value(
+                    &mut working.theme,
+                    settings::Theme::Light,
+                    settings::Theme::Light.label(),
+                );
+            });
             ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() {
