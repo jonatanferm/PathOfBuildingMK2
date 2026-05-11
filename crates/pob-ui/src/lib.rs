@@ -3172,6 +3172,49 @@ fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction
             };
             load_compare_from_path(app, path);
         }
+        compare_tab::CompareAction::SaveSnapshotToFile => {
+            // Issue #223 follow-up: write the snapshot's character
+            // back to disk. Default filename comes from the snapshot
+            // label (`default_snapshot_filename` already strips the
+            // forbidden chars).
+            let Some(snap) = app.compare_state.snapshot.as_ref() else {
+                return;
+            };
+            let default_name = compare_tab::default_snapshot_filename(&snap.label);
+            let Some(path) = rfd::FileDialog::new()
+                .add_filter("MK2 build", &["mk2"])
+                .set_file_name(&default_name)
+                .save_file()
+            else {
+                return;
+            };
+            match pob_engine::export_code(&snap.character) {
+                Ok(code) => match std::fs::write(&path, code) {
+                    Ok(()) => {
+                        // Adopt the new path as the snapshot's source
+                        // so the "Re-import current" button (Issue #223
+                        // follow-up #404) lights up immediately —
+                        // saving an in-memory snapshot is exactly the
+                        // moment it becomes file-backed.
+                        if let Some(snap_mut) = app.compare_state.snapshot.as_mut() {
+                            snap_mut.source_path = Some(path.clone());
+                        }
+                        app.status_message = Some((
+                            StatusKind::Info,
+                            format!("Snapshot saved to {}", path.display()),
+                        ));
+                    }
+                    Err(e) => {
+                        app.status_message =
+                            Some((StatusKind::Error, format!("Snapshot save failed: {e}")));
+                    }
+                },
+                Err(e) => {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Snapshot export failed: {e}")));
+                }
+            }
+        }
     }
 }
 
@@ -3212,9 +3255,22 @@ fn load_compare_from_path(app: &mut LoadedApp, path: std::path::PathBuf) {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn handle_compare_action(_app: &mut LoadedApp, _action: compare_tab::CompareAction) {
+fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction) {
     // The web build doesn't have a file picker yet; the Compare tab's
-    // in-memory snapshot button still works there.
+    // in-memory "Snapshot current build" button bypasses this dispatch
+    // entirely. Every variant here needs the host filesystem, so
+    // surface an honest message rather than silently dropping the
+    // click on the floor.
+    match action {
+        compare_tab::CompareAction::LoadFromFile
+        | compare_tab::CompareAction::ReimportCurrent
+        | compare_tab::CompareAction::SaveSnapshotToFile => {
+            app.status_message = Some((
+                StatusKind::Info,
+                "File-backed snapshots are desktop-only for now.".to_owned(),
+            ));
+        }
+    }
 }
 
 /// Handle a Builds-tab action: load / save / open-folder against the
