@@ -132,6 +132,13 @@ struct LoadedApp {
     /// invalidate the cached map so a stale overlay stays visible
     /// until the user explicitly recomputes.
     heatmap_stat: crate::node_power_heatmap::HeatmapStat,
+    /// Issue #220 follow-up: optional cap on how many nodes the heatmap
+    /// colours. `None` means "no cap — paint everything `rank_node_additions`
+    /// returned"; `Some(n)` keeps only the n highest-scoring entries so
+    /// the user can focus on the strongest candidates without visual
+    /// noise from low-impact nodes. Applies on the next Refresh — same
+    /// pattern as `heatmap_stat`.
+    heatmap_top_n: Option<usize>,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
     /// Issue #209: user-global saved-items store. Loaded from disk at
@@ -595,6 +602,7 @@ impl PobApp {
             power_overlay: None,
             show_power_overlay: false,
             heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
+            heatmap_top_n: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -693,6 +701,7 @@ impl PobApp {
             power_overlay: None,
             show_power_overlay: false,
             heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
+            heatmap_top_n: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -1201,6 +1210,35 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         "Which axis the heatmap scores nodes by. Applies on \
                          the next Refresh — toggling here doesn't recompute \
                          on its own.",
+                    );
+                // Issue #220 follow-up: cap on how many top nodes to
+                // tint. Mirrors PoB's `nodePowerMaxDepthSelect` in
+                // spirit (focus the user on the strongest candidates).
+                // Preset values match PoB's "Top N" picker; "All" =
+                // `None` is the historical default.
+                let top_n_label = match app.heatmap_top_n {
+                    None => "All".to_owned(),
+                    Some(n) => format!("Top {n}"),
+                };
+                egui::ComboBox::from_id_salt("heatmap_top_n_select")
+                    .selected_text(top_n_label)
+                    .show_ui(ui, |ui| {
+                        let presets: [(Option<usize>, &str); 5] = [
+                            (None, "All"),
+                            (Some(10), "Top 10"),
+                            (Some(25), "Top 25"),
+                            (Some(50), "Top 50"),
+                            (Some(100), "Top 100"),
+                        ];
+                        for (value, label) in presets {
+                            ui.selectable_value(&mut app.heatmap_top_n, value, label);
+                        }
+                    })
+                    .response
+                    .on_hover_text(
+                        "How many top-scoring nodes to colour. Lower values \
+                         focus the overlay on the strongest candidates. \
+                         Applies on the next Refresh.",
                     );
                 if ui
                     .button("Refresh heatmap")
@@ -2340,6 +2378,7 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
         cluster_ctx,
         None,
         app.heatmap_stat,
+        app.heatmap_top_n,
     );
     app.power_overlay = Some(map);
     app.show_power_overlay = true;
