@@ -1488,14 +1488,13 @@ pub fn ui(
                     ui.selectable_value(&mut state.top_contributors_axis, stat, stat.label());
                 }
             });
-            let lines = compute_top_contributors_panel(
-                character,
-                tree,
-                skills,
-                bases,
-                10,
-                state.top_contributors_axis,
-            );
+            // Issue #207 follow-up: share the expensive per-slot
+            // `rank_item_modlines` walk across both sub-panels (top
+            // mod lines + per-slot aggregate). Running them off two
+            // separate collections would double the M+1 perform calls.
+            let scores = collect_item_modline_scores(character, tree, skills, bases);
+            let lines =
+                sort_and_format_contributors(scores.clone(), state.top_contributors_axis, 10);
             if lines.is_empty() {
                 ui.weak("(no equipped mod lines to score)");
             } else {
@@ -1507,6 +1506,26 @@ pub fn ui(
                     color_codes::label_with_escapes(ui, line);
                 }
             }
+            // Issue #207 follow-up: slot-aggregate view. Shows which
+            // slot is doing the most work in aggregate — useful when
+            // a single big-impact mod hides a more diffuse pattern
+            // (e.g. five small +DPS rolls on the same chest beating
+            // one big roll on a glove).
+            ui.add_space(6.0);
+            egui::CollapsingHeader::new("Top contributing slots")
+                .id_salt("items_tab_top_slots")
+                .default_open(false)
+                .show(ui, |ui| {
+                    let by_slot =
+                        aggregate_contributors_by_slot(&scores, state.top_contributors_axis);
+                    if by_slot.is_empty() {
+                        ui.weak("(no equipped slots to aggregate)");
+                    } else {
+                        for line in format_slot_contributions(&by_slot) {
+                            ui.monospace(line);
+                        }
+                    }
+                });
         });
 
     changed
@@ -1532,6 +1551,23 @@ pub fn compute_top_contributors_panel(
     top_n: usize,
     axis: crate::node_power_heatmap::HeatmapStat,
 ) -> Vec<String> {
+    let all = collect_item_modline_scores(character, tree, skills, bases);
+    sort_and_format_contributors(all, axis, top_n)
+}
+
+/// Issue #207 follow-up: shared collection step for the top-contributors
+/// panel and the new slot-aggregate view. Runs `rank_item_modlines`
+/// once per equipped slot and concatenates the results. Callers that
+/// want both views should call this once and feed the same `Vec` into
+/// [`sort_and_format_contributors`] and
+/// [`aggregate_contributors_by_slot`] — running the collection twice
+/// pays the M+1-perform-calls cost twice.
+pub fn collect_item_modline_scores(
+    character: &Character,
+    tree: &PassiveTree,
+    skills: &SkillRegistry,
+    bases: Option<&ItemBaseSet>,
+) -> Vec<ItemModlineScore> {
     let mut all: Vec<ItemModlineScore> = Vec::new();
     for slot in Slot::all() {
         if character.items.get(*slot).is_none() {
@@ -1540,7 +1576,59 @@ pub fn compute_top_contributors_panel(
         let scores = rank_item_modlines(character, tree, *slot, Some(skills), bases, None, None);
         all.extend(scores);
     }
-    sort_and_format_contributors(all, axis, top_n)
+    all
+}
+
+/// Issue #207 follow-up: per-slot aggregate of `(dps_delta, ehp_delta)`
+/// over every mod line on that slot, returned sorted descending by the
+/// chosen [`HeatmapStat`](crate::node_power_heatmap::HeatmapStat) axis.
+/// Pure helper so the slot ranking is testable without the expensive
+/// `rank_item_modlines` walk.
+///
+/// Slots with no equipped item simply don't appear (the input never
+/// lists them); slots whose total is zero on the chosen axis stay in
+/// the result but sink to the bottom.
+#[must_use]
+pub fn aggregate_contributors_by_slot(
+    scores: &[ItemModlineScore],
+    axis: crate::node_power_heatmap::HeatmapStat,
+) -> Vec<(pob_data::Slot, f64, f64)> {
+    use crate::node_power_heatmap::HeatmapStat;
+    use ahash::AHashMap;
+    let mut totals: AHashMap<pob_data::Slot, (f64, f64)> = AHashMap::new();
+    for s in scores {
+        let entry = totals.entry(s.slot).or_insert((0.0, 0.0));
+        entry.0 += s.dps_delta;
+        entry.1 += s.ehp_delta;
+    }
+    let mut out: Vec<(pob_data::Slot, f64, f64)> = totals
+        .into_iter()
+        .map(|(slot, (dps, ehp))| (slot, dps, ehp))
+        .collect();
+    let key = |entry: &(pob_data::Slot, f64, f64)| -> f64 {
+        match axis {
+            HeatmapStat::Combined => entry.1.max(entry.2),
+            HeatmapStat::Dps => entry.1,
+            HeatmapStat::Ehp => entry.2,
+        }
+    };
+    out.sort_by(|a, b| {
+        key(b)
+            .partial_cmp(&key(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    out
+}
+
+/// Issue #207 follow-up: format the slot-aggregate output as
+/// human-readable rows for the "Top slots" sub-panel. Each row carries
+/// the slot label, signed DPS / EHP totals.
+#[must_use]
+pub fn format_slot_contributions(aggregated: &[(pob_data::Slot, f64, f64)]) -> Vec<String> {
+    aggregated
+        .iter()
+        .map(|(slot, dps, ehp)| format!("{:>+8.0} DPS {:>+8.0} EHP  {}", dps, ehp, slot.label()))
+        .collect()
 }
 
 /// Issue #207 follow-up: sort + format the equipped-set contributors
@@ -3597,6 +3685,108 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("line-4"));
         assert!(lines[1].contains("line-3"));
+    }
+
+    fn modline_score(slot: pob_data::Slot, line: &str, dps: f64, ehp: f64) -> ItemModlineScore {
+        ItemModlineScore {
+            slot,
+            mod_index: 0,
+            mod_line: line.to_owned(),
+            dps_delta: dps,
+            ehp_delta: ehp,
+        }
+    }
+
+    #[test]
+    fn aggregate_contributors_by_slot_sums_per_slot() {
+        // Two scores on Helmet, one on Belt — Helmet's totals should
+        // be the sum of its rows; Belt is a singleton.
+        let scores = vec![
+            modline_score(pob_data::Slot::Helmet, "a", 10.0, 5.0),
+            modline_score(pob_data::Slot::Helmet, "b", 20.0, 15.0),
+            modline_score(pob_data::Slot::Belt, "c", 100.0, 0.0),
+        ];
+        let agg = aggregate_contributors_by_slot(
+            &scores,
+            crate::node_power_heatmap::HeatmapStat::Combined,
+        );
+        let helmet = agg
+            .iter()
+            .find(|(s, _, _)| *s == pob_data::Slot::Helmet)
+            .expect("helmet entry");
+        assert!(
+            (helmet.1 - 30.0).abs() < 1e-9,
+            "summed DPS, got {}",
+            helmet.1
+        );
+        assert!(
+            (helmet.2 - 20.0).abs() < 1e-9,
+            "summed EHP, got {}",
+            helmet.2
+        );
+        let belt = agg
+            .iter()
+            .find(|(s, _, _)| *s == pob_data::Slot::Belt)
+            .expect("belt entry");
+        assert!((belt.1 - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn aggregate_contributors_by_slot_sorts_descending_under_dps_axis() {
+        // DPS axis must put the bigger-DPS slot first regardless of
+        // EHP totals.
+        let scores = vec![
+            modline_score(pob_data::Slot::Helmet, "a", 10.0, 100.0),
+            modline_score(pob_data::Slot::Belt, "b", 500.0, 0.0),
+            modline_score(pob_data::Slot::Boots, "c", 50.0, 0.0),
+        ];
+        let agg =
+            aggregate_contributors_by_slot(&scores, crate::node_power_heatmap::HeatmapStat::Dps);
+        let order: Vec<pob_data::Slot> = agg.iter().map(|(s, _, _)| *s).collect();
+        assert_eq!(
+            order,
+            vec![
+                pob_data::Slot::Belt,
+                pob_data::Slot::Boots,
+                pob_data::Slot::Helmet
+            ]
+        );
+    }
+
+    #[test]
+    fn aggregate_contributors_by_slot_sorts_descending_under_ehp_axis() {
+        // Mirror: EHP axis prioritises Helmet (which has the biggest
+        // EHP total) over the DPS-dominated Belt.
+        let scores = vec![
+            modline_score(pob_data::Slot::Helmet, "a", 10.0, 100.0),
+            modline_score(pob_data::Slot::Belt, "b", 500.0, 0.0),
+        ];
+        let agg =
+            aggregate_contributors_by_slot(&scores, crate::node_power_heatmap::HeatmapStat::Ehp);
+        let order: Vec<pob_data::Slot> = agg.iter().map(|(s, _, _)| *s).collect();
+        assert_eq!(order, vec![pob_data::Slot::Helmet, pob_data::Slot::Belt]);
+    }
+
+    #[test]
+    fn aggregate_contributors_by_slot_empty_input_returns_empty() {
+        let agg =
+            aggregate_contributors_by_slot(&[], crate::node_power_heatmap::HeatmapStat::Combined);
+        assert!(agg.is_empty());
+    }
+
+    #[test]
+    fn format_slot_contributions_carries_slot_label_and_signed_totals() {
+        let agg = vec![
+            (pob_data::Slot::Belt, 500.0, 0.0),
+            (pob_data::Slot::Helmet, -10.0, 100.0),
+        ];
+        let lines = format_slot_contributions(&agg);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("+500"));
+        assert!(lines[0].ends_with("Belt"));
+        assert!(lines[1].contains("-10"));
+        assert!(lines[1].contains("+100"));
+        assert!(lines[1].ends_with("Helmet"));
     }
 
     #[test]
