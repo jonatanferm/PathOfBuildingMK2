@@ -120,6 +120,12 @@ pub struct BuildEntry {
     /// root itself ("Uncategorised" group). Mirrors PoB's
     /// "Levelling/", "Bossing/", "Mapping/" folder convention.
     pub category: Option<String>,
+    /// Issue #213 follow-up: filesystem modification time, when the
+    /// backend can supply one. Surfaced in the build-row hover as a
+    /// relative "modified X ago" hint so users can spot recently-
+    /// touched builds at a glance. `None` for in-memory entries
+    /// (test fixtures) and wasm IDB-backed builds without an mtime.
+    pub modified: Option<std::time::SystemTime>,
 }
 
 /// Action the host should take based on the user's interaction.
@@ -483,6 +489,62 @@ fn count_builds(node: &FolderNode) -> usize {
 }
 
 /// Render a single build entry row (label, ext, rename / duplicate /
+/// Issue #213 follow-up: format the time delta between `now` and `then`
+/// as a human-readable "X ago" string. Pure / no I/O so the threshold
+/// rules are unit-testable.
+///
+/// Returns `(future)` when `then > now` (defensive — clock skew on the
+/// filesystem can yield a later mtime than the system clock; rendering
+/// `-1 minutes ago` reads worse than the explicit marker).
+///
+/// Resolution bands:
+/// - <60s → "just now"
+/// - <60m → "<N> min ago" (singular "1 min ago")
+/// - <24h → "<N> hours ago" (singular "1 hour ago")
+/// - <30d → "<N> days ago" (singular "1 day ago")
+/// - otherwise → "<N> months ago" (singular "1 month ago"), capped at
+///   `12 months ago` for anything older.
+#[must_use]
+pub fn format_relative_time(now: std::time::SystemTime, then: std::time::SystemTime) -> String {
+    let Ok(elapsed) = now.duration_since(then) else {
+        return "(future)".to_owned();
+    };
+    let secs = elapsed.as_secs();
+    if secs < 60 {
+        return "just now".to_owned();
+    }
+    let mins = secs / 60;
+    if mins < 60 {
+        return if mins == 1 {
+            "1 min ago".to_owned()
+        } else {
+            format!("{mins} min ago")
+        };
+    }
+    let hours = mins / 60;
+    if hours < 24 {
+        return if hours == 1 {
+            "1 hour ago".to_owned()
+        } else {
+            format!("{hours} hours ago")
+        };
+    }
+    let days = hours / 24;
+    if days < 30 {
+        return if days == 1 {
+            "1 day ago".to_owned()
+        } else {
+            format!("{days} days ago")
+        };
+    }
+    let months = (days / 30).min(12);
+    if months == 1 {
+        "1 month ago".to_owned()
+    } else {
+        format!("{months} months ago")
+    }
+}
+
 /// Issue #213 follow-up: choice picked from the build-row right-click
 /// context menu. Each variant matches one of the inline action buttons
 /// in [`render_build_row`] — keeping the surface enum-shaped lets the
@@ -581,12 +643,24 @@ fn render_build_row(
                 state.pending_rename = None;
             }
         } else {
+            // Issue #213 follow-up: when the backend supplied an
+            // mtime, append "Modified X ago" to the hover so users
+            // can spot recently-touched builds without checking the
+            // filesystem.
+            let hover_text = if let Some(mtime) = entry.modified {
+                format!(
+                    "Click to load · right-click for actions\nModified {}",
+                    format_relative_time(std::time::SystemTime::now(), mtime),
+                )
+            } else {
+                "Click to load · right-click for actions".to_owned()
+            };
             let label_resp = ui
                 .add(
                     egui::Label::new(egui::RichText::new(&entry.label).monospace())
                         .sense(egui::Sense::click()),
                 )
-                .on_hover_text("Click to load · right-click for actions");
+                .on_hover_text(hover_text);
             if label_resp.clicked() {
                 *action = Some(BuildsAction::Load(entry.id.clone()));
             }
@@ -993,6 +1067,7 @@ mod tests {
             id: BuildId::Disk(PathBuf::from(format!("/tmp/{label}.mk2"))),
             ext: "mk2".to_owned(),
             category: category.map(str::to_owned),
+            modified: None,
         }
     }
 
@@ -1091,6 +1166,60 @@ mod tests {
     }
 
     #[test]
+    fn format_relative_time_just_now_under_a_minute() {
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        let then = now - std::time::Duration::from_secs(30);
+        assert_eq!(format_relative_time(now, then), "just now");
+    }
+
+    #[test]
+    fn format_relative_time_minutes_singular_and_plural() {
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        let one_min = now - std::time::Duration::from_secs(60);
+        assert_eq!(format_relative_time(now, one_min), "1 min ago");
+        let five_min = now - std::time::Duration::from_secs(60 * 5);
+        assert_eq!(format_relative_time(now, five_min), "5 min ago");
+    }
+
+    #[test]
+    fn format_relative_time_hours_singular_and_plural() {
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        let one_hour = now - std::time::Duration::from_secs(3600);
+        assert_eq!(format_relative_time(now, one_hour), "1 hour ago");
+        let three_hours = now - std::time::Duration::from_secs(3600 * 3);
+        assert_eq!(format_relative_time(now, three_hours), "3 hours ago");
+    }
+
+    #[test]
+    fn format_relative_time_days_singular_and_plural() {
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400 * 60);
+        let one_day = now - std::time::Duration::from_secs(86_400);
+        assert_eq!(format_relative_time(now, one_day), "1 day ago");
+        let five_days = now - std::time::Duration::from_secs(86_400 * 5);
+        assert_eq!(format_relative_time(now, five_days), "5 days ago");
+    }
+
+    #[test]
+    fn format_relative_time_months_and_cap_at_twelve() {
+        let now =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400 * 365 * 5);
+        let two_months = now - std::time::Duration::from_secs(86_400 * 60);
+        assert_eq!(format_relative_time(now, two_months), "2 months ago");
+        // Anything older than 12 months caps to avoid runaway numbers.
+        let three_years = now - std::time::Duration::from_secs(86_400 * 365 * 3);
+        assert_eq!(format_relative_time(now, three_years), "12 months ago");
+    }
+
+    #[test]
+    fn format_relative_time_future_falls_back_to_marker() {
+        // Filesystem clock skew can produce a later mtime than the
+        // system clock — don't render "-1 minutes ago".
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        let later = now + std::time::Duration::from_secs(60);
+        assert_eq!(format_relative_time(now, later), "(future)");
+    }
+
+    #[test]
     fn build_row_menu_rename_arms_pending_rename() {
         // Issue #213 follow-up: right-click → Rename mirrors the
         // inline ✎ button — opens the inline-rename TextEdit for the
@@ -1157,6 +1286,7 @@ mod tests {
             id: BuildId::Idb("uuid-abc".to_owned()),
             ext: "mk2".to_owned(),
             category: None,
+            modified: None,
         };
         let mut action: Option<BuildsAction> = None;
         apply_build_row_menu_choice(

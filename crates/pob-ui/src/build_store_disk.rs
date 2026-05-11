@@ -170,11 +170,17 @@ fn build_entry_from_path(path: PathBuf, category: Option<String>) -> Option<Buil
         return None;
     }
     let label = path.file_stem().and_then(|s| s.to_str())?.to_owned();
+    // Issue #213 follow-up: surface the file's mtime so the build-row
+    // hover can show "modified X ago". A missing / unreadable mtime
+    // (FS that doesn't track it; cross-platform quirks) falls back to
+    // `None` silently — the hover text just omits the line.
+    let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
     Some(BuildEntry {
         label,
         id: BuildId::Disk(path),
         ext,
         category,
+        modified,
     })
 }
 
@@ -268,6 +274,7 @@ mod tests {
             id: BuildId::Disk(path.clone()),
             ext: "mk2".into(),
             category: None,
+            modified: None,
         };
 
         let target = duplicate_target(&entry).expect("first target");
