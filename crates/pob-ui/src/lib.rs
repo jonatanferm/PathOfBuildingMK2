@@ -2802,6 +2802,60 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 }
             }
         }
+        BuildsAction::MoveBuild {
+            id: BuildId::Disk(from),
+            target,
+        } => {
+            // Issue #213 (slice 5): move a build into a different
+            // folder via `fs::rename`. The pure helper computes the
+            // destination path; the handler creates intermediate
+            // directories and surfaces the result via the status bar.
+            let Some(dir) = build_store_disk::builds_dir() else {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    "Refusing to move: no builds dir resolved".into(),
+                ));
+                return;
+            };
+            let Some(to) = build_store_disk::move_to_folder_target(&from, &dir, target.as_deref())
+            else {
+                app.status_message =
+                    Some((StatusKind::Error, "Move failed: invalid source path".into()));
+                return;
+            };
+            if from == to {
+                // Move-to-current-folder is a no-op — the popup
+                // disables that option, but a stale `Refresh` race
+                // could still queue this.
+                return;
+            }
+            if to.exists() {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    format!("Move failed: target already exists: {}", to.display()),
+                ));
+                return;
+            }
+            if let Some(parent) = to.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    app.status_message =
+                        Some((StatusKind::Error, format!("Move failed: mkdir: {e}")));
+                    return;
+                }
+            }
+            match std::fs::rename(&from, &to) {
+                Ok(()) => {
+                    if app.current_build_path.as_ref() == Some(&from) {
+                        app.current_build_path = Some(to.clone());
+                    }
+                    app.status_message =
+                        Some((StatusKind::Info, format!("Moved to {}", to.display())));
+                }
+                Err(e) => {
+                    app.status_message = Some((StatusKind::Error, format!("Move failed: {e}")));
+                }
+            }
+        }
         // Wasm-only handle types or unreachable variants on desktop.
         BuildsAction::Load(_)
         | BuildsAction::Rename { .. }
@@ -2809,7 +2863,8 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
         | BuildsAction::Delete(_)
         | BuildsAction::ImportFile
         | BuildsAction::ConnectFolder
-        | BuildsAction::DisconnectFolder => {}
+        | BuildsAction::DisconnectFolder
+        | BuildsAction::MoveBuild { .. } => {}
     }
 }
 

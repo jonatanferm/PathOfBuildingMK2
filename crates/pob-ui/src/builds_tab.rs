@@ -94,6 +94,11 @@ pub struct BuildsTabState {
     /// (N builds)" when the user picks Delete on a non-empty folder.
     /// Cleared on the next folder-popup open.
     pub folder_popup_status: Option<String>,
+    /// Issue #213 (slice 5): id of the build whose "Move to folder…"
+    /// popup is currently open. `None` means no popup. Only one move
+    /// popup at a time so the renderer doesn't have to disambiguate
+    /// which build the popup belongs to.
+    pub move_popup_for: Option<BuildId>,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +171,12 @@ pub enum BuildsAction {
     /// only emits this for folders the empty-check passed — see
     /// [`crate::builds_folder_ctx_menu::start_delete_folder`].
     DeleteFolder { path: String },
+    /// Issue #213 (slice 5): move a build into a different folder.
+    /// `target` is the slash-joined folder path the build should
+    /// land in (`None` and `Some("")` mean the root). The host calls
+    /// `std::fs::rename` after computing the destination via
+    /// [`crate::build_store_disk::move_to_folder_target`].
+    MoveBuild { id: BuildId, target: Option<String> },
 }
 
 /// Render the builds tab. Returns an action for the host to execute
@@ -288,6 +299,10 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
         // delete confirm). Always renders after the tree so the
         // window draws on top.
         render_folder_popup(ui, state, &mut action);
+        // Issue #213 (slice 5): "Move to folder…" popup. Sources its
+        // folder list from the same tree the renderer just walked so
+        // every visible folder shows up as a target option.
+        render_move_popup(ui, state, &tree, &mut action);
     }
 
     ui.separator();
@@ -466,6 +481,20 @@ fn render_build_row(
             if ui.small_button("⎘").on_hover_text("Duplicate").clicked() {
                 *action = Some(BuildsAction::Duplicate(entry.id.clone()));
                 state.loaded = false;
+            }
+            // Issue #213 (slice 5): "Move to folder…" affordance.
+            // Opens a popup (rendered once per frame in
+            // `render_move_popup`) listing every folder currently in
+            // the listing. Disk-only for now — wasm and folder-backed
+            // sources don't yet support `fs::rename`-like move.
+            if matches!(entry.id, BuildId::Disk(_))
+                && ui
+                    .small_button("⇨")
+                    .on_hover_text("Move to folder…")
+                    .clicked()
+            {
+                state.move_popup_for = Some(entry.id.clone());
+                state.pending_delete = None;
             }
             let pending = state
                 .pending_delete
@@ -658,6 +687,120 @@ fn render_folder_popup(
     }
 }
 
+/// Issue #213 (slice 5): every folder path in `tree`, root included,
+/// flattened depth-first and slash-joined. The root is represented by
+/// the empty string, mirroring [`folder_path_key`].
+///
+/// Pure helper extracted so the "Move to folder…" popup has a
+/// testable input model and so the same path-walking rule is shared
+/// between the renderer and any future "validate target folder
+/// exists" check.
+#[must_use]
+pub fn collect_folder_paths(tree: &FolderNode) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack: Vec<&str> = Vec::new();
+    walk(tree, &mut stack, &mut out);
+    return out;
+
+    fn walk<'a>(node: &'a FolderNode, stack: &mut Vec<&'a str>, out: &mut Vec<String>) {
+        out.push(stack.join("/"));
+        for child in &node.children {
+            stack.push(child.name.as_str());
+            walk(child, stack, out);
+            stack.pop();
+        }
+    }
+}
+
+/// Issue #213 (slice 5): render the "Move to folder…" popup. Lists
+/// every folder the renderer knows about so the user can pick any
+/// target without first having to expand the tree. Picking a target
+/// emits `BuildsAction::MoveBuild` and closes the popup; Cancel /
+/// outside-click closes without emitting.
+fn render_move_popup(
+    ui: &mut egui::Ui,
+    state: &mut BuildsTabState,
+    tree: &FolderNode,
+    action: &mut Option<BuildsAction>,
+) {
+    let Some(target_id) = state.move_popup_for.clone() else {
+        return;
+    };
+    // Resolve the source build's current folder for display + to skip
+    // the "move to where I already am" option.
+    let current_folder = state
+        .entries
+        .iter()
+        .find(|e| e.id == target_id)
+        .and_then(|e| e.category.clone());
+    let current_label = state
+        .entries
+        .iter()
+        .find(|e| e.id == target_id)
+        .map_or_else(|| "build".to_owned(), |e| e.label.clone());
+
+    let mut open = true;
+    let mut close = false;
+    let mut chosen_target: Option<Option<String>> = None;
+    egui::Window::new("Move to folder")
+        .id(egui::Id::new("builds-move-popup"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ui.ctx(), |ui| {
+            ui.label(format!("Move \"{current_label}\" to:"));
+            let folders = collect_folder_paths(tree);
+            egui::ScrollArea::vertical()
+                .id_salt("move-popup-list")
+                .max_height(280.0)
+                .show(ui, |ui| {
+                    for path in folders {
+                        // The empty key represents the root. The
+                        // current folder is unselectable so users
+                        // can't issue a no-op move.
+                        let is_root = path.is_empty();
+                        let is_current = match (&current_folder, is_root) {
+                            (None, true) => true,
+                            (Some(cur), false) => cur == &path,
+                            _ => false,
+                        };
+                        let label = if is_root {
+                            "Root".to_owned()
+                        } else {
+                            path.clone()
+                        };
+                        let display = if is_current {
+                            format!("● {label} (current)")
+                        } else {
+                            format!("  {label}")
+                        };
+                        if ui
+                            .add_enabled(!is_current, egui::Button::new(display))
+                            .clicked()
+                        {
+                            chosen_target = Some(if is_root { None } else { Some(path.clone()) });
+                        }
+                    }
+                });
+            ui.add_space(4.0);
+            if ui.button("Cancel").clicked() {
+                close = true;
+            }
+        });
+
+    if let Some(target) = chosen_target {
+        *action = Some(BuildsAction::MoveBuild {
+            id: target_id,
+            target,
+        });
+        state.move_popup_for = None;
+        state.loaded = false;
+    } else if close || !open {
+        state.move_popup_for = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -728,5 +871,40 @@ mod tests {
         // Sibling folder unaffected.
         let other = folder_path_key(&["Levelling", "Witch"]);
         assert!(*state.expanded.get(&other).unwrap_or(&true));
+    }
+
+    #[test]
+    fn collect_folder_paths_lists_root_and_descendants() {
+        // Issue #213 (slice 5): the move-to-folder popup needs every
+        // folder in the tree as a target option. Root is `""`; nested
+        // folders use slash-joined names.
+        let entries = vec![
+            entry("a", None),
+            entry("b", Some("Levelling")),
+            entry("c", Some("Levelling/Marauder")),
+            entry("d", Some("Bossing")),
+        ];
+        let tree = build_folder_tree(&entries);
+        let mut paths = collect_folder_paths(&tree);
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec![
+                String::new(),
+                "Bossing".to_owned(),
+                "Levelling".to_owned(),
+                "Levelling/Marauder".to_owned(),
+            ],
+        );
+    }
+
+    #[test]
+    fn collect_folder_paths_on_empty_tree_returns_just_root() {
+        // An empty listing still produces the root as a target, so the
+        // user can "move into the root" even before any folders exist
+        // (technically a no-op for a build that's already there, but
+        // the popup handles the no-op case explicitly).
+        let tree = build_folder_tree(&[]);
+        assert_eq!(collect_folder_paths(&tree), vec![String::new()]);
     }
 }

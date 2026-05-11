@@ -103,6 +103,41 @@ pub fn rescan(dir: &Path) -> Vec<BuildEntry> {
     out
 }
 
+/// Issue #213: compute the destination path for a move-to-folder
+/// operation. `from` is the current path of the build file; `root` is
+/// the configured builds directory; `target_folder` is the slash-joined
+/// folder path the build should land in (`None` and `Some("")` both
+/// mean "the root").
+///
+/// Returns `None` when the helper can't form a meaningful target — the
+/// usual cause is a `from` path without a file name (i.e. someone
+/// passed a directory). Empty / whitespace-only segments inside
+/// `target_folder` are stripped so callers can construct paths
+/// loosely; the resulting `PathBuf` always uses native separators.
+///
+/// The helper is pure: it does **not** touch the filesystem, doesn't
+/// create the target directory, and doesn't check for conflicts. The
+/// caller (the desktop action handler) creates parents and surfaces
+/// rename failures.
+#[must_use]
+pub fn move_to_folder_target(
+    from: &Path,
+    root: &Path,
+    target_folder: Option<&str>,
+) -> Option<PathBuf> {
+    let file_name = from.file_name()?;
+    let mut target = root.to_path_buf();
+    if let Some(folder_path) = target_folder {
+        for segment in folder_path.split('/').map(str::trim) {
+            if !segment.is_empty() {
+                target.push(segment);
+            }
+        }
+    }
+    target.push(file_name);
+    Some(target)
+}
+
 /// Pick an unused destination path for a duplicate of `entry`. Tries
 /// `<name> copy.<ext>` first, then `<name> copy 2.<ext>`, etc. Returns
 /// `None` if `entry.id` isn't a `Disk` variant or has no parent
@@ -249,6 +284,77 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn move_to_folder_moves_build_into_subdir() {
+        // Issue #213: a build sitting at the builds-dir root moves
+        // into a subfolder. The helper joins the target folder onto
+        // the root and re-appends the file name.
+        let root = Path::new("/builds");
+        let from = Path::new("/builds/MyBuild.mk2");
+        let target = move_to_folder_target(from, root, Some("Bossing")).expect("target");
+        assert_eq!(target, PathBuf::from("/builds/Bossing/MyBuild.mk2"));
+    }
+
+    #[test]
+    fn move_to_folder_handles_nested_target() {
+        // Slash-joined folder path lands as nested segments.
+        let root = Path::new("/builds");
+        let from = Path::new("/builds/MyBuild.mk2");
+        let target =
+            move_to_folder_target(from, root, Some("Bossing/Uber")).expect("nested target");
+        assert_eq!(target, PathBuf::from("/builds/Bossing/Uber/MyBuild.mk2"));
+    }
+
+    #[test]
+    fn move_to_folder_lands_at_root_for_none_or_empty() {
+        // Both `None` and `Some("")` mean "the root". Mirrors PoB
+        // where the root is `category = nil` and an empty category
+        // string means the same thing.
+        let root = Path::new("/builds");
+        let from = Path::new("/builds/Levelling/MyBuild.mk2");
+        let to_root = move_to_folder_target(from, root, None).expect("root via None");
+        assert_eq!(to_root, PathBuf::from("/builds/MyBuild.mk2"));
+        let to_root2 = move_to_folder_target(from, root, Some("")).expect("root via empty");
+        assert_eq!(to_root2, PathBuf::from("/builds/MyBuild.mk2"));
+    }
+
+    #[test]
+    fn move_to_folder_strips_whitespace_and_empty_segments() {
+        // Defensive: a hand-built folder path like `"Bossing//Uber/"`
+        // shouldn't produce an empty path component or trailing
+        // separator — the helper trims and skips empties.
+        let root = Path::new("/builds");
+        let from = Path::new("/builds/MyBuild.mk2");
+        let target =
+            move_to_folder_target(from, root, Some("  Bossing  /  / Uber  / ")).expect("target");
+        assert_eq!(target, PathBuf::from("/builds/Bossing/Uber/MyBuild.mk2"));
+    }
+
+    #[test]
+    fn move_to_folder_returns_none_for_root_only_path() {
+        // Passing a path with no file-name component (e.g. the
+        // filesystem root) is a caller bug — the helper bails rather
+        // than concocting a meaningless target. Real call sites
+        // always pass a build-file path with a name attached.
+        let root = Path::new("/builds");
+        let from = Path::new("/");
+        assert!(move_to_folder_target(from, root, Some("Bossing")).is_none());
+    }
+
+    #[test]
+    fn move_to_folder_preserves_filename_extension() {
+        // Multi-dot filenames and unusual extensions (xml round-tripped
+        // from PoB) must survive intact — the helper relies on
+        // `Path::file_name`, not string manipulation.
+        let root = Path::new("/builds");
+        let from = Path::new("/builds/My Build name.with.dots.xml");
+        let target = move_to_folder_target(from, root, Some("Saved")).expect("target");
+        assert_eq!(
+            target,
+            PathBuf::from("/builds/Saved/My Build name.with.dots.xml"),
+        );
     }
 
     #[test]
