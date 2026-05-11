@@ -164,6 +164,20 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ProjectileMultiplier" => projectile_multiplier(env),
         "MainSkillShockMult" => Some(main_skill_shock_mult(env)),
         "IgniteDuration" => ignite_duration(env),
+        "PoisonDuration" => ailment_duration(
+            env,
+            "PoisonDuration",
+            2.0,
+            "2s base poison duration (PoE constant)",
+            "Poison duration",
+        ),
+        "BleedDuration" => ailment_duration(
+            env,
+            "BleedDuration",
+            5.0,
+            "5s base bleed duration (PoE constant)",
+            "Bleed duration",
+        ),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -462,6 +476,8 @@ pub const COVERED_KEYS: &[&str] = &[
     "ProjectileMultiplier",
     "MainSkillShockMult",
     "IgniteDuration",
+    "PoisonDuration",
+    "BleedDuration",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2849,35 +2865,43 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
-/// Issue #34 follow-up: re-derive `IgniteDuration`. PoB computes it
-/// as `4.0 × (1 + Σ INC(IgniteDuration) / 100)` (4-second base from
-/// the upstream ignite-duration constant). Surfacing the chain
-/// makes the inc-mod sources visible alongside the seconds value.
+/// Issue #34 follow-up: shared helper for ailment-duration outputs
+/// (Ignite / Poison / Bleed). All three follow the same shape in
+/// `perform_skill_dps`:
 ///
-/// Returns `None` when the ignite duration is zero (not yet
-/// computed for the current build / skill).
-fn ignite_duration(env: &Env) -> Option<Breakdown> {
-    let total = env.output.get("IgniteDuration");
+///   total = base × (1 + Σ INC(<key>Duration) / 100)
+///
+/// The base differs per ailment (Ignite 4s, Poison 2s, Bleed 5s) but
+/// the inc chain is identical. Surfacing the chain makes the inc-mod
+/// sources visible alongside the seconds value.
+///
+/// Returns `None` when the duration is zero (not yet computed for
+/// the current build / skill).
+fn ailment_duration(
+    env: &Env,
+    output_key: &str,
+    base: f64,
+    base_explain: &str,
+    final_label: &str,
+) -> Option<Breakdown> {
+    let total = env.output.get(output_key);
     if total.abs() < 1e-9 {
         return None;
     }
     let cfg = QueryCfg::default();
-    let inc_total = env
-        .mod_db
-        .sum(ModType::Inc, &cfg, &env.state, "IgniteDuration");
-    let base = 4.0;
+    let inc_total = env.mod_db.sum(ModType::Inc, &cfg, &env.state, output_key);
 
     let mut steps = Vec::new();
     steps.push(
         BreakdownStep::label("Base")
             .with_value(base)
-            .with_explain("4s base ignite duration (PoE constant)".to_owned()),
+            .with_explain(base_explain.to_owned()),
     );
 
     if inc_total.abs() > 1e-9 {
         let inc_mods: Vec<ModSource> = env
             .mod_db
-            .iter_named("IgniteDuration")
+            .iter_named(output_key)
             .filter(|m| m.kind == ModType::Inc)
             .map(ModSource::from_mod)
             .collect();
@@ -2890,16 +2914,28 @@ fn ignite_duration(env: &Env) -> Option<Breakdown> {
     }
 
     steps.push(
-        BreakdownStep::label("Ignite duration")
+        BreakdownStep::label(final_label)
             .with_value(total)
             .with_explain(format!("{base:.0} × (1 + {inc_total:.0}%) = {total:.2}s")),
     );
 
     Some(Breakdown {
-        output_key: "IgniteDuration".to_owned(),
+        output_key: output_key.to_owned(),
         total,
         steps,
     })
+}
+
+/// Issue #34 follow-up: re-derive `IgniteDuration`. Thin wrapper
+/// around the shared `ailment_duration` helper with the 4s base.
+fn ignite_duration(env: &Env) -> Option<Breakdown> {
+    ailment_duration(
+        env,
+        "IgniteDuration",
+        4.0,
+        "4s base ignite duration (PoE constant)",
+        "Ignite duration",
+    )
 }
 
 /// Issue #34 follow-up: re-derive `MainSkillShockMult`. PoB applies
@@ -3378,10 +3414,13 @@ mod tests {
         // requested by Config, capped at 3. Exercises the
         // ProjectileMultiplier breakdown via the COVERED_KEYS guard.
         env.output.set("ProjectileMultiplier", 1.0);
-        // Issue #34 follow-up: representative ignite duration so
-        // the COVERED_KEYS guard exercises the breakdown. 4s base
-        // (PoE constant) with no inc mods.
+        // Issue #34 follow-up: representative ailment durations so
+        // the COVERED_KEYS guard exercises the Ignite / Poison /
+        // Bleed duration breakdowns. PoE constants: ignite 4s,
+        // poison 2s, bleed 5s — all at the no-inc baseline.
         env.output.set("IgniteDuration", 4.0);
+        env.output.set("PoisonDuration", 2.0);
+        env.output.set("BleedDuration", 5.0);
         env.output.set("CritChance", 6.0);
         env.output.set("FullDPS", 2000.0);
         env.output.set("BleedDPS", 0.0);
@@ -4101,6 +4140,61 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: PoisonDuration walks the same Base ×
+    /// (1 + INC%) chain as IgniteDuration but with a 2-second base.
+    /// Worked example: base 2 × (1 + 50%) = 3s.
+    #[test]
+    fn poison_duration_breakdown_walks_base_and_inc() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::inc("PoisonDuration", 50.0).with_source(Source::Tree));
+        env.output.set("PoisonDuration", 3.0);
+        let bd = derive_for(&env, "PoisonDuration").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base"));
+        assert!(labels.contains(&"Increased"));
+        assert!(labels.contains(&"Poison duration"));
+
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        assert!((base.value.unwrap() - 2.0).abs() < 1e-9);
+        assert!((bd.total - 3.0).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: BleedDuration walks the same Base ×
+    /// (1 + INC%) chain with a 5-second base. Worked example: base
+    /// 5 × (1 + 30%) = 6.5s.
+    #[test]
+    fn bleed_duration_breakdown_walks_base_and_inc() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::inc("BleedDuration", 30.0).with_source(Source::Tree));
+        env.output.set("BleedDuration", 6.5);
+        let bd = derive_for(&env, "BleedDuration").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base"));
+        assert!(labels.contains(&"Increased"));
+        assert!(labels.contains(&"Bleed duration"));
+
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        assert!((base.value.unwrap() - 5.0).abs() < 1e-9);
+        assert!((bd.total - 6.5).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: PoisonDuration / BleedDuration both
+    /// return None when the duration is zero.
+    #[test]
+    fn poison_bleed_duration_breakdowns_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "PoisonDuration").is_none(),
+            "expected None for PoisonDuration when zero",
+        );
+        assert!(
+            derive_for(&env, "BleedDuration").is_none(),
+            "expected None for BleedDuration when zero",
+        );
+    }
+
     /// Issue #34 follow-up: IgniteDuration breakdown. PoB derives it
     /// as `4.0 × (1 + Σ INC(IgniteDuration) / 100)` (with the 4-second
     /// base coming from the upstream ignite-duration constant). The
