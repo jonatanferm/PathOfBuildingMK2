@@ -285,6 +285,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ChaosResist" => uncapped_chaos_resist(env),
         "WeaponRangeMetre" => weapon_range_metre(env),
         "MainSkillLevel" => main_skill_level(env),
+        "CastRate" => cast_rate(env),
         "EnemyPhysReduction" => enemy_phys_reduction(env),
         "MainSkillEnemyEffectiveResist" => main_skill_enemy_effective_resist(env),
         "LifeFlaskRecovery" => flask_recovery(env, "Life"),
@@ -3632,6 +3633,38 @@ fn main_skill_level(env: &Env) -> Option<Breakdown> {
 
     Some(Breakdown {
         output_key: "MainSkillLevel".to_owned(),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: re-derive `CastRate`. `perform_skill_dps`
+/// sets `env.output.set("CastRate", cps)` (perform.rs ~line 4320)
+/// where `cps` is the same per-second rate already exposed as
+/// `MainSkillSpeed` (the cast/attack-speed chain output). For
+/// skills that use cast-time terminology the Calcs panel reads
+/// CastRate; surfacing it as a single-step breakdown keeps the
+/// click-through chain consistent without duplicating the speed
+/// computation.
+///
+/// Returns `None` when no skill is loaded (CastRate = 0).
+fn cast_rate(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("CastRate");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Cast rate")
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.2}/s — alias of MainSkillSpeed for skills using cast-time terminology (set in perform_skill_dps)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "CastRate".to_owned(),
         total,
         steps,
     })
@@ -9114,5 +9147,43 @@ mod tests {
         assert!(labels.contains(&"Increased"));
         assert!(labels.contains(&"Mana regen"));
         assert!((bd.total - 16.95).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: CastRate is set in `perform_skill_dps`
+    /// (perform.rs ~line 4320) as `env.output.set("CastRate", cps)`,
+    /// where `cps` is the same value already exposed as
+    /// `MainSkillSpeed`. Surfacing the alias as a single-step
+    /// breakdown keeps the Calcs panel click-through chain
+    /// consistent for skills that use cast-time terminology.
+    #[test]
+    fn cast_rate_breakdown_aliases_main_skill_speed() {
+        let mut env = Env::default();
+        env.output.set("MainSkillSpeed", 5.0);
+        env.output.set("CastRate", 5.0);
+        let bd = derive_for(&env, "CastRate").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Cast rate"));
+
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("MainSkillSpeed") || e.contains("alias")),
+            "expected MainSkillSpeed alias hint in explain, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 5.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when no skill is loaded
+    /// (CastRate = 0).
+    #[test]
+    fn cast_rate_breakdown_skipped_when_no_skill() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "CastRate").is_none(),
+            "expected None when CastRate is zero",
+        );
     }
 }
