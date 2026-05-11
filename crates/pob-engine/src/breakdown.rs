@@ -559,6 +559,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "Accuracy" => Some(accuracy(env)),
         "MainSkillHitChance" => Some(hit_chance_main_skill(env)),
         "AccuracyHitChance" => accuracy_hit_chance(env),
+        "HitChance" => hit_chance(env),
 
         // Damage chain — the after-resist hit shows the multiplicative
         // step from `AverageHitWithCrit` to the post-resist value. Lets
@@ -4367,6 +4368,44 @@ fn resist_max(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdow
         "75% default max resist (PoE constant)",
         "Loreweave / aura / ascendancy",
     )
+}
+
+/// Issue #34 follow-up: re-derive `HitChance`. PoB sets it to the
+/// same value as `MainSkillHitChance` so character-level code can
+/// read the active skill's hit chance under attack-skill terminology
+/// (`perform.rs:3723`/`:3731`). The breakdown calls out the alias
+/// and links back to MainSkillHitChance so users don't have to
+/// wonder why the two outputs match.
+///
+/// Returns `None` when HitChance is zero (no skill bound).
+fn hit_chance(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("HitChance");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let main_skill = env.output.get("MainSkillHitChance");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Main skill hit chance")
+            .with_value(main_skill)
+            .with_explain(format!(
+                "{main_skill:.0}% from MainSkillHitChance — see its breakdown for the Accuracy / EnemyEvasion formula"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Hit chance")
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0}% — alias of MainSkillHitChance exposed under attack-skill terminology"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "HitChance".to_owned(),
+        total,
+        steps,
+    })
 }
 
 /// Issue #34 follow-up: re-derive `AccuracyHitChance`. PoB sets it
@@ -10311,5 +10350,51 @@ mod tests {
         assert!(derive_for(&env, "FistOfWarDamageMultiplier").is_none());
         assert!(derive_for(&env, "AvgFistOfWarDamageEffect").is_none());
         assert!(derive_for(&env, "FistOfWarDamageEffect").is_none());
+    }
+
+    /// Issue #34 follow-up: HitChance is the same value as
+    /// MainSkillHitChance — `perform_skill_dps` sets the two to the
+    /// same number so character-level code can read the active skill's
+    /// hit chance under attack-skill terminology (`perform.rs:3723`/
+    /// `:3731`). Surfacing the alias in the breakdown panel saves
+    /// users from hunting for "why is this the same number as
+    /// MainSkillHitChance?".
+    #[test]
+    fn hit_chance_breakdown_aliases_main_skill_hit_chance() {
+        let mut env = Env::default();
+        env.output.set("MainSkillHitChance", 95.0);
+        env.output.set("HitChance", 95.0);
+        let bd = derive_for(&env, "HitChance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| l.contains("Main skill hit chance")),
+            "expected back-link to Main skill hit chance, got {labels:?}",
+        );
+        let alias = bd
+            .steps
+            .iter()
+            .find(|s| s.label.contains("Main skill hit chance"))
+            .unwrap();
+        assert!((alias.value.unwrap() - 95.0).abs() < 1e-9);
+        assert!(
+            alias
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("MainSkillHitChance") || e.contains("alias")),
+            "expected alias hint in explain, got {:?}",
+            alias.explain
+        );
+        assert!((bd.total - 95.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when no skill is bound
+    /// (HitChance defaults to zero on an empty env).
+    #[test]
+    fn hit_chance_breakdown_skipped_when_no_skill() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "HitChance").is_none(),
+            "expected None when HitChance is zero",
+        );
     }
 }
