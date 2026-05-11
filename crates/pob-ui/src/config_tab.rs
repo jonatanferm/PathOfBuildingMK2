@@ -9,6 +9,23 @@
 use eframe::egui;
 use pob_engine::character::{ConfigState, EnemyBoss};
 
+/// Issue #19 follow-up: convert `config.exerted_attack_uptime` (0.0..=1.0)
+/// to a whole-percent value for the slider widget. Clamps out-of-range
+/// inputs defensively in case an old `.mk2` file slipped past sanitise.
+#[must_use]
+pub fn exerted_uptime_to_percent(uptime: f64) -> i32 {
+    (uptime.clamp(0.0, 1.0) * 100.0).round() as i32
+}
+
+/// Inverse of [`exerted_uptime_to_percent`] — convert a slider %
+/// reading back into the 0.0..=1.0 fraction the engine consumes.
+/// Clamps out-of-range inputs so a stale state can't push the engine
+/// past 100%.
+#[must_use]
+pub fn percent_to_exerted_uptime(percent: i32) -> f64 {
+    f64::from(percent.clamp(0, 100)) / 100.0
+}
+
 /// Groups of `(key, label)` condition checkboxes. Group title is the section
 /// label; each item flips `config.conditions[key]`.
 const GROUPS: &[(&str, &[(&str, &str)])] = &[
@@ -428,6 +445,33 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
         }
     });
 
+    // Issue #19 follow-up: Exerted Attack Uptime slider. PoB's
+    // `Modules/ConfigOptions.lua` exposes this as a numeric input;
+    // the engine reads it at `perform.rs:4026` to override the
+    // auto-derived value (which is still empty for most skills). 0%
+    // means "no warcry-exerted hits" (the engine default); 100% means
+    // "every hit is exerted".
+    ui.horizontal(|ui| {
+        ui.label("Exerted Attack Uptime:");
+        let mut percent = exerted_uptime_to_percent(state.exerted_attack_uptime);
+        if ui
+            .add(egui::Slider::new(&mut percent, 0..=100).suffix("%"))
+            .on_hover_text(
+                "Fraction of the player's attacks that are exerted by an active \
+                 warcry. Each exerted hit picks up the `ExertedAttackDamage` MORE \
+                 bonus from warcry support gems. Leave at 0% if no warcry is being \
+                 cast for the encounter.",
+            )
+            .changed()
+        {
+            let next = percent_to_exerted_uptime(percent);
+            if (next - state.exerted_attack_uptime).abs() > f64::EPSILON {
+                state.exerted_attack_uptime = next;
+                changed = true;
+            }
+        }
+    });
+
     // Issue #28: Custom Modifiers textarea. Mirrors PoB's Config-tab
     // free-form mod input — each non-empty line is parsed by `mod_parser`
     // and added to the player modDB with `source = Custom`. The engine
@@ -509,6 +553,45 @@ mod tests {
     use pob_engine::mod_db::eval_mod;
     use pob_engine::mod_db::EvalState;
     use pob_engine::modifier::{Mod, Tag};
+
+    #[test]
+    fn exerted_uptime_round_trips_at_integer_percents() {
+        // Walking every integer percent through the conversion and back
+        // should land on the same percent — the slider clicks at
+        // integer steps so this is the user-visible identity.
+        for p in 0..=100 {
+            let frac = percent_to_exerted_uptime(p);
+            let back = exerted_uptime_to_percent(frac);
+            assert_eq!(back, p, "round-trip failed at p={p}, frac={frac}");
+        }
+    }
+
+    #[test]
+    fn exerted_uptime_to_percent_clamps_out_of_range() {
+        // A stale `.mk2` file could carry an out-of-band fraction
+        // (engine reads `clamp(0.0, 1.0)` anyway); the slider conv
+        // mirrors that contract so the widget reads sanely.
+        assert_eq!(exerted_uptime_to_percent(-0.5), 0);
+        assert_eq!(exerted_uptime_to_percent(2.0), 100);
+    }
+
+    #[test]
+    fn percent_to_exerted_uptime_clamps_out_of_range() {
+        // Defensive against a stale slider state — the engine
+        // recomputes its own clamp, but pinning the UI side avoids
+        // pushing a "150%" through the pipeline at all.
+        assert!((percent_to_exerted_uptime(-10) - 0.0).abs() < f64::EPSILON);
+        assert!((percent_to_exerted_uptime(150) - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn exerted_uptime_to_percent_rounds_to_nearest_percent() {
+        // PoB exposes whole-percent steps; the conversion picks the
+        // nearest integer so a fraction at exactly 0.505 doesn't
+        // truncate to 50%.
+        assert_eq!(exerted_uptime_to_percent(0.505), 51);
+        assert_eq!(exerted_uptime_to_percent(0.504), 50);
+    }
 
     /// Sanity: every key the UI presents should at least parse as a Rust
     /// identifier-like ASCII string, so persistence to PoB-XML round-trips.
