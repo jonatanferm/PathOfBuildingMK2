@@ -979,11 +979,29 @@ pub fn ui(
                 // `shared_items` mutating borrows.
                 let equipped: Option<Item> = items.get(slot).cloned();
                 if let Some(item) = equipped {
+                    let mut socket_click: Option<usize> = None;
                     egui::ScrollArea::vertical()
                         .max_height(220.0)
                         .show(ui, |ui| {
-                            render_item_summary(ui, &item);
+                            socket_click = render_item_summary(ui, &item);
                         });
+                    // Issue #221 follow-up: cycle the clicked socket's
+                    // colour. Pure helper does the string manipulation;
+                    // we just plumb the new string back into the live
+                    // ItemSet and dirty-flag the build so the auto-save
+                    // / Save button picks it up.
+                    if let Some(idx) = socket_click {
+                        if let Some(item_mut) = items.get_mut(slot) {
+                            let new_sockets = crate::socket_renderer::apply_socket_cycle_at(
+                                &item_mut.sockets,
+                                idx,
+                            );
+                            if new_sockets != item_mut.sockets {
+                                item_mut.sockets = new_sockets;
+                                changed = true;
+                            }
+                        }
+                    }
                     ui.add_space(4.0);
                     // Issue #221: variant picker. Only renders for
                     // items that declared `Variant:` entries (the
@@ -1990,7 +2008,11 @@ pub fn item_tooltip_lines(item: &Item) -> Vec<String> {
     out
 }
 
-fn render_item_summary(ui: &mut egui::Ui, item: &Item) {
+/// Render the equipped-item card. Returns the 0-based socket dot
+/// index the user clicked, if any — the caller mutates `item.sockets`
+/// via [`crate::socket_renderer::apply_socket_cycle_at`] and persists.
+/// Tooltip callers (`item_tooltip_lines` path) can ignore the return.
+fn render_item_summary(ui: &mut egui::Ui, item: &Item) -> Option<usize> {
     let body_font = egui::TextStyle::Body.resolve(ui.style());
     let strong_font = body_font.clone();
     // Item name — render with PoB color escapes if present (e.g. unique
@@ -2006,18 +2028,25 @@ fn render_item_summary(ui: &mut egui::Ui, item: &Item) {
         item.quality,
         if item.corrupted { " • Corrupted" } else { "" }
     ));
+    let mut clicked_dot: Option<usize> = None;
     if !item.sockets.is_empty() {
         // Issue #221 (slice 1): visualise sockets as coloured dots with
         // link bars between sockets in the same group. Falls back to
         // the raw string if parsing produced nothing (defensive — the
         // parser is permissive, so this branch is mostly unreachable).
+        //
+        // Issue #221 follow-up: clicking a dot cycles its colour;
+        // `SocketsResponse::clicked_dot` carries the 0-based index.
         let groups = pob_data::parse_socket_string(&item.sockets);
         if groups.is_empty() {
             ui.label(format!("Sockets: {}", item.sockets));
         } else {
             ui.horizontal(|ui| {
                 ui.label("Sockets:");
-                draw_sockets(ui, &groups, SocketLayoutConfig::default());
+                let resp = draw_sockets(ui, &groups, SocketLayoutConfig::default());
+                resp.response
+                    .on_hover_text("Click a socket to cycle its colour (R → G → B → W).");
+                clicked_dot = resp.clicked_dot;
             });
         }
     }
@@ -2038,6 +2067,7 @@ fn render_item_summary(ui: &mut egui::Ui, item: &Item) {
         let job = color_codes::to_layout_job(&ml.line, section_default, body_font.clone());
         ui.label(job);
     }
+    clicked_dot
 }
 
 #[cfg(test)]
