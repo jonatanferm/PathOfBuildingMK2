@@ -203,6 +203,11 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             resist_max(env, "LightningResistMax", "Lightning resistance maximum")
         }
         "ChaosResistMax" => resist_max(env, "ChaosResistMax", "Chaos resistance maximum"),
+        "PhysicalMaximumHitTaken" => maximum_hit_taken(env, "Physical"),
+        "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
+        "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
+        "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
+        "ChaosMaximumHitTaken" => maximum_hit_taken(env, "Chaos"),
         "BlockChanceMax" => default_plus_base_max(
             env,
             "BlockChanceMax",
@@ -2900,6 +2905,70 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for the five
+/// `<Element>MaximumHitTaken` outputs. PoB derives all five through
+/// the same shape (`perform_ehp`):
+///
+///   max_hit = min(<Element>EHP, pool × 10)
+///
+/// — pool × 10 is PoB's defence-panel cap that prevents unrealistic
+/// numbers when an element has high effective resistance /
+/// suppression layered. Surfacing the chain shows users whether
+/// their max-hit is rate-limited (= EHP) or cap-limited
+/// (= pool × 10).
+///
+/// `elem` is the canonical name (`"Physical"`, `"Fire"`, etc.); the
+/// EHP and final outputs are looked up by suffix.
+///
+/// Returns `None` when the pool is zero (no character loaded yet).
+fn maximum_hit_taken(env: &Env, elem: &str) -> Option<Breakdown> {
+    let life = env.output.get("Life");
+    let es = env.output.get("EnergyShield");
+    let ward = env.output.get("Ward");
+    let pool = life + es + ward;
+    if pool.abs() < 1e-9 {
+        return None;
+    }
+    let ehp = env.output.get(&format!("{elem}EHP"));
+    let cap = pool * 10.0;
+    let total = env.output.get(&format!("{elem}MaximumHitTaken"));
+    let capped = (total - cap).abs() < 1e-9 && ehp > cap;
+    let elem_lower = elem.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Effective HP")
+            .with_value(ehp)
+            .with_explain(format!(
+                "{ehp:.0} from {elem}EHP — see its breakdown for the pool × resist / suppress chain"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Cap")
+            .with_value(cap)
+            .with_explain(format!(
+                "{pool:.0} pool × 10 = {cap:.0} (PoB defence-panel cap)"
+            )),
+    );
+    let final_explain = if capped {
+        format!("min({ehp:.0}, {cap:.0}) = {total:.0} (capped at pool × 10)")
+    } else {
+        format!("min({ehp:.0}, {cap:.0}) = {total:.0}")
+    };
+    steps.push(
+        BreakdownStep::label(format!("{elem} maximum hit taken"))
+            .with_value(total)
+            .with_explain(final_explain),
+    );
+    let _ = elem_lower;
+
+    Some(Breakdown {
+        output_key: format!("{elem}MaximumHitTaken"),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for default-plus-BASE-mods
 /// chain outputs. Covers the four max-resist outputs and
 /// `BlockChanceMax` — both shapes follow:
@@ -4552,6 +4621,75 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: PhysicalMaximumHitTaken walks
+    /// PhysicalEHP → Pool × 10 cap → min. PoB's defence panel uses
+    /// the cap to prevent unrealistic numbers when an element has
+    /// high effective resistance / suppression layered. Worked
+    /// example: PhysicalEHP 1100 capped at 11000 (1100 pool × 10) →
+    /// 1100.
+    #[test]
+    fn physical_max_hit_taken_breakdown_walks_ehp_and_cap() {
+        let mut env = Env::default();
+        env.output.set("PhysicalEHP", 1100.0);
+        env.output.set("Life", 1100.0);
+        env.output.set("EnergyShield", 0.0);
+        env.output.set("Ward", 0.0);
+        env.output.set("PhysicalMaximumHitTaken", 1100.0);
+        let bd = derive_for(&env, "PhysicalMaximumHitTaken").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Effective HP"));
+        assert!(labels.contains(&"Cap"));
+        assert!(labels.contains(&"Physical maximum hit taken"));
+
+        let cap = bd.steps.iter().find(|s| s.label == "Cap").unwrap();
+        // 1100 pool × 10 = 11000.
+        assert!((cap.value.unwrap() - 11000.0).abs() < 1e-6);
+        assert!((bd.total - 1100.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: when EHP exceeds pool × 10 the cap
+    /// activates and the final step's explain calls it out.
+    #[test]
+    fn fire_max_hit_taken_breakdown_flags_capped_case() {
+        let mut env = Env::default();
+        // Fully fire-resistant build: pool 1000, FireEHP would be 50000
+        // (after Purity etc.), capped at pool × 10 = 10000.
+        env.output.set("FireEHP", 50000.0);
+        env.output.set("Life", 1000.0);
+        env.output.set("EnergyShield", 0.0);
+        env.output.set("Ward", 0.0);
+        env.output.set("FireMaximumHitTaken", 10000.0);
+        let bd = derive_for(&env, "FireMaximumHitTaken").unwrap();
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("capped")),
+            "expected 'capped' in explain when EHP > pool × 10, got {:?}",
+            final_step.explain
+        );
+    }
+
+    /// Issue #34 follow-up: returns None for any per-element max-hit
+    /// when the pool is zero (no character loaded yet).
+    #[test]
+    fn maximum_hit_taken_breakdown_skipped_when_no_pool() {
+        let env = Env::default();
+        for key in [
+            "PhysicalMaximumHitTaken",
+            "FireMaximumHitTaken",
+            "ColdMaximumHitTaken",
+            "LightningMaximumHitTaken",
+            "ChaosMaximumHitTaken",
+        ] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when pool is zero",
+            );
+        }
+    }
+
     /// Issue #34 follow-up: BlockChanceMax shares the same
     /// default-plus-BASE chain as the max-resist outputs, just with
     /// a different mod-source hint (Glancing Blows / Bone Offering /
