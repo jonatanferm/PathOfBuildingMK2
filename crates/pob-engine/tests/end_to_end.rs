@@ -2525,6 +2525,65 @@ fn raise_spectre_build_imports_and_produces_minion_outputs() {
     );
 }
 
+/// Issue #196 — final acceptance criterion: `pob_diff`-style test for a
+/// Watcher's Eye build. A Watcher's Eye with `40% increased Cold Damage while
+/// affected by Hatred` is socketed at tree node 32763. Hatred is active as a
+/// skill-group gem. The `AffectedByHatred` condition fires, the gated
+/// Inc ColdDamage mod lands in the modDB, and MainSkillDPS must be strictly
+/// higher than the same build without the jewel.
+#[test]
+fn watchers_eye_aura_conditional_cold_damage_applies_end_to_end() {
+    let (Some(tree), Some(skills)) = (load_3_25_tree(), load_skills()) else {
+        eprintln!("skip: data missing (run pob-extract first)");
+        return;
+    };
+    if skills.get("IceNova").is_none() {
+        eprintln!("skip: IceNova not in skill registry");
+        return;
+    }
+    if skills.get("Hatred").is_none() {
+        eprintln!("skip: Hatred not in skill registry");
+        return;
+    }
+
+    let xml_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("crates/pob-extract/test-builds/witch_l90_watchers_eye.xml");
+    let Ok(xml) = std::fs::read_to_string(&xml_path) else {
+        eprintln!("skip: {} not found", xml_path.display());
+        return;
+    };
+
+    let mut c = pob_engine::import_pob_xml(&xml).expect("import Watcher's Eye fixture");
+
+    // Verify the jewel was imported into socketed_jewels.
+    let jewel_node: pob_data::NodeId = 32763;
+    assert!(
+        c.socketed_jewels.get(jewel_node).is_some(),
+        "Watcher's Eye should be in socketed_jewels at node {jewel_node}"
+    );
+
+    let with_jewel = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    let dps_with = with_jewel.get("MainSkillDPS");
+    assert!(
+        dps_with > 0.0,
+        "IceNova MainSkillDPS should be non-zero with Hatred + Watcher's Eye, got {dps_with}"
+    );
+
+    // Remove the jewel and recompute — DPS must drop.
+    c.socketed_jewels.unsocket(jewel_node);
+    let without_jewel = pob_engine::compute_full(&c, &tree, Some(&skills), None);
+    let dps_without = without_jewel.get("MainSkillDPS");
+    assert!(
+        dps_with > dps_without,
+        "MainSkillDPS should be higher with Watcher's Eye (+40% Inc Cold when Hatred active); \
+         with={dps_with}, without={dps_without}"
+    );
+}
+
 // Issue #52: Every AoE-tagged skill must emit AoERadius / FinalAoERadius
 // outputs (PoB exposes these on the Calcs tab) and FinalAoERadius must
 // scale with `increased Area of Effect` mods according to PoB's
