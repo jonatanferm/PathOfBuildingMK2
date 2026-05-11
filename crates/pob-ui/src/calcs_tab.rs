@@ -797,6 +797,85 @@ fn render_breakdown(ui: &mut egui::Ui, env: &Env, stat: &str) {
         });
 }
 
+/// Issue #203 (slice 5): build the hover-tooltip lines for a single
+/// `Mod` row in the Calcs side panel — the user wants the parsed
+/// structured form (key, type, tags, flags) for debugging
+/// mod_parser fall-throughs and verifying source attribution.
+///
+/// Pure formatter so the egui hover-ui call site stays a thin
+/// wiring layer. Lines composed:
+///
+/// - `<stat-key> · <KIND>` header (always)
+/// - `Value: <fmt>` (always — Number / Range / Bool / Str)
+/// - `Flags: A | B | …` (only when `m.flags` is non-empty)
+/// - `Keyword flags: A | B | …` (only when `m.keyword_flags` is non-empty)
+/// - `Source: <label>` (always — humanised by `source_label`)
+/// - `Tag: <fmt>` per tag (only when `m.tags` is non-empty)
+pub fn mod_tooltip_lines(m: &Mod) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(format!("{} · {}", m.name, kind_label(m.kind)));
+    let value = match &m.value {
+        pob_engine::ModValue::Number(n) => format!("{n:+.2}"),
+        pob_engine::ModValue::Range { min, max } => format!("{min:.0}-{max:.0} (Range)"),
+        pob_engine::ModValue::Bool(b) => b.to_string(),
+        pob_engine::ModValue::Str(s) => format!("\"{s}\""),
+    };
+    lines.push(format!("Value: {value}"));
+
+    if !m.flags.is_empty() {
+        let mut flag_names = Vec::new();
+        for (name, bit) in &[
+            ("ATTACK", pob_data::ModFlag::ATTACK),
+            ("SPELL", pob_data::ModFlag::SPELL),
+            ("MELEE", pob_data::ModFlag::MELEE),
+            ("PROJECTILE", pob_data::ModFlag::PROJECTILE),
+            ("AREA", pob_data::ModFlag::AREA),
+            ("BOW", pob_data::ModFlag::BOW),
+            ("CLAW", pob_data::ModFlag::CLAW),
+            ("DAGGER", pob_data::ModFlag::DAGGER),
+            ("MACE", pob_data::ModFlag::MACE),
+            ("STAFF", pob_data::ModFlag::STAFF),
+            ("SWORD", pob_data::ModFlag::SWORD),
+            ("WAND", pob_data::ModFlag::WAND),
+            ("AXE", pob_data::ModFlag::AXE),
+            ("WEAPON_1H", pob_data::ModFlag::WEAPON_1H),
+            ("WEAPON_2H", pob_data::ModFlag::WEAPON_2H),
+        ] {
+            if m.flags.contains(*bit) {
+                flag_names.push(*name);
+            }
+        }
+        if !flag_names.is_empty() {
+            lines.push(format!("Flags: {}", flag_names.join(" | ")));
+        }
+    }
+
+    if !m.keyword_flags.is_empty() {
+        let mut kw_names = Vec::new();
+        for (name, bit) in &[
+            ("PHYSICAL", pob_data::KeywordFlag::PHYSICAL),
+            ("FIRE", pob_data::KeywordFlag::FIRE),
+            ("COLD", pob_data::KeywordFlag::COLD),
+            ("LIGHTNING", pob_data::KeywordFlag::LIGHTNING),
+            ("CHAOS", pob_data::KeywordFlag::CHAOS),
+            ("AILMENT", pob_data::KeywordFlag::AILMENT),
+        ] {
+            if m.keyword_flags.contains(*bit) {
+                kw_names.push(*name);
+            }
+        }
+        if !kw_names.is_empty() {
+            lines.push(format!("Keyword flags: {}", kw_names.join(" | ")));
+        }
+    }
+
+    lines.push(format!("Source: {}", source_label(m.source.as_ref())));
+    for t in &m.tags {
+        lines.push(format!("Tag: {}", format_tag(t)));
+    }
+    lines
+}
+
 fn render_mod_row(ui: &mut egui::Ui, m: &Mod) {
     let value = match &m.value {
         pob_engine::ModValue::Number(n) => format!("{n:>+8.2}"),
@@ -818,7 +897,15 @@ fn render_mod_row(ui: &mut egui::Ui, m: &Mod) {
         text.push_str(" — ");
         text.push_str(&tags);
     }
-    ui.label(text);
+    let label = ui.label(text);
+    if label.hovered() {
+        let lines = mod_tooltip_lines(m);
+        label.on_hover_ui(|ui| {
+            for line in &lines {
+                ui.label(line);
+            }
+        });
+    }
     ui.end_row();
 }
 
@@ -892,7 +979,74 @@ fn kind_label(k: ModType) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{calc_row_tooltip_lines, GROUPS};
+    use super::{calc_row_tooltip_lines, mod_tooltip_lines, GROUPS};
+    use pob_engine::Mod;
+
+    #[test]
+    fn mod_tooltip_includes_stat_key_and_kind_label() {
+        let m = Mod::inc("MainSkillDPS", 25.0);
+        let lines = mod_tooltip_lines(&m);
+        assert!(
+            lines.iter().any(|l| l.contains("MainSkillDPS")),
+            "expected stat key in tooltip, got {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("INC")),
+            "expected INC kind label in tooltip, got {lines:?}"
+        );
+    }
+
+    #[test]
+    fn mod_tooltip_omits_flag_lines_when_no_flags() {
+        let m = Mod::base("PhysicalDamage", 10.0);
+        let lines = mod_tooltip_lines(&m);
+        assert!(
+            !lines.iter().any(|l| l.starts_with("Flags:")),
+            "expected no Flags line for unflagged mod, got {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|l| l.starts_with("Keyword flags:")),
+            "expected no Keyword flags line for unflagged mod, got {lines:?}"
+        );
+    }
+
+    #[test]
+    fn mod_tooltip_lists_modflag_and_keyword_flag() {
+        let mut m = Mod::inc("PhysicalDamage", 10.0);
+        m.flags |= pob_data::ModFlag::CLAW;
+        m.keyword_flags |= pob_data::KeywordFlag::PHYSICAL;
+        let lines = mod_tooltip_lines(&m);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("Flags:") && l.contains("CLAW")),
+            "expected CLAW in Flags line, got {lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("Keyword flags:") && l.contains("PHYSICAL")),
+            "expected PHYSICAL in Keyword flags line, got {lines:?}"
+        );
+    }
+
+    #[test]
+    fn mod_tooltip_includes_value_for_range() {
+        let m = Mod::base(
+            "LightningDamage",
+            pob_engine::ModValue::Range {
+                min: 0.0,
+                max: 25.0,
+            },
+        );
+        let lines = mod_tooltip_lines(&m);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("0-25") || l.contains("Range")),
+            "expected range value in tooltip, got {lines:?}"
+        );
+    }
 
     #[test]
     fn tooltip_header_uses_label_when_present() {
