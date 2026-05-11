@@ -293,25 +293,26 @@ impl Item {
         };
     }
 
-    /// Issue #221: replace any existing helmet-enchant mod lines on
-    /// this item with the supplied set. The picker UI hands a flat
+    /// Issue #221: replace any existing enchant mod lines on this
+    /// item with the supplied set. The picker UI hands a flat
     /// `&[String]` of the chosen tier's mod text; this helper:
     ///
     /// 1. Drops every existing [`ModSection::Enchant`] entry from
     ///    `mod_lines` (so re-picking a different enchant doesn't
     ///    stack onto the previous one).
     /// 2. Pushes the new lines as `Enchant` mod entries (with no
-    ///    variant gate — helmet enchants don't vary).
+    ///    variant gate — enchants don't vary).
     /// 3. Rewrites `raw` to drop old `<mod> (enchant)` lines and
     ///    append the new ones with the `(enchant)` suffix so a
     ///    PoB-XML round trip preserves them. The rest of the raw
     ///    text (name, base, item-level, requirements, explicits) is
     ///    untouched.
     ///
-    /// Passing an empty slice clears the helmet's enchant — useful for
-    /// a "Remove enchant" affordance on the picker. No-op if the item
-    /// has neither existing enchants nor new lines to add.
-    pub fn apply_helmet_enchant(&mut self, lines: &[String]) {
+    /// Slot-agnostic: works for helmet, glove, boot — any slot that
+    /// accepts an enchant. Passing an empty slice clears the
+    /// existing enchant. No-op if the item has neither existing
+    /// enchants nor new lines to add.
+    pub fn apply_enchant(&mut self, lines: &[String]) {
         let had_old = self
             .mod_lines
             .iter()
@@ -799,7 +800,7 @@ mod enchant_tests {
     }
 
     #[test]
-    fn apply_helmet_enchant_appends_new_enchant_lines() {
+    fn apply_enchant_appends_new_enchant_lines() {
         // Issue #221 (picker slice): a fresh enchant pick lands on
         // an unenchanted helmet by appending `(enchant)`-suffixed
         // lines to raw and pushing ModSection::Enchant entries to
@@ -809,7 +810,7 @@ mod enchant_tests {
             "20% increased Sentinel of Absolution Duration".to_owned(),
             "8% increased Absolution Cast Speed".to_owned(),
         ];
-        item.apply_helmet_enchant(&lines);
+        item.apply_enchant(&lines);
 
         let enchants: Vec<_> = item
             .mod_lines
@@ -832,14 +833,14 @@ mod enchant_tests {
     }
 
     #[test]
-    fn apply_helmet_enchant_replaces_existing_enchant_block() {
+    fn apply_enchant_replaces_existing_enchant_block() {
         // Re-picking a different enchant drops the previous lines
         // before adding the new ones — no stacking.
         let mut item = mk_helmet();
-        item.apply_helmet_enchant(&["+10 to Strength".to_owned()]);
+        item.apply_enchant(&["+10 to Strength".to_owned()]);
         assert!(item.raw.contains("+10 to Strength (enchant)"));
 
-        item.apply_helmet_enchant(&["+20 to Intelligence".to_owned()]);
+        item.apply_enchant(&["+20 to Intelligence".to_owned()]);
         assert!(item.raw.contains("+20 to Intelligence (enchant)"));
         assert!(!item.raw.contains("+10 to Strength (enchant)"));
 
@@ -853,14 +854,14 @@ mod enchant_tests {
     }
 
     #[test]
-    fn apply_helmet_enchant_clears_existing_when_empty_input() {
+    fn apply_enchant_clears_existing_when_empty_input() {
         // Passing an empty slice removes the existing enchant — used
         // by a "Remove enchant" affordance on the picker.
         let mut item = mk_helmet();
-        item.apply_helmet_enchant(&["+10 to Strength".to_owned()]);
+        item.apply_enchant(&["+10 to Strength".to_owned()]);
         assert!(item.raw.contains("+10 to Strength (enchant)"));
 
-        item.apply_helmet_enchant(&[]);
+        item.apply_enchant(&[]);
         assert!(!item.raw.contains("(enchant)"));
         assert!(!item
             .mod_lines
@@ -869,26 +870,26 @@ mod enchant_tests {
     }
 
     #[test]
-    fn apply_helmet_enchant_noop_on_unenchanted_item_with_empty_input() {
+    fn apply_enchant_noop_on_unenchanted_item_with_empty_input() {
         // Belt-and-braces: an "apply empty enchant" on an already
         // empty-enchanted helmet leaves both raw and mod_lines
         // untouched.
         let mut item = mk_helmet();
         let before_raw = item.raw.clone();
         let before_lines = item.mod_lines.len();
-        item.apply_helmet_enchant(&[]);
+        item.apply_enchant(&[]);
         assert_eq!(item.raw, before_raw);
         assert_eq!(item.mod_lines.len(), before_lines);
     }
 
     #[test]
-    fn apply_helmet_enchant_preserves_trailing_newline_in_raw() {
+    fn apply_enchant_preserves_trailing_newline_in_raw() {
         // The variant rewrite path preserves a trailing newline; mirror
         // that contract here so PoB-XML embed of the raw doesn't drop
         // it on the floor.
         let mut item = mk_helmet();
         assert!(item.raw.ends_with('\n'));
-        item.apply_helmet_enchant(&["+10 to Strength".to_owned()]);
+        item.apply_enchant(&["+10 to Strength".to_owned()]);
         assert!(item.raw.ends_with('\n'));
     }
 

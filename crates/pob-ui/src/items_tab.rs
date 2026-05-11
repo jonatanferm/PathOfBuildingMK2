@@ -101,6 +101,12 @@ pub struct ItemsTabState {
     /// clicks a row. Defaults to Endgame (Eternal Lab) — the
     /// stronger roll and what most builds target.
     pub enchant_picker_tier: pob_data::HelmetEnchantTier,
+    /// Issue #221 (glove/boot slice): which flat-tier the
+    /// glove/boot picker commits. String-typed because the tier
+    /// pool differs per slot (NORMAL/CRUEL/MERCILESS for gloves;
+    /// CRUEL/MERCILESS for boots); empty means "the first tier in
+    /// the catalogue" and the picker auto-fills on first open.
+    pub flat_enchant_picker_tier: String,
 }
 
 /// Issue #211 (slice 3): edit-buffer state for the shared-items rename
@@ -171,6 +177,7 @@ impl Default for ItemsTabState {
             enchant_picker_open: false,
             enchant_picker_filter: String::new(),
             enchant_picker_tier: pob_data::HelmetEnchantTier::default(),
+            flat_enchant_picker_tier: String::new(),
         }
     }
 }
@@ -687,6 +694,8 @@ pub fn ui(
     bases: Option<&ItemBaseSet>,
     shared_items: &mut SharedItemStore,
     helmet_enchants: Option<&pob_data::HelmetEnchantSet>,
+    glove_enchants: Option<&pob_data::FlatEnchantSet>,
+    boot_enchants: Option<&pob_data::FlatEnchantSet>,
 ) -> bool {
     let mut changed = false;
     // Issue #222: item-set switcher + manage popup. Above the existing
@@ -841,12 +850,21 @@ pub fn ui(
     if render_manage_sets_popup(ui, character, state) {
         changed = true;
     }
-    // Issue #221 (picker slice): the Apply-Enchantment popup. Gated on
-    // the catalogue being loaded and on the Helmet slot being live —
-    // both checks happen inside the helper. Returns true when a
-    // pick committed so the calc engine recomputes the new enchant
-    // mods.
-    if render_enchant_picker_popup(ui, character, state, helmet_enchants) {
+    // Issue #221 (picker slice): the Apply-Enchantment popup.
+    // Dispatch on the active slot — helmets use the skill-keyed
+    // `HelmetEnchantSet` picker; gloves/boots use the flat-tier
+    // [`FlatEnchantSet`] picker. Returns true when a pick committed
+    // so the calc engine recomputes the new enchant mods.
+    let picker_changed = match state.selected_slot {
+        Some(Slot::Gloves) => {
+            render_flat_enchant_picker_popup(ui, character, state, Slot::Gloves, glove_enchants)
+        }
+        Some(Slot::Boots) => {
+            render_flat_enchant_picker_popup(ui, character, state, Slot::Boots, boot_enchants)
+        }
+        _ => render_enchant_picker_popup(ui, character, state, helmet_enchants),
+    };
+    if picker_changed {
         changed = true;
     }
     ui.separator();
@@ -1113,21 +1131,29 @@ pub fn ui(
                             do_save_shared = true;
                         }
                         // Issue #221 (picker slice): "Apply
-                        // Enchantment" only renders on the Helmet
-                        // slot and only when the catalogue is
-                        // loaded — the popup below reads it.
-                        if slot == Slot::Helmet && helmet_enchants.is_some() {
-                            if ui
+                        // Enchantment" renders on every slot that has
+                        // a matching catalogue loaded. Helmets use
+                        // the skill-keyed `HelmetEnchantSet` shape;
+                        // gloves/boots use the flat `FlatEnchantSet`
+                        // shape. The popup gates on whichever
+                        // catalogue applies.
+                        let has_catalogue = match slot {
+                            Slot::Helmet => helmet_enchants.is_some(),
+                            Slot::Gloves => glove_enchants.is_some(),
+                            Slot::Boots => boot_enchants.is_some(),
+                            _ => false,
+                        };
+                        if has_catalogue
+                            && ui
                                 .button("Apply Enchantment…")
                                 .on_hover_text(
-                                    "Pick a helmet enchant from the lab catalogue. \
-                                     Replaces any existing enchant on this helmet.",
+                                    "Pick an enchant from the lab catalogue. \
+                                     Replaces any existing enchant on this slot.",
                                 )
                                 .clicked()
-                            {
-                                state.enchant_picker_open = true;
-                                state.enchant_picker_filter.clear();
-                            }
+                        {
+                            state.enchant_picker_open = true;
+                            state.enchant_picker_filter.clear();
                         }
                     });
                     if do_unequip {
@@ -1603,11 +1629,134 @@ fn render_shared_rename_popup(
     }
 }
 
+/// Issue #221 (glove/boot picker slice): render the "Apply
+/// Enchantment" popup for slots whose catalogue lives in the flat
+/// `{tier: [mods]}` shape (gloves, boots). The user picks a tier
+/// (radio buttons over whatever tiers the catalogue lists) and one
+/// mod line from the pool; commit applies it via
+/// [`pob_data::Item::apply_enchant`] like the helmet picker.
+///
+/// Returns `true` when a pick committed so the caller dirty-flags
+/// + recomputes.
+fn render_flat_enchant_picker_popup(
+    ui: &mut egui::Ui,
+    character: &mut Character,
+    state: &mut ItemsTabState,
+    slot: Slot,
+    catalogue: Option<&pob_data::FlatEnchantSet>,
+) -> bool {
+    if !state.enchant_picker_open {
+        return false;
+    }
+    let Some(catalogue) = catalogue else {
+        state.enchant_picker_open = false;
+        return false;
+    };
+    if catalogue.is_empty() {
+        state.enchant_picker_open = false;
+        return false;
+    }
+    // Seed the tier on first open. The user can flip between tiers
+    // via the radio row below; this only fires when the saved
+    // selection is missing from the catalogue (e.g. boot tier
+    // remembered from a previous glove popup).
+    let tier_keys: Vec<String> = catalogue.iter().map(|(k, _)| k.clone()).collect();
+    if !tier_keys
+        .iter()
+        .any(|k| k == &state.flat_enchant_picker_tier)
+    {
+        state.flat_enchant_picker_tier = tier_keys.first().cloned().unwrap_or_default();
+    }
+    let mut window_open = true;
+    let mut committed = false;
+    let mut chosen_pick: Option<String> = None;
+    let mut clear_enchant = false;
+    let title = format!("Apply {} Enchantment", slot.label());
+    egui::Window::new(title)
+        .id(egui::Id::new(("flat-enchant-picker", slot.label())))
+        .open(&mut window_open)
+        .resizable(true)
+        .collapsible(false)
+        .default_width(460.0)
+        .default_height(440.0)
+        .show(ui.ctx(), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Tier:");
+                for key in &tier_keys {
+                    ui.selectable_value(
+                        &mut state.flat_enchant_picker_tier,
+                        key.clone(),
+                        key.as_str(),
+                    );
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Search:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut state.enchant_picker_filter)
+                        .desired_width(260.0)
+                        .hint_text("mod text"),
+                );
+                if ui.small_button("✕").on_hover_text("Clear search").clicked() {
+                    state.enchant_picker_filter.clear();
+                }
+            });
+            ui.separator();
+            let filter_lc = state.enchant_picker_filter.to_ascii_lowercase();
+            let lines = catalogue.lines_for(&state.flat_enchant_picker_tier);
+            egui::ScrollArea::vertical()
+                .id_salt("flat-enchant-list")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for line in lines {
+                        if !filter_lc.is_empty() && !line.to_ascii_lowercase().contains(&filter_lc)
+                        {
+                            continue;
+                        }
+                        let resp =
+                            ui.add(egui::Label::new(line).wrap().sense(egui::Sense::click()));
+                        if resp.clicked() {
+                            chosen_pick = Some(line.clone());
+                        }
+                        ui.separator();
+                    }
+                });
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Remove enchant")
+                    .on_hover_text("Strip any existing enchant from this slot.")
+                    .clicked()
+                {
+                    clear_enchant = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    state.enchant_picker_open = false;
+                }
+            });
+        });
+    if let Some(line) = chosen_pick {
+        if let Some(item) = character.items.get_mut(slot) {
+            item.apply_enchant(&[line]);
+            committed = true;
+        }
+        state.enchant_picker_open = false;
+    } else if clear_enchant {
+        if let Some(item) = character.items.get_mut(slot) {
+            item.apply_enchant(&[]);
+            committed = true;
+        }
+        state.enchant_picker_open = false;
+    } else if !window_open {
+        state.enchant_picker_open = false;
+    }
+    committed
+}
+
 /// Issue #221 (picker slice): render the "Apply Enchantment" popup.
 /// Lists every helmet enchant in the loaded catalogue, filtered by a
 /// case-insensitive search box; clicking a row applies the selected
 /// tier's mod lines to the equipped helmet via
-/// [`pob_data::Item::apply_helmet_enchant`].
+/// [`pob_data::Item::apply_enchant`].
 ///
 /// Returns `true` when a pick committed so the caller can dirty-flag
 /// the build + recompute. Returns `false` for clicks that don't
@@ -1710,13 +1859,13 @@ fn render_enchant_picker_popup(
         });
     if let Some(lines) = chosen_pick {
         if let Some(item) = character.items.get_mut(Slot::Helmet) {
-            item.apply_helmet_enchant(&lines);
+            item.apply_enchant(&lines);
             committed = true;
         }
         state.enchant_picker_open = false;
     } else if clear_enchant {
         if let Some(item) = character.items.get_mut(Slot::Helmet) {
-            item.apply_helmet_enchant(&[]);
+            item.apply_enchant(&[]);
             committed = true;
         }
         state.enchant_picker_open = false;
