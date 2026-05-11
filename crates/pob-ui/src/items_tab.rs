@@ -1543,18 +1543,6 @@ pub fn ui(
 /// panel is intentionally cheap-to-wire and approximate. Callers that
 /// need cluster-aware scoring will add the threading in a follow-up
 /// alongside the heatmap work.
-pub fn compute_top_contributors_panel(
-    character: &Character,
-    tree: &PassiveTree,
-    skills: &SkillRegistry,
-    bases: Option<&ItemBaseSet>,
-    top_n: usize,
-    axis: crate::node_power_heatmap::HeatmapStat,
-) -> Vec<String> {
-    let all = collect_item_modline_scores(character, tree, skills, bases);
-    sort_and_format_contributors(all, axis, top_n)
-}
-
 /// Issue #207 follow-up: shared collection step for the top-contributors
 /// panel and the new slot-aggregate view. Runs `rank_item_modlines`
 /// once per equipped slot and concatenates the results. Callers that
@@ -3819,13 +3807,12 @@ mod tests {
             points: TreePoints::default(),
         };
         let skills = SkillRegistry::default();
-        let lines = compute_top_contributors_panel(
-            &c,
-            &tree,
-            &skills,
-            None,
-            10,
+        let scores = collect_item_modline_scores(&c, &tree, &skills, None);
+        assert!(scores.is_empty(), "no equipped items → no mod-line scores");
+        let lines = sort_and_format_contributors(
+            scores,
             crate::node_power_heatmap::HeatmapStat::default(),
+            10,
         );
         assert!(lines.is_empty());
     }
