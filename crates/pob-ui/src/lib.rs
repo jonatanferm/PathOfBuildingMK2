@@ -31,6 +31,7 @@ mod items_tab;
 #[cfg(not(target_arch = "wasm32"))]
 mod keyring_store;
 mod mastery_picker;
+mod node_power_heatmap;
 mod notable_db;
 mod notes_tab;
 mod party_tab;
@@ -50,6 +51,7 @@ mod undo;
 use pob_engine::pathfind;
 use undo::{BuildSnapshot, PendingSnapshot, UndoStack};
 
+pub use node_power_heatmap::{normalise_scores, score_to_colour};
 pub use tree_view::TreeView;
 
 pub struct PobApp {
