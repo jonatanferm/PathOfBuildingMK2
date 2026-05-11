@@ -283,6 +283,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ColdResist" => uncapped_elemental_resist(env, "Cold"),
         "LightningResist" => uncapped_elemental_resist(env, "Lightning"),
         "ChaosResist" => uncapped_chaos_resist(env),
+        "WeaponRangeMetre" => weapon_range_metre(env),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3135,6 +3136,42 @@ fn dot_ehp(env: &Env, elem: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `WeaponRangeMetre`. PoB exposes
+/// `WeaponRange` in engine units and `WeaponRangeMetre` as `units /
+/// 10` for the Calcs panel — same conversion shape as
+/// `AreaOfEffectRadiusMetres`. Surfacing the chain lets users see
+/// the engine-unit value next to the metres value without
+/// context-switching to WeaponRange.
+///
+/// Returns `None` when WeaponRange is zero (no character loaded yet).
+fn weapon_range_metre(env: &Env) -> Option<Breakdown> {
+    let units = env.output.get("WeaponRange");
+    if units.abs() < 1e-9 {
+        return None;
+    }
+    let metres = env.output.get("WeaponRangeMetre");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Range (engine units)")
+            .with_value(units)
+            .with_explain(format!(
+                "{units:.0} from WeaponRange — see its breakdown for the weapon-data source"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Weapon range (metres)")
+            .with_value(metres)
+            .with_explain(format!("{units:.0} / 10 = {metres:.2} m")),
+    );
+
+    Some(Breakdown {
+        output_key: "WeaponRangeMetre".to_owned(),
+        total: metres,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for the uncapped `<Element>Resist`
 /// outputs (Fire / Cold / Lightning). PoB exposes both the uncapped
 /// raw resist (`FireResist`) and the capped value (`FireResistTotal`)
@@ -5120,6 +5157,41 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: WeaponRangeMetre converts WeaponRange
+    /// from engine units to metres (`/ 10`), same shape as
+    /// AreaOfEffectRadiusMetres. Surfacing the chain lets users see
+    /// the engine-unit value next to the metres value without
+    /// context-switching. Worked example: 8 engine units → 0.8 m.
+    #[test]
+    fn weapon_range_metre_breakdown_walks_units_to_metres() {
+        let mut env = Env::default();
+        env.output.set("WeaponRange", 8.0);
+        env.output.set("WeaponRangeMetre", 0.8);
+        let bd = derive_for(&env, "WeaponRangeMetre").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Range (engine units)"));
+        assert!(labels.contains(&"Weapon range (metres)"));
+
+        let units = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Range (engine units)")
+            .unwrap();
+        assert!((units.value.unwrap() - 8.0).abs() < 1e-9);
+        assert!((bd.total - 0.8).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: returns None when WeaponRange is zero
+    /// (no character loaded yet).
+    #[test]
+    fn weapon_range_metre_breakdown_skipped_when_no_range() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "WeaponRangeMetre").is_none(),
+            "expected None when WeaponRange is zero",
+        );
+    }
+
     /// Issue #34 follow-up: FireResist (uncapped) walks BASE +
     /// umbrella + level penalty → Final without the cap step. The
     /// capped value is exposed separately as FireResistTotal (with
