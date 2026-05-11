@@ -197,6 +197,12 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "freeze",
         ),
         "ManaRegenRecovery" => mana_regen_recovery(env),
+        "FireResistMax" => resist_max(env, "FireResistMax", "Fire resistance maximum"),
+        "ColdResistMax" => resist_max(env, "ColdResistMax", "Cold resistance maximum"),
+        "LightningResistMax" => {
+            resist_max(env, "LightningResistMax", "Lightning resistance maximum")
+        }
+        "ChaosResistMax" => resist_max(env, "ChaosResistMax", "Chaos resistance maximum"),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -2886,6 +2892,63 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for the four max-resist
+/// outputs (FireResistMax / ColdResistMax / LightningResistMax /
+/// ChaosResistMax). PoB derives all four through the same shape:
+///
+///   max = 75 + Σ BASE("<Element>ResistMax")
+///
+/// Surfaces Default + BASE-mod sources + Final so users can see
+/// whether they're at the default 75% cap or pushing it higher
+/// (e.g. Loreweave, Purity of Elements aura, ascendancies).
+///
+/// Returns `None` when the max is zero (no character loaded yet).
+fn resist_max(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdown> {
+    let total = env.output.get(output_key);
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let base_sum = env.mod_db.sum(ModType::Base, &cfg, &env.state, output_key);
+    let default = 75.0;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Default")
+            .with_value(default)
+            .with_explain("75% default max resist (PoE constant)".to_owned()),
+    );
+
+    if base_sum.abs() > 1e-9 {
+        let base_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named(output_key)
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("BASE mods")
+                .with_value(base_sum)
+                .with_explain(format!(
+                    "+{base_sum:.0}% from {output_key} BASE mods (Loreweave / aura / ascendancy)"
+                ))
+                .with_sources(base_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label(final_label)
+            .with_value(total)
+            .with_explain(format!("75 + {base_sum:+.0} = {total:.0}%")),
+    );
+
+    Some(Breakdown {
+        output_key: output_key.to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `ManaRegenRecovery`. PoB sets it
 /// to the same value as `ManaRegen` so flask-recovery code can read
 /// the regen rate under that name (`perform_basic_stats:1277`). The
@@ -4461,6 +4524,65 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: FireResistMax walks Default (75 PoE
+    /// constant) + BASE mods → total. PoB derives all four
+    /// max-resist outputs (Fire / Cold / Lightning / Chaos) the same
+    /// way: `75 + Σ BASE("<Element>ResistMax")`. Worked example:
+    /// default 75 + 5 from a Loreweave node = 80% max fire resist.
+    #[test]
+    fn fire_resist_max_breakdown_walks_default_and_mods() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("FireResistMax", 5.0).with_source(Source::Tree));
+        env.output.set("FireResistMax", 80.0);
+        let bd = derive_for(&env, "FireResistMax").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Default"));
+        assert!(labels.contains(&"BASE mods"));
+        assert!(labels.contains(&"Fire resistance maximum"));
+        let default = bd.steps.iter().find(|s| s.label == "Default").unwrap();
+        assert!((default.value.unwrap() - 75.0).abs() < 1e-9);
+        assert!((bd.total - 80.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ColdResistMax / LightningResistMax /
+    /// ChaosResistMax all share the same default + BASE-mod chain
+    /// as FireResistMax. Worked example: default 75 with no mods →
+    /// 75% on each.
+    #[test]
+    fn other_resist_max_breakdowns_walk_same_chain() {
+        for key in ["ColdResistMax", "LightningResistMax", "ChaosResistMax"] {
+            let mut env = Env::default();
+            env.output.set(key, 75.0);
+            let bd = derive_for(&env, key).unwrap_or_else(|| panic!("{key}: dispatch missing"));
+            let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+            assert!(labels.contains(&"Default"), "{key}: missing Default");
+            assert!(
+                !labels.contains(&"BASE mods"),
+                "{key}: BASE step should be suppressed at default"
+            );
+            assert!((bd.total - 75.0).abs() < 1e-9, "{key}: wrong total");
+        }
+    }
+
+    /// Issue #34 follow-up: returns None when the max resist is zero
+    /// (no character loaded yet).
+    #[test]
+    fn resist_max_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        for key in [
+            "FireResistMax",
+            "ColdResistMax",
+            "LightningResistMax",
+            "ChaosResistMax",
+        ] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when zero",
+            );
+        }
+    }
+
     /// Issue #34 follow-up: ManaRegenRecovery is just an alias for
     /// ManaRegen — `perform_basic_stats` sets it to the same value
     /// so PoB's flask-recovery code can read it under that name.
