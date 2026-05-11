@@ -112,6 +112,21 @@ pub fn compute_heatmap_inputs(
     top_n: Option<usize>,
 ) -> AHashMap<NodeId, egui::Color32> {
     let ranked = rank_node_additions(character, tree, skills, bases, cluster_ctx, timeless);
+    compute_heatmap_inputs_from_ranked(&ranked, stat, top_n)
+}
+
+/// Issue #207 follow-up: turn an already-ranked
+/// [`Vec<NodeScore>`](pob_engine::NodeScore) into a per-node colour
+/// map. Same pipeline as [`compute_heatmap_inputs`] minus the costly
+/// `rank_node_additions` walk — useful when the caller already has the
+/// ranked list cached and wants to re-colour with a different
+/// [`HeatmapStat`] / `top_n` cheaply.
+#[must_use]
+pub fn compute_heatmap_inputs_from_ranked(
+    ranked: &[NodeScore],
+    stat: HeatmapStat,
+    top_n: Option<usize>,
+) -> AHashMap<NodeId, egui::Color32> {
     let scores: Vec<(NodeId, f64)> = ranked
         .iter()
         .map(|s| (s.node_id, score_impact_key(s, stat)))
@@ -124,6 +139,41 @@ pub fn compute_heatmap_inputs(
     normalised
         .into_iter()
         .map(|(id, t)| (id, score_to_colour(t)))
+        .collect()
+}
+
+/// Issue #207 follow-up: format the top-N candidate nodes as
+/// human-readable strings for the tree-tab "Top candidate nodes"
+/// panel. Each line shows the rank, signed DPS / EHP deltas, and the
+/// node's display name (or `#<id>` for unknown ids). Pure helper —
+/// the renderer walks the returned strings.
+///
+/// `ranked` is expected to be sorted by the chosen
+/// [`HeatmapStat`] axis descending. Passing the raw
+/// [`rank_node_additions`] output works for `Combined` (the ranker's
+/// own sort key); callers that switch axes should re-sort first.
+#[must_use]
+pub fn format_top_node_candidates(
+    ranked: &[NodeScore],
+    tree: &pob_data::PassiveTree,
+    top_n: usize,
+) -> Vec<String> {
+    ranked
+        .iter()
+        .take(top_n)
+        .enumerate()
+        .map(|(i, score)| {
+            let rank = i + 1;
+            let name = tree
+                .nodes
+                .get(&score.node_id)
+                .and_then(|n| n.name.clone())
+                .unwrap_or_else(|| format!("#{}", score.node_id));
+            format!(
+                "{rank}. {:>+8.0} DPS {:>+8.0} EHP  {name}",
+                score.dps_delta, score.ehp_delta,
+            )
+        })
         .collect()
 }
 
@@ -662,6 +712,79 @@ mod tests {
         assert!((score_impact_key(&pure_ehp, HeatmapStat::Combined) - 100.0).abs() < 1e-9);
         // Mixed picks the larger axis (DPS here).
         assert!((score_impact_key(&mixed, HeatmapStat::Combined) - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn format_top_node_candidates_lists_rank_deltas_and_name() {
+        // Build a tiny tree with two named notables, score them, and
+        // confirm the formatter emits one line per node with the
+        // expected rank ordering and signed deltas.
+        let tree = ranking_tree();
+        let ranked = vec![
+            NodeScore {
+                node_id: 2,
+                dps_delta: 0.0,
+                ehp_delta: 50.0,
+            },
+            NodeScore {
+                node_id: 3,
+                dps_delta: 30.0,
+                ehp_delta: 0.0,
+            },
+        ];
+        let lines = format_top_node_candidates(&ranked, &tree, 10);
+        assert_eq!(lines.len(), 2);
+        // First line carries rank 1 and the input's first node (2 = "n2").
+        assert!(
+            lines[0].starts_with("1. "),
+            "expected rank 1 prefix: {}",
+            lines[0]
+        );
+        assert!(
+            lines[0].contains("+50 EHP"),
+            "EHP delta in line 1: {}",
+            lines[0]
+        );
+        assert!(lines[0].ends_with("n2"), "name 'n2' at tail: {}", lines[0]);
+        // Second line carries rank 2.
+        assert!(
+            lines[1].starts_with("2. "),
+            "expected rank 2 prefix: {}",
+            lines[1]
+        );
+        assert!(lines[1].contains("+30 DPS"));
+        assert!(lines[1].ends_with("n3"));
+    }
+
+    #[test]
+    fn format_top_node_candidates_falls_back_to_hash_id_for_unknown() {
+        // Stale rank list against a tree that no longer carries the id
+        // — fall back to `#<id>` so the user still sees something.
+        let tree = empty_tree();
+        let ranked = vec![NodeScore {
+            node_id: 999,
+            dps_delta: 10.0,
+            ehp_delta: 5.0,
+        }];
+        let lines = format_top_node_candidates(&ranked, &tree, 10);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("#999"));
+    }
+
+    #[test]
+    fn format_top_node_candidates_truncates_to_top_n() {
+        let tree = empty_tree();
+        let ranked: Vec<NodeScore> = (0u32..5)
+            .map(|i| NodeScore {
+                node_id: i,
+                dps_delta: f64::from(i),
+                ehp_delta: 0.0,
+            })
+            .collect();
+        let lines = format_top_node_candidates(&ranked, &tree, 2);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("1. "));
+        assert!(lines[1].starts_with("2. "));
     }
 
     #[test]
