@@ -125,6 +125,13 @@ struct LoadedApp {
     /// (avoids paying for another `rank_node_additions` walk on
     /// re-enable).
     show_power_overlay: bool,
+    /// Issue #220 follow-up: which scoring axis the heatmap colours by
+    /// — Combined (max of dps / ehp deltas), DPS only, or EHP only.
+    /// Mirrors PoB's `treeHeatMapStatSelect` dropdown. Changes apply
+    /// on the next "Refresh heatmap" click; toggling here doesn't
+    /// invalidate the cached map so a stale overlay stays visible
+    /// until the user explicitly recomputes.
+    heatmap_stat: crate::node_power_heatmap::HeatmapStat,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
     /// Issue #209: user-global saved-items store. Loaded from disk at
@@ -587,6 +594,7 @@ impl PobApp {
             pending_version_swap: None,
             power_overlay: None,
             show_power_overlay: false,
+            heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -684,6 +692,7 @@ impl PobApp {
             pending_version_swap: None,
             power_overlay: None,
             show_power_overlay: false,
+            heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -1175,6 +1184,24 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 {
                     app.show_power_overlay = !app.show_power_overlay;
                 }
+                // Issue #220 follow-up: stat axis the next refresh
+                // should score by. Mirrors PoB's `treeHeatMapStatSelect`.
+                // Doesn't recompute on its own — the user picks an axis
+                // and then clicks Refresh.
+                egui::ComboBox::from_id_salt("heatmap_stat_select")
+                    .selected_text(app.heatmap_stat.label())
+                    .show_ui(ui, |ui| {
+                        use crate::node_power_heatmap::HeatmapStat;
+                        for stat in [HeatmapStat::Combined, HeatmapStat::Dps, HeatmapStat::Ehp] {
+                            ui.selectable_value(&mut app.heatmap_stat, stat, stat.label());
+                        }
+                    })
+                    .response
+                    .on_hover_text(
+                        "Which axis the heatmap scores nodes by. Applies on \
+                         the next Refresh — toggling here doesn't recompute \
+                         on its own.",
+                    );
                 if ui
                     .button("Refresh heatmap")
                     .on_hover_text(
@@ -2312,6 +2339,7 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
         app.bases.as_ref(),
         cluster_ctx,
         None,
+        app.heatmap_stat,
     );
     app.power_overlay = Some(map);
     app.show_power_overlay = true;

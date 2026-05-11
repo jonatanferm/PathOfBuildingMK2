@@ -38,6 +38,42 @@ use eframe::egui;
 use pob_data::NodeId;
 use pob_engine::{rank_node_additions, Character, ClusterContext, NodeScore, SkillRegistry};
 
+/// Issue #220 follow-up: which scoring axis the heatmap colours nodes by.
+/// PoB's `TreeTab.lua:195-275` exposes a `treeHeatMapStatSelect` dropdown
+/// so the user can isolate offensive vs defensive impact — useful when
+/// looking at a defence-focused build where DPS-only ranking washes out
+/// the actually-helpful nodes.
+///
+/// `Combined` is the historical default (max of dps/ehp deltas) so a
+/// pure-EHP and pure-DPS node tint at comparable intensity. The two
+/// scalar modes pick a single axis so the gradient reflects one stat
+/// directly — handy for "what gets me the most life?" / "what bumps
+/// my DPS the most?" cases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HeatmapStat {
+    /// `max(dps_delta, ehp_delta)` — historical behaviour. Reads as
+    /// "single best-impact axis per node" so offence and defence
+    /// compare on the same scale.
+    #[default]
+    Combined,
+    /// `dps_delta` only — EHP-only nodes go cold.
+    Dps,
+    /// `ehp_delta` only — DPS-only nodes go cold.
+    Ehp,
+}
+
+impl HeatmapStat {
+    /// Human-readable label for the UI selector.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Combined => "Combined",
+            Self::Dps => "DPS",
+            Self::Ehp => "EHP",
+        }
+    }
+}
+
 /// Issue #220 (heatmap pipeline slice): engine-to-paint glue that turns
 /// a [`Character`] + [`pob_data::PassiveTree`] into a per-node colour
 /// map ready for the tree renderer to tint unallocated nodes with.
@@ -72,11 +108,12 @@ pub fn compute_heatmap_inputs(
     bases: Option<&pob_data::bases::ItemBaseSet>,
     cluster_ctx: Option<ClusterContext<'_>>,
     timeless: Option<&pob_data::TimelessJewelData>,
+    stat: HeatmapStat,
 ) -> AHashMap<NodeId, egui::Color32> {
     let ranked = rank_node_additions(character, tree, skills, bases, cluster_ctx, timeless);
     let scores: Vec<(NodeId, f64)> = ranked
         .iter()
-        .map(|s| (s.node_id, score_impact_key(s)))
+        .map(|s| (s.node_id, score_impact_key(s, stat)))
         .collect();
     let normalised = normalise_scores(&scores);
     normalised
@@ -96,8 +133,12 @@ pub fn compute_heatmap_inputs(
 /// experiment with weighted combinations (e.g. user-tunable
 /// `dps_weight` × `ehp_weight`) without rewriting the pipeline.
 #[must_use]
-pub fn score_impact_key(score: &NodeScore) -> f64 {
-    score.dps_delta.max(score.ehp_delta)
+pub fn score_impact_key(score: &NodeScore, stat: HeatmapStat) -> f64 {
+    match stat {
+        HeatmapStat::Combined => score.dps_delta.max(score.ehp_delta),
+        HeatmapStat::Dps => score.dps_delta,
+        HeatmapStat::Ehp => score.ehp_delta,
+    }
 }
 
 /// Normalise a batch of `(NodeId, score)` pairs to `0.0..=1.0`.
@@ -194,6 +235,48 @@ pub fn score_to_colour(normalised: f32) -> egui::Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn score(dps: f64, ehp: f64) -> NodeScore {
+        NodeScore {
+            node_id: 0,
+            dps_delta: dps,
+            ehp_delta: ehp,
+        }
+    }
+
+    #[test]
+    fn score_impact_combined_takes_max_of_axes() {
+        // Historical behaviour: pure-DPS and pure-EHP nodes tint at
+        // comparable intensity. Negative deltas are kept verbatim so
+        // the normaliser can still relativise them.
+        assert!((score_impact_key(&score(10.0, 4.0), HeatmapStat::Combined) - 10.0).abs() < 1e-9);
+        assert!((score_impact_key(&score(2.0, 7.0), HeatmapStat::Combined) - 7.0).abs() < 1e-9);
+        assert!(
+            (score_impact_key(&score(-3.0, -10.0), HeatmapStat::Combined) - -3.0).abs() < 1e-9,
+            "max of two negatives picks the closer-to-zero one",
+        );
+    }
+
+    #[test]
+    fn score_impact_dps_isolates_dps_axis() {
+        // EHP-only nodes go cold; DPS-only nodes drive the gradient.
+        assert!((score_impact_key(&score(15.0, 100.0), HeatmapStat::Dps) - 15.0).abs() < 1e-9);
+        assert!((score_impact_key(&score(0.0, 50.0), HeatmapStat::Dps)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn score_impact_ehp_isolates_ehp_axis() {
+        // DPS-only nodes go cold; EHP-only nodes drive the gradient.
+        assert!((score_impact_key(&score(100.0, 25.0), HeatmapStat::Ehp) - 25.0).abs() < 1e-9);
+        assert!((score_impact_key(&score(50.0, 0.0), HeatmapStat::Ehp)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn heatmap_stat_default_is_combined() {
+        // Existing call sites that haven't been migrated to choose a
+        // stat should get the historical reducer back.
+        assert_eq!(HeatmapStat::default(), HeatmapStat::Combined);
+    }
 
     #[test]
     fn normalise_empty_input_returns_empty_map() {
@@ -427,7 +510,7 @@ mod tests {
     fn compute_heatmap_inputs_empty_tree_returns_empty_map() {
         let tree = empty_tree();
         let c = fresh_character();
-        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None);
+        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None, HeatmapStat::default());
         assert!(out.is_empty());
     }
 
@@ -440,7 +523,7 @@ mod tests {
     fn compute_heatmap_inputs_only_includes_impactful_unallocated_nodes() {
         let tree = ranking_tree();
         let c = fresh_character();
-        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None);
+        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None, HeatmapStat::default());
         // Nodes 2 (Life) and 3 (Strength) score; 4 (stat-less notable),
         // 5 (mastery), and 1 (class start, anchored) drop out.
         let mut ids: Vec<NodeId> = out.keys().copied().collect();
@@ -455,7 +538,7 @@ mod tests {
     fn compute_heatmap_inputs_top_node_is_red_bottom_is_blue() {
         let tree = ranking_tree();
         let c = fresh_character();
-        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None);
+        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None, HeatmapStat::default());
         // Node 2 (+50 Life) carries a much larger EHP delta than node 3
         // (+10 Strength), so it should land at the hot end.
         let red = score_to_colour(1.0);
@@ -480,7 +563,7 @@ mod tests {
         let tree = ranking_tree();
         let mut c = fresh_character();
         c.allocate(2);
-        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None);
+        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None, HeatmapStat::default());
         assert!(
             !out.contains_key(&2),
             "allocated node 2 must not appear in heatmap"
@@ -511,10 +594,10 @@ mod tests {
             dps_delta: 60.0,
             ehp_delta: 40.0,
         };
-        assert!((score_impact_key(&pure_dps) - 100.0).abs() < 1e-9);
-        assert!((score_impact_key(&pure_ehp) - 100.0).abs() < 1e-9);
+        assert!((score_impact_key(&pure_dps, HeatmapStat::Combined) - 100.0).abs() < 1e-9);
+        assert!((score_impact_key(&pure_ehp, HeatmapStat::Combined) - 100.0).abs() < 1e-9);
         // Mixed picks the larger axis (DPS here).
-        assert!((score_impact_key(&mixed) - 60.0).abs() < 1e-9);
+        assert!((score_impact_key(&mixed, HeatmapStat::Combined) - 60.0).abs() < 1e-9);
     }
 
     #[test]
