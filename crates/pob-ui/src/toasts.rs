@@ -59,6 +59,13 @@ impl ToastQueue {
     /// Append a toast with the default 5-second lifetime starting at
     /// `now`. If the queue is already at [`MAX_TOASTS`], drops the
     /// oldest entry before pushing.
+    ///
+    /// The production renderer uses [`Self::push_with_lifetime`] so
+    /// the user-configurable
+    /// [`crate::settings::UserSettings::toast_lifetime_secs`] is
+    /// honoured per-push; tests + ad-hoc callers that want the
+    /// default constant use this shorter form.
+    #[allow(dead_code)]
     pub fn push(&mut self, kind: StatusKind, message: impl Into<String>, now: f64) {
         self.push_with_lifetime(kind, message, now, DEFAULT_LIFETIME_SECS);
     }
