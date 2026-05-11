@@ -36,6 +36,7 @@ mod notable_db;
 mod notes_tab;
 mod party_tab;
 mod popup;
+mod set_switcher;
 #[cfg(not(target_arch = "wasm32"))]
 mod share_url_fetch;
 mod shared_items;
