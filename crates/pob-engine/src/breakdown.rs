@@ -180,6 +180,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         ),
         "PoisonStacks" => poison_stacks(env),
         "PoisonStackLimit" => poison_stack_limit(env),
+        "ActiveTotemLimit" => active_totem_limit(env),
         "BleedChance" => bleed_chance(env),
         "IgniteChance" => ignite_chance(env),
         "ShockChance" => on_hit_plus_crit_chance(
@@ -4370,6 +4371,64 @@ fn poison_stack_limit(env: &Env) -> Option<Breakdown> {
 
     Some(Breakdown {
         output_key: "PoisonStackLimit".to_owned(),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: re-derive `ActiveTotemLimit`. PoB takes
+/// `max(1 default, 1 + Σ BASE(MaxTotems))` (effectively the default
+/// 1 plus the BASE-mod sum, clamped to 1) — see `perform.rs:3932`.
+/// The default is the PoE constant `base_number_of_totems_allowed`;
+/// MaxTotems mods come from gear (e.g. Soul Mantle, Skin of the
+/// Lords), the passive tree, and ascendancies (Hierophant). Surfacing
+/// the chain shows why the cap landed where it did.
+///
+/// Returns `None` when `ActiveTotemLimit` is zero (no totem skill
+/// loaded — the slot is only set on the totem branch in `perform.rs`).
+fn active_totem_limit(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("ActiveTotemLimit");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let base_sum = env.mod_db.sum(ModType::Base, &cfg, &env.state, "MaxTotems");
+    let default = 1.0;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Default")
+            .with_value(default)
+            .with_explain("1 default totem allowed (PoE constant)".to_owned()),
+    );
+
+    if base_sum.abs() > 1e-9 {
+        let base_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("MaxTotems")
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("BASE mods")
+                .with_value(base_sum)
+                .with_explain(format!(
+                    "+{base_sum:.0} from MaxTotems BASE mods (gear / tree / ascendancy)"
+                ))
+                .with_sources(base_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Active totem limit")
+            .with_value(total)
+            .with_explain(format!(
+                "max(1, {default:.0} + {base_sum:+.0}) = {total:.0}"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "ActiveTotemLimit".to_owned(),
         total,
         steps,
     })
@@ -9269,5 +9328,52 @@ mod tests {
             derive_for(&env, "CastRate").is_none(),
             "expected None when CastRate is zero",
         );
+    }
+
+    /// Issue #34 follow-up: ActiveTotemLimit walks default + BASE
+    /// MaxTotems mods. PoB derives the limit as
+    /// `1 + Σ BASE(MaxTotems)` (clamped to 1) — see
+    /// `perform.rs:3932`. The breakdown surfaces the chain so users
+    /// can see whether the cap is the default 1 or being lifted by
+    /// gear / tree / ascendancy.
+    /// Worked example: default 1 + 1 from a MaxTotems mod = 2 totems.
+    #[test]
+    fn active_totem_limit_breakdown_walks_default_and_mods() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("MaxTotems", 1.0).with_source(Source::Item(2)));
+        env.output.set("ActiveTotemLimit", 2.0);
+        let bd = derive_for(&env, "ActiveTotemLimit").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Default"));
+        assert!(labels.contains(&"BASE mods"));
+        assert!(labels.contains(&"Active totem limit"));
+
+        let default = bd.steps.iter().find(|s| s.label == "Default").unwrap();
+        assert!((default.value.unwrap() - 1.0).abs() < 1e-9);
+        assert!((bd.total - 2.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: with no MaxTotems BASE mods the
+    /// breakdown collapses to Default + Final at exactly 1.
+    #[test]
+    fn active_totem_limit_breakdown_collapses_when_default() {
+        let mut env = Env::default();
+        env.output.set("ActiveTotemLimit", 1.0);
+        let bd = derive_for(&env, "ActiveTotemLimit").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Default"));
+        assert!(!labels.contains(&"BASE mods"));
+        assert!(labels.contains(&"Active totem limit"));
+        assert!((bd.total - 1.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: when no skill is loaded, ActiveTotemLimit
+    /// is zero and the breakdown is skipped (matches the other
+    /// "skip when zero" outputs like PoisonStackLimit).
+    #[test]
+    fn active_totem_limit_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(derive_for(&env, "ActiveTotemLimit").is_none());
     }
 }
