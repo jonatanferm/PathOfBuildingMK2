@@ -40,6 +40,25 @@ pub struct ItemsTabState {
     pub browse_view: BrowseView,
     /// Issue #209: buffer for the "Save current item as shared" label input.
     pub new_shared_label: String,
+    /// Issue #211 (slice 3): pending inline-rename popup state. `Some`
+    /// when the user clicked "Rename" on a shared-items row; carries
+    /// the row index and the current edit buffer (seeded with the
+    /// existing label). Cleared on Save / Cancel / outside-click.
+    pub shared_rename: Option<SharedRenameState>,
+}
+
+/// Issue #211 (slice 3): edit-buffer state for the shared-items rename
+/// popup. Pulled into its own struct so the popup body and the
+/// context-menu wiring can pass it around without grabbing the whole
+/// `ItemsTabState`.
+#[derive(Debug, Clone)]
+pub struct SharedRenameState {
+    /// Index into [`SharedItemStore::items`] when the popup was opened.
+    /// Re-validated on Save in case the underlying list shrank.
+    pub index: usize,
+    /// Live text-edit buffer. Seeded with the current label so the user
+    /// can edit-in-place instead of retyping from scratch.
+    pub buffer: String,
 }
 
 /// Issue #209: which sub-list the browse panel is currently showing.
@@ -64,6 +83,7 @@ impl Default for ItemsTabState {
             browse_sort: None,
             browse_view: BrowseView::default(),
             new_shared_label: String::new(),
+            shared_rename: None,
         }
     }
 }
@@ -865,6 +885,7 @@ pub fn ui(
                             shared_items,
                             items,
                             &mut state.selected_slot,
+                            &mut state.shared_rename,
                             use_swap,
                         ) {
                             changed = true;
@@ -890,6 +911,7 @@ fn render_shared_panel(
     shared_items: &mut SharedItemStore,
     items: &mut ItemSet,
     selected_slot: &mut Option<Slot>,
+    rename_state: &mut Option<SharedRenameState>,
     use_swap: bool,
 ) -> bool {
     let mut changed = false;
@@ -916,6 +938,7 @@ fn render_shared_panel(
 
     let mut to_delete: Option<usize> = None;
     let mut to_clone: Option<usize> = None;
+    let mut to_rename: Option<usize> = None;
     let mut to_equip: Option<(Slot, Item)> = None;
     egui::ScrollArea::vertical()
         .max_height(420.0)
@@ -975,6 +998,10 @@ fn render_shared_panel(
                     // the menu doesn't need a redundant entry; the
                     // hover-tooltip's bottom line teaches the gesture.
                     row.context_menu(|ui| {
+                        if ui.button("Rename").clicked() {
+                            to_rename = Some(idx);
+                            ui.close_menu();
+                        }
                         if ui.button("Clone").clicked() {
                             to_clone = Some(idx);
                             ui.close_menu();
@@ -1012,7 +1039,101 @@ fn render_shared_panel(
         // it up via `dirty`. We don't return `changed = true` here
         // because no calc-affecting state changed — just the saved-list.
     }
+    // Issue #211 (slice 3): opening the rename popup is just state — we
+    // seed the buffer with the current label so the user edits in place
+    // instead of retyping from scratch. The popup itself renders below.
+    if let Some(idx) = to_rename {
+        if let Some(saved) = shared_items.items.get(idx) {
+            *rename_state = Some(SharedRenameState {
+                index: idx,
+                buffer: saved.label.clone(),
+            });
+        }
+    }
+    render_shared_rename_popup(ui, shared_items, rename_state);
     changed
+}
+
+/// Issue #211 (slice 3): inline rename popup for a shared-items row.
+/// Renders an `egui::Window` with a `TextEdit` + Save / Cancel buttons.
+/// Save commits via [`SharedItemStore::rename`] which routes through
+/// `unique_label` on collisions and rejects empty / whitespace-only
+/// labels (same contract as `add`). Cancel-on-Esc and close-on-outside-
+/// click come for free from `egui::Window::open` — we drive both
+/// through the same `*rename_state = None` reset.
+fn render_shared_rename_popup(
+    ui: &mut egui::Ui,
+    shared_items: &mut SharedItemStore,
+    rename_state: &mut Option<SharedRenameState>,
+) {
+    let Some(state) = rename_state.as_mut() else {
+        return;
+    };
+    // Pull the current label up-front so the title reflects the row the
+    // user right-clicked, even if the buffer has diverged.
+    let current_label = shared_items
+        .items
+        .get(state.index)
+        .map(|s| s.label.clone())
+        .unwrap_or_else(|| "(removed)".to_owned());
+
+    let mut window_open = true;
+    let mut commit = false;
+    let mut cancel = false;
+    egui::Window::new(format!("Rename \"{current_label}\""))
+        .id(egui::Id::new(("shared-rename-window", state.index)))
+        .open(&mut window_open)
+        .resizable(false)
+        .collapsible(false)
+        .default_width(280.0)
+        .show(ui.ctx(), |ui| {
+            ui.label("New label:");
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut state.buffer)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("e.g. Endgame boots"),
+            );
+            // Keep focus on the TextEdit so the user can immediately
+            // type — without this the popup steals the click but not
+            // keyboard focus on first frame.
+            if !response.has_focus() && response.gained_focus() {
+                response.request_focus();
+            }
+            response.request_focus();
+            let empty = state.buffer.trim().is_empty();
+            if empty {
+                ui.weak("Label can't be blank.");
+            }
+            ui.horizontal(|ui| {
+                let save_clicked = ui.add_enabled(!empty, egui::Button::new("Save")).clicked();
+                let enter_pressed = response.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    && !empty;
+                if save_clicked || enter_pressed {
+                    commit = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+            });
+            // Esc cancels — matches the "outside-click closes" gesture
+            // users expect from a transient popup.
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                cancel = true;
+            }
+        });
+    if commit {
+        // `rename` rejects empty / whitespace and routes collisions
+        // through `unique_label`. We don't bail on `false` — at this
+        // point the only failure mode is an out-of-range index (the
+        // row was deleted in another action this frame), in which case
+        // closing the popup is the right outcome anyway.
+        let new_label = std::mem::take(&mut state.buffer);
+        shared_items.rename(state.index, &new_label);
+        *rename_state = None;
+    } else if cancel || !window_open {
+        *rename_state = None;
+    }
 }
 
 /// Render the right-hand "Browse" panel listing every base in `set`, filtered
