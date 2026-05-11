@@ -2427,6 +2427,7 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
+ "smallvec",
  "tracing",
  "ureq",
  "wasm-bindgen",
