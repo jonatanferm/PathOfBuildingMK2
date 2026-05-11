@@ -286,6 +286,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "WeaponRangeMetre" => weapon_range_metre(env),
         "MainSkillLevel" => main_skill_level(env),
         "EnemyPhysReduction" => enemy_phys_reduction(env),
+        "MainSkillEnemyEffectiveResist" => main_skill_enemy_effective_resist(env),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3138,6 +3139,45 @@ fn dot_ehp(env: &Env, elem: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `MainSkillEnemyEffectiveResist`.
+/// PoB derives the post-penetration enemy resist value used by the
+/// damage chain as `(enemy_resist_raw - elem_pen).clamp(-200, 95)`.
+/// The configured enemy resist (boss preset on
+/// `Character::config`) and the `<Element>Penetration` BASE-mod sum
+/// aren't both stored as output keys, so a step-by-step
+/// decomposition isn't possible without that wiring. Surfacing the
+/// final value plus the cap rationale lets users see why a build
+/// with 100% pen against 75% resist still nets at -25% (not lower).
+///
+/// Returns `None` when the resist is zero (no skill loaded, or
+/// non-elemental hit).
+fn main_skill_enemy_effective_resist(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("MainSkillEnemyEffectiveResist");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Cap range")
+            .with_value(0.0)
+            .with_explain("[-200, 95]% — PoB clamp on (enemy_resist - penetration)".to_owned()),
+    );
+    steps.push(
+        BreakdownStep::label("Effective enemy resist")
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0}% from (enemy raw resist - <Element>Penetration BASE) clamp([-200, 95]) — enemy resist comes from the configured boss preset"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "MainSkillEnemyEffectiveResist".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `EnemyPhysReduction`. PoB
 /// computes it as `armour / (armour + 5 × raw)` capped at 90%
 /// (the `EnemyPhysicalDamageReductionCap` constant), where:
@@ -5237,6 +5277,45 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: MainSkillEnemyEffectiveResist surfaces
+    /// the post-penetration enemy resist value used by the damage
+    /// chain. PoB derives it as `(enemy_resist_raw - elem_pen)`
+    /// clamped to [-200, 95]. The configured enemy resist + the
+    /// `<Element>Penetration` mods aren't both stored as output
+    /// keys, so the breakdown shows the final value plus the cap
+    /// rationale. Worked example: 75% raw - 10% pen = 65%.
+    #[test]
+    fn main_skill_enemy_effective_resist_breakdown_shows_clamp_and_value() {
+        let mut env = Env::default();
+        env.output.set("MainSkillEnemyEffectiveResist", 65.0);
+        let bd = derive_for(&env, "MainSkillEnemyEffectiveResist").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Cap range"));
+        assert!(labels.contains(&"Effective enemy resist"));
+
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("penetration") || e.contains("clamp")),
+            "expected penetration / clamp note in explain, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 65.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when the enemy effective
+    /// resist is zero (no skill loaded, or non-elemental hit).
+    #[test]
+    fn main_skill_enemy_effective_resist_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "MainSkillEnemyEffectiveResist").is_none(),
+            "expected None when MainSkillEnemyEffectiveResist is zero",
+        );
+    }
+
     /// Issue #34 follow-up: EnemyPhysReduction walks the armour
     /// formula: PoB derives it as `armour / (armour + 5 × raw)`
     /// capped at 90% (the DamageReductionMax constant). Surfaces
