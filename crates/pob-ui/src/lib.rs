@@ -223,6 +223,11 @@ struct LoadedApp {
     user_settings: settings::UserSettings,
     /// Issue #225: whether the Settings modal is currently open.
     show_settings: bool,
+    /// Issue #225: tracks the last window title we emitted via
+    /// `ViewportCommand::Title` so the frame loop only re-sends when
+    /// the build name or dirty flag actually changes. Without this
+    /// guard egui would surface a viewport command every frame.
+    last_window_title: Option<String>,
     /// Available tree versions found in `data/trees/`.
     tree_versions: Vec<String>,
     /// Currently-loaded tree version.
@@ -632,6 +637,7 @@ impl PobApp {
                 }
             },
             show_settings: false,
+            last_window_title: None,
             tree_versions,
             tree_version: default_version,
             data_root,
@@ -715,6 +721,7 @@ impl PobApp {
             last_toasted_status: None,
             user_settings: settings::UserSettings::default(),
             show_settings: false,
+            last_window_title: None,
             tree_versions: vec!["3_25".to_owned()],
             tree_version: "3_25".to_owned(),
             data_root: PathBuf::from("/data"),
@@ -1630,6 +1637,21 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // stack sits in the bottom-right corner with its own Area.
     render_toasts(ctx, &mut app.toasts);
 
+    // Issue #225: sync the OS window title with the active build
+    // name + dirty flag. Native targets only — wasm uses a static
+    // tab title set by the host page. We compare against the last
+    // emitted title so the viewport command only fires on actual
+    // change.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let dirty = app.dirty_since.is_some();
+        let title = compute_window_title(app.current_build_path.as_deref(), dirty);
+        if app.last_window_title.as_deref() != Some(title.as_str()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            app.last_window_title = Some(title);
+        }
+    }
+
     // Issue #220: tree-tab destructive-action confirmation modal.
     // Renders above the central panel via egui's natural z-ordering;
     // gated on `pending_tree_reset` so it appears only when the user
@@ -2306,6 +2328,34 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
 /// corner. Sweeps expired entries first so the rendered count never
 /// includes stale messages. No-op when the queue is empty so a quiet
 /// session has zero overlay paint cost.
+/// Issue #225: build the OS-window title string from the current
+/// build's file path + dirty state. Pure / no egui so the formatting
+/// rule has a unit-test home.
+///
+/// Format:
+/// - No saved path → `"Path of Building MK2"` (Idle).
+/// - Saved path → `"Path of Building MK2 — <file stem>"`.
+/// - Dirty (unsaved edits) → adds a leading `"• "` to the build
+///   name segment, mirroring the convention most editors (VS Code,
+///   Sublime) use for "modified buffer". Native callers only —
+///   on wasm the title bar is just the app name.
+#[must_use]
+pub fn compute_window_title(build_path: Option<&std::path::Path>, dirty: bool) -> String {
+    const BASE: &str = "Path of Building MK2";
+    let Some(path) = build_path else {
+        return BASE.to_owned();
+    };
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("(unsaved)");
+    if dirty {
+        format!("{BASE} — • {stem}")
+    } else {
+        format!("{BASE} — {stem}")
+    }
+}
+
 fn render_toasts(ctx: &egui::Context, queue: &mut toasts::ToastQueue) {
     let now = ctx.input(|i| i.time);
     queue.sweep(now);
@@ -3451,6 +3501,70 @@ fn stat_row_decimal(ui: &mut egui::Ui, label: &str, out: &Output, key: &str) {
             ui.monospace(format!("{:>9.2}", v));
         });
     });
+}
+
+#[cfg(test)]
+mod window_title_tests {
+    use super::compute_window_title;
+    use std::path::Path;
+
+    #[test]
+    fn no_path_returns_base_app_name() {
+        // Pristine start: no build loaded, no dirty flag. Title is
+        // just the app name so users on a fresh launch see what
+        // they're running.
+        assert_eq!(compute_window_title(None, false), "Path of Building MK2");
+        // Dirty flag without a path is ignored (a brand-new unsaved
+        // build would be in this state) — the path is what gives the
+        // name meaning, so we suppress the bullet too.
+        assert_eq!(compute_window_title(None, true), "Path of Building MK2");
+    }
+
+    #[test]
+    fn saved_path_appends_file_stem() {
+        let path = Path::new("/builds/MyBuild.mk2");
+        assert_eq!(
+            compute_window_title(Some(path), false),
+            "Path of Building MK2 — MyBuild"
+        );
+    }
+
+    #[test]
+    fn dirty_flag_inserts_leading_bullet() {
+        // Bullet mirrors VS Code / Sublime "unsaved changes" marker.
+        // Without the bullet a saved + unsaved state look identical
+        // in the title bar, defeating the point.
+        let path = Path::new("/builds/MyBuild.mk2");
+        assert_eq!(
+            compute_window_title(Some(path), true),
+            "Path of Building MK2 — • MyBuild"
+        );
+    }
+
+    #[test]
+    fn multidot_filename_uses_only_outermost_stem() {
+        // `Path::file_stem` returns everything before the *last*
+        // dot, not the first. A build saved as `boss.fight.mk2`
+        // shows as `boss.fight` — the `.mk2` extension stripped
+        // but the user's chosen dots survive.
+        let path = Path::new("/builds/boss.fight.mk2");
+        assert_eq!(
+            compute_window_title(Some(path), false),
+            "Path of Building MK2 — boss.fight"
+        );
+    }
+
+    #[test]
+    fn path_without_stem_falls_back_to_placeholder() {
+        // Defensive: a path that ends in a separator (or otherwise
+        // has no file_stem) doesn't panic — we surface a clear
+        // placeholder so the title bar is still meaningful.
+        let path = Path::new("/");
+        assert_eq!(
+            compute_window_title(Some(path), false),
+            "Path of Building MK2 — (unsaved)"
+        );
+    }
 }
 
 #[cfg(test)]
