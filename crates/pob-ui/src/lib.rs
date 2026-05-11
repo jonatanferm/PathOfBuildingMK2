@@ -1346,14 +1346,30 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         .id_salt("tree_top_candidate_nodes")
                         .default_open(false)
                         .show(ui, |ui| {
-                            let lines = crate::node_power_heatmap::format_top_node_candidates(
+                            // Issue #220 follow-up: each row carries
+                            // its `NodeId` so we can attach a hover
+                            // tooltip showing the node's stats — the
+                            // same lines `tree_node_tooltip_lines`
+                            // builds for the tree-canvas hover.
+                            let rows = crate::node_power_heatmap::format_top_node_candidate_rows(
                                 ranked,
                                 &app.tree,
                                 10,
                                 app.heatmap_stat,
                             );
-                            for line in &lines {
-                                ui.monospace(line);
+                            for (id, line) in rows {
+                                let resp = ui.monospace(line);
+                                if let Some(node) = app.tree.nodes.get(&id) {
+                                    let lines = crate::tree_view::tree_node_tooltip_lines(
+                                        node,
+                                        &app.character.allocated,
+                                    );
+                                    resp.on_hover_ui(|ui| {
+                                        for line in &lines {
+                                            crate::color_codes::label_with_escapes(ui, line);
+                                        }
+                                    });
+                                }
                             }
                         });
                 }
