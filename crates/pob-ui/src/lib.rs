@@ -2588,42 +2588,59 @@ fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction
             else {
                 return;
             };
-            let parsed: Result<Character, String> = std::fs::read_to_string(&path)
-                .map_err(|e| e.to_string())
-                .and_then(|s| {
-                    let trimmed = s.trim();
-                    if trimmed.starts_with("MK2|") {
-                        pob_engine::import_code(trimmed).map_err(|e| e.to_string())
-                    } else if trimmed.starts_with('<') {
-                        pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
-                    } else {
-                        pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
-                    }
-                });
-            match parsed {
-                Ok(comp_char) => {
-                    let output = pob_engine::compute_full(
-                        &comp_char,
-                        &app.tree,
-                        Some(&app.skills),
-                        app.bases.as_ref(),
-                    );
-                    let label = compare_tab::label_for(&comp_char);
-                    app.compare_state.snapshot = Some(compare_tab::Snapshot {
-                        character: comp_char,
-                        output,
-                        label: format!("{} (from {})", label, path.display()),
-                    });
-                    app.status_message = Some((
-                        StatusKind::Info,
-                        format!("Compare snapshot loaded from {}", path.display()),
-                    ));
-                }
-                Err(e) => {
-                    app.status_message =
-                        Some((StatusKind::Error, format!("Compare load failed: {e}")));
-                }
-            }
+            load_compare_from_path(app, path);
+        }
+        compare_tab::CompareAction::ReimportCurrent => {
+            // Issue #223: pull the source path off the current
+            // snapshot and re-run the same load path. The renderer
+            // only emits this when `source_path` is `Some`, but we
+            // still bail safely if the user cleared the snapshot
+            // between frames.
+            let Some(path) = app
+                .compare_state
+                .snapshot
+                .as_ref()
+                .and_then(|s| s.source_path.clone())
+            else {
+                return;
+            };
+            load_compare_from_path(app, path);
+        }
+    }
+}
+
+/// Issue #223: shared load path for the Compare-tab "Load comparison
+/// from file…" and "Re-import current" buttons. Reads `path`, decodes
+/// via [`compare_tab::import_build_text`], runs `compute_full`, and
+/// writes the result into `app.compare_state.snapshot`.
+#[cfg(not(target_arch = "wasm32"))]
+fn load_compare_from_path(app: &mut LoadedApp, path: std::path::PathBuf) {
+    let parsed = std::fs::read_to_string(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|s| compare_tab::import_build_text(&s));
+    match parsed {
+        Ok(comp_char) => {
+            let output = pob_engine::compute_full(
+                &comp_char,
+                &app.tree,
+                Some(&app.skills),
+                app.bases.as_ref(),
+            );
+            let label = compare_tab::label_for(&comp_char);
+            let display_path = path.display().to_string();
+            app.compare_state.snapshot = Some(compare_tab::Snapshot {
+                character: comp_char,
+                output,
+                label: format!("{label} (from {display_path})"),
+                source_path: Some(path),
+            });
+            app.status_message = Some((
+                StatusKind::Info,
+                format!("Compare snapshot loaded from {display_path}"),
+            ));
+        }
+        Err(e) => {
+            app.status_message = Some((StatusKind::Error, format!("Compare load failed: {e}")));
         }
     }
 }

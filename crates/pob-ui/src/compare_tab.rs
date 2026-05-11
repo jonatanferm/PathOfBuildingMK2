@@ -11,6 +11,8 @@
 //! Each frame, every change to the live build shows up here as a
 //! coloured delta vs. the snapshot's stats.
 
+use std::path::PathBuf;
+
 use eframe::egui;
 use pob_engine::{Character, Output};
 
@@ -62,6 +64,14 @@ pub struct Snapshot {
     pub output: Output,
     /// Human-readable label captured at snapshot time.
     pub label: String,
+    /// Issue #223: file the snapshot was loaded from, if any. Drives
+    /// the "Re-import current" button — clicking it re-reads the file
+    /// off disk and re-runs `compute_full`, so a user can iterate
+    /// against a saved build elsewhere and pull updates in without
+    /// re-traversing the file picker. `None` for in-memory snapshots
+    /// (the "Snapshot current build" button captures the live state
+    /// directly with no source on disk).
+    pub source_path: Option<PathBuf>,
 }
 
 /// Action the host should take after the user interacted with the
@@ -72,6 +82,11 @@ pub struct Snapshot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompareAction {
     LoadFromFile,
+    /// Issue #223: re-read the file the current snapshot was loaded
+    /// from and re-run `compute_full` against the new contents.
+    /// Emitted only when `state.snapshot.source_path` is `Some` — the
+    /// renderer hides the button for in-memory snapshots.
+    ReimportCurrent,
 }
 
 pub fn ui(
@@ -89,10 +104,33 @@ pub fn ui(
                 character: live_character.clone(),
                 output: live_output.clone(),
                 label: format_snapshot_label(live_character),
+                source_path: None,
             });
         }
         if ui.button("Load comparison from file…").clicked() {
             action = Some(CompareAction::LoadFromFile);
+        }
+        // Issue #223: re-import button only renders when the current
+        // snapshot was loaded from a file on disk (in-memory
+        // "Snapshot current build" captures don't have a path to
+        // re-read). Lets a user iterate against an external build
+        // file and pull updates in without re-traversing the file
+        // picker.
+        if state
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.source_path.as_ref())
+            .is_some()
+            && ui
+                .button("Re-import current")
+                .on_hover_text(
+                    "Re-read the snapshot's source file off disk and re-run \
+                     compute_full against it. Useful when the saved build has \
+                     changed elsewhere and you want to refresh the comparison.",
+                )
+                .clicked()
+        {
+            action = Some(CompareAction::ReimportCurrent);
         }
         if state.snapshot.is_some() && ui.button("Clear snapshot").clicked() {
             state.snapshot = None;
@@ -207,6 +245,27 @@ pub fn ui(
 #[must_use]
 pub fn label_for(c: &Character) -> String {
     format_snapshot_label(c)
+}
+
+/// Issue #223: decide which import path to use for a build-file
+/// payload. The contract mirrors the existing inline branch in the
+/// desktop `LoadFromFile` handler — `MK2|...` is a JSON share code,
+/// `<...>` is a PoB-XML document, anything else is treated as a raw
+/// PoB share code (base64-of-zlib-of-XML). Pure / no I/O: takes the
+/// already-read text and dispatches to the right importer.
+///
+/// The returned `Result` carries a plain `String` error so the
+/// "re-import" handler can surface it through the existing status
+/// bar without translating per-import-kind error types.
+pub fn import_build_text(text: &str) -> Result<Character, String> {
+    let trimmed = text.trim();
+    if trimmed.starts_with("MK2|") {
+        pob_engine::import_code(trimmed).map_err(|e| e.to_string())
+    } else if trimmed.starts_with('<') {
+        pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
+    } else {
+        pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
+    }
 }
 
 fn format_snapshot_label(c: &Character) -> String {
@@ -454,6 +513,51 @@ mod tests {
         let rows = ordered_diff_rows(&snap, &live, "FIRE", false, CompareSortMode::Key);
         let order: Vec<&str> = rows.iter().map(|(k, _, _)| k.as_str()).collect();
         assert_eq!(order, vec!["FireResist"]);
+    }
+
+    #[test]
+    fn import_build_text_dispatches_on_mk2_prefix() {
+        // Issue #223: round-trip a Character through `MK2|...` and
+        // confirm the helper picks the JSON share-code path.
+        let mut c = pob_engine::Character::new(pob_engine::ClassRef::ranger(), 67);
+        c.notes = "round trip via mk2".into();
+        let code = pob_engine::export_code(&c).expect("export");
+        let back = import_build_text(&code).expect("import");
+        assert_eq!(back.level, 67);
+        assert_eq!(back.notes, "round trip via mk2");
+    }
+
+    #[test]
+    fn import_build_text_dispatches_on_xml_prefix() {
+        // A document starting with `<` lands on the PoB-XML path;
+        // confirm via the round-trip of `export_pob_xml`.
+        let c = pob_engine::Character::new(pob_engine::ClassRef::ranger(), 92);
+        let xml = pob_engine::export_pob_xml(&c);
+        let back = import_build_text(&xml).expect("import xml");
+        assert_eq!(back.class.0, "Ranger");
+        assert_eq!(back.level, 92);
+    }
+
+    #[test]
+    fn import_build_text_returns_string_error_on_garbage() {
+        // The plain-text return type lets the caller surface the
+        // error through `app.status_message` without a per-import
+        // adapter; confirm garbage input produces an `Err` rather
+        // than panicking.
+        assert!(import_build_text("not a build").is_err());
+        assert!(import_build_text("").is_err());
+    }
+
+    #[test]
+    fn import_build_text_trims_surrounding_whitespace() {
+        // File reads through `std::fs::read_to_string` sometimes
+        // carry a trailing newline. The helper trims before
+        // dispatching so the prefix check works against the actual
+        // first non-whitespace character.
+        let c = pob_engine::Character::new(pob_engine::ClassRef::ranger(), 1);
+        let code = pob_engine::export_code(&c).expect("export");
+        let padded = format!("\n\n  {code}\n");
+        assert!(import_build_text(&padded).is_ok());
     }
 
     #[test]
