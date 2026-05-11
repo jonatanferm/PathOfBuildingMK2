@@ -289,6 +289,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "MainSkillEnemyEffectiveResist" => main_skill_enemy_effective_resist(env),
         "LifeFlaskRecovery" => flask_recovery(env, "Life"),
         "ManaFlaskRecovery" => flask_recovery(env, "Mana"),
+        "AoERadius" => aoe_radius_base(env),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3180,6 +3181,64 @@ fn main_skill_enemy_effective_resist(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `AoERadius` (the base AoE radius
+/// before the area-mod sqrt scaling). PoB derives it as
+/// `skill_base + Σ BASE("AreaOfEffect")` (`perform_skill_dps`).
+/// Surfaces the BASE-mod sum as a separate row so users can see
+/// what's adding to the gem's intrinsic radius before the
+/// AreaOfEffectMod / sqrt scaling expands it.
+///
+/// `skill_base` isn't stored separately on env.output, so the
+/// `Base radius` step is back-derived as `total - BASE-sum` with
+/// a "from skill stats + BASE adders" final-step explain.
+///
+/// Returns `None` when the AoE radius is zero (non-AoE skill, or
+/// no skill loaded).
+fn aoe_radius_base(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("AoERadius");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let base_sum = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "AreaOfEffect");
+    let skill_base = total - base_sum;
+
+    let mut steps = Vec::new();
+
+    if base_sum.abs() > 1e-9 {
+        let base_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("AreaOfEffect")
+            .filter(|m| m.kind == ModType::Base)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("BASE adders")
+                .with_value(base_sum)
+                .with_explain(format!(
+                    "+{base_sum:.0} from AreaOfEffect BASE mods (passives / gear)"
+                ))
+                .with_sources(base_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Base radius")
+            .with_value(total)
+            .with_explain(format!(
+                "{skill_base:.0} from skill stats + {base_sum:.0} BASE adders = {total:.0} (feeds AreaOfEffectRadius via the sqrt scaling)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "AoERadius".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for `LifeFlaskRecovery` /
 /// `ManaFlaskRecovery`. PoB takes the `max` across the five flask
 /// slots' per-flask `Flask<N><Pool>Recovery` values because the
@@ -5377,6 +5436,52 @@ mod tests {
         assert!(
             derive_for(&env, "MainSkillEnemyEffectiveResist").is_none(),
             "expected None when MainSkillEnemyEffectiveResist is zero",
+        );
+    }
+
+    /// Issue #34 follow-up: AoERadius walks the base AoE radius
+    /// from skill stats + `AreaOfEffect` BASE mod sum. PoB derives
+    /// it as `skill_base + Σ BASE("AreaOfEffect")` (perform_skill_dps).
+    /// Worked example: skill base 22 + 5 from a passive = 27 base
+    /// radius (which then feeds AreaOfEffectRadius via the sqrt
+    /// scaling).
+    #[test]
+    fn aoe_radius_base_breakdown_walks_skill_base_and_adders() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("AreaOfEffect", 5.0).with_source(Source::Tree));
+        env.output.set("AoERadius", 27.0);
+        let bd = derive_for(&env, "AoERadius").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"BASE adders"));
+        assert!(labels.contains(&"Base radius"));
+
+        let base = bd.steps.iter().find(|s| s.label == "BASE adders").unwrap();
+        assert!((base.value.unwrap() - 5.0).abs() < 1e-9);
+        assert!((bd.total - 27.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: AoERadius collapses to a single row
+    /// (base only) when there are no `AreaOfEffect` BASE mods.
+    #[test]
+    fn aoe_radius_base_breakdown_collapses_when_no_base_mods() {
+        let mut env = Env::default();
+        env.output.set("AoERadius", 22.0);
+        let bd = derive_for(&env, "AoERadius").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base radius"));
+        assert!(!labels.contains(&"BASE adders"));
+        assert!((bd.total - 22.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when no AoE skill is loaded
+    /// (AoERadius is zero).
+    #[test]
+    fn aoe_radius_base_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "AoERadius").is_none(),
+            "expected None when AoERadius is zero",
         );
     }
 
