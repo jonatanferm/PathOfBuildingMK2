@@ -163,6 +163,8 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
         "LowestAttribute" => Some(lowest_attribute(env)),
+        "MaxLifeLeechRate" => max_leech_rate(env, "Life"),
+        "MaxManaLeechRate" => max_leech_rate(env, "Mana"),
 
         // Crit.
         "CritChance" | "MainSkillCritChance" => Some(crit_chance(env, output_key)),
@@ -375,6 +377,8 @@ pub const COVERED_KEYS: &[&str] = &[
     "Intelligence",
     "TotalAttr",
     "LowestAttribute",
+    "MaxLifeLeechRate",
+    "MaxManaLeechRate",
     // Hit chance.
     "Accuracy",
     "MainSkillHitChance",
@@ -2517,6 +2521,48 @@ fn energy_shield_regen(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `MaxLifeLeechRate` /
+/// `MaxManaLeechRate`. Both are `0.20 × pool` per
+/// `perform_basic_stats` — PoE caps total leech at 20% of max pool
+/// per second. Surfacing the chain makes the constant + pool source
+/// explicit so users understand what their leech-rate ceiling is and
+/// why pool-scaling matters for leech-driven sustain.
+///
+/// `pool_key` selects the pool ("Life" or "Mana"); the leech-rate
+/// output is looked up by suffix. Returns `None` when the pool is
+/// zero so the panel falls back to the generic mods view.
+fn max_leech_rate(env: &Env, pool_key: &str) -> Option<Breakdown> {
+    let pool = env.output.get(pool_key);
+    if pool.abs() < 1e-9 {
+        return None;
+    }
+    let rate = env.output.get(&format!("Max{pool_key}LeechRate"));
+    let pool_lower = pool_key.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label(format!("{pool_key} pool"))
+            .with_value(pool)
+            .with_explain(format!("{pool:.0} max {pool_lower} from pool derivation")),
+    );
+    steps.push(
+        BreakdownStep::label("Cap")
+            .with_value(0.20)
+            .with_explain("20% of pool per second (PoE constant)".to_owned()),
+    );
+    steps.push(
+        BreakdownStep::label(format!("Max {pool_lower} leech rate"))
+            .with_value(rate)
+            .with_explain(format!("0.20 × {pool:.0} = {rate:.1}/sec")),
+    );
+
+    Some(Breakdown {
+        output_key: format!("Max{pool_key}LeechRate"),
+        total: rate,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `LowestAttribute`. The output is
 /// `min(Strength, Dexterity, Intelligence)` (PoB's `min().min()`
 /// chain in `perform_basic_stats`). Surfacing the chain shows each
@@ -3025,6 +3071,11 @@ mod tests {
         env.output.set("Intelligence", 60.0);
         env.output.set("TotalAttr", 190.0);
         env.output.set("LowestAttribute", 50.0);
+        // Issue #34 follow-up: leech-rate caps. 20% of 1100 Life =
+        // 220, 20% of 360 Mana = 72 — exercises MaxLifeLeechRate /
+        // MaxManaLeechRate via the COVERED_KEYS guard.
+        env.output.set("MaxLifeLeechRate", 220.0);
+        env.output.set("MaxManaLeechRate", 72.0);
         // Issue #34 follow-up: attribute breakdowns. Add representative
         // BASE mods so `pool_basic` has something to enumerate. The
         // class-start contribution is the bulk of each attribute on a
@@ -3252,6 +3303,63 @@ mod tests {
         assert!(bd.steps.iter().any(|s| s.label == "FullDPS"));
         // Bleed DPS = 0 → step is suppressed.
         assert!(!bd.steps.iter().any(|s| s.label == "+ Bleed DPS"));
+    }
+
+    /// Issue #34 follow-up: MaxLifeLeechRate walks Pool → 20%
+    /// cap → Final per-second rate. PoE caps total leech at 20% of
+    /// max pool per second; the breakdown surfaces the constant +
+    /// pool source so users understand what their leech-rate ceiling
+    /// is. Worked example: 1100 Life × 0.20 = 220/sec.
+    #[test]
+    fn max_life_leech_rate_breakdown_walks_pool_and_cap() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("MaxLifeLeechRate", 220.0);
+        let bd = derive_for(&env, "MaxLifeLeechRate").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life pool"));
+        assert!(labels.contains(&"Cap"));
+        assert!(labels.contains(&"Max life leech rate"));
+
+        let pool = bd.steps.iter().find(|s| s.label == "Life pool").unwrap();
+        assert!((pool.value.unwrap() - 1100.0).abs() < 1e-9);
+
+        let cap = bd.steps.iter().find(|s| s.label == "Cap").unwrap();
+        // 20% PoE constant.
+        assert!((cap.value.unwrap() - 0.20).abs() < 1e-9);
+
+        assert!((bd.total - 220.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: MaxManaLeechRate walks the same Pool →
+    /// 20% cap → Final chain. Worked example: 360 Mana × 0.20 = 72/sec.
+    #[test]
+    fn max_mana_leech_rate_breakdown_walks_pool_and_cap() {
+        let mut env = Env::default();
+        env.output.set("Mana", 360.0);
+        env.output.set("MaxManaLeechRate", 72.0);
+        let bd = derive_for(&env, "MaxManaLeechRate").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Mana pool"));
+        assert!(labels.contains(&"Cap"));
+        assert!(labels.contains(&"Max mana leech rate"));
+        assert!((bd.total - 72.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when the pool is zero so
+    /// the panel falls back to the generic mods view rather than
+    /// rendering 0/sec.
+    #[test]
+    fn max_leech_rate_breakdown_skipped_when_no_pool() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "MaxLifeLeechRate").is_none(),
+            "expected None when Life is zero",
+        );
+        assert!(
+            derive_for(&env, "MaxManaLeechRate").is_none(),
+            "expected None when Mana is zero",
+        );
     }
 
     /// Issue #34 follow-up: LowestAttribute walks each attribute and
