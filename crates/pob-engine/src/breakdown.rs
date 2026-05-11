@@ -301,6 +301,30 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "LightningHitAverage" => element_hit_average(env, "Lightning"),
         "PhysicalHitAverage" => element_hit_average(env, "Physical"),
         "ChaosHitAverage" => element_hit_average(env, "Chaos"),
+        // Issue #34 follow-up: per-element Min / Max / MinBase /
+        // MaxBase outputs share the same shape as MainSkillHit /
+        // MainSkillBase{Min,Max} but per damage type. Twenty keys
+        // total via two shared helpers.
+        "FireMin" => element_hit_bound(env, "Fire", "Min"),
+        "FireMax" => element_hit_bound(env, "Fire", "Max"),
+        "ColdMin" => element_hit_bound(env, "Cold", "Min"),
+        "ColdMax" => element_hit_bound(env, "Cold", "Max"),
+        "LightningMin" => element_hit_bound(env, "Lightning", "Min"),
+        "LightningMax" => element_hit_bound(env, "Lightning", "Max"),
+        "PhysicalMin" => element_hit_bound(env, "Physical", "Min"),
+        "PhysicalMax" => element_hit_bound(env, "Physical", "Max"),
+        "ChaosMin" => element_hit_bound(env, "Chaos", "Min"),
+        "ChaosMax" => element_hit_bound(env, "Chaos", "Max"),
+        "FireMinBase" => element_base_bound(env, "Fire", "Min"),
+        "FireMaxBase" => element_base_bound(env, "Fire", "Max"),
+        "ColdMinBase" => element_base_bound(env, "Cold", "Min"),
+        "ColdMaxBase" => element_base_bound(env, "Cold", "Max"),
+        "LightningMinBase" => element_base_bound(env, "Lightning", "Min"),
+        "LightningMaxBase" => element_base_bound(env, "Lightning", "Max"),
+        "PhysicalMinBase" => element_base_bound(env, "Physical", "Min"),
+        "PhysicalMaxBase" => element_base_bound(env, "Physical", "Max"),
+        "ChaosMinBase" => element_base_bound(env, "Chaos", "Min"),
+        "ChaosMaxBase" => element_base_bound(env, "Chaos", "Max"),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3192,6 +3216,81 @@ fn main_skill_enemy_effective_resist(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for the per-element
+/// `<Element>{Min,Max}` outputs. PoB derives them through the same
+/// `base × mult` chain as `MainSkillHit{Min,Max}` but with the
+/// per-element `<Element>{Min,Max}Base` raw skill values.
+///
+/// Returns `None` when the element wasn't the active skill's damage
+/// type (no per-element outputs populated).
+fn element_hit_bound(env: &Env, elem: &str, bound: &str) -> Option<Breakdown> {
+    let base = env.output.get(&format!("{elem}{bound}Base"));
+    if base.abs() < 1e-9 {
+        return None;
+    }
+    let total = env.output.get(&format!("{elem}{bound}"));
+    let mult = if base > 1e-9 { total / base } else { 1.0 };
+    let bound_lower = bound.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label(format!("Base {bound_lower}"))
+            .with_value(base)
+            .with_explain(format!(
+                "{base:.0} from {elem}{bound}Base — raw per-level value before player mods"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Multiplier")
+            .with_value(mult)
+            .with_explain(format!(
+                "{mult:.2}× from (1 + INC) × MORE × (1 + quality/200) — see MainSkillAverageHit for the per-step decomposition"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label(format!("{elem} {bound_lower}"))
+            .with_value(total)
+            .with_explain(format!("{base:.0} × {mult:.2} = {total:.1}")),
+    );
+
+    Some(Breakdown {
+        output_key: format!("{elem}{bound}"),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: shared helper for the per-element
+/// `<Element>{Min,Max}Base` raw skill outputs. Mirror of
+/// `main_skill_base_bound` but per damage type — single-row
+/// breakdown surfacing the raw skill data with a level/quality
+/// hint so the click-through chain stays consistent.
+///
+/// Returns `None` when the element wasn't the active skill's
+/// damage type.
+fn element_base_bound(env: &Env, elem: &str, bound: &str) -> Option<Breakdown> {
+    let total = env.output.get(&format!("{elem}{bound}Base"));
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let bound_lower = bound.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label(format!("{elem} {bound_lower} base"))
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0} from skill stats — raw per-level {elem} {bound_lower} value (level / quality scaling already folded in)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: format!("{elem}{bound}Base"),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: shared helper for the five
 /// `<Element>HitAverage` outputs (Fire / Cold / Lightning /
 /// Physical / Chaos). PoB derives them as
@@ -5596,6 +5695,70 @@ mod tests {
             derive_for(&env, "MainSkillEnemyEffectiveResist").is_none(),
             "expected None when MainSkillEnemyEffectiveResist is zero",
         );
+    }
+
+    /// Issue #34 follow-up: FireMin / FireMax surface the post-mod
+    /// per-element hit bounds. PoB derives them through the same
+    /// `base × mult` chain as MainSkillHit{Min,Max}, just with the
+    /// per-element `<Element>{Min,Max}Base` raw skill values. The
+    /// breakdown links back to the multiplier source.
+    #[test]
+    fn fire_min_breakdown_walks_base_and_multiplier() {
+        let mut env = Env::default();
+        env.output.set("FireMinBase", 100.0);
+        env.output.set("FireMin", 220.0);
+        let bd = derive_for(&env, "FireMin").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base min"));
+        assert!(labels.contains(&"Multiplier"));
+        assert!(labels.contains(&"Fire min"));
+
+        let mult = bd.steps.iter().find(|s| s.label == "Multiplier").unwrap();
+        assert!((mult.value.unwrap() - 2.20).abs() < 1e-6);
+        assert!((bd.total - 220.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ColdMax / LightningMax / etc. share
+    /// the same shape. Worked example: 200 base × 2.20 = 440.
+    #[test]
+    fn other_element_max_breakdowns_share_shape() {
+        for elem in ["Cold", "Lightning", "Physical", "Chaos"] {
+            let mut env = Env::default();
+            env.output.set(format!("{elem}MaxBase"), 200.0);
+            env.output.set(format!("{elem}Max"), 440.0);
+            let bd = derive_for(&env, &format!("{elem}Max"))
+                .unwrap_or_else(|| panic!("{elem}Max: dispatch missing"));
+            assert!((bd.total - 440.0).abs() < 1e-9, "{elem}: wrong total");
+        }
+    }
+
+    /// Issue #34 follow-up: per-element MinBase / MaxBase surface
+    /// the raw per-level base damage (single-row breakdown — same
+    /// shape as MainSkillBase{Min,Max}).
+    #[test]
+    fn fire_max_base_breakdown_shows_raw_base() {
+        let mut env = Env::default();
+        env.output.set("FireMaxBase", 200.0);
+        let bd = derive_for(&env, "FireMaxBase").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Fire max base"));
+        assert!((bd.total - 200.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when the element wasn't
+    /// the active skill's damage type.
+    #[test]
+    fn element_min_max_breakdowns_skipped_when_zero() {
+        let env = Env::default();
+        for elem in ["Fire", "Cold", "Lightning", "Physical", "Chaos"] {
+            for suffix in ["Min", "Max", "MinBase", "MaxBase"] {
+                let key = format!("{elem}{suffix}");
+                assert!(
+                    derive_for(&env, &key).is_none(),
+                    "expected None for {key} when zero",
+                );
+            }
+        }
     }
 
     /// Issue #34 follow-up: FireHitAverage walks Min → Max →
