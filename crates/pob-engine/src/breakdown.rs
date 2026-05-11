@@ -160,6 +160,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         )),
         "AreaOfEffectRadius" => area_of_effect_radius(env),
         "AreaOfEffectRadiusMetres" => area_of_effect_radius_metres(env),
+        "ProjectileCount" => projectile_count(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -454,6 +455,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "AreaOfEffectMod",
     "AreaOfEffectRadius",
     "AreaOfEffectRadiusMetres",
+    "ProjectileCount",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2841,6 +2843,49 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `ProjectileCount`. PoB's
+/// `perform_skill_dps` computes the total as
+/// `1 (primary) + Σ number_of_additional_projectiles`. Surfacing
+/// the chain shows the primary + additional split so users can see
+/// what their LMP / GMP / etc. mods contribute.
+///
+/// Returns `None` when the skill isn't projectile-based (the
+/// output is missing or zero).
+fn projectile_count(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("ProjectileCount");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let additional = (total - 1.0).max(0.0);
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Primary")
+            .with_value(1.0)
+            .with_explain("1 primary projectile (PoE constant)".to_owned()),
+    );
+    if additional.abs() > 1e-9 {
+        steps.push(
+            BreakdownStep::label("Additional")
+                .with_value(additional)
+                .with_explain(format!(
+                    "+{additional:.0} from skill / tree / gear additional-projectile mods"
+                )),
+        );
+    }
+    steps.push(
+        BreakdownStep::label("Projectile count")
+            .with_value(total)
+            .with_explain(format!("1 + {additional:.0} = {total:.0}")),
+    );
+
+    Some(Breakdown {
+        output_key: "ProjectileCount".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `AreaOfEffectRadiusMetres`. PoB
 /// exposes the AoE radius in metres alongside the engine units;
 /// conversion is just `engine_units / 10`. Surfacing the chain lets
@@ -3146,6 +3191,10 @@ mod tests {
         env.output.set("AoERadius", 22.0);
         env.output.set("AreaOfEffectRadius", 22.0);
         env.output.set("AreaOfEffectRadiusMetres", 2.2);
+        // Issue #34 follow-up: representative projectile count so the
+        // COVERED_KEYS guard exercises the breakdown. 3 = 1 primary +
+        // 2 additional (LMP-shape).
+        env.output.set("ProjectileCount", 3.0);
         env.output.set("CritChance", 6.0);
         env.output.set("FullDPS", 2000.0);
         env.output.set("BleedDPS", 0.0);
@@ -3864,6 +3913,60 @@ mod tests {
     /// Issue #34 follow-up: AreaOfEffectRadius walks the
     /// PoB formula:
     ///
+    /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// total projectile count as `1 (primary) + additional
+    /// projectiles`, where the additional count comes from the
+    /// skill's `number_of_additional_projectiles` stat plus tree /
+    /// gear mods aggregated into the EvalState. The Calcs tab
+    /// surfaced the total as a single number; users couldn't see
+    /// where the additional count came from.
+    ///
+    /// Worked example: 5 total → 1 primary + 4 additional.
+    #[test]
+    fn projectile_count_breakdown_walks_primary_plus_additional() {
+        let mut env = Env::default();
+        env.output.set("ProjectileCount", 5.0);
+        let bd = derive_for(&env, "ProjectileCount").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Primary"));
+        assert!(labels.contains(&"Additional"));
+        assert!(labels.contains(&"Projectile count"));
+
+        let primary = bd.steps.iter().find(|s| s.label == "Primary").unwrap();
+        assert!((primary.value.unwrap() - 1.0).abs() < 1e-9);
+
+        let additional = bd.steps.iter().find(|s| s.label == "Additional").unwrap();
+        assert!((additional.value.unwrap() - 4.0).abs() < 1e-9);
+
+        assert!((bd.total - 5.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: a single-projectile skill (e.g. Fireball
+    /// without LMP) yields the Primary step + Final, but the
+    /// Additional step is suppressed since the value is zero.
+    #[test]
+    fn projectile_count_breakdown_suppresses_additional_when_one() {
+        let mut env = Env::default();
+        env.output.set("ProjectileCount", 1.0);
+        let bd = derive_for(&env, "ProjectileCount").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Primary"));
+        assert!(!labels.contains(&"Additional"));
+        assert!(labels.contains(&"Projectile count"));
+        assert!((bd.total - 1.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when the skill isn't
+    /// projectile-based (no ProjectileCount in output).
+    #[test]
+    fn projectile_count_breakdown_skipped_when_not_projectile() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "ProjectileCount").is_none(),
+            "expected None when ProjectileCount is zero",
+        );
+    }
+
     /// Issue #34 follow-up: AreaOfEffectRadiusMetres breakdown.
     /// PoB exposes the AoE radius in metres alongside the engine
     /// units; conversion is just `radius / 10`. Surfacing the chain
