@@ -13,6 +13,11 @@ use std::path::PathBuf;
 
 use eframe::egui;
 
+use crate::builds_folder_ctx_menu::{
+    can_commit, start_delete_folder, start_new_subfolder, start_rename_folder, validation_error,
+    DeleteFolderError, FolderPopupState,
+};
+use crate::builds_folder_ops::validate_folder_name;
 use crate::builds_folder_tree::{build_folder_tree, folder_path_key, FolderNode};
 
 /// Opaque handle for a saved build. Concrete shape depends on the
@@ -77,6 +82,18 @@ pub struct BuildsTabState {
     /// list refreshes. Missing keys default to "expanded" so a fresh
     /// listing shows everything.
     pub expanded: HashMap<String, bool>,
+    /// Issue #213 (slice 4): folder right-click context-menu popup
+    /// state. Carries the in-flight rename / new-subfolder / delete
+    /// operation. Only one popup is open at a time — opening a
+    /// second one closes the first, mirroring the build-row rename
+    /// popup. See [`crate::builds_folder_ctx_menu`] for the state
+    /// machine.
+    pub folder_popup: Option<FolderPopupState>,
+    /// Issue #213 (slice 4): transient inline status for the folder
+    /// context menu — currently used to surface "Folder is not empty
+    /// (N builds)" when the user picks Delete on a non-empty folder.
+    /// Cleared on the next folder-popup open.
+    pub folder_popup_status: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -135,6 +152,20 @@ pub enum BuildsAction {
     /// Wasm only: drop the connected folder and revert to IndexedDB
     /// storage.
     DisconnectFolder,
+    /// Issue #213 (slice 4): rename a folder on disk. `from_path` is
+    /// the slash-joined folder path key (matches
+    /// [`crate::builds_folder_tree::folder_path_key`]); `new_name` is
+    /// the new leaf segment (already validated by
+    /// [`crate::builds_folder_ops::validate_folder_name`]).
+    RenameFolder { from_path: String, new_name: String },
+    /// Issue #213 (slice 4): create an empty subfolder inside the
+    /// folder identified by `parent_path`. `name` is already
+    /// validated. The host calls `std::fs::create_dir`.
+    CreateSubfolder { parent_path: String, name: String },
+    /// Issue #213 (slice 4): delete an empty folder. The renderer
+    /// only emits this for folders the empty-check passed — see
+    /// [`crate::builds_folder_ctx_menu::start_delete_folder`].
+    DeleteFolder { path: String },
 }
 
 /// Render the builds tab. Returns an action for the host to execute
@@ -248,6 +279,15 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
                 let mut path: Vec<&str> = Vec::new();
                 render_folder(ui, &tree, &mut path, state, &mut action);
             });
+        // Issue #213 (slice 4): inline status from the folder
+        // context menu (currently "folder not empty" on Delete).
+        if let Some(msg) = &state.folder_popup_status {
+            ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), msg);
+        }
+        // Render any open folder popup (rename / new subfolder /
+        // delete confirm). Always renders after the tree so the
+        // window draws on top.
+        render_folder_popup(ui, state, &mut action);
     }
 
     ui.separator();
@@ -309,7 +349,41 @@ fn render_folder<'a>(
             });
         // Persist the (possibly toggled) open state so it survives
         // refresh / tab switches.
-        state.expanded.insert(key, resp.openness > 0.5);
+        state.expanded.insert(key.clone(), resp.openness > 0.5);
+        // Issue #213 (slice 4): right-click context menu on the
+        // folder header. The three entries seed the matching popup
+        // state; the popup itself renders after the tree (see
+        // `render_folder_popup`). Delete short-circuits to a status
+        // message on a non-empty folder so the confirm modal doesn't
+        // open just to refuse on Confirm.
+        resp.header_response.context_menu(|ui| {
+            if ui.button("Rename folder…").clicked() {
+                state.folder_popup = Some(start_rename_folder(key.clone(), &child.name));
+                state.folder_popup_status = None;
+                ui.close_menu();
+            }
+            if ui.button("New subfolder…").clicked() {
+                state.folder_popup = Some(start_new_subfolder(key.clone()));
+                state.folder_popup_status = None;
+                ui.close_menu();
+            }
+            if ui.button("Delete folder").clicked() {
+                match start_delete_folder(key.clone(), child) {
+                    Ok(popup) => {
+                        state.folder_popup = Some(popup);
+                        state.folder_popup_status = None;
+                    }
+                    Err(DeleteFolderError::NotEmpty { build_count }) => {
+                        state.folder_popup = None;
+                        state.folder_popup_status = Some(format!(
+                            "Can't delete \"{}\" — folder still contains {build_count} build(s).",
+                            child.name,
+                        ));
+                    }
+                }
+                ui.close_menu();
+            }
+        });
         path.pop();
     }
     // Then builds in this folder.
@@ -423,6 +497,165 @@ fn render_build_row(
             }
         }
     });
+}
+
+/// Issue #213 (slice 4): render the folder context-menu popup.
+/// Three flavours share one window so the user only ever sees one
+/// folder dialog at a time. Save commits via the matching
+/// [`BuildsAction`] variant; Cancel / outside-click closes the
+/// popup without emitting.
+fn render_folder_popup(
+    ui: &mut egui::Ui,
+    state: &mut BuildsTabState,
+    action: &mut Option<BuildsAction>,
+) {
+    let Some(popup) = state.folder_popup.as_ref() else {
+        return;
+    };
+    let title = match popup {
+        FolderPopupState::Rename { .. } => "Rename folder",
+        FolderPopupState::NewSubfolder { .. } => "New subfolder",
+        FolderPopupState::DeleteConfirm { .. } => "Delete folder",
+    };
+    let mut open = true;
+    let mut close = false;
+    let mut commit = false;
+    egui::Window::new(title)
+        .id(egui::Id::new("builds-folder-popup"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ui.ctx(), |ui| match state.folder_popup.as_mut() {
+            Some(FolderPopupState::Rename {
+                path,
+                buffer,
+                error,
+            }) => {
+                ui.label(format!("Rename folder: {path}"));
+                let resp = ui.add(
+                    egui::TextEdit::singleline(buffer)
+                        .desired_width(220.0)
+                        .hint_text("new folder name"),
+                );
+                *error = validate_folder_name(buffer).err();
+                if let Some(err) = error.as_ref() {
+                    ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), err.to_string());
+                }
+                let popup_for_check = FolderPopupState::Rename {
+                    path: path.clone(),
+                    buffer: buffer.clone(),
+                    error: error.clone(),
+                };
+                let enabled = can_commit(&popup_for_check);
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(enabled, egui::Button::new("Save")).clicked()
+                        || (enabled
+                            && resp.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                    {
+                        commit = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close = true;
+                    }
+                });
+            }
+            Some(FolderPopupState::NewSubfolder {
+                parent_path,
+                buffer,
+                error,
+            }) => {
+                let label = if parent_path.is_empty() {
+                    "Create subfolder at root".to_owned()
+                } else {
+                    format!("Create subfolder inside: {parent_path}")
+                };
+                ui.label(label);
+                let resp = ui.add(
+                    egui::TextEdit::singleline(buffer)
+                        .desired_width(220.0)
+                        .hint_text("new folder name"),
+                );
+                *error = validation_error(buffer);
+                if let Some(err) = error.as_ref() {
+                    ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), err.to_string());
+                }
+                let popup_for_check = FolderPopupState::NewSubfolder {
+                    parent_path: parent_path.clone(),
+                    buffer: buffer.clone(),
+                    error: error.clone(),
+                };
+                let enabled = can_commit(&popup_for_check);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(enabled, egui::Button::new("Create"))
+                        .clicked()
+                        || (enabled
+                            && resp.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                    {
+                        commit = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close = true;
+                    }
+                });
+            }
+            Some(FolderPopupState::DeleteConfirm { path }) => {
+                ui.label(format!(
+                    "Permanently delete folder \"{path}\"? This removes the empty directory \
+                     from disk.",
+                ));
+                ui.horizontal(|ui| {
+                    if ui
+                        .add(egui::Button::new(
+                            egui::RichText::new("Confirm delete")
+                                .color(egui::Color32::from_rgb(0xDD, 0x00, 0x22)),
+                        ))
+                        .clicked()
+                    {
+                        commit = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close = true;
+                    }
+                });
+            }
+            None => {}
+        });
+    if commit {
+        // Build the matching action from the popup state, then close.
+        match state.folder_popup.take() {
+            Some(FolderPopupState::Rename { path, buffer, .. }) => {
+                if let Ok(new_name) = validate_folder_name(&buffer) {
+                    *action = Some(BuildsAction::RenameFolder {
+                        from_path: path,
+                        new_name,
+                    });
+                    state.loaded = false;
+                }
+            }
+            Some(FolderPopupState::NewSubfolder {
+                parent_path,
+                buffer,
+                ..
+            }) => {
+                if let Ok(name) = validate_folder_name(&buffer) {
+                    *action = Some(BuildsAction::CreateSubfolder { parent_path, name });
+                    state.loaded = false;
+                }
+            }
+            Some(FolderPopupState::DeleteConfirm { path }) => {
+                *action = Some(BuildsAction::DeleteFolder { path });
+                state.loaded = false;
+            }
+            None => {}
+        }
+        state.folder_popup_status = None;
+    } else if close || !open {
+        state.folder_popup = None;
+    }
 }
 
 #[cfg(test)]
