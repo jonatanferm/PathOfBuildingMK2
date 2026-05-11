@@ -512,10 +512,7 @@ pub fn item_from_base(name: &str, base: &ItemBase) -> Item {
             if trimmed.is_empty() {
                 continue;
             }
-            mod_lines.push(ModLine {
-                line: trimmed.to_owned(),
-                section: ModSection::Implicit,
-            });
+            mod_lines.push(ModLine::new(trimmed.to_owned(), ModSection::Implicit));
         }
     }
     Item {
@@ -530,6 +527,8 @@ pub fn item_from_base(name: &str, base: &ItemBase) -> Item {
         raw: String::new(),
         corrupted: false,
         mirrored: false,
+        variants: Vec::new(),
+        variant: None,
     }
 }
 
@@ -986,6 +985,44 @@ pub fn ui(
                             render_item_summary(ui, &item);
                         });
                     ui.add_space(4.0);
+                    // Issue #221: variant picker. Only renders for
+                    // items that declared `Variant:` entries (the
+                    // common case is empty, so most slots see no
+                    // dropdown). Picking a different variant flips
+                    // `item.variant`, rewrites the `Selected Variant:`
+                    // line in `item.raw` (so PoB-XML export round-trips
+                    // the new pick), and triggers a recompute so the
+                    // Calcs tab reflects the gated mods.
+                    if !item.variants.is_empty() {
+                        let mut current = item.variant.unwrap_or(1);
+                        let before = current;
+                        ui.horizontal(|ui| {
+                            ui.label("Variant:");
+                            let active_label = item
+                                .variants
+                                .get(current.saturating_sub(1) as usize)
+                                .cloned()
+                                .unwrap_or_else(|| current.to_string());
+                            egui::ComboBox::from_id_salt(("variant-combo", slot.label()))
+                                .selected_text(active_label)
+                                .show_ui(ui, |ui| {
+                                    for (idx, name) in item.variants.iter().enumerate() {
+                                        let id = u32::try_from(idx + 1).unwrap_or(1);
+                                        ui.selectable_value(
+                                            &mut current,
+                                            id,
+                                            format!("{id}. {name}"),
+                                        );
+                                    }
+                                });
+                        });
+                        if current != before {
+                            if let Some(equipped_mut) = items.get_mut(slot) {
+                                equipped_mut.set_active_variant(current);
+                                changed = true;
+                            }
+                        }
+                    }
                     let mut do_unequip = false;
                     let mut do_save_shared = false;
                     ui.horizontal(|ui| {
@@ -2095,12 +2132,15 @@ mod tests {
                 .map(|(section, line)| ModLine {
                     section: *section,
                     line: (*line).to_owned(),
+                    variant_list: None,
                 })
                 .collect(),
             sockets: String::new(),
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         }
     }
 
@@ -2393,6 +2433,8 @@ mod tests {
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         }
     }
 
@@ -2565,6 +2607,8 @@ mod tests {
                 raw: String::new(),
                 corrupted: false,
                 mirrored: false,
+                variants: Vec::new(),
+                variant: None,
             };
             c.items.equip(Slot::Amulet, item);
             c.save_item_set((*name).to_owned());
@@ -2665,6 +2709,8 @@ mod tests {
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         };
         c.items.equip(Slot::Helmet, marker);
 

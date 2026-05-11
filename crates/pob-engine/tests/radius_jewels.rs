@@ -44,11 +44,14 @@ fn mk_radius_jewel(text: &str) -> Item {
         mod_lines: vec![ModLine {
             line: text.to_string(),
             section: ModSection::Explicit,
+            variant_list: None,
         }],
         sockets: String::new(),
         raw: String::new(),
         corrupted: false,
         mirrored: false,
+        variants: Vec::new(),
+        variant: None,
     }
 }
 
@@ -111,16 +114,20 @@ fn identify_combines_size_with_real_mod_line() {
             ModLine {
                 line: "Only affects Passives in Large Ring".into(),
                 section: ModSection::Explicit,
+                variant_list: None,
             },
             ModLine {
                 line: "+5 to all Attributes from Passives in Radius".into(),
                 section: ModSection::Explicit,
+                variant_list: None,
             },
         ],
         sockets: String::new(),
         raw: String::new(),
         corrupted: false,
         mirrored: false,
+        variants: Vec::new(),
+        variant: None,
     };
     let jewel = identify_radius_jewel(0, &item).expect("identifies as a radius jewel");
     assert_eq!(jewel.radius_index, 2, "Large Ring → index 2");
@@ -184,11 +191,14 @@ fn cluster_jewel_in_socketed_map_is_skipped_not_misapplied() {
             mod_lines: vec![ModLine {
                 line: "Adds 3 Passive Skills".into(),
                 section: ModSection::Enchant,
+                variant_list: None,
             }],
             sockets: String::new(),
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         },
     );
     let alloc: ahash::AHashSet<pob_data::NodeId> = ahash::AHashSet::default();
@@ -292,11 +302,14 @@ fn watchers_eye_with_hatred_active_lands_per_aura_condition() {
             mod_lines: vec![ModLine {
                 line: "40% increased Cold Damage while affected by Hatred".into(),
                 section: ModSection::Explicit,
+                variant_list: None,
             }],
             sockets: String::new(),
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         },
     );
 
@@ -350,11 +363,14 @@ fn watchers_eye_aura_condition_clears_when_aura_disabled() {
             mod_lines: vec![ModLine {
                 line: "40% increased Cold Damage while affected by Hatred".into(),
                 section: ModSection::Explicit,
+                variant_list: None,
             }],
             sockets: String::new(),
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         },
     );
 
@@ -409,11 +425,15 @@ fn healthy_mind_emits_transformed_mana_from_real_tree() {
                     "Increases and Reductions to Life in Radius are Transformed to apply to Mana at 200% of their value"
                         .into(),
                 section: ModSection::Explicit,
+                variant_list: None,
             }],
             sockets: String::new(),
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
+
         },
     );
 

@@ -347,6 +347,8 @@ fn intuitive_leap_item() -> pob_data::Item {
         raw: String::new(),
         corrupted: false,
         mirrored: false,
+        variants: Vec::new(),
+        variant: None,
     }
 }
 

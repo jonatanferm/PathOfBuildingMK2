@@ -8,9 +8,10 @@
 use ahash::HashSet;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Rarity {
+    #[default]
     Normal,
     Magic,
     Rare,
@@ -105,10 +106,11 @@ impl Slot {
 }
 
 /// Where a mod line appeared in the item paste.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ModSection {
     Implicit,
+    #[default]
     Explicit,
     Enchant,
     Crafted,
@@ -117,13 +119,49 @@ pub enum ModSection {
     Veiled,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModLine {
     pub line: String,
     pub section: ModSection,
+    /// Issue #221: variant gate parsed from a `{variant:N,M,…}` prefix on the
+    /// mod line. `None` means the line applies to every variant of the item
+    /// (PoB's default for non-prefixed lines); `Some(list)` means it applies
+    /// only when the active variant index is in `list` (1-based, matching
+    /// PoB's `Selected Variant:` numbering).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant_list: Option<Vec<u32>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl ModLine {
+    /// Construct a mod line that applies to every variant — the common case
+    /// for items without any `{variant:…}` prefixes. Slot for variant-gated
+    /// lines is the public `variant_list` field on the returned struct.
+    pub fn new(line: impl Into<String>, section: ModSection) -> Self {
+        Self {
+            line: line.into(),
+            section,
+            variant_list: None,
+        }
+    }
+
+    /// Issue #221: does this mod line apply for the given 1-based active
+    /// variant index? Returns `true` when the line has no variant gate
+    /// (PoB's "applies to every variant" default) or when `active` matches
+    /// one of the listed variant ids.
+    ///
+    /// `active = None` means "no variant picked" — in PoB this is treated as
+    /// "show the first variant", so we accept any gated line that lists
+    /// variant 1, plus every ungated line.
+    #[must_use]
+    pub fn applies_to_variant(&self, active: Option<u32>) -> bool {
+        match &self.variant_list {
+            None => true,
+            Some(list) => list.contains(&active.unwrap_or(1)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Item {
     pub name: String,
     pub base_name: String,
@@ -148,12 +186,111 @@ pub struct Item {
     pub corrupted: bool,
     #[serde(default)]
     pub mirrored: bool,
+    /// Issue #221: ordered list of variant display names for uniques whose
+    /// mod set rotates between league / map / sextant / passive choices
+    /// (Watcher's Eye, Maven's Invitation, Volkuur's Guidance, Doryani's
+    /// Catalyst, …). Empty means the item has no variants — the common
+    /// case. PoB serialises one `Variant: <name>` line per entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<String>,
+    /// Issue #221: 1-based active variant index, mirroring PoB's
+    /// `Selected Variant:` line. `None` means no selection — treated as
+    /// "variant 1" by [`ModLine::applies_to_variant`] so freshly-imported
+    /// items render their first variant by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<u32>,
 }
 
 impl Item {
-    /// Iterate every mod line, yielding `(section, text)`.
+    /// Iterate every mod line, yielding `(section, text)`. Includes lines
+    /// from every variant — callers that want the active-variant subset
+    /// should use [`Self::iter_active_mod_lines`] instead.
     pub fn iter_mod_lines(&self) -> impl Iterator<Item = (&ModSection, &str)> {
         self.mod_lines.iter().map(|m| (&m.section, m.line.as_str()))
+    }
+
+    /// Issue #221: iterate only the mod lines that apply to the item's
+    /// currently selected variant. Lines without a `{variant:…}` gate are
+    /// always yielded; gated lines are yielded only when `self.variant`
+    /// matches one of the listed variant ids. For items with no variants
+    /// (`self.variants.is_empty()`) this iterator yields every line.
+    pub fn iter_active_mod_lines(&self) -> impl Iterator<Item = &ModLine> {
+        let active = self.variant;
+        self.mod_lines
+            .iter()
+            .filter(move |m| m.applies_to_variant(active))
+    }
+
+    /// Issue #221: switch the active variant index, keeping `raw` in
+    /// sync so a subsequent PoB-XML export reflects the new pick (the
+    /// exporter embeds `raw` verbatim).
+    ///
+    /// `variant` is clamped to `1..=variants.len()`; passing a value
+    /// outside that range, or calling this on an item without variants,
+    /// is a no-op. The raw paste text is updated by rewriting (or
+    /// inserting) the `Selected Variant:` line — we never reorder the
+    /// rest of the document, so user formatting like comment blocks and
+    /// custom whitespace survives untouched.
+    pub fn set_active_variant(&mut self, variant: u32) {
+        if self.variants.is_empty() {
+            return;
+        }
+        let max = u32::try_from(self.variants.len()).unwrap_or(u32::MAX);
+        let clamped = variant.clamp(1, max);
+        if self.variant == Some(clamped) {
+            return;
+        }
+        self.variant = Some(clamped);
+
+        // Find an existing `Selected Variant:` line in the raw text and
+        // rewrite its value. If the raw has none, insert after the last
+        // `Variant:` line — PoB writes them adjacent and we want to
+        // preserve that grouping. If even that's missing (item parsed
+        // by hand from a fragment), no-op the raw rewrite; the
+        // in-memory `self.variant` still updates so the calc engine
+        // picks up the change.
+        if self.raw.is_empty() {
+            return;
+        }
+        let new_line = format!("Selected Variant: {clamped}");
+        let mut rewrote = false;
+        let updated: String = self
+            .raw
+            .lines()
+            .map(|l| {
+                if !rewrote && l.trim_start().starts_with("Selected Variant:") {
+                    rewrote = true;
+                    new_line.clone()
+                } else {
+                    l.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let updated = if rewrote {
+            updated
+        } else {
+            // Insert immediately after the last `Variant:` line.
+            let lines: Vec<&str> = self.raw.lines().collect();
+            let last_variant_idx = lines
+                .iter()
+                .rposition(|l| l.trim_start().starts_with("Variant:"));
+            match last_variant_idx {
+                Some(pos) => {
+                    let mut out: Vec<String> = lines.iter().map(|s| (*s).to_owned()).collect();
+                    out.insert(pos + 1, new_line);
+                    out.join("\n")
+                }
+                None => self.raw.clone(),
+            }
+        };
+        // Preserve a trailing newline if the original had one.
+        let preserve_trailing_nl = self.raw.ends_with('\n');
+        self.raw = if preserve_trailing_nl && !updated.ends_with('\n') {
+            format!("{updated}\n")
+        } else {
+            updated
+        };
     }
 }
 
@@ -297,6 +434,13 @@ impl ItemSet {
     pub fn get(&self, slot: Slot) -> Option<&Item> {
         self.items.get(&slot)
     }
+    /// Mutable accessor for the slot's item — used by the UI to swap a
+    /// variant pick or other per-item state without round-tripping
+    /// through `equip(unequip-then-equip)` (which would lose the slot's
+    /// metadata if any).
+    pub fn get_mut(&mut self, slot: Slot) -> Option<&mut Item> {
+        self.items.get_mut(&slot)
+    }
     pub fn iter(&self) -> impl Iterator<Item = (&Slot, &Item)> {
         self.items.iter()
     }
@@ -406,5 +550,163 @@ mod sockets_tests {
         assert!(SocketColor::from_letter('-').is_none());
         assert!(SocketColor::from_letter(' ').is_none());
         assert!(SocketColor::from_letter('Q').is_none());
+    }
+}
+
+#[cfg(test)]
+mod variant_tests {
+    use super::*;
+
+    fn watchers_eye_raw() -> String {
+        r"Rarity: UNIQUE
+Watcher's Eye
+Prismatic Jewel
+Variant: Anger
+Variant: Hatred
+Selected Variant: 1
+--------
+Limited to: 1
+--------
+Item Level: 84
+--------
++50 to maximum Mana
+{variant:1}1% of Damage Leeched as Life while affected by Anger
+{variant:2}10% increased Cold Damage while affected by Hatred
+--------
+"
+        .to_owned()
+    }
+
+    fn mk_watchers_eye() -> Item {
+        let raw = watchers_eye_raw();
+        Item {
+            name: "Watcher's Eye".into(),
+            base_name: "Prismatic Jewel".into(),
+            rarity: Rarity::Unique,
+            item_level: 84,
+            quality: 0,
+            tags: HashSet::default(),
+            mod_lines: vec![
+                ModLine::new("+50 to maximum Mana", ModSection::Explicit),
+                ModLine {
+                    line: "1% of Damage Leeched as Life while affected by Anger".into(),
+                    section: ModSection::Explicit,
+                    variant_list: Some(vec![1]),
+                },
+                ModLine {
+                    line: "10% increased Cold Damage while affected by Hatred".into(),
+                    section: ModSection::Explicit,
+                    variant_list: Some(vec![2]),
+                },
+            ],
+            sockets: String::new(),
+            raw,
+            corrupted: false,
+            mirrored: false,
+            variants: vec!["Anger".into(), "Hatred".into()],
+            variant: Some(1),
+        }
+    }
+
+    #[test]
+    fn applies_to_variant_treats_none_gate_as_universal() {
+        let line = ModLine::new("+10 to maximum Life", ModSection::Explicit);
+        assert!(line.applies_to_variant(None));
+        assert!(line.applies_to_variant(Some(1)));
+        assert!(line.applies_to_variant(Some(7)));
+    }
+
+    #[test]
+    fn applies_to_variant_treats_none_active_as_variant_one() {
+        // PoB shows the first variant when no `Selected Variant:` line
+        // is present; mirror that for `iter_active_mod_lines` on items
+        // we synthesised without an explicit pick.
+        let gated_to_one = ModLine {
+            line: "{stripped}".into(),
+            section: ModSection::Explicit,
+            variant_list: Some(vec![1]),
+        };
+        let gated_to_two = ModLine {
+            line: "{stripped}".into(),
+            section: ModSection::Explicit,
+            variant_list: Some(vec![2]),
+        };
+        assert!(gated_to_one.applies_to_variant(None));
+        assert!(!gated_to_two.applies_to_variant(None));
+    }
+
+    #[test]
+    fn set_active_variant_clamps_and_updates_raw() {
+        let mut item = mk_watchers_eye();
+        item.set_active_variant(2);
+        assert_eq!(item.variant, Some(2));
+        assert!(item.raw.contains("Selected Variant: 2"));
+        assert!(!item.raw.contains("Selected Variant: 1"));
+
+        // Clamps an out-of-range pick.
+        item.set_active_variant(99);
+        assert_eq!(item.variant, Some(2));
+        assert!(item.raw.contains("Selected Variant: 2"));
+
+        // Clamps zero to 1.
+        item.set_active_variant(0);
+        assert_eq!(item.variant, Some(1));
+        assert!(item.raw.contains("Selected Variant: 1"));
+    }
+
+    #[test]
+    fn set_active_variant_inserts_line_when_missing_from_raw() {
+        let mut item = mk_watchers_eye();
+        // Strip the `Selected Variant:` line; the helper should re-add
+        // it next to the existing `Variant:` block.
+        item.raw = item
+            .raw
+            .lines()
+            .filter(|l| !l.starts_with("Selected Variant:"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        item.set_active_variant(2);
+        assert!(
+            item.raw.contains("Selected Variant: 2"),
+            "expected inserted line, got: {raw:?}",
+            raw = item.raw,
+        );
+        // Inserted right after the last Variant: line.
+        let lines: Vec<&str> = item.raw.lines().collect();
+        let last_variant = lines
+            .iter()
+            .rposition(|l| l.starts_with("Variant:"))
+            .unwrap();
+        assert!(
+            lines[last_variant + 1].starts_with("Selected Variant:"),
+            "Selected Variant line should follow the variant block; got:\n{}",
+            lines.join("\n")
+        );
+    }
+
+    #[test]
+    fn set_active_variant_noop_on_non_variant_item() {
+        let mut item = Item {
+            base_name: "Onyx Amulet".into(),
+            raw: "Rarity: RARE\nFoo\nOnyx Amulet\n".into(),
+            ..Item::default()
+        };
+        let before = item.raw.clone();
+        item.set_active_variant(3);
+        assert_eq!(item.variant, None);
+        assert_eq!(item.raw, before);
+    }
+
+    #[test]
+    fn iter_active_mod_lines_yields_unfiltered_for_no_variant_item() {
+        let item = Item {
+            mod_lines: vec![
+                ModLine::new("+10 to Life", ModSection::Explicit),
+                ModLine::new("+20 to Strength", ModSection::Explicit),
+            ],
+            ..Item::default()
+        };
+        let active: Vec<_> = item.iter_active_mod_lines().collect();
+        assert_eq!(active.len(), 2);
     }
 }

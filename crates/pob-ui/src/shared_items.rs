@@ -303,11 +303,14 @@ mod tests {
             mod_lines: vec![ModLine {
                 line: "+50 to maximum Life".into(),
                 section: ModSection::Explicit,
+                variant_list: None,
             }],
             sockets: String::new(),
             raw: String::new(),
             corrupted: false,
             mirrored: false,
+            variants: Vec::new(),
+            variant: None,
         }
     }
 
