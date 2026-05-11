@@ -180,6 +180,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         ),
         "PoisonStacks" => poison_stacks(env),
         "PoisonStackLimit" => poison_stack_limit(env),
+        "BleedChance" => bleed_chance(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -2869,6 +2870,57 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `BleedChance`. PoB stores it as
+/// a 0-100 percentage derived from `clamp(0, 100, Σ BASE("BleedChance"))`.
+/// Surfacing the chain shows the contributing source mods so users
+/// can see what's driving their bleed chance.
+///
+/// Returns `None` when the chance is zero (no mods).
+fn bleed_chance(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("BleedChance");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let base_sum = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "BleedChance");
+    let capped = base_sum > 100.0 + 1e-9;
+
+    let mut steps = Vec::new();
+    let base_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named("BleedChance")
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label("BASE mods")
+            .with_value(base_sum)
+            .with_explain(format!(
+                "+{base_sum:.0}% from BleedChance BASE mods (gem / passive / gear)"
+            ))
+            .with_sources(base_mods),
+    );
+
+    let final_explain = if capped {
+        format!("clamp(0, 100, {base_sum:.0}%) = {total:.0}% (capped at 100%)")
+    } else {
+        format!("clamp(0, 100, {base_sum:.0}%) = {total:.0}%")
+    };
+    steps.push(
+        BreakdownStep::label("Bleed chance")
+            .with_value(total)
+            .with_explain(final_explain),
+    );
+
+    Some(Breakdown {
+        output_key: "BleedChance".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `PoisonStackLimit`. PoB takes
 /// `max(50 default, Σ BASE(PoisonStackLimit))` so uniques like
 /// Volkuur's that explicitly raise the cap stack on top of the
@@ -4282,6 +4334,66 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: BleedChance walks BASE-mod sum →
+    /// clamped final percentage. PoB stores `BleedChance` as a
+    /// percentage (0–100) derived from `clamp(0, 100, Σ BASE)`. The
+    /// breakdown surfaces the source mods so users can see what's
+    /// driving their bleed chance. Worked example: 25 from gem +
+    /// 35 from passive = 60% bleed chance.
+    #[test]
+    fn bleed_chance_breakdown_walks_base_mods() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("BleedChance", 25.0).with_source(Source::Tree));
+        env.mod_db
+            .add(Mod::base("BleedChance", 35.0).with_source(Source::Item(2)));
+        env.output.set("BleedChance", 60.0);
+        let bd = derive_for(&env, "BleedChance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"BASE mods"));
+        assert!(labels.contains(&"Bleed chance"));
+
+        let base = bd.steps.iter().find(|s| s.label == "BASE mods").unwrap();
+        assert!((base.value.unwrap() - 60.0).abs() < 1e-9);
+        assert!((bd.total - 60.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: BleedChance returns None when zero —
+    /// no mods, no breakdown to display.
+    #[test]
+    fn bleed_chance_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "BleedChance").is_none(),
+            "expected None when BleedChance is zero",
+        );
+    }
+
+    /// Issue #34 follow-up: BleedChance saturates at 100% — final
+    /// step's explain mentions the cap when the BASE sum exceeds
+    /// 100. Worked example: 80 from gem + 60 from gear → 140 BASE,
+    /// clamped to 100%.
+    #[test]
+    fn bleed_chance_breakdown_flags_capped_case() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("BleedChance", 80.0).with_source(Source::Skill("Reaper".into())));
+        env.mod_db
+            .add(Mod::base("BleedChance", 60.0).with_source(Source::Item(2)));
+        env.output.set("BleedChance", 100.0);
+        let bd = derive_for(&env, "BleedChance").unwrap();
+        let final_step = bd.steps.last().unwrap();
+        assert_eq!(final_step.label, "Bleed chance");
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("capped")),
+            "expected 'capped' in explain when BASE sum > 100, got {:?}",
+            final_step.explain
+        );
+    }
+
     /// Issue #34 follow-up: PoisonStackLimit walks default + BASE mods.
     /// PoB derives the limit as `max(50 default, Σ BASE(PoisonStackLimit))`
     /// — so uniques like Volkuur's that explicitly raise the cap stack
