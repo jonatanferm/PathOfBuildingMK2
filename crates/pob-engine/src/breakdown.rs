@@ -5724,8 +5724,8 @@ mod tests {
     fn other_element_max_breakdowns_share_shape() {
         for elem in ["Cold", "Lightning", "Physical", "Chaos"] {
             let mut env = Env::default();
-            env.output.set(&format!("{elem}MaxBase"), 200.0);
-            env.output.set(&format!("{elem}Max"), 440.0);
+            env.output.set(format!("{elem}MaxBase"), 200.0);
+            env.output.set(format!("{elem}Max"), 440.0);
             let bd = derive_for(&env, &format!("{elem}Max"))
                 .unwrap_or_else(|| panic!("{elem}Max: dispatch missing"));
             assert!((bd.total - 440.0).abs() < 1e-9, "{elem}: wrong total");
