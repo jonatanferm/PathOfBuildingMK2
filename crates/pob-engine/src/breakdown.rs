@@ -189,6 +189,16 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "PoisonStacks" => poison_stacks(env),
         "PoisonStackLimit" => poison_stack_limit(env),
         "ActiveTotemLimit" => active_totem_limit(env),
+        // Issue #34 follow-up: Fist of War (Marauder) breakdowns. The
+        // four outputs share the same Slam-skill window — uptime is
+        // the slam-cycle saturation, the multiplier is the per-empowered
+        // bonus, and the two damage-effect outputs collapse the two
+        // into the average / per-skill scalar that gets folded into
+        // MainSkillDPS.
+        "FistOfWarUptimeRatio" => fist_of_war_uptime(env),
+        "FistOfWarDamageMultiplier" => fist_of_war_damage_multiplier(env),
+        "AvgFistOfWarDamageEffect" => fist_of_war_avg_damage_effect(env),
+        "FistOfWarDamageEffect" => fist_of_war_damage_effect(env),
         "BleedChance" => bleed_chance(env),
         "IgniteChance" => ignite_chance(env),
         "ImpaleChance" => impale_chance(env),
@@ -4705,6 +4715,194 @@ fn active_totem_limit(env: &Env) -> Option<Breakdown> {
 
     Some(Breakdown {
         output_key: "ActiveTotemLimit".to_owned(),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: shared Slam-window context for the four Fist of
+/// War outputs. Mirrors the `is_slam` block in
+/// `perform_skill_dps` (`perform.rs:4106-4134`). Returns `None` when the
+/// build doesn't have a Marauder Fist of War active or the current main
+/// skill isn't slam-tagged — both manifest as the cooldown / multiplier
+/// outputs being absent.
+fn fist_of_war_window(env: &Env) -> Option<(f64, f64, f64, f64, f64)> {
+    let damage_mult = env.output.try_get("FistOfWarDamageMultiplier")?;
+    let avg_effect = env.output.try_get("AvgFistOfWarDamageEffect")?;
+    let uptime_pct = env.output.try_get("FistOfWarUptimeRatio")?;
+    if damage_mult.abs() < 1e-9 && uptime_pct.abs() < 1e-9 {
+        return None;
+    }
+    let uptime = uptime_pct / 100.0;
+    let cps = env.output.get("MainSkillSpeed");
+    let cooldown = if uptime > 1e-9 && cps > 1e-9 {
+        // uptime = min((1 / cps) / cooldown, 1) → cooldown = (1 / cps) / uptime
+        // when uptime < 1; when saturated we fall back to (1 / cps).
+        if uptime < 1.0 - 1e-9 {
+            (1.0 / cps) / uptime
+        } else {
+            1.0 / cps
+        }
+    } else {
+        0.0
+    };
+    Some((uptime, damage_mult, avg_effect, cps, cooldown))
+}
+
+/// Issue #34 follow-up: `FistOfWarUptimeRatio` is `min((1/cps) / cooldown, 1)`
+/// expressed as a percentage. Surfaces the cps + cooldown contributors
+/// so users can see whether they're cap-limited (uptime saturated at
+/// 100%) or rate-limited by attack speed against the Fist of War cooldown.
+fn fist_of_war_uptime(env: &Env) -> Option<Breakdown> {
+    let (uptime, _damage_mult, _avg_effect, cps, cooldown) = fist_of_war_window(env)?;
+    let total = uptime * 100.0;
+    let saturated = uptime >= 1.0 - 1e-9;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Skill speed")
+            .with_value(cps)
+            .with_explain(format!("{cps:.2} cps from MainSkillSpeed")),
+    );
+    steps.push(
+        BreakdownStep::label("Fist of War cooldown")
+            .with_value(cooldown)
+            .with_explain(format!(
+                "{cooldown:.2}s from FistOfWarCooldown (Marauder ascendancy)"
+            )),
+    );
+    let final_explain = if saturated {
+        format!("min((1 / {cps:.2}) / {cooldown:.2}, 1) = 100% (slam window saturated)")
+    } else {
+        format!(
+            "(1 / {cps:.2}) / {cooldown:.2} = {:.0}% of slams empowered",
+            uptime * 100.0
+        )
+    };
+    steps.push(
+        BreakdownStep::label("Fist of War uptime")
+            .with_value(total)
+            .with_explain(final_explain),
+    );
+
+    Some(Breakdown {
+        output_key: "FistOfWarUptimeRatio".to_owned(),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: `FistOfWarDamageMultiplier` is the raw per-empowered
+/// bonus stored as a scalar (e.g. 0.4 = +40% More Damage on the empowered
+/// slam). PoB pulls this from `FistOfWarDamageMultiplier` BASE mods (Marauder
+/// ascendancy + supports like Fist of War Support).
+fn fist_of_war_damage_multiplier(env: &Env) -> Option<Breakdown> {
+    let (_uptime, damage_mult, _avg_effect, _cps, _cooldown) = fist_of_war_window(env)?;
+    let cfg = QueryCfg::default();
+    let base_sum = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "FistOfWarDamageMultiplier");
+    let base_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named("FistOfWarDamageMultiplier")
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("BASE mods")
+            .with_value(base_sum)
+            .with_explain(format!(
+                "+{base_sum:.0}% from FistOfWarDamageMultiplier BASE mods (Marauder ascendancy)"
+            ))
+            .with_sources(base_mods),
+    );
+    steps.push(
+        BreakdownStep::label("Fist of War multiplier")
+            .with_value(damage_mult)
+            .with_explain(format!(
+                "{base_sum:.0}% / 100 = ×{damage_mult:.2} per empowered Slam"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "FistOfWarDamageMultiplier".to_owned(),
+        total: damage_mult,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: `AvgFistOfWarDamageEffect` is the average per-cast
+/// scalar: `1 + multiplier × uptime`. Mirrors the `avg_effect` line in
+/// `perform.rs:4122` — folds the empowered-window bonus across the
+/// whole Slam-cast stream so MainSkillDPS gets the right amortised value.
+fn fist_of_war_avg_damage_effect(env: &Env) -> Option<Breakdown> {
+    let (uptime, damage_mult, avg_effect, _cps, _cooldown) = fist_of_war_window(env)?;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Fist of War uptime")
+            .with_value(uptime)
+            .with_explain(format!(
+                "{:.0}% from FistOfWarUptimeRatio (slam-window saturation)",
+                uptime * 100.0
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Damage multiplier")
+            .with_value(damage_mult)
+            .with_explain(format!(
+                "×{damage_mult:.2} from FistOfWarDamageMultiplier (Marauder ascendancy)"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Avg Fist of War effect")
+            .with_value(avg_effect)
+            .with_explain(format!(
+                "1 + {damage_mult:.2} × {uptime:.2} = ×{avg_effect:.3} amortised across all Slams"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "AvgFistOfWarDamageEffect".to_owned(),
+        total: avg_effect,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: `FistOfWarDamageEffect` is the per-skill scalar
+/// folded into MainSkillDPS — for Slam skills it inherits the
+/// `AvgFistOfWarDamageEffect`; for non-Slam skills perform.rs sets it
+/// to 1.0 as a no-op. The breakdown mirrors `perform.rs:4413-4418`.
+fn fist_of_war_damage_effect(env: &Env) -> Option<Breakdown> {
+    let (uptime, damage_mult, avg_effect, _cps, _cooldown) = fist_of_war_window(env)?;
+    let total = env
+        .output
+        .try_get("FistOfWarDamageEffect")
+        .unwrap_or(avg_effect);
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Avg Fist of War effect")
+            .with_value(avg_effect)
+            .with_explain(format!(
+                "×{avg_effect:.3} from AvgFistOfWarDamageEffect (1 + {damage_mult:.2} × {uptime:.2})"
+            )),
+    );
+    let final_explain = if (total - 1.0).abs() < 1e-9 {
+        "Non-Slam skill — Fist of War only fires for skillType 103 (\"Slam\"), so the per-skill scalar collapses to 1.0".to_owned()
+    } else {
+        format!("Slam skill — inherits the average effect = ×{total:.3}")
+    };
+    steps.push(
+        BreakdownStep::label("Fist of War damage effect")
+            .with_value(total)
+            .with_explain(final_explain),
+    );
+
+    Some(Breakdown {
+        output_key: "FistOfWarDamageEffect".to_owned(),
         total,
         steps,
     })
@@ -10010,5 +10208,108 @@ mod tests {
             derive_for(&env, "GemQuality").is_none(),
             "expected None when GemQuality is zero",
         );
+    }
+
+    /// Issue #34 follow-up: Fist of War uptime breakdown.
+    /// Marauder ascendancy: 0.9s cooldown, slam at 2 cps →
+    /// uptime = (1/2) / 0.9 ≈ 0.555 → 55.5%.
+    #[test]
+    fn fist_of_war_uptime_breakdown_walks_speed_and_cooldown() {
+        let mut env = Env::default();
+        env.output.set("MainSkillSpeed", 2.0);
+        env.output.set("FistOfWarDamageMultiplier", 0.4);
+        env.output
+            .set("FistOfWarUptimeRatio", 55.555_555_555_555_56);
+        env.output.set(
+            "AvgFistOfWarDamageEffect",
+            1.0 + 0.4 * 0.555_555_555_555_555_6,
+        );
+        let bd = derive_for(&env, "FistOfWarUptimeRatio").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Skill speed"));
+        assert!(labels.contains(&"Fist of War cooldown"));
+        assert!(labels.contains(&"Fist of War uptime"));
+        assert!((bd.total - 55.555_555_555_555_56).abs() < 1e-6);
+        // Cooldown should be back-derived as ~0.9s.
+        let cooldown = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Fist of War cooldown")
+            .unwrap();
+        assert!((cooldown.value.unwrap() - 0.9).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: FistOfWarDamageMultiplier surfaces the
+    /// FistOfWarDamageMultiplier BASE-mod source list. PoB stores the
+    /// raw mod as a percentage (e.g. 40 → ×0.40 scalar).
+    #[test]
+    fn fist_of_war_damage_multiplier_breakdown_surfaces_base_mods() {
+        let mut env = Env::default();
+        env.mod_db.add(
+            Mod::base("FistOfWarDamageMultiplier", 40.0)
+                .with_source(Source::Other("Marauder ascendancy".into())),
+        );
+        env.output.set("MainSkillSpeed", 2.0);
+        env.output.set("FistOfWarDamageMultiplier", 0.4);
+        env.output
+            .set("FistOfWarUptimeRatio", 55.555_555_555_555_56);
+        env.output.set(
+            "AvgFistOfWarDamageEffect",
+            1.0 + 0.4 * 0.555_555_555_555_555_6,
+        );
+        let bd = derive_for(&env, "FistOfWarDamageMultiplier").unwrap();
+        let base_step = bd.steps.iter().find(|s| s.label == "BASE mods").unwrap();
+        assert!((base_step.value.unwrap() - 40.0).abs() < 1e-6);
+        assert_eq!(base_step.sources.len(), 1);
+        assert!((bd.total - 0.4).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: AvgFistOfWarDamageEffect = 1 + multiplier × uptime.
+    /// Worked example: 0.4 multiplier × 0.555 uptime → ×1.222 scalar.
+    #[test]
+    fn fist_of_war_avg_damage_effect_breakdown_combines_uptime_and_multiplier() {
+        let mut env = Env::default();
+        env.output.set("MainSkillSpeed", 2.0);
+        env.output.set("FistOfWarDamageMultiplier", 0.4);
+        env.output
+            .set("FistOfWarUptimeRatio", 55.555_555_555_555_56);
+        let avg = 1.0 + 0.4 * 0.555_555_555_555_555_6;
+        env.output.set("AvgFistOfWarDamageEffect", avg);
+        let bd = derive_for(&env, "AvgFistOfWarDamageEffect").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Fist of War uptime"));
+        assert!(labels.contains(&"Damage multiplier"));
+        assert!(labels.contains(&"Avg Fist of War effect"));
+        assert!((bd.total - avg).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: FistOfWarDamageEffect inherits the average
+    /// for Slam skills. Final-step explain mentions the Slam mechanic.
+    #[test]
+    fn fist_of_war_damage_effect_breakdown_for_slam_inherits_avg() {
+        let mut env = Env::default();
+        env.output.set("MainSkillSpeed", 2.0);
+        env.output.set("FistOfWarDamageMultiplier", 0.4);
+        env.output
+            .set("FistOfWarUptimeRatio", 55.555_555_555_555_56);
+        let avg = 1.0 + 0.4 * 0.555_555_555_555_555_6;
+        env.output.set("AvgFistOfWarDamageEffect", avg);
+        env.output.set("FistOfWarDamageEffect", avg);
+        let bd = derive_for(&env, "FistOfWarDamageEffect").unwrap();
+        assert!((bd.total - avg).abs() < 1e-9);
+        let final_step = bd.steps.last().unwrap();
+        assert!(final_step.explain.as_ref().unwrap().contains("Slam"));
+    }
+
+    /// Issue #34 follow-up: all four Fist of War breakdowns return None
+    /// when the build doesn't have the ascendancy set up — i.e. when
+    /// the perform pass never populated the FistOfWar* outputs.
+    #[test]
+    fn fist_of_war_breakdowns_skipped_when_absent() {
+        let env = Env::default();
+        assert!(derive_for(&env, "FistOfWarUptimeRatio").is_none());
+        assert!(derive_for(&env, "FistOfWarDamageMultiplier").is_none());
+        assert!(derive_for(&env, "AvgFistOfWarDamageEffect").is_none());
+        assert!(derive_for(&env, "FistOfWarDamageEffect").is_none());
     }
 }
