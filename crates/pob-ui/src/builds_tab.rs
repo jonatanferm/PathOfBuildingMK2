@@ -99,6 +99,12 @@ pub struct BuildsTabState {
     /// popup at a time so the renderer doesn't have to disambiguate
     /// which build the popup belongs to.
     pub move_popup_for: Option<BuildId>,
+    /// Issue #213 (folder-isolation slice): slash-joined path of the
+    /// folder the user has filtered the list to via "Show only this
+    /// folder". `None` means "no filter — show every folder". The
+    /// renderer hides every sibling branch when this is set and
+    /// surfaces a chip row offering to clear the filter.
+    pub selected_folder: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -282,12 +288,54 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
         // Builds with no category land at the root (was
         // "Uncategorised" in slice 1; now they just appear at the top
         // of the tree).
-        let tree = build_folder_tree(&state.entries);
+        let full_tree = build_folder_tree(&state.entries);
+        // Issue #213 (folder-isolation slice): when the user picks
+        // "Show only this folder", drop every sibling branch via the
+        // pure subtree-extract helper. The chip row below offers a
+        // one-click clear. Falling back to the full tree when the
+        // remembered path no longer resolves keeps the UI usable
+        // after the user deletes the filtered folder elsewhere.
+        let (tree, root_path_segments): (FolderNode, Vec<String>) =
+            if let Some(key) = state.selected_folder.clone() {
+                if let Some(subtree) =
+                    crate::builds_folder_tree::filter_folder_to_subtree(&full_tree, &key)
+                {
+                    let segs: Vec<String> = key
+                        .split('/')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned)
+                        .collect();
+                    (subtree, segs)
+                } else {
+                    // Stale path — clear the filter and fall back to the
+                    // full tree so the user isn't stuck on an empty
+                    // listing.
+                    state.selected_folder = None;
+                    (full_tree.clone(), Vec::new())
+                }
+            } else {
+                (full_tree.clone(), Vec::new())
+            };
+        if let Some(key) = state.selected_folder.clone() {
+            ui.horizontal(|ui| {
+                ui.label("Filtered to:");
+                ui.code(&key);
+                if ui
+                    .button("Show all folders")
+                    .on_hover_text("Clear the folder filter and show every build.")
+                    .clicked()
+                {
+                    state.selected_folder = None;
+                }
+            });
+            ui.separator();
+        }
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .max_height(360.0)
             .show(ui, |ui| {
-                let mut path: Vec<&str> = Vec::new();
+                let mut path: Vec<&str> = root_path_segments.iter().map(String::as_str).collect();
                 render_folder(ui, &tree, &mut path, state, &mut action);
             });
         // Issue #213 (slice 4): inline status from the folder
@@ -300,9 +348,11 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
         // window draws on top.
         render_folder_popup(ui, state, &mut action);
         // Issue #213 (slice 5): "Move to folder…" popup. Sources its
-        // folder list from the same tree the renderer just walked so
-        // every visible folder shows up as a target option.
-        render_move_popup(ui, state, &tree, &mut action);
+        // folder list from the *full* tree (not `tree`, which may be
+        // filtered) so the user can move a build to any folder —
+        // including out of the active folder filter — and so the
+        // emitted target paths are full-tree-relative.
+        render_move_popup(ui, state, &full_tree, &mut action);
     }
 
     ui.separator();
@@ -372,6 +422,20 @@ fn render_folder<'a>(
         // message on a non-empty folder so the confirm modal doesn't
         // open just to refuse on Confirm.
         resp.header_response.context_menu(|ui| {
+            // Issue #213 (folder-isolation slice): toggle "Show only
+            // this folder" / "Show all folders" depending on whether
+            // the user has filtered to this exact path. Picked up by
+            // the chip row at the top of the tree on next frame.
+            if state.selected_folder.as_deref() == Some(key.as_str()) {
+                if ui.button("Show all folders").clicked() {
+                    state.selected_folder = None;
+                    ui.close_menu();
+                }
+            } else if ui.button("Show only this folder").clicked() {
+                state.selected_folder = Some(key.clone());
+                ui.close_menu();
+            }
+            ui.separator();
             if ui.button("Rename folder…").clicked() {
                 state.folder_popup = Some(start_rename_folder(key.clone(), &child.name));
                 state.folder_popup_status = None;
@@ -906,5 +970,49 @@ mod tests {
         // the popup handles the no-op case explicitly).
         let tree = build_folder_tree(&[]);
         assert_eq!(collect_folder_paths(&tree), vec![String::new()]);
+    }
+
+    #[test]
+    fn move_popup_must_use_full_tree_not_filtered_subtree() {
+        // Regression: when the folder-isolation filter is active the
+        // renderer scopes the visible tree to a subtree via
+        // `filter_folder_to_subtree`, but the move-to-folder popup
+        // must still see the *full* hierarchy. Otherwise (a) the user
+        // can't move a build out of the active filter and (b) emitted
+        // target paths are root-relative to the subtree, producing
+        // wrong destinations like "Sirus" instead of "Bossing/Sirus".
+        let entries = vec![
+            entry("a", Some("Bossing")),
+            entry("b", Some("Bossing/Sirus")),
+            entry("c", Some("Levelling")),
+        ];
+        let full = build_folder_tree(&entries);
+        let filtered = crate::builds_folder_tree::filter_folder_to_subtree(&full, "Bossing")
+            .expect("Bossing subtree");
+
+        let mut full_paths = collect_folder_paths(&full);
+        full_paths.sort();
+        assert!(
+            full_paths.contains(&"Bossing/Sirus".to_owned()),
+            "full tree must expose the nested 'Bossing/Sirus' target",
+        );
+        assert!(
+            full_paths.contains(&"Levelling".to_owned()),
+            "full tree must expose folders outside the active filter \
+             so the user can move builds out of the filter",
+        );
+
+        let mut filtered_paths = collect_folder_paths(&filtered);
+        filtered_paths.sort();
+        assert!(
+            !filtered_paths.contains(&"Bossing/Sirus".to_owned()),
+            "filtered subtree truncates nested paths — passing it to \
+             the move popup would emit the wrong target path",
+        );
+        assert!(
+            !filtered_paths.contains(&"Levelling".to_owned()),
+            "filtered subtree hides sibling folders — passing it to \
+             the move popup would strand builds inside the filter",
+        );
     }
 }

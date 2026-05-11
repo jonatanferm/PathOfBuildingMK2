@@ -101,6 +101,35 @@ pub fn folder_path_key(path: &[&str]) -> String {
     path.join("/")
 }
 
+/// Issue #213 (folder-isolation slice): clone the subtree at
+/// `selected_path` out of `root`, or return `None` when the path
+/// doesn't resolve to a folder. Pure / no egui — the renderer uses
+/// this to drop every sibling branch when the user picks
+/// "Show only this folder".
+///
+/// `selected_path` is the slash-joined key produced by
+/// [`folder_path_key`]. An empty string means "the root" and yields
+/// the whole tree unchanged (the renderer treats this as
+/// "no filter active" and bypasses the helper). Whitespace / empty
+/// segments inside `selected_path` are stripped so a hand-built key
+/// loosely.
+#[must_use]
+pub fn filter_folder_to_subtree(root: &FolderNode, selected_path: &str) -> Option<FolderNode> {
+    let segments: Vec<&str> = selected_path
+        .split('/')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if segments.is_empty() {
+        return Some(root.clone());
+    }
+    let mut node = root;
+    for seg in &segments {
+        node = node.children.iter().find(|c| c.name == *seg)?;
+    }
+    Some(node.clone())
+}
+
 fn sort_node(node: &mut FolderNode) {
     node.children.sort_by(|a, b| {
         a.name
@@ -236,6 +265,70 @@ mod tests {
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert_ne!(b, c);
+    }
+
+    #[test]
+    fn filter_folder_to_subtree_returns_whole_tree_for_empty_path() {
+        // Empty filter path means "no filter" — the helper short-
+        // circuits and returns a clone of the whole tree so the
+        // renderer can treat empty as a no-op.
+        let entries = vec![
+            mk("A", None),
+            mk("B", Some("Levelling")),
+            mk("C", Some("Bossing")),
+        ];
+        let tree = build_folder_tree(&entries);
+        let filtered = filter_folder_to_subtree(&tree, "").expect("root");
+        assert_eq!(filtered.children.len(), 2);
+        assert_eq!(filtered.builds.len(), 1);
+    }
+
+    #[test]
+    fn filter_folder_to_subtree_extracts_subtree_by_path() {
+        let entries = vec![
+            mk("a", Some("Bossing")),
+            mk("b", Some("Bossing/Sirus")),
+            mk("c", Some("Levelling")),
+        ];
+        let tree = build_folder_tree(&entries);
+        let bossing = filter_folder_to_subtree(&tree, "Bossing").expect("Bossing");
+        // Sibling "Levelling" dropped — only the Bossing subtree
+        // survives. The Sirus child + its build come along.
+        assert_eq!(bossing.children.len(), 1);
+        assert_eq!(bossing.children[0].name, "Sirus");
+        assert_eq!(bossing.children[0].builds[0].label, "b");
+        // Direct builds on Bossing also survive.
+        assert_eq!(bossing.builds.len(), 1);
+        assert_eq!(bossing.builds[0].label, "a");
+    }
+
+    #[test]
+    fn filter_folder_to_subtree_extracts_deeply_nested_subtree() {
+        let entries = vec![mk("deep", Some("L1/L2/L3"))];
+        let tree = build_folder_tree(&entries);
+        let l3 = filter_folder_to_subtree(&tree, "L1/L2/L3").expect("L3");
+        assert!(l3.children.is_empty());
+        assert_eq!(l3.builds[0].label, "deep");
+    }
+
+    #[test]
+    fn filter_folder_to_subtree_returns_none_for_unknown_path() {
+        let entries = vec![mk("a", Some("Real"))];
+        let tree = build_folder_tree(&entries);
+        assert!(filter_folder_to_subtree(&tree, "Real/Nope").is_none());
+        assert!(filter_folder_to_subtree(&tree, "Phantom").is_none());
+    }
+
+    #[test]
+    fn filter_folder_to_subtree_strips_empty_segments_in_path() {
+        // Defensive: a hand-built key like `"Real//Sub/"` resolves
+        // the same as `"Real/Sub"` — the loose-path tolerance lives
+        // here so the renderer doesn't have to scrub keys before
+        // calling.
+        let entries = vec![mk("x", Some("Real/Sub"))];
+        let tree = build_folder_tree(&entries);
+        let resolved = filter_folder_to_subtree(&tree, "Real//Sub/").expect("Real/Sub");
+        assert_eq!(resolved.builds[0].label, "x");
     }
 
     #[test]
