@@ -139,6 +139,13 @@ struct LoadedApp {
     /// noise from low-impact nodes. Applies on the next Refresh — same
     /// pattern as `heatmap_stat`.
     heatmap_top_n: Option<usize>,
+    /// Issue #220 follow-up: optional BFS-depth cap. `Some(d)` filters
+    /// the heatmap (and the cached `heatmap_ranked` list) to nodes
+    /// within `d` edges of any allocated node — "show me only
+    /// candidates I can actually reach with my unspent points". `None`
+    /// means no cap. Applies on the next Refresh, same as the other
+    /// heatmap knobs.
+    heatmap_max_depth: Option<u32>,
     /// Issue #207 follow-up: cached ranked list from
     /// `rank_node_additions`, populated alongside [`Self::power_overlay`]
     /// on a "Refresh heatmap" click. Drives the new "Top candidate
@@ -609,6 +616,7 @@ impl PobApp {
             show_power_overlay: false,
             heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
             heatmap_top_n: None,
+            heatmap_max_depth: None,
             heatmap_ranked: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
@@ -709,6 +717,7 @@ impl PobApp {
             show_power_overlay: false,
             heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
             heatmap_top_n: None,
+            heatmap_max_depth: None,
             heatmap_ranked: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
@@ -1246,6 +1255,36 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     .on_hover_text(
                         "How many top-scoring nodes to colour. Lower values \
                          focus the overlay on the strongest candidates. \
+                         Applies on the next Refresh.",
+                    );
+                // Issue #220 follow-up: BFS-depth filter. Restricts
+                // the heatmap to candidates within N edges of the
+                // player's current tree — "what can I actually reach
+                // with my unspent points?". `Unlimited` = `None` is
+                // the historical default.
+                let depth_label = match app.heatmap_max_depth {
+                    None => "Unlimited".to_owned(),
+                    Some(d) => format!("Within {d}"),
+                };
+                egui::ComboBox::from_id_salt("heatmap_max_depth_select")
+                    .selected_text(depth_label)
+                    .show_ui(ui, |ui| {
+                        let presets: [(Option<u32>, &str); 5] = [
+                            (None, "Unlimited"),
+                            (Some(3), "Within 3"),
+                            (Some(5), "Within 5"),
+                            (Some(10), "Within 10"),
+                            (Some(20), "Within 20"),
+                        ];
+                        for (value, label) in presets {
+                            ui.selectable_value(&mut app.heatmap_max_depth, value, label);
+                        }
+                    })
+                    .response
+                    .on_hover_text(
+                        "BFS-depth cap from your allocated tree. Lower values \
+                         hide far-away candidates so the overlay sticks to \
+                         nodes you can actually reach with your unspent points. \
                          Applies on the next Refresh.",
                     );
                 if ui
@@ -2409,7 +2448,7 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
     // Issue #207 follow-up: rank once, reuse for both the colour map
     // and the cached Top-candidate-nodes panel. Two consumers of the
     // same expensive walk share one N+1-perform-calls pass.
-    let ranked = pob_engine::rank_node_additions(
+    let mut ranked = pob_engine::rank_node_additions(
         &app.character,
         &app.tree,
         Some(&app.skills),
@@ -2417,6 +2456,14 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
         cluster_ctx,
         None,
     );
+    // Issue #220 follow-up: depth filter is applied here so both
+    // the colour map and the cached ranked list reflect the same
+    // "reachable within N points" set.
+    if let Some(d) = app.heatmap_max_depth {
+        let reachable =
+            crate::node_power_heatmap::nodes_within_depth(&app.tree, &app.character.allocated, d);
+        ranked.retain(|s| reachable.contains(&s.node_id));
+    }
     let map = crate::node_power_heatmap::compute_heatmap_inputs_from_ranked(
         &ranked,
         app.heatmap_stat,
