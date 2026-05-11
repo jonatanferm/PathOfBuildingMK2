@@ -25,6 +25,42 @@ pub struct CalcsTabState {
     /// When `true` and `calc_sections` is loaded, render the PoB-style grouped
     /// section layout instead of the flat key list.
     pub use_pob_layout: bool,
+    /// Issue #207 follow-up: LRU of stat keys the user has recently
+    /// drilled into. Latest at front, dedup'd, capped at
+    /// [`RECENTLY_FOCUSED_MAX`] entries — drives a chip row at the top
+    /// of the tab so power users can jump back to a stat they were
+    /// iterating on without re-typing the filter.
+    pub recently_focused: std::collections::VecDeque<String>,
+}
+
+/// Issue #207 follow-up: cap on how many entries
+/// [`CalcsTabState::recently_focused`] holds. Five fits in a single
+/// chip row at typical font sizes and matches the working-memory
+/// span of "what was I just looking at?".
+pub const RECENTLY_FOCUSED_MAX: usize = 5;
+
+/// Issue #207 follow-up: push `stat` to the front of `deque` LRU-style
+/// — if it's already in there, the existing entry moves to the front
+/// instead of duplicating. The deque is truncated to `max_len` after
+/// the push so the chip row never grows past the configured cap.
+///
+/// Empty `stat` is silently dropped (defensive against an accidental
+/// blank-key focus through the breakdown side panel).
+pub fn push_recent_stat(
+    deque: &mut std::collections::VecDeque<String>,
+    stat: &str,
+    max_len: usize,
+) {
+    if stat.is_empty() {
+        return;
+    }
+    if let Some(idx) = deque.iter().position(|s| s == stat) {
+        deque.remove(idx);
+    }
+    deque.push_front(stat.to_owned());
+    while deque.len() > max_len {
+        deque.pop_back();
+    }
 }
 
 /// Stat category groupings. Each entry maps a heading to the substring
@@ -190,6 +226,12 @@ pub fn ui(
     calc_sections: Option<&[CalcSection]>,
     active_skill_flags: &HashSet<String>,
 ) {
+    // Issue #207 follow-up: detect focused-stat changes at frame top
+    // so the chip row updates LRU-style without threading `recent`
+    // into every per-row renderer. We snapshot the previous value,
+    // let the renderers run, then push the new value (if it changed)
+    // through `push_recent_stat` afterwards.
+    let prev_focused = state.focused_stat.clone();
     ui.horizontal(|ui| {
         ui.label("Filter:");
         ui.add(
@@ -213,13 +255,35 @@ pub fn ui(
             }
         }
     });
+    // Issue #207 follow-up: chip row of the 5 most-recently inspected
+    // stats. Clicking a chip re-focuses that stat. Closed-state UX
+    // is "empty row" — once the user has drilled in once it stays
+    // populated for the session.
+    if !state.recently_focused.is_empty() {
+        ui.horizontal(|ui| {
+            ui.weak("Recent:");
+            let recent: Vec<String> = state.recently_focused.iter().cloned().collect();
+            for stat in recent {
+                if ui
+                    .small_button(&stat)
+                    .on_hover_text("Re-focus this stat in the breakdown panel.")
+                    .clicked()
+                {
+                    state.focused_stat = Some(stat.clone());
+                }
+            }
+        });
+    }
     ui.separator();
 
-    if state.use_pob_layout {
+    if state.use_pob_layout && calc_sections.is_some() {
         if let Some(sections) = calc_sections {
             render_pob_layout(ui, state, sections, output, env, active_skill_flags);
-            return;
         }
+        // Issue #207 follow-up: also update the recents LRU for the
+        // PoB-layout path. Mirrors the flat-layout tail below.
+        update_recents_lru(state, prev_focused.as_deref());
+        return;
     }
 
     let q = state.filter.trim().to_lowercase();
@@ -297,6 +361,21 @@ pub fn ui(
                 });
             }
         });
+    // Issue #207 follow-up: flat-layout tail — same LRU update as the
+    // PoB-layout early-return path.
+    update_recents_lru(state, prev_focused.as_deref());
+}
+
+/// Issue #207 follow-up: if the focused-stat selection changed during
+/// this frame, push the new value into the recents LRU. Pulled out so
+/// both layout paths in [`ui`] share one tail.
+fn update_recents_lru(state: &mut CalcsTabState, prev_focused: Option<&str>) {
+    let now = state.focused_stat.as_deref();
+    if now != prev_focused {
+        if let Some(stat) = now {
+            push_recent_stat(&mut state.recently_focused, stat, RECENTLY_FOCUSED_MAX);
+        }
+    }
 }
 
 fn render_flat_column(
@@ -1063,8 +1142,73 @@ fn kind_label(k: ModType) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{calc_row_tooltip_lines, mod_tooltip_lines, GROUPS};
+    use super::{
+        calc_row_tooltip_lines, mod_tooltip_lines, push_recent_stat, GROUPS, RECENTLY_FOCUSED_MAX,
+    };
     use pob_engine::Mod;
+    use std::collections::VecDeque;
+
+    #[test]
+    fn push_recent_stat_inserts_at_front_when_new() {
+        let mut q: VecDeque<String> = VecDeque::new();
+        push_recent_stat(&mut q, "Life", RECENTLY_FOCUSED_MAX);
+        assert_eq!(q.front().map(String::as_str), Some("Life"));
+        push_recent_stat(&mut q, "Mana", RECENTLY_FOCUSED_MAX);
+        // Most recent at the front; previous entry shifts back.
+        assert_eq!(
+            q.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec!["Mana", "Life"],
+        );
+    }
+
+    #[test]
+    fn push_recent_stat_dedups_and_promotes_to_front() {
+        // Revisiting a stat moves it back to position 0 rather than
+        // creating a duplicate. Lets the chip row read as "most recent
+        // 5 unique stats".
+        let mut q: VecDeque<String> = VecDeque::new();
+        push_recent_stat(&mut q, "Life", 5);
+        push_recent_stat(&mut q, "Mana", 5);
+        push_recent_stat(&mut q, "Life", 5);
+        assert_eq!(
+            q.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec!["Life", "Mana"],
+        );
+        assert_eq!(q.len(), 2, "no duplicate Life entry");
+    }
+
+    #[test]
+    fn push_recent_stat_truncates_to_max_len() {
+        // Inserting past the cap drops the oldest entry off the tail.
+        let mut q: VecDeque<String> = VecDeque::new();
+        for name in ["a", "b", "c", "d", "e", "f"] {
+            push_recent_stat(&mut q, name, 5);
+        }
+        // f, e, d, c, b — a fell off the back.
+        assert_eq!(
+            q.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec!["f", "e", "d", "c", "b"],
+        );
+    }
+
+    #[test]
+    fn push_recent_stat_drops_empty_input() {
+        // Defensive: the breakdown panel can briefly hold an empty
+        // focused_stat during a state transition; the helper should
+        // not record that.
+        let mut q: VecDeque<String> = VecDeque::new();
+        push_recent_stat(&mut q, "", 5);
+        assert!(q.is_empty());
+    }
+
+    #[test]
+    fn push_recent_stat_respects_explicit_zero_cap() {
+        // `max_len = 0` is a degenerate config but should still
+        // produce a clean result (immediately truncate back to empty).
+        let mut q: VecDeque<String> = VecDeque::new();
+        push_recent_stat(&mut q, "Life", 0);
+        assert!(q.is_empty());
+    }
 
     #[test]
     fn mod_tooltip_includes_stat_key_and_kind_label() {
