@@ -13,7 +13,28 @@
 //! slices can route the Items / Skills / Config tabs through the same
 //! primitive (or use a per-tab stack with the same shape).
 
+use pob_engine::Character;
 use std::collections::VecDeque;
+
+/// Issue #204 (slice 4): per-app undo snapshot for paths that mutate
+/// more than `Character`. The tree-version-swap drops orphaned
+/// allocations *and* swaps `LoadedApp.tree_version` (and the loaded
+/// `tree` / `tree_view` alongside it). Snapshotting `Character` alone
+/// would resurrect the dropped allocations against the *new* tree on
+/// undo — the previous slice's commit message called this out as
+/// needing its own slice.
+///
+/// Packaging both halves into a single `Clone` value lets the existing
+/// `UndoStack<T>` primitive carry the whole thing through past / future
+/// without per-stack ordering games. `tree_version` is the *string* the
+/// in-memory `tree` was loaded from — restoring it tells the caller
+/// which `passive-tree-<v>.json` to reload (the heavy `PassiveTree`
+/// itself stays out of the snapshot).
+#[derive(Debug, Clone)]
+pub struct BuildSnapshot {
+    pub character: Character,
+    pub tree_version: String,
+}
 
 /// Default per-stack snapshot depth. PoB's `UndoHandler` doesn't bound
 /// itself (LuaJIT's GC reaps the unreferenced tail), but in Rust an
@@ -419,5 +440,50 @@ mod tests {
         let restored = stack.undo(20);
         assert_eq!(restored, Some(10));
         assert_eq!(stack.redo(10), Some(20));
+    }
+
+    #[test]
+    fn build_snapshot_round_trip_restores_character_and_tree_version() {
+        // Issue #204 (slice 4): the tree-version-swap path mutates
+        // both `Character.allocated` (orphaned nodes are dropped) AND
+        // the in-memory `tree_version` string. Snapshotting Character
+        // alone — the slice-1/2/3 contract — would resurrect the
+        // dropped allocations against the *new* tree on undo, which
+        // is exactly the confusion slice 3's commit message called
+        // out as needing its own slice.
+        //
+        // `BuildSnapshot` packages the two pieces of state that the
+        // version-swap touches into one clone-able value so the
+        // existing UndoStack<T> primitive carries the whole thing
+        // through the past / future deques together.
+        use pob_engine::character::ClassRef;
+        use pob_engine::Character;
+
+        let mut character = Character::new(ClassRef::marauder(), 1);
+        character.allocated.insert(42);
+        let mut tree_version = "3_25".to_owned();
+        let mut stack: UndoStack<BuildSnapshot> = UndoStack::default();
+
+        // Pre-swap snapshot: capture both halves.
+        stack.snapshot(&BuildSnapshot {
+            character: character.clone(),
+            tree_version: tree_version.clone(),
+        });
+
+        // Simulate the swap: drop node 42 (not in the new tree) and
+        // bump the version string.
+        character.allocated.remove(&42);
+        tree_version = "3_24".to_owned();
+
+        // Undo should hand the pre-swap pair back so the caller can
+        // restore both halves of LoadedApp in one go.
+        let restored = stack
+            .undo(BuildSnapshot {
+                character: character.clone(),
+                tree_version: tree_version.clone(),
+            })
+            .expect("snapshot was just recorded");
+        assert_eq!(restored.tree_version, "3_25");
+        assert!(restored.character.allocated.contains(&42));
     }
 }
