@@ -12,6 +12,7 @@ use pob_engine::{
 
 use crate::color_codes;
 use crate::shared_items::{SharedItem, SharedItemStore};
+use crate::socket_renderer::{draw_sockets, SocketLayoutConfig};
 use crate::sortable_list::{
     column_header, cycle_sort, sorted_indices, text_filter_matches, SortState,
 };
@@ -2000,7 +2001,19 @@ fn render_item_summary(ui: &mut egui::Ui, item: &Item) {
         if item.corrupted { " • Corrupted" } else { "" }
     ));
     if !item.sockets.is_empty() {
-        ui.label(format!("Sockets: {}", item.sockets));
+        // Issue #221 (slice 1): visualise sockets as coloured dots with
+        // link bars between sockets in the same group. Falls back to
+        // the raw string if parsing produced nothing (defensive — the
+        // parser is permissive, so this branch is mostly unreachable).
+        let groups = pob_data::parse_socket_string(&item.sockets);
+        if groups.is_empty() {
+            ui.label(format!("Sockets: {}", item.sockets));
+        } else {
+            ui.horizontal(|ui| {
+                ui.label("Sockets:");
+                draw_sockets(ui, &groups, SocketLayoutConfig::default());
+            });
+        }
     }
     ui.add_space(4.0);
     for ml in &item.mod_lines {

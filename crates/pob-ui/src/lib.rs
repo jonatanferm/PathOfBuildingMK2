@@ -40,6 +40,7 @@ mod popup;
 mod share_url_fetch;
 mod shared_items;
 mod skills_tab;
+mod socket_renderer;
 mod sortable_list;
 mod tattoo_picker;
 mod tree_diff;

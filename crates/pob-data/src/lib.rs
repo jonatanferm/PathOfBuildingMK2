@@ -26,7 +26,10 @@ pub use cluster_jewel_mods::{load_cluster_jewel_mods, ClusterMod, ClusterModSet}
 pub use cluster_jewels::{load_cluster_jewels, ClusterJewelData, ClusterJewelType, ClusterSkill};
 pub use flags::{KeywordFlag, ModFlag, SkillType};
 pub use gem::Gem;
-pub use item::{Item, ItemSet, ModLine, ModSection, Rarity, Slot};
+pub use item::{
+    parse_socket_string, render_socket_groups, Item, ItemSet, ModLine, ModSection, Rarity, Slot,
+    SocketColor, SocketGroup,
+};
 pub use jewel_radius::{
     max_outer, radii_for_tree_version, radius_index_for_label, JewelRadiusInfo, RADII_3_15,
     RADII_3_16,
