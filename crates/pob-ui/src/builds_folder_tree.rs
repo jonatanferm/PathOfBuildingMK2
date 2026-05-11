@@ -158,6 +158,7 @@ mod tests {
             id: BuildId::Disk(PathBuf::from(format!("/tmp/{label}.mk2"))),
             ext: "mk2".to_owned(),
             category: category.map(str::to_owned),
+            modified: None,
         }
     }
 

@@ -592,6 +592,7 @@ async fn idb_list() -> Result<Vec<BuildEntry>, JsValue> {
             id: BuildId::Idb(id),
             ext,
             category,
+            modified: None,
         });
     }
     sort_entries(&mut entries);
@@ -906,6 +907,7 @@ async fn folder_list(handle: &JsValue) -> Result<Vec<BuildEntry>, JsValue> {
             id: BuildId::Folder(name),
             ext,
             category: None,
+            modified: None,
         });
     }
     sort_entries(&mut entries);
