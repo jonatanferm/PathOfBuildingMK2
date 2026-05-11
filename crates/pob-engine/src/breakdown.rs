@@ -161,6 +161,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "AreaOfEffectRadius" => area_of_effect_radius(env),
         "AreaOfEffectRadiusMetres" => area_of_effect_radius_metres(env),
         "ProjectileCount" => projectile_count(env),
+        "ProjectileMultiplier" => projectile_multiplier(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -456,6 +457,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "AreaOfEffectRadius",
     "AreaOfEffectRadiusMetres",
     "ProjectileCount",
+    "ProjectileMultiplier",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2843,6 +2845,61 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `ProjectileMultiplier`. PoB caps
+/// the user's "projectiles hitting target" Config pick into
+/// `[1, ProjectileCount]` and uses the result as a per-hit damage
+/// multiplier (focal-point Tornado Shot, point-blank Barrage, etc.).
+/// The Calcs tab surfaced the multiplier as a single number; users
+/// couldn't see whether the cap was active or how the requested-vs-
+/// actual hits compared.
+///
+/// The breakdown back-derives the requested count from the final
+/// multiplier (since the multiplier IS the capped requested count)
+/// and surfaces both the cap and a `capped` hint when the multiplier
+/// equals the projectile count.
+///
+/// Returns `None` when the skill isn't projectile-based.
+fn projectile_multiplier(env: &Env) -> Option<Breakdown> {
+    let count = env.output.get("ProjectileCount");
+    if count.abs() < 1e-9 {
+        return None;
+    }
+    let multiplier = env.output.get("ProjectileMultiplier");
+    let capped = (multiplier - count).abs() < 1e-9;
+    let final_explain = if capped {
+        format!("min({multiplier:.0}, {count:.0}) = {multiplier:.0} (capped at projectile count)")
+    } else {
+        format!("min({multiplier:.0}, {count:.0}) = {multiplier:.0}")
+    };
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Hits requested")
+            .with_value(multiplier)
+            .with_explain(format!(
+                "{multiplier:.0} from Config: \"projectiles hitting target\""
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Cap")
+            .with_value(count)
+            .with_explain(format!(
+                "{count:.0} from ProjectileCount — see its breakdown for the primary + additional split"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Projectile multiplier")
+            .with_value(multiplier)
+            .with_explain(final_explain),
+    );
+
+    Some(Breakdown {
+        output_key: "ProjectileMultiplier".to_owned(),
+        total: multiplier,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `ProjectileCount`. PoB's
 /// `perform_skill_dps` computes the total as
 /// `1 (primary) + Σ number_of_additional_projectiles`. Surfacing
@@ -3195,6 +3252,10 @@ mod tests {
         // COVERED_KEYS guard exercises the breakdown. 3 = 1 primary +
         // 2 additional (LMP-shape).
         env.output.set("ProjectileCount", 3.0);
+        // Issue #34 follow-up: spell-shape baseline — 1 projectile
+        // requested by Config, capped at 3. Exercises the
+        // ProjectileMultiplier breakdown via the COVERED_KEYS guard.
+        env.output.set("ProjectileMultiplier", 1.0);
         env.output.set("CritChance", 6.0);
         env.output.set("FullDPS", 2000.0);
         env.output.set("BleedDPS", 0.0);
@@ -3914,6 +3975,60 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: ProjectileMultiplier walks the
+    /// Config "projectiles hitting target" → projectile cap → final
+    /// damage multiplier. PoB caps the user's pick into
+    /// `[1, ProjectileCount]` and uses the result as a per-hit damage
+    /// multiplier (focal-point Tornado Shot, point-blank Barrage,
+    /// etc.). Worked example: 3 hits requested + 5 projectiles → 3
+    /// (un-capped, multiplier 3×).
+    #[test]
+    fn projectile_multiplier_breakdown_walks_config_and_cap() {
+        let mut env = Env::default();
+        env.output.set("ProjectileCount", 5.0);
+        env.output.set("ProjectileMultiplier", 3.0);
+        let bd = derive_for(&env, "ProjectileMultiplier").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Hits requested"));
+        assert!(labels.contains(&"Cap"));
+        assert!(labels.contains(&"Projectile multiplier"));
+
+        let cap = bd.steps.iter().find(|s| s.label == "Cap").unwrap();
+        assert!((cap.value.unwrap() - 5.0).abs() < 1e-9);
+        assert!((bd.total - 3.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: when ProjectileMultiplier == ProjectileCount
+    /// the chain implies the user requested at least the projectile
+    /// count and got capped. Final step's explain mentions the cap.
+    #[test]
+    fn projectile_multiplier_breakdown_flags_capped_case() {
+        let mut env = Env::default();
+        env.output.set("ProjectileCount", 5.0);
+        env.output.set("ProjectileMultiplier", 5.0);
+        let bd = derive_for(&env, "ProjectileMultiplier").unwrap();
+        let final_step = bd.steps.last().unwrap();
+        assert_eq!(final_step.label, "Projectile multiplier");
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("capped")),
+            "expected 'capped' in explain when multiplier == count, got {:?}",
+            final_step.explain
+        );
+    }
+
+    /// Issue #34 follow-up: returns None when not projectile-based.
+    #[test]
+    fn projectile_multiplier_breakdown_skipped_when_no_projectiles() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "ProjectileMultiplier").is_none(),
+            "expected None when ProjectileCount is zero",
+        );
+    }
+
     /// total projectile count as `1 (primary) + additional
     /// projectiles`, where the additional count comes from the
     /// skill's `number_of_additional_projectiles` stat plus tree /
