@@ -163,6 +163,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ProjectileCount" => projectile_count(env),
         "ProjectileMultiplier" => projectile_multiplier(env),
         "MainSkillShockMult" => Some(main_skill_shock_mult(env)),
+        "IgniteDuration" => ignite_duration(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -460,6 +461,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "ProjectileCount",
     "ProjectileMultiplier",
     "MainSkillShockMult",
+    "IgniteDuration",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2847,6 +2849,59 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `IgniteDuration`. PoB computes it
+/// as `4.0 × (1 + Σ INC(IgniteDuration) / 100)` (4-second base from
+/// the upstream ignite-duration constant). Surfacing the chain
+/// makes the inc-mod sources visible alongside the seconds value.
+///
+/// Returns `None` when the ignite duration is zero (not yet
+/// computed for the current build / skill).
+fn ignite_duration(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("IgniteDuration");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let inc_total = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "IgniteDuration");
+    let base = 4.0;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Base")
+            .with_value(base)
+            .with_explain("4s base ignite duration (PoE constant)".to_owned()),
+    );
+
+    if inc_total.abs() > 1e-9 {
+        let inc_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("IgniteDuration")
+            .filter(|m| m.kind == ModType::Inc)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Increased")
+                .with_value(1.0 + inc_total / 100.0)
+                .with_explain(format!("{inc_total:+.0}% sum"))
+                .with_sources(inc_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Ignite duration")
+            .with_value(total)
+            .with_explain(format!("{base:.0} × (1 + {inc_total:.0}%) = {total:.2}s")),
+    );
+
+    Some(Breakdown {
+        output_key: "IgniteDuration".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `MainSkillShockMult`. PoB applies
 /// shock as `EnemyDamageTaken INC` weighted by an effective shock
 /// chance:
@@ -3323,6 +3378,10 @@ mod tests {
         // requested by Config, capped at 3. Exercises the
         // ProjectileMultiplier breakdown via the COVERED_KEYS guard.
         env.output.set("ProjectileMultiplier", 1.0);
+        // Issue #34 follow-up: representative ignite duration so
+        // the COVERED_KEYS guard exercises the breakdown. 4s base
+        // (PoE constant) with no inc mods.
+        env.output.set("IgniteDuration", 4.0);
         env.output.set("CritChance", 6.0);
         env.output.set("FullDPS", 2000.0);
         env.output.set("BleedDPS", 0.0);
@@ -4042,6 +4101,55 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: IgniteDuration breakdown. PoB derives it
+    /// as `4.0 × (1 + Σ INC(IgniteDuration) / 100)` (with the 4-second
+    /// base coming from the upstream ignite-duration constant). The
+    /// Calcs tab surfaced just the seconds value; users couldn't see
+    /// where the inc came from. Worked example: base 4 × (1 + 50%) =
+    /// 6s.
+    #[test]
+    fn ignite_duration_breakdown_walks_base_and_inc() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::inc("IgniteDuration", 50.0).with_source(Source::Tree));
+        env.output.set("IgniteDuration", 6.0);
+        let bd = derive_for(&env, "IgniteDuration").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base"));
+        assert!(labels.contains(&"Increased"));
+        assert!(labels.contains(&"Ignite duration"));
+
+        let base = bd.steps.iter().find(|s| s.label == "Base").unwrap();
+        // 4s PoE constant.
+        assert!((base.value.unwrap() - 4.0).abs() < 1e-9);
+        assert!((bd.total - 6.0).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: with no Inc IgniteDuration mods the
+    /// breakdown collapses to Base + Final (no Inc step).
+    #[test]
+    fn ignite_duration_breakdown_collapses_when_no_inc() {
+        let mut env = Env::default();
+        env.output.set("IgniteDuration", 4.0);
+        let bd = derive_for(&env, "IgniteDuration").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base"));
+        assert!(!labels.contains(&"Increased"));
+        assert!(labels.contains(&"Ignite duration"));
+        assert!((bd.total - 4.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when ignite duration is
+    /// zero (not yet computed).
+    #[test]
+    fn ignite_duration_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "IgniteDuration").is_none(),
+            "expected None when IgniteDuration is zero",
+        );
+    }
+
     /// Issue #34 follow-up: MainSkillShockMult breakdown. PoB
     /// applies shock as `EnemyDamageTaken INC` weighted by an
     /// effective shock chance:
