@@ -165,6 +165,42 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "LowestAttribute" => Some(lowest_attribute(env)),
         "MaxLifeLeechRate" => max_leech_rate(env, "Life"),
         "MaxManaLeechRate" => max_leech_rate(env, "Mana"),
+        "MaxLifeLeechInstance" => leech_instance(
+            env,
+            "Life",
+            "MaxLifeLeechInstance",
+            "Per-instance cap",
+            "Max life leech instance",
+            0.10,
+            "10% of pool per instance (PoE constant)",
+        ),
+        "MaxManaLeechInstance" => leech_instance(
+            env,
+            "Mana",
+            "MaxManaLeechInstance",
+            "Per-instance cap",
+            "Max mana leech instance",
+            0.10,
+            "10% of pool per instance (PoE constant)",
+        ),
+        "LifeLeechInstanceRate" => leech_instance(
+            env,
+            "Life",
+            "LifeLeechInstanceRate",
+            "Per-instance rate",
+            "Life leech instance rate",
+            0.02,
+            "2% of pool per second per instance (PoE constant)",
+        ),
+        "ManaLeechInstanceRate" => leech_instance(
+            env,
+            "Mana",
+            "ManaLeechInstanceRate",
+            "Per-instance rate",
+            "Mana leech instance rate",
+            0.02,
+            "2% of pool per second per instance (PoE constant)",
+        ),
 
         // Crit.
         "CritChance" | "MainSkillCritChance" => Some(crit_chance(env, output_key)),
@@ -379,6 +415,10 @@ pub const COVERED_KEYS: &[&str] = &[
     "LowestAttribute",
     "MaxLifeLeechRate",
     "MaxManaLeechRate",
+    "MaxLifeLeechInstance",
+    "MaxManaLeechInstance",
+    "LifeLeechInstanceRate",
+    "ManaLeechInstanceRate",
     // Hit chance.
     "Accuracy",
     "MainSkillHitChance",
@@ -2521,6 +2561,57 @@ fn energy_shield_regen(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: shared helper for the per-instance leech
+/// caps and rates.
+///
+/// `Max{Life,Mana}LeechInstance` = `0.10 × pool` (per-instance cap)
+/// `{Life,Mana}LeechInstanceRate` = `0.02 × pool` (per-instance rate)
+///
+/// Both share the Pool → Constant → Final shape; the caller supplies
+/// the pool key, output key, step labels, the constant factor, and
+/// the constant's explain string. Returns `None` when the pool is
+/// zero.
+#[allow(clippy::too_many_arguments)]
+fn leech_instance(
+    env: &Env,
+    pool_key: &str,
+    output_key: &str,
+    factor_label: &str,
+    final_label: &str,
+    factor: f64,
+    factor_explain: &str,
+) -> Option<Breakdown> {
+    let pool = env.output.get(pool_key);
+    if pool.abs() < 1e-9 {
+        return None;
+    }
+    let total = env.output.get(output_key);
+    let pool_lower = pool_key.to_ascii_lowercase();
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label(format!("{pool_key} pool"))
+            .with_value(pool)
+            .with_explain(format!("{pool:.0} max {pool_lower} from pool derivation")),
+    );
+    steps.push(
+        BreakdownStep::label(factor_label)
+            .with_value(factor)
+            .with_explain(factor_explain.to_owned()),
+    );
+    steps.push(
+        BreakdownStep::label(final_label)
+            .with_value(total)
+            .with_explain(format!("{factor:.2} × {pool:.0} = {total:.1}")),
+    );
+
+    Some(Breakdown {
+        output_key: output_key.to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `MaxLifeLeechRate` /
 /// `MaxManaLeechRate`. Both are `0.20 × pool` per
 /// `perform_basic_stats` — PoE caps total leech at 20% of max pool
@@ -3076,6 +3167,13 @@ mod tests {
         // MaxManaLeechRate via the COVERED_KEYS guard.
         env.output.set("MaxLifeLeechRate", 220.0);
         env.output.set("MaxManaLeechRate", 72.0);
+        // Issue #34 follow-up: per-instance leech caps and rates.
+        // 10% of 1100 Life = 110, 10% of 360 Mana = 36, 2% of 1100
+        // Life = 22, 2% of 360 Mana = 7.2.
+        env.output.set("MaxLifeLeechInstance", 110.0);
+        env.output.set("MaxManaLeechInstance", 36.0);
+        env.output.set("LifeLeechInstanceRate", 22.0);
+        env.output.set("ManaLeechInstanceRate", 7.2);
         // Issue #34 follow-up: attribute breakdowns. Add representative
         // BASE mods so `pool_basic` has something to enumerate. The
         // class-start contribution is the bulk of each attribute on a
@@ -3303,6 +3401,88 @@ mod tests {
         assert!(bd.steps.iter().any(|s| s.label == "FullDPS"));
         // Bleed DPS = 0 → step is suppressed.
         assert!(!bd.steps.iter().any(|s| s.label == "+ Bleed DPS"));
+    }
+
+    /// Issue #34 follow-up: MaxLifeLeechInstance walks Pool →
+    /// per-instance cap (10%) → Final. PoE caps each individual
+    /// leech instance at 10% of max pool — the slower aggregator
+    /// of leech-driven sustain. Worked example: 1100 Life × 0.10 =
+    /// 110.
+    #[test]
+    fn max_life_leech_instance_breakdown_walks_pool_and_cap() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("MaxLifeLeechInstance", 110.0);
+        let bd = derive_for(&env, "MaxLifeLeechInstance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life pool"));
+        assert!(labels.contains(&"Per-instance cap"));
+        assert!(labels.contains(&"Max life leech instance"));
+
+        let cap = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Per-instance cap")
+            .unwrap();
+        assert!((cap.value.unwrap() - 0.10).abs() < 1e-9);
+        assert!((bd.total - 110.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: LifeLeechInstanceRate walks Pool → 2%
+    /// drain rate → Final. The base rate at which a single leech
+    /// instance pays out: 2% of max pool per second per instance,
+    /// PoE constant. Worked example: 1100 Life × 0.02 = 22.
+    #[test]
+    fn life_leech_instance_rate_breakdown_walks_pool_and_rate() {
+        let mut env = Env::default();
+        env.output.set("Life", 1100.0);
+        env.output.set("LifeLeechInstanceRate", 22.0);
+        let bd = derive_for(&env, "LifeLeechInstanceRate").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Life pool"));
+        assert!(labels.contains(&"Per-instance rate"));
+        assert!(labels.contains(&"Life leech instance rate"));
+
+        let rate_step = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Per-instance rate")
+            .unwrap();
+        assert!((rate_step.value.unwrap() - 0.02).abs() < 1e-9);
+        assert!((bd.total - 22.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ManaLeechInstanceRate walks the same
+    /// Pool → 2% rate chain. Worked example: 360 Mana × 0.02 = 7.2.
+    #[test]
+    fn mana_leech_instance_rate_breakdown_walks_pool_and_rate() {
+        let mut env = Env::default();
+        env.output.set("Mana", 360.0);
+        env.output.set("ManaLeechInstanceRate", 7.2);
+        let bd = derive_for(&env, "ManaLeechInstanceRate").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Mana pool"));
+        assert!(labels.contains(&"Per-instance rate"));
+        assert!(labels.contains(&"Mana leech instance rate"));
+        assert!((bd.total - 7.2).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when the pool is zero
+    /// (any of the four per-instance breakdowns).
+    #[test]
+    fn leech_instance_breakdowns_skipped_when_no_pool() {
+        let env = Env::default();
+        for key in [
+            "MaxLifeLeechInstance",
+            "MaxManaLeechInstance",
+            "LifeLeechInstanceRate",
+            "ManaLeechInstanceRate",
+        ] {
+            assert!(
+                derive_for(&env, key).is_none(),
+                "expected None for {key} when pool is zero",
+            );
+        }
     }
 
     /// Issue #34 follow-up: MaxLifeLeechRate walks Pool → 20%
