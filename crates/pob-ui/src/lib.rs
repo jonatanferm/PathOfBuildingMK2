@@ -108,6 +108,20 @@ struct LoadedApp {
     /// end either applies or discards it. Mirrors PoB's
     /// `TreeTab.lua:322-339` version-converter dialog.
     pending_version_swap: Option<PendingVersionSwap>,
+    /// Issue #220 / #207: cached node-power heatmap. `Some` after the
+    /// user clicks the "Refresh heatmap" button — `tree_view` reads it
+    /// when `show_power_overlay` is on, tinting each unallocated node
+    /// by its predicted DPS/EHP contribution. Computing the map is
+    /// `O(N+1) perform`s (`rank_node_additions`), so we never recompute
+    /// implicitly — the toggle just controls visibility of whatever's
+    /// already cached.
+    power_overlay: Option<ahash::AHashMap<pob_data::NodeId, eframe::egui::Color32>>,
+    /// Issue #220 / #207: whether the "Show node power" overlay is
+    /// currently visible. Decoupled from `power_overlay` so a user
+    /// can toggle the overlay off without forgetting the cached map
+    /// (avoids paying for another `rank_node_additions` walk on
+    /// re-enable).
+    show_power_overlay: bool,
     active_tab: Tab,
     items_state: items_tab::ItemsTabState,
     /// Issue #209: user-global saved-items store. Loaded from disk at
@@ -515,6 +529,8 @@ impl PobApp {
             show_hotkey_help: false,
             pending_tree_reset: None,
             pending_version_swap: None,
+            power_overlay: None,
+            show_power_overlay: false,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -595,6 +611,8 @@ impl PobApp {
             show_hotkey_help: false,
             pending_tree_reset: None,
             pending_version_swap: None,
+            power_overlay: None,
+            show_power_overlay: false,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
             shared_items: {
@@ -1042,6 +1060,42 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     .clicked()
                 {
                     app.notable_db_state.open = !app.notable_db_state.open;
+                }
+                ui.separator();
+                // Issue #220 / #207: node-power overlay controls. The
+                // toggle gates rendering of the cached map (cheap);
+                // the Refresh button rebuilds the map (`O(N+1)
+                // perform`s, multi-second on a real tree, so the
+                // explicit click is intentional). Disabled when no
+                // map is cached so the toggle's hover text can
+                // explain that you need to Refresh first.
+                let has_cache = app.power_overlay.is_some();
+                let toggle_label = if app.show_power_overlay {
+                    "Hide power"
+                } else {
+                    "Show power"
+                };
+                if ui
+                    .add_enabled(has_cache, egui::Button::new(toggle_label))
+                    .on_hover_text(if has_cache {
+                        "Toggle the cached node-power heatmap overlay."
+                    } else {
+                        "Click Refresh heatmap to compute the overlay first."
+                    })
+                    .clicked()
+                {
+                    app.show_power_overlay = !app.show_power_overlay;
+                }
+                if ui
+                    .button("Refresh heatmap")
+                    .on_hover_text(
+                        "Recompute the per-node power heatmap. Multi-second on \
+                         a real tree — runs synchronously, so the UI will \
+                         freeze briefly. Enables the overlay automatically.",
+                    )
+                    .clicked()
+                {
+                    refresh_power_overlay(app);
                 }
             });
         });
@@ -1519,12 +1573,18 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 }),
                 _ => None,
             };
+            let power_overlay = if app.show_power_overlay {
+                app.power_overlay.as_ref()
+            } else {
+                None
+            };
             let interaction = app.tree_view.ui_with_overlay(
                 ui,
                 &app.tree,
                 &allocated,
                 &tattooed,
                 overlay_inputs.as_ref(),
+                power_overlay,
             );
 
             // Path-overlay preview: when the user hovers an unallocated node, plot the
@@ -2089,6 +2149,38 @@ fn focus_next_search_match(app: &mut LoadedApp) -> bool {
     }
     app.search_focus_index = (idx + 1) % app.search_match_order.len();
     true
+}
+
+/// Issue #220 / #207: rebuild the cached node-power heatmap and turn
+/// the overlay on. Called from the "Refresh heatmap" button. Runs
+/// `rank_node_additions` under the hood (`O(N+1) perform`s on the
+/// passive tree), so this synchronously blocks the UI for a multi-
+/// second pause on a real ~2000-node tree — intentional per
+/// [`crate::node_power_heatmap::compute_heatmap_inputs`]'s contract.
+///
+/// The cached map is keyed by `NodeId` and survives across recompute
+/// frames (unallocated nodes that get allocated are filtered out at
+/// paint time, so a stale-by-one-pick map still renders correctly).
+fn refresh_power_overlay(app: &mut LoadedApp) {
+    let cluster_ctx = match (&app.cluster_jewels, &app.cluster_jewel_mods) {
+        (Some(cj), Some(cm)) => Some(pob_engine::ClusterContext::new(cj, cm)),
+        _ => None,
+    };
+    let map = crate::node_power_heatmap::compute_heatmap_inputs(
+        &app.character,
+        &app.tree,
+        Some(&app.skills),
+        app.bases.as_ref(),
+        cluster_ctx,
+        None,
+    );
+    app.power_overlay = Some(map);
+    app.show_power_overlay = true;
+    let entries = app.power_overlay.as_ref().map_or(0, |m| m.len());
+    app.status_message = Some((
+        StatusKind::Info,
+        format!("Node-power heatmap refreshed ({entries} candidate nodes)."),
+    ));
 }
 
 /// Issue #225: keyboard-shortcuts cheatsheet. Lists every shortcut the

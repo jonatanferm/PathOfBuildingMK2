@@ -140,7 +140,7 @@ impl TreeView {
         allocated: &std::collections::HashSet<NodeId>,
         tattooed: &std::collections::HashSet<NodeId>,
     ) -> TreeInteraction {
-        self.ui_with_overlay(ui, tree, allocated, tattooed, None)
+        self.ui_with_overlay(ui, tree, allocated, tattooed, None, None)
     }
 
     /// Issue #197 (slice B): same as [`Self::ui`] but also renders a cluster
@@ -148,6 +148,14 @@ impl TreeView {
     /// for builds without socketed cluster jewels — equivalent to `Self::ui`.
     /// Hit-tests the overlay's synth nodes and surfaces the result via
     /// `TreeInteraction::synth_clicked` / `synth_hovered`.
+    ///
+    /// Issue #220 / #207: `power_overlay` paints a translucent disc behind
+    /// each unallocated node whose id appears in the map, using the
+    /// supplied per-node colour from
+    /// [`crate::node_power_heatmap::compute_heatmap_inputs`]. Allocated
+    /// nodes are skipped — the overlay highlights candidate next picks,
+    /// not already-paid points. Pass `None` to render the tree without
+    /// the heatmap (the default UI state when "Show power" is off).
     pub fn ui_with_overlay(
         &mut self,
         ui: &mut egui::Ui,
@@ -155,6 +163,7 @@ impl TreeView {
         allocated: &std::collections::HashSet<NodeId>,
         tattooed: &std::collections::HashSet<NodeId>,
         overlay: Option<&crate::cluster_overlay::OverlayInputs<'_>>,
+        power_overlay: Option<&ahash::AHashMap<NodeId, Color32>>,
     ) -> TreeInteraction {
         let available = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(available, Sense::click_and_drag());
@@ -486,6 +495,40 @@ impl TreeView {
                 // Centre dot picks the same accent so the marker reads against any
                 // background (active group bg, search highlight, etc.).
                 painter.circle_filled(s, (radius * 0.18).max(2.0), badge_color);
+            }
+        }
+
+        // Issue #220 / #207: node-power overlay. For each unallocated
+        // node carrying a colour in the supplied map, paint a
+        // translucent ring just outside the node's frame. We don't
+        // tint allocated nodes — `compute_heatmap_inputs` ranks only
+        // candidate picks, but a stale map across a "user just
+        // allocated" frame could still contain a now-allocated id, so
+        // we filter defensively here (see [`heatmap_entries_to_paint`]
+        // for the pure-helper version of the filter rule that's unit
+        // tested in isolation).
+        if let Some(map) = power_overlay {
+            for (id, colour) in heatmap_entries_to_paint(map, allocated, &self.positions) {
+                let Some(node) = tree.nodes.get(&id) else {
+                    continue;
+                };
+                let Some(p) = self.positions.get(&id).copied() else {
+                    continue;
+                };
+                let s = to_screen(p);
+                if !viewport.expand(20.0).contains(s) {
+                    continue;
+                }
+                let radius = node_radius(node, self.zoom);
+                // 48-alpha fill so the underlying node + frame still
+                // read through; a slightly stronger stroke gives a
+                // visible edge at any zoom without obscuring the
+                // node's own outline.
+                let fill = Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), 48);
+                let stroke =
+                    Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), 200);
+                painter.circle_filled(s, radius + 5.0, fill);
+                painter.circle_stroke(s, radius + 5.0, egui::Stroke::new(1.5, stroke));
             }
         }
 
@@ -1016,10 +1059,35 @@ pub fn tree_node_tooltip_lines(
     out
 }
 
+/// Issue #220 / #207: filter helper — return the heatmap entries the
+/// renderer will actually paint, given the current allocated set. We
+/// skip allocated nodes (already-paid points don't need a "candidate
+/// next pick" tint) and entries with no positional data. Pure / no
+/// egui so the renderer's filter rule has a unit-test home.
+///
+/// Output order is unstable (`AHashMap` iteration order) — callers
+/// that need a deterministic order should sort by `NodeId` themselves.
+#[must_use]
+pub fn heatmap_entries_to_paint(
+    map: &ahash::AHashMap<NodeId, Color32>,
+    allocated: &std::collections::HashSet<NodeId>,
+    positions: &HashMap<NodeId, NodePos>,
+) -> Vec<(NodeId, Color32)> {
+    map.iter()
+        .filter(|(id, _)| !allocated.contains(id))
+        .filter(|(id, _)| positions.contains_key(id))
+        .map(|(id, c)| (*id, *c))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::class_name_to_start_index;
+    use super::heatmap_entries_to_paint;
     use super::tree_node_tooltip_lines;
+    use super::NodePos;
+    use ahash::{HashMap, HashMapExt};
+    use eframe::egui::Color32;
     use pob_data::{Node, NodeId, NodeKind};
     use std::collections::HashSet;
 
@@ -1128,5 +1196,75 @@ mod tests {
         assert_eq!(class_name_to_start_index(""), None);
         assert_eq!(class_name_to_start_index("witch"), None);
         assert_eq!(class_name_to_start_index("Necromancer"), None);
+    }
+
+    fn pos(x: f32, y: f32) -> NodePos {
+        NodePos { x, y }
+    }
+
+    #[test]
+    fn heatmap_filter_skips_allocated_nodes() {
+        // Issue #220 / #207: a cached heatmap can carry a node id
+        // that the user just allocated. The filter must drop it so
+        // the renderer doesn't paint a "candidate" ring on an
+        // already-paid point. The complementary unallocated entry in
+        // the same map should still come through.
+        let mut map = ahash::AHashMap::default();
+        map.insert(1 as NodeId, Color32::RED);
+        map.insert(2 as NodeId, Color32::GREEN);
+        let mut allocated: HashSet<NodeId> = HashSet::new();
+        allocated.insert(1);
+        let mut positions: HashMap<NodeId, NodePos> = HashMap::new();
+        positions.insert(1, pos(0.0, 0.0));
+        positions.insert(2, pos(10.0, 10.0));
+        let visible = heatmap_entries_to_paint(&map, &allocated, &positions);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].0, 2);
+        assert_eq!(visible[0].1, Color32::GREEN);
+    }
+
+    #[test]
+    fn heatmap_filter_skips_entries_missing_a_position() {
+        // Defensive: an id in the heatmap with no position in the
+        // tree view shouldn't crash or render — `compute_heatmap_inputs`
+        // is sourced from a different `PassiveTree` revision than the
+        // one the view is currently displaying (after a #220
+        // version-swap, say). The filter just drops orphans.
+        let mut map = ahash::AHashMap::default();
+        map.insert(7 as NodeId, Color32::WHITE);
+        map.insert(8 as NodeId, Color32::WHITE);
+        let allocated: HashSet<NodeId> = HashSet::new();
+        let mut positions: HashMap<NodeId, NodePos> = HashMap::new();
+        positions.insert(7, pos(0.0, 0.0));
+        let visible = heatmap_entries_to_paint(&map, &allocated, &positions);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].0, 7);
+    }
+
+    #[test]
+    fn heatmap_filter_empty_input_yields_empty() {
+        let map: ahash::AHashMap<NodeId, Color32> = ahash::AHashMap::default();
+        let allocated: HashSet<NodeId> = HashSet::new();
+        let positions: HashMap<NodeId, NodePos> = HashMap::new();
+        let visible = heatmap_entries_to_paint(&map, &allocated, &positions);
+        assert!(visible.is_empty());
+    }
+
+    #[test]
+    fn heatmap_filter_passes_all_unallocated_entries_through() {
+        // Sanity: with a totally-fresh build (nothing allocated) the
+        // filter is the identity on the input map, modulo position
+        // existence.
+        let mut map = ahash::AHashMap::default();
+        map.insert(1 as NodeId, Color32::RED);
+        map.insert(2 as NodeId, Color32::GREEN);
+        map.insert(3 as NodeId, Color32::BLUE);
+        let allocated: HashSet<NodeId> = HashSet::new();
+        let mut positions: HashMap<NodeId, NodePos> = HashMap::new();
+        for i in 1..=3 {
+            positions.insert(i, pos(0.0, 0.0));
+        }
+        let visible = heatmap_entries_to_paint(&map, &allocated, &positions);
+        assert_eq!(visible.len(), 3);
     }
 }
