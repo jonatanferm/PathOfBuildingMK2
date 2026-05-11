@@ -21,11 +21,10 @@
 //! * Empty / whitespace-only path segments are stripped — defensive
 //!   against malformed `category` strings.
 //!
-//! `dead_code` allowed module-wide because the renderer (next slice
-//! of issue #213) is the consumer; the data layer ships independently
-//! to keep the PR focused.
-
-#![allow(dead_code)]
+//! Slice 2 (issue #213): the renderer in `builds_tab` consumes
+//! [`build_folder_tree`] + [`folder_path_key`] to drive a recursive
+//! `egui::CollapsingHeader` view with persistent expand/collapse
+//! state.
 
 use crate::builds_tab::BuildEntry;
 
@@ -84,6 +83,22 @@ fn insert_build(node: &mut FolderNode, segments: &[String], entry: BuildEntry) {
         insert_build(&mut child, tail, entry);
         node.children.push(child);
     }
+}
+
+/// Stable key for a folder's position in the tree, suitable for use
+/// as a `HashMap` key in expand/collapse state and as an egui id_salt.
+///
+/// Built from the path of folder names from the root down to this
+/// node. The root itself maps to `""` (empty key). Joined with `/`
+/// because folder names from [`split_category`] are already
+/// `/`-stripped — there is no escaping concern.
+///
+/// Slice 2 (issue #213) callers persist these keys on
+/// [`crate::builds_tab::BuildsTabState::expanded`] so collapse state
+/// survives tab switches and refresh cycles.
+#[must_use]
+pub fn folder_path_key(path: &[&str]) -> String {
+    path.join("/")
 }
 
 fn sort_node(node: &mut FolderNode) {
@@ -194,6 +209,33 @@ mod tests {
         // Both root-level builds present and sorted.
         let root_labels: Vec<&str> = tree.builds.iter().map(|e| e.label.as_str()).collect();
         assert_eq!(root_labels, vec!["notes", "scratch"]);
+    }
+
+    #[test]
+    fn folder_path_key_root_is_empty() {
+        assert_eq!(folder_path_key(&[]), "");
+    }
+
+    #[test]
+    fn folder_path_key_joins_segments_with_slash() {
+        assert_eq!(folder_path_key(&["Levelling"]), "Levelling");
+        assert_eq!(
+            folder_path_key(&["Levelling", "Marauder"]),
+            "Levelling/Marauder"
+        );
+    }
+
+    #[test]
+    fn folder_path_key_distinguishes_distinct_paths() {
+        // Two folders with the same leaf name at different depths
+        // must produce different keys so expand-state for one doesn't
+        // bleed into the other.
+        let a = folder_path_key(&["Bossing", "HC"]);
+        let b = folder_path_key(&["Levelling", "HC"]);
+        let c = folder_path_key(&["HC"]);
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(b, c);
     }
 
     #[test]
