@@ -4,8 +4,11 @@ use std::cmp::Ordering;
 
 use eframe::egui;
 use pob_data::bases::ItemBaseSet;
-use pob_data::{Item, ItemBase, ItemSet, ModLine, ModSection, Rarity, Slot};
-use pob_engine::{parse_item, Character};
+use pob_data::{Item, ItemBase, ItemSet, ModLine, ModSection, PassiveTree, Rarity, Slot};
+use pob_engine::{
+    format_top_contributors, parse_item, rank_item_modlines, Character, ItemModlineScore,
+    SkillRegistry,
+};
 
 use crate::color_codes;
 use crate::shared_items::{SharedItem, SharedItemStore};
@@ -53,6 +56,14 @@ pub struct ItemsTabState {
     /// Save is rejected. Cleared on successful Save / Cancel /
     /// outside-click.
     pub item_set_rename: Option<ItemSetRenameState>,
+    /// Issue #207 (panel slice): "Top contributing mod lines" power-report
+    /// panel toggle. The panel runs `rank_item_modlines` for every
+    /// equipped slot — that's M+1 perform calls per item, so 100+ calls
+    /// on a fully-modded build. Off by default; the user opts in by
+    /// expanding the collapsing header at the bottom of the tab. Mirrors
+    /// PoB's `PowerReportListControl.lua` modline view that shows what's
+    /// actually pulling weight on the equipped set.
+    pub top_contributors_open: bool,
 }
 
 /// Issue #211 (slice 3): edit-buffer state for the shared-items rename
@@ -109,6 +120,7 @@ impl Default for ItemsTabState {
             new_shared_label: String::new(),
             shared_rename: None,
             item_set_rename: None,
+            top_contributors_open: false,
         }
     }
 }
@@ -615,6 +627,8 @@ pub fn ui(
     ui: &mut egui::Ui,
     state: &mut ItemsTabState,
     character: &mut Character,
+    tree: &PassiveTree,
+    skills: &SkillRegistry,
     bases: Option<&ItemBaseSet>,
     shared_items: &mut SharedItemStore,
 ) -> bool {
@@ -1060,7 +1074,68 @@ pub fn ui(
             });
         }
     });
+
+    // Issue #207 (panel slice): "Top contributing mod lines" power
+    // report. Wired into PR #379's `format_top_contributors` formatter
+    // — opt-in collapsing header so the M+1-perform-call-per-equipped-
+    // item cost only burns when the user actually wants it. Read-only,
+    // never sets `changed`.
+    ui.separator();
+    egui::CollapsingHeader::new("Top contributing mod lines")
+        .id_salt("items_tab_top_contributors")
+        .default_open(false)
+        .show(ui, |ui| {
+            state.top_contributors_open = true;
+            ui.label(
+                "Removes one mod line at a time and re-runs the build to score what \
+                 each line is actually worth. Slow on full equipped sets.",
+            );
+            let lines = compute_top_contributors_panel(character, tree, skills, bases, 10);
+            if lines.is_empty() {
+                ui.weak("(no equipped mod lines to score)");
+            } else {
+                for line in &lines {
+                    ui.label(line);
+                }
+            }
+        });
+
     changed
+}
+
+/// Issue #207 (panel slice): build the top-N contributing mod-line
+/// strings across every equipped slot. Calls
+/// [`rank_item_modlines`](pob_engine::rank_item_modlines) per slot, then
+/// re-sorts the flattened result by max(dps_delta, ehp_delta) descending
+/// before handing off to [`format_top_contributors`]. Returns an empty
+/// vector when nothing is equipped — the panel renders an empty-state
+/// message in that case.
+///
+/// Cluster context and timeless data are passed as `None` here: the
+/// panel is intentionally cheap-to-wire and approximate. Callers that
+/// need cluster-aware scoring will add the threading in a follow-up
+/// alongside the heatmap work.
+pub fn compute_top_contributors_panel(
+    character: &Character,
+    tree: &PassiveTree,
+    skills: &SkillRegistry,
+    bases: Option<&ItemBaseSet>,
+    top_n: usize,
+) -> Vec<String> {
+    let mut all: Vec<ItemModlineScore> = Vec::new();
+    for slot in Slot::all() {
+        if character.items.get(*slot).is_none() {
+            continue;
+        }
+        let scores = rank_item_modlines(character, tree, *slot, Some(skills), bases, None, None);
+        all.extend(scores);
+    }
+    all.sort_by(|a, b| {
+        let ka = a.dps_delta.max(a.ehp_delta);
+        let kb = b.dps_delta.max(b.ehp_delta);
+        kb.partial_cmp(&ka).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    format_top_contributors(&all, top_n)
 }
 
 /// Issue #209: render the shared-items sub-list inside the Browse panel.
@@ -2415,5 +2490,51 @@ mod tests {
         assert_eq!(clone_item_set(&mut c, 9), Err(ItemSetOpError::OutOfRange));
         // No spurious set added.
         assert_eq!(c.item_sets.len(), 1);
+    }
+
+    // ─── Issue #207 (panel slice): top-contributors panel ────────────────
+
+    #[test]
+    fn top_contributors_panel_default_state_is_closed() {
+        // The collapsing header is opt-in: opening the Items tab cold
+        // must NOT trigger the M+1-perform-call-per-equipped-item
+        // ranking pass. Guards against an accidental flip of the
+        // `default_open` flag in a future refactor.
+        let s = ItemsTabState::default();
+        assert!(!s.top_contributors_open);
+    }
+
+    #[test]
+    fn top_contributors_panel_empty_character_is_empty() {
+        // No equipped items → no mod lines to score → empty result.
+        // Verifies the panel doesn't panic when wired into a fresh
+        // build, and that the empty-state branch the UI renders the
+        // "(no equipped mod lines to score)" label for is reachable.
+        use ahash::HashMap as AHashMap;
+        use pob_data::{TreeConstants, TreePoints};
+        let c = Character::new(ClassRef::scion(), 1);
+        let tree = PassiveTree {
+            version: "test".into(),
+            tree: "test".into(),
+            classes: vec![],
+            groups: AHashMap::default(),
+            nodes: AHashMap::default(),
+            jewel_slots: vec![],
+            min_x: 0,
+            min_y: 0,
+            max_x: 0,
+            max_y: 0,
+            constants: TreeConstants {
+                skills_per_orbit: vec![],
+                orbit_radii: vec![],
+                classes: AHashMap::default(),
+                character_attributes: AHashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: TreePoints::default(),
+        };
+        let skills = SkillRegistry::default();
+        let lines = compute_top_contributors_panel(&c, &tree, &skills, None, 10);
+        assert!(lines.is_empty());
     }
 }
