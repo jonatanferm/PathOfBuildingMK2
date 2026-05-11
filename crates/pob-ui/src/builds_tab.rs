@@ -483,6 +483,62 @@ fn count_builds(node: &FolderNode) -> usize {
 }
 
 /// Render a single build entry row (label, ext, rename / duplicate /
+/// Issue #213 follow-up: choice picked from the build-row right-click
+/// context menu. Each variant matches one of the inline action buttons
+/// in [`render_build_row`] — keeping the surface enum-shaped lets the
+/// menu wiring stay one match arm and gives tests a way to exercise
+/// the state mutations without spinning up egui.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildRowMenuChoice {
+    Rename,
+    Duplicate,
+    /// Open the move-to-folder picker popup. Currently disk-only — the
+    /// helper makes it a no-op on other backends so the renderer can
+    /// always offer the menu item and the host-side rename support
+    /// landing later auto-extends it.
+    MoveToFolder,
+    /// First click on Delete — arm the two-step confirmation.
+    DeleteRequest,
+    /// Second click on Delete — actually emit the action.
+    DeleteConfirm,
+}
+
+/// Issue #213 follow-up: apply a context-menu pick to the builds-tab
+/// state and (where appropriate) emit a [`BuildsAction`]. Mirrors the
+/// inline-button handlers in [`render_build_row`] one-for-one so both
+/// affordances stay in sync. Pure-ish: touches state + action only.
+pub fn apply_build_row_menu_choice(
+    choice: BuildRowMenuChoice,
+    entry: &BuildEntry,
+    state: &mut BuildsTabState,
+    action: &mut Option<BuildsAction>,
+) {
+    match choice {
+        BuildRowMenuChoice::Rename => {
+            state.pending_rename = Some((entry.id.clone(), entry.label.clone()));
+            state.pending_delete = None;
+        }
+        BuildRowMenuChoice::Duplicate => {
+            *action = Some(BuildsAction::Duplicate(entry.id.clone()));
+            state.loaded = false;
+        }
+        BuildRowMenuChoice::MoveToFolder => {
+            if matches!(entry.id, BuildId::Disk(_)) {
+                state.move_popup_for = Some(entry.id.clone());
+                state.pending_delete = None;
+            }
+        }
+        BuildRowMenuChoice::DeleteRequest => {
+            state.pending_delete = Some(entry.id.clone());
+        }
+        BuildRowMenuChoice::DeleteConfirm => {
+            *action = Some(BuildsAction::Delete(entry.id.clone()));
+            state.pending_delete = None;
+            state.loaded = false;
+        }
+    }
+}
+
 /// delete controls). Extracted so both the root level and every
 /// nested folder share one code path.
 fn render_build_row(
@@ -524,15 +580,77 @@ fn render_build_row(
             } else if cancel {
                 state.pending_rename = None;
             }
-        } else if ui
-            .add(
-                egui::Label::new(egui::RichText::new(&entry.label).monospace())
-                    .sense(egui::Sense::click()),
-            )
-            .on_hover_text("Click to load")
-            .clicked()
-        {
-            *action = Some(BuildsAction::Load(entry.id.clone()));
+        } else {
+            let label_resp = ui
+                .add(
+                    egui::Label::new(egui::RichText::new(&entry.label).monospace())
+                        .sense(egui::Sense::click()),
+                )
+                .on_hover_text("Click to load · right-click for actions");
+            if label_resp.clicked() {
+                *action = Some(BuildsAction::Load(entry.id.clone()));
+            }
+            // Issue #213 follow-up: right-click context menu mirroring
+            // the inline action buttons. Discoverable for users who
+            // expect a desktop-app convention and faster than reaching
+            // for the row's icon strip on dense lists.
+            let pending_delete_for_this = state
+                .pending_delete
+                .as_ref()
+                .map(|id| id == &entry.id)
+                .unwrap_or(false);
+            let is_disk = matches!(entry.id, BuildId::Disk(_));
+            label_resp.context_menu(|ui| {
+                if ui.button("Rename").clicked() {
+                    apply_build_row_menu_choice(BuildRowMenuChoice::Rename, entry, state, action);
+                    ui.close_menu();
+                }
+                if ui.button("Duplicate").clicked() {
+                    apply_build_row_menu_choice(
+                        BuildRowMenuChoice::Duplicate,
+                        entry,
+                        state,
+                        action,
+                    );
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(is_disk, egui::Button::new("Move to folder…"))
+                    .on_disabled_hover_text("Move-to-folder is currently disk-only.")
+                    .clicked()
+                {
+                    apply_build_row_menu_choice(
+                        BuildRowMenuChoice::MoveToFolder,
+                        entry,
+                        state,
+                        action,
+                    );
+                    ui.close_menu();
+                }
+                ui.separator();
+                let delete_label = if pending_delete_for_this {
+                    "Confirm delete"
+                } else {
+                    "Delete…"
+                };
+                let delete_color = if pending_delete_for_this {
+                    egui::Color32::from_rgb(0xDD, 0x00, 0x22)
+                } else {
+                    ui.visuals().text_color()
+                };
+                if ui
+                    .button(egui::RichText::new(delete_label).color(delete_color))
+                    .clicked()
+                {
+                    let choice = if pending_delete_for_this {
+                        BuildRowMenuChoice::DeleteConfirm
+                    } else {
+                        BuildRowMenuChoice::DeleteRequest
+                    };
+                    apply_build_row_menu_choice(choice, entry, state, action);
+                    ui.close_menu();
+                }
+            });
         }
 
         ui.weak(format!(".{}", entry.ext));
@@ -970,6 +1088,116 @@ mod tests {
         // the popup handles the no-op case explicitly).
         let tree = build_folder_tree(&[]);
         assert_eq!(collect_folder_paths(&tree), vec![String::new()]);
+    }
+
+    #[test]
+    fn build_row_menu_rename_arms_pending_rename() {
+        // Issue #213 follow-up: right-click → Rename mirrors the
+        // inline ✎ button — opens the inline-rename TextEdit for the
+        // clicked row and clears any in-flight delete confirmation
+        // so two different rows can't be ambiguously queued.
+        let mut state = BuildsTabState::default();
+        let other_id = BuildId::Disk(PathBuf::from("/tmp/other.mk2"));
+        state.pending_delete = Some(other_id);
+        let e = entry("MyBuild", None);
+        let mut action: Option<BuildsAction> = None;
+        apply_build_row_menu_choice(BuildRowMenuChoice::Rename, &e, &mut state, &mut action);
+        assert_eq!(
+            state.pending_rename,
+            Some((e.id.clone(), "MyBuild".to_owned()))
+        );
+        assert!(
+            state.pending_delete.is_none(),
+            "Rename should clear any in-flight delete on another row",
+        );
+        assert!(
+            action.is_none(),
+            "Rename arms state, doesn't emit an action"
+        );
+    }
+
+    #[test]
+    fn build_row_menu_duplicate_emits_action() {
+        // Mirrors the inline ⎘ button. Emitting the action prompts the
+        // host to allocate a `<name> copy.<ext>` and re-list; the
+        // renderer also drops `loaded` so the next frame requests a
+        // refresh once the host writes the new file.
+        let mut state = BuildsTabState::default();
+        state.loaded = true;
+        let e = entry("MyBuild", None);
+        let mut action: Option<BuildsAction> = None;
+        apply_build_row_menu_choice(BuildRowMenuChoice::Duplicate, &e, &mut state, &mut action);
+        assert_eq!(action, Some(BuildsAction::Duplicate(e.id.clone())));
+        assert!(!state.loaded, "Duplicate marks the listing stale");
+    }
+
+    #[test]
+    fn build_row_menu_move_opens_popup_for_disk_builds() {
+        // Mirrors the inline ⇨ button. Move-to-folder is disk-only;
+        // wasm IndexedDB / FSA-folder backends don't support rename
+        // yet so the popup wouldn't apply cleanly.
+        let mut state = BuildsTabState::default();
+        let e = entry("MyBuild", None);
+        let mut action: Option<BuildsAction> = None;
+        apply_build_row_menu_choice(
+            BuildRowMenuChoice::MoveToFolder,
+            &e,
+            &mut state,
+            &mut action,
+        );
+        assert_eq!(state.move_popup_for, Some(e.id.clone()));
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn build_row_menu_move_is_noop_for_non_disk_builds() {
+        let mut state = BuildsTabState::default();
+        let e = BuildEntry {
+            label: "WasmBuild".to_owned(),
+            id: BuildId::Idb("uuid-abc".to_owned()),
+            ext: "mk2".to_owned(),
+            category: None,
+        };
+        let mut action: Option<BuildsAction> = None;
+        apply_build_row_menu_choice(
+            BuildRowMenuChoice::MoveToFolder,
+            &e,
+            &mut state,
+            &mut action,
+        );
+        assert!(
+            state.move_popup_for.is_none(),
+            "wasm builds can't be moved yet — the menu pick should be a no-op",
+        );
+    }
+
+    #[test]
+    fn build_row_menu_delete_is_two_step() {
+        // Mirrors the inline 🗑 → red Confirm flow. The first click
+        // arms `pending_delete`; only the second emits the action so
+        // an accidental right-click doesn't lose a build.
+        let mut state = BuildsTabState::default();
+        let e = entry("MyBuild", None);
+        let mut action: Option<BuildsAction> = None;
+        apply_build_row_menu_choice(
+            BuildRowMenuChoice::DeleteRequest,
+            &e,
+            &mut state,
+            &mut action,
+        );
+        assert_eq!(state.pending_delete, Some(e.id.clone()));
+        assert!(action.is_none(), "First click only arms confirmation");
+        apply_build_row_menu_choice(
+            BuildRowMenuChoice::DeleteConfirm,
+            &e,
+            &mut state,
+            &mut action,
+        );
+        assert_eq!(action, Some(BuildsAction::Delete(e.id.clone())));
+        assert!(
+            state.pending_delete.is_none(),
+            "Confirmed delete clears the arm"
+        );
     }
 
     #[test]
