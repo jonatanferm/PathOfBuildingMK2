@@ -528,6 +528,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // attack builds tuning accuracy investment.
         "Accuracy" => Some(accuracy(env)),
         "MainSkillHitChance" => Some(hit_chance_main_skill(env)),
+        "AccuracyHitChance" => accuracy_hit_chance(env),
 
         // Damage chain — the after-resist hit shows the multiplicative
         // step from `AverageHitWithCrit` to the post-resist value. Lets
@@ -4116,6 +4117,44 @@ fn resist_max(env: &Env, output_key: &str, final_label: &str) -> Option<Breakdow
     )
 }
 
+/// Issue #34 follow-up: re-derive `AccuracyHitChance`. PoB sets it
+/// to the same value as `MainSkillHitChance` so character-level code
+/// can read the active skill's hit chance under attack-skill
+/// terminology (`perform.rs:3735`/`:3743`). The breakdown calls out
+/// the alias and links back to MainSkillHitChance so users don't have
+/// to wonder why the two outputs match.
+///
+/// Returns `None` when AccuracyHitChance is zero (no skill bound).
+fn accuracy_hit_chance(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("AccuracyHitChance");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let main_skill = env.output.get("MainSkillHitChance");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Main skill hit chance")
+            .with_value(main_skill)
+            .with_explain(format!(
+                "{main_skill:.0}% from MainSkillHitChance — see its breakdown for the Accuracy / EnemyEvasion formula"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Accuracy hit chance")
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0}% — alias of MainSkillHitChance exposed under attack-skill terminology"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "AccuracyHitChance".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `ManaRegenRecovery`. PoB sets it
 /// to the same value as `ManaRegen` so flask-recovery code can read
 /// the regen rate under that name (`perform_basic_stats:1277`). The
@@ -6874,6 +6913,51 @@ mod tests {
         assert!(
             derive_for(&env, "ManaRegenRecovery").is_none(),
             "expected None when ManaRegenRecovery is zero",
+        );
+    }
+
+    /// Issue #34 follow-up: AccuracyHitChance is just an alias for
+    /// MainSkillHitChance — `perform_skill_dps` sets it to the same
+    /// value so PoB's character-level code can read the active skill's
+    /// hit chance under attack-skill terminology. Surfacing the alias
+    /// in the breakdown panel saves users from hunting for "why is
+    /// this the same number as MainSkillHitChance?".
+    #[test]
+    fn accuracy_hit_chance_breakdown_aliases_main_skill_hit_chance() {
+        let mut env = Env::default();
+        env.output.set("MainSkillHitChance", 95.0);
+        env.output.set("AccuracyHitChance", 95.0);
+        let bd = derive_for(&env, "AccuracyHitChance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| l.contains("Main skill hit chance")),
+            "expected back-link to Main skill hit chance, got {labels:?}",
+        );
+        let alias = bd
+            .steps
+            .iter()
+            .find(|s| s.label.contains("Main skill hit chance"))
+            .unwrap();
+        assert!((alias.value.unwrap() - 95.0).abs() < 1e-9);
+        assert!(
+            alias
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("MainSkillHitChance") || e.contains("alias")),
+            "expected alias hint in explain, got {:?}",
+            alias.explain
+        );
+        assert!((bd.total - 95.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when no skill is bound
+    /// (AccuracyHitChance defaults to zero on an empty env).
+    #[test]
+    fn accuracy_hit_chance_breakdown_skipped_when_no_skill() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "AccuracyHitChance").is_none(),
+            "expected None when AccuracyHitChance is zero",
         );
     }
 
