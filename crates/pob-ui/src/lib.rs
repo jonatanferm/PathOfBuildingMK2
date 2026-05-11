@@ -263,6 +263,14 @@ struct LoadedApp {
     data_root: std::path::PathBuf,
     /// Hash of the inputs `compute_full` last ran with — skip recompute when unchanged.
     last_compute_hash: u64,
+    /// Issue #225 follow-up: wall-clock duration of the most recent
+    /// `compute_full` pass, in milliseconds. Surfaced as a
+    /// `Compute: Nms` indicator in the menu bar so users on slow
+    /// machines can see when an edit triggered an expensive
+    /// recompute. `None` before the first compute completes — and
+    /// on wasm where we don't have an Instant-style timer.
+    #[cfg(not(target_arch = "wasm32"))]
+    last_compute_duration_ms: Option<u32>,
     /// Issue #100 (slice 1): auto-save bookkeeping. `last_saved_hash`
     /// tracks the hash of the build state that's currently on disk;
     /// `dirty_since` is set when `last_compute_hash` diverges from
@@ -673,6 +681,8 @@ impl PobApp {
             tree_version: default_version,
             data_root,
             last_compute_hash: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_compute_duration_ms: None,
             last_saved_hash: 0,
             dirty_since: None,
             pending_seed_saved_hash: false,
@@ -761,6 +771,8 @@ impl PobApp {
             tree_version: "3_25".to_owned(),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_compute_duration_ms: None,
             last_saved_hash: 0,
             pending_seed_saved_hash: false,
             wasm_storage: build_store_wasm::WasmStorage::new(),
@@ -1062,6 +1074,17 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     } else {
                         ui.colored_label(egui::Color32::from_rgb(0x33, 0xFF, 0x77), "✔ Saved");
                     }
+                }
+                // Issue #225 follow-up: compute timing indicator. Shows
+                // the wall-clock of the most recent compute_full pass
+                // so users on slow machines (or hitting a build that
+                // trips an expensive code path) can spot the cost
+                // directly instead of inferring it from frame hitches.
+                if let Some(text) = format_compute_duration(app.last_compute_duration_ms) {
+                    ui.weak(text).on_hover_text(
+                        "Wall-clock duration of the most recent compute_full pass. \
+                         Updated each time the engine re-derives outputs.",
+                    );
                 }
             }
             // Issue #225: build-pane quick-action buttons. PoB shows
@@ -2327,6 +2350,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             (Some(cj), Some(cm)) => Some(pob_engine::ClusterContext::new(cj, cm)),
             _ => None,
         };
+        // Issue #225 follow-up: wall-clock the compute_full pass so
+        // the menu-bar "Compute: Nms" indicator can flag a slow
+        // recompute. Native-only — wasm doesn't have an Instant we
+        // can rely on without an extra crate.
+        #[cfg(not(target_arch = "wasm32"))]
+        let compute_start = std::time::Instant::now();
         let (mut output, env) = pob_engine::compute_full_with_clusters(
             &app.character,
             &app.tree,
@@ -2334,6 +2363,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             app.bases.as_ref(),
             cluster_ctx,
         );
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Saturate at u32::MAX (≈49 days of compute, so never in
+            // practice) so the field is bounded.
+            let ms = compute_start.elapsed().as_millis().min(u32::MAX as u128) as u32;
+            app.last_compute_duration_ms = Some(ms);
+        }
         // Issue #20 (slice 3): if the active main skill summons a minion and the
         // catalogue is loaded, surface the minion's basic stats (Life / resists)
         // alongside the player's output. No-op for non-minion builds and missing
@@ -2576,6 +2612,27 @@ pub fn compute_window_title(build_path: Option<&std::path::Path>, dirty: bool) -
         format!("{BASE} — • {stem}")
     } else {
         format!("{BASE} — {stem}")
+    }
+}
+
+/// Issue #225 follow-up: format the timing indicator shown in the
+/// menu bar. Returns `None` when no compute has been recorded yet
+/// (e.g. wasm builds where the timer is cfg-gated off, or the first
+/// frame before `compute_full` ran). Otherwise produces:
+///
+/// - `Compute: <N>ms` for sub-second durations
+/// - `Compute: <N>.<dd>s` for longer ones (rounded to two decimals)
+///
+/// Pure helper so the formatting rule has a unit-test home; the egui
+/// side just slots the returned text into a label.
+#[must_use]
+pub fn format_compute_duration(ms: Option<u32>) -> Option<String> {
+    let ms = ms?;
+    if ms < 1000 {
+        Some(format!("Compute: {ms}ms"))
+    } else {
+        let secs = f64::from(ms) / 1000.0;
+        Some(format!("Compute: {secs:.2}s"))
     }
 }
 
@@ -4232,5 +4289,50 @@ mod version_swap_tests {
         let (surviving, dropped) = compute_version_swap_diff(&allocated, &target);
         assert_eq!(surviving, vec![10, 20]);
         assert_eq!(dropped, vec![5, 42, 99]);
+    }
+}
+
+#[cfg(test)]
+mod compute_duration_tests {
+    use super::format_compute_duration;
+
+    #[test]
+    fn returns_none_when_no_measurement_yet() {
+        // Before the first compute completes (or on wasm where the
+        // field is cfg-gated off), the helper produces nothing so the
+        // renderer skips the label entirely.
+        assert_eq!(format_compute_duration(None), None);
+    }
+
+    #[test]
+    fn renders_millisecond_durations_with_ms_suffix() {
+        assert_eq!(
+            format_compute_duration(Some(0)),
+            Some("Compute: 0ms".into())
+        );
+        assert_eq!(
+            format_compute_duration(Some(12)),
+            Some("Compute: 12ms".into())
+        );
+        assert_eq!(
+            format_compute_duration(Some(999)),
+            Some("Compute: 999ms".into())
+        );
+    }
+
+    #[test]
+    fn renders_second_durations_with_two_decimals() {
+        assert_eq!(
+            format_compute_duration(Some(1000)),
+            Some("Compute: 1.00s".into())
+        );
+        assert_eq!(
+            format_compute_duration(Some(1234)),
+            Some("Compute: 1.23s".into())
+        );
+        assert_eq!(
+            format_compute_duration(Some(2500)),
+            Some("Compute: 2.50s".into())
+        );
     }
 }
