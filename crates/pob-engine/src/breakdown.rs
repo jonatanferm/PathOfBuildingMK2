@@ -181,6 +181,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "PoisonStacks" => poison_stacks(env),
         "PoisonStackLimit" => poison_stack_limit(env),
         "BleedChance" => bleed_chance(env),
+        "IgniteChance" => ignite_chance(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -2870,6 +2871,62 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `IgniteChance`. PoB combines the
+/// on-hit and on-crit chances per the standard PoE composition
+/// formula:
+///
+///   chance = on_hit × (1 - crit) + on_crit × crit
+///
+/// Crits always ignite (PoE rule), so on-crit chance is always
+/// 100%. The breakdown surfaces both component chances plus the
+/// crit-chance weighting so users can see how the final percentage
+/// composes.
+///
+/// Returns `None` when the chance is zero (no on-hit ignite mods +
+/// 0% crit chance).
+fn ignite_chance(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("IgniteChance");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let on_hit = env.output.get("IgniteChanceOnHit");
+    let on_crit = 100.0;
+    let crit_pct = env.output.get("MainSkillCritChance");
+    let crit = crit_pct / 100.0;
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("On-hit chance")
+            .with_value(on_hit)
+            .with_explain(format!(
+                "{on_hit:.0}% from IgniteChanceOnHit (gem / curse / passive)"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("On-crit chance")
+            .with_value(on_crit)
+            .with_explain("100% — crits always ignite (PoE rule)".to_owned()),
+    );
+    steps.push(
+        BreakdownStep::label("Crit chance")
+            .with_value(crit_pct)
+            .with_explain(format!("{crit_pct:.1}% from MainSkillCritChance")),
+    );
+    steps.push(
+        BreakdownStep::label("Ignite chance")
+            .with_value(total)
+            .with_explain(format!(
+                "{on_hit:.0}% × (1 - {crit:.2}) + 100% × {crit:.2} = {total:.1}%"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "IgniteChance".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `BleedChance`. PoB stores it as
 /// a 0-100 percentage derived from `clamp(0, 100, Σ BASE("BleedChance"))`.
 /// Surfacing the chain shows the contributing source mods so users
@@ -4334,6 +4391,71 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: IgniteChance walks the on-hit + on-crit
+    /// composition. PoB derives it as
+    /// `IgniteChanceOnHit × (1 - crit) + 100 × crit`, since crits
+    /// always ignite (PoE rule). The Calcs tab surfaced just the
+    /// final percentage; users couldn't see how on-hit chance and
+    /// crit chance composed.
+    ///
+    /// Worked example: 0% on-hit + 25% crit → 0 × 0.75 + 100 × 0.25
+    /// = 25% effective ignite chance.
+    #[test]
+    fn ignite_chance_breakdown_walks_on_hit_and_crit() {
+        let mut env = Env::default();
+        env.output.set("IgniteChanceOnHit", 0.0);
+        env.output.set("MainSkillCritChance", 25.0);
+        env.output.set("IgniteChance", 25.0);
+        let bd = derive_for(&env, "IgniteChance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"On-hit chance"));
+        assert!(labels.contains(&"On-crit chance"));
+        assert!(labels.contains(&"Crit chance"));
+        assert!(labels.contains(&"Ignite chance"));
+
+        let on_hit = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "On-hit chance")
+            .unwrap();
+        assert!((on_hit.value.unwrap() - 0.0).abs() < 1e-9);
+
+        let on_crit = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "On-crit chance")
+            .unwrap();
+        assert!((on_crit.value.unwrap() - 100.0).abs() < 1e-9);
+
+        assert!((bd.total - 25.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: with both on-hit and crit contributing
+    /// the chain composes additively. Worked example: 30% on-hit +
+    /// 50% crit → 30 × 0.5 + 100 × 0.5 = 15 + 50 = 65%.
+    #[test]
+    fn ignite_chance_breakdown_combines_on_hit_and_crit() {
+        let mut env = Env::default();
+        env.output.set("IgniteChanceOnHit", 30.0);
+        env.output.set("MainSkillCritChance", 50.0);
+        env.output.set("IgniteChance", 65.0);
+        let bd = derive_for(&env, "IgniteChance").unwrap();
+        let final_step = bd.steps.last().unwrap();
+        assert_eq!(final_step.label, "Ignite chance");
+        assert!((final_step.value.unwrap() - 65.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when ignite chance is zero
+    /// (no on-hit ignite mods + 0% crit chance).
+    #[test]
+    fn ignite_chance_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "IgniteChance").is_none(),
+            "expected None when IgniteChance is zero",
+        );
+    }
+
     /// Issue #34 follow-up: BleedChance walks BASE-mod sum →
     /// clamped final percentage. PoB stores `BleedChance` as a
     /// percentage (0–100) derived from `clamp(0, 100, Σ BASE)`. The
