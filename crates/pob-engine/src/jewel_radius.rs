@@ -77,6 +77,13 @@
 //! - **Spire of Stone** ([`HandlerKind::StrCountToIncTotemLife`]) — Strength
 //!   summed across in-radius allocated nodes, integer-divided by 10, then
 //!   multiplied by 3 to produce an Inc TotemLife mod sourced as the jewel.
+//! - **Tempered / Transcendent Flesh**
+//!   ([`HandlerKind::StrCountToIncLifeRecovery`]) — Strength summed across
+//!   in-radius allocated nodes, integer-divided by 10, then multiplied by
+//!   the per-line rate (2 for Tempered Flesh / Transcendent Flesh pre-3.10,
+//!   3 for current Transcendent Flesh) to produce an Inc LifeRecovery mod
+//!   sourced as the jewel. Sister to Tempered/Transcendent Spirit but
+//!   Str-sourced and emits Inc LifeRecovery instead of Inc MovementSpeed.
 //! - **Might in All Forms** ([`HandlerKind::DexIntToStrMeleeBonus`]) —
 //!   Dex + Int summed across in-radius allocated nodes, emitted straight
 //!   into a single `DexIntToMeleeBonus` BASE mod. PoB folds the same stat
@@ -394,6 +401,22 @@ pub enum HandlerKind {
     /// Transcendent Spirit slice for the `-1 Dex per 1 Dex Allocated` and
     /// the unallocated-side mods can stack additively without re-routing.
     DexCountToIncMovementSpeed,
+    /// Issue #196: Tempered Flesh / Transcendent Flesh.
+    /// `(2|3)% increased Life Recovery Rate per 10 Strength on Allocated
+    /// Passives in Radius`. Sister handler to Spire of Stone but emits Inc
+    /// `LifeRecovery` (the engine's name for the per-second life-recovery-
+    /// rate stat — see `mod_parser.rs` `"Life Recovery rate" =>
+    /// "LifeRecovery"`). Sums in-radius allocated `+N Strength` BASE mods,
+    /// integer-divides by 10, and multiplies by the per-line percentage
+    /// parsed from the marker (2 for Tempered Flesh / Transcendent Flesh
+    /// pre-3.10, 3 for current Transcendent Flesh). Mirrors PoB's
+    /// `jewelSelfFuncs` lines (`ModParser.lua` ~6170-6171) where each rate
+    /// is its own `getPerStat("LifeRecoveryRate", "INC", 0, "Str", N / 10)`
+    /// entry — we collapse them under one handler so the jewel's other
+    /// lines (`-1 Str per 1 Str Allocated`, the unallocated-side mods,
+    /// `1% additional Physical Damage Reduction per 10 Str Allocated`) can
+    /// stack additively with future slices without re-routing.
+    StrCountToIncLifeRecovery,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -562,6 +585,9 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         "Pure Talent" | "Replica Pure Talent" => Some(build_pure_talent(socket_id, item)),
         "Tempered Spirit" | "Transcendent Spirit" => {
             Some(build_dex_count_to_inc_movement_speed(socket_id, item))
+        }
+        "Tempered Flesh" | "Transcendent Flesh" => {
+            Some(build_str_count_to_inc_life_recovery(socket_id, item))
         }
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -878,6 +904,36 @@ fn build_str_count_to_inc_totem_life(socket_id: NodeId, item: &Item) -> RadiusJe
     )
 }
 
+/// Issue #196: Tempered Flesh / Transcendent Flesh. Marker recognises
+/// the `(N)% increased Life Recovery Rate per 10 Strength on Allocated
+/// Passives in Radius` line; the dispatch arm reads the leading
+/// percentage off the matching mod_line so 2% (Tempered Flesh /
+/// Transcendent Flesh pre-3.10) and 3% (Transcendent Flesh current)
+/// share one handler. Other jewel-text lines (`-1 Strength per 1
+/// Strength Allocated`, the unallocated-side mods, the `1% additional
+/// Physical Damage Reduction per 10 Strength Allocated` line) fall
+/// through to vanilla mod_parser pending dedicated slices for the
+/// negative-stat / SelfUnalloc / Phys-mitigation patterns. Default
+/// radius Medium (matches upstream `Data/Uniques/jewel.lua`'s
+/// `Radius: Medium` for both jewels — line 690 / 703).
+fn build_str_count_to_inc_life_recovery(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    let mods = parse_non_transform_mods(item, is_str_count_to_inc_life_recovery_marker);
+    let idx = radius_index_for_label("Medium").unwrap_or(1);
+    let radii = radii_for_tree_version(&item_tree_version(item));
+    let radius = radii
+        .get(idx)
+        .copied()
+        .unwrap_or_else(|| pob_data::JewelRadiusInfo::new(0.0, 1440.0, "Medium"));
+    RadiusJewel {
+        socket_id,
+        radius,
+        radius_index: idx,
+        mods,
+        source_label: format!("RadiusJewel:{}", item.base_name),
+        kind: HandlerKind::StrCountToIncLifeRecovery,
+    }
+}
+
 /// Pure Talent / Replica Pure Talent: build a [`RadiusJewel`] whose `mods` list
 /// is empty — the actual class-conditional bonuses come from the dispatch
 /// handler reading the item's raw `mod_lines` and filtering by class
@@ -1064,6 +1120,35 @@ fn is_str_count_to_inc_totem_life_marker(line: &str) -> bool {
     l.contains("3% increased totem life")
         && l.contains("per 10 strength")
         && l.contains("in radius")
+}
+
+/// Issue #196: Tempered/Transcendent Flesh marker — the leading rate
+/// (`2%` / `3%`) varies between variants but the rest of the line is
+/// fixed. Returns `true` for any rate so a single dispatch arm can read
+/// the percentage off the matching mod_line.
+fn is_str_count_to_inc_life_recovery_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("increased life recovery rate")
+        && l.contains("per 10 strength")
+        && l.contains("on allocated passives in radius")
+}
+
+/// Issue #196: extract the leading percentage (`N` from `N% increased
+/// Life Recovery Rate per 10 Strength on Allocated Passives in Radius`).
+/// Used by the dispatch arm for [`HandlerKind::StrCountToIncLifeRecovery`]
+/// to scale Tempered Flesh's 2% vs Transcendent Flesh (current)'s 3%
+/// off the same handler.
+fn parse_str_count_to_inc_life_recovery_rate(line: &str) -> Option<f64> {
+    let l = line.to_ascii_lowercase();
+    let pct_idx = l.find('%')?;
+    let head = &l[..pct_idx];
+    // Walk back from `%` to the first non-numeric char; the slice between
+    // there and `%` is the rate. If the line *starts* with the digits (no
+    // preceding non-digit) the rate is the entire `head` slice.
+    let num_start = head
+        .rfind(|c: char| !c.is_ascii_digit() && c != '.')
+        .map_or(0, |i| i + 1);
+    head[num_start..].trim().parse::<f64>().ok()
 }
 
 fn is_int_count_to_inc_chaos_damage_marker(line: &str) -> bool {
@@ -1532,6 +1617,37 @@ pub fn apply_radius_jewels(
                 let inc_pct = (str_sum / 10.0).floor() * 3.0;
                 if inc_pct > 0.0 {
                     let mod_ = crate::Mod::inc("TotemLife", inc_pct)
+                        .with_source(Source::Other(jewel.source_label.clone()));
+                    db.add(mod_);
+                    report.mod_emissions += 1;
+                }
+            }
+            HandlerKind::StrCountToIncLifeRecovery => {
+                // Issue #196: Tempered Flesh / Transcendent Flesh. Sum
+                // allocated `+N Strength` BASE mods across in-radius
+                // nodes, integer-divide by 10, multiply by the per-line
+                // rate (2 for Tempered Flesh / Transcendent Flesh
+                // pre-3.10, 3 for current Transcendent Flesh) parsed
+                // off the matching mod_line, and emit a single Inc
+                // `LifeRecovery` mod sourced as the jewel.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let str_sum = sum_radius_attribute_base(tree, &in_radius, "Strength");
+                let rate = item
+                    .mod_lines
+                    .iter()
+                    .filter(|ml| is_str_count_to_inc_life_recovery_marker(&ml.line))
+                    .find_map(|ml| parse_str_count_to_inc_life_recovery_rate(&ml.line))
+                    .unwrap_or(0.0);
+                let inc_pct = (str_sum / 10.0).floor() * rate;
+                if inc_pct > 0.0 {
+                    let mod_ = crate::Mod::inc("LifeRecovery", inc_pct)
                         .with_source(Source::Other(jewel.source_label.clone()));
                     db.add(mod_);
                     report.mod_emissions += 1;
@@ -4701,6 +4817,152 @@ mod tests {
                 .any(|m| matches!(m.kind, crate::ModType::Base)
                     && (m.value.as_f64().unwrap_or(0.0) - 50.0).abs() < 1e-6),
             "expected +50 DexIntToMeleeBonus BASE from Might in All Forms, got {bonus_mods:#?}",
+        );
+    }
+
+    /// Issue #196: Transcendent Flesh (current variant). `3% increased
+    /// Life Recovery Rate per 10 Strength on Allocated Passives in Radius`.
+    /// Sister to Spire of Stone / Tempered Spirit: sums in-radius
+    /// allocated `+N Strength` BASE mods, integer-divides by 10, and
+    /// multiplies by the per-line percentage (3 here) before emitting a
+    /// single Inc `LifeRecovery` mod sourced as the jewel. Mirrors PoB's
+    /// `jewelSelfFuncs` line `getPerStat("LifeRecoveryRate", "INC", 0,
+    /// "Str", 3 / 10)` (`ModParser.lua` ~6171). Sum = 50 Str →
+    /// floor(50/10) × 3 = 15% Inc LifeRecovery.
+    #[test]
+    fn transcendent_flesh_emits_inc_life_recovery_per_ten_str_in_radius() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+50 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Transcendent Flesh",
+                "Crimson Jewel",
+                &[(
+                    "3% increased Life Recovery Rate per 10 Strength on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::StrCountToIncLifeRecovery);
+
+        let lr_mods = db.slice_named("LifeRecovery");
+        assert!(
+            lr_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 15.0).abs() < 1e-6),
+            "expected +15% Inc LifeRecovery from Transcendent Flesh, got {lr_mods:#?}",
+        );
+    }
+
+    /// Issue #196: integer-divide on Str sum, then × 3. 27 Str →
+    /// floor(27/10) × 3 = 6% (not 8.1%).
+    #[test]
+    fn transcendent_flesh_integer_divides_str_sum() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+27 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Transcendent Flesh",
+                "Crimson Jewel",
+                &[(
+                    "3% increased Life Recovery Rate per 10 Strength on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+
+        let lr_mods = db.slice_named("LifeRecovery");
+        assert!(
+            lr_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 6.0).abs() < 1e-6),
+            "expected +6% Inc LifeRecovery (floor(27/10) × 3), got {lr_mods:#?}",
+        );
+    }
+
+    /// Issue #196: Tempered Flesh (current variant) carries the 2%
+    /// rate. 50 Str → floor(50/10) × 2 = 10% Inc LifeRecovery. Same
+    /// dispatch arm as Transcendent Flesh; the per-line rate is parsed
+    /// off the marker text so both 2% and 3% jewels share one handler.
+    #[test]
+    fn tempered_flesh_emits_inc_life_recovery_at_two_percent_rate() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+50 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Tempered Flesh",
+                "Crimson Jewel",
+                &[(
+                    "2% increased Life Recovery Rate per 10 Strength on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::StrCountToIncLifeRecovery);
+
+        let lr_mods = db.slice_named("LifeRecovery");
+        assert!(
+            lr_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
+            "expected +10% Inc LifeRecovery from Tempered Flesh (2% rate), got {lr_mods:#?}",
+        );
+    }
+
+    /// Issue #196: out-of-radius / unallocated nodes contribute zero. A
+    /// single far-radius node carrying +50 Str must produce no Life
+    /// Recovery mod (default Medium radius for Tempered/Transcendent
+    /// Flesh per `Data/Uniques/jewel.lua` line 690/703).
+    #[test]
+    fn transcendent_flesh_skips_out_of_radius_nodes() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["+50 to Strength".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Transcendent Flesh",
+                "Crimson Jewel",
+                &[(
+                    "3% increased Life Recovery Rate per 10 Strength on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Marauder", &mut db);
+
+        let lr_mods = db.slice_named("LifeRecovery");
+        assert!(
+            !lr_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)),
+            "expected no Inc LifeRecovery when only out-of-radius nodes carry Strength, got {lr_mods:#?}",
         );
     }
 
