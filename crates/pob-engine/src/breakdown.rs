@@ -167,6 +167,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         )),
         "AreaOfEffectRadius" => area_of_effect_radius(env),
         "AreaOfEffectRadiusMetres" => area_of_effect_radius_metres(env),
+        "AoEStacks" | "AoEStackMultiplier" => aoe_stacks(env),
         "ProjectileCount" => projectile_count(env),
         "ProjectileMultiplier" => projectile_multiplier(env),
         "MainSkillShockMult" => Some(main_skill_shock_mult(env)),
@@ -4862,6 +4863,59 @@ fn area_of_effect_radius(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `AoEStacks` / `AoEStackMultiplier`.
+/// Both outputs are written from the same `stacks` local in
+/// `perform_skill_dps` (Issue #60: shotgun-overlap rolloff). The
+/// multiplier is just the Config tab's "Enemies hit by AoE" slider
+/// clamped to >=1, applied to per-cast hit damage on AoE-tagged
+/// skills (Earthquake / Tectonic Slam / Vaal Ground Slam style
+/// builds where one cast can hit the same enemy multiple times).
+///
+/// Surfacing the slider value next to the multiplier makes it
+/// explicit that the only input is the Config tab control — there
+/// are no INC / MORE mods on this stat.
+///
+/// Returns `None` when the output is zero — `perform_skill_dps`
+/// only sets it when the slider is >1, so a zero reading means the
+/// active skill is non-AoE (or no skill is selected) and the panel
+/// should fall back to the generic mods view.
+fn aoe_stacks(env: &Env) -> Option<Breakdown> {
+    let stacks = env.output.get("AoEStacks");
+    let multiplier = env.output.get("AoEStackMultiplier");
+    // Either reading is fine — perform_skill_dps writes both from
+    // the same local — but treat a non-zero on either as the live
+    // value to keep the helper robust to dispatch by either key.
+    let total = if stacks.abs() > 1e-9 {
+        stacks
+    } else if multiplier.abs() > 1e-9 {
+        multiplier
+    } else {
+        return None;
+    };
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Enemies hit by AoE")
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0} from the Config tab \"Enemies hit by AoE\" slider (clamped to >=1)"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("AoE shotgun multiplier")
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0}× — applied to per-cast hit on AoE-tagged skills; AoEStacks and AoEStackMultiplier share this value"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "AoEStacks".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `EnergyShieldRecharge`. Mirrors
 /// `perform_basic_stats`:
 ///
@@ -9437,6 +9491,54 @@ mod tests {
         assert!(
             derive_for(&env, "AverageBurstDamage").is_none(),
             "expected None when AverageBurstDamage is zero",
+        );
+    }
+
+    /// Issue #34 follow-up: AoEStacks surfaces the "Enemies hit by AoE"
+    /// shotgun-overlap multiplier set by `perform_skill_dps`. With the
+    /// slider at 3, both `AoEStacks` and `AoEStackMultiplier` are 3.0
+    /// and the breakdown should walk slider → multiplier with that
+    /// total.
+    #[test]
+    fn aoe_stacks_breakdown_walks_slider_to_multiplier() {
+        let mut env = Env::default();
+        env.output.set("AoEStacks", 3.0);
+        env.output.set("AoEStackMultiplier", 3.0);
+        let bd = derive_for(&env, "AoEStacks").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Enemies hit by AoE"));
+        assert!(labels.contains(&"AoE shotgun multiplier"));
+        assert!((bd.total - 3.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: `AoEStackMultiplier` shares a value with
+    /// `AoEStacks` (both written from the same `stacks` local in
+    /// `perform_skill_dps`), so the same helper is dispatched and the
+    /// total matches.
+    #[test]
+    fn aoe_stack_multiplier_breakdown_shares_with_aoe_stacks() {
+        let mut env = Env::default();
+        env.output.set("AoEStacks", 5.0);
+        env.output.set("AoEStackMultiplier", 5.0);
+        let bd = derive_for(&env, "AoEStackMultiplier").unwrap();
+        assert!((bd.total - 5.0).abs() < 1e-9);
+        assert!(bd.steps.iter().any(|s| s.label == "AoE shotgun multiplier"),);
+    }
+
+    /// Issue #34 follow-up: `perform_skill_dps` only writes
+    /// `AoEStacks` when `stacks > 1`; when the slider is at 1 (or the
+    /// skill is non-AoE) the output stays at 0 and the breakdown
+    /// dispatch should fall through to the generic mods view.
+    #[test]
+    fn aoe_stacks_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "AoEStacks").is_none(),
+            "expected None when AoEStacks output is zero",
+        );
+        assert!(
+            derive_for(&env, "AoEStackMultiplier").is_none(),
+            "expected None when AoEStackMultiplier output is zero",
         );
     }
 }
