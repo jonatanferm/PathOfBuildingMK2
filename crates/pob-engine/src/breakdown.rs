@@ -191,6 +191,9 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "ActiveTotemLimit" => active_totem_limit(env),
         "BleedChance" => bleed_chance(env),
         "IgniteChance" => ignite_chance(env),
+        "ImpaleChance" => impale_chance(env),
+        "ImpaleEffect" => impale_effect(env),
+        "ImpaleStoredHitAvg" => impale_stored_hit_avg(env),
         "ShockChance" => on_hit_plus_crit_chance(
             env,
             "ShockChance",
@@ -677,6 +680,9 @@ pub const COVERED_KEYS: &[&str] = &[
     "BleedDPS",
     "IgniteDPS",
     "ImpaleDPS",
+    "ImpaleChance",
+    "ImpaleEffect",
+    "ImpaleStoredHitAvg",
     "Evasion",
     "Ward",
     // Resists.
@@ -1700,6 +1706,156 @@ fn impale_dps(env: &Env) -> Breakdown {
         total,
         steps,
     }
+}
+
+/// Issue #34 follow-up: re-derive `ImpaleChance`. PoB stores it as
+/// `clamp(0, 100, Σ BASE("ImpaleChance"))` (perform.rs:4239-4242):
+/// the impale support gem and Champion-style ascendancy nodes both
+/// land as BASE mods, with the sum clamped at 100%. Same shape as
+/// `BleedChance`. Returns None when zero so spell builds don't get
+/// an empty card.
+fn impale_chance(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("ImpaleChance");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let base_sum = env
+        .mod_db
+        .sum(ModType::Base, &cfg, &env.state, "ImpaleChance");
+    let capped = base_sum > 100.0 + 1e-9;
+
+    let mut steps = Vec::new();
+    let base_mods: Vec<ModSource> = env
+        .mod_db
+        .iter_named("ImpaleChance")
+        .filter(|m| m.kind == ModType::Base)
+        .map(ModSource::from_mod)
+        .collect();
+    steps.push(
+        BreakdownStep::label("BASE mods")
+            .with_value(base_sum)
+            .with_explain(format!(
+                "+{base_sum:.0}% from ImpaleChance BASE mods (impale support / ascendancy / gear)"
+            ))
+            .with_sources(base_mods),
+    );
+
+    let final_explain = if capped {
+        format!("clamp(0, 100, {base_sum:.0}%) = {total:.0}% (capped at 100%)")
+    } else {
+        format!("clamp(0, 100, {base_sum:.0}%) = {total:.0}%")
+    };
+    steps.push(
+        BreakdownStep::label("Impale chance")
+            .with_value(total)
+            .with_explain(final_explain),
+    );
+
+    Some(Breakdown {
+        output_key: "ImpaleChance".to_owned(),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: re-derive `ImpaleEffect`. PoB applies the
+/// standard `base × (1 + Inc/100) × More` chain to a 10% per-stack
+/// default (perform.rs:4246-4250). Surfacing the chain lets users
+/// see whether their effect-per-stack is being driven by impale
+/// support quality, the Impalement notable, or stacked gear mods.
+/// Returns None when zero (no impale layer active).
+fn impale_effect(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("ImpaleEffect");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+    let cfg = QueryCfg::default();
+    let base = 10.0_f64;
+    let inc_total = env
+        .mod_db
+        .sum(ModType::Inc, &cfg, &env.state, "ImpaleEffect");
+    let more_factor = env.mod_db.more(&cfg, &env.state, "ImpaleEffect");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Base")
+            .with_value(base)
+            .with_explain("10% stored per stack (PoE constant)".to_owned()),
+    );
+
+    if inc_total.abs() > 1e-9 {
+        let inc_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("ImpaleEffect")
+            .filter(|m| m.kind == ModType::Inc)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("Increased")
+                .with_value(1.0 + inc_total / 100.0)
+                .with_explain(format!("{inc_total:+.0}% sum"))
+                .with_sources(inc_mods),
+        );
+    }
+
+    if (more_factor - 1.0).abs() > 1e-9 {
+        let more_mods: Vec<ModSource> = env
+            .mod_db
+            .iter_named("ImpaleEffect")
+            .filter(|m| m.kind == ModType::More)
+            .map(ModSource::from_mod)
+            .collect();
+        steps.push(
+            BreakdownStep::label("More")
+                .with_value(more_factor)
+                .with_explain("multiplicative".to_owned())
+                .with_sources(more_mods),
+        );
+    }
+
+    steps.push(
+        BreakdownStep::label("Impale effect")
+            .with_value(total)
+            .with_explain(format!(
+                "{base:.0} × (1 + {inc_total:.0}%) × {more_factor:.3} = {total:.2}%"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "ImpaleEffect".to_owned(),
+        total,
+        steps,
+    })
+}
+
+/// Issue #34 follow-up: re-derive `ImpaleStoredHitAvg`. PoB sets
+/// `stored = avg_with_crit` (perform.rs:4255) — the post-crit,
+/// pre-mitigation phys hit that gets stored on each impale stack.
+/// Single-line breakdown that points back to the upstream
+/// MainSkillAverageHit / crit chain so users can trace what's
+/// driving the stored value. Returns None when zero (non-impale
+/// build).
+fn impale_stored_hit_avg(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("ImpaleStoredHitAvg");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Impale stored hit")
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0} (= avg-with-crit phys hit, pre-mitigation; from MainSkillAverageHit × crit chain)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "ImpaleStoredHitAvg".to_owned(),
+        total,
+        steps,
+    })
 }
 
 /// Issue #34 follow-up: re-derive single-application ailment DPS
@@ -8606,6 +8762,87 @@ mod tests {
         env.output.set("ImpaleEffect", 0.0);
         let bd = derive_for(&env, "ImpaleDPS").unwrap();
         assert_eq!(bd.total, 0.0);
+    }
+
+    /// Issue #34 follow-up: `ImpaleChance` re-derives the headline
+    /// chance percentage by walking BASE("ImpaleChance") mods —
+    /// same shape as `BleedChance`. Worked example: 30 from impale
+    /// support + 70 from the Champion ascendancy = 100% impale chance.
+    #[test]
+    fn impale_chance_breakdown_walks_base_mods() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::base("ImpaleChance", 30.0).with_source(Source::Tree));
+        env.mod_db
+            .add(Mod::base("ImpaleChance", 70.0).with_source(Source::Item(2)));
+        env.output.set("ImpaleChance", 100.0);
+        let bd = derive_for(&env, "ImpaleChance").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"BASE mods"),
+            "missing BASE step: {labels:?}"
+        );
+        let base = bd.steps.iter().find(|s| s.label == "BASE mods").unwrap();
+        assert!((base.value.unwrap() - 100.0).abs() < 1e-9);
+        assert!((bd.total - 100.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: `ImpaleChance` returns None when zero —
+    /// no mods, no breakdown to display.
+    #[test]
+    fn impale_chance_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "ImpaleChance").is_none(),
+            "expected None when ImpaleChance is zero",
+        );
+    }
+
+    /// Issue #34 follow-up: `ImpaleEffect` walks the
+    /// `10% × (1 + Inc/100) × More` chain. Worked example: default
+    /// 10% per stack + 50% increased impale effect = 15% per stack.
+    #[test]
+    fn impale_effect_breakdown_walks_inc_more_chain() {
+        let mut env = Env::default();
+        env.mod_db
+            .add(Mod::inc("ImpaleEffect", 50.0).with_source(Source::Tree));
+        env.output.set("ImpaleEffect", 15.0);
+        let bd = derive_for(&env, "ImpaleEffect").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Base"), "missing Base step: {labels:?}");
+        assert!(
+            labels.contains(&"Increased"),
+            "missing Increased step: {labels:?}"
+        );
+        assert!((bd.total - 15.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: `ImpaleStoredHitAvg` mirrors PoB's
+    /// `stored = avg_with_crit` — the post-crit, pre-mitigation phys
+    /// hit that gets stored on each impale stack. The breakdown
+    /// surfaces it as a single line so users can trace it back to
+    /// the upstream MainSkillAverageHit / crit chain.
+    #[test]
+    fn impale_stored_hit_avg_breakdown_walks_stored() {
+        let env = env_with_output();
+        let bd = derive_for(&env, "ImpaleStoredHitAvg").unwrap();
+        assert!((bd.total - 400.0).abs() < 1e-9);
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(
+            labels.contains(&"Impale stored hit"),
+            "missing stored-hit step: {labels:?}"
+        );
+    }
+
+    /// Issue #34 follow-up: `ImpaleStoredHitAvg` returns None when
+    /// zero — pure spell / non-impale build has nothing to display.
+    #[test]
+    fn impale_stored_hit_avg_breakdown_skipped_when_zero() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "ImpaleStoredHitAvg").is_none(),
+            "expected None when ImpaleStoredHitAvg is zero",
+        );
     }
 
     /// Issue #34 follow-up: `TotalEHP` is PoB's headline defensive
