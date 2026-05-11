@@ -53,7 +53,9 @@ mod undo;
 use pob_engine::pathfind;
 use undo::{BuildSnapshot, PendingSnapshot, UndoStack};
 
-pub use node_power_heatmap::{normalise_scores, score_to_colour};
+pub use node_power_heatmap::{
+    compute_heatmap_inputs, normalise_scores, score_impact_key, score_to_colour,
+};
 pub use tree_view::TreeView;
 
 pub struct PobApp {

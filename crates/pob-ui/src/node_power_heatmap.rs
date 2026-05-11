@@ -36,6 +36,69 @@
 use ahash::AHashMap;
 use eframe::egui;
 use pob_data::NodeId;
+use pob_engine::{rank_node_additions, Character, ClusterContext, NodeScore, SkillRegistry};
+
+/// Issue #220 (heatmap pipeline slice): engine-to-paint glue that turns
+/// a [`Character`] + [`pob_data::PassiveTree`] into a per-node colour
+/// map ready for the tree renderer to tint unallocated nodes with.
+///
+/// Composition:
+/// 1. Rank every unallocated, allocatable node via
+///    [`pob_engine::rank_node_additions`] — the existing Power-Report
+///    driver from #207.
+/// 2. Reduce each [`NodeScore`] to a single impact value via
+///    [`score_impact_key`] (currently `max(dps_delta, ehp_delta)` to
+///    match the ranker's own sort key, so a pure-EHP node and a
+///    pure-DPS node tint at the same intensity).
+/// 3. Pipe the `(NodeId, impact)` pairs through [`normalise_scores`]
+///    and [`score_to_colour`] to land on `egui::Color32` values.
+///
+/// **Filtering**: `rank_node_additions` already drops zero-impact and
+/// non-allocatable nodes, so the returned map only contains nodes the
+/// renderer should actually tint. Nodes the player has already
+/// allocated never appear in the output — the heatmap is a
+/// "what-to-take-next" overlay, not a paid-points display.
+///
+/// **Performance**: this is N+1 perform calls inside
+/// `rank_node_additions`, multi-second on a real ~2000-node tree. The
+/// renderer slice that consumes this map should call it on an explicit
+/// "Refresh heatmap" button click, not every frame. Caching /
+/// incremental compute is a separate slice.
+#[must_use]
+pub fn compute_heatmap_inputs(
+    character: &Character,
+    tree: &pob_data::PassiveTree,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> AHashMap<NodeId, egui::Color32> {
+    let ranked = rank_node_additions(character, tree, skills, bases, cluster_ctx, timeless);
+    let scores: Vec<(NodeId, f64)> = ranked
+        .iter()
+        .map(|s| (s.node_id, score_impact_key(s)))
+        .collect();
+    let normalised = normalise_scores(&scores);
+    normalised
+        .into_iter()
+        .map(|(id, t)| (id, score_to_colour(t)))
+        .collect()
+}
+
+/// Reduce a [`NodeScore`]'s `(dps_delta, ehp_delta)` pair to a single
+/// scalar suitable for normalisation. Mirrors the sort key used inside
+/// [`pob_engine::rank_node_additions`] — `max(dps_delta, ehp_delta)`
+/// — so a pure-defensive node and a pure-offensive node of comparable
+/// "value to the player" tint at comparable intensity, rather than the
+/// defensive node washing out because DPS dominates the magnitude.
+///
+/// Kept separate from [`compute_heatmap_inputs`] so future slices can
+/// experiment with weighted combinations (e.g. user-tunable
+/// `dps_weight` × `ehp_weight`) without rewriting the pipeline.
+#[must_use]
+pub fn score_impact_key(score: &NodeScore) -> f64 {
+    score.dps_delta.max(score.ehp_delta)
+}
 
 /// Normalise a batch of `(NodeId, score)` pairs to `0.0..=1.0`.
 ///
@@ -260,6 +323,198 @@ mod tests {
     fn colour_handles_nan_as_zero() {
         // NaN → 0.0 (cold end) so we never panic on stray FP weirdness.
         assert_eq!(score_to_colour(f32::NAN), score_to_colour(0.0));
+    }
+
+    // ---------------------------------------------------------------
+    // Issue #220 (heatmap pipeline): `compute_heatmap_inputs` glues
+    // the engine's `rank_node_additions` to the pure normalise +
+    // colour helpers above. The fixture mirrors the one in
+    // `pob_engine::power::tests` so we exercise the real composition,
+    // not a mocked-out scoring layer.
+    // ---------------------------------------------------------------
+
+    use ahash::HashMap as InnerAHashMap;
+    use pob_data::{Class, Node, NodeKind, PassiveTree, TreeConstants, TreePoints};
+    use pob_engine::{Character, ClassRef, NodeScore};
+    use smallvec::SmallVec;
+
+    fn empty_tree() -> PassiveTree {
+        PassiveTree {
+            version: "test".into(),
+            tree: "test".into(),
+            classes: vec![],
+            groups: InnerAHashMap::default(),
+            nodes: InnerAHashMap::default(),
+            jewel_slots: vec![],
+            min_x: 0,
+            min_y: 0,
+            max_x: 0,
+            max_y: 0,
+            constants: TreeConstants {
+                skills_per_orbit: vec![],
+                orbit_radii: vec![],
+                classes: InnerAHashMap::default(),
+                character_attributes: InnerAHashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: TreePoints::default(),
+        }
+    }
+
+    /// Two-impactful + two-inert tree: Life notable, Strength notable,
+    /// stat-less notable (zero score → filtered), mastery (wrong kind →
+    /// filtered). Anchored at a class-start node.
+    fn ranking_tree() -> PassiveTree {
+        let mut tree = empty_tree();
+        tree.classes.push(Class {
+            name: "Test".into(),
+            base_str: 32,
+            base_dex: 14,
+            base_int: 14,
+            ascendancies: vec![],
+        });
+        let mut add = |id: NodeId, stats: Vec<String>, kind: NodeKind, neighbours: &[NodeId]| {
+            let node = Node {
+                id,
+                name: Some(format!("n{id}")),
+                icon: None,
+                ascendancy_name: None,
+                stats,
+                reminder_text: vec![],
+                kind,
+                class_start_index: None,
+                group: None,
+                orbit: None,
+                orbit_index: None,
+                out_edges: neighbours.iter().copied().collect::<SmallVec<_>>(),
+                in_edges: SmallVec::new(),
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            };
+            tree.nodes.insert(id, node);
+        };
+        add(1, vec![], NodeKind::Normal, &[2, 3, 4, 5]);
+        add(
+            2,
+            vec!["+50 to maximum Life".into()],
+            NodeKind::Notable,
+            &[1],
+        );
+        add(3, vec!["+10 to Strength".into()], NodeKind::Notable, &[1]);
+        add(4, vec![], NodeKind::Notable, &[1]); // stat-less — filtered.
+        add(5, vec![], NodeKind::Mastery, &[1]); // wrong kind — filtered.
+        if let Some(n) = tree.nodes.get_mut(&1) {
+            n.class_start_index = Some(0);
+            n.kind = NodeKind::ClassStart;
+        }
+        tree
+    }
+
+    fn fresh_character() -> Character {
+        Character {
+            class: ClassRef("Test".into()),
+            level: 90,
+            ..Character::default()
+        }
+    }
+
+    /// Empty tree → empty colour map. Guards against a panic in the
+    /// `normalise_scores` empty-input path when the engine reports no
+    /// candidates at all (e.g. a freshly-imported character whose tree
+    /// hasn't loaded yet).
+    #[test]
+    fn compute_heatmap_inputs_empty_tree_returns_empty_map() {
+        let tree = empty_tree();
+        let c = fresh_character();
+        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None);
+        assert!(out.is_empty());
+    }
+
+    /// Ranking tree → only the impactful, allocatable, unallocated
+    /// nodes appear in the output. Stat-less notables, masteries, and
+    /// already-allocated nodes are filtered out by the engine ranker
+    /// before normalisation, so the renderer can paint the map
+    /// directly without re-filtering.
+    #[test]
+    fn compute_heatmap_inputs_only_includes_impactful_unallocated_nodes() {
+        let tree = ranking_tree();
+        let c = fresh_character();
+        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None);
+        // Nodes 2 (Life) and 3 (Strength) score; 4 (stat-less notable),
+        // 5 (mastery), and 1 (class start, anchored) drop out.
+        let mut ids: Vec<NodeId> = out.keys().copied().collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![2, 3]);
+    }
+
+    /// The top-impact node maps to the gradient's hot end (red), the
+    /// bottom-impact node to the cold end (blue). This pins the
+    /// "hottest = best to take next" reading the renderer relies on.
+    #[test]
+    fn compute_heatmap_inputs_top_node_is_red_bottom_is_blue() {
+        let tree = ranking_tree();
+        let c = fresh_character();
+        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None);
+        // Node 2 (+50 Life) carries a much larger EHP delta than node 3
+        // (+10 Strength), so it should land at the hot end.
+        let red = score_to_colour(1.0);
+        let blue = score_to_colour(0.0);
+        assert_eq!(
+            out.get(&2),
+            Some(&red),
+            "top-impact Life notable should be the red end"
+        );
+        assert_eq!(
+            out.get(&3),
+            Some(&blue),
+            "lower-impact Strength notable should be the blue end"
+        );
+    }
+
+    /// Already-allocated nodes never appear in the heatmap. The
+    /// overlay is a "what to take next" guide, so painting allocated
+    /// nodes would clutter the rendering with stale info.
+    #[test]
+    fn compute_heatmap_inputs_excludes_already_allocated_nodes() {
+        let tree = ranking_tree();
+        let mut c = fresh_character();
+        c.allocate(2);
+        let out = compute_heatmap_inputs(&c, &tree, None, None, None, None);
+        assert!(
+            !out.contains_key(&2),
+            "allocated node 2 must not appear in heatmap"
+        );
+        // Node 3 still ranks; it's the only remaining impactful candidate.
+        assert!(out.contains_key(&3));
+    }
+
+    /// `score_impact_key` mirrors the ranker's sort key:
+    /// `max(dps_delta, ehp_delta)`. A pure-EHP node and a pure-DPS
+    /// node of the same magnitude report the same impact, so the
+    /// heatmap tints them at the same intensity rather than washing
+    /// out defensive nodes.
+    #[test]
+    fn score_impact_key_uses_max_of_dps_and_ehp() {
+        let pure_dps = NodeScore {
+            node_id: 1,
+            dps_delta: 100.0,
+            ehp_delta: 0.0,
+        };
+        let pure_ehp = NodeScore {
+            node_id: 2,
+            dps_delta: 0.0,
+            ehp_delta: 100.0,
+        };
+        let mixed = NodeScore {
+            node_id: 3,
+            dps_delta: 60.0,
+            ehp_delta: 40.0,
+        };
+        assert!((score_impact_key(&pure_dps) - 100.0).abs() < 1e-9);
+        assert!((score_impact_key(&pure_ehp) - 100.0).abs() < 1e-9);
+        // Mixed picks the larger axis (DPS here).
+        assert!((score_impact_key(&mixed) - 60.0).abs() < 1e-9);
     }
 
     #[test]
