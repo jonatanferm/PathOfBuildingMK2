@@ -142,6 +142,48 @@ pub fn compute_heatmap_inputs_from_ranked(
         .collect()
 }
 
+/// Issue #220 follow-up: BFS-reachable node set from any `allocated`
+/// seed, expanded up to `max_depth` edges. Used by the heatmap to
+/// restrict the colour overlay to "candidates the user can plausibly
+/// take with their unspent points". Allocated nodes themselves count
+/// as depth 0 and always appear in the result.
+///
+/// Treats the tree as undirected (`out_edges + in_edges`), matching
+/// the engine's `connected_allocations` walk — so a leaf node that
+/// lists only its inbound edge still surfaces from a higher-up seed.
+///
+/// `max_depth == 0` returns just the allocated set; an empty
+/// allocated set returns empty regardless of depth.
+#[must_use]
+pub fn nodes_within_depth(
+    tree: &pob_data::PassiveTree,
+    allocated: &std::collections::HashSet<NodeId>,
+    max_depth: u32,
+) -> ahash::HashSet<NodeId> {
+    let mut visited: ahash::HashSet<NodeId> = allocated.iter().copied().collect();
+    if allocated.is_empty() {
+        return visited;
+    }
+    let mut frontier: Vec<NodeId> = allocated.iter().copied().collect();
+    for _ in 0..max_depth {
+        let mut next_frontier = Vec::new();
+        for &id in &frontier {
+            if let Some(node) = tree.nodes.get(&id) {
+                for &neighbour in node.out_edges.iter().chain(node.in_edges.iter()) {
+                    if visited.insert(neighbour) {
+                        next_frontier.push(neighbour);
+                    }
+                }
+            }
+        }
+        if next_frontier.is_empty() {
+            break;
+        }
+        frontier = next_frontier;
+    }
+    visited
+}
+
 /// Issue #207 follow-up: format the top-N candidate nodes as
 /// human-readable strings for the tree-tab "Top candidate nodes"
 /// panel. Each line shows the rank, signed DPS / EHP deltas, and the
@@ -731,6 +773,117 @@ mod tests {
         assert!((score_impact_key(&pure_ehp, HeatmapStat::Combined) - 100.0).abs() < 1e-9);
         // Mixed picks the larger axis (DPS here).
         assert!((score_impact_key(&mixed, HeatmapStat::Combined) - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn nodes_within_depth_zero_returns_just_allocated() {
+        // Depth 0 = "don't expand the frontier" — the result is the
+        // allocated set itself, no neighbours.
+        let tree = ranking_tree();
+        let allocated: std::collections::HashSet<NodeId> = [1].into_iter().collect();
+        let reachable = nodes_within_depth(&tree, &allocated, 0);
+        let mut ids: Vec<NodeId> = reachable.into_iter().collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![1]);
+    }
+
+    #[test]
+    fn nodes_within_depth_one_reaches_direct_neighbours() {
+        // ranking_tree has node 1 with neighbours [2, 3, 4, 5]. Depth
+        // 1 should grab all four. Depth 1 starts from `allocated`
+        // (just node 1).
+        let tree = ranking_tree();
+        let allocated: std::collections::HashSet<NodeId> = [1].into_iter().collect();
+        let reachable = nodes_within_depth(&tree, &allocated, 1);
+        let mut ids: Vec<NodeId> = reachable.into_iter().collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn nodes_within_depth_empty_allocated_returns_empty() {
+        // No seed, nothing to walk from. Defensive against a fresh
+        // build that hasn't allocated yet.
+        let tree = ranking_tree();
+        let allocated: std::collections::HashSet<NodeId> = Default::default();
+        let reachable = nodes_within_depth(&tree, &allocated, 5);
+        assert!(reachable.is_empty());
+    }
+
+    #[test]
+    fn nodes_within_depth_stops_at_leaves() {
+        // Depth 100 with a small tree should converge well before the
+        // cap — every reachable node lands in the set and the BFS
+        // halts when the frontier empties.
+        let tree = ranking_tree();
+        let allocated: std::collections::HashSet<NodeId> = [1].into_iter().collect();
+        let reachable = nodes_within_depth(&tree, &allocated, 100);
+        // All 5 nodes are reachable from node 1 in the ranking_tree.
+        assert_eq!(reachable.len(), 5);
+    }
+
+    #[test]
+    fn nodes_within_depth_walks_edges_in_both_directions() {
+        // Build a 3-node chain `A → B → C` with the leaf only listing
+        // `in_edges`. The BFS should still reach C from A at depth 2
+        // because the passive tree is undirected — mirrors
+        // `connected_allocations` in `perform.rs`.
+        use ahash::HashMap;
+        use pob_data::{Node, NodeKind, TreeConstants, TreePoints};
+        use smallvec::SmallVec;
+        let mut nodes: HashMap<NodeId, Node> = HashMap::default();
+        let mut add = |id: NodeId, out: &[NodeId], in_: &[NodeId]| {
+            nodes.insert(
+                id,
+                Node {
+                    id,
+                    name: None,
+                    icon: None,
+                    ascendancy_name: None,
+                    stats: vec![],
+                    reminder_text: vec![],
+                    kind: NodeKind::Normal,
+                    class_start_index: None,
+                    group: None,
+                    orbit: None,
+                    orbit_index: None,
+                    out_edges: out.iter().copied().collect::<SmallVec<_>>(),
+                    in_edges: in_.iter().copied().collect::<SmallVec<_>>(),
+                    mastery_effects: vec![],
+                    expansion_jewel_size: None,
+                    jewel_radius: None,
+                },
+            );
+        };
+        add(1, &[2], &[]);
+        add(2, &[3], &[1]);
+        // C lists only its inbound edge — the BFS should still reach it.
+        add(3, &[], &[2]);
+        let tree = PassiveTree {
+            version: "test".into(),
+            tree: "test".into(),
+            classes: vec![],
+            groups: HashMap::default(),
+            nodes,
+            jewel_slots: vec![],
+            min_x: 0,
+            min_y: 0,
+            max_x: 0,
+            max_y: 0,
+            constants: TreeConstants {
+                skills_per_orbit: vec![],
+                orbit_radii: vec![],
+                classes: HashMap::default(),
+                character_attributes: HashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: TreePoints::default(),
+        };
+        let allocated: std::collections::HashSet<NodeId> = [1].into_iter().collect();
+        let reachable = nodes_within_depth(&tree, &allocated, 2);
+        let mut ids: Vec<NodeId> = reachable.into_iter().collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![1, 2, 3]);
     }
 
     #[test]
