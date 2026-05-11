@@ -27,95 +27,159 @@ pub struct CalcsTabState {
     pub use_pob_layout: bool,
 }
 
-/// Stat category groupings — each (heading, prefix-or-substring-list).
-/// Section order + names track upstream PoB's
-/// `Modules/CalcSections.lua` structure: Offence groups first
-/// (Skill Hit Damage / Speed / Crit / Accuracy / Impale / Bleed /
-/// Poison / Ignite / Other Effects), then Attributes, then Defence
-/// (Resists / Damage Avoidance / Charges / Other Defences). A full
-/// CalcSections.lua port (#34) keeps section-row breakdowns scoped
-/// to each stat, but matching the layout already gets us most of the
-/// usability win.
-const GROUPS: &[(&str, &[&str])] = &[
+/// Stat category groupings. Each entry maps a heading to the substring
+/// patterns that route output keys into that group, plus the PoB column
+/// (0 = Offence, 1 = Core, 2 = Defence) it lays out in.
+///
+/// Section order + names track upstream PoB's `Modules/CalcSections.lua`
+/// structure: Offence groups first (Skill Hit Damage / Speed / Crit /
+/// Accuracy / Impale / Bleed / Poison / Ignite / Other Effects), then
+/// Attributes, then Defence (Resists / Damage Avoidance / Charges /
+/// Other Defences). A full CalcSections.lua port (#34) keeps section-row
+/// breakdowns scoped to each stat, but matching the layout already gets
+/// us most of the usability win.
+///
+/// Order matters for substring routing: groups with narrow prefixes
+/// (`Warcry`, `Mines / Traps`, `Minion`) must come before the generic
+/// offence patterns so keys like `MinionLife` don't get absorbed by the
+/// `Life` substring under "Pools".
+struct Group {
+    heading: &'static str,
+    patterns: &'static [&'static str],
+    /// 0 = Offence, 1 = Core, 2 = Defence — drives the three-column layout.
+    column: u8,
+}
+
+const GROUPS: &[Group] = &[
     // Issue #19: warcry / exertion outputs. Listed first so keys
     // like `ExertedAttackDamageBonus` don't get swept into the
     // generic "Skill Hit Damage" group by the substring match.
-    // Covers slice-3 loadout aggregates (`ActiveWarcryCount`,
-    // `WarcryExertedAttackCountTotal`, `WarcryMinCooldown`), the
-    // slice-2 Config knob (`WarcryPower`), the slice-4 auto-uptime
-    // (`ExertedAttackUptime`, `ExertedAttackDamageBonus`), and the
-    // slice-6 Intimidating-Cry indicator (`IntimidatingCryActive`).
-    ("Warcry", &["Warcry", "Exerted", "Cry"]),
+    Group {
+        heading: "Warcry",
+        patterns: &["Warcry", "Exerted", "Cry"],
+        column: 0,
+    },
     // Issue #84: mine / trap timing outputs. Listed before
     // "Attack / Cast Rate" so `MineLayingSpeed` /
     // `TrapThrowingSpeed` aren't absorbed by the generic "Speed"
     // pattern.
-    ("Mines / Traps", &["Mine", "Trap"]),
+    Group {
+        heading: "Mines / Traps",
+        patterns: &["Mine", "Trap"],
+        column: 0,
+    },
     // Issue #20 (slices 3-6): minion outputs. Listed before
     // "Skill Hit Damage" / "Pools" / "Resists" so keys like
     // `MinionLife` / `MinionFireResist` / `MinionDPS` don't get
     // absorbed by the generic `Life` / `FireResist` / `Damage`
-    // patterns. The single-prefix `Minion` substring catches every
-    // key the engine emits today (`MinionLife*`, `MinionDamage*`,
-    // `MinionAttacksPerSecond*`, `MinionCritChance` /
-    // `MinionCritMultiplier`, `Minion{Fire,Cold,Lightning,Chaos}Resist*`,
-    // `MinionDPS`).
-    ("Minion", &["Minion"]),
+    // patterns.
+    Group {
+        heading: "Minion",
+        patterns: &["Minion"],
+        column: 0,
+    },
     // OFFENCE column.
-    (
-        "Skill Hit Damage",
-        &[
+    Group {
+        heading: "Skill Hit Damage",
+        patterns: &[
             "MainSkill",
             "FullDPS",
             "WithBleedDPS",
             "WithImpaleDPS",
             "Damage",
         ],
-    ),
-    (
-        "Attack / Cast Rate",
-        &["Speed", "AttackSpeed", "CastSpeed", "MainSkillSpeed"],
-    ),
-    ("Crits", &["Crit", "CritChance", "CritMultiplier"]),
-    ("Impale", &["Impale"]),
-    ("Accuracy", &["Accuracy", "HitChance"]),
-    ("Bleed", &["Bleed"]),
-    ("Poison", &["Poison"]),
-    ("Ignite", &["Ignite"]),
-    (
-        "Non-Damaging Ailments",
-        &["Freeze", "Shock", "Chill", "Scorch", "Ailment"],
-    ),
-    ("Other Offence", &["Projectile", "Chain", "AoE", "Area"]),
-    // CORE / NORMAL.
-    (
-        "Attributes",
-        &["Strength", "Dexterity", "Intelligence", "AllAttributes"],
-    ),
-    ("Pools", &["Life", "Mana", "EnergyShield", "Ward", "Rage"]),
+        column: 0,
+    },
+    Group {
+        heading: "Attack / Cast Rate",
+        patterns: &["Speed", "AttackSpeed", "CastSpeed", "MainSkillSpeed"],
+        column: 0,
+    },
+    Group {
+        heading: "Crits",
+        patterns: &["Crit", "CritChance", "CritMultiplier"],
+        column: 0,
+    },
+    Group {
+        heading: "Impale",
+        patterns: &["Impale"],
+        column: 0,
+    },
+    Group {
+        heading: "Accuracy",
+        patterns: &["Accuracy", "HitChance"],
+        column: 0,
+    },
+    Group {
+        heading: "Bleed",
+        patterns: &["Bleed"],
+        column: 0,
+    },
+    Group {
+        heading: "Poison",
+        patterns: &["Poison"],
+        column: 0,
+    },
+    Group {
+        heading: "Ignite",
+        patterns: &["Ignite"],
+        column: 0,
+    },
+    Group {
+        heading: "Non-Damaging Ailments",
+        patterns: &["Freeze", "Shock", "Chill", "Scorch", "Ailment"],
+        column: 0,
+    },
+    Group {
+        heading: "Other Offence",
+        patterns: &["Projectile", "Chain", "AoE", "Area"],
+        column: 0,
+    },
+    // CORE column.
+    Group {
+        heading: "Attributes",
+        patterns: &["Strength", "Dexterity", "Intelligence", "AllAttributes"],
+        column: 1,
+    },
+    Group {
+        heading: "Pools",
+        patterns: &["Life", "Mana", "EnergyShield", "Ward", "Rage"],
+        column: 1,
+    },
     // DEFENCE column.
-    (
-        "Resists",
-        &[
+    Group {
+        heading: "Resists",
+        patterns: &[
             "FireResist",
             "ColdResist",
             "LightningResist",
             "ChaosResist",
             "ElementalResist",
         ],
-    ),
-    ("Damage Avoidance", &["Block", "Suppress", "Dodge", "Avoid"]),
-    (
-        "Charges",
-        &["Charge", "PowerCharge", "FrenzyCharge", "EnduranceCharge"],
-    ),
-    (
-        "Other Defences",
-        &[
+        column: 2,
+    },
+    Group {
+        heading: "Damage Avoidance",
+        patterns: &["Block", "Suppress", "Dodge", "Avoid"],
+        column: 2,
+    },
+    Group {
+        heading: "Charges",
+        patterns: &["Charge", "PowerCharge", "FrenzyCharge", "EnduranceCharge"],
+        column: 2,
+    },
+    Group {
+        heading: "Other Defences",
+        patterns: &[
             "Armour", "Evasion", "Recover", "Regen", "Recharge", "Phys", "EHP",
         ],
-    ),
-    ("Misc", &["Misc:", "Keystone:"]),
+        column: 2,
+    },
+    Group {
+        heading: "Misc",
+        patterns: &["Misc:", "Keystone:"],
+        column: 2,
+    },
 ];
 
 pub fn ui(
@@ -167,75 +231,112 @@ pub fn ui(
         .filter(|(_, v)| !state.hide_zero || v.abs() > 1e-9)
         .collect();
 
-    ui.horizontal(|ui| {
-        // Left pane: stat list.
-        ui.vertical(|ui| {
-            let breakdown_open = state.focused_stat.is_some();
-            let target_width = if breakdown_open { 380.0 } else { f32::INFINITY };
-            ui.set_min_width(360.0);
-            if breakdown_open {
-                ui.set_max_width(target_width);
+    // Bucket each filtered entry into the first group whose pattern matches.
+    // Iteration order of GROUPS is the priority order, so e.g. `MinionLife`
+    // resolves to "Minion" before "Pools" can claim it via the `Life`
+    // substring.
+    let mut by_group: std::collections::HashMap<&str, Vec<(&str, f64)>> = Default::default();
+    let mut leftovers: Vec<(&str, f64)> = Vec::new();
+    for (k, v) in &entries_filtered {
+        let mut matched = None;
+        for g in GROUPS {
+            if g.patterns.iter().any(|p| {
+                if p.ends_with(':') {
+                    k.starts_with(p)
+                } else {
+                    k.contains(p)
+                }
+            }) {
+                matched = Some(g.heading);
+                break;
             }
-            egui::ScrollArea::vertical()
-                .id_salt("calcs_list")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    let mut shown: std::collections::HashSet<&str> = Default::default();
-                    for (heading, patterns) in GROUPS {
-                        let group_entries: Vec<&(&str, f64)> = entries_filtered
-                            .iter()
-                            .filter(|(k, _)| {
-                                patterns.iter().any(|p| {
-                                    if p.ends_with(':') {
-                                        k.starts_with(p)
-                                    } else {
-                                        k.contains(p)
-                                    }
-                                })
-                            })
-                            .collect();
-                        if group_entries.is_empty() {
-                            continue;
-                        }
-                        ui.collapsing(*heading, |ui| {
-                            egui::Grid::new(format!("calcs_grid_{heading}"))
-                                .num_columns(2)
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    for (k, v) in group_entries {
-                                        shown.insert(*k);
-                                        render_row(ui, k, *v, &mut state.focused_stat);
-                                    }
-                                });
-                        });
-                    }
-                    let leftovers: Vec<_> = entries_filtered
-                        .iter()
-                        .filter(|(k, _)| !shown.contains(k))
-                        .collect();
-                    if !leftovers.is_empty() {
-                        ui.collapsing("Other", |ui| {
-                            egui::Grid::new("calcs_grid_other")
-                                .num_columns(2)
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    for (k, v) in leftovers {
-                                        render_row(ui, k, *v, &mut state.focused_stat);
-                                    }
-                                });
-                        });
-                    }
-                });
+        }
+        if let Some(heading) = matched {
+            by_group.entry(heading).or_default().push((*k, *v));
+        } else {
+            leftovers.push((*k, *v));
+        }
+    }
+
+    let breakdown_open = state.focused_stat.is_some();
+
+    egui::SidePanel::right("calcs_breakdown_panel")
+        .resizable(true)
+        .default_width(420.0)
+        .min_width(320.0)
+        .show_animated_inside(ui, breakdown_open, |ui| {
+            if let Some(focus) = state.focused_stat.clone() {
+                render_focused_breakdown(ui, env, &focus);
+            }
         });
 
-        // Right pane: breakdown for the focused stat.
-        if let Some(focus) = state.focused_stat.clone() {
-            ui.separator();
-            ui.vertical(|ui| {
-                render_focused_breakdown(ui, env, &focus);
+    egui::ScrollArea::vertical()
+        .id_salt("calcs_list")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            // Three-column flow mirroring PoB's CalcSections layout. Each
+            // group declares its column in `GROUPS.column`; `ui.columns`
+            // divides the available width evenly so the tab fills the
+            // panel instead of stacking into one narrow strip.
+            ui.columns(3, |cols| {
+                for (col_idx, col_ui) in cols.iter_mut().enumerate() {
+                    render_flat_column(
+                        col_ui,
+                        col_idx as u8,
+                        &by_group,
+                        &mut state.focused_stat,
+                    );
+                }
             });
+            if !leftovers.is_empty() {
+                ui.separator();
+                ui.collapsing("Other", |ui| {
+                    egui::Grid::new("calcs_grid_other")
+                        .num_columns(2)
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for (k, v) in &leftovers {
+                                render_row(ui, k, *v, &mut state.focused_stat);
+                            }
+                        });
+                });
+            }
+        });
+}
+
+fn render_flat_column(
+    ui: &mut egui::Ui,
+    column: u8,
+    by_group: &std::collections::HashMap<&str, Vec<(&str, f64)>>,
+    focused: &mut Option<String>,
+) {
+    ui.label(
+        egui::RichText::new(group_heading(column as usize))
+            .strong()
+            .underline(),
+    );
+    ui.add_space(2.0);
+    for g in GROUPS.iter().filter(|g| g.column == column) {
+        let Some(rows) = by_group.get(g.heading) else {
+            continue;
+        };
+        if rows.is_empty() {
+            continue;
         }
-    });
+        egui::CollapsingHeader::new(g.heading)
+            .id_salt(("flat_calc_group", g.heading))
+            .default_open(true)
+            .show(ui, |ui| {
+                egui::Grid::new(format!("calcs_grid_{}", g.heading))
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (k, v) in rows {
+                            render_row(ui, k, *v, focused);
+                        }
+                    });
+            });
+    }
 }
 
 /// PoB-layout renderer: lays the section list out in three columns by group
@@ -270,56 +371,44 @@ fn render_pob_layout(
         by_group[g].push(s);
     }
 
-    ui.horizontal(|ui| {
-        // Left pane: 3-column section grid.
-        ui.vertical(|ui| {
-            let breakdown_open = state.focused_stat.is_some();
-            if breakdown_open {
-                ui.set_max_width(820.0);
+    let breakdown_open = state.focused_stat.is_some();
+
+    egui::SidePanel::right("calcs_pob_breakdown_panel")
+        .resizable(true)
+        .default_width(420.0)
+        .min_width(320.0)
+        .show_animated_inside(ui, breakdown_open, |ui| {
+            if let Some(focus) = state.focused_stat.clone() {
+                render_focused_breakdown(ui, env, &focus);
             }
-            egui::ScrollArea::vertical()
-                .id_salt("calcs_pob_layout")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.horizontal_top(|ui| {
-                        for (col_idx, col) in by_group.iter().enumerate() {
-                            ui.vertical(|ui| {
-                                ui.set_min_width(260.0);
-                                ui.set_max_width(360.0);
-                                ui.label(
-                                    egui::RichText::new(group_heading(col_idx))
-                                        .strong()
-                                        .underline(),
-                                );
-                                ui.add_space(2.0);
-                                for section in col {
-                                    render_section(
-                                        ui,
-                                        section,
-                                        output,
-                                        &q,
-                                        state.hide_zero,
-                                        active_skill_flags,
-                                        &mut state.focused_stat,
-                                    );
-                                }
-                            });
-                            if col_idx < 2 {
-                                ui.separator();
-                            }
-                        }
-                    });
-                });
         });
 
-        // Right pane: breakdown.
-        if let Some(focus) = state.focused_stat.clone() {
-            ui.separator();
-            ui.vertical(|ui| {
-                render_focused_breakdown(ui, env, &focus);
+    egui::ScrollArea::vertical()
+        .id_salt("calcs_pob_layout")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.columns(3, |cols| {
+                for (col_idx, col_ui) in cols.iter_mut().enumerate() {
+                    col_ui.label(
+                        egui::RichText::new(group_heading(col_idx))
+                            .strong()
+                            .underline(),
+                    );
+                    col_ui.add_space(2.0);
+                    for section in &by_group[col_idx] {
+                        render_section(
+                            col_ui,
+                            section,
+                            output,
+                            &q,
+                            state.hide_zero,
+                            active_skill_flags,
+                            &mut state.focused_stat,
+                        );
+                    }
+                }
             });
-        }
-    });
+        });
 }
 
 fn group_heading(group: usize) -> &'static str {
@@ -1123,15 +1212,15 @@ mod tests {
     /// as the runtime grouping code (substring match, with `:` suffix
     /// handled as a strict prefix).
     fn group_for(key: &str) -> Option<&'static str> {
-        for (heading, patterns) in GROUPS {
-            for p in *patterns {
+        for g in GROUPS {
+            for p in g.patterns {
                 let hit = if p.ends_with(':') {
                     key.starts_with(p)
                 } else {
                     key.contains(p)
                 };
                 if hit {
-                    return Some(*heading);
+                    return Some(g.heading);
                 }
             }
         }
