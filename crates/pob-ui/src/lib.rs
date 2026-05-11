@@ -46,7 +46,7 @@ mod tree_view;
 mod undo;
 
 use pob_engine::pathfind;
-use undo::{PendingSnapshot, UndoStack};
+use undo::{BuildSnapshot, PendingSnapshot, UndoStack};
 
 pub use tree_view::TreeView;
 
@@ -199,13 +199,88 @@ struct LoadedApp {
     /// Drained each frame for completed async ops.
     #[cfg(target_arch = "wasm32")]
     wasm_storage: build_store_wasm::WasmStorage,
-    /// Issue #204: per-app undo / redo stack snapshotting `Character`
-    /// before each tracked mutation. This slice covers the Tree-tab
-    /// click-to-allocate / click-to-unallocate paths; later slices
-    /// (Items / Skills / Config / dialogs) hook into the same stack.
+    /// Issue #204: per-app undo / redo stack snapshotting the
+    /// build state before each tracked mutation. Slice 4 widened the
+    /// snapshot from raw `Character` to [`BuildSnapshot`] so the
+    /// tree-version-swap path (which mutates `tree_version` alongside
+    /// `Character.allocated`) can also round-trip — see the type's own
+    /// doc-comment for why both halves have to travel together.
     /// Cleared on Build New / Open / Demo so a freshly-loaded build
     /// can't be undone back into the previous one.
-    undo_stack: UndoStack<Character>,
+    undo_stack: UndoStack<BuildSnapshot>,
+}
+
+impl LoadedApp {
+    /// Issue #204 (slice 4): clone the slice of state the undo stack
+    /// snapshots — `Character` plus the live `tree_version` string.
+    /// All snapshot / `PendingSnapshot::capture` call sites route
+    /// through here so the version-swap path can't accidentally store
+    /// a stale or partial pair.
+    fn build_snapshot(&self) -> BuildSnapshot {
+        BuildSnapshot {
+            character: self.character.clone(),
+            tree_version: self.tree_version.clone(),
+        }
+    }
+
+    /// Push the current build state onto the undo stack. Equivalent to
+    /// the slice-1/2/3 `undo_stack.snapshot(&character)` call but
+    /// captures the wider [`BuildSnapshot`] so the version-swap path
+    /// gets the same treatment.
+    fn record_undo_snapshot(&mut self) {
+        let snap = self.build_snapshot();
+        self.undo_stack.snapshot(&snap);
+    }
+
+    /// Issue #204 (slice 4): restore both halves of a popped
+    /// `BuildSnapshot`. When `tree_version` differs from what's loaded
+    /// we reload the new tree off disk and rebind the renderer —
+    /// that's the I/O step the generic [`UndoStack`] can't do itself.
+    /// A reload failure leaves `Character` restored anyway and just
+    /// surfaces a status-bar error so the build isn't left half-undone.
+    fn restore_snapshot(&mut self, snap: BuildSnapshot) {
+        if snap.tree_version != self.tree_version {
+            match load_passive_tree_for_version(&self.data_root, &snap.tree_version) {
+                Ok(tree) => {
+                    self.tree = tree;
+                    self.tree_view.rebind(&self.tree);
+                }
+                Err(e) => {
+                    self.status_message = Some((
+                        StatusKind::Error,
+                        format!("Couldn't reload tree {}: {e}", snap.tree_version),
+                    ));
+                }
+            }
+            self.tree_version = snap.tree_version;
+        }
+        self.character = snap.character;
+    }
+
+    /// Issue #204 (slice 4): undo wrapper that swaps the live
+    /// `(Character, tree_version)` for the most recent snapshot.
+    /// Routes through [`UndoStack::apply_undo`] for the past/future
+    /// shuffle, then hands the popped snapshot to `restore_snapshot`
+    /// so the heavy `tree` reload happens in one place. Returns `true`
+    /// when state actually changed so the caller can gate `recompute`.
+    fn apply_undo(&mut self) -> bool {
+        let mut current = self.build_snapshot();
+        if !self.undo_stack.apply_undo(&mut current) {
+            return false;
+        }
+        self.restore_snapshot(current);
+        true
+    }
+
+    /// Mirror of [`Self::apply_undo`] for the redo branch.
+    fn apply_redo(&mut self) -> bool {
+        let mut current = self.build_snapshot();
+        if !self.undo_stack.apply_redo(&mut current) {
+            return false;
+        }
+        self.restore_snapshot(current);
+        true
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -755,10 +830,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // order. Only flag a recompute when the stack actually swapped
     // state (returns true) — pressing cmd+Z on an empty stack is a
     // no-op and shouldn't churn the perform pipeline.
-    if undo_request && app.undo_stack.apply_undo(&mut app.character) {
+    if undo_request && app.apply_undo() {
         recompute = true;
     }
-    if redo_request && app.undo_stack.apply_redo(&mut app.character) {
+    if redo_request && app.apply_redo() {
         recompute = true;
     }
     if let Some(action) = menu_action {
@@ -1503,7 +1578,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     // are now disconnected from the class start.
                     // Issue #204: snapshot before mutation so cmd+Z can
                     // restore the prior allocation set.
-                    app.undo_stack.snapshot(&app.character);
+                    app.record_undo_snapshot();
                     app.character.unallocate(&app.tree, id);
                     recompute = true;
                 } else {
@@ -1543,7 +1618,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                             ));
                         } else {
                             // Issue #204: snapshot before mutation.
-                            app.undo_stack.snapshot(&app.character);
+                            app.record_undo_snapshot();
                             app.character.allocate_path(&app.tree, id);
                             recompute = true;
                         }
@@ -1644,7 +1719,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // snapshot dance as the Items / Skills / Config tabs above
             // — the picker fn returns true exactly when state changed,
             // so we commit only then.
-            let tattoo_pending = PendingSnapshot::capture(&app.character);
+            let tattoo_pending = PendingSnapshot::capture(&app.build_snapshot());
             if tattoo_picker::ui(
                 ui.ctx(),
                 &mut app.tattoo_picker_state,
@@ -1656,7 +1731,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 recompute = true;
             }
             // Issue #197 (slice A): cluster-jewel paste modal, same pattern.
-            let cluster_pending = PendingSnapshot::capture(&app.character);
+            let cluster_pending = PendingSnapshot::capture(&app.build_snapshot());
             if cluster_paste::ui(
                 ui.ctx(),
                 &mut app.cluster_paste_state,
@@ -1668,7 +1743,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
             // Issue #210: mastery effect picker, opened by primary-click on an
             // allocated mastery node.
-            let mastery_pending = PendingSnapshot::capture(&app.character);
+            let mastery_pending = PendingSnapshot::capture(&app.build_snapshot());
             if mastery_picker::ui(
                 ui.ctx(),
                 &mut app.mastery_picker_state,
@@ -1684,7 +1759,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // mutation (equip / unequip / paste / delete / set load).
             // Capture pre-mutation Character once before the call, push
             // it onto the undo stack only when the tab signals change.
-            let pending = PendingSnapshot::capture(&app.character);
+            let pending = PendingSnapshot::capture(&app.build_snapshot());
             if items_tab::ui(
                 ui,
                 &mut app.items_state,
@@ -1714,7 +1789,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         Tab::Skills => {
             // Issue #204 (slice 2): same pattern as Items tab — capture
             // pre-mutation Character, commit only on `changed = true`.
-            let pending = PendingSnapshot::capture(&app.character);
+            let pending = PendingSnapshot::capture(&app.build_snapshot());
             if skills_tab::ui(ui, &mut app.skills_state, &mut app.character, &app.skills) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
@@ -1725,7 +1800,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // ConfigState`, but `Character::config` is what mutates.
             // Snapshot the whole character so undo restores everything,
             // mirroring how the engine treats config as character state.
-            let pending = PendingSnapshot::capture(&app.character);
+            let pending = PendingSnapshot::capture(&app.build_snapshot());
             if config_tab::ui(ui, &mut app.character.config) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
@@ -2114,7 +2189,7 @@ fn render_tree_reset_modal(ctx: &egui::Context, app: &mut LoadedApp) -> Option<b
                     // actions are exactly the kind of mistake undo
                     // exists for — snapshot before mutating so cmd+Z
                     // restores the full pre-reset state.
-                    app.undo_stack.snapshot(&app.character);
+                    app.record_undo_snapshot();
                     match kind {
                         TreeResetKind::Allocation => {
                             app.character.allocated.clear();
@@ -2304,6 +2379,14 @@ fn apply_version_swap(
     target_tree: pob_data::PassiveTree,
     dropped: &[pob_data::NodeId],
 ) {
+    // Issue #204 (slice 4): snapshot before mutating so cmd+Z can
+    // restore both the pre-swap allocation set *and* the prior
+    // `tree_version`. Recording at the single apply-site covers both
+    // the silent-swap branch (called by `handle_version_dropdown_pick`
+    // when no nodes would be dropped) and the modal-confirmed branch
+    // (called by `render_version_swap_modal` after the user clicks
+    // "Switch and drop").
+    app.record_undo_snapshot();
     for id in dropped {
         app.character.allocated.remove(id);
     }
