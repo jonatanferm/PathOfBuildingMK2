@@ -40,6 +40,7 @@ mod notes_tab;
 mod party_tab;
 mod popup;
 mod set_switcher;
+mod settings;
 #[cfg(not(target_arch = "wasm32"))]
 mod share_url_fetch;
 mod shared_items;
@@ -216,6 +217,12 @@ struct LoadedApp {
     /// `status_message` get the overlay for free, no per-site
     /// refactor.
     last_toasted_status: Option<(StatusKind, String)>,
+    /// Issue #225: user preferences (UI scale, toast lifetime).
+    /// Loaded from `settings.json` in the platform data dir at
+    /// startup; saved on close + after every modal commit.
+    user_settings: settings::UserSettings,
+    /// Issue #225: whether the Settings modal is currently open.
+    show_settings: bool,
     /// Available tree versions found in `data/trees/`.
     tree_versions: Vec<String>,
     /// Currently-loaded tree version.
@@ -614,6 +621,17 @@ impl PobApp {
             status_message: None,
             toasts: toasts::ToastQueue::default(),
             last_toasted_status: None,
+            user_settings: {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    settings::load_from_disk()
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    settings::UserSettings::default()
+                }
+            },
+            show_settings: false,
             tree_versions,
             tree_version: default_version,
             data_root,
@@ -695,6 +713,8 @@ impl PobApp {
             status_message: None,
             toasts: toasts::ToastQueue::default(),
             last_toasted_status: None,
+            user_settings: settings::UserSettings::default(),
+            show_settings: false,
             tree_versions: vec!["3_25".to_owned()],
             tree_version: "3_25".to_owned(),
             data_root: PathBuf::from("/data"),
@@ -961,6 +981,10 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.menu_button("Help", |ui| {
                 if ui.button("Keyboard shortcuts…").clicked() {
                     app.show_hotkey_help = true;
+                    ui.close_menu();
+                }
+                if ui.button("Settings…").clicked() {
+                    app.show_settings = true;
                     ui.close_menu();
                 }
             });
@@ -1571,6 +1595,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         render_hotkey_help_modal(ctx, &mut app.show_hotkey_help);
     }
 
+    // Issue #225: settings modal. Applies the UI scale each frame so
+    // the picked value takes effect immediately (egui caches the
+    // pixels_per_point — a no-op when unchanged, so this is cheap).
+    ctx.set_pixels_per_point(app.user_settings.ui_scale);
+    if app.show_settings {
+        render_settings_modal(ctx, app);
+    }
+
     // Issue #225: mirror any new `status_message` into the toast
     // queue before rendering. Compare against the last-toasted
     // snapshot so we only push once per logical status change —
@@ -1579,7 +1611,8 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     if app.status_message != app.last_toasted_status {
         if let Some((kind, msg)) = app.status_message.clone() {
             let now = ctx.input(|i| i.time);
-            app.toasts.push(kind, msg, now);
+            app.toasts
+                .push_with_lifetime(kind, msg, now, app.user_settings.toast_lifetime_secs);
         }
         app.last_toasted_status = app.status_message.clone();
     }
@@ -2315,6 +2348,86 @@ fn render_toasts(ctx: &egui::Context, queue: &mut toasts::ToastQueue) {
                 },
             );
         });
+}
+
+/// Issue #225: settings modal. Sliders for UI scale + toast lifetime
+/// with live preview — the frame loop re-applies `ui_scale` via
+/// `ctx.set_pixels_per_point` every frame, so dragging the slider
+/// snaps the window immediately. On commit we also persist the
+/// values to disk (native only) so they survive across app
+/// restarts.
+fn render_settings_modal(ctx: &egui::Context, app: &mut LoadedApp) {
+    let mut window_open = true;
+    let mut close_clicked = false;
+    let mut commit = false;
+    let mut reset = false;
+    let mut working = app.user_settings.clone();
+    egui::Window::new("Settings")
+        .id(egui::Id::new("settings-modal"))
+        .open(&mut window_open)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .default_width(360.0)
+        .show(ctx, |ui| {
+            ui.label("UI scale");
+            ui.add(
+                egui::Slider::new(&mut working.ui_scale, 0.5..=2.5)
+                    .step_by(0.05)
+                    .text("× native")
+                    .clamping(egui::SliderClamping::Always),
+            );
+            ui.label("Toast lifetime");
+            ui.add(
+                egui::Slider::new(&mut working.toast_lifetime_secs, 1.0..=30.0)
+                    .step_by(0.5)
+                    .text("seconds")
+                    .clamping(egui::SliderClamping::Always),
+            );
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    commit = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    close_clicked = true;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button("Reset to defaults")
+                        .on_hover_text("Restore every preference to its default value.")
+                        .clicked()
+                    {
+                        reset = true;
+                    }
+                });
+            });
+        });
+    if reset {
+        app.user_settings = settings::UserSettings::default();
+        return;
+    }
+    if commit {
+        app.user_settings = working.sanitised();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Err(e) = settings::save_to_disk(&app.user_settings) {
+                app.status_message =
+                    Some((StatusKind::Error, format!("Settings save failed: {e}")));
+            } else {
+                app.status_message = Some((StatusKind::Info, "Settings saved.".to_owned()));
+            }
+        }
+        app.show_settings = false;
+        return;
+    }
+    // Live-preview by mirroring the working copy back into the live
+    // settings without persisting — the apply happens at the top of
+    // each frame, so dragging the slider snaps the UI immediately.
+    app.user_settings = working;
+    if close_clicked || !window_open {
+        app.show_settings = false;
+    }
 }
 
 /// label so users see what they'd actually press.
