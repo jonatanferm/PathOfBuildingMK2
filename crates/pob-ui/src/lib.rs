@@ -1299,6 +1299,41 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     refresh_power_overlay(app);
                 }
             });
+            // Issue #220 follow-up: gradient legend strip. Renders
+            // only when the overlay is visible so the user reads the
+            // colours alongside what's actually painted on the tree.
+            if app.show_power_overlay {
+                ui.horizontal(|ui| {
+                    ui.weak("Low");
+                    let stops = crate::node_power_heatmap::heatmap_legend_stops(16);
+                    let strip_height = 12.0_f32;
+                    let strip_width = 140.0_f32;
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(strip_width, strip_height),
+                        egui::Sense::hover(),
+                    );
+                    let painter = ui.painter_at(rect);
+                    // Paint each adjacent pair of stops as a vertical
+                    // band — coarse-grained enough that we don't need
+                    // shader-level interpolation, fine enough for the
+                    // eye to read as a smooth gradient.
+                    if stops.len() >= 2 {
+                        for w in stops.windows(2) {
+                            let x0 = rect.left() + w[0].0 * rect.width();
+                            let x1 = rect.left() + w[1].0 * rect.width();
+                            painter.rect_filled(
+                                egui::Rect::from_min_max(
+                                    egui::pos2(x0, rect.top()),
+                                    egui::pos2(x1, rect.bottom()),
+                                ),
+                                0.0,
+                                w[0].1,
+                            );
+                        }
+                    }
+                    ui.weak("High");
+                });
+            }
             // Issue #207 follow-up: dump the cached ranked list as a
             // human-readable "Top candidate nodes" collapsing panel.
             // Closed by default — the user opens it when they want

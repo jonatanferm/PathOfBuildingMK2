@@ -142,6 +142,24 @@ pub fn compute_heatmap_inputs_from_ranked(
         .collect()
 }
 
+/// Issue #220 follow-up: sample the heatmap gradient at evenly-spaced
+/// stops for the on-screen legend strip. Returns `count` `(t, colour)`
+/// pairs where `t` is the position in `0.0..=1.0`. Pure / no egui
+/// state — the renderer paints the strip from the returned colours.
+///
+/// A minimum of two stops is enforced so the strip is always
+/// drawable; smaller requests are clamped silently.
+#[must_use]
+pub fn heatmap_legend_stops(count: usize) -> Vec<(f32, egui::Color32)> {
+    let n = count.max(2);
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / (n - 1) as f32;
+            (t, score_to_colour(t))
+        })
+        .collect()
+}
+
 /// Issue #220 follow-up: BFS-reachable node set from any `allocated`
 /// seed, expanded up to `max_depth` edges. Used by the heatmap to
 /// restrict the colour overlay to "candidates the user can plausibly
@@ -773,6 +791,46 @@ mod tests {
         assert!((score_impact_key(&pure_ehp, HeatmapStat::Combined) - 100.0).abs() < 1e-9);
         // Mixed picks the larger axis (DPS here).
         assert!((score_impact_key(&mixed, HeatmapStat::Combined) - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn heatmap_legend_stops_returns_requested_count_and_endpoints() {
+        // 5 stops at t = 0.0, 0.25, 0.5, 0.75, 1.0 — endpoints should
+        // hit the gradient's cold + hot anchors.
+        let stops = heatmap_legend_stops(5);
+        assert_eq!(stops.len(), 5);
+        assert!((stops[0].0 - 0.0).abs() < 1e-6);
+        assert!((stops[4].0 - 1.0).abs() < 1e-6);
+        assert_eq!(stops[0].1, score_to_colour(0.0));
+        assert_eq!(stops[4].1, score_to_colour(1.0));
+        // Middle stops carry sane positions for the renderer to paint.
+        assert!((stops[2].0 - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn heatmap_legend_stops_clamps_to_minimum_of_two() {
+        // A renderer that asks for 0 or 1 stops should still get a
+        // drawable strip — silently clamp to 2 (endpoints).
+        let zero = heatmap_legend_stops(0);
+        assert_eq!(zero.len(), 2);
+        assert!((zero[0].0 - 0.0).abs() < 1e-6);
+        assert!((zero[1].0 - 1.0).abs() < 1e-6);
+        let one = heatmap_legend_stops(1);
+        assert_eq!(one.len(), 2);
+    }
+
+    #[test]
+    fn heatmap_legend_stops_colours_are_distinct_along_gradient() {
+        // Sample 6 stops; the gradient should advance monotonically
+        // so no two adjacent stops collapse to the same colour.
+        let stops = heatmap_legend_stops(6);
+        for w in stops.windows(2) {
+            assert_ne!(
+                w[0].1, w[1].1,
+                "adjacent legend stops should differ — got duplicate at t={}",
+                w[0].0,
+            );
+        }
     }
 
     #[test]
