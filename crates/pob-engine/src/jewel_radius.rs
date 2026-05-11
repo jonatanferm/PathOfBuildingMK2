@@ -98,6 +98,15 @@
 //!   by the per-line rate (2 for Tempered Spirit / Transcendent pre-3.10,
 //!   3 for current Transcendent Spirit) to produce an Inc MovementSpeed
 //!   mod sourced as the jewel.
+//! - **Tempered / Transcendent Mind**
+//!   ([`HandlerKind::IntCountToIncManaRecovery`]) — Intelligence summed
+//!   across in-radius allocated nodes, integer-divided by 10, then
+//!   multiplied by the per-line rate (2 for Tempered Mind, 3 for current
+//!   Transcendent Mind) to produce an Inc ManaRecovery mod sourced as the
+//!   jewel. Sister to Tempered/Transcendent Spirit / Flesh but
+//!   Int-sourced and emits Inc ManaRecovery (the engine's name for the
+//!   per-second mana-recovery-rate stat — see `mod_parser.rs`
+//!   `"Mana Recovery rate" => "ManaRecovery"`).
 //! - **Karui Heart** ([`HandlerKind::StrToLifeTransform`]) — transforms each
 //!   in-radius allocated node's `+N Str` BASE mod into a `+5N Life` BASE plus
 //!   a counter `-N Str` so the strength is moved (not duplicated). The 5×
@@ -417,6 +426,24 @@ pub enum HandlerKind {
     /// `1% additional Physical Damage Reduction per 10 Str Allocated`) can
     /// stack additively with future slices without re-routing.
     StrCountToIncLifeRecovery,
+    /// Issue #196: Tempered Mind / Transcendent Mind.
+    /// `(2|3)% increased Mana Recovery Rate per 10 Intelligence on Allocated
+    /// Passives in Radius`. Sister handler to Tempered/Transcendent Spirit
+    /// and Tempered/Transcendent Flesh but Int-sourced and emits Inc
+    /// `ManaRecovery` (the engine's name for the per-second mana-recovery-
+    /// rate stat — see `mod_parser.rs` `"Mana Recovery rate" =>
+    /// "ManaRecovery"`). Sums in-radius allocated `+N Intelligence` BASE
+    /// mods, integer-divides by 10, and multiplies by the per-line
+    /// percentage parsed from the marker (2 for Tempered Mind, 3 for
+    /// current Transcendent Mind). Mirrors PoB's `jewelSelfFuncs` lines
+    /// (`ModParser.lua` ~6175-6176) where each rate is its own
+    /// `getPerStat("ManaRecoveryRate", "INC", 0, "Int", N / 10)` entry —
+    /// we collapse them under one handler so the jewel's other lines
+    /// (`-1 Int per 1 Int Allocated`, the unallocated-side mods, the
+    /// Energy Shield regen line on pre-3.10 Transcendent Mind, the
+    /// Accuracy Rating / DoT Multi unallocated-side mods) can stack
+    /// additively with future slices without re-routing.
+    IntCountToIncManaRecovery,
 }
 
 /// One radius jewel ready to be applied. Owns the parsed mod list and the radius
@@ -588,6 +615,9 @@ fn identify_named_unique(socket_id: NodeId, item: &Item) -> Option<RadiusJewel> 
         }
         "Tempered Flesh" | "Transcendent Flesh" => {
             Some(build_str_count_to_inc_life_recovery(socket_id, item))
+        }
+        "Tempered Mind" | "Transcendent Mind" => {
+            Some(build_int_count_to_inc_mana_recovery(socket_id, item))
         }
         "Intuitive Leap" => Some(build_intuitive_leap(socket_id, item)),
         _ => None,
@@ -934,6 +964,35 @@ fn build_str_count_to_inc_life_recovery(socket_id: NodeId, item: &Item) -> Radiu
     }
 }
 
+/// Issue #196: Tempered Mind / Transcendent Mind. Marker recognises
+/// the `(N)% increased Mana Recovery Rate per 10 Intelligence on
+/// Allocated Passives in Radius` line; the dispatch arm reads the
+/// leading percentage off the matching mod_line so 2% (Tempered Mind)
+/// and 3% (current Transcendent Mind) share one handler. Other
+/// jewel-text lines (`-1 Intelligence per 1 Intelligence Allocated`,
+/// the unallocated-side mods, the pre-3.10 Energy Shield regen line)
+/// fall through to vanilla mod_parser pending dedicated slices for
+/// the negative-stat / SelfUnalloc / ES-regen patterns. Default
+/// radius Medium (matches upstream `Data/Uniques/jewel.lua`'s
+/// `Radius: Medium` for both jewels — line 719 / 732).
+fn build_int_count_to_inc_mana_recovery(socket_id: NodeId, item: &Item) -> RadiusJewel {
+    let mods = parse_non_transform_mods(item, is_int_count_to_inc_mana_recovery_marker);
+    let idx = radius_index_for_label("Medium").unwrap_or(1);
+    let radii = radii_for_tree_version(&item_tree_version(item));
+    let radius = radii
+        .get(idx)
+        .copied()
+        .unwrap_or_else(|| pob_data::JewelRadiusInfo::new(0.0, 1440.0, "Medium"));
+    RadiusJewel {
+        socket_id,
+        radius,
+        radius_index: idx,
+        mods,
+        source_label: format!("RadiusJewel:{}", item.base_name),
+        kind: HandlerKind::IntCountToIncManaRecovery,
+    }
+}
+
 /// Pure Talent / Replica Pure Talent: build a [`RadiusJewel`] whose `mods` list
 /// is empty — the actual class-conditional bonuses come from the dispatch
 /// handler reading the item's raw `mod_lines` and filtering by class
@@ -1145,6 +1204,32 @@ fn parse_str_count_to_inc_life_recovery_rate(line: &str) -> Option<f64> {
     // Walk back from `%` to the first non-numeric char; the slice between
     // there and `%` is the rate. If the line *starts* with the digits (no
     // preceding non-digit) the rate is the entire `head` slice.
+    let num_start = head
+        .rfind(|c: char| !c.is_ascii_digit() && c != '.')
+        .map_or(0, |i| i + 1);
+    head[num_start..].trim().parse::<f64>().ok()
+}
+
+/// Issue #196: Tempered/Transcendent Mind marker — the leading rate
+/// (`2%` / `3%`) varies between variants but the rest of the line is
+/// fixed. Returns `true` for any rate so a single dispatch arm can
+/// read the percentage off the matching mod_line.
+fn is_int_count_to_inc_mana_recovery_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("increased mana recovery rate")
+        && l.contains("per 10 intelligence")
+        && l.contains("on allocated passives in radius")
+}
+
+/// Issue #196: extract the leading percentage (`N` from `N% increased
+/// Mana Recovery Rate per 10 Intelligence on Allocated Passives in
+/// Radius`). Used by the dispatch arm for
+/// [`HandlerKind::IntCountToIncManaRecovery`] to scale Tempered Mind's
+/// 2% vs Transcendent Mind (current)'s 3% off the same handler.
+fn parse_int_count_to_inc_mana_recovery_rate(line: &str) -> Option<f64> {
+    let l = line.to_ascii_lowercase();
+    let pct_idx = l.find('%')?;
+    let head = &l[..pct_idx];
     let num_start = head
         .rfind(|c: char| !c.is_ascii_digit() && c != '.')
         .map_or(0, |i| i + 1);
@@ -1776,6 +1861,36 @@ pub fn apply_radius_jewels(
                 let inc_pct = (dex_sum / 10.0).floor() * rate;
                 if inc_pct > 0.0 {
                     let mod_ = crate::Mod::inc("MovementSpeed", inc_pct)
+                        .with_source(Source::Other(jewel.source_label.clone()));
+                    db.add(mod_);
+                    report.mod_emissions += 1;
+                }
+            }
+            HandlerKind::IntCountToIncManaRecovery => {
+                // Issue #196: Tempered Mind / Transcendent Mind. Sum
+                // allocated `+N Intelligence` BASE mods across in-radius
+                // nodes, integer-divide by 10, multiply by the per-line
+                // rate (2 for Tempered Mind, 3 for current Transcendent
+                // Mind) parsed off the matching mod_line, and emit a
+                // single Inc `ManaRecovery` mod sourced as the jewel.
+                for m in &jewel.mods {
+                    let mut clone = m.clone();
+                    clone.source = Some(Source::Other(jewel.source_label.clone()));
+                    db.add(clone);
+                    report.mod_emissions += 1;
+                }
+                let in_radius =
+                    allocated_nodes_in_radius(tree, *socket_id, &jewel.radius, allocated);
+                let int_sum = sum_radius_attribute_base(tree, &in_radius, "Intelligence");
+                let rate = item
+                    .mod_lines
+                    .iter()
+                    .filter(|ml| is_int_count_to_inc_mana_recovery_marker(&ml.line))
+                    .find_map(|ml| parse_int_count_to_inc_mana_recovery_rate(&ml.line))
+                    .unwrap_or(0.0);
+                let inc_pct = (int_sum / 10.0).floor() * rate;
+                if inc_pct > 0.0 {
+                    let mod_ = crate::Mod::inc("ManaRecovery", inc_pct)
                         .with_source(Source::Other(jewel.source_label.clone()));
                     db.add(mod_);
                     report.mod_emissions += 1;
@@ -5102,6 +5217,154 @@ mod tests {
                 .iter()
                 .any(|m| matches!(m.kind, crate::ModType::Inc)),
             "expected no Inc MovementSpeed when only out-of-radius nodes carry Dexterity, got {ms_mods:#?}",
+        );
+    }
+
+    /// Issue #196: Transcendent Mind (current variant). `3% increased
+    /// Mana Recovery Rate per 10 Intelligence on Allocated Passives in
+    /// Radius`. Sister to Tempered/Transcendent Spirit/Flesh: sums
+    /// in-radius allocated `+N Intelligence` BASE mods, integer-divides
+    /// by 10, and multiplies by the per-line percentage (3 here) before
+    /// emitting a single Inc `ManaRecovery` mod sourced as the jewel.
+    /// Mirrors PoB's `jewelSelfFuncs` line `getPerStat("ManaRecoveryRate",
+    /// "INC", 0, "Int", 3 / 10)` (`ModParser.lua` ~6176). Sum = 50 Int →
+    /// floor(50/10) × 3 = 15% Inc ManaRecovery.
+    #[test]
+    fn transcendent_mind_emits_inc_mana_recovery_per_ten_int_in_radius() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+50 to Intelligence".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Transcendent Mind",
+                "Cobalt Jewel",
+                &[(
+                    "3% increased Mana Recovery Rate per 10 Intelligence on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Witch", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::IntCountToIncManaRecovery);
+
+        let mr_mods = db.slice_named("ManaRecovery");
+        assert!(
+            mr_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 15.0).abs() < 1e-6),
+            "expected +15% Inc ManaRecovery from Transcendent Mind, got {mr_mods:#?}",
+        );
+    }
+
+    /// Issue #196: integer-divide on Int sum, then × 3. 27 Int →
+    /// floor(27/10) × 3 = 6% (not 8.1%).
+    #[test]
+    fn transcendent_mind_integer_divides_int_sum() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+27 to Intelligence".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Transcendent Mind",
+                "Cobalt Jewel",
+                &[(
+                    "3% increased Mana Recovery Rate per 10 Intelligence on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Witch", &mut db);
+
+        let mr_mods = db.slice_named("ManaRecovery");
+        assert!(
+            mr_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 6.0).abs() < 1e-6),
+            "expected +6% Inc ManaRecovery (floor(27/10) × 3), got {mr_mods:#?}",
+        );
+    }
+
+    /// Issue #196: Tempered Mind carries the 2% rate. 50 Int →
+    /// floor(50/10) × 2 = 10% Inc ManaRecovery. Same dispatch arm as
+    /// Transcendent Mind; the per-line rate is parsed off the marker text
+    /// so both 2% and 3% jewels share one handler. Mirrors PoB's
+    /// `jewelSelfFuncs` line `getPerStat("ManaRecoveryRate", "INC", 0,
+    /// "Int", 2 / 10)` (`ModParser.lua` ~6175).
+    #[test]
+    fn tempered_mind_emits_inc_mana_recovery_at_two_percent_rate() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&2).unwrap().stats = vec!["+50 to Intelligence".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Tempered Mind",
+                "Cobalt Jewel",
+                &[(
+                    "2% increased Mana Recovery Rate per 10 Intelligence on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let report = apply_radius_jewels(&tree, &alloc, &socketed, "Witch", &mut db);
+        assert_eq!(report.applied_jewels, 1);
+
+        let item = socketed.get(1).unwrap();
+        let jewel = identify_radius_jewel(1, item).expect("identified");
+        assert_eq!(jewel.kind, HandlerKind::IntCountToIncManaRecovery);
+
+        let mr_mods = db.slice_named("ManaRecovery");
+        assert!(
+            mr_mods.iter().any(|m| matches!(m.kind, crate::ModType::Inc)
+                && (m.value.as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-6),
+            "expected +10% Inc ManaRecovery from Tempered Mind (2% rate), got {mr_mods:#?}",
+        );
+    }
+
+    /// Issue #196: out-of-radius / unallocated nodes contribute zero. A
+    /// single far-radius node carrying +50 Int must produce no Mana
+    /// Recovery mod (default Medium radius for Tempered/Transcendent
+    /// Mind per `Data/Uniques/jewel.lua` line 719/732).
+    #[test]
+    fn transcendent_mind_skips_out_of_radius_nodes() {
+        let mut tree = mk_tree();
+        tree.nodes.get_mut(&3).unwrap().stats = vec!["+50 to Intelligence".into()];
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(3);
+        let mut socketed = SocketedJewels::new();
+        socketed.socket(
+            1,
+            mk_item_named(
+                "Transcendent Mind",
+                "Cobalt Jewel",
+                &[(
+                    "3% increased Mana Recovery Rate per 10 Intelligence on Allocated Passives in Radius",
+                    ModSection::Explicit,
+                )],
+            ),
+        );
+        let mut db = crate::ModDB::default();
+        let _ = apply_radius_jewels(&tree, &alloc, &socketed, "Witch", &mut db);
+
+        let mr_mods = db.slice_named("ManaRecovery");
+        assert!(
+            !mr_mods
+                .iter()
+                .any(|m| matches!(m.kind, crate::ModType::Inc)),
+            "expected no Inc ManaRecovery when only out-of-radius nodes carry Intelligence, got {mr_mods:#?}",
         );
     }
 
