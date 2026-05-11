@@ -162,6 +162,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
+        "LowestAttribute" => Some(lowest_attribute(env)),
 
         // Crit.
         "CritChance" | "MainSkillCritChance" => Some(crit_chance(env, output_key)),
@@ -373,6 +374,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "Dexterity",
     "Intelligence",
     "TotalAttr",
+    "LowestAttribute",
     // Hit chance.
     "Accuracy",
     "MainSkillHitChance",
@@ -2515,6 +2517,57 @@ fn energy_shield_regen(env: &Env) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `LowestAttribute`. The output is
+/// `min(Strength, Dexterity, Intelligence)` (PoB's `min().min()`
+/// chain in `perform_basic_stats`). Surfacing the chain shows each
+/// attribute's value plus the winner — used by `LowestAttribute`
+/// trigger mods (e.g. unique boots, certain timeless jewels).
+///
+/// Tie-break: PoB's `f64::min` returns the first operand when equal,
+/// and the chain is `Strength.min(Dexterity).min(Intelligence)`, so
+/// the order of preference is Str → Dex → Int. The breakdown
+/// surfaces whichever attribute is the source of the winning value.
+fn lowest_attribute(env: &Env) -> Breakdown {
+    let str_v = env.output.get("Strength");
+    let dex_v = env.output.get("Dexterity");
+    let int_v = env.output.get("Intelligence");
+    let total = env.output.get("LowestAttribute");
+
+    let mut steps = Vec::new();
+    for (label, value) in [
+        ("Strength", str_v),
+        ("Dexterity", dex_v),
+        ("Intelligence", int_v),
+    ] {
+        steps.push(
+            BreakdownStep::label(label)
+                .with_value(value)
+                .with_explain(format!("{value:.0}")),
+        );
+    }
+    // Pick winner via the same min-chain order PoB uses.
+    let winner = if str_v <= dex_v && str_v <= int_v {
+        "Strength"
+    } else if dex_v <= int_v {
+        "Dexterity"
+    } else {
+        "Intelligence"
+    };
+    steps.push(
+        BreakdownStep::label("Lowest attribute")
+            .with_value(total)
+            .with_explain(format!(
+                "min({str_v:.0}, {dex_v:.0}, {int_v:.0}) = {total:.0} ({winner})"
+            )),
+    );
+
+    Breakdown {
+        output_key: "LowestAttribute".to_owned(),
+        total,
+        steps,
+    }
+}
+
 /// Issue #34 follow-up: re-derive `TotalAttr`. The output is just
 /// `Strength + Dexterity + Intelligence`, but surfacing the chain
 /// gives users the contributing attribute breakdown links and makes
@@ -2971,6 +3024,7 @@ mod tests {
         env.output.set("Dexterity", 50.0);
         env.output.set("Intelligence", 60.0);
         env.output.set("TotalAttr", 190.0);
+        env.output.set("LowestAttribute", 50.0);
         // Issue #34 follow-up: attribute breakdowns. Add representative
         // BASE mods so `pool_basic` has something to enumerate. The
         // class-start contribution is the bulk of each attribute on a
@@ -3198,6 +3252,67 @@ mod tests {
         assert!(bd.steps.iter().any(|s| s.label == "FullDPS"));
         // Bleed DPS = 0 → step is suppressed.
         assert!(!bd.steps.iter().any(|s| s.label == "+ Bleed DPS"));
+    }
+
+    /// Issue #34 follow-up: LowestAttribute walks each attribute and
+    /// flags which one is the minimum. Used by `LowestAttribute`
+    /// trigger mods (e.g. unique boots, certain timeless jewels).
+    /// Worked example: 80 Str + 50 Dex + 60 Int → Lowest = 50 (Dex).
+    #[test]
+    fn lowest_attribute_breakdown_picks_min_and_flags_winner() {
+        let mut env = Env::default();
+        env.output.set("Strength", 80.0);
+        env.output.set("Dexterity", 50.0);
+        env.output.set("Intelligence", 60.0);
+        env.output.set("LowestAttribute", 50.0);
+        let bd = derive_for(&env, "LowestAttribute").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Strength"));
+        assert!(labels.contains(&"Dexterity"));
+        assert!(labels.contains(&"Intelligence"));
+        assert!(labels.contains(&"Lowest attribute"));
+
+        // The winner step's explain should mention the source attribute.
+        let lowest = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Lowest attribute")
+            .unwrap();
+        assert!(
+            lowest
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("Dexterity")),
+            "expected Dexterity in winner explain, got {:?}",
+            lowest.explain
+        );
+        assert!((bd.total - 50.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: ties between two attributes pick the
+    /// first listed in (Strength, Dexterity, Intelligence) order.
+    /// Worked example: 70 Str + 70 Dex + 100 Int → Lowest = 70 (Str).
+    #[test]
+    fn lowest_attribute_breakdown_breaks_ties_to_str() {
+        let mut env = Env::default();
+        env.output.set("Strength", 70.0);
+        env.output.set("Dexterity", 70.0);
+        env.output.set("Intelligence", 100.0);
+        env.output.set("LowestAttribute", 70.0);
+        let bd = derive_for(&env, "LowestAttribute").unwrap();
+        let lowest = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Lowest attribute")
+            .unwrap();
+        assert!(
+            lowest
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("Strength")),
+            "expected Strength to win the tie, got {:?}",
+            lowest.explain
+        );
     }
 
     /// Issue #34 follow-up: TotalAttr walks Strength + Dexterity +
