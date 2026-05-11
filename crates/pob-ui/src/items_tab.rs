@@ -1100,20 +1100,32 @@ pub fn ui(
                 // `shared_items` mutating borrows.
                 let equipped: Option<Item> = items.get(slot).cloned();
                 if let Some(item) = equipped {
-                    let mut socket_click: Option<usize> = None;
+                    let mut socket_click = SocketClick::default();
                     egui::ScrollArea::vertical()
                         .max_height(220.0)
                         .show(ui, |ui| {
                             socket_click = render_item_summary(ui, &item);
                         });
-                    // Issue #221 follow-up: cycle the clicked socket's
-                    // colour. Pure helper does the string manipulation;
-                    // we just plumb the new string back into the live
+                    // Issue #221 follow-up: a dot click cycles the
+                    // socket's colour; a gap click toggles the link
+                    // separator. Pure helpers do the string work; we
+                    // just plumb the new string back into the live
                     // ItemSet and dirty-flag the build so the auto-save
                     // / Save button picks it up.
-                    if let Some(idx) = socket_click {
+                    if let Some(idx) = socket_click.dot {
                         if let Some(item_mut) = items.get_mut(slot) {
                             let new_sockets = crate::socket_renderer::apply_socket_cycle_at(
+                                &item_mut.sockets,
+                                idx,
+                            );
+                            if new_sockets != item_mut.sockets {
+                                item_mut.sockets = new_sockets;
+                                changed = true;
+                            }
+                        }
+                    } else if let Some(idx) = socket_click.link {
+                        if let Some(item_mut) = items.get_mut(slot) {
+                            let new_sockets = crate::socket_renderer::apply_socket_link_toggle_at(
                                 &item_mut.sockets,
                                 idx,
                             );
@@ -2486,11 +2498,23 @@ pub fn item_tooltip_lines(item: &Item) -> Vec<String> {
     out
 }
 
-/// Render the equipped-item card. Returns the 0-based socket dot
-/// index the user clicked, if any — the caller mutates `item.sockets`
-/// via [`crate::socket_renderer::apply_socket_cycle_at`] and persists.
-/// Tooltip callers (`item_tooltip_lines` path) can ignore the return.
-fn render_item_summary(ui: &mut egui::Ui, item: &Item) -> Option<usize> {
+/// Issue #221 follow-up: what the equipped-item card reports back from a
+/// click frame. `dot` is the 0-based socket dot index for a colour-cycle
+/// click; `link` is the 0-based gap index for a link-toggle click. At
+/// most one is `Some` per click — `draw_sockets` already enforces that
+/// (dot hit takes precedence over gap hit). Tooltip callers ignore both.
+#[derive(Debug, Default, Clone, Copy)]
+struct SocketClick {
+    dot: Option<usize>,
+    link: Option<usize>,
+}
+
+/// Render the equipped-item card. Returns the socket click info (dot or
+/// link) the user produced this frame — the caller mutates
+/// `item.sockets` via [`crate::socket_renderer::apply_socket_cycle_at`]
+/// or [`crate::socket_renderer::apply_socket_link_toggle_at`] and
+/// persists. Tooltip callers can ignore the return.
+fn render_item_summary(ui: &mut egui::Ui, item: &Item) -> SocketClick {
     let body_font = egui::TextStyle::Body.resolve(ui.style());
     let strong_font = body_font.clone();
     // Item name — render with PoB color escapes if present (e.g. unique
@@ -2506,15 +2530,16 @@ fn render_item_summary(ui: &mut egui::Ui, item: &Item) -> Option<usize> {
         item.quality,
         if item.corrupted { " • Corrupted" } else { "" }
     ));
-    let mut clicked_dot: Option<usize> = None;
+    let mut click = SocketClick::default();
     if !item.sockets.is_empty() {
         // Issue #221 (slice 1): visualise sockets as coloured dots with
         // link bars between sockets in the same group. Falls back to
         // the raw string if parsing produced nothing (defensive — the
         // parser is permissive, so this branch is mostly unreachable).
         //
-        // Issue #221 follow-up: clicking a dot cycles its colour;
-        // `SocketsResponse::clicked_dot` carries the 0-based index.
+        // Issue #221 follow-up: clicking a dot cycles its colour, and
+        // clicking the gap between two dots toggles the link
+        // (`-` ↔ ` `) — `SocketsResponse` carries both indices.
         let groups = pob_data::parse_socket_string(&item.sockets);
         if groups.is_empty() {
             ui.label(format!("Sockets: {}", item.sockets));
@@ -2522,9 +2547,12 @@ fn render_item_summary(ui: &mut egui::Ui, item: &Item) -> Option<usize> {
             ui.horizontal(|ui| {
                 ui.label("Sockets:");
                 let resp = draw_sockets(ui, &groups, SocketLayoutConfig::default());
-                resp.response
-                    .on_hover_text("Click a socket to cycle its colour (R → G → B → W).");
-                clicked_dot = resp.clicked_dot;
+                resp.response.on_hover_text(
+                    "Click a socket to cycle its colour (R → G → B → W).\n\
+                     Click between two sockets to toggle the link.",
+                );
+                click.dot = resp.clicked_dot;
+                click.link = resp.clicked_link;
             });
         }
     }
@@ -2545,7 +2573,7 @@ fn render_item_summary(ui: &mut egui::Ui, item: &Item) -> Option<usize> {
         let job = color_codes::to_layout_job(&ml.line, section_default, body_font.clone());
         ui.label(job);
     }
-    clicked_dot
+    click
 }
 
 #[cfg(test)]
