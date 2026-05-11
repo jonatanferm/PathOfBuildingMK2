@@ -514,6 +514,52 @@ pub fn rank_item_modlines(
     scores
 }
 
+/// Render a slice of [`ItemModlineScore`] as one display string per row,
+/// suitable for dropping into a UI list panel. The first slice of #207's
+/// items-tab "top contributing modlines" view consumes this directly —
+/// the renderer is the next slice on top of it.
+///
+/// Format per row: `"<sign><dps>  <sign><ehp>  <slot label>  <mod line>"`
+/// where deltas are formatted to one decimal, padded with thousands
+/// commas, and prefixed `+` / `-` so positive/negative impact reads at a
+/// glance. Mirrors the spacing PoB's `PowerReportListControl.lua` uses
+/// for its column layout.
+///
+/// The input is consumed in order — callers pass the already-sorted
+/// output of [`rank_item_modlines`] (or a flattened multi-slot
+/// concatenation re-sorted by impact). `top_n` truncates the result;
+/// pass `usize::MAX` for "all rows".
+///
+/// Whitespace-only mod lines are filtered out at the engine layer
+/// already, so this helper does no further dropping — every row in
+/// `scores[..top_n]` becomes one output string.
+pub fn format_top_contributors(scores: &[ItemModlineScore], top_n: usize) -> Vec<String> {
+    scores
+        .iter()
+        .take(top_n)
+        .map(|s| {
+            format!(
+                "{}  {}  {}  {}",
+                format_signed_delta(s.dps_delta),
+                format_signed_delta(s.ehp_delta),
+                s.slot.label(),
+                s.mod_line.trim(),
+            )
+        })
+        .collect()
+}
+
+/// `+1234.5` / `-12.0` / `+0.0` — one-decimal, sign-prefixed. Used by
+/// [`format_top_contributors`] for both DPS and EHP columns; pulled out
+/// so the format is unit-testable in isolation.
+fn format_signed_delta(value: f64) -> String {
+    // `format!("{:+.1}", x)` would do most of this, but we want `+0.0`
+    // (not `-0.0`) for cleanliness when a mod line scores zero impact —
+    // f64's signed zero would otherwise leak through.
+    let v = if value == 0.0 { 0.0 } else { value };
+    format!("{:+.1}", v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1037,5 +1083,107 @@ mod tests {
         let c = fresh_character();
         let ranked = rank_item_modlines(&c, &tree, Slot::Amulet, None, None, None, None);
         assert!(ranked.is_empty());
+    }
+
+    // ── Issue #207 (slice 5): pure formatter for the items-tab list ──
+    //
+    // No engine machinery — these tests build `ItemModlineScore` values
+    // by hand and assert the rendered strings. The renderer (next slice)
+    // wires `rank_item_modlines` → `format_top_contributors` and drops
+    // the resulting strings into an items-tab `ListBox`.
+
+    fn mk_score(slot: Slot, idx: usize, line: &str, dps: f64, ehp: f64) -> ItemModlineScore {
+        ItemModlineScore {
+            slot,
+            mod_index: idx,
+            mod_line: line.into(),
+            dps_delta: dps,
+            ehp_delta: ehp,
+        }
+    }
+
+    #[test]
+    fn format_top_contributors_renders_each_row() {
+        let scores = vec![
+            mk_score(Slot::Amulet, 0, "+50 to maximum Life", 1234.5, 67.8),
+            mk_score(Slot::Helmet, 1, "10% increased Spell Damage", 800.0, 0.0),
+        ];
+        let lines = format_top_contributors(&scores, 10);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "+1234.5  +67.8  Amulet  +50 to maximum Life");
+        assert_eq!(lines[1], "+800.0  +0.0  Helmet  10% increased Spell Damage");
+    }
+
+    #[test]
+    fn format_top_contributors_truncates_to_top_n() {
+        let scores = vec![
+            mk_score(Slot::Ring1, 0, "a", 5.0, 0.0),
+            mk_score(Slot::Ring1, 1, "b", 4.0, 0.0),
+            mk_score(Slot::Ring1, 2, "c", 3.0, 0.0),
+            mk_score(Slot::Ring1, 3, "d", 2.0, 0.0),
+        ];
+        let lines = format_top_contributors(&scores, 2);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].ends_with("Ring (1)  a"));
+        assert!(lines[1].ends_with("Ring (1)  b"));
+    }
+
+    #[test]
+    fn format_top_contributors_signs_negative_deltas() {
+        // Corrupted "+X% Damage taken" mod actively hurts the build —
+        // negative dps_delta means the player is losing DPS by keeping
+        // the line, and the column should make that obvious.
+        let scores = vec![mk_score(
+            Slot::BodyArmour,
+            0,
+            "Take 10% increased Damage from Hits",
+            -250.0,
+            -1500.0,
+        )];
+        let lines = format_top_contributors(&scores, 10);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(
+            lines[0],
+            "-250.0  -1500.0  Body Armour  Take 10% increased Damage from Hits"
+        );
+    }
+
+    #[test]
+    fn format_top_contributors_zero_delta_is_plus_zero() {
+        // f64 has signed zero — a mod that scores exactly 0.0 with a
+        // negative-zero result of subtraction would otherwise render as
+        // `-0.0` and look like a regression. The formatter normalises.
+        let scores = vec![mk_score(Slot::Belt, 0, "Veiled prefix", -0.0, -0.0)];
+        let lines = format_top_contributors(&scores, 10);
+        assert_eq!(lines[0], "+0.0  +0.0  Belt  Veiled prefix");
+    }
+
+    #[test]
+    fn format_top_contributors_empty_input_is_empty_output() {
+        let lines = format_top_contributors(&[], 10);
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn format_top_contributors_top_n_zero_returns_empty() {
+        let scores = vec![mk_score(Slot::Amulet, 0, "x", 1.0, 1.0)];
+        let lines = format_top_contributors(&scores, 0);
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn format_top_contributors_trims_modline_whitespace() {
+        // `rank_item_modlines` skips whitespace-only lines but a real
+        // line with trailing whitespace ("+50 to Life\n") should still
+        // render cleanly without the trailing blank.
+        let scores = vec![mk_score(
+            Slot::Amulet,
+            0,
+            "  +50 to maximum Life  \n",
+            10.0,
+            10.0,
+        )];
+        let lines = format_top_contributors(&scores, 10);
+        assert_eq!(lines[0], "+10.0  +10.0  Amulet  +50 to maximum Life");
     }
 }
