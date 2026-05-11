@@ -4,8 +4,8 @@
 
 use eframe::egui;
 use pob_engine::{
-    export_code, export_pob_code, import_code, import_pob_code, import_pob_xml, resolve_share_url,
-    Character, GggCharacterSummary,
+    export_code, export_pob_code, export_pob_xml, import_code, import_pob_code, import_pob_xml,
+    resolve_share_url, Character, GggCharacterSummary,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -27,11 +27,53 @@ use crate::share_url_fetch::{
     ShareUrlFetchResult,
 };
 
+/// Issue #194 follow-up: pick which serialisation the export pane
+/// emits. Mirrors PoB's `Show Code` / `Show XML` toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExportFormat {
+    /// `MK2|<base64>` JSON-snapshot code — our native round-trip.
+    #[default]
+    Mk2,
+    /// `eNp…` style PoB share code (zlib + base64 of `<PathOfBuilding>` XML).
+    /// Paste into upstream PoB to round-trip the build.
+    PobShare,
+    /// Raw `<PathOfBuilding>...` XML. Useful for diffing two builds or
+    /// pasting into a script.
+    PobXml,
+}
+
+impl ExportFormat {
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mk2 => "MK2 code",
+            Self::PobShare => "PoB share code",
+            Self::PobXml => "PoB XML",
+        }
+    }
+}
+
+/// Issue #194 follow-up: serialise a [`Character`] in the requested
+/// [`ExportFormat`]. Pure / fallible — the UI surfaces the inner error
+/// as a banner. Pulled out so each branch has a unit-test home and the
+/// UI side stays a thin dispatch.
+pub fn export_in_format(character: &Character, format: ExportFormat) -> Result<String, String> {
+    match format {
+        ExportFormat::Mk2 => export_code(character).map_err(|e| format!("{e}")),
+        ExportFormat::PobShare => export_pob_code(character).map_err(|e| format!("{e}")),
+        ExportFormat::PobXml => Ok(export_pob_xml(character)),
+    }
+}
+
 #[derive(Default)]
 pub struct ImportExportTabState {
     pub paste: String,
     pub generated: String,
     pub last_message: Option<(bool, String)>,
+    /// Issue #194 follow-up: which serialisation the next "Generate"
+    /// click should emit. Defaults to MK2 — the historical pre-#194
+    /// behaviour.
+    pub export_format: ExportFormat,
     /// Issue #32 / #194: live-import inputs and in-flight job state.
     /// Available on both desktop (via `ureq`) and wasm (via
     /// `web_sys::fetch`). The browser path may need a CORS proxy
@@ -143,26 +185,29 @@ pub fn ui(
             ui.set_min_width(360.0);
             ui.heading("Export current build");
             ui.separator();
+            // Issue #194 follow-up: format dropdown + single Generate
+            // button replaces the previous per-format buttons. Adds
+            // a "PoB XML" option for users who want the raw
+            // `<PathOfBuilding>` document (diffing, scripting).
             ui.horizontal(|ui| {
-                if ui.button("Generate MK2 code").clicked() {
-                    match export_code(character) {
+                ui.label("Format:");
+                egui::ComboBox::from_id_salt("export_format_select")
+                    .selected_text(state.export_format.label())
+                    .show_ui(ui, |ui| {
+                        for fmt in [
+                            ExportFormat::Mk2,
+                            ExportFormat::PobShare,
+                            ExportFormat::PobXml,
+                        ] {
+                            ui.selectable_value(&mut state.export_format, fmt, fmt.label());
+                        }
+                    });
+                if ui.button("Generate").clicked() {
+                    match export_in_format(character, state.export_format) {
                         Ok(code) => {
                             state.generated = code;
-                            state.last_message = Some((true, "Generated MK2 code.".into()));
-                        }
-                        Err(e) => {
-                            state.last_message = Some((false, format!("Export failed: {e}")));
-                        }
-                    }
-                }
-                if ui.button("Generate PoB share code").clicked() {
-                    match export_pob_code(character) {
-                        Ok(code) => {
-                            state.generated = code;
-                            state.last_message = Some((
-                                true,
-                                "Generated PoB-compatible code (paste into upstream PoB to round-trip).".into(),
-                            ));
+                            state.last_message =
+                                Some((true, format!("Generated {}.", state.export_format.label())));
                         }
                         Err(e) => {
                             state.last_message = Some((false, format!("Export failed: {e}")));
@@ -201,10 +246,8 @@ pub fn ui(
             #[cfg(target_arch = "wasm32")]
             let fetch_in_flight = false;
             ui.horizontal(|ui| {
-                let import_btn = ui.add_enabled(
-                    !fetch_in_flight,
-                    egui::Button::new("Import (auto)"),
-                );
+                let import_btn =
+                    ui.add_enabled(!fetch_in_flight, egui::Button::new("Import (auto)"));
                 if import_btn.clicked() {
                     handle_import_click(state, character, &mut changed);
                 }
@@ -669,5 +712,66 @@ fn poll_share_url_job(state: &mut ImportExportTabState, character: &mut Characte
             state.share_url_job = None;
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pob_engine::ClassRef;
+
+    fn fixture_character() -> Character {
+        let mut c = Character::new(ClassRef::ranger(), 92);
+        c.notes = "round-trip fixture".into();
+        c
+    }
+
+    #[test]
+    fn export_in_format_default_is_mk2() {
+        // Default state should pick the same format the pre-#194 button
+        // pair emitted first — `MK2|<base64>`.
+        assert_eq!(ExportFormat::default(), ExportFormat::Mk2);
+    }
+
+    #[test]
+    fn export_in_format_mk2_emits_mk2_prefix() {
+        // The MK2 share format always carries the `MK2|` prefix —
+        // confirms the dispatch hit the right engine helper.
+        let code = export_in_format(&fixture_character(), ExportFormat::Mk2).expect("export ok");
+        assert!(
+            code.starts_with("MK2|"),
+            "MK2 format should produce the documented prefix, got {code:?}",
+        );
+    }
+
+    #[test]
+    fn export_in_format_pob_xml_emits_pathofbuilding_root() {
+        // PoB XML format is the raw `<PathOfBuilding>` document —
+        // diff-friendly and what users paste into scripts.
+        let xml = export_in_format(&fixture_character(), ExportFormat::PobXml).expect("export ok");
+        assert!(
+            xml.contains("<PathOfBuilding"),
+            "PoB XML format should produce a <PathOfBuilding> document, got {xml:?}",
+        );
+    }
+
+    #[test]
+    fn export_in_format_pob_share_emits_non_empty_zlib_blob() {
+        // PoB share code is opaque base64 — at minimum it should be
+        // non-empty for a well-formed character.
+        let code =
+            export_in_format(&fixture_character(), ExportFormat::PobShare).expect("export ok");
+        assert!(!code.is_empty());
+        // PoB share codes don't carry the `MK2|` prefix.
+        assert!(!code.starts_with("MK2|"));
+    }
+
+    #[test]
+    fn export_format_label_is_user_friendly() {
+        // The combo dropdown reads the labels — pin them so a typo
+        // doesn't quietly land in the UI.
+        assert_eq!(ExportFormat::Mk2.label(), "MK2 code");
+        assert_eq!(ExportFormat::PobShare.label(), "PoB share code");
+        assert_eq!(ExportFormat::PobXml.label(), "PoB XML");
     }
 }
