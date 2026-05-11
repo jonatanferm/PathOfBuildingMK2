@@ -284,6 +284,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         "LightningResist" => uncapped_elemental_resist(env, "Lightning"),
         "ChaosResist" => uncapped_chaos_resist(env),
         "WeaponRangeMetre" => weapon_range_metre(env),
+        "MainSkillLevel" => main_skill_level(env),
         "FireMaximumHitTaken" => maximum_hit_taken(env, "Fire"),
         "ColdMaximumHitTaken" => maximum_hit_taken(env, "Cold"),
         "LightningMaximumHitTaken" => maximum_hit_taken(env, "Lightning"),
@@ -3136,6 +3137,36 @@ fn dot_ehp(env: &Env, elem: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `MainSkillLevel`. PoB clamps the
+/// active gem's level into `[1, 40]` (`perform_skill_dps`'s `let
+/// gem_level = main.level.clamp(1, 40)`). Calcs panel rows that
+/// depend on level (base damage, mana cost, area) link back to
+/// this row. Surfacing the value as a single-step breakdown keeps
+/// the click-through chain consistent.
+///
+/// Returns `None` when no skill is loaded (level 0).
+fn main_skill_level(env: &Env) -> Option<Breakdown> {
+    let total = env.output.get("MainSkillLevel");
+    if total.abs() < 1e-9 {
+        return None;
+    }
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Main skill level")
+            .with_value(total)
+            .with_explain(format!(
+                "{total:.0} from the active gem (clamped to [1, 40] in perform_skill_dps)"
+            )),
+    );
+
+    Some(Breakdown {
+        output_key: "MainSkillLevel".to_owned(),
+        total,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `WeaponRangeMetre`. PoB exposes
 /// `WeaponRange` in engine units and `WeaponRangeMetre` as `units /
 /// 10` for the Calcs panel — same conversion shape as
@@ -5157,6 +5188,42 @@ mod tests {
     /// PoB formula:
     ///
     /// Issue #34 follow-up: ProjectileCount breakdown. PoB derives
+    /// Issue #34 follow-up: MainSkillLevel surfaces the active gem
+    /// level (clamped 1-40 per `perform_skill_dps`). Calcs panel
+    /// rows that depend on level (base damage, mana cost, area)
+    /// link back to this row. Surfacing the value as a single-step
+    /// breakdown keeps the click-through chain consistent.
+    #[test]
+    fn main_skill_level_breakdown_shows_gem_level() {
+        let mut env = Env::default();
+        env.output.set("MainSkillLevel", 20.0);
+        let bd = derive_for(&env, "MainSkillLevel").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Main skill level"));
+
+        let final_step = bd.steps.last().unwrap();
+        assert!(
+            final_step
+                .explain
+                .as_deref()
+                .is_some_and(|e| e.contains("gem") || e.contains("clamp")),
+            "expected gem-level hint in explain, got {:?}",
+            final_step.explain
+        );
+        assert!((bd.total - 20.0).abs() < 1e-9);
+    }
+
+    /// Issue #34 follow-up: returns None when no skill is loaded
+    /// (MainSkillLevel = 0).
+    #[test]
+    fn main_skill_level_breakdown_skipped_when_no_skill() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "MainSkillLevel").is_none(),
+            "expected None when MainSkillLevel is zero",
+        );
+    }
+
     /// Issue #34 follow-up: WeaponRangeMetre converts WeaponRange
     /// from engine units to metres (`/ 10`), same shape as
     /// AreaOfEffectRadiusMetres. Surfacing the chain lets users see
