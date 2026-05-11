@@ -159,6 +159,7 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
             "Area of effect modifier",
         )),
         "AreaOfEffectRadius" => area_of_effect_radius(env),
+        "AreaOfEffectRadiusMetres" => area_of_effect_radius_metres(env),
         "LifeUnreserved" => unreserved_pool(env, "Life"),
         "ManaUnreserved" => unreserved_pool(env, "Mana"),
         "TotalAttr" => Some(total_attributes(env)),
@@ -452,6 +453,7 @@ pub const COVERED_KEYS: &[&str] = &[
     "MovementSpeedMod",
     "AreaOfEffectMod",
     "AreaOfEffectRadius",
+    "AreaOfEffectRadiusMetres",
     // Crit.
     "CritChance",
     "MainSkillCritChance",
@@ -2839,6 +2841,41 @@ fn unreserved_pool(env: &Env, pool_key: &str) -> Option<Breakdown> {
     })
 }
 
+/// Issue #34 follow-up: re-derive `AreaOfEffectRadiusMetres`. PoB
+/// exposes the AoE radius in metres alongside the engine units;
+/// conversion is just `engine_units / 10`. Surfacing the chain lets
+/// users see the engine-units value next to the metres value
+/// without context-switching back to AreaOfEffectRadius.
+///
+/// Returns `None` when the engine-unit radius is zero.
+fn area_of_effect_radius_metres(env: &Env) -> Option<Breakdown> {
+    let units = env.output.get("AreaOfEffectRadius");
+    if units.abs() < 1e-9 {
+        return None;
+    }
+    let metres = env.output.get("AreaOfEffectRadiusMetres");
+
+    let mut steps = Vec::new();
+    steps.push(
+        BreakdownStep::label("Radius (engine units)")
+            .with_value(units)
+            .with_explain(format!(
+                "{units:.0} from AreaOfEffectRadius — see its breakdown for the base × sqrt(mod) chain"
+            )),
+    );
+    steps.push(
+        BreakdownStep::label("Area of effect radius (metres)")
+            .with_value(metres)
+            .with_explain(format!("{units:.0} / 10 = {metres:.2} m")),
+    );
+
+    Some(Breakdown {
+        output_key: "AreaOfEffectRadiusMetres".to_owned(),
+        total: metres,
+        steps,
+    })
+}
+
 /// Issue #34 follow-up: re-derive `AreaOfEffectRadius`. Mirrors
 /// `perform_skill_dps`'s AoE block:
 ///
@@ -3108,6 +3145,7 @@ mod tests {
         // Base 22 (Arc default) × sqrt(1.0) = 22.
         env.output.set("AoERadius", 22.0);
         env.output.set("AreaOfEffectRadius", 22.0);
+        env.output.set("AreaOfEffectRadiusMetres", 2.2);
         env.output.set("CritChance", 6.0);
         env.output.set("FullDPS", 2000.0);
         env.output.set("BleedDPS", 0.0);
@@ -3826,6 +3864,42 @@ mod tests {
     /// Issue #34 follow-up: AreaOfEffectRadius walks the
     /// PoB formula:
     ///
+    /// Issue #34 follow-up: AreaOfEffectRadiusMetres breakdown.
+    /// PoB exposes the AoE radius in metres alongside the engine
+    /// units; conversion is just `radius / 10`. Surfacing the chain
+    /// lets users see the engine-units value next to the metres
+    /// value without context-switching. Worked example: 26 engine
+    /// units → 2.6 metres.
+    #[test]
+    fn aoe_radius_metres_breakdown_walks_units_to_metres() {
+        let mut env = Env::default();
+        env.output.set("AreaOfEffectRadius", 26.0);
+        env.output.set("AreaOfEffectRadiusMetres", 2.6);
+        let bd = derive_for(&env, "AreaOfEffectRadiusMetres").unwrap();
+        let labels: Vec<&str> = bd.steps.iter().map(|s| s.label.as_str()).collect();
+        assert!(labels.contains(&"Radius (engine units)"));
+        assert!(labels.contains(&"Area of effect radius (metres)"));
+
+        let units = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Radius (engine units)")
+            .unwrap();
+        assert!((units.value.unwrap() - 26.0).abs() < 1e-9);
+        assert!((bd.total - 2.6).abs() < 1e-6);
+    }
+
+    /// Issue #34 follow-up: returns None when the engine-unit radius
+    /// is zero (non-AoE skill or no skill loaded).
+    #[test]
+    fn aoe_radius_metres_breakdown_skipped_when_no_radius() {
+        let env = Env::default();
+        assert!(
+            derive_for(&env, "AreaOfEffectRadiusMetres").is_none(),
+            "expected None when AoE radius is zero",
+        );
+    }
+
     ///   radius = floor(base × floor(100 × sqrt(area_mod)) / 100)
     ///
     /// Surfaced steps walk Base radius → Area-mod multiplier →
