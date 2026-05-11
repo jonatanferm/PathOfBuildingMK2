@@ -20,6 +20,19 @@ use pob_engine::{Character, MainSkill, QualityId, SkillRegistry};
 
 use crate::color_codes;
 
+/// Issue #214 (slice 3): payload carried by a gem drag-source. Carries
+/// both the source group and the source gem index so the drop target
+/// can route to either `move_gem` (same group) or
+/// `move_gem_across_groups` (cross group). A dedicated struct keeps the
+/// payload type distinct from the `usize` payload used by group-row
+/// drag-and-drop reorder (slice 2 / PR #369), so the two systems can
+/// coexist on the same group-list row via two payload-typed drop checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct GemDragPayload {
+    pub group_idx: usize,
+    pub gem_idx: usize,
+}
+
 /// Color/requirement filter for the gem picker. Each chip is a tri-state of
 /// "include" — when *all* chips are off the picker shows everything.
 #[derive(Debug, Clone, Copy, Default)]
@@ -397,6 +410,13 @@ pub fn ui(
             // `(from, idx_at_drop)` and feeds `move_skill_group`.
             // Mirrors the gem-row wiring from slice 1 (PR #368).
             let mut pending_group_move: Option<(usize, usize)> = None;
+            // Issue #214 (slice 3): a gem dragged from anywhere can be
+            // dropped on a group-row to move it INTO that group. The
+            // group-row's `dnd_drop_zone` already accepts a `usize` for
+            // group reorder; we additionally check the same response for
+            // a `GemDragPayload` via `Response::dnd_release_payload`,
+            // which lets one zone serve two payload types.
+            let mut pending_cross_group_gem_move: Option<(GemDragPayload, usize)> = None;
             let main_socket_group = character.main_socket_group;
             for (idx, group) in character.skill_groups.iter_mut().enumerate() {
                 let main_marker = if (idx as u32 + 1) == main_socket_group {
@@ -435,6 +455,26 @@ pub fn ui(
                 });
                 if let Some(payload) = drop.1 {
                     pending_group_move = Some((*payload, idx));
+                }
+                // Issue #214 (slice 3): the same drop zone also accepts
+                // GemDragPayload — route to `move_gem_across_groups`
+                // (deferred until after the loop so we can borrow
+                // `character` mutably without conflicting with the
+                // current iter_mut() iteration).
+                if let Some(gem_payload) = drop.0.response.dnd_release_payload::<GemDragPayload>() {
+                    pending_cross_group_gem_move = Some((*gem_payload, idx));
+                }
+            }
+            if let Some((payload, to_group)) = pending_cross_group_gem_move {
+                if move_gem_across_groups(character, payload.group_idx, payload.gem_idx, to_group) {
+                    // Selection follows the dragged gem to its new home so
+                    // the right-side detail panel doesn't jump elsewhere.
+                    state.selected_group = to_group;
+                    state.selected_gem = character.skill_groups[to_group]
+                        .gems
+                        .len()
+                        .saturating_sub(1);
+                    changed = true;
                 }
             }
             if let Some((from, to)) = pending_group_move {
@@ -568,16 +608,30 @@ pub fn ui(
                     main_marker, kind_marker, display_name, gem.level, gem.quality
                 );
                 let drop_id = egui::Id::new(("gem_drop", group_id, idx));
-                let drop = ui.dnd_drop_zone::<usize, _>(egui::Frame::default(), |ui| {
+                // Issue #214 (slice 3): payload type widened to
+                // `GemDragPayload` so cross-group drops on the group-row
+                // (handled in the group list above) have the source group
+                // index. Same-group drops here keep using `move_gem`; the
+                // drop zone ignores payloads from a different group_idx
+                // (the user dropped on the wrong target — no-op).
+                let drop = ui.dnd_drop_zone::<GemDragPayload, _>(egui::Frame::default(), |ui| {
                     ui.horizontal(|ui| {
-                        // Drag handle. Source payload is the source gem's
-                        // index; the drop zone reads it back as
-                        // `(from, idx_at_drop)` and feeds `move_gem`.
+                        // Drag handle. Source payload is
+                        // `GemDragPayload { group_idx, gem_idx }`; the
+                        // drop zone reads `payload.gem_idx` and feeds
+                        // `move_gem` for in-group reorder.
                         let drag_id = egui::Id::new(("gem_drag", group_id, idx));
-                        ui.dnd_drag_source(drag_id, idx, |ui| {
-                            ui.label(egui::RichText::new("≡").monospace())
-                                .on_hover_text("Drag to reorder this gem");
-                        });
+                        ui.dnd_drag_source(
+                            drag_id,
+                            GemDragPayload {
+                                group_idx: group_id,
+                                gem_idx: idx,
+                            },
+                            |ui| {
+                                ui.label(egui::RichText::new("≡").monospace())
+                                    .on_hover_text("Drag to reorder this gem");
+                            },
+                        );
                         if ui
                             .checkbox(&mut gem.enabled, "")
                             .on_hover_text("Enable / disable this gem")
@@ -620,7 +674,11 @@ pub fn ui(
                 });
                 let _ = drop_id; // silence dead-code warning if unused
                 if let Some(payload) = drop.1 {
-                    pending_move = Some((*payload, idx));
+                    // Same-group reorder only; cross-group moves are
+                    // routed by the group-list drop zone (slice 3).
+                    if payload.group_idx == group_id {
+                        pending_move = Some((payload.gem_idx, idx));
+                    }
                 }
             }
             if let Some((from, to)) = pending_move {
@@ -1028,6 +1086,64 @@ pub(super) fn move_skill_group(character: &mut Character, from: usize, to: usize
     true
 }
 
+/// Issue #214 (slice 3): move the gem at `(from_group, from_idx)` into
+/// `to_group`, appending it to the END of the destination group's gems
+/// vec. Returns `true` when the move actually happened.
+///
+/// Same-group moves (`from_group == to_group`) are NOT this helper's
+/// job — those go through `move_gem` (slice 1's within-group reorder).
+/// Returns `false` in that case so the caller doesn't double-handle.
+///
+/// Out-of-range indices return `false` without mutation (issue #214 AC
+/// #3: drop on invalid targets is a no-op, no panics).
+///
+/// `main_active_skill_index` handling:
+/// - SOURCE group: same arithmetic as `move_gem`'s "remove" half — if
+///   the moved gem WAS the main, source main resets to 0 (no main set);
+///   if main was AFTER the moved gem, it shifts left by one; otherwise
+///   unchanged.
+/// - DESTINATION group: untouched. The gem is appended at the end so
+///   nothing in front of any existing main pointer shifts.
+pub(super) fn move_gem_across_groups(
+    character: &mut Character,
+    from_group: usize,
+    from_idx: usize,
+    to_group: usize,
+) -> bool {
+    if from_group == to_group {
+        return false;
+    }
+    let n_groups = character.skill_groups.len();
+    if from_group >= n_groups || to_group >= n_groups {
+        return false;
+    }
+    if from_idx >= character.skill_groups[from_group].gems.len() {
+        return false;
+    }
+    let gem = character.skill_groups[from_group].gems.remove(from_idx);
+    // Adjust source group's main pointer (1-based; 0 / past-end means
+    // "no main set" and we leave it alone).
+    {
+        let src = &mut character.skill_groups[from_group];
+        // `len_before_remove` = current gems.len() + 1 since we already
+        // removed; mirror `move_gem`'s validity check against the pre-
+        // removal length.
+        let len_before = src.gems.len() + 1;
+        if src.main_active_skill_index >= 1 && (src.main_active_skill_index as usize) <= len_before
+        {
+            let main = src.main_active_skill_index as usize - 1;
+            if main == from_idx {
+                // Removed gem WAS the main — source group has no main now.
+                src.main_active_skill_index = 0;
+            } else if main > from_idx {
+                src.main_active_skill_index -= 1;
+            }
+        }
+    }
+    character.skill_groups[to_group].gems.push(gem);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1412,6 +1528,163 @@ mod tests {
         let labels: Vec<&str> = c.skill_groups.iter().map(|g| g.label.as_str()).collect();
         assert_eq!(labels, vec!["A", "B"]);
         assert_eq!(c.main_socket_group, 1);
+    }
+
+    fn mk_character_with_gemmed_groups(
+        groups: &[(&[&str], u32)],
+        main_one_based: u32,
+    ) -> Character {
+        use pob_engine::character::ClassRef;
+        let mut c = Character::new(ClassRef::marauder(), 1);
+        c.skill_groups = groups
+            .iter()
+            .enumerate()
+            .map(|(i, (ids, main))| SocketGroup {
+                label: format!("G{}", i + 1),
+                gems: ids
+                    .iter()
+                    .map(|id| MainSkill {
+                        skill_id: (*id).into(),
+                        level: 20,
+                        quality: 0,
+                        quality_id: QualityId::Default,
+                        enabled: true,
+                    })
+                    .collect(),
+                main_active_skill_index: *main,
+                enabled: true,
+            })
+            .collect();
+        c.main_socket_group = main_one_based;
+        c
+    }
+
+    #[test]
+    fn move_gem_across_groups_forward_appends_and_clears_source_main() {
+        // Issue #214 (slice 3): drag a gem from group A onto group B's
+        // header. Source had main = the dragged gem ⇒ source main resets
+        // to 0 (no main). Destination main is unchanged (gem appended at
+        // end, nothing in front shifts).
+        let mut c =
+            mk_character_with_gemmed_groups(&[(&["A", "B", "C"][..], 1), (&["X", "Y"][..], 2)], 1);
+        assert!(move_gem_across_groups(&mut c, 0, 0, 1));
+        let g0_ids: Vec<&str> = c.skill_groups[0]
+            .gems
+            .iter()
+            .map(|g| g.skill_id.as_str())
+            .collect();
+        let g1_ids: Vec<&str> = c.skill_groups[1]
+            .gems
+            .iter()
+            .map(|g| g.skill_id.as_str())
+            .collect();
+        assert_eq!(g0_ids, vec!["B", "C"]);
+        assert_eq!(g1_ids, vec!["X", "Y", "A"]);
+        assert_eq!(
+            c.skill_groups[0].main_active_skill_index, 0,
+            "moved gem WAS the main of the source group, so source main resets to 0"
+        );
+        assert_eq!(
+            c.skill_groups[1].main_active_skill_index, 2,
+            "destination main untouched (gem appended at end)"
+        );
+    }
+
+    #[test]
+    fn move_gem_across_groups_source_main_after_moved_gem_decrements() {
+        // Source main pointed at C (1-based 3); we remove A (idx 0).
+        // Everything after A shifts left by one ⇒ source main becomes 2.
+        let mut c =
+            mk_character_with_gemmed_groups(&[(&["A", "B", "C"][..], 3), (&["X"][..], 1)], 1);
+        assert!(move_gem_across_groups(&mut c, 0, 0, 1));
+        assert_eq!(
+            c.skill_groups[0].main_active_skill_index, 2,
+            "source main shifted from 3 → 2 because gem before it was removed"
+        );
+        assert_eq!(c.skill_groups[1].main_active_skill_index, 1);
+    }
+
+    #[test]
+    fn move_gem_across_groups_backward_works_too() {
+        // Move from group 1 (later) into group 0 (earlier). Destination
+        // is "earlier" but the from_group/to_group ordering doesn't matter
+        // for the helper — just exercise the reverse direction.
+        let mut c =
+            mk_character_with_gemmed_groups(&[(&["A", "B"][..], 1), (&["X", "Y", "Z"][..], 2)], 2);
+        assert!(move_gem_across_groups(&mut c, 1, 0, 0));
+        let g0_ids: Vec<&str> = c.skill_groups[0]
+            .gems
+            .iter()
+            .map(|g| g.skill_id.as_str())
+            .collect();
+        let g1_ids: Vec<&str> = c.skill_groups[1]
+            .gems
+            .iter()
+            .map(|g| g.skill_id.as_str())
+            .collect();
+        assert_eq!(g0_ids, vec!["A", "B", "X"]);
+        assert_eq!(g1_ids, vec!["Y", "Z"]);
+        // Source group: main was idx 1 (Y), removing idx 0 (X) ⇒ main shifts
+        // 2 → 1.
+        assert_eq!(c.skill_groups[1].main_active_skill_index, 1);
+        // Destination group main untouched.
+        assert_eq!(c.skill_groups[0].main_active_skill_index, 1);
+    }
+
+    #[test]
+    fn move_gem_across_groups_source_becomes_empty() {
+        // Last gem in source moved away. Source ends up empty; main was
+        // pointing at the moved gem ⇒ resets to 0 (no main).
+        let mut c = mk_character_with_gemmed_groups(&[(&["A"][..], 1), (&[][..], 0)], 1);
+        assert!(move_gem_across_groups(&mut c, 0, 0, 1));
+        assert!(c.skill_groups[0].gems.is_empty());
+        assert_eq!(c.skill_groups[0].main_active_skill_index, 0);
+        let g1_ids: Vec<&str> = c.skill_groups[1]
+            .gems
+            .iter()
+            .map(|g| g.skill_id.as_str())
+            .collect();
+        assert_eq!(g1_ids, vec!["A"]);
+    }
+
+    #[test]
+    fn move_gem_across_groups_same_group_is_noop() {
+        // from_group == to_group is slice 1's job; helper returns false
+        // and doesn't mutate.
+        let mut c = mk_character_with_gemmed_groups(&[(&["A", "B"][..], 1)], 1);
+        assert!(!move_gem_across_groups(&mut c, 0, 0, 0));
+        let ids: Vec<&str> = c.skill_groups[0]
+            .gems
+            .iter()
+            .map(|g| g.skill_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["A", "B"]);
+        assert_eq!(c.skill_groups[0].main_active_skill_index, 1);
+    }
+
+    #[test]
+    fn move_gem_across_groups_out_of_range_returns_false() {
+        // Issue #214 AC #3: invalid drops are no-ops, no panics.
+        let mut c = mk_character_with_gemmed_groups(&[(&["A"][..], 1), (&["X"][..], 1)], 1);
+        // Bad from_group.
+        assert!(!move_gem_across_groups(&mut c, 99, 0, 1));
+        // Bad to_group.
+        assert!(!move_gem_across_groups(&mut c, 0, 0, 99));
+        // Bad gem index.
+        assert!(!move_gem_across_groups(&mut c, 0, 99, 1));
+        // Nothing changed.
+        let g0: Vec<&str> = c.skill_groups[0]
+            .gems
+            .iter()
+            .map(|g| g.skill_id.as_str())
+            .collect();
+        let g1: Vec<&str> = c.skill_groups[1]
+            .gems
+            .iter()
+            .map(|g| g.skill_id.as_str())
+            .collect();
+        assert_eq!(g0, vec!["A"]);
+        assert_eq!(g1, vec!["X"]);
     }
 
     #[test]
