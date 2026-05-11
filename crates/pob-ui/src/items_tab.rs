@@ -89,6 +89,18 @@ pub struct ItemsTabState {
     /// bad base64, malformed JSON). Cleared on successful import or
     /// when the popup closes.
     pub item_set_import_error: Option<String>,
+    /// Issue #221 (enchant slice): whether the helmet "Apply
+    /// Enchantment" picker popup is open. Surfaces only when the
+    /// active slot is `Slot::Helmet` and `app.helmet_enchants` is
+    /// loaded — both gates live in the caller.
+    pub enchant_picker_open: bool,
+    /// Issue #221: live search filter for the helmet enchant picker.
+    /// Matched case-insensitively against the skill name.
+    pub enchant_picker_filter: String,
+    /// Issue #221: which tier the picker commits when the user
+    /// clicks a row. Defaults to Endgame (Eternal Lab) — the
+    /// stronger roll and what most builds target.
+    pub enchant_picker_tier: pob_data::HelmetEnchantTier,
 }
 
 /// Issue #211 (slice 3): edit-buffer state for the shared-items rename
@@ -156,6 +168,9 @@ impl Default for ItemsTabState {
             manage_sets_open: false,
             item_set_import_buffer: String::new(),
             item_set_import_error: None,
+            enchant_picker_open: false,
+            enchant_picker_filter: String::new(),
+            enchant_picker_tier: pob_data::HelmetEnchantTier::default(),
         }
     }
 }
@@ -671,6 +686,7 @@ pub fn ui(
     skills: &SkillRegistry,
     bases: Option<&ItemBaseSet>,
     shared_items: &mut SharedItemStore,
+    helmet_enchants: Option<&pob_data::HelmetEnchantSet>,
 ) -> bool {
     let mut changed = false;
     // Issue #222: item-set switcher + manage popup. Above the existing
@@ -823,6 +839,14 @@ pub fn ui(
     // on builds with many saved sets. Returns true if a load happened
     // inside the popup so the calc engine recomputes.
     if render_manage_sets_popup(ui, character, state) {
+        changed = true;
+    }
+    // Issue #221 (picker slice): the Apply-Enchantment popup. Gated on
+    // the catalogue being loaded and on the Helmet slot being live —
+    // both checks happen inside the helper. Returns true when a
+    // pick committed so the calc engine recomputes the new enchant
+    // mods.
+    if render_enchant_picker_popup(ui, character, state, helmet_enchants) {
         changed = true;
     }
     ui.separator();
@@ -1087,6 +1111,23 @@ pub fn ui(
                             .clicked()
                         {
                             do_save_shared = true;
+                        }
+                        // Issue #221 (picker slice): "Apply
+                        // Enchantment" only renders on the Helmet
+                        // slot and only when the catalogue is
+                        // loaded — the popup below reads it.
+                        if slot == Slot::Helmet && helmet_enchants.is_some() {
+                            if ui
+                                .button("Apply Enchantment…")
+                                .on_hover_text(
+                                    "Pick a helmet enchant from the lab catalogue. \
+                                     Replaces any existing enchant on this helmet.",
+                                )
+                                .clicked()
+                            {
+                                state.enchant_picker_open = true;
+                                state.enchant_picker_filter.clear();
+                            }
                         }
                     });
                     if do_unequip {
@@ -1560,6 +1601,129 @@ fn render_shared_rename_popup(
     } else if cancel || !window_open {
         *rename_state = None;
     }
+}
+
+/// Issue #221 (picker slice): render the "Apply Enchantment" popup.
+/// Lists every helmet enchant in the loaded catalogue, filtered by a
+/// case-insensitive search box; clicking a row applies the selected
+/// tier's mod lines to the equipped helmet via
+/// [`pob_data::Item::apply_helmet_enchant`].
+///
+/// Returns `true` when a pick committed so the caller can dirty-flag
+/// the build + recompute. Returns `false` for clicks that don't
+/// commit (cancel, outside-click, no helmet equipped, etc.).
+fn render_enchant_picker_popup(
+    ui: &mut egui::Ui,
+    character: &mut Character,
+    state: &mut ItemsTabState,
+    catalogue: Option<&pob_data::HelmetEnchantSet>,
+) -> bool {
+    if !state.enchant_picker_open {
+        return false;
+    }
+    let Some(catalogue) = catalogue else {
+        // Defensive — caller already gates the button on this being
+        // `Some`, but a race (data file removed mid-session) would
+        // otherwise leave the popup stuck open.
+        state.enchant_picker_open = false;
+        return false;
+    };
+    let mut window_open = true;
+    let mut committed = false;
+    let mut chosen_pick: Option<Vec<String>> = None;
+    let mut clear_enchant = false;
+    egui::Window::new("Apply Helmet Enchantment")
+        .id(egui::Id::new("helmet-enchant-picker"))
+        .open(&mut window_open)
+        .resizable(true)
+        .collapsible(false)
+        .default_width(420.0)
+        .default_height(420.0)
+        .show(ui.ctx(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Tier:");
+                ui.selectable_value(
+                    &mut state.enchant_picker_tier,
+                    pob_data::HelmetEnchantTier::Merciless,
+                    pob_data::HelmetEnchantTier::Merciless.label(),
+                );
+                ui.selectable_value(
+                    &mut state.enchant_picker_tier,
+                    pob_data::HelmetEnchantTier::Endgame,
+                    pob_data::HelmetEnchantTier::Endgame.label(),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label("Search:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut state.enchant_picker_filter)
+                        .desired_width(220.0)
+                        .hint_text("skill name"),
+                );
+                if ui.small_button("✕").on_hover_text("Clear search").clicked() {
+                    state.enchant_picker_filter.clear();
+                }
+            });
+            ui.separator();
+            let filter_lc = state.enchant_picker_filter.to_ascii_lowercase();
+            let tier = state.enchant_picker_tier;
+            egui::ScrollArea::vertical()
+                .id_salt("enchant-list")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for (skill, enchant) in catalogue.iter() {
+                        if !filter_lc.is_empty() && !skill.to_ascii_lowercase().contains(&filter_lc)
+                        {
+                            continue;
+                        }
+                        let lines = tier.lines(enchant);
+                        if lines.is_empty() {
+                            continue;
+                        }
+                        ui.group(|ui| {
+                            let header_resp = ui.add(
+                                egui::Label::new(egui::RichText::new(skill).strong())
+                                    .sense(egui::Sense::click()),
+                            );
+                            for line in lines {
+                                ui.label(format!("  • {line}"));
+                            }
+                            if header_resp.clicked() || ui.button("Apply").clicked() {
+                                chosen_pick = Some(lines.to_vec());
+                            }
+                        });
+                    }
+                });
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Remove enchant")
+                    .on_hover_text("Strip any existing helmet enchant from this slot.")
+                    .clicked()
+                {
+                    clear_enchant = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    state.enchant_picker_open = false;
+                }
+            });
+        });
+    if let Some(lines) = chosen_pick {
+        if let Some(item) = character.items.get_mut(Slot::Helmet) {
+            item.apply_helmet_enchant(&lines);
+            committed = true;
+        }
+        state.enchant_picker_open = false;
+    } else if clear_enchant {
+        if let Some(item) = character.items.get_mut(Slot::Helmet) {
+            item.apply_helmet_enchant(&[]);
+            committed = true;
+        }
+        state.enchant_picker_open = false;
+    } else if !window_open {
+        state.enchant_picker_open = false;
+    }
+    committed
 }
 
 /// Issue #212 (slice 1): render the item-set rename popup. Mirrors

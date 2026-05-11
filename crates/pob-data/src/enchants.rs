@@ -89,6 +89,39 @@ impl HelmetEnchantSet {
     }
 }
 
+/// Which tier of a [`HelmetEnchant`] to apply. Picker UI surfaces both
+/// so the user can preview both rolls before committing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HelmetEnchantTier {
+    /// Level-3 Lab tier. PoB labels this `MERCILESS`.
+    Merciless,
+    /// Level-4 Lab tier (Eternal Lab). PoB labels this `ENDGAME`.
+    #[default]
+    Endgame,
+}
+
+impl HelmetEnchantTier {
+    /// Pick the matching tier's mod-line slice off a [`HelmetEnchant`].
+    /// Returns the empty slice when the chosen tier wasn't shipped for
+    /// that skill (defensive against future sparse entries).
+    #[must_use]
+    pub fn lines(self, enchant: &HelmetEnchant) -> &[String] {
+        match self {
+            Self::Merciless => &enchant.merciless,
+            Self::Endgame => &enchant.endgame,
+        }
+    }
+
+    /// Human-readable label for the tier, for UI radio buttons.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Merciless => "Merciless (Lab)",
+            Self::Endgame => "Endgame (Eternal Lab)",
+        }
+    }
+}
+
 /// Parse a JSON document produced by `pob-extract` into a typed
 /// [`HelmetEnchantSet`]. The serde-default fields cover sparse
 /// entries — e.g. a skill that only has a Merciless tier listed loads

@@ -25,7 +25,7 @@ pub use bases::{ArmourStats, FlaskStats, ItemBase, ItemBaseKind, ItemReq, Weapon
 pub use calc_sections::{load_calc_sections, CalcRow, CalcSection, CalcSubsection};
 pub use cluster_jewel_mods::{load_cluster_jewel_mods, ClusterMod, ClusterModSet};
 pub use cluster_jewels::{load_cluster_jewels, ClusterJewelData, ClusterJewelType, ClusterSkill};
-pub use enchants::{load_helmet_enchants, HelmetEnchant, HelmetEnchantSet};
+pub use enchants::{load_helmet_enchants, HelmetEnchant, HelmetEnchantSet, HelmetEnchantTier};
 pub use flags::{KeywordFlag, ModFlag, SkillType};
 pub use gem::Gem;
 pub use item::{

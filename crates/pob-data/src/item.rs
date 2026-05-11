@@ -292,6 +292,66 @@ impl Item {
             updated
         };
     }
+
+    /// Issue #221: replace any existing helmet-enchant mod lines on
+    /// this item with the supplied set. The picker UI hands a flat
+    /// `&[String]` of the chosen tier's mod text; this helper:
+    ///
+    /// 1. Drops every existing [`ModSection::Enchant`] entry from
+    ///    `mod_lines` (so re-picking a different enchant doesn't
+    ///    stack onto the previous one).
+    /// 2. Pushes the new lines as `Enchant` mod entries (with no
+    ///    variant gate — helmet enchants don't vary).
+    /// 3. Rewrites `raw` to drop old `<mod> (enchant)` lines and
+    ///    append the new ones with the `(enchant)` suffix so a
+    ///    PoB-XML round trip preserves them. The rest of the raw
+    ///    text (name, base, item-level, requirements, explicits) is
+    ///    untouched.
+    ///
+    /// Passing an empty slice clears the helmet's enchant — useful for
+    /// a "Remove enchant" affordance on the picker. No-op if the item
+    /// has neither existing enchants nor new lines to add.
+    pub fn apply_helmet_enchant(&mut self, lines: &[String]) {
+        let had_old = self
+            .mod_lines
+            .iter()
+            .any(|m| m.section == ModSection::Enchant);
+        if !had_old && lines.is_empty() {
+            return;
+        }
+        self.mod_lines.retain(|m| m.section != ModSection::Enchant);
+        for line in lines {
+            self.mod_lines.push(ModLine {
+                line: line.clone(),
+                section: ModSection::Enchant,
+                variant_list: None,
+            });
+        }
+
+        // Rewrite raw: drop existing enchant lines, append the new
+        // ones with the `(enchant)` suffix so the parser
+        // re-categorises them correctly on round-trip. Skip the
+        // rewrite when `raw` is empty (synthetic items have no raw
+        // body to preserve).
+        if self.raw.is_empty() {
+            return;
+        }
+        let preserve_trailing_nl = self.raw.ends_with('\n');
+        let mut kept: Vec<String> = self
+            .raw
+            .lines()
+            .filter(|l| !l.trim_end().ends_with(" (enchant)"))
+            .map(str::to_owned)
+            .collect();
+        for line in lines {
+            kept.push(format!("{line} (enchant)"));
+        }
+        let mut joined = kept.join("\n");
+        if preserve_trailing_nl && !joined.ends_with('\n') {
+            joined.push('\n');
+        }
+        self.raw = joined;
+    }
 }
 
 /// Colour of a single socket. `White` accepts any gem colour.
@@ -708,5 +768,143 @@ Item Level: 84
         };
         let active: Vec<_> = item.iter_active_mod_lines().collect();
         assert_eq!(active.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod enchant_tests {
+    use super::*;
+    use crate::enchants::{HelmetEnchant, HelmetEnchantTier};
+
+    fn mk_helmet() -> Item {
+        let raw = "Rarity: RARE\nViper Bonnet\nIron Hat\n--------\nItem Level: 80\n--------\n+50 to maximum Life\n+30 to all Elemental Resistances\n";
+        Item {
+            name: "Viper Bonnet".into(),
+            base_name: "Iron Hat".into(),
+            rarity: Rarity::Rare,
+            item_level: 80,
+            quality: 0,
+            tags: HashSet::default(),
+            mod_lines: vec![
+                ModLine::new("+50 to maximum Life", ModSection::Explicit),
+                ModLine::new("+30 to all Elemental Resistances", ModSection::Explicit),
+            ],
+            sockets: String::new(),
+            raw: raw.into(),
+            corrupted: false,
+            mirrored: false,
+            variants: Vec::new(),
+            variant: None,
+        }
+    }
+
+    #[test]
+    fn apply_helmet_enchant_appends_new_enchant_lines() {
+        // Issue #221 (picker slice): a fresh enchant pick lands on
+        // an unenchanted helmet by appending `(enchant)`-suffixed
+        // lines to raw and pushing ModSection::Enchant entries to
+        // mod_lines.
+        let mut item = mk_helmet();
+        let lines = vec![
+            "20% increased Sentinel of Absolution Duration".to_owned(),
+            "8% increased Absolution Cast Speed".to_owned(),
+        ];
+        item.apply_helmet_enchant(&lines);
+
+        let enchants: Vec<_> = item
+            .mod_lines
+            .iter()
+            .filter(|m| m.section == ModSection::Enchant)
+            .collect();
+        assert_eq!(enchants.len(), 2);
+        assert!(enchants[0].line.contains("Sentinel of Absolution"));
+        // raw text carries the suffixed lines so PoB-XML round trip
+        // re-parses them as enchants.
+        assert!(item
+            .raw
+            .contains("20% increased Sentinel of Absolution Duration (enchant)"));
+        assert!(item
+            .raw
+            .contains("8% increased Absolution Cast Speed (enchant)"));
+        // The original explicit lines survive untouched.
+        assert!(item.raw.contains("+50 to maximum Life"));
+        assert!(item.raw.contains("+30 to all Elemental Resistances"));
+    }
+
+    #[test]
+    fn apply_helmet_enchant_replaces_existing_enchant_block() {
+        // Re-picking a different enchant drops the previous lines
+        // before adding the new ones — no stacking.
+        let mut item = mk_helmet();
+        item.apply_helmet_enchant(&["+10 to Strength".to_owned()]);
+        assert!(item.raw.contains("+10 to Strength (enchant)"));
+
+        item.apply_helmet_enchant(&["+20 to Intelligence".to_owned()]);
+        assert!(item.raw.contains("+20 to Intelligence (enchant)"));
+        assert!(!item.raw.contains("+10 to Strength (enchant)"));
+
+        let enchants: Vec<_> = item
+            .mod_lines
+            .iter()
+            .filter(|m| m.section == ModSection::Enchant)
+            .collect();
+        assert_eq!(enchants.len(), 1);
+        assert_eq!(enchants[0].line, "+20 to Intelligence");
+    }
+
+    #[test]
+    fn apply_helmet_enchant_clears_existing_when_empty_input() {
+        // Passing an empty slice removes the existing enchant — used
+        // by a "Remove enchant" affordance on the picker.
+        let mut item = mk_helmet();
+        item.apply_helmet_enchant(&["+10 to Strength".to_owned()]);
+        assert!(item.raw.contains("+10 to Strength (enchant)"));
+
+        item.apply_helmet_enchant(&[]);
+        assert!(!item.raw.contains("(enchant)"));
+        assert!(!item
+            .mod_lines
+            .iter()
+            .any(|m| m.section == ModSection::Enchant));
+    }
+
+    #[test]
+    fn apply_helmet_enchant_noop_on_unenchanted_item_with_empty_input() {
+        // Belt-and-braces: an "apply empty enchant" on an already
+        // empty-enchanted helmet leaves both raw and mod_lines
+        // untouched.
+        let mut item = mk_helmet();
+        let before_raw = item.raw.clone();
+        let before_lines = item.mod_lines.len();
+        item.apply_helmet_enchant(&[]);
+        assert_eq!(item.raw, before_raw);
+        assert_eq!(item.mod_lines.len(), before_lines);
+    }
+
+    #[test]
+    fn apply_helmet_enchant_preserves_trailing_newline_in_raw() {
+        // The variant rewrite path preserves a trailing newline; mirror
+        // that contract here so PoB-XML embed of the raw doesn't drop
+        // it on the floor.
+        let mut item = mk_helmet();
+        assert!(item.raw.ends_with('\n'));
+        item.apply_helmet_enchant(&["+10 to Strength".to_owned()]);
+        assert!(item.raw.ends_with('\n'));
+    }
+
+    #[test]
+    fn helmet_enchant_tier_lines_returns_correct_vector() {
+        let enchant = HelmetEnchant {
+            merciless: vec!["+1 Merciless".to_owned()],
+            endgame: vec!["+2 Endgame".to_owned()],
+        };
+        assert_eq!(
+            HelmetEnchantTier::Merciless.lines(&enchant),
+            &["+1 Merciless".to_owned()][..],
+        );
+        assert_eq!(
+            HelmetEnchantTier::Endgame.lines(&enchant),
+            &["+2 Endgame".to_owned()][..],
+        );
     }
 }
