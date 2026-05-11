@@ -188,6 +188,13 @@ struct LoadedApp {
     /// Issue #98 (slice 1+2): tattoo catalogue, surfaced by the Tree-tab right-click
     /// picker (`tattoo_picker.rs`).
     tattoos: Option<pob_data::TattooSet>,
+    /// Issue #221: helmet enchant catalogue, surfaced by the
+    /// Items-tab "Apply Enchantment" picker when an equipped item
+    /// is in the Helmet slot. `None` when `data/enchants_helmet.json`
+    /// isn't present — the picker button gates on this so the user
+    /// sees a clear "data not loaded" path instead of an empty
+    /// dialog.
+    helmet_enchants: Option<pob_data::HelmetEnchantSet>,
     /// Issue #20 (slice 1+3): per-minion-type base stats. Surfaced alongside the
     /// player's output via `pob_engine::apply_minion_outputs` when the active main
     /// skill summons a minion.
@@ -503,6 +510,9 @@ impl PobApp {
         let tattoos = std::fs::read_to_string(data_root.join("tattoos.json"))
             .ok()
             .and_then(|json| pob_data::load_tattoos(&json).ok());
+        let helmet_enchants = std::fs::read_to_string(data_root.join("enchants_helmet.json"))
+            .ok()
+            .and_then(|json| pob_data::load_helmet_enchants(&json).ok());
         let minions = std::fs::read_to_string(data_root.join("minions.json"))
             .ok()
             .and_then(|json| pob_data::load_minions(&json).ok());
@@ -564,6 +574,7 @@ impl PobApp {
             cluster_jewels,
             cluster_jewel_mods,
             tattoos,
+            helmet_enchants,
             minions,
             current_build_path: None,
             status_message: None,
@@ -642,6 +653,7 @@ impl PobApp {
             cluster_jewels: None,
             cluster_jewel_mods: None,
             tattoos: None,
+            helmet_enchants: None,
             minions: None,
             current_build_path: None,
             status_message: None,
@@ -1838,6 +1850,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 &app.skills,
                 app.bases.as_ref(),
                 &mut app.shared_items,
+                app.helmet_enchants.as_ref(),
             ) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
