@@ -203,6 +203,25 @@ pub fn ui(
         state.sort_mode,
     );
 
+    // Issue #223 follow-up: paste-friendly Markdown export. The button
+    // dumps the currently-filtered + sorted rows as a `|`-delimited
+    // table; users paste into a build write-up / Discord / GitHub
+    // issue to share before-and-after comparisons.
+    ui.horizontal(|ui| {
+        if ui
+            .button("Copy as table")
+            .on_hover_text(
+                "Copy the filtered + sorted diff rows to the clipboard as a \
+                 Markdown table. Paste into a build write-up / GitHub issue.",
+            )
+            .clicked()
+        {
+            let md = format_compare_markdown(&rows);
+            ui.ctx().copy_text(md);
+        }
+        ui.weak(format!("{} rows", rows.len()));
+    });
+
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -406,6 +425,37 @@ fn format_percent(p: f64) -> String {
     }
 }
 
+/// Issue #223 follow-up: render the compare-table rows as a Markdown
+/// table the user can paste into a build write-up / Discord / GitHub
+/// issue. Uses the same `format_value` / `format_delta` /
+/// `format_percent` helpers as the on-screen table so the exported
+/// numbers match what the user sees.
+///
+/// Pure / no egui — the call site copies the returned string into the
+/// clipboard.
+#[must_use]
+pub fn format_compare_markdown(rows: &[(String, f64, f64)]) -> String {
+    let mut out = String::new();
+    out.push_str("| Stat | Snapshot | Live | Δ | %Δ |\n");
+    out.push_str("|---|---:|---:|---:|---:|\n");
+    for (key, snap, live) in rows {
+        let delta = live - snap;
+        let pct = match percent_delta(*snap, *live) {
+            Some(p) => format_percent(p),
+            None => "—".to_owned(),
+        };
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} |\n",
+            key,
+            format_value(*snap),
+            format_value(*live),
+            format_delta(delta),
+            pct,
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,6 +554,65 @@ mod tests {
         let order: Vec<&str> = rows.iter().map(|(k, _, _)| k.as_str()).collect();
         // FireResist: +100%. Life: +50%. Mana: undefined → bottom.
         assert_eq!(order, vec!["FireResist", "Life", "Mana"]);
+    }
+
+    #[test]
+    fn format_compare_markdown_emits_header_and_separator() {
+        // Empty input still produces the table preamble so a pasted
+        // table never collapses to bare text.
+        let md = format_compare_markdown(&[]);
+        let lines: Vec<&str> = md.lines().collect();
+        assert_eq!(
+            lines.len(),
+            2,
+            "empty input should leave just header + separator: {md:?}"
+        );
+        assert!(lines[0].starts_with("| Stat |"));
+        assert!(lines[1].contains("---"));
+    }
+
+    #[test]
+    fn format_compare_markdown_row_shapes_values_signs_and_percent() {
+        let rows = vec![
+            ("Life".to_owned(), 100.0, 150.0),
+            ("FireResist".to_owned(), 30.0, 30.0),
+        ];
+        let md = format_compare_markdown(&rows);
+        // Life row carries the signed delta and a positive percent.
+        assert!(
+            md.contains("| Life | 100 | 150 | +50 | +50.0% |"),
+            "Life row should carry +50 / +50%, got:\n{md}"
+        );
+        // Identical-value row reads as a zero delta and 0% percent.
+        assert!(
+            md.contains("| FireResist | 30 | 30 | 0 | 0% |"),
+            "FireResist row should collapse to zeros, got:\n{md}"
+        );
+    }
+
+    #[test]
+    fn format_compare_markdown_uses_em_dash_when_snap_is_zero() {
+        // Percent column has no meaningful value when snapshot is zero;
+        // the formatter falls back to `—` so the column stays aligned
+        // and doesn't render "+inf%" / "NaN".
+        let rows = vec![("Mana".to_owned(), 0.0, 50.0)];
+        let md = format_compare_markdown(&rows);
+        assert!(
+            md.contains("| Mana | 0 | 50 | +50 | — |"),
+            "zero-snap percent should render as em-dash, got:\n{md}"
+        );
+    }
+
+    #[test]
+    fn format_compare_markdown_preserves_caller_order() {
+        // The formatter doesn't re-sort — `ordered_diff_rows` already
+        // applied the user's chosen sort, so the export should mirror
+        // the on-screen ordering.
+        let rows = vec![("B".to_owned(), 1.0, 2.0), ("A".to_owned(), 1.0, 2.0)];
+        let md = format_compare_markdown(&rows);
+        let body_lines: Vec<&str> = md.lines().skip(2).collect();
+        assert!(body_lines[0].contains("| B |"));
+        assert!(body_lines[1].contains("| A |"));
     }
 
     #[test]
