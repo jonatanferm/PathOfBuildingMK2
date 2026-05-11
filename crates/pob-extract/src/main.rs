@@ -22,6 +22,7 @@ mod calc_sections;
 mod cli;
 mod cluster_jewel_mods;
 mod cluster_jewels;
+mod enchants;
 mod minions;
 mod tattoos;
 mod tree;
@@ -92,6 +93,19 @@ fn main() -> Result<()> {
     std::fs::write(&tattoos_path, serde_json::to_string_pretty(&tattoos)?)
         .with_context(|| format!("writing {}", tattoos_path.display()))?;
     wrote.push(tattoos_path);
+
+    // Helmet enchants — one JSON for the Items-tab "Apply
+    // Enchantment" picker. Issue #221 follow-up: the UI dialog
+    // reads this catalogue.
+    let helmet_enchants_path = args.out.join("enchants_helmet.json");
+    let helmet_enchants =
+        enchants::extract(&args.pob).with_context(|| "extracting helmet enchants".to_string())?;
+    std::fs::write(
+        &helmet_enchants_path,
+        serde_json::to_string_pretty(&helmet_enchants)?,
+    )
+    .with_context(|| format!("writing {}", helmet_enchants_path.display()))?;
+    wrote.push(helmet_enchants_path);
 
     // Calc sections — one JSON for the Calcs-tab section layout.
     let calc_sections_path = args.out.join("calc_sections.json");
