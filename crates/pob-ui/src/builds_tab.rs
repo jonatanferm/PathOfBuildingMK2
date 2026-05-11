@@ -8,9 +8,12 @@
 //! rendering the listing + emitting [`BuildsAction`]s; it never
 //! touches storage directly.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use eframe::egui;
+
+use crate::builds_folder_tree::{build_folder_tree, folder_path_key, FolderNode};
 
 /// Opaque handle for a saved build. Concrete shape depends on the
 /// active storage backend; the UI treats it as an equality-checkable
@@ -68,6 +71,12 @@ pub struct BuildsTabState {
     /// (writes happen synchronously from the UI's perspective) but
     /// reserved so a future debounce can hook in.
     pub busy: bool,
+    /// Issue #213 (slice 2): per-folder expand/collapse state, keyed
+    /// by [`crate::builds_folder_tree::folder_path_key`] (slash-joined
+    /// path of folder names from the root). Survives tab switches and
+    /// list refreshes. Missing keys default to "expanded" so a fresh
+    /// listing shows everything.
+    pub expanded: HashMap<String, bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -225,136 +234,19 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
              below — or use Import file… to load one from your computer.",
         );
     } else {
-        // Issue #100 (slice 2): group entries by category so users
-        // can collapse rare-use folders. Entries with no category
-        // land under "Uncategorised". `state.entries` is assumed to
-        // be category-then-label sorted by the host.
-        let mut groups: Vec<(Option<String>, Vec<usize>)> = Vec::new();
-        let entries_clone: Vec<BuildEntry> = state.entries.clone();
-        for (i, entry) in entries_clone.iter().enumerate() {
-            match groups.last_mut() {
-                Some((cat, items)) if cat.as_deref() == entry.category.as_deref() => {
-                    items.push(i);
-                }
-                _ => groups.push((entry.category.clone(), vec![i])),
-            }
-        }
-
+        // Issue #213 (slice 2): nested folder tree. The category
+        // string is treated as a `/`-separated path so categories like
+        // "Levelling/Marauder" produce a nested expandable folder.
+        // Builds with no category land at the root (was
+        // "Uncategorised" in slice 1; now they just appear at the top
+        // of the tree).
+        let tree = build_folder_tree(&state.entries);
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .max_height(360.0)
             .show(ui, |ui| {
-                for (cat, indices) in &groups {
-                    let header = cat.as_deref().unwrap_or("Uncategorised");
-                    egui::CollapsingHeader::new(format!("{header}  ({n})", n = indices.len()))
-                        .default_open(true)
-                        .id_salt(format!("builds_cat_{header}"))
-                        .show(ui, |ui| {
-                            for &i in indices {
-                                let entry = &entries_clone[i];
-                                ui.horizontal(|ui| {
-                                    let renaming_this = state
-                                        .pending_rename
-                                        .as_ref()
-                                        .map(|(id, _)| id == &entry.id)
-                                        .unwrap_or(false);
-                                    if renaming_this {
-                                        let buf = state
-                                            .pending_rename
-                                            .as_mut()
-                                            .map(|(_, s)| s)
-                                            .expect("just checked Some");
-                                        let resp = ui.add(
-                                            egui::TextEdit::singleline(buf)
-                                                .desired_width(180.0)
-                                                .font(egui::TextStyle::Monospace),
-                                        );
-                                        let confirm = ui
-                                            .button("OK")
-                                            .on_hover_text("Apply rename")
-                                            .clicked()
-                                            || (resp.lost_focus()
-                                                && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-                                        let cancel =
-                                            ui.button("✕").on_hover_text("Cancel rename").clicked();
-                                        if confirm {
-                                            let new_name = buf.trim().to_owned();
-                                            if !new_name.is_empty() && new_name != entry.label {
-                                                action = Some(BuildsAction::Rename {
-                                                    id: entry.id.clone(),
-                                                    new_label: new_name,
-                                                });
-                                                state.loaded = false;
-                                            }
-                                            state.pending_rename = None;
-                                        } else if cancel {
-                                            state.pending_rename = None;
-                                        }
-                                    } else if ui
-                                        .add(
-                                            egui::Label::new(
-                                                egui::RichText::new(&entry.label).monospace(),
-                                            )
-                                            .sense(egui::Sense::click()),
-                                        )
-                                        .on_hover_text("Click to load")
-                                        .clicked()
-                                    {
-                                        action = Some(BuildsAction::Load(entry.id.clone()));
-                                    }
-
-                                    ui.weak(format!(".{}", entry.ext));
-
-                                    if !renaming_this {
-                                        if ui.small_button("✎").on_hover_text("Rename").clicked()
-                                        {
-                                            state.pending_rename =
-                                                Some((entry.id.clone(), entry.label.clone()));
-                                            state.pending_delete = None;
-                                        }
-                                        if ui.small_button("⎘").on_hover_text("Duplicate").clicked()
-                                        {
-                                            action =
-                                                Some(BuildsAction::Duplicate(entry.id.clone()));
-                                            state.loaded = false;
-                                        }
-                                        let pending = state
-                                            .pending_delete
-                                            .as_ref()
-                                            .map(|id| id == &entry.id)
-                                            .unwrap_or(false);
-                                        if pending {
-                                            if ui
-                                                .add(
-                                                    egui::Button::new(
-                                                        egui::RichText::new("Confirm?").color(
-                                                            egui::Color32::from_rgb(
-                                                                0xDD, 0x00, 0x22,
-                                                            ),
-                                                        ),
-                                                    )
-                                                    .small(),
-                                                )
-                                                .on_hover_text("Click again to permanently delete")
-                                                .clicked()
-                                            {
-                                                action =
-                                                    Some(BuildsAction::Delete(entry.id.clone()));
-                                                state.pending_delete = None;
-                                                state.loaded = false;
-                                            }
-                                        } else if ui
-                                            .small_button("🗑")
-                                            .on_hover_text("Delete (click again to confirm)")
-                                            .clicked()
-                                        {
-                                            state.pending_delete = Some(entry.id.clone());
-                                        }
-                                    }
-                                });
-                            }
-                        });
-                }
+                let mut path: Vec<&str> = Vec::new();
+                render_folder(ui, &tree, &mut path, state, &mut action);
             });
     }
 
@@ -382,4 +274,226 @@ pub fn ui(ui: &mut egui::Ui, state: &mut BuildsTabState) -> Option<BuildsAction>
     });
 
     action
+}
+
+/// Recursively render a folder node and all of its children. The
+/// root node is rendered transparently — its builds and subfolders
+/// appear at the top level — and only named subfolders get a
+/// `CollapsingHeader`.
+///
+/// `path` accumulates the chain of folder names from the root down
+/// to the current node; together with [`folder_path_key`] this
+/// becomes the persistent expand-state key in
+/// [`BuildsTabState::expanded`] and the egui id_salt (so two folders
+/// with the same leaf name at different depths don't collide).
+fn render_folder<'a>(
+    ui: &mut egui::Ui,
+    node: &'a FolderNode,
+    path: &mut Vec<&'a str>,
+    state: &mut BuildsTabState,
+    action: &mut Option<BuildsAction>,
+) {
+    // Subfolders first (PoB convention also enforced by the data
+    // layer's sort).
+    for child in &node.children {
+        path.push(&child.name);
+        let key = folder_path_key(path);
+        let total = count_builds(child);
+        let header = format!("{name}  ({total})", name = child.name);
+        let default_open = *state.expanded.get(&key).unwrap_or(&true);
+        let resp = egui::CollapsingHeader::new(header)
+            .id_salt(format!("builds_folder_{key}"))
+            .default_open(default_open)
+            .show(ui, |ui| {
+                render_folder(ui, child, path, state, action);
+            });
+        // Persist the (possibly toggled) open state so it survives
+        // refresh / tab switches.
+        state.expanded.insert(key, resp.openness > 0.5);
+        path.pop();
+    }
+    // Then builds in this folder.
+    for entry in &node.builds {
+        render_build_row(ui, entry, state, action);
+    }
+}
+
+/// Count the total number of builds reachable from this node
+/// (including all nested subfolders) so the folder header can show
+/// a useful badge without forcing the user to expand it first.
+fn count_builds(node: &FolderNode) -> usize {
+    let mut n = node.builds.len();
+    for child in &node.children {
+        n += count_builds(child);
+    }
+    n
+}
+
+/// Render a single build entry row (label, ext, rename / duplicate /
+/// delete controls). Extracted so both the root level and every
+/// nested folder share one code path.
+fn render_build_row(
+    ui: &mut egui::Ui,
+    entry: &BuildEntry,
+    state: &mut BuildsTabState,
+    action: &mut Option<BuildsAction>,
+) {
+    ui.horizontal(|ui| {
+        let renaming_this = state
+            .pending_rename
+            .as_ref()
+            .map(|(id, _)| id == &entry.id)
+            .unwrap_or(false);
+        if renaming_this {
+            let buf = state
+                .pending_rename
+                .as_mut()
+                .map(|(_, s)| s)
+                .expect("just checked Some");
+            let resp = ui.add(
+                egui::TextEdit::singleline(buf)
+                    .desired_width(180.0)
+                    .font(egui::TextStyle::Monospace),
+            );
+            let confirm = ui.button("OK").on_hover_text("Apply rename").clicked()
+                || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+            let cancel = ui.button("✕").on_hover_text("Cancel rename").clicked();
+            if confirm {
+                let new_name = buf.trim().to_owned();
+                if !new_name.is_empty() && new_name != entry.label {
+                    *action = Some(BuildsAction::Rename {
+                        id: entry.id.clone(),
+                        new_label: new_name,
+                    });
+                    state.loaded = false;
+                }
+                state.pending_rename = None;
+            } else if cancel {
+                state.pending_rename = None;
+            }
+        } else if ui
+            .add(
+                egui::Label::new(egui::RichText::new(&entry.label).monospace())
+                    .sense(egui::Sense::click()),
+            )
+            .on_hover_text("Click to load")
+            .clicked()
+        {
+            *action = Some(BuildsAction::Load(entry.id.clone()));
+        }
+
+        ui.weak(format!(".{}", entry.ext));
+
+        if !renaming_this {
+            if ui.small_button("✎").on_hover_text("Rename").clicked() {
+                state.pending_rename = Some((entry.id.clone(), entry.label.clone()));
+                state.pending_delete = None;
+            }
+            if ui.small_button("⎘").on_hover_text("Duplicate").clicked() {
+                *action = Some(BuildsAction::Duplicate(entry.id.clone()));
+                state.loaded = false;
+            }
+            let pending = state
+                .pending_delete
+                .as_ref()
+                .map(|id| id == &entry.id)
+                .unwrap_or(false);
+            if pending {
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Confirm?")
+                                .color(egui::Color32::from_rgb(0xDD, 0x00, 0x22)),
+                        )
+                        .small(),
+                    )
+                    .on_hover_text("Click again to permanently delete")
+                    .clicked()
+                {
+                    *action = Some(BuildsAction::Delete(entry.id.clone()));
+                    state.pending_delete = None;
+                    state.loaded = false;
+                }
+            } else if ui
+                .small_button("🗑")
+                .on_hover_text("Delete (click again to confirm)")
+                .clicked()
+            {
+                state.pending_delete = Some(entry.id.clone());
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(label: &str, category: Option<&str>) -> BuildEntry {
+        BuildEntry {
+            label: label.to_owned(),
+            id: BuildId::Disk(PathBuf::from(format!("/tmp/{label}.mk2"))),
+            ext: "mk2".to_owned(),
+            category: category.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn count_builds_recurses_into_subfolders() {
+        let entries = vec![
+            entry("a", None),
+            entry("b", Some("Lev")),
+            entry("c", Some("Lev/Mar")),
+            entry("d", Some("Lev/Mar")),
+            entry("e", Some("Boss")),
+        ];
+        let tree = build_folder_tree(&entries);
+        // Total reachable from the root = every entry.
+        assert_eq!(count_builds(&tree), 5);
+        // Lev = b + Mar/{c,d} = 3.
+        let lev = tree
+            .children
+            .iter()
+            .find(|c| c.name == "Lev")
+            .expect("Lev folder");
+        assert_eq!(count_builds(lev), 3);
+        // Boss = just e.
+        let boss = tree
+            .children
+            .iter()
+            .find(|c| c.name == "Boss")
+            .expect("Boss folder");
+        assert_eq!(count_builds(boss), 1);
+    }
+
+    #[test]
+    fn count_builds_empty_tree_is_zero() {
+        let tree = build_folder_tree(&[]);
+        assert_eq!(count_builds(&tree), 0);
+    }
+
+    #[test]
+    fn expanded_state_defaults_to_open_for_unknown_keys() {
+        // Documents the contract the renderer relies on: a freshly
+        // populated listing (no expand state stored yet) shows every
+        // folder open by default.
+        let state = BuildsTabState::default();
+        assert!(state.expanded.is_empty());
+        let key = folder_path_key(&["Levelling"]);
+        assert!(*state.expanded.get(&key).unwrap_or(&true));
+    }
+
+    #[test]
+    fn expanded_state_persists_collapsed_keys() {
+        // Renderer writes `false` for a collapsed folder. A
+        // subsequent frame should observe that — i.e. the map is
+        // round-trippable and folder_path_key is stable.
+        let mut state = BuildsTabState::default();
+        let key = folder_path_key(&["Levelling", "Marauder"]);
+        state.expanded.insert(key.clone(), false);
+        assert_eq!(state.expanded.get(&key), Some(&false));
+        // Sibling folder unaffected.
+        let other = folder_path_key(&["Levelling", "Witch"]);
+        assert!(*state.expanded.get(&other).unwrap_or(&true));
+    }
 }
