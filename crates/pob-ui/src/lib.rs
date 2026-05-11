@@ -2286,14 +2286,19 @@ fn render_toasts(ctx: &egui::Context, queue: &mut toasts::ToastQueue) {
         let delay = (earliest_expiry - now).max(0.0);
         ctx.request_repaint_after(std::time::Duration::from_millis((delay * 1000.0) as u64));
     }
+    // Issue #225 follow-up: hit-test clicks on each toast and
+    // dismiss the clicked entry. Collect the index in a let-bound
+    // option so we can take the borrow on `queue` for `dismiss`
+    // after the layout closure returns.
+    let mut dismiss_idx: Option<usize> = None;
     egui::Area::new(egui::Id::new("toast-overlay"))
         .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0))
-        .interactable(false)
+        .interactable(true)
         .show(ctx, |ui| {
             ui.with_layout(
                 egui::Layout::bottom_up(egui::Align::Max).with_main_wrap(false),
                 |ui| {
-                    for toast in queue.iter() {
+                    for (idx, toast) in queue.iter().enumerate() {
                         let bg = match toast.kind {
                             StatusKind::Info => {
                                 egui::Color32::from_rgba_unmultiplied(0x22, 0x55, 0x88, 220)
@@ -2302,19 +2307,34 @@ fn render_toasts(ctx: &egui::Context, queue: &mut toasts::ToastQueue) {
                                 egui::Color32::from_rgba_unmultiplied(0x88, 0x22, 0x22, 220)
                             }
                         };
-                        egui::Frame::none()
+                        let resp = egui::Frame::none()
                             .fill(bg)
                             .stroke(egui::Stroke::NONE)
                             .inner_margin(egui::Margin::symmetric(10.0, 6.0))
                             .rounding(4.0)
                             .show(ui, |ui| {
+                                // The interior label is inert; we
+                                // promote the whole frame to a
+                                // clickable surface via the
+                                // `interact` call on the outer
+                                // response so the user can click
+                                // anywhere on the toast to dismiss.
                                 ui.colored_label(egui::Color32::WHITE, &toast.message);
-                            });
+                            })
+                            .response
+                            .interact(egui::Sense::click())
+                            .on_hover_text("Click to dismiss");
+                        if resp.clicked() && dismiss_idx.is_none() {
+                            dismiss_idx = Some(idx);
+                        }
                         ui.add_space(4.0);
                     }
                 },
             );
         });
+    if let Some(idx) = dismiss_idx {
+        queue.dismiss(idx);
+    }
 }
 
 /// label so users see what they'd actually press.
