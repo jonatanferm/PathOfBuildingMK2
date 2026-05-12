@@ -262,9 +262,21 @@ pub fn count_unallocated_within_depth(
 /// user switches the axis selector between Combined / DPS / EHP.
 /// `NodeScore` is `Copy`, so the local sort is cheap and the caller's
 /// cached slice is left untouched.
-/// Issue #220 follow-up: per-row variant of [`format_top_node_candidates`]
-/// that returns `(NodeId, line)` pairs. Lets the renderer attach a
-/// hover tooltip per row by looking up the corresponding node by id.
+/// Issue #220 follow-up: build the formatted lines for the heatmap's
+/// "top candidates" panel, paired with their source `NodeId` so the
+/// renderer can attach a hover tooltip per row.
+///
+/// Re-sorts a local view by [`score_impact_key`] for `stat` so the
+/// panel's ranking matches the heatmap overlay's colouring when the
+/// user switches the axis selector between Combined / DPS / EHP.
+/// `NodeScore` is `Copy`, so the local sort is cheap and the caller's
+/// cached slice is left untouched. NaN scores fall to the bottom so a
+/// stray engine NaN can't pin garbage to rank 1 — matches
+/// [`truncate_to_top_n`].
+///
+/// Unknown node ids (stale rank list against a refreshed tree) fall
+/// back to `#<id>` so the user still sees something rather than a
+/// blank line.
 #[must_use]
 pub fn format_top_node_candidate_rows(
     ranked: &[NodeScore],
@@ -302,48 +314,6 @@ pub fn format_top_node_candidate_rows(
                 score.dps_delta, score.ehp_delta,
             );
             (score.node_id, line)
-        })
-        .collect()
-}
-
-#[must_use]
-pub fn format_top_node_candidates(
-    ranked: &[NodeScore],
-    tree: &pob_data::PassiveTree,
-    top_n: usize,
-    stat: HeatmapStat,
-) -> Vec<String> {
-    let mut sorted: Vec<NodeScore> = ranked.to_vec();
-    sorted.sort_by(|a, b| {
-        let ka = score_impact_key(a, stat);
-        let kb = score_impact_key(b, stat);
-        // NaN sinks to the bottom so a stray engine NaN can't pin
-        // garbage to rank 1; matches `truncate_to_top_n`.
-        match (ka.is_nan(), kb.is_nan()) {
-            (true, true) => a.node_id.cmp(&b.node_id),
-            (true, false) => std::cmp::Ordering::Greater,
-            (false, true) => std::cmp::Ordering::Less,
-            (false, false) => kb
-                .partial_cmp(&ka)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.node_id.cmp(&b.node_id)),
-        }
-    });
-    sorted
-        .into_iter()
-        .take(top_n)
-        .enumerate()
-        .map(|(i, score)| {
-            let rank = i + 1;
-            let name = tree
-                .nodes
-                .get(&score.node_id)
-                .and_then(|n| n.name.clone())
-                .unwrap_or_else(|| format!("#{}", score.node_id));
-            format!(
-                "{rank}. {:>+8.0} DPS {:>+8.0} EHP  {name}",
-                score.dps_delta, score.ehp_delta,
-            )
         })
         .collect()
 }
@@ -1248,10 +1218,12 @@ mod tests {
     }
 
     #[test]
-    fn format_top_node_candidates_lists_rank_deltas_and_name() {
+    fn format_top_node_candidate_rows_lists_rank_deltas_and_name() {
         // Build a tiny tree with two named notables, score them, and
-        // confirm the formatter emits one line per node with the
-        // expected rank ordering and signed deltas.
+        // confirm the formatter emits one row per node with the
+        // expected rank ordering and signed deltas. Pair-shape (the
+        // NodeId on each row) is covered by the test above; this one
+        // pins the *line content*.
         let tree = ranking_tree();
         let ranked = vec![
             NodeScore {
@@ -1265,9 +1237,9 @@ mod tests {
                 ehp_delta: 0.0,
             },
         ];
-        let lines = format_top_node_candidates(&ranked, &tree, 10, HeatmapStat::Combined);
+        let rows = format_top_node_candidate_rows(&ranked, &tree, 10, HeatmapStat::Combined);
+        let lines: Vec<&str> = rows.iter().map(|(_, line)| line.as_str()).collect();
         assert_eq!(lines.len(), 2);
-        // First line carries rank 1 and the input's first node (2 = "n2").
         assert!(
             lines[0].starts_with("1. "),
             "expected rank 1 prefix: {}",
@@ -1279,7 +1251,6 @@ mod tests {
             lines[0]
         );
         assert!(lines[0].ends_with("n2"), "name 'n2' at tail: {}", lines[0]);
-        // Second line carries rank 2.
         assert!(
             lines[1].starts_with("2. "),
             "expected rank 2 prefix: {}",
@@ -1290,7 +1261,7 @@ mod tests {
     }
 
     #[test]
-    fn format_top_node_candidates_falls_back_to_hash_id_for_unknown() {
+    fn format_top_node_candidate_rows_fall_back_to_hash_id_for_unknown() {
         // Stale rank list against a tree that no longer carries the id
         // — fall back to `#<id>` so the user still sees something.
         let tree = empty_tree();
@@ -1299,13 +1270,13 @@ mod tests {
             dps_delta: 10.0,
             ehp_delta: 5.0,
         }];
-        let lines = format_top_node_candidates(&ranked, &tree, 10, HeatmapStat::Combined);
-        assert_eq!(lines.len(), 1);
-        assert!(lines[0].contains("#999"));
+        let rows = format_top_node_candidate_rows(&ranked, &tree, 10, HeatmapStat::Combined);
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].1.contains("#999"));
     }
 
     #[test]
-    fn format_top_node_candidates_truncates_to_top_n() {
+    fn format_top_node_candidate_rows_truncate_to_top_n() {
         let tree = empty_tree();
         let ranked: Vec<NodeScore> = (0u32..5)
             .map(|i| NodeScore {
@@ -1314,14 +1285,14 @@ mod tests {
                 ehp_delta: 0.0,
             })
             .collect();
-        let lines = format_top_node_candidates(&ranked, &tree, 2, HeatmapStat::Combined);
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].starts_with("1. "));
-        assert!(lines[1].starts_with("2. "));
+        let rows = format_top_node_candidate_rows(&ranked, &tree, 2, HeatmapStat::Combined);
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].1.starts_with("1. "));
+        assert!(rows[1].1.starts_with("2. "));
     }
 
     #[test]
-    fn format_top_node_candidates_respects_stat_axis() {
+    fn format_top_node_candidate_rows_respect_stat_axis() {
         // Regression for the stat/overlay disagreement: switching the
         // heatmap stat axis must re-rank the panel so its order
         // matches `score_impact_key` for the chosen axis. Two nodes,
@@ -1342,13 +1313,29 @@ mod tests {
             },
         ];
 
-        let dps = format_top_node_candidates(&ranked, &tree, 2, HeatmapStat::Dps);
-        assert!(dps[0].contains("+100 DPS"), "DPS axis rank 1: {}", dps[0]);
-        assert!(dps[1].contains("+10 DPS"), "DPS axis rank 2: {}", dps[1]);
+        let dps = format_top_node_candidate_rows(&ranked, &tree, 2, HeatmapStat::Dps);
+        assert!(
+            dps[0].1.contains("+100 DPS"),
+            "DPS axis rank 1: {}",
+            dps[0].1
+        );
+        assert!(
+            dps[1].1.contains("+10 DPS"),
+            "DPS axis rank 2: {}",
+            dps[1].1
+        );
 
-        let ehp = format_top_node_candidates(&ranked, &tree, 2, HeatmapStat::Ehp);
-        assert!(ehp[0].contains("+100 EHP"), "EHP axis rank 1: {}", ehp[0]);
-        assert!(ehp[1].contains("+10 EHP"), "EHP axis rank 2: {}", ehp[1]);
+        let ehp = format_top_node_candidate_rows(&ranked, &tree, 2, HeatmapStat::Ehp);
+        assert!(
+            ehp[0].1.contains("+100 EHP"),
+            "EHP axis rank 1: {}",
+            ehp[0].1
+        );
+        assert!(
+            ehp[1].1.contains("+10 EHP"),
+            "EHP axis rank 2: {}",
+            ehp[1].1
+        );
     }
 
     #[test]

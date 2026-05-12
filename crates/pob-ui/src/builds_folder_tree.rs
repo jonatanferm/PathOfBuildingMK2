@@ -76,6 +76,13 @@ impl BuildsSortMode {
 /// Each entry's [`BuildEntry::category`] is interpreted as a
 /// `/`-separated path. `None` (or an empty / whitespace-only category)
 /// places the build at the root.
+///
+/// `#[cfg(test)]`-only: production code routes through
+/// [`build_folder_tree_sorted`] directly so the sort mode is always
+/// explicit. The convenience form sticks around because the unit
+/// suite uses it heavily and rewriting every test call site for the
+/// default sort mode would obscure the test intent.
+#[cfg(test)]
 #[must_use]
 pub fn build_folder_tree(builds: &[BuildEntry]) -> FolderNode {
     build_folder_tree_sorted(builds, BuildsSortMode::Name)

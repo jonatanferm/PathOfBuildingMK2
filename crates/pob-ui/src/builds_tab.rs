@@ -19,7 +19,7 @@ use crate::builds_folder_ctx_menu::{
 };
 use crate::builds_folder_ops::validate_folder_name;
 use crate::builds_folder_tree::{
-    build_folder_tree, build_folder_tree_sorted, folder_path_key, BuildsSortMode, FolderNode,
+    build_folder_tree_sorted, folder_path_key, BuildsSortMode, FolderNode,
 };
 
 /// Opaque handle for a saved build. Concrete shape depends on the
@@ -1166,6 +1166,7 @@ fn render_move_popup(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builds_folder_tree::build_folder_tree;
 
     fn entry(label: &str, category: Option<&str>) -> BuildEntry {
         BuildEntry {
