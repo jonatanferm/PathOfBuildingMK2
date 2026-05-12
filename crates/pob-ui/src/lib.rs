@@ -2401,6 +2401,11 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 // Imported character: rebind the tree view (positions stay valid since
                 // the tree didn't change) and force recompute.
                 app.tree_view.rebind(&app.tree);
+                // Issue #204: drop history on build replace so Cmd+Z
+                // can't restore the previous character — its allocated
+                // node ids may not even exist in the new build.
+                // Mirrors MenuAction::{New, DemoBuild, Open}.
+                app.undo_stack.clear();
                 recompute = true;
             }
         }
