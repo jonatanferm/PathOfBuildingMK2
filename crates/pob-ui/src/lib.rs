@@ -3611,17 +3611,9 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
             app.builds_state.folder_connected = false;
         }
         BuildsAction::Load(BuildId::Disk(path)) => {
-            let load = std::fs::read_to_string(&path).map_err(|e| e.to_string());
-            let parsed: Result<Character, String> = load.and_then(|s| {
-                let trimmed = s.trim();
-                if trimmed.starts_with("MK2|") {
-                    pob_engine::import_code(trimmed).map_err(|e| e.to_string())
-                } else if trimmed.starts_with('<') {
-                    pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
-                } else {
-                    pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
-                }
-            });
+            let parsed: Result<Character, String> = std::fs::read_to_string(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|s| compare_tab::import_build_text(&s));
             match parsed {
                 Ok(c) => {
                     app.character = c;
@@ -3954,14 +3946,7 @@ fn apply_storage_events(app: &mut LoadedApp) -> bool {
                 app.builds_state.loaded = true;
             }
             StorageEvent::Loaded { label, payload } => {
-                let trimmed = payload.trim();
-                let parsed: Result<Character, String> = if trimmed.starts_with("MK2|") {
-                    pob_engine::import_code(trimmed).map_err(|e| e.to_string())
-                } else if trimmed.starts_with('<') {
-                    pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
-                } else {
-                    pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
-                };
+                let parsed: Result<Character, String> = compare_tab::import_build_text(&payload);
                 match parsed {
                     Ok(c) => {
                         app.character = c;
