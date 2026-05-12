@@ -113,6 +113,11 @@ pub struct BuildsTabState {
     /// modified builds at the top so iterating users find their
     /// just-saved files without scrolling.
     pub sort_mode: BuildsSortMode,
+    /// Issue #213 follow-up: case-insensitive substring filter applied to
+    /// build labels before the tree is constructed. Empty / whitespace-
+    /// only is "no filter". Match is on label only — see
+    /// [`crate::builds_folder_tree::filter_entries_by_name`].
+    pub name_filter: String,
 }
 
 #[derive(Debug, Clone)]
@@ -304,6 +309,26 @@ pub fn ui(
                 ui.selectable_value(&mut state.sort_mode, mode, mode.label());
             }
         });
+        // Issue #213 follow-up: case-insensitive substring filter on
+        // build labels. Empty input is the cold-open default and
+        // surfaces every build. Folder-level scoping stays opt-in via
+        // "Show only this folder" below.
+        ui.horizontal(|ui| {
+            ui.label("Filter:");
+            ui.add(
+                egui::TextEdit::singleline(&mut state.name_filter)
+                    .hint_text("build name…")
+                    .desired_width(220.0),
+            );
+            if !state.name_filter.trim().is_empty()
+                && ui
+                    .small_button("✕")
+                    .on_hover_text("Clear the build-name filter.")
+                    .clicked()
+            {
+                state.name_filter.clear();
+            }
+        });
     }
     ui.separator();
 
@@ -319,7 +344,12 @@ pub fn ui(
         // Builds with no category land at the root (was
         // "Uncategorised" in slice 1; now they just appear at the top
         // of the tree).
-        let full_tree = build_folder_tree_sorted(&state.entries, state.sort_mode);
+        // Issue #213 follow-up: apply the name filter before tree
+        // construction so empty folders (every leaf filtered out)
+        // naturally drop out of the rendered tree.
+        let filtered_entries =
+            crate::builds_folder_tree::filter_entries_by_name(&state.entries, &state.name_filter);
+        let full_tree = build_folder_tree_sorted(&filtered_entries, state.sort_mode);
         // Issue #213 (folder-isolation slice): when the user picks
         // "Show only this folder", drop every sibling branch via the
         // pure subtree-extract helper. The chip row below offers a

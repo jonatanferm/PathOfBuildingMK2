@@ -167,6 +167,33 @@ pub fn filter_folder_to_subtree(root: &FolderNode, selected_path: &str) -> Optio
     Some(node.clone())
 }
 
+/// Builds-tab name filter: keep only entries whose `label` contains
+/// `query` as a case-insensitive substring. Empty / whitespace-only
+/// queries are a "no filter" pass-through — the full entry list is
+/// returned unchanged so a freshly-opened tab renders every saved build.
+///
+/// Applied *before* [`build_folder_tree_sorted`], so a filtered tree
+/// naturally hides folders whose every leaf was filtered out. Pure /
+/// no-egui so the rule is documented and unit-testable in isolation.
+///
+/// Match is on label only — category paths intentionally don't
+/// participate so typing "Bossing" doesn't pull in every build in the
+/// "Bossing/" folder. Users who want folder-level scoping already have
+/// "Show only this folder".
+#[must_use]
+pub fn filter_entries_by_name(entries: &[BuildEntry], query: &str) -> Vec<BuildEntry> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return entries.to_vec();
+    }
+    let needle = trimmed.to_ascii_lowercase();
+    entries
+        .iter()
+        .filter(|e| e.label.to_ascii_lowercase().contains(&needle))
+        .cloned()
+        .collect()
+}
+
 fn sort_node(node: &mut FolderNode, mode: BuildsSortMode) {
     // Folders always sort alphabetically — the mode only affects the
     // build leaves. (PoB doesn't expose a per-folder mtime, and a
@@ -498,5 +525,62 @@ mod tests {
         assert_eq!(tree.children[0].children[0].builds[0].label, "C");
         assert_eq!(tree.children[1].name, "Levelling");
         assert_eq!(tree.children[1].builds[0].label, "A");
+    }
+
+    // ─── filter_entries_by_name ──────────────────────────────────────────
+
+    #[test]
+    fn name_filter_empty_query_returns_every_entry() {
+        // Cold-open: an untouched filter input must NOT hide anything.
+        let entries = vec![mk("Alpha", None), mk("Beta", None), mk("Gamma", None)];
+        let kept = filter_entries_by_name(&entries, "");
+        assert_eq!(kept.len(), 3);
+        let labels: Vec<&str> = kept.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, vec!["Alpha", "Beta", "Gamma"]);
+    }
+
+    #[test]
+    fn name_filter_whitespace_query_is_pass_through() {
+        // Equally a no-op — trimming the input means the user can clear
+        // the field without explicitly emptying it.
+        let entries = vec![mk("Alpha", None), mk("Beta", None)];
+        assert_eq!(filter_entries_by_name(&entries, "   ").len(), 2);
+    }
+
+    #[test]
+    fn name_filter_keeps_case_insensitive_substring_matches() {
+        // Typing fragments of any case should still match the build.
+        let entries = vec![
+            mk("Lightning Strike", None),
+            mk("Cyclone Slayer", None),
+            mk("CYCLONE Berserker", None),
+        ];
+        let kept = filter_entries_by_name(&entries, "cyclone");
+        let labels: Vec<&str> = kept.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, vec!["Cyclone Slayer", "CYCLONE Berserker"]);
+    }
+
+    #[test]
+    fn name_filter_ignores_category_path() {
+        // Match is on label only — typing "Bossing" must NOT pull in
+        // every build that happens to live in the "Bossing/" folder.
+        // Users who want folder-level scoping already have
+        // "Show only this folder".
+        let entries = vec![
+            mk("RF Champ", Some("Bossing")),
+            mk("Bossing Notes", Some("Levelling")),
+        ];
+        let kept = filter_entries_by_name(&entries, "Bossing");
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].label, "Bossing Notes");
+    }
+
+    #[test]
+    fn name_filter_no_match_returns_empty_vec() {
+        // Empty result is fine — the renderer handles the "no entries
+        // after filter" state by showing the same empty pane as a fresh
+        // builds dir.
+        let entries = vec![mk("Alpha", None), mk("Beta", None)];
+        assert!(filter_entries_by_name(&entries, "zeta").is_empty());
     }
 }
