@@ -790,7 +790,7 @@ mod tests {
         state.conditions.insert("Pinned".to_owned(), false);
         clear_active_conditions(&mut state);
         assert_eq!(state.conditions.get("Pinned"), Some(&false));
-        assert!(state.conditions.get("FullLife").is_none());
+        assert!(!state.conditions.contains_key("FullLife"));
     }
 
     #[test]

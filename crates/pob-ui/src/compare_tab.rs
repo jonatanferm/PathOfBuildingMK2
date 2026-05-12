@@ -1060,8 +1060,11 @@ mod tests {
         // past per-platform filename caps (Windows: 255 chars).
         let huge = "a".repeat(200);
         let out = default_snapshot_filename(&huge);
-        // 64 chars + ".mk2" suffix = 68 bytes.
-        assert!(out.ends_with(".mk2"));
+        // 64 chars + ".mk2" suffix = 68 bytes. Producer always lowercases
+        // the extension, so the strict ends_with is correct here.
+        assert!(std::path::Path::new(&out)
+            .extension()
+            .is_some_and(|e| e == "mk2"));
         assert!(
             out.len() <= 68,
             "expected truncation to 64+suffix, got {} bytes",

@@ -1454,12 +1454,14 @@ mod tests {
     fn reset_calcs_view_clears_inflight_ui_state() {
         // Build a CalcsTabState with every field exercised, then
         // confirm `reset_calcs_view` zeroes the in-flight pieces.
-        let mut state = CalcsTabState::default();
-        state.filter = "FireResist".to_owned();
-        state.hide_zero = true;
-        state.focused_stat = Some("Life".to_owned());
-        state.use_pob_layout = true;
-        state.flat_sort = CalcsFlatSort::ValueDesc;
+        let mut state = CalcsTabState {
+            filter: "FireResist".to_owned(),
+            hide_zero: true,
+            focused_stat: Some("Life".to_owned()),
+            use_pob_layout: true,
+            flat_sort: CalcsFlatSort::ValueDesc,
+            ..Default::default()
+        };
         state.recently_focused.push_back("Life".into());
         state.recently_focused.push_back("Mana".into());
 
@@ -1479,9 +1481,11 @@ mod tests {
     fn reset_calcs_view_preserves_preferences() {
         // `hide_zero` and `use_pob_layout` are deliberate user
         // preferences — they should not be wiped by a view reset.
-        let mut state = CalcsTabState::default();
-        state.hide_zero = true;
-        state.use_pob_layout = true;
+        let mut state = CalcsTabState {
+            hide_zero: true,
+            use_pob_layout: true,
+            ..Default::default()
+        };
 
         reset_calcs_view(&mut state);
 

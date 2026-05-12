@@ -1375,38 +1375,37 @@ mod tests {
     #[test]
     fn format_relative_time_minutes_singular_and_plural() {
         let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
-        let one_min = now - std::time::Duration::from_secs(60);
+        let one_min = now - std::time::Duration::from_mins(1);
         assert_eq!(format_relative_time(now, one_min), "1 min ago");
-        let five_min = now - std::time::Duration::from_secs(60 * 5);
+        let five_min = now - std::time::Duration::from_mins(5);
         assert_eq!(format_relative_time(now, five_min), "5 min ago");
     }
 
     #[test]
     fn format_relative_time_hours_singular_and_plural() {
         let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
-        let one_hour = now - std::time::Duration::from_secs(3600);
+        let one_hour = now - std::time::Duration::from_hours(1);
         assert_eq!(format_relative_time(now, one_hour), "1 hour ago");
-        let three_hours = now - std::time::Duration::from_secs(3600 * 3);
+        let three_hours = now - std::time::Duration::from_hours(3);
         assert_eq!(format_relative_time(now, three_hours), "3 hours ago");
     }
 
     #[test]
     fn format_relative_time_days_singular_and_plural() {
-        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400 * 60);
-        let one_day = now - std::time::Duration::from_secs(86_400);
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_hours(1440);
+        let one_day = now - std::time::Duration::from_hours(24);
         assert_eq!(format_relative_time(now, one_day), "1 day ago");
-        let five_days = now - std::time::Duration::from_secs(86_400 * 5);
+        let five_days = now - std::time::Duration::from_hours(120);
         assert_eq!(format_relative_time(now, five_days), "5 days ago");
     }
 
     #[test]
     fn format_relative_time_months_band_singular_and_plural() {
         // Sub-year bucket: the months count is the days-per-30 readout.
-        let now =
-            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400 * 365 * 5);
-        let two_months = now - std::time::Duration::from_secs(86_400 * 60);
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_hours(43800);
+        let two_months = now - std::time::Duration::from_hours(1440);
         assert_eq!(format_relative_time(now, two_months), "2 months ago");
-        let one_month = now - std::time::Duration::from_secs(86_400 * 31);
+        let one_month = now - std::time::Duration::from_hours(744);
         assert_eq!(format_relative_time(now, one_month), "1 month ago");
     }
 
@@ -1414,11 +1413,10 @@ mod tests {
     fn format_relative_time_year_band_singular_and_plural() {
         // ≥365 days flips into the years bucket — "3 years ago" rather
         // than the old "12 months ago" cap.
-        let now =
-            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400 * 365 * 10);
-        let one_year = now - std::time::Duration::from_secs(86_400 * 365);
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_hours(87600);
+        let one_year = now - std::time::Duration::from_hours(8760);
         assert_eq!(format_relative_time(now, one_year), "1 year ago");
-        let three_years = now - std::time::Duration::from_secs(86_400 * 365 * 3);
+        let three_years = now - std::time::Duration::from_hours(26280);
         assert_eq!(format_relative_time(now, three_years), "3 years ago");
     }
 
@@ -1426,9 +1424,8 @@ mod tests {
     fn format_relative_time_at_eleven_months_stays_in_months_band() {
         // Boundary check around the 365-day flip — 330 days reads as
         // "11 months ago", not "0 years ago".
-        let now =
-            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400 * 365 * 5);
-        let eleven_months = now - std::time::Duration::from_secs(86_400 * 330);
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_hours(43800);
+        let eleven_months = now - std::time::Duration::from_hours(7920);
         assert_eq!(format_relative_time(now, eleven_months), "11 months ago");
     }
 
@@ -1437,7 +1434,7 @@ mod tests {
         // Filesystem clock skew can produce a later mtime than the
         // system clock — don't render "-1 minutes ago".
         let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
-        let later = now + std::time::Duration::from_secs(60);
+        let later = now + std::time::Duration::from_mins(1);
         assert_eq!(format_relative_time(now, later), "(future)");
     }
 
@@ -1544,8 +1541,10 @@ mod tests {
         // host to allocate a `<name> copy.<ext>` and re-list; the
         // renderer also drops `loaded` so the next frame requests a
         // refresh once the host writes the new file.
-        let mut state = BuildsTabState::default();
-        state.loaded = true;
+        let mut state = BuildsTabState {
+            loaded: true,
+            ..Default::default()
+        };
         let e = entry("MyBuild", None);
         let mut action: Option<BuildsAction> = None;
         apply_build_row_menu_choice(BuildRowMenuChoice::Duplicate, &e, &mut state, &mut action);

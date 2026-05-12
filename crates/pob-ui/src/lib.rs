@@ -4568,26 +4568,23 @@ mod elapsed_short_tests {
     fn minute_range_uses_largest_unit() {
         // 60s ticks to `1m`; a row of seconds inside a minute reads
         // truncated (119s → `1m`, not `2m`).
-        assert_eq!(format_elapsed_short(Duration::from_secs(60)), "1m");
+        assert_eq!(format_elapsed_short(Duration::from_mins(1)), "1m");
         assert_eq!(format_elapsed_short(Duration::from_secs(119)), "1m");
         assert_eq!(format_elapsed_short(Duration::from_secs(3599)), "59m");
     }
 
     #[test]
     fn hour_range_truncates_to_whole_hours() {
-        assert_eq!(format_elapsed_short(Duration::from_secs(3600)), "1h");
-        assert_eq!(format_elapsed_short(Duration::from_secs(7200)), "2h");
+        assert_eq!(format_elapsed_short(Duration::from_hours(1)), "1h");
+        assert_eq!(format_elapsed_short(Duration::from_hours(2)), "2h");
         // 23h59m — still hours.
         assert_eq!(format_elapsed_short(Duration::from_secs(86_399)), "23h");
     }
 
     #[test]
     fn day_range_truncates_to_whole_days() {
-        assert_eq!(format_elapsed_short(Duration::from_secs(86_400)), "1d");
-        assert_eq!(
-            format_elapsed_short(Duration::from_secs(86_400 * 10)),
-            "10d"
-        );
+        assert_eq!(format_elapsed_short(Duration::from_hours(24)), "1d");
+        assert_eq!(format_elapsed_short(Duration::from_hours(240)), "10d");
     }
 }
 

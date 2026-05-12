@@ -1557,8 +1557,10 @@ mod tests {
     fn gem_picker_filters_active_whitespace_search_counts_as_inactive() {
         // Trim semantics match the Items-tab BrowseFilter rule — a
         // whitespace-only buffer shouldn't keep the Reset button lit.
-        let mut s = SkillsTabState::default();
-        s.filter = "   ".into();
+        let s = SkillsTabState {
+            filter: "   ".into(),
+            ..Default::default()
+        };
         assert!(!gem_picker_filters_active(&s));
     }
 
