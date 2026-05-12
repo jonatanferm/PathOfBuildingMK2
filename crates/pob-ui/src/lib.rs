@@ -2849,6 +2849,42 @@ pub fn format_compute_duration(ms: Option<u32>) -> Option<String> {
     }
 }
 
+/// Construct the canned "demo build" — a non-trivial Witch / Occultist
+/// with Arc bound, level 90, and a basic resist amulet equipped so the
+/// calc pipeline has something to compute against. Pulled out of the
+/// `MenuAction::DemoBuild` arm so the contract can be unit-tested
+/// without spinning up egui: a regression that drops the amulet equip
+/// or skill-group setup shows up in the suite instead of waiting for
+/// someone to click File → Demo build.
+#[must_use]
+pub fn build_demo_character() -> Character {
+    let mut c = Character::new(ClassRef::witch(), 90);
+    c.ascendancy = Some("Occultist".into());
+    // Populate via the socket-group model so the Skills tab shows the
+    // bound gem and the user can swap it / add supports.
+    c.skill_groups.push(pob_engine::character::SocketGroup {
+        label: "Main".into(),
+        gems: vec![pob_engine::MainSkill {
+            skill_id: "Arc".into(),
+            level: 20,
+            quality: 20,
+            quality_id: pob_engine::QualityId::Default,
+            enabled: true,
+        }],
+        main_active_skill_index: 1,
+        enabled: true,
+    });
+    c.main_socket_group = 1;
+    c.sync_main_skill();
+    c.config.enemy_lightning_resist = 50;
+    // Equip a basic resist amulet so resists move.
+    let amulet_paste = "Item Class: Amulets\nRarity: RARE\nDemo Charm\nOnyx Amulet\n--------\n+10 to all Attributes\n+62 to maximum Life\n+39% to all Elemental Resistances\n--------";
+    if let Ok(item) = pob_engine::parse_item(amulet_paste) {
+        c.items.equip(pob_data::Slot::Amulet, item);
+    }
+    c
+}
+
 fn render_toasts(ctx: &egui::Context, queue: &mut toasts::ToastQueue) {
     let now = ctx.input(|i| i.time);
     queue.sweep(now);
@@ -3210,34 +3246,7 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
             app.status_message = Some((StatusKind::Info, "New build.".into()));
         }
         MenuAction::DemoBuild => {
-            // A non-trivial Witch / Occultist with Arc to demo the full calc pipeline
-            // without making the user paste anything.
-            let mut c = Character::new(ClassRef::witch(), 90);
-            c.ascendancy = Some("Occultist".into());
-            // Populate via the socket-group model so the Skills tab shows the
-            // bound gem and the user can swap it / add supports.
-            c.skill_groups.push(pob_engine::character::SocketGroup {
-                label: "Main".into(),
-                gems: vec![pob_engine::MainSkill {
-                    skill_id: "Arc".into(),
-                    level: 20,
-                    quality: 20,
-                    quality_id: pob_engine::QualityId::Default,
-                    enabled: true,
-                }],
-                main_active_skill_index: 1,
-                enabled: true,
-            });
-            c.main_socket_group = 1;
-            c.sync_main_skill();
-            c.config.enemy_lightning_resist = 50;
-            // Equip a basic resist amulet so resists move.
-            let amulet_paste =
-                "Item Class: Amulets\nRarity: RARE\nDemo Charm\nOnyx Amulet\n--------\n+10 to all Attributes\n+62 to maximum Life\n+39% to all Elemental Resistances\n--------";
-            if let Ok(item) = pob_engine::parse_item(amulet_paste) {
-                c.items.equip(pob_data::Slot::Amulet, item);
-            }
-            app.character = c;
+            app.character = build_demo_character();
             app.current_build_path = None;
             // Issue #204: drop history on build replace.
             app.undo_stack.clear();
@@ -4763,5 +4772,64 @@ mod step_search_index_tests {
         // The very next Enter should land back on match 1.
         let (next_target, _) = step_search_index(after_shift, total, true).unwrap();
         assert_eq!(next_target, 1);
+    }
+}
+
+#[cfg(test)]
+mod build_demo_character_tests {
+    use super::build_demo_character;
+
+    #[test]
+    fn demo_character_has_expected_class_and_level() {
+        // Pin the public-facing identity — the status message
+        // ("Witch L90 Occultist Arc") promises the user a specific
+        // character; the unit test catches a divergent rewrite.
+        let c = build_demo_character();
+        assert_eq!(c.class.0, "Witch");
+        assert_eq!(c.level, 90);
+        assert_eq!(c.ascendancy.as_deref(), Some("Occultist"));
+    }
+
+    #[test]
+    fn demo_character_binds_arc_as_the_main_skill() {
+        // The point of the demo is for the calc pipeline to have
+        // something non-trivial to chew on — sync_main_skill must run
+        // and main_skill end up populated with Arc.
+        let c = build_demo_character();
+        assert_eq!(c.skill_groups.len(), 1);
+        let group = &c.skill_groups[0];
+        assert_eq!(group.label, "Main");
+        assert_eq!(group.gems.len(), 1);
+        assert_eq!(group.gems[0].skill_id, "Arc");
+        assert!(group.enabled);
+        assert_eq!(c.main_socket_group, 1);
+    }
+
+    #[test]
+    fn demo_character_equips_resist_amulet_with_mods() {
+        // Regression guard: the amulet paste used to silently no-op on
+        // any parse error. Verify the item lands in the Amulet slot
+        // *and* carries at least one mod line — otherwise the resist
+        // sliders wouldn't move and the demo would feel inert.
+        let c = build_demo_character();
+        let amulet = c
+            .items
+            .get(pob_data::Slot::Amulet)
+            .expect("demo build should equip an amulet");
+        assert_eq!(amulet.base_name, "Onyx Amulet");
+        assert!(
+            !amulet.mod_lines.is_empty(),
+            "amulet must carry the resist / life mods"
+        );
+    }
+
+    #[test]
+    fn demo_character_seeds_enemy_lightning_resist() {
+        // Arc is a lightning spell — without an enemy lightning
+        // resist the demo's Calcs tab would show "free DPS" against
+        // a 0%-resist dummy, which under-sells the engine. Pin the
+        // default to 50%.
+        let c = build_demo_character();
+        assert_eq!(c.config.enemy_lightning_resist, 50);
     }
 }
