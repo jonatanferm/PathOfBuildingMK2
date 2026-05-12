@@ -328,6 +328,15 @@ pub fn ui(
             {
                 state.name_filter.clear();
             }
+            // Chip surfaces the match count so the user can tell
+            // whether a filter is hiding builds vs. simply showing
+            // them all. "N of M" mirrors the notable-DB browse panel
+            // and the shared-items panel — same readout convention
+            // across the app.
+            if !state.name_filter.trim().is_empty() {
+                let summary = format_filter_match_chip(&state.entries, &state.name_filter);
+                ui.weak(summary);
+            }
         });
     }
     ui.separator();
@@ -568,6 +577,36 @@ fn count_builds(node: &FolderNode) -> usize {
 /// - otherwise → "<N> months ago" (singular "1 month ago"), capped at
 ///   `12 months ago` for anything older.
 #[must_use]
+/// Issue #213 follow-up: humanise the filter match count for the
+/// chip rendered next to the build-name filter input. Reports the
+/// number of entries the filter keeps vs. the total saved.
+///
+/// Special-cases:
+/// * Empty / whitespace-only filter is a "no filter" pass-through
+///   from [`crate::builds_folder_tree::filter_entries_by_name`]; the
+///   caller suppresses the chip in that case so the helper's empty-
+///   filter branch is mostly defensive.
+/// * Zero matches read "no matches" so the chip flips into a
+///   diagnostic when the user typed something nothing matches.
+///
+/// Pure / no-egui so the rule is unit-testable in isolation. Match
+/// is on label only — same contract as
+/// [`crate::builds_folder_tree::filter_entries_by_name`].
+#[must_use]
+pub fn format_filter_match_chip(entries: &[BuildEntry], filter: &str) -> String {
+    let total = entries.len();
+    let trimmed = filter.trim();
+    if trimmed.is_empty() {
+        return format!("{total} of {total}");
+    }
+    let matches = crate::builds_folder_tree::filter_entries_by_name(entries, trimmed).len();
+    if matches == 0 {
+        "no matches".to_owned()
+    } else {
+        format!("{matches} of {total}")
+    }
+}
+
 pub fn format_relative_time(now: std::time::SystemTime, then: std::time::SystemTime) -> String {
     let Ok(elapsed) = now.duration_since(then) else {
         return "(future)".to_owned();
@@ -1270,6 +1309,49 @@ mod tests {
         // the popup handles the no-op case explicitly).
         let tree = build_folder_tree(&[]);
         assert_eq!(collect_folder_paths(&tree), vec![String::new()]);
+    }
+
+    // ─── format_filter_match_chip ────────────────────────────────────────
+
+    #[test]
+    fn filter_chip_reports_match_and_total_for_typical_filter() {
+        // Three saved builds, two of them match "cyclone" — chip reads
+        // "2 of 3" so the user knows the filter is narrowing rather
+        // than hiding everything.
+        let entries = vec![
+            entry("Cyclone Slayer", None),
+            entry("CYCLONE Berserker", None),
+            entry("Arc Trickster", None),
+        ];
+        assert_eq!(format_filter_match_chip(&entries, "cyclone"), "2 of 3");
+    }
+
+    #[test]
+    fn filter_chip_reports_no_matches_when_filter_excludes_every_build() {
+        // Empty result flips the chip into a diagnostic so the user
+        // doesn't have to puzzle over "0 of N" — "no matches" is more
+        // directly actionable.
+        let entries = vec![entry("Cyclone Slayer", None), entry("Arc Trickster", None)];
+        assert_eq!(format_filter_match_chip(&entries, "zeta"), "no matches");
+    }
+
+    #[test]
+    fn filter_chip_falls_back_to_total_for_whitespace_only_filter() {
+        // The chip is suppressed by the caller for empty / whitespace
+        // input, but the helper must handle the defensive case
+        // gracefully — match the "all builds shown" message rather
+        // than panicking or producing "0 of 3".
+        let entries = vec![entry("A", None), entry("B", None), entry("C", None)];
+        assert_eq!(format_filter_match_chip(&entries, "   "), "3 of 3");
+    }
+
+    #[test]
+    fn filter_chip_handles_empty_roster() {
+        // Cold-open with no builds yet: filter input is also a no-op
+        // because there's nothing to filter against. Suppress the
+        // diagnostic and just report the totals.
+        let entries: Vec<BuildEntry> = Vec::new();
+        assert_eq!(format_filter_match_chip(&entries, ""), "0 of 0");
     }
 
     #[test]
