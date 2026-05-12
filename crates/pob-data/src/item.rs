@@ -911,6 +911,57 @@ mod enchant_tests {
 }
 
 #[cfg(test)]
+mod rarity_tests {
+    use super::*;
+
+    #[test]
+    fn rarity_parse_recognises_canonical_uppercase_forms() {
+        // These are the strings PoB writes in its `<Item Class="..." \
+        // Rarity="..." …>` XML lines. The parser must accept all
+        // five canonical names without any aliasing.
+        assert_eq!(Rarity::parse("NORMAL"), Some(Rarity::Normal));
+        assert_eq!(Rarity::parse("MAGIC"), Some(Rarity::Magic));
+        assert_eq!(Rarity::parse("RARE"), Some(Rarity::Rare));
+        assert_eq!(Rarity::parse("UNIQUE"), Some(Rarity::Unique));
+        assert_eq!(Rarity::parse("RELIC"), Some(Rarity::Relic));
+    }
+
+    #[test]
+    fn rarity_parse_is_case_insensitive() {
+        // PoB paste blobs sometimes carry lowercase or mixed-case
+        // rarity tags (e.g. "rare" from poe.ninja exports). The
+        // parser uppercases the input before matching, so each
+        // variant should round-trip from any casing.
+        assert_eq!(Rarity::parse("normal"), Some(Rarity::Normal));
+        assert_eq!(Rarity::parse("Magic"), Some(Rarity::Magic));
+        assert_eq!(Rarity::parse("rArE"), Some(Rarity::Rare));
+        assert_eq!(Rarity::parse("uNiQuE"), Some(Rarity::Unique));
+    }
+
+    #[test]
+    fn rarity_parse_rejects_unknown_strings() {
+        // Defensive: out-of-band rarity strings ("EPIC", typos,
+        // empty input) must return `None` rather than silently
+        // mapping to a default — the item parser surfaces the
+        // failure to the user.
+        assert_eq!(Rarity::parse(""), None);
+        assert_eq!(Rarity::parse("EPIC"), None);
+        assert_eq!(Rarity::parse("RAR"), None);
+        assert_eq!(Rarity::parse("NORMAL "), None); // trailing space
+    }
+
+    #[test]
+    fn rarity_default_is_normal() {
+        // The `#[default]` attribute on Normal makes it the
+        // fallback when serde encounters a missing rarity field
+        // (rare but possible for hand-edited pastes). Pin the
+        // behaviour so a future tweak doesn't quietly change which
+        // variant freshly-deserialised items get.
+        assert_eq!(Rarity::default(), Rarity::Normal);
+    }
+}
+
+#[cfg(test)]
 mod slot_tests {
     use super::*;
 
