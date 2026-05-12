@@ -20,6 +20,36 @@ use pob_engine::{Character, MainSkill, QualityId, SkillRegistry};
 
 use crate::color_codes;
 
+/// Issue #209 follow-up: clear every gem-picker filter facet back to
+/// the cold-open default — search text, color chips, type chips, tag
+/// chips. Mirrors the Items-tab `BrowseFilter::reset` rule. The
+/// `hide_legacy` and `default_level_on_add` preferences are sticky
+/// across resets, so a power user who configured their preferred
+/// catalogue view doesn't lose it.
+///
+/// Returns `true` iff at least one facet was non-default — the caller
+/// can use the same value to decide whether the Reset button should
+/// have been enabled in the first place.
+pub fn reset_gem_picker_filters(state: &mut SkillsTabState) -> bool {
+    let any = gem_picker_filters_active(state);
+    if !any {
+        return false;
+    }
+    state.filter.clear();
+    state.colors = ColorFilter::default();
+    state.tags = TagFilter::default();
+    state.types = TypeFilter::default();
+    true
+}
+
+/// Issue #209 follow-up: whether at least one gem-picker filter facet
+/// is active. Drives the enable-state of the Reset button so a
+/// cold-open click is inert.
+#[must_use]
+pub fn gem_picker_filters_active(state: &SkillsTabState) -> bool {
+    !state.filter.trim().is_empty() || state.colors.any() || state.tags.any() || state.types.any()
+}
+
 /// Issue #214 follow-up: bulk-toggle every socket group's `enabled`
 /// flag. Returns `true` when at least one group's flag changed. Pure
 /// — no I/O, no recompute (the caller flips `recompute = true` so the
@@ -940,6 +970,24 @@ pub fn ui(
                     if ui.button("Close").clicked() {
                         state.catalog_open = false;
                     }
+                    // Issue #209 follow-up: blanket reset for the
+                    // gem-picker filter facets (search + color chips +
+                    // type chips + tag chips). Sticky preferences like
+                    // "Hide legacy" stay. Only enables when at least
+                    // one facet is active so a cold-open click is
+                    // inert.
+                    let dirty = gem_picker_filters_active(state);
+                    if ui
+                        .add_enabled(dirty, egui::Button::new("Reset filters"))
+                        .on_hover_text(
+                            "Clear the search, color chips, type chips, and tag chips. \
+                             Preserves the \"Hide legacy\" and \"Default level on add\" \
+                             toggles.",
+                        )
+                        .clicked()
+                    {
+                        reset_gem_picker_filters(state);
+                    }
                 });
                 ui.horizontal(|ui| {
                     ui.label("Search:");
@@ -1470,6 +1518,92 @@ mod tests {
         state.tags = TagFilter::default();
         assert!(passes_filters("Arc", &arc, &state, "lightning"));
         assert!(!passes_filters("Fireball", &fireball, &state, "lightning"));
+    }
+
+    // ─── reset_gem_picker_filters / gem_picker_filters_active ────────────
+
+    #[test]
+    fn gem_picker_filters_active_default_state_is_inactive() {
+        // Cold-open: every chip off, search empty → Reset button is
+        // disabled.
+        let state = SkillsTabState::default();
+        assert!(!gem_picker_filters_active(&state));
+    }
+
+    #[test]
+    fn gem_picker_filters_active_each_facet_disqualifies() {
+        // Each facet should flip the bit independently — guards
+        // against an accidental short-circuit in a future refactor.
+        let mut s = SkillsTabState {
+            filter: "x".into(),
+            ..Default::default()
+        };
+        assert!(gem_picker_filters_active(&s));
+
+        s = SkillsTabState::default();
+        s.colors.red = true;
+        assert!(gem_picker_filters_active(&s));
+
+        s = SkillsTabState::default();
+        s.tags.fire = true;
+        assert!(gem_picker_filters_active(&s));
+
+        s = SkillsTabState::default();
+        s.types.support = true;
+        assert!(gem_picker_filters_active(&s));
+    }
+
+    #[test]
+    fn gem_picker_filters_active_whitespace_search_counts_as_inactive() {
+        // Trim semantics match the Items-tab BrowseFilter rule — a
+        // whitespace-only buffer shouldn't keep the Reset button lit.
+        let mut s = SkillsTabState::default();
+        s.filter = "   ".into();
+        assert!(!gem_picker_filters_active(&s));
+    }
+
+    #[test]
+    fn reset_gem_picker_filters_clears_every_facet() {
+        let mut s = SkillsTabState {
+            filter: "Arc".into(),
+            ..Default::default()
+        };
+        s.colors.red = true;
+        s.colors.blue = true;
+        s.tags.lightning = true;
+        s.types.active = true;
+        let changed = reset_gem_picker_filters(&mut s);
+        assert!(changed);
+        assert!(s.filter.is_empty());
+        assert!(!s.colors.any());
+        assert!(!s.tags.any());
+        assert!(!s.types.any());
+    }
+
+    #[test]
+    fn reset_gem_picker_filters_preserves_sticky_preferences() {
+        // `hide_legacy` and `default_level_on_add` are user prefs, not
+        // transient view state — they survive the reset.
+        let mut s = SkillsTabState {
+            filter: "x".into(),
+            hide_legacy: false,
+            default_level_on_add: false,
+            ..Default::default()
+        };
+        let _ = reset_gem_picker_filters(&mut s);
+        assert!(!s.hide_legacy, "hide_legacy must survive the reset");
+        assert!(
+            !s.default_level_on_add,
+            "default_level_on_add must survive the reset"
+        );
+    }
+
+    #[test]
+    fn reset_gem_picker_filters_no_op_returns_false() {
+        // No-op signal so a Reset click on a cold-open catalog
+        // doesn't dirty downstream state.
+        let mut s = SkillsTabState::default();
+        assert!(!reset_gem_picker_filters(&mut s));
     }
 
     #[test]
