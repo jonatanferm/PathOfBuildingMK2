@@ -2973,20 +2973,29 @@ fn render_settings_modal(ctx: &egui::Context, app: &mut LoadedApp) {
 }
 
 /// label so users see what they'd actually press.
-fn render_hotkey_help_modal(ctx: &egui::Context, show: &mut bool) {
-    let cmd_label = if cfg!(target_os = "macos") {
-        "⌘"
-    } else {
-        "Ctrl"
-    };
+/// Issue #225 follow-up: rows for the Keyboard-shortcuts help modal.
+/// Pulled out as a pure helper so the table contents are unit-testable
+/// — a regression that drops a row (or forgets to add a row for a new
+/// shortcut) shows up in the suite instead of waiting for someone to
+/// open the dialog and notice.
+///
+/// `cmd_label` is the platform-appropriate command-key glyph (`⌘` on
+/// macOS, `Ctrl` elsewhere). The renderer resolves it once before
+/// calling; tests pin a deterministic value so the assertions don't
+/// branch on the host OS.
+#[must_use]
+pub fn hotkey_help_rows(cmd_label: &str) -> Vec<(String, &'static str)> {
     // Pairs of (shortcut, action) — kept compact so the modal fits in
-    // a single column even on narrow screens. New shortcuts get added
-    // in the same order as the keyboard handler in `render_loaded`.
-    let rows: Vec<(String, &'static str)> = vec![
+    // a single column even on narrow screens. New shortcuts go in the
+    // same order as the keyboard handler in `render_loaded`.
+    vec![
         (format!("{cmd_label}+N"), "New build"),
         (format!("{cmd_label}+O"), "Open build"),
         (format!("{cmd_label}+S"), "Save build"),
         (format!("{cmd_label}+Shift+S"), "Save build as…"),
+        (format!("{cmd_label}+Z"), "Undo last change"),
+        (format!("{cmd_label}+Shift+Z"), "Redo last undo"),
+        (format!("{cmd_label}+Y"), "Redo last undo (alternate)"),
         (format!("{cmd_label}+1"), "Switch to Tree tab"),
         (format!("{cmd_label}+2"), "Switch to Items tab"),
         (format!("{cmd_label}+3"), "Switch to Skills tab"),
@@ -3007,7 +3016,16 @@ fn render_hotkey_help_modal(ctx: &egui::Context, show: &mut bool) {
             "Unallocate node + cascading orphans",
         ),
         ("Right-click (tree)".into(), "Open the tattoo picker"),
-    ];
+    ]
+}
+
+fn render_hotkey_help_modal(ctx: &egui::Context, show: &mut bool) {
+    let cmd_label = if cfg!(target_os = "macos") {
+        "⌘"
+    } else {
+        "Ctrl"
+    };
+    let rows = hotkey_help_rows(cmd_label);
     egui::Window::new("Keyboard shortcuts")
         .open(show)
         .collapsible(false)
@@ -4548,5 +4566,56 @@ mod compute_duration_tests {
             format_compute_duration(Some(2500)),
             Some("Compute: 2.50s".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod hotkey_help_tests {
+    use super::hotkey_help_rows;
+
+    fn shortcuts(cmd_label: &str) -> Vec<String> {
+        hotkey_help_rows(cmd_label)
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect()
+    }
+
+    #[test]
+    fn rows_include_the_undo_and_redo_shortcuts() {
+        // PR #463 wired Undo/Redo into the Edit menu; the help modal
+        // must list the same shortcuts so users discovering the modal
+        // first still find them. Three rows because Cmd+Y is supported
+        // as an alternate for Cmd+Shift+Z (matches the keyboard
+        // handler's three-way match).
+        let s = shortcuts("Ctrl");
+        assert!(s.contains(&"Ctrl+Z".to_owned()), "missing undo: {s:?}");
+        assert!(
+            s.contains(&"Ctrl+Shift+Z".to_owned()),
+            "missing redo: {s:?}"
+        );
+        assert!(s.contains(&"Ctrl+Y".to_owned()), "missing alt redo: {s:?}");
+    }
+
+    #[test]
+    fn rows_honour_the_supplied_cmd_label() {
+        // The renderer chooses `⌘` on macOS and `Ctrl` elsewhere; the
+        // helper must thread that through untouched so the modal reads
+        // correctly on both hosts.
+        let mac = shortcuts("⌘");
+        assert!(mac.contains(&"⌘+S".to_owned()));
+        let other = shortcuts("Ctrl");
+        assert!(other.contains(&"Ctrl+S".to_owned()));
+    }
+
+    #[test]
+    fn rows_do_not_have_duplicate_shortcut_keys() {
+        // Two rows binding the same shortcut to different actions is
+        // almost always a copy-paste bug. Cmd+Y vs Cmd+Shift+Z are
+        // distinct strings so they don't trip this check.
+        let mut s = shortcuts("Ctrl");
+        s.sort();
+        let len_before = s.len();
+        s.dedup();
+        assert_eq!(s.len(), len_before, "duplicate shortcut row: {s:?}");
     }
 }
