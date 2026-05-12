@@ -866,6 +866,47 @@ mod tests {
         assert_eq!(ExportFormat::PobXml.label(), "PoB XML");
     }
 
+    // ─── auto_import ─────────────────────────────────────────────────────
+
+    #[test]
+    fn auto_import_round_trips_mk2_code_with_correct_label() {
+        // MK2 round-trip — the kind label is what the status message
+        // shows the user post-import ("Imported as MK2 code.").
+        let original = fixture_character();
+        let code = export_in_format(&original, ExportFormat::Mk2).expect("export");
+        let (back, kind) = auto_import(&code).expect("auto_import ok");
+        assert_eq!(kind, "MK2 code");
+        assert_eq!(back.class.0, original.class.0);
+    }
+
+    #[test]
+    fn auto_import_round_trips_pob_xml_with_correct_label() {
+        let original = fixture_character();
+        let xml = export_in_format(&original, ExportFormat::PobXml).expect("export");
+        let (_back, kind) = auto_import(&xml).expect("auto_import ok");
+        assert_eq!(kind, "PoB XML");
+    }
+
+    #[test]
+    fn auto_import_round_trips_pob_share_code_with_correct_label() {
+        // PoB share code is the fall-through branch — confirms the
+        // label is the unparenthesised "PoB share code" (no `(?)`
+        // suffix) since a successful decode validates the format.
+        let original = fixture_character();
+        let share = export_in_format(&original, ExportFormat::PobShare).expect("export");
+        let (_back, kind) = auto_import(&share).expect("auto_import ok");
+        assert_eq!(kind, "PoB share code");
+    }
+
+    #[test]
+    fn auto_import_surfaces_empty_input_error_through_import_build_text() {
+        // Delegated empty-input error from `import_build_text` should
+        // pass through unchanged so the status banner reads the
+        // friendly message rather than an opaque decode failure.
+        let err = auto_import("").expect_err("empty input is an error");
+        assert!(err.contains("Nothing to import"));
+    }
+
     // ─── format_export_size_label ────────────────────────────────────────
 
     #[test]
