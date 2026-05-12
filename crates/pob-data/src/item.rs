@@ -909,3 +909,62 @@ mod enchant_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod slot_tests {
+    use super::*;
+
+    /// Number of [`Slot`] variants, pinned next to the consistency
+    /// test below. Bump this only after extending [`Slot::all`].
+    const SLOT_VARIANT_COUNT: usize = 17;
+
+    #[test]
+    fn slot_all_covers_every_enum_variant() {
+        // Defence in depth: the exhaustive match catches a new
+        // variant at compile time; `SLOT_VARIANT_COUNT` (and the
+        // `len()` assertion below) catches the matching update to
+        // `Slot::all` if someone adds a variant to the enum but
+        // forgets to extend the returned slice.
+        fn _exhaustive_check(s: Slot) {
+            match s {
+                Slot::Helmet
+                | Slot::BodyArmour
+                | Slot::Gloves
+                | Slot::Boots
+                | Slot::Amulet
+                | Slot::Ring1
+                | Slot::Ring2
+                | Slot::Belt
+                | Slot::Weapon1
+                | Slot::Weapon2
+                | Slot::Weapon1Swap
+                | Slot::Weapon2Swap
+                | Slot::Flask1
+                | Slot::Flask2
+                | Slot::Flask3
+                | Slot::Flask4
+                | Slot::Flask5 => {}
+            }
+        }
+        assert_eq!(Slot::all().len(), SLOT_VARIANT_COUNT);
+        // No duplicates — guards against an accidental copy-paste
+        // that lists `Slot::Ring1` twice instead of `Ring2`.
+        let mut seen = std::collections::HashSet::new();
+        for slot in Slot::all() {
+            assert!(seen.insert(*slot), "{slot:?} listed twice in Slot::all()");
+        }
+    }
+
+    #[test]
+    fn slot_label_is_defined_for_every_variant() {
+        // `Slot::label` is also a per-variant match; pin that every
+        // variant returns a non-empty label so a future refactor that
+        // accidentally returns `""` for a new variant gets caught.
+        for slot in Slot::all() {
+            assert!(
+                !slot.label().is_empty(),
+                "{slot:?} has an empty label — pick one"
+            );
+        }
+    }
+}
