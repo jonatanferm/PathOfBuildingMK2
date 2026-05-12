@@ -560,27 +560,6 @@ fn count_builds(node: &FolderNode) -> usize {
     n
 }
 
-/// Render a single build entry row (label, ext, rename / duplicate /
-/// Issue #213 follow-up: format the time delta between `now` and `then`
-/// as a human-readable "X ago" string. Pure / no I/O so the threshold
-/// rules are unit-testable.
-///
-/// Returns `(future)` when `then > now` (defensive — clock skew on the
-/// filesystem can yield a later mtime than the system clock; rendering
-/// `-1 minutes ago` reads worse than the explicit marker).
-///
-/// Resolution bands:
-/// - <60s → "just now"
-/// - <60m → "<N> min ago" (singular "1 min ago")
-/// - <24h → "<N> hours ago" (singular "1 hour ago")
-/// - <30d → "<N> days ago" (singular "1 day ago")
-/// - <365d → "<N> months ago" (singular "1 month ago")
-/// - otherwise → "<N> years ago" (singular "1 year ago")
-///
-/// Year resolution uses a 365-day denominator (no leap-day handling) —
-/// the readout is approximate by nature and "3 years ago" reads
-/// equivalently to "3 years and a couple of days ago".
-
 /// Issue #213 follow-up: humanise the filter match count for the
 /// chip rendered next to the build-name filter input. Reports the
 /// number of entries the filter keeps vs. the total saved.
@@ -611,6 +590,25 @@ pub fn format_filter_match_chip(entries: &[BuildEntry], filter: &str) -> String 
     }
 }
 
+/// Issue #213 follow-up: format the time delta between `now` and `then`
+/// as a human-readable "X ago" string. Pure / no I/O so the threshold
+/// rules are unit-testable.
+///
+/// Returns `(future)` when `then > now` (defensive — clock skew on the
+/// filesystem can yield a later mtime than the system clock; rendering
+/// `-1 minutes ago` reads worse than the explicit marker).
+///
+/// Resolution bands:
+/// - <60s → "just now"
+/// - <60m → "<N> min ago" (singular "1 min ago")
+/// - <24h → "<N> hours ago" (singular "1 hour ago")
+/// - <30d → "<N> days ago" (singular "1 day ago")
+/// - <365d → "<N> months ago" (singular "1 month ago")
+/// - otherwise → "<N> years ago" (singular "1 year ago")
+///
+/// Year resolution uses a 365-day denominator (no leap-day handling) —
+/// the readout is approximate by nature and "3 years ago" reads
+/// equivalently to "3 years and a couple of days ago".
 #[must_use]
 pub fn format_relative_time(now: std::time::SystemTime, then: std::time::SystemTime) -> String {
     let Ok(elapsed) = now.duration_since(then) else {
