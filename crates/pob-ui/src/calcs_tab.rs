@@ -406,19 +406,42 @@ pub fn ui(
         {
             reset_calcs_view(state);
         }
-        // Issue #34 follow-up: clipboard export of the full output
-        // dictionary. Useful for capturing the build's final numbers
-        // for a wiki / spreadsheet / Discord paste without screen-
-        // shotting.
+        // Issue #34 follow-up: clipboard export of the output
+        // dictionary. When a filter or hide_zero is active, the
+        // exported text mirrors what the table shows row-for-row so a
+        // user copying "all my resists" doesn't paste every stat
+        // alongside them. Cold-open / no-filter path still copies the
+        // full dictionary so the historical behaviour is preserved.
+        // Same gating as the "X of Y stats" chip (#468): in PoB-layout
+        // mode the on-screen filter runs over CalcRows by section /
+        // subsection / label, NOT Output keys, so the helper would
+        // copy a different set than the user sees. Fall back to the
+        // full-dump "Copy output" path there.
+        let filtering =
+            !state.use_pob_layout && (!state.filter.trim().is_empty() || state.hide_zero);
+        let copy_label = if filtering {
+            "Copy filtered"
+        } else {
+            "Copy output"
+        };
+        let copy_hover = if filtering {
+            "Copy the on-screen filtered output as `Key: value` plain text, \
+             alphabetised by key. Reflects the live filter + Hide-zero \
+             toggles."
+        } else {
+            "Copy every output stat as `Key: value` plain text, alphabetised \
+             by key. Paste into a spreadsheet / Discord / GitHub issue."
+        };
         if ui
-            .add_enabled(!output.is_empty(), egui::Button::new("Copy output"))
-            .on_hover_text(
-                "Copy every output stat as `Key: value` plain text, alphabetised \
-                 by key. Paste into a spreadsheet / Discord / GitHub issue.",
-            )
+            .add_enabled(!output.is_empty(), egui::Button::new(copy_label))
+            .on_hover_text(copy_hover)
             .clicked()
         {
-            let text = format_output_as_text(output);
+            let text = if filtering {
+                format_output_filtered_as_text(output, &state.filter, state.hide_zero)
+            } else {
+                format_output_as_text(output)
+            };
             ui.ctx().copy_text(text);
         }
     });
@@ -942,6 +965,34 @@ pub fn format_output_as_text(output: &Output) -> String {
     out
 }
 
+/// Issue #34 follow-up: filtered variant of [`format_output_as_text`]
+/// that mirrors what the user sees on screen. Applies the same
+/// case-insensitive substring filter and zero-suppression rule as
+/// the flat-view renderer (see [`count_filtered_output_entries`]) so
+/// the clipboard paste matches the visible table row-for-row.
+///
+/// Empty / whitespace-only `filter` is a "no filter" pass-through.
+/// `hide_zero = false` keeps every key regardless of value. Both
+/// filters off is equivalent to [`format_output_as_text`].
+#[must_use]
+pub fn format_output_filtered_as_text(output: &Output, filter: &str, hide_zero: bool) -> String {
+    let q = filter.trim().to_ascii_lowercase();
+    let mut entries: Vec<(&str, f64)> = output
+        .iter()
+        .filter(|(k, _)| q.is_empty() || k.to_ascii_lowercase().contains(&q))
+        .filter(|(_, v)| !hide_zero || v.abs() > 1e-9)
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    let mut out = String::new();
+    for (k, v) in entries {
+        out.push_str(k);
+        out.push_str(": ");
+        out.push_str(format_value(v).trim());
+        out.push('\n');
+    }
+    out
+}
+
 fn format_value(v: f64) -> String {
     if v.fract().abs() < 1e-9 {
         format!("{v:>10.0}")
@@ -1335,8 +1386,8 @@ fn kind_label(k: ModType) -> &'static str {
 mod tests {
     use super::{
         calc_row_tooltip_lines, count_filtered_output_entries, format_output_as_text,
-        mod_tooltip_lines, push_recent_stat, reset_calcs_view, sort_flat_entries, CalcsFlatSort,
-        CalcsTabState, GROUPS, RECENTLY_FOCUSED_MAX,
+        format_output_filtered_as_text, mod_tooltip_lines, push_recent_stat, reset_calcs_view,
+        sort_flat_entries, CalcsFlatSort, CalcsTabState, GROUPS, RECENTLY_FOCUSED_MAX,
     };
     use pob_engine::{Mod, Output};
     use std::collections::VecDeque;
@@ -1536,6 +1587,74 @@ mod tests {
         assert_eq!(lines[0], "CritChance: 5.2500");
         assert_eq!(lines[1], "Damage: 1500.50");
         assert_eq!(lines[2], "HitChance: 100");
+    }
+
+    // ─── format_output_filtered_as_text ──────────────────────────────────
+
+    #[test]
+    fn format_output_filtered_no_filter_matches_unfiltered_form() {
+        // Cold-open contract: with no filter and hide_zero off, the
+        // filtered helper must produce byte-for-byte the same output
+        // as the existing unfiltered formatter so a no-filter Copy
+        // still reads identically.
+        let out = out_with(&[
+            ("CritChance", 5.25),
+            ("HitChance", 100.0),
+            ("Damage", 1500.5),
+        ]);
+        assert_eq!(
+            format_output_filtered_as_text(&out, "", false),
+            format_output_as_text(&out),
+        );
+    }
+
+    #[test]
+    fn format_output_filtered_substring_filter_keeps_matching_keys_only() {
+        // Filter narrowing should mirror the on-screen table — only
+        // matching keys land in the clipboard.
+        let out = out_with(&[("FireResist", 75.0), ("ColdResist", 75.0), ("Life", 5000.0)]);
+        let text = format_output_filtered_as_text(&out, "resist", false);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines.iter().all(|l| l.contains("Resist")));
+        assert!(!text.contains("Life"));
+    }
+
+    #[test]
+    fn format_output_filtered_hide_zero_drops_zero_valued_keys() {
+        // Mirrors the renderer's hide_zero rule. Defends against a
+        // user whose paste used to be cluttered with zero-valued
+        // placeholder outputs after the engine populated them.
+        let out = out_with(&[("Life", 5000.0), ("Mana", 0.0), ("ColdResist", 0.0)]);
+        let text = format_output_filtered_as_text(&out, "", true);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].starts_with("Life: "));
+    }
+
+    #[test]
+    fn format_output_filtered_filter_and_hide_zero_compose() {
+        // Both filters active simultaneously: keep only resists with
+        // non-zero values.
+        let out = out_with(&[
+            ("FireResist", 75.0),
+            ("ColdResist", 0.0),
+            ("LightningResist", 30.0),
+        ]);
+        let text = format_output_filtered_as_text(&out, "resist", true);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("FireResist: "));
+        assert!(lines[1].starts_with("LightningResist: "));
+    }
+
+    #[test]
+    fn format_output_filtered_whitespace_filter_is_pass_through() {
+        // Trim semantics keep parity with `count_filtered_output_entries`
+        // — a whitespace-only buffer must NOT exclude any keys.
+        let out = out_with(&[("Life", 5000.0), ("Mana", 100.0)]);
+        let text = format_output_filtered_as_text(&out, "   ", false);
+        assert_eq!(text.lines().count(), 2);
     }
 
     #[test]
