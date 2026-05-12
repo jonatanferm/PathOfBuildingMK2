@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use eframe::egui;
 use pob_data::bases::ItemBaseSet;
 use pob_data::{Item, ItemBase, ItemSet, ModLine, ModSection, PassiveTree, Rarity, Slot};
+use pob_engine::character::NamedItemSet;
 use pob_engine::{
     format_top_contributors, parse_item, rank_item_modlines, Character, ItemModlineScore,
     SkillRegistry,
@@ -722,6 +723,41 @@ pub fn clone_item_set(character: &mut Character, idx: usize) -> Result<usize, It
 // path live for inline-chip / manage-popup callers below.
 pub use crate::set_switcher::{shift_active_idx_after_delete, shift_active_idx_after_swap};
 
+/// Issue #222: format the tooltip body for one saved set in the switcher
+/// dropdown.
+///
+/// PoB's set dropdowns surface a small per-row summary on hover — slot
+/// count plus mod-line count — so the user can size up a set without
+/// committing to the load. We replicate that here as a pure helper so the
+/// tooltip body stays unit-testable. Returned as a `Vec<String>` so the
+/// caller can either `.join("\n")` it into `egui::Ui::on_hover_text` or
+/// render the lines individually inside a custom hover layout.
+///
+/// Empty / whitespace-only names fall back to `(unnamed)` — same rule as
+/// [`crate::set_switcher::format_set_dropdown_label`] so the closed combo
+/// and the hover stay consistent.
+#[must_use]
+pub fn format_item_set_tooltip_lines(set: &NamedItemSet) -> Vec<String> {
+    let trimmed = set.name.trim();
+    let display = if trimmed.is_empty() {
+        "(unnamed)"
+    } else {
+        trimmed
+    };
+    let slots_filled = set.items.items.len();
+    let mod_lines: usize = set
+        .items
+        .items
+        .values()
+        .map(|item| item.mod_lines.len())
+        .sum();
+    vec![
+        display.to_owned(),
+        format!("Slots filled: {slots_filled}"),
+        format!("Mod lines: {mod_lines}"),
+    ]
+}
+
 /// Issue #212 follow-up: direction the user picked on a reorder
 /// arrow-button click. Up moves the entry toward index 0; Down moves
 /// toward the tail. The helper [`move_item_set`] consumes this enum
@@ -845,7 +881,16 @@ pub fn ui(
             for (idx, name) in &entries {
                 let is_active = selected_idx == Some(*idx);
                 let label = format_set_dropdown_label(name, *idx, is_active);
-                if ui.selectable_label(is_active, label).clicked() && !is_active {
+                // Issue #222: per-row hover surfaces slot + mod-line
+                // counts so the user can size up a set without
+                // committing to the load.
+                let tooltip = character
+                    .item_sets
+                    .get(*idx)
+                    .map(|set| format_item_set_tooltip_lines(set).join("\n"))
+                    .unwrap_or_default();
+                let resp = ui.selectable_label(is_active, label).on_hover_text(tooltip);
+                if resp.clicked() && !is_active {
                     if character.activate_item_set(*idx) {
                         state.active_item_set_idx = Some(*idx);
                         changed = true;
@@ -3542,7 +3587,89 @@ mod tests {
     // the future skill-set / config-set switchers can share them. Their
     // unit tests moved with them — see `set_switcher::tests`. The
     // `ItemsTabState` default-state guard stays here because it's
-    // tab-specific.
+    // tab-specific. The tooltip helper below also lives in `items_tab`
+    // because the slot- and mod-count summary is specific to item sets.
+
+    fn tooltip_set(name: &str, slots: &[(Slot, &[&str])]) -> NamedItemSet {
+        let mut items = ItemSet::new();
+        for (slot, mods) in slots {
+            let mod_lines: Vec<ModLine> = mods
+                .iter()
+                .map(|line| ModLine::new(*line, ModSection::Explicit))
+                .collect();
+            items.equip(
+                *slot,
+                Item {
+                    name: String::new(),
+                    base_name: "Base".to_owned(),
+                    rarity: Rarity::Normal,
+                    item_level: 1,
+                    quality: 0,
+                    tags: HashSet::default(),
+                    mod_lines,
+                    sockets: String::new(),
+                    raw: String::new(),
+                    corrupted: false,
+                    mirrored: false,
+                    variants: Vec::new(),
+                    variant: None,
+                },
+            );
+        }
+        NamedItemSet {
+            name: name.to_owned(),
+            items,
+        }
+    }
+
+    #[test]
+    fn tooltip_lines_for_empty_set_show_zero_counts() {
+        // A freshly-saved blank set should still produce a usable hover
+        // body — the user might be parking the slot for later.
+        let set = tooltip_set("Empty", &[]);
+        let lines = format_item_set_tooltip_lines(&set);
+        assert_eq!(lines[0], "Empty");
+        assert_eq!(lines[1], "Slots filled: 0");
+        assert_eq!(lines[2], "Mod lines: 0");
+    }
+
+    #[test]
+    fn tooltip_lines_count_each_filled_slot() {
+        // Two items, no mods: slot count tracks the populated slots and
+        // the mod-count line stays at zero so users can tell at a glance
+        // that the set is "two whites".
+        let set = tooltip_set("Levelling", &[(Slot::Helmet, &[]), (Slot::Amulet, &[])]);
+        let lines = format_item_set_tooltip_lines(&set);
+        assert_eq!(lines[1], "Slots filled: 2");
+        assert_eq!(lines[2], "Mod lines: 0");
+    }
+
+    #[test]
+    fn tooltip_lines_sum_mod_lines_across_items() {
+        // Mod count is summed across every equipped item — that's the
+        // PoB-side "how much stuff is on this set" signal, and it's the
+        // one number that survives the slot-set being identical.
+        let set = tooltip_set(
+            "Endgame",
+            &[
+                (Slot::Helmet, &["+50 Life", "20% Resist"]),
+                (Slot::Amulet, &["+1 Skill"]),
+            ],
+        );
+        let lines = format_item_set_tooltip_lines(&set);
+        assert_eq!(lines[1], "Slots filled: 2");
+        assert_eq!(lines[2], "Mod lines: 3");
+    }
+
+    #[test]
+    fn tooltip_lines_substitute_unnamed_for_blank_name() {
+        // Blank names would render as an empty first line in the hover
+        // tooltip and look like a layout bug. Substitute the same
+        // placeholder the closed combo box uses.
+        let set = tooltip_set("   ", &[]);
+        let lines = format_item_set_tooltip_lines(&set);
+        assert_eq!(lines[0], "(unnamed)");
+    }
 
     #[test]
     fn switcher_state_defaults_are_closed_and_empty() {
