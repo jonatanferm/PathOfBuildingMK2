@@ -102,17 +102,30 @@ impl<T: Clone> UndoStack<T> {
         Some(next)
     }
 
-    // `can_undo` / `can_redo` are used by tests and exist for the
-    // menu / status-bar greying affordances that follow in later #204
-    // slices. Allowed dead-code until the Edit menu lands.
-    #[allow(dead_code)]
+    /// Whether at least one snapshot is parked on the past stack —
+    /// drives the Edit menu's "Undo" enabled state.
     pub fn can_undo(&self) -> bool {
         !self.past.is_empty()
     }
 
-    #[allow(dead_code)]
+    /// Mirror of [`Self::can_undo`] for the future stack.
     pub fn can_redo(&self) -> bool {
         !self.future.is_empty()
+    }
+
+    /// Issue #204 follow-up: how many snapshots are sitting on the
+    /// past stack. The Edit-menu hover-text shows "Undo (N available)"
+    /// so a user about to chain undos knows how deep they can go
+    /// without spamming Cmd+Z.
+    #[must_use]
+    pub fn undo_depth(&self) -> usize {
+        self.past.len()
+    }
+
+    /// Mirror of [`Self::undo_depth`] for the future stack.
+    #[must_use]
+    pub fn redo_depth(&self) -> usize {
+        self.future.len()
     }
 
     /// Drop both past and future. Used on Build New / Open / Demo so a
@@ -485,5 +498,62 @@ mod tests {
             .expect("snapshot was just recorded");
         assert_eq!(restored.tree_version, "3_25");
         assert!(restored.character.allocated.contains(&42));
+    }
+
+    // ─── can_undo / can_redo / undo_depth / redo_depth ───────────────────
+
+    #[test]
+    fn depth_helpers_track_stack_sizes() {
+        // The Edit menu hover-text reads "(N available)" so the
+        // depth helpers have to mirror the live stack sizes —
+        // record/undo/redo cycles flip them deterministically.
+        let mut stack: UndoStack<i32> = UndoStack::with_capacity(5);
+        assert_eq!(stack.undo_depth(), 0);
+        assert_eq!(stack.redo_depth(), 0);
+        assert!(!stack.can_undo());
+        assert!(!stack.can_redo());
+
+        stack.record(1);
+        stack.record(2);
+        stack.record(3);
+        assert_eq!(stack.undo_depth(), 3);
+        assert_eq!(stack.redo_depth(), 0);
+        assert!(stack.can_undo());
+        assert!(!stack.can_redo());
+
+        let _ = stack.undo(99).expect("3 was last past");
+        // Undo pops one off past and pushes the current onto future.
+        assert_eq!(stack.undo_depth(), 2);
+        assert_eq!(stack.redo_depth(), 1);
+        assert!(stack.can_undo());
+        assert!(stack.can_redo());
+    }
+
+    #[test]
+    fn record_clears_redo_depth() {
+        // A divergent record (the "branch off a redoable timeline" rule)
+        // must reset `redo_depth` to zero so the Edit menu doesn't
+        // promise redo operations that are no longer reachable.
+        let mut stack: UndoStack<i32> = UndoStack::with_capacity(5);
+        stack.record(1);
+        stack.record(2);
+        let _ = stack.undo(3); // future now has [3]
+        assert_eq!(stack.redo_depth(), 1);
+        stack.record(10); // branch — must wipe future
+        assert_eq!(stack.redo_depth(), 0);
+        assert!(!stack.can_redo());
+    }
+
+    #[test]
+    fn depth_caps_at_capacity_on_overflow() {
+        // The hover-text contract is "N undos available", not "N
+        // mutations recorded". Once the capacity-cap kicks in, depth
+        // should reflect the live stack length, not the original push
+        // count.
+        let mut stack: UndoStack<i32> = UndoStack::with_capacity(2);
+        stack.record(1);
+        stack.record(2);
+        stack.record(3); // pushes out the oldest
+        assert_eq!(stack.undo_depth(), 2);
     }
 }

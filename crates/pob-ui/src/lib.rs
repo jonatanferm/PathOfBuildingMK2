@@ -1044,6 +1044,33 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
+            // Issue #204 follow-up: Edit menu surfaces Undo / Redo so
+            // the shortcuts are discoverable. Entries are disabled
+            // (greyed out) when the corresponding stack is empty;
+            // hover text shows the remaining depth so a user can tell
+            // at a glance how deep they can chain Cmd+Z.
+            ui.menu_button("Edit", |ui| {
+                let undo_depth = app.undo_stack.undo_depth();
+                let redo_depth = app.undo_stack.redo_depth();
+                let undo_btn = ui.add_enabled(app.undo_stack.can_undo(), egui::Button::new("Undo"));
+                if undo_btn
+                    .on_hover_text(format!("Undo ({undo_depth} available) · Cmd/Ctrl+Z"))
+                    .clicked()
+                {
+                    undo_request = true;
+                    ui.close_menu();
+                }
+                let redo_btn = ui.add_enabled(app.undo_stack.can_redo(), egui::Button::new("Redo"));
+                if redo_btn
+                    .on_hover_text(format!(
+                        "Redo ({redo_depth} available) · Cmd/Ctrl+Y or Cmd/Ctrl+Shift+Z"
+                    ))
+                    .clicked()
+                {
+                    redo_request = true;
+                    ui.close_menu();
+                }
+            });
             // Issue #225: Help menu surfaces the keyboard-shortcuts
             // cheatsheet PoB scatters inline across each tab. One
             // discoverable entry point matches modern desktop-app
