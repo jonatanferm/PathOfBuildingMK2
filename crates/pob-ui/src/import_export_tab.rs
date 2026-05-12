@@ -53,6 +53,33 @@ impl ExportFormat {
     }
 }
 
+/// Issue #194 follow-up: humanise an export code's byte length for the
+/// side-of-panel size chip. Pasted PoB share codes for high-end builds
+/// can comfortably exceed Discord's 2000-char message limit; surfacing
+/// the size lets a user spot that *before* hitting Send.
+///
+/// Format conventions:
+/// * Under 1024 bytes: `N B` (raw byte count).
+/// * 1024 bytes and up: `K.D kB` (one decimal, rounded down — never
+///   rounds *up* into the next unit so the chip can't lie about a
+///   build squeezing under a quota).
+///
+/// Empty input yields `0 B`. Pure / no-egui so the rule is documented
+/// and unit-testable in isolation.
+#[must_use]
+pub fn format_export_size_label(generated: &str) -> String {
+    let bytes = generated.len();
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    // Truncate (don't round) so a 1535-byte code reads as "1.4 kB",
+    // not "1.5 kB" — never overstate the size against a quota.
+    let tenths = bytes * 10 / 1024;
+    let whole = tenths / 10;
+    let frac = tenths % 10;
+    format!("{whole}.{frac} kB")
+}
+
 /// Issue #194 follow-up: serialise a [`Character`] in the requested
 /// [`ExportFormat`]. Pure / fallible — the UI surfaces the inner error
 /// as a banner. Pulled out so each branch has a unit-test home and the
@@ -221,9 +248,25 @@ pub fn ui(
                     .desired_rows(8)
                     .font(egui::TextStyle::Monospace),
             );
-            if !state.generated.is_empty() && ui.button("Copy code to clipboard").clicked() {
-                ui.ctx().copy_text(state.generated.clone());
-                state.last_message = Some((true, "Copied to clipboard.".into()));
+            if !state.generated.is_empty() {
+                ui.horizontal(|ui| {
+                    if ui.button("Copy code to clipboard").clicked() {
+                        ui.ctx().copy_text(state.generated.clone());
+                        state.last_message = Some((true, "Copied to clipboard.".into()));
+                    }
+                    // Mirror the Import side's Clear affordance so the
+                    // user can drop a generated code without
+                    // hand-selecting the textarea.
+                    if ui.button("Clear").clicked() {
+                        state.generated.clear();
+                        state.last_message = None;
+                    }
+                    // Size chip: high-end PoB share codes routinely
+                    // exceed Discord's 2000-char paste limit; surfacing
+                    // the byte count lets the user spot that before
+                    // hitting Send.
+                    ui.weak(format_export_size_label(&state.generated));
+                });
             }
         });
 
@@ -773,5 +816,47 @@ mod tests {
         assert_eq!(ExportFormat::Mk2.label(), "MK2 code");
         assert_eq!(ExportFormat::PobShare.label(), "PoB share code");
         assert_eq!(ExportFormat::PobXml.label(), "PoB XML");
+    }
+
+    // ─── format_export_size_label ────────────────────────────────────────
+
+    #[test]
+    fn size_label_uses_raw_bytes_under_one_kilobyte() {
+        // Bytes are easier to interpret than fractional kB at small
+        // sizes — and "0 B" is the natural empty-state.
+        assert_eq!(format_export_size_label(""), "0 B");
+        assert_eq!(format_export_size_label("hello"), "5 B");
+        // 1023 is still in the raw-byte band — boundary check so a
+        // future refactor doesn't accidentally flip the threshold.
+        let near_boundary = "a".repeat(1023);
+        assert_eq!(format_export_size_label(&near_boundary), "1023 B");
+    }
+
+    #[test]
+    fn size_label_switches_to_kilobytes_at_one_thousand_twenty_four() {
+        // Exactly 1024 bytes is "1.0 kB" — the threshold is inclusive
+        // on the kB side so we don't flicker between units near 1 kB.
+        let exactly_kb = "a".repeat(1024);
+        assert_eq!(format_export_size_label(&exactly_kb), "1.0 kB");
+    }
+
+    #[test]
+    fn size_label_truncates_rather_than_rounds_at_kilobyte_scale() {
+        // 1535 bytes is 1.499… kB — the chip MUST read "1.4 kB", not
+        // "1.5 kB", so a build that would actually fail a 1.5 kB
+        // quota can't sneak by with a rounded-down chip. Mirrors the
+        // doc comment's "never lie about squeezing under a quota"
+        // contract.
+        let mid_kb = "a".repeat(1535);
+        assert_eq!(format_export_size_label(&mid_kb), "1.4 kB");
+    }
+
+    #[test]
+    fn size_label_handles_multi_kilobyte_codes() {
+        // 10 kB-class codes are common for high-end PoB share output —
+        // make sure the format stays "K.D kB" without thousands
+        // separators or scientific notation.
+        let ten_kb = "a".repeat(10 * 1024);
+        assert_eq!(format_export_size_label(&ten_kb), "10.0 kB");
     }
 }
