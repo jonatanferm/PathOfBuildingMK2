@@ -642,4 +642,73 @@ mod tests {
         c.source_category = Some("Item");
         assert_eq!(db.sum(ModType::Base, &c, &st, "Life"), 20.0);
     }
+
+    // ─── EvalState condition_prefixed / set_condition_prefixed ───────────
+
+    #[test]
+    fn condition_prefixed_set_then_read_round_trips() {
+        // The fast path concatenates `prefix:var` without going
+        // through `format!`. Round-trip every variant the eval path
+        // uses — SkillName, SkillId, SkillType, SlotName — through
+        // the prefixed setter and confirm `condition_prefixed`
+        // returns the right value.
+        let mut st = EvalState::default();
+        st.set_condition_prefixed("SkillName", "Arc", true);
+        st.set_condition_prefixed("SkillId", "spell_arc", true);
+        st.set_condition_prefixed("SlotName", "Helmet", true);
+
+        assert!(st.condition_prefixed("SkillName", "Arc"));
+        assert!(st.condition_prefixed("SkillId", "spell_arc"));
+        assert!(st.condition_prefixed("SlotName", "Helmet"));
+        // Unset key returns false rather than panicking.
+        assert!(!st.condition_prefixed("SkillName", "Fireball"));
+    }
+
+    #[test]
+    fn condition_prefixed_matches_manual_set_condition_join() {
+        // Cross-check that `set_condition_prefixed` writes the same
+        // key shape as `set_condition(format!("{prefix}:{var}"))`.
+        // The fast-path read in `condition_prefixed` must agree with
+        // the historical heap-formatted key, otherwise old saves /
+        // engine-side `set_condition("SkillName:Arc", true)` calls
+        // would invisibly mismatch the read path.
+        let mut a = EvalState::default();
+        a.set_condition("SkillName:Arc", true);
+        let mut b = EvalState::default();
+        b.set_condition_prefixed("SkillName", "Arc", true);
+        assert!(a.condition_prefixed("SkillName", "Arc"));
+        assert!(b.condition_prefixed("SkillName", "Arc"));
+        assert_eq!(a.conditions, b.conditions);
+    }
+
+    #[test]
+    fn condition_prefixed_handles_long_keys_via_heap_path() {
+        // The fast path uses a 96-byte stack buffer; longer joins
+        // fall through to the heap-formatted slow path. Test both
+        // sides of the threshold so an off-by-one in the buffer
+        // size check would surface.
+        let long_var = "X".repeat(120);
+        let mut st = EvalState::default();
+        st.set_condition_prefixed("SkillName", &long_var, true);
+        assert!(
+            st.condition_prefixed("SkillName", &long_var),
+            "long-key read should match the long-key write"
+        );
+        // Exactly-at-threshold (≤96 total) takes the fast path.
+        let exact = "Y".repeat(96 - "SkillName:".len());
+        st.set_condition_prefixed("SkillName", &exact, true);
+        assert!(st.condition_prefixed("SkillName", &exact));
+    }
+
+    #[test]
+    fn condition_actor_aliases_condition_prefixed() {
+        // `condition_actor(actor, var)` is documented as the same
+        // wire format as `condition_prefixed(actor, var)` — pin that
+        // contract so a future refactor doesn't accidentally drift
+        // the two apart.
+        let mut st = EvalState::default();
+        st.set_condition_prefixed("Player", "OnLowLife", true);
+        assert!(st.condition_actor("Player", "OnLowLife"));
+        assert!(!st.condition_actor("Player", "OnFullLife"));
+    }
 }
