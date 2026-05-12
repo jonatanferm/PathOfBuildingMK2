@@ -86,6 +86,37 @@ pub fn ui(
             state.new_name.clear();
             changed = true;
         }
+        // Bulk enable / disable + count badge. Suppressed when the
+        // roster is empty so the heading row doesn't drag in dead
+        // controls on the cold-open. The count drives a clear-at-a-
+        // glance signal when a power user keeps a "Bossing roster off,
+        // Mapping roster on" workflow.
+        if !character.party_members.is_empty() {
+            ui.separator();
+            let (active, total) = count_active_party_members(&character.party_members);
+            ui.weak(format!("{active} of {total} active"));
+            let any_off = active < total;
+            let any_on = active > 0;
+            if ui
+                .add_enabled(any_off, egui::Button::new("Enable all"))
+                .on_hover_text("Set every saved member's contribution back on.")
+                .clicked()
+                && set_all_party_members_enabled(&mut character.party_members, true)
+            {
+                changed = true;
+            }
+            if ui
+                .add_enabled(any_on, egui::Button::new("Disable all"))
+                .on_hover_text(
+                    "Turn off every saved member's contribution. Saves the roster — \
+                     re-enable individually or via \"Enable all\".",
+                )
+                .clicked()
+                && set_all_party_members_enabled(&mut character.party_members, false)
+            {
+                changed = true;
+            }
+        }
     });
     ui.separator();
 
@@ -505,6 +536,38 @@ fn extract_into(
 /// suitable for `ExtractedAura.effect_pct` (`+30` = 1.30× scalar
 /// applied to projected mod values). Any compute path that fails
 /// (no tree, no skills loaded) falls back to 0.
+/// Party tab: how many of the saved members are currently contributing
+/// their auras / curses / banners to the live compute, vs. how many are
+/// saved in total. Returned as `(active, total)` so the header chip can
+/// render `"N of M active"` without re-walking the vec.
+///
+/// Pure / no-egui so the rule is documented and unit-testable in
+/// isolation. An empty vec returns `(0, 0)` — callers handle the
+/// empty-party empty-state separately so they can suppress the chip.
+#[must_use]
+pub fn count_active_party_members(members: &[PartyMember]) -> (usize, usize) {
+    let total = members.len();
+    let active = members.iter().filter(|m| m.enabled).count();
+    (active, total)
+}
+
+/// Party tab: set every saved member's `enabled` flag to `enabled` at
+/// once. Returns `true` iff any member changed — the caller uses that to
+/// gate a recompute so a no-op "Enable all" click on an already-all-on
+/// roster doesn't churn the engine.
+///
+/// Pure / no-egui. An empty vec is a no-op and returns `false`.
+pub fn set_all_party_members_enabled(members: &mut [PartyMember], enabled: bool) -> bool {
+    let mut changed = false;
+    for m in members {
+        if m.enabled != enabled {
+            m.enabled = enabled;
+            changed = true;
+        }
+    }
+    changed
+}
+
 fn teammate_aura_effect_pct(
     teammate: &pob_engine::Character,
     tree: &PassiveTree,
@@ -519,4 +582,89 @@ fn teammate_aura_effect_pct(
     let scalar = (1.0 + inc / 100.0) * more;
     // Convert to a percent delta from 1.0 and round.
     ((scalar - 1.0) * 100.0).round() as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_member(name: &str, enabled: bool) -> PartyMember {
+        PartyMember {
+            name: name.to_owned(),
+            mod_lines: String::new(),
+            extracted_auras: Vec::new(),
+            weapon_classes: Vec::new(),
+            enabled,
+        }
+    }
+
+    // ─── count_active_party_members ──────────────────────────────────────
+
+    #[test]
+    fn count_active_party_members_returns_zero_zero_for_empty_roster() {
+        // The cold-open / empty-party case — callers use this to
+        // suppress the chip entirely.
+        assert_eq!(count_active_party_members(&[]), (0, 0));
+    }
+
+    #[test]
+    fn count_active_party_members_returns_active_and_total_separately() {
+        // Mixed roster: two active, one off. The chip renders
+        // "2 of 3 active" so the user spots the disabled member at a
+        // glance.
+        let members = vec![
+            mk_member("Tank", true),
+            mk_member("Curser", false),
+            mk_member("Aura Bot", true),
+        ];
+        assert_eq!(count_active_party_members(&members), (2, 3));
+    }
+
+    // ─── set_all_party_members_enabled ───────────────────────────────────
+
+    #[test]
+    fn set_all_enables_every_member_when_some_were_off() {
+        // "Enable all" path: any disabled member flips on, no-op for
+        // already-on members. Returns true because at least one flipped.
+        let mut members = vec![
+            mk_member("Tank", true),
+            mk_member("Curser", false),
+            mk_member("Aura Bot", false),
+        ];
+        let changed = set_all_party_members_enabled(&mut members, true);
+        assert!(changed);
+        assert!(members.iter().all(|m| m.enabled));
+    }
+
+    #[test]
+    fn set_all_disables_every_member_when_some_were_on() {
+        let mut members = vec![
+            mk_member("Tank", true),
+            mk_member("Curser", true),
+            mk_member("Aura Bot", true),
+        ];
+        let changed = set_all_party_members_enabled(&mut members, false);
+        assert!(changed);
+        assert!(members.iter().all(|m| !m.enabled));
+    }
+
+    #[test]
+    fn set_all_returns_false_when_already_in_target_state() {
+        // No-op when the roster is already uniformly set. Caller uses
+        // the return value to gate a recompute — clicking "Enable all"
+        // on an all-on roster shouldn't dirty the build.
+        let mut members = vec![mk_member("Tank", true), mk_member("Curser", true)];
+        let changed = set_all_party_members_enabled(&mut members, true);
+        assert!(!changed);
+    }
+
+    #[test]
+    fn set_all_on_empty_roster_is_a_no_op() {
+        // Defensive: matches the chip-suppression rule when the roster
+        // is empty — the helper handles the empty slice without
+        // surprises.
+        let mut members: Vec<PartyMember> = Vec::new();
+        assert!(!set_all_party_members_enabled(&mut members, true));
+        assert!(!set_all_party_members_enabled(&mut members, false));
+    }
 }
