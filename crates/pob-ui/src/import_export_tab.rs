@@ -298,6 +298,13 @@ pub fn ui(
                     state.paste.clear();
                     state.last_message = None;
                 }
+                // Live "detected: <kind>" chip next to the Import
+                // button. Lets the user see whether the import will
+                // route to the MK2 / XML / share-code decoder, or
+                // spawn a URL fetch, before clicking Import.
+                if let Some(kind) = detect_paste_format(&state.paste) {
+                    ui.weak(format!("Detected: {kind}"));
+                }
             });
             ui.weak(
                 "Auto-detects MK2 codes, raw PoB XML, PoB share codes (zlib+base64), \
@@ -400,6 +407,48 @@ fn handle_import_click(
             state.last_message = Some((false, format!("Import failed: {e}")));
         }
     }
+}
+
+/// Issue #194 follow-up: a guess at what the user just pasted, used
+/// to surface a small chip next to the textarea so they can see
+/// whether the input will land where they expect *before* clicking
+/// Import. Mirrors the format-tier order [`auto_import`] tries, plus
+/// the share-URL branch [`handle_import_click`] short-circuits to a
+/// network fetch on.
+///
+/// Returns `None` when the buffer is empty / whitespace-only — the
+/// caller suppresses the chip in that case so the cold-open path is
+/// unchanged.
+///
+/// Pure / no-egui so the detection rule is documented and
+/// unit-testable in isolation.
+#[must_use]
+pub fn detect_paste_format(input: &str) -> Option<&'static str> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // URL takes priority over the prefix branches — a pasted
+    // pobb.in URL goes through the share-fetch path, not the
+    // in-process MK2 / XML decoders.
+    if resolve_share_url(trimmed).is_some() {
+        return Some("Share URL");
+    }
+    if trimmed.starts_with("MK2|") {
+        return Some("MK2 code");
+    }
+    if trimmed.starts_with('<') {
+        return Some("PoB XML");
+    }
+    // Long opaque text is most likely a zlib+base64 PoB share code.
+    // The threshold of 30 is well below the smallest realistic share
+    // code (an empty character clocks in at ~150 chars) so the
+    // false-positive rate against random pastes is low; below it,
+    // assume the user is mid-typing and keep the chip quiet.
+    if trimmed.len() > 30 {
+        return Some("PoB share code (?)");
+    }
+    None
 }
 
 /// Try the formats in order of specificity.
@@ -858,5 +907,66 @@ mod tests {
         // separators or scientific notation.
         let ten_kb = "a".repeat(10 * 1024);
         assert_eq!(format_export_size_label(&ten_kb), "10.0 kB");
+    }
+
+    // ─── detect_paste_format ─────────────────────────────────────────────
+
+    #[test]
+    fn detect_paste_format_returns_none_for_empty_or_whitespace() {
+        // Cold-open path: chip is suppressed when the buffer is empty
+        // (or whitespace-only — trim semantics match the import path).
+        assert_eq!(detect_paste_format(""), None);
+        assert_eq!(detect_paste_format("   "), None);
+        assert_eq!(detect_paste_format("\n\t"), None);
+    }
+
+    #[test]
+    fn detect_paste_format_identifies_mk2_prefix() {
+        // The MK2 branch fires on the literal prefix — no length
+        // gate, because a short MK2 code is technically possible
+        // (an empty character ends up under ~200 chars but still
+        // valid).
+        assert_eq!(detect_paste_format("MK2|abc"), Some("MK2 code"));
+        // Leading whitespace doesn't break detection — the import
+        // path trims first, so the chip must too.
+        assert_eq!(detect_paste_format("  MK2|xyz"), Some("MK2 code"));
+    }
+
+    #[test]
+    fn detect_paste_format_identifies_xml_prefix() {
+        assert_eq!(
+            detect_paste_format("<PathOfBuilding><Build /></PathOfBuilding>"),
+            Some("PoB XML")
+        );
+    }
+
+    #[test]
+    fn detect_paste_format_identifies_share_urls_before_prefixes() {
+        // A URL takes priority — pobb.in URLs would otherwise fall
+        // through to the share-code branch because they're "long
+        // opaque text". The chip must mirror what the click handler
+        // actually does (spawn a fetch).
+        assert_eq!(
+            detect_paste_format("https://pobb.in/abc123"),
+            Some("Share URL")
+        );
+    }
+
+    #[test]
+    fn detect_paste_format_identifies_long_text_as_share_code() {
+        // Long opaque text with no recognised prefix is the share-code
+        // branch. The "?" suffix signals that the format is a guess —
+        // we can't validate the zlib+base64 contents without actually
+        // decoding.
+        let long = "abcdefghijklmnopqrstuvwxyz0123456789==";
+        assert_eq!(detect_paste_format(long), Some("PoB share code (?)"));
+    }
+
+    #[test]
+    fn detect_paste_format_keeps_quiet_for_short_random_text() {
+        // Below the share-code length threshold: probably mid-typing.
+        // Suppress the chip rather than spuriously labelling it as a
+        // share code.
+        assert_eq!(detect_paste_format("hello world"), None);
     }
 }
