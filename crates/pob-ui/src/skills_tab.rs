@@ -35,6 +35,33 @@ pub fn enable_all_socket_groups(character: &mut pob_engine::Character) -> bool {
     changed
 }
 
+/// Issue #214 follow-up: bulk-toggle every socket group's `enabled`
+/// flag off. Reverses [`enable_all_socket_groups`] — useful when the
+/// user wants to start A/B-ing from a "nothing on" baseline rather
+/// than soloing one group at a time. Returns `true` iff at least one
+/// group changed.
+pub fn disable_all_socket_groups(character: &mut pob_engine::Character) -> bool {
+    let mut changed = false;
+    for g in &mut character.skill_groups {
+        if g.enabled {
+            g.enabled = false;
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Issue #214 follow-up: how many of the saved socket groups are
+/// currently contributing their gems, vs. how many exist in total.
+/// Drives the header-row chip — same pattern as the Party tab's
+/// "N of M active" chip.
+#[must_use]
+pub fn count_active_socket_groups(character: &pob_engine::Character) -> (usize, usize) {
+    let total = character.skill_groups.len();
+    let active = character.skill_groups.iter().filter(|g| g.enabled).count();
+    (active, total)
+}
+
 /// Issue #214 follow-up: leave only the group at `idx` enabled,
 /// disabling every other group. Returns `true` when at least one
 /// group's flag changed. `idx` out of range is a no-op (returns
@@ -459,14 +486,29 @@ pub fn ui(
                     {
                         changed = true;
                     }
+                    let (active, total) = count_active_socket_groups(character);
+                    let any_off = active < total;
+                    let any_on = active > 0;
                     if ui
-                        .button("Enable all")
+                        .add_enabled(any_off, egui::Button::new("Enable all"))
                         .on_hover_text("Re-enable every group — undoes a `Solo` click.")
                         .clicked()
                         && enable_all_socket_groups(character)
                     {
                         changed = true;
                     }
+                    if ui
+                        .add_enabled(any_on, egui::Button::new("Disable all"))
+                        .on_hover_text(
+                            "Turn off every group's gem contribution. Lets a user \
+                             start from a nothing-on baseline when A/B-ing.",
+                        )
+                        .clicked()
+                        && disable_all_socket_groups(character)
+                    {
+                        changed = true;
+                    }
+                    ui.weak(format!("{active} of {total} on"));
                 });
             }
             ui.separator();
@@ -1291,6 +1333,53 @@ mod tests {
         let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
         c.skill_groups = vec![mk_enabled_group("A", true), mk_enabled_group("B", true)];
         assert!(!enable_all_socket_groups(&mut c));
+    }
+
+    #[test]
+    fn disable_all_socket_groups_flips_enabled_off() {
+        // Mirror of the enable_all test: every truthy flag drops to
+        // false; an already-off group is untouched.
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        c.skill_groups = vec![
+            mk_enabled_group("A", true),
+            mk_enabled_group("B", false),
+            mk_enabled_group("C", true),
+        ];
+        assert!(disable_all_socket_groups(&mut c));
+        for g in &c.skill_groups {
+            assert!(!g.enabled, "group {} should be disabled", g.label);
+        }
+    }
+
+    #[test]
+    fn disable_all_socket_groups_returns_false_when_already_all_off() {
+        // No-op signal so a Disable-all click on an already-off roster
+        // doesn't dirty the build.
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        c.skill_groups = vec![mk_enabled_group("A", false), mk_enabled_group("B", false)];
+        assert!(!disable_all_socket_groups(&mut c));
+    }
+
+    #[test]
+    fn count_active_socket_groups_returns_zero_zero_for_empty_roster() {
+        // The chip is suppressed when the roster is empty (the wrapping
+        // `if !character.skill_groups.is_empty()` guards the whole bar),
+        // but the helper itself must handle the case without surprises.
+        let c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        assert_eq!(count_active_socket_groups(&c), (0, 0));
+    }
+
+    #[test]
+    fn count_active_socket_groups_returns_active_and_total_separately() {
+        // Mixed roster: chip renders "1 of 3 on" so the user spots
+        // a soloed group at a glance.
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        c.skill_groups = vec![
+            mk_enabled_group("A", true),
+            mk_enabled_group("B", false),
+            mk_enabled_group("C", false),
+        ];
+        assert_eq!(count_active_socket_groups(&c), (1, 3));
     }
 
     fn mk_skill(name: &str, color: u8, flags: &[&str], stats: &[&str], support: bool) -> Skill {
