@@ -370,12 +370,16 @@ pub fn ui(
                 );
         }
         ui.separator();
-        // "X of Y stats" only when a filter is narrowing the list;
+        // "X of Y stats" only when a filter is narrowing the flat list;
         // cold-open / no-filter keeps the historical bare "X stats"
-        // form so the chip doesn't add noise to the common path.
+        // form so the chip doesn't add noise to the common path. PoB-
+        // layout mode filters CalcRows by section/subsection/label
+        // rather than by raw Output keys, so the helper's count would
+        // not match what the user sees — fall back to the bare total.
         let total = output.len();
-        let filtering = !state.filter.trim().is_empty() || state.hide_zero;
-        let stats_label = if filtering {
+        let flat_filtering =
+            !state.use_pob_layout && (!state.filter.trim().is_empty() || state.hide_zero);
+        let stats_label = if flat_filtering {
             let kept = count_filtered_output_entries(output, &state.filter, state.hide_zero);
             format!("{kept} of {total} stats")
         } else {
