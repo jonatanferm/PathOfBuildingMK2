@@ -76,7 +76,7 @@ impl AllocationFilter {
 /// Normals are too numerous to browse, the start / synthetic kinds aren't
 /// individually addressable, and tattoos are placed via right-click on
 /// allocated nodes rather than by lookup.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NodeKindFilter {
     Notable,
     Keystone,
@@ -508,6 +508,39 @@ mod tests {
         assert_eq!(catalogue_size(&tree, None), 5);
         assert_eq!(catalogue_size(&tree, Some(NodeKindFilter::Notable)), 2);
         assert_eq!(catalogue_size(&tree, Some(NodeKindFilter::Keystone)), 1);
+    }
+
+    // ─── NodeKindFilter::all consistency ─────────────────────────────────
+
+    /// Pinned next to the consistency test below. Bump only after
+    /// extending [`NodeKindFilter::all`].
+    const NODE_KIND_FILTER_VARIANT_COUNT: usize = 4;
+
+    #[test]
+    fn node_kind_filter_all_covers_every_enum_variant() {
+        // Mirrors `pob_data::Slot::all` defence in depth — exhaustive
+        // match catches a new variant at compile time, the constant
+        // catches the matching `NodeKindFilter::all` update.
+        fn _exhaustive_check(k: NodeKindFilter) {
+            match k {
+                NodeKindFilter::Notable
+                | NodeKindFilter::Keystone
+                | NodeKindFilter::Mastery
+                | NodeKindFilter::JewelSocket => {}
+            }
+        }
+        assert_eq!(NodeKindFilter::all().len(), NODE_KIND_FILTER_VARIANT_COUNT);
+        let mut seen: std::collections::HashSet<NodeKindFilter> = std::collections::HashSet::new();
+        for kind in NodeKindFilter::all() {
+            assert!(seen.insert(*kind), "{kind:?} listed twice");
+        }
+    }
+
+    #[test]
+    fn node_kind_filter_label_is_defined_for_every_variant() {
+        for kind in NodeKindFilter::all() {
+            assert!(!kind.label().is_empty(), "{kind:?} has an empty label");
+        }
     }
 
     // ─── AllocationFilter / apply_alloc_filter ───────────────────────────

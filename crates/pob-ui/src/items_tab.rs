@@ -307,7 +307,7 @@ pub enum BrowseColumn {
 /// Coarse slot bucket the browse panel groups bases under. Aggregates the
 /// in-game `type` field — e.g. `One Handed Axe`, `Sceptre`, `Wand` all map to
 /// `Weapon` so a single "Show me weapons" filter is intuitive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BrowseSlot {
     Helmet,
     BodyArmour,
@@ -2968,6 +2968,48 @@ mod tests {
         // doesn't dirty downstream state.
         let mut f = BrowseFilter::default();
         assert!(!f.reset());
+    }
+
+    // ─── BrowseSlot::all consistency ─────────────────────────────────────
+
+    /// Pinned next to the consistency test below. Bump only after
+    /// extending [`BrowseSlot::all`].
+    const BROWSE_SLOT_VARIANT_COUNT: usize = 13;
+
+    #[test]
+    fn browse_slot_all_covers_every_enum_variant() {
+        // Mirrors `pob_data::Slot::all` defence in depth — exhaustive
+        // match catches a new variant at compile time, the constant
+        // catches the matching `BrowseSlot::all` update.
+        fn _exhaustive_check(s: BrowseSlot) {
+            match s {
+                BrowseSlot::Helmet
+                | BrowseSlot::BodyArmour
+                | BrowseSlot::Gloves
+                | BrowseSlot::Boots
+                | BrowseSlot::Weapon
+                | BrowseSlot::Shield
+                | BrowseSlot::Ring
+                | BrowseSlot::Amulet
+                | BrowseSlot::Belt
+                | BrowseSlot::Quiver
+                | BrowseSlot::Flask
+                | BrowseSlot::Jewel
+                | BrowseSlot::Other => {}
+            }
+        }
+        assert_eq!(BrowseSlot::all().len(), BROWSE_SLOT_VARIANT_COUNT);
+        let mut seen: std::collections::HashSet<BrowseSlot> = std::collections::HashSet::new();
+        for slot in BrowseSlot::all() {
+            assert!(seen.insert(*slot), "{slot:?} listed twice");
+        }
+    }
+
+    #[test]
+    fn browse_slot_label_is_defined_for_every_variant() {
+        for slot in BrowseSlot::all() {
+            assert!(!slot.label().is_empty(), "{slot:?} has an empty label");
+        }
     }
 
     #[test]
