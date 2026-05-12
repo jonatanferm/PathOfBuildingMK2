@@ -182,7 +182,7 @@ pub fn filter_ascendancy_from_ranked(
         .filter(|s| {
             tree.nodes
                 .get(&s.node_id)
-                .map_or(true, |n| n.ascendancy_name.is_none())
+                .is_none_or(|n| n.ascendancy_name.is_none())
         })
         .copied()
         .collect()

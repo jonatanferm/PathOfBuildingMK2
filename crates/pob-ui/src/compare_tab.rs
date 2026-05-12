@@ -215,7 +215,7 @@ pub fn ui(
             if enter {
                 commit_label = Some(sanitise_snapshot_label(buf));
             }
-            if enter || esc || (resp.lost_focus() && !enter) {
+            if enter || esc || resp.lost_focus() {
                 state.pending_relabel = None;
             }
         } else {
@@ -763,6 +763,7 @@ pub fn format_compare_export(rows: &[(String, f64, f64)], format: CompareExportF
 /// the snapshot value is zero (CSV doesn't have a "null" literal).
 #[must_use]
 pub fn format_compare_csv(rows: &[(String, f64, f64)]) -> String {
+    use std::fmt::Write as _;
     let mut out = String::new();
     out.push_str("Stat,Snapshot,Live,Delta,PercentDelta\n");
     for (key, snap, live) in rows {
@@ -771,15 +772,16 @@ pub fn format_compare_csv(rows: &[(String, f64, f64)]) -> String {
             Some(p) => format_percent(p),
             None => String::new(),
         };
-        out.push_str(&format!(
-            "\"{}\",{},{},{},{}\n",
+        let _ = writeln!(
+            out,
             // Escape embedded `"` per RFC 4180 doubling rule.
+            "\"{}\",{},{},{},{}",
             key.replace('"', "\"\""),
             format_value(*snap).trim(),
             format_value(*live).trim(),
             format_delta(delta).trim(),
             pct,
-        ));
+        );
     }
     out
 }
@@ -855,6 +857,7 @@ fn json_num(v: f64) -> String {
 /// clipboard.
 #[must_use]
 pub fn format_compare_markdown(rows: &[(String, f64, f64)]) -> String {
+    use std::fmt::Write as _;
     let mut out = String::new();
     out.push_str("| Stat | Snapshot | Live | Δ | %Δ |\n");
     out.push_str("|---|---:|---:|---:|---:|\n");
@@ -864,14 +867,15 @@ pub fn format_compare_markdown(rows: &[(String, f64, f64)]) -> String {
             Some(p) => format_percent(p),
             None => "—".to_owned(),
         };
-        out.push_str(&format!(
-            "| {} | {} | {} | {} | {} |\n",
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} |",
             key,
             format_value(*snap),
             format_value(*live),
             format_delta(delta),
             pct,
-        ));
+        );
     }
     out
 }
