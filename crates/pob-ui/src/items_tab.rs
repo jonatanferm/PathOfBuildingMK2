@@ -265,6 +265,35 @@ pub struct BrowseFilter {
     pub rarity: Option<Rarity>,
 }
 
+impl BrowseFilter {
+    /// Issue #209 follow-up: is this filter the cold-open default —
+    /// no search text, no slot pill, no rarity pill, no per-column
+    /// inputs? Drives the enable-state of the "Reset" button so
+    /// nothing happens on a fresh open click.
+    ///
+    /// Pure / no-egui so the rule is unit-testable in isolation.
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        self.slot.is_none()
+            && self.search.trim().is_empty()
+            && self.name_filter.trim().is_empty()
+            && self.class_filter.trim().is_empty()
+            && self.rarity.is_none()
+    }
+
+    /// Issue #209 follow-up: clear every facet — search, slot, rarity,
+    /// per-column inputs — back to the cold-open default. Returns
+    /// `true` iff at least one facet was non-default, so the caller
+    /// can skip a render-tier mutation when nothing was active.
+    pub fn reset(&mut self) -> bool {
+        if self.is_default() {
+            return false;
+        }
+        *self = Self::default();
+        true
+    }
+}
+
 /// Columns the browse panel exposes for sorting (and filtering, per
 /// Issue #211). The full list of upstream PoB columns (DPS contribution,
 /// level, etc.) is wider; we ship the name + class pair the panel
@@ -2463,6 +2492,21 @@ fn render_filter_row(ui: &mut egui::Ui, filter: &mut BrowseFilter) {
         if ui.button("×").on_hover_text("Clear search").clicked() {
             filter.search.clear();
         }
+        // Issue #209 follow-up: blanket reset for the whole filter row
+        // (search + slot + rarity + per-column inputs). Mirrors the
+        // Calcs / Compare reset buttons and only enables when at least
+        // one facet is non-default so a cold-open click is inert.
+        let dirty = !filter.is_default();
+        if ui
+            .add_enabled(dirty, egui::Button::new("Reset"))
+            .on_hover_text(
+                "Clear every facet — search text, slot pill, rarity pill, and \
+                 the per-column inputs — back to the cold-open default.",
+            )
+            .clicked()
+        {
+            filter.reset();
+        }
     });
 
     ui.horizontal_wrapped(|ui| {
@@ -2844,6 +2888,74 @@ mod tests {
             armour: None,
             flask: None,
         }
+    }
+
+    // ─── BrowseFilter::is_default / reset ────────────────────────────────
+
+    #[test]
+    fn browse_filter_default_is_recognised_as_default() {
+        // Sanity: a fresh filter should report `is_default == true` so
+        // the Reset button stays disabled on a cold-open.
+        let filter = BrowseFilter::default();
+        assert!(filter.is_default());
+    }
+
+    #[test]
+    fn browse_filter_any_non_default_facet_disqualifies() {
+        // Each facet should flip is_default independently — guards
+        // against an accidental short-circuit in a future refactor.
+        let mut f = BrowseFilter::default();
+        f.search = "x".into();
+        assert!(!f.is_default());
+
+        let mut f = BrowseFilter::default();
+        f.slot = Some(BrowseSlot::Helmet);
+        assert!(!f.is_default());
+
+        let mut f = BrowseFilter::default();
+        f.rarity = Some(Rarity::Unique);
+        assert!(!f.is_default());
+
+        let mut f = BrowseFilter::default();
+        f.name_filter = "x".into();
+        assert!(!f.is_default());
+
+        let mut f = BrowseFilter::default();
+        f.class_filter = "x".into();
+        assert!(!f.is_default());
+    }
+
+    #[test]
+    fn browse_filter_whitespace_text_still_counts_as_default() {
+        // Trim semantics match the search bar's clear-button rule —
+        // a buffer of only whitespace shouldn't make the Reset button
+        // light up.
+        let mut f = BrowseFilter::default();
+        f.search = "   ".into();
+        f.name_filter = "\t".into();
+        assert!(f.is_default());
+    }
+
+    #[test]
+    fn browse_filter_reset_clears_every_facet() {
+        let mut f = BrowseFilter {
+            slot: Some(BrowseSlot::Weapon),
+            search: "sword".into(),
+            name_filter: "Rusted".into(),
+            class_filter: "One Handed".into(),
+            rarity: Some(Rarity::Unique),
+        };
+        let changed = f.reset();
+        assert!(changed);
+        assert!(f.is_default());
+    }
+
+    #[test]
+    fn browse_filter_reset_returns_false_when_already_default() {
+        // No-op signal so a Reset click on a cold-open filter row
+        // doesn't dirty downstream state.
+        let mut f = BrowseFilter::default();
+        assert!(!f.reset());
     }
 
     #[test]
