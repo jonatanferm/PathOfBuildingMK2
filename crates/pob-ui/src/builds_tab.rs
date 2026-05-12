@@ -574,8 +574,12 @@ fn count_builds(node: &FolderNode) -> usize {
 /// - <60m → "<N> min ago" (singular "1 min ago")
 /// - <24h → "<N> hours ago" (singular "1 hour ago")
 /// - <30d → "<N> days ago" (singular "1 day ago")
-/// - otherwise → "<N> months ago" (singular "1 month ago"), capped at
-///   `12 months ago` for anything older.
+/// - <365d → "<N> months ago" (singular "1 month ago")
+/// - otherwise → "<N> years ago" (singular "1 year ago")
+///
+/// Year resolution uses a 365-day denominator (no leap-day handling) —
+/// the readout is approximate by nature and "3 years ago" reads
+/// equivalently to "3 years and a couple of days ago".
 #[must_use]
 /// Issue #213 follow-up: humanise the filter match count for the
 /// chip rendered next to the build-name filter input. Reports the
@@ -639,11 +643,19 @@ pub fn format_relative_time(now: std::time::SystemTime, then: std::time::SystemT
             format!("{days} days ago")
         };
     }
-    let months = (days / 30).min(12);
-    if months == 1 {
-        "1 month ago".to_owned()
+    if days < 365 {
+        let months = days / 30;
+        return if months == 1 {
+            "1 month ago".to_owned()
+        } else {
+            format!("{months} months ago")
+        };
+    }
+    let years = days / 365;
+    if years == 1 {
+        "1 year ago".to_owned()
     } else {
-        format!("{months} months ago")
+        format!("{years} years ago")
     }
 }
 
@@ -1389,14 +1401,36 @@ mod tests {
     }
 
     #[test]
-    fn format_relative_time_months_and_cap_at_twelve() {
+    fn format_relative_time_months_band_singular_and_plural() {
+        // Sub-year bucket: the months count is the days-per-30 readout.
         let now =
             std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400 * 365 * 5);
         let two_months = now - std::time::Duration::from_secs(86_400 * 60);
         assert_eq!(format_relative_time(now, two_months), "2 months ago");
-        // Anything older than 12 months caps to avoid runaway numbers.
+        let one_month = now - std::time::Duration::from_secs(86_400 * 31);
+        assert_eq!(format_relative_time(now, one_month), "1 month ago");
+    }
+
+    #[test]
+    fn format_relative_time_year_band_singular_and_plural() {
+        // ≥365 days flips into the years bucket — "3 years ago" rather
+        // than the old "12 months ago" cap.
+        let now =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400 * 365 * 10);
+        let one_year = now - std::time::Duration::from_secs(86_400 * 365);
+        assert_eq!(format_relative_time(now, one_year), "1 year ago");
         let three_years = now - std::time::Duration::from_secs(86_400 * 365 * 3);
-        assert_eq!(format_relative_time(now, three_years), "12 months ago");
+        assert_eq!(format_relative_time(now, three_years), "3 years ago");
+    }
+
+    #[test]
+    fn format_relative_time_at_eleven_months_stays_in_months_band() {
+        // Boundary check around the 365-day flip — 330 days reads as
+        // "11 months ago", not "0 years ago".
+        let now =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400 * 365 * 5);
+        let eleven_months = now - std::time::Duration::from_secs(86_400 * 330);
+        assert_eq!(format_relative_time(now, eleven_months), "11 months ago");
     }
 
     #[test]
