@@ -2352,6 +2352,11 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             }
         }
         Tab::Party => {
+            // Issue #204 (slice 2): same pattern as Items / Skills — capture
+            // pre-mutation Character, commit only on `changed = true` so
+            // per-row enable/disable, add/delete, and bulk Enable/Disable-all
+            // (PR #457) all route through Cmd+Z.
+            let pending = PendingSnapshot::capture(&app.build_snapshot());
             if party_tab::ui(
                 ui,
                 &mut app.party_state,
@@ -2360,6 +2365,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 &app.tree,
                 app.bases.as_ref(),
             ) {
+                pending.commit(&mut app.undo_stack);
                 recompute = true;
             }
         }
