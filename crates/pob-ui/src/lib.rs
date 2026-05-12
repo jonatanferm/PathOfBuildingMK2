@@ -3264,19 +3264,13 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
                     .add_filter("PoB XML", &["xml"])
                     .pick_file()
                 {
-                    let load = std::fs::read_to_string(&path).map_err(|e| e.to_string());
-                    let parse_result: Result<Character, String> = load.and_then(|s| {
-                        let trimmed = s.trim();
-                        // Auto-detect: MK2 codes start with "MK2|", XML starts with "<".
-                        if trimmed.starts_with("MK2|") {
-                            pob_engine::import_code(trimmed).map_err(|e| e.to_string())
-                        } else if trimmed.starts_with('<') {
-                            pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string())
-                        } else {
-                            // Maybe a PoB share-code (zlib+base64) saved to file.
-                            pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
-                        }
-                    });
+                    // Auto-detect on the loaded text via the shared
+                    // helper compare_tab already uses — keeps the
+                    // MK2 / PoB-XML / share-code dispatch rule in one
+                    // place. PR #475 follow-up.
+                    let parse_result: Result<Character, String> = std::fs::read_to_string(&path)
+                        .map_err(|e| e.to_string())
+                        .and_then(|s| compare_tab::import_build_text(&s));
                     match parse_result {
                         Ok(c) => {
                             app.character = c;
