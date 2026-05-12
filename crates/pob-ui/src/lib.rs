@@ -1647,10 +1647,25 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             });
             let asc_alloc = app.character.ascendancy_alloc_count(&app.tree);
             let total_alloc = app.character.allocated.len() as u32;
+            let passive_alloc = total_alloc - asc_alloc;
+            // Issue #220 follow-up: show the level-derived passive cap
+            // so users see how many more points they can still spend.
+            // Over-allocation (imported builds higher-level than the
+            // current character) goes red to flag the mismatch.
+            let passive_cap = max_passive_points(app.character.level);
+            let passive_label = format!("Allocated: {passive_alloc} / {passive_cap} (passive)");
+            if passive_alloc > passive_cap {
+                ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), passive_label)
+                    .on_hover_text(
+                        "Allocated more passives than the character's level + quest \
+                     rewards permits. Either raise the character level or trim the \
+                     allocated set.",
+                    );
+            } else {
+                ui.label(passive_label);
+            }
             ui.label(format!(
-                "Allocated: {} (passive) / {} / {} (ascendancy)",
-                total_alloc - asc_alloc,
-                asc_alloc,
+                "{asc_alloc} / {} (ascendancy)",
                 app.tree.points.ascendancy_points,
             ));
             let item_count = app.character.items.iter().count();
@@ -2663,6 +2678,25 @@ pub fn compute_window_title(build_path: Option<&std::path::Path>, dirty: bool) -
     } else {
         format!("{BASE} — {stem}")
     }
+}
+
+/// Issue #220 follow-up: assumed quest-reward passive points for the
+/// standard PoE 1 progression. 22 covers every act + library + final
+/// rewards; users running an unusual progression (early kraken, no
+/// bandits, etc.) will be off by a few — fine for an at-a-glance
+/// indicator.
+pub const QUEST_REWARD_PASSIVE_POINTS: u32 = 22;
+
+/// Issue #220 follow-up: compute the maximum passive points available
+/// at the given `level`. Mirrors PoE's "one passive per level after
+/// L1 plus a fixed quest-reward bucket".
+///
+/// Pure / saturating — a synthetic L0 character produces 0+22 = 22
+/// rather than panicking on the underflow, so a fresh build with no
+/// level set yet still has a sane cap.
+#[must_use]
+pub fn max_passive_points(level: u32) -> u32 {
+    level.saturating_sub(1) + QUEST_REWARD_PASSIVE_POINTS
 }
 
 /// Issue #100 follow-up: short relative-time formatter for the menu
@@ -4366,6 +4400,43 @@ mod version_swap_tests {
         let (surviving, dropped) = compute_version_swap_diff(&allocated, &target);
         assert_eq!(surviving, vec![10, 20]);
         assert_eq!(dropped, vec![5, 42, 99]);
+    }
+}
+
+#[cfg(test)]
+mod max_passive_points_tests {
+    use super::{max_passive_points, QUEST_REWARD_PASSIVE_POINTS};
+
+    #[test]
+    fn level_one_yields_just_quest_rewards() {
+        // A fresh L1 character has spent zero level-up points; the
+        // cap is the quest-reward bucket alone.
+        assert_eq!(max_passive_points(1), QUEST_REWARD_PASSIVE_POINTS);
+    }
+
+    #[test]
+    fn level_99_yields_max_passive_budget() {
+        // PoE-1 standard cap: 98 levels-from-2 + 22 quest = 120.
+        assert_eq!(max_passive_points(99), 98 + QUEST_REWARD_PASSIVE_POINTS);
+    }
+
+    #[test]
+    fn level_zero_saturates_to_quest_bucket_only() {
+        // A synthetic L0 character shouldn't panic on the
+        // `level - 1` subtraction; saturating_sub catches it.
+        assert_eq!(max_passive_points(0), QUEST_REWARD_PASSIVE_POINTS);
+    }
+
+    #[test]
+    fn cap_climbs_linearly_with_level() {
+        // Each level-up adds exactly one passive point — no quest
+        // bumps in the middle of the progression are baked into the
+        // helper (PoE drops them at specific levels but the helper
+        // doesn't try to model that).
+        for level in 2..=20 {
+            let expected = (level - 1) + QUEST_REWARD_PASSIVE_POINTS;
+            assert_eq!(max_passive_points(level), expected, "level {level}");
+        }
     }
 }
 
