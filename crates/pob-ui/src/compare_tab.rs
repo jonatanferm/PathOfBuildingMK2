@@ -107,6 +107,19 @@ pub enum CompareAction {
     SaveSnapshotToFile,
 }
 
+/// Issue #223 follow-up: reset the user's in-flight Compare-view state.
+/// Clears the filter input and the sort selection. Preserves the
+/// preferences the user opts into (`hide_zero_delta`, `export_format`),
+/// the snapshot itself, and any in-flight `pending_relabel` so a
+/// mid-rename isn't clobbered by the reset.
+///
+/// Mirrors the [`crate::calcs_tab::reset_calcs_view`] split between
+/// "transient view state" (cleared) and "sticky preferences" (kept).
+pub fn reset_compare_view(state: &mut CompareTabState) {
+    state.filter.clear();
+    state.sort_mode = CompareSortMode::default();
+}
+
 pub fn ui(
     ui: &mut egui::Ui,
     state: &mut CompareTabState,
@@ -289,6 +302,10 @@ pub fn ui(
                 }
             });
     }
+    // Issue #223 follow-up: deferred-reset flag so the "Reset view"
+    // button can sit inside the filter/sort row without contending with
+    // the immutable `snap` borrow that the diff table still needs.
+    let mut reset_view_after = false;
     ui.horizontal(|ui| {
         ui.label("Filter:");
         ui.add(
@@ -313,6 +330,23 @@ pub fn ui(
                  Rows where the snapshot was zero have no percent and sort \
                  to the bottom.",
             );
+        ui.separator();
+        // One-click reset for the in-flight view state (filter input +
+        // sort mode). Sticky preferences like "Hide zero deltas" and
+        // the export format stay, mirroring the Calcs-tab reset rule.
+        let has_view_state =
+            !state.filter.trim().is_empty() || state.sort_mode != CompareSortMode::default();
+        if ui
+            .add_enabled(has_view_state, egui::Button::new("Reset view"))
+            .on_hover_text(
+                "Clear the filter and reset the sort selector back to alphabetical. \
+                 Preserves the snapshot, the \"Hide zero deltas\" toggle, and the \
+                 export format.",
+            )
+            .clicked()
+        {
+            reset_view_after = true;
+        }
     });
     ui.separator();
 
@@ -388,6 +422,11 @@ pub fn ui(
                     }
                 });
         });
+    // Deferred view-reset: the diff table's `snap` borrow lifetime ends
+    // here, so it's safe to take the mutable state path now.
+    if reset_view_after {
+        reset_compare_view(state);
+    }
     action
 }
 
@@ -1402,5 +1441,62 @@ mod tests {
         let order: Vec<&str> = rows.iter().map(|(k, _, _)| k.as_str()).collect();
         // Mana is unchanged; only Life survives.
         assert_eq!(order, vec!["Life"]);
+    }
+
+    // ─── reset_compare_view ──────────────────────────────────────────────
+
+    #[test]
+    fn reset_compare_view_clears_filter_and_sort() {
+        // Transient view state — filter input + non-default sort — must
+        // both drop back to the cold-open defaults so the button delivers
+        // on its label.
+        let mut state = CompareTabState {
+            filter: "Life".to_owned(),
+            sort_mode: CompareSortMode::AbsDelta,
+            ..Default::default()
+        };
+        reset_compare_view(&mut state);
+        assert!(state.filter.is_empty(), "filter should be cleared");
+        assert_eq!(state.sort_mode, CompareSortMode::default());
+    }
+
+    #[test]
+    fn reset_compare_view_preserves_sticky_preferences() {
+        // `hide_zero_delta` and `export_format` are user preferences,
+        // not transient view state — they survive the reset so a power
+        // user who configured their preferred view doesn't have to
+        // re-toggle them after clearing a filter.
+        let mut state = CompareTabState {
+            filter: "x".to_owned(),
+            hide_zero_delta: true,
+            export_format: CompareExportFormat::Csv,
+            ..Default::default()
+        };
+        reset_compare_view(&mut state);
+        assert!(
+            state.hide_zero_delta,
+            "hide_zero_delta is a sticky preference"
+        );
+        assert_eq!(state.export_format, CompareExportFormat::Csv);
+    }
+
+    #[test]
+    fn reset_compare_view_preserves_pending_relabel() {
+        // The in-flight rename buffer is held outside the view-state
+        // bucket — a mid-rename should survive the reset so the user
+        // doesn't lose typed text. The snapshot itself sits behind a
+        // host-supplied path and isn't carried through this state
+        // mutation either way.
+        let mut state = CompareTabState {
+            filter: "x".to_owned(),
+            pending_relabel: Some("WIP".to_owned()),
+            ..Default::default()
+        };
+        reset_compare_view(&mut state);
+        assert_eq!(
+            state.pending_relabel.as_deref(),
+            Some("WIP"),
+            "rename buffer must survive a view reset"
+        );
     }
 }
