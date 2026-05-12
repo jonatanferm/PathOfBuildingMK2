@@ -4,8 +4,7 @@
 
 use eframe::egui;
 use pob_engine::{
-    export_code, export_pob_code, export_pob_xml, import_code, import_pob_code, import_pob_xml,
-    resolve_share_url, Character, GggCharacterSummary,
+    export_code, export_pob_code, export_pob_xml, resolve_share_url, Character, GggCharacterSummary,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -451,23 +450,23 @@ pub fn detect_paste_format(input: &str) -> Option<&'static str> {
     None
 }
 
-/// Try the formats in order of specificity.
+/// Try the formats in order of specificity. Delegates the actual
+/// decoding to [`crate::compare_tab::import_build_text`] (which owns
+/// the canonical prefix-sniff rule) and attaches a format-label tag
+/// for the post-import status message. A successful decode confirms
+/// the format, so the label drops the speculative `(?)` suffix that
+/// [`detect_paste_format`] uses for un-validated input.
 fn auto_import(input: &str) -> Result<(Character, &'static str), String> {
+    let character = crate::compare_tab::import_build_text(input)?;
     let trimmed = input.trim();
-    if trimmed.starts_with("MK2|") {
-        return import_code(trimmed)
-            .map(|c| (c, "MK2 code"))
-            .map_err(|e| e.to_string());
-    }
-    if trimmed.starts_with('<') {
-        return import_pob_xml(trimmed)
-            .map(|c| (c, "PoB XML"))
-            .map_err(|e| e.to_string());
-    }
-    // Fall through to PoB share code (zlib+base64).
-    import_pob_code(trimmed)
-        .map(|c| (c, "PoB share code"))
-        .map_err(|e| e.to_string())
+    let kind = if trimmed.starts_with("MK2|") {
+        "MK2 code"
+    } else if trimmed.starts_with('<') {
+        "PoB XML"
+    } else {
+        "PoB share code"
+    };
+    Ok((character, kind))
 }
 
 fn ggg_section(ui: &mut egui::Ui, state: &mut GggImportState, _character: &mut Character) -> bool {
