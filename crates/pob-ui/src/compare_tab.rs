@@ -449,6 +449,9 @@ pub fn label_for(c: &Character) -> String {
 /// bar without translating per-import-kind error types.
 pub fn import_build_text(text: &str) -> Result<Character, String> {
     let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("Nothing to import — paste an MK2 / PoB XML / PoB share code.".to_owned());
+    }
     if trimmed.starts_with("MK2|") {
         pob_engine::import_code(trimmed).map_err(|e| e.to_string())
     } else if trimmed.starts_with('<') {
@@ -1425,7 +1428,25 @@ mod tests {
         // adapter; confirm garbage input produces an `Err` rather
         // than panicking.
         assert!(import_build_text("not a build").is_err());
-        assert!(import_build_text("").is_err());
+    }
+
+    #[test]
+    fn import_build_text_empty_input_surfaces_friendly_message() {
+        // The pre-dispatch empty-input guard turns "you pasted
+        // nothing" from an opaque zlib/base64 decode error into a
+        // sentence the user can act on. The exact wording is part of
+        // the contract — the status banner copy-pastes it verbatim
+        // (no per-call-site reformatting).
+        let err = import_build_text("").expect_err("empty input is an error");
+        assert!(
+            err.contains("Nothing to import"),
+            "friendly empty-input message expected, got {err:?}"
+        );
+        let err = import_build_text("   \n\t  ").expect_err("whitespace-only input is an error");
+        assert!(
+            err.contains("Nothing to import"),
+            "trim semantics should send whitespace-only through the same path: {err:?}"
+        );
     }
 
     #[test]
