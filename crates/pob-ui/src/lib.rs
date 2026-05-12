@@ -3611,6 +3611,10 @@ fn load_compare_from_path(app: &mut LoadedApp, path: std::path::PathBuf) {
                 label: format!("{label} (from {display_path})"),
                 source_path: Some(path),
             });
+            // The rename buffer (if any) was seeded from the previous
+            // snapshot's label — drop it so the new snapshot doesn't
+            // open the rename UI with stale text.
+            app.compare_state.pending_relabel = None;
             app.status_message = Some((
                 StatusKind::Info,
                 format!("Compare snapshot loaded from {display_path}"),

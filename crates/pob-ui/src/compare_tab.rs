@@ -138,6 +138,10 @@ pub fn ui(
                 label: format_snapshot_label(live_character),
                 source_path: None,
             });
+            // The rename buffer (if any) was seeded from the previous
+            // snapshot's label — drop it so the new snapshot doesn't
+            // open the rename UI with stale text.
+            state.pending_relabel = None;
         }
         if ui.button("Load comparison from file…").clicked() {
             action = Some(CompareAction::LoadFromFile);
@@ -182,6 +186,7 @@ pub fn ui(
         }
         if state.snapshot.is_some() && ui.button("Clear snapshot").clicked() {
             state.snapshot = None;
+            state.pending_relabel = None;
         }
     });
 
