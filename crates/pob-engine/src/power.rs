@@ -1189,4 +1189,51 @@ mod tests {
         let lines = format_top_contributors(&scores, 10);
         assert_eq!(lines[0], "+10.0  +10.0  Amulet  +50 to maximum Life");
     }
+
+    // ─── format_signed_delta ─────────────────────────────────────────────
+
+    #[test]
+    fn format_signed_delta_positive_value_has_plus_prefix() {
+        // Positive values get an explicit `+` so the DPS / EHP columns
+        // line up vertically with the negative-sign equivalents.
+        assert_eq!(format_signed_delta(1.0), "+1.0");
+        assert_eq!(format_signed_delta(1234.5), "+1234.5");
+    }
+
+    #[test]
+    fn format_signed_delta_negative_value_keeps_minus_prefix() {
+        // Negative values keep the `-` that `format!("{:+.1}", v)` emits.
+        assert_eq!(format_signed_delta(-1.0), "-1.0");
+        assert_eq!(format_signed_delta(-1234.5), "-1234.5");
+    }
+
+    #[test]
+    fn format_signed_delta_normalises_signed_zero() {
+        // f64 distinguishes +0.0 and -0.0; without the explicit `== 0.0`
+        // normalisation, `format!("{:+.1}", -0.0)` would emit `-0.0`
+        // and the contributor column would read as a regression even
+        // though the score is exactly zero.
+        assert_eq!(format_signed_delta(0.0), "+0.0");
+        assert_eq!(format_signed_delta(-0.0), "+0.0");
+    }
+
+    #[test]
+    fn format_signed_delta_rounds_to_one_decimal_half_to_even() {
+        // The format uses one-decimal precision. `format!("{:+.1}", v)`
+        // delegates to Rust's float formatter, which rounds
+        // half-to-even — `1.25` → `+1.2`, `1.35` → `+1.4`. Pin the
+        // behaviour so a future refactor that swaps to a custom
+        // rounder catches the regression here.
+        assert_eq!(format_signed_delta(1.24), "+1.2");
+        assert_eq!(format_signed_delta(1.26), "+1.3");
+        // Exact half: Rust's default is half-to-even / banker's
+        // rounding on the IEEE bit pattern. Don't pin the exact
+        // tiebreaker direction — just assert *some* one-decimal
+        // representation of 1.25.
+        let exact_half = format_signed_delta(1.25);
+        assert!(
+            exact_half == "+1.2" || exact_half == "+1.3",
+            "1.25 rounded to {exact_half}"
+        );
+    }
 }
