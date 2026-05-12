@@ -107,6 +107,19 @@ pub struct CalcsTabState {
 /// span of "what was I just looking at?".
 pub const RECENTLY_FOCUSED_MAX: usize = 5;
 
+/// Issue #34 follow-up: reset the user's in-flight Calcs-view state.
+/// Clears the filter input, the breakdown focus, the recently-focused
+/// chip row, and the flat-view sort. Preserves the two preferences
+/// the user explicitly opts into (`hide_zero`, `use_pob_layout`) —
+/// those stay sticky across resets so a power user who configured
+/// their preferred layout doesn't lose it.
+pub fn reset_calcs_view(state: &mut CalcsTabState) {
+    state.filter.clear();
+    state.focused_stat = None;
+    state.recently_focused.clear();
+    state.flat_sort = CalcsFlatSort::default();
+}
+
 /// Issue #207 follow-up: push `stat` to the front of `deque` LRU-style
 /// — if it's already in there, the existing entry moves to the front
 /// instead of duplicating. The deque is truncated to `max_len` after
@@ -343,6 +356,21 @@ pub fn ui(
             if ui.button("Close breakdown").clicked() {
                 state.focused_stat = None;
             }
+        }
+        // Issue #34 follow-up: one-click view reset. Clears the
+        // filter, the breakdown focus, the recents chip row, and
+        // the flat-view sort — but keeps the user's `Hide zero values`
+        // and `PoB layout` preferences sticky.
+        if ui
+            .small_button("Reset view")
+            .on_hover_text(
+                "Clear the filter, close the breakdown, drop the recents chip row, \
+                 and reset the flat-view sort. Keeps `Hide zero` and `PoB layout` \
+                 preferences sticky.",
+            )
+            .clicked()
+        {
+            reset_calcs_view(state);
         }
         // Issue #34 follow-up: clipboard export of the full output
         // dictionary. Useful for capturing the build's final numbers
@@ -1273,10 +1301,50 @@ fn kind_label(k: ModType) -> &'static str {
 mod tests {
     use super::{
         calc_row_tooltip_lines, format_output_as_text, mod_tooltip_lines, push_recent_stat,
-        sort_flat_entries, CalcsFlatSort, GROUPS, RECENTLY_FOCUSED_MAX,
+        reset_calcs_view, sort_flat_entries, CalcsFlatSort, CalcsTabState, GROUPS,
+        RECENTLY_FOCUSED_MAX,
     };
     use pob_engine::{Mod, Output};
     use std::collections::VecDeque;
+
+    #[test]
+    fn reset_calcs_view_clears_inflight_ui_state() {
+        // Build a CalcsTabState with every field exercised, then
+        // confirm `reset_calcs_view` zeroes the in-flight pieces.
+        let mut state = CalcsTabState::default();
+        state.filter = "FireResist".to_owned();
+        state.hide_zero = true;
+        state.focused_stat = Some("Life".to_owned());
+        state.use_pob_layout = true;
+        state.flat_sort = CalcsFlatSort::ValueDesc;
+        state.recently_focused.push_back("Life".into());
+        state.recently_focused.push_back("Mana".into());
+
+        reset_calcs_view(&mut state);
+
+        assert!(state.filter.is_empty(), "filter should be cleared");
+        assert!(state.focused_stat.is_none(), "breakdown focus should close");
+        assert!(state.recently_focused.is_empty(), "recents row should drop");
+        assert_eq!(
+            state.flat_sort,
+            CalcsFlatSort::default(),
+            "flat sort should return to default"
+        );
+    }
+
+    #[test]
+    fn reset_calcs_view_preserves_preferences() {
+        // `hide_zero` and `use_pob_layout` are deliberate user
+        // preferences — they should not be wiped by a view reset.
+        let mut state = CalcsTabState::default();
+        state.hide_zero = true;
+        state.use_pob_layout = true;
+
+        reset_calcs_view(&mut state);
+
+        assert!(state.hide_zero, "hide-zero preference should persist");
+        assert!(state.use_pob_layout, "pob-layout preference should persist");
+    }
 
     #[test]
     fn sort_flat_entries_key_mode_is_alphabetical() {
