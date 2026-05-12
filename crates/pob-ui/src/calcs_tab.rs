@@ -254,6 +254,21 @@ pub fn ui(
                 state.focused_stat = None;
             }
         }
+        // Issue #34 follow-up: clipboard export of the full output
+        // dictionary. Useful for capturing the build's final numbers
+        // for a wiki / spreadsheet / Discord paste without screen-
+        // shotting.
+        if ui
+            .add_enabled(!output.is_empty(), egui::Button::new("Copy output"))
+            .on_hover_text(
+                "Copy every output stat as `Key: value` plain text, alphabetised \
+                 by key. Paste into a spreadsheet / Discord / GitHub issue.",
+            )
+            .clicked()
+        {
+            let text = format_output_as_text(output);
+            ui.ctx().copy_text(text);
+        }
     });
     // Issue #207 follow-up: chip row of the 5 most-recently inspected
     // stats. Clicking a chip re-focuses that stat. Closed-state UX
@@ -751,6 +766,30 @@ fn render_calc_row(
     ui.end_row();
 }
 
+/// Issue #34 follow-up: serialise the entire `Output` dictionary as a
+/// plain-text dump for clipboard export. Keys sort alphabetically so
+/// the output is deterministic across runs (the engine's HashMap
+/// iteration order isn't). Numbers go through [`format_value`] so
+/// the export matches what the on-screen flat-list view shows.
+///
+/// Pure / no egui — the call site copies the returned string into the
+/// clipboard. Empty outputs produce an empty string (the renderer
+/// disables the button in that case but the helper handles it cleanly
+/// regardless).
+#[must_use]
+pub fn format_output_as_text(output: &Output) -> String {
+    let mut entries: Vec<(&str, f64)> = output.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    let mut out = String::new();
+    for (k, v) in entries {
+        out.push_str(k);
+        out.push_str(": ");
+        out.push_str(format_value(v).trim());
+        out.push('\n');
+    }
+    out
+}
+
 fn format_value(v: f64) -> String {
     if v.fract().abs() < 1e-9 {
         format!("{v:>10.0}")
@@ -1143,10 +1182,60 @@ fn kind_label(k: ModType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        calc_row_tooltip_lines, mod_tooltip_lines, push_recent_stat, GROUPS, RECENTLY_FOCUSED_MAX,
+        calc_row_tooltip_lines, format_output_as_text, mod_tooltip_lines, push_recent_stat, GROUPS,
+        RECENTLY_FOCUSED_MAX,
     };
-    use pob_engine::Mod;
+    use pob_engine::{Mod, Output};
     use std::collections::VecDeque;
+
+    fn out_with(pairs: &[(&str, f64)]) -> Output {
+        let mut o = Output::default();
+        for (k, v) in pairs {
+            o.set(*k, *v);
+        }
+        o
+    }
+
+    #[test]
+    fn format_output_as_text_emits_alphabetical_keyvalue_lines() {
+        // Engine HashMap iteration order isn't stable; the formatter
+        // sorts alphabetically so the export is reproducible.
+        let out = out_with(&[
+            ("MainSkillDPS", 1500.0),
+            ("FireResist", 75.0),
+            ("Life", 5000.0),
+        ]);
+        let text = format_output_as_text(&out);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "FireResist: 75");
+        assert_eq!(lines[1], "Life: 5000");
+        assert_eq!(lines[2], "MainSkillDPS: 1500");
+    }
+
+    #[test]
+    fn format_output_as_text_empty_input_returns_empty_string() {
+        let out = Output::default();
+        assert!(format_output_as_text(&out).is_empty());
+    }
+
+    #[test]
+    fn format_output_as_text_uses_format_value_for_decimals() {
+        // Pin the formatter's behaviour: integers stay integer-shaped,
+        // small-magnitude fractions get the high-precision form.
+        // format_value uses 4 decimal places for small fractions, 2
+        // for larger ones, integer form when the fract is zero.
+        let out = out_with(&[
+            ("CritChance", 5.25),
+            ("HitChance", 100.0),
+            ("Damage", 1500.5),
+        ]);
+        let text = format_output_as_text(&out);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "CritChance: 5.2500");
+        assert_eq!(lines[1], "Damage: 1500.50");
+        assert_eq!(lines[2], "HitChance: 100");
+    }
 
     #[test]
     fn push_recent_stat_inserts_at_front_when_new() {
