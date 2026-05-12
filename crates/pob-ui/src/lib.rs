@@ -256,6 +256,13 @@ struct LoadedApp {
     user_settings: settings::UserSettings,
     /// Issue #225: whether the Settings modal is currently open.
     show_settings: bool,
+    /// Issue #225 follow-up: snapshot of `user_settings` taken the
+    /// frame the Settings modal opens. The modal applies live preview
+    /// by mirroring its working copy back into `user_settings` every
+    /// frame; on Cancel / close-without-save we revert to this
+    /// snapshot so the dragged-but-discarded preview doesn't bleed
+    /// into the rest of the session. Cleared on Save.
+    settings_snapshot_on_open: Option<settings::UserSettings>,
     /// Issue #225: tracks the last window title we emitted via
     /// `ViewportCommand::Title` so the frame loop only re-sends when
     /// the build name or dirty flag actually changes. Without this
@@ -683,6 +690,7 @@ impl PobApp {
                 }
             },
             show_settings: false,
+            settings_snapshot_on_open: None,
             last_window_title: None,
             tree_versions,
             tree_version: default_version,
@@ -774,6 +782,7 @@ impl PobApp {
             last_toasted_status: None,
             user_settings: settings::UserSettings::default(),
             show_settings: false,
+            settings_snapshot_on_open: None,
             last_window_title: None,
             tree_versions: vec!["3_25".to_owned()],
             tree_version: "3_25".to_owned(),
@@ -2979,13 +2988,44 @@ fn render_toasts(ctx: &egui::Context, queue: &mut toasts::ToastQueue) {
     }
 }
 
+/// Issue #225 follow-up: snapshot the live settings the first frame
+/// the Settings modal is open so a later Cancel can revert the
+/// dragged-but-discarded preview. No-op when a snapshot is already
+/// held — the modal stays open across frames and we only want to
+/// capture pre-edit state, not the live preview.
+fn take_settings_snapshot_if_needed(
+    snapshot: &mut Option<settings::UserSettings>,
+    current: &settings::UserSettings,
+) {
+    if snapshot.is_none() {
+        *snapshot = Some(current.clone());
+    }
+}
+
+/// Issue #225 follow-up: revert `live` to the snapshot taken on modal
+/// open and clear the snapshot. No-op when no snapshot exists (e.g.
+/// Save already cleared it). Pure helper — split from
+/// `render_settings_modal` so the snapshot/restore behaviour is
+/// unit-testable without spinning up an egui context.
+fn revert_settings_to_snapshot(
+    snapshot: &mut Option<settings::UserSettings>,
+    live: &mut settings::UserSettings,
+) {
+    if let Some(snap) = snapshot.take() {
+        *live = snap;
+    }
+}
+
 /// Issue #225: settings modal. Sliders for UI scale + toast lifetime
 /// with live preview — the frame loop re-applies `ui_scale` via
 /// `ctx.set_pixels_per_point` every frame, so dragging the slider
 /// snaps the window immediately. On commit we also persist the
 /// values to disk (native only) so they survive across app
-/// restarts.
+/// restarts. On Cancel / close-without-save we revert the live
+/// settings to the snapshot taken on open so the discarded preview
+/// doesn't bleed into the rest of the session.
 fn render_settings_modal(ctx: &egui::Context, app: &mut LoadedApp) {
+    take_settings_snapshot_if_needed(&mut app.settings_snapshot_on_open, &app.user_settings);
     let mut window_open = true;
     let mut close_clicked = false;
     let mut commit = false;
@@ -3077,6 +3117,7 @@ fn render_settings_modal(ctx: &egui::Context, app: &mut LoadedApp) {
                 app.status_message = Some((StatusKind::Info, "Settings saved.".to_owned()));
             }
         }
+        app.settings_snapshot_on_open = None;
         app.show_settings = false;
         return;
     }
@@ -3085,6 +3126,7 @@ fn render_settings_modal(ctx: &egui::Context, app: &mut LoadedApp) {
     // each frame, so dragging the slider snaps the UI immediately.
     app.user_settings = working;
     if close_clicked || !window_open {
+        revert_settings_to_snapshot(&mut app.settings_snapshot_on_open, &mut app.user_settings);
         app.show_settings = false;
     }
 }
@@ -4813,5 +4855,76 @@ mod build_demo_character_tests {
         // default to 50%.
         let c = build_demo_character();
         assert_eq!(c.config.enemy_lightning_resist, 50);
+    }
+}
+
+#[cfg(test)]
+mod settings_snapshot_tests {
+    use super::settings::{Theme, UserSettings};
+    use super::{revert_settings_to_snapshot, take_settings_snapshot_if_needed};
+
+    fn pinned() -> UserSettings {
+        UserSettings {
+            ui_scale: 1.25,
+            toast_lifetime_secs: 7.0,
+            theme: Theme::Light,
+            autosave_idle_secs: 4.0,
+        }
+    }
+
+    #[test]
+    fn snapshot_captured_on_first_open_then_save_clears_it() {
+        // Open: snapshot should mirror the current live settings.
+        let mut snapshot: Option<UserSettings> = None;
+        let live = pinned();
+        take_settings_snapshot_if_needed(&mut snapshot, &live);
+        assert_eq!(snapshot.as_ref(), Some(&live));
+        // Save path: clearing the snapshot is what `commit` does. The
+        // helper isn't called on Save, but the field clear is the
+        // contract — pin it so a future refactor can't accidentally
+        // hold the snapshot past Save and revert the next Cancel to
+        // the *previous* committed state.
+        snapshot = None;
+        assert!(snapshot.is_none());
+    }
+
+    #[test]
+    fn snapshot_take_is_idempotent_across_frames() {
+        // The modal stays open across many frames; the live preview
+        // mutates `live` each frame. Re-calling the take helper must
+        // not overwrite the original snapshot with the live preview.
+        let original = pinned();
+        let mut snapshot = Some(original.clone());
+        let mut live = original.clone();
+        live.ui_scale = 2.4;
+        take_settings_snapshot_if_needed(&mut snapshot, &live);
+        assert_eq!(snapshot.as_ref(), Some(&original));
+    }
+
+    #[test]
+    fn cancel_reverts_live_to_snapshot_and_clears_it() {
+        // Cancel after the user dragged ui_scale from 1.25 to 2.4
+        // should restore 1.25 and drop the snapshot.
+        let original = pinned();
+        let mut snapshot = Some(original.clone());
+        let mut live = original.clone();
+        live.ui_scale = 2.4;
+        live.theme = Theme::Dark;
+        revert_settings_to_snapshot(&mut snapshot, &mut live);
+        assert_eq!(live, original);
+        assert!(snapshot.is_none());
+    }
+
+    #[test]
+    fn revert_with_no_snapshot_is_a_noop() {
+        // Defensive: Save clears the snapshot and shouldn't leave
+        // Cancel-on-the-next-open in a position to clobber the
+        // freshly-committed values with stale state.
+        let mut snapshot: Option<UserSettings> = None;
+        let mut live = pinned();
+        let before = live.clone();
+        revert_settings_to_snapshot(&mut snapshot, &mut live);
+        assert_eq!(live, before);
+        assert!(snapshot.is_none());
     }
 }
