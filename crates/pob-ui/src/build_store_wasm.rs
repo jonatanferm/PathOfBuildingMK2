@@ -962,14 +962,46 @@ async fn folder_save(
     Ok(())
 }
 
+/// Probe whether `filename` is an existing entry in the given folder
+/// handle. Used by `folder_rename` to refuse overwriting an existing
+/// build — `folder_save` uses `getFileHandle({ create: true })` which
+/// would silently truncate the target. Any error from the API
+/// (NotFound, permission, etc.) is treated as "not present"; that's
+/// safe because if a real permission error is in play, the subsequent
+/// `folder_save` will surface it instead.
+async fn folder_file_exists(handle: &JsValue, filename: &str) -> Result<bool, JsValue> {
+    let opts = Object::new();
+    Reflect::set(&opts, &JsValue::from_str("create"), &JsValue::FALSE)?;
+    let get_file = Reflect::get(handle, &JsValue::from_str("getFileHandle"))?;
+    let get_file: Function = get_file.dyn_into()?;
+    let promise = get_file.call2(handle, &JsValue::from_str(filename), &opts)?;
+    Ok(JsFuture::from(promise.dyn_into::<Promise>()?).await.is_ok())
+}
+
 async fn folder_rename(filename: &str, new_label: &str) -> Result<(), JsValue> {
     let handle = current_folder_handle()
         .await
         .ok_or_else(|| JsValue::from_str("Folder not connected"))?;
+    let (old_label, ext) = split_label_ext(filename);
+    // Same-name rename: no-op. Without this the round-trip via
+    // `folder_save` + `folder_delete` below would delete the file we
+    // just rewrote.
+    if old_label == new_label {
+        return Ok(());
+    }
+    // Refuse to clobber an existing target — mirrors the desktop
+    // guard in BuildsAction::Rename (lib.rs). `folder_save` opens with
+    // `getFileHandle({ create: true })` so without this check we'd
+    // silently overwrite an unrelated build.
+    let new_filename = format!("{new_label}.{ext}");
+    if folder_file_exists(&handle, &new_filename).await? {
+        return Err(JsValue::from_str(&format!(
+            "target already exists: {new_filename}"
+        )));
+    }
     // Read original payload, write under new name, then remove old.
     // The File System Access API doesn't expose a native rename.
     let (_, payload) = folder_load(filename).await?;
-    let (_, ext) = split_label_ext(filename);
     folder_save(&handle, new_label, &ext, payload).await?;
     folder_delete(filename).await?;
     Ok(())
