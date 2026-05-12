@@ -16,10 +16,78 @@ use pob_engine::{
     Output, SkillRegistry, Source, Tag,
 };
 
+/// Issue #34 follow-up: ordering mode for the flat-view entry list.
+/// `Key` mirrors the pre-#34 alphabetical default; the two value
+/// modes help users quickly spot the biggest / smallest outputs in
+/// the dictionary without scanning the entire alphabetised list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CalcsFlatSort {
+    /// Alphabetical by output key (case-insensitive isn't necessary
+    /// since engine keys are PascalCase identifiers).
+    #[default]
+    Key,
+    /// Largest value first. NaN sinks to the bottom so a stray engine
+    /// NaN can't pin garbage to the top.
+    ValueDesc,
+    /// Smallest value first. Mirror of `ValueDesc` — useful for
+    /// finding "where am I leaking damage" / "what's at zero".
+    ValueAsc,
+}
+
+impl CalcsFlatSort {
+    /// Human-readable label for the UI selector.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Key => "Name",
+            Self::ValueDesc => "Value ↓",
+            Self::ValueAsc => "Value ↑",
+        }
+    }
+}
+
+/// Issue #34 follow-up: sort `entries` in place under the chosen
+/// [`CalcsFlatSort`] mode. Pure helper so the value-axis NaN handling
+/// has a unit-test home; the UI side just picks the mode.
+pub fn sort_flat_entries(entries: &mut [(&str, f64)], mode: CalcsFlatSort) {
+    match mode {
+        CalcsFlatSort::Key => entries.sort_by(|a, b| a.0.cmp(b.0)),
+        CalcsFlatSort::ValueDesc => entries.sort_by(|a, b| {
+            // NaN sinks: treat NaN as the smallest finite value's
+            // neighbour-from-below. Same shape as
+            // `truncate_to_top_n` in node_power_heatmap.
+            match (a.1.is_nan(), b.1.is_nan()) {
+                (true, true) => a.0.cmp(b.0),
+                (true, false) => std::cmp::Ordering::Greater,
+                (false, true) => std::cmp::Ordering::Less,
+                (false, false) => {
+                    b.1.partial_cmp(&a.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.0.cmp(b.0))
+                }
+            }
+        }),
+        CalcsFlatSort::ValueAsc => entries.sort_by(|a, b| match (a.1.is_nan(), b.1.is_nan()) {
+            (true, true) => a.0.cmp(b.0),
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            (false, false) => {
+                a.1.partial_cmp(&b.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(b.0))
+            }
+        }),
+    }
+}
+
 #[derive(Default)]
 pub struct CalcsTabState {
     pub filter: String,
     pub hide_zero: bool,
+    /// Issue #34 follow-up: ordering mode for the flat-view entry
+    /// list. Defaults to `Key` (alphabetical) — the pre-this-slice
+    /// behaviour.
+    pub flat_sort: CalcsFlatSort,
     /// Stat the user clicked to inspect. `None` collapses the breakdown panel.
     pub focused_stat: Option<String>,
     /// When `true` and `calc_sections` is loaded, render the PoB-style grouped
@@ -240,6 +308,28 @@ pub fn ui(
                 .hint_text("Life, FireResist, MainSkill, …"),
         );
         ui.checkbox(&mut state.hide_zero, "Hide zero values");
+        // Issue #34 follow-up: flat-view sort selector. Hidden when
+        // PoB layout is on — the section view's per-row order comes
+        // from the calc_sections.json structure, not this list.
+        if !state.use_pob_layout {
+            egui::ComboBox::from_id_salt("calcs_flat_sort")
+                .selected_text(state.flat_sort.label())
+                .show_ui(ui, |ui| {
+                    for mode in [
+                        CalcsFlatSort::Key,
+                        CalcsFlatSort::ValueDesc,
+                        CalcsFlatSort::ValueAsc,
+                    ] {
+                        ui.selectable_value(&mut state.flat_sort, mode, mode.label());
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Order outputs by key (alphabetical) or by raw value. Value \
+                     sort is handy for spotting the biggest / smallest stats \
+                     without scrolling the alphabetised list.",
+                );
+        }
         if calc_sections.is_some() {
             ui.checkbox(&mut state.use_pob_layout, "PoB layout")
                 .on_hover_text(
@@ -303,7 +393,7 @@ pub fn ui(
 
     let q = state.filter.trim().to_lowercase();
     let mut entries: Vec<(&str, f64)> = output.iter().collect();
-    entries.sort_by(|a, b| a.0.cmp(b.0));
+    sort_flat_entries(&mut entries, state.flat_sort);
     let entries_filtered: Vec<(&str, f64)> = entries
         .into_iter()
         .filter(|(k, _)| q.is_empty() || k.to_lowercase().contains(&q))
@@ -1182,11 +1272,62 @@ fn kind_label(k: ModType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        calc_row_tooltip_lines, format_output_as_text, mod_tooltip_lines, push_recent_stat, GROUPS,
-        RECENTLY_FOCUSED_MAX,
+        calc_row_tooltip_lines, format_output_as_text, mod_tooltip_lines, push_recent_stat,
+        sort_flat_entries, CalcsFlatSort, GROUPS, RECENTLY_FOCUSED_MAX,
     };
     use pob_engine::{Mod, Output};
     use std::collections::VecDeque;
+
+    #[test]
+    fn sort_flat_entries_key_mode_is_alphabetical() {
+        // Default mode — matches the pre-this-slice ordering so
+        // existing users see no behavioural drift.
+        let mut entries: Vec<(&str, f64)> =
+            vec![("Mana", 200.0), ("Damage", 1500.0), ("Life", 5000.0)];
+        sort_flat_entries(&mut entries, CalcsFlatSort::Key);
+        let keys: Vec<&str> = entries.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, vec!["Damage", "Life", "Mana"]);
+    }
+
+    #[test]
+    fn sort_flat_entries_value_desc_largest_first() {
+        let mut entries: Vec<(&str, f64)> =
+            vec![("Mana", 200.0), ("Damage", 1500.0), ("Life", 5000.0)];
+        sort_flat_entries(&mut entries, CalcsFlatSort::ValueDesc);
+        let keys: Vec<&str> = entries.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, vec!["Life", "Damage", "Mana"]);
+    }
+
+    #[test]
+    fn sort_flat_entries_value_asc_smallest_first() {
+        let mut entries: Vec<(&str, f64)> =
+            vec![("Mana", 200.0), ("Damage", 1500.0), ("Life", 5000.0)];
+        sort_flat_entries(&mut entries, CalcsFlatSort::ValueAsc);
+        let keys: Vec<&str> = entries.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, vec!["Mana", "Damage", "Life"]);
+    }
+
+    #[test]
+    fn sort_flat_entries_value_modes_break_ties_alphabetically() {
+        // When two entries share a value, the secondary key is the
+        // output key so the order stays deterministic.
+        let mut entries: Vec<(&str, f64)> = vec![("Zeta", 100.0), ("Alpha", 100.0), ("Mu", 100.0)];
+        sort_flat_entries(&mut entries, CalcsFlatSort::ValueDesc);
+        let keys: Vec<&str> = entries.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, vec!["Alpha", "Mu", "Zeta"]);
+    }
+
+    #[test]
+    fn sort_flat_entries_value_desc_sinks_nan() {
+        // A stray engine NaN must not pin garbage to the top; NaN
+        // entries sort to the bottom regardless of their position
+        // in the input.
+        let mut entries: Vec<(&str, f64)> =
+            vec![("Real", 50.0), ("Broken", f64::NAN), ("Bigger", 500.0)];
+        sort_flat_entries(&mut entries, CalcsFlatSort::ValueDesc);
+        let keys: Vec<&str> = entries.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, vec!["Bigger", "Real", "Broken"]);
+    }
 
     fn out_with(pairs: &[(&str, f64)]) -> Output {
         let mut o = Output::default();
