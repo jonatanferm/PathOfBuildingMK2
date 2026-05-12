@@ -2389,7 +2389,9 @@ fn render_manage_sets_popup(
                         .on_hover_text("Duplicate this set in place")
                         .clicked()
                     {
-                        let _ = clone_item_set(character, idx);
+                        if clone_item_set(character, idx).is_ok() {
+                            changed = true;
+                        }
                     }
                     if ui
                         .small_button("Delete")
@@ -2399,6 +2401,7 @@ fn render_manage_sets_popup(
                         if character.delete_item_set(idx) {
                             state.active_item_set_idx =
                                 shift_active_idx_after_delete(state.active_item_set_idx, idx);
+                            changed = true;
                         }
                     }
                     // Issue #212 (slice 2): per-row Export button.
