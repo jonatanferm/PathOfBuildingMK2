@@ -580,7 +580,7 @@ fn count_builds(node: &FolderNode) -> usize {
 /// Year resolution uses a 365-day denominator (no leap-day handling) —
 /// the readout is approximate by nature and "3 years ago" reads
 /// equivalently to "3 years and a couple of days ago".
-#[must_use]
+
 /// Issue #213 follow-up: humanise the filter match count for the
 /// chip rendered next to the build-name filter input. Reports the
 /// number of entries the filter keeps vs. the total saved.
@@ -611,6 +611,7 @@ pub fn format_filter_match_chip(entries: &[BuildEntry], filter: &str) -> String 
     }
 }
 
+#[must_use]
 pub fn format_relative_time(now: std::time::SystemTime, then: std::time::SystemTime) -> String {
     let Ok(elapsed) = now.duration_since(then) else {
         return "(future)".to_owned();
