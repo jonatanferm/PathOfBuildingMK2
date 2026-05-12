@@ -20,6 +20,44 @@ use pob_engine::{Character, MainSkill, QualityId, SkillRegistry};
 
 use crate::color_codes;
 
+/// Issue #214 follow-up: bulk-toggle every socket group's `enabled`
+/// flag. Returns `true` when at least one group's flag changed. Pure
+/// — no I/O, no recompute (the caller flips `recompute = true` so the
+/// engine re-runs on the next frame).
+pub fn enable_all_socket_groups(character: &mut pob_engine::Character) -> bool {
+    let mut changed = false;
+    for g in &mut character.skill_groups {
+        if !g.enabled {
+            g.enabled = true;
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Issue #214 follow-up: leave only the group at `idx` enabled,
+/// disabling every other group. Returns `true` when at least one
+/// group's flag changed. `idx` out of range is a no-op (returns
+/// `false`).
+///
+/// Pulled out as a pure helper so the "Solo" button in the group
+/// list has a unit-test home — the multi-target mutation is easy
+/// to get wrong (off-by-one, leaving the target disabled).
+pub fn solo_socket_group_at(character: &mut pob_engine::Character, idx: usize) -> bool {
+    if idx >= character.skill_groups.len() {
+        return false;
+    }
+    let mut changed = false;
+    for (i, g) in character.skill_groups.iter_mut().enumerate() {
+        let want = i == idx;
+        if g.enabled != want {
+            g.enabled = want;
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// Issue #214 (slice 3): payload carried by a gem drag-source. Carries
 /// both the source group and the source gem index so the drop target
 /// can route to either `move_gem` (same group) or
@@ -401,6 +439,36 @@ pub fn ui(
         ui.vertical(|ui| {
             ui.set_min_width(160.0);
             ui.heading("Groups");
+            // Issue #214 follow-up: bulk-toggle row. "Solo" leaves only
+            // the selected group enabled so the user can A/B a single
+            // gem-link's contribution without manually flipping every
+            // other group; "Enable all" reverses it.
+            if !character.skill_groups.is_empty() {
+                ui.horizontal(|ui| {
+                    let solo_target = state.selected_group;
+                    let can_solo = solo_target < character.skill_groups.len();
+                    if ui
+                        .add_enabled(can_solo, egui::Button::new("Solo").small())
+                        .on_hover_text(
+                            "Disable every group except the currently selected one. \
+                             Useful for A/B-ing one gem-link's contribution against the \
+                             rest of the build.",
+                        )
+                        .clicked()
+                        && solo_socket_group_at(character, solo_target)
+                    {
+                        changed = true;
+                    }
+                    if ui
+                        .button("Enable all")
+                        .on_hover_text("Re-enable every group — undoes a `Solo` click.")
+                        .clicked()
+                        && enable_all_socket_groups(character)
+                    {
+                        changed = true;
+                    }
+                });
+            }
             ui.separator();
             let mut to_remove: Option<usize> = None;
             // Issue #214 (slice 2): drag-reorder socket groups. Each row
@@ -1148,7 +1216,82 @@ pub(super) fn move_gem_across_groups(
 mod tests {
     use super::*;
     use indexmap::IndexMap;
+    use pob_engine::character::SocketGroup;
     use serde_json::json;
+
+    fn mk_enabled_group(label: &str, enabled: bool) -> SocketGroup {
+        SocketGroup {
+            label: label.to_owned(),
+            gems: Vec::new(),
+            main_active_skill_index: 1,
+            enabled,
+        }
+    }
+
+    #[test]
+    fn solo_socket_group_at_disables_others() {
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        c.skill_groups = vec![
+            mk_enabled_group("A", true),
+            mk_enabled_group("B", true),
+            mk_enabled_group("C", true),
+        ];
+        assert!(solo_socket_group_at(&mut c, 1));
+        let states: Vec<bool> = c.skill_groups.iter().map(|g| g.enabled).collect();
+        assert_eq!(states, vec![false, true, false]);
+    }
+
+    #[test]
+    fn solo_socket_group_at_re_enables_target_when_currently_off() {
+        // The target's own `enabled` flag gets flipped true even when
+        // it was off — the user may have manually disabled the main
+        // group and then clicked Solo.
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        c.skill_groups = vec![mk_enabled_group("A", false), mk_enabled_group("B", true)];
+        assert!(solo_socket_group_at(&mut c, 0));
+        let states: Vec<bool> = c.skill_groups.iter().map(|g| g.enabled).collect();
+        assert_eq!(states, vec![true, false]);
+    }
+
+    #[test]
+    fn solo_socket_group_at_returns_false_when_already_solo() {
+        // Already at the target state → no change, the caller can
+        // skip the recompute flip.
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        c.skill_groups = vec![mk_enabled_group("A", true), mk_enabled_group("B", false)];
+        assert!(!solo_socket_group_at(&mut c, 0));
+    }
+
+    #[test]
+    fn solo_socket_group_at_out_of_range_is_noop() {
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        c.skill_groups = vec![mk_enabled_group("A", true)];
+        assert!(!solo_socket_group_at(&mut c, 7));
+        // Original group's flag is untouched.
+        assert!(c.skill_groups[0].enabled);
+    }
+
+    #[test]
+    fn enable_all_socket_groups_flips_disabled_back_on() {
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        c.skill_groups = vec![
+            mk_enabled_group("A", false),
+            mk_enabled_group("B", true),
+            mk_enabled_group("C", false),
+        ];
+        assert!(enable_all_socket_groups(&mut c));
+        for g in &c.skill_groups {
+            assert!(g.enabled, "group {} should be enabled", g.label);
+        }
+    }
+
+    #[test]
+    fn enable_all_socket_groups_returns_false_when_already_all_on() {
+        // No-op signal so the caller can skip a recompute.
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 1);
+        c.skill_groups = vec![mk_enabled_group("A", true), mk_enabled_group("B", true)];
+        assert!(!enable_all_socket_groups(&mut c));
+    }
 
     fn mk_skill(name: &str, color: u8, flags: &[&str], stats: &[&str], support: bool) -> Skill {
         let mut base_flags: IndexMap<String, bool> = IndexMap::new();
@@ -1367,7 +1510,7 @@ mod tests {
         assert_eq!(tag_line, "Tags: chaining, lightning, spell");
     }
 
-    fn mk_group(skill_ids: &[&str], main_one_based: u32) -> SocketGroup {
+    fn mk_socket_group(skill_ids: &[&str], main_one_based: u32) -> SocketGroup {
         SocketGroup {
             label: "Test".into(),
             gems: skill_ids
@@ -1391,7 +1534,7 @@ mod tests {
         // idx 0 forward to idx 2 in [A, B, C, D] yields [B, C, A, D].
         // The main pointer (1-based, started at 2 = "B") must keep
         // tracking B — its new home is idx 0, so the index drops to 1.
-        let mut g = mk_group(&["A", "B", "C", "D"], 2);
+        let mut g = mk_socket_group(&["A", "B", "C", "D"], 2);
         assert!(move_gem(&mut g, 0, 2));
         let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
         assert_eq!(ids, vec!["B", "C", "A", "D"]);
@@ -1403,7 +1546,7 @@ mod tests {
         // Reverse direction: idx 3 → idx 0 in [A, B, C, D] yields
         // [D, A, B, C]. Main pointed at C (idx 2, 1-based 3) which
         // shifts down by 1 idx → new 1-based index 4.
-        let mut g = mk_group(&["A", "B", "C", "D"], 3);
+        let mut g = mk_socket_group(&["A", "B", "C", "D"], 3);
         assert!(move_gem(&mut g, 3, 0));
         let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
         assert_eq!(ids, vec!["D", "A", "B", "C"]);
@@ -1415,7 +1558,7 @@ mod tests {
         // Drag the *main* gem. Result: main pointer follows to its
         // new position. [A, B, C], main=2 (B). Move 1→2 ⇒ [A, C, B],
         // main now 3 (B is at idx 2).
-        let mut g = mk_group(&["A", "B", "C"], 2);
+        let mut g = mk_socket_group(&["A", "B", "C"], 2);
         assert!(move_gem(&mut g, 1, 2));
         let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
         assert_eq!(ids, vec!["A", "C", "B"]);
@@ -1426,7 +1569,7 @@ mod tests {
     fn move_gem_unrelated_position_leaves_main_unchanged() {
         // Move idx 2 → idx 3 in [A, B, C, D, E] with main = 1 (A).
         // A doesn't move and isn't crossed by the swap, so main stays.
-        let mut g = mk_group(&["A", "B", "C", "D", "E"], 1);
+        let mut g = mk_socket_group(&["A", "B", "C", "D", "E"], 1);
         assert!(move_gem(&mut g, 2, 3));
         let ids: Vec<&str> = g.gems.iter().map(|g| g.skill_id.as_str()).collect();
         assert_eq!(ids, vec!["A", "B", "D", "C", "E"]);
@@ -1438,7 +1581,7 @@ mod tests {
         // Drop on invalid targets is a no-op (issue #214 AC #3): out
         // of range → false, same-index → false, both with no mutation.
         let original_ids = ["A", "B"];
-        let mut g = mk_group(&original_ids, 1);
+        let mut g = mk_socket_group(&original_ids, 1);
         assert!(!move_gem(&mut g, 0, 0));
         assert!(!move_gem(&mut g, 99, 0));
         assert!(!move_gem(&mut g, 0, 99));
