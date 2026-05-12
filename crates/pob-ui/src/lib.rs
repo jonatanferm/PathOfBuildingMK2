@@ -1069,8 +1069,17 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 if app.current_build_path.is_some() {
-                    if app.dirty_since.is_some() {
-                        ui.colored_label(egui::Color32::from_rgb(0xFF, 0x99, 0x22), "● Modified");
+                    if let Some(since) = app.dirty_since {
+                        let elapsed = since.elapsed();
+                        let suffix = if elapsed.as_secs() == 0 {
+                            String::new()
+                        } else {
+                            format!(" {} ago", format_elapsed_short(elapsed))
+                        };
+                        ui.colored_label(
+                            egui::Color32::from_rgb(0xFF, 0x99, 0x22),
+                            format!("● Modified{suffix}"),
+                        );
                     } else {
                         ui.colored_label(egui::Color32::from_rgb(0x33, 0xFF, 0x77), "✔ Saved");
                     }
@@ -2628,6 +2637,33 @@ pub fn compute_window_title(build_path: Option<&std::path::Path>, dirty: bool) -
         format!("{BASE} — • {stem}")
     } else {
         format!("{BASE} — {stem}")
+    }
+}
+
+/// Issue #100 follow-up: short relative-time formatter for the menu
+/// bar's `● Modified` indicator. Pure / takes a `Duration` so the
+/// monotonic-clock-based `Instant::elapsed()` plugs in directly (no
+/// `SystemTime` round-trip needed). Buckets:
+///
+/// - <60s → `Ns`
+/// - <60m → `Nm`
+/// - <24h → `Nh`
+/// - otherwise → `Nd`
+///
+/// Picks the largest unit that fits — a build dirty for 119 seconds
+/// reads `1m`, not `119s`, matching how most editors show their
+/// own "modified X ago" status.
+#[must_use]
+pub fn format_elapsed_short(duration: std::time::Duration) -> String {
+    let secs = duration.as_secs();
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else if secs < 86_400 {
+        format!("{}h", secs / 3600)
+    } else {
+        format!("{}d", secs / 86_400)
     }
 }
 
@@ -4305,6 +4341,45 @@ mod version_swap_tests {
         let (surviving, dropped) = compute_version_swap_diff(&allocated, &target);
         assert_eq!(surviving, vec![10, 20]);
         assert_eq!(dropped, vec![5, 42, 99]);
+    }
+}
+
+#[cfg(test)]
+mod elapsed_short_tests {
+    use super::format_elapsed_short;
+    use std::time::Duration;
+
+    #[test]
+    fn under_a_minute_reads_as_seconds() {
+        assert_eq!(format_elapsed_short(Duration::from_secs(0)), "0s");
+        assert_eq!(format_elapsed_short(Duration::from_secs(1)), "1s");
+        assert_eq!(format_elapsed_short(Duration::from_secs(59)), "59s");
+    }
+
+    #[test]
+    fn minute_range_uses_largest_unit() {
+        // 60s ticks to `1m`; a row of seconds inside a minute reads
+        // truncated (119s → `1m`, not `2m`).
+        assert_eq!(format_elapsed_short(Duration::from_secs(60)), "1m");
+        assert_eq!(format_elapsed_short(Duration::from_secs(119)), "1m");
+        assert_eq!(format_elapsed_short(Duration::from_secs(3599)), "59m");
+    }
+
+    #[test]
+    fn hour_range_truncates_to_whole_hours() {
+        assert_eq!(format_elapsed_short(Duration::from_secs(3600)), "1h");
+        assert_eq!(format_elapsed_short(Duration::from_secs(7200)), "2h");
+        // 23h59m — still hours.
+        assert_eq!(format_elapsed_short(Duration::from_secs(86_399)), "23h");
+    }
+
+    #[test]
+    fn day_range_truncates_to_whole_days() {
+        assert_eq!(format_elapsed_short(Duration::from_secs(86_400)), "1d");
+        assert_eq!(
+            format_elapsed_short(Duration::from_secs(86_400 * 10)),
+            "10d"
+        );
     }
 }
 
