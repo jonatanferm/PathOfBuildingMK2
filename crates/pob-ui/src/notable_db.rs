@@ -13,6 +13,8 @@
 //! the user still has to click the node on the tree itself to add it to
 //! their build (this matches PoB's behaviour).
 
+use std::collections::HashSet;
+
 use eframe::egui;
 use pob_data::{NodeId, NodeKind, PassiveTree};
 
@@ -27,6 +29,45 @@ pub struct NotableDbState {
     /// Active node-kind filter. `None` means "every kind in
     /// [`NodeKindFilter::all`]" — no per-kind narrowing.
     pub kind_filter: Option<NodeKindFilter>,
+    /// Active allocation filter. `All` matches every node; the other
+    /// two values gate the catalogue to nodes the user currently has
+    /// (or doesn't have) allocated. Cold-open default is `All`.
+    pub allocation_filter: AllocationFilter,
+}
+
+/// Issue #215 follow-up: filter by allocation state. Useful for
+/// auditing which notables a build already commits to (Allocated) and
+/// for browsing candidates within the catalog (Unallocated).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AllocationFilter {
+    /// Cold-open default — match every node regardless of allocation.
+    #[default]
+    All,
+    /// Only nodes in `character.allocated`.
+    Allocated,
+    /// Only nodes NOT in `character.allocated`.
+    Unallocated,
+}
+
+impl AllocationFilter {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Allocated => "Allocated",
+            Self::Unallocated => "Unallocated",
+        }
+    }
+
+    /// Return `true` when `node_id`'s allocation state passes this
+    /// filter. `allocated` is the live `character.allocated` set.
+    #[must_use]
+    pub fn matches(self, node_id: NodeId, allocated: &HashSet<NodeId>) -> bool {
+        match self {
+            Self::All => true,
+            Self::Allocated => allocated.contains(&node_id),
+            Self::Unallocated => !allocated.contains(&node_id),
+        }
+    }
 }
 
 /// Node kinds the DB browser exposes as a filter pill. The full
@@ -136,6 +177,29 @@ pub fn filter_entries(
     out
 }
 
+/// Issue #215 follow-up: post-filter helper that narrows a pre-filtered
+/// catalogue entry list by allocation state. Pure / no-egui so the
+/// rule is unit-testable without spinning up egui.
+///
+/// Pulled out as a separate helper (rather than threading the
+/// allocation set into [`filter_entries`]) so the test suite around
+/// the kind + query filters stays unchanged and the existing public
+/// API isn't disturbed.
+#[must_use]
+pub fn apply_alloc_filter(
+    entries: Vec<NodeId>,
+    allocated: &HashSet<NodeId>,
+    mode: AllocationFilter,
+) -> Vec<NodeId> {
+    if matches!(mode, AllocationFilter::All) {
+        return entries;
+    }
+    entries
+        .into_iter()
+        .filter(|id| mode.matches(*id, allocated))
+        .collect()
+}
+
 fn kind_glyph(kind: NodeKind) -> &'static str {
     match kind {
         NodeKind::Notable => "◆",
@@ -161,6 +225,7 @@ pub fn render_panel(
     tree: &PassiveTree,
     tree_view: &mut TreeView,
     query: &str,
+    allocated: &HashSet<NodeId>,
 ) -> Option<NodeId> {
     let mut clicked: Option<NodeId> = None;
     ui.heading("Browse nodes");
@@ -183,9 +248,23 @@ pub fn render_panel(
             }
         }
     });
+    // Allocation pill row: All / Allocated / Unallocated. Useful for
+    // auditing what's committed in the current build vs. browsing
+    // candidates within the catalog.
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Allocation:");
+        for mode in [
+            AllocationFilter::All,
+            AllocationFilter::Allocated,
+            AllocationFilter::Unallocated,
+        ] {
+            ui.selectable_value(&mut state.allocation_filter, mode, mode.label());
+        }
+    });
     ui.add_space(2.0);
 
-    let entries = filter_entries(tree, query, state.kind_filter);
+    let pre_alloc = filter_entries(tree, query, state.kind_filter);
+    let entries = apply_alloc_filter(pre_alloc, allocated, state.allocation_filter);
     let total = catalogue_size(tree, state.kind_filter);
     ui.label(format!("{} of {} nodes", entries.len(), total));
     ui.add_space(2.0);
@@ -429,5 +508,68 @@ mod tests {
         assert_eq!(catalogue_size(&tree, None), 5);
         assert_eq!(catalogue_size(&tree, Some(NodeKindFilter::Notable)), 2);
         assert_eq!(catalogue_size(&tree, Some(NodeKindFilter::Keystone)), 1);
+    }
+
+    // ─── AllocationFilter / apply_alloc_filter ───────────────────────────
+
+    fn allocated(ids: &[NodeId]) -> HashSet<NodeId> {
+        ids.iter().copied().collect()
+    }
+
+    #[test]
+    fn allocation_filter_all_is_pass_through() {
+        // The default mode matches every node — the helper short-
+        // circuits without touching the allocation set.
+        let entries = vec![1u32, 2, 3];
+        let alloc = allocated(&[]);
+        assert_eq!(
+            apply_alloc_filter(entries.clone(), &alloc, AllocationFilter::All),
+            entries
+        );
+    }
+
+    #[test]
+    fn allocation_filter_allocated_keeps_only_marked_ids() {
+        // Useful for the "what does my build commit to?" audit path.
+        let entries = vec![1u32, 2, 3, 4];
+        let alloc = allocated(&[2, 4]);
+        assert_eq!(
+            apply_alloc_filter(entries, &alloc, AllocationFilter::Allocated),
+            vec![2, 4]
+        );
+    }
+
+    #[test]
+    fn allocation_filter_unallocated_drops_marked_ids() {
+        // The opposite path — the "candidates to consider" view.
+        let entries = vec![1u32, 2, 3, 4];
+        let alloc = allocated(&[2, 4]);
+        assert_eq!(
+            apply_alloc_filter(entries, &alloc, AllocationFilter::Unallocated),
+            vec![1, 3]
+        );
+    }
+
+    #[test]
+    fn allocation_filter_matches_method_returns_correct_predicate() {
+        // Direct check on `AllocationFilter::matches` so the predicate
+        // can be reused outside `apply_alloc_filter` (e.g. a hover
+        // tooltip in a future slice).
+        let alloc = allocated(&[10]);
+        assert!(AllocationFilter::All.matches(10, &alloc));
+        assert!(AllocationFilter::All.matches(99, &alloc));
+        assert!(AllocationFilter::Allocated.matches(10, &alloc));
+        assert!(!AllocationFilter::Allocated.matches(99, &alloc));
+        assert!(!AllocationFilter::Unallocated.matches(10, &alloc));
+        assert!(AllocationFilter::Unallocated.matches(99, &alloc));
+    }
+
+    #[test]
+    fn allocation_filter_labels_are_user_friendly() {
+        // The pill row reads these labels — pin them so a typo
+        // doesn't quietly land in the UI.
+        assert_eq!(AllocationFilter::All.label(), "All");
+        assert_eq!(AllocationFilter::Allocated.label(), "Allocated");
+        assert_eq!(AllocationFilter::Unallocated.label(), "Unallocated");
     }
 }

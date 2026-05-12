@@ -1502,6 +1502,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     &app.tree,
                     &mut app.tree_view,
                     &app.search,
+                    &app.character.allocated,
                 );
             });
     }
