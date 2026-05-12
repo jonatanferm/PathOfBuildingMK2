@@ -35,6 +35,26 @@ pub fn count_active_conditions(state: &ConfigState) -> usize {
     state.conditions.values().filter(|v| **v).count()
 }
 
+/// Config tab: reset every multiplier (charges, rage, fortification
+/// stacks, …) back to its built-in default by clearing
+/// `state.multipliers` entirely. Each slider in
+/// [`MULTIPLIERS`] falls back to its hard-coded default via
+/// `state.multipliers.get(key).copied().unwrap_or(default)`, so the
+/// cleanest reset is "drop the override map and let the sliders
+/// re-seed from `default` on the next frame".
+///
+/// Returns `true` iff at least one entry was removed — the caller
+/// uses that to gate a recompute so a no-op reset click on a cold-
+/// open Config tab doesn't churn the engine.
+///
+/// Pure / no-egui so the rule is documented and unit-testable in
+/// isolation. Symmetric to [`clear_active_conditions`].
+pub fn reset_multipliers_to_defaults(state: &mut ConfigState) -> bool {
+    let before = state.multipliers.len();
+    state.multipliers.clear();
+    before > 0
+}
+
 /// Config tab: turn off every player-side condition by removing every
 /// truthy entry from `state.conditions`. Mirrors what the UI does when
 /// a checkbox is toggled off (`state.conditions.remove(key)`), so a
@@ -433,7 +453,24 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
 
         ui.vertical(|ui| {
             ui.set_min_width(220.0);
-            ui.heading("Multipliers");
+            ui.horizontal(|ui| {
+                ui.heading("Multipliers");
+                // Mirror the Conditions panel: surface a Reset button
+                // only when there's something to reset, so the cold-
+                // open header stays tidy.
+                if !state.multipliers.is_empty()
+                    && ui
+                        .small_button("Reset")
+                        .on_hover_text(
+                            "Drop every overridden multiplier and let each \
+                             slider re-seed from its built-in default.",
+                        )
+                        .clicked()
+                    && reset_multipliers_to_defaults(state)
+                {
+                    changed = true;
+                }
+            });
             ui.separator();
             for (key, label, default, max) in MULTIPLIERS {
                 let mut v = state.multipliers.get(*key).copied().unwrap_or(*default);
@@ -768,5 +805,28 @@ mod tests {
             !clear_active_conditions(&mut state),
             "removing only truthy entries shouldn't fire on a `false`-only map"
         );
+    }
+
+    // ─── reset_multipliers_to_defaults ───────────────────────────────────
+
+    #[test]
+    fn reset_multipliers_to_defaults_clears_overrides() {
+        // Drop any overridden multiplier so each slider re-seeds
+        // from its built-in default on the next frame.
+        let mut state = ConfigState::default();
+        state.multipliers.insert("PowerCharge".to_owned(), 7.0);
+        state.multipliers.insert("Rage".to_owned(), 42.0);
+        let changed = reset_multipliers_to_defaults(&mut state);
+        assert!(changed);
+        assert!(state.multipliers.is_empty());
+    }
+
+    #[test]
+    fn reset_multipliers_to_defaults_no_op_returns_false() {
+        // Empty override map: the helper must report no change so the
+        // caller can skip the recompute. Same gate the conditions
+        // reset uses.
+        let mut state = ConfigState::default();
+        assert!(!reset_multipliers_to_defaults(&mut state));
     }
 }
