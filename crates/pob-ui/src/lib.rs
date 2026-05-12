@@ -146,6 +146,12 @@ struct LoadedApp {
     /// means no cap. Applies on the next Refresh, same as the other
     /// heatmap knobs.
     heatmap_max_depth: Option<u32>,
+    /// Issue #220 follow-up: when `true`, the heatmap filters out
+    /// ascendancy nodes during refresh so the overlay focuses on
+    /// the main passive tree only. Useful for builds that have
+    /// already settled their ascendancy and want to plan the next
+    /// main-tree points.
+    heatmap_hide_ascendancy: bool,
     /// Issue #207 follow-up: cached ranked list from
     /// `rank_node_additions`, populated alongside [`Self::power_overlay`]
     /// on a "Refresh heatmap" click. Drives the new "Top candidate
@@ -625,6 +631,7 @@ impl PobApp {
             heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
             heatmap_top_n: None,
             heatmap_max_depth: None,
+            heatmap_hide_ascendancy: false,
             heatmap_ranked: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
@@ -728,6 +735,7 @@ impl PobApp {
             heatmap_stat: crate::node_power_heatmap::HeatmapStat::default(),
             heatmap_top_n: None,
             heatmap_max_depth: None,
+            heatmap_hide_ascendancy: false,
             heatmap_ranked: None,
             active_tab: Tab::Tree,
             items_state: items_tab::ItemsTabState::default(),
@@ -1335,6 +1343,17 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                              keeps. Refresh to apply.",
                     );
                 }
+                // Issue #220 follow-up: filter ascendancy nodes out
+                // of the heatmap. Useful once the user has finished
+                // their ascendancy planning — the main-tree overlay
+                // reads cleaner without ascendancy notables stealing
+                // attention from the next allocations.
+                ui.checkbox(&mut app.heatmap_hide_ascendancy, "Hide ascendancy")
+                    .on_hover_text(
+                        "Drop ascendancy nodes from the heatmap on the next \
+                         Refresh — focuses the overlay on the main passive \
+                         tree.",
+                    );
                 if ui
                     .button("Refresh heatmap")
                     .on_hover_text(
@@ -2583,6 +2602,12 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
         let reachable =
             crate::node_power_heatmap::nodes_within_depth(&app.tree, &app.character.allocated, d);
         ranked.retain(|s| reachable.contains(&s.node_id));
+    }
+    // Issue #220 follow-up: optionally drop ascendancy nodes so the
+    // overlay focuses on the main passive tree. Applied after the
+    // depth filter so both filters compose.
+    if app.heatmap_hide_ascendancy {
+        ranked = crate::node_power_heatmap::filter_ascendancy_from_ranked(&ranked, &app.tree, true);
     }
     let map = crate::node_power_heatmap::compute_heatmap_inputs_from_ranked(
         &ranked,
