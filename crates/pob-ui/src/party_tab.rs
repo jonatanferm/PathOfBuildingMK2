@@ -424,15 +424,11 @@ pub fn ui(
 /// (zlib + base64), a `<PathOfBuilding>` XML document, or — as a
 /// convenience — an MK2 share code. Returns the parsed teammate
 /// `Character` on success.
+///
+/// Delegates to the shared [`crate::compare_tab::import_build_text`]
+/// dispatcher so the format-detection rule stays in one place.
 fn run_import(input: &str) -> Result<pob_engine::Character, String> {
-    let trimmed = input.trim();
-    if trimmed.starts_with("MK2|") {
-        return pob_engine::import_code(trimmed).map_err(|e| e.to_string());
-    }
-    if trimmed.starts_with('<') {
-        return pob_engine::import_pob_xml(trimmed).map_err(|e| e.to_string());
-    }
-    pob_engine::import_pob_code(trimmed).map_err(|e| e.to_string())
+    crate::compare_tab::import_build_text(input)
 }
 
 /// Walk the teammate `Character`'s socket groups, find every enabled
