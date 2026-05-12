@@ -928,6 +928,41 @@ Item Level: 84
         );
     }
 
+    // ─── slot_to_index ───────────────────────────────────────────────────
+
+    #[test]
+    fn slot_to_index_assigns_a_unique_index_to_every_slot() {
+        // `slot_to_index` is used to key per-slot contributions in
+        // the mod-source map (so e.g. a corrupted helmet doesn't get
+        // its mods attributed to the body armour). The contract is
+        // every `Slot::all()` entry → a distinct `u32`. A regression
+        // that accidentally maps two slots to the same index would
+        // collapse their attribution silently — this test catches
+        // that.
+        use std::collections::HashSet;
+        let mut seen: HashSet<u32> = HashSet::new();
+        for slot in Slot::all() {
+            let idx = slot_to_index(*slot);
+            assert!(
+                seen.insert(idx),
+                "{slot:?} reused index {idx} — already taken by an earlier slot"
+            );
+        }
+        assert_eq!(seen.len(), Slot::all().len());
+    }
+
+    #[test]
+    fn slot_to_index_returns_non_zero_for_every_slot() {
+        // 0 is reserved (callers treat it as "no slot context"), so
+        // every real slot must map to ≥1. The current mapping starts
+        // at Helmet=1 and is contiguous through 17, but the test
+        // doesn't pin a specific range — only the "no slot returns
+        // 0" invariant.
+        for slot in Slot::all() {
+            assert!(slot_to_index(*slot) > 0, "{slot:?} mapped to 0");
+        }
+    }
+
     #[test]
     fn malformed_variant_prefix_falls_through_as_plain_text() {
         let raw = r"Rarity: RARE
