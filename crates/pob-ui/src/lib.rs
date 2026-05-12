@@ -3863,6 +3863,27 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 return;
             };
             let to = parent.join(&new_name);
+            if from == to {
+                // No-op rename — typing the same name back in
+                // shouldn't surface as an error.
+                return;
+            }
+            // PR #495 mirror: refuse to clobber an existing folder.
+            // On Unix `fs::rename` over an existing directory either
+            // silently overwrites or merges (depending on emptiness),
+            // both of which are real data-loss paths. An explicit
+            // status-bar diagnostic is friendlier than the raw OS
+            // error.
+            if to.exists() {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    format!(
+                        "Folder rename failed: target already exists: {}",
+                        to.display()
+                    ),
+                ));
+                return;
+            }
             match std::fs::rename(&from, &to) {
                 Ok(()) => {
                     app.status_message = Some((
