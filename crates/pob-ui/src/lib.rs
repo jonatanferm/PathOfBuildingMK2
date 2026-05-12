@@ -3753,6 +3753,22 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 return;
             };
             let to = parent.join(format!("{new_label}.{ext}"));
+            if from == to {
+                // No-op rename — typing the same name back in shouldn't
+                // surface as an error.
+                return;
+            }
+            // Refuse to clobber an existing file. On Unix `fs::rename`
+            // would silently overwrite the target; Windows fails with
+            // "file exists" already. Either way, an explicit
+            // status-bar diagnostic beats a surprising data-loss path.
+            if to.exists() {
+                app.status_message = Some((
+                    StatusKind::Error,
+                    format!("Rename failed: target already exists: {}", to.display()),
+                ));
+                return;
+            }
             match std::fs::rename(&from, &to) {
                 Ok(()) => {
                     if app.current_build_path.as_ref() == Some(&from) {
