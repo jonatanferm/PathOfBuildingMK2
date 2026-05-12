@@ -344,6 +344,12 @@ pub fn ui(
         // Builds with no category land at the root (was
         // "Uncategorised" in slice 1; now they just appear at the top
         // of the tree).
+        // Issue #213 follow-up: build the unfiltered tree first so the
+        // move-to-folder popup can list every existing folder as a
+        // destination even when the name filter has hidden some
+        // branches from the rendered tree. Then apply the name filter
+        // for the *rendered* view only.
+        let unfiltered_tree = build_folder_tree_sorted(&state.entries, state.sort_mode);
         // Issue #213 follow-up: apply the name filter before tree
         // construction so empty folders (every leaf filtered out)
         // naturally drop out of the rendered tree.
@@ -408,12 +414,13 @@ pub fn ui(
         // delete confirm). Always renders after the tree so the
         // window draws on top.
         render_folder_popup(ui, state, &mut action);
-        // Issue #213 (slice 5): "Move to folder…" popup. Sources its
-        // folder list from the *full* tree (not `tree`, which may be
-        // filtered) so the user can move a build to any folder —
-        // including out of the active folder filter — and so the
-        // emitted target paths are full-tree-relative.
-        render_move_popup(ui, state, &full_tree, &mut action);
+        // Issue #213 (slice 5 + name-filter follow-up): "Move to
+        // folder…" popup. Sources its folder list from the
+        // *unfiltered* tree (not `tree` — which may be folder-isolated
+        // — and not `full_tree` — which has the name filter applied)
+        // so the user can move a build to any folder regardless of
+        // which folders are currently visible in the rendered list.
+        render_move_popup(ui, state, &unfiltered_tree, &mut action);
     }
 
     ui.separator();
@@ -1541,6 +1548,56 @@ mod tests {
             !filtered_paths.contains(&"Levelling".to_owned()),
             "filtered subtree hides sibling folders — passing it to \
              the move popup would strand builds inside the filter",
+        );
+    }
+
+    #[test]
+    fn move_popup_must_use_unfiltered_tree_when_name_filter_active() {
+        // Regression: the name-filter follow-up (PR #453) initially
+        // passed the name-filtered tree to `render_move_popup`, which
+        // hid folders whose every leaf failed the filter. That stranded
+        // builds inside the filter — the user couldn't move a Sirus
+        // build to e.g. "Old/" if "Old/" had no name-matching builds.
+        // The renderer must build a SECOND, unfiltered tree solely for
+        // the move popup so destinations are independent of the
+        // name-filter input.
+        let entries = vec![
+            entry("Cyclone Slayer", Some("Bossing")),
+            entry("Lightning Strike", Some("Levelling")),
+            entry("Cold DoT", Some("Old")),
+        ];
+        // The renderer would filter by "cyclone" so only "Bossing"
+        // survives in the rendered tree. The move popup, however,
+        // should still see every folder including "Levelling" and
+        // "Old" so the user can park the Cyclone build anywhere.
+        let filtered_entries =
+            crate::builds_folder_tree::filter_entries_by_name(&entries, "cyclone");
+        let filtered_tree = build_folder_tree(&filtered_entries);
+        let unfiltered_tree = build_folder_tree(&entries);
+
+        let mut filtered_paths = collect_folder_paths(&filtered_tree);
+        filtered_paths.sort();
+        assert!(
+            !filtered_paths.contains(&"Old".to_owned()),
+            "filtered tree drops folders without matching builds — \
+             expected, but means it would strand the user if reused \
+             as the move-popup destination list",
+        );
+        assert!(
+            !filtered_paths.contains(&"Levelling".to_owned()),
+            "filtered tree also drops Levelling for the same reason",
+        );
+
+        let mut unfiltered_paths = collect_folder_paths(&unfiltered_tree);
+        unfiltered_paths.sort();
+        assert!(
+            unfiltered_paths.contains(&"Old".to_owned()),
+            "the unfiltered tree (which feeds the move popup) MUST \
+             expose every existing folder regardless of the name filter",
+        );
+        assert!(
+            unfiltered_paths.contains(&"Levelling".to_owned()),
+            "Levelling must also be reachable from the move popup",
         );
     }
 }
