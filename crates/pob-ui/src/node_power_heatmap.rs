@@ -160,6 +160,34 @@ pub fn heatmap_legend_stops(count: usize) -> Vec<(f32, egui::Color32)> {
         .collect()
 }
 
+/// Issue #220 follow-up: filter out ascendancy nodes from a ranked
+/// list when the user wants the heatmap focused on the main tree
+/// only. Ascendancy nodes have an `ascendancy_name` set; nodes
+/// missing from `tree.nodes` pass through (defensive — stale `ranked`
+/// data referencing a node that's since been removed from the tree
+/// shouldn't trip the filter).
+///
+/// Pure / no egui; when `hide` is `false` the function is a clone.
+#[must_use]
+pub fn filter_ascendancy_from_ranked(
+    ranked: &[NodeScore],
+    tree: &pob_data::PassiveTree,
+    hide: bool,
+) -> Vec<NodeScore> {
+    if !hide {
+        return ranked.to_vec();
+    }
+    ranked
+        .iter()
+        .filter(|s| {
+            tree.nodes
+                .get(&s.node_id)
+                .map_or(true, |n| n.ascendancy_name.is_none())
+        })
+        .copied()
+        .collect()
+}
+
 /// Issue #220 follow-up: BFS-reachable node set from any `allocated`
 /// seed, expanded up to `max_depth` edges. Used by the heatmap to
 /// restrict the colour overlay to "candidates the user can plausibly
@@ -933,6 +961,128 @@ mod tests {
         // Direct neighbours of 1+2: {3, 4, 5} (plus 1 and 2 which are
         // allocated). Count is 3.
         assert_eq!(count_unallocated_within_depth(&tree, &allocated, 1), 3);
+    }
+
+    #[test]
+    fn filter_ascendancy_passthrough_when_hide_is_false() {
+        // Disabled filter is a clone — every input survives.
+        let tree = ranking_tree();
+        let ranked = vec![
+            NodeScore {
+                node_id: 2,
+                dps_delta: 5.0,
+                ehp_delta: 0.0,
+            },
+            NodeScore {
+                node_id: 3,
+                dps_delta: 3.0,
+                ehp_delta: 0.0,
+            },
+        ];
+        let out = filter_ascendancy_from_ranked(&ranked, &tree, false);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn filter_ascendancy_drops_nodes_with_ascendancy_name() {
+        // Build a tiny tree with one ascendancy node + one main-tree
+        // node. The filter should drop just the ascendancy.
+        use ahash::HashMap;
+        use pob_data::{Node, NodeKind, TreeConstants, TreePoints};
+        use smallvec::SmallVec;
+        let mut nodes: HashMap<NodeId, Node> = HashMap::default();
+        nodes.insert(
+            10,
+            Node {
+                id: 10,
+                name: Some("Main notable".into()),
+                icon: None,
+                ascendancy_name: None,
+                stats: vec![],
+                reminder_text: vec![],
+                kind: NodeKind::Notable,
+                class_start_index: None,
+                group: None,
+                orbit: None,
+                orbit_index: None,
+                out_edges: SmallVec::new(),
+                in_edges: SmallVec::new(),
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            },
+        );
+        nodes.insert(
+            20,
+            Node {
+                id: 20,
+                name: Some("Asc notable".into()),
+                icon: None,
+                ascendancy_name: Some("Slayer".into()),
+                stats: vec![],
+                reminder_text: vec![],
+                kind: NodeKind::Notable,
+                class_start_index: None,
+                group: None,
+                orbit: None,
+                orbit_index: None,
+                out_edges: SmallVec::new(),
+                in_edges: SmallVec::new(),
+                mastery_effects: vec![],
+                expansion_jewel_size: None,
+                jewel_radius: None,
+            },
+        );
+        let tree = PassiveTree {
+            version: "test".into(),
+            tree: "test".into(),
+            classes: vec![],
+            groups: HashMap::default(),
+            nodes,
+            jewel_slots: vec![],
+            min_x: 0,
+            min_y: 0,
+            max_x: 0,
+            max_y: 0,
+            constants: TreeConstants {
+                skills_per_orbit: vec![],
+                orbit_radii: vec![],
+                classes: HashMap::default(),
+                character_attributes: HashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: TreePoints::default(),
+        };
+        let ranked = vec![
+            NodeScore {
+                node_id: 10,
+                dps_delta: 5.0,
+                ehp_delta: 0.0,
+            },
+            NodeScore {
+                node_id: 20,
+                dps_delta: 50.0,
+                ehp_delta: 0.0,
+            },
+        ];
+        let out = filter_ascendancy_from_ranked(&ranked, &tree, true);
+        let ids: Vec<NodeId> = out.iter().map(|s| s.node_id).collect();
+        assert_eq!(ids, vec![10], "ascendancy entry should be filtered out");
+    }
+
+    #[test]
+    fn filter_ascendancy_keeps_unknown_node_ids() {
+        // Defensive: a stale ranked list pointing at a node that's
+        // since been removed from the tree shouldn't trip the filter.
+        // We keep it (the `tree.nodes.get` returns None → map_or true).
+        let tree = ranking_tree();
+        let ranked = vec![NodeScore {
+            node_id: 999,
+            dps_delta: 1.0,
+            ehp_delta: 0.0,
+        }];
+        let out = filter_ascendancy_from_ranked(&ranked, &tree, true);
+        assert_eq!(out.len(), 1);
     }
 
     #[test]
