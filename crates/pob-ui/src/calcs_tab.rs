@@ -120,6 +120,25 @@ pub fn reset_calcs_view(state: &mut CalcsTabState) {
     state.flat_sort = CalcsFlatSort::default();
 }
 
+/// Issue #34 follow-up: count how many output entries survive the
+/// active filter + hide-zero rule. Drives the header chip's "X of Y
+/// stats" readout so the user can tell at a glance whether a filter
+/// is hiding most rows vs. simply showing them all.
+///
+/// Mirrors the filter logic used inline by the flat-view renderer —
+/// keep the two in sync if either rule changes.
+///
+/// Pure / no-egui so the count contract is unit-testable in isolation.
+#[must_use]
+pub fn count_filtered_output_entries(output: &Output, filter: &str, hide_zero: bool) -> usize {
+    let q = filter.trim().to_ascii_lowercase();
+    output
+        .iter()
+        .filter(|(k, _)| q.is_empty() || k.to_ascii_lowercase().contains(&q))
+        .filter(|(_, v)| !hide_zero || v.abs() > 1e-9)
+        .count()
+}
+
 /// Issue #207 follow-up: push `stat` to the front of `deque` LRU-style
 /// — if it's already in there, the existing entry moves to the front
 /// instead of duplicating. The deque is truncated to `max_len` after
@@ -351,7 +370,18 @@ pub fn ui(
                 );
         }
         ui.separator();
-        ui.label(format!("{} stats", output.len()));
+        // "X of Y stats" only when a filter is narrowing the list;
+        // cold-open / no-filter keeps the historical bare "X stats"
+        // form so the chip doesn't add noise to the common path.
+        let total = output.len();
+        let filtering = !state.filter.trim().is_empty() || state.hide_zero;
+        let stats_label = if filtering {
+            let kept = count_filtered_output_entries(output, &state.filter, state.hide_zero);
+            format!("{kept} of {total} stats")
+        } else {
+            format!("{total} stats")
+        };
+        ui.label(stats_label);
         if state.focused_stat.is_some() {
             if ui.button("Close breakdown").clicked() {
                 state.focused_stat = None;
@@ -1300,12 +1330,70 @@ fn kind_label(k: ModType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        calc_row_tooltip_lines, format_output_as_text, mod_tooltip_lines, push_recent_stat,
-        reset_calcs_view, sort_flat_entries, CalcsFlatSort, CalcsTabState, GROUPS,
-        RECENTLY_FOCUSED_MAX,
+        calc_row_tooltip_lines, count_filtered_output_entries, format_output_as_text,
+        mod_tooltip_lines, push_recent_stat, reset_calcs_view, sort_flat_entries, CalcsFlatSort,
+        CalcsTabState, GROUPS, RECENTLY_FOCUSED_MAX,
     };
     use pob_engine::{Mod, Output};
     use std::collections::VecDeque;
+
+    // ─── count_filtered_output_entries ───────────────────────────────────
+
+    fn make_output(pairs: &[(&str, f64)]) -> Output {
+        let mut o = Output::default();
+        for (k, v) in pairs {
+            o.set(*k, *v);
+        }
+        o
+    }
+
+    #[test]
+    fn count_filtered_output_no_filter_returns_full_count() {
+        // The cold-open path: no substring filter, hide_zero off.
+        // Helper must match the raw `Output::len`.
+        let out = make_output(&[("Life", 5000.0), ("Mana", 0.0), ("FireResist", 75.0)]);
+        assert_eq!(count_filtered_output_entries(&out, "", false), 3);
+    }
+
+    #[test]
+    fn count_filtered_output_hide_zero_drops_zero_valued_entries() {
+        // `hide_zero` skips entries whose value is effectively zero
+        // (`abs(v) < 1e-9`) so a polled output dictionary with
+        // unfilled stats doesn't waste a row in the table.
+        let out = make_output(&[("Life", 5000.0), ("Mana", 0.0), ("ColdResist", 0.0)]);
+        assert_eq!(count_filtered_output_entries(&out, "", true), 1);
+    }
+
+    #[test]
+    fn count_filtered_output_substring_filter_is_case_insensitive() {
+        // Mirrors the inline filter rule in the flat-view renderer —
+        // case-insensitive substring against the key.
+        let out = make_output(&[("FireResist", 75.0), ("ColdResist", 75.0), ("Life", 5000.0)]);
+        assert_eq!(count_filtered_output_entries(&out, "resist", false), 2);
+        assert_eq!(count_filtered_output_entries(&out, "RESIST", false), 2);
+        assert_eq!(count_filtered_output_entries(&out, "Life", false), 1);
+    }
+
+    #[test]
+    fn count_filtered_output_filter_and_hide_zero_compose() {
+        // Both filters active simultaneously: keep only resists with
+        // non-zero values.
+        let out = make_output(&[
+            ("FireResist", 75.0),
+            ("ColdResist", 0.0),
+            ("LightningResist", 30.0),
+        ]);
+        assert_eq!(count_filtered_output_entries(&out, "resist", true), 2);
+    }
+
+    #[test]
+    fn count_filtered_output_whitespace_filter_is_no_op() {
+        // Trim semantics — a whitespace-only buffer must NOT exclude
+        // any rows, otherwise the chip flickers as the user types and
+        // backspaces.
+        let out = make_output(&[("Life", 5000.0), ("Mana", 100.0)]);
+        assert_eq!(count_filtered_output_entries(&out, "   ", false), 2);
+    }
 
     #[test]
     fn reset_calcs_view_clears_inflight_ui_state() {
