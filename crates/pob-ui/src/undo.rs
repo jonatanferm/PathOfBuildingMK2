@@ -220,7 +220,7 @@ mod tests {
         // Tabs commonly return `changed = false` (no mutation). The
         // captured snapshot must NOT land on the undo stack — otherwise
         // every idle frame would burn a slot.
-        let mut stack: UndoStack<i32> = UndoStack::default();
+        let stack: UndoStack<i32> = UndoStack::default();
         let state = 5;
         let pending = PendingSnapshot::capture(&state);
         drop(pending);
