@@ -1608,6 +1608,93 @@ mod tests {
         assert!(!reset_gem_picker_filters(&mut s));
     }
 
+    // ─── ColorFilter / TagFilter / TypeFilter .any() ─────────────────────
+
+    #[test]
+    fn color_filter_any_returns_false_for_default() {
+        // Cold-open: no colour chip selected. `.any()` is the predicate
+        // gem_picker_filters_active reads, so its contract is "false
+        // when every flag is off".
+        assert!(!ColorFilter::default().any());
+    }
+
+    #[test]
+    fn color_filter_any_returns_true_for_each_individual_color() {
+        // Each chip flips `.any()` independently — guards against an
+        // accidental short-circuit / typo that would only check a
+        // subset of the colour fields.
+        for filter in [
+            ColorFilter {
+                red: true,
+                ..Default::default()
+            },
+            ColorFilter {
+                green: true,
+                ..Default::default()
+            },
+            ColorFilter {
+                blue: true,
+                ..Default::default()
+            },
+            ColorFilter {
+                white: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(filter.any(), "{filter:?} should report any()");
+        }
+    }
+
+    #[test]
+    fn tag_filter_any_returns_false_for_default() {
+        assert!(!TagFilter::default().any());
+    }
+
+    #[test]
+    fn tag_filter_any_returns_true_for_each_individual_tag() {
+        // Same shape as the colour test — every flag should
+        // independently report `.any() == true`. Iterating over the
+        // mutable references via a tiny closure keeps the assertions
+        // compact.
+        let setters: &[fn(&mut TagFilter)] = &[
+            |f| f.spell = true,
+            |f| f.attack = true,
+            |f| f.aura = true,
+            |f| f.herald = true,
+            |f| f.fire = true,
+            |f| f.cold = true,
+            |f| f.lightning = true,
+            |f| f.chaos = true,
+            |f| f.physical = true,
+        ];
+        for set in setters {
+            let mut f = TagFilter::default();
+            set(&mut f);
+            assert!(f.any(), "{f:?} should report any()");
+        }
+    }
+
+    #[test]
+    fn type_filter_any_returns_false_for_default() {
+        assert!(!TypeFilter::default().any());
+    }
+
+    #[test]
+    fn type_filter_any_returns_true_for_each_individual_type() {
+        let setters: &[fn(&mut TypeFilter)] = &[
+            |f| f.active = true,
+            |f| f.support = true,
+            |f| f.awakened = true,
+            |f| f.exceptional = true,
+            |f| f.vaal = true,
+        ];
+        for set in setters {
+            let mut f = TypeFilter::default();
+            set(&mut f);
+            assert!(f.any(), "{f:?} should report any()");
+        }
+    }
+
     #[test]
     fn hide_legacy_drops_removed_skills() {
         let removed = mk_skill(
