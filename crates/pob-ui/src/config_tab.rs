@@ -17,6 +17,39 @@ pub fn exerted_uptime_to_percent(uptime: f64) -> i32 {
     (uptime.clamp(0.0, 1.0) * 100.0).round() as i32
 }
 
+/// Config tab: how many of the player-side condition toggles are
+/// currently active. PoB's `ConfigOptions.lua` ships a fairly long
+/// catalogue and a build can accumulate stale toggles from earlier
+/// what-if explorations; the header-row chip surfaces "Active: N" so
+/// users can tell at a glance whether they left anything on.
+///
+/// The storage convention (set elsewhere in this file) is "absent or
+/// `false` = off" — checking off in the UI removes the key entirely
+/// rather than writing `false`. We mirror that here by counting only
+/// entries whose value is `true`, so a recovered save that happened to
+/// pin a `false` doesn't bias the count.
+///
+/// Pure / no-egui so the rule stays unit-testable in isolation.
+#[must_use]
+pub fn count_active_conditions(state: &ConfigState) -> usize {
+    state.conditions.values().filter(|v| **v).count()
+}
+
+/// Config tab: turn off every player-side condition by removing every
+/// truthy entry from `state.conditions`. Mirrors what the UI does when
+/// a checkbox is toggled off (`state.conditions.remove(key)`), so a
+/// subsequent serialise round-trip emits the same shape as if the user
+/// had clicked off each box individually.
+///
+/// Returns `true` iff at least one entry was removed — the caller uses
+/// that to gate a recompute so a no-op "Clear" click on an already-
+/// empty conditions map doesn't churn the engine.
+pub fn clear_active_conditions(state: &mut ConfigState) -> bool {
+    let before = state.conditions.len();
+    state.conditions.retain(|_, v| !*v);
+    state.conditions.len() != before
+}
+
 /// Inverse of [`exerted_uptime_to_percent`] — convert a slider %
 /// reading back into the 0.0..=1.0 fraction the engine consumes.
 /// Clamps out-of-range inputs so a stale state can't push the engine
@@ -346,7 +379,26 @@ pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
 
         ui.vertical(|ui| {
             ui.set_min_width(300.0);
-            ui.heading("Conditions");
+            ui.horizontal(|ui| {
+                ui.heading("Conditions");
+                let active = count_active_conditions(state);
+                if active > 0 {
+                    ui.weak(format!("Active: {active}"));
+                    if ui
+                        .small_button("Clear")
+                        .on_hover_text(
+                            "Turn off every player-side condition toggle. \
+                             Stale toggles from earlier what-if runs can \
+                             linger across builds — this resets them in \
+                             one click.",
+                        )
+                        .clicked()
+                        && clear_active_conditions(state)
+                    {
+                        changed = true;
+                    }
+                }
+            });
             ui.separator();
             egui::ScrollArea::vertical()
                 .id_salt("conditions")
@@ -649,5 +701,72 @@ mod tests {
         let mut three = EvalState::default();
         three.set_multiplier("PowerCharge", 3.0);
         assert_eq!(eval_mod(&m, &three), Some(15.0));
+    }
+
+    // ─── count_active_conditions / clear_active_conditions ───────────────
+
+    #[test]
+    fn count_active_conditions_returns_zero_for_default_state() {
+        // Cold-open: no conditions touched. The chip stays hidden.
+        let state = ConfigState::default();
+        assert_eq!(count_active_conditions(&state), 0);
+    }
+
+    #[test]
+    fn count_active_conditions_ignores_false_entries() {
+        // The UI removes the key when toggling off, so a `false` entry
+        // would only arrive from a hand-edited save. The count rule
+        // must not be biased by them — match what the user sees in the
+        // checkbox grid.
+        let mut state = ConfigState::default();
+        state.conditions.insert("FullLife".to_owned(), true);
+        state.conditions.insert("Stale".to_owned(), false);
+        state.conditions.insert("OnFire".to_owned(), true);
+        assert_eq!(count_active_conditions(&state), 2);
+    }
+
+    #[test]
+    fn clear_active_conditions_drops_truthy_entries() {
+        // The clear path removes truthy entries entirely (matching the
+        // UI's "toggle off = remove" convention) so a serialise round-
+        // trip emits the same shape as if the user had unticked each
+        // box individually.
+        let mut state = ConfigState::default();
+        state.conditions.insert("FullLife".to_owned(), true);
+        state.conditions.insert("OnFire".to_owned(), true);
+        let changed = clear_active_conditions(&mut state);
+        assert!(changed);
+        assert_eq!(count_active_conditions(&state), 0);
+        assert!(
+            state.conditions.is_empty(),
+            "truthy entries should be removed, not just zeroed"
+        );
+    }
+
+    #[test]
+    fn clear_active_conditions_preserves_false_entries() {
+        // A hand-edited `false` is meaningful (it pins a non-default),
+        // so the clear path should NOT remove it — only truthy entries
+        // are interpreted as "active".
+        let mut state = ConfigState::default();
+        state.conditions.insert("FullLife".to_owned(), true);
+        state.conditions.insert("Pinned".to_owned(), false);
+        clear_active_conditions(&mut state);
+        assert_eq!(state.conditions.get("Pinned"), Some(&false));
+        assert!(state.conditions.get("FullLife").is_none());
+    }
+
+    #[test]
+    fn clear_active_conditions_no_op_returns_false() {
+        // Empty / already-cleared state: the helper must report no
+        // change so the caller doesn't trigger a recompute. Mirrors
+        // the same gate `set_all_party_members_enabled` uses.
+        let mut state = ConfigState::default();
+        assert!(!clear_active_conditions(&mut state));
+        state.conditions.insert("Pinned".to_owned(), false);
+        assert!(
+            !clear_active_conditions(&mut state),
+            "removing only truthy entries shouldn't fire on a `false`-only map"
+        );
     }
 }
