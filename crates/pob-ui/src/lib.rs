@@ -1221,8 +1221,16 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 // is focused. Wrapping `tree_view.focus` recentres the
                 // viewport on each successive match so the user can
                 // walk the tree without leaving the keyboard.
-                if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    focus_next_search_match(app);
+                if resp.has_focus() {
+                    let (enter, shift) =
+                        ui.input(|i| (i.key_pressed(egui::Key::Enter), i.modifiers.shift));
+                    if enter {
+                        if shift {
+                            focus_prev_search_match(app);
+                        } else {
+                            focus_next_search_match(app);
+                        }
+                    }
                 }
                 if ui.button("Clear").clicked() {
                     app.search.clear();
@@ -1232,6 +1240,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 ui.label(format!("{} matches", app.tree_view.search_matches.len()));
                 if ui.button("Focus next match").clicked() {
                     focus_next_search_match(app);
+                }
+                if ui
+                    .button("Previous match")
+                    .on_hover_text("Shift+Enter from inside the search box also works.")
+                    .clicked()
+                {
+                    focus_prev_search_match(app);
                 }
                 ui.separator();
                 // Issue #215: notable / keystone DB browser toggle. Lives
@@ -2594,20 +2609,79 @@ fn update_search(app: &mut LoadedApp) {
     app.search_focus_index = 0;
 }
 
+/// Issue #205 follow-up: pure helper for cycling the search-match
+/// pointer forward or backward through the ordered match list. Returns
+/// `(target, new_focus_index)`:
+///
+/// * `target` is the index in `search_match_order` that should be
+///   focused now.
+/// * `new_focus_index` is the value to write back to
+///   `search_focus_index` — points at the *next* match a subsequent
+///   forward press would focus, matching the pre-#205 contract.
+///
+/// `forward = true` advances by one — same behaviour as the original
+/// inline math. `forward = false` steps back one from the last
+/// focused match; the special case at `focus_index == 0` wraps to
+/// the last match (matches Cmd+F3 / Shift+F3 behaviour in most
+/// editors, where Shift+search-next from the cold open lands on the
+/// final match rather than the second-to-last).
+///
+/// Returns `None` when `total == 0` so callers can early-out without
+/// re-checking the slice length.
+#[must_use]
+pub fn step_search_index(
+    focus_index: usize,
+    total: usize,
+    forward: bool,
+) -> Option<(usize, usize)> {
+    if total == 0 {
+        return None;
+    }
+    let next_idx = focus_index % total;
+    let target = if forward {
+        next_idx
+    } else if focus_index == 0 {
+        total - 1
+    } else {
+        // `next_idx + 2 * total - 2` keeps the math non-negative even
+        // when `next_idx < 2` (e.g. single-match lists), which the
+        // naive `next_idx + total - 2` underflows on.
+        (next_idx + 2 * total - 2) % total
+    };
+    let new_focus = (target + 1) % total;
+    Some((target, new_focus))
+}
+
 /// Issue #205: focus the viewport on the next search match in `search_match_order`,
 /// advancing `search_focus_index` so successive Enter presses cycle through every
 /// match. No-op when the match list is empty. Returns `true` when a match was focused
 /// so callers can suppress other Enter handlers if they want.
 fn focus_next_search_match(app: &mut LoadedApp) -> bool {
-    if app.search_match_order.is_empty() {
+    let total = app.search_match_order.len();
+    let Some((target, new_focus)) = step_search_index(app.search_focus_index, total, true) else {
         return false;
-    }
-    let idx = app.search_focus_index % app.search_match_order.len();
-    let id = app.search_match_order[idx];
+    };
+    let id = app.search_match_order[target];
     if let Some(p) = app.tree_view.position_of(id) {
         app.tree_view.focus(p.x, p.y);
     }
-    app.search_focus_index = (idx + 1) % app.search_match_order.len();
+    app.search_focus_index = new_focus;
+    true
+}
+
+/// Issue #205 follow-up: mirror of [`focus_next_search_match`] that
+/// steps backward through the match list. Bound to Shift+Enter in the
+/// search input and a sibling "Previous match" button.
+fn focus_prev_search_match(app: &mut LoadedApp) -> bool {
+    let total = app.search_match_order.len();
+    let Some((target, new_focus)) = step_search_index(app.search_focus_index, total, false) else {
+        return false;
+    };
+    let id = app.search_match_order[target];
+    if let Some(p) = app.tree_view.position_of(id) {
+        app.tree_view.focus(p.x, p.y);
+    }
+    app.search_focus_index = new_focus;
     true
 }
 
@@ -3006,6 +3080,10 @@ pub fn hotkey_help_rows(cmd_label: &str) -> Vec<(String, &'static str)> {
         (format!("{cmd_label}+F"), "Focus the Tree-tab search box"),
         (format!("{cmd_label}+,"), "Open Settings"),
         ("Enter".into(), "Cycle to next search match (in box)"),
+        (
+            "Shift+Enter".into(),
+            "Cycle to previous search match (in box)",
+        ),
         ("Esc".into(), "Clear the Tree-tab search"),
         (
             "Click (tree)".into(),
@@ -4617,5 +4695,72 @@ mod hotkey_help_tests {
         let len_before = s.len();
         s.dedup();
         assert_eq!(s.len(), len_before, "duplicate shortcut row: {s:?}");
+    }
+}
+
+#[cfg(test)]
+mod step_search_index_tests {
+    use super::step_search_index;
+
+    #[test]
+    fn empty_match_list_returns_none() {
+        // Both directions short-circuit so the caller can early-out.
+        assert!(step_search_index(0, 0, true).is_none());
+        assert!(step_search_index(0, 0, false).is_none());
+        assert!(step_search_index(5, 0, true).is_none());
+    }
+
+    #[test]
+    fn forward_returns_focus_index_and_advances_by_one() {
+        // The pre-existing focus_next_search_match contract: `target`
+        // is the slot at `focus_index % total`; the new focus_index
+        // advances by one and wraps.
+        assert_eq!(step_search_index(0, 5, true), Some((0, 1)));
+        assert_eq!(step_search_index(3, 5, true), Some((3, 4)));
+        // Wrap at the end of the list.
+        assert_eq!(step_search_index(4, 5, true), Some((4, 0)));
+        // Out-of-band index is normalised via `% total`.
+        assert_eq!(step_search_index(7, 5, true), Some((2, 3)));
+    }
+
+    #[test]
+    fn backward_steps_back_one_from_last_focused() {
+        // After three Enters (focus 0, 1, 2; focus_index now 3),
+        // Shift+Enter should land on match 1 — one back from the
+        // last-focused 2. Subsequent Enter then advances to 2.
+        assert_eq!(step_search_index(3, 5, false), Some((1, 2)));
+    }
+
+    #[test]
+    fn backward_from_cold_open_wraps_to_last_match() {
+        // Special case: focus_index == 0 means "before the first
+        // match". Shift+Enter wraps to the LAST match — matches
+        // Cmd+F3 / Shift+F3 behaviour in most editors.
+        assert_eq!(step_search_index(0, 5, false), Some((4, 0)));
+    }
+
+    #[test]
+    fn backward_handles_single_element_list() {
+        // Defensive: a single-match list shouldn't underflow on the
+        // `total - 2` math.
+        assert_eq!(step_search_index(0, 1, false), Some((0, 0)));
+        assert_eq!(step_search_index(1, 1, false), Some((0, 0)));
+    }
+
+    #[test]
+    fn forward_then_backward_returns_to_previous_focus() {
+        // End-to-end contract: cycle forward through a list, then go
+        // back. Pressing Enter again after Shift+Enter should focus
+        // the match we Shift+Enter'd past.
+        let total = 3;
+        // Press Enter twice from focus_index 0: lands on 0 then 1.
+        let (_, after_enter_1) = step_search_index(0, total, true).unwrap();
+        let (_, after_enter_2) = step_search_index(after_enter_1, total, true).unwrap();
+        // Now Shift+Enter: should land on match 0 (one back from 1).
+        let (prev_target, after_shift) = step_search_index(after_enter_2, total, false).unwrap();
+        assert_eq!(prev_target, 0);
+        // The very next Enter should land back on match 1.
+        let (next_target, _) = step_search_index(after_shift, total, true).unwrap();
+        assert_eq!(next_target, 1);
     }
 }
