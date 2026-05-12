@@ -219,11 +219,14 @@ mod tests {
     fn pending_snapshot_dropped_without_commit_does_not_record() {
         // Tabs commonly return `changed = false` (no mutation). The
         // captured snapshot must NOT land on the undo stack — otherwise
-        // every idle frame would burn a slot.
+        // every idle frame would burn a slot. Letting the `pending`
+        // binding fall out of scope without a `.commit()` simulates
+        // the no-change tab path.
         let stack: UndoStack<i32> = UndoStack::default();
         let state = 5;
-        let pending = PendingSnapshot::capture(&state);
-        drop(pending);
+        {
+            let _pending = PendingSnapshot::capture(&state);
+        }
         assert!(!stack.can_undo());
     }
 

@@ -2904,24 +2904,34 @@ mod tests {
     fn browse_filter_any_non_default_facet_disqualifies() {
         // Each facet should flip is_default independently — guards
         // against an accidental short-circuit in a future refactor.
-        let mut f = BrowseFilter::default();
-        f.search = "x".into();
+        let f = BrowseFilter {
+            search: "x".into(),
+            ..Default::default()
+        };
         assert!(!f.is_default());
 
-        let mut f = BrowseFilter::default();
-        f.slot = Some(BrowseSlot::Helmet);
+        let f = BrowseFilter {
+            slot: Some(BrowseSlot::Helmet),
+            ..Default::default()
+        };
         assert!(!f.is_default());
 
-        let mut f = BrowseFilter::default();
-        f.rarity = Some(Rarity::Unique);
+        let f = BrowseFilter {
+            rarity: Some(Rarity::Unique),
+            ..Default::default()
+        };
         assert!(!f.is_default());
 
-        let mut f = BrowseFilter::default();
-        f.name_filter = "x".into();
+        let f = BrowseFilter {
+            name_filter: "x".into(),
+            ..Default::default()
+        };
         assert!(!f.is_default());
 
-        let mut f = BrowseFilter::default();
-        f.class_filter = "x".into();
+        let f = BrowseFilter {
+            class_filter: "x".into(),
+            ..Default::default()
+        };
         assert!(!f.is_default());
     }
 
@@ -2930,9 +2940,11 @@ mod tests {
         // Trim semantics match the search bar's clear-button rule —
         // a buffer of only whitespace shouldn't make the Reset button
         // light up.
-        let mut f = BrowseFilter::default();
-        f.search = "   ".into();
-        f.name_filter = "\t".into();
+        let f = BrowseFilter {
+            search: "   ".into(),
+            name_filter: "\t".into(),
+            ..Default::default()
+        };
         assert!(f.is_default());
     }
 
