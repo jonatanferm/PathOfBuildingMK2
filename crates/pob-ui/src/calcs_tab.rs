@@ -412,7 +412,13 @@ pub fn ui(
         // user copying "all my resists" doesn't paste every stat
         // alongside them. Cold-open / no-filter path still copies the
         // full dictionary so the historical behaviour is preserved.
-        let filtering = !state.filter.trim().is_empty() || state.hide_zero;
+        // Same gating as the "X of Y stats" chip (#468): in PoB-layout
+        // mode the on-screen filter runs over CalcRows by section /
+        // subsection / label, NOT Output keys, so the helper would
+        // copy a different set than the user sees. Fall back to the
+        // full-dump "Copy output" path there.
+        let filtering =
+            !state.use_pob_layout && (!state.filter.trim().is_empty() || state.hide_zero);
         let copy_label = if filtering {
             "Copy filtered"
         } else {
