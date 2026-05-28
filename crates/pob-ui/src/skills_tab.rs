@@ -248,6 +248,24 @@ impl Default for SkillsTabState {
     }
 }
 
+/// Issue #222: tooltip lines for a saved skill set in the switcher dropdown —
+/// group + gem counts, so the user can size up a set on hover. Pure / no-egui.
+pub fn format_skill_set_tooltip_lines(set: &pob_engine::character::NamedSkillSet) -> Vec<String> {
+    let trimmed = set.name.trim();
+    let display = if trimmed.is_empty() {
+        "(unnamed)"
+    } else {
+        trimmed
+    };
+    let groups = set.groups.len();
+    let gems: usize = set.groups.iter().map(|g| g.gems.len()).sum();
+    vec![
+        display.to_owned(),
+        format!("Groups: {groups}"),
+        format!("Gems: {gems}"),
+    ]
+}
+
 /// Issue #222: clone `character.skill_sets[idx]` in place (the copy lands
 /// immediately after the source with a unique " (copy)" name). Returns the
 /// new index. Mirrors `items_tab::clone_item_set`: route through
@@ -616,7 +634,15 @@ pub fn ui(
                 for (idx, name) in &entries {
                     let is_active = selected_idx == Some(*idx);
                     let label = set_switcher::format_set_dropdown_label(name, *idx, is_active);
-                    if ui.selectable_label(is_active, label).clicked()
+                    let tooltip = character
+                        .skill_sets
+                        .get(*idx)
+                        .map(|s| format_skill_set_tooltip_lines(s).join("\n"))
+                        .unwrap_or_default();
+                    if ui
+                        .selectable_label(is_active, label)
+                        .on_hover_text(tooltip)
+                        .clicked()
                         && !is_active
                         && character.activate_skill_set(*idx)
                     {
@@ -1741,6 +1767,17 @@ mod tests {
         assert_eq!(c.skill_groups[0].label, "Bow");
         // Cloning an out-of-range index is an error.
         assert!(clone_skill_set(&mut c, 9).is_err());
+    }
+
+    #[test]
+    fn skill_set_tooltip_counts_groups_and_gems() {
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 90);
+        c.skill_groups = vec![empty_group("A"), empty_group("B")];
+        c.save_skill_set("Set");
+        let lines = format_skill_set_tooltip_lines(&c.skill_sets[0]);
+        assert_eq!(lines[0], "Set");
+        assert!(lines.iter().any(|l| l == "Groups: 2"), "{lines:?}");
+        assert!(lines.iter().any(|l| l == "Gems: 0"), "{lines:?}");
     }
 
     #[test]
