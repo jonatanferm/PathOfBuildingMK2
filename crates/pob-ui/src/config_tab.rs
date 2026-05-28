@@ -8,6 +8,342 @@
 
 use eframe::egui;
 use pob_engine::character::{ConfigState, EnemyBoss};
+use pob_engine::Character;
+
+use crate::set_switcher;
+
+/// Issue #222: persistent UI state for the config-set switcher + manage popup.
+/// Lives on `LoadedApp` (config sets are stored on `Character`, but the
+/// switcher's transient selection / popup flags are pure UI state).
+#[derive(Debug, Clone, Default)]
+pub struct ConfigTabState {
+    /// Remembered active config set for the switcher dropdown.
+    pub active_config_set_idx: Option<usize>,
+    /// Whether the "Manage config sets" popup is open.
+    pub manage_config_sets_open: bool,
+    /// Buffer for the "save current config as a new set" name field.
+    pub config_set_save_name: String,
+    /// In-progress rename (set index + edit buffer + last error).
+    pub config_set_rename: Option<ConfigSetRenameState>,
+}
+
+/// Issue #222: transient state for the config-set rename popup.
+#[derive(Debug, Clone, Default)]
+pub struct ConfigSetRenameState {
+    pub index: usize,
+    pub buffer: String,
+    pub last_error: Option<String>,
+}
+
+/// Issue #222: clone `character.config_sets[idx]` in place (copy lands right
+/// after the source with a unique " (copy)" name). Returns the new index.
+pub fn clone_config_set(
+    character: &mut Character,
+    idx: usize,
+) -> Result<usize, set_switcher::SetOpError> {
+    use set_switcher::{unique_clone_name, SetOpError};
+    if idx >= character.config_sets.len() {
+        return Err(SetOpError::OutOfRange);
+    }
+    let source_name = character.config_sets[idx].name.clone();
+    let names: Vec<&str> = character
+        .config_sets
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    let new_name = unique_clone_name(&source_name, &names);
+    let source_config = character.config_sets[idx].config.clone();
+
+    // Route through `save_config_set` (which snapshots the *active* config):
+    // stash the live config, swap in the source's, save, restore.
+    let saved = std::mem::replace(&mut character.config, source_config);
+    let pushed_idx = character.save_config_set(new_name);
+    character.config = saved;
+
+    let target_idx = idx + 1;
+    if pushed_idx != target_idx {
+        let entry = character.config_sets.remove(pushed_idx);
+        character.config_sets.insert(target_idx, entry);
+    }
+    Ok(target_idx)
+}
+
+/// Issue #222: swap `character.config_sets[idx]` with its neighbour (`up` =
+/// toward 0). Returns the moved set's new index, or `None` if out of bounds.
+pub fn move_config_set(character: &mut Character, idx: usize, up: bool) -> Option<usize> {
+    let len = character.config_sets.len();
+    if idx >= len {
+        return None;
+    }
+    let target = if up {
+        idx.checked_sub(1)?
+    } else if idx + 1 < len {
+        idx + 1
+    } else {
+        return None;
+    };
+    character.config_sets.swap(idx, target);
+    Some(target)
+}
+
+/// Issue #222: the config-set switcher row (ComboBox + Save-as + Manage
+/// button). Returns true if the active config changed.
+fn render_config_set_switcher(
+    ui: &mut egui::Ui,
+    state: &mut ConfigTabState,
+    character: &mut Character,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Config set:");
+        let total = character.config_sets.len();
+        if let Some(idx) = state.active_config_set_idx {
+            if idx >= total {
+                state.active_config_set_idx = None;
+            }
+        }
+        let selected_idx = state.active_config_set_idx;
+        let closed_label = match selected_idx.and_then(|i| character.config_sets.get(i)) {
+            Some(set) => {
+                set_switcher::format_set_dropdown_label(&set.name, selected_idx.unwrap(), true)
+            }
+            None if total == 0 => "(no saved sets)".to_owned(),
+            None => "Pick a saved set…".to_owned(),
+        };
+        let entries: Vec<(usize, String)> = character
+            .config_sets
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (i, s.name.clone()))
+            .collect();
+        egui::ComboBox::from_id_salt("config-set-switcher")
+            .width(220.0)
+            .selected_text(closed_label)
+            .show_ui(ui, |ui| {
+                if entries.is_empty() {
+                    ui.weak("Save a set below to populate the switcher.");
+                    return;
+                }
+                for (idx, name) in &entries {
+                    let is_active = selected_idx == Some(*idx);
+                    let label = set_switcher::format_set_dropdown_label(name, *idx, is_active);
+                    if ui.selectable_label(is_active, label).clicked()
+                        && !is_active
+                        && character.activate_config_set(*idx)
+                    {
+                        state.active_config_set_idx = Some(*idx);
+                        changed = true;
+                    }
+                }
+            });
+        if ui
+            .add_enabled(total > 0, egui::Button::new("Manage…"))
+            .on_hover_text("Rename / clone / delete / reorder saved config sets.")
+            .clicked()
+        {
+            state.manage_config_sets_open = true;
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label("Save as:");
+        ui.add(
+            egui::TextEdit::singleline(&mut state.config_set_save_name)
+                .hint_text("new set name")
+                .desired_width(160.0),
+        );
+        let name = state.config_set_save_name.trim().to_owned();
+        if ui
+            .add_enabled(!name.is_empty(), egui::Button::new("Save"))
+            .on_hover_text("Save the current configuration as a named config set")
+            .clicked()
+        {
+            let idx = character.save_config_set(name);
+            state.active_config_set_idx = Some(idx);
+            state.config_set_save_name.clear();
+            changed = true;
+        }
+    });
+    changed
+}
+
+/// Issue #222: the "Manage config sets" popup — per-row Load / Rename / Clone
+/// / Delete / reorder. Returns true if anything changed.
+fn render_manage_config_sets_popup(
+    ui: &mut egui::Ui,
+    state: &mut ConfigTabState,
+    character: &mut Character,
+) -> bool {
+    if !state.manage_config_sets_open {
+        return false;
+    }
+    let mut window_open = true;
+    let mut changed = false;
+    egui::Window::new("Manage config sets")
+        .id(egui::Id::new("config-set-manage-window"))
+        .open(&mut window_open)
+        .resizable(false)
+        .collapsible(false)
+        .default_width(360.0)
+        .show(ui.ctx(), |ui| {
+            if character.config_sets.is_empty() {
+                ui.weak("No saved config sets yet — save one from the Config tab.");
+            }
+            let entries: Vec<(usize, String)> = character
+                .config_sets
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (i, s.name.clone()))
+                .collect();
+            for (idx, name) in entries {
+                let is_active = state.active_config_set_idx == Some(idx);
+                let row_label = set_switcher::format_set_dropdown_label(&name, idx, is_active);
+                ui.horizontal(|ui| {
+                    ui.label(row_label);
+                    let is_first = idx == 0;
+                    let is_last = idx + 1 >= character.config_sets.len();
+                    if ui
+                        .add_enabled(!is_first, egui::Button::new("▲").small())
+                        .on_hover_text("Move this set up one position")
+                        .clicked()
+                    {
+                        if let Some(new_idx) = move_config_set(character, idx, true) {
+                            state.active_config_set_idx = set_switcher::shift_active_idx_after_swap(
+                                state.active_config_set_idx,
+                                idx,
+                                new_idx,
+                            );
+                            changed = true;
+                        }
+                    }
+                    if ui
+                        .add_enabled(!is_last, egui::Button::new("▼").small())
+                        .on_hover_text("Move this set down one position")
+                        .clicked()
+                    {
+                        if let Some(new_idx) = move_config_set(character, idx, false) {
+                            state.active_config_set_idx = set_switcher::shift_active_idx_after_swap(
+                                state.active_config_set_idx,
+                                idx,
+                                new_idx,
+                            );
+                            changed = true;
+                        }
+                    }
+                    if ui
+                        .small_button("Load")
+                        .on_hover_text("Activate this set")
+                        .clicked()
+                        && character.activate_config_set(idx)
+                    {
+                        state.active_config_set_idx = Some(idx);
+                        changed = true;
+                    }
+                    if ui.small_button("Rename").clicked() {
+                        state.config_set_rename = Some(ConfigSetRenameState {
+                            index: idx,
+                            buffer: name.clone(),
+                            last_error: None,
+                        });
+                    }
+                    if ui
+                        .small_button("Clone")
+                        .on_hover_text("Duplicate this set in place")
+                        .clicked()
+                        && clone_config_set(character, idx).is_ok()
+                    {
+                        changed = true;
+                    }
+                    if ui
+                        .small_button("Delete")
+                        .on_hover_text("Remove this set")
+                        .clicked()
+                        && character.delete_config_set(idx)
+                    {
+                        state.active_config_set_idx = set_switcher::shift_active_idx_after_delete(
+                            state.active_config_set_idx,
+                            idx,
+                        );
+                        changed = true;
+                    }
+                });
+            }
+            ui.separator();
+            if ui.button("Close").clicked() {
+                state.manage_config_sets_open = false;
+            }
+        });
+    if !window_open {
+        state.manage_config_sets_open = false;
+    }
+    changed
+}
+
+/// Issue #222: small rename popup launched from the manage window.
+fn render_config_set_rename_popup(
+    ui: &mut egui::Ui,
+    state: &mut ConfigTabState,
+    character: &mut Character,
+) -> bool {
+    let Some(mut rename) = state.config_set_rename.take() else {
+        return false;
+    };
+    let mut changed = false;
+    let mut keep_open = true;
+    let mut close = false;
+    egui::Window::new("Rename config set")
+        .id(egui::Id::new("config-set-rename-window"))
+        .open(&mut keep_open)
+        .resizable(false)
+        .collapsible(false)
+        .show(ui.ctx(), |ui| {
+            ui.add(egui::TextEdit::singleline(&mut rename.buffer).hint_text("set name"));
+            if let Some(err) = rename.last_error.as_ref() {
+                ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), err);
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    let result = {
+                        let names: Vec<&str> = character
+                            .config_sets
+                            .iter()
+                            .map(|s| s.name.as_str())
+                            .collect();
+                        set_switcher::validate_rename(&names, rename.index, &rename.buffer)
+                    };
+                    match result {
+                        Ok(canonical) => {
+                            if let Some(set) = character.config_sets.get_mut(rename.index) {
+                                set.name = canonical;
+                                changed = true;
+                            }
+                            close = true;
+                        }
+                        Err(e) => {
+                            rename.last_error = Some(
+                                match e {
+                                    set_switcher::SetOpError::EmptyName => "Name can't be empty.",
+                                    set_switcher::SetOpError::DuplicateName => {
+                                        "Another set already uses that name."
+                                    }
+                                    set_switcher::SetOpError::OutOfRange => {
+                                        "That set no longer exists."
+                                    }
+                                }
+                                .to_owned(),
+                            );
+                        }
+                    }
+                }
+                if ui.button("Cancel").clicked() {
+                    close = true;
+                }
+            });
+        });
+    if keep_open && !close {
+        state.config_set_rename = Some(rename);
+    }
+    changed
+}
 
 /// Issue #19 follow-up: convert `config.exerted_attack_uptime` (0.0..=1.0)
 /// to a whole-percent value for the slider widget. Clamps out-of-range
@@ -234,8 +570,24 @@ const MULTIPLIERS: &[(&str, &str, f64, f64)] = &[
     ("FortificationStacks", "Fortification Stacks", 0.0, 50.0),
 ];
 
-pub fn ui(ui: &mut egui::Ui, state: &mut ConfigState) -> bool {
+pub fn ui(ui: &mut egui::Ui, tab_state: &mut ConfigTabState, character: &mut Character) -> bool {
     let mut changed = false;
+
+    // Issue #222: config-set switcher + save + manage popup, rendered above
+    // the config controls. These operate on `character` directly; the rest of
+    // the tab then borrows `character.config` as `state`.
+    if render_config_set_switcher(ui, tab_state, character) {
+        changed = true;
+    }
+    if render_manage_config_sets_popup(ui, tab_state, character) {
+        changed = true;
+    }
+    if render_config_set_rename_popup(ui, tab_state, character) {
+        changed = true;
+    }
+    ui.separator();
+
+    let state = &mut character.config;
 
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
@@ -642,6 +994,35 @@ mod tests {
     use pob_engine::mod_db::eval_mod;
     use pob_engine::mod_db::EvalState;
     use pob_engine::modifier::{Mod, Tag};
+
+    #[test]
+    fn clone_config_set_inserts_copy_after_source_and_keeps_live_config() {
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 90);
+        c.config.enemy_level = 84;
+        c.save_config_set("Map");
+
+        let new_idx = clone_config_set(&mut c, 0).expect("clone");
+        assert_eq!(new_idx, 1);
+        assert_eq!(c.config_sets.len(), 2);
+        assert_eq!(c.config_sets[0].name, "Map");
+        assert_eq!(c.config_sets[1].name, "Map (copy)");
+        assert_eq!(c.config_sets[1].config.enemy_level, 84);
+        // Live config preserved across the clone.
+        assert_eq!(c.config.enemy_level, 84);
+        assert!(clone_config_set(&mut c, 9).is_err());
+    }
+
+    #[test]
+    fn move_config_set_swaps_neighbours_and_clamps_at_edges() {
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 90);
+        c.save_config_set("A");
+        c.save_config_set("B");
+        assert_eq!(move_config_set(&mut c, 0, false), Some(1));
+        assert_eq!(c.config_sets[0].name, "B");
+        assert_eq!(c.config_sets[1].name, "A");
+        assert_eq!(move_config_set(&mut c, 0, true), None);
+        assert_eq!(move_config_set(&mut c, 9, false), None);
+    }
 
     #[test]
     fn exerted_uptime_round_trips_at_integer_percents() {

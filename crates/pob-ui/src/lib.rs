@@ -166,6 +166,7 @@ struct LoadedApp {
     /// the JSON file when dirty (native-only).
     shared_items: shared_items::SharedItemStore,
     skills_state: skills_tab::SkillsTabState,
+    config_state: config_tab::ConfigTabState,
     calcs_state: calcs_tab::CalcsTabState,
     compare_state: compare_tab::CompareTabState,
     party_state: party_tab::PartyTabState,
@@ -649,6 +650,7 @@ impl PobApp {
                 store
             },
             skills_state: skills_tab::SkillsTabState::default(),
+            config_state: config_tab::ConfigTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
             compare_state: compare_tab::CompareTabState::default(),
             party_state: party_tab::PartyTabState::default(),
@@ -754,6 +756,7 @@ impl PobApp {
                 store
             },
             skills_state: skills_tab::SkillsTabState::default(),
+            config_state: config_tab::ConfigTabState::default(),
             calcs_state: calcs_tab::CalcsTabState::default(),
             compare_state: compare_tab::CompareTabState::default(),
             party_state: party_tab::PartyTabState::default(),
@@ -2337,7 +2340,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // Snapshot the whole character so undo restores everything,
             // mirroring how the engine treats config as character state.
             let pending = PendingSnapshot::capture(&app.build_snapshot());
-            if config_tab::ui(ui, &mut app.character.config) {
+            if config_tab::ui(ui, &mut app.config_state, &mut app.character) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
             }
