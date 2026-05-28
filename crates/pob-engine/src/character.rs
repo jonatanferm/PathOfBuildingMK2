@@ -53,6 +53,9 @@ pub struct CharacterSnapshot {
     /// so pre-config-set `.mk2` files load with an empty list.
     #[serde(default)]
     pub config_sets: Vec<NamedConfigSet>,
+    /// Saved passive-tree specs (#220). `serde(default)` for back-compat.
+    #[serde(default)]
+    pub specs: Vec<NamedSpec>,
     /// Party members — group-play teammates whose auras / curses /
     /// banners propagate onto the player. Each member's `mod_lines`
     /// are parsed by `mod_parser` and added to the player's modDB
@@ -123,6 +126,24 @@ pub struct NamedConfigSet {
     pub name: String,
     #[serde(default)]
     pub config: ConfigState,
+}
+
+/// A named, saved passive-tree spec — the tree allocation captured under a
+/// label, swappable onto the live `Character`. Mirrors PoB's `specList`
+/// (multiple trees per build) and powers the spec switcher / compare overlay
+/// in #220. Stores the serialisable `Vec` forms (the live `Character` keeps
+/// these as `HashSet` / `HashMap`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NamedSpec {
+    pub name: String,
+    #[serde(default)]
+    pub ascendancy: Option<String>,
+    #[serde(default)]
+    pub allocated: Vec<NodeId>,
+    #[serde(default)]
+    pub mastery_selections: Vec<(NodeId, u32)>,
+    #[serde(default)]
+    pub tattoo_overrides: Vec<(NodeId, String)>,
 }
 
 /// Party member — a teammate's projected buffs / curses / banners.
@@ -312,6 +333,7 @@ impl CharacterSnapshot {
             item_sets: c.item_sets.clone(),
             skill_sets: c.skill_sets.clone(),
             config_sets: c.config_sets.clone(),
+            specs: c.specs.clone(),
             party_members: c.party_members.clone(),
             tattoo_overrides: c
                 .tattoo_overrides
@@ -353,6 +375,7 @@ impl CharacterSnapshot {
             item_sets: self.item_sets,
             skill_sets: self.skill_sets,
             config_sets: self.config_sets,
+            specs: self.specs,
             party_members: self.party_members,
             tattoo_overrides: self.tattoo_overrides.into_iter().collect(),
             jewels: self.jewels.into_iter().collect(),
@@ -592,6 +615,10 @@ pub struct Character {
     /// above; this list keeps inactive copies the user can swap in via
     /// `activate_config_set`.
     pub config_sets: Vec<NamedConfigSet>,
+    /// Stored passive-tree specs (#220). The active spec is the live
+    /// `allocated` / `mastery_selections` / `tattoo_overrides` / `ascendancy`;
+    /// this list keeps inactive copies swappable via `activate_spec`.
+    pub specs: Vec<NamedSpec>,
     /// Party members — group-play teammates whose auras / curses /
     /// banners propagate onto the player. Each member's `mod_lines`
     /// are parsed by `mod_parser` and added to the player's modDB
@@ -882,6 +909,7 @@ impl Character {
             item_sets: Vec::new(),
             skill_sets: Vec::new(),
             config_sets: Vec::new(),
+            specs: Vec::new(),
             party_members: Vec::new(),
             tattoo_overrides: HashMap::default(),
             jewels: HashMap::default(),
@@ -1012,6 +1040,69 @@ impl Character {
     pub fn delete_config_set(&mut self, idx: usize) -> bool {
         if idx < self.config_sets.len() {
             self.config_sets.remove(idx);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// #220: save the current tree allocation (allocated nodes, masteries,
+    /// tattoos, ascendancy) as a named entry in `specs`. Overwrites a
+    /// same-named spec in place; returns the index. Mirrors `save_item_set`.
+    pub fn save_spec(&mut self, name: impl Into<String>) -> usize {
+        let name = name.into();
+        let mut allocated: Vec<NodeId> = self.allocated.iter().copied().collect();
+        allocated.sort_unstable();
+        let mut mastery_selections: Vec<(NodeId, u32)> = self
+            .mastery_selections
+            .iter()
+            .map(|(k, v)| (*k, *v))
+            .collect();
+        mastery_selections.sort_by_key(|(k, _)| *k);
+        let mut tattoo_overrides: Vec<(NodeId, String)> = self
+            .tattoo_overrides
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        tattoo_overrides.sort_by_key(|(k, _)| *k);
+        let snapshot = NamedSpec {
+            name: name.clone(),
+            ascendancy: self.ascendancy.clone(),
+            allocated,
+            mastery_selections,
+            tattoo_overrides,
+        };
+        if let Some(idx) = self.specs.iter().position(|s| s.name == name) {
+            self.specs[idx] = snapshot;
+            idx
+        } else {
+            self.specs.push(snapshot);
+            self.specs.len() - 1
+        }
+    }
+
+    /// #220: make `specs[idx]` the active tree allocation, swapping its nodes /
+    /// masteries / tattoos / ascendancy onto the live character. Returns true
+    /// if the swap happened. The previously active spec is NOT auto-saved.
+    pub fn activate_spec(&mut self, idx: usize) -> bool {
+        let Some(spec) = self.specs.get(idx) else {
+            return false;
+        };
+        self.ascendancy = spec.ascendancy.clone();
+        self.allocated = spec.allocated.iter().copied().collect();
+        self.mastery_selections = spec.mastery_selections.iter().copied().collect();
+        self.tattoo_overrides = spec
+            .tattoo_overrides
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        true
+    }
+
+    /// #220: remove the named spec from `specs`. Returns true if removed.
+    pub fn delete_spec(&mut self, idx: usize) -> bool {
+        if idx < self.specs.len() {
+            self.specs.remove(idx);
             true
         } else {
             false
@@ -1264,5 +1355,43 @@ mod config_set_tests {
         assert_eq!(c.config_sets.len(), 1);
         assert_eq!(c.config_sets[0].name, "Boss");
         assert!(!c.activate_config_set(9));
+    }
+}
+
+#[cfg(test)]
+mod spec_tests {
+    use super::*;
+
+    #[test]
+    fn spec_save_activate_delete() {
+        let mut c = Character::new(ClassRef::ranger(), 90);
+        c.allocated.insert(101);
+        c.allocated.insert(202);
+        c.mastery_selections.insert(50, 3);
+        c.tattoo_overrides.insert(60, "tat".to_owned());
+        c.ascendancy = Some("Deadeye".to_owned());
+        assert_eq!(c.save_spec("Leveling"), 0);
+
+        // Change the live tree, save a second spec.
+        c.allocated.clear();
+        c.allocated.insert(303);
+        c.ascendancy = Some("Pathfinder".to_owned());
+        assert_eq!(c.save_spec("Endgame"), 1);
+
+        // Activating the first restores its full allocation.
+        assert!(c.activate_spec(0));
+        assert!(c.allocated.contains(&101) && c.allocated.contains(&202));
+        assert!(!c.allocated.contains(&303));
+        assert_eq!(c.mastery_selections.get(&50), Some(&3));
+        assert_eq!(c.tattoo_overrides.get(&60).map(String::as_str), Some("tat"));
+        assert_eq!(c.ascendancy.as_deref(), Some("Deadeye"));
+
+        // Overwrite by name, then delete; out-of-range is a no-op.
+        assert_eq!(c.save_spec("Leveling"), 0);
+        assert_eq!(c.specs.len(), 2);
+        assert!(c.delete_spec(0));
+        assert_eq!(c.specs.len(), 1);
+        assert_eq!(c.specs[0].name, "Endgame");
+        assert!(!c.activate_spec(9));
     }
 }
