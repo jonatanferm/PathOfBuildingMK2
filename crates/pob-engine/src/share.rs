@@ -32,6 +32,37 @@ pub fn export_code(character: &Character) -> Result<String, ShareError> {
     Ok(format!("MK2|{b64}"))
 }
 
+/// A stable fingerprint of everything that gets persisted when a build is
+/// saved (the full [`CharacterSnapshot`] — class, tree, items, item sets,
+/// every socket group's gems, masteries, tattoos, jewels, config, notes,
+/// …). Two characters that would serialise to the same `.mk2` share the
+/// same fingerprint; any change to persisted state changes it.
+///
+/// The UI uses this to decide whether a build is dirty relative to disk.
+/// It deliberately does **not** reuse the calc-input fingerprint, which
+/// omits non-calc-but-saved state (support-gem links, item sets, tattoos,
+/// notes, …) — editing those left a build looking "saved" while silently
+/// dropping the edits from autosave.
+///
+/// Determinism: the snapshot's `HashMap`-derived `Vec`s are sorted, and we
+/// serialise through `serde_json::Value` (a `BTreeMap`, so object keys —
+/// e.g. config conditions/multipliers — are emitted in sorted order). The
+/// result is therefore independent of `HashMap` iteration order.
+pub fn save_state_fingerprint(character: &Character) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut snap = CharacterSnapshot::from_character(character);
+    snap.tattoo_overrides.sort_by_key(|(id, _)| *id);
+    snap.jewels.sort_by_key(|(id, _)| *id);
+    snap.mastery_selections.sort_by_key(|(id, _)| *id);
+    // `serde_json::Value`'s map is a `BTreeMap` (the `preserve_order`
+    // feature is off), so converting through it sorts every object's keys.
+    let value = serde_json::to_value(&snap).unwrap_or(serde_json::Value::Null);
+    let bytes = serde_json::to_vec(&value).unwrap_or_default();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
 pub fn import_code(code: &str) -> Result<Character, ShareError> {
     let body = code
         .trim()
@@ -227,5 +258,69 @@ mod tests {
         let padded = format!("\n  {code}\n\n");
         let back = import_item_set(&padded).expect("import with padding");
         assert_eq!(back.name, "Bossing");
+    }
+
+    #[test]
+    fn save_fingerprint_covers_non_calc_persisted_state() {
+        // Regression: dirty tracking used to reuse the calc-input
+        // fingerprint, which omits these fields, so editing them left a
+        // build looking "saved" and dropped the edits from autosave. The
+        // save fingerprint must change when any of them changes.
+        let base = Character::new(ClassRef::ranger(), 67);
+        let fp0 = save_state_fingerprint(&base);
+
+        let mut c = base.clone();
+        c.notes = "boss setup".to_owned();
+        assert_ne!(save_state_fingerprint(&c), fp0, "notes");
+
+        let mut c = base.clone();
+        c.item_sets.push(mk_named_set("Mapping"));
+        assert_ne!(save_state_fingerprint(&c), fp0, "item sets");
+
+        let mut c = base.clone();
+        c.tattoo_overrides.insert(123, "tattoo_x".to_owned());
+        assert_ne!(save_state_fingerprint(&c), fp0, "tattoos");
+
+        let mut c = base.clone();
+        c.mastery_selections.insert(456, 7);
+        assert_ne!(save_state_fingerprint(&c), fp0, "masteries");
+
+        // Support-gem links live inside skill_groups.
+        let mut c = base.clone();
+        c.skill_groups.push(crate::character::SocketGroup {
+            label: "Body".to_owned(),
+            main_active_skill_index: 1,
+            enabled: true,
+            ..Default::default()
+        });
+        assert_ne!(save_state_fingerprint(&c), fp0, "skill groups");
+
+        let mut c = base.clone();
+        c.config.conditions.insert("Effective".to_owned(), true);
+        assert_ne!(save_state_fingerprint(&c), fp0, "config conditions");
+    }
+
+    #[test]
+    fn save_fingerprint_stable_across_code_round_trip() {
+        // The fingerprint must be independent of HashMap iteration order:
+        // a full export_code → import_code round trip rebuilds the
+        // map-backed fields (tattoos, masteries, config), and the
+        // fingerprint must come out identical.
+        let mut c = Character::new(ClassRef::ranger(), 90);
+        c.notes = "stable".to_owned();
+        for id in [5u32, 1, 9, 3, 7] {
+            c.tattoo_overrides.insert(id, format!("t{id}"));
+            c.mastery_selections.insert(id + 100, id);
+        }
+        c.config
+            .conditions
+            .insert("UsePowerCharges".to_owned(), true);
+        c.config.conditions.insert("Effective".to_owned(), false);
+        c.item_sets.push(mk_named_set("A"));
+        c.item_sets.push(mk_named_set("B"));
+
+        let fp = save_state_fingerprint(&c);
+        let round = import_code(&export_code(&c).unwrap()).unwrap();
+        assert_eq!(save_state_fingerprint(&round), fp);
     }
 }
