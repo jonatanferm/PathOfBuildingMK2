@@ -323,6 +323,20 @@ mod tests {
     }
 
     #[test]
+    fn config_sets_round_trip_through_code() {
+        // A saved config set survives export_code → import_code with its
+        // name and config payload intact.
+        let mut c = Character::new(ClassRef::ranger(), 90);
+        c.config.enemy_level = 84;
+        c.save_config_set("Map");
+
+        let back = import_code(&export_code(&c).unwrap()).unwrap();
+        assert_eq!(back.config_sets.len(), 1);
+        assert_eq!(back.config_sets[0].name, "Map");
+        assert_eq!(back.config_sets[0].config.enemy_level, 84);
+    }
+
+    #[test]
     fn save_fingerprint_stable_across_code_round_trip() {
         // The fingerprint must be independent of HashMap iteration order:
         // a full export_code → import_code round trip rebuilds the

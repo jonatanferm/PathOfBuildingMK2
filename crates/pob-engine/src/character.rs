@@ -49,6 +49,10 @@ pub struct CharacterSnapshot {
     /// so pre-skill-set `.mk2` files load with an empty list.
     #[serde(default)]
     pub skill_sets: Vec<NamedSkillSet>,
+    /// Saved config loadouts (the UI's named config sets). `serde(default)`
+    /// so pre-config-set `.mk2` files load with an empty list.
+    #[serde(default)]
+    pub config_sets: Vec<NamedConfigSet>,
     /// Party members — group-play teammates whose auras / curses /
     /// banners propagate onto the player. Each member's `mod_lines`
     /// are parsed by `mod_parser` and added to the player's modDB
@@ -108,6 +112,17 @@ pub struct NamedSkillSet {
     pub groups: Vec<SocketGroupSnapshot>,
     #[serde(default = "one")]
     pub main_socket_group: u32,
+}
+
+/// A named, saved config loadout — the whole [`ConfigState`] (enemy stats,
+/// conditional toggles, custom mods, …) captured under a label, swappable
+/// onto the live `Character` the way [`NamedItemSet`] swaps `items`. Lets a
+/// build keep e.g. "Mapping" vs "Boss" config and switch between them.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NamedConfigSet {
+    pub name: String,
+    #[serde(default)]
+    pub config: ConfigState,
 }
 
 /// Party member — a teammate's projected buffs / curses / banners.
@@ -296,6 +311,7 @@ impl CharacterSnapshot {
             pantheon_minor: c.pantheon_minor,
             item_sets: c.item_sets.clone(),
             skill_sets: c.skill_sets.clone(),
+            config_sets: c.config_sets.clone(),
             party_members: c.party_members.clone(),
             tattoo_overrides: c
                 .tattoo_overrides
@@ -336,6 +352,7 @@ impl CharacterSnapshot {
             pantheon_minor: self.pantheon_minor,
             item_sets: self.item_sets,
             skill_sets: self.skill_sets,
+            config_sets: self.config_sets,
             party_members: self.party_members,
             tattoo_overrides: self.tattoo_overrides.into_iter().collect(),
             jewels: self.jewels.into_iter().collect(),
@@ -571,6 +588,10 @@ pub struct Character {
     /// `main_socket_group` above; this list keeps inactive copies the user
     /// can swap in via `activate_skill_set`.
     pub skill_sets: Vec<NamedSkillSet>,
+    /// Stored config-loadout saves. The active config is the `config` field
+    /// above; this list keeps inactive copies the user can swap in via
+    /// `activate_config_set`.
+    pub config_sets: Vec<NamedConfigSet>,
     /// Party members — group-play teammates whose auras / curses /
     /// banners propagate onto the player. Each member's `mod_lines`
     /// are parsed by `mod_parser` and added to the player's modDB
@@ -860,6 +881,7 @@ impl Character {
             pantheon_minor: MinorGod::default(),
             item_sets: Vec::new(),
             skill_sets: Vec::new(),
+            config_sets: Vec::new(),
             party_members: Vec::new(),
             tattoo_overrides: HashMap::default(),
             jewels: HashMap::default(),
@@ -950,6 +972,46 @@ impl Character {
     pub fn delete_skill_set(&mut self, idx: usize) -> bool {
         if idx < self.skill_sets.len() {
             self.skill_sets.remove(idx);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Save the current `config` as a named entry in `config_sets`. Returns
+    /// the index of the new entry. If a set with the given name already
+    /// exists, overwrites it and returns its index. Mirrors
+    /// [`Character::save_item_set`].
+    pub fn save_config_set(&mut self, name: impl Into<String>) -> usize {
+        let name = name.into();
+        let snapshot = NamedConfigSet {
+            name: name.clone(),
+            config: self.config.clone(),
+        };
+        if let Some(idx) = self.config_sets.iter().position(|s| s.name == name) {
+            self.config_sets[idx] = snapshot;
+            idx
+        } else {
+            self.config_sets.push(snapshot);
+            self.config_sets.len() - 1
+        }
+    }
+
+    /// Make `config_sets[idx]` the active config, swapping it onto `config`.
+    /// Returns true if the swap happened. The previously active config is
+    /// NOT auto-saved — call `save_config_set` first to keep it.
+    pub fn activate_config_set(&mut self, idx: usize) -> bool {
+        let Some(set) = self.config_sets.get(idx) else {
+            return false;
+        };
+        self.config = set.config.clone();
+        true
+    }
+
+    /// Remove the named set from `config_sets`. Returns true if removed.
+    pub fn delete_config_set(&mut self, idx: usize) -> bool {
+        if idx < self.config_sets.len() {
+            self.config_sets.remove(idx);
             true
         } else {
             false
@@ -1172,5 +1234,35 @@ mod skill_set_tests {
         assert_eq!(c.skill_sets.len(), 1);
         assert_eq!(c.skill_sets[0].name, "B");
         assert!(!c.activate_skill_set(5));
+    }
+}
+
+#[cfg(test)]
+mod config_set_tests {
+    use super::*;
+
+    #[test]
+    fn config_set_save_activate_delete() {
+        let mut c = Character::new(ClassRef::ranger(), 90);
+        c.config.enemy_level = 84;
+        assert_eq!(c.save_config_set("Map"), 0);
+
+        // A different config saved under a second name.
+        c.config.enemy_level = 100;
+        assert_eq!(c.save_config_set("Boss"), 1);
+
+        // Activating "Map" restores its config.
+        assert!(c.activate_config_set(0));
+        assert_eq!(c.config.enemy_level, 84);
+
+        // Saving under an existing name overwrites in place.
+        assert_eq!(c.save_config_set("Map"), 0);
+        assert_eq!(c.config_sets.len(), 2);
+
+        // Delete by index; out-of-range is a no-op returning false.
+        assert!(c.delete_config_set(0));
+        assert_eq!(c.config_sets.len(), 1);
+        assert_eq!(c.config_sets[0].name, "Boss");
+        assert!(!c.activate_config_set(9));
     }
 }
