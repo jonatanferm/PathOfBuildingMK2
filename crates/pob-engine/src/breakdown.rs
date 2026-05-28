@@ -421,9 +421,33 @@ pub fn derive_for(env: &Env, output_key: &str) -> Option<Breakdown> {
         // attributes` mods stack into a single BASE total. INC mods on
         // attributes (rare, ascendancy / unique jewels) compose through
         // `pool_basic`'s standard chain.
-        "Strength" => Some(pool_basic(env, "Strength")),
-        "Dexterity" => Some(pool_basic(env, "Dexterity")),
-        "Intelligence" => Some(pool_basic(env, "Intelligence")),
+        "Strength" => Some(pool_basic_with_extra_base(
+            env,
+            "Strength",
+            &[
+                "AllAttributes",
+                "StrengthAndDexterity",
+                "StrengthAndIntelligence",
+            ],
+        )),
+        "Dexterity" => Some(pool_basic_with_extra_base(
+            env,
+            "Dexterity",
+            &[
+                "AllAttributes",
+                "StrengthAndDexterity",
+                "DexterityAndIntelligence",
+            ],
+        )),
+        "Intelligence" => Some(pool_basic_with_extra_base(
+            env,
+            "Intelligence",
+            &[
+                "AllAttributes",
+                "StrengthAndIntelligence",
+                "DexterityAndIntelligence",
+            ],
+        )),
 
         // Pools.
         "Life" => Some(pool_with_attribute(env, "Life", "Strength", 2.0)),
@@ -1595,19 +1619,41 @@ fn capped_chance(
 /// contributor mods enumerated under its source list. Pure helper —
 /// shape mirrors `pool_with_attribute` but skips the attribute step.
 fn pool_basic(env: &Env, key: &str) -> Breakdown {
+    pool_basic_with_extra_base(env, key, &[])
+}
+
+/// Like [`pool_basic`], but the Base step also folds in `extra_base_keys`:
+/// their BASE mods are summed into the base value and listed as sources.
+/// Increased / More still apply to `key` alone. Used for attributes, whose
+/// base includes `AllAttributes` and the paired-attribute keys (e.g.
+/// Strength counts `StrengthAndDexterity` + `StrengthAndIntelligence`) —
+/// matching `perform_basic_stats` so the breakdown doesn't under-show the
+/// total.
+fn pool_basic_with_extra_base(env: &Env, key: &str, extra_base_keys: &[&str]) -> Breakdown {
     let cfg = QueryCfg::default();
-    let pool_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, key);
+    let mut pool_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, key);
+    for k in extra_base_keys {
+        pool_base += env.mod_db.sum(ModType::Base, &cfg, &env.state, k);
+    }
     let inc_total = env.mod_db.sum(ModType::Inc, &cfg, &env.state, key);
     let more_total = env.mod_db.more(&cfg, &env.state, key);
     let total = env.output.get(key);
 
     let mut steps = Vec::new();
-    let base_mods: Vec<ModSource> = env
+    let mut base_mods: Vec<ModSource> = env
         .mod_db
         .iter_named(key)
         .filter(|m| m.kind == ModType::Base)
         .map(ModSource::from_mod)
         .collect();
+    for k in extra_base_keys {
+        base_mods.extend(
+            env.mod_db
+                .iter_named(k)
+                .filter(|m| m.kind == ModType::Base)
+                .map(ModSource::from_mod),
+        );
+    }
     steps.push(
         BreakdownStep::label("Base")
             .with_value(pool_base)
@@ -5594,6 +5640,31 @@ mod tests {
     use super::*;
     use crate::env::Env;
     use crate::modifier::{Mod, Source};
+
+    #[test]
+    fn attribute_breakdown_folds_in_paired_and_all_attributes() {
+        // The Strength breakdown's Base step must include AllAttributes and
+        // the paired-attribute keys, matching `perform_basic_stats`. Before
+        // the fix it showed only the bare "Strength" mods, so the base
+        // under-shot the computed total.
+        let mut env = Env::default();
+        env.mod_db.add(Mod::base("Strength", 20.0));
+        env.mod_db.add(Mod::base("AllAttributes", 3.0));
+        env.mod_db.add(Mod::base("StrengthAndDexterity", 10.0));
+        env.mod_db.add(Mod::base("StrengthAndIntelligence", 5.0));
+        // Computed total: 20 + 3 + 10 + 5 = 38.
+        env.output.set("Strength", 38.0);
+
+        let bd = derive_for(&env, "Strength").expect("Strength breakdown");
+        let base = bd
+            .steps
+            .iter()
+            .find(|s| s.label == "Base")
+            .expect("Base step");
+        assert_eq!(base.value, Some(38.0));
+        // All four BASE mods surface as sources.
+        assert_eq!(base.sources.len(), 4);
+    }
 
     fn env_with_output() -> Env {
         let mut env = Env::default();
