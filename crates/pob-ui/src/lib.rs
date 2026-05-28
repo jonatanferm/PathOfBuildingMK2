@@ -2517,18 +2517,27 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         &app.tree,
         app.sprites.as_ref(),
     );
-    // Issue #100: track dirty state relative to what's currently on
-    // disk. When the recomputed input hash diverges from the
-    // last-saved hash, mark the build dirty (unless we already are);
-    // when they match again (e.g. after auto-save or manual save),
-    // clear the dirty mark. wasm has no disk so the field gates out.
+    // Issue #100: track dirty state relative to what's currently on disk.
+    // The fingerprint here is the *saved-state* fingerprint — a hash of
+    // everything `export_code` persists (gems, item sets, tattoos, notes,
+    // masteries, …). It deliberately does NOT reuse `last_compute_hash`
+    // (the calc-input fingerprint), which omits saved-but-not-computed
+    // state: editing a support gem, item set, tattoo, or the notes left
+    // the build looking "saved" and silently dropped those edits from
+    // autosave. wasm has no disk, so the whole block gates out.
+    // Computed on native only (autosave is native-only); on wasm there's
+    // no disk, so the seed value is irrelevant.
+    #[cfg(not(target_arch = "wasm32"))]
+    let save_fp = pob_engine::save_state_fingerprint(&app.character);
+    #[cfg(target_arch = "wasm32")]
+    let save_fp = 0u64;
     if app.pending_seed_saved_hash {
-        app.last_saved_hash = app.last_compute_hash;
+        app.last_saved_hash = save_fp;
         app.pending_seed_saved_hash = false;
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        if app.last_compute_hash != app.last_saved_hash {
+        if save_fp != app.last_saved_hash {
             if app.dirty_since.is_none() {
                 app.dirty_since = Some(std::time::Instant::now());
             }
@@ -2573,7 +2582,7 @@ fn try_autosave(app: &mut LoadedApp) {
     };
     match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
         Ok(()) => {
-            app.last_saved_hash = app.last_compute_hash;
+            app.last_saved_hash = pob_engine::save_state_fingerprint(&app.character);
             app.dirty_since = None;
             app.status_message = Some((
                 StatusKind::Info,
@@ -3705,7 +3714,7 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
             match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
                 Ok(()) => {
                     app.current_build_path = Some(path.clone());
-                    app.last_saved_hash = app.last_compute_hash;
+                    app.last_saved_hash = pob_engine::save_state_fingerprint(&app.character);
                     app.dirty_since = None;
                     app.status_message =
                         Some((StatusKind::Info, format!("Saved to {}", path.display())));
@@ -4112,7 +4121,7 @@ fn save_build(app: &mut LoadedApp, force_dialog: bool) {
     match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
         Ok(()) => {
             app.current_build_path = Some(path.clone());
-            app.last_saved_hash = app.last_compute_hash;
+            app.last_saved_hash = pob_engine::save_state_fingerprint(&app.character);
             app.dirty_since = None;
             app.status_message = Some((StatusKind::Info, format!("Saved to {}", path.display())));
         }
