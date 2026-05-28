@@ -19,10 +19,12 @@ use std::path::PathBuf;
 /// loads cleanly when this struct grows new fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserSettings {
-    /// UI scale factor applied via `egui::Context::set_pixels_per_point`.
-    /// 1.0 is the default native pixel ratio. Clamped to `0.5..=2.5` on
-    /// load so a corrupted value can't shrink the window to nothing or
-    /// blow it past the screen.
+    /// UI zoom factor applied via `egui::Context::set_zoom_factor`, i.e. a
+    /// multiplier on the display's native pixel ratio (so it stays correct
+    /// on HiDPI / retina screens — `set_pixels_per_point` would override the
+    /// device ratio and render tiny). 1.0 is native size; the default is
+    /// slightly enlarged. Clamped to `0.5..=2.5` on load so a corrupted
+    /// value can't shrink the UI to nothing or blow it past the screen.
     #[serde(default = "default_ui_scale")]
     pub ui_scale: f32,
     /// Lifetime of a toast notification, in seconds. PoB's default is
@@ -74,7 +76,10 @@ fn default_theme() -> Theme {
 }
 
 fn default_ui_scale() -> f32 {
-    1.0
+    // Slightly enlarged by default — at native size (1.0) the dense PoB
+    // layout reads very small on high-resolution displays. Users can drop
+    // it back to 1.0 (or up to 2.5) from Settings → UI scale.
+    1.25
 }
 
 fn default_toast_lifetime() -> f64 {
@@ -214,7 +219,7 @@ mod tests {
     #[test]
     fn default_values_match_documented_constants() {
         let s = UserSettings::default();
-        assert!((s.ui_scale - 1.0).abs() < f32::EPSILON);
+        assert!((s.ui_scale - 1.25).abs() < f32::EPSILON);
         assert!((s.toast_lifetime_secs - 5.0).abs() < f64::EPSILON);
     }
 

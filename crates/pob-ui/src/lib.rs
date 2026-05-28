@@ -1931,10 +1931,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         render_hotkey_help_modal(ctx, &mut app.show_hotkey_help);
     }
 
-    // Issue #225: settings modal. Applies the UI scale each frame so
-    // the picked value takes effect immediately (egui caches the
-    // pixels_per_point — a no-op when unchanged, so this is cheap).
-    ctx.set_pixels_per_point(app.user_settings.ui_scale);
+    // Issue #225: settings modal. Applies the UI scale each frame so the
+    // picked value takes effect immediately. Use `set_zoom_factor` (a
+    // multiplier on the display's native pixel ratio) rather than
+    // `set_pixels_per_point` (an absolute override): the latter ignored the
+    // device pixel ratio, so on a HiDPI / retina display it forced the UI
+    // far smaller than native. egui caches the value, so re-applying an
+    // unchanged factor is a no-op.
+    ctx.set_zoom_factor(app.user_settings.ui_scale);
     // Apply the theme too — egui's `set_visuals` is also cheap
     // when the visuals haven't changed (it compares by struct
     // equality before swapping).
