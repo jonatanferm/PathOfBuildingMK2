@@ -19,7 +19,35 @@ use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use std::io::{Read, Write};
 
-use crate::character::{Character, CharacterSnapshot, NamedItemSet};
+use crate::character::{Character, CharacterSnapshot, NamedConfigSet, NamedItemSet, NamedSkillSet};
+
+/// Encode a serialisable value as `<prefix><url-safe-base64(zlib(json))>` —
+/// the shared transport for every `MK2*SET|` clipboard share code.
+fn encode_set<T: serde::Serialize>(prefix: &str, value: &T) -> Result<String, ShareError> {
+    let json = serde_json::to_vec(value).map_err(ShareError::Json)?;
+    let mut compressed = Vec::with_capacity(json.len() / 2);
+    let mut enc = ZlibEncoder::new(&mut compressed, Compression::best());
+    enc.write_all(&json).map_err(ShareError::Io)?;
+    enc.finish().map_err(ShareError::Io)?;
+    Ok(format!("{prefix}{}", URL_SAFE_NO_PAD.encode(&compressed)))
+}
+
+/// Inverse of [`encode_set`]. The strict prefix gate means a code copied from
+/// a *different* set kind (or the whole-build `MK2|` format) returns a clean
+/// `WrongPrefix` rather than a half-decoded value.
+fn decode_set<T: serde::de::DeserializeOwned>(prefix: &str, code: &str) -> Result<T, ShareError> {
+    let body = code
+        .trim()
+        .strip_prefix(prefix)
+        .ok_or(ShareError::WrongPrefix)?;
+    let compressed = URL_SAFE_NO_PAD
+        .decode(body.as_bytes())
+        .map_err(|e| ShareError::Decode(e.to_string()))?;
+    let mut dec = ZlibDecoder::new(compressed.as_slice());
+    let mut json = Vec::new();
+    dec.read_to_end(&mut json).map_err(ShareError::Io)?;
+    serde_json::from_slice(&json).map_err(ShareError::Json)
+}
 
 pub fn export_code(character: &Character) -> Result<String, ShareError> {
     let snap = CharacterSnapshot::from_character(character);
@@ -105,13 +133,29 @@ impl std::error::Error for ShareError {}
 /// one loadout. Use this as the payload of "Export to clipboard" in
 /// the Items-tab manage popup.
 pub fn export_item_set(set: &NamedItemSet) -> Result<String, ShareError> {
-    let json = serde_json::to_vec(set).map_err(ShareError::Json)?;
-    let mut compressed = Vec::with_capacity(json.len() / 2);
-    let mut enc = ZlibEncoder::new(&mut compressed, Compression::best());
-    enc.write_all(&json).map_err(ShareError::Io)?;
-    enc.finish().map_err(ShareError::Io)?;
-    let b64 = URL_SAFE_NO_PAD.encode(&compressed);
-    Ok(format!("MK2SET|{b64}"))
+    encode_set("MK2SET|", set)
+}
+
+/// Issue #212: serialise a single [`NamedSkillSet`] into the `MK2SKILLSET|…`
+/// clipboard format (same transport as [`export_item_set`], distinct prefix).
+pub fn export_skill_set(set: &NamedSkillSet) -> Result<String, ShareError> {
+    encode_set("MK2SKILLSET|", set)
+}
+
+/// Inverse of [`export_skill_set`].
+pub fn import_skill_set(code: &str) -> Result<NamedSkillSet, ShareError> {
+    decode_set("MK2SKILLSET|", code)
+}
+
+/// Issue #212: serialise a single [`NamedConfigSet`] into the
+/// `MK2CONFIGSET|…` clipboard format.
+pub fn export_config_set(set: &NamedConfigSet) -> Result<String, ShareError> {
+    encode_set("MK2CONFIGSET|", set)
+}
+
+/// Inverse of [`export_config_set`].
+pub fn import_config_set(code: &str) -> Result<NamedConfigSet, ShareError> {
+    decode_set("MK2CONFIGSET|", code)
 }
 
 /// Issue #212: inverse of [`export_item_set`]. Strict `MK2SET|`
@@ -121,18 +165,7 @@ pub fn export_item_set(set: &NamedItemSet) -> Result<String, ShareError> {
 /// whether to append it to `character.item_sets` or replace one in
 /// place.
 pub fn import_item_set(code: &str) -> Result<NamedItemSet, ShareError> {
-    let body = code
-        .trim()
-        .strip_prefix("MK2SET|")
-        .ok_or(ShareError::WrongPrefix)?;
-    let compressed = URL_SAFE_NO_PAD
-        .decode(body.as_bytes())
-        .map_err(|e| ShareError::Decode(e.to_string()))?;
-    let mut dec = ZlibDecoder::new(compressed.as_slice());
-    let mut json = Vec::new();
-    dec.read_to_end(&mut json).map_err(ShareError::Io)?;
-    let set: NamedItemSet = serde_json::from_slice(&json).map_err(ShareError::Json)?;
-    Ok(set)
+    decode_set("MK2SET|", code)
 }
 
 #[cfg(test)]
@@ -222,6 +255,45 @@ mod tests {
             .get(pob_data::Slot::Helmet)
             .expect("helmet slot present");
         assert_eq!(helmet.name, "Storm Cowl");
+    }
+
+    #[test]
+    fn skill_set_share_round_trips_and_rejects_other_prefixes() {
+        let set = NamedSkillSet {
+            name: "Bossing".to_owned(),
+            groups: Vec::new(),
+            main_socket_group: 2,
+        };
+        let code = export_skill_set(&set).expect("export");
+        assert!(code.starts_with("MK2SKILLSET|"), "got {code:?}");
+        let back = import_skill_set(&code).expect("import");
+        assert_eq!(back.name, "Bossing");
+        assert_eq!(back.main_socket_group, 2);
+        // A skill code must not import as an item set (distinct prefixes).
+        assert!(matches!(
+            import_item_set(&code),
+            Err(ShareError::WrongPrefix)
+        ));
+    }
+
+    #[test]
+    fn config_set_share_round_trips_and_rejects_other_prefixes() {
+        let set = NamedConfigSet {
+            name: "Mapping".to_owned(),
+            config: crate::character::ConfigState {
+                enemy_level: 84,
+                ..Default::default()
+            },
+        };
+        let code = export_config_set(&set).expect("export");
+        assert!(code.starts_with("MK2CONFIGSET|"), "got {code:?}");
+        let back = import_config_set(&code).expect("import");
+        assert_eq!(back.name, "Mapping");
+        assert_eq!(back.config.enemy_level, 84);
+        assert!(matches!(
+            import_skill_set(&code),
+            Err(ShareError::WrongPrefix)
+        ));
     }
 
     #[test]

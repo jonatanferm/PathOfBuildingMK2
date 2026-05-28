@@ -87,7 +87,8 @@ pub use power::{
     score_node_addition, score_node_removal, ItemModlineScore, NodeScore,
 };
 pub use share::{
-    export_code, export_item_set, import_code, import_item_set, save_state_fingerprint, ShareError,
+    export_code, export_config_set, export_item_set, export_skill_set, import_code,
+    import_config_set, import_item_set, import_skill_set, save_state_fingerprint, ShareError,
 };
 pub use skill::{skill_for_quality, skill_mods, MainSkill, QualityId, SkillRegistry};
 pub use timeless::{

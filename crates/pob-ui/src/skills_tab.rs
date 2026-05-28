@@ -212,6 +212,10 @@ pub struct SkillsTabState {
     /// In-progress rename (set index + edit buffer + last error), shown as a
     /// small popup launched from the manage window.
     pub skill_set_rename: Option<SkillSetRenameState>,
+    /// Clipboard-import buffer for the manage popup (MK2SKILLSET| codes).
+    pub skill_set_import_buffer: String,
+    /// Last import/export error, surfaced in the manage popup.
+    pub skill_set_import_error: Option<String>,
 }
 
 /// Issue #222: transient state for the skill-set rename popup.
@@ -238,6 +242,8 @@ impl Default for SkillsTabState {
             manage_skill_sets_open: false,
             skill_set_save_name: String::new(),
             skill_set_rename: None,
+            skill_set_import_buffer: String::new(),
+            skill_set_import_error: None,
         }
     }
 }
@@ -1568,7 +1574,54 @@ fn render_manage_skill_sets_popup(
                         );
                         changed = true;
                     }
+                    if ui
+                        .small_button("Export")
+                        .on_hover_text(
+                            "Copy this set to the clipboard as an MK2SKILLSET share code.",
+                        )
+                        .clicked()
+                    {
+                        if let Some(named) = character.skill_sets.get(idx) {
+                            match pob_engine::export_skill_set(named) {
+                                Ok(code) => ui.ctx().copy_text(code),
+                                Err(e) => {
+                                    state.skill_set_import_error =
+                                        Some(format!("Export failed: {e}"));
+                                }
+                            }
+                        }
+                    }
                 });
+            }
+            ui.separator();
+            ui.label("Import set from clipboard:");
+            ui.add(
+                egui::TextEdit::multiline(&mut state.skill_set_import_buffer)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(2)
+                    .hint_text("Paste an MK2SKILLSET|… code here"),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Import").clicked() {
+                    match pob_engine::import_skill_set(&state.skill_set_import_buffer) {
+                        Ok(named) => {
+                            character.skill_sets.push(named);
+                            state.skill_set_import_buffer.clear();
+                            state.skill_set_import_error = None;
+                            changed = true;
+                        }
+                        Err(e) => {
+                            state.skill_set_import_error = Some(format!("Import failed: {e}"));
+                        }
+                    }
+                }
+                if ui.button("Clear").clicked() {
+                    state.skill_set_import_buffer.clear();
+                    state.skill_set_import_error = None;
+                }
+            });
+            if let Some(err) = state.skill_set_import_error.as_ref() {
+                ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), err);
             }
             ui.separator();
             if ui.button("Close").clicked() {
