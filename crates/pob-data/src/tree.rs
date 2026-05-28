@@ -7,6 +7,23 @@ use ahash::HashMap;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
+/// Serialise a `HashMap` through a `BTreeMap` so the keys come out sorted.
+/// The extracted `trees/*.json` files are otherwise non-deterministic:
+/// `ahash`'s iteration order is randomised per process, so the same input
+/// produced byte-different output each run. In memory the maps stay
+/// `HashMap` for O(1) lookups on the calc hot path — only serialisation is
+/// reordered.
+fn serialize_sorted_map<K, V, S>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    K: Ord + Serialize,
+    V: Serialize,
+    S: serde::Serializer,
+{
+    map.iter()
+        .collect::<std::collections::BTreeMap<_, _>>()
+        .serialize(serializer)
+}
+
 /// Numeric node id used in `nodes`, in/out edges, and group node lists.
 ///
 /// In the Lua source these are sometimes string-typed and sometimes int-typed depending on
@@ -23,7 +40,9 @@ pub struct PassiveTree {
     /// Internal name of this tree (`"Default"`, `"Ruthless"`, `"AlternateAscendancy"`, …).
     pub tree: String,
     pub classes: Vec<Class>,
+    #[serde(serialize_with = "serialize_sorted_map")]
     pub groups: HashMap<u32, Group>,
+    #[serde(serialize_with = "serialize_sorted_map")]
     pub nodes: HashMap<NodeId, Node>,
     #[serde(default)]
     pub jewel_slots: Vec<NodeId>,
@@ -175,10 +194,31 @@ pub struct MasteryEffect {
 pub struct TreeConstants {
     pub skills_per_orbit: Vec<u32>,
     pub orbit_radii: Vec<i32>,
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_sorted_map")]
     pub classes: HashMap<String, u8>,
-    #[serde(default)]
+    #[serde(default, serialize_with = "serialize_sorted_map")]
     pub character_attributes: HashMap<String, u8>,
     #[serde(default)]
     pub pss_centre_inner_radius: Option<i32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tree_maps_serialize_with_sorted_keys() {
+        // The sorted-serialize helper must emit map keys in sorted order so
+        // trees/*.json is byte-stable across extraction runs.
+        let json = r#"{"skills_per_orbit":[1],"orbit_radii":[0],"classes":{"Witch":1,"Marauder":2,"Ranger":3}}"#;
+        let tc: TreeConstants = serde_json::from_str(json).expect("parse");
+        let out = serde_json::to_string(&tc).expect("serialize");
+        let mar = out.find("Marauder").unwrap();
+        let ran = out.find("Ranger").unwrap();
+        let wit = out.find("Witch").unwrap();
+        assert!(
+            mar < ran && ran < wit,
+            "expected sorted class keys, got {out}"
+        );
+    }
 }
