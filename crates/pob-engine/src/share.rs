@@ -373,6 +373,22 @@ mod tests {
     }
 
     #[test]
+    fn specs_round_trip_through_code() {
+        let mut c = Character::new(ClassRef::ranger(), 90);
+        c.allocated.insert(101);
+        c.allocated.insert(202);
+        c.ascendancy = Some("Deadeye".to_owned());
+        c.save_spec("Endgame");
+
+        let back = import_code(&export_code(&c).unwrap()).unwrap();
+        assert_eq!(back.specs.len(), 1);
+        assert_eq!(back.specs[0].name, "Endgame");
+        assert_eq!(back.specs[0].ascendancy.as_deref(), Some("Deadeye"));
+        assert!(back.specs[0].allocated.contains(&101));
+        assert!(back.specs[0].allocated.contains(&202));
+    }
+
+    #[test]
     fn skill_sets_round_trip_through_code() {
         // A saved skill set survives export_code → import_code with its
         // name, groups, and main_socket_group intact.
