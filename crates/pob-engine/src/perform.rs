@@ -1573,23 +1573,59 @@ fn connected_allocations(
     effective
 }
 
+/// Base total for one of Strength / Dexterity / Intelligence.
+///
+/// Folds in the catch-all `AllAttributes` plus the two paired-attribute
+/// keys that include this attribute — e.g. Strength counts both
+/// `StrengthAndDexterity` and `StrengthAndIntelligence`. The parser maps
+/// "+N to X and Y" to a single combined key (`stat_name` in `mod_parser`),
+/// so without summing those keys here the mod contributed 0 to either
+/// attribute — and to every pool derived from them (Life from Str, Mana
+/// from Int, Evasion from Dex, accuracy, attribute thresholds). Paired
+/// attributes are common on amulets, jewels, and tree clusters, so the
+/// undercount was widespread. Pure helper to keep it unit-testable without
+/// a passive tree.
+fn attribute_base(
+    mod_db: &crate::ModDB,
+    cfg: &QueryCfg,
+    state: &crate::mod_db::EvalState,
+    primary: &str,
+    pair_a: &str,
+    pair_b: &str,
+) -> f64 {
+    mod_db.sum(ModType::Base, cfg, state, primary)
+        + mod_db.sum(ModType::Base, cfg, state, "AllAttributes")
+        + mod_db.sum(ModType::Base, cfg, state, pair_a)
+        + mod_db.sum(ModType::Base, cfg, state, pair_b)
+}
+
 pub fn perform_basic_stats(character: &Character, _tree: &PassiveTree, env: &mut Env) {
     // Strength / Dexterity / Intelligence
     let cfg = QueryCfg::default();
-    let str_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Strength")
-        + env
-            .mod_db
-            .sum(ModType::Base, &cfg, &env.state, "AllAttributes");
-    let dex_base = env.mod_db.sum(ModType::Base, &cfg, &env.state, "Dexterity")
-        + env
-            .mod_db
-            .sum(ModType::Base, &cfg, &env.state, "AllAttributes");
-    let int_base = env
-        .mod_db
-        .sum(ModType::Base, &cfg, &env.state, "Intelligence")
-        + env
-            .mod_db
-            .sum(ModType::Base, &cfg, &env.state, "AllAttributes");
+    let str_base = attribute_base(
+        &env.mod_db,
+        &cfg,
+        &env.state,
+        "Strength",
+        "StrengthAndDexterity",
+        "StrengthAndIntelligence",
+    );
+    let dex_base = attribute_base(
+        &env.mod_db,
+        &cfg,
+        &env.state,
+        "Dexterity",
+        "StrengthAndDexterity",
+        "DexterityAndIntelligence",
+    );
+    let int_base = attribute_base(
+        &env.mod_db,
+        &cfg,
+        &env.state,
+        "Intelligence",
+        "StrengthAndIntelligence",
+        "DexterityAndIntelligence",
+    );
 
     let str_v = str_base * env.mod_db.applied(&cfg, &env.state, "Strength");
     let dex_v = dex_base * env.mod_db.applied(&cfg, &env.state, "Dexterity");
@@ -4958,6 +4994,59 @@ mod tests {
         assert_eq!(env2.output.get("FireResistMax"), 80.0);
         assert_eq!(env2.output.get("FireResistTotal"), 80.0);
         let _ = c.allocated; // silence clippy for unused
+    }
+
+    #[test]
+    fn paired_and_all_attributes_fold_into_each_attribute_base() {
+        // Regression: "+N to X and Y" mods parse to a single combined key
+        // (StrengthAndDexterity, …). They must count toward BOTH attributes;
+        // previously nothing summed them, so they contributed 0 — silently
+        // undercounting Str/Dex/Int and every pool derived from them.
+        let cfg = QueryCfg::default();
+        let st = crate::mod_db::EvalState::default();
+        let mut db = crate::ModDB::new();
+        db.add(Mod::base("Strength", 20.0));
+        db.add(Mod::base("AllAttributes", 3.0));
+        db.add(Mod::base("StrengthAndDexterity", 10.0));
+        db.add(Mod::base("StrengthAndIntelligence", 5.0));
+        db.add(Mod::base("DexterityAndIntelligence", 7.0));
+
+        // Str: 20 + AllAttr 3 + StrDex 10 + StrInt 5 = 38
+        assert_eq!(
+            attribute_base(
+                &db,
+                &cfg,
+                &st,
+                "Strength",
+                "StrengthAndDexterity",
+                "StrengthAndIntelligence"
+            ),
+            38.0
+        );
+        // Dex: 0 + AllAttr 3 + StrDex 10 + DexInt 7 = 20
+        assert_eq!(
+            attribute_base(
+                &db,
+                &cfg,
+                &st,
+                "Dexterity",
+                "StrengthAndDexterity",
+                "DexterityAndIntelligence"
+            ),
+            20.0
+        );
+        // Int: 0 + AllAttr 3 + StrInt 5 + DexInt 7 = 15
+        assert_eq!(
+            attribute_base(
+                &db,
+                &cfg,
+                &st,
+                "Intelligence",
+                "StrengthAndIntelligence",
+                "DexterityAndIntelligence"
+            ),
+            15.0
+        );
     }
 
     #[test]
