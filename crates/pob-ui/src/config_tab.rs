@@ -25,6 +25,10 @@ pub struct ConfigTabState {
     pub config_set_save_name: String,
     /// In-progress rename (set index + edit buffer + last error).
     pub config_set_rename: Option<ConfigSetRenameState>,
+    /// Clipboard-import buffer for the manage popup (MK2CONFIGSET| codes).
+    pub config_set_import_buffer: String,
+    /// Last import/export error, surfaced in the manage popup.
+    pub config_set_import_error: Option<String>,
 }
 
 /// Issue #222: transient state for the config-set rename popup.
@@ -265,7 +269,54 @@ fn render_manage_config_sets_popup(
                         );
                         changed = true;
                     }
+                    if ui
+                        .small_button("Export")
+                        .on_hover_text(
+                            "Copy this set to the clipboard as an MK2CONFIGSET share code.",
+                        )
+                        .clicked()
+                    {
+                        if let Some(named) = character.config_sets.get(idx) {
+                            match pob_engine::export_config_set(named) {
+                                Ok(code) => ui.ctx().copy_text(code),
+                                Err(e) => {
+                                    state.config_set_import_error =
+                                        Some(format!("Export failed: {e}"));
+                                }
+                            }
+                        }
+                    }
                 });
+            }
+            ui.separator();
+            ui.label("Import set from clipboard:");
+            ui.add(
+                egui::TextEdit::multiline(&mut state.config_set_import_buffer)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(2)
+                    .hint_text("Paste an MK2CONFIGSET|… code here"),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Import").clicked() {
+                    match pob_engine::import_config_set(&state.config_set_import_buffer) {
+                        Ok(named) => {
+                            character.config_sets.push(named);
+                            state.config_set_import_buffer.clear();
+                            state.config_set_import_error = None;
+                            changed = true;
+                        }
+                        Err(e) => {
+                            state.config_set_import_error = Some(format!("Import failed: {e}"));
+                        }
+                    }
+                }
+                if ui.button("Clear").clicked() {
+                    state.config_set_import_buffer.clear();
+                    state.config_set_import_error = None;
+                }
+            });
+            if let Some(err) = state.config_set_import_error.as_ref() {
+                ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), err);
             }
             ui.separator();
             if ui.button("Close").clicked() {
