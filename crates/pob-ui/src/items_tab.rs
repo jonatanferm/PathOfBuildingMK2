@@ -647,7 +647,9 @@ pub fn item_from_base(name: &str, base: &ItemBase) -> Item {
         rarity: Rarity::Normal,
         item_level: base.req.level.unwrap_or(1),
         quality: 0,
-        tags: base.tags.clone(),
+        // ItemBase::tags is a BTreeSet (sorted for stable extraction);
+        // Item::tags is a HashSet, so convert across the boundary.
+        tags: base.tags.iter().cloned().collect(),
         mod_lines,
         sockets: String::new(),
         raw: String::new(),
@@ -2882,7 +2884,7 @@ mod tests {
             r#type: t.to_owned(),
             sub_type: sub_type.map(str::to_owned),
             socket_limit: None,
-            tags: HashSet::default(),
+            tags: std::collections::BTreeSet::default(),
             influence_tags: indexmap::IndexMap::new(),
             implicit: implicit.map(str::to_owned),
             implicit_mod_types: Vec::new(),

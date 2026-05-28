@@ -2,9 +2,9 @@
 //!
 //! Mirrors the structure of `src/Data/Bases/*.lua` in the upstream PoB repo.
 
-use ahash::HashSet;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 /// One file under `Data/Bases/` produces one of these. The string key is the canonical
 /// in-game item name (e.g. `"Sabre"`, `"Plate Vest"`).
@@ -20,8 +20,12 @@ pub struct ItemBase {
     pub sub_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub socket_limit: Option<u8>,
+    /// `BTreeSet` (not `HashSet`) so the extracted `bases.json` serialises
+    /// tags in a stable, sorted order — `HashSet`/ahash iteration order is
+    /// randomised per process, which made the generated data churn between
+    /// extraction runs.
     #[serde(default)]
-    pub tags: HashSet<String>,
+    pub tags: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub influence_tags: IndexMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -125,4 +129,30 @@ pub struct FlaskStats {
     pub charges_used: u32,
     #[serde(default)]
     pub charges_max: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tags_serialize_in_sorted_order() {
+        // Regression: `tags` was a HashSet, so the extracted bases.json
+        // emitted tags in per-process-random order and churned between
+        // runs. As a BTreeSet they serialise sorted and deterministically.
+        let json = r#"{"type":"Two Handed Axe","tags":["weapon","axe","default","two_hand_weapon","twohand"]}"#;
+        let base: ItemBase = serde_json::from_str(json).expect("parse");
+        let out = serde_json::to_string(&base).expect("serialize");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let tags: Vec<&str> = v["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            tags,
+            ["axe", "default", "two_hand_weapon", "twohand", "weapon"]
+        );
+    }
 }

@@ -5,9 +5,9 @@
 //! function references for stat→mod conversion that need a richer extractor. See
 //! `docs/decisions/0002-skills-deferred.md`.
 
-use ahash::HashSet;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 /// Map keyed by full metadata id (e.g. `"Metadata/Items/Gems/SkillGemFireball"`).
 pub type GemSet = IndexMap<String, Gem>;
@@ -24,8 +24,10 @@ pub struct Gem {
     pub secondary_granted_effect_id: Option<String>,
     #[serde(default)]
     pub vaal_gem: bool,
+    /// `BTreeSet` for stable, sorted serialisation in the extracted
+    /// `gems.json` (see the note on `ItemBase::tags`).
     #[serde(default)]
-    pub tags: HashSet<String>,
+    pub tags: BTreeSet<String>,
     #[serde(default)]
     pub tag_string: String,
     #[serde(default)]
