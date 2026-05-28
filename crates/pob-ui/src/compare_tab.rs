@@ -38,6 +38,39 @@ pub struct CompareTabState {
     /// Issue #223 follow-up: which serialisation the "Copy as ..."
     /// button emits. Defaults to Markdown — the pre-#223 behaviour.
     pub export_format: CompareExportFormat,
+    /// Issue #223: selected set variant (by index) for the next "Snapshot
+    /// with sets" capture, per axis. `None` leaves that axis at the build's
+    /// currently-active set.
+    pub sel_item_set: Option<usize>,
+    pub sel_skill_set: Option<usize>,
+    pub sel_config_set: Option<usize>,
+}
+
+/// Issue #223: build a snapshot label describing which set variants were
+/// applied, e.g. `"Witch L90 [items: Boss, config: Mapping]"`. Axes left at
+/// the build's active set (`None`) are omitted; an all-`None` selection
+/// returns `base` unchanged. Pure / no-egui.
+pub fn set_variant_label(
+    base: &str,
+    item: Option<&str>,
+    skill: Option<&str>,
+    config: Option<&str>,
+) -> String {
+    let mut parts = Vec::new();
+    if let Some(n) = item {
+        parts.push(format!("items: {n}"));
+    }
+    if let Some(n) = skill {
+        parts.push(format!("skills: {n}"));
+    }
+    if let Some(n) = config {
+        parts.push(format!("config: {n}"));
+    }
+    if parts.is_empty() {
+        base.to_owned()
+    } else {
+        format!("{base} [{}]", parts.join(", "))
+    }
 }
 
 /// Issue #223: how to order the diff rows. PoB sorts by absolute delta
@@ -105,6 +138,17 @@ pub enum CompareAction {
     /// file picker pre-populated with a sanitised label and writes
     /// `export_code(snapshot.character)`.
     SaveSnapshotToFile,
+    /// Issue #223: snapshot the current build with specific *set variants*
+    /// active, so the user can compare e.g. item-set A vs B (or a different
+    /// skill / config set) on the same character. The host clones the live
+    /// character, applies whichever of `item` / `skill` / `config` set
+    /// indices are `Some`, runs `compute_full`, and stores the result. `None`
+    /// leaves that axis at its currently-active set.
+    SnapshotWithSets {
+        item: Option<usize>,
+        skill: Option<usize>,
+        config: Option<usize>,
+    },
 }
 
 /// Issue #223 follow-up: reset the user's in-flight Compare-view state.
@@ -118,6 +162,32 @@ pub enum CompareAction {
 pub fn reset_compare_view(state: &mut CompareTabState) {
     state.filter.clear();
     state.sort_mode = CompareSortMode::default();
+}
+
+/// Issue #223: one axis of the Compare set-variant picker — a `ComboBox` over
+/// `(active set)` + the named sets. Clamps a stale selection back to `None`.
+fn set_variant_picker(ui: &mut egui::Ui, label: &str, sel: &mut Option<usize>, names: &[&str]) {
+    if let Some(i) = *sel {
+        if i >= names.len() {
+            *sel = None;
+        }
+    }
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let closed = match *sel {
+            Some(i) => names.get(i).copied().unwrap_or("(active set)"),
+            None => "(active set)",
+        };
+        egui::ComboBox::from_id_salt(format!("compare-set-{label}"))
+            .width(180.0)
+            .selected_text(closed)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(sel, None, "(active set)");
+                for (i, n) in names.iter().enumerate() {
+                    ui.selectable_value(sel, Some(i), *n);
+                }
+            });
+    });
 }
 
 pub fn ui(
@@ -189,6 +259,53 @@ pub fn ui(
             state.pending_relabel = None;
         }
     });
+
+    // Issue #223: snapshot a *set variant* of the current build, so you can
+    // compare item-set A vs B (or a different skill / config set) on the same
+    // character. Only shown when the build actually has saved sets.
+    let item_names: Vec<&str> = live_character
+        .item_sets
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    let skill_names: Vec<&str> = live_character
+        .skill_sets
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    let config_names: Vec<&str> = live_character
+        .config_sets
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    if !item_names.is_empty() || !skill_names.is_empty() || !config_names.is_empty() {
+        ui.collapsing("Snapshot a set variant", |ui| {
+            if !item_names.is_empty() {
+                set_variant_picker(ui, "Item set", &mut state.sel_item_set, &item_names);
+            }
+            if !skill_names.is_empty() {
+                set_variant_picker(ui, "Skill set", &mut state.sel_skill_set, &skill_names);
+            }
+            if !config_names.is_empty() {
+                set_variant_picker(ui, "Config set", &mut state.sel_config_set, &config_names);
+            }
+            if ui
+                .button("Snapshot with selected sets")
+                .on_hover_text(
+                    "Recompute the build with the chosen set variants active and \
+                     capture it as the comparison snapshot. Axes left on \
+                     \"(active set)\" keep the build's current set.",
+                )
+                .clicked()
+            {
+                action = Some(CompareAction::SnapshotWithSets {
+                    item: state.sel_item_set,
+                    skill: state.sel_skill_set,
+                    config: state.sel_config_set,
+                });
+            }
+        });
+    }
 
     let Some(snap) = state.snapshot.as_ref() else {
         ui.separator();
@@ -891,6 +1008,29 @@ pub fn format_compare_markdown(rows: &[(String, f64, f64)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_variant_label_lists_only_chosen_axes() {
+        // All axes at active → base unchanged.
+        assert_eq!(
+            set_variant_label("Witch L90", None, None, None),
+            "Witch L90"
+        );
+        // Single axis.
+        assert_eq!(
+            set_variant_label("Witch L90", Some("Boss"), None, None),
+            "Witch L90 [items: Boss]"
+        );
+        // Multiple axes, in items/skills/config order.
+        assert_eq!(
+            set_variant_label("B", Some("I"), Some("S"), Some("C")),
+            "B [items: I, skills: S, config: C]"
+        );
+        assert_eq!(
+            set_variant_label("B", None, Some("S"), Some("C")),
+            "B [skills: S, config: C]"
+        );
+    }
 
     #[test]
     fn delta_formatting_signs_and_zero() {
