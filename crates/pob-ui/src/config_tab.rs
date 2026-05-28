@@ -39,6 +39,23 @@ pub struct ConfigSetRenameState {
     pub last_error: Option<String>,
 }
 
+/// Issue #222: tooltip lines for a saved config set in the switcher dropdown —
+/// enemy level + active-condition count. Pure / no-egui.
+pub fn format_config_set_tooltip_lines(set: &pob_engine::character::NamedConfigSet) -> Vec<String> {
+    let trimmed = set.name.trim();
+    let display = if trimmed.is_empty() {
+        "(unnamed)"
+    } else {
+        trimmed
+    };
+    let conds = count_active_conditions(&set.config);
+    vec![
+        display.to_owned(),
+        format!("Enemy level: {}", set.config.enemy_level),
+        format!("Active conditions: {conds}"),
+    ]
+}
+
 /// Issue #222: clone `character.config_sets[idx]` in place (copy lands right
 /// after the source with a unique " (copy)" name). Returns the new index.
 pub fn clone_config_set(
@@ -131,7 +148,15 @@ fn render_config_set_switcher(
                 for (idx, name) in &entries {
                     let is_active = selected_idx == Some(*idx);
                     let label = set_switcher::format_set_dropdown_label(name, *idx, is_active);
-                    if ui.selectable_label(is_active, label).clicked()
+                    let tooltip = character
+                        .config_sets
+                        .get(*idx)
+                        .map(|s| format_config_set_tooltip_lines(s).join("\n"))
+                        .unwrap_or_default();
+                    if ui
+                        .selectable_label(is_active, label)
+                        .on_hover_text(tooltip)
+                        .clicked()
                         && !is_active
                         && character.activate_config_set(*idx)
                     {
@@ -1061,6 +1086,21 @@ mod tests {
         // Live config preserved across the clone.
         assert_eq!(c.config.enemy_level, 84);
         assert!(clone_config_set(&mut c, 9).is_err());
+    }
+
+    #[test]
+    fn config_set_tooltip_shows_enemy_level_and_conditions() {
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 90);
+        c.config.enemy_level = 84;
+        c.config.conditions.insert("Effective".to_owned(), true);
+        c.save_config_set("Boss");
+        let lines = format_config_set_tooltip_lines(&c.config_sets[0]);
+        assert_eq!(lines[0], "Boss");
+        assert!(lines.iter().any(|l| l == "Enemy level: 84"), "{lines:?}");
+        assert!(
+            lines.iter().any(|l| l == "Active conditions: 1"),
+            "{lines:?}"
+        );
     }
 
     #[test]
