@@ -31,12 +31,9 @@ jobs:
         with:
           workspaces: . -> target
 
-      # Strict gate runs against the headless calc-engine crates (no native
-      # UI deps). `pob-ui` / `pob-desktop` / `pob-web` pull in `winit` /
-      # `wgpu` / `eframe`, which need extra system libs on Linux runners
-      # (libxkbcommon, libwayland, libxcb, mesa-egl, …) — not worth the CI
-      # surface area for a calc-focused regression suite. UI breakage is
-      # caught locally and via the existing Pages deploy workflow.
+      # Headless calc-engine crates (no native UI deps). The UI crate is
+      # gated separately in the `ui` job below, which installs the extra
+      # Linux system libs that `winit` / `wgpu` / `eframe` / `rfd` need.
       - name: cargo build (engine)
         run: cargo build -p pob-engine -p pob-data -p pob-extract --all-targets
 
@@ -88,6 +85,48 @@ jobs:
         # so we don't need the Linux UI system packages.
         # Issue #49: `-D warnings` makes clippy fail on lint introductions.
         run: cargo clippy -p pob-engine -p pob-data -p pob-extract --all-targets -- -D warnings
+
+  ui:
+    name: cargo test + clippy (pob-ui)
+    runs-on: ubuntu-latest
+    # `pob-ui` was previously excluded from CI because winit / wgpu / eframe /
+    # rfd need extra system libs on Linux. Reversed deliberately: the UI crate
+    # carries ~630 logic tests (pure helpers factored out of the egui render
+    # code) that until now only ran on a maintainer's machine. Installing the
+    # dev libs below lets CI compile the crate and run that suite, so UI logic
+    # regressions are gated like the engine. No GPU is needed at runtime — none
+    # of the tests construct a wgpu device; they only exercise pure logic.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install UI system libraries
+        # winit/wgpu need xkbcommon + wayland + xcb dev headers; rfd's file
+        # dialog needs GTK3. keyring uses the pure-Rust secret-service backend,
+        # so no libsecret/dbus dev package is required to build.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libxkbcommon-dev libwayland-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Install Rust toolchain (with clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: cargo build (pob-ui)
+        run: cargo build -p pob-ui --all-targets
+
+      - name: cargo clippy (pob-ui)
+        run: cargo clippy -p pob-ui --all-targets -- -D warnings
+
+      - name: cargo test (pob-ui)
+        run: cargo test -p pob-ui
 
   # Optional: run pob_diff against an upstream PoB checkout. Manual trigger
   # only — the upstream PoB repo is not redistributable as a CI artifact, so

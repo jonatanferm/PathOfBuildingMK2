@@ -241,11 +241,7 @@ fn collect_flag(scalar: Option<&J>, list: Option<&J>) -> Option<String> {
         let o = list.unwrap().as_object().unwrap();
         let mut indexed: Vec<(u64, &str)> = o
             .iter()
-            .filter_map(|(k, v)| {
-                k.parse::<u64>()
-                    .ok()
-                    .and_then(|n| v.as_str().map(|s| (n, s)))
-            })
+            .filter_map(|(k, v)| k.parse::<u64>().ok().zip(v.as_str()))
             .collect();
         indexed.sort_by_key(|(k, _)| *k);
         for (_, s) in indexed {
