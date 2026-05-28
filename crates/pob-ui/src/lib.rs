@@ -3599,6 +3599,42 @@ fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction
                 }
             }
         }
+        compare_tab::CompareAction::SnapshotWithSets {
+            item,
+            skill,
+            config,
+        } => {
+            // Issue #223: clone the live build, apply the chosen set variants,
+            // recompute, and store the result as the comparison snapshot.
+            let mut ch = app.character.clone();
+            let item_name = item.and_then(|i| ch.item_sets.get(i).map(|s| s.name.clone()));
+            let skill_name = skill.and_then(|i| ch.skill_sets.get(i).map(|s| s.name.clone()));
+            let config_name = config.and_then(|i| ch.config_sets.get(i).map(|s| s.name.clone()));
+            if let Some(i) = item {
+                ch.activate_item_set(i);
+            }
+            if let Some(i) = skill {
+                ch.activate_skill_set(i);
+            }
+            if let Some(i) = config {
+                ch.activate_config_set(i);
+            }
+            let output =
+                pob_engine::compute_full(&ch, &app.tree, Some(&app.skills), app.bases.as_ref());
+            let label = compare_tab::set_variant_label(
+                &compare_tab::label_for(&ch),
+                item_name.as_deref(),
+                skill_name.as_deref(),
+                config_name.as_deref(),
+            );
+            app.compare_state.snapshot = Some(compare_tab::Snapshot {
+                character: ch,
+                output,
+                label,
+                source_path: None,
+            });
+            app.compare_state.pending_relabel = None;
+        }
     }
 }
 
