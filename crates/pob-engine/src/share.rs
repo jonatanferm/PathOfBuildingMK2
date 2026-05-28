@@ -301,6 +301,28 @@ mod tests {
     }
 
     #[test]
+    fn skill_sets_round_trip_through_code() {
+        // A saved skill set survives export_code → import_code with its
+        // name, groups, and main_socket_group intact.
+        let mut c = Character::new(ClassRef::ranger(), 90);
+        c.skill_groups = vec![crate::character::SocketGroup {
+            label: "Bow".to_owned(),
+            gems: Vec::new(),
+            main_active_skill_index: 1,
+            enabled: true,
+        }];
+        c.main_socket_group = 1;
+        c.save_skill_set("Bow setup");
+
+        let back = import_code(&export_code(&c).unwrap()).unwrap();
+        assert_eq!(back.skill_sets.len(), 1);
+        assert_eq!(back.skill_sets[0].name, "Bow setup");
+        assert_eq!(back.skill_sets[0].groups.len(), 1);
+        assert_eq!(back.skill_sets[0].groups[0].label, "Bow");
+        assert_eq!(back.skill_sets[0].main_socket_group, 1);
+    }
+
+    #[test]
     fn save_fingerprint_stable_across_code_round_trip() {
         // The fingerprint must be independent of HashMap iteration order:
         // a full export_code → import_code round trip rebuilds the

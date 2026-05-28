@@ -45,6 +45,10 @@ pub struct CharacterSnapshot {
     /// the user can swap in.
     #[serde(default)]
     pub item_sets: Vec<NamedItemSet>,
+    /// Saved skill loadouts (the UI's named skill sets). `serde(default)`
+    /// so pre-skill-set `.mk2` files load with an empty list.
+    #[serde(default)]
+    pub skill_sets: Vec<NamedSkillSet>,
     /// Party members — group-play teammates whose auras / curses /
     /// banners propagate onto the player. Each member's `mod_lines`
     /// are parsed by `mod_parser` and added to the player's modDB
@@ -90,6 +94,20 @@ pub struct CharacterSnapshot {
 pub struct NamedItemSet {
     pub name: String,
     pub items: ItemSet,
+}
+
+/// A named, saved skill loadout — the `skill_groups` + `main_socket_group`
+/// captured under a label, swappable onto the live `Character` the way
+/// [`NamedItemSet`] swaps `items`. Stores the serialisable snapshot form
+/// (`SocketGroupSnapshot`), so it round-trips through `.mk2` like the rest
+/// of [`CharacterSnapshot`].
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NamedSkillSet {
+    pub name: String,
+    #[serde(default)]
+    pub groups: Vec<SocketGroupSnapshot>,
+    #[serde(default = "one")]
+    pub main_socket_group: u32,
 }
 
 /// Party member — a teammate's projected buffs / curses / banners.
@@ -188,6 +206,48 @@ pub struct SocketGroupSnapshot {
     pub enabled: bool,
 }
 
+impl From<&SocketGroup> for SocketGroupSnapshot {
+    fn from(g: &SocketGroup) -> Self {
+        SocketGroupSnapshot {
+            label: g.label.clone(),
+            gems: g
+                .gems
+                .iter()
+                .map(|m| GemSnapshot {
+                    skill_id: m.skill_id.clone(),
+                    level: m.level,
+                    quality: m.quality,
+                    quality_id: m.quality_id,
+                    enabled: m.enabled,
+                })
+                .collect(),
+            main_active_skill_index: g.main_active_skill_index,
+            enabled: g.enabled,
+        }
+    }
+}
+
+impl From<SocketGroupSnapshot> for SocketGroup {
+    fn from(g: SocketGroupSnapshot) -> Self {
+        SocketGroup {
+            label: g.label,
+            gems: g
+                .gems
+                .into_iter()
+                .map(|gem| MainSkill {
+                    skill_id: gem.skill_id,
+                    level: gem.level.max(1),
+                    quality: gem.quality,
+                    quality_id: gem.quality_id,
+                    enabled: gem.enabled,
+                })
+                .collect(),
+            main_active_skill_index: g.main_active_skill_index.max(1),
+            enabled: g.enabled,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GemSnapshot {
     pub skill_id: String,
@@ -228,28 +288,14 @@ impl CharacterSnapshot {
             skill_groups: c
                 .skill_groups
                 .iter()
-                .map(|g| SocketGroupSnapshot {
-                    label: g.label.clone(),
-                    gems: g
-                        .gems
-                        .iter()
-                        .map(|m| GemSnapshot {
-                            skill_id: m.skill_id.clone(),
-                            level: m.level,
-                            quality: m.quality,
-                            quality_id: m.quality_id,
-                            enabled: m.enabled,
-                        })
-                        .collect(),
-                    main_active_skill_index: g.main_active_skill_index,
-                    enabled: g.enabled,
-                })
+                .map(SocketGroupSnapshot::from)
                 .collect(),
             main_socket_group: c.main_socket_group,
             bandit: c.bandit,
             pantheon_major: c.pantheon_major,
             pantheon_minor: c.pantheon_minor,
             item_sets: c.item_sets.clone(),
+            skill_sets: c.skill_sets.clone(),
             party_members: c.party_members.clone(),
             tattoo_overrides: c
                 .tattoo_overrides
@@ -265,22 +311,7 @@ impl CharacterSnapshot {
         let groups: Vec<SocketGroup> = self
             .skill_groups
             .into_iter()
-            .map(|g| SocketGroup {
-                label: g.label,
-                gems: g
-                    .gems
-                    .into_iter()
-                    .map(|gem| MainSkill {
-                        skill_id: gem.skill_id,
-                        level: gem.level.max(1),
-                        quality: gem.quality,
-                        quality_id: gem.quality_id,
-                        enabled: gem.enabled,
-                    })
-                    .collect(),
-                main_active_skill_index: g.main_active_skill_index.max(1),
-                enabled: g.enabled,
-            })
+            .map(SocketGroup::from)
             .collect();
         Character {
             class: ClassRef(self.class),
@@ -304,6 +335,7 @@ impl CharacterSnapshot {
             pantheon_major: self.pantheon_major,
             pantheon_minor: self.pantheon_minor,
             item_sets: self.item_sets,
+            skill_sets: self.skill_sets,
             party_members: self.party_members,
             tattoo_overrides: self.tattoo_overrides.into_iter().collect(),
             jewels: self.jewels.into_iter().collect(),
@@ -535,6 +567,10 @@ pub struct Character {
     /// list keeps inactive copies that the user can swap in via
     /// `activate_item_set`.
     pub item_sets: Vec<NamedItemSet>,
+    /// Stored skill-loadout saves. The active loadout is `skill_groups` +
+    /// `main_socket_group` above; this list keeps inactive copies the user
+    /// can swap in via `activate_skill_set`.
+    pub skill_sets: Vec<NamedSkillSet>,
     /// Party members — group-play teammates whose auras / curses /
     /// banners propagate onto the player. Each member's `mod_lines`
     /// are parsed by `mod_parser` and added to the player's modDB
@@ -823,6 +859,7 @@ impl Character {
             pantheon_major: MajorGod::default(),
             pantheon_minor: MinorGod::default(),
             item_sets: Vec::new(),
+            skill_sets: Vec::new(),
             party_members: Vec::new(),
             tattoo_overrides: HashMap::default(),
             jewels: HashMap::default(),
@@ -865,6 +902,54 @@ impl Character {
     pub fn delete_item_set(&mut self, idx: usize) -> bool {
         if idx < self.item_sets.len() {
             self.item_sets.remove(idx);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Save the current `skill_groups` + `main_socket_group` as a named
+    /// entry in `skill_sets`. Returns the index of the new entry. If a set
+    /// with the given name already exists, overwrites it and returns its
+    /// index. Mirrors [`Character::save_item_set`].
+    pub fn save_skill_set(&mut self, name: impl Into<String>) -> usize {
+        let name = name.into();
+        let snapshot = NamedSkillSet {
+            name: name.clone(),
+            groups: self
+                .skill_groups
+                .iter()
+                .map(SocketGroupSnapshot::from)
+                .collect(),
+            main_socket_group: self.main_socket_group,
+        };
+        if let Some(idx) = self.skill_sets.iter().position(|s| s.name == name) {
+            self.skill_sets[idx] = snapshot;
+            idx
+        } else {
+            self.skill_sets.push(snapshot);
+            self.skill_sets.len() - 1
+        }
+    }
+
+    /// Make `skill_sets[idx]` the active loadout, swapping its groups onto
+    /// `skill_groups` / `main_socket_group` and refreshing `main_skill`.
+    /// Returns true if the swap happened. The previously active groups are
+    /// NOT auto-saved — call `save_skill_set` first to keep them.
+    pub fn activate_skill_set(&mut self, idx: usize) -> bool {
+        let Some(set) = self.skill_sets.get(idx) else {
+            return false;
+        };
+        self.skill_groups = set.groups.iter().cloned().map(SocketGroup::from).collect();
+        self.main_socket_group = set.main_socket_group;
+        self.sync_main_skill();
+        true
+    }
+
+    /// Remove the named set from `skill_sets`. Returns true if removed.
+    pub fn delete_skill_set(&mut self, idx: usize) -> bool {
+        if idx < self.skill_sets.len() {
+            self.skill_sets.remove(idx);
             true
         } else {
             false
@@ -1035,5 +1120,57 @@ impl Character {
     /// `tree.points.ascendancy_points` budget. UI gates clicks with this.
     pub fn can_allocate_ascendancy(&self, tree: &PassiveTree) -> bool {
         self.ascendancy_alloc_count(tree) < tree.points.ascendancy_points
+    }
+}
+
+#[cfg(test)]
+mod skill_set_tests {
+    use super::*;
+    use crate::skill::{MainSkill, QualityId};
+
+    fn group(label: &str, gem: &str) -> SocketGroup {
+        SocketGroup {
+            label: label.to_owned(),
+            gems: vec![MainSkill {
+                skill_id: gem.to_owned(),
+                level: 20,
+                quality: 0,
+                quality_id: QualityId::default(),
+                enabled: true,
+            }],
+            main_active_skill_index: 1,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn skill_set_save_activate_delete() {
+        let mut c = Character::new(ClassRef::ranger(), 90);
+        c.skill_groups = vec![group("Bow", "Barrage")];
+        c.main_socket_group = 1;
+        assert_eq!(c.save_skill_set("A"), 0);
+        assert_eq!(c.skill_sets.len(), 1);
+
+        // Change the live loadout, save as a second set.
+        c.skill_groups = vec![group("Aura", "Determination"), group("Bow", "Barrage")];
+        c.main_socket_group = 2;
+        assert_eq!(c.save_skill_set("B"), 1);
+
+        // Activating A restores its single group + main_socket_group, and
+        // syncs main_skill off the active group.
+        assert!(c.activate_skill_set(0));
+        assert_eq!(c.skill_groups.len(), 1);
+        assert_eq!(c.skill_groups[0].label, "Bow");
+        assert_eq!(c.main_socket_group, 1);
+
+        // Saving under an existing name overwrites in place (no new entry).
+        assert_eq!(c.save_skill_set("A"), 0);
+        assert_eq!(c.skill_sets.len(), 2);
+
+        // Delete by index; out-of-range is a no-op returning false.
+        assert!(c.delete_skill_set(0));
+        assert_eq!(c.skill_sets.len(), 1);
+        assert_eq!(c.skill_sets[0].name, "B");
+        assert!(!c.activate_skill_set(5));
     }
 }
