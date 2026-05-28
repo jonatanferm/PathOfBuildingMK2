@@ -7,28 +7,21 @@
 //! (no `egui`, no `Character`), so they belong in a shared module that the
 //! sibling switchers can re-use as their model support lands.
 //!
-//! ## Why this module exists today (and not the full skill / config slices)
+//! ## The three parallel switchers
 //!
-//! PoB Lua exposes three parallel switchers:
-//! * [`Classes/ItemsTab.lua` `controls.itemSet`] → MK2 `Character::item_sets`
-//!   (live since the issue #212 / #376 / #385 chain).
-//! * [`Classes/SkillsTab.lua:95-106` `controls.skillSet`] → no MK2 equivalent
-//!   yet. `Character::skill_groups` is the gem-link list *inside one set*, not
-//!   a vector of named saved sets.
-//! * [`Classes/ConfigTab.lua:41-53` `controls.configSet`] → also missing in
-//!   MK2; `Character` has scalar config fields, not a `Vec<NamedConfigSet>`.
+//! PoB Lua exposes three switchers, now all backed by MK2 model support:
+//! * [`Classes/ItemsTab.lua` `controls.itemSet`] → `Character::item_sets`.
+//! * [`Classes/SkillsTab.lua` `controls.skillSet`] → `Character::skill_sets`
+//!   (engine storage added in PR #502; switcher wired in `skills_tab.rs`).
+//! * [`Classes/ConfigTab.lua` `controls.configSet`] → `Character::config_sets`
+//!   (engine storage added in PR #504).
 //!
-//! Until the engine grows `skill_sets` / `config_sets` (its own slice — needs
-//! XML round-trip, persistence, and undo coverage), the switcher dropdowns
-//! cannot be wired. By extracting the two helpers here we lock down the
-//! presentation contract (label format, delete-shift rule) so the future
-//! skill / config slices can wire `egui::ComboBox::from_label(...)` against
-//! the same well-tested helpers and stay visually consistent with the item
-//! switcher.
-//!
-//! Both helpers were originally introduced in `items_tab.rs`; `items_tab`
-//! now re-exports them from here so existing call sites (and the eight
-//! original unit tests over there) keep working unchanged.
+//! This module holds the UI-agnostic helpers each switcher shares (no `egui`,
+//! no `Character`): label formatting, the active-index shift rules after
+//! delete/reorder, and the rename / clone-name validation. Keeping them here
+//! lets every tab stay visually and behaviourally consistent and unit-tests
+//! the rules in isolation. `items_tab` re-exports the shift helpers so its
+//! original call sites keep working unchanged.
 
 /// Issue #222: format the dropdown label shown for each saved set in a switcher
 /// [`egui::ComboBox`].
@@ -104,6 +97,62 @@ pub fn shift_active_idx_after_swap(active: Option<usize>, a: usize, b: usize) ->
     } else {
         Some(active)
     }
+}
+
+/// Outcome of validating a set rename / save-as name. Shared across the
+/// item / skill / config switchers so they report identical errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetOpError {
+    /// `idx` did not point at a real entry.
+    OutOfRange,
+    /// Name is empty / whitespace-only — meaningless as a label.
+    EmptyName,
+    /// Name collides with another entry (case-sensitive, matching the
+    /// `save_*_set` position-by-name semantics on `Character`).
+    DuplicateName,
+}
+
+/// Validate renaming entry `idx` (within `names`) to `new_name`. Returns the
+/// trimmed name the caller should store on success; renaming an entry to its
+/// own current name is a no-op success (avoids noisy errors when the user
+/// confirms an unchanged field). Pure — the caller applies the result to its
+/// own set vector. Generalises `items_tab::rename_item_set`'s rules.
+pub fn validate_rename(names: &[&str], idx: usize, new_name: &str) -> Result<String, SetOpError> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err(SetOpError::EmptyName);
+    }
+    if idx >= names.len() {
+        return Err(SetOpError::OutOfRange);
+    }
+    if names[idx] == trimmed {
+        return Ok(trimmed.to_owned());
+    }
+    if names
+        .iter()
+        .enumerate()
+        .any(|(i, n)| i != idx && *n == trimmed)
+    {
+        return Err(SetOpError::DuplicateName);
+    }
+    Ok(trimmed.to_owned())
+}
+
+/// First free " (copy)" / " (copy N)" name derived from `base` that doesn't
+/// collide with `existing`. Mirrors `items_tab::unique_clone_name`.
+pub fn unique_clone_name(base: &str, existing: &[&str]) -> String {
+    let taken: std::collections::HashSet<&str> = existing.iter().copied().collect();
+    let first = format!("{base} (copy)");
+    if !taken.contains(first.as_str()) {
+        return first;
+    }
+    for n in 2u32.. {
+        let candidate = format!("{base} (copy {n})");
+        if !taken.contains(candidate.as_str()) {
+            return candidate;
+        }
+    }
+    unreachable!("ran out of u32 suffixes for {base}")
 }
 
 #[cfg(test)]
@@ -262,5 +311,51 @@ mod tests {
         // No marker + non-op swap (`a == b`) both pass through.
         assert_eq!(shift_active_idx_after_swap(None, 0, 1), None);
         assert_eq!(shift_active_idx_after_swap(Some(2), 2, 2), Some(2));
+    }
+
+    // ─── validate_rename ─────────────────────────────────────────────────
+
+    #[test]
+    fn rename_accepts_a_fresh_unique_name() {
+        let names = ["Map", "Boss"];
+        assert_eq!(
+            validate_rename(&names, 0, "  Delve "),
+            Ok("Delve".to_owned())
+        );
+    }
+
+    #[test]
+    fn rename_to_same_name_is_a_noop_success() {
+        let names = ["Map", "Boss"];
+        assert_eq!(validate_rename(&names, 1, "Boss"), Ok("Boss".to_owned()));
+    }
+
+    #[test]
+    fn rename_rejects_blank_out_of_range_and_duplicate() {
+        let names = ["Map", "Boss"];
+        assert_eq!(
+            validate_rename(&names, 0, "   "),
+            Err(SetOpError::EmptyName)
+        );
+        assert_eq!(validate_rename(&names, 9, "X"), Err(SetOpError::OutOfRange));
+        assert_eq!(
+            validate_rename(&names, 0, "Boss"),
+            Err(SetOpError::DuplicateName)
+        );
+    }
+
+    // ─── unique_clone_name ───────────────────────────────────────────────
+
+    #[test]
+    fn clone_name_uses_plain_copy_then_numbers() {
+        assert_eq!(unique_clone_name("Map", &["Map"]), "Map (copy)");
+        assert_eq!(
+            unique_clone_name("Map", &["Map", "Map (copy)"]),
+            "Map (copy 2)"
+        );
+        assert_eq!(
+            unique_clone_name("Map", &["Map", "Map (copy)", "Map (copy 2)"]),
+            "Map (copy 3)"
+        );
     }
 }

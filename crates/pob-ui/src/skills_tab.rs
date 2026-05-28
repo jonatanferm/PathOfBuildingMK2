@@ -19,6 +19,7 @@ use pob_engine::skill::base_skill_id;
 use pob_engine::{Character, MainSkill, QualityId, SkillRegistry};
 
 use crate::color_codes;
+use crate::set_switcher;
 
 /// Issue #209 follow-up: clear every gem-picker filter facet back to
 /// the cold-open default — search text, color chips, type chips, tag
@@ -202,6 +203,23 @@ pub struct SkillsTabState {
     pub selected_group: usize,
     pub selected_gem: usize,
     pub catalog_open: bool,
+    /// Issue #222: remembered active skill set for the switcher dropdown.
+    pub active_skill_set_idx: Option<usize>,
+    /// Whether the "Manage skill sets" popup is open.
+    pub manage_skill_sets_open: bool,
+    /// Buffer for the "save current loadout as a new set" name field.
+    pub skill_set_save_name: String,
+    /// In-progress rename (set index + edit buffer + last error), shown as a
+    /// small popup launched from the manage window.
+    pub skill_set_rename: Option<SkillSetRenameState>,
+}
+
+/// Issue #222: transient state for the skill-set rename popup.
+#[derive(Debug, Clone, Default)]
+pub struct SkillSetRenameState {
+    pub index: usize,
+    pub buffer: String,
+    pub last_error: Option<String>,
 }
 
 impl Default for SkillsTabState {
@@ -216,8 +234,73 @@ impl Default for SkillsTabState {
             selected_group: 0,
             selected_gem: 0,
             catalog_open: false,
+            active_skill_set_idx: None,
+            manage_skill_sets_open: false,
+            skill_set_save_name: String::new(),
+            skill_set_rename: None,
         }
     }
+}
+
+/// Issue #222: clone `character.skill_sets[idx]` in place (the copy lands
+/// immediately after the source with a unique " (copy)" name). Returns the
+/// new index. Mirrors `items_tab::clone_item_set`: route through
+/// `save_skill_set` (which snapshots the *active* loadout) by temporarily
+/// swapping the source set's groups onto the live character, then restore.
+pub fn clone_skill_set(
+    character: &mut Character,
+    idx: usize,
+) -> Result<usize, crate::set_switcher::SetOpError> {
+    use crate::set_switcher::{unique_clone_name, SetOpError};
+    if idx >= character.skill_sets.len() {
+        return Err(SetOpError::OutOfRange);
+    }
+    let source_name = character.skill_sets[idx].name.clone();
+    let names: Vec<&str> = character
+        .skill_sets
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    let new_name = unique_clone_name(&source_name, &names);
+
+    let source_groups = character.skill_sets[idx].groups.clone();
+    let source_msg = character.skill_sets[idx].main_socket_group;
+    // Stash the live loadout, swap in the source set's, save under the new
+    // name (appends to the tail), then restore the live loadout.
+    let saved_groups = std::mem::take(&mut character.skill_groups);
+    let saved_msg = character.main_socket_group;
+    character.skill_groups = source_groups.into_iter().map(Into::into).collect();
+    character.main_socket_group = source_msg;
+    let pushed_idx = character.save_skill_set(new_name);
+    character.skill_groups = saved_groups;
+    character.main_socket_group = saved_msg;
+
+    // Rotate the appended entry to sit right after the source.
+    let target_idx = idx + 1;
+    if pushed_idx != target_idx {
+        let entry = character.skill_sets.remove(pushed_idx);
+        character.skill_sets.insert(target_idx, entry);
+    }
+    Ok(target_idx)
+}
+
+/// Issue #222: swap `character.skill_sets[idx]` with its neighbour (`up` =
+/// toward index 0). Returns the moved set's new index, or `None` if the move
+/// would fall out of bounds.
+pub fn move_skill_set(character: &mut Character, idx: usize, up: bool) -> Option<usize> {
+    let len = character.skill_sets.len();
+    if idx >= len {
+        return None;
+    }
+    let target = if up {
+        idx.checked_sub(1)?
+    } else if idx + 1 < len {
+        idx + 1
+    } else {
+        return None;
+    };
+    character.skill_sets.swap(idx, target);
+    Some(target)
 }
 
 /// "Default" level for a skill — what the catalog button auto-fills the level
@@ -490,6 +573,87 @@ pub fn ui(
     state.selected_group = state
         .selected_group
         .min(character.skill_groups.len().saturating_sub(1));
+
+    // Issue #222: skill-set switcher + save + manage popup, mirroring the
+    // item-set switcher in items_tab. Picking an entry activates that saved
+    // loadout (swaps its groups + main socket group onto the character).
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Skill set:");
+        let total = character.skill_sets.len();
+        if let Some(idx) = state.active_skill_set_idx {
+            if idx >= total {
+                state.active_skill_set_idx = None;
+            }
+        }
+        let selected_idx = state.active_skill_set_idx;
+        let closed_label = match selected_idx.and_then(|i| character.skill_sets.get(i)) {
+            Some(set) => {
+                set_switcher::format_set_dropdown_label(&set.name, selected_idx.unwrap(), true)
+            }
+            None if total == 0 => "(no saved sets)".to_owned(),
+            None => "Pick a saved set…".to_owned(),
+        };
+        let entries: Vec<(usize, String)> = character
+            .skill_sets
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (i, s.name.clone()))
+            .collect();
+        egui::ComboBox::from_id_salt("skill-set-switcher")
+            .width(220.0)
+            .selected_text(closed_label)
+            .show_ui(ui, |ui| {
+                if entries.is_empty() {
+                    ui.weak("Save a set below to populate the switcher.");
+                    return;
+                }
+                for (idx, name) in &entries {
+                    let is_active = selected_idx == Some(*idx);
+                    let label = set_switcher::format_set_dropdown_label(name, *idx, is_active);
+                    if ui.selectable_label(is_active, label).clicked()
+                        && !is_active
+                        && character.activate_skill_set(*idx)
+                    {
+                        state.active_skill_set_idx = Some(*idx);
+                        changed = true;
+                    }
+                }
+            });
+        if ui
+            .add_enabled(total > 0, egui::Button::new("Manage…"))
+            .on_hover_text("Rename / clone / delete / reorder saved skill sets.")
+            .clicked()
+        {
+            state.manage_skill_sets_open = true;
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label("Save as:");
+        ui.add(
+            egui::TextEdit::singleline(&mut state.skill_set_save_name)
+                .hint_text("new set name")
+                .desired_width(160.0),
+        );
+        let name = state.skill_set_save_name.trim().to_owned();
+        if ui
+            .add_enabled(!name.is_empty(), egui::Button::new("Save"))
+            .on_hover_text("Save the current groups + main socket group as a named skill set")
+            .clicked()
+        {
+            let idx = character.save_skill_set(name);
+            state.active_skill_set_idx = Some(idx);
+            state.skill_set_save_name.clear();
+            changed = true;
+        }
+    });
+    ui.separator();
+
+    if render_manage_skill_sets_popup(ui, state, character) {
+        changed = true;
+    }
+    if render_skill_set_rename_popup(ui, state, character) {
+        changed = true;
+    }
 
     ui.horizontal(|ui| {
         // ── Group list ──────────────────────────────────────────────────────
@@ -1302,12 +1466,245 @@ pub(super) fn move_gem_across_groups(
     true
 }
 
+/// Issue #222: the "Manage skill sets" popup — per-row Load / Rename / Clone /
+/// Delete / reorder, mirroring the item-set manage popup. Returns true if
+/// anything changed (so the caller recomputes).
+fn render_manage_skill_sets_popup(
+    ui: &mut egui::Ui,
+    state: &mut SkillsTabState,
+    character: &mut Character,
+) -> bool {
+    if !state.manage_skill_sets_open {
+        return false;
+    }
+    let mut window_open = true;
+    let mut changed = false;
+    egui::Window::new("Manage skill sets")
+        .id(egui::Id::new("skill-set-manage-window"))
+        .open(&mut window_open)
+        .resizable(false)
+        .collapsible(false)
+        .default_width(360.0)
+        .show(ui.ctx(), |ui| {
+            if character.skill_sets.is_empty() {
+                ui.weak("No saved skill sets yet — save one from the Skills tab.");
+            }
+            // Snapshot names so we can mutate `character.skill_sets` in the
+            // loop without overlapping borrows.
+            let entries: Vec<(usize, String)> = character
+                .skill_sets
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (i, s.name.clone()))
+                .collect();
+            for (idx, name) in entries {
+                let is_active = state.active_skill_set_idx == Some(idx);
+                let row_label = set_switcher::format_set_dropdown_label(&name, idx, is_active);
+                ui.horizontal(|ui| {
+                    ui.label(row_label);
+                    let is_first = idx == 0;
+                    let is_last = idx + 1 >= character.skill_sets.len();
+                    if ui
+                        .add_enabled(!is_first, egui::Button::new("▲").small())
+                        .on_hover_text("Move this set up one position")
+                        .clicked()
+                    {
+                        if let Some(new_idx) = move_skill_set(character, idx, true) {
+                            state.active_skill_set_idx = set_switcher::shift_active_idx_after_swap(
+                                state.active_skill_set_idx,
+                                idx,
+                                new_idx,
+                            );
+                            changed = true;
+                        }
+                    }
+                    if ui
+                        .add_enabled(!is_last, egui::Button::new("▼").small())
+                        .on_hover_text("Move this set down one position")
+                        .clicked()
+                    {
+                        if let Some(new_idx) = move_skill_set(character, idx, false) {
+                            state.active_skill_set_idx = set_switcher::shift_active_idx_after_swap(
+                                state.active_skill_set_idx,
+                                idx,
+                                new_idx,
+                            );
+                            changed = true;
+                        }
+                    }
+                    if ui
+                        .small_button("Load")
+                        .on_hover_text("Activate this set")
+                        .clicked()
+                        && character.activate_skill_set(idx)
+                    {
+                        state.active_skill_set_idx = Some(idx);
+                        changed = true;
+                    }
+                    if ui.small_button("Rename").clicked() {
+                        state.skill_set_rename = Some(SkillSetRenameState {
+                            index: idx,
+                            buffer: name.clone(),
+                            last_error: None,
+                        });
+                    }
+                    if ui
+                        .small_button("Clone")
+                        .on_hover_text("Duplicate this set in place")
+                        .clicked()
+                        && clone_skill_set(character, idx).is_ok()
+                    {
+                        changed = true;
+                    }
+                    if ui
+                        .small_button("Delete")
+                        .on_hover_text("Remove this set")
+                        .clicked()
+                        && character.delete_skill_set(idx)
+                    {
+                        state.active_skill_set_idx = set_switcher::shift_active_idx_after_delete(
+                            state.active_skill_set_idx,
+                            idx,
+                        );
+                        changed = true;
+                    }
+                });
+            }
+            ui.separator();
+            if ui.button("Close").clicked() {
+                state.manage_skill_sets_open = false;
+            }
+        });
+    if !window_open {
+        state.manage_skill_sets_open = false;
+    }
+    changed
+}
+
+/// Issue #222: small rename popup launched from the manage window. Validates
+/// the new name (non-empty, unique) before committing. Returns true on a
+/// successful rename.
+fn render_skill_set_rename_popup(
+    ui: &mut egui::Ui,
+    state: &mut SkillsTabState,
+    character: &mut Character,
+) -> bool {
+    let Some(mut rename) = state.skill_set_rename.take() else {
+        return false;
+    };
+    let mut changed = false;
+    let mut keep_open = true;
+    let mut close = false;
+    egui::Window::new("Rename skill set")
+        .id(egui::Id::new("skill-set-rename-window"))
+        .open(&mut keep_open)
+        .resizable(false)
+        .collapsible(false)
+        .show(ui.ctx(), |ui| {
+            ui.add(egui::TextEdit::singleline(&mut rename.buffer).hint_text("set name"));
+            if let Some(err) = rename.last_error.as_ref() {
+                ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), err);
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    // Scope `names` so its immutable borrow of skill_sets ends
+                    // before the `get_mut` below.
+                    let result = {
+                        let names: Vec<&str> = character
+                            .skill_sets
+                            .iter()
+                            .map(|s| s.name.as_str())
+                            .collect();
+                        set_switcher::validate_rename(&names, rename.index, &rename.buffer)
+                    };
+                    match result {
+                        Ok(canonical) => {
+                            if let Some(set) = character.skill_sets.get_mut(rename.index) {
+                                set.name = canonical;
+                                changed = true;
+                            }
+                            close = true;
+                        }
+                        Err(e) => {
+                            rename.last_error = Some(
+                                match e {
+                                    set_switcher::SetOpError::EmptyName => "Name can't be empty.",
+                                    set_switcher::SetOpError::DuplicateName => {
+                                        "Another set already uses that name."
+                                    }
+                                    set_switcher::SetOpError::OutOfRange => {
+                                        "That set no longer exists."
+                                    }
+                                }
+                                .to_owned(),
+                            );
+                        }
+                    }
+                }
+                if ui.button("Cancel").clicked() {
+                    close = true;
+                }
+            });
+        });
+    // Re-store the in-progress rename unless the window was closed or the
+    // edit committed/cancelled.
+    if keep_open && !close {
+        state.skill_set_rename = Some(rename);
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use indexmap::IndexMap;
     use pob_engine::character::SocketGroup;
     use serde_json::json;
+
+    fn empty_group(label: &str) -> SocketGroup {
+        SocketGroup {
+            label: label.to_owned(),
+            gems: Vec::new(),
+            main_active_skill_index: 1,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn clone_skill_set_inserts_copy_after_source_and_keeps_live_loadout() {
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 90);
+        c.skill_groups = vec![empty_group("Bow")];
+        c.main_socket_group = 1;
+        c.save_skill_set("A");
+
+        let new_idx = clone_skill_set(&mut c, 0).expect("clone");
+        assert_eq!(new_idx, 1, "copy lands right after the source");
+        assert_eq!(c.skill_sets.len(), 2);
+        assert_eq!(c.skill_sets[0].name, "A");
+        assert_eq!(c.skill_sets[1].name, "A (copy)");
+        assert_eq!(c.skill_sets[1].groups.len(), 1);
+        // The active loadout is preserved across the clone.
+        assert_eq!(c.skill_groups.len(), 1);
+        assert_eq!(c.skill_groups[0].label, "Bow");
+        // Cloning an out-of-range index is an error.
+        assert!(clone_skill_set(&mut c, 9).is_err());
+    }
+
+    #[test]
+    fn move_skill_set_swaps_neighbours_and_clamps_at_edges() {
+        let mut c = Character::new(pob_engine::ClassRef::ranger(), 90);
+        c.skill_groups = vec![empty_group("g")];
+        c.save_skill_set("A");
+        c.save_skill_set("B");
+
+        // Move "A" (idx 0) down → it lands at idx 1.
+        assert_eq!(move_skill_set(&mut c, 0, false), Some(1));
+        assert_eq!(c.skill_sets[0].name, "B");
+        assert_eq!(c.skill_sets[1].name, "A");
+        // Up past the top edge and out-of-range both refuse.
+        assert_eq!(move_skill_set(&mut c, 0, true), None);
+        assert_eq!(move_skill_set(&mut c, 9, false), None);
+    }
 
     fn mk_enabled_group(label: &str, enabled: bool) -> SocketGroup {
         SocketGroup {
