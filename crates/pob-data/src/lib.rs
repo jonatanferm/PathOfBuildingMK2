@@ -45,8 +45,8 @@ pub use minions::{load_minions, MinionData, MinionType};
 pub use skill::{Skill, SkillSet};
 pub use tattoos::{load_tattoos, Tattoo, TattooSet};
 pub use timeless_jewels::{
-    load_timeless_jewels, ConquerorKeystone, TimelessConqueror, TimelessJewelConfig,
-    TimelessJewelData,
+    load_legion_passives, load_timeless_jewels, ConquerorKeystone, LegionPassive,
+    TimelessConqueror, TimelessJewelConfig, TimelessJewelData,
 };
 pub use tree::{
     Ascendancy, Class, Group, GroupBackground, MasteryEffect, Node, NodeId, NodeKind, PassiveTree,

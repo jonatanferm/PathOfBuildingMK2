@@ -25,6 +25,7 @@ mod cluster_jewels;
 mod enchants;
 mod minions;
 mod tattoos;
+mod timeless_legion;
 mod tree;
 
 fn main() -> Result<()> {
@@ -184,6 +185,14 @@ fn main() -> Result<()> {
     )
     .with_context(|| format!("writing {}", calc_sections_path.display()))?;
     wrote.push(calc_sections_path);
+
+    // #227: timeless replacement-passive pool (notable / small-node additions).
+    let legion_path = args.out.join("legion_passives.json");
+    let legion = timeless_legion::extract(&args.pob)
+        .with_context(|| "extracting timeless legion passives".to_string())?;
+    std::fs::write(&legion_path, serde_json::to_string_pretty(&legion)?)
+        .with_context(|| format!("writing {}", legion_path.display()))?;
+    wrote.push(legion_path);
 
     // Trees — one JSON per tree version directory under data/trees/.
     let trees_dir = args.out.join("trees");

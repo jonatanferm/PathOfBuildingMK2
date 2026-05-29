@@ -117,6 +117,31 @@ pub fn load_timeless_jewels(json: &str) -> serde_json::Result<TimelessJewelData>
     serde_json::from_str(json)
 }
 
+/// One entry from PoB's timeless replacement-passive pool
+/// (`Data/TimelessJewelData/LegionPassives.lua` `additions`). The per-seed LUT
+/// (#227) yields a *global id* that indexes this list (id `N` → element
+/// `N - 1`); the entry supplies the notable/small's name and the stat lines
+/// (`sd[]`) that flow into `mod_parser` when the jewel replaces an in-radius
+/// node. Keystone replacements use the separate [`ConquerorKeystone`] path.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LegionPassive {
+    /// Display name (`"Fire Damage"`, `"Doryani, Royal Architect"`, …).
+    pub name: String,
+    /// Stable identifier (`"vaal_small_fire_damage"`, …).
+    pub id: String,
+    /// One stat line per element of the upstream `sd[]` array. Roll ranges
+    /// (`"(7-12)% increased Fire Damage"`) are preserved verbatim as PoB
+    /// renders them.
+    #[serde(default)]
+    pub stats: Vec<String>,
+}
+
+/// Decode a `data/legion_passives.json` payload — the flat additions pool,
+/// indexed by `global_id - 1`.
+pub fn load_legion_passives(json: &str) -> serde_json::Result<Vec<LegionPassive>> {
+    serde_json::from_str(json)
+}
+
 impl TimelessJewelData {
     /// Find the conqueror entry on `jewel_base` whose textual name matches
     /// `conqueror_name` (case-insensitive). Returns `None` if either the jewel
