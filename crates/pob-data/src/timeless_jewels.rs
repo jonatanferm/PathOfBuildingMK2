@@ -142,6 +142,59 @@ pub fn load_legion_passives(json: &str) -> serde_json::Result<Vec<LegionPassive>
     serde_json::from_str(json)
 }
 
+/// One node's slot in the timeless LUT (PoB's `NodeIndexMapping.lua`
+/// `nodeIDList[nodeID] = { index, size }`). `index` is the node's 0-based
+/// position in the per-jewel binary blob; `size` is the byte length of that
+/// node's seed data (used to walk the packed Glorious Vanity blob).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct TimelessNodeSlot {
+    pub node_id: u32,
+    pub index: u32,
+    pub size: u32,
+}
+
+/// PoB's `NodeIndexMapping.lua`: the node→slot table plus the notable count
+/// (the LUT splits notables `index <= notable_count` from smalls) and the
+/// per-jewel-type local→global id remap (`localIdToGlobalId`) the decode
+/// applies to every replacement id. Drives the #227 `readLUT` port.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TimelessNodeIndex {
+    /// `nodeIDList["size"]` — total node count.
+    pub node_count: u32,
+    /// `nodeIDList["sizeNotable"]` — notable cutoff index.
+    pub notable_count: u32,
+    /// Per-node slots, in ascending `index` order.
+    pub nodes: Vec<TimelessNodeSlot>,
+    /// `localIdToGlobalId[jewelType][localId] = globalId`, outer indexed by
+    /// `jewel_type - 1` (jewel types are 1-based in PoB), inner by `localId`.
+    #[serde(default)]
+    pub local_to_global: Vec<Vec<u32>>,
+}
+
+impl TimelessNodeIndex {
+    /// The slot for `node_id`, if the node participates in timeless replacement.
+    #[must_use]
+    pub fn slot(&self, node_id: u32) -> Option<&TimelessNodeSlot> {
+        self.nodes.iter().find(|s| s.node_id == node_id)
+    }
+
+    /// Map a per-jewel `local_id` to its global `LegionPassive` id, falling
+    /// back to the local id when no remap entry exists (mirrors PoB's
+    /// `convertLocalIdToGlobalId`). `jewel_type` is 1-based.
+    #[must_use]
+    pub fn to_global_id(&self, jewel_type: u32, local_id: u32) -> u32 {
+        self.local_to_global
+            .get(jewel_type.wrapping_sub(1) as usize)
+            .and_then(|m| m.get(local_id as usize).copied())
+            .unwrap_or(local_id)
+    }
+}
+
+/// Decode a `data/timeless_node_index.json` payload.
+pub fn load_timeless_node_index(json: &str) -> serde_json::Result<TimelessNodeIndex> {
+    serde_json::from_str(json)
+}
+
 impl TimelessJewelData {
     /// Find the conqueror entry on `jewel_base` whose textual name matches
     /// `conqueror_name` (case-insensitive). Returns `None` if either the jewel
