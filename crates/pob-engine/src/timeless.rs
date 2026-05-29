@@ -275,10 +275,42 @@ pub fn apply_keystone_replacements(
     emissions
 }
 
+/// Inflate a raw-zlib timeless LUT (PoB's `Inflate`). Glorious Vanity ships as
+/// `*.zip.part0..N` which must be concatenated before calling. The `.zip`
+/// extension is a misnomer — the files are raw zlib streams, not archives.
+pub fn inflate_timeless_lut(compressed: &[u8]) -> std::io::Result<Vec<u8>> {
+    use flate2::read::ZlibDecoder;
+    use std::io::Read;
+    let mut out = Vec::new();
+    ZlibDecoder::new(compressed).read_to_end(&mut out)?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ModDB;
+
+    /// Real-data check (self-skips in CI): the Militant Faith LUT inflates to
+    /// exactly `notable_count (452) * seedSize (8001)` bytes — confirming both
+    /// the zlib format and the flat non-GV layout `flat_notable_replacement`
+    /// indexes into. seedSize = seedMax(10000) - seedMin(2000) + 1.
+    #[test]
+    fn militant_faith_lut_inflates_to_notable_grid() {
+        let path = std::path::Path::new("../../data/timeless/MilitantFaith.zip");
+        if !path.exists() {
+            return;
+        }
+        let compressed = std::fs::read(path).expect("read MilitantFaith.zip");
+        // In CI the file is an unresolved Git LFS pointer (~130 bytes), not the
+        // real ~860 KB blob — skip rather than try to inflate the pointer text.
+        if compressed.len() < 100_000 {
+            return;
+        }
+        let lut = inflate_timeless_lut(&compressed).expect("inflate");
+        assert_eq!(lut.len(), 452 * 8001, "flat LUT = notables × seedSize");
+    }
+
     use pob_data::{
         item::{ModSection, Rarity},
         ConquerorKeystone, Group, ItemSet, ModLine, Node, NodeKind, PassiveTree, TimelessConqueror,
