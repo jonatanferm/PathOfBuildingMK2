@@ -116,19 +116,16 @@ fn is_timeless_base(name: &str) -> bool {
     )
 }
 
-/// Extract `(seed, conqueror_name)` from a single mod line. Returns `None`
-/// if the line doesn't match the prefix associated with `base_name`.
-///
-/// The grammar is fixed-prefix + integer + fixed-infix + free-form name. We
-/// match by stripping the prefix, parsing the leading integer, then stripping
-/// the infix and trimming the rest.
-fn parse_timeless_marker(base_name: &str, line: &str) -> Option<(u32, String)> {
-    // (prefix, infix). Each prefix ends right before the seed; each infix
-    // ends right before the conqueror name. Mirrors PoB's `Data/ModCache.lua`
-    // entries verbatim. Militant Faith strips the leading "High Templar " so
-    // the looked-up name matches the data file's `"Avarius"` / `"Dominus"` /
-    // `"Maxarius"` / `"Venarius"`.
-    let (prefix, infix, strip_high_templar) = match base_name {
+/// The marker-line grammar for a Timeless jewel base: `(prefix, infix,
+/// strip_high_templar)`. The prefix ends right before the seed; the infix ends
+/// right before the conqueror name. Mirrors PoB's `Data/ModCache.lua` entries
+/// verbatim. Militant Faith carries a `"High Templar "` honorific on the name
+/// in the mod text that the data file's `"Avarius"` / `"Dominus"` /
+/// `"Maxarius"` / `"Venarius"` don't — `strip_high_templar` flags it so
+/// [`parse_timeless_marker`] removes it and [`format_timeless_marker`] re-adds
+/// it, keeping the two inverse.
+fn timeless_marker_grammar(base_name: &str) -> Option<(&'static str, &'static str, bool)> {
+    Some(match base_name {
         "Glorious Vanity" => (
             "Bathed in the blood of ",
             " sacrificed in the name of ",
@@ -140,7 +137,17 @@ fn parse_timeless_marker(base_name: &str, line: &str) -> Option<(u32, String)> {
         "Elegant Hubris" => ("Commissioned ", " coins to commemorate ", false),
         "Heroic Tragedy" => ("Remembrancing ", " songworthy deeds by the line of ", false),
         _ => return None,
-    };
+    })
+}
+
+/// Extract `(seed, conqueror_name)` from a single mod line. Returns `None`
+/// if the line doesn't match the prefix associated with `base_name`.
+///
+/// The grammar is fixed-prefix + integer + fixed-infix + free-form name. We
+/// match by stripping the prefix, parsing the leading integer, then stripping
+/// the infix and trimming the rest.
+fn parse_timeless_marker(base_name: &str, line: &str) -> Option<(u32, String)> {
+    let (prefix, infix, strip_high_templar) = timeless_marker_grammar(base_name)?;
     let rest = line.strip_prefix(prefix)?;
     let infix_pos = rest.find(infix)?;
     let (seed_text, after) = rest.split_at(infix_pos);
@@ -156,6 +163,56 @@ fn parse_timeless_marker(base_name: &str, line: &str) -> Option<(u32, String)> {
         return None;
     }
     Some((seed, name))
+}
+
+/// Render a marker mod line for `base_name` from a `seed` and a (stripped)
+/// `conqueror_name`. Exact inverse of [`parse_timeless_marker`]:
+/// `parse_timeless_marker(base, &format_timeless_marker(base, seed, name)?) ==
+/// Some((seed, name))` for every Timeless base. Returns `None` for a non-Timeless
+/// base or an empty name.
+///
+/// `seed` is the **stored** value as it appears in the item text — for Elegant
+/// Hubris that is the ×20 "coins" value, not the internal LUT seed (the engine
+/// divides by 20 at lookup time; see `pob_data::seed_range`). The picker UI
+/// supplies stored values straight from `pob_data::stored_seed_bounds`.
+#[must_use]
+pub fn format_timeless_marker(base_name: &str, seed: u32, conqueror_name: &str) -> Option<String> {
+    let (prefix, infix, strip_high_templar) = timeless_marker_grammar(base_name)?;
+    let name = conqueror_name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let honorific = if strip_high_templar {
+        "High Templar "
+    } else {
+        ""
+    };
+    Some(format!("{prefix}{seed}{infix}{honorific}{name}"))
+}
+
+/// Rewrite the Timeless-jewel marker mod line on `item` in place so it carries
+/// the given `conqueror_name` + `seed`, leaving every other mod line untouched.
+/// Returns `true` when a marker line was found and its text actually changed
+/// (so the caller can gate a recompute), `false` otherwise.
+///
+/// Only the *first* line that currently parses as a marker is rewritten — a
+/// well-formed Timeless jewel has exactly one. If `item.base_name` isn't a
+/// Timeless base or no marker line is present, the item is left unchanged.
+pub fn set_timeless_marker(item: &mut Item, conqueror_name: &str, seed: u32) -> bool {
+    let Some(new_line) = format_timeless_marker(&item.base_name, seed, conqueror_name) else {
+        return false;
+    };
+    let base_name = item.base_name.clone();
+    for ml in &mut item.mod_lines {
+        if parse_timeless_marker(&base_name, &ml.line).is_some() {
+            if ml.line == new_line {
+                return false;
+            }
+            ml.line = new_line;
+            return true;
+        }
+    }
+    false
 }
 
 /// One keystone replacement to apply: the in-radius allocated keystone node
@@ -620,6 +677,96 @@ mod tests {
             &["Passives in radius are Conquered by the Vaal"],
         );
         assert!(identify_timeless_jewel(&item).is_none());
+    }
+
+    #[test]
+    fn format_marker_round_trips_through_parse() {
+        // (base, stored seed, stripped conqueror name) — one per base, covering
+        // the High-Templar honorific (Militant Faith) and the ×20 Elegant Hubris
+        // stored value. format → parse must reproduce the inputs exactly.
+        let cases = [
+            ("Glorious Vanity", 6500u32, "Doryani"),
+            ("Lethal Pride", 14000, "Kaom"),
+            ("Brutal Restraint", 500, "Asenath"),
+            ("Militant Faith", 2000, "Maxarius"),
+            ("Elegant Hubris", 160000, "Cadiro"),
+            ("Heroic Tragedy", 100, "Vorana"),
+        ];
+        for (base, seed, name) in cases {
+            let line = format_timeless_marker(base, seed, name)
+                .unwrap_or_else(|| panic!("format failed for {base}"));
+            let (got_seed, got_name) = parse_timeless_marker(base, &line)
+                .unwrap_or_else(|| panic!("parse failed for {base}: {line:?}"));
+            assert_eq!(got_seed, seed, "{base} seed round-trip");
+            assert_eq!(got_name, name, "{base} name round-trip");
+        }
+    }
+
+    #[test]
+    fn format_marker_re_adds_high_templar_for_militant_faith() {
+        let line = format_timeless_marker("Militant Faith", 5000, "Avarius").unwrap();
+        assert_eq!(
+            line,
+            "Carved to glorify 5000 new faithful converted by High Templar Avarius"
+        );
+    }
+
+    #[test]
+    fn format_marker_rejects_non_timeless_and_empty_name() {
+        assert!(format_timeless_marker("Crimson Jewel", 10, "Foo").is_none());
+        assert!(format_timeless_marker("Glorious Vanity", 10, "  ").is_none());
+    }
+
+    #[test]
+    fn set_marker_rewrites_only_the_marker_line() {
+        let mut item = mk_item(
+            "Glorious Vanity",
+            &[
+                "Bathed in the blood of 8000 sacrificed in the name of Doryani",
+                "Passives in radius are Conquered by the Vaal",
+            ],
+        );
+        let changed = set_timeless_marker(&mut item, "Xibaqua", 6500);
+        assert!(changed, "marker text changed");
+        // The non-marker line is untouched.
+        assert_eq!(
+            item.mod_lines[1].line,
+            "Passives in radius are Conquered by the Vaal"
+        );
+        // identify now reflects the new conqueror + seed — i.e. persistence is
+        // automatic via the serialized item.
+        let j = identify_timeless_jewel(&item).expect("identified after rewrite");
+        assert_eq!(j.conqueror_name, "Xibaqua");
+        assert_eq!(j.seed, 6500);
+    }
+
+    #[test]
+    fn set_marker_is_noop_when_unchanged() {
+        let mut item = mk_item(
+            "Lethal Pride",
+            &["Commanded leadership over 14000 warriors under Kaom"],
+        );
+        assert!(
+            !set_timeless_marker(&mut item, "Kaom", 14000),
+            "identical rewrite reports no change"
+        );
+    }
+
+    #[test]
+    fn marker_edit_survives_item_serialization_round_trip() {
+        // AC#3 for #216: a conqueror/seed change persists through save/load,
+        // which for a socketed jewel means the `Item` (with its rewritten
+        // marker line) serialises and re-identifies to the new values.
+        let mut item = mk_item(
+            "Elegant Hubris",
+            &["Commissioned 2000 coins to commemorate Cadiro"],
+        );
+        assert!(set_timeless_marker(&mut item, "Caspiro", 160000));
+        let json = serde_json::to_string(&item).expect("serialize item");
+        let restored: Item = serde_json::from_str(&json).expect("deserialize item");
+        let j = identify_timeless_jewel(&restored).expect("identified after round-trip");
+        assert_eq!(j.conqueror_name, "Caspiro");
+        assert_eq!(j.seed, 160000);
     }
 
     fn mk_data() -> TimelessJewelData {

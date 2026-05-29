@@ -95,6 +95,6 @@ pub use skill::{skill_for_quality, skill_mods, MainSkill, QualityId, SkillRegist
 pub use timeless::{
     apply_keystone_replacements, apply_notable_replacements, compute_keystone_replacements,
     compute_notable_replacements, conquered_keystone_set, conquered_notable_set,
-    identify_timeless_jewel, inflate_timeless_lut, KeystoneReplacement, NotableReplacement,
-    TimelessJewel, TimelessLutContext,
+    format_timeless_marker, identify_timeless_jewel, inflate_timeless_lut, set_timeless_marker,
+    KeystoneReplacement, NotableReplacement, TimelessJewel, TimelessLutContext,
 };
