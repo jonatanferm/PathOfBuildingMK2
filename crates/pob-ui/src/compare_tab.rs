@@ -44,6 +44,14 @@ pub struct CompareTabState {
     pub sel_item_set: Option<usize>,
     pub sel_skill_set: Option<usize>,
     pub sel_config_set: Option<usize>,
+    /// Issue #207: cached per-source power report — for each equipped-item
+    /// mod line that differs between the snapshot (A) and the live build (B),
+    /// the DPS/EHP it accounts for. `None` until the user clicks "Compute
+    /// per-source report"; cleared whenever the snapshot changes. Like the
+    /// tree heatmap it's an explicit, cached artifact (the per-source compute
+    /// is several recomputes), so it can go stale against later live-build
+    /// edits — the panel labels it and offers a re-run.
+    pub attribution: Option<Vec<pob_engine::ModlineAttribution>>,
 }
 
 /// Issue #223: build a snapshot label describing which set variants were
@@ -149,6 +157,11 @@ pub enum CompareAction {
         skill: Option<usize>,
         config: Option<usize>,
     },
+    /// Issue #207: (re)compute the per-source power report — attribute the
+    /// snapshot↔live equipped-item differences to individual mod lines. The
+    /// host runs [`pob_engine::compare_item_modline_attribution`] and stores
+    /// the result in `state.attribution`. Emitted only when a snapshot exists.
+    RefreshAttribution,
 }
 
 /// Issue #223 follow-up: reset the user's in-flight Compare-view state.
@@ -162,6 +175,7 @@ pub enum CompareAction {
 pub fn reset_compare_view(state: &mut CompareTabState) {
     state.filter.clear();
     state.sort_mode = CompareSortMode::default();
+    state.attribution = None;
 }
 
 /// Issue #223: one axis of the Compare set-variant picker — a `ComboBox` over
@@ -212,6 +226,8 @@ pub fn ui(
             // snapshot's label — drop it so the new snapshot doesn't
             // open the rename UI with stale text.
             state.pending_relabel = None;
+            // The cached per-source report belongs to the old snapshot.
+            state.attribution = None;
         }
         if ui.button("Load comparison from file…").clicked() {
             action = Some(CompareAction::LoadFromFile);
@@ -509,6 +525,81 @@ pub fn ui(
         }
         ui.weak(format!("{} rows", rows.len()));
     });
+
+    // Issue #207: per-source power report. Attributes the snapshot↔live
+    // equipped-item differences to individual mod lines so the user can see
+    // *which* gear changes drive the stat deltas above, not just the net
+    // result. Behind an explicit button — it costs several recomputes.
+    egui::CollapsingHeader::new("Per-source power report (items)")
+        .id_salt("compare_attribution")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let label = if state.attribution.is_some() {
+                    "Recompute"
+                } else {
+                    "Compute per-source report"
+                };
+                if ui
+                    .button(label)
+                    .on_hover_text(
+                        "Attribute the equipped-item differences between the snapshot \
+                         and the live build to individual mod lines, scored by the \
+                         DPS/EHP each accounts for. Runs several recomputes.",
+                    )
+                    .clicked()
+                {
+                    action = Some(CompareAction::RefreshAttribution);
+                }
+                if state.attribution.is_some() {
+                    ui.weak("cached — recompute after editing the live build");
+                }
+            });
+            match state.attribution.as_deref() {
+                None => {
+                    ui.weak("Click to attribute the snapshot↔live item differences.");
+                }
+                Some([]) => {
+                    ui.weak(
+                        "No equipped-item mod-line differences between the snapshot and \
+                         the live build.",
+                    );
+                }
+                Some(rows) => {
+                    let neutral = ui.style().visuals.text_color();
+                    let color = |d: f64| {
+                        if d > 1e-6 {
+                            egui::Color32::from_rgb(0x33, 0xFF, 0x77)
+                        } else if d < -1e-6 {
+                            egui::Color32::from_rgb(0xDD, 0x00, 0x22)
+                        } else {
+                            neutral
+                        }
+                    };
+                    egui::Grid::new("compare_attribution_grid")
+                        .num_columns(4)
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.strong("Δ DPS");
+                            ui.strong("Δ EHP");
+                            ui.strong("Slot");
+                            ui.strong("Mod line");
+                            ui.end_row();
+                            for row in rows {
+                                ui.colored_label(color(row.dps_delta), format_delta(row.dps_delta));
+                                ui.colored_label(color(row.ehp_delta), format_delta(row.ehp_delta));
+                                ui.label(row.slot.label());
+                                let sign = match row.side {
+                                    pob_engine::AttributionSide::Added => "+",
+                                    pob_engine::AttributionSide::Removed => "−",
+                                };
+                                ui.label(format!("{sign} {}", row.mod_line.trim()));
+                                ui.end_row();
+                            }
+                        });
+                }
+            }
+        });
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
