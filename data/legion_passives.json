@@ -1,0 +1,1826 @@
+[
+  {
+    "name": "Fire Damage",
+    "id": "vaal_small_fire_damage",
+    "stats": [
+      "(7-12)% increased Fire Damage"
+    ],
+    "sorted_stats": [
+      "fire_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Damage",
+    "id": "vaal_small_cold_damage",
+    "stats": [
+      "(7-12)% increased Cold Damage"
+    ],
+    "sorted_stats": [
+      "cold_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Damage",
+    "id": "vaal_small_lightning_damage",
+    "stats": [
+      "(7-12)% increased Lightning Damage"
+    ],
+    "sorted_stats": [
+      "lightning_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Physical Damage",
+    "id": "vaal_small_physical_damage",
+    "stats": [
+      "(7-12)% increased Physical Damage"
+    ],
+    "sorted_stats": [
+      "physical_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chaos Damage",
+    "id": "vaal_small_chaos_damage",
+    "stats": [
+      "(7-12)% increased Chaos Damage"
+    ],
+    "sorted_stats": [
+      "chaos_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "chaos_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Damage",
+    "id": "vaal_small_minion_damage",
+    "stats": [
+      "Minions deal (8-13)% increased Damage"
+    ],
+    "sorted_stats": [
+      "minion_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_damage_+%",
+        "index": 1,
+        "min": 8.0,
+        "max": 13.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attack Damage",
+    "id": "vaal_small_attack_damage",
+    "stats": [
+      "(7-12)% increased Attack Damage"
+    ],
+    "sorted_stats": [
+      "attack_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Spell Damage",
+    "id": "vaal_small_spell_damage",
+    "stats": [
+      "(7-12)% increased Spell Damage"
+    ],
+    "sorted_stats": [
+      "spell_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "spell_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Area Damage",
+    "id": "vaal_small_area_damage",
+    "stats": [
+      "(7-12)% increased Area Damage"
+    ],
+    "sorted_stats": [
+      "area_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "area_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Projectile Damage",
+    "id": "vaal_small_projectile_damage",
+    "stats": [
+      "(7-12)% increased Projectile Damage"
+    ],
+    "sorted_stats": [
+      "projectile_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "projectile_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Damage Over Time",
+    "id": "vaal_small_damage_over_time",
+    "stats": [
+      "(7-12)% increased Damage over Time"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Area Of Effect",
+    "id": "vaal_small_area_of_effect",
+    "stats": [
+      "(4-7)% increased Area of Effect"
+    ],
+    "sorted_stats": [
+      "base_skill_area_of_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_skill_area_of_effect_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 7.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Projectile Speed",
+    "id": "vaal_small_projectile_speed",
+    "stats": [
+      "(7-12)% increased Projectile Speed"
+    ],
+    "sorted_stats": [
+      "base_projectile_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_projectile_speed_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Chance",
+    "id": "vaal_small_critical_strike_chance",
+    "stats": [
+      "(7-14)% increased Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 14.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Multiplier",
+    "id": "vaal_small_critical_strike_multiplier",
+    "stats": [
+      "+(6-10)% to Critical Strike Multiplier"
+    ],
+    "sorted_stats": [
+      "base_critical_strike_multiplier_+"
+    ],
+    "rolls": [
+      {
+        "key": "base_critical_strike_multiplier_+",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attack Speed",
+    "id": "vaal_small_attack_speed",
+    "stats": [
+      "(3-4)% increased Attack Speed"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cast Speed",
+    "id": "vaal_small_cast_speed",
+    "stats": [
+      "(2-3)% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "base_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cast_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Movement Speed",
+    "id": "vaal_small_movement_speed",
+    "stats": [
+      "(2-3)% increased Movement Speed"
+    ],
+    "sorted_stats": [
+      "base_movement_velocity_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_movement_velocity_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chance To Ignite",
+    "id": "vaal_small_chance_to_ignite",
+    "stats": [
+      "(3-6)% chance to Ignite"
+    ],
+    "sorted_stats": [
+      "base_chance_to_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chance_to_ignite_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chance To Freeze",
+    "id": "vaal_small_chance_to_freeze",
+    "stats": [
+      "(3-6)% chance to Freeze"
+    ],
+    "sorted_stats": [
+      "base_chance_to_freeze_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chance_to_freeze_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chance To Shock",
+    "id": "vaal_small_chance_to_shock",
+    "stats": [
+      "(3-6)% chance to Shock"
+    ],
+    "sorted_stats": [
+      "base_chance_to_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chance_to_shock_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Duration",
+    "id": "vaal_small_duration",
+    "stats": [
+      "(4-7)% increased Skill Effect Duration"
+    ],
+    "sorted_stats": [
+      "skill_effect_duration_+%"
+    ],
+    "rolls": [
+      {
+        "key": "skill_effect_duration_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 7.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life",
+    "id": "vaal_small_life",
+    "stats": [
+      "(2-4)% increased maximum Life"
+    ],
+    "sorted_stats": [
+      "maximum_life_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_life_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana",
+    "id": "vaal_small_mana",
+    "stats": [
+      "(4-6)% increased maximum Mana"
+    ],
+    "sorted_stats": [
+      "maximum_mana_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_mana_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana Regeneration",
+    "id": "vaal_small_mana_regeneration",
+    "stats": [
+      "(12-17)% increased Mana Regeneration Rate"
+    ],
+    "sorted_stats": [
+      "mana_regeneration_rate_+%"
+    ],
+    "rolls": [
+      {
+        "key": "mana_regeneration_rate_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Armour",
+    "id": "vaal_small_armour",
+    "stats": [
+      "(7-12)% increased Armour"
+    ],
+    "sorted_stats": [
+      "physical_damage_reduction_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_reduction_rating_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Evasion",
+    "id": "vaal_small_evasion",
+    "stats": [
+      "(7-12)% increased Evasion Rating"
+    ],
+    "sorted_stats": [
+      "evasion_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "evasion_rating_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield",
+    "id": "vaal_small_energy_shield",
+    "stats": [
+      "(3-5)% increased maximum Energy Shield"
+    ],
+    "sorted_stats": [
+      "maximum_energy_shield_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_energy_shield_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attack Block",
+    "id": "vaal_small_attack_block",
+    "stats": [
+      "+2% Chance to Block Attack Damage"
+    ],
+    "sorted_stats": [
+      "additional_block_%"
+    ],
+    "rolls": [
+      {
+        "key": "additional_block_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Spell Block",
+    "id": "vaal_small_spell_block",
+    "stats": [
+      "2% Chance to Block Spell Damage"
+    ],
+    "sorted_stats": [
+      "base_spell_block_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_spell_block_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attack Dodge",
+    "id": "vaal_small_attack_dodge",
+    "stats": [
+      "3% chance to Avoid Elemental Ailments"
+    ],
+    "sorted_stats": [
+      "avoid_all_elemental_status_%"
+    ],
+    "rolls": [
+      {
+        "key": "avoid_all_elemental_status_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Spell Dodge",
+    "id": "vaal_small_spell_dodge",
+    "stats": [
+      "+4% chance to Suppress Spell Damage"
+    ],
+    "sorted_stats": [
+      "base_spell_suppression_chance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_spell_suppression_chance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Aura Effect",
+    "id": "vaal_small_aura_effect",
+    "stats": [
+      "(2-4)% increased effect of Non-Curse Auras from your Skills"
+    ],
+    "sorted_stats": [
+      "non_curse_aura_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "non_curse_aura_effect_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Curse Effect",
+    "id": "vaal_small_curse_effect",
+    "stats": [
+      "2% increased Effect of your Curses"
+    ],
+    "sorted_stats": [
+      "curse_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "curse_effect_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire Resistance",
+    "id": "vaal_small_fire_resistance",
+    "stats": [
+      "+(9-14)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 9.0,
+        "max": 14.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Resistance",
+    "id": "vaal_small_cold_resistance",
+    "stats": [
+      "+(9-14)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 9.0,
+        "max": 14.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Resistance",
+    "id": "vaal_small_lightning_resistance",
+    "stats": [
+      "+(9-14)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 9.0,
+        "max": 14.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chaos Resistance",
+    "id": "vaal_small_chaos_resistance",
+    "stats": [
+      "+(6-10)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength",
+    "id": "karui_attribute_strength",
+    "stats": [
+      "+2 to Strength"
+    ],
+    "sorted_stats": [
+      "base_strength"
+    ],
+    "rolls": [
+      {
+        "key": "base_strength",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength",
+    "id": "karui_small_strength",
+    "stats": [
+      "+4 to Strength"
+    ],
+    "sorted_stats": [
+      "base_strength"
+    ],
+    "rolls": [
+      {
+        "key": "base_strength",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Strength",
+    "id": "karui_notable_add_strength",
+    "stats": [
+      "+20 to Strength"
+    ],
+    "sorted_stats": [
+      "base_strength"
+    ],
+    "rolls": [
+      {
+        "key": "base_strength",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Percent Strength",
+    "id": "karui_notable_add_percent_strength",
+    "stats": [
+      "5% increased Strength"
+    ],
+    "sorted_stats": [
+      "strength_+%"
+    ],
+    "rolls": [
+      {
+        "key": "strength_+%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Armour",
+    "id": "karui_notable_add_armour",
+    "stats": [
+      "20% increased Armour"
+    ],
+    "sorted_stats": [
+      "physical_damage_reduction_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_reduction_rating_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Leech",
+    "id": "karui_notable_add_leech",
+    "stats": [
+      "0.4% of Attack Damage Leeched as Life"
+    ],
+    "sorted_stats": [
+      "base_life_leech_from_attack_damage_permyriad"
+    ],
+    "rolls": [
+      {
+        "key": "base_life_leech_from_attack_damage_permyriad",
+        "index": 1,
+        "min": 0.4,
+        "max": 0.4,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Add Double Damage",
+    "id": "karui_notable_add_double_damage",
+    "stats": [
+      "5% chance to deal Double Damage"
+    ],
+    "sorted_stats": [
+      "chance_to_deal_double_damage_%"
+    ],
+    "rolls": [
+      {
+        "key": "chance_to_deal_double_damage_%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Life",
+    "id": "karui_notable_add_life",
+    "stats": [
+      "4% increased maximum Life"
+    ],
+    "sorted_stats": [
+      "maximum_life_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_life_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Fortify Effect",
+    "id": "karui_notable_add_fortify_effect",
+    "stats": [
+      "+1 to maximum Fortification"
+    ],
+    "sorted_stats": [
+      "base_max_fortification"
+    ],
+    "rolls": [
+      {
+        "key": "base_max_fortification",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Life Regen",
+    "id": "karui_notable_add_life_regen",
+    "stats": [
+      "Regenerate 1% of Life per second"
+    ],
+    "sorted_stats": [
+      "life_regeneration_rate_per_minute_%"
+    ],
+    "rolls": [
+      {
+        "key": "life_regeneration_rate_per_minute_%",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Add Fire Resistance",
+    "id": "karui_notable_add_fire_resistance",
+    "stats": [
+      "+20% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Melee Damage",
+    "id": "karui_notable_add_melee_damage",
+    "stats": [
+      "20% increased Melee Damage"
+    ],
+    "sorted_stats": [
+      "melee_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "melee_damage_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Damage From Crits",
+    "id": "karui_notable_add_damage_from_crits",
+    "stats": [
+      "You take 10% reduced Extra Damage from Critical Strikes"
+    ],
+    "sorted_stats": [
+      "base_self_critical_strike_multiplier_-%"
+    ],
+    "rolls": [
+      {
+        "key": "base_self_critical_strike_multiplier_-%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Melee Crit Chance",
+    "id": "karui_notable_add_melee_crit_chance",
+    "stats": [
+      "30% increased Melee Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "melee_critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "melee_critical_strike_chance_+%",
+        "index": 1,
+        "min": 30.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Burning Damage",
+    "id": "karui_notable_add_burning_damage",
+    "stats": [
+      "20% increased Burning Damage"
+    ],
+    "sorted_stats": [
+      "burn_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "burn_damage_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Totem Damage",
+    "id": "karui_notable_add_totem_damage",
+    "stats": [
+      "20% increased Totem Damage"
+    ],
+    "sorted_stats": [
+      "totem_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "totem_damage_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Melee Crit Multi",
+    "id": "karui_notable_add_melee_crit_multi",
+    "stats": [
+      "+15% to Melee Critical Strike Multiplier"
+    ],
+    "sorted_stats": [
+      "melee_weapon_critical_strike_multiplier_+"
+    ],
+    "rolls": [
+      {
+        "key": "melee_weapon_critical_strike_multiplier_+",
+        "index": 1,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Physical Damage",
+    "id": "karui_notable_add_physical_damage",
+    "stats": [
+      "20% increased Physical Damage"
+    ],
+    "sorted_stats": [
+      "physical_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Warcry Buff Effect",
+    "id": "karui_notable_add_warcry_buff_effect",
+    "stats": [
+      "8% increased Warcry Buff Effect"
+    ],
+    "sorted_stats": [
+      "warcry_buff_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "warcry_buff_effect_+%",
+        "index": 1,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Totem Placement Speed",
+    "id": "karui_notable_add_totem_placement_speed",
+    "stats": [
+      "12% increased Totem Placement speed"
+    ],
+    "sorted_stats": [
+      "summon_totem_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "summon_totem_cast_speed_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Stun Duration",
+    "id": "karui_notable_add_stun_duration",
+    "stats": [
+      "20% increased Stun Duration on Enemies"
+    ],
+    "sorted_stats": [
+      "base_stun_duration_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_stun_duration_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Faster Ignite",
+    "id": "karui_notable_add_faster_ignite",
+    "stats": [
+      "Ignites you inflict deal Damage 10% faster"
+    ],
+    "sorted_stats": [
+      "faster_burn_%"
+    ],
+    "rolls": [
+      {
+        "key": "faster_burn_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Reduced Stun Threshold",
+    "id": "karui_notable_add_reduced_stun_threshold",
+    "stats": [
+      "10% reduced Enemy Stun Threshold"
+    ],
+    "sorted_stats": [
+      "base_stun_threshold_reduction_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_stun_threshold_reduction_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Physical Added As Fire",
+    "id": "karui_notable_add_physical_added_as_fire",
+    "stats": [
+      "Gain 5% of Physical Damage as Extra Fire Damage"
+    ],
+    "sorted_stats": [
+      "physical_damage_%_to_add_as_fire"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_%_to_add_as_fire",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Rage On Melee Hit",
+    "id": "karui_notable_add_rage_on_melee_hit",
+    "stats": [
+      "Gain 1 Rage on Melee Hit"
+    ],
+    "sorted_stats": [
+      "gain_x_rage_on_melee_hit"
+    ],
+    "rolls": [
+      {
+        "key": "gain_x_rage_on_melee_hit",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Endurance Charge On Kill",
+    "id": "karui_notable_add_endurance_charge_on_kill",
+    "stats": [
+      "5% chance to gain an Endurance Charge on Kill"
+    ],
+    "sorted_stats": [
+      "endurance_charge_on_kill_%"
+    ],
+    "rolls": [
+      {
+        "key": "endurance_charge_on_kill_%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Intimidate",
+    "id": "karui_notable_add_intimidate",
+    "stats": [
+      "10% chance to Intimidate Enemies for 4 seconds on Hit"
+    ],
+    "sorted_stats": [
+      "chance_to_intimidate_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "chance_to_intimidate_on_hit_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dex",
+    "id": "maraketh_attribute_dex",
+    "stats": [
+      "+2 to Dexterity"
+    ],
+    "sorted_stats": [
+      "base_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "base_dexterity",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dex",
+    "id": "maraketh_small_dex",
+    "stats": [
+      "+4 to Dexterity"
+    ],
+    "sorted_stats": [
+      "base_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "base_dexterity",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Dexterity",
+    "id": "maraketh_notable_add_dexterity",
+    "stats": [
+      "+20 to Dexterity"
+    ],
+    "sorted_stats": [
+      "base_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "base_dexterity",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Percent Dexterity",
+    "id": "maraketh_notable_add_percent_dexterity",
+    "stats": [
+      "5% increased Dexterity"
+    ],
+    "sorted_stats": [
+      "dexterity_+%"
+    ],
+    "rolls": [
+      {
+        "key": "dexterity_+%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Evasion",
+    "id": "maraketh_notable_add_evasion",
+    "stats": [
+      "20% increased Evasion Rating"
+    ],
+    "sorted_stats": [
+      "evasion_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "evasion_rating_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Flask Charges",
+    "id": "maraketh_notable_add_flask_charges",
+    "stats": [
+      "10% increased Flask Charges gained"
+    ],
+    "sorted_stats": [
+      "charges_gained_+%"
+    ],
+    "rolls": [
+      {
+        "key": "charges_gained_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Speed",
+    "id": "maraketh_notable_add_speed",
+    "stats": [
+      "5% increased Attack and Cast Speed"
+    ],
+    "sorted_stats": [
+      "attack_and_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_and_cast_speed_+%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Life",
+    "id": "maraketh_notable_add_life",
+    "stats": [
+      "4% increased maximum Life"
+    ],
+    "sorted_stats": [
+      "maximum_life_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_life_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Blind",
+    "id": "maraketh_notable_add_blind",
+    "stats": [
+      "5% chance to Blind Enemies on Hit"
+    ],
+    "sorted_stats": [
+      "global_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "global_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Movement Speed",
+    "id": "maraketh_notable_add_movement_speed",
+    "stats": [
+      "5% increased Movement Speed"
+    ],
+    "sorted_stats": [
+      "base_movement_velocity_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_movement_velocity_+%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Cold Resistance",
+    "id": "maraketh_notable_add_cold_resistance",
+    "stats": [
+      "+20% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Projectile Damage",
+    "id": "maraketh_notable_add_projectile_damage",
+    "stats": [
+      "20% increased Projectile Damage"
+    ],
+    "sorted_stats": [
+      "projectile_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "projectile_damage_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Stun Avoid",
+    "id": "maraketh_notable_add_stun_avoid",
+    "stats": [
+      "20% chance to Avoid being Stunned"
+    ],
+    "sorted_stats": [
+      "base_avoid_stun_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_stun_%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Global Crit Chance",
+    "id": "maraketh_notable_add_global_crit_chance",
+    "stats": [
+      "25% increased Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 25.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Poison Damage",
+    "id": "maraketh_notable_add_poison_damage",
+    "stats": [
+      "20% increased Damage with Poison"
+    ],
+    "sorted_stats": [
+      "base_poison_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_poison_damage_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Minion Damage",
+    "id": "maraketh_notable_add_minion_damage",
+    "stats": [
+      "Minions deal 20% increased Damage"
+    ],
+    "sorted_stats": [
+      "minion_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_damage_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Accuracy",
+    "id": "maraketh_notable_add_accuracy",
+    "stats": [
+      "5% increased Global Accuracy Rating"
+    ],
+    "sorted_stats": [
+      "accuracy_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "accuracy_rating_+%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Elemental Damage",
+    "id": "maraketh_notable_add_elemental_damage",
+    "stats": [
+      "20% increased Elemental Damage"
+    ],
+    "sorted_stats": [
+      "elemental_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "elemental_damage_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Aura Effect",
+    "id": "maraketh_notable_add_aura_effect",
+    "stats": [
+      "8% increased effect of Non-Curse Auras from your Skills"
+    ],
+    "sorted_stats": [
+      "non_curse_aura_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "non_curse_aura_effect_+%",
+        "index": 1,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Minion Movement Speed",
+    "id": "maraketh_notable_add_minion_movement_speed",
+    "stats": [
+      "Minions have 15% increased Movement Speed"
+    ],
+    "sorted_stats": [
+      "minion_movement_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_movement_speed_+%",
+        "index": 1,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Ailment Duration",
+    "id": "maraketh_notable_add_ailment_duration",
+    "stats": [
+      "10% increased Duration of Elemental Ailments on Enemies"
+    ],
+    "sorted_stats": [
+      "base_elemental_status_ailment_duration_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_elemental_status_ailment_duration_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Faster Poison",
+    "id": "maraketh_notable_add_faster_poison",
+    "stats": [
+      "Poisons you inflict deal Damage 10% faster"
+    ],
+    "sorted_stats": [
+      "faster_poison_%"
+    ],
+    "rolls": [
+      {
+        "key": "faster_poison_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Ailment Effect",
+    "id": "maraketh_notable_add_ailment_effect",
+    "stats": [
+      "10% increased Effect of Non-Damaging Ailments"
+    ],
+    "sorted_stats": [
+      "non_damaging_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "non_damaging_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Physical Added As Cold",
+    "id": "maraketh_notable_add_physical_added_as_cold",
+    "stats": [
+      "Gain 5% of Physical Damage as Extra Cold Damage"
+    ],
+    "sorted_stats": [
+      "physical_damage_%_to_add_as_cold"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_%_to_add_as_cold",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Alchemists Genius",
+    "id": "maraketh_notable_add_alchemists_genius",
+    "stats": [
+      "25% chance to gain Alchemist's Genius when you use a Flask"
+    ],
+    "sorted_stats": [
+      "gain_alchemists_genius_on_flask_use_%"
+    ],
+    "rolls": [
+      {
+        "key": "gain_alchemists_genius_on_flask_use_%",
+        "index": 1,
+        "min": 25.0,
+        "max": 25.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Frenzy Charge On Kill",
+    "id": "maraketh_notable_add_frenzy_charge_on_kill",
+    "stats": [
+      "5% chance to gain a Frenzy Charge on Kill"
+    ],
+    "sorted_stats": [
+      "add_frenzy_charge_on_kill_%_chance"
+    ],
+    "rolls": [
+      {
+        "key": "add_frenzy_charge_on_kill_%_chance",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Add Onslaught",
+    "id": "maraketh_notable_add_onslaught",
+    "stats": [
+      "You gain Onslaught for 8 seconds on Kill"
+    ],
+    "sorted_stats": [
+      "onslaught_buff_duration_on_kill_ms"
+    ],
+    "rolls": [
+      {
+        "key": "onslaught_buff_duration_on_kill_ms",
+        "index": 1,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Devotion",
+    "id": "templar_small_devotion",
+    "stats": [
+      "+5 to Devotion"
+    ],
+    "sorted_stats": [
+      "base_devotion"
+    ],
+    "rolls": [
+      {
+        "key": "base_devotion",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Devotion",
+    "id": "templar_notable_devotion",
+    "stats": [
+      "+5 to Devotion"
+    ],
+    "sorted_stats": [
+      "base_devotion"
+    ],
+    "rolls": [
+      {
+        "key": "base_devotion",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ward",
+    "id": "kalguuran_small_ward",
+    "stats": [
+      "2% increased Ward"
+    ],
+    "sorted_stats": [
+      "ward_+%"
+    ],
+    "rolls": [
+      {
+        "key": "ward_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ward",
+    "id": "kalguuran_attribute_ward",
+    "stats": [
+      "1% increased Ward"
+    ],
+    "sorted_stats": [
+      "ward_+%"
+    ],
+    "rolls": [
+      {
+        "key": "ward_+%",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  }
+]

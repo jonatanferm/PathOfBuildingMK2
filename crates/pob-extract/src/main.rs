@@ -187,13 +187,25 @@ fn main() -> Result<()> {
     .with_context(|| format!("writing {}", calc_sections_path.display()))?;
     wrote.push(calc_sections_path);
 
-    // #227: timeless replacement-passive pool (notable / small-node additions).
-    let legion_path = args.out.join("legion_passives.json");
-    let legion = timeless_legion::extract(&args.pob)
+    // #227: timeless replacement-passive pools. `additions` =
+    // legionAdditions (small-node stat injections); `nodes` = legionNodes (the
+    // replacement-notable pool). Both carry roll metadata for Glorious Vanity.
+    let (legion_additions, legion_nodes) = timeless_legion::extract(&args.pob)
         .with_context(|| "extracting timeless legion passives".to_string())?;
-    std::fs::write(&legion_path, serde_json::to_string_pretty(&legion)?)
-        .with_context(|| format!("writing {}", legion_path.display()))?;
+    let legion_path = args.out.join("legion_passives.json");
+    std::fs::write(
+        &legion_path,
+        serde_json::to_string_pretty(&legion_additions)?,
+    )
+    .with_context(|| format!("writing {}", legion_path.display()))?;
     wrote.push(legion_path);
+    let legion_nodes_path = args.out.join("legion_nodes.json");
+    std::fs::write(
+        &legion_nodes_path,
+        serde_json::to_string_pretty(&legion_nodes)?,
+    )
+    .with_context(|| format!("writing {}", legion_nodes_path.display()))?;
+    wrote.push(legion_nodes_path);
 
     // #227: timeless node→slot index + local→global id remap.
     let node_index_path = args.out.join("timeless_node_index.json");

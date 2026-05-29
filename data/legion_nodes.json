@@ -1,0 +1,3954 @@
+[
+  {
+    "name": "Divine Flesh",
+    "id": "vaal_keystone_1",
+    "stats": [
+      "All Damage taken bypasses Energy Shield",
+      "50% of Elemental Damage taken as Chaos Damage",
+      "+5% to maximum Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "keystone_divine_flesh"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_divine_flesh",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Youth",
+    "id": "vaal_keystone_2",
+    "stats": [
+      "50% less Life Regeneration Rate",
+      "50% less maximum Total Life Recovery per Second from Leech",
+      "Energy Shield Recharge instead applies to Life"
+    ],
+    "sorted_stats": [
+      "keystone_eternal_youth"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_eternal_youth",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Immortal Ambition",
+    "id": "vaal_keystone_2_v2",
+    "stats": [
+      "Energy Shield starts at zero",
+      "Cannot Recharge or Regenerate Energy Shield",
+      "Lose 5% of Energy Shield per second",
+      "Life Leech effects are not removed when Unreserved Life is Filled",
+      "Life Leech effects Recover Energy Shield instead while on Full Life"
+    ],
+    "sorted_stats": [
+      "keystone_soul_tether"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_soul_tether",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Corrupted Soul",
+    "id": "vaal_keystone_3",
+    "stats": [
+      "50% of Non-Chaos Damage taken bypasses Energy Shield",
+      "Gain 15% of Maximum Life as Extra Maximum Energy Shield"
+    ],
+    "sorted_stats": [
+      "keystone_corrupted_defences"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_corrupted_defences",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire Damage",
+    "id": "vaal_small_fire_damage",
+    "stats": [
+      "(7-12)% increased Fire Damage"
+    ],
+    "sorted_stats": [
+      "fire_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Damage",
+    "id": "vaal_small_cold_damage",
+    "stats": [
+      "(7-12)% increased Cold Damage"
+    ],
+    "sorted_stats": [
+      "cold_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Damage",
+    "id": "vaal_small_lightning_damage",
+    "stats": [
+      "(7-12)% increased Lightning Damage"
+    ],
+    "sorted_stats": [
+      "lightning_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Physical Damage",
+    "id": "vaal_small_physical_damage",
+    "stats": [
+      "(7-12)% increased Physical Damage"
+    ],
+    "sorted_stats": [
+      "physical_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chaos Damage",
+    "id": "vaal_small_chaos_damage",
+    "stats": [
+      "(7-12)% increased Chaos Damage"
+    ],
+    "sorted_stats": [
+      "chaos_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "chaos_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Damage",
+    "id": "vaal_small_minion_damage",
+    "stats": [
+      "Minions deal (8-13)% increased Damage"
+    ],
+    "sorted_stats": [
+      "minion_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_damage_+%",
+        "index": 1,
+        "min": 8.0,
+        "max": 13.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attack Damage",
+    "id": "vaal_small_attack_damage",
+    "stats": [
+      "(7-12)% increased Attack Damage"
+    ],
+    "sorted_stats": [
+      "attack_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Spell Damage",
+    "id": "vaal_small_spell_damage",
+    "stats": [
+      "(7-12)% increased Spell Damage"
+    ],
+    "sorted_stats": [
+      "spell_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "spell_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Area Damage",
+    "id": "vaal_small_area_damage",
+    "stats": [
+      "(7-12)% increased Area Damage"
+    ],
+    "sorted_stats": [
+      "area_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "area_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Projectile Damage",
+    "id": "vaal_small_projectile_damage",
+    "stats": [
+      "(7-12)% increased Projectile Damage"
+    ],
+    "sorted_stats": [
+      "projectile_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "projectile_damage_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Damage Over Time",
+    "id": "vaal_small_damage_over_time",
+    "stats": [
+      "(7-12)% increased Damage over Time"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Area of Effect",
+    "id": "vaal_small_area_of_effect",
+    "stats": [
+      "(4-7)% increased Area of Effect"
+    ],
+    "sorted_stats": [
+      "base_skill_area_of_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_skill_area_of_effect_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 7.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Projectile Speed",
+    "id": "vaal_small_projectile_speed",
+    "stats": [
+      "(7-12)% increased Projectile Speed"
+    ],
+    "sorted_stats": [
+      "base_projectile_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_projectile_speed_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Chance",
+    "id": "vaal_small_critical_strike_chance",
+    "stats": [
+      "(7-14)% increased Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 14.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Multiplier",
+    "id": "vaal_small_critical_strike_multiplier",
+    "stats": [
+      "+(6-10)% to Critical Strike Multiplier"
+    ],
+    "sorted_stats": [
+      "base_critical_strike_multiplier_+"
+    ],
+    "rolls": [
+      {
+        "key": "base_critical_strike_multiplier_+",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attack Speed",
+    "id": "vaal_small_attack_speed",
+    "stats": [
+      "(3-4)% increased Attack Speed"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cast Speed",
+    "id": "vaal_small_cast_speed",
+    "stats": [
+      "(2-3)% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "base_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cast_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Movement Speed",
+    "id": "vaal_small_movement_speed",
+    "stats": [
+      "(2-3)% increased Movement Speed"
+    ],
+    "sorted_stats": [
+      "base_movement_velocity_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_movement_velocity_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ignite Chance",
+    "id": "vaal_small_chance_to_ignite",
+    "stats": [
+      "(3-6)% chance to Ignite"
+    ],
+    "sorted_stats": [
+      "base_chance_to_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chance_to_ignite_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Freeze Chance",
+    "id": "vaal_small_chance_to_freeze",
+    "stats": [
+      "(3-6)% chance to Freeze"
+    ],
+    "sorted_stats": [
+      "base_chance_to_freeze_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chance_to_freeze_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Shock Chance",
+    "id": "vaal_small_chance_to_shock",
+    "stats": [
+      "(3-6)% chance to Shock"
+    ],
+    "sorted_stats": [
+      "base_chance_to_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chance_to_shock_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Skill Duration",
+    "id": "vaal_small_duration",
+    "stats": [
+      "(4-7)% increased Skill Effect Duration"
+    ],
+    "sorted_stats": [
+      "skill_effect_duration_+%"
+    ],
+    "rolls": [
+      {
+        "key": "skill_effect_duration_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 7.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life",
+    "id": "vaal_small_life",
+    "stats": [
+      "(2-4)% increased maximum Life"
+    ],
+    "sorted_stats": [
+      "maximum_life_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_life_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana",
+    "id": "vaal_small_mana",
+    "stats": [
+      "(4-6)% increased maximum Mana"
+    ],
+    "sorted_stats": [
+      "maximum_mana_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_mana_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana Regeneration",
+    "id": "vaal_small_mana_regeneration",
+    "stats": [
+      "(12-17)% increased Mana Regeneration Rate"
+    ],
+    "sorted_stats": [
+      "mana_regeneration_rate_+%"
+    ],
+    "rolls": [
+      {
+        "key": "mana_regeneration_rate_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Armour",
+    "id": "vaal_small_armour",
+    "stats": [
+      "(7-12)% increased Armour"
+    ],
+    "sorted_stats": [
+      "physical_damage_reduction_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_reduction_rating_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Evasion",
+    "id": "vaal_small_evasion",
+    "stats": [
+      "(7-12)% increased Evasion Rating"
+    ],
+    "sorted_stats": [
+      "evasion_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "evasion_rating_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield",
+    "id": "vaal_small_energy_shield",
+    "stats": [
+      "(3-5)% increased maximum Energy Shield"
+    ],
+    "sorted_stats": [
+      "maximum_energy_shield_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_energy_shield_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Block",
+    "id": "vaal_small_attack_block",
+    "stats": [
+      "+2% Chance to Block Attack Damage"
+    ],
+    "sorted_stats": [
+      "additional_block_%"
+    ],
+    "rolls": [
+      {
+        "key": "additional_block_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Spell Block",
+    "id": "vaal_small_spell_block",
+    "stats": [
+      "2% Chance to Block Spell Damage"
+    ],
+    "sorted_stats": [
+      "base_spell_block_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_spell_block_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Avoid Elemental Ailments",
+    "id": "vaal_small_attack_dodge",
+    "stats": [
+      "3% chance to Avoid Elemental Ailments"
+    ],
+    "sorted_stats": [
+      "avoid_all_elemental_status_%"
+    ],
+    "rolls": [
+      {
+        "key": "avoid_all_elemental_status_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Spell Suppression",
+    "id": "vaal_small_spell_dodge",
+    "stats": [
+      "+4% chance to Suppress Spell Damage"
+    ],
+    "sorted_stats": [
+      "base_spell_suppression_chance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_spell_suppression_chance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Aura Effect",
+    "id": "vaal_small_aura_effect",
+    "stats": [
+      "(2-4)% increased effect of Non-Curse Auras from your Skills"
+    ],
+    "sorted_stats": [
+      "non_curse_aura_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "non_curse_aura_effect_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Curse Effect",
+    "id": "vaal_small_curse_effect",
+    "stats": [
+      "2% increased Effect of your Curses"
+    ],
+    "sorted_stats": [
+      "curse_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "curse_effect_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire Resistance",
+    "id": "vaal_small_fire_resistance",
+    "stats": [
+      "+(9-14)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 9.0,
+        "max": 14.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Resistance",
+    "id": "vaal_small_cold_resistance",
+    "stats": [
+      "+(9-14)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 9.0,
+        "max": 14.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Resistance",
+    "id": "vaal_small_lightning_resistance",
+    "stats": [
+      "+(9-14)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 9.0,
+        "max": 14.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chaos Resistance",
+    "id": "vaal_small_chaos_resistance",
+    "stats": [
+      "+(6-10)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ritual of Immolation",
+    "id": "vaal_notable_fire_damage_1",
+    "stats": [
+      "(25-35)% increased Fire Damage",
+      "Damage Penetrates (2-4)% Fire Resistance"
+    ],
+    "sorted_stats": [
+      "fire_damage_+%",
+      "base_reduce_enemy_fire_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_reduce_enemy_fire_resistance_%",
+        "index": 2,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Revitalising Flames",
+    "id": "vaal_notable_fire_damage_2",
+    "stats": [
+      "(25-35)% increased Fire Damage",
+      "0.2% of Fire Damage Leeched as Life"
+    ],
+    "sorted_stats": [
+      "fire_damage_+%",
+      "base_life_leech_from_fire_damage_permyriad"
+    ],
+    "rolls": [
+      {
+        "key": "fire_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_life_leech_from_fire_damage_permyriad",
+        "index": 2,
+        "min": 0.2,
+        "max": 0.2,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Flesh to Flames",
+    "id": "vaal_notable_fire_damage_3",
+    "stats": [
+      "(25-35)% increased Fire Damage",
+      "10% of Physical Damage Converted to Fire Damage"
+    ],
+    "sorted_stats": [
+      "fire_damage_+%",
+      "base_physical_damage_%_to_convert_to_fire"
+    ],
+    "rolls": [
+      {
+        "key": "fire_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_physical_damage_%_to_convert_to_fire",
+        "index": 2,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ritual of Stillness",
+    "id": "vaal_notable_cold_damage_1",
+    "stats": [
+      "(25-35)% increased Cold Damage",
+      "Damage Penetrates (2-4)% Cold Resistance"
+    ],
+    "sorted_stats": [
+      "cold_damage_+%",
+      "base_reduce_enemy_cold_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_reduce_enemy_cold_resistance_%",
+        "index": 2,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Revitalising Frost",
+    "id": "vaal_notable_cold_damage_2",
+    "stats": [
+      "(25-35)% increased Cold Damage",
+      "0.2% of Cold Damage Leeched as Life"
+    ],
+    "sorted_stats": [
+      "cold_damage_+%",
+      "base_life_leech_from_cold_damage_permyriad"
+    ],
+    "rolls": [
+      {
+        "key": "cold_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_life_leech_from_cold_damage_permyriad",
+        "index": 2,
+        "min": 0.2,
+        "max": 0.2,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Flesh to Frost",
+    "id": "vaal_notable_cold_damage_3",
+    "stats": [
+      "(25-35)% increased Cold Damage",
+      "10% of Physical Damage Converted to Cold Damage"
+    ],
+    "sorted_stats": [
+      "cold_damage_+%",
+      "base_physical_damage_%_to_convert_to_cold"
+    ],
+    "rolls": [
+      {
+        "key": "cold_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_physical_damage_%_to_convert_to_cold",
+        "index": 2,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ritual of Thunder",
+    "id": "vaal_notable_lightning_damage_1",
+    "stats": [
+      "(25-35)% increased Lightning Damage",
+      "Damage Penetrates (2-4)% Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "lightning_damage_+%",
+      "base_reduce_enemy_lightning_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_reduce_enemy_lightning_resistance_%",
+        "index": 2,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Revitalising Lightning",
+    "id": "vaal_notable_lightning_damage_2",
+    "stats": [
+      "(25-35)% increased Lightning Damage",
+      "0.2% of Lightning Damage Leeched as Life"
+    ],
+    "sorted_stats": [
+      "lightning_damage_+%",
+      "base_life_leech_from_lightning_damage_permyriad"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_life_leech_from_lightning_damage_permyriad",
+        "index": 2,
+        "min": 0.2,
+        "max": 0.2,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Flesh to Lightning",
+    "id": "vaal_notable_lightning_damage_3",
+    "stats": [
+      "(25-35)% increased Lightning Damage",
+      "10% of Physical Damage Converted to Lightning Damage"
+    ],
+    "sorted_stats": [
+      "lightning_damage_+%",
+      "base_physical_damage_%_to_convert_to_lightning"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_physical_damage_%_to_convert_to_lightning",
+        "index": 2,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ritual of Might",
+    "id": "vaal_notable_physical_damage_1",
+    "stats": [
+      "(2-4)% chance to deal Double Damage",
+      "(25-35)% increased Physical Damage"
+    ],
+    "sorted_stats": [
+      "chance_to_deal_double_damage_%",
+      "physical_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "chance_to_deal_double_damage_%",
+        "index": 2,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Revitalising Winds",
+    "id": "vaal_notable_physical_damage_2",
+    "stats": [
+      "0.2% of Physical Damage Leeched as Life",
+      "(25-35)% increased Physical Damage"
+    ],
+    "sorted_stats": [
+      "base_life_leech_from_physical_damage_permyriad",
+      "physical_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_life_leech_from_physical_damage_permyriad",
+        "index": 2,
+        "min": 0.2,
+        "max": 0.2,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Bloody Savagery",
+    "id": "vaal_notable_physical_damage_3",
+    "stats": [
+      "Bleeding you inflict deals Damage 10% faster",
+      "(25-35)% increased Physical Damage"
+    ],
+    "sorted_stats": [
+      "faster_bleed_%",
+      "physical_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "faster_bleed_%",
+        "index": 2,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ritual of Shadows",
+    "id": "vaal_notable_chaos_damage_1",
+    "stats": [
+      "(25-35)% increased Chaos Damage",
+      "25% chance to inflict Withered for 2 seconds on Hit"
+    ],
+    "sorted_stats": [
+      "chaos_damage_+%",
+      "withered_on_hit_for_2_seconds_%_chance"
+    ],
+    "rolls": [
+      {
+        "key": "chaos_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "withered_on_hit_for_2_seconds_%_chance",
+        "index": 2,
+        "min": 25.0,
+        "max": 25.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Revitalising Darkness",
+    "id": "vaal_notable_chaos_damage_2",
+    "stats": [
+      "(25-35)% increased Chaos Damage",
+      "0.2% of Chaos Damage Leeched as Life"
+    ],
+    "sorted_stats": [
+      "chaos_damage_+%",
+      "base_life_leech_from_chaos_damage_permyriad"
+    ],
+    "rolls": [
+      {
+        "key": "chaos_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_life_leech_from_chaos_damage_permyriad",
+        "index": 2,
+        "min": 0.2,
+        "max": 0.2,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Thaumaturgical Aptitude",
+    "id": "vaal_notable_spell_damage_1",
+    "stats": [
+      "(25-35)% increased Spell Damage",
+      "(35-50)% increased Spell Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "spell_damage_+%",
+      "spell_critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "spell_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_critical_strike_chance_+%",
+        "index": 2,
+        "min": 35.0,
+        "max": 50.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Hierarchy",
+    "id": "vaal_notable_minion_damage_1",
+    "stats": [
+      "Minions have (15-20)% increased maximum Life",
+      "Minions deal (25-35)% increased Damage"
+    ],
+    "sorted_stats": [
+      "minion_maximum_life_+%",
+      "minion_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_damage_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "minion_maximum_life_+%",
+        "index": 2,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Exquisite Pain",
+    "id": "vaal_notable_damage_over_time_1",
+    "stats": [
+      "(25-35)% increased Damage over Time",
+      "(7-11)% increased Skill Effect Duration"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%",
+      "skill_effect_duration_+%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 35.0,
+        "fmt": "d"
+      },
+      {
+        "key": "skill_effect_duration_+%",
+        "index": 2,
+        "min": 7.0,
+        "max": 11.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ritual of Flesh",
+    "id": "vaal_notable_life_1",
+    "stats": [
+      "(6-10)% increased maximum Life",
+      "Regenerate (0.7-1.2)% of Life per second"
+    ],
+    "sorted_stats": [
+      "maximum_life_+%",
+      "life_regeneration_rate_per_minute_%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_life_+%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      },
+      {
+        "key": "life_regeneration_rate_per_minute_%",
+        "index": 2,
+        "min": 0.7,
+        "max": 1.2,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Flesh Worship",
+    "id": "vaal_notable_life_2",
+    "stats": [
+      "(6-10)% increased maximum Life",
+      "0.4% of Attack Damage Leeched as Life"
+    ],
+    "sorted_stats": [
+      "maximum_life_+%",
+      "base_life_leech_from_attack_damage_permyriad"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_life_+%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_life_leech_from_attack_damage_permyriad",
+        "index": 2,
+        "min": 0.4,
+        "max": 0.4,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Ritual of Memory",
+    "id": "vaal_notable_mana_1",
+    "stats": [
+      "(17-23)% increased maximum Mana",
+      "(15-25)% increased Mana Regeneration Rate"
+    ],
+    "sorted_stats": [
+      "maximum_mana_+%",
+      "mana_regeneration_rate_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_mana_+%",
+        "index": 1,
+        "min": 17.0,
+        "max": 23.0,
+        "fmt": "d"
+      },
+      {
+        "key": "mana_regeneration_rate_+%",
+        "index": 2,
+        "min": 15.0,
+        "max": 25.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Automaton Studies",
+    "id": "vaal_notable_armour_1",
+    "stats": [
+      "(30-40)% increased Armour",
+      "(3-4)% additional Physical Damage Reduction"
+    ],
+    "sorted_stats": [
+      "physical_damage_reduction_rating_+%",
+      "base_additional_physical_damage_reduction_%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_reduction_rating_+%",
+        "index": 1,
+        "min": 30.0,
+        "max": 40.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_additional_physical_damage_reduction_%",
+        "index": 2,
+        "min": 3.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Construct Studies",
+    "id": "vaal_notable_evasion_1",
+    "stats": [
+      "(30-40)% increased Evasion Rating",
+      "(5-7)% chance to Blind Enemies on Hit"
+    ],
+    "sorted_stats": [
+      "evasion_rating_+%",
+      "global_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "evasion_rating_+%",
+        "index": 1,
+        "min": 30.0,
+        "max": 40.0,
+        "fmt": "d"
+      },
+      {
+        "key": "global_chance_to_blind_on_hit_%",
+        "index": 2,
+        "min": 5.0,
+        "max": 7.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Flow Studies",
+    "id": "vaal_notable_energy_shield_1",
+    "stats": [
+      "(8-12)% increased maximum Energy Shield",
+      "(10-15)% increased Energy Shield Recharge Rate"
+    ],
+    "sorted_stats": [
+      "maximum_energy_shield_+%",
+      "energy_shield_recharge_rate_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_energy_shield_+%",
+        "index": 1,
+        "min": 8.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "energy_shield_recharge_rate_+%",
+        "index": 2,
+        "min": 10.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Soul Worship",
+    "id": "vaal_notable_energy_shield_2",
+    "stats": [
+      "(8-12)% increased maximum Energy Shield",
+      "0.3% of Spell Damage Leeched as Energy Shield"
+    ],
+    "sorted_stats": [
+      "maximum_energy_shield_+%",
+      "base_energy_shield_leech_from_spell_damage_permyriad"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_energy_shield_+%",
+        "index": 1,
+        "min": 8.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_energy_shield_leech_from_spell_damage_permyriad",
+        "index": 2,
+        "min": 0.3,
+        "max": 0.3,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Blood-Quenched Bulwark",
+    "id": "vaal_notable_block_1",
+    "stats": [
+      "(6-10) Life gained when you Block",
+      "+8% Chance to Block Attack Damage"
+    ],
+    "sorted_stats": [
+      "life_gained_on_block",
+      "additional_block_%"
+    ],
+    "rolls": [
+      {
+        "key": "additional_block_%",
+        "index": 1,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      },
+      {
+        "key": "life_gained_on_block",
+        "index": 2,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Thaumaturgical Protection",
+    "id": "vaal_notable_block_2",
+    "stats": [
+      "8% Chance to Block Spell Damage",
+      "(20-30)% increased Defences from Equipped Shield"
+    ],
+    "sorted_stats": [
+      "base_spell_block_%",
+      "shield_armour_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_spell_block_%",
+        "index": 1,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      },
+      {
+        "key": "shield_armour_+%",
+        "index": 2,
+        "min": 20.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Jungle Paths",
+    "id": "vaal_notable_dodge_1",
+    "stats": [
+      "(8-10)% chance to Avoid Elemental Ailments",
+      "(8-10)% chance to Avoid being Stunned"
+    ],
+    "sorted_stats": [
+      "avoid_all_elemental_status_%",
+      "base_avoid_stun_%"
+    ],
+    "rolls": [
+      {
+        "key": "avoid_all_elemental_status_%",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_avoid_stun_%",
+        "index": 2,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Temple Paths",
+    "id": "vaal_notable_dodge_2",
+    "stats": [
+      "+6% chance to Suppress Spell Damage",
+      "+(8-10)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_spell_suppression_chance_%",
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_spell_suppression_chance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 6.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 2,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Commanding Presence",
+    "id": "vaal_notable_aura_1",
+    "stats": [
+      "20% increased Area of Effect of Aura Skills",
+      "(7-10)% increased effect of Non-Curse Auras from your Skills"
+    ],
+    "sorted_stats": [
+      "base_aura_area_of_effect_+%",
+      "non_curse_aura_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "non_curse_aura_effect_+%",
+        "index": 1,
+        "min": 7.0,
+        "max": 10.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_aura_area_of_effect_+%",
+        "index": 2,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ancient Hex",
+    "id": "vaal_notable_curse_1",
+    "stats": [
+      "(4-6)% increased Effect of your Curses",
+      "Curse Skills have 20% increased Skill Effect Duration"
+    ],
+    "sorted_stats": [
+      "curse_effect_+%",
+      "curse_skill_effect_duration_+%"
+    ],
+    "rolls": [
+      {
+        "key": "curse_effect_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      },
+      {
+        "key": "curse_skill_effect_duration_+%",
+        "index": 2,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cult of Fire",
+    "id": "vaal_notable_fire_resistance_1",
+    "stats": [
+      "+1% to maximum Fire Resistance",
+      "+(20-30)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_maximum_fire_damage_resistance_%",
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 20.0,
+        "max": 30.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_maximum_fire_damage_resistance_%",
+        "index": 2,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cult of Ice",
+    "id": "vaal_notable_cold_resistance_1",
+    "stats": [
+      "+1% to maximum Cold Resistance",
+      "+(20-30)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_maximum_cold_damage_resistance_%",
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 20.0,
+        "max": 30.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_maximum_cold_damage_resistance_%",
+        "index": 2,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cult of Lightning",
+    "id": "vaal_notable_lightning_resistance_1",
+    "stats": [
+      "+1% to maximum Lightning Resistance",
+      "+(20-30)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_maximum_lightning_damage_resistance_%",
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 20.0,
+        "max": 30.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_maximum_lightning_damage_resistance_%",
+        "index": 2,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cult of Chaos",
+    "id": "vaal_notable_chaos_resistance_1",
+    "stats": [
+      "+1% to maximum Chaos Resistance",
+      "+(13-19)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_maximum_chaos_damage_resistance_%",
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 13.0,
+        "max": 19.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_maximum_chaos_damage_resistance_%",
+        "index": 2,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Might of the Vaal",
+    "id": "vaal_notable_random_offense",
+    "stats": [],
+    "sorted_stats": [],
+    "rolls": []
+  },
+  {
+    "name": "Legacy of the Vaal",
+    "id": "vaal_notable_random_defence",
+    "stats": [],
+    "sorted_stats": [],
+    "rolls": []
+  },
+  {
+    "name": "Strength of Blood",
+    "id": "karui_keystone_1",
+    "stats": [
+      "Life Recovery from Non-Instant Leech is not applied",
+      "2% additional Physical Damage Reduction for every 3% Life Recovery per second from Leech"
+    ],
+    "sorted_stats": [
+      "keystone_strength_of_blood"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_strength_of_blood",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Tempered by War",
+    "id": "karui_keystone_2",
+    "stats": [
+      "50% of Cold and Lightning Damage taken as Fire Damage",
+      "50% less Cold Resistance",
+      "50% less Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "keystone_tempered_by_war"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_tempered_by_war",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Glancing Blows",
+    "id": "karui_keystone_3",
+    "stats": [
+      "Chance to Block Attack Damage is doubled",
+      "Chance to Block Spell Damage is doubled",
+      "You take 65% of Damage from Blocked Hits"
+    ],
+    "sorted_stats": [
+      "keystone_glancing_blows"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_glancing_blows",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chainbreaker",
+    "id": "karui_keystone_3_v2",
+    "stats": [
+      "Mana Recovery from Regeneration is not applied",
+      "1 Rage Regenerated for every 25 Mana Regeneration per Second",
+      "Does not delay Inherent Loss of Rage",
+      "Skills Cost +3 Rage"
+    ],
+    "sorted_stats": [
+      "keystone_focused_rage"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_focused_rage",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Wind Dancer",
+    "id": "maraketh_keystone_1",
+    "stats": [
+      "20% less Attack Damage taken if you haven't been Hit by an Attack Recently",
+      "10% more chance to Evade Attacks if you have been Hit by an Attack Recently",
+      "20% more Attack Damage taken if you have been Hit by an Attack Recently"
+    ],
+    "sorted_stats": [
+      "keystone_wind_dancer"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_wind_dancer",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "The Traitor",
+    "id": "maraketh_keystone_1_v2",
+    "stats": [
+      "Flasks Gain 4 Charges per empty Flask Slot every 5 seconds"
+    ],
+    "sorted_stats": [
+      "keystone_oasis"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_oasis",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dance with Death",
+    "id": "maraketh_keystone_2",
+    "stats": [
+      "Can't use Helmets",
+      "Your Critical Strike Chance is Lucky",
+      "Your Damage with Critical Strikes is Lucky",
+      "Enemies' Damage with Critical Strikes against you is Lucky"
+    ],
+    "sorted_stats": [
+      "keystone_sharp_and_brittle"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_sharp_and_brittle",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Second Sight",
+    "id": "maraketh_keystone_3",
+    "stats": [
+      "You are Blind",
+      "Blind does not affect your Light Radius",
+      "25% more Melee Critical Strike Chance while Blinded"
+    ],
+    "sorted_stats": [
+      "keystone_blind_monk"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_blind_monk",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "The Agnostic",
+    "id": "templar_keystone_1",
+    "stats": [
+      "Removes all Energy Shield",
+      "While not on Full Life, Sacrifice 20% of Mana per Second to Recover that much Life"
+    ],
+    "sorted_stats": [
+      "keystone_miracle_of_thaumaturgy"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_miracle_of_thaumaturgy",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Transcendence",
+    "id": "templar_keystone_1_v2",
+    "stats": [
+      "Armour applies to Fire, Cold and Lightning Damage taken from Hits instead of Physical Damage",
+      "-15% to all maximum Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "keystone_prismatic_bulwark"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_prismatic_bulwark",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Inner Conviction",
+    "id": "templar_keystone_2",
+    "stats": [
+      "3% more Spell Damage per Power Charge",
+      "Gain Power Charges instead of Frenzy Charges"
+    ],
+    "sorted_stats": [
+      "keystone_quiet_might"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_quiet_might",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Power of Purpose",
+    "id": "templar_keystone_3",
+    "stats": [
+      "80% of Maximum Mana is Converted to twice that much Armour"
+    ],
+    "sorted_stats": [
+      "keystone_mental_conditioning"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_mental_conditioning",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Devotion",
+    "id": "templar_devotion_node",
+    "stats": [
+      "+10 to Devotion"
+    ],
+    "sorted_stats": [
+      "base_devotion"
+    ],
+    "rolls": [
+      {
+        "key": "base_devotion",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Heated Devotion",
+    "id": "templar_notable_fire_conversion",
+    "stats": [
+      "15% of Physical Damage Converted to Fire Damage while you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "physical_damage_%_to_convert_to_fire_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_%_to_convert_to_fire_at_devotion_threshold",
+        "index": 1,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Calming Devotion",
+    "id": "templar_notable_cold_conversion",
+    "stats": [
+      "15% of Physical Damage Converted to Cold Damage while you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "physical_damage_%_to_convert_to_cold_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_%_to_convert_to_cold_at_devotion_threshold",
+        "index": 1,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Thundrous Devotion",
+    "id": "templar_notable_lightning_conversion",
+    "stats": [
+      "15% of Physical Damage Converted to Lightning Damage while you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "physical_damage_%_to_convert_to_lightning_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_%_to_convert_to_lightning_at_devotion_threshold",
+        "index": 1,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Thoughts and Prayers",
+    "id": "templar_notable_mana_added_as_energy_shield",
+    "stats": [
+      "Gain 5% of Maximum Mana as Extra Maximum Energy Shield while you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "mana_%_to_add_as_energy_shield_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "mana_%_to_add_as_energy_shield_at_devotion_threshold",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Zealot",
+    "id": "templar_notable_arcane_surge",
+    "stats": [
+      "Gain Arcane Surge on Hit with Spells if you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "gain_arcane_surge_on_hit_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "gain_arcane_surge_on_hit_at_devotion_threshold",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Enduring Faith",
+    "id": "templar_notable_minimum_endurance_charge",
+    "stats": [
+      "+1 to Minimum Endurance Charges while you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "minimum_endurance_charges_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "minimum_endurance_charges_at_devotion_threshold",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Powerful Faith",
+    "id": "templar_notable_minimum_power_charge",
+    "stats": [
+      "+1 to Minimum Power Charges while you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "minimum_power_charges_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "minimum_power_charges_at_devotion_threshold",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Frenzied Faith",
+    "id": "templar_notable_minimum_frenzy_charge",
+    "stats": [
+      "+1 to Minimum Frenzy Charges while you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "minimum_frenzy_charges_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "minimum_frenzy_charges_at_devotion_threshold",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cloistered",
+    "id": "templar_notable_consecrated_ground_ailments",
+    "stats": [
+      "Immune to Elemental Ailments while on Consecrated Ground if you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "immune_to_elemental_ailments_while_on_consecrated_ground_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "immune_to_elemental_ailments_while_on_consecrated_ground_at_devotion_threshold",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Martyr's Might",
+    "id": "templar_notable_additional_physical_reduction",
+    "stats": [
+      "5% additional Physical Damage Reduction while you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "physical_damage_reduction_%_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_reduction_%_at_devotion_threshold",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Intolerance of Sin",
+    "id": "templar_notable_max_resistances",
+    "stats": [
+      "+1% to all maximum Resistances if you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "additional_maximum_all_resistances_%_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "additional_maximum_all_resistances_%_at_devotion_threshold",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Smite the Wicked",
+    "id": "templar_notable_fire_exposure",
+    "stats": [
+      "10% chance to inflict Fire Exposure on Hit if you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "inflict_fire_exposure_on_hit_%_chance_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "inflict_fire_exposure_on_hit_%_chance_at_devotion_threshold",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Smite the Ignorant",
+    "id": "templar_notable_cold_exposure",
+    "stats": [
+      "10% chance to inflict Cold Exposure on Hit if you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "inflict_cold_exposure_on_hit_%_chance_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "inflict_cold_exposure_on_hit_%_chance_at_devotion_threshold",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Smite the Heretical",
+    "id": "templar_notable_lightning_exposure",
+    "stats": [
+      "10% chance to inflict Lightning Exposure on Hit if you have at least 150 Devotion"
+    ],
+    "sorted_stats": [
+      "inflict_lightning_exposure_on_hit_%_chance_at_devotion_threshold"
+    ],
+    "rolls": [
+      {
+        "key": "inflict_lightning_exposure_on_hit_%_chance_at_devotion_threshold",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Supreme Decadence",
+    "id": "eternal_keystone_1",
+    "stats": [
+      "Life Recovery from Flasks also applies to Energy Shield",
+      "30% less Life Recovery from Flasks"
+    ],
+    "sorted_stats": [
+      "keystone_emperors_heart"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_emperors_heart",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Supreme Grandstanding",
+    "id": "eternal_keystone_2",
+    "stats": [
+      "Nearby Allies and Enemies Share Charges with you",
+      "Enemies Hitting you have 10% chance to gain an Endurance, ",
+      "Frenzy or Power Charge"
+    ],
+    "sorted_stats": [
+      "keystone_magnetic_charge"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_magnetic_charge",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Supreme Ego",
+    "id": "eternal_keystone_3",
+    "stats": [
+      "Auras from your Skills can only affect you",
+      "Aura Skills have 1% more Aura Effect per 2% of maximum Mana they Reserve",
+      "40% more Mana Reservation of Aura Skills"
+    ],
+    "sorted_stats": [
+      "keystone_supreme_ego"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_supreme_ego",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Supreme Ostentation",
+    "id": "eternal_keystone_3_v2",
+    "stats": [
+      "Ignore Attribute Requirements",
+      "Gain no inherent bonuses from Attributes"
+    ],
+    "sorted_stats": [
+      "keystone_supreme_prodigy"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_supreme_prodigy",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Price of Glory",
+    "id": "eternal_small_blank",
+    "stats": [],
+    "sorted_stats": [],
+    "rolls": []
+  },
+  {
+    "name": "Flawless Execution",
+    "id": "eternal_notable_crit_1",
+    "stats": [
+      "80% increased Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Brutal Execution",
+    "id": "eternal_notable_crit_2",
+    "stats": [
+      "+40% to Critical Strike Multiplier"
+    ],
+    "sorted_stats": [
+      "base_critical_strike_multiplier_+"
+    ],
+    "rolls": [
+      {
+        "key": "base_critical_strike_multiplier_+",
+        "index": 1,
+        "min": 40.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Resilience",
+    "id": "eternal_notable_endurance_1",
+    "stats": [
+      "Gain 1 Endurance Charge every second if you've been Hit Recently"
+    ],
+    "sorted_stats": [
+      "gain_endurance_charge_per_second_if_have_been_hit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "gain_endurance_charge_per_second_if_have_been_hit_recently",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Fortitude",
+    "id": "eternal_notable_endurance_2",
+    "stats": [
+      "8% increased Armour per Endurance Charge"
+    ],
+    "sorted_stats": [
+      "physical_damage_reduction_rating_+%_per_endurance_charge"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_reduction_rating_+%_per_endurance_charge",
+        "index": 1,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Dominance",
+    "id": "eternal_notable_endurance_3",
+    "stats": [
+      "10% increased Damage per Endurance Charge"
+    ],
+    "sorted_stats": [
+      "damage_+%_per_endurance_charge"
+    ],
+    "rolls": [
+      {
+        "key": "damage_+%_per_endurance_charge",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Fervour",
+    "id": "eternal_notable_frenzy_1",
+    "stats": [
+      "10% chance to gain a Frenzy Charge on Hit"
+    ],
+    "sorted_stats": [
+      "add_frenzy_charge_on_skill_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "add_frenzy_charge_on_skill_hit_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Adaptiveness",
+    "id": "eternal_notable_frenzy_2",
+    "stats": [
+      "8% increased Evasion Rating per Frenzy Charge"
+    ],
+    "sorted_stats": [
+      "evasion_rating_+%_per_frenzy_charge"
+    ],
+    "rolls": [
+      {
+        "key": "evasion_rating_+%_per_frenzy_charge",
+        "index": 1,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Bloodlust",
+    "id": "eternal_notable_frenzy_3",
+    "stats": [
+      "10% increased Damage per Frenzy Charge"
+    ],
+    "sorted_stats": [
+      "damage_+%_per_frenzy_charge"
+    ],
+    "rolls": [
+      {
+        "key": "damage_+%_per_frenzy_charge",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Subjugation",
+    "id": "eternal_notable_power_1",
+    "stats": [
+      "15% chance to gain a Power Charge on Critical Strike"
+    ],
+    "sorted_stats": [
+      "add_power_charge_on_critical_strike_%"
+    ],
+    "rolls": [
+      {
+        "key": "add_power_charge_on_critical_strike_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Separation",
+    "id": "eternal_notable_power_2",
+    "stats": [
+      "4% increased Energy Shield per Power Charge"
+    ],
+    "sorted_stats": [
+      "energy_shield_+%_per_power_charge"
+    ],
+    "rolls": [
+      {
+        "key": "energy_shield_+%_per_power_charge",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Eternal Exploitation",
+    "id": "eternal_notable_power_3",
+    "stats": [
+      "10% increased Damage per Power Charge"
+    ],
+    "sorted_stats": [
+      "damage_+%_per_power_charge"
+    ],
+    "rolls": [
+      {
+        "key": "damage_+%_per_power_charge",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Rites of Lunaris",
+    "id": "eternal_notable_chill_1",
+    "stats": [
+      "30% increased Effect of Chill"
+    ],
+    "sorted_stats": [
+      "chill_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "chill_effect_+%",
+        "index": 1,
+        "min": 30.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Rites of Solaris",
+    "id": "eternal_notable_chill_2",
+    "stats": [
+      "80% chance to Avoid being Chilled"
+    ],
+    "sorted_stats": [
+      "base_avoid_chill_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_chill_%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Virtue Gem Surgery",
+    "id": "eternal_notable_shock_1",
+    "stats": [
+      "30% increased Effect of Shock"
+    ],
+    "sorted_stats": [
+      "shock_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "shock_effect_+%",
+        "index": 1,
+        "min": 30.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Rural Life",
+    "id": "eternal_notable_shock_2",
+    "stats": [
+      "80% chance to Avoid being Shocked"
+    ],
+    "sorted_stats": [
+      "base_avoid_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_shock_%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "City Walls",
+    "id": "eternal_notable_block_1",
+    "stats": [
+      "+12% Chance to Block Attack Damage"
+    ],
+    "sorted_stats": [
+      "additional_block_%"
+    ],
+    "rolls": [
+      {
+        "key": "additional_block_%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Sceptre Pinnacle",
+    "id": "eternal_notable_block_2",
+    "stats": [
+      "12% Chance to Block Spell Damage"
+    ],
+    "sorted_stats": [
+      "base_spell_block_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_spell_block_%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Secret Tunnels",
+    "id": "eternal_notable_dodge_1",
+    "stats": [
+      "20% chance to Avoid Elemental Ailments"
+    ],
+    "sorted_stats": [
+      "avoid_all_elemental_status_%"
+    ],
+    "rolls": [
+      {
+        "key": "avoid_all_elemental_status_%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Purity Rebel",
+    "id": "eternal_notable_dodge_2",
+    "stats": [
+      "+12% chance to Suppress Spell Damage"
+    ],
+    "sorted_stats": [
+      "base_spell_suppression_chance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_spell_suppression_chance_%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Superiority",
+    "id": "eternal_notable_aura_1",
+    "stats": [
+      "12% increased effect of Non-Curse Auras from your Skills"
+    ],
+    "sorted_stats": [
+      "non_curse_aura_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "non_curse_aura_effect_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Slum Lord",
+    "id": "eternal_notable_minion_1",
+    "stats": [
+      "Minions deal 80% increased Damage"
+    ],
+    "sorted_stats": [
+      "minion_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_damage_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Axiom Warden",
+    "id": "eternal_notable_minion_2",
+    "stats": [
+      "Minions have 80% increased maximum Life"
+    ],
+    "sorted_stats": [
+      "minion_maximum_life_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_maximum_life_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Gemling Inquisition",
+    "id": "eternal_notable_spell_1",
+    "stats": [
+      "80% increased Spell Damage"
+    ],
+    "sorted_stats": [
+      "spell_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "spell_damage_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Gemling Ambush",
+    "id": "eternal_notable_spell_2",
+    "stats": [
+      "80% increased Spell Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "spell_critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "spell_critical_strike_chance_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Night of a Thousand Ribbons",
+    "id": "eternal_notable_fire_attack_1",
+    "stats": [
+      "80% increased Fire Damage with Attack Skills"
+    ],
+    "sorted_stats": [
+      "fire_damage_with_attack_skills_+%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_damage_with_attack_skills_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Bloody Flowers' Rebellion",
+    "id": "eternal_notable_cold_attack_1",
+    "stats": [
+      "80% increased Cold Damage with Attack Skills"
+    ],
+    "sorted_stats": [
+      "cold_damage_with_attack_skills_+%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_damage_with_attack_skills_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chitus' Heart",
+    "id": "eternal_notable_lightning_attack_1",
+    "stats": [
+      "80% increased Lightning Damage with Attack Skills"
+    ],
+    "sorted_stats": [
+      "lightning_damage_with_attack_skills_+%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_damage_with_attack_skills_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Gemling Training",
+    "id": "eternal_notable_physical_damage_1",
+    "stats": [
+      "80% increased Physical Damage"
+    ],
+    "sorted_stats": [
+      "physical_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Rigwald's Might",
+    "id": "eternal_notable_physical_damage_2",
+    "stats": [
+      "80% increased Melee Physical Damage"
+    ],
+    "sorted_stats": [
+      "melee_physical_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "melee_physical_damage_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Geofri's End",
+    "id": "eternal_notable_bleed_damage_1",
+    "stats": [
+      "50% increased Damage with Bleeding",
+      "Bleeding you inflict deals Damage 10% faster"
+    ],
+    "sorted_stats": [
+      "bleeding_damage_+%",
+      "faster_bleed_%"
+    ],
+    "rolls": [
+      {
+        "key": "bleeding_damage_+%",
+        "index": 1,
+        "min": 50.0,
+        "max": 50.0,
+        "fmt": "d"
+      },
+      {
+        "key": "faster_bleed_%",
+        "index": 2,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lioneye's Focus",
+    "id": "eternal_notable_projectile_attack_damage_1",
+    "stats": [
+      "80% increased Projectile Attack Damage"
+    ],
+    "sorted_stats": [
+      "projectile_attack_damage_+%"
+    ],
+    "rolls": [
+      {
+        "key": "projectile_attack_damage_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Voll's Coup",
+    "id": "eternal_notable_attack_speed_1",
+    "stats": [
+      "15% increased Attack Speed"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%",
+        "index": 1,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dialla's Wit",
+    "id": "eternal_notable_cast_speed_1",
+    "stats": [
+      "15% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "base_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cast_speed_+%",
+        "index": 1,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Discerning Taste",
+    "id": "eternal_notable_rarity_1",
+    "stats": [
+      "12% increased Mana Reservation Efficiency of Skills"
+    ],
+    "sorted_stats": [
+      "base_mana_reservation_efficiency_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_mana_reservation_efficiency_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Gleaming Legion",
+    "id": "eternal_notable_armour_1",
+    "stats": [
+      "80% increased Armour"
+    ],
+    "sorted_stats": [
+      "physical_damage_reduction_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "physical_damage_reduction_rating_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Shadowy Streets",
+    "id": "eternal_notable_evasion_1",
+    "stats": [
+      "80% increased Evasion Rating"
+    ],
+    "sorted_stats": [
+      "evasion_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "evasion_rating_+%",
+        "index": 1,
+        "min": 80.0,
+        "max": 80.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Crematorium Worker",
+    "id": "eternal_notable_fire_resistance_1",
+    "stats": [
+      "+50% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 50.0,
+        "max": 50.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Street Urchin",
+    "id": "eternal_notable_cold_resistance_1",
+    "stats": [
+      "+50% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 50.0,
+        "max": 50.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Baleful Augmentation",
+    "id": "eternal_notable_lightning_resistance_1",
+    "stats": [
+      "+50% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 50.0,
+        "max": 50.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "With Eyes Open",
+    "id": "eternal_notable_chaos_resistance_1",
+    "stats": [
+      "+37% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 37.0,
+        "max": 37.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Robust Diet",
+    "id": "eternal_notable_life_1",
+    "stats": [
+      "10% increased maximum Life"
+    ],
+    "sorted_stats": [
+      "maximum_life_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_life_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Pooled Resources",
+    "id": "eternal_notable_mana_1",
+    "stats": [
+      "30% increased maximum Mana"
+    ],
+    "sorted_stats": [
+      "maximum_mana_+%"
+    ],
+    "rolls": [
+      {
+        "key": "maximum_mana_+%",
+        "index": 1,
+        "min": 30.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Laureate",
+    "id": "eternal_notable_mana_regen_1",
+    "stats": [
+      "50% increased Mana Regeneration Rate"
+    ],
+    "sorted_stats": [
+      "mana_regeneration_rate_+%"
+    ],
+    "rolls": [
+      {
+        "key": "mana_regeneration_rate_+%",
+        "index": 1,
+        "min": 50.0,
+        "max": 50.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "War Games",
+    "id": "eternal_notable_accuracy_1",
+    "stats": [
+      "25% increased Global Accuracy Rating"
+    ],
+    "sorted_stats": [
+      "accuracy_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "accuracy_rating_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 25.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Freshly Brewed",
+    "id": "eternal_notable_flask_duration_1",
+    "stats": [
+      "20% increased Flask Effect Duration"
+    ],
+    "sorted_stats": [
+      "flask_duration_+%"
+    ],
+    "rolls": [
+      {
+        "key": "flask_duration_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Warding Flasks",
+    "id": "kalguur_notable_1",
+    "stats": [
+      "10% increased Flask Effect Duration",
+      "20% increased Ward during any Flask Effect"
+    ],
+    "sorted_stats": [
+      "flask_duration_+%",
+      "ward_+%_during_any_flask_effect"
+    ],
+    "rolls": [
+      {
+        "key": "ward_+%_during_any_flask_effect",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      },
+      {
+        "key": "flask_duration_+%",
+        "index": 2,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Starlight Swig",
+    "id": "kalguur_notable_2",
+    "stats": [
+      "10% increased Flask Charges gained",
+      "15% chance for Ward to be Restored when you Use a Flask"
+    ],
+    "sorted_stats": [
+      "charges_gained_+%",
+      "ward_%_chance_to_restore_on_flask_use"
+    ],
+    "rolls": [
+      {
+        "key": "ward_%_chance_to_restore_on_flask_use",
+        "index": 1,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      },
+      {
+        "key": "charges_gained_+%",
+        "index": 2,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Enduring Sigil",
+    "id": "kalguur_notable_3",
+    "stats": [
+      "20% increased Endurance Charge Duration",
+      "Gain 1 Endurance Charge when Ward Breaks"
+    ],
+    "sorted_stats": [
+      "endurance_charge_duration_+%",
+      "gain_x_endurance_charge_when_ward_breaks"
+    ],
+    "rolls": [
+      {
+        "key": "gain_x_endurance_charge_when_ward_breaks",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      },
+      {
+        "key": "endurance_charge_duration_+%",
+        "index": 2,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Powering Sigil",
+    "id": "kalguur_notable_4",
+    "stats": [
+      "20% increased Power Charge Duration",
+      "Gain 1 Power Charge when Ward Breaks"
+    ],
+    "sorted_stats": [
+      "power_charge_duration_+%",
+      "gain_x_power_charge_when_ward_breaks"
+    ],
+    "rolls": [
+      {
+        "key": "gain_x_power_charge_when_ward_breaks",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      },
+      {
+        "key": "power_charge_duration_+%",
+        "index": 2,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Frenzying Sigil",
+    "id": "kalguur_notable_5",
+    "stats": [
+      "20% increased Frenzy Charge Duration",
+      "Gain 1 Frenzy Charge when Ward Breaks"
+    ],
+    "sorted_stats": [
+      "base_frenzy_charge_duration_+%",
+      "gain_x_frenzy_charge_when_ward_breaks"
+    ],
+    "rolls": [
+      {
+        "key": "gain_x_frenzy_charge_when_ward_breaks",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_frenzy_charge_duration_+%",
+        "index": 2,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fortified Ward",
+    "id": "kalguur_notable_6",
+    "stats": [
+      "15% faster Restoration of Ward",
+      "30% increased Armour while you have Unbroken Ward"
+    ],
+    "sorted_stats": [
+      "ward_delay_recovery_+%",
+      "armour_+%_while_you_have_unbroken_ward"
+    ],
+    "rolls": [
+      {
+        "key": "armour_+%_while_you_have_unbroken_ward",
+        "index": 1,
+        "min": 30.0,
+        "max": 30.0,
+        "fmt": "d"
+      },
+      {
+        "key": "ward_delay_recovery_+%",
+        "index": 2,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Elusive Ward",
+    "id": "kalguur_notable_7",
+    "stats": [
+      "15% faster Restoration of Ward",
+      "30% increased Evasion Rating while you have Unbroken Ward"
+    ],
+    "sorted_stats": [
+      "ward_delay_recovery_+%",
+      "evasion_rating_+%_while_you_have_unbroken_ward"
+    ],
+    "rolls": [
+      {
+        "key": "evasion_rating_+%_while_you_have_unbroken_ward",
+        "index": 1,
+        "min": 30.0,
+        "max": 30.0,
+        "fmt": "d"
+      },
+      {
+        "key": "ward_delay_recovery_+%",
+        "index": 2,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Crown of Kalguur",
+    "id": "kalguur_notable_9",
+    "stats": [
+      "+2 to Ward per 10 Armour on Equipped Helmet"
+    ],
+    "sorted_stats": [
+      "gain_x_ward_per_10_armour_on_helmet"
+    ],
+    "rolls": [
+      {
+        "key": "gain_x_ward_per_10_armour_on_helmet",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Grip of Kalguur",
+    "id": "kalguur_notable_10",
+    "stats": [
+      "+4 to Ward per 10 Evasion Rating on Equipped Gloves"
+    ],
+    "sorted_stats": [
+      "gain_x_ward_per_10_evasion_on_gloves"
+    ],
+    "rolls": [
+      {
+        "key": "gain_x_ward_per_10_evasion_on_gloves",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Stride of Kalguur",
+    "id": "kalguur_notable_11",
+    "stats": [
+      "+8 to Ward per 10 Energy Shield on Equipped Boots"
+    ],
+    "sorted_stats": [
+      "gain_x_ward_per_10_energy_shield_on_boots"
+    ],
+    "rolls": [
+      {
+        "key": "gain_x_ward_per_10_energy_shield_on_boots",
+        "index": 1,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Persisting Drive",
+    "id": "kalguur_notable_12",
+    "stats": [
+      "15% faster Restoration of Ward",
+      "30% increased Damage while you have Unbroken Ward"
+    ],
+    "sorted_stats": [
+      "ward_delay_recovery_+%",
+      "damage_+%_while_you_have_unbroken_ward"
+    ],
+    "rolls": [
+      {
+        "key": "damage_+%_while_you_have_unbroken_ward",
+        "index": 1,
+        "min": 30.0,
+        "max": 30.0,
+        "fmt": "d"
+      },
+      {
+        "key": "ward_delay_recovery_+%",
+        "index": 2,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Shattered Piercing ",
+    "id": "kalguur_notable_13",
+    "stats": [
+      "15% increased Elemental Damage",
+      "Damage Penetrates 8% Elemental Resistances while your Ward is Broken"
+    ],
+    "sorted_stats": [
+      "elemental_damage_+%",
+      "damage_penetrates_%_elemental_resistance_while_you_have_broken_ward"
+    ],
+    "rolls": [
+      {
+        "key": "damage_penetrates_%_elemental_resistance_while_you_have_broken_ward",
+        "index": 1,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      },
+      {
+        "key": "elemental_damage_+%",
+        "index": 2,
+        "min": 15.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Vengeful Runes",
+    "id": "kalguur_notable_14",
+    "stats": [
+      "8% increased Area of Effect of Aura Skills",
+      "12% increased effect of Non-Curse Auras from your skills while your Ward is Broken"
+    ],
+    "sorted_stats": [
+      "base_aura_area_of_effect_+%",
+      "non_curse_aura_effect_+%_while_you_have_broken_ward"
+    ],
+    "rolls": [
+      {
+        "key": "non_curse_aura_effect_+%_while_you_have_broken_ward",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_aura_area_of_effect_+%",
+        "index": 2,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mage's Ward",
+    "id": "kalguur_notable_15",
+    "stats": [
+      "5% Chance to Block Spell Damage",
+      "10% chance to Restore Ward when you Block"
+    ],
+    "sorted_stats": [
+      "base_spell_block_%",
+      "restore_ward_on_block_%"
+    ],
+    "rolls": [
+      {
+        "key": "restore_ward_on_block_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_spell_block_%",
+        "index": 2,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Warrior's Ward",
+    "id": "kalguur_notable_16",
+    "stats": [
+      "5% Chance to Block Attack Damage",
+      "10% chance to Restore Ward when you Block"
+    ],
+    "sorted_stats": [
+      "monster_base_block_%",
+      "restore_ward_on_block_%"
+    ],
+    "rolls": [
+      {
+        "key": "restore_ward_on_block_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      },
+      {
+        "key": "monster_base_block_%",
+        "index": 2,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Starborn Birth",
+    "id": "kalguur_notable_17",
+    "stats": [
+      "25% increased Ward"
+    ],
+    "sorted_stats": [
+      "ward_+%"
+    ],
+    "rolls": [
+      {
+        "key": "ward_+%",
+        "index": 1,
+        "min": 25.0,
+        "max": 25.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Pure Faith",
+    "id": "kalguur_notable_18",
+    "stats": [
+      "12% increased Ward",
+      "+8% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "ward_+%",
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "ward_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 2,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Magic Faith",
+    "id": "kalguur_notable_19",
+    "stats": [
+      "12% increased Ward",
+      "8% increased maximum Energy Shield"
+    ],
+    "sorted_stats": [
+      "ward_+%",
+      "maximum_energy_shield_+%"
+    ],
+    "rolls": [
+      {
+        "key": "ward_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "maximum_energy_shield_+%",
+        "index": 2,
+        "min": 8.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Guile Faith",
+    "id": "kalguur_notable_20",
+    "stats": [
+      "12% increased Ward",
+      "16% increased Evasion Rating"
+    ],
+    "sorted_stats": [
+      "ward_+%",
+      "evasion_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "ward_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "evasion_rating_+%",
+        "index": 2,
+        "min": 16.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Resolute Faith",
+    "id": "kalguur_notable_21",
+    "stats": [
+      "12% increased Ward",
+      "16% increased Armour"
+    ],
+    "sorted_stats": [
+      "ward_+%",
+      "physical_damage_reduction_rating_+%"
+    ],
+    "rolls": [
+      {
+        "key": "ward_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "physical_damage_reduction_rating_+%",
+        "index": 2,
+        "min": 16.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Starsoaked Time",
+    "id": "kalguur_notable_22",
+    "stats": [
+      "20% faster Restoration of Ward",
+      "20% faster start of Energy Shield Recharge"
+    ],
+    "sorted_stats": [
+      "ward_delay_recovery_+%",
+      "energy_shield_delay_-%"
+    ],
+    "rolls": [
+      {
+        "key": "ward_delay_recovery_+%",
+        "index": 1,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      },
+      {
+        "key": "energy_shield_delay_-%",
+        "index": 2,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Etched Runes",
+    "id": "kalguur_notable_23",
+    "stats": [
+      "12% increased Ward",
+      "20% increased Ward from Equipped Armour Items"
+    ],
+    "sorted_stats": [
+      "ward_+%",
+      "ward_from_armour_item_+%"
+    ],
+    "rolls": [
+      {
+        "key": "ward_+%",
+        "index": 1,
+        "min": 12.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "ward_from_armour_item_+%",
+        "index": 2,
+        "min": 20.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cleansing Runes",
+    "id": "kalguur_notable_24",
+    "stats": [
+      "Remove a random Damaging Ailment when Ward is Restored"
+    ],
+    "sorted_stats": [
+      "remove_random_damaging_ailment_when_ward_restores",
+      "self_damaging_ailment_duration_+%"
+    ],
+    "rolls": [
+      {
+        "key": "remove_random_damaging_ailment_when_ward_restores",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      },
+      {
+        "key": "self_damaging_ailment_duration_+%",
+        "index": 2,
+        "min": -25.0,
+        "max": -25.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Regenerative Runes",
+    "id": "kalguur_notable_25",
+    "stats": [
+      "10% increased Flask Effect Duration",
+      "Iron Flasks gain 2 charges when your Ward Breaks"
+    ],
+    "sorted_stats": [
+      "flask_duration_+%",
+      "iron_flasks_gain_x_charge_when_ward_breaks"
+    ],
+    "rolls": [
+      {
+        "key": "iron_flasks_gain_x_charge_when_ward_breaks",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      },
+      {
+        "key": "flask_duration_+%",
+        "index": 2,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Black Scythe Training",
+    "id": "kalguur_keystone_1",
+    "stats": [
+      "Removes all Energy Shield",
+      "Chance to Evade Hits is based off of 200% of your Ward instead of your Evasion Rating",
+      "Physical Damage Reduction from Hits is based off of 200% of your Ward instead of your Armour"
+    ],
+    "sorted_stats": [
+      "keystone_voranas_adaption"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_voranas_adaption",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Celestial Mathematics",
+    "id": "kalguur_keystone_2",
+    "stats": [
+      "While you have Unbroken Ward, your next non-channelling Attack you Use yourself breaks your Ward to gain Added Cold Damage equal to 25% of Ward"
+    ],
+    "sorted_stats": [
+      "keystone_uhtreds_fury"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_uhtreds_fury",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "The Unbreaking Circle",
+    "id": "kalguur_keystone_3",
+    "stats": [
+      "40% less Ward",
+      "Ward has a 60% chance to not Break"
+    ],
+    "sorted_stats": [
+      "keystone_medveds_exchange"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_medveds_exchange",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  }
+]
