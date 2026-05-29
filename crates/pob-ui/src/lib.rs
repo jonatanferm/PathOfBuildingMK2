@@ -273,6 +273,10 @@ struct LoadedApp {
     tree_versions: Vec<String>,
     /// Currently-loaded tree version.
     tree_version: String,
+    /// Issue #220: name buffer for the "save current tree as a spec" field.
+    spec_save_name: String,
+    /// Issue #220: remembered active passive-tree spec for the switcher.
+    active_spec_idx: Option<usize>,
     /// Path to the data root resolved at startup.
     data_root: std::path::PathBuf,
     /// Hash of the inputs `compute_full` last ran with — skip recompute when unchanged.
@@ -696,6 +700,8 @@ impl PobApp {
             last_window_title: None,
             tree_versions,
             tree_version: default_version,
+            spec_save_name: String::new(),
+            active_spec_idx: None,
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -789,6 +795,8 @@ impl PobApp {
             last_window_title: None,
             tree_versions: vec!["3_25".to_owned()],
             tree_version: "3_25".to_owned(),
+            spec_save_name: String::new(),
+            active_spec_idx: None,
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1698,6 +1706,101 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         .clicked()
                 {
                     app.pending_tree_reset = Some(TreeResetKind::Tattoos);
+                }
+            });
+            // Issue #220: passive-tree spec switcher — save / swap / delete
+            // named tree allocations. Each dropdown row's hover summarises the
+            // spec (ascendancy, node count, add/remove delta vs the current
+            // tree). Activating a spec swaps its allocation onto the character
+            // and triggers a recompute.
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Spec:");
+                let total = app.character.specs.len();
+                if let Some(i) = app.active_spec_idx {
+                    if i >= total {
+                        app.active_spec_idx = None;
+                    }
+                }
+                let sel = app.active_spec_idx;
+                let closed = match sel.and_then(|i| app.character.specs.get(i)) {
+                    Some(s) => {
+                        crate::set_switcher::format_set_dropdown_label(&s.name, sel.unwrap(), true)
+                    }
+                    None if total == 0 => "(no saved specs)".to_owned(),
+                    None => "Pick a spec…".to_owned(),
+                };
+                let current: std::collections::HashSet<u32> =
+                    app.character.allocated.iter().copied().collect();
+                let entries: Vec<(usize, String, String)> = app
+                    .character
+                    .specs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| {
+                        let nodes: std::collections::HashSet<u32> =
+                            s.allocated.iter().copied().collect();
+                        let added = nodes.difference(&current).count();
+                        let removed = current.difference(&nodes).count();
+                        let tip = format_spec_tooltip(
+                            s.ascendancy.as_deref(),
+                            s.allocated.len(),
+                            added,
+                            removed,
+                        );
+                        (i, s.name.clone(), tip)
+                    })
+                    .collect();
+                egui::ComboBox::from_id_salt("spec-switcher")
+                    .width(200.0)
+                    .selected_text(closed)
+                    .show_ui(ui, |ui| {
+                        if entries.is_empty() {
+                            ui.weak("Save a spec below to populate the switcher.");
+                            return;
+                        }
+                        for (i, name, tip) in &entries {
+                            let is_active = sel == Some(*i);
+                            let label =
+                                crate::set_switcher::format_set_dropdown_label(name, *i, is_active);
+                            if ui
+                                .selectable_label(is_active, label)
+                                .on_hover_text(tip)
+                                .clicked()
+                                && !is_active
+                                && app.character.activate_spec(*i)
+                            {
+                                app.active_spec_idx = Some(*i);
+                                recompute = true;
+                            }
+                        }
+                    });
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.spec_save_name)
+                        .hint_text("new spec name")
+                        .desired_width(120.0),
+                );
+                let nm = app.spec_save_name.trim().to_owned();
+                if ui
+                    .add_enabled(!nm.is_empty(), egui::Button::new("Save"))
+                    .on_hover_text("Save the current tree allocation as a named spec")
+                    .clicked()
+                {
+                    let idx = app.character.save_spec(nm);
+                    app.active_spec_idx = Some(idx);
+                    app.spec_save_name.clear();
+                }
+                if let Some(i) = app.active_spec_idx {
+                    if ui
+                        .add_enabled(i < app.character.specs.len(), egui::Button::new("Delete"))
+                        .on_hover_text("Delete the selected spec")
+                        .clicked()
+                        && app.character.delete_spec(i)
+                    {
+                        app.active_spec_idx = crate::set_switcher::shift_active_idx_after_delete(
+                            app.active_spec_idx,
+                            i,
+                        );
+                    }
                 }
             });
             let asc_alloc = app.character.ascendancy_alloc_count(&app.tree);
@@ -2835,6 +2938,21 @@ pub const QUEST_REWARD_PASSIVE_POINTS: u32 = 22;
 #[must_use]
 pub fn max_passive_points(level: u32) -> u32 {
     level.saturating_sub(1) + QUEST_REWARD_PASSIVE_POINTS
+}
+
+/// Issue #220: rich hover summary for a saved spec in the switcher dropdown —
+/// ascendancy, node count, and the add/remove delta vs the current tree. Pure
+/// so it's unit-testable without egui.
+fn format_spec_tooltip(
+    ascendancy: Option<&str>,
+    node_count: usize,
+    added: usize,
+    removed: usize,
+) -> String {
+    format!(
+        "Ascendancy: {}\nNodes: {node_count} (+{added} / -{removed} vs current)",
+        ascendancy.unwrap_or("—")
+    )
 }
 
 /// Issue #100 follow-up: short relative-time formatter for the menu
@@ -4236,6 +4354,24 @@ fn stat_row_decimal(ui: &mut egui::Ui, label: &str, out: &Output, key: &str) {
             ui.monospace(format!("{:>9.2}", v));
         });
     });
+}
+
+#[cfg(test)]
+mod spec_tooltip_tests {
+    use super::format_spec_tooltip;
+
+    #[test]
+    fn tooltip_shows_ascendancy_nodes_and_delta() {
+        let t = format_spec_tooltip(Some("Deadeye"), 42, 5, 3);
+        assert!(t.contains("Ascendancy: Deadeye"), "{t}");
+        assert!(t.contains("Nodes: 42 (+5 / -3 vs current)"), "{t}");
+    }
+
+    #[test]
+    fn tooltip_dashes_missing_ascendancy() {
+        let t = format_spec_tooltip(None, 0, 0, 0);
+        assert!(t.contains("Ascendancy: —"), "{t}");
+    }
 }
 
 #[cfg(test)]
