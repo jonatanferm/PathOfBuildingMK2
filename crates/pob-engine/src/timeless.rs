@@ -456,6 +456,83 @@ mod tests {
         TimelessJewelConfig, TimelessJewelData, TreeConstants,
     };
 
+    /// Real-data structural check (self-skips in CI where the LFS blobs are
+    /// unresolved pointers): inflate the actual Glorious Vanity LUT and the
+    /// committed node-index + pools, then (a) verify the inflated length matches
+    /// the GV layout `node_count*seedSize + Σ slot.size` exactly, and (b) decode
+    /// a real notable for a real seed and confirm it resolves to a valid
+    /// replacement with non-empty stat lines. This catches sizes-block / packed
+    /// offset bugs the synthetic tests can't.
+    #[test]
+    fn real_glorious_vanity_lut_layout_and_decode() {
+        let dir = std::path::Path::new("../../data");
+        // Concatenate the GV parts (part0..N).
+        let mut compressed = Vec::new();
+        for part in 0.. {
+            let p = dir.join(format!("timeless/GloriousVanity.zip.part{part}"));
+            let Ok(bytes) = std::fs::read(&p) else { break };
+            compressed.extend_from_slice(&bytes);
+        }
+        // Skip when absent or an unresolved LFS pointer (real blob is ~22 MB).
+        if compressed.len() < 1_000_000 {
+            return;
+        }
+        let (Ok(idx_json), Ok(add_json), Ok(node_json)) = (
+            std::fs::read_to_string(dir.join("timeless_node_index.json")),
+            std::fs::read_to_string(dir.join("legion_passives.json")),
+            std::fs::read_to_string(dir.join("legion_nodes.json")),
+        ) else {
+            return;
+        };
+        let index = pob_data::load_timeless_node_index(&idx_json).expect("node index");
+        let pool = pob_data::LegionPool {
+            additions: pob_data::load_legion_passives(&add_json).expect("additions"),
+            nodes: pob_data::load_legion_nodes(&node_json).expect("nodes"),
+        };
+        let lut = inflate_timeless_lut(&compressed).expect("inflate GV");
+
+        // (a) Layout: sizes block (node_count * seedSize) + Σ per-node packed.
+        let (smin, smax) = pob_data::seed_range(1).unwrap();
+        let seed_size = (smax - smin + 1) as usize; // 7901
+        let sizes_block = index.node_count as usize * seed_size;
+        let packed: usize = index.nodes.iter().map(|s| s.size as usize).sum();
+        assert_eq!(
+            lut.len(),
+            sizes_block + packed,
+            "GV inflated length must equal sizes block + packed node data"
+        );
+
+        // (b) Decode: for a fixed seed, the first stretch of notable slots
+        // (index <= notable_count) should mostly resolve to valid replacements.
+        let seed = 5000u32;
+        let mut decoded = 0;
+        let mut checked = 0;
+        for slot in index
+            .nodes
+            .iter()
+            .filter(|s| s.index <= index.notable_count)
+        {
+            if checked >= 40 {
+                break;
+            }
+            checked += 1;
+            if let Some(rep) =
+                index.resolve_node_replacement(&pool, &lut, 1, slot.node_id, seed, true)
+            {
+                assert!(
+                    !rep.lines.is_empty(),
+                    "node {} decoded to empty lines",
+                    slot.node_id
+                );
+                decoded += 1;
+            }
+        }
+        assert!(
+            decoded * 2 >= checked,
+            "expected most notables to decode for seed {seed}: {decoded}/{checked}"
+        );
+    }
+
     fn mk_item(base: &str, mod_lines: &[&str]) -> Item {
         Item {
             name: base.into(),
