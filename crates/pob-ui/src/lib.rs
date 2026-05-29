@@ -277,6 +277,9 @@ struct LoadedApp {
     spec_save_name: String,
     /// Issue #220: remembered active passive-tree spec for the switcher.
     active_spec_idx: Option<usize>,
+    /// Issue #220: when `Some`, overlay the tree with the add/remove diff
+    /// against `specs[idx]` (green = the spec adds, red = it drops).
+    compare_spec_idx: Option<usize>,
     /// Path to the data root resolved at startup.
     data_root: std::path::PathBuf,
     /// Hash of the inputs `compute_full` last ran with — skip recompute when unchanged.
@@ -702,6 +705,7 @@ impl PobApp {
             tree_version: default_version,
             spec_save_name: String::new(),
             active_spec_idx: None,
+            compare_spec_idx: None,
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -797,6 +801,7 @@ impl PobApp {
             tree_version: "3_25".to_owned(),
             spec_save_name: String::new(),
             active_spec_idx: None,
+            compare_spec_idx: None,
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1800,7 +1805,44 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                             app.active_spec_idx,
                             i,
                         );
+                        // A deleted spec can't remain the compare target.
+                        if app.compare_spec_idx == Some(i) {
+                            app.compare_spec_idx = None;
+                        }
                     }
+                }
+                // Issue #220: in-tree compare overlay — pick a spec to diff
+                // the current tree against (green = it adds, red = it drops).
+                if total > 0 {
+                    if let Some(i) = app.compare_spec_idx {
+                        if i >= app.character.specs.len() {
+                            app.compare_spec_idx = None;
+                        }
+                    }
+                    let cmp_label = match app
+                        .compare_spec_idx
+                        .and_then(|i| app.character.specs.get(i))
+                    {
+                        Some(s) => format!("Compare vs: {}", s.name),
+                        None => "Compare: off".to_owned(),
+                    };
+                    egui::ComboBox::from_id_salt("spec-compare-overlay")
+                        .selected_text(cmp_label)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut app.compare_spec_idx, None, "off");
+                            for (i, name, _) in &entries {
+                                ui.selectable_value(
+                                    &mut app.compare_spec_idx,
+                                    Some(*i),
+                                    format!("vs {name}"),
+                                );
+                            }
+                        })
+                        .response
+                        .on_hover_text(
+                            "Overlay the tree with this spec's diff vs the current \
+                             allocation: green = nodes it adds, red = nodes it drops.",
+                        );
                 }
             });
             let asc_alloc = app.character.ascendancy_alloc_count(&app.tree);
@@ -2142,7 +2184,17 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 }),
                 _ => None,
             };
-            let power_overlay = if app.show_power_overlay {
+            // Issue #220: a selected compare-spec overlay takes precedence
+            // over the node-power heatmap (both share the per-node colour
+            // overlay channel). Built into an owned map so it outlives the
+            // render call.
+            let spec_diff_map = app
+                .compare_spec_idx
+                .and_then(|i| app.character.specs.get(i))
+                .map(|s| spec_diff_overlay(&allocated, &s.allocated));
+            let power_overlay = if let Some(m) = spec_diff_map.as_ref() {
+                Some(m)
+            } else if app.show_power_overlay {
                 app.power_overlay.as_ref()
             } else {
                 None
@@ -2953,6 +3005,29 @@ fn format_spec_tooltip(
         "Ascendancy: {}\nNodes: {node_count} (+{added} / -{removed} vs current)",
         ascendancy.unwrap_or("—")
     )
+}
+
+/// Issue #220: per-node colour overlay diffing a saved spec against the
+/// current allocation — green for nodes the spec *adds* (in spec, not
+/// current), red for nodes it *drops* (current, not in spec). Common nodes
+/// are left uncoloured. Fed through the same `power_overlay` render path as
+/// the node-power heatmap. Pure / testable.
+fn spec_diff_overlay(
+    current: &std::collections::HashSet<pob_data::NodeId>,
+    spec_allocated: &[pob_data::NodeId],
+) -> ahash::AHashMap<pob_data::NodeId, egui::Color32> {
+    let added = egui::Color32::from_rgba_unmultiplied(0x3C, 0xC8, 0x5A, 130);
+    let removed = egui::Color32::from_rgba_unmultiplied(0xD0, 0x3C, 0x3C, 130);
+    let spec: std::collections::HashSet<pob_data::NodeId> =
+        spec_allocated.iter().copied().collect();
+    let mut map = ahash::AHashMap::default();
+    for n in spec.difference(current) {
+        map.insert(*n, added);
+    }
+    for n in current.difference(&spec) {
+        map.insert(*n, removed);
+    }
+    map
 }
 
 /// Issue #100 follow-up: short relative-time formatter for the menu
@@ -4371,6 +4446,21 @@ mod spec_tooltip_tests {
     fn tooltip_dashes_missing_ascendancy() {
         let t = format_spec_tooltip(None, 0, 0, 0);
         assert!(t.contains("Ascendancy: —"), "{t}");
+    }
+
+    #[test]
+    fn diff_overlay_colours_added_and_removed_only() {
+        use super::spec_diff_overlay;
+        let current: std::collections::HashSet<u32> = [1, 2, 3].into_iter().collect();
+        let spec = [2, 3, 4, 5]; // adds 4,5; drops 1; keeps 2,3
+        let map = spec_diff_overlay(&current, &spec);
+        // 4 and 5 added, 1 removed → 3 coloured nodes; 2 & 3 (common) absent.
+        assert_eq!(map.len(), 3);
+        assert!(map.contains_key(&4) && map.contains_key(&5) && map.contains_key(&1));
+        assert!(!map.contains_key(&2) && !map.contains_key(&3));
+        // Added vs removed use distinct colours.
+        assert_ne!(map[&4], map[&1]);
+        assert_eq!(map[&4], map[&5]);
     }
 }
 
