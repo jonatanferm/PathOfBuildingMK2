@@ -222,6 +222,20 @@ struct LoadedApp {
     /// reserved for a future corrupt-implicit handling slice that
     /// projects rolled-corrupt mods without re-plumbing.
     cluster_jewel_mods: Option<pob_data::ClusterModSet>,
+    /// Issue #30 / #227: Timeless-jewel keystone catalogue
+    /// (`timeless_jewels.json`). Drives conqueror-keystone replacement for
+    /// socketed Timeless jewels; `None` if the file is absent.
+    timeless_jewels: Option<pob_data::TimelessJewelData>,
+    /// Issue #227: Timeless node→slot index (`timeless_node_index.json`) — the
+    /// static metadata the notable/small-node LUT decode walks.
+    timeless_node_index: Option<pob_data::TimelessNodeIndex>,
+    /// Issue #227: the `legionAdditions` + `legionNodes` replacement pools
+    /// (`legion_passives.json` + `legion_nodes.json`).
+    legion_pool: Option<pob_data::LegionPool>,
+    /// Issue #227: inflated per-jewel-type LUT blobs, cached on first use so
+    /// the ~22 MB Glorious Vanity inflate happens once per session. Keyed by
+    /// 1-based jewel type. Populated lazily at compute time (native only).
+    timeless_luts: ahash::HashMap<u32, Vec<u8>>,
     /// Issue #98 (slice 1+2): tattoo catalogue, surfaced by the Tree-tab right-click
     /// picker (`tattoo_picker.rs`).
     tattoos: Option<pob_data::TattooSet>,
@@ -589,6 +603,16 @@ impl PobApp {
         let cluster_jewel_mods = std::fs::read_to_string(data_root.join("cluster_jewel_mods.json"))
             .ok()
             .and_then(|json| pob_data::load_cluster_jewel_mods(&json).ok());
+        // #30 / #227: Timeless-jewel data. Keystone catalogue + the
+        // notable/small-node LUT metadata (node index + replacement pools).
+        let timeless_jewels = std::fs::read_to_string(data_root.join("timeless_jewels.json"))
+            .ok()
+            .and_then(|json| pob_data::load_timeless_jewels(&json).ok());
+        let timeless_node_index =
+            std::fs::read_to_string(data_root.join("timeless_node_index.json"))
+                .ok()
+                .and_then(|json| pob_data::load_timeless_node_index(&json).ok());
+        let legion_pool = load_legion_pool(&data_root);
         let tattoos = std::fs::read_to_string(data_root.join("tattoos.json"))
             .ok()
             .and_then(|json| pob_data::load_tattoos(&json).ok());
@@ -681,6 +705,10 @@ impl PobApp {
             calc_sections,
             cluster_jewels,
             cluster_jewel_mods,
+            timeless_jewels,
+            timeless_node_index,
+            legion_pool,
+            timeless_luts: ahash::HashMap::default(),
             tattoos,
             enchants,
             minions,
@@ -786,6 +814,10 @@ impl PobApp {
             // decide whether to ship the JSON via include_str! or fetch it lazily.
             cluster_jewels: None,
             cluster_jewel_mods: None,
+            timeless_jewels: None,
+            timeless_node_index: None,
+            legion_pool: None,
+            timeless_luts: ahash::HashMap::default(),
             tattoos: None,
             enchants: items_tab::LoadedEnchants::default(),
             minions: None,
@@ -884,6 +916,83 @@ fn decode_atlas_inputs(
         ascendancy_rgba8: ascendancy_img.into_raw(),
         ascendancy_size,
     })
+}
+
+/// Issue #227: load the `legionAdditions` + `legionNodes` replacement pools.
+/// Both files must be present for the pool to be usable.
+#[cfg(not(target_arch = "wasm32"))]
+fn load_legion_pool(data_root: &std::path::Path) -> Option<pob_data::LegionPool> {
+    let additions = std::fs::read_to_string(data_root.join("legion_passives.json")).ok()?;
+    let nodes = std::fs::read_to_string(data_root.join("legion_nodes.json")).ok()?;
+    Some(pob_data::LegionPool {
+        additions: pob_data::load_legion_passives(&additions).ok()?,
+        nodes: pob_data::load_legion_nodes(&nodes).ok()?,
+    })
+}
+
+/// The `data/timeless/<stem>` filename stem for a 1-based jewel type.
+#[cfg(not(target_arch = "wasm32"))]
+fn timeless_lut_stem(jewel_type: u32) -> Option<&'static str> {
+    Some(match jewel_type {
+        1 => "GloriousVanity",
+        2 => "LethalPride",
+        3 => "BrutalRestraint",
+        4 => "MilitantFaith",
+        5 => "ElegantHubris",
+        6 => "HeroicTragedy",
+        _ => return None,
+    })
+}
+
+/// Issue #227: inflate + cache the LUT blob for every socketed Timeless jewel
+/// type not already cached. Glorious Vanity ships split across `.zip.part*`;
+/// the others as a single `.zip`. The ~22 MB GV inflate runs at most once per
+/// session. No-op when the node index is absent (timeless decode disabled).
+#[cfg(not(target_arch = "wasm32"))]
+fn ensure_timeless_luts(app: &mut LoadedApp) {
+    if app.timeless_node_index.is_none() {
+        return;
+    }
+    let needed: Vec<u32> = app
+        .character
+        .socketed_jewels
+        .entries
+        .iter()
+        .filter_map(|(_, item)| {
+            let jewel = pob_engine::identify_timeless_jewel(item)?;
+            pob_data::jewel_type_for_base(&jewel.base_name)
+        })
+        .filter(|jt| !app.timeless_luts.contains_key(jt))
+        .collect();
+    if needed.is_empty() {
+        return;
+    }
+    let dir = app.data_root.join("timeless");
+    for jt in needed {
+        let Some(stem) = timeless_lut_stem(jt) else {
+            continue;
+        };
+        let single = dir.join(format!("{stem}.zip"));
+        let compressed = if single.is_file() {
+            std::fs::read(&single).unwrap_or_default()
+        } else {
+            // Concatenate `<stem>.zip.part0..N` (Glorious Vanity).
+            let mut buf = Vec::new();
+            for part in 0.. {
+                match std::fs::read(dir.join(format!("{stem}.zip.part{part}"))) {
+                    Ok(bytes) => buf.extend_from_slice(&bytes),
+                    Err(_) => break,
+                }
+            }
+            buf
+        };
+        if compressed.is_empty() {
+            continue;
+        }
+        if let Ok(lut) = pob_engine::inflate_timeless_lut(&compressed) {
+            app.timeless_luts.insert(jt, lut);
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2626,6 +2735,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
     if recompute || h != app.last_compute_hash {
         app.last_compute_hash = h;
+        // Issue #227: ensure the inflated LUT blobs for any socketed Timeless
+        // jewel type are cached before we take immutable borrows of `app` for
+        // the compute contexts below. Native only — the LUT blobs aren't
+        // bundled into wasm.
+        #[cfg(not(target_arch = "wasm32"))]
+        ensure_timeless_luts(app);
         // Issue #21: thread the cluster-jewel context through so any
         // socketed cluster jewels with allocated synth nodes flow their
         // mods into the calc. `None` data → fall back to non-cluster
@@ -2634,18 +2749,32 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             (Some(cj), Some(cm)) => Some(pob_engine::ClusterContext::new(cj, cm)),
             _ => None,
         };
+        // Issue #227: build the notable/small-node decode context from the
+        // cached LUTs + static metadata.
+        let timeless_lut = match (&app.timeless_node_index, &app.legion_pool) {
+            (Some(node_index), Some(pool)) if !app.timeless_luts.is_empty() => {
+                Some(pob_engine::TimelessLutContext {
+                    node_index,
+                    pool,
+                    luts: &app.timeless_luts,
+                })
+            }
+            _ => None,
+        };
         // Issue #225 follow-up: wall-clock the compute_full pass so
         // the menu-bar "Compute: Nms" indicator can flag a slow
         // recompute. Native-only — wasm doesn't have an Instant we
         // can rely on without an extra crate.
         #[cfg(not(target_arch = "wasm32"))]
         let compute_start = std::time::Instant::now();
-        let (mut output, env) = pob_engine::compute_full_with_clusters(
+        let (mut output, env) = pob_engine::compute_full_with_clusters_and_timeless_lut(
             &app.character,
             &app.tree,
             Some(&app.skills),
             app.bases.as_ref(),
             cluster_ctx,
+            app.timeless_jewels.as_ref(),
+            timeless_lut.as_ref(),
         );
         #[cfg(not(target_arch = "wasm32"))]
         {
