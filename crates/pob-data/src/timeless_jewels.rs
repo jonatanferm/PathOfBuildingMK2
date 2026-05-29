@@ -247,6 +247,73 @@ impl TimelessNodeIndex {
         let local_id = u32::from(*data.get(offset)?);
         Some(self.to_global_id(jewel_type, local_id))
     }
+
+    /// Decode the replacement global id(s) for a node under **Glorious
+    /// Vanity** (jewel type 1) from the inflated GV LUT `lut`.
+    ///
+    /// GV's blob is variable-length: a `node_count * seedSize` *sizes* block
+    /// (one byte = the byte-length of each `(node, seed)` entry) followed by
+    /// each node's packed seed data (node `i`'s block is `slot.size` bytes).
+    /// To reach `(node, seed)` we skip the sizes block + every earlier node's
+    /// data, then walk this node's per-seed lengths up to `seed`. The entry
+    /// bytes are local ids → global via the remap; PoB treats length 2/3 as a
+    /// single replacement and 6/8 as a multiple-choice set (Vaal Might /
+    /// Legacy of the Vaal), returning the first half. Mirrors `readLUT`'s
+    /// type-1 branch.
+    #[must_use]
+    pub fn gv_replacement(&self, lut: &[u8], node_id: u32, seed: u32) -> Vec<u32> {
+        let Some((min, max)) = seed_range(1) else {
+            return Vec::new();
+        };
+        if seed < min || seed > max {
+            return Vec::new();
+        }
+        let Some(slot) = self.slot(node_id) else {
+            return Vec::new();
+        };
+        let seed_size = (max - min + 1) as usize;
+        let seed_offset = (seed - min) as usize;
+        let size_block_len = self.node_count as usize * seed_size;
+
+        // Start of this node's packed data = sizes block + sum of earlier
+        // nodes' data lengths (their `slot.size`).
+        let mut node_data_start = size_block_len;
+        for s in &self.nodes {
+            if s.index < slot.index {
+                node_data_start += s.size as usize;
+            }
+        }
+
+        // Walk per-seed lengths within this node up to `seed_offset`.
+        let sizes_base = slot.index as usize * seed_size;
+        let mut entry_off = 0usize;
+        for k in 0..seed_offset {
+            entry_off += *lut.get(sizes_base + k).unwrap_or(&0) as usize;
+        }
+        let Some(&data_length) = lut.get(sizes_base + seed_offset) else {
+            return Vec::new();
+        };
+        let data_length = data_length as usize;
+
+        let start = node_data_start + entry_off;
+        let Some(entry) = lut.get(start..start + data_length) else {
+            return Vec::new();
+        };
+        let locals: Vec<u32> = entry.iter().map(|b| u32::from(*b)).collect();
+
+        match data_length {
+            2 | 3 => locals
+                .first()
+                .map(|&l| vec![self.to_global_id(1, l)])
+                .unwrap_or_default(),
+            6 | 8 => locals
+                .iter()
+                .take(data_length / 2)
+                .map(|&l| self.to_global_id(1, l))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 impl TimelessJewelData {
@@ -330,6 +397,45 @@ mod tests {
         assert_eq!(ni.flat_notable_replacement(&data, 2, 529, 99999), None);
         assert_eq!(ni.flat_notable_replacement(&data, 2, 999, 10000), None);
         assert_eq!(ni.flat_notable_replacement(&[], 2, 529, 10000), None);
+    }
+
+    #[test]
+    fn gv_variable_length_decode_single_and_multiple_choice() {
+        // GV seedSize = 8000 - 100 + 1 = 7901. One node (index 0), so the
+        // sizes block is 7901 bytes; node 0's packed data follows.
+        let seed_size = 7901usize;
+        let mut remap = vec![0u32; 60];
+        remap[5] = 42;
+        remap[6] = 43;
+        remap[7] = 44;
+        remap[8] = 45;
+        // Two seeds carry entries: seed offset 0 → a 2-byte single (local 5);
+        // seed offset 1 → a 6-byte multiple-choice (locals 6,7,8 in first half).
+        let mut lut = vec![0u8; seed_size];
+        lut[0] = 2; // length of seed-offset-0 entry
+        lut[1] = 6; // length of seed-offset-1 entry
+        let node_size = 2 + 6; // total packed bytes for this node
+        lut.extend_from_slice(&[5, 0]); // seed 0 entry: [local 5, extra]
+        lut.extend_from_slice(&[6, 7, 8, 0, 0, 0]); // seed 1 entry: first half = 6,7,8
+
+        let ni = TimelessNodeIndex {
+            node_count: 1,
+            notable_count: 1,
+            nodes: vec![TimelessNodeSlot {
+                node_id: 6,
+                index: 0,
+                size: node_size as u32,
+            }],
+            local_to_global: vec![remap], // type 1 remap
+        };
+
+        // seed 100 → offset 0 → 2-byte single → remap(5)=42.
+        assert_eq!(ni.gv_replacement(&lut, 6, 100), vec![42]);
+        // seed 101 → offset 1 → 6-byte multiple-choice → first 3 remapped.
+        assert_eq!(ni.gv_replacement(&lut, 6, 101), vec![43, 44, 45]);
+        // Out-of-range seed and unknown node → empty.
+        assert!(ni.gv_replacement(&lut, 6, 99999).is_empty());
+        assert!(ni.gv_replacement(&lut, 999, 100).is_empty());
     }
 
     #[test]
