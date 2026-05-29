@@ -195,6 +195,60 @@ pub fn load_timeless_node_index(json: &str) -> serde_json::Result<TimelessNodeIn
     serde_json::from_str(json)
 }
 
+/// Inclusive `(seedMin, seedMax)` for a 1-based jewel type, from PoB's
+/// `data.timelessJewelSeedMin/Max` (`Modules/Data.lua`). Elegant Hubris (5)
+/// is pre-divided by 20 — the *stored* item seed is divided by 20 before
+/// lookup (handled in [`flat_notable_replacement`]). `None` for unknown types.
+#[must_use]
+pub fn seed_range(jewel_type: u32) -> Option<(u32, u32)> {
+    Some(match jewel_type {
+        1 => (100, 8000),    // Glorious Vanity
+        2 => (10000, 18000), // Lethal Pride
+        3 => (500, 8000),    // Brutal Restraint
+        4 => (2000, 10000),  // Militant Faith
+        5 => (100, 8000),    // Elegant Hubris (2000/20 .. 160000/20)
+        6 => (100, 8000),    // Heroic Tragedy
+        _ => return None,
+    })
+}
+
+impl TimelessNodeIndex {
+    /// Decode the replacement `LegionPassive` global id for a **notable** node
+    /// under a non-Glorious-Vanity jewel, from the inflated flat LUT `data`.
+    ///
+    /// Mirrors PoB's `readLUT` non-GV notable branch: `seedOffset = seed -
+    /// seedMin` (Elegant Hubris divides the seed by 20 first), one byte per
+    /// `(node index, seed)` at `index * seedSize + seedOffset`, then
+    /// local→global remap. Returns `None` for Glorious Vanity (type 1, which
+    /// uses the variable-length path), non-notable nodes, unknown nodes,
+    /// out-of-range seeds, or a short `data` buffer.
+    #[must_use]
+    pub fn flat_notable_replacement(
+        &self,
+        data: &[u8],
+        jewel_type: u32,
+        node_id: u32,
+        seed: u32,
+    ) -> Option<u32> {
+        if jewel_type == 1 {
+            return None; // Glorious Vanity → variable-length path
+        }
+        let slot = self.slot(node_id)?;
+        if slot.index > self.notable_count {
+            return None; // smalls aren't replaced on the flat notable path
+        }
+        let (min, max) = seed_range(jewel_type)?;
+        let seed = if jewel_type == 5 { seed / 20 } else { seed };
+        if seed < min || seed > max {
+            return None;
+        }
+        let seed_size = (max - min + 1) as usize;
+        let offset = slot.index as usize * seed_size + (seed - min) as usize;
+        let local_id = u32::from(*data.get(offset)?);
+        Some(self.to_global_id(jewel_type, local_id))
+    }
+}
+
 impl TimelessJewelData {
     /// Find the conqueror entry on `jewel_base` whose textual name matches
     /// `conqueror_name` (case-insensitive). Returns `None` if either the jewel
@@ -235,6 +289,65 @@ impl TimelessJewelData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seed_range_known_and_unknown() {
+        assert_eq!(seed_range(2), Some((10000, 18000)));
+        assert_eq!(seed_range(1), Some((100, 8000)));
+        assert_eq!(seed_range(99), None);
+    }
+
+    #[test]
+    fn flat_notable_decode_reads_byte_and_remaps() {
+        let mut remap_t2 = vec![0u32; 6];
+        remap_t2[5] = 42;
+        let ni = TimelessNodeIndex {
+            node_count: 2,
+            notable_count: 0, // only index 0 is a notable (index <= 0)
+            nodes: vec![
+                TimelessNodeSlot {
+                    node_id: 529,
+                    index: 0,
+                    size: 0,
+                },
+                TimelessNodeSlot {
+                    node_id: 600,
+                    index: 1,
+                    size: 0,
+                },
+            ],
+            local_to_global: vec![Vec::new(), remap_t2], // type 1 empty, type 2 remaps 5→42
+        };
+        // Lethal Pride (type 2), seedMin 10000 → seed 10000 = offset 0, index 0
+        // → data[0] = 5 → remapped to global 42.
+        let data = vec![5u8];
+        assert_eq!(ni.flat_notable_replacement(&data, 2, 529, 10000), Some(42));
+        // Glorious Vanity routes through the variable-length path → None here.
+        assert_eq!(ni.flat_notable_replacement(&data, 1, 529, 10000), None);
+        // A small node (index 1 > notable_count 0) is not on the flat path.
+        assert_eq!(ni.flat_notable_replacement(&data, 2, 600, 10000), None);
+        // Out-of-range seed, unknown node, and short buffer all → None.
+        assert_eq!(ni.flat_notable_replacement(&data, 2, 529, 99999), None);
+        assert_eq!(ni.flat_notable_replacement(&data, 2, 999, 10000), None);
+        assert_eq!(ni.flat_notable_replacement(&[], 2, 529, 10000), None);
+    }
+
+    #[test]
+    fn elegant_hubris_divides_stored_seed_by_20() {
+        let ni = TimelessNodeIndex {
+            node_count: 1,
+            notable_count: 0,
+            nodes: vec![TimelessNodeSlot {
+                node_id: 7,
+                index: 0,
+                size: 0,
+            }],
+            local_to_global: vec![Vec::new(); 5], // type 5 → empty → identity remap
+        };
+        // Elegant Hubris (type 5) seedMin 100; stored seed 2000 / 20 = 100 →
+        // offset 0 → data[0] = 9, identity remap → 9.
+        assert_eq!(ni.flat_notable_replacement(&[9u8], 5, 7, 2000), Some(9));
+    }
 
     fn sample() -> TimelessJewelData {
         let json = r#"{
