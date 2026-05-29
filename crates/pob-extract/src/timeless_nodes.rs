@@ -152,6 +152,290 @@ mod tests {
         assert!(parse_node_index(&json!(42)).is_err());
     }
 
+    /// Definitive parity check (self-skips without the PoB checkout): run PoB's
+    /// *actual* `readLUT` (from `DataLegionLookUpTableHelper.lua`) against its
+    /// own Lethal Pride `.zip`, and assert it agrees with our Rust
+    /// `flat_notable_replacement` decode for a sample of real notable nodes.
+    ///
+    /// This is the cross-check the prescribed `pob_diff` gate can't provide —
+    /// that harness doesn't stub `Inflate`/`NewFileSearch`, so PoB's own LUT
+    /// loading can't run there. Here we supply minimal `GetScriptPath` /
+    /// `Inflate` / `NewFileSearch` shims (pointing at PoB's data dir) so its
+    /// real decode executes byte-for-byte.
+    #[test]
+    fn readlut_matches_pob_lua_flat_and_glorious_vanity() {
+        use mlua::{Function, Table, Value, Variadic};
+
+        let pob = std::path::Path::new("../../.PathOfBuilding");
+        let tjd = pob.join("src/Data/TimelessJewelData");
+        let zip = tjd.join("LethalPride.zip");
+        let helper = pob.join("src/Modules/DataLegionLookUpTableHelper.lua");
+        if !zip.exists() || !tjd.join("NodeIndexMapping.lua").exists() || !helper.exists() {
+            return;
+        }
+
+        // Rust side: our node index + the inflated Lethal Pride LUT.
+        let node_index = extract(pob).expect("extract node index");
+        let inflated = pob_engine::inflate_timeless_lut(&std::fs::read(&zip).expect("read zip"))
+            .expect("inflate");
+
+        // Lua side: minimal PoB runtime shims so readLUT's loadJewelFile runs.
+        let lua = crate::make_lua().expect("lua");
+        let g = lua.globals();
+        let script_path = std::fs::canonicalize(pob.join("src"))
+            .expect("canon")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let sp = script_path.clone();
+        g.set(
+            "GetScriptPath",
+            lua.create_function(move |_, ()| Ok(sp.clone())).unwrap(),
+        )
+        .unwrap();
+        g.set(
+            "Inflate",
+            lua.create_function(|lua, s: mlua::String| {
+                let out = pob_engine::inflate_timeless_lut(&s.as_bytes())
+                    .map_err(mlua::Error::external)?;
+                lua.create_string(&out)
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        // NewFileSearch: resolve a plain file or a `prefix*` glob (the GV
+        // `.zip.part*` probe) to the matching basenames, returning a stateful
+        // handle (`files` + `idx`) whose `GetFileName`/`NextFile` iterate them;
+        // nil when nothing matches.
+        g.set(
+            "NewFileSearch",
+            lua.create_function(|lua, pattern: String| {
+                let p = std::path::Path::new(&pattern);
+                let mut files: Vec<String> = if let Some(prefix) = pattern.strip_suffix('*') {
+                    let pp = std::path::Path::new(prefix);
+                    let (dir, base) = (
+                        pp.parent().unwrap_or_else(|| std::path::Path::new(".")),
+                        pp.file_name().map(|n| n.to_string_lossy().to_string()),
+                    );
+                    match (base, std::fs::read_dir(dir)) {
+                        (Some(base), Ok(rd)) => {
+                            let mut v: Vec<String> = rd
+                                .filter_map(|e| e.ok())
+                                .filter_map(|e| e.file_name().to_str().map(str::to_owned))
+                                .filter(|n| n.starts_with(&base))
+                                .collect();
+                            v.sort();
+                            v
+                        }
+                        _ => Vec::new(),
+                    }
+                } else if p.exists() {
+                    p.file_name()
+                        .map(|n| vec![n.to_string_lossy().to_string()])
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                if files.is_empty() {
+                    return Ok(Value::Nil);
+                }
+                let handle = lua.create_table()?;
+                let arr = lua.create_table()?;
+                for (i, f) in files.drain(..).enumerate() {
+                    arr.set(i + 1, f)?;
+                }
+                handle.set("files", arr)?;
+                handle.set("idx", 1i64)?;
+                handle.set(
+                    "GetFileName",
+                    lua.create_function(|_, this: Table| {
+                        let idx: i64 = this.get("idx")?;
+                        let files: Table = this.get("files")?;
+                        files.get::<String>(idx)
+                    })?,
+                )?;
+                handle.set(
+                    "GetFileModifiedTime",
+                    lua.create_function(|_, _: Variadic<Value>| Ok(0i64))?,
+                )?;
+                handle.set(
+                    "NextFile",
+                    lua.create_function(|_, this: Table| {
+                        let idx: i64 = this.get("idx")?;
+                        let files: Table = this.get("files")?;
+                        let next = idx + 1;
+                        this.set("idx", next)?;
+                        Ok(next <= files.raw_len() as i64)
+                    })?,
+                )?;
+                Ok(Value::Table(handle))
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        // Build the `data` table readLUT reads (PoB's Modules/Data.lua values).
+        let data = lua.create_table().unwrap();
+        let set_arr = |key: &str, vals: &[(i64, mlua::Value)]| {
+            let t = lua.create_table().unwrap();
+            for (i, v) in vals {
+                t.set(*i, v.clone()).unwrap();
+            }
+            data.set(key, t).unwrap();
+        };
+        let s = |x: &str| Value::String(lua.create_string(x).unwrap());
+        let n = |x: i64| Value::Integer(x);
+        set_arr(
+            "timelessJewelTypes",
+            &[
+                (1, s("Glorious Vanity")),
+                (2, s("Lethal Pride")),
+                (3, s("Brutal Restraint")),
+                (4, s("Militant Faith")),
+                (5, s("Elegant Hubris")),
+                (6, s("Heroic Tragedy")),
+            ],
+        );
+        set_arr(
+            "timelessJewelSeedMin",
+            &[
+                (1, n(100)),
+                (2, n(10000)),
+                (3, n(500)),
+                (4, n(2000)),
+                (5, n(100)),
+                (6, n(100)),
+            ],
+        );
+        set_arr(
+            "timelessJewelSeedMax",
+            &[
+                (1, n(8000)),
+                (2, n(18000)),
+                (3, n(8000)),
+                (4, n(10000)),
+                (5, n(8000)),
+                (6, n(8000)),
+            ],
+        );
+        data.set("timelessJewelAdditions", 96i64).unwrap();
+        data.set("timelessJewelLUTs", lua.create_table().unwrap())
+            .unwrap();
+        let nim_src = std::fs::read_to_string(tjd.join("NodeIndexMapping.lua")).unwrap();
+        let node_id_list: Value = lua.load(&nim_src).eval().expect("eval NodeIndexMapping");
+        data.set("nodeIDList", node_id_list).unwrap();
+        g.set("data", data).unwrap();
+
+        // Lua 5.4 rejects LuaJIT's lenient `"wb+"` mode (the `+` must precede
+        // the `b`); loadJewelFile writes a `.bin` cache with it. Normalise.
+        lua.load(
+            r#"
+            local raw_open = io.open
+            io.open = function(path, mode)
+                if mode then mode = mode:gsub("([rwa])b%+", "%1+b") end
+                return raw_open(path, mode)
+            end
+            "#,
+        )
+        .exec()
+        .unwrap();
+
+        // readLUT, repairLUTs = require("Modules/DataLegionLookUpTableHelper").
+        let helper_src = std::fs::read_to_string(&helper).unwrap();
+        let (read_lut, _repair): (Function, Function) =
+            lua.load(&helper_src).eval().expect("eval helper");
+
+        let seed = 14000u32;
+        let mut checked = 0;
+        let mut matched = 0;
+        for slot in node_index
+            .nodes
+            .iter()
+            .filter(|s| s.index <= node_index.notable_count)
+        {
+            if checked >= 40 {
+                break;
+            }
+            let res: Table = read_lut
+                .call((seed, slot.node_id, 2u32))
+                .expect("call readLUT");
+            let pob = if res.raw_len() >= 1 {
+                res.get::<u32>(1).ok()
+            } else {
+                None
+            };
+            let mine = node_index.flat_notable_replacement(&inflated, 2, slot.node_id, seed);
+            if pob.is_none() && mine.is_none() {
+                continue;
+            }
+            checked += 1;
+            assert_eq!(
+                pob, mine,
+                "readLUT disagreement for node {} seed {seed}",
+                slot.node_id
+            );
+            if pob == mine {
+                matched += 1;
+            }
+        }
+        assert!(
+            matched >= 20,
+            "expected ≥20 cross-checked notables, got {matched}"
+        );
+
+        // --- Glorious Vanity (jewel type 1) — the #227 acceptance case. The
+        // variable-length GV entry: readLUT returns the full row (ids converted
+        // in their positions, rolls raw); our `gv_lut_entry` must match it
+        // element-for-element. Exercises the `.zip.part*` glob + the GV layout
+        // walk against PoB's own decode.
+        if tjd.join("GloriousVanity.zip.part0").exists() {
+            let mut gv_compressed = Vec::new();
+            for part in 0.. {
+                match std::fs::read(tjd.join(format!("GloriousVanity.zip.part{part}"))) {
+                    Ok(b) => gv_compressed.extend_from_slice(&b),
+                    Err(_) => break,
+                }
+            }
+            let gv_lut = pob_engine::inflate_timeless_lut(&gv_compressed).expect("inflate GV");
+            let gv_seed = 6500u32; // the #227 acceptance seed
+            let mut gv_checked = 0;
+            let mut gv_matched = 0;
+            for slot in node_index
+                .nodes
+                .iter()
+                .filter(|s| s.index <= node_index.notable_count)
+            {
+                if gv_checked >= 40 {
+                    break;
+                }
+                let res: Table = read_lut
+                    .call((gv_seed, slot.node_id, 1u32))
+                    .expect("call readLUT GV");
+                let pob: Vec<u32> = (1..=res.raw_len())
+                    .filter_map(|i| res.get::<u32>(i as i64).ok())
+                    .collect();
+                let mine = node_index.gv_lut_entry(&gv_lut, slot.node_id, gv_seed);
+                if pob.is_empty() && mine.is_empty() {
+                    continue;
+                }
+                gv_checked += 1;
+                assert_eq!(
+                    pob, mine,
+                    "GV readLUT disagreement for node {} seed {gv_seed}",
+                    slot.node_id
+                );
+                gv_matched += 1;
+            }
+            assert!(
+                gv_matched >= 20,
+                "expected ≥20 cross-checked GV notables, got {gv_matched}"
+            );
+        }
+
+        // Clean up the .bin caches PoB's loadJewelFile writes next to the data.
+        let _ = std::fs::remove_file(tjd.join("LethalPride.bin"));
+        let _ = std::fs::remove_file(tjd.join("GloriousVanity.bin"));
+    }
+
     /// Real-data check (self-skips in CI).
     #[test]
     fn extracts_real_node_index_when_pob_present() {
