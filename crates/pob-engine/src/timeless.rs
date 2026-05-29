@@ -44,10 +44,10 @@
 //! leaves the LUT-driven half clearly factored out behind
 //! [`pob_data::TimelessJewelData`].
 
-use ahash::AHashSet;
+use ahash::{AHashSet, HashMap};
 use pob_data::{
-    radii_for_tree_version, ConquerorKeystone, Item, NodeId, NodeKind, PassiveTree,
-    TimelessJewelData,
+    jewel_type_for_base, radii_for_tree_version, ConquerorKeystone, Item, LegionPool, NodeId,
+    NodeKind, PassiveTree, TimelessJewelData, TimelessNodeIndex,
 };
 
 use crate::jewel_radius::nodes_in_radius;
@@ -260,6 +260,145 @@ pub fn apply_keystone_replacements(
     let mut emissions = 0usize;
     for r in replacements {
         for line in &r.replacement.stats {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(parsed) = parse_mod_line(trimmed) {
+                let mut m: Mod = parsed.mod_;
+                m.source = Some(Source::Passive(r.target_node));
+                db.add(m);
+                emissions += 1;
+            }
+        }
+    }
+    emissions
+}
+
+/// Read-only data the notable/small-node LUT decode needs (#227). The engine
+/// never touches the filesystem; the caller (UI) loads the static metadata and
+/// inflates the per-jewel LUT blobs, then lends them here.
+pub struct TimelessLutContext<'a> {
+    /// `NodeIndexMapping` — node→slot table + local→global id remap.
+    pub node_index: &'a TimelessNodeIndex,
+    /// The `legionAdditions` + `legionNodes` replacement pools.
+    pub pool: &'a LegionPool,
+    /// Inflated LUT bytes per **1-based** jewel type (`jewel_type_for_base`).
+    /// The caller only populates the types actually socketed; a missing type
+    /// simply yields no replacements for that jewel.
+    pub luts: &'a HashMap<u32, Vec<u8>>,
+}
+
+/// One notable/small-node replacement to apply: the in-radius allocated node
+/// and the (already roll-substituted) stat lines that replace or augment it.
+/// Produced by [`compute_notable_replacements`]; consumed by the perform
+/// pipeline analogously to [`KeystoneReplacement`].
+#[derive(Debug, Clone)]
+pub struct NotableReplacement {
+    /// Tree-socket node id of the owning jewel (breakdown attribution).
+    pub socket_id: NodeId,
+    /// Allocated node id whose stats are overridden / augmented.
+    pub target_node: NodeId,
+    /// Stat lines to apply (roll-substituted in `pob_data`).
+    pub lines: Vec<String>,
+    /// `true` → the node's own stats are skipped (PoB `ReplaceNode`); `false`
+    /// → `lines` stack on top of the node's own (an *addition*).
+    pub wipe: bool,
+    /// Display label used as the breakdown source.
+    pub source_label: String,
+}
+
+/// Walk every socketed Timeless jewel and, for each allocated **notable** or
+/// **small** node inside its radius, decode the per-seed LUT replacement.
+/// Mirrors the `node.type == "Notable"` / vaal-`"Normal"` branches of
+/// `PassiveSpec.lua`. Keystones are handled by
+/// [`compute_keystone_replacements`]; the non-vaal small-node text additions
+/// (karui `+Strength`, etc.) are not yet ported and simply yield nothing.
+///
+/// Returns an empty vec when no Timeless jewel is socketed or its LUT is absent
+/// from `ctx.luts`.
+pub fn compute_notable_replacements(
+    tree: &PassiveTree,
+    allocated: &AHashSet<NodeId>,
+    socketed: &[(NodeId, Item)],
+    ctx: &TimelessLutContext<'_>,
+) -> Vec<NotableReplacement> {
+    let mut out: Vec<NotableReplacement> = Vec::new();
+    let radii = radii_for_tree_version(&tree.version);
+    // Timeless jewels always use the Large radius (see compute_keystone_replacements).
+    let Some(radius) = radii.get(2usize).copied() else {
+        return out;
+    };
+    for (socket_id, item) in socketed {
+        let Some(jewel) = identify_timeless_jewel(item) else {
+            continue;
+        };
+        let Some(jewel_type) = jewel_type_for_base(&jewel.base_name) else {
+            continue;
+        };
+        let Some(lut) = ctx.luts.get(&jewel_type) else {
+            continue;
+        };
+        let label = format!("Timeless:{}:{}", jewel.base_name, jewel.conqueror_name);
+        for (target_node, _) in nodes_in_radius(tree, *socket_id, &radius) {
+            if !allocated.contains(&target_node) {
+                continue;
+            }
+            let Some(node) = tree.nodes.get(&target_node) else {
+                continue;
+            };
+            // Keystones go through the keystone path; sockets / masteries /
+            // class-starts are never conquered into notables.
+            let is_notable = match node.kind {
+                NodeKind::Notable => true,
+                NodeKind::Normal => false,
+                _ => continue,
+            };
+            if let Some(rep) = ctx.node_index.resolve_node_replacement(
+                ctx.pool,
+                lut,
+                jewel_type,
+                target_node,
+                jewel.seed,
+                is_notable,
+            ) {
+                out.push(NotableReplacement {
+                    socket_id: *socket_id,
+                    target_node,
+                    lines: rep.lines,
+                    wipe: rep.wipe,
+                    source_label: label.clone(),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// The set of allocated node ids whose original stats the tree-stat pass should
+/// **skip** because a Timeless jewel *replaces* (not augments) them. Additions
+/// (`wipe == false`) are excluded — their host node keeps its own stats.
+#[must_use]
+pub fn conquered_notable_set(replacements: &[NotableReplacement]) -> AHashSet<NodeId> {
+    replacements
+        .iter()
+        .filter(|r| r.wipe)
+        .map(|r| r.target_node)
+        .collect()
+}
+
+/// Apply every notable/small-node replacement to `db`. Each line is parsed via
+/// [`parse_mod_line`] and added with `Source::Passive(target_node)` so per-node
+/// breakdown attribution stays sensible (mirroring PoB's `ReplaceNode` /
+/// `NodeAdditionOrReplacementFromString` keeping the same node id). Returns the
+/// number of mod emissions.
+pub fn apply_notable_replacements(
+    replacements: &[NotableReplacement],
+    db: &mut crate::ModDB,
+) -> usize {
+    let mut emissions = 0usize;
+    for r in replacements {
+        for line in &r.lines {
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
@@ -656,6 +795,172 @@ mod tests {
         let skip = conquered_keystone_set(&reps);
         assert!(skip.contains(&2));
         assert_eq!(skip.len(), 1);
+    }
+
+    /// Build a socket (node 1) + one allocated Notable (node 2, inside the
+    /// Large radius) + one far Notable (node 3, outside). Mirrors
+    /// `mk_two_node_tree` but with Notable nodes for the #227 path.
+    fn mk_notable_tree() -> PassiveTree {
+        let mk_group = |x: f32, node: NodeId| Group {
+            x,
+            y: 0.0,
+            orbits: smallvec::smallvec![0],
+            background: None,
+            nodes: vec![node],
+            is_proxy: false,
+        };
+        let mk_node = |id: NodeId, kind: NodeKind, group: u32, stats: Vec<String>| Node {
+            id,
+            name: Some(format!("node{id}")),
+            icon: None,
+            ascendancy_name: None,
+            stats,
+            reminder_text: vec![],
+            kind,
+            class_start_index: None,
+            group: Some(group),
+            orbit: Some(0),
+            orbit_index: Some(0),
+            out_edges: smallvec::smallvec![],
+            in_edges: smallvec::smallvec![],
+            mastery_effects: vec![],
+            expansion_jewel_size: None,
+            jewel_radius: None,
+        };
+        let mut groups = ahash::HashMap::default();
+        groups.insert(10, mk_group(0.0, 1));
+        groups.insert(20, mk_group(600.0, 2));
+        let mut nodes = ahash::HashMap::default();
+        nodes.insert(1, mk_node(1, NodeKind::JewelSocket, 10, vec![]));
+        nodes.insert(
+            2,
+            mk_node(
+                2,
+                NodeKind::Notable,
+                20,
+                vec!["10% increased Original Notable Damage".into()],
+            ),
+        );
+        PassiveTree {
+            version: "3_25".into(),
+            tree: "Default".into(),
+            classes: vec![],
+            groups,
+            nodes,
+            jewel_slots: vec![1],
+            min_x: -3000,
+            min_y: -1000,
+            max_x: 5000,
+            max_y: 1000,
+            constants: TreeConstants {
+                skills_per_orbit: vec![1, 6, 16, 16, 40, 72, 72],
+                orbit_radii: vec![0, 82, 162, 335, 493, 662, 846],
+                classes: ahash::HashMap::default(),
+                character_attributes: ahash::HashMap::default(),
+                pss_centre_inner_radius: None,
+            },
+            points: pob_data::TreePoints::default(),
+        }
+    }
+
+    #[test]
+    fn notable_replacement_flows_into_moddb() {
+        use pob_data::{LegionPassive, LegionPool, TimelessNodeIndex, TimelessNodeSlot};
+
+        let tree = mk_notable_tree();
+        // Lethal Pride (type 2), flat LUT. split = additions.len() = 1, so
+        // global id >= 1 is a node replacement. local 0 → global 1 → nodes[0].
+        let pool = LegionPool {
+            additions: vec![LegionPassive {
+                name: "Some Addition".into(),
+                ..Default::default()
+            }],
+            nodes: vec![LegionPassive {
+                name: "Replacement Notable".into(),
+                id: "rep".into(),
+                stats: vec!["+25 to Strength".into()],
+                ..Default::default()
+            }],
+        };
+        // Node 2 at slot index 0 (notable). seedSize = 18000-10000+1 = 8001.
+        let node_index = TimelessNodeIndex {
+            node_count: 1,
+            notable_count: 0, // index 0 <= 0 → notable
+            nodes: vec![TimelessNodeSlot {
+                node_id: 2,
+                index: 0,
+                size: 0,
+            }],
+            // type 2 (idx 1): local 0 → global 1 (= split → nodes[0]).
+            local_to_global: vec![Vec::new(), vec![1]],
+        };
+        let seed_size = (18000 - 10000 + 1) as usize;
+        let mut bytes = vec![0u8; seed_size];
+        bytes[0] = 0; // node index 0, seed offset 0 → local 0
+        let mut luts: ahash::HashMap<u32, Vec<u8>> = ahash::HashMap::default();
+        luts.insert(2, bytes);
+        let ctx = TimelessLutContext {
+            node_index: &node_index,
+            pool: &pool,
+            luts: &luts,
+        };
+
+        let item = mk_item(
+            "Lethal Pride",
+            &["Commanded leadership over 10000 warriors under Akoya"],
+        );
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let socketed = vec![(1u32, item)];
+
+        let reps = compute_notable_replacements(&tree, &alloc, &socketed, &ctx);
+        assert_eq!(reps.len(), 1, "node 2 in radius and allocated");
+        assert_eq!(reps[0].target_node, 2);
+        assert!(reps[0].wipe, "replacement wipes the original notable");
+        assert_eq!(reps[0].lines, vec!["+25 to Strength".to_string()]);
+
+        // The wipe set lists node 2; applying injects the replacement mod.
+        let skip = conquered_notable_set(&reps);
+        assert!(skip.contains(&2));
+        let mut db = crate::ModDB::default();
+        let emitted = apply_notable_replacements(&reps, &mut db);
+        assert!(emitted >= 1);
+        use crate::ModStore;
+        assert!(db
+            .iter_all()
+            .any(|m| matches!(m.source, Some(Source::Passive(2)))));
+    }
+
+    #[test]
+    fn no_lut_for_jewel_type_yields_no_replacements() {
+        use pob_data::{LegionPool, TimelessNodeIndex, TimelessNodeSlot};
+        let tree = mk_notable_tree();
+        let pool = LegionPool::default();
+        let node_index = TimelessNodeIndex {
+            node_count: 1,
+            notable_count: 0,
+            nodes: vec![TimelessNodeSlot {
+                node_id: 2,
+                index: 0,
+                size: 0,
+            }],
+            local_to_global: vec![],
+        };
+        // Empty LUT map → the Lethal Pride jewel finds no bytes → no-op.
+        let luts: ahash::HashMap<u32, Vec<u8>> = ahash::HashMap::default();
+        let ctx = TimelessLutContext {
+            node_index: &node_index,
+            pool: &pool,
+            luts: &luts,
+        };
+        let item = mk_item(
+            "Lethal Pride",
+            &["Commanded leadership over 10000 warriors under Akoya"],
+        );
+        let mut alloc: AHashSet<NodeId> = AHashSet::default();
+        alloc.insert(2);
+        let reps = compute_notable_replacements(&tree, &alloc, &[(1u32, item)], &ctx);
+        assert!(reps.is_empty());
     }
 
     // Suppress "unused-import" lint for the convenience re-export when this
