@@ -81,7 +81,36 @@ pub fn compute_full_with_clusters_and_timeless(
     cluster_ctx: Option<ClusterContext<'_>>,
     timeless: Option<&pob_data::TimelessJewelData>,
 ) -> (Output, Env) {
-    let mut env = init_env_with_bases_and_timeless(character, tree, bases, timeless);
+    compute_full_with_clusters_and_timeless_lut(
+        character,
+        tree,
+        skills,
+        bases,
+        cluster_ctx,
+        timeless,
+        None,
+    )
+}
+
+/// Issue #227: full-fat compute that also threads through the Timeless notable /
+/// small-node LUT context. Identical to
+/// [`compute_full_with_clusters_and_timeless`] when `lut = None`; with
+/// `Some(ctx)`, allocated notables / small nodes inside socketed Timeless
+/// jewels' radii are replaced (or augmented) per the decoded per-seed LUT —
+/// see [`init_env_with_bases_and_timeless_lut`]. The `timeless` (keystone)
+/// catalogue and the `lut` (notable) context are independent; pass both for
+/// the complete mechanic.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_full_with_clusters_and_timeless_lut(
+    character: &Character,
+    tree: &PassiveTree,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+    lut: Option<&crate::timeless::TimelessLutContext<'_>>,
+) -> (Output, Env) {
+    let mut env = init_env_with_bases_and_timeless_lut(character, tree, bases, timeless, lut);
     if let Some(ctx) = cluster_ctx {
         apply_cluster_jewel_mods(character, tree, &mut env, ctx);
     }
@@ -232,6 +261,33 @@ pub fn init_env_with_bases_and_timeless(
     bases: Option<&pob_data::bases::ItemBaseSet>,
     timeless: Option<&pob_data::TimelessJewelData>,
 ) -> Env {
+    init_env_inner(character, tree, bases, timeless, None)
+}
+
+/// Issue #227: `init_env` plus the Timeless notable / small-node LUT context.
+/// With `Some(lut)`, every allocated notable / small node inside a socketed
+/// Timeless jewel's radius is decoded against the per-seed LUT: a *replacement*
+/// wipes the node's own stats and injects the rolled replacement-notable stats;
+/// an *addition* stacks extra stat lines on top. Both are sourced as
+/// `Source::Passive(<conquered_node>)`. Keystone replacement is independent
+/// (driven by `timeless`); pass both for the full mechanic.
+pub fn init_env_with_bases_and_timeless_lut(
+    character: &Character,
+    tree: &PassiveTree,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+    lut: Option<&crate::timeless::TimelessLutContext<'_>>,
+) -> Env {
+    init_env_inner(character, tree, bases, timeless, lut)
+}
+
+fn init_env_inner(
+    character: &Character,
+    tree: &PassiveTree,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+    lut: Option<&crate::timeless::TimelessLutContext<'_>>,
+) -> Env {
     let mut env = Env::default();
 
     // 1. Class base attributes (Marauder = 32 str / 14 dex / 14 int, etc.).
@@ -352,6 +408,24 @@ pub fn init_env_with_bases_and_timeless(
     };
     let conquered_keystones = crate::timeless::conquered_keystone_set(&timeless_replacements);
 
+    // Issue #227: notable / small-node replacement. Independent of the
+    // keystone catalogue — driven by the per-seed LUT context. Each in-radius
+    // allocated notable/small whose host jewel is Timeless is either *replaced*
+    // (its own stats skipped, rolled replacement-notable stats injected) or
+    // *augmented* (extra addition lines stacked on top). With `lut = None`
+    // this is empty and the loop behaves exactly as before.
+    let notable_replacements = if let Some(ctx) = lut {
+        crate::timeless::compute_notable_replacements(
+            tree,
+            &effective,
+            &character.socketed_jewels.entries,
+            ctx,
+        )
+    } else {
+        Vec::new()
+    };
+    let conquered_notables = crate::timeless::conquered_notable_set(&notable_replacements);
+
     for node_id in &effective {
         let Some(node) = tree.nodes.get(node_id) else {
             continue;
@@ -363,6 +437,13 @@ pub fn init_env_with_bases_and_timeless(
         if matches!(node.kind, pob_data::NodeKind::Keystone)
             && conquered_keystones.contains(node_id)
         {
+            continue;
+        }
+        // Issue #227: a notable/small node fully *replaced* by a Timeless
+        // jewel skips its own stats; the rolled replacement is injected after
+        // the loop. Additions (wipe == false) aren't in this set, so their
+        // host node keeps its own stats and just gains the extra lines.
+        if conquered_notables.contains(node_id) {
             continue;
         }
         // Mastery nodes don't contribute their `stats` directly — the user picks one of
@@ -439,6 +520,11 @@ pub fn init_env_with_bases_and_timeless(
     if !timeless_replacements.is_empty() {
         let _ =
             crate::timeless::apply_keystone_replacements(&timeless_replacements, &mut env.mod_db);
+    }
+    // Issue #227: inject the notable / small-node replacement + addition stats
+    // (roll-substituted in `pob_data`), sourced as `Source::Passive(node)`.
+    if !notable_replacements.is_empty() {
+        let _ = crate::timeless::apply_notable_replacements(&notable_replacements, &mut env.mod_db);
     }
 
     // 4. Items. Issue #109 slice 2: when `use_second_weapon_set` is
