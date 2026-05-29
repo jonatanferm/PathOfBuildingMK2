@@ -539,16 +539,68 @@ fn fmt_num(v: f64) -> String {
     s
 }
 
+/// Fixed small-node (`Normal`) effect for a non-Glorious-Vanity timeless jewel,
+/// mirroring PoB's `PassiveSpec.lua` `node.type == "Normal"` conqueror-nation
+/// branches. Attribute / tattoo nodes (`is_attr`) take the smaller addition (or
+/// a replacement for templar); every other small node takes the larger one.
+///
+/// - **karui** (Lethal Pride, type 2): `+2/4 to Strength` (addition).
+/// - **maraketh** (Brutal Restraint, type 3): `+2/4 to Dexterity` (addition).
+/// - **templar** (Militant Faith, type 4): attribute nodes are *replaced* by the
+///   Devotion node (`legionNodes[91]`, `+10 to Devotion`); others gain
+///   `+5 to Devotion` (addition).
+/// - **eternal** (Elegant Hubris, type 5): every small node is *replaced* by the
+///   blank node (`legionNodes[110]`, "Price of Glory", no stats).
+/// - **kalguur** (Heroic Tragedy, type 6): `1/2% increased Ward` (addition).
+fn small_node_addition(
+    pool: &LegionPool,
+    jewel_type: u32,
+    is_attr: bool,
+) -> Option<TimelessReplacement> {
+    let addition = |line: String| TimelessReplacement {
+        lines: vec![line],
+        wipe: false,
+        name: None,
+    };
+    let replace_with = |node: &LegionPassive| TimelessReplacement {
+        lines: node.stats.clone(),
+        wipe: true,
+        name: Some(node.name.clone()),
+    };
+    Some(match jewel_type {
+        2 => addition(format!("+{} to Strength", if is_attr { 2 } else { 4 })),
+        3 => addition(format!("+{} to Dexterity", if is_attr { 2 } else { 4 })),
+        4 => {
+            if is_attr {
+                // legionNodes[91] — templar_devotion_node ("+10 to Devotion").
+                replace_with(pool.node_1based(91)?)
+            } else {
+                addition("+5 to Devotion".to_string())
+            }
+        }
+        // legionNodes[110] — eternal_small_blank ("Price of Glory", no stats).
+        5 => replace_with(pool.node_1based(110)?),
+        6 => addition(format!("{}% increased Ward", if is_attr { 1 } else { 2 })),
+        _ => return None,
+    })
+}
+
 impl TimelessNodeIndex {
     /// Decode and resolve a single in-radius node against a socketed timeless
     /// jewel, mirroring PoB's `PassiveSpec.lua` notable / vaal-small branches.
     /// `lut` is the inflated per-jewel LUT for `jewel_type`; `is_notable`
     /// distinguishes notables from small (`Normal`) nodes.
     ///
+    /// `is_attribute_node` marks a small (`Normal`) node whose display name is a
+    /// pure attribute (`Strength` / `Dexterity` / `Intelligence`) or a tattoo —
+    /// PoB's `isValueInArray(attributes, node.dn) or node.isTattoo` test, which
+    /// halves the karui/maraketh/kalguur stat addition and routes templar
+    /// attribute nodes to the Devotion-node replacement. Ignored for notables
+    /// and for Glorious Vanity (LUT-driven).
+    ///
     /// Returns `None` when the node isn't replaced (out-of-radius handling is
-    /// the caller's job; here it's: OOR seed, unknown node, a small node under a
-    /// non-Glorious-Vanity jewel — the karui/maraketh/etc. text-addition path is
-    /// not yet ported — or a malformed LUT entry).
+    /// the caller's job; here it's: OOR seed, unknown node, an unknown jewel
+    /// type, or a malformed LUT entry).
     #[must_use]
     pub fn resolve_node_replacement(
         &self,
@@ -558,6 +610,7 @@ impl TimelessNodeIndex {
         node_id: u32,
         seed: u32,
         is_notable: bool,
+        is_attribute_node: bool,
     ) -> Option<TimelessReplacement> {
         if jewel_type == 1 {
             // Glorious Vanity — variable-length entry; notables and vaal smalls
@@ -580,9 +633,12 @@ impl TimelessNodeIndex {
             }
         } else {
             // Lethal Pride / Brutal Restraint / Militant Faith / Elegant
-            // Hubris / Heroic Tragedy — flat LUT, notables only here.
+            // Hubris / Heroic Tragedy. Notables route through the flat LUT;
+            // small (`Normal`) nodes get a fixed text addition / replacement
+            // per conqueror nation (PoB `PassiveSpec.lua` `node.type ==
+            // "Normal"` branch), with no LUT lookup.
             if !is_notable {
-                return None;
+                return small_node_addition(pool, jewel_type, is_attribute_node);
             }
             let global = self.flat_notable_replacement(lut, jewel_type, node_id, seed)?;
             match pool.resolve(global)? {
@@ -1016,7 +1072,7 @@ mod tests {
             local_to_global: vec![remap],
         };
         let rep = ni
-            .resolve_node_replacement(&pool, &lut, 1, 6, 100, true)
+            .resolve_node_replacement(&pool, &lut, 1, 6, 100, true, false)
             .expect("resolved");
         assert!(rep.wipe);
         assert_eq!(rep.name.as_deref(), Some("Might of the Vaal"));
@@ -1047,7 +1103,7 @@ mod tests {
             local_to_global: vec![remap],
         };
         let rep = ni
-            .resolve_node_replacement(&pool, &lut, 1, 6, 100, true)
+            .resolve_node_replacement(&pool, &lut, 1, 6, 100, true, false)
             .expect("resolved");
         assert_eq!(rep.name.as_deref(), Some("Might of the Vaal"));
         // base line + addition 0 (Fire, roll 12) + addition 1 (Cold, roll 11).
@@ -1086,12 +1142,12 @@ mod tests {
         data[0] = 0; // node 10 → local 0 → global 78 → Replace
         data[seed_size] = 1; // node 11 → local 1 → global 1 → Add (addition[1] Cold)
         let rep_replace = ni
-            .resolve_node_replacement(&pool, &data, 2, 10, 10000, true)
+            .resolve_node_replacement(&pool, &data, 2, 10, 10000, true, false)
             .expect("replace");
         assert!(rep_replace.wipe);
         assert_eq!(rep_replace.lines, vec!["Might base line".to_string()]);
         let rep_add = ni
-            .resolve_node_replacement(&pool, &data, 2, 11, 10000, true)
+            .resolve_node_replacement(&pool, &data, 2, 11, 10000, true, false)
             .expect("add");
         assert!(!rep_add.wipe);
         assert_eq!(rep_add.name, None);
@@ -1100,6 +1156,81 @@ mod tests {
             rep_add.lines,
             vec!["(7-12)% increased Cold Damage".to_string()]
         );
+    }
+
+    /// Build a pool large enough to expose the templar Devotion node
+    /// (`legionNodes[91]`) and the eternal blank node (`legionNodes[110]`).
+    fn mk_small_pool() -> LegionPool {
+        let mut nodes = vec![
+            LegionPassive {
+                name: "filler".into(),
+                ..Default::default()
+            };
+            110
+        ];
+        nodes[90] = LegionPassive {
+            name: "Devotion".into(),
+            id: "templar_devotion_node".into(),
+            stats: vec!["+10 to Devotion".into()],
+            ..Default::default()
+        };
+        nodes[109] = LegionPassive {
+            name: "Price of Glory".into(),
+            id: "eternal_small_blank".into(),
+            stats: vec![],
+            ..Default::default()
+        };
+        LegionPool {
+            additions: Vec::new(),
+            nodes,
+        }
+    }
+
+    /// Non-vaal small (`Normal`) nodes get a fixed text addition / replacement
+    /// per conqueror nation — PoB `PassiveSpec.lua` `node.type == "Normal"`.
+    /// `node_id` / `seed` / `lut` are unused on this path (no LUT lookup), so we
+    /// pass dummies and toggle `is_notable=false`, exercising both the
+    /// attribute (smaller) and non-attribute (larger) magnitudes.
+    #[test]
+    fn small_node_additions_per_nation() {
+        let pool = mk_small_pool();
+        let ni = TimelessNodeIndex::default();
+        let resolve = |jewel_type: u32, is_attr: bool| {
+            ni.resolve_node_replacement(&pool, &[], jewel_type, 0, 0, false, is_attr)
+        };
+
+        // Karui (Lethal Pride, 2) → +Strength, 4 normally / 2 on attribute nodes.
+        let r = resolve(2, false).unwrap();
+        assert!(!r.wipe);
+        assert_eq!(r.lines, vec!["+4 to Strength".to_string()]);
+        assert_eq!(resolve(2, true).unwrap().lines, vec!["+2 to Strength"]);
+
+        // Maraketh (Brutal Restraint, 3) → +Dexterity.
+        assert_eq!(resolve(3, false).unwrap().lines, vec!["+4 to Dexterity"]);
+        assert_eq!(resolve(3, true).unwrap().lines, vec!["+2 to Dexterity"]);
+
+        // Templar (Militant Faith, 4): non-attr adds +5 Devotion; attribute
+        // nodes are *replaced* by the +10 Devotion node (wipe).
+        let r = resolve(4, false).unwrap();
+        assert!(!r.wipe);
+        assert_eq!(r.lines, vec!["+5 to Devotion".to_string()]);
+        let r = resolve(4, true).unwrap();
+        assert!(r.wipe);
+        assert_eq!(r.name.as_deref(), Some("Devotion"));
+        assert_eq!(r.lines, vec!["+10 to Devotion".to_string()]);
+
+        // Eternal (Elegant Hubris, 5): every small node replaced by the blank
+        // node (no stats), regardless of attribute-ness.
+        for is_attr in [false, true] {
+            let r = resolve(5, is_attr).unwrap();
+            assert!(r.wipe);
+            assert_eq!(r.name.as_deref(), Some("Price of Glory"));
+            assert!(r.lines.is_empty());
+        }
+
+        // Kalguur (Heroic Tragedy, 6) → % increased Ward, 2 normally / 1 on attr.
+        assert_eq!(resolve(6, false).unwrap().lines, vec!["2% increased Ward"]);
+        assert_eq!(resolve(6, true).unwrap().lines, vec!["1% increased Ward"]);
     }
 
     fn sample() -> TimelessJewelData {
