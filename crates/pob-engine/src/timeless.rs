@@ -302,6 +302,11 @@ mod tests {
             return;
         }
         let compressed = std::fs::read(path).expect("read MilitantFaith.zip");
+        // In CI the file is an unresolved Git LFS pointer (~130 bytes), not the
+        // real ~860 KB blob — skip rather than try to inflate the pointer text.
+        if compressed.len() < 100_000 {
+            return;
+        }
         let lut = inflate_timeless_lut(&compressed).expect("inflate");
         assert_eq!(lut.len(), 452 * 8001, "flat LUT = notables × seedSize");
     }
