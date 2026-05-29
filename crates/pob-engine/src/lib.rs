@@ -84,9 +84,10 @@ pub use perform::{
 pub use pob_export::{export_pob_code, export_pob_xml};
 pub use pob_import::{import_pob_code, import_pob_xml, resolve_share_url, PobImportError};
 pub use power::{
-    compare_item_modline_attribution, format_top_contributors, rank_item_modlines,
-    rank_node_additions, score_item_modline_removal, score_node_addition, score_node_removal,
-    AttributionSide, ItemModlineScore, ModlineAttribution, NodeScore,
+    compare_item_modline_attribution, compare_node_attribution, format_top_contributors,
+    rank_item_modlines, rank_node_additions, score_item_modline_removal, score_node_addition,
+    score_node_removal, AttributionSide, ItemModlineScore, ModlineAttribution, NodeAttribution,
+    NodeScore,
 };
 pub use share::{
     export_code, export_config_set, export_item_set, export_skill_set, import_code,
