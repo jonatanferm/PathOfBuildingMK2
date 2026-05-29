@@ -727,6 +727,103 @@ pub fn compare_item_modline_attribution(
     out
 }
 
+/// One allocated passive that differs between two builds, with the DPS/EHP it
+/// accounts for in B *relative to* A. The tree-node counterpart of
+/// [`ModlineAttribution`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct NodeAttribution {
+    /// The differing node.
+    pub node_id: NodeId,
+    /// Display name (or `#<id>` when the tree has no name for it).
+    pub label: String,
+    /// Whether the node is allocated on B but not A (`Added`) or on A but not
+    /// B (`Removed`).
+    pub side: AttributionSide,
+    /// Signed contribution to B's `MainSkillDPS` advantage over A (same
+    /// convention as [`ModlineAttribution`]).
+    pub dps_delta: f64,
+    /// Same convention on `TotalEHP`.
+    pub ehp_delta: f64,
+}
+
+/// Attribute the *allocated-passive* differences between two builds to the
+/// individual nodes that explain them — the tree-node half of the Compare
+/// power report (#207). Nodes allocated on B but not A are scored on B (their
+/// contribution = B's gain); nodes on A but not B are scored on A (= B's loss,
+/// sign flipped). Shared nodes carry no difference and are skipped. Sorted by
+/// maximum absolute impact descending.
+///
+/// **Cascade caveat**: scoring inherits [`score_node_removal`]'s behaviour —
+/// removing a bridge node orphan-cascades its downstream subtree, so a single
+/// differing bridge can "account for" everything it gates. This matches PoB's
+/// Power Report semantics.
+///
+/// **Performance**: two perform calls per *differing* node. Builds with very
+/// different trees can therefore be slow — like the tree heatmap this is an
+/// explicit, cached action, not a per-frame one.
+#[allow(clippy::too_many_arguments)]
+pub fn compare_node_attribution(
+    build_a: &Character,
+    build_b: &Character,
+    tree: &PassiveTree,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> Vec<NodeAttribution> {
+    let label_of = |id: NodeId| -> String {
+        tree.nodes
+            .get(&id)
+            .and_then(|n| n.name.clone())
+            .unwrap_or_else(|| format!("#{id}"))
+    };
+
+    let mut out: Vec<NodeAttribution> = Vec::new();
+
+    // Added: allocated on B, not on A → score on B.
+    for &node_id in &build_b.allocated {
+        if build_a.allocated.contains(&node_id) {
+            continue;
+        }
+        if let Some(score) =
+            score_node_removal(build_b, tree, node_id, skills, bases, cluster_ctx, timeless)
+        {
+            out.push(NodeAttribution {
+                node_id,
+                label: label_of(node_id),
+                side: AttributionSide::Added,
+                dps_delta: score.dps_delta,
+                ehp_delta: score.ehp_delta,
+            });
+        }
+    }
+
+    // Removed: allocated on A, not on B → score on A, flip the sign (B lost it).
+    for &node_id in &build_a.allocated {
+        if build_b.allocated.contains(&node_id) {
+            continue;
+        }
+        if let Some(score) =
+            score_node_removal(build_a, tree, node_id, skills, bases, cluster_ctx, timeless)
+        {
+            out.push(NodeAttribution {
+                node_id,
+                label: label_of(node_id),
+                side: AttributionSide::Removed,
+                dps_delta: -score.dps_delta,
+                ehp_delta: -score.ehp_delta,
+            });
+        }
+    }
+
+    out.sort_by(|x, y| {
+        let xk = x.dps_delta.abs().max(x.ehp_delta.abs());
+        let yk = y.dps_delta.abs().max(y.ehp_delta.abs());
+        yk.total_cmp(&xk)
+    });
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1470,5 +1567,60 @@ mod tests {
         let b = a.clone();
         let attr = compare_item_modline_attribution(&a, &b, &tree, None, None, None, None);
         assert!(attr.is_empty(), "identical builds attribute nothing");
+    }
+
+    /// Issue #207: a passive allocated on B but not A is flagged `Added` with a
+    /// positive contribution. The shared class-start path carries no delta.
+    #[test]
+    fn compare_node_attribution_flags_added_node() {
+        let tree = life_notable_tree();
+        let a = fresh_character();
+        let mut b = fresh_character();
+        b.allocate(2); // +50 Life node
+
+        let attr = compare_node_attribution(&a, &b, &tree, None, None, None, None);
+        let n2 = attr
+            .iter()
+            .find(|x| x.node_id == 2)
+            .expect("node 2 attributed");
+        assert_eq!(n2.side, AttributionSide::Added);
+        assert!(
+            n2.ehp_delta > 0.0,
+            "an added Life node raises B's EHP; got {}",
+            n2.ehp_delta
+        );
+    }
+
+    /// Reverse direction: the same node, allocated on A but not B, is `Removed`
+    /// with a negative delta — B lost that EHP.
+    #[test]
+    fn compare_node_attribution_flags_removed_node_with_flipped_sign() {
+        let tree = life_notable_tree();
+        let mut richer = fresh_character();
+        richer.allocate(2);
+        let leaner = fresh_character();
+
+        let attr = compare_node_attribution(&richer, &leaner, &tree, None, None, None, None);
+        let n2 = attr
+            .iter()
+            .find(|x| x.node_id == 2)
+            .expect("node 2 attributed");
+        assert_eq!(n2.side, AttributionSide::Removed);
+        assert!(
+            n2.ehp_delta < 0.0,
+            "a dropped Life node is a negative delta for B; got {}",
+            n2.ehp_delta
+        );
+    }
+
+    /// Identical allocations → no node differences.
+    #[test]
+    fn compare_node_attribution_identical_builds_is_empty() {
+        let tree = life_notable_tree();
+        let mut a = fresh_character();
+        a.allocate(2);
+        let b = a.clone();
+        let attr = compare_node_attribution(&a, &b, &tree, None, None, None, None);
+        assert!(attr.is_empty(), "identical allocations attribute nothing");
     }
 }

@@ -4070,7 +4070,7 @@ fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction
                 source_path: None,
             });
             app.compare_state.pending_relabel = None;
-            app.compare_state.attribution = None;
+            app.compare_state.clear_attribution();
         }
         compare_tab::CompareAction::RefreshAttribution => refresh_compare_attribution(app),
     }
@@ -4097,7 +4097,17 @@ fn refresh_compare_attribution(app: &mut LoadedApp) {
         None,
         None,
     );
+    let node_attribution = pob_engine::compare_node_attribution(
+        &snap.character,
+        &app.character,
+        &app.tree,
+        Some(&app.skills),
+        app.bases.as_ref(),
+        None,
+        None,
+    );
     app.compare_state.attribution = Some(attribution);
+    app.compare_state.node_attribution = Some(node_attribution);
 }
 
 /// Issue #223: shared load path for the Compare-tab "Load comparison
@@ -4130,7 +4140,7 @@ fn load_compare_from_path(app: &mut LoadedApp, path: std::path::PathBuf) {
             // open the rename UI with stale text.
             app.compare_state.pending_relabel = None;
             // The cached per-source report belonged to the old snapshot.
-            app.compare_state.attribution = None;
+            app.compare_state.clear_attribution();
             app.status_message = Some((
                 StatusKind::Info,
                 format!("Compare snapshot loaded from {display_path}"),

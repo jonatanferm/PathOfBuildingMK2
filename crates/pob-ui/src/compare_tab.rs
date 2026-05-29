@@ -52,6 +52,20 @@ pub struct CompareTabState {
     /// is several recomputes), so it can go stale against later live-build
     /// edits — the panel labels it and offers a re-run.
     pub attribution: Option<Vec<pob_engine::ModlineAttribution>>,
+    /// Issue #207: the tree-node half of the per-source report — allocated
+    /// passives that differ between snapshot (A) and live (B). Computed and
+    /// cleared in lockstep with [`Self::attribution`].
+    pub node_attribution: Option<Vec<pob_engine::NodeAttribution>>,
+}
+
+impl CompareTabState {
+    /// Drop the cached per-source power report (both halves). Called whenever
+    /// the snapshot changes so a stale report can't outlive the build it
+    /// described.
+    pub fn clear_attribution(&mut self) {
+        self.attribution = None;
+        self.node_attribution = None;
+    }
 }
 
 /// Issue #223: build a snapshot label describing which set variants were
@@ -175,7 +189,7 @@ pub enum CompareAction {
 pub fn reset_compare_view(state: &mut CompareTabState) {
     state.filter.clear();
     state.sort_mode = CompareSortMode::default();
-    state.attribution = None;
+    state.clear_attribution();
 }
 
 /// Issue #223: one axis of the Compare set-variant picker — a `ComboBox` over
@@ -227,7 +241,7 @@ pub fn ui(
             // open the rename UI with stale text.
             state.pending_relabel = None;
             // The cached per-source report belongs to the old snapshot.
-            state.attribution = None;
+            state.clear_attribution();
         }
         if ui.button("Load comparison from file…").clicked() {
             action = Some(CompareAction::LoadFromFile);
@@ -527,15 +541,17 @@ pub fn ui(
     });
 
     // Issue #207: per-source power report. Attributes the snapshot↔live
-    // equipped-item differences to individual mod lines so the user can see
-    // *which* gear changes drive the stat deltas above, not just the net
-    // result. Behind an explicit button — it costs several recomputes.
-    egui::CollapsingHeader::new("Per-source power report (items)")
+    // differences — both equipped-item mod lines and allocated passives — to
+    // individual sources so the user can see *which* changes drive the stat
+    // deltas above, not just the net result. Behind an explicit button — it
+    // costs several recomputes.
+    egui::CollapsingHeader::new("Per-source power report")
         .id_salt("compare_attribution")
         .default_open(false)
         .show(ui, |ui| {
+            let computed = state.attribution.is_some();
             ui.horizontal(|ui| {
-                let label = if state.attribution.is_some() {
+                let label = if computed {
                     "Recompute"
                 } else {
                     "Compute per-source report"
@@ -543,60 +559,101 @@ pub fn ui(
                 if ui
                     .button(label)
                     .on_hover_text(
-                        "Attribute the equipped-item differences between the snapshot \
-                         and the live build to individual mod lines, scored by the \
-                         DPS/EHP each accounts for. Runs several recomputes.",
+                        "Attribute the snapshot↔live differences — equipped-item mod \
+                         lines and allocated passives — to the DPS/EHP each accounts \
+                         for. Runs several recomputes.",
                     )
                     .clicked()
                 {
                     action = Some(CompareAction::RefreshAttribution);
                 }
-                if state.attribution.is_some() {
+                if computed {
                     ui.weak("cached — recompute after editing the live build");
                 }
             });
-            match state.attribution.as_deref() {
-                None => {
-                    ui.weak("Click to attribute the snapshot↔live item differences.");
-                }
-                Some([]) => {
-                    ui.weak(
-                        "No equipped-item mod-line differences between the snapshot and \
-                         the live build.",
-                    );
-                }
-                Some(rows) => {
-                    let neutral = ui.style().visuals.text_color();
-                    let color = |d: f64| {
-                        if d > 1e-6 {
-                            egui::Color32::from_rgb(0x33, 0xFF, 0x77)
-                        } else if d < -1e-6 {
-                            egui::Color32::from_rgb(0xDD, 0x00, 0x22)
-                        } else {
-                            neutral
-                        }
-                    };
-                    egui::Grid::new("compare_attribution_grid")
-                        .num_columns(4)
-                        .striped(true)
-                        .show(ui, |ui| {
-                            ui.strong("Δ DPS");
-                            ui.strong("Δ EHP");
-                            ui.strong("Slot");
-                            ui.strong("Mod line");
-                            ui.end_row();
-                            for row in rows {
-                                ui.colored_label(color(row.dps_delta), format_delta(row.dps_delta));
-                                ui.colored_label(color(row.ehp_delta), format_delta(row.ehp_delta));
-                                ui.label(row.slot.label());
-                                let sign = match row.side {
-                                    pob_engine::AttributionSide::Added => "+",
-                                    pob_engine::AttributionSide::Removed => "−",
-                                };
-                                ui.label(format!("{sign} {}", row.mod_line.trim()));
+
+            if !computed {
+                ui.weak("Click to attribute the snapshot↔live differences.");
+            } else {
+                let neutral = ui.style().visuals.text_color();
+                let color = |d: f64| {
+                    if d > 1e-6 {
+                        egui::Color32::from_rgb(0x33, 0xFF, 0x77)
+                    } else if d < -1e-6 {
+                        egui::Color32::from_rgb(0xDD, 0x00, 0x22)
+                    } else {
+                        neutral
+                    }
+                };
+                let sign = |side| match side {
+                    pob_engine::AttributionSide::Added => "+",
+                    pob_engine::AttributionSide::Removed => "−",
+                };
+
+                // Equipped-item mod lines.
+                ui.add_space(4.0);
+                ui.strong("Equipped items");
+                match state.attribution.as_deref() {
+                    Some([]) | None => {
+                        ui.weak("No equipped-item differences.");
+                    }
+                    Some(rows) => {
+                        egui::Grid::new("compare_attribution_items_grid")
+                            .num_columns(4)
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.strong("Δ DPS");
+                                ui.strong("Δ EHP");
+                                ui.strong("Slot");
+                                ui.strong("Mod line");
                                 ui.end_row();
-                            }
-                        });
+                                for row in rows {
+                                    ui.colored_label(
+                                        color(row.dps_delta),
+                                        format_delta(row.dps_delta),
+                                    );
+                                    ui.colored_label(
+                                        color(row.ehp_delta),
+                                        format_delta(row.ehp_delta),
+                                    );
+                                    ui.label(row.slot.label());
+                                    ui.label(format!("{} {}", sign(row.side), row.mod_line.trim()));
+                                    ui.end_row();
+                                }
+                            });
+                    }
+                }
+
+                // Allocated passives.
+                ui.add_space(6.0);
+                ui.strong("Passive tree");
+                match state.node_attribution.as_deref() {
+                    Some([]) | None => {
+                        ui.weak("No allocated-passive differences.");
+                    }
+                    Some(rows) => {
+                        egui::Grid::new("compare_attribution_nodes_grid")
+                            .num_columns(3)
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.strong("Δ DPS");
+                                ui.strong("Δ EHP");
+                                ui.strong("Passive");
+                                ui.end_row();
+                                for row in rows {
+                                    ui.colored_label(
+                                        color(row.dps_delta),
+                                        format_delta(row.dps_delta),
+                                    );
+                                    ui.colored_label(
+                                        color(row.ehp_delta),
+                                        format_delta(row.ehp_delta),
+                                    );
+                                    ui.label(format!("{} {}", sign(row.side), row.label));
+                                    ui.end_row();
+                                }
+                            });
+                    }
                 }
             }
         });
