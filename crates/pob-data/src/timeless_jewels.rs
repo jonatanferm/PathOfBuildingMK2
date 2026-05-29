@@ -333,6 +333,43 @@ pub fn seed_range(jewel_type: u32) -> Option<(u32, u32)> {
     })
 }
 
+/// Inclusive `(min, max, step)` for the seed value **as stored in the item's
+/// mod text** — the value the user edits in the socket picker, not the internal
+/// LUT seed. For every jewel except Elegant Hubris this equals
+/// [`seed_range`] with `step == 1`. Elegant Hubris stores the seed ×20 (the
+/// in-game "coins" count), so its bounds are the internal range scaled by 20
+/// and valid seeds advance in steps of 20 — the engine divides back down at
+/// lookup time. `None` for unknown jewel types.
+#[must_use]
+pub fn stored_seed_bounds(jewel_type: u32) -> Option<(u32, u32, u32)> {
+    let (min, max) = seed_range(jewel_type)?;
+    Some(if jewel_type == 5 {
+        (min * 20, max * 20, 20)
+    } else {
+        (min, max, 1)
+    })
+}
+
+/// Clamp `seed` into the stored bounds for `jewel_type` and snap it onto the
+/// step grid (only Elegant Hubris has a step > 1). Returns `seed` unchanged for
+/// unknown jewel types. Used by the socket picker so manual entry / rotation
+/// always yields a seed the LUT can resolve.
+#[must_use]
+pub fn snap_stored_seed(jewel_type: u32, seed: u32) -> u32 {
+    let Some((min, max, step)) = stored_seed_bounds(jewel_type) else {
+        return seed;
+    };
+    let clamped = seed.clamp(min, max);
+    if step <= 1 {
+        return clamped;
+    }
+    // Round to the nearest multiple of `step` measured from `min`, then re-clamp
+    // (rounding up near `max` could overshoot).
+    let offset = clamped - min;
+    let snapped = min + ((offset + step / 2) / step) * step;
+    snapped.clamp(min, max)
+}
+
 impl TimelessNodeIndex {
     /// Decode the replacement `LegionPassive` global id for a **notable** node
     /// under a non-Glorious-Vanity jewel, from the inflated flat LUT `data`.
@@ -675,6 +712,31 @@ mod tests {
         assert_eq!(seed_range(2), Some((10000, 18000)));
         assert_eq!(seed_range(1), Some((100, 8000)));
         assert_eq!(seed_range(99), None);
+    }
+
+    #[test]
+    fn stored_seed_bounds_scales_elegant_hubris() {
+        // Non-EH: stored == internal, step 1.
+        assert_eq!(stored_seed_bounds(1), Some((100, 8000, 1)));
+        assert_eq!(stored_seed_bounds(2), Some((10000, 18000, 1)));
+        // Elegant Hubris (5): ×20 bounds, step 20.
+        assert_eq!(stored_seed_bounds(5), Some((2000, 160000, 20)));
+        assert_eq!(stored_seed_bounds(99), None);
+    }
+
+    #[test]
+    fn snap_stored_seed_clamps_and_steps() {
+        // Non-EH: plain clamp.
+        assert_eq!(snap_stored_seed(1, 50), 100); // below min
+        assert_eq!(snap_stored_seed(1, 9000), 8000); // above max
+        assert_eq!(snap_stored_seed(1, 5000), 5000); // in range, untouched
+                                                     // Elegant Hubris: snap to the ×20 grid and clamp.
+        assert_eq!(snap_stored_seed(5, 2009), 2000); // rounds down to nearest 20
+        assert_eq!(snap_stored_seed(5, 2010), 2020); // rounds up at the half-step
+        assert_eq!(snap_stored_seed(5, 200000), 160000); // clamps to max
+        assert_eq!(snap_stored_seed(5, 1000), 2000); // clamps to min
+                                                     // Unknown type: identity.
+        assert_eq!(snap_stored_seed(99, 1234), 1234);
     }
 
     #[test]

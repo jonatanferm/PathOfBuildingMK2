@@ -48,6 +48,7 @@ mod skills_tab;
 mod socket_renderer;
 mod sortable_list;
 mod tattoo_picker;
+mod timeless_socket_picker;
 mod toasts;
 mod tree_diff;
 mod tree_layout;
@@ -175,6 +176,9 @@ struct LoadedApp {
     notes_state: notes_tab::NotesTabState,
     /// Issue #98 (slice 2): right-click tattoo picker state.
     tattoo_picker_state: tattoo_picker::TattooPickerState,
+    /// Issue #216: right-click Timeless-jewel socket picker state. Drives the
+    /// conqueror/seed editor modal for a socketed Timeless jewel.
+    timeless_socket_picker_state: timeless_socket_picker::TimelessSocketPickerState,
     /// Issue #210: click-to-pick mastery effect dialog state.
     mastery_picker_state: mastery_picker::MasteryPickerState,
     /// Issue #197 (slice A): right-click "Paste cluster jewel" picker state.
@@ -695,6 +699,8 @@ impl PobApp {
             },
             notes_state: notes_tab::NotesTabState::default(),
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
+            timeless_socket_picker_state:
+                timeless_socket_picker::TimelessSocketPickerState::default(),
             mastery_picker_state: mastery_picker::MasteryPickerState::default(),
             cluster_paste_state: cluster_paste::ClusterPasteState::default(),
             notable_db_state: notable_db::NotableDbState::default(),
@@ -802,6 +808,8 @@ impl PobApp {
             import_export_state: import_export_tab::ImportExportTabState::new_with_keyring(),
             notes_state: notes_tab::NotesTabState::default(),
             tattoo_picker_state: tattoo_picker::TattooPickerState::default(),
+            timeless_socket_picker_state:
+                timeless_socket_picker::TimelessSocketPickerState::default(),
             mastery_picker_state: mastery_picker::MasteryPickerState::default(),
             cluster_paste_state: cluster_paste::ClusterPasteState::default(),
             notable_db_state: notable_db::NotableDbState::default(),
@@ -993,6 +1001,76 @@ fn ensure_timeless_luts(app: &mut LoadedApp) {
             app.timeless_luts.insert(jt, lut);
         }
     }
+}
+
+/// Issue #216: build the read-only "nodes this jewel conquers" preview for the
+/// Timeless jewel socketed at `socket_id`. Lists allocated keystones (via
+/// `compute_keystone_replacements`) and allocated notables/small nodes (via
+/// `compute_notable_replacements`, when the LUT for the jewel type is loaded).
+/// Returns an empty vec when the timeless data isn't loaded (e.g. on wasm) or
+/// nothing in radius is allocated.
+fn build_timeless_socket_preview(
+    app: &LoadedApp,
+    socket_id: NodeId,
+) -> Vec<timeless_socket_picker::PreviewRow> {
+    use timeless_socket_picker::PreviewRow;
+    let mut rows: Vec<PreviewRow> = Vec::new();
+    let Some(timeless) = app.timeless_jewels.as_ref() else {
+        return rows;
+    };
+    // Restrict the engine calls to just this socket's jewel.
+    let socketed: Vec<(NodeId, pob_data::Item)> = app
+        .character
+        .socketed_jewels
+        .entries
+        .iter()
+        .filter(|(n, _)| *n == socket_id)
+        .cloned()
+        .collect();
+    if socketed.is_empty() {
+        return rows;
+    }
+    let allocated: ahash::AHashSet<NodeId> = app.character.allocated.iter().copied().collect();
+    let node_name = |id: NodeId| -> String {
+        app.tree
+            .nodes
+            .get(&id)
+            .and_then(|n| n.name.clone())
+            .unwrap_or_else(|| format!("Node #{id}"))
+    };
+
+    for r in pob_engine::compute_keystone_replacements(&app.tree, &allocated, &socketed, timeless) {
+        rows.push(PreviewRow {
+            kind: "Keystone",
+            target: node_name(r.target_node),
+            replacement: if r.replacement.stats.is_empty() {
+                r.replacement.name.clone()
+            } else {
+                format!("{}\n{}", r.replacement.name, r.replacement.stats.join("\n"))
+            },
+        });
+    }
+
+    if let (Some(node_index), Some(pool)) = (&app.timeless_node_index, &app.legion_pool) {
+        if !app.timeless_luts.is_empty() {
+            let ctx = pob_engine::TimelessLutContext {
+                node_index,
+                pool,
+                luts: &app.timeless_luts,
+            };
+            for r in
+                pob_engine::compute_notable_replacements(&app.tree, &allocated, &socketed, &ctx)
+            {
+                rows.push(PreviewRow {
+                    kind: if r.wipe { "Notable" } else { "Addition" },
+                    target: node_name(r.target_node),
+                    replacement: r.lines.join("\n"),
+                });
+            }
+        }
+    }
+
+    rows
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2493,6 +2571,21 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         // then walks the tree to allocate the socket and
                         // its synthesised nodes. Matches PoB's UX.
                         app.cluster_paste_state.open_for(id);
+                    } else if matches!(node.kind, NodeKind::JewelSocket) && {
+                        // Issue #216: regular (non-cluster) socket holding a
+                        // Timeless jewel → open the conqueror/seed picker.
+                        // Doesn't require allocation; matches the cluster-paste
+                        // UX above.
+                        app.character
+                            .socketed_jewels
+                            .entries
+                            .iter()
+                            .find(|(n, _)| *n == id)
+                            .is_some_and(|(_, item)| {
+                                pob_engine::identify_timeless_jewel(item).is_some()
+                            })
+                    } {
+                        app.timeless_socket_picker_state.open_for(id);
                     } else if app.character.allocated.contains(&id)
                         && matches!(node.kind, NodeKind::Mastery)
                     {
@@ -2529,6 +2622,27 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ) {
                 tattoo_pending.commit(&mut app.undo_stack);
                 recompute = true;
+            }
+            // Issue #216: Timeless-jewel socket picker (conqueror + seed). Same
+            // speculative-snapshot dance; the preview rows are built up-front so
+            // the picker fn stays free of the engine/LUT borrows.
+            if app.timeless_socket_picker_state.node_id.is_some() {
+                #[cfg(not(target_arch = "wasm32"))]
+                ensure_timeless_luts(app);
+                let socket_id = app.timeless_socket_picker_state.node_id.unwrap();
+                let preview = build_timeless_socket_preview(app, socket_id);
+                let timeless_pending = PendingSnapshot::capture(&app.build_snapshot());
+                if timeless_socket_picker::ui(
+                    ui.ctx(),
+                    &mut app.timeless_socket_picker_state,
+                    &mut app.character,
+                    app.timeless_jewels.as_ref(),
+                    &app.tree,
+                    &preview,
+                ) {
+                    timeless_pending.commit(&mut app.undo_stack);
+                    recompute = true;
+                }
             }
             // Issue #197 (slice A): cluster-jewel paste modal, same pattern.
             let cluster_pending = PendingSnapshot::capture(&app.build_snapshot());

@@ -46,9 +46,9 @@ pub use skill::{Skill, SkillSet};
 pub use tattoos::{load_tattoos, Tattoo, TattooSet};
 pub use timeless_jewels::{
     jewel_type_for_base, load_legion_nodes, load_legion_passives, load_timeless_jewels,
-    load_timeless_node_index, seed_range, ConquerorKeystone, LegionPassive, LegionPool,
-    LegionResolved, LegionStat, TimelessConqueror, TimelessJewelConfig, TimelessJewelData,
-    TimelessNodeIndex, TimelessNodeSlot, TimelessReplacement,
+    load_timeless_node_index, seed_range, snap_stored_seed, stored_seed_bounds, ConquerorKeystone,
+    LegionPassive, LegionPool, LegionResolved, LegionStat, TimelessConqueror, TimelessJewelConfig,
+    TimelessJewelData, TimelessNodeIndex, TimelessNodeSlot, TimelessReplacement,
 };
 pub use tree::{
     Ascendancy, Class, Group, GroupBackground, MasteryEffect, Node, NodeId, NodeKind, PassiveTree,
