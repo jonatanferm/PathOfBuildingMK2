@@ -560,6 +560,173 @@ fn format_signed_delta(value: f64) -> String {
     format!("{:+.1}", v)
 }
 
+/// Which side of an A↔B comparison a differing source came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttributionSide {
+    /// Present on build B (live) but not on build A (snapshot) — B *gained* it.
+    Added,
+    /// Present on build A (snapshot) but not on build B (live) — B *dropped* it.
+    Removed,
+}
+
+/// One equipped-item mod line that differs between two builds, with the
+/// DPS/EHP it accounts for in B *relative to* A. Produced by
+/// [`compare_item_modline_attribution`] — the per-source half of the Compare
+/// tab's power report (#207).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModlineAttribution {
+    /// Equipped slot the differing mod line lives on.
+    pub slot: Slot,
+    /// The mod line text (untrimmed, as stored on the item it came from).
+    pub mod_line: String,
+    /// Whether the line was added on B or dropped from A.
+    pub side: AttributionSide,
+    /// Signed contribution to B's advantage over A on `MainSkillDPS`: positive
+    /// means this difference makes B's DPS higher than A's. `Added` lines score
+    /// their own contribution on B (+); `Removed` lines score what B lost by
+    /// not having them (−).
+    pub dps_delta: f64,
+    /// Same sign convention on `TotalEHP`.
+    pub ehp_delta: f64,
+}
+
+/// Attribute the equipped-item differences between two builds to the individual
+/// mod lines that explain them. For every slot, the two items' mod lines are
+/// diffed as multisets of text: lines unique to B are scored on B (their
+/// contribution = B's gain), lines unique to A are scored on A (their
+/// contribution = B's loss), and lines present on both are treated as shared
+/// (no source difference) and skipped. Whitespace-only lines are ignored.
+///
+/// Results are sorted by maximum absolute impact (`max(|dps|, |ehp|)`)
+/// descending, so the sources that most explain the A↔B gap surface first.
+///
+/// This is the items half of the Compare power report. Tree-node differences
+/// are a separate follow-up (they reuse [`score_node_removal`] the same way).
+///
+/// **Performance**: two perform calls per *differing* line (each
+/// [`score_item_modline_removal`] computes its own baseline). Builds that
+/// differ only in a few mods cost only a handful of recomputes; identical
+/// items cost none. Acceptable for the explicit Compare-tab refresh.
+#[allow(clippy::too_many_arguments)]
+pub fn compare_item_modline_attribution(
+    build_a: &Character,
+    build_b: &Character,
+    tree: &PassiveTree,
+    skills: Option<&SkillRegistry>,
+    bases: Option<&pob_data::bases::ItemBaseSet>,
+    cluster_ctx: Option<ClusterContext<'_>>,
+    timeless: Option<&pob_data::TimelessJewelData>,
+) -> Vec<ModlineAttribution> {
+    use std::collections::HashMap;
+
+    // Union of slots present in either build, in a deterministic order.
+    let mut slots: Vec<Slot> = Vec::new();
+    for (s, _) in build_a.items.iter().chain(build_b.items.iter()) {
+        if !slots.contains(s) {
+            slots.push(*s);
+        }
+    }
+    slots.sort_by_key(|s| s.label());
+
+    // Non-empty mod lines of the item in `slot`, paired with their original
+    // index into `Item::mod_lines` (so `score_item_modline_removal` can target
+    // them) and trimmed text (for the multiset diff).
+    let lines_of = |c: &Character, slot: Slot| -> Vec<(usize, String)> {
+        c.items
+            .get(slot)
+            .map(|it| {
+                it.mod_lines
+                    .iter()
+                    .enumerate()
+                    .map(|(i, m)| (i, m.line.trim().to_string()))
+                    .filter(|(_, t)| !t.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    let mut out: Vec<ModlineAttribution> = Vec::new();
+    for slot in slots {
+        let a_lines = lines_of(build_a, slot);
+        let b_lines = lines_of(build_b, slot);
+
+        let count = |lines: &[(usize, String)]| {
+            let mut m: HashMap<String, i32> = HashMap::new();
+            for (_, t) in lines {
+                *m.entry(t.clone()).or_default() += 1;
+            }
+            m
+        };
+
+        // Lines unique to B (added). Walk B, consuming matching A occurrences;
+        // anything left over is a genuine addition.
+        let mut a_remaining = count(&a_lines);
+        for (idx, text) in &b_lines {
+            if let Some(c) = a_remaining.get_mut(text) {
+                if *c > 0 {
+                    *c -= 1;
+                    continue;
+                }
+            }
+            if let Some(score) = score_item_modline_removal(
+                build_b,
+                tree,
+                slot,
+                *idx,
+                skills,
+                bases,
+                cluster_ctx,
+                timeless,
+            ) {
+                out.push(ModlineAttribution {
+                    slot,
+                    mod_line: score.mod_line,
+                    side: AttributionSide::Added,
+                    dps_delta: score.dps_delta,
+                    ehp_delta: score.ehp_delta,
+                });
+            }
+        }
+
+        // Lines unique to A (removed). Symmetric; B lost these, so the signs
+        // flip relative to what they were worth on A.
+        let mut b_remaining = count(&b_lines);
+        for (idx, text) in &a_lines {
+            if let Some(c) = b_remaining.get_mut(text) {
+                if *c > 0 {
+                    *c -= 1;
+                    continue;
+                }
+            }
+            if let Some(score) = score_item_modline_removal(
+                build_a,
+                tree,
+                slot,
+                *idx,
+                skills,
+                bases,
+                cluster_ctx,
+                timeless,
+            ) {
+                out.push(ModlineAttribution {
+                    slot,
+                    mod_line: score.mod_line,
+                    side: AttributionSide::Removed,
+                    dps_delta: -score.dps_delta,
+                    ehp_delta: -score.ehp_delta,
+                });
+            }
+        }
+    }
+
+    out.sort_by(|x, y| {
+        let xk = x.dps_delta.abs().max(x.ehp_delta.abs());
+        let yk = y.dps_delta.abs().max(y.ehp_delta.abs());
+        yk.total_cmp(&xk)
+    });
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1235,5 +1402,73 @@ mod tests {
             exact_half == "+1.2" || exact_half == "+1.3",
             "1.25 rounded to {exact_half}"
         );
+    }
+
+    /// Issue #207: a mod line present on B but not A is flagged `Added` with a
+    /// positive contribution (it's part of what makes B better). The shared
+    /// `+50 Life` line carries no source difference and is not attributed.
+    #[test]
+    fn compare_attribution_flags_added_modline() {
+        let tree = empty_tree();
+        let mut a = fresh_character();
+        a.items
+            .equip(Slot::Amulet, mk_amulet(&["+50 to maximum Life"]));
+        let mut b = fresh_character();
+        b.items.equip(
+            Slot::Amulet,
+            mk_amulet(&["+50 to maximum Life", "+100 to maximum Life"]),
+        );
+
+        let attr = compare_item_modline_attribution(&a, &b, &tree, None, None, None, None);
+        assert_eq!(attr.len(), 1, "only the unique line is attributed");
+        assert_eq!(attr[0].side, AttributionSide::Added);
+        assert_eq!(attr[0].mod_line.trim(), "+100 to maximum Life");
+        assert!(
+            attr[0].ehp_delta > 0.0,
+            "an added Life line raises B's EHP; got {}",
+            attr[0].ehp_delta
+        );
+    }
+
+    /// Reverse direction: the same line, now present on A but dropped from B,
+    /// is flagged `Removed` with a *negative* delta — B lost that EHP.
+    #[test]
+    fn compare_attribution_flags_removed_modline_with_flipped_sign() {
+        let tree = empty_tree();
+        let mut richer = fresh_character();
+        richer.items.equip(
+            Slot::Amulet,
+            mk_amulet(&["+50 to maximum Life", "+100 to maximum Life"]),
+        );
+        let mut leaner = fresh_character();
+        leaner
+            .items
+            .equip(Slot::Amulet, mk_amulet(&["+50 to maximum Life"]));
+
+        // A = richer, B = leaner → the +100 line is Removed on B.
+        let attr =
+            compare_item_modline_attribution(&richer, &leaner, &tree, None, None, None, None);
+        assert_eq!(attr.len(), 1);
+        assert_eq!(attr[0].side, AttributionSide::Removed);
+        assert_eq!(attr[0].mod_line.trim(), "+100 to maximum Life");
+        assert!(
+            attr[0].ehp_delta < 0.0,
+            "a dropped Life line is a negative delta for B; got {}",
+            attr[0].ehp_delta
+        );
+    }
+
+    /// Identical builds have no source differences → empty attribution.
+    #[test]
+    fn compare_attribution_identical_builds_is_empty() {
+        let tree = empty_tree();
+        let mut a = fresh_character();
+        a.items.equip(
+            Slot::Amulet,
+            mk_amulet(&["+50 to maximum Life", "+10 to Strength"]),
+        );
+        let b = a.clone();
+        let attr = compare_item_modline_attribution(&a, &b, &tree, None, None, None, None);
+        assert!(attr.is_empty(), "identical builds attribute nothing");
     }
 }

@@ -4070,8 +4070,34 @@ fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction
                 source_path: None,
             });
             app.compare_state.pending_relabel = None;
+            app.compare_state.attribution = None;
         }
+        compare_tab::CompareAction::RefreshAttribution => refresh_compare_attribution(app),
     }
+}
+
+/// Issue #207: compute the Compare-tab per-source power report — attribute the
+/// snapshot↔live equipped-item differences to individual mod lines. Pure
+/// compute (no filesystem), so it's shared by the native and wasm action
+/// handlers. No-op when there's no snapshot to compare against.
+///
+/// Uses `compute_full` semantics (no cluster / timeless context) to match how
+/// the snapshot's own output was produced, keeping the A↔B comparison
+/// internally consistent.
+fn refresh_compare_attribution(app: &mut LoadedApp) {
+    let Some(snap) = app.compare_state.snapshot.as_ref() else {
+        return;
+    };
+    let attribution = pob_engine::compare_item_modline_attribution(
+        &snap.character,
+        &app.character,
+        &app.tree,
+        Some(&app.skills),
+        app.bases.as_ref(),
+        None,
+        None,
+    );
+    app.compare_state.attribution = Some(attribution);
 }
 
 /// Issue #223: shared load path for the Compare-tab "Load comparison
@@ -4103,6 +4129,8 @@ fn load_compare_from_path(app: &mut LoadedApp, path: std::path::PathBuf) {
             // snapshot's label — drop it so the new snapshot doesn't
             // open the rename UI with stale text.
             app.compare_state.pending_relabel = None;
+            // The cached per-source report belonged to the old snapshot.
+            app.compare_state.attribution = None;
             app.status_message = Some((
                 StatusKind::Info,
                 format!("Compare snapshot loaded from {display_path}"),
@@ -4130,6 +4158,10 @@ fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction
                 "File-backed snapshots are desktop-only for now.".to_owned(),
             ));
         }
+        // Issue #207: pure compute — works on the web build too (the
+        // in-memory "Snapshot current build" path produces a snapshot to
+        // attribute against).
+        compare_tab::CompareAction::RefreshAttribution => refresh_compare_attribution(app),
     }
 }
 
