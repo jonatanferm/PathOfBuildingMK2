@@ -26,6 +26,7 @@ mod enchants;
 mod minions;
 mod tattoos;
 mod timeless_legion;
+mod timeless_nodes;
 mod tree;
 
 fn main() -> Result<()> {
@@ -193,6 +194,14 @@ fn main() -> Result<()> {
     std::fs::write(&legion_path, serde_json::to_string_pretty(&legion)?)
         .with_context(|| format!("writing {}", legion_path.display()))?;
     wrote.push(legion_path);
+
+    // #227: timeless node→slot index + local→global id remap.
+    let node_index_path = args.out.join("timeless_node_index.json");
+    let node_index = timeless_nodes::extract(&args.pob)
+        .with_context(|| "extracting timeless node index".to_string())?;
+    std::fs::write(&node_index_path, serde_json::to_string_pretty(&node_index)?)
+        .with_context(|| format!("writing {}", node_index_path.display()))?;
+    wrote.push(node_index_path);
 
     // Trees — one JSON per tree version directory under data/trees/.
     let trees_dir = args.out.join("trees");
