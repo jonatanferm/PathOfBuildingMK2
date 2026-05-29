@@ -32,10 +32,11 @@
 //!   `.PathOfBuilding/src/Data/TimelessJewelData/*.zip`. Each tuple yields a
 //!   replacement-notable id plus rolled stat values. Plugging that in needs the
 //!   extractor + LUT decoder, which is its own slice.
-//! * **Small-node replacement**. Vaal smalls go through the same per-seed LUT;
-//!   non-Vaal conquerors instead inject simple text additions ("+4 Strength"
-//!   from Karui smalls, "+5 Devotion" from Templar smalls, etc.). The text
-//!   path is small but cosmetic without matching aggregation, so deferred.
+//! * ~~**Small-node replacement**~~. Now implemented (#216 follow-up): vaal
+//!   smalls go through the per-seed LUT; non-vaal conquerors inject the fixed
+//!   text additions / replacements ("+4 Strength" from karui smalls, "+5
+//!   Devotion" from templar, the eternal blank node, etc.) via
+//!   `pob_data::resolve_node_replacement`'s `Normal`-node branch.
 //! * **Multiple-choice notables / Vaal "Might / Legacy of the Vaal"**. PoB's
 //!   `headerSize == 6 || 8` branch handles those; same LUT story.
 //!
@@ -411,6 +412,14 @@ pub fn compute_notable_replacements(
                 NodeKind::Normal => false,
                 _ => continue,
             };
+            // PoB's `isValueInArray(attributes, node.dn)`: a pure attribute
+            // small node takes the smaller non-vaal addition (or the templar
+            // Devotion-node replacement). Tattoos also qualify in PoB, but the
+            // radius decode doesn't carry tattoo state here.
+            let is_attribute_node = node
+                .name
+                .as_deref()
+                .is_some_and(|n| matches!(n, "Strength" | "Dexterity" | "Intelligence"));
             if let Some(rep) = ctx.node_index.resolve_node_replacement(
                 ctx.pool,
                 lut,
@@ -418,6 +427,7 @@ pub fn compute_notable_replacements(
                 target_node,
                 jewel.seed,
                 is_notable,
+                is_attribute_node,
             ) {
                 out.push(NotableReplacement {
                     socket_id: *socket_id,
@@ -574,7 +584,7 @@ mod tests {
             }
             checked += 1;
             if let Some(rep) =
-                index.resolve_node_replacement(&pool, &lut, 1, slot.node_id, seed, true)
+                index.resolve_node_replacement(&pool, &lut, 1, slot.node_id, seed, true, false)
             {
                 assert!(
                     !rep.lines.is_empty(),
