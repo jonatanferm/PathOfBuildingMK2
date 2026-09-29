@@ -161,35 +161,18 @@ pub fn install(it: &mut Interp) {
         Ok(vec![Val::Bool(arg(&a, 0).raw_eq(&arg(&a, 1)))])
     });
     reg(&g, "setmetatable", |_, a| Ok(vec![arg(&a, 0)]));
-    reg(&g, "next", |_, a| {
+    let next = |_: &mut Interp, a: Vec<Val>| -> R<Vec<Val>> {
         let t = arg_table(&a, 0, "next")?;
-        let key = arg(&a, 1);
-        let pairs = t.pairs();
-        let idx = if key.is_nil() {
-            0
-        } else {
-            match pairs.iter().position(|(k, _)| k.raw_eq(&key)) {
-                Some(p) => p + 1,
-                None => return Ok(vec![Val::Nil]),
-            }
-        };
-        Ok(pairs
-            .get(idx)
-            .map_or_else(|| vec![Val::Nil], |(k, v)| vec![k.clone(), v.clone()]))
-    });
-    reg(&g, "pairs", |_, a| {
+        Ok(match t.next(&arg(&a, 1))? {
+            Some((k, v)) => vec![k, v],
+            None => vec![Val::Nil],
+        })
+    };
+    reg(&g, "next", next);
+    let next_fn = g.get_str("next");
+    reg(&g, "pairs", move |_, a| {
         let t = arg_table(&a, 0, "pairs")?;
-        let snapshot = Rc::new(t.pairs());
-        let pos = Rc::new(RefCell::new(0usize));
-        let iter = Val::native(move |_, _| {
-            let mut p = pos.borrow_mut();
-            let out = snapshot
-                .get(*p)
-                .map_or_else(|| vec![Val::Nil], |(k, v)| vec![k.clone(), v.clone()]);
-            *p += 1;
-            Ok(out)
-        });
-        Ok(vec![iter, Val::Table(t), Val::Nil])
+        Ok(vec![next_fn.clone(), Val::Table(t), Val::Nil])
     });
     reg(&g, "ipairs", |_, a| {
         let t = arg_table(&a, 0, "ipairs")?;
@@ -557,6 +540,23 @@ pub fn install(it: &mut Interp) {
         Ok(vec![Val::Num(f64::from((x >> n) as i32))])
     });
     g.set_str("bit", Val::Table(b));
+    // ---- os (minimal) ----
+    let os = TableRef::new();
+    let start = std::time::Instant::now();
+    reg(&os, "clock", move |_, _| {
+        Ok(vec![Val::Num(start.elapsed().as_secs_f64())])
+    });
+    reg(&os, "time", |_, _| {
+        #[cfg(not(target_arch = "wasm32"))]
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_secs_f64().floor());
+        #[cfg(target_arch = "wasm32")]
+        let t = 0.0;
+        Ok(vec![Val::Num(t)])
+    });
+    reg(&os, "getenv", |_, _| Ok(vec![Val::Nil]));
+    g.set_str("os", Val::Table(os));
     g.set_str("_G", Val::Table(g.clone()));
 }
 

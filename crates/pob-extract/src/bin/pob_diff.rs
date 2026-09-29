@@ -52,7 +52,11 @@ fn main() -> Result<()> {
                     .map(str::to_owned),
             ),
             "--dump-modparser-env" => {
-                dump_env = Some(iter.next().expect("--dump-modparser-env requires PATH").into());
+                dump_env = Some(
+                    iter.next()
+                        .expect("--dump-modparser-env requires PATH")
+                        .into(),
+                );
             }
             "--verbose" | "-v" => verbose = true,
             "--help" | "-h" => {
@@ -79,7 +83,9 @@ fn main() -> Result<()> {
     let mut builds: Vec<(String, String)> = Vec::new();
     for p in &build_paths {
         let xml = std::fs::read_to_string(p).with_context(|| format!("read {}", p.display()))?;
-        let stem = p.file_stem().map_or_else(|| "build".into(), |s| s.to_string_lossy().into_owned());
+        let stem = p
+            .file_stem()
+            .map_or_else(|| "build".into(), |s| s.to_string_lossy().into_owned());
         builds.push((stem, xml));
     }
     if builds.is_empty() {
@@ -91,12 +97,18 @@ fn main() -> Result<()> {
             std::fs::canonicalize(&d)
         })
         .transpose()?;
-    let game_data =
-        pob_data::disk::GameData::load(&PathBuf::from(format!("{}/../../data", env!("CARGO_MANIFEST_DIR"))));
+    let game_data = pob_data::disk::GameData::load(&PathBuf::from(format!(
+        "{}/../../data",
+        env!("CARGO_MANIFEST_DIR")
+    )));
 
     let dump_env = dump_env
         .map(|p| -> Result<PathBuf> {
-            let abs = if p.is_absolute() { p } else { std::env::current_dir()?.join(p) };
+            let abs = if p.is_absolute() {
+                p
+            } else {
+                std::env::current_dir()?.join(p)
+            };
             Ok(abs)
         })
         .transpose()?;
@@ -130,13 +142,33 @@ fn main() -> Result<()> {
         if !explain.is_empty() {
             explain_pob(&lua, &explain);
         }
-        let ours = match diff_against_pob_engine(&pob_entries, xml, &game_data, verbose, !multi, &explain) {
-            Ok(ours) => ours,
-            Err(e) => {
-                println!("[{stem}] pob-engine failed: {e}");
-                continue;
-            }
-        };
+        if std::env::var("POB_DIFF_TIME").is_ok() {
+            run(
+                &lua,
+                "time_calc",
+                r"
+local b = launch.main.modes['BUILD']
+local t0 = os.clock()
+local n = 5
+for i = 1, n do b.calcsTab:BuildOutput() end
+local t1 = os.clock()
+local calcs = b.calcsTab.calcs
+local t2 = os.clock()
+for i = 1, n do local env = calcs.initEnv(b, 'MAIN'); calcs.perform(env) end
+local t3 = os.clock()
+error(string.format('BuildOutput avg %.1f ms; initEnv+perform avg %.1f ms', (t1-t0)*1000/n, (t3-t2)*1000/n))
+",
+            );
+        }
+        let ours =
+            match diff_against_pob_engine(&pob_entries, xml, &game_data, verbose, !multi, &explain)
+            {
+                Ok(ours) => ours,
+                Err(e) => {
+                    println!("[{stem}] pob-engine failed: {e}");
+                    continue;
+                }
+            };
         if let Some(dir) = &json_out {
             write_json_report(&dir.join(format!("{stem}.json")), stem, &pob_entries, &ours)?;
         }
@@ -289,6 +321,14 @@ fn strip_pob_shebangs(src: &str) -> String {
 /// Run a snippet under pcall, printing OK / err — keeps the harness alive across
 /// individual module failures so we can see all the gaps in one run.
 fn run(lua: &Lua, name: &str, src: &str) {
+    let t0 = std::time::Instant::now();
+    run_inner(lua, name, src);
+    if std::env::var("POB_DIFF_TIME").is_ok() {
+        eprintln!("[time] {name}: {:?}", t0.elapsed());
+    }
+}
+
+fn run_inner(lua: &Lua, name: &str, src: &str) {
     let cleaned = strip_pob_shebangs(src);
     let wrapped = format!(
         "local ok, err = pcall(function()\n{cleaned}\nend)\nif not ok then return tostring(err) else return 'OK' end"
@@ -765,7 +805,9 @@ fn explain_ours(env: &pob_engine::Env, name: &str) {
                 "    {:<5} {:>10}  {:<40} tags={:?} flags={:?} kw={:?}",
                 format!("{:?}", m.kind),
                 v,
-                m.source.as_ref().map_or_else(|| "-".to_owned(), |s| format!("{s:?}")),
+                m.source
+                    .as_ref()
+                    .map_or_else(|| "-".to_owned(), |s| format!("{s:?}")),
                 m.tags,
                 m.flags,
                 m.keyword_flags
@@ -825,7 +867,9 @@ fn install_host_shims(lua: &Lua) -> Result<()> {
                 Some(p) => {
                     let pp = std::path::Path::new(p);
                     (
-                        pp.parent().map(std::path::Path::to_path_buf).unwrap_or_default(),
+                        pp.parent()
+                            .map(std::path::Path::to_path_buf)
+                            .unwrap_or_default(),
                         pp.file_name().map(|n| n.to_string_lossy().into_owned()),
                         false,
                     )
@@ -833,7 +877,9 @@ fn install_host_shims(lua: &Lua) -> Result<()> {
                 None => {
                     let pp = std::path::Path::new(&pattern);
                     (
-                        pp.parent().map(std::path::Path::to_path_buf).unwrap_or_default(),
+                        pp.parent()
+                            .map(std::path::Path::to_path_buf)
+                            .unwrap_or_default(),
                         pp.file_name().map(|n| n.to_string_lossy().into_owned()),
                         true,
                     )
@@ -842,13 +888,21 @@ fn install_host_shims(lua: &Lua) -> Result<()> {
             let Some(prefix) = prefix else {
                 return Ok(mlua::Value::Nil);
             };
-            let dir = if dir.as_os_str().is_empty() { std::path::PathBuf::from(".") } else { dir };
+            let dir = if dir.as_os_str().is_empty() {
+                std::path::PathBuf::from(".")
+            } else {
+                dir
+            };
             let mut files: Vec<(String, f64)> = std::fs::read_dir(&dir)
                 .map(|rd| {
                     rd.filter_map(Result::ok)
                         .filter_map(|e| {
                             let name = e.file_name().to_string_lossy().into_owned();
-                            let hit = if exact { name == prefix } else { name.starts_with(&prefix) };
+                            let hit = if exact {
+                                name == prefix
+                            } else {
+                                name.starts_with(&prefix)
+                            };
                             let modified = e
                                 .metadata()
                                 .and_then(|m| m.modified())

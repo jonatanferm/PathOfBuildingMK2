@@ -34,7 +34,11 @@ pub struct Closure {
 }
 
 struct Frame<'c> {
-    slots: Vec<Option<Cell>>,
+    /// Uncaptured locals.
+    regs: Vec<Val>,
+    /// Captured locals (shared with closures); `None` until declared.
+    cells: Vec<Option<Cell>>,
+    captured: &'c [bool],
     varargs: Vec<Val>,
     closure: &'c Closure,
 }
@@ -115,8 +119,16 @@ impl Interp {
             return Err(LuaError::msg("stack overflow"));
         }
         let proto = &c.proto;
+        let n = proto.nslots as usize;
+        let any_captured = proto.captured.iter().any(|c| *c);
         let mut frame = Frame {
-            slots: vec![None; proto.nslots as usize],
+            regs: vec![Val::Nil; n],
+            cells: if any_captured {
+                vec![None; n]
+            } else {
+                Vec::new()
+            },
+            captured: &proto.captured,
             varargs: Vec::new(),
             closure: c,
         };
@@ -126,7 +138,7 @@ impl Interp {
         }
         args.resize(nparams, Val::Nil);
         for (slot, v) in proto.params.iter().zip(args) {
-            frame.slots[*slot as usize] = Some(Rc::new(RefCell::new(v)));
+            Self::set_local(&mut frame, *slot, v);
         }
         let res = self.exec_block(&proto.body, &mut frame);
         self.depth -= 1;
@@ -146,8 +158,15 @@ impl Interp {
         Ok(Flow::Normal)
     }
 
+    /// Declare (or re-declare) a local: captured slots get a fresh cell so
+    /// closures from earlier iterations keep their own.
     fn set_local(fr: &mut Frame<'_>, slot: u32, v: Val) {
-        fr.slots[slot as usize] = Some(Rc::new(RefCell::new(v)));
+        let s = slot as usize;
+        if fr.captured[s] {
+            fr.cells[s] = Some(Rc::new(RefCell::new(v)));
+        } else {
+            fr.regs[s] = v;
+        }
     }
 
     #[allow(clippy::too_many_lines)]
@@ -163,10 +182,12 @@ impl Interp {
                 // Declare first so the function can see itself.
                 Self::set_local(fr, *slot, Val::Nil);
                 let f = self.make_closure(proto, fr);
-                *fr.slots[*slot as usize]
-                    .as_ref()
-                    .expect("slot")
-                    .borrow_mut() = f;
+                let s = *slot as usize;
+                if fr.captured[s] {
+                    *fr.cells[s].as_ref().expect("cell").borrow_mut() = f;
+                } else {
+                    fr.regs[s] = f;
+                }
             }
             Stat::Assign(targets, exprs) => {
                 // Evaluate table/key operands of targets first, then values.
@@ -292,8 +313,11 @@ impl Interp {
             .upvals
             .iter()
             .map(|d| match d {
-                UpvalDesc::ParentLocal(s) => fr.slots[*s as usize]
-                    .clone()
+                UpvalDesc::ParentLocal(s) => fr
+                    .cells
+                    .get(*s as usize)
+                    .cloned()
+                    .flatten()
                     .unwrap_or_else(|| Rc::new(RefCell::new(Val::Nil))),
                 UpvalDesc::ParentUpval(i) => fr.closure.upvals[*i as usize].clone(),
             })
@@ -306,21 +330,35 @@ impl Interp {
 
     fn read_var(&self, v: &VarRef, fr: &Frame<'_>) -> Val {
         match v {
-            VarRef::Local(s) => fr.slots[*s as usize]
-                .as_ref()
-                .map(|c| c.borrow().clone())
-                .unwrap_or_default(),
+            VarRef::Local(s) => {
+                let s = *s as usize;
+                if fr.captured[s] {
+                    fr.cells[s]
+                        .as_ref()
+                        .map(|c| c.borrow().clone())
+                        .unwrap_or_default()
+                } else {
+                    fr.regs[s].clone()
+                }
+            }
             VarRef::Upval(i) => fr.closure.upvals[*i as usize].borrow().clone(),
-            VarRef::Global(name) => self.globals.get(&Val::Str(name.clone())),
+            VarRef::Global(name) => self.globals.0.borrow().get(&Val::Str(name.clone())),
         }
     }
 
     fn assign_var(&self, v: &VarRef, val: Val, fr: &mut Frame<'_>) {
         match v {
-            VarRef::Local(s) => match &fr.slots[*s as usize] {
-                Some(c) => *c.borrow_mut() = val,
-                None => fr.slots[*s as usize] = Some(Rc::new(RefCell::new(val))),
-            },
+            VarRef::Local(s) => {
+                let s = *s as usize;
+                if fr.captured[s] {
+                    match &fr.cells[s] {
+                        Some(c) => *c.borrow_mut() = val,
+                        None => fr.cells[s] = Some(Rc::new(RefCell::new(val))),
+                    }
+                } else {
+                    fr.regs[s] = val;
+                }
+            }
             VarRef::Upval(i) => *fr.closure.upvals[*i as usize].borrow_mut() = val,
             VarRef::Global(name) => {
                 let _ = self.globals.set(Val::Str(name.clone()), val);

@@ -9,12 +9,13 @@ use std::rc::Rc;
 
 use super::interp::LuaError;
 use super::lexer::{Lexer, Tok};
+use super::value::LStr;
 
 #[derive(Debug, Clone)]
 pub enum VarRef {
     Local(u32),
     Upval(u32),
-    Global(Rc<str>),
+    Global(LStr),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,13 +48,13 @@ pub enum Expr {
     True,
     False,
     Num(f64),
-    Str(Rc<str>),
+    Str(LStr),
     Vararg,
     Func(Rc<FuncProto>),
     Var(VarRef),
     Index(Box<Expr>, Box<Expr>),
     Call(Box<Expr>, Vec<Expr>, u32),
-    Method(Box<Expr>, Rc<str>, Vec<Expr>, u32),
+    Method(Box<Expr>, LStr, Vec<Expr>, u32),
     Bin(BinOp, Box<Expr>, Box<Expr>),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
@@ -108,6 +109,9 @@ pub struct FuncProto {
     pub params: Vec<u32>,
     pub is_vararg: bool,
     pub nslots: u32,
+    /// Slots captured by a nested closure: these live in shared cells;
+    /// all others are plain registers.
+    pub captured: Vec<bool>,
     pub upvals: Vec<UpvalDesc>,
     pub body: Block,
     pub line: u32,
@@ -116,6 +120,7 @@ pub struct FuncProto {
 struct FuncState {
     scopes: Vec<Vec<(String, u32)>>,
     nslots: u32,
+    captured: Vec<bool>,
     upvals: Vec<(String, UpvalDesc)>,
     is_vararg: bool,
 }
@@ -125,6 +130,7 @@ impl FuncState {
         Self {
             scopes: vec![Vec::new()],
             nslots: 0,
+            captured: Vec::new(),
             upvals: Vec::new(),
             is_vararg,
         }
@@ -224,6 +230,7 @@ impl<'a> Parser<'a> {
         let fs = self.fs();
         let slot = fs.nslots;
         fs.nslots += 1;
+        fs.captured.push(false);
         fs.scopes.last_mut().expect("scope").push((name, slot));
         slot
     }
@@ -233,6 +240,7 @@ impl<'a> Parser<'a> {
         let fs = self.fs();
         let slot = fs.nslots;
         fs.nslots += 1;
+        fs.captured.push(false);
         slot
     }
 
@@ -256,7 +264,10 @@ impl<'a> Parser<'a> {
                 return None;
             }
             let desc = match resolve_in(funcs, level - 1, name)? {
-                VarRef::Local(s) => UpvalDesc::ParentLocal(s),
+                VarRef::Local(s) => {
+                    funcs[level - 1].captured[s as usize] = true;
+                    UpvalDesc::ParentLocal(s)
+                }
                 VarRef::Upval(i) => UpvalDesc::ParentUpval(i),
                 VarRef::Global(_) => return None,
             };
@@ -265,7 +276,7 @@ impl<'a> Parser<'a> {
             Some(VarRef::Upval((fs.upvals.len() - 1) as u32))
         }
         let top = self.funcs.len() - 1;
-        resolve_in(&mut self.funcs, top, name).unwrap_or_else(|| VarRef::Global(name.into()))
+        resolve_in(&mut self.funcs, top, name).unwrap_or_else(|| VarRef::Global(LStr::new(name)))
     }
 
     // ---- entry points ---------------------------------------------------------
@@ -283,6 +294,7 @@ impl<'a> Parser<'a> {
             params: Vec::new(),
             is_vararg: true,
             nslots: fs.nslots,
+            captured: fs.captured,
             upvals: Vec::new(),
             body,
             line: 0,
@@ -381,12 +393,12 @@ impl<'a> Parser<'a> {
                         let n = self.name()?;
                         full.push('.');
                         full.push_str(&n);
-                        target = Expr::Index(Box::new(target), Box::new(Expr::Str(n.into())));
+                        target = Expr::Index(Box::new(target), Box::new(Expr::Str(LStr::new(&n))));
                     } else if self.accept(&Tok::Colon)? {
                         let n = self.name()?;
                         full.push(':');
                         full.push_str(&n);
-                        target = Expr::Index(Box::new(target), Box::new(Expr::Str(n.into())));
+                        target = Expr::Index(Box::new(target), Box::new(Expr::Str(LStr::new(&n))));
                         is_method = true;
                         break;
                     } else {
@@ -543,6 +555,7 @@ impl<'a> Parser<'a> {
             params,
             is_vararg,
             nslots: fs.nslots,
+            captured: fs.captured,
             upvals: fs.upvals.into_iter().map(|(_, d)| d).collect(),
             body,
             line,
@@ -577,7 +590,7 @@ impl<'a> Parser<'a> {
         match self.tok.clone() {
             Tok::Str(s) => {
                 self.advance()?;
-                Ok(vec![Expr::Str(s.into())])
+                Ok(vec![Expr::Str(LStr::new(&s))])
             }
             Tok::LBrace => Ok(vec![self.table_cons()?]),
             Tok::LParen => {
@@ -602,7 +615,7 @@ impl<'a> Parser<'a> {
                 Tok::Dot => {
                     self.advance()?;
                     let n = self.name()?;
-                    e = Expr::Index(Box::new(e), Box::new(Expr::Str(n.into())));
+                    e = Expr::Index(Box::new(e), Box::new(Expr::Str(LStr::new(&n))));
                 }
                 Tok::LBracket => {
                     self.advance()?;
@@ -614,7 +627,7 @@ impl<'a> Parser<'a> {
                     self.advance()?;
                     let n = self.name()?;
                     let args = self.call_args()?;
-                    e = Expr::Method(Box::new(e), n.into(), args, line);
+                    e = Expr::Method(Box::new(e), LStr::new(&n), args, line);
                 }
                 Tok::LParen | Tok::Str(_) | Tok::LBrace => {
                     let args = self.call_args()?;
@@ -641,7 +654,7 @@ impl<'a> Parser<'a> {
                 let n = self.name()?;
                 self.expect(&Tok::Assign)?;
                 let v = self.expr()?;
-                fields.push(TField::Keyed(Expr::Str(n.into()), v));
+                fields.push(TField::Keyed(Expr::Str(LStr::new(&n)), v));
             } else {
                 fields.push(TField::Pos(self.expr()?));
             }
@@ -656,7 +669,7 @@ impl<'a> Parser<'a> {
     fn simple_expr(&mut self) -> R<Expr> {
         let e = match self.tok.clone() {
             Tok::Num(n) => Expr::Num(n),
-            Tok::Str(s) => Expr::Str(s.into()),
+            Tok::Str(s) => Expr::Str(LStr::new(&s)),
             Tok::Nil => Expr::Nil,
             Tok::True => Expr::True,
             Tok::False => Expr::False,

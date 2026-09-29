@@ -497,10 +497,9 @@ pub(crate) mod tests {
         let out = extract(pob).expect("extract real NodeIndexMapping");
         // The file header documents `size` / `sizeNotable` (1931 / 452 in
         // 3.25-era data; they grow with new tree nodes).
-        let src = std::fs::read_to_string(
-            pob.join("src/Data/TimelessJewelData/NodeIndexMapping.lua"),
-        )
-        .unwrap();
+        let src =
+            std::fs::read_to_string(pob.join("src/Data/TimelessJewelData/NodeIndexMapping.lua"))
+                .unwrap();
         let header = |key: &str| -> u32 {
             let prefix = format!("nodeIDList[\"{key}\"] = ");
             src.lines()

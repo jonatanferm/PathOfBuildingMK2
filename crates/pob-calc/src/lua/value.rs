@@ -1,8 +1,13 @@
 //! Lua values for the embedded interpreter.
+//!
+//! Strings carry a precomputed hash so table lookups with string keys (the
+//! overwhelming majority in PoB code) never re-hash; table hash parts are
+//! insertion-ordered so `pairs` is deterministic and resumable by index.
 
 use std::cell::RefCell;
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasherDefault, Hash, Hasher};
+use std::ops::Deref;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
@@ -11,6 +16,91 @@ use super::interp::{Interp, LuaError};
 
 pub type NativeFn = dyn Fn(&mut Interp, Vec<Val>) -> Result<Vec<Val>, LuaError>;
 
+// ---- strings ----------------------------------------------------------------
+
+pub struct LStrInner {
+    hash: u64,
+    s: Box<str>,
+}
+
+/// An immutable Lua string with a cached hash.
+#[derive(Clone)]
+pub struct LStr(Rc<LStrInner>);
+
+fn hash_str(s: &str) -> u64 {
+    // FNV-1a — cheap and good enough for table keys.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+impl LStr {
+    #[must_use]
+    pub fn new(s: &str) -> Self {
+        Self(Rc::new(LStrInner {
+            hash: hash_str(s),
+            s: s.into(),
+        }))
+    }
+
+    #[must_use]
+    pub fn hash_value(&self) -> u64 {
+        self.0.hash
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0.s
+    }
+}
+
+impl Deref for LStr {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0.s
+    }
+}
+
+impl PartialEq for LStr {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0) || (self.0.hash == other.0.hash && self.0.s == other.0.s)
+    }
+}
+impl Eq for LStr {}
+
+impl Hash for LStr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0.hash);
+    }
+}
+
+impl From<&str> for LStr {
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+impl From<String> for LStr {
+    fn from(s: String) -> Self {
+        Self::new(&s)
+    }
+}
+
+impl fmt::Display for LStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self)
+    }
+}
+impl fmt::Debug for LStr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", &**self)
+    }
+}
+
+// ---- values -------------------------------------------------------------------
+
 /// A Lua value. Tables and functions have reference semantics.
 #[derive(Clone, Default)]
 pub enum Val {
@@ -18,7 +108,7 @@ pub enum Val {
     Nil,
     Bool(bool),
     Num(f64),
-    Str(Rc<str>),
+    Str(LStr),
     Table(TableRef),
     Func(Func),
 }
@@ -74,7 +164,7 @@ impl TableRef {
     }
 
     pub fn set_str(&self, key: &str, value: Val) {
-        let _ = self.0.borrow_mut().set(Val::Str(key.into()), value);
+        let _ = self.0.borrow_mut().set(Val::Str(LStr::new(key)), value);
     }
 
     #[must_use]
@@ -104,8 +194,17 @@ impl TableRef {
             .filter(|(_, v)| !v.is_nil())
             .map(|(i, v)| (Val::Num((i + 1) as f64), v.clone()))
             .collect();
-        out.extend(t.hash.iter().map(|(k, v)| (k.to_val(), v.clone())));
+        out.extend(
+            t.hash
+                .iter()
+                .map(|(k, (orig, v))| (orig.clone().unwrap_or_else(|| k.to_val()), v.clone())),
+        );
         out
+    }
+
+    /// `next(t, key)`: the entry after `key` (array part, then hash part).
+    pub fn next(&self, key: &Val) -> Result<Option<(Val, Val)>, LuaError> {
+        self.0.borrow().next(key)
     }
 
     /// `ipairs(t)` values.
@@ -127,15 +226,48 @@ impl Default for TableRef {
 }
 
 /// Hashable table key (non-nil, non-NaN).
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Key {
     Bool(bool),
     /// f64 bits of a non-array number key.
     Num(u64),
-    Str(Rc<str>),
+    Str(LStr),
     Table(usize),
     Func(usize),
 }
+
+impl Hash for Key {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Key::Str(s) => state.write_u64(s.hash_value()),
+            Key::Bool(b) => state.write_u64(u64::from(*b).wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ 1),
+            Key::Num(bits) => state.write_u64(bits.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ 2),
+            Key::Table(p) | Key::Func(p) => {
+                state.write_u64((*p as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ 3)
+            }
+        }
+    }
+}
+
+/// Passes the single pre-mixed `u64` a [`Key`] writes straight through.
+#[derive(Default)]
+pub struct PassHasher(u64);
+
+impl Hasher for PassHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0 ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = n;
+    }
+}
+
+type KeyMap = IndexMap<Key, (Option<Val>, Val), BuildHasherDefault<PassHasher>>;
 
 impl Key {
     fn to_val(&self) -> Val {
@@ -143,20 +275,17 @@ impl Key {
             Key::Bool(b) => Val::Bool(*b),
             Key::Num(bits) => Val::Num(f64::from_bits(*bits)),
             Key::Str(s) => Val::Str(s.clone()),
-            // Reference keys can't be turned back into values here; PoB's
-            // parser never iterates tables keyed by tables/functions.
             Key::Table(_) | Key::Func(_) => Val::Nil,
         }
     }
 }
 
-/// Lua table: a 1-based array part plus a hash part.
+/// Lua table: a 1-based array part plus an insertion-ordered hash part.
+/// Hash entries for table/function keys also keep the original key value.
 #[derive(Default)]
 pub struct Table {
     pub arr: Vec<Val>,
-    pub hash: IndexMap<Key, Val, ahash::RandomState>,
-    /// Keys for reference-typed keys (kept alive so `to_val` isn't needed).
-    ref_keys: Vec<(Key, Val)>,
+    pub hash: KeyMap,
 }
 
 fn num_key(n: f64) -> Key {
@@ -177,22 +306,47 @@ impl Table {
 
     #[must_use]
     pub fn get(&self, key: &Val) -> Val {
-        if let Some(i) = Self::array_index(key) {
-            if i <= self.arr.len() {
-                return self.arr[i - 1].clone();
+        match key {
+            Val::Str(s) => {
+                if self.hash.is_empty() {
+                    return Val::Nil;
+                }
+                self.hash
+                    .get(&Key::Str(s.clone()))
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_default()
             }
-        }
-        match to_key(key) {
-            Some(k) => self.hash.get(&k).cloned().unwrap_or_default(),
-            None => Val::Nil,
+            Val::Num(_) => {
+                if let Some(i) = Self::array_index(key) {
+                    if i <= self.arr.len() {
+                        return self.arr[i - 1].clone();
+                    }
+                }
+                match to_key(key) {
+                    Some(k) => self
+                        .hash
+                        .get(&k)
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or_default(),
+                    None => Val::Nil,
+                }
+            }
+            _ => match to_key(key) {
+                Some(k) => self
+                    .hash
+                    .get(&k)
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_default(),
+                None => Val::Nil,
+            },
         }
     }
 
     #[must_use]
     pub fn get_str(&self, key: &str) -> Val {
         self.hash
-            .get(&Key::Str(key.into()))
-            .cloned()
+            .get(&Key::Str(LStr::new(key)))
+            .map(|(_, v)| v.clone())
             .unwrap_or_default()
     }
 
@@ -203,7 +357,7 @@ impl Table {
         }
         self.hash
             .get(&num_key(i as f64))
-            .cloned()
+            .map(|(_, v)| v.clone())
             .unwrap_or_default()
     }
 
@@ -224,11 +378,13 @@ impl Table {
                 }
                 self.arr.push(value);
                 // Migrate following integer keys from the hash part.
-                loop {
-                    let next = num_key((self.arr.len() + 1) as f64);
-                    match self.hash.shift_remove(&next) {
-                        Some(v) => self.arr.push(v),
-                        None => break,
+                if !self.hash.is_empty() {
+                    loop {
+                        let next = num_key((self.arr.len() + 1) as f64);
+                        match self.hash.shift_remove(&next) {
+                            Some((_, v)) => self.arr.push(v),
+                            None => break,
+                        }
                     }
                 }
                 return Ok(());
@@ -238,12 +394,56 @@ impl Table {
         if value.is_nil() {
             self.hash.shift_remove(&k);
         } else {
-            if matches!(k, Key::Table(_) | Key::Func(_)) {
-                self.ref_keys.push((k.clone(), key));
+            let orig = matches!(k, Key::Table(_) | Key::Func(_)).then_some(key);
+            match self.hash.get_mut(&k) {
+                Some(slot) => slot.1 = value,
+                None => {
+                    self.hash.insert(k, (orig, value));
+                }
             }
-            self.hash.insert(k, value);
         }
         Ok(())
+    }
+
+    /// `next(t, key)`.
+    pub fn next(&self, key: &Val) -> Result<Option<(Val, Val)>, LuaError> {
+        // Position after `key`: array indices first, then hash indices.
+        let mut arr_from = 0usize;
+        let mut hash_from = 0usize;
+        match key {
+            Val::Nil => {}
+            _ => {
+                if let Some(i) = Self::array_index(key) {
+                    if i <= self.arr.len() {
+                        arr_from = i;
+                    } else {
+                        arr_from = self.arr.len();
+                        hash_from = self.hash_index_after(key)?;
+                    }
+                } else {
+                    arr_from = self.arr.len();
+                    hash_from = self.hash_index_after(key)?;
+                }
+            }
+        }
+        for i in arr_from..self.arr.len() {
+            if !self.arr[i].is_nil() {
+                return Ok(Some((Val::Num((i + 1) as f64), self.arr[i].clone())));
+            }
+        }
+        Ok(self
+            .hash
+            .get_index(hash_from)
+            .map(|(k, (orig, v))| (orig.clone().unwrap_or_else(|| k.to_val()), v.clone())))
+    }
+
+    fn hash_index_after(&self, key: &Val) -> Result<usize, LuaError> {
+        let k = to_key(key).ok_or_else(|| LuaError::msg("invalid key to 'next'"))?;
+        match self.hash.get_index_of(&k) {
+            Some(i) => Ok(i + 1),
+            // Key removed during traversal: PoB never relies on this.
+            None => Err(LuaError::msg("invalid key to 'next'")),
+        }
     }
 }
 
@@ -266,7 +466,7 @@ fn to_key(v: &Val) -> Option<Key> {
 impl Val {
     #[must_use]
     pub fn str(s: &str) -> Self {
-        Val::Str(s.into())
+        Val::Str(LStr::new(s))
     }
 
     #[must_use]
@@ -353,14 +553,6 @@ impl PartialEq for Val {
     }
 }
 
-impl Hash for Val {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Some(k) = to_key(self) {
-            k.hash(state);
-        }
-    }
-}
-
 /// Lua's `tostring` for numbers (`%.14g`).
 #[must_use]
 pub fn num_to_string(n: f64) -> String {
@@ -419,14 +611,14 @@ impl fmt::Display for Val {
 impl fmt::Debug for Val {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Val::Str(s) => write!(f, "{s:?}"),
+            Val::Str(s) => write!(f, "{:?}", &**s),
             Val::Table(t) => {
                 let t = t.0.borrow();
                 write!(f, "{{")?;
                 for v in &t.arr {
                     write!(f, "{v:?}, ")?;
                 }
-                for (k, v) in &t.hash {
+                for (k, (_, v)) in &t.hash {
                     write!(f, "{:?}={v:?}, ", k.to_val())?;
                 }
                 write!(f, "}}")
