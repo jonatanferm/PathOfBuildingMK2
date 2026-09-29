@@ -81,3 +81,8 @@ parity corpus, then the UI switches over and the old code is deleted.
 | 2026-09-29 | old `perform.rs` (vs Lua 5.4 oracle) | 56 | 56.2% |
 | 2026-09-30 | old `perform.rs` (vs LuaJIT oracle) | 57 | 53.3% |
 | 2026-09-30 | embedded PoB in `pob_calc::lua` | 57 | 99.992% |
+| 2026-09-30 | embedded PoB, same build load order as oracle | 57 | **100.000%** (38,384/38,384 exact) |
+
+Note: the last 0.008% was PoB's own state leak — loading build A before
+build B changes B's mana reservation in real PoB too (e.g. corpus builds
+031 → 051); the interpreter reproduces it exactly.

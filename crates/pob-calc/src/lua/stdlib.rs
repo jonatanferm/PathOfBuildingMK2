@@ -98,7 +98,10 @@ pub fn install(it: &mut Interp) {
         Ok(vec![Val::str(arg(&a, 0).type_name())])
     });
     reg(&g, "tostring", |_, a| {
-        Ok(vec![Val::str(&tostring(&arg(&a, 0)))])
+        Ok(vec![match arg(&a, 0) {
+            s @ Val::Str(_) => s,
+            other => Val::str(&tostring(&other)),
+        }])
     });
     reg(&g, "tonumber", |_, a| {
         let v = arg(&a, 0);
@@ -422,18 +425,21 @@ pub fn install(it: &mut Interp) {
     });
     reg(&t, "concat", |_, a| {
         let tb = arg_table(&a, 0, "concat")?;
-        let sep = if a.len() > 1 && !arg(&a, 1).is_nil() {
-            arg_str(&a, 1, "concat")?
+        let sep: Vec<u8> = if a.len() > 1 && !arg(&a, 1).is_nil() {
+            arg_lstr(&a, 1, "concat")?.as_bytes().to_vec()
         } else {
-            String::new()
+            Vec::new()
         };
         let i = opt_num(&a, 2).unwrap_or(1.0) as i64;
         let j = opt_num(&a, 3).map_or(tb.len() as i64, |n| n as i64);
-        let mut parts = Vec::new();
+        let mut out: Vec<u8> = Vec::new();
         for k in i..=j {
+            if k > i {
+                out.extend_from_slice(&sep);
+            }
             match tb.get_int(k) {
-                Val::Str(s) => parts.push(s.to_string()),
-                Val::Num(n) => parts.push(num_to_string(n)),
+                Val::Str(s) => out.extend_from_slice(s.as_bytes()),
+                Val::Num(n) => out.extend_from_slice(num_to_string(n).as_bytes()),
                 other => {
                     return Err(LuaError::msg(format!(
                         "invalid value (at index {k}) in table for 'concat' ({})",
@@ -442,7 +448,7 @@ pub fn install(it: &mut Interp) {
                 }
             }
         }
-        Ok(vec![Val::str(&parts.join(&sep))])
+        Ok(vec![Val::bytes(&out)])
     });
     reg(&t, "sort", |it, a| {
         let tb = arg_table(&a, 0, "sort")?;
