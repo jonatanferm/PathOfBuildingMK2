@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use pob_calc::worker::{Command, Event, PobHandle, Snapshot};
 use pob_data::{Item, Slot};
-use pob_engine::{Character, CharacterSnapshot, Output};
+use pob_engine::{Character, Output};
 
 /// PoB's slot name for an MK2 slot.
 #[must_use]
@@ -130,17 +130,17 @@ impl PobSession {
         self.status = SessionStatus::Busy;
     }
 
-    /// Bring PoB's build in line with `character`.
+    /// Bring PoB's build in line with `character`: replay each changed
+    /// category as the PoB command its own UI would issue. Categories MK2
+    /// models completely but PoB has no single command for (skills, notes)
+    /// are reloaded by splicing MK2's section into PoB's current XML, so
+    /// nothing PoB-only (config, item sets, …) is lost.
     pub fn sync(&mut self, character: &Character, tree_version: &str) {
         let Some(base) = self.baseline.clone() else {
+            // First sync: PoB has only its default build.
             self.full_reload(character);
             return;
         };
-        // Everything the targeted commands below can't express → full reload.
-        if !Self::only_targeted_changes(&base, character) {
-            self.full_reload(character);
-            return;
-        }
         let mut lua = String::new();
         if base.level != character.level {
             lua.push_str(&format!(
@@ -162,6 +162,51 @@ impl PobSession {
                 lua.push_str(&Self::equip_command(*slot, character.items.get(*slot)));
             }
         }
+        let text = |s: &str| serde_json::Value::String(s.to_owned());
+        if base.bandit != character.bandit {
+            lua.push_str(&set_config_command(
+                "bandit",
+                &text(character.bandit.as_pob_name()),
+            ));
+        }
+        if base.pantheon_major != character.pantheon_major {
+            lua.push_str(&set_config_command(
+                "pantheonMajorGod",
+                &text(character.pantheon_major.as_pob_name()),
+            ));
+        }
+        if base.pantheon_minor != character.pantheon_minor {
+            lua.push_str(&set_config_command(
+                "pantheonMinorGod",
+                &text(character.pantheon_minor.as_pob_name()),
+            ));
+        }
+
+        lua.push_str(&Self::skills_command(&base, character));
+
+        // Notes are reloaded by splicing MK2's section into PoB's own XML.
+        let notes_changed = base.notes != character.notes;
+        if notes_changed {
+            let pob_xml = self
+                .snapshot
+                .as_ref()
+                .map(|s| s.xml.clone())
+                .unwrap_or_default();
+            if !pob_xml.is_empty() {
+                let mk2_xml = pob_engine::export_pob_xml(character);
+                let xml = splice_section(&pob_xml, &mk2_xml, "Notes");
+                self.latest_seq = self.handle.send(Command::LoadXml {
+                    xml,
+                    name: "MK2 build".to_owned(),
+                });
+                if !lua.is_empty() {
+                    self.latest_seq = self.handle.send(Command::Lua { code: lua });
+                }
+                self.baseline = Some(character.clone());
+                self.status = SessionStatus::Busy;
+                return;
+            }
+        }
         if lua.is_empty() {
             return;
         }
@@ -180,19 +225,100 @@ impl PobSession {
         self.status = SessionStatus::Busy;
     }
 
-    /// True when `a` and `b` differ only in fields with targeted commands
-    /// (level, class/ascendancy/tree/masteries, equipped items).
-    fn only_targeted_changes(a: &Character, b: &Character) -> bool {
-        let mut b2 = b.clone();
-        b2.level = a.level;
-        b2.class = a.class.clone();
-        b2.ascendancy = a.ascendancy.clone();
-        b2.allocated = a.allocated.clone();
-        b2.mastery_selections = a.mastery_selections.clone();
-        b2.items = a.items.clone();
-        let sa = serde_json::to_string(&CharacterSnapshot::from_character(a)).unwrap_or_default();
-        let sb = serde_json::to_string(&CharacterSnapshot::from_character(&b2)).unwrap_or_default();
-        sa == sb
+    /// Socket-group edits as changes to PoB's `skillsTab.socketGroupList`
+    /// (groups and gems matched by position), then PoB's own processing.
+    fn skills_command(base: &Character, c: &Character) -> String {
+        let mut out = String::new();
+        let bg = &base.skill_groups;
+        let ng = &c.skill_groups;
+        let gem_table = |g: &pob_engine::MainSkill| {
+            format!(
+                "{{ gemId = build.data.gemForSkill[{sid}], skillId = {sid}, nameSpec = \"\", level = {lvl}, quality = {q}, qualityId = {qid}, enabled = {en}, enableGlobal1 = true, enableGlobal2 = true, count = 1 }}",
+                sid = lua_str(&g.skill_id),
+                lvl = g.level.max(1),
+                q = g.quality,
+                qid = lua_str(g.quality_id.as_pob_name()),
+                en = g.enabled,
+            )
+        };
+        for (i, n) in ng.iter().enumerate() {
+            let idx = i + 1;
+            let Some(b) = bg.get(i) else {
+                // New group.
+                let gems: Vec<String> = n.gems.iter().map(gem_table).collect();
+                out.push_str(&format!(
+                    "table.insert(build.skillsTab.socketGroupList, {{ label = {label}, enabled = {en}, includeInFullDPS = false, mainActiveSkill = {mas}, mainActiveSkillCalcs = {mas}, gemList = {{ {gems} }} }})\n",
+                    label = lua_str(&n.label),
+                    en = n.enabled,
+                    mas = n.main_active_skill_index.max(1),
+                    gems = gems.join(", "),
+                ));
+                continue;
+            };
+            let sg = format!("build.skillsTab.socketGroupList[{idx}]");
+            if b.enabled != n.enabled {
+                out.push_str(&format!("{sg}.enabled = {}\n", n.enabled));
+            }
+            if b.label != n.label {
+                out.push_str(&format!("{sg}.label = {}\n", lua_str(&n.label)));
+            }
+            if b.main_active_skill_index != n.main_active_skill_index {
+                out.push_str(&format!(
+                    "{sg}.mainActiveSkill = {v}\n{sg}.mainActiveSkillCalcs = {v}\n",
+                    v = n.main_active_skill_index.max(1)
+                ));
+            }
+            for (k, g) in n.gems.iter().enumerate() {
+                let gk = format!("{sg}.gemList[{}]", k + 1);
+                match b.gems.get(k) {
+                    None => {
+                        out.push_str(&format!("table.insert({sg}.gemList, {})\n", gem_table(g)))
+                    }
+                    Some(o) if o.skill_id != g.skill_id => {
+                        out.push_str(&format!("{gk} = {}\n", gem_table(g)))
+                    }
+                    Some(o) => {
+                        if o.level != g.level {
+                            out.push_str(&format!("{gk}.level = {}\n", g.level.max(1)));
+                        }
+                        if o.quality != g.quality {
+                            out.push_str(&format!("{gk}.quality = {}\n", g.quality));
+                        }
+                        if o.quality_id != g.quality_id {
+                            out.push_str(&format!(
+                                "{gk}.qualityId = {}\n",
+                                lua_str(g.quality_id.as_pob_name())
+                            ));
+                        }
+                        if o.enabled != g.enabled {
+                            out.push_str(&format!("{gk}.enabled = {}\n", g.enabled));
+                        }
+                    }
+                }
+            }
+            for k in (n.gems.len()..b.gems.len()).rev() {
+                out.push_str(&format!("table.remove({sg}.gemList, {})\n", k + 1));
+            }
+        }
+        for i in (ng.len()..bg.len()).rev() {
+            out.push_str(&format!(
+                "table.remove(build.skillsTab.socketGroupList, {})\n",
+                i + 1
+            ));
+        }
+        if base.main_socket_group != c.main_socket_group {
+            out.push_str(&format!(
+                "build.mainSocketGroup = {}\n",
+                c.main_socket_group.max(1)
+            ));
+        }
+        if out.is_empty() {
+            return out;
+        }
+        out.push_str(
+            "for _, sg in ipairs(build.skillsTab.socketGroupList) do build.skillsTab:ProcessSocketGroup(sg) end\nbuild.skillsTab:AddUndoState()\n",
+        );
+        out
     }
 
     fn tree_command(c: &Character, tree_version: &str) -> String {
@@ -420,4 +546,217 @@ pub fn set_config_command(var: &str, value: &serde_json::Value) -> String {
         "do\n  local tab = build.configTab\n  tab.configSets[tab.activeConfigSetId].input[{var}] = {lua_value}\n  tab:UpdateControls()\n  tab:AddUndoState()\n  tab:BuildModList()\nend\n",
         var = lua_str(var)
     )
+}
+
+/// Lua listing the Calcs tab exactly as PoB lays it out: sections (in PoB's
+/// column groups), sub-sections and rows enabled for the current skill, with
+/// each cell formatted by PoB's `formatCalcStr`. Cells are addressed by
+/// `[section, subsection, row, column]` for [`breakdown_query`].
+pub const CALCS_QUERY: &str = r#"
+local tab = build.calcsTab
+local env = tab.calcsEnv or tab.mainEnv
+local actor = tab.input.showMinion and env.minion or env.player
+local out = {}
+for si, section in ipairs(tab.sectionList) do
+    pcall(function() section:UpdateSize() end)
+    if section.enabled then
+        local subs = {}
+        for subi, subSec in ipairs(section.subSection) do
+            local rows = {}
+            for ri, row in ipairs(subSec.data) do
+                if tab:CheckFlag(row) then
+                    local cells = {}
+                    for ci, col in ipairs(row) do
+                        if col.format and tab:CheckFlag(col) then
+                            local ok, text = pcall(formatCalcStr, col.format, actor, col)
+                            cells[#cells + 1] = { t = ok and text or "?", r = { si, subi, ri, ci }, b = #col > 0 }
+                        end
+                    end
+                    rows[#rows + 1] = { l = row.label or "", c = row.color, cells = cells }
+                end
+            end
+            local extra
+            if subSec.data.extra then
+                local ok, text = pcall(formatCalcStr, subSec.data.extra, actor)
+                extra = ok and text or nil
+            end
+            subs[#subs + 1] = { l = subSec.label or "", x = extra, rows = rows }
+        end
+        out[#out + 1] = { id = section.id, g = section.group, col = section.colour, subs = subs }
+    end
+end
+return __mk2_json(out)
+"#;
+
+/// Lua for PoB's breakdown of one Calcs cell.
+#[must_use]
+pub fn breakdown_query(r: [u32; 4]) -> String {
+    format!(
+        r#"
+local tab = build.calcsTab
+local col = tab.sectionList[{0}].subSection[{1}].data[{2}][{3}]
+local bd = tab.controls.breakdown
+bd.sourceData = nil
+bd:SetBreakdownData(col, true)
+local out = {{}}
+for _, s in ipairs(bd.sectionList or {{}}) do
+    if s.type == "TEXT" then
+        out[#out + 1] = {{ type = "TEXT", lines = s.lines }}
+    elseif s.type == "TABLE" then
+        local cols, rows = {{}}, {{}}
+        for _, c in ipairs(s.colList or {{}}) do cols[#cols + 1] = {{ key = c.key, label = c.label }} end
+        for _, row in ipairs(s.rowList or {{}}) do
+            local r = {{}}
+            for _, c in ipairs(s.colList or {{}}) do r[#r + 1] = row[c.key] and tostring(row[c.key]) or "" end
+            rows[#rows + 1] = r
+        end
+        out[#out + 1] = {{ type = "TABLE", label = s.label, cols = cols, rows = rows, footer = s.footer }}
+    end
+end
+return __mk2_json(out)
+"#,
+        r[0], r[1], r[2], r[3]
+    )
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CalcCell {
+    pub t: String,
+    pub r: [u32; 4],
+    #[serde(default)]
+    pub b: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CalcRow {
+    pub l: String,
+    #[serde(default)]
+    pub c: Option<String>,
+    #[serde(default)]
+    pub cells: Vec<CalcCell>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CalcSub {
+    pub l: String,
+    #[serde(default)]
+    pub x: Option<String>,
+    #[serde(default)]
+    pub rows: Vec<CalcRow>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CalcSection {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub g: Option<u32>,
+    #[serde(default)]
+    pub col: Option<String>,
+    #[serde(default)]
+    pub subs: Vec<CalcSub>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct BreakdownSection {
+    #[serde(rename = "type")]
+    pub ty: String,
+    #[serde(default)]
+    pub lines: Vec<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub cols: Vec<BreakdownCol>,
+    #[serde(default)]
+    pub rows: Vec<Vec<String>>,
+    #[serde(default)]
+    pub footer: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct BreakdownCol {
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+/// Byte range of the top-level `<name …>…</name>` / `<name …/>` element.
+fn find_section(xml: &str, name: &str) -> Option<(usize, usize)> {
+    let open = format!("<{name}");
+    let mut from = 0;
+    let start = loop {
+        let i = from + xml[from..].find(&open)?;
+        let after = xml.as_bytes().get(i + open.len()).copied();
+        if matches!(after, Some(b' ' | b'>' | b'/' | b'\n' | b'\t' | b'\r')) {
+            break i;
+        }
+        from = i + open.len();
+    };
+    let tag_end = start + xml[start..].find('>')?;
+    if xml.as_bytes()[tag_end - 1] == b'/' {
+        return Some((start, tag_end + 1));
+    }
+    let close = format!("</{name}>");
+    let end = tag_end + xml[tag_end..].find(&close)? + close.len();
+    Some((start, end))
+}
+
+/// Replace `name`'s element in `target` with the one from `source` (or
+/// insert it before `</PathOfBuilding>` when `target` lacks it).
+#[must_use]
+pub fn splice_section(target: &str, source: &str, name: &str) -> String {
+    let Some((ss, se)) = find_section(source, name) else {
+        return target.to_owned();
+    };
+    let replacement = &source[ss..se];
+    match find_section(target, name) {
+        Some((ts, te)) => format!("{}{}{}", &target[..ts], replacement, &target[te..]),
+        None => match target.rfind("</PathOfBuilding>") {
+            Some(i) => format!("{}{}\n{}", &target[..i], replacement, &target[i..]),
+            None => target.to_owned(),
+        },
+    }
+}
+
+/// Set an attribute on the `<Build …>` start tag.
+#[must_use]
+pub fn set_build_attr(xml: &str, attr: &str, value: &str) -> String {
+    let Some(start) = xml.find("<Build") else {
+        return xml.to_owned();
+    };
+    let Some(rel_end) = xml[start..].find('>') else {
+        return xml.to_owned();
+    };
+    let tag = &xml[start..start + rel_end];
+    let needle = format!("{attr}=\"");
+    let new_tag = if let Some(a) = tag.find(&needle) {
+        let vstart = a + needle.len();
+        let vend = vstart + tag[vstart..].find('"').unwrap_or(0);
+        format!("{}{}{}", &tag[..vstart], value, &tag[vend..])
+    } else {
+        let (body, slash) = tag.strip_suffix('/').map_or((tag, ""), |b| (b, "/"));
+        format!("{body} {attr}=\"{value}\"{slash}")
+    };
+    format!("{}{}{}", &xml[..start], new_tag, &xml[start + rel_end..])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splices_sections_and_build_attrs() {
+        let target = "<PathOfBuilding><Build level=\"90\" mainSocketGroup=\"1\"/><Skills a=\"1\"><Skill/></Skills><Config><Input name=\"x\"/></Config></PathOfBuilding>";
+        let source =
+            "<PathOfBuilding><Skills><Skill id=\"2\"/></Skills><Notes>hi</Notes></PathOfBuilding>";
+        let out = splice_section(target, source, "Skills");
+        assert!(out.contains("<Skills><Skill id=\"2\"/></Skills>"));
+        assert!(out.contains("<Config><Input name=\"x\"/></Config>"));
+        let out = splice_section(&out, source, "Notes");
+        assert!(out.contains("<Notes>hi</Notes>\n</PathOfBuilding>"));
+        let out = set_build_attr(&out, "mainSocketGroup", "3");
+        assert!(out.contains("mainSocketGroup=\"3\""));
+        assert!(!out.contains("mainSocketGroup=\"1\""));
+    }
 }

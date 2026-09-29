@@ -70,6 +70,51 @@ if __mainObject__.promptMsg then
     error("PoB startup failed: " .. tostring(__mainObject__.promptMsg))
 end
 build = __mainObject__.main.modes["BUILD"]
+
+-- JSON encoder for UI queries: arrays for sequences, objects otherwise;
+-- PoB colour codes are kept; functions / cycles become null.
+function __mk2_json(v, depth, seen)
+    depth = depth or 0
+    seen = seen or {}
+    local t = type(v)
+    if t == "nil" then return "null"
+    elseif t == "boolean" then return tostring(v)
+    elseif t == "number" then
+        if v ~= v or v == math.huge or v == -math.huge then return "null" end
+        return string.format("%.14g", v)
+    elseif t == "string" then
+        return '"' .. v:gsub('[%c"\\]', function(c)
+            if c == '"' then return '\\"' elseif c == '\\' then return '\\\\'
+            elseif c == '\n' then return '\\n' elseif c == '\t' then return '\\t' end
+            return string.format('\\u%04x', c:byte())
+        end) .. '"'
+    elseif t == "table" then
+        if seen[v] or depth > 12 then return "null" end
+        if next(v) == nil then return "[]" end
+        seen[v] = true
+        local parts = {}
+        local n = #v
+        local isArray = n > 0
+        if isArray then
+            for k in pairs(v) do
+                if type(k) ~= "number" or k < 1 or k > n or k ~= math.floor(k) then isArray = false break end
+            end
+        end
+        if isArray then
+            for i = 1, n do parts[#parts + 1] = __mk2_json(v[i], depth + 1, seen) end
+            seen[v] = nil
+            return "[" .. table.concat(parts, ",") .. "]"
+        end
+        for k, x in pairs(v) do
+            if type(x) ~= "function" then
+                parts[#parts + 1] = __mk2_json(tostring(k)) .. ":" .. __mk2_json(x, depth + 1, seen)
+            end
+        end
+        seen[v] = nil
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+    return "null"
+end
 "#,
             "boot",
             Vec::new(),

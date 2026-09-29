@@ -759,10 +759,11 @@ fn format_lua(a: &[Val]) -> R<String> {
             }
             b'g' | b'G' => {
                 let n = v.to_num().unwrap_or(0.0);
-                if prec.is_none() {
-                    num_to_string(n)
+                let s = fmt_g(n, prec.unwrap_or(6), flags.contains('#'));
+                if conv == b'G' {
+                    s.to_uppercase()
                 } else {
-                    format!("{:.*}", prec.unwrap_or(6), n)
+                    s
                 }
             }
             b'e' | b'E' => format!("{:.*e}", prec.unwrap_or(6), v.to_num().unwrap_or(0.0)),
@@ -811,4 +812,44 @@ fn parse_spec(spec: &str) -> (String, usize, Option<usize>) {
         None => (rest, None),
     };
     (flags, w.parse().unwrap_or(0), p)
+}
+
+/// C `%.{prec}g`.
+fn fmt_g(n: f64, prec: usize, alt: bool) -> String {
+    if n.is_nan() {
+        return "nan".into();
+    }
+    if n.is_infinite() {
+        return if n > 0.0 { "inf".into() } else { "-inf".into() };
+    }
+    let p = prec.max(1);
+    if n == 0.0 {
+        return if alt {
+            format!("{:.*}", p - 1, 0.0)
+        } else {
+            "0".into()
+        };
+    }
+    // Exponent after rounding to `p` significant digits.
+    let sci = format!("{:.*e}", p - 1, n);
+    let (mant, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let trim = |mut s: String| {
+        if !alt && s.contains('.') {
+            while s.ends_with('0') {
+                s.pop();
+            }
+            if s.ends_with('.') {
+                s.pop();
+            }
+        }
+        s
+    };
+    if exp < -4 || exp >= p as i32 {
+        let m = trim(mant.to_owned());
+        format!("{m}e{}{:02}", if exp < 0 { '-' } else { '+' }, exp.abs())
+    } else {
+        let decimals = (p as i32 - 1 - exp).max(0) as usize;
+        trim(format!("{:.*}", decimals, n))
+    }
 }

@@ -39,6 +39,8 @@ mod notable_db;
 mod notes_tab;
 mod party_tab;
 #[cfg(not(target_arch = "wasm32"))]
+mod pob_calcs_panel;
+#[cfg(not(target_arch = "wasm32"))]
 mod pob_config_panel;
 #[cfg(not(target_arch = "wasm32"))]
 mod pob_session;
@@ -313,6 +315,8 @@ struct LoadedApp {
     pob: Option<pob_session::PobSession>,
     #[cfg(not(target_arch = "wasm32"))]
     pob_config_state: pob_config_panel::PobConfigState,
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_calcs_state: pob_calcs_panel::PobCalcsState,
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -756,6 +760,8 @@ impl PobApp {
                 .map(pob_session::PobSession::spawn),
             #[cfg(not(target_arch = "wasm32"))]
             pob_config_state: pob_config_panel::PobConfigState::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_calcs_state: pob_calcs_panel::PobCalcsState::default(),
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -862,6 +868,8 @@ impl PobApp {
             pob: None,
             #[cfg(not(target_arch = "wasm32"))]
             pob_config_state: pob_config_panel::PobConfigState::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_calcs_state: pob_calcs_panel::PobCalcsState::default(),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -2287,6 +2295,32 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         });
 
     egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(pob) = app.pob.as_ref() {
+            ui.horizontal(|ui| {
+                match &pob.status {
+                    pob_session::SessionStatus::Booting => {
+                        ui.spinner();
+                        ui.weak("Starting Path of Building…");
+                    }
+                    pob_session::SessionStatus::Busy => {
+                        ui.spinner();
+                        ui.weak("Calculating…");
+                    }
+                    pob_session::SessionStatus::Failed(e) => {
+                        ui.colored_label(
+                            egui::Color32::LIGHT_RED,
+                            format!("Path of Building failed to start: {e}"),
+                        );
+                    }
+                    pob_session::SessionStatus::Ready => {}
+                }
+                if let Some(e) = &pob.last_error {
+                    ui.colored_label(egui::Color32::LIGHT_RED, e.lines().next().unwrap_or(e))
+                        .on_hover_text(e);
+                }
+            });
+        }
         ui.horizontal(|ui| {
             let mut new_version: Option<String> = None;
             egui::ComboBox::from_label("Tree version")
@@ -2798,6 +2832,17 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             if config_tab::ui(ui, &mut app.config_state, &mut app.character) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        Tab::Calcs
+            if app
+                .pob
+                .as_ref()
+                .is_some_and(|p| p.snapshot.is_some() && !matches!(p.status, pob_session::SessionStatus::Failed(_))) =>
+        {
+            if let Some(pob) = app.pob.as_mut() {
+                pob_calcs_panel::ui(ui, &mut app.pob_calcs_state, pob);
             }
         }
         Tab::Calcs => {

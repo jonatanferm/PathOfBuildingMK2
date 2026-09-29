@@ -91,3 +91,21 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+
+    #[test]
+    fn percent_g() {
+        let mut it = Interp::new();
+        let r = it
+            .exec_chunk(
+                r#"return string.format("%.14g|%g|%g|%g|%.3g|%g", 1, 0.1, 1e20, 123456789, 0.0001234, 2.5)"#,
+                "t",
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(r[0].to_string(), "1|0.1|1e+20|1.23457e+08|0.000123|2.5");
+    }
+}
