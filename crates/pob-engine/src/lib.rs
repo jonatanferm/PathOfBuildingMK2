@@ -82,7 +82,9 @@ pub use perform::{
     compute_full_with_env, ClusterContext,
 };
 pub use pob_export::{export_pob_code, export_pob_xml};
-pub use pob_import::{import_pob_code, import_pob_xml, resolve_share_url, PobImportError};
+pub use pob_import::{
+    import_pob_code, import_pob_xml, pob_tree_version, resolve_share_url, PobImportError,
+};
 pub use power::{
     compare_item_modline_attribution, compare_node_attribution, format_top_contributors,
     rank_item_modlines, rank_node_additions, score_item_modline_removal, score_node_addition,

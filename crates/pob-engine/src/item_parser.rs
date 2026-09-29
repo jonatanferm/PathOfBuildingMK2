@@ -114,6 +114,28 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
         name.clear();
         i += 1;
     }
+    // PoB's own serialisation (build XML `<Item>` bodies, share codes) has
+    // no `--------` separators: metadata lines, then `Implicits: N`, then
+    // the N implicit lines followed by the explicits.
+    if sections.len() == 1 && first[i..].iter().any(|l| l.starts_with("Implicits:")) {
+        let body = parse_pob_internal_body(&first[i..]);
+        return Ok(Item {
+            name,
+            base_name,
+            rarity,
+            item_level: body.item_level,
+            quality: body.quality,
+            tags: IndexSet::<String>::new().into_iter().collect(),
+            mod_lines: body.mod_lines,
+            sockets: body.sockets,
+            raw: raw.to_owned(),
+            corrupted: body.corrupted,
+            mirrored: body.mirrored,
+            variant: clamp_variant(&body.variants, body.selected_variant),
+            variants: body.variants,
+        });
+    }
+
     // Issue #221: PoB emits `Variant: <name>` and `Selected Variant: N`
     // immediately after the name/base lines but before the first
     // `--------`. Scan the rest of the first section for them — the
@@ -254,11 +276,7 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
     // count (PoB does this in `BuildModListForItem`). A bogus `Selected
     // Variant: 9` on a 2-variant item resolves to variant 2 instead of
     // silently filtering every gated mod line.
-    let variant = if variants.is_empty() {
-        None
-    } else {
-        selected_variant.map(|v| v.clamp(1, u32::try_from(variants.len()).unwrap_or(u32::MAX)))
-    };
+    let variant = clamp_variant(&variants, selected_variant);
 
     Ok(Item {
         name,
@@ -275,6 +293,177 @@ pub fn parse_item(raw: &str) -> Result<Item, ParseError> {
         variants,
         variant,
     })
+}
+
+fn clamp_variant(variants: &[String], selected: Option<u32>) -> Option<u32> {
+    if variants.is_empty() {
+        None
+    } else {
+        selected.map(|v| v.clamp(1, u32::try_from(variants.len()).unwrap_or(u32::MAX)))
+    }
+}
+
+#[derive(Default)]
+struct PobInternalBody {
+    quality: u32,
+    item_level: u32,
+    sockets: String,
+    corrupted: bool,
+    mirrored: bool,
+    variants: Vec<String>,
+    selected_variant: Option<u32>,
+    mod_lines: Vec<ModLine>,
+}
+
+/// Parse the post-name/base lines of PoB's internal item format. Mirrors the
+/// line classification in `Classes/Item.lua` `ParseRaw`: everything before
+/// `Implicits: N` is metadata; of the mod lines after it, `{enchant}` /
+/// `{implicit}` lines and the first N untagged (or `{crafted}`) lines are
+/// implicits, the rest explicits.
+fn parse_pob_internal_body(lines: &[&str]) -> PobInternalBody {
+    let mut out = PobInternalBody::default();
+    let mut implicit_count: Option<usize> = None;
+    let mut implicits_seen = 0usize;
+    for &line in lines {
+        let Some(n_implicits) = implicit_count else {
+            if let Some(rest) = line.strip_prefix("Implicits:") {
+                implicit_count = Some(parse_first_int(rest).unwrap_or(0) as usize);
+            } else if let Some(rest) = line.strip_prefix("Quality:") {
+                out.quality = parse_first_int(rest).unwrap_or(0);
+            } else if let Some(rest) = line.strip_prefix("Item Level:") {
+                out.item_level = parse_first_int(rest).unwrap_or(0);
+            } else if let Some(rest) = line.strip_prefix("Sockets:") {
+                out.sockets = rest.trim().to_owned();
+            } else if let Some(rest) = line.strip_prefix("Variant:") {
+                let name = rest.trim();
+                if !name.is_empty() {
+                    out.variants.push(name.to_owned());
+                }
+            } else if let Some(rest) = line.strip_prefix("Selected Variant:") {
+                out.selected_variant = parse_first_int(rest);
+            } else if line == "Corrupted" {
+                out.corrupted = true;
+            } else if line == "Mirrored" {
+                out.mirrored = true;
+            }
+            continue;
+        };
+        // Mod line area. `Corrupted` / `Mirrored` can trail the mods.
+        if line == "Corrupted" {
+            out.corrupted = true;
+            continue;
+        }
+        if line == "Mirrored" {
+            out.mirrored = true;
+            continue;
+        }
+        let (text, flags, variant_list) = split_pob_prefixes(line);
+        let (clean, suffix_section) = strip_mod_suffix(&text);
+        let flag = |k: &str| flags.iter().any(|f| f == k);
+        let is_enchant = flag("enchant") || suffix_section == Some(ModSection::Enchant);
+        let is_implicit = flag("implicit") || suffix_section == Some(ModSection::Implicit);
+        let is_crafted = flag("crafted") || suffix_section == Some(ModSection::Crafted);
+        let in_implicit_block = implicits_seen < n_implicits;
+        let section = if is_enchant || (is_crafted && in_implicit_block) {
+            implicits_seen += 1;
+            ModSection::Enchant
+        } else if is_implicit || (!is_crafted && in_implicit_block) {
+            implicits_seen += 1;
+            ModSection::Implicit
+        } else if is_crafted {
+            ModSection::Crafted
+        } else if flag("fractured") || suffix_section == Some(ModSection::Fractured) {
+            ModSection::Fractured
+        } else {
+            suffix_section.unwrap_or(ModSection::Explicit)
+        };
+        if clean.trim().is_empty() {
+            continue;
+        }
+        out.mod_lines.push(ModLine {
+            line: clean.to_owned(),
+            section,
+            variant_list,
+        });
+    }
+    out
+}
+
+/// Consume PoB's leading `{key}` / `{key:value}` prefix chain on a mod line.
+/// Returns the remaining text (with any `{range:x}` applied to its `(a-b)`
+/// rolls, as `itemLib.applyRange` does), the bare flag keys, and the
+/// `{variant:…}` gate. `{tags:…}` and unknown keys are dropped.
+fn split_pob_prefixes(line: &str) -> (std::borrow::Cow<'_, str>, Vec<String>, Option<Vec<u32>>) {
+    let mut rest = line.trim_start();
+    let mut flags = Vec::new();
+    let mut variant_list = None;
+    let mut range: Option<f64> = None;
+    while let Some(body_start) = rest.strip_prefix('{') {
+        let Some(end) = body_start.find('}') else {
+            break;
+        };
+        let body = &body_start[..end];
+        rest = &body_start[end + 1..];
+        match body.split_once(':') {
+            Some(("variant", ids)) => {
+                let ids: Vec<u32> = ids
+                    .split(',')
+                    .filter_map(|t| t.trim().parse().ok())
+                    .filter(|&n| n > 0)
+                    .collect();
+                if !ids.is_empty() {
+                    variant_list = Some(ids);
+                }
+            }
+            Some(("range", v)) => range = v.trim().parse().ok(),
+            Some(_) => {}
+            None => flags.push(body.to_owned()),
+        }
+    }
+    let text = match range {
+        Some(r) => std::borrow::Cow::Owned(apply_range(rest, r)),
+        None => std::borrow::Cow::Borrowed(rest),
+    };
+    (text, flags, variant_list)
+}
+
+/// `(min-max)` → `min + range × (max − min)`, per `itemLib.applyRange`.
+/// Integer rolls round to the nearest integer (PoB rounds when it
+/// re-renders the line); fractional rolls keep one decimal.
+fn apply_range(line: &str, range: f64) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(open) = rest.find('(') {
+        let Some(close_rel) = rest[open..].find(')') else {
+            break;
+        };
+        let inner = &rest[open + 1..open + close_rel];
+        let parsed = inner
+            .char_indices()
+            .skip(1)
+            .find(|&(_, c)| c == '-')
+            .and_then(|(dash, _)| {
+                let lo: f64 = inner[..dash].parse().ok()?;
+                let hi: f64 = inner[dash + 1..].parse().ok()?;
+                Some((lo, hi, inner.contains('.')))
+            });
+        out.push_str(&rest[..open]);
+        match parsed {
+            Some((lo, hi, fractional)) => {
+                let v = lo + range * (hi - lo);
+                if fractional {
+                    let _ = write!(out, "{:.1}", (v * 10.0).round() / 10.0);
+                } else {
+                    let _ = write!(out, "{}", v.round() as i64);
+                }
+            }
+            None => out.push_str(&rest[open..=open + close_rel]),
+        }
+        rest = &rest[open + close_rel + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Issue #221: split a leading variant prefix off a mod line. Returns the
@@ -986,6 +1175,34 @@ Item Level: 84
             mod_.line.contains("{variant:}"),
             "expected raw prefix preserved, got `{}`",
             mod_.line
+        );
+    }
+
+    /// PoB's own `<Item>` serialisation: no `--------` separators, an
+    /// `Implicits: N` count, and `{crafted}` / `{range:x}` prefixes.
+    #[test]
+    fn parses_pob_internal_format() {
+        let raw = "Rarity: RARE\nApocalypse Noose\nCitrine Amulet\nUnique ID: f6eb3e57\nItem Level: 83\nQuality: 20\nLevelReq: 59\nImplicits: 2\n{crafted}Allocates Prodigal Perfection\n+16 to Strength and Dexterity\n+43 to Strength\n{range:0.5}+(40-50) to maximum Energy Shield\n{crafted}+46 to maximum Life\nCorrupted";
+        let item = parse_item(raw).unwrap();
+        assert_eq!(item.name, "Apocalypse Noose");
+        assert_eq!(item.base_name, "Citrine Amulet");
+        assert_eq!(item.item_level, 83);
+        assert_eq!(item.quality, 20);
+        assert!(item.corrupted);
+        let got: Vec<(&str, ModSection)> = item
+            .mod_lines
+            .iter()
+            .map(|m| (m.line.as_str(), m.section))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("Allocates Prodigal Perfection", ModSection::Enchant),
+                ("+16 to Strength and Dexterity", ModSection::Implicit),
+                ("+43 to Strength", ModSection::Explicit),
+                ("+45 to maximum Energy Shield", ModSection::Explicit),
+                ("+46 to maximum Life", ModSection::Crafted),
+            ]
         );
     }
 }

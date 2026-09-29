@@ -2783,8 +2783,27 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 &mut app.character,
                 &app.tree,
             ) {
-                // Imported character: rebind the tree view (positions stay valid since
-                // the tree didn't change) and force recompute.
+                // A PoB build carries its tree version; node ids differ
+                // between versions, so load the build's tree before
+                // rebinding the tree view.
+                if let Some(version) = app.import_export_state.imported_tree_version.take() {
+                    if version != app.tree_version {
+                        match load_passive_tree_for_version(&app.data_root, &version) {
+                            Ok(tree) => {
+                                app.tree = tree;
+                                app.status_message =
+                                    Some((StatusKind::Info, format!("Loaded tree {version}.")));
+                                app.tree_version = version;
+                            }
+                            Err(e) => {
+                                app.status_message = Some((
+                                    StatusKind::Error,
+                                    format!("Build uses tree {version}, which failed to load: {e}"),
+                                ));
+                            }
+                        }
+                    }
+                }
                 app.tree_view.rebind(&app.tree);
                 // Issue #204: drop history on build replace so Cmd+Z
                 // can't restore the previous character — its allocated

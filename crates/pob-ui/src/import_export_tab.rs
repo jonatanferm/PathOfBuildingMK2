@@ -94,6 +94,9 @@ pub fn export_in_format(character: &Character, format: ExportFormat) -> Result<S
 #[derive(Default)]
 pub struct ImportExportTabState {
     pub paste: String,
+    /// Tree version of the build imported this frame, for the host app to
+    /// switch to (node ids differ between tree versions). Taken by the host.
+    pub imported_tree_version: Option<String>,
     pub generated: String,
     pub last_message: Option<(bool, String)>,
     /// Issue #194 follow-up: which serialisation the next "Generate"
@@ -206,9 +209,11 @@ pub fn ui(
         }
     }
 
-    ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
-            ui.set_min_width(360.0);
+    // `columns` rather than `horizontal_top`: the full-width TextEdits
+    // would otherwise let the Export column push Import off-screen.
+    ui.columns(2, |cols| {
+        {
+            let ui = &mut cols[0];
             ui.heading("Export current build");
             ui.separator();
             // Issue #194 follow-up: format dropdown + single Generate
@@ -241,12 +246,17 @@ pub fn ui(
                     }
                 }
             });
-            ui.add(
-                egui::TextEdit::multiline(&mut state.generated)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(8)
-                    .font(egui::TextStyle::Monospace),
-            );
+            egui::ScrollArea::vertical()
+                .id_salt("export_generated_scroll")
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut state.generated)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(8)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                });
             if !state.generated.is_empty() {
                 ui.horizontal(|ui| {
                     if ui.button("Copy code to clipboard").clicked() {
@@ -267,22 +277,27 @@ pub fn ui(
                     ui.weak(format_export_size_label(&state.generated));
                 });
             }
-        });
+        }
 
-        ui.separator();
-
-        ui.vertical(|ui| {
-            ui.set_min_width(360.0);
+        {
+            let ui = &mut cols[1];
             ui.heading("Import build");
             ui.separator();
             ui.label("Paste an MK2 build code or share URL:");
-            ui.add(
-                egui::TextEdit::multiline(&mut state.paste)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(8)
-                    .font(egui::TextStyle::Monospace)
-                    .hint_text("MK2|...   or   https://pobb.in/<id>"),
-            );
+            // Fixed-height scroll box: a pasted PoB XML is thousands of
+            // lines and would otherwise push the Import button off-screen.
+            egui::ScrollArea::vertical()
+                .id_salt("import_paste_scroll")
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut state.paste)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(8)
+                            .font(egui::TextStyle::Monospace)
+                            .hint_text("MK2|...   or   https://pobb.in/<id>"),
+                    );
+                });
             #[cfg(not(target_arch = "wasm32"))]
             let fetch_in_flight = state.share_url_job.is_some();
             #[cfg(target_arch = "wasm32")]
@@ -309,7 +324,7 @@ pub fn ui(
                 "Auto-detects MK2 codes, raw PoB XML, PoB share codes (zlib+base64), \
                  or share URLs from pobb.in / pob.cool / pastebin.com / poe.ninja.",
             );
-        });
+        }
     });
 
     if let Some((ok, msg)) = &state.last_message {
@@ -398,6 +413,7 @@ fn handle_import_click(
     match auto_import(trimmed) {
         Ok((c, kind)) => {
             *character = c;
+            state.imported_tree_version = pob_engine::pob_tree_version(trimmed);
             state.last_message = Some((true, format!("Imported as {kind}.")));
             state.paste.clear();
             *changed = true;
@@ -785,8 +801,10 @@ fn poll_share_url_job(state: &mut ImportExportTabState, character: &mut Characte
         Ok(Some(ShareUrlFetchResult::Ok {
             character: imported,
             site,
+            tree_version,
         })) => {
             *character = imported;
+            state.imported_tree_version = tree_version;
             state.last_message = Some((true, format!("Imported from {site}.")));
             state.paste.clear();
             state.share_url_job = None;

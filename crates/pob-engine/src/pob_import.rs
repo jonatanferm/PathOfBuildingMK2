@@ -166,6 +166,41 @@ pub fn import_pob_code(code: &str) -> Result<Character, PobImportError> {
     import_pob_xml(&xml)
 }
 
+/// Passive-tree version (`"3_13"`, `"3_25_alternate"`, …) of the spec that
+/// [`import_pob_xml`] / [`import_pob_code`] would import from `input` (raw
+/// PoB XML or a share code). The importer takes the first `<Spec>` with
+/// allocated nodes; callers use this to load the matching tree, since node
+/// ids differ between tree versions.
+pub fn pob_tree_version(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    let xml = if trimmed.starts_with('<') {
+        trimmed.to_owned()
+    } else {
+        let raw = decode_loose_base64(trimmed)?;
+        let mut out = Vec::new();
+        ZlibDecoder::new(raw.as_slice())
+            .read_to_end(&mut out)
+            .ok()?;
+        String::from_utf8(out).ok()?
+    };
+    let mut rest = xml.as_str();
+    let mut fallback = None;
+    while let Some(start) = rest.find("<Spec ") {
+        let tag_end = rest[start..].find('>').map_or(rest.len(), |e| start + e);
+        let tag = &rest[start..tag_end];
+        let version = tag.find("treeVersion=\"").and_then(|v| {
+            let v = &tag[v + "treeVersion=\"".len()..];
+            v.find('"').map(|end| v[..end].to_owned())
+        });
+        if tag.contains("nodes=\"") && !tag.contains("nodes=\"\"") {
+            return version;
+        }
+        fallback = fallback.or(version);
+        rest = &rest[tag_end..];
+    }
+    fallback
+}
+
 fn decode_loose_base64(s: &str) -> Option<Vec<u8>> {
     let bytes = s.as_bytes();
     if let Ok(v) = URL_SAFE_NO_PAD.decode(bytes) {
@@ -584,12 +619,21 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                 .find(|g| g.enabled && !g.gems.is_empty())
         });
     if let Some(group) = main_group {
-        let gem_idx = if group.main_active_skill_index >= 1 {
-            (group.main_active_skill_index as usize).saturating_sub(1)
-        } else {
-            0
-        };
-        let gem = group.gems.get(gem_idx).or_else(|| group.gems.first());
+        // `mainActiveSkill` is a 1-based index into the group's *active*
+        // skills (PoB's `displaySkillList`): enabled, non-support gems.
+        // Indexing the raw gem list picks a support whenever supports are
+        // socketed ahead of the active gem.
+        let active: Vec<_> = group
+            .gems
+            .iter()
+            .filter(|g| g.enabled && !g.skill_id.is_empty() && !g.skill_id.starts_with("Support"))
+            .collect();
+        let active_idx = (group.main_active_skill_index.max(1) as usize) - 1;
+        let gem = active
+            .get(active_idx)
+            .or_else(|| active.first())
+            .copied()
+            .or_else(|| group.gems.first());
         if let Some(gem) = gem {
             if !gem.skill_id.is_empty() {
                 let mut ms = MainSkill::new(gem.skill_id.clone());
@@ -649,10 +693,7 @@ struct GemSpec {
     /// Defaults to `Default` for legacy PoB exports without the
     /// attribute.
     quality_id: crate::skill::QualityId,
-    /// PoB persists the toggle but pob-engine doesn't yet differentiate disabled
-    /// gems from absent ones. Kept on the parsed shape so callers that read this
-    /// later don't need a re-import.
-    #[allow(dead_code)]
+    /// Disabled gems don't count towards `mainActiveSkill`'s index.
     enabled: bool,
 }
 
@@ -953,6 +994,13 @@ mod tests {
     <Notes>This is a test build.
 Multi-line.</Notes>
 </PathOfBuilding>"#;
+
+    #[test]
+    fn pob_tree_version_reads_first_allocated_spec() {
+        let xml = r#"<PathOfBuilding><Tree activeSpec="1"><Spec treeVersion="3_10" nodes=""/><Spec treeVersion="3_13" nodes="1,2"/></Tree></PathOfBuilding>"#;
+        assert_eq!(pob_tree_version(xml).as_deref(), Some("3_13"));
+        assert_eq!(pob_tree_version("<PathOfBuilding/>"), None);
+    }
 
     #[test]
     fn parses_basic_pob_xml() {

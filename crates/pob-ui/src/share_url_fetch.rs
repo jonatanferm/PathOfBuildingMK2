@@ -68,6 +68,8 @@ pub enum ShareUrlFetchResult {
         character: pob_engine::Character,
         /// Display label for the source site (e.g. `"pobb.in"`).
         site: &'static str,
+        /// Passive-tree version the build was made on (`"3_13"`, …).
+        tree_version: Option<String>,
     },
     Err(ShareUrlFetchError),
 }
@@ -128,7 +130,11 @@ pub fn decode_share_body(body: &str, site: &'static str) -> ShareUrlFetchResult 
         ));
     }
     match pob_engine::import_pob_code(trimmed) {
-        Ok(character) => ShareUrlFetchResult::Ok { character, site },
+        Ok(character) => ShareUrlFetchResult::Ok {
+            character,
+            site,
+            tree_version: pob_engine::pob_tree_version(trimmed),
+        },
         Err(e) => ShareUrlFetchResult::Err(ShareUrlFetchError::Parse(e.to_string())),
     }
 }
@@ -213,7 +219,9 @@ mod tests {
         let raw = include_str!("../../pob-engine/tests/fixtures/pobb_in_share_code.txt");
         let padded = format!("\n{raw}\n\n");
         match decode_share_body(&padded, "pobb.in") {
-            ShareUrlFetchResult::Ok { site, character } => {
+            ShareUrlFetchResult::Ok {
+                site, character, ..
+            } => {
                 assert_eq!(site, "pobb.in");
                 assert!(
                     !character.class.0.is_empty(),
@@ -232,7 +240,9 @@ mod tests {
         // captured fixture so CI doesn't depend on live pastebin.
         let raw = include_str!("../../pob-engine/tests/fixtures/pastebin_share_code.txt");
         match decode_share_body(raw, "pastebin.com") {
-            ShareUrlFetchResult::Ok { site, character } => {
+            ShareUrlFetchResult::Ok {
+                site, character, ..
+            } => {
                 assert_eq!(site, "pastebin.com");
                 assert!(!character.class.0.is_empty());
             }

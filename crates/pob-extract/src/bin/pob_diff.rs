@@ -305,9 +305,19 @@ fn diff_against_pob_engine(
     let level = character.level;
     let allocated = character.allocated.len();
 
-    let tree = load_default_tree().context("load 3_28 tree fixture for diff")?;
+    let tree_version = build_tree_version(build_xml);
+    let tree = load_tree(tree_version.as_deref()).context("load tree fixture for diff")?;
     let skills = load_skill_registry();
-    let output = pob_engine::perform::compute_with_skills(&character, &tree, skills.as_ref());
+    // Same inputs the desktop app feeds the engine: canonical item bases give
+    // armour / evasion / ES / weapon stats their base values.
+    let bases = std::fs::read_to_string(format!(
+        "{}/../../data/bases.json",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .ok()
+    .and_then(|j| pob_data::load_bases(&j).ok());
+    let output =
+        pob_engine::perform::compute_full(&character, &tree, skills.as_ref(), bases.as_ref());
 
     println!(
         "\n=== diff: pob-engine vs PoB (class={class}, level={level}, allocated={allocated}) ==="
@@ -514,14 +524,28 @@ fn load_skill_registry() -> Option<pob_engine::SkillRegistry> {
     }
 }
 
-fn load_default_tree() -> Result<pob_data::PassiveTree> {
+/// `<Spec treeVersion="3_13">` of the build's active spec (first one found).
+fn build_tree_version(build_xml: &str) -> Option<String> {
+    let start = build_xml.find("treeVersion=\"")? + "treeVersion=\"".len();
+    let len = build_xml[start..].find('"')?;
+    Some(build_xml[start..start + len].to_string())
+}
+
+fn load_tree(version: Option<&str>) -> Result<pob_data::PassiveTree> {
     // Resolve relative to CARGO_MANIFEST_DIR so this works regardless of cwd
     // (we chdir'd into PoB's src/ for the Lua boot path).
-    let candidates = [
+    let mut candidates = Vec::new();
+    if let Some(v) = version {
+        candidates.push(format!(
+            "{}/../../data/trees/{v}.json",
+            env!("CARGO_MANIFEST_DIR")
+        ));
+    }
+    candidates.extend([
         // ../.. from this crate gets to repo root, then data/trees/...
         format!("{}/../../data/trees/3_28.json", env!("CARGO_MANIFEST_DIR")),
         format!("{}/../../data/trees/3_25.json", env!("CARGO_MANIFEST_DIR")),
-    ];
+    ]);
     for path in &candidates {
         if let Ok(json) = std::fs::read_to_string(path) {
             return pob_data::load_passive_tree(&json)
@@ -568,6 +592,45 @@ fn build_lua_sandbox(pob_runtime_lua: &std::path::Path) -> Result<Lua> {
     // bit library (LuaJIT-style). Lua 5.4 has builtin operators but PoB calls
     // `bit.bor()` etc. directly.
     install_bit(&lua, &globals)?;
+
+    // Compound assignment (`count += 1`). PoB's newer LuaJIT runtime accepts
+    // it but Lua 5.4 doesn't, so rewrite `lhs op= rhs` statements to
+    // `lhs = lhs op (rhs)` in every file loaded through `loadfile` / `dofile`
+    // (PLoadModule / LoadModule route through `loadfile`).
+    lua.load(
+        r#"
+local raw_loadfile = loadfile
+local compound_ops = { ["+"] = true, ["-"] = true, ["*"] = true, ["/"] = true, ["%"] = true, [".."] = true }
+local function rewrite_line(line)
+    local ind, lhs, op, rhs = line:match("^([ \t]*)([%a_][%w_%.%[%]\"']*)[ \t]*([%+%-%*/%%%.]%.?)=[ \t]*(.-)[ \t]*\r?$")
+    if ind and compound_ops[op] and rhs ~= "" then
+        local code, comment = rhs:match("^(.-)[ \t]*(%-%-.*)$")
+        if code then rhs = code else comment = "" end
+        return ind .. lhs .. " = " .. lhs .. " " .. op .. " (" .. rhs .. ")" .. (comment ~= "" and (" " .. comment) or "")
+    end
+    return line
+end
+local function rewrite_compound(src)
+    return (src:gsub("[^\n]+", rewrite_line))
+end
+function loadfile(name, mode, env)
+    local f = name and io.open(name, "rb")
+    if not f then return raw_loadfile(name, mode, env) end
+    local src = f:read("a")
+    f:close()
+    if src:find("[%+%-%*/%%%.]=") then
+        src = rewrite_compound(src)
+    end
+    return load(src, "@" .. name, mode, env or _ENV)
+end
+function dofile(name)
+    local fn = assert(loadfile(name))
+    return fn()
+end
+"#,
+    )
+    .set_name("compound_assign_shim")
+    .exec()?;
 
     // -- package.preload stubs for native libs PoB requires ------------------------
 
