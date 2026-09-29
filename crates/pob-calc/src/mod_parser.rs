@@ -124,42 +124,53 @@ fn native_scan(args: Vec<Val>) -> Result<Vec<Val>, LuaError> {
         _ => return Err(LuaError::msg("scan: patternList expected")),
     };
     let plain = args.get(2).is_some_and(Val::truthy);
-    let lower = line.to_ascii_lowercase();
-    let mut best: Option<(usize, usize, usize, Val, Vec<Val>)> = None; // (start, end, patlen, val, caps)
-    for (k, v) in list.pairs() {
-        let Val::Str(pattern) = &k else { continue };
-        let found = lua_pattern::find(&lower, pattern, 1, plain).map_err(|e| LuaError::msg(e.0))?;
-        let Some(f) = found else { continue };
-        let better = match &best {
-            None => true,
-            Some((bs, be, bl, _, _)) => {
-                f.start < *bs
-                    || (f.start == *bs && (f.end > *be || (f.end == *be && pattern.len() > *bl)))
+    let lower = line.as_bytes().to_ascii_lowercase();
+    // (start, end, patlen, val, caps)
+    let mut best: Option<(usize, usize, usize, Val, Vec<Val>)> = None;
+    {
+        let table = list.0.borrow();
+        for (k, (_, v)) in &table.hash {
+            let crate::lua::value::Key::Str(pattern) = k else {
+                continue;
+            };
+            if v.is_nil() {
+                continue;
             }
-        };
-        if better {
-            let caps = f
-                .captures
-                .iter()
-                .map(|c| match c {
-                    lua_pattern::Capture::Str(s) => Val::str(s),
-                    lua_pattern::Capture::Pos(p) => Val::Num(*p as f64),
-                })
-                .collect();
-            best = Some((f.start, f.end, pattern.len(), v, caps));
+            let found = lua_pattern::find(&lower, pattern.as_bytes(), 1, plain)
+                .map_err(|e| LuaError::msg(e.0))?;
+            let Some(f) = found else { continue };
+            let better = match &best {
+                None => true,
+                Some((bs, be, bl, _, _)) => {
+                    f.start < *bs
+                        || (f.start == *bs
+                            && (f.end > *be || (f.end == *be && pattern.len() > *bl)))
+                }
+            };
+            if better {
+                let caps = f
+                    .captures
+                    .iter()
+                    .map(|c| match c {
+                        lua_pattern::Capture::Str(s) => Val::bytes(s),
+                        lua_pattern::Capture::Pos(p) => Val::Num(*p as f64),
+                    })
+                    .collect();
+                best = Some((f.start, f.end, pattern.len(), v.clone(), caps));
+            }
         }
     }
     match best {
         Some((start, end, _, val, caps)) => {
             let bytes = line.as_bytes();
-            let mut rest = String::from_utf8_lossy(&bytes[..start - 1]).into_owned();
-            rest.push_str(&String::from_utf8_lossy(&bytes[end.min(bytes.len())..]));
+            let mut rest = bytes[..start - 1].to_vec();
+            rest.extend_from_slice(&bytes[end.min(bytes.len())..]);
             // `{ cap1, …, cap5 }` — trailing nils dropped, like Lua's constructor.
             let mut caps: Vec<Val> = caps;
             caps.truncate(5);
             Ok(vec![
                 val,
-                Val::str(&rest),
+                Val::bytes(&rest),
                 Val::Table(TableRef::from_array(caps)),
             ])
         }
@@ -327,7 +338,7 @@ pub fn lua_to_tag(v: &Val) -> Result<Tag, String> {
     let mut tag = Tag::new(ty);
     for (k, val) in t.pairs() {
         let Val::Str(key) = &k else { continue };
-        match &**key {
+        match key.as_str() {
             "type" => {}
             "var" => tag.var = lstr(&val),
             "varList" => tag.var_list = str_list(&val),
@@ -383,7 +394,7 @@ pub fn lua_to_tag(v: &Val) -> Result<Tag, String> {
             "socketColor" => tag.socket_color = lstr(&val),
             "sockets" => {
                 tag.sockets = match &val {
-                    Val::Str(s) if &**s == "all" => Some(Sockets::All),
+                    Val::Str(s) if s.as_str() == "all" => Some(Sockets::All),
                     Val::Num(n) => Some(Sockets::Count(*n)),
                     Val::Table(_) => num_list(&val).map(Sockets::List),
                     _ => None,

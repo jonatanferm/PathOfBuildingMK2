@@ -42,7 +42,7 @@ pub enum UnOp {
     Len,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Nil,
     True,
@@ -63,7 +63,7 @@ pub enum Expr {
     Paren(Box<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TField {
     Pos(Expr),
     Keyed(Expr, Expr),
@@ -93,9 +93,23 @@ pub enum Stat {
     },
     Return(Vec<Expr>),
     Break,
+    Goto(LStr),
+    Label(LStr),
 }
 
-pub type Block = Vec<Stat>;
+/// Statements plus the source line each one starts on.
+#[derive(Debug, Default)]
+pub struct Block {
+    pub stats: Vec<Stat>,
+    pub lines: Vec<u32>,
+}
+
+impl std::ops::Deref for Block {
+    type Target = [Stat];
+    fn deref(&self) -> &[Stat] {
+        &self.stats
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum UpvalDesc {
@@ -106,6 +120,8 @@ pub enum UpvalDesc {
 #[derive(Debug)]
 pub struct FuncProto {
     pub name: String,
+    /// Chunk (file) the function was defined in.
+    pub source: Rc<str>,
     pub params: Vec<u32>,
     pub is_vararg: bool,
     pub nslots: u32,
@@ -276,7 +292,7 @@ impl<'a> Parser<'a> {
             Some(VarRef::Upval((fs.upvals.len() - 1) as u32))
         }
         let top = self.funcs.len() - 1;
-        resolve_in(&mut self.funcs, top, name).unwrap_or_else(|| VarRef::Global(LStr::new(name)))
+        resolve_in(&mut self.funcs, top, name).unwrap_or_else(|| VarRef::Global(LStr::intern(name)))
     }
 
     // ---- entry points ---------------------------------------------------------
@@ -290,6 +306,7 @@ impl<'a> Parser<'a> {
         }
         let fs = self.funcs.pop().expect("fs");
         Ok(Rc::new(FuncProto {
+            source: self.chunk_name.as_str().into(),
             name: self.chunk_name.clone(),
             params: Vec::new(),
             is_vararg: true,
@@ -310,9 +327,11 @@ impl<'a> Parser<'a> {
 
     fn block(&mut self) -> R<Block> {
         self.fs().scopes.push(Vec::new());
-        let mut stats = Vec::new();
+        let mut stats = Block::default();
         while !self.block_end() {
+            let line = self.lx.line;
             if self.check(&Tok::Return) {
+                stats.lines.push(line);
                 self.advance()?;
                 let exprs = if self.block_end() || self.check(&Tok::Semi) {
                     Vec::new()
@@ -320,11 +339,12 @@ impl<'a> Parser<'a> {
                     self.expr_list()?
                 };
                 self.accept(&Tok::Semi)?;
-                stats.push(Stat::Return(exprs));
+                stats.stats.push(Stat::Return(exprs));
                 break;
             }
             if let Some(s) = self.statement()? {
-                stats.push(s);
+                stats.lines.push(line);
+                stats.stats.push(s);
             }
         }
         self.fs().scopes.pop();
@@ -334,6 +354,13 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> R<Option<Stat>> {
         let line = self.lx.line;
         let _ = line;
+        if matches!(&self.tok, Tok::Name(n) if n == "goto")
+            && matches!(self.peek_ahead()?, Tok::Name(_))
+        {
+            self.advance()?;
+            let label = self.name()?;
+            return Ok(Some(Stat::Goto(LStr::intern(&label))));
+        }
         match &self.tok {
             Tok::Semi => {
                 self.advance()?;
@@ -359,8 +386,9 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 // The `until` condition sees the body's locals.
                 self.fs().scopes.push(Vec::new());
-                let mut body = Vec::new();
+                let mut body = Block::default();
                 while !self.block_end() {
+                    let line = self.lx.line;
                     if self.check(&Tok::Return) {
                         self.advance()?;
                         let exprs = if self.block_end() {
@@ -369,11 +397,13 @@ impl<'a> Parser<'a> {
                             self.expr_list()?
                         };
                         self.accept(&Tok::Semi)?;
-                        body.push(Stat::Return(exprs));
+                        body.lines.push(line);
+                        body.stats.push(Stat::Return(exprs));
                         break;
                     }
                     if let Some(s) = self.statement()? {
-                        body.push(s);
+                        body.lines.push(line);
+                        body.stats.push(s);
                     }
                 }
                 self.expect(&Tok::Until)?;
@@ -393,12 +423,14 @@ impl<'a> Parser<'a> {
                         let n = self.name()?;
                         full.push('.');
                         full.push_str(&n);
-                        target = Expr::Index(Box::new(target), Box::new(Expr::Str(LStr::new(&n))));
+                        target =
+                            Expr::Index(Box::new(target), Box::new(Expr::Str(LStr::intern(&n))));
                     } else if self.accept(&Tok::Colon)? {
                         let n = self.name()?;
                         full.push(':');
                         full.push_str(&n);
-                        target = Expr::Index(Box::new(target), Box::new(Expr::Str(LStr::new(&n))));
+                        target =
+                            Expr::Index(Box::new(target), Box::new(Expr::Str(LStr::intern(&n))));
                         is_method = true;
                         break;
                     } else {
@@ -435,8 +467,37 @@ impl<'a> Parser<'a> {
                 self.advance()?;
                 Ok(Some(Stat::Break))
             }
+            Tok::DoubleColon => {
+                self.advance()?;
+                let n = self.name()?;
+                self.expect(&Tok::DoubleColon)?;
+                Ok(Some(Stat::Label(LStr::intern(&n))))
+            }
+
             _ => {
                 let e = self.suffixed_expr()?;
+                // Compound assignment (`x += 1`), a LuaJIT extension PoB uses.
+                let compound = match self.tok {
+                    Tok::Plus => Some(BinOp::Add),
+                    Tok::Minus => Some(BinOp::Sub),
+                    Tok::Star => Some(BinOp::Mul),
+                    Tok::Slash => Some(BinOp::Div),
+                    Tok::Percent => Some(BinOp::Mod),
+                    Tok::Caret => Some(BinOp::Pow),
+                    Tok::Concat => Some(BinOp::Concat),
+                    _ => None,
+                };
+                if let Some(op) = compound {
+                    if matches!(self.peek_ahead()?, Tok::Assign)
+                        && matches!(e, Expr::Var(_) | Expr::Index(..))
+                    {
+                        self.advance()?;
+                        self.advance()?;
+                        let rhs = self.expr()?;
+                        let value = Expr::Bin(op, Box::new(e.clone()), Box::new(rhs));
+                        return Ok(Some(Stat::Assign(vec![e], vec![value])));
+                    }
+                }
                 if self.check(&Tok::Assign) || self.check(&Tok::Comma) {
                     let mut targets = vec![e];
                     while self.accept(&Tok::Comma)? {
@@ -551,6 +612,7 @@ impl<'a> Parser<'a> {
         self.expect(&Tok::End)?;
         let fs = self.funcs.pop().expect("fs");
         Ok(Rc::new(FuncProto {
+            source: self.chunk_name.as_str().into(),
             name,
             params,
             is_vararg,
@@ -590,7 +652,7 @@ impl<'a> Parser<'a> {
         match self.tok.clone() {
             Tok::Str(s) => {
                 self.advance()?;
-                Ok(vec![Expr::Str(LStr::new(&s))])
+                Ok(vec![Expr::Str(LStr::intern_bytes(&s))])
             }
             Tok::LBrace => Ok(vec![self.table_cons()?]),
             Tok::LParen => {
@@ -615,7 +677,7 @@ impl<'a> Parser<'a> {
                 Tok::Dot => {
                     self.advance()?;
                     let n = self.name()?;
-                    e = Expr::Index(Box::new(e), Box::new(Expr::Str(LStr::new(&n))));
+                    e = Expr::Index(Box::new(e), Box::new(Expr::Str(LStr::intern(&n))));
                 }
                 Tok::LBracket => {
                     self.advance()?;
@@ -627,7 +689,7 @@ impl<'a> Parser<'a> {
                     self.advance()?;
                     let n = self.name()?;
                     let args = self.call_args()?;
-                    e = Expr::Method(Box::new(e), LStr::new(&n), args, line);
+                    e = Expr::Method(Box::new(e), LStr::intern(&n), args, line);
                 }
                 Tok::LParen | Tok::Str(_) | Tok::LBrace => {
                     let args = self.call_args()?;
@@ -654,7 +716,7 @@ impl<'a> Parser<'a> {
                 let n = self.name()?;
                 self.expect(&Tok::Assign)?;
                 let v = self.expr()?;
-                fields.push(TField::Keyed(Expr::Str(LStr::new(&n)), v));
+                fields.push(TField::Keyed(Expr::Str(LStr::intern(&n)), v));
             } else {
                 fields.push(TField::Pos(self.expr()?));
             }
@@ -669,7 +731,7 @@ impl<'a> Parser<'a> {
     fn simple_expr(&mut self) -> R<Expr> {
         let e = match self.tok.clone() {
             Tok::Num(n) => Expr::Num(n),
-            Tok::Str(s) => Expr::Str(LStr::new(&s)),
+            Tok::Str(s) => Expr::Str(LStr::intern_bytes(&s)),
             Tok::Nil => Expr::Nil,
             Tok::True => Expr::True,
             Tok::False => Expr::False,
@@ -789,7 +851,7 @@ pub fn collect_globals(proto: &FuncProto) -> std::collections::BTreeSet<String> 
         }
     }
     fn block(b: &Block, out: &mut std::collections::BTreeSet<String>) {
-        for s in b {
+        for s in b.iter() {
             match s {
                 Stat::Local(_, es) | Stat::Return(es) => es.iter().for_each(|e| expr(e, out)),
                 Stat::LocalFunc(_, p) => block(&p.body, out),
@@ -827,7 +889,7 @@ pub fn collect_globals(proto: &FuncProto) -> std::collections::BTreeSet<String> 
                     exprs.iter().for_each(|e| expr(e, out));
                     block(body, out);
                 }
-                Stat::Break => {}
+                Stat::Break | Stat::Goto(_) | Stat::Label(_) => {}
             }
         }
     }

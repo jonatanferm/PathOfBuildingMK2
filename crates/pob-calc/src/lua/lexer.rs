@@ -5,7 +5,7 @@ use super::interp::LuaError;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tok {
     Name(String),
-    Str(String),
+    Str(Vec<u8>),
     Num(f64),
     // keywords
     And,
@@ -52,6 +52,7 @@ pub enum Tok {
     RBracket,
     Semi,
     Colon,
+    DoubleColon,
     Comma,
     Dot,
     Concat,
@@ -129,7 +130,7 @@ impl<'a> Lexer<'a> {
         (self.peek(i) == b'[').then_some(i - 1)
     }
 
-    fn read_long_string(&mut self, level: usize) -> Result<String, LuaError> {
+    fn read_long_string(&mut self, level: usize) -> Result<Vec<u8>, LuaError> {
         self.pos += level + 2;
         // A newline right after the opener is skipped.
         if self.peek(0) == b'\r' {
@@ -150,7 +151,7 @@ impl<'a> Lexer<'a> {
                     i += 1;
                 }
                 if i - 1 == level && self.peek(i) == b']' {
-                    let s = String::from_utf8_lossy(&self.src[start..self.pos]).into_owned();
+                    let s = self.src[start..self.pos].to_vec();
                     self.pos += level + 2;
                     return Ok(s);
                 }
@@ -186,7 +187,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_string(&mut self, quote: u8) -> Result<String, LuaError> {
+    fn read_string(&mut self, quote: u8) -> Result<Vec<u8>, LuaError> {
         self.pos += 1;
         let mut out: Vec<u8> = Vec::new();
         loop {
@@ -235,7 +236,7 @@ impl<'a> Lexer<'a> {
                 other => out.push(other),
             }
         }
-        Ok(String::from_utf8_lossy(&out).into_owned())
+        Ok(out)
     }
 
     fn read_number(&mut self) -> Result<f64, LuaError> {
@@ -296,6 +297,7 @@ impl<'a> Lexer<'a> {
         let (tok, len) = match two {
             (b'=', b'=') => (Tok::EqEq, 2),
             (b'~', b'=') => (Tok::NotEq, 2),
+            (b':', b':') => (Tok::DoubleColon, 2),
             (b'<', b'=') => (Tok::LtEq, 2),
             (b'>', b'=') => (Tok::GtEq, 2),
             (b'.', b'.') => {

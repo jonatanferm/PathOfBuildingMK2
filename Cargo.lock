@@ -2407,6 +2407,7 @@ name = "pob-calc"
 version = "0.0.1"
 dependencies = [
  "ahash",
+ "flate2",
  "indexmap",
  "serde",
  "serde_json",
@@ -2462,6 +2463,7 @@ dependencies = [
  "anyhow",
  "indexmap",
  "mlua",
+ "pob-calc",
  "pob-data",
  "pob-engine",
  "serde",

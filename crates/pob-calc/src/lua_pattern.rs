@@ -13,17 +13,26 @@ const CAP_POSITION: isize = -2;
 /// A capture result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Capture<'s> {
-    Str(&'s str),
+    Str(&'s [u8]),
     /// `()` position capture: 1-based byte index.
     Pos(usize),
 }
 
 impl<'s> Capture<'s> {
     #[must_use]
+    /// The capture as UTF-8 text (`""` for position captures or non-UTF-8).
     pub fn as_str(&self) -> &'s str {
         match self {
-            Capture::Str(s) => s,
+            Capture::Str(s) => std::str::from_utf8(s).unwrap_or(""),
             Capture::Pos(_) => "",
+        }
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &'s [u8] {
+        match self {
+            Capture::Str(s) => s,
+            Capture::Pos(_) => b"",
         }
     }
 
@@ -31,7 +40,7 @@ impl<'s> Capture<'s> {
     #[must_use]
     pub fn num(&self) -> Option<f64> {
         match self {
-            Capture::Str(s) => to_number(s),
+            Capture::Str(s) => std::str::from_utf8(s).ok().and_then(to_number),
             Capture::Pos(p) => Some(*p as f64),
         }
     }
@@ -394,7 +403,7 @@ fn default_step(ms: &mut MatchState<'_>, s: &mut usize, p: &mut usize) -> R<Step
 
 fn get_capture<'s>(
     ms: &MatchState<'_>,
-    src: &'s str,
+    src: &'s [u8],
     i: usize,
     s: usize,
     e: usize,
@@ -413,28 +422,12 @@ fn get_capture<'s>(
     if len == CAP_POSITION {
         return Ok(Capture::Pos(start + 1));
     }
-    Ok(Capture::Str(slice(src, start, start + len as usize)))
-}
-
-/// `&src[a..b]` tolerating non-char-boundary byte offsets (patterns work on
-/// bytes; PoB's inputs are ASCII in practice).
-fn slice(src: &str, a: usize, b: usize) -> &str {
-    src.get(a..b).unwrap_or_else(|| {
-        let mut a = a;
-        while !src.is_char_boundary(a) {
-            a -= 1;
-        }
-        let mut b = b;
-        while !src.is_char_boundary(b) {
-            b += 1;
-        }
-        &src[a..b]
-    })
+    Ok(Capture::Str(&src[start..start + len as usize]))
 }
 
 fn push_captures<'s>(
     ms: &MatchState<'_>,
-    src: &'s str,
+    src: &'s [u8],
     s: usize,
     e: usize,
     whole_if_none: bool,
@@ -466,8 +459,8 @@ fn new_state<'a>(src: &'a [u8], pat: &'a [u8]) -> MatchState<'a> {
 }
 
 /// `string.find(s, pattern, init, plain)`; `init` is 1-based (negative from end).
-pub fn find<'s>(s: &'s str, pattern: &str, init: i64, plain: bool) -> R<Option<Found<'s>>> {
-    let src = s.as_bytes();
+pub fn find<'s>(s: &'s [u8], pattern: &[u8], init: i64, plain: bool) -> R<Option<Found<'s>>> {
+    let src = s;
     let len = src.len() as i64;
     let mut init = if init < 0 { len + init + 1 } else { init };
     if init < 1 {
@@ -477,10 +470,10 @@ pub fn find<'s>(s: &'s str, pattern: &str, init: i64, plain: bool) -> R<Option<F
         return Ok(None);
     }
     let init = (init - 1) as usize;
-    let special = pattern.bytes().any(|b| b"^$*+?.([%-".contains(&b));
+    let special = pattern.iter().any(|b| b"^$*+?.([%-".contains(b));
     if plain || !special {
         let hay = &src[init..];
-        let needle = pattern.as_bytes();
+        let needle = pattern;
         let pos = if needle.is_empty() {
             Some(0)
         } else {
@@ -492,7 +485,7 @@ pub fn find<'s>(s: &'s str, pattern: &str, init: i64, plain: bool) -> R<Option<F
             captures: Vec::new(),
         }));
     }
-    let pat = pattern.as_bytes();
+    let pat = pattern;
     let (anchor, pstart) = if pat.first() == Some(&b'^') {
         (true, 1)
     } else {
@@ -516,8 +509,8 @@ pub fn find<'s>(s: &'s str, pattern: &str, init: i64, plain: bool) -> R<Option<F
 }
 
 /// `string.match(s, pattern, init)`: captures (or the whole match).
-pub fn matches<'s>(s: &'s str, pattern: &str, init: i64) -> R<Option<Vec<Capture<'s>>>> {
-    let src = s.as_bytes();
+pub fn matches<'s>(s: &'s [u8], pattern: &[u8], init: i64) -> R<Option<Vec<Capture<'s>>>> {
+    let src = s;
     let len = src.len() as i64;
     let mut init = if init < 0 { len + init + 1 } else { init };
     if init < 1 {
@@ -526,7 +519,7 @@ pub fn matches<'s>(s: &'s str, pattern: &str, init: i64) -> R<Option<Vec<Capture
     if init > len + 1 {
         return Ok(None);
     }
-    let pat = pattern.as_bytes();
+    let pat = pattern;
     let (anchor, pstart) = if pat.first() == Some(&b'^') {
         (true, 1)
     } else {
@@ -546,9 +539,9 @@ pub fn matches<'s>(s: &'s str, pattern: &str, init: i64) -> R<Option<Vec<Capture
 }
 
 /// `string.gmatch(s, pattern)` collected eagerly.
-pub fn gmatch<'s>(s: &'s str, pattern: &str) -> R<Vec<Vec<Capture<'s>>>> {
-    let src = s.as_bytes();
-    let pat = pattern.as_bytes();
+pub fn gmatch<'s>(s: &'s [u8], pattern: &[u8]) -> R<Vec<Vec<Capture<'s>>>> {
+    let src = s;
+    let pat = pattern;
     let mut out = Vec::new();
     let mut src_pos = 0usize;
     while src_pos <= src.len() {
@@ -568,20 +561,20 @@ pub fn gmatch<'s>(s: &'s str, pattern: &str) -> R<Vec<Vec<Capture<'s>>>> {
 /// Replacement for [`gsub`].
 pub enum Repl<'r> {
     /// `%0`–`%9` expanded, `%%` → `%`.
-    Str(&'r str),
+    Str(&'r [u8]),
     /// Called with the captures; `None` keeps the original match (Lua `nil`/`false`).
-    Func(&'r mut dyn FnMut(&[Capture<'_>]) -> Option<String>),
+    Func(&'r mut dyn FnMut(&[Capture<'_>]) -> Option<Vec<u8>>),
 }
 
 /// `string.gsub(s, pattern, repl, n)`; returns `(result, count)`.
 pub fn gsub(
-    s: &str,
-    pattern: &str,
+    s: &[u8],
+    pattern: &[u8],
     mut repl: Repl<'_>,
     max_n: Option<usize>,
-) -> R<(String, usize)> {
-    let src = s.as_bytes();
-    let pat = pattern.as_bytes();
+) -> R<(Vec<u8>, usize)> {
+    let src = s;
+    let pat = pattern;
     let (anchor, pstart) = if pat.first() == Some(&b'^') {
         (true, 1)
     } else {
@@ -600,7 +593,7 @@ pub fn gsub(
             let whole = &src[src_pos..e];
             match &mut repl {
                 Repl::Str(r) => {
-                    let rb = r.as_bytes();
+                    let rb: &[u8] = r;
                     let mut i = 0;
                     while i < rb.len() {
                         if rb[i] == L_ESC && i + 1 < rb.len() {
@@ -615,7 +608,7 @@ pub fn gsub(
                                         .get(idx)
                                         .ok_or(PatternError("invalid capture index"))?;
                                     match cap {
-                                        Capture::Str(c) => out.extend_from_slice(c.as_bytes()),
+                                        Capture::Str(c) => out.extend_from_slice(c),
                                         Capture::Pos(p) => {
                                             out.extend_from_slice(p.to_string().as_bytes())
                                         }
@@ -631,7 +624,7 @@ pub fn gsub(
                     }
                 }
                 Repl::Func(f) => match f(&caps) {
-                    Some(r) => out.extend_from_slice(r.as_bytes()),
+                    Some(r) => out.extend_from_slice(&r),
                     None => out.extend_from_slice(whole),
                 },
             }
@@ -656,19 +649,28 @@ pub fn gsub(
     if src_pos < src.len() {
         out.extend_from_slice(&src[src_pos..]);
     }
-    Ok((String::from_utf8_lossy(&out).into_owned(), n))
+    Ok((out, n))
 }
 
-/// Convenience: `s:gsub(pattern, repl)` result string.
+/// Convenience: `s:gsub(pattern, repl)` on text.
 #[must_use]
 pub fn gsub_str(s: &str, pattern: &str, repl: &str) -> String {
-    gsub(s, pattern, Repl::Str(repl), None).map_or_else(|_| s.to_owned(), |(r, _)| r)
+    gsub(
+        s.as_bytes(),
+        pattern.as_bytes(),
+        Repl::Str(repl.as_bytes()),
+        None,
+    )
+    .map_or_else(
+        |_| s.to_owned(),
+        |(r, _)| String::from_utf8_lossy(&r).into_owned(),
+    )
 }
 
 /// Convenience: first capture of `s:match(pattern)` as `&str`.
 #[must_use]
 pub fn match1<'s>(s: &'s str, pattern: &str) -> Option<&'s str> {
-    matches(s, pattern, 1)
+    matches(s.as_bytes(), pattern.as_bytes(), 1)
         .ok()
         .flatten()
         .and_then(|c| c.into_iter().next())
@@ -680,10 +682,10 @@ mod tests {
     use super::*;
 
     fn caps(s: &str, p: &str) -> Option<Vec<String>> {
-        matches(s, p, 1).unwrap().map(|v| {
+        matches(s.as_bytes(), p.as_bytes(), 1).unwrap().map(|v| {
             v.iter()
                 .map(|c| match c {
-                    Capture::Str(s) => (*s).to_owned(),
+                    Capture::Str(s) => String::from_utf8_lossy(s).into_owned(),
                     Capture::Pos(p) => format!("@{p}"),
                 })
                 .collect()
@@ -719,26 +721,29 @@ mod tests {
 
     #[test]
     fn find_and_gsub() {
-        let f = find("10% increased damage", "(%d+)%% increased", 1, false)
+        let f = find(b"10% increased damage", b"(%d+)%% increased", 1, false)
             .unwrap()
             .unwrap();
         assert_eq!((f.start, f.end), (1, 13));
-        assert_eq!(f.captures, vec![Capture::Str("10")]);
-        assert_eq!(find("a.b", ".", 1, true).unwrap().unwrap().start, 2);
+        assert_eq!(f.captures, vec![Capture::Str(b"10")]);
+        assert_eq!(find(b"a.b", b".", 1, true).unwrap().unwrap().start, 2);
         assert_eq!(gsub_str("hello world", "o", "0"), "hell0 w0rld");
         assert_eq!(gsub_str("abc", "%w", "%0%0"), "aabbcc");
         assert_eq!(gsub_str("  trim  ", "^%s*(.-)%s*$", "%1"), "trim");
-        let mut up = |c: &[Capture<'_>]| Some(c[0].as_str().to_uppercase());
+        let mut up = |c: &[Capture<'_>]| Some(c[0].as_str().to_uppercase().into_bytes());
         assert_eq!(
-            gsub("a b", "%a", Repl::Func(&mut up), None).unwrap().0,
-            "A B"
+            gsub(b"a b", b"%a", Repl::Func(&mut up), None).unwrap().0,
+            b"A B"
         );
-        assert_eq!(gsub("abc", "", Repl::Str("-"), None).unwrap().0, "-a-b-c-");
+        assert_eq!(
+            gsub(b"abc", b"", Repl::Str(b"-"), None).unwrap().0,
+            b"-a-b-c-"
+        );
     }
 
     #[test]
     fn gmatch_all() {
-        let v = gmatch("a,b,,c", "([^,]*)").unwrap();
+        let v = gmatch(b"a,b,,c", b"([^,]*)").unwrap();
         let got: Vec<&str> = v.iter().map(|c| c[0].as_str()).collect();
         assert_eq!(got, vec!["a", "", "b", "", "", "c", ""]);
     }

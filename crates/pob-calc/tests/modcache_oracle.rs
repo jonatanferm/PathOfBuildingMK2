@@ -93,7 +93,7 @@ fn modcache_oracle() {
             _ => None,
         };
         let exp_extra = expected.get_int(2).as_str().map(str::to_owned);
-        match parser.parse(line) {
+        match parser.parse(line.as_str()) {
             Ok(got) => {
                 if mods_close(&got.mods, &exp_mods) && got.extra == exp_extra {
                     ok += 1;

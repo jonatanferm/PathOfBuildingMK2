@@ -1,0 +1,146 @@
+//! Path of Building itself, booted headless in the embedded interpreter.
+//!
+//! Mirrors PoB's own `HeadlessWrapper.lua` (used by its test suite): define
+//! the SimpleGraphic API stubs, run `Launch.lua`, one `OnInit` and one
+//! `OnFrame`, then drive builds through `main:SetMode("BUILD", …)`. The
+//! unique/rare item browser databases are not loaded at boot (the calc never
+//! reads them); [`Pob::load_item_dbs`] loads them on demand.
+
+use std::rc::Rc;
+
+use ahash::AHashMap;
+
+use crate::lua::host::{self, HostFs};
+use crate::lua::{Interp, LuaError, Val};
+
+pub struct Pob {
+    pub interp: Interp,
+}
+
+/// Scalar outputs of a calc (`env.player.output` / `calcsTab.mainOutput`).
+#[derive(Debug, Clone, Default)]
+pub struct Outputs {
+    pub numbers: AHashMap<String, f64>,
+    pub flags: AHashMap<String, bool>,
+    pub strings: AHashMap<String, String>,
+}
+
+impl Outputs {
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<f64> {
+        self.numbers.get(key).copied()
+    }
+}
+
+fn err(e: LuaError) -> String {
+    e.0
+}
+
+impl Pob {
+    /// Boot PoB with `fs` rooted at PoB's `src/` directory.
+    pub fn boot(fs: Rc<dyn HostFs>) -> Result<Self, String> {
+        let mut it = Interp::new();
+        host::install(&mut it, fs.clone());
+        let wrapper = fs
+            .read("HeadlessWrapper.lua")
+            .ok_or("HeadlessWrapper.lua not found")?;
+        let wrapper = String::from_utf8_lossy(&wrapper).into_owned();
+        // Everything before `dofile("Launch.lua")`: SimpleGraphic stubs,
+        // callback plumbing and the `require` hack.
+        let prefix = wrapper
+            .find("dofile(\"Launch.lua\")")
+            .map_or(wrapper.as_str(), |i| &wrapper[..i]);
+        it.exec_chunk(prefix, "HeadlessWrapper.lua", Vec::new())
+            .map_err(err)?;
+        // `_SimpleGraphic.def.lua` defined inert stubs for these; restore the
+        // real host implementations.
+        host::install_natives(&mut it, fs);
+        it.exec_chunk("dofile('Launch.lua')", "boot", Vec::new())
+            .map_err(err)?;
+        it.exec_chunk(
+            r#"
+__mainObject__.continuousIntegrationMode = nil
+runCallback("OnInit")
+local main = __mainObject__.main
+if main and main.onFrameFuncs then
+    main.onFrameFuncs["LoadItems"] = nil
+end
+runCallback("OnFrame")
+if __mainObject__.promptMsg then
+    error("PoB startup failed: " .. tostring(__mainObject__.promptMsg))
+end
+build = __mainObject__.main.modes["BUILD"]
+"#,
+            "boot",
+            Vec::new(),
+        )
+        .map_err(err)?;
+        Ok(Self { interp: it })
+    }
+
+    /// Boot from a PoB checkout on disk (`<root>/src`).
+    pub fn boot_from_dir(pob_root: &std::path::Path) -> Result<Self, String> {
+        Self::boot(Rc::new(host::StdFs {
+            root: pob_root.join("src"),
+        }))
+    }
+
+    /// Run a Lua snippet (for tests / tooling).
+    pub fn exec(&mut self, src: &str) -> Result<Vec<Val>, String> {
+        self.interp.exec_chunk(src, "exec", Vec::new()).map_err(err)
+    }
+
+    /// Load a build from PoB XML and calculate it.
+    pub fn load_build_xml(&mut self, xml: &str, name: &str) -> Result<(), String> {
+        self.interp.set_global("__pob_xml", Val::str(xml));
+        self.interp.set_global("__pob_name", Val::str(name));
+        self.exec(
+            r#"
+__mainObject__.promptMsg = nil
+__mainObject__.main:SetMode("BUILD", false, __pob_name, __pob_xml)
+runCallback("OnFrame")
+if __mainObject__.promptMsg then
+    error("build load failed: " .. tostring(__mainObject__.promptMsg))
+end
+build = __mainObject__.main.modes["BUILD"]
+"#,
+        )?;
+        Ok(())
+    }
+
+    /// The main calc env's player output (what PoB's sidebar and Calcs tab show).
+    pub fn player_output(&mut self) -> Result<Outputs, String> {
+        let v = self.exec(
+            r"
+local b = __mainObject__.main.modes['BUILD']
+local env = b.calcsTab and (b.calcsTab.mainEnv or b.calcsTab.calcsEnv)
+return env and env.player and env.player.output
+",
+        )?;
+        let mut out = Outputs::default();
+        if let Some(Val::Table(t)) = v.first() {
+            for (k, v) in t.pairs() {
+                let Val::Str(k) = k else { continue };
+                let k = k.to_str().into_owned();
+                match v {
+                    Val::Num(n) => {
+                        out.numbers.insert(k, n);
+                    }
+                    Val::Bool(b) => {
+                        out.flags.insert(k, b);
+                    }
+                    Val::Str(s) => {
+                        out.strings.insert(k, s.to_str().into_owned());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Recalculate the loaded build (`calcsTab:BuildOutput()`).
+    pub fn recalc(&mut self) -> Result<(), String> {
+        self.exec("build.calcsTab:BuildOutput()").map(|_| ())
+    }
+}

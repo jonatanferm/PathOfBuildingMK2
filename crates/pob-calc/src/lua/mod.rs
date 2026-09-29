@@ -4,6 +4,7 @@
 //! Only the language subset and standard library PoB's data/rule code uses
 //! are implemented: no metatables, coroutines, `goto` or string.dump.
 
+pub mod host;
 pub mod interp;
 pub mod lexer;
 pub mod parser;

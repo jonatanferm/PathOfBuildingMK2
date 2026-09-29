@@ -7,7 +7,6 @@
 use std::cell::RefCell;
 use std::fmt;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
-use std::ops::Deref;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
@@ -20,17 +19,17 @@ pub type NativeFn = dyn Fn(&mut Interp, Vec<Val>) -> Result<Vec<Val>, LuaError>;
 
 pub struct LStrInner {
     hash: u64,
-    s: Box<str>,
+    s: Box<[u8]>,
 }
 
-/// An immutable Lua string with a cached hash.
+/// An immutable Lua (byte) string with a cached hash.
 #[derive(Clone)]
 pub struct LStr(Rc<LStrInner>);
 
-fn hash_str(s: &str) -> u64 {
+fn hash_bytes(s: &[u8]) -> u64 {
     // FNV-1a — cheap and good enough for table keys.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in s.as_bytes() {
+    for b in s {
         h ^= u64::from(*b);
         h = h.wrapping_mul(0x0100_0000_01b3);
     }
@@ -40,10 +39,37 @@ fn hash_str(s: &str) -> u64 {
 impl LStr {
     #[must_use]
     pub fn new(s: &str) -> Self {
+        Self::from_bytes(s.as_bytes())
+    }
+
+    #[must_use]
+    pub fn from_bytes(b: &[u8]) -> Self {
         Self(Rc::new(LStrInner {
-            hash: hash_str(s),
-            s: s.into(),
+            hash: hash_bytes(b),
+            s: b.into(),
         }))
+    }
+
+    /// Shared instance for a source-code constant: identical constants
+    /// across all loaded chunks compare by pointer.
+    #[must_use]
+    pub fn intern(s: &str) -> Self {
+        Self::intern_bytes(s.as_bytes())
+    }
+
+    #[must_use]
+    pub fn intern_bytes(b: &[u8]) -> Self {
+        thread_local! {
+            static INTERNED: RefCell<ahash::AHashMap<Box<[u8]>, LStr>> = RefCell::new(ahash::AHashMap::default());
+        }
+        INTERNED.with(|m| {
+            if let Some(v) = m.borrow().get(b) {
+                return v.clone();
+            }
+            let v = LStr::from_bytes(b);
+            m.borrow_mut().insert(b.into(), v.clone());
+            v
+        })
     }
 
     #[must_use]
@@ -52,15 +78,30 @@ impl LStr {
     }
 
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.0.s
     }
-}
 
-impl Deref for LStr {
-    type Target = str;
-    fn deref(&self) -> &str {
-        &self.0.s
+    /// UTF-8 view; `""` if the bytes aren't valid UTF-8 (binary data).
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.0.s).unwrap_or("")
+    }
+
+    /// Lossy text view (binary bytes become U+FFFD).
+    #[must_use]
+    pub fn to_str(&self) -> std::borrow::Cow<'_, str> {
+        String::from_utf8_lossy(&self.0.s)
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.s.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.s.is_empty()
     }
 }
 
@@ -90,12 +131,12 @@ impl From<String> for LStr {
 
 impl fmt::Display for LStr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self)
+        f.write_str(&self.to_str())
     }
 }
 impl fmt::Debug for LStr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", &**self)
+        write!(f, "{:?}", self.to_str())
     }
 }
 
@@ -217,6 +258,24 @@ impl TableRef {
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.0, &other.0)
     }
+
+    #[must_use]
+    pub fn meta(&self) -> Option<TableRef> {
+        self.0.borrow().meta.clone()
+    }
+
+    /// Raw lookup of a pre-interned string key.
+    #[must_use]
+    pub fn get_lstr(&self, key: &LStr) -> Val {
+        let t = self.0.borrow();
+        if t.hash.is_empty() {
+            return Val::Nil;
+        }
+        t.hash
+            .get(&Key::Str(key.clone()))
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    }
 }
 
 impl Default for TableRef {
@@ -285,7 +344,14 @@ impl Key {
 #[derive(Default)]
 pub struct Table {
     pub arr: Vec<Val>,
+    /// Deleted keys stay as `nil` tombstones so `next` keeps its place during
+    /// traversal (Lua allows clearing fields while iterating); compacted on
+    /// the next insertion of a new key.
     pub hash: KeyMap,
+    tombstones: usize,
+    /// `setmetatable` target; only `__index`, `__newindex` and `__call`
+    /// are honoured.
+    pub meta: Option<TableRef>,
 }
 
 fn num_key(n: f64) -> Key {
@@ -382,7 +448,11 @@ impl Table {
                     loop {
                         let next = num_key((self.arr.len() + 1) as f64);
                         match self.hash.shift_remove(&next) {
-                            Some((_, v)) => self.arr.push(v),
+                            Some((_, v)) if !v.is_nil() => self.arr.push(v),
+                            Some(_) => {
+                                self.tombstones -= 1;
+                                break;
+                            }
                             None => break,
                         }
                     }
@@ -392,12 +462,26 @@ impl Table {
         }
         let k = to_key(&key).ok_or_else(|| LuaError::msg("table index is nil or NaN"))?;
         if value.is_nil() {
-            self.hash.shift_remove(&k);
+            if let Some(slot) = self.hash.get_mut(&k) {
+                if !slot.1.is_nil() {
+                    slot.1 = Val::Nil;
+                    self.tombstones += 1;
+                }
+            }
         } else {
-            let orig = matches!(k, Key::Table(_) | Key::Func(_)).then_some(key);
             match self.hash.get_mut(&k) {
-                Some(slot) => slot.1 = value,
+                Some(slot) => {
+                    if slot.1.is_nil() {
+                        self.tombstones -= 1;
+                    }
+                    slot.1 = value;
+                }
                 None => {
+                    if self.tombstones > 8 && self.tombstones * 2 > self.hash.len() {
+                        self.hash.retain(|_, (_, v)| !v.is_nil());
+                        self.tombstones = 0;
+                    }
+                    let orig = matches!(k, Key::Table(_) | Key::Func(_)).then_some(key);
                     self.hash.insert(k, (orig, value));
                 }
             }
@@ -418,7 +502,8 @@ impl Table {
                         arr_from = i;
                     } else {
                         arr_from = self.arr.len();
-                        hash_from = self.hash_index_after(key)?;
+                        // Trimmed trailing array slot, or a hash-part integer key.
+                        hash_from = self.hash_index_after(key).unwrap_or(0);
                     }
                 } else {
                     arr_from = self.arr.len();
@@ -431,10 +516,17 @@ impl Table {
                 return Ok(Some((Val::Num((i + 1) as f64), self.arr[i].clone())));
             }
         }
-        Ok(self
-            .hash
-            .get_index(hash_from)
-            .map(|(k, (orig, v))| (orig.clone().unwrap_or_else(|| k.to_val()), v.clone())))
+        let mut idx = hash_from;
+        while let Some((k, (orig, v))) = self.hash.get_index(idx) {
+            if !v.is_nil() {
+                return Ok(Some((
+                    orig.clone().unwrap_or_else(|| k.to_val()),
+                    v.clone(),
+                )));
+            }
+            idx += 1;
+        }
+        Ok(None)
     }
 
     fn hash_index_after(&self, key: &Val) -> Result<usize, LuaError> {
@@ -467,6 +559,11 @@ impl Val {
     #[must_use]
     pub fn str(s: &str) -> Self {
         Val::Str(LStr::new(s))
+    }
+
+    #[must_use]
+    pub fn bytes(b: &[u8]) -> Self {
+        Val::Str(LStr::from_bytes(b))
     }
 
     #[must_use]
@@ -504,7 +601,7 @@ impl Val {
     pub fn to_num(&self) -> Option<f64> {
         match self {
             Val::Num(n) => Some(*n),
-            Val::Str(s) => crate::lua_pattern::to_number(s),
+            Val::Str(s) => crate::lua_pattern::to_number(s.as_str()),
             _ => None,
         }
     }
@@ -512,7 +609,7 @@ impl Val {
     #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         match self {
-            Val::Str(s) => Some(s),
+            Val::Str(s) => Some(s.as_str()),
             _ => None,
         }
     }
@@ -601,7 +698,7 @@ impl fmt::Display for Val {
             Val::Nil => f.write_str("nil"),
             Val::Bool(b) => write!(f, "{b}"),
             Val::Num(n) => f.write_str(&num_to_string(*n)),
-            Val::Str(s) => f.write_str(s),
+            Val::Str(s) => f.write_str(&s.to_str()),
             Val::Table(t) => write!(f, "table: {:p}", Rc::as_ptr(&t.0)),
             Val::Func(func) => write!(f, "function: {:#x}", func.ptr()),
         }
@@ -611,7 +708,7 @@ impl fmt::Display for Val {
 impl fmt::Debug for Val {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Val::Str(s) => write!(f, "{:?}", &**s),
+            Val::Str(s) => write!(f, "{s:?}"),
             Val::Table(t) => {
                 let t = t.0.borrow();
                 write!(f, "{{")?;

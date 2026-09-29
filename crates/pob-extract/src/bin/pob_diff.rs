@@ -142,6 +142,18 @@ fn main() -> Result<()> {
         if !explain.is_empty() {
             explain_pob(&lua, &explain);
         }
+        if let Ok(snippet) = std::env::var("POB_DIFF_EXEC") {
+            match lua.load(&snippet).eval::<mlua::MultiValue>() {
+                Ok(v) => println!(
+                    "{}",
+                    v.iter()
+                        .map(|x| x.to_string().unwrap_or_default())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+                Err(e) => println!("exec error: {e}"),
+            }
+        }
         if std::env::var("POB_DIFF_TIME").is_ok() {
             run(
                 &lua,
@@ -1103,6 +1115,9 @@ return true
         .eval()
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
+    // The shims below only apply when running on Lua 5.4; on LuaJIT (the
+    // interpreter PoB targets) the native behaviour is already correct.
+    let is_lua54 = lua.globals().get::<String>("_VERSION").unwrap_or_default() == "Lua 5.4";
     // -- Lua 5.4 ↔ LuaJIT compatibility patch: lenient string.gsub replacement.
     // PoB's source contains gsub calls like value:gsub(pat, "%(...%)") where the
     // bare `%` is a literal in LuaJIT/5.1 but a syntax error in Lua 5.4 (only `%%`
@@ -1175,10 +1190,12 @@ string.format = function(fmt, ...)
 end
 return true
 ";
-    let _: bool = lua
-        .load(format_patch)
-        .eval()
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    if is_lua54 {
+        let _: bool = lua
+            .load(format_patch)
+            .eval()
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    }
 
     let gsub_patch = r"
 local raw_gsub = string.gsub
@@ -1220,10 +1237,12 @@ end
 -- patching string.gsub is enough.
 return true
 ";
-    let _: bool = lua
-        .load(gsub_patch)
-        .eval()
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    if is_lua54 {
+        let _: bool = lua
+            .load(gsub_patch)
+            .eval()
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    }
 
     // -- Output redirection: tee ConPrintf/print to a prefix --------------------
 

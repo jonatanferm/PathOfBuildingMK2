@@ -1,21 +1,20 @@
 //! The subset of Lua 5.1's standard library (+ LuaJIT `bit`) PoB code uses.
 
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use super::interp::{lt, Interp, LuaError};
-use super::value::{num_to_string, TableRef, Val};
+use super::value::{num_to_string, LStr, TableRef, Val};
 use crate::lua_pattern::{self as pat, Capture};
 
 type R<T> = Result<T, LuaError>;
 
-fn arg(args: &[Val], i: usize) -> Val {
+pub(crate) fn arg(args: &[Val], i: usize) -> Val {
     args.get(i).cloned().unwrap_or_default()
 }
 
-fn arg_str(args: &[Val], i: usize, fname: &str) -> R<String> {
+pub(crate) fn arg_str(args: &[Val], i: usize, fname: &str) -> R<String> {
     match args.get(i) {
-        Some(Val::Str(s)) => Ok(s.to_string()),
+        Some(Val::Str(s)) => Ok(s.to_str().into_owned()),
         Some(Val::Num(n)) => Ok(num_to_string(*n)),
         other => Err(LuaError::msg(format!(
             "bad argument #{} to '{fname}' (string expected, got {})",
@@ -25,7 +24,7 @@ fn arg_str(args: &[Val], i: usize, fname: &str) -> R<String> {
     }
 }
 
-fn arg_num(args: &[Val], i: usize, fname: &str) -> R<f64> {
+pub(crate) fn arg_num(args: &[Val], i: usize, fname: &str) -> R<f64> {
     args.get(i).and_then(Val::to_num).ok_or_else(|| {
         LuaError::msg(format!(
             "bad argument #{} to '{fname}' (number expected, got {})",
@@ -35,11 +34,11 @@ fn arg_num(args: &[Val], i: usize, fname: &str) -> R<f64> {
     })
 }
 
-fn opt_num(args: &[Val], i: usize) -> Option<f64> {
+pub(crate) fn opt_num(args: &[Val], i: usize) -> Option<f64> {
     args.get(i).and_then(Val::to_num)
 }
 
-fn arg_table(args: &[Val], i: usize, fname: &str) -> R<TableRef> {
+pub(crate) fn arg_table(args: &[Val], i: usize, fname: &str) -> R<TableRef> {
     match args.get(i) {
         Some(Val::Table(t)) => Ok(t.clone()),
         other => Err(LuaError::msg(format!(
@@ -53,10 +52,23 @@ fn arg_table(args: &[Val], i: usize, fname: &str) -> R<TableRef> {
 fn caps_to_vals(caps: &[Capture<'_>]) -> Vec<Val> {
     caps.iter()
         .map(|c| match c {
-            Capture::Str(s) => Val::str(s),
+            Capture::Str(s) => Val::bytes(s),
             Capture::Pos(p) => Val::Num(*p as f64),
         })
         .collect()
+}
+
+/// A string argument as bytes (numbers are converted, like Lua).
+pub(crate) fn arg_lstr(args: &[Val], i: usize, fname: &str) -> R<LStr> {
+    match args.get(i) {
+        Some(Val::Str(s)) => Ok(s.clone()),
+        Some(Val::Num(n)) => Ok(LStr::new(&num_to_string(*n))),
+        other => Err(LuaError::msg(format!(
+            "bad argument #{} to '{fname}' (string expected, got {})",
+            i + 1,
+            other.map_or("no value", Val::type_name)
+        ))),
+    }
 }
 
 fn pat_err(e: pat::PatternError) -> LuaError {
@@ -69,7 +81,11 @@ pub fn tostring(v: &Val) -> String {
     v.to_string()
 }
 
-fn reg(t: &TableRef, name: &str, f: impl Fn(&mut Interp, Vec<Val>) -> R<Vec<Val>> + 'static) {
+pub(crate) fn reg(
+    t: &TableRef,
+    name: &str,
+    f: impl Fn(&mut Interp, Vec<Val>) -> R<Vec<Val>> + 'static,
+) {
     t.set_str(name, Val::native(f));
 }
 
@@ -89,10 +105,9 @@ pub fn install(it: &mut Interp) {
         let base = opt_num(&a, 1);
         Ok(vec![match (&v, base) {
             (Val::Num(n), None) => Val::Num(*n),
-            (Val::Str(s), None) => pat::to_number(s).map_or(Val::Nil, Val::Num),
-            (Val::Str(s), Some(b)) => {
-                i64::from_str_radix(s.trim(), b as u32).map_or(Val::Nil, |n| Val::Num(n as f64))
-            }
+            (Val::Str(s), None) => pat::to_number(s.as_str()).map_or(Val::Nil, Val::Num),
+            (Val::Str(s), Some(b)) => i64::from_str_radix(s.as_str().trim(), b as u32)
+                .map_or(Val::Nil, |n| Val::Num(n as f64)),
             _ => Val::Nil,
         }])
     });
@@ -160,7 +175,25 @@ pub fn install(it: &mut Interp) {
     reg(&g, "rawequal", |_, a| {
         Ok(vec![Val::Bool(arg(&a, 0).raw_eq(&arg(&a, 1)))])
     });
-    reg(&g, "setmetatable", |_, a| Ok(vec![arg(&a, 0)]));
+    reg(&g, "setmetatable", |_, a| {
+        let t = arg_table(&a, 0, "setmetatable")?;
+        t.0.borrow_mut().meta = match arg(&a, 1) {
+            Val::Table(m) => Some(m),
+            _ => None,
+        };
+        Ok(vec![Val::Table(t)])
+    });
+    reg(&g, "getmetatable", |it, a| {
+        Ok(vec![match arg(&a, 0) {
+            Val::Table(t) => t.meta().map_or(Val::Nil, Val::Table),
+            Val::Str(_) => {
+                let m = TableRef::new();
+                m.set_str("__index", Val::Table(it.string_lib.clone()));
+                Val::Table(m)
+            }
+            _ => Val::Nil,
+        }])
+    });
     let next = |_: &mut Interp, a: Vec<Val>| -> R<Vec<Val>> {
         let t = arg_table(&a, 0, "next")?;
         Ok(match t.next(&arg(&a, 1))? {
@@ -189,34 +222,35 @@ pub fn install(it: &mut Interp) {
         Ok(vec![iter, Val::Table(t), Val::Num(0.0)])
     });
 
-    // ---- string ----
+    // ---- string (byte semantics) ----
     let s = it.string_lib.clone();
     reg(&s, "lower", |_, a| {
-        Ok(vec![Val::str(
-            &arg_str(&a, 0, "lower")?.to_ascii_lowercase(),
+        Ok(vec![Val::bytes(
+            &arg_lstr(&a, 0, "lower")?.as_bytes().to_ascii_lowercase(),
         )])
     });
     reg(&s, "upper", |_, a| {
-        Ok(vec![Val::str(
-            &arg_str(&a, 0, "upper")?.to_ascii_uppercase(),
+        Ok(vec![Val::bytes(
+            &arg_lstr(&a, 0, "upper")?.as_bytes().to_ascii_uppercase(),
         )])
     });
     reg(&s, "len", |_, a| {
-        Ok(vec![Val::Num(arg_str(&a, 0, "len")?.len() as f64)])
+        Ok(vec![Val::Num(arg_lstr(&a, 0, "len")?.len() as f64)])
     });
     reg(&s, "rep", |_, a| {
-        let st = arg_str(&a, 0, "rep")?;
+        let st = arg_lstr(&a, 0, "rep")?;
         let n = arg_num(&a, 1, "rep")?.max(0.0) as usize;
-        Ok(vec![Val::str(&st.repeat(n))])
+        Ok(vec![Val::bytes(&st.as_bytes().repeat(n))])
     });
     reg(&s, "reverse", |_, a| {
-        Ok(vec![Val::str(
-            &arg_str(&a, 0, "reverse")?.chars().rev().collect::<String>(),
-        )])
+        let mut b = arg_lstr(&a, 0, "reverse")?.as_bytes().to_vec();
+        b.reverse();
+        Ok(vec![Val::bytes(&b)])
     });
     reg(&s, "sub", |_, a| {
-        let st = arg_str(&a, 0, "sub")?;
-        let l = st.len() as i64;
+        let st = arg_lstr(&a, 0, "sub")?;
+        let b = st.as_bytes();
+        let l = b.len() as i64;
         let norm = |i: i64| if i < 0 { l + i + 1 } else { i };
         let mut i = norm(opt_num(&a, 1).unwrap_or(1.0) as i64);
         let mut j = norm(opt_num(&a, 2).unwrap_or(-1.0) as i64);
@@ -226,56 +260,58 @@ pub fn install(it: &mut Interp) {
         if j > l {
             j = l;
         }
-        let out = if i > j {
-            String::new()
+        Ok(vec![if i > j {
+            Val::str("")
         } else {
-            String::from_utf8_lossy(&st.as_bytes()[(i - 1) as usize..j as usize]).into_owned()
-        };
-        Ok(vec![Val::str(&out)])
+            Val::bytes(&b[(i - 1) as usize..j as usize])
+        }])
     });
     reg(&s, "byte", |_, a| {
-        let st = arg_str(&a, 0, "byte")?;
-        let i = opt_num(&a, 1).unwrap_or(1.0) as i64;
-        let j = opt_num(&a, 2).map_or(i, |n| n as i64);
+        let st = arg_lstr(&a, 0, "byte")?;
         let b = st.as_bytes();
-        Ok((i..=j)
-            .filter_map(|k| {
-                b.get((k - 1).max(0) as usize)
-                    .map(|c| Val::Num(f64::from(*c)))
-            })
+        let l = b.len() as i64;
+        let norm = |i: i64| if i < 0 { l + i + 1 } else { i };
+        let i = norm(opt_num(&a, 1).unwrap_or(1.0) as i64);
+        let j = norm(opt_num(&a, 2).map_or(i, |n| n as i64));
+        Ok((i.max(1)..=j.min(l))
+            .map(|k| Val::Num(f64::from(b[(k - 1) as usize])))
             .collect())
     });
     reg(&s, "char", |_, a| {
         let bytes: Vec<u8> = a.iter().map(|v| v.to_num().unwrap_or(0.0) as u8).collect();
-        Ok(vec![Val::str(&String::from_utf8_lossy(&bytes))])
+        Ok(vec![Val::bytes(&bytes)])
     });
     reg(&s, "find", |_, a| {
-        let st = arg_str(&a, 0, "find")?;
-        let p = arg_str(&a, 1, "find")?;
+        let st = arg_lstr(&a, 0, "find")?;
+        let p = arg_lstr(&a, 1, "find")?;
         let init = opt_num(&a, 2).unwrap_or(1.0) as i64;
         let plain = arg(&a, 3).truthy();
-        Ok(match pat::find(&st, &p, init, plain).map_err(pat_err)? {
-            Some(f) => {
-                let mut v = vec![Val::Num(f.start as f64), Val::Num(f.end as f64)];
-                v.extend(caps_to_vals(&f.captures));
-                v
-            }
-            None => vec![Val::Nil],
-        })
+        Ok(
+            match pat::find(st.as_bytes(), p.as_bytes(), init, plain).map_err(pat_err)? {
+                Some(f) => {
+                    let mut v = vec![Val::Num(f.start as f64), Val::Num(f.end as f64)];
+                    v.extend(caps_to_vals(&f.captures));
+                    v
+                }
+                None => vec![Val::Nil],
+            },
+        )
     });
     reg(&s, "match", |_, a| {
-        let st = arg_str(&a, 0, "match")?;
-        let p = arg_str(&a, 1, "match")?;
+        let st = arg_lstr(&a, 0, "match")?;
+        let p = arg_lstr(&a, 1, "match")?;
         let init = opt_num(&a, 2).unwrap_or(1.0) as i64;
-        Ok(match pat::matches(&st, &p, init).map_err(pat_err)? {
-            Some(c) => caps_to_vals(&c),
-            None => vec![Val::Nil],
-        })
+        Ok(
+            match pat::matches(st.as_bytes(), p.as_bytes(), init).map_err(pat_err)? {
+                Some(c) => caps_to_vals(&c),
+                None => vec![Val::Nil],
+            },
+        )
     });
     reg(&s, "gmatch", |_, a| {
-        let st = arg_str(&a, 0, "gmatch")?;
-        let p = arg_str(&a, 1, "gmatch")?;
-        let all: Vec<Vec<Val>> = pat::gmatch(&st, &p)
+        let st = arg_lstr(&a, 0, "gmatch")?;
+        let p = arg_lstr(&a, 1, "gmatch")?;
+        let all: Vec<Vec<Val>> = pat::gmatch(st.as_bytes(), p.as_bytes())
             .map_err(pat_err)?
             .iter()
             .map(|c| caps_to_vals(c))
@@ -289,34 +325,41 @@ pub fn install(it: &mut Interp) {
         })])
     });
     reg(&s, "gsub", |it, a| {
-        let st = arg_str(&a, 0, "gsub")?;
-        let p = arg_str(&a, 1, "gsub")?;
+        let st = arg_lstr(&a, 0, "gsub")?;
+        let p = arg_lstr(&a, 1, "gsub")?;
         let repl = arg(&a, 2);
         let n = opt_num(&a, 3).map(|n| n as usize);
+        let to_bytes = |v: &Val| -> Vec<u8> {
+            match v {
+                Val::Str(s) => s.as_bytes().to_vec(),
+                other => tostring(other).into_bytes(),
+            }
+        };
         let (out, count) = match &repl {
             Val::Str(_) | Val::Num(_) => {
-                let r = tostring(&repl);
-                pat::gsub(&st, &p, pat::Repl::Str(&r), n).map_err(pat_err)?
+                let r = to_bytes(&repl);
+                pat::gsub(st.as_bytes(), p.as_bytes(), pat::Repl::Str(&r), n).map_err(pat_err)?
             }
             Val::Table(t) => {
                 let t = t.clone();
-                let mut f = |caps: &[Capture<'_>]| -> Option<String> {
+                let mut f = |caps: &[Capture<'_>]| -> Option<Vec<u8>> {
                     let key = caps_to_vals(&caps[..1]).remove(0);
                     let v = t.get(&key);
-                    v.truthy().then(|| tostring(&v))
+                    v.truthy().then(|| to_bytes(&v))
                 };
-                pat::gsub(&st, &p, pat::Repl::Func(&mut f), n).map_err(pat_err)?
+                pat::gsub(st.as_bytes(), p.as_bytes(), pat::Repl::Func(&mut f), n)
+                    .map_err(pat_err)?
             }
             Val::Func(_) => {
                 let mut err: Option<LuaError> = None;
-                let mut f = |caps: &[Capture<'_>]| -> Option<String> {
+                let mut f = |caps: &[Capture<'_>]| -> Option<Vec<u8>> {
                     if err.is_some() {
                         return None;
                     }
                     match it.call(&repl, caps_to_vals(caps)) {
                         Ok(v) => {
                             let v = v.into_iter().next().unwrap_or_default();
-                            v.truthy().then(|| tostring(&v))
+                            v.truthy().then(|| to_bytes(&v))
                         }
                         Err(e) => {
                             err = Some(e);
@@ -324,7 +367,8 @@ pub fn install(it: &mut Interp) {
                         }
                     }
                 };
-                let res = pat::gsub(&st, &p, pat::Repl::Func(&mut f), n).map_err(pat_err)?;
+                let res = pat::gsub(st.as_bytes(), p.as_bytes(), pat::Repl::Func(&mut f), n)
+                    .map_err(pat_err)?;
                 if let Some(e) = err {
                     return Err(e);
                 }
@@ -337,7 +381,7 @@ pub fn install(it: &mut Interp) {
                 )))
             }
         };
-        Ok(vec![Val::str(&out), Val::Num(count as f64)])
+        Ok(vec![Val::bytes(&out), Val::Num(count as f64)])
     });
     reg(&s, "format", |_, a| Ok(vec![Val::str(&format_lua(&a)?)]));
     g.set_str("string", Val::Table(s));
@@ -498,6 +542,48 @@ pub fn install(it: &mut Interp) {
         }
         Ok(vec![Val::Num(r)])
     });
+    for (name, f) in [
+        ("sin", f64::sin as fn(f64) -> f64),
+        ("cos", f64::cos),
+        ("tan", f64::tan),
+        ("asin", f64::asin),
+        ("acos", f64::acos),
+        ("sinh", f64::sinh),
+        ("cosh", f64::cosh),
+        ("tanh", f64::tanh),
+        ("deg", f64::to_degrees),
+        ("rad", f64::to_radians),
+        ("log10", f64::log10),
+    ] {
+        reg(&m, name, move |_, a| {
+            Ok(vec![Val::Num(f(arg_num(&a, 0, name)?))])
+        });
+    }
+    reg(&m, "atan", |_, a| {
+        let y = arg_num(&a, 0, "atan")?;
+        Ok(vec![Val::Num(match opt_num(&a, 1) {
+            Some(x) => y.atan2(x),
+            None => y.atan(),
+        })])
+    });
+    reg(&m, "atan2", |_, a| {
+        Ok(vec![Val::Num(
+            arg_num(&a, 0, "atan2")?.atan2(arg_num(&a, 1, "atan2")?),
+        )])
+    });
+    reg(&m, "frexp", |_, a| {
+        let x = arg_num(&a, 0, "frexp")?;
+        if x == 0.0 || !x.is_finite() {
+            return Ok(vec![Val::Num(x), Val::Num(0.0)]);
+        }
+        let e = x.abs().log2().floor() + 1.0;
+        Ok(vec![Val::Num(x / 2f64.powf(e)), Val::Num(e)])
+    });
+    reg(&m, "ldexp", |_, a| {
+        Ok(vec![Val::Num(
+            arg_num(&a, 0, "ldexp")? * 2f64.powf(arg_num(&a, 1, "ldexp")?),
+        )])
+    });
     m.set_str("huge", Val::Num(f64::INFINITY));
     m.set_str("pi", Val::Num(std::f64::consts::PI));
     g.set_str("math", Val::Table(m));
@@ -538,6 +624,40 @@ pub fn install(it: &mut Interp) {
         let x = to_i32(arg_num(&a, 0, "rshift")?) as u32;
         let n = arg_num(&a, 1, "rshift")? as u32 & 31;
         Ok(vec![Val::Num(f64::from((x >> n) as i32))])
+    });
+    reg(&b, "arshift", move |_, a| {
+        let x = to_i32(arg_num(&a, 0, "arshift")?);
+        let n = arg_num(&a, 1, "arshift")? as u32 & 31;
+        Ok(vec![Val::Num(f64::from(x >> n))])
+    });
+    reg(&b, "rol", move |_, a| {
+        let x = to_i32(arg_num(&a, 0, "rol")?) as u32;
+        let n = arg_num(&a, 1, "rol")? as u32 & 31;
+        Ok(vec![Val::Num(f64::from(x.rotate_left(n) as i32))])
+    });
+    reg(&b, "ror", move |_, a| {
+        let x = to_i32(arg_num(&a, 0, "ror")?) as u32;
+        let n = arg_num(&a, 1, "ror")? as u32 & 31;
+        Ok(vec![Val::Num(f64::from(x.rotate_right(n) as i32))])
+    });
+    reg(&b, "tobit", move |_, a| {
+        Ok(vec![Val::Num(f64::from(to_i32(arg_num(&a, 0, "tobit")?)))])
+    });
+    reg(&b, "bswap", move |_, a| {
+        Ok(vec![Val::Num(f64::from(
+            to_i32(arg_num(&a, 0, "bswap")?).swap_bytes(),
+        ))])
+    });
+    reg(&b, "tohex", move |_, a| {
+        let x = to_i32(arg_num(&a, 0, "tohex")?) as u32;
+        let n = opt_num(&a, 1).unwrap_or(8.0) as i32;
+        let digits = n.unsigned_abs().min(8) as usize;
+        let hex = if n < 0 {
+            format!("{x:08X}")
+        } else {
+            format!("{x:08x}")
+        };
+        Ok(vec![Val::str(&hex[8 - digits..])])
     });
     g.set_str("bit", Val::Table(b));
     // ---- os (minimal) ----

@@ -5,7 +5,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use super::parser::{BinOp, Block, Expr, FuncProto, Parser, Stat, TField, UnOp, UpvalDesc, VarRef};
-use super::value::{num_to_string, Func, TableRef, Val};
+use super::value::{num_to_string, Func, LStr, TableRef, Val};
 
 #[derive(Debug, Clone)]
 pub struct LuaError(pub String);
@@ -47,11 +47,15 @@ enum Flow {
     Normal,
     Break,
     Return(Vec<Val>),
+    Goto(LStr),
 }
 
 /// The interpreter: globals plus call-depth bookkeeping.
 pub struct Interp {
     pub globals: TableRef,
+    k_index: LStr,
+    k_newindex: LStr,
+    k_call: LStr,
     /// `string` library table, used for `s:method()` lookups.
     pub string_lib: TableRef,
     depth: u32,
@@ -68,6 +72,9 @@ impl Interp {
     pub fn new() -> Self {
         let mut it = Self {
             globals: TableRef::new(),
+            k_index: LStr::intern("__index"),
+            k_newindex: LStr::intern("__newindex"),
+            k_call: LStr::intern("__call"),
             string_lib: TableRef::new(),
             depth: 0,
         };
@@ -84,14 +91,19 @@ impl Interp {
         self.globals.get_str(name)
     }
 
-    /// Parse and run a chunk, returning its results.
-    pub fn exec_chunk(&mut self, src: &str, name: &str, args: Vec<Val>) -> R<Vec<Val>> {
+    /// Compile a chunk into a function value (`load`).
+    pub fn load_chunk(&mut self, src: &str, name: &str) -> R<Val> {
         let proto = Parser::new(src, name)?.parse_chunk()?;
-        let closure = Rc::new(Closure {
+        Ok(Val::Func(Func::Lua(Rc::new(Closure {
             proto,
             upvals: Vec::new(),
-        });
-        self.call(&Val::Func(Func::Lua(closure)), args)
+        }))))
+    }
+
+    /// Parse and run a chunk, returning its results.
+    pub fn exec_chunk(&mut self, src: &str, name: &str, args: Vec<Val>) -> R<Vec<Val>> {
+        let f = self.load_chunk(src, name)?;
+        self.call(&f, args)
     }
 
     /// Call any function value.
@@ -104,6 +116,19 @@ impl Interp {
             Val::Func(Func::Lua(c)) => {
                 let c = c.clone();
                 self.call_closure(&c, args)
+            }
+            Val::Table(t) => {
+                let handler = t
+                    .meta()
+                    .map(|m| m.get_lstr(&self.k_call))
+                    .unwrap_or_default();
+                if handler.is_nil() {
+                    return Err(LuaError::msg("attempt to call a table value"));
+                }
+                let mut full = Vec::with_capacity(args.len() + 1);
+                full.push(f.clone());
+                full.extend(args);
+                self.call(&handler, full)
             }
             other => Err(LuaError::msg(format!(
                 "attempt to call a {} value",
@@ -140,7 +165,16 @@ impl Interp {
         for (slot, v) in proto.params.iter().zip(args) {
             Self::set_local(&mut frame, *slot, v);
         }
-        let res = self.exec_block(&proto.body, &mut frame);
+        let res = self.exec_block(&proto.body, &mut frame).map_err(|mut e| {
+            // Lua-style traceback, capped so deep recursion stays readable.
+            if e.0.matches("\n\tin ").count() < 12 {
+                e.0.push_str(&format!(
+                    "\n\tin {} ({}:{})",
+                    proto.name, proto.source, proto.line
+                ));
+            }
+            e
+        });
         self.depth -= 1;
         match res? {
             Flow::Return(v) => Ok(v),
@@ -149,9 +183,31 @@ impl Interp {
     }
 
     fn exec_block(&mut self, block: &Block, fr: &mut Frame<'_>) -> R<Flow> {
-        for stat in block {
-            match self.exec_stat(stat, fr)? {
-                Flow::Normal => {}
+        let mut i = 0;
+        while i < block.len() {
+            let flow = self.exec_stat(&block[i], fr).map_err(|mut e| {
+                // Innermost statement: prefix `source:line:` like Lua does.
+                let src = &fr.closure.proto.source;
+                if !e.0.starts_with(&**src) && !e.0.contains(" [at ") {
+                    e.0 = format!(
+                        "{src}:{}: {}",
+                        block.lines.get(i).copied().unwrap_or(0),
+                        e.0
+                    );
+                }
+                e
+            })?;
+            match flow {
+                Flow::Normal => i += 1,
+                Flow::Goto(label) => {
+                    match block
+                        .iter()
+                        .position(|s| matches!(s, Stat::Label(l) if *l == label))
+                    {
+                        Some(p) => i = p + 1,
+                        None => return Ok(Flow::Goto(label)),
+                    }
+                }
                 other => return Ok(other),
             }
         }
@@ -172,6 +228,14 @@ impl Interp {
     #[allow(clippy::too_many_lines)]
     fn exec_stat(&mut self, stat: &Stat, fr: &mut Frame<'_>) -> R<Flow> {
         match stat {
+            Stat::Local(slots, exprs)
+                if slots.len() == 1
+                    && exprs.len() == 1
+                    && !matches!(exprs[0], Expr::Call(..) | Expr::Method(..) | Expr::Vararg) =>
+            {
+                let v = self.eval(&exprs[0], fr)?;
+                Self::set_local(fr, slots[0], v);
+            }
             Stat::Local(slots, exprs) => {
                 let vals = self.eval_list(exprs, fr, slots.len())?;
                 for (slot, v) in slots.iter().zip(vals) {
@@ -187,6 +251,21 @@ impl Interp {
                     *fr.cells[s].as_ref().expect("cell").borrow_mut() = f;
                 } else {
                     fr.regs[s] = f;
+                }
+            }
+            Stat::Assign(targets, exprs) if targets.len() == 1 && exprs.len() == 1 => {
+                match &targets[0] {
+                    Expr::Var(var) => {
+                        let v = self.eval(&exprs[0], fr)?;
+                        self.assign_var(var, v, fr);
+                    }
+                    Expr::Index(obj, key) => {
+                        let o = self.eval(obj, fr)?;
+                        let k = self.eval(key, fr)?;
+                        let v = self.eval(&exprs[0], fr)?;
+                        self.set_index(&o, k, v)?;
+                    }
+                    _ => return Err(LuaError::msg("invalid assignment target")),
                 }
             }
             Stat::Assign(targets, exprs) => {
@@ -220,6 +299,7 @@ impl Interp {
                     match self.exec_block(body, fr)? {
                         Flow::Break => break,
                         Flow::Return(v) => return Ok(Flow::Return(v)),
+                        Flow::Goto(l) => return Ok(Flow::Goto(l)),
                         Flow::Normal => {}
                     }
                 }
@@ -228,6 +308,7 @@ impl Interp {
                 match self.exec_block(body, fr)? {
                     Flow::Break => break,
                     Flow::Return(v) => return Ok(Flow::Return(v)),
+                    Flow::Goto(l) => return Ok(Flow::Goto(l)),
                     Flow::Normal => {}
                 }
                 if self.eval(cond, fr)?.truthy() {
@@ -272,6 +353,7 @@ impl Interp {
                     match self.exec_block(body, fr)? {
                         Flow::Break => break,
                         Flow::Return(v) => return Ok(Flow::Return(v)),
+                        Flow::Goto(l) => return Ok(Flow::Goto(l)),
                         Flow::Normal => {}
                     }
                     i += step;
@@ -294,6 +376,7 @@ impl Interp {
                     match self.exec_block(body, fr)? {
                         Flow::Break => break,
                         Flow::Return(v) => return Ok(Flow::Return(v)),
+                        Flow::Goto(l) => return Ok(Flow::Goto(l)),
                         Flow::Normal => {}
                     }
                 }
@@ -304,6 +387,8 @@ impl Interp {
                 return Ok(Flow::Return(vals));
             }
             Stat::Break => return Ok(Flow::Break),
+            Stat::Goto(l) => return Ok(Flow::Goto(l.clone())),
+            Stat::Label(_) => {}
         }
         Ok(Flow::Normal)
     }
@@ -367,9 +452,26 @@ impl Interp {
     }
 
     /// `t[k]`, with string methods for string receivers.
-    pub fn index(&self, obj: &Val, key: &Val) -> R<Val> {
+    pub fn index(&mut self, obj: &Val, key: &Val) -> R<Val> {
         match obj {
-            Val::Table(t) => Ok(t.get(key)),
+            Val::Table(t) => {
+                let raw = t.get(key);
+                if !raw.is_nil() {
+                    return Ok(raw);
+                }
+                let Some(meta) = t.meta() else {
+                    return Ok(Val::Nil);
+                };
+                match meta.get_lstr(&self.k_index) {
+                    Val::Nil => Ok(Val::Nil),
+                    h @ Val::Table(_) => self.index(&h, key),
+                    h => Ok(self
+                        .call(&h, vec![obj.clone(), key.clone()])?
+                        .into_iter()
+                        .next()
+                        .unwrap_or_default()),
+                }
+            }
             Val::Str(_) => Ok(self.string_lib.get(key)),
             other => Err(LuaError::msg(format!(
                 "attempt to index a {} value (key '{}')",
@@ -379,9 +481,20 @@ impl Interp {
         }
     }
 
-    pub fn set_index(&self, obj: &Val, key: Val, v: Val) -> R<()> {
+    pub fn set_index(&mut self, obj: &Val, key: Val, v: Val) -> R<()> {
         match obj {
-            Val::Table(t) => t.set(key, v),
+            Val::Table(t) => {
+                if let Some(meta) = t.meta() {
+                    let h = meta.get_lstr(&self.k_newindex);
+                    if !h.is_nil() && t.get(&key).is_nil() {
+                        return match h {
+                            Val::Table(_) => self.set_index(&h, key, v),
+                            h => self.call(&h, vec![obj.clone(), key, v]).map(|_| ()),
+                        };
+                    }
+                }
+                t.set(key, v)
+            }
             other => Err(LuaError::msg(format!(
                 "attempt to index a {} value (key '{}')",
                 other.type_name(),
@@ -575,10 +688,16 @@ pub fn lua_mod(a: f64, b: f64) -> f64 {
     a - (a / b).floor() * b
 }
 
-fn to_concat_str(v: &Val) -> R<String> {
+fn push_concat(out: &mut Vec<u8>, v: &Val) -> R<()> {
     match v {
-        Val::Str(s) => Ok(s.to_string()),
-        Val::Num(n) => Ok(num_to_string(*n)),
+        Val::Str(s) => {
+            out.extend_from_slice(s.as_bytes());
+            Ok(())
+        }
+        Val::Num(n) => {
+            out.extend_from_slice(num_to_string(*n).as_bytes());
+            Ok(())
+        }
         other => Err(LuaError::msg(format!(
             "attempt to concatenate a {} value",
             other.type_name()
@@ -608,9 +727,10 @@ fn binop(op: BinOp, l: &Val, r: &Val) -> R<Val> {
         BinOp::Mod => arith(l, r, lua_mod)?,
         BinOp::Pow => arith(l, r, f64::powf)?,
         BinOp::Concat => {
-            let mut s = to_concat_str(l)?;
-            s.push_str(&to_concat_str(r)?);
-            Val::Str(s.into())
+            let mut out = Vec::new();
+            push_concat(&mut out, l)?;
+            push_concat(&mut out, r)?;
+            Val::bytes(&out)
         }
         BinOp::Eq => Val::Bool(l.raw_eq(r)),
         BinOp::Ne => Val::Bool(!l.raw_eq(r)),
