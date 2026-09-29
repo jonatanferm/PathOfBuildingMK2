@@ -220,6 +220,47 @@ impl<'a> Lexer<'a> {
                     self.line += 1;
                     out.push(b'\n');
                 }
+                // LuaJIT / 5.2 escapes.
+                b'x' => {
+                    let hex = |c: u8| (c as char).to_digit(16);
+                    match (hex(self.peek(0)), hex(self.peek(1))) {
+                        (Some(a), Some(b)) => {
+                            out.push((a * 16 + b) as u8);
+                            self.pos += 2;
+                        }
+                        _ => return Err(self.err("hexadecimal digit expected")),
+                    }
+                }
+                b'z' => {
+                    while matches!(self.peek(0), b' ' | b'\t' | b'\r' | b'\n') {
+                        if self.peek(0) == b'\n' {
+                            self.line += 1;
+                        }
+                        self.pos += 1;
+                    }
+                }
+                b'u' if self.peek(0) == b'{' => {
+                    self.pos += 1;
+                    let start = self.pos;
+                    while self.peek(0).is_ascii_hexdigit() {
+                        self.pos += 1;
+                    }
+                    let code = u32::from_str_radix(
+                        std::str::from_utf8(&self.src[start..self.pos]).unwrap_or("0"),
+                        16,
+                    )
+                    .unwrap_or(0);
+                    if self.peek(0) == b'}' {
+                        self.pos += 1;
+                    }
+                    let mut buf = [0u8; 4];
+                    out.extend_from_slice(
+                        char::from_u32(code)
+                            .unwrap_or('?')
+                            .encode_utf8(&mut buf)
+                            .as_bytes(),
+                    );
+                }
                 d if d.is_ascii_digit() => {
                     let mut v: u32 = u32::from(d - b'0');
                     for _ in 0..2 {

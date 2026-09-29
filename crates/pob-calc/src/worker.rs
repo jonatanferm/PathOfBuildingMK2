@@ -42,6 +42,19 @@ pub struct Snapshot {
     pub outputs: Outputs,
     pub result: Option<String>,
     pub error: Option<String>,
+    /// PoB's sidebar, exactly as its stat box shows it (PoB colour codes kept).
+    pub sidebar: Vec<SidebarLine>,
+    /// PoB's warnings (e.g. insufficient mana, unmet requirements).
+    pub warnings: Vec<String>,
+}
+
+/// One line of PoB's sidebar: `label` / `value` with `^7` / `^xRRGGBB`
+/// colour codes; `height` 6 = spacer.
+#[derive(Debug, Clone, Default)]
+pub struct SidebarLine {
+    pub label: String,
+    pub value: String,
+    pub height: f32,
 }
 
 /// Messages from the worker.
@@ -219,11 +232,48 @@ fn snapshot(pob: &mut Pob, seq: u64, result: Option<String>, error: Option<Strin
         .and_then(|v| v.first().and_then(|x| x.as_str().map(str::to_owned)))
         .unwrap_or_default();
     let outputs = pob.player_output().unwrap_or_default();
+    let raw = pob
+        .exec(
+            r"
+local out = {}
+local list = build and build.controls.statBox and build.controls.statBox.list or {}
+for _, e in ipairs(list) do
+    out[#out + 1] = tostring(e.height or 16) .. '\t' .. tostring(e[1] or '') .. '\t' .. tostring(e[2] or '')
+end
+out[#out + 1] = '\1'
+for _, w in ipairs(build and build.controls.warnings and build.controls.warnings.lines or {}) do
+    out[#out + 1] = tostring(w)
+end
+return table.concat(out, '\n')
+",
+        )
+        .ok()
+        .and_then(|v| v.first().map(ToString::to_string))
+        .unwrap_or_default();
+    let (lines, warns) = raw.split_once("\n\u{1}").unwrap_or((raw.as_str(), ""));
+    let sidebar = lines
+        .lines()
+        .map(|l| {
+            let mut parts = l.splitn(3, '\t');
+            SidebarLine {
+                height: parts.next().and_then(|h| h.parse().ok()).unwrap_or(16.0),
+                label: parts.next().unwrap_or("").to_owned(),
+                value: parts.next().unwrap_or("").to_owned(),
+            }
+        })
+        .collect();
+    let warnings = warns
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .collect();
     Snapshot {
         seq,
         xml,
         outputs,
         result,
         error,
+        sidebar,
+        warnings,
     }
 }

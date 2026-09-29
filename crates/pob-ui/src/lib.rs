@@ -42,6 +42,7 @@ mod party_tab;
 mod pob_config_panel;
 #[cfg(not(target_arch = "wasm32"))]
 mod pob_session;
+mod pob_sidebar;
 mod popup;
 mod set_switcher;
 mod settings;
@@ -2113,157 +2114,175 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             ui.add_space(10.0);
             ui.heading("Stats");
             ui.separator();
-            stat_row(ui, "Strength", &app.output, "Strength");
-            stat_row(ui, "Dexterity", &app.output, "Dexterity");
-            stat_row(ui, "Intelligence", &app.output, "Intelligence");
-            ui.add_space(4.0);
-            stat_row(ui, "Life", &app.output, "Life");
-            stat_row(ui, "Mana", &app.output, "Mana");
-            stat_row(ui, "Energy Shield", &app.output, "EnergyShield");
-            ui.add_space(4.0);
-            stat_row(ui, "Fire Res", &app.output, "FireResistTotal");
-            stat_row(ui, "Cold Res", &app.output, "ColdResistTotal");
-            stat_row(ui, "Lightning Res", &app.output, "LightningResistTotal");
-            stat_row(ui, "Chaos Res", &app.output, "ChaosResistTotal");
-            ui.add_space(4.0);
-            stat_row(ui, "Armour", &app.output, "Armour");
-            stat_row_decimal(
-                ui,
-                "Phys reduction %",
-                &app.output,
-                "PhysicalDamageReduction",
-            );
-            stat_row(ui, "Evasion", &app.output, "Evasion");
-            stat_row(ui, "Block", &app.output, "BlockChance");
-            stat_row(ui, "Spell Block", &app.output, "SpellBlockChance");
-            stat_row(ui, "Spell Suppress", &app.output, "SpellSuppressionChance");
-            ui.add_space(4.0);
-            stat_row_decimal(ui, "Life regen", &app.output, "LifeRegen");
-            stat_row_decimal(ui, "Mana regen", &app.output, "ManaRegen");
-            ui.add_space(4.0);
-            stat_row(ui, "EHP (avg)", &app.output, "AverageEHP");
-
-            ui.add_space(6.0);
-            ui.collapsing("Per-element defence", |ui| {
-                ui.weak("EHP and max-hit-taken split by damage type:");
-                ui.add_space(2.0);
-                stat_row(ui, "Phys EHP", &app.output, "PhysicalEHP");
-                stat_row(ui, "Fire EHP", &app.output, "FireEHP");
-                stat_row(ui, "Cold EHP", &app.output, "ColdEHP");
-                stat_row(ui, "Lightning EHP", &app.output, "LightningEHP");
-                stat_row(ui, "Chaos EHP", &app.output, "ChaosEHP");
+            #[cfg(not(target_arch = "wasm32"))]
+            let pob_sidebar = app
+                .pob
+                .as_ref()
+                .and_then(|p| p.snapshot.as_ref())
+                .filter(|s| !s.sidebar.is_empty())
+                .map(|s| (s.sidebar.clone(), s.warnings.clone()));
+            #[cfg(target_arch = "wasm32")]
+            let pob_sidebar: Option<(Vec<pob_sidebar::Line>, Vec<String>)> = None;
+            if let Some((lines, warnings)) = pob_sidebar {
+                pob_sidebar::render(ui, &lines, &warnings);
+            } else {
+                stat_row(ui, "Strength", &app.output, "Strength");
+                stat_row(ui, "Dexterity", &app.output, "Dexterity");
+                stat_row(ui, "Intelligence", &app.output, "Intelligence");
                 ui.add_space(4.0);
-                stat_row(ui, "Min EHP", &app.output, "MinimumEHP");
-                stat_row(ui, "Total EHP", &app.output, "TotalEHP");
+                stat_row(ui, "Life", &app.output, "Life");
+                stat_row(ui, "Mana", &app.output, "Mana");
+                stat_row(ui, "Energy Shield", &app.output, "EnergyShield");
                 ui.add_space(4.0);
-                stat_row(ui, "Phys max hit", &app.output, "PhysicalMaximumHitTaken");
-                stat_row(ui, "Fire max hit", &app.output, "FireMaximumHitTaken");
-                stat_row(ui, "Cold max hit", &app.output, "ColdMaximumHitTaken");
-                stat_row(
-                    ui,
-                    "Lightning max hit",
-                    &app.output,
-                    "LightningMaximumHitTaken",
-                );
-                stat_row(ui, "Chaos max hit", &app.output, "ChaosMaximumHitTaken");
-            });
-
-            ui.add_space(8.0);
-            ui.heading("Main skill");
-            ui.separator();
-            if app.character.main_skill.is_some() {
-                if app.output.get("MainSkillIsDotOnly") > 0.0 {
-                    ui.colored_label(
-                        egui::Color32::LIGHT_YELLOW,
-                        "DoT-only skill — hit DPS below is not meaningful",
-                    );
-                }
-                stat_row_decimal(ui, "Avg hit", &app.output, "MainSkillAverageHit");
-                stat_row_decimal(ui, "Crit chance %", &app.output, "MainSkillCritChance");
+                stat_row(ui, "Fire Res", &app.output, "FireResistTotal");
+                stat_row(ui, "Cold Res", &app.output, "ColdResistTotal");
+                stat_row(ui, "Lightning Res", &app.output, "LightningResistTotal");
+                stat_row(ui, "Chaos Res", &app.output, "ChaosResistTotal");
+                ui.add_space(4.0);
+                stat_row(ui, "Armour", &app.output, "Armour");
                 stat_row_decimal(
                     ui,
-                    "Avg w/ crit",
+                    "Phys reduction %",
                     &app.output,
-                    "MainSkillAverageHitWithCrit",
+                    "PhysicalDamageReduction",
                 );
-                stat_row_decimal(ui, "Hit chance %", &app.output, "MainSkillHitChance");
-                stat_row_decimal(ui, "Speed (cps)", &app.output, "MainSkillSpeed");
-                stat_row_decimal(ui, "DPS", &app.output, "MainSkillDPS");
-                if app.output.get("ManaPerSecondCost") > 0.0 {
-                    stat_row_decimal(ui, "Mana / sec", &app.output, "ManaPerSecondCost");
-                } else if app.output.get("MainSkillManaCost") > 0.0 {
-                    stat_row_decimal(ui, "Mana cost", &app.output, "MainSkillManaCost");
-                }
-                if app.output.get("ChainMax") > 0.0 {
-                    stat_row(ui, "Chain count", &app.output, "ChainMax");
-                }
-                if app.output.get("BleedDPS") > 0.0 {
-                    stat_row_decimal(ui, "Bleed DPS", &app.output, "BleedDPS");
-                }
-                if app.output.get("PoisonDPS") > 0.0 {
-                    stat_row_decimal(ui, "Poison DPS", &app.output, "PoisonDPS");
-                }
-                if app.output.get("IgniteDPS") > 0.0 {
-                    stat_row_decimal(ui, "Ignite DPS", &app.output, "IgniteDPS");
-                }
-                stat_row_decimal(ui, "Full DPS", &app.output, "FullDPS");
+                stat_row(ui, "Evasion", &app.output, "Evasion");
+                stat_row(ui, "Block", &app.output, "BlockChance");
+                stat_row(ui, "Spell Block", &app.output, "SpellBlockChance");
+                stat_row(ui, "Spell Suppress", &app.output, "SpellSuppressionChance");
+                ui.add_space(4.0);
+                stat_row_decimal(ui, "Life regen", &app.output, "LifeRegen");
+                stat_row_decimal(ui, "Mana regen", &app.output, "ManaRegen");
+                ui.add_space(4.0);
+                stat_row(ui, "EHP (avg)", &app.output, "AverageEHP");
 
-                // Issue #20 (slices 3-10): summoner builds want the headline
-                // minion numbers next to the player's main-skill block. The
-                // pipeline emits MinionLife > 0 only when the active skill
-                // resolves to a minion in the catalogue, so this gate cleanly
-                // suppresses the section for non-summoners.
-                if app.output.get("MinionLife") > 0.0 {
+                ui.add_space(6.0);
+                ui.collapsing("Per-element defence", |ui| {
+                    ui.weak("EHP and max-hit-taken split by damage type:");
+                    ui.add_space(2.0);
+                    stat_row(ui, "Phys EHP", &app.output, "PhysicalEHP");
+                    stat_row(ui, "Fire EHP", &app.output, "FireEHP");
+                    stat_row(ui, "Cold EHP", &app.output, "ColdEHP");
+                    stat_row(ui, "Lightning EHP", &app.output, "LightningEHP");
+                    stat_row(ui, "Chaos EHP", &app.output, "ChaosEHP");
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new("Minion").strong());
-                    stat_row_decimal(ui, "Life", &app.output, "MinionLife");
-                    // Issue #20 (slice 13): show ES only when the minion has
-                    // any — most summons (Zombies, Skeletons, golems other
-                    // than Carrion / Stone) emit zero, and a row of "0" adds
-                    // noise without information.
-                    if app.output.get("MinionEnergyShield") > 0.0 {
-                        stat_row_decimal(ui, "ES", &app.output, "MinionEnergyShield");
-                        // Issue #20 (slice 16): combined Life + ES pool —
-                        // only meaningful when ES is non-zero, otherwise it
-                        // duplicates the Life row.
-                        stat_row_decimal(ui, "Total HP", &app.output, "MinionTotalHP");
+                    stat_row(ui, "Min EHP", &app.output, "MinimumEHP");
+                    stat_row(ui, "Total EHP", &app.output, "TotalEHP");
+                    ui.add_space(4.0);
+                    stat_row(ui, "Phys max hit", &app.output, "PhysicalMaximumHitTaken");
+                    stat_row(ui, "Fire max hit", &app.output, "FireMaximumHitTaken");
+                    stat_row(ui, "Cold max hit", &app.output, "ColdMaximumHitTaken");
+                    stat_row(
+                        ui,
+                        "Lightning max hit",
+                        &app.output,
+                        "LightningMaximumHitTaken",
+                    );
+                    stat_row(ui, "Chaos max hit", &app.output, "ChaosMaximumHitTaken");
+                });
+
+                ui.add_space(8.0);
+                ui.heading("Main skill");
+                ui.separator();
+                if app.character.main_skill.is_some() {
+                    if app.output.get("MainSkillIsDotOnly") > 0.0 {
+                        ui.colored_label(
+                            egui::Color32::LIGHT_YELLOW,
+                            "DoT-only skill — hit DPS below is not meaningful",
+                        );
                     }
-                    // Issue #20 (slice 14): armour and evasion are always
-                    // non-zero (the monster table values are non-zero at
-                    // every level), so unlike ES they're rendered
-                    // unconditionally.
-                    stat_row_decimal(ui, "Armour", &app.output, "MinionArmour");
-                    stat_row_decimal(ui, "Evasion", &app.output, "MinionEvasion");
-                    // Issue #20 (slice 15): movement speed as a percentage
-                    // (`MinionMovementSpeed`); always non-zero (baseline 100%).
-                    stat_row_decimal(ui, "Move speed %", &app.output, "MinionMovementSpeed");
-                    stat_row_decimal(ui, "Avg hit", &app.output, "MinionAverageDamage");
-                    stat_row_decimal(ui, "Speed (cps)", &app.output, "MinionAttacksPerSecond");
-                    stat_row_decimal(ui, "Crit chance %", &app.output, "MinionCritChance");
-                    // Issue #20 (slice 16 follow-up): crit factor folds
-                    // chance × multiplier into the average per-hit damage
-                    // multiplier the DPS calc actually uses. PoB exposes
-                    // it as a headline number; surfacing it here lets
-                    // users see "5% × 150% → 1.025" without re-deriving.
-                    stat_row_decimal(ui, "Crit factor", &app.output, "MinionCritFactor");
-                    // Issue #20 (slice 8 follow-up): accuracy was already
-                    // computed but only the derived hit-chance landed on
-                    // the side panel. Surfacing the raw accuracy value
-                    // alongside hit-chance lets the user see how much
-                    // headroom they have vs the enemy's evasion.
-                    stat_row_decimal(ui, "Accuracy", &app.output, "MinionAccuracy");
-                    stat_row_decimal(ui, "Hit chance %", &app.output, "MinionHitChance");
-                    stat_row_decimal(ui, "DPS", &app.output, "MinionDPS");
-                    if app.output.get("MinionLifeRegen") > 0.0 {
-                        stat_row_decimal(ui, "Life regen", &app.output, "MinionLifeRegen");
+                    stat_row_decimal(ui, "Avg hit", &app.output, "MainSkillAverageHit");
+                    stat_row_decimal(ui, "Crit chance %", &app.output, "MainSkillCritChance");
+                    stat_row_decimal(
+                        ui,
+                        "Avg w/ crit",
+                        &app.output,
+                        "MainSkillAverageHitWithCrit",
+                    );
+                    stat_row_decimal(ui, "Hit chance %", &app.output, "MainSkillHitChance");
+                    stat_row_decimal(ui, "Speed (cps)", &app.output, "MainSkillSpeed");
+                    stat_row_decimal(ui, "DPS", &app.output, "MainSkillDPS");
+                    if app.output.get("ManaPerSecondCost") > 0.0 {
+                        stat_row_decimal(ui, "Mana / sec", &app.output, "ManaPerSecondCost");
+                    } else if app.output.get("MainSkillManaCost") > 0.0 {
+                        stat_row_decimal(ui, "Mana cost", &app.output, "MainSkillManaCost");
                     }
-                    stat_row_decimal(ui, "Fire res %", &app.output, "MinionFireResist");
-                    stat_row_decimal(ui, "Cold res %", &app.output, "MinionColdResist");
-                    stat_row_decimal(ui, "Lightning res %", &app.output, "MinionLightningResist");
-                    stat_row_decimal(ui, "Chaos res %", &app.output, "MinionChaosResist");
+                    if app.output.get("ChainMax") > 0.0 {
+                        stat_row(ui, "Chain count", &app.output, "ChainMax");
+                    }
+                    if app.output.get("BleedDPS") > 0.0 {
+                        stat_row_decimal(ui, "Bleed DPS", &app.output, "BleedDPS");
+                    }
+                    if app.output.get("PoisonDPS") > 0.0 {
+                        stat_row_decimal(ui, "Poison DPS", &app.output, "PoisonDPS");
+                    }
+                    if app.output.get("IgniteDPS") > 0.0 {
+                        stat_row_decimal(ui, "Ignite DPS", &app.output, "IgniteDPS");
+                    }
+                    stat_row_decimal(ui, "Full DPS", &app.output, "FullDPS");
+
+                    // Issue #20 (slices 3-10): summoner builds want the headline
+                    // minion numbers next to the player's main-skill block. The
+                    // pipeline emits MinionLife > 0 only when the active skill
+                    // resolves to a minion in the catalogue, so this gate cleanly
+                    // suppresses the section for non-summoners.
+                    if app.output.get("MinionLife") > 0.0 {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new("Minion").strong());
+                        stat_row_decimal(ui, "Life", &app.output, "MinionLife");
+                        // Issue #20 (slice 13): show ES only when the minion has
+                        // any — most summons (Zombies, Skeletons, golems other
+                        // than Carrion / Stone) emit zero, and a row of "0" adds
+                        // noise without information.
+                        if app.output.get("MinionEnergyShield") > 0.0 {
+                            stat_row_decimal(ui, "ES", &app.output, "MinionEnergyShield");
+                            // Issue #20 (slice 16): combined Life + ES pool —
+                            // only meaningful when ES is non-zero, otherwise it
+                            // duplicates the Life row.
+                            stat_row_decimal(ui, "Total HP", &app.output, "MinionTotalHP");
+                        }
+                        // Issue #20 (slice 14): armour and evasion are always
+                        // non-zero (the monster table values are non-zero at
+                        // every level), so unlike ES they're rendered
+                        // unconditionally.
+                        stat_row_decimal(ui, "Armour", &app.output, "MinionArmour");
+                        stat_row_decimal(ui, "Evasion", &app.output, "MinionEvasion");
+                        // Issue #20 (slice 15): movement speed as a percentage
+                        // (`MinionMovementSpeed`); always non-zero (baseline 100%).
+                        stat_row_decimal(ui, "Move speed %", &app.output, "MinionMovementSpeed");
+                        stat_row_decimal(ui, "Avg hit", &app.output, "MinionAverageDamage");
+                        stat_row_decimal(ui, "Speed (cps)", &app.output, "MinionAttacksPerSecond");
+                        stat_row_decimal(ui, "Crit chance %", &app.output, "MinionCritChance");
+                        // Issue #20 (slice 16 follow-up): crit factor folds
+                        // chance × multiplier into the average per-hit damage
+                        // multiplier the DPS calc actually uses. PoB exposes
+                        // it as a headline number; surfacing it here lets
+                        // users see "5% × 150% → 1.025" without re-deriving.
+                        stat_row_decimal(ui, "Crit factor", &app.output, "MinionCritFactor");
+                        // Issue #20 (slice 8 follow-up): accuracy was already
+                        // computed but only the derived hit-chance landed on
+                        // the side panel. Surfacing the raw accuracy value
+                        // alongside hit-chance lets the user see how much
+                        // headroom they have vs the enemy's evasion.
+                        stat_row_decimal(ui, "Accuracy", &app.output, "MinionAccuracy");
+                        stat_row_decimal(ui, "Hit chance %", &app.output, "MinionHitChance");
+                        stat_row_decimal(ui, "DPS", &app.output, "MinionDPS");
+                        if app.output.get("MinionLifeRegen") > 0.0 {
+                            stat_row_decimal(ui, "Life regen", &app.output, "MinionLifeRegen");
+                        }
+                        stat_row_decimal(ui, "Fire res %", &app.output, "MinionFireResist");
+                        stat_row_decimal(ui, "Cold res %", &app.output, "MinionColdResist");
+                        stat_row_decimal(
+                            ui,
+                            "Lightning res %",
+                            &app.output,
+                            "MinionLightningResist",
+                        );
+                        stat_row_decimal(ui, "Chaos res %", &app.output, "MinionChaosResist");
+                    }
+                } else if ui.link("Pick a skill →").clicked() {
+                    app.active_tab = Tab::Skills;
                 }
-            } else if ui.link("Pick a skill →").clicked() {
-                app.active_tab = Tab::Skills;
             }
         });
 
