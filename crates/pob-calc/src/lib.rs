@@ -4,6 +4,9 @@
 //! against the file it came from; see `docs/parity-plan.md`.
 
 pub mod flags;
+pub mod lua;
+pub mod lua_pattern;
+pub mod mod_parser;
 pub mod mod_store;
 pub mod modifier;
 

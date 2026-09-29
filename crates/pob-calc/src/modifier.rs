@@ -21,6 +21,13 @@ pub enum ModType {
     List,
     Max,
     Min,
+    /// PoB's distinct `"Flag"` type (only `CanNotUseItem`, tabulated by
+    /// CalcSetup) — not the same as `"FLAG"`.
+    FlagCanNotUse,
+    /// `"CHANCE"` (a handful of skill stat maps).
+    Chance,
+    /// `"DUMMY"` placeholders in skill stat maps.
+    Dummy,
 }
 
 impl ModType {
@@ -35,6 +42,9 @@ impl ModType {
             "LIST" => Self::List,
             "MAX" => Self::Max,
             "MIN" => Self::Min,
+            "Flag" => Self::FlagCanNotUse,
+            "CHANCE" => Self::Chance,
+            "DUMMY" => Self::Dummy,
             _ => return None,
         })
     }
@@ -50,6 +60,9 @@ impl ModType {
             Self::List => "LIST",
             Self::Max => "MAX",
             Self::Min => "MIN",
+            Self::FlagCanNotUse => "Flag",
+            Self::Chance => "CHANCE",
+            Self::Dummy => "DUMMY",
         }
     }
 }
@@ -74,10 +87,19 @@ pub enum Value {
 }
 
 /// A Lua table: string-keyed fields (in insertion order) plus an array part.
-#[derive(Debug, Clone, PartialEq, Default)]
+/// Equality ignores field order, like Lua tables.
+#[derive(Debug, Clone, Default)]
 pub struct Table {
     pub fields: Vec<(String, Value)>,
     pub array: Vec<Value>,
+}
+
+impl PartialEq for Table {
+    fn eq(&self, other: &Self) -> bool {
+        self.array == other.array
+            && self.fields.len() == other.fields.len()
+            && self.fields.iter().all(|(k, v)| other.get(k) == Some(v))
+    }
 }
 
 impl Table {
@@ -629,5 +651,77 @@ impl Mod {
     pub fn source_category(&self) -> Option<&str> {
         let s = self.source.as_deref()?;
         Some(s.split(':').next().unwrap_or(s))
+    }
+}
+
+fn fmt_num(n: f64) -> String {
+    if n.fract() == 0.0 && n.abs() < 1e15 {
+        format!("{}", n as i64)
+    } else {
+        format!("{n}")
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Nil => f.write_str("nil"),
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::Num(n) => f.write_str(&fmt_num(*n)),
+            Value::Str(s) => f.write_str(s),
+            Value::Mod(m) => write!(f, "[{m}]"),
+            Value::Table(t) => {
+                let mut parts: Vec<String> =
+                    t.fields.iter().map(|(k, v)| format!("{k}={v}")).collect();
+                parts.sort();
+                if !t.array.is_empty() {
+                    parts.push(
+                        t.array
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    );
+                }
+                write!(f, "{{{}}}", parts.join("/"))
+            }
+        }
+    }
+}
+
+impl fmt::Display for Tag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Compact: only set fields, via the Debug repr filtered to non-defaults.
+        let dbg = format!("{self:?}");
+        let inner = dbg.trim_start_matches("Tag {").trim_end_matches('}');
+        let parts: Vec<&str> = inner
+            .split(", ")
+            .map(str::trim)
+            .filter(|p| {
+                !(p.ends_with(": None")
+                    || p.ends_with(": false")
+                    || p.ends_with(": 0")
+                    || p.ends_with(": []")
+                    || p.starts_with("ty:"))
+            })
+            .collect();
+        write!(f, "{}{{{}}}", self.ty.as_str(), parts.join(","))
+    }
+}
+
+impl fmt::Display for Mod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} = {}|{}|{:#x}|{:#x}",
+            self.value, self.name, self.ty, self.flags, self.keyword_flags
+        )?;
+        for t in &self.tags {
+            write!(f, "|{t}")?;
+        }
+        if let Some(s) = &self.source {
+            write!(f, " ({s})")?;
+        }
+        Ok(())
     }
 }

@@ -21,13 +21,23 @@ parity corpus, then the UI switches over and the old code is deleted.
 
 1. **Mod model + ModStore semantics** (`Classes/ModStore.lua`, `ModDB.lua`,
    `ModList.lua`, `Modules/ModTools.lua`): full tag set and evaluation.
-2. **ModParser** (`Modules/ModParser.lua`) — oracle: `Data/ModCache.lua`
-   (~20k lines with PoB's own parse result). Target ≥ 99% identical.
-   ModCache is also used at runtime as PoB does (fast path).
+2. **ModParser** — DONE (2026-09-29): PoB's `Modules/ModParser.lua` runs
+   *unchanged* in `pob_calc::lua`, a small pure-Rust Lua 5.1 interpreter
+   (Wasm-clean; exact Lua pattern semantics via `pob_calc::lua_pattern`).
+   The only patch swaps the hot `scan` helper for a native equivalent.
+   Oracle `tests/modcache_oracle.rs`: 23,204 / 23,207 `Data/ModCache.lua`
+   lines identical (the 3 others are stale cache entries). ~0.7 ms/line,
+   cached per line. Rationale: the parser is a ~4k-entry rule table with
+   Lua closures that PoB edits every league — running it verbatim keeps
+   parity for free on upstream pulls, where a hand port would drift.
+   Env data (`data/lua/modparser_env.lua`) comes from
+   `pob_diff --dump-modparser-env`.
 3. **Data**: everything the calc reads from `Modules/Data.lua`, `Data/*.lua`
    (skills incl. statMap, SkillStatMap, gems, bases, uniques, misc tables).
 4. **CalcSetup → CalcActiveSkill → CalcPerform → CalcDefence →
-   CalcOffence → CalcTriggers / CalcMirages**, validated per stage.
+   CalcOffence → CalcTriggers / CalcMirages**, hand-ported to Rust
+   (performance matters: the UI recomputes on every click and the power
+   heatmap runs one calc per tree node), validated per stage.
 5. **Switch UI + features** (breakdowns come from the calc itself, as in PoB).
 6. **Feature gaps** vs PoB's UI (unique DB, crafting, trade, etc.).
 
