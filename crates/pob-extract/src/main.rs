@@ -215,6 +215,22 @@ fn main() -> Result<()> {
         .with_context(|| format!("writing {}", node_index_path.display()))?;
     wrote.push(node_index_path);
 
+    // #227: the compressed timeless LUTs themselves (`*.zip` and split
+    // `*.zip.partN`) ship verbatim; they must match the node index above.
+    let lut_src = args.pob.join("src/Data/TimelessJewelData");
+    let lut_dst = args.out.join("timeless");
+    std::fs::create_dir_all(&lut_dst)?;
+    for path in list_files(&lut_src, |p| {
+        p.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with(".zip") || n.contains(".zip.part"))
+    })? {
+        let dst = lut_dst.join(path.file_name().expect("file name"));
+        std::fs::copy(&path, &dst)
+            .with_context(|| format!("copying {} → {}", path.display(), dst.display()))?;
+        wrote.push(dst);
+    }
+
     // Trees — one JSON per tree version directory under data/trees/.
     let trees_dir = args.out.join("trees");
     std::fs::create_dir_all(&trees_dir)?;
@@ -492,6 +508,11 @@ fn skill_type_pairs() -> &'static [(&'static str, u32)] {
         ("GainsIntensity", 139),
         ("CreatesSentinelMinion", 140),
         ("SupportedByAutoExertion", 141),
+        ("CreatesCorpse", 142),
+        ("Pact", 143),
+        ("RequiresStaff", 144),
+        ("SupportedByCrabTotem", 145),
+        ("SupportedBySpellTotem", 146),
     ]
 }
 
@@ -658,9 +679,24 @@ pub(crate) fn load_lua_file_with_table_arg(lua: &Lua, path: &Path) -> Result<ser
     let func = chunk
         .into_function()
         .with_context(|| format!("compiling {}", path.display()))?;
-    func.call::<()>(table.clone())
+    call_pob_data_chunk(&func, table.clone())
         .with_context(|| format!("executing {}", path.display()))?;
     table_to_json(table)
+}
+
+/// Run a PoB data chunk that fills tables passed in as arguments. Older PoB
+/// files read them as varargs (`local skills, mod = ...`); current PoB wraps
+/// the body in `return function(skills, mod, …)` taking the same arguments.
+/// Supports both: call the chunk with `args`, and if it returned a function,
+/// call that with `args` as well. Returns the final call's return value.
+pub(crate) fn call_pob_data_chunk(
+    func: &mlua::Function,
+    args: impl mlua::IntoLuaMulti + Clone,
+) -> mlua::Result<Value> {
+    match func.call::<Value>(args.clone())? {
+        Value::Function(inner) => inner.call::<Value>(args),
+        other => Ok(other),
+    }
 }
 
 /// Convenience: walk a directory and return paths of files matching `predicate`, sorted.

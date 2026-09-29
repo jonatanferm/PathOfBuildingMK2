@@ -115,8 +115,23 @@ pub fn parse_node_index(json: &J) -> Result<TimelessNodeIndex> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// `data.timelessJewelAdditions` from PoB's `Modules/Data.lua` (96 in
+    /// 3.25-era data, 337 once Foulborn/Vestigial additions landed).
+    pub(crate) fn legion_additions_count(pob: &std::path::Path) -> u32 {
+        std::fs::read_to_string(pob.join("src/Modules/Data.lua"))
+            .ok()
+            .and_then(|src| {
+                src.lines().find_map(|l| {
+                    l.trim()
+                        .strip_prefix("data.timelessJewelAdditions = ")
+                        .and_then(|v| v.split_whitespace().next()?.parse().ok())
+                })
+            })
+            .unwrap_or(96)
+    }
     use serde_json::json;
 
     #[test]
@@ -317,7 +332,8 @@ mod tests {
                 (6, n(8000)),
             ],
         );
-        data.set("timelessJewelAdditions", 96i64).unwrap();
+        data.set("timelessJewelAdditions", legion_additions_count(pob) as i64)
+            .unwrap();
         data.set("timelessJewelLUTs", lua.create_table().unwrap())
             .unwrap();
         let nim_src = std::fs::read_to_string(tjd.join("NodeIndexMapping.lua")).unwrap();
@@ -339,10 +355,42 @@ mod tests {
         .exec()
         .unwrap();
 
+        // Current PoB split the jewel-file loading out of the helper into
+        // `Modules/DataJewelFileLoader.lua`, pulled in via `require`.
+        let loader = pob.join("src/Modules/DataJewelFileLoader.lua");
+        if loader.exists() {
+            let loader_src = std::fs::read_to_string(&loader).unwrap();
+            let loader_fn = lua
+                .load(&loader_src)
+                .set_name("DataJewelFileLoader")
+                .into_function()
+                .unwrap();
+            let preload: Table = lua
+                .globals()
+                .get::<Table>("package")
+                .unwrap()
+                .get("preload")
+                .unwrap();
+            preload
+                .set("Modules.DataJewelFileLoader", loader_fn)
+                .unwrap();
+        }
+
         // readLUT, repairLUTs = require("Modules/DataLegionLookUpTableHelper").
         let helper_src = std::fs::read_to_string(&helper).unwrap();
-        let (read_lut, _repair): (Function, Function) =
-            lua.load(&helper_src).eval().expect("eval helper");
+        // Older PoB returns `readLUT, repairLUTs`; current PoB returns a
+        // `{ readLUT = …, repairLUTs = … }` table.
+        let read_lut: Function = match lua
+            .load(&helper_src)
+            .eval::<mlua::MultiValue>()
+            .expect("eval helper")
+            .into_iter()
+            .next()
+        {
+            Some(Value::Function(f)) => f,
+            Some(Value::Table(t)) => t.get("readLUT").expect("readLUT"),
+            other => panic!("unexpected helper return: {other:?}"),
+        };
 
         let seed = 14000u32;
         let mut checked = 0;
@@ -447,13 +495,27 @@ mod tests {
             return;
         }
         let out = extract(pob).expect("extract real NodeIndexMapping");
-        // The file header documents size=1931, sizeNotable=452.
-        assert_eq!(out.node_count, 1931);
-        assert_eq!(out.notable_count, 452);
-        assert_eq!(out.nodes.len(), 1931);
+        // The file header documents `size` / `sizeNotable` (1931 / 452 in
+        // 3.25-era data; they grow with new tree nodes).
+        let src = std::fs::read_to_string(
+            pob.join("src/Data/TimelessJewelData/NodeIndexMapping.lua"),
+        )
+        .unwrap();
+        let header = |key: &str| -> u32 {
+            let prefix = format!("nodeIDList[\"{key}\"] = ");
+            src.lines()
+                .find_map(|l| l.strip_prefix(prefix.as_str()))
+                .and_then(|v| v.trim().parse().ok())
+                .expect("size header")
+        };
+        let size = header("size");
+        assert!(size >= 1931);
+        assert_eq!(out.node_count, size);
+        assert_eq!(out.notable_count, header("sizeNotable"));
+        assert_eq!(out.nodes.len() as u32, size);
         // Indices are dense 0..node_count after the sort.
         assert_eq!(out.nodes[0].index, 0);
-        assert_eq!(out.nodes.last().unwrap().index, 1930);
+        assert_eq!(out.nodes.last().unwrap().index, size - 1);
         // Glorious Vanity (type 1) has a localIdToGlobalId table.
         assert!(!out.local_to_global[0].is_empty());
     }

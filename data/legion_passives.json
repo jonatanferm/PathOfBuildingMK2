@@ -1542,7 +1542,7 @@
     "name": "Add Accuracy",
     "id": "maraketh_notable_add_accuracy",
     "stats": [
-      "5% increased Global Accuracy Rating"
+      "5% increased Accuracy Rating"
     ],
     "sorted_stats": [
       "accuracy_rating_+%"
@@ -1819,6 +1819,5145 @@
         "index": 1,
         "min": 1.0,
         "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 1",
+    "id": "abyss_murderous_notable_1",
+    "stats": [
+      "+(21-30) to maximum Life"
+    ],
+    "sorted_stats": [
+      "base_maximum_life"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_life",
+        "index": 1,
+        "min": 21.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 2",
+    "id": "abyss_murderous_notable_2",
+    "stats": [
+      "+(12-16) to Strength"
+    ],
+    "sorted_stats": [
+      "additional_strength"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength",
+        "index": 1,
+        "min": 12.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 3",
+    "id": "abyss_murderous_notable_3",
+    "stats": [
+      "+(6-8) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 4",
+    "id": "abyss_murderous_notable_4",
+    "stats": [
+      "+(12-15)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 12.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 5",
+    "id": "abyss_murderous_notable_5",
+    "stats": [
+      "+(6-8)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 6",
+    "id": "abyss_murderous_notable_6",
+    "stats": [
+      "(3-5)% increased Attack Speed"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 7",
+    "id": "abyss_murderous_notable_7",
+    "stats": [
+      "Regenerate (9-16) Life per second"
+    ],
+    "sorted_stats": [
+      "base_life_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_life_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 9.0,
+        "max": 16.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 8",
+    "id": "abyss_murderous_notable_8",
+    "stats": [
+      "(3-8)% chance to Taunt Enemies on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "attacks_chance_to_taunt_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "attacks_chance_to_taunt_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 9",
+    "id": "abyss_murderous_notable_9",
+    "stats": [
+      "(31-40)% chance to Avoid being Ignited"
+    ],
+    "sorted_stats": [
+      "base_avoid_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_ignite_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 10",
+    "id": "abyss_murderous_notable_10",
+    "stats": [
+      "(21-30)% chance to Avoid being Stunned"
+    ],
+    "sorted_stats": [
+      "base_avoid_stun_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_stun_%",
+        "index": 1,
+        "min": 21.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 11",
+    "id": "abyss_murderous_notable_11",
+    "stats": [
+      "+(61-100) to Armour"
+    ],
+    "sorted_stats": [
+      "base_physical_damage_reduction_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_physical_damage_reduction_rating",
+        "index": 1,
+        "min": 61.0,
+        "max": 100.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 12",
+    "id": "abyss_murderous_notable_12",
+    "stats": [
+      "(3-5)% increased Impale Effect"
+    ],
+    "sorted_stats": [
+      "impale_debuff_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "impale_debuff_effect_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 13",
+    "id": "abyss_murderous_notable_13",
+    "stats": [
+      "(15-20)% increased Damage if you've Killed Recently"
+    ],
+    "sorted_stats": [
+      "damage_+%_if_enemy_killed_recently"
+    ],
+    "rolls": [
+      {
+        "key": "damage_+%_if_enemy_killed_recently",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 14",
+    "id": "abyss_murderous_notable_14",
+    "stats": [
+      "Regenerate (0.5-1)% of Life per second while moving"
+    ],
+    "sorted_stats": [
+      "life_regeneration_rate_per_minute_%_while_moving"
+    ],
+    "rolls": [
+      {
+        "key": "life_regeneration_rate_per_minute_%_while_moving",
+        "index": 1,
+        "min": 0.5,
+        "max": 1.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 15",
+    "id": "abyss_murderous_notable_15",
+    "stats": [
+      "+(3-4)% Chance to Block Attack Damage if you were Damaged by a Hit Recently"
+    ],
+    "sorted_stats": [
+      "block_chance_on_damage_taken_%"
+    ],
+    "rolls": [
+      {
+        "key": "block_chance_on_damage_taken_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 16",
+    "id": "abyss_murderous_notable_16",
+    "stats": [
+      "Enemies Maimed by you take (4-5)% increased Damage Over Time"
+    ],
+    "sorted_stats": [
+      "enemies_you_maim_have_damage_taken_over_time_+%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_maim_have_damage_taken_over_time_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 17",
+    "id": "abyss_murderous_notable_17",
+    "stats": [
+      "Enemies Intimidated by you have 10% increased duration of stuns against them"
+    ],
+    "sorted_stats": [
+      "enemies_you_intimidate_have_stun_duration_on_self_+%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_intimidate_have_stun_duration_on_self_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 18",
+    "id": "abyss_murderous_notable_18",
+    "stats": [
+      "(5-6) to (7-8) Added Physical Damage with Dagger Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage_with_daggers",
+      "attack_maximum_added_physical_damage_with_daggers"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage_with_daggers",
+        "index": 1,
+        "min": 5.0,
+        "max": 6.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage_with_daggers",
+        "index": 2,
+        "min": 7.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 19",
+    "id": "abyss_murderous_notable_19",
+    "stats": [
+      "(5-6) to (7-8) Added Physical Damage with Claw Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage_with_claws",
+      "attack_maximum_added_physical_damage_with_claws"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage_with_claws",
+        "index": 1,
+        "min": 5.0,
+        "max": 6.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage_with_claws",
+        "index": 2,
+        "min": 7.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 20",
+    "id": "abyss_murderous_notable_20",
+    "stats": [
+      "(5-6) to (7-8) Added Physical Damage with Sword Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage_with_swords",
+      "attack_maximum_added_physical_damage_with_swords"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage_with_swords",
+        "index": 1,
+        "min": 5.0,
+        "max": 6.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage_with_swords",
+        "index": 2,
+        "min": 7.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 21",
+    "id": "abyss_murderous_notable_21",
+    "stats": [
+      "(5-6) to (7-8) Added Physical Damage with Axe Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage_with_axes",
+      "attack_maximum_added_physical_damage_with_axes"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage_with_axes",
+        "index": 1,
+        "min": 5.0,
+        "max": 6.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage_with_axes",
+        "index": 2,
+        "min": 7.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 22",
+    "id": "abyss_murderous_notable_22",
+    "stats": [
+      "(5-6) to (7-8) Added Physical Damage with Mace or Sceptre Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage_with_maces",
+      "attack_maximum_added_physical_damage_with_maces"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage_with_maces",
+        "index": 1,
+        "min": 5.0,
+        "max": 6.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage_with_maces",
+        "index": 2,
+        "min": 7.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 23",
+    "id": "abyss_murderous_notable_23",
+    "stats": [
+      "(5-6) to (7-8) Added Physical Damage with Staff Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage_with_staves",
+      "attack_maximum_added_physical_damage_with_staves"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage_with_staves",
+        "index": 1,
+        "min": 5.0,
+        "max": 6.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage_with_staves",
+        "index": 2,
+        "min": 7.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 24",
+    "id": "abyss_murderous_notable_24",
+    "stats": [
+      "(1-4) to (33-35) Added Lightning Damage with Dagger Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage_with_daggers",
+      "attack_maximum_added_lightning_damage_with_daggers"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage_with_daggers",
+        "index": 1,
+        "min": 1.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage_with_daggers",
+        "index": 2,
+        "min": 33.0,
+        "max": 35.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 25",
+    "id": "abyss_murderous_notable_25",
+    "stats": [
+      "(1-4) to (33-35) Added Lightning Damage with Claw Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage_with_claws",
+      "attack_maximum_added_lightning_damage_with_claws"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage_with_claws",
+        "index": 1,
+        "min": 1.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage_with_claws",
+        "index": 2,
+        "min": 33.0,
+        "max": 35.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 26",
+    "id": "abyss_murderous_notable_26",
+    "stats": [
+      "(1-4) to (33-35) Added Lightning Damage with Sword Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage_with_swords",
+      "attack_maximum_added_lightning_damage_with_swords"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage_with_swords",
+        "index": 1,
+        "min": 1.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage_with_swords",
+        "index": 2,
+        "min": 33.0,
+        "max": 35.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 27",
+    "id": "abyss_murderous_notable_27",
+    "stats": [
+      "(1-4) to (33-35) Added Lightning Damage with Axe Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage_with_axes",
+      "attack_maximum_added_lightning_damage_with_axes"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage_with_axes",
+        "index": 1,
+        "min": 1.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage_with_axes",
+        "index": 2,
+        "min": 33.0,
+        "max": 35.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 28",
+    "id": "abyss_murderous_notable_28",
+    "stats": [
+      "(1-4) to (33-35) Added Lightning Damage with Mace or Sceptre Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage_with_maces",
+      "attack_maximum_added_lightning_damage_with_maces"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage_with_maces",
+        "index": 1,
+        "min": 1.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage_with_maces",
+        "index": 2,
+        "min": 33.0,
+        "max": 35.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 29",
+    "id": "abyss_murderous_notable_29",
+    "stats": [
+      "(1-4) to (33-35) Added Lightning Damage with Staff Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage_with_staves",
+      "attack_maximum_added_lightning_damage_with_staves"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage_with_staves",
+        "index": 1,
+        "min": 1.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage_with_staves",
+        "index": 2,
+        "min": 33.0,
+        "max": 35.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 30",
+    "id": "abyss_murderous_notable_30",
+    "stats": [
+      "(12-13) to (20-22) Added Fire Damage with Dagger Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage_with_daggers",
+      "attack_maximum_added_fire_damage_with_daggers"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage_with_daggers",
+        "index": 1,
+        "min": 12.0,
+        "max": 13.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage_with_daggers",
+        "index": 2,
+        "min": 20.0,
+        "max": 22.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 31",
+    "id": "abyss_murderous_notable_31",
+    "stats": [
+      "(12-13) to (20-22) Added Fire Damage with Claw Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage_with_claws",
+      "attack_maximum_added_fire_damage_with_claws"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage_with_claws",
+        "index": 1,
+        "min": 12.0,
+        "max": 13.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage_with_claws",
+        "index": 2,
+        "min": 20.0,
+        "max": 22.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 32",
+    "id": "abyss_murderous_notable_32",
+    "stats": [
+      "(12-13) to (20-22) Added Fire Damage with Sword Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage_with_swords",
+      "attack_maximum_added_fire_damage_with_swords"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage_with_swords",
+        "index": 1,
+        "min": 12.0,
+        "max": 13.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage_with_swords",
+        "index": 2,
+        "min": 20.0,
+        "max": 22.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 33",
+    "id": "abyss_murderous_notable_33",
+    "stats": [
+      "(12-13) to (20-22) Added Fire Damage with Axe Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage_with_axes",
+      "attack_maximum_added_fire_damage_with_axes"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage_with_axes",
+        "index": 1,
+        "min": 12.0,
+        "max": 13.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage_with_axes",
+        "index": 2,
+        "min": 20.0,
+        "max": 22.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 34",
+    "id": "abyss_murderous_notable_34",
+    "stats": [
+      "(12-13) to (20-22) Added Fire Damage with Mace or Sceptre Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage_with_maces",
+      "attack_maximum_added_fire_damage_with_maces"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage_with_maces",
+        "index": 1,
+        "min": 12.0,
+        "max": 13.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage_with_maces",
+        "index": 2,
+        "min": 20.0,
+        "max": 22.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 35",
+    "id": "abyss_murderous_notable_35",
+    "stats": [
+      "(12-13) to (20-22) Added Fire Damage with Staff Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage_with_staves",
+      "attack_maximum_added_fire_damage_with_staves"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage_with_staves",
+        "index": 1,
+        "min": 12.0,
+        "max": 13.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage_with_staves",
+        "index": 2,
+        "min": 20.0,
+        "max": 22.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 36",
+    "id": "abyss_murderous_notable_36",
+    "stats": [
+      "(10-11) to (17-20) Added Cold Damage with Dagger Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage_with_daggers",
+      "attack_maximum_added_cold_damage_with_daggers"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage_with_daggers",
+        "index": 1,
+        "min": 10.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage_with_daggers",
+        "index": 2,
+        "min": 17.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 37",
+    "id": "abyss_murderous_notable_37",
+    "stats": [
+      "(10-11) to (17-20) Added Cold Damage with Claw Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage_with_claws",
+      "attack_maximum_added_cold_damage_with_claws"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage_with_claws",
+        "index": 1,
+        "min": 10.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage_with_claws",
+        "index": 2,
+        "min": 17.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 38",
+    "id": "abyss_murderous_notable_38",
+    "stats": [
+      "(10-11) to (17-20) Added Cold Damage with Sword Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage_with_swords",
+      "attack_maximum_added_cold_damage_with_swords"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage_with_swords",
+        "index": 1,
+        "min": 10.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage_with_swords",
+        "index": 2,
+        "min": 17.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 39",
+    "id": "abyss_murderous_notable_39",
+    "stats": [
+      "(10-11) to (17-20) Added Cold Damage with Axe Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage_with_axes",
+      "attack_maximum_added_cold_damage_with_axes"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage_with_axes",
+        "index": 1,
+        "min": 10.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage_with_axes",
+        "index": 2,
+        "min": 17.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 40",
+    "id": "abyss_murderous_notable_40",
+    "stats": [
+      "(10-11) to (17-20) Added Cold Damage with Mace or Sceptre Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage_with_maces",
+      "attack_maximum_added_cold_damage_with_maces"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage_with_maces",
+        "index": 1,
+        "min": 10.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage_with_maces",
+        "index": 2,
+        "min": 17.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 41",
+    "id": "abyss_murderous_notable_41",
+    "stats": [
+      "(10-11) to (17-20) Added Cold Damage with Staff Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage_with_staves",
+      "attack_maximum_added_cold_damage_with_staves"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage_with_staves",
+        "index": 1,
+        "min": 10.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage_with_staves",
+        "index": 2,
+        "min": 17.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 42",
+    "id": "abyss_murderous_notable_42",
+    "stats": [
+      "(10-11) to (17-20) Added Chaos Damage with Dagger Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_chaos_damage_with_daggers",
+      "attack_maximum_added_chaos_damage_with_daggers"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_chaos_damage_with_daggers",
+        "index": 1,
+        "min": 10.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_chaos_damage_with_daggers",
+        "index": 2,
+        "min": 17.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 43",
+    "id": "abyss_murderous_notable_43",
+    "stats": [
+      "(10-11) to (17-20) Added Chaos Damage with Claw Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_chaos_damage_with_claws",
+      "attack_maximum_added_chaos_damage_with_claws"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_chaos_damage_with_claws",
+        "index": 1,
+        "min": 10.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_chaos_damage_with_claws",
+        "index": 2,
+        "min": 17.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 44",
+    "id": "abyss_murderous_notable_44",
+    "stats": [
+      "3% increased Cooldown Recovery Rate"
+    ],
+    "sorted_stats": [
+      "base_cooldown_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cooldown_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 45",
+    "id": "abyss_murderous_notable_45",
+    "stats": [
+      "Adds (6-7) to (13-16) Fire Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage",
+      "attack_maximum_added_fire_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage",
+        "index": 1,
+        "min": 6.0,
+        "max": 7.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage",
+        "index": 2,
+        "min": 13.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 46",
+    "id": "abyss_murderous_notable_46",
+    "stats": [
+      "Adds (6-7) to (11-13) Cold Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage",
+      "attack_maximum_added_cold_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage",
+        "index": 1,
+        "min": 6.0,
+        "max": 7.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage",
+        "index": 2,
+        "min": 11.0,
+        "max": 13.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 47",
+    "id": "abyss_murderous_notable_47",
+    "stats": [
+      "Adds (1-2) to (25-27) Lightning Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage",
+      "attack_maximum_added_lightning_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage",
+        "index": 1,
+        "min": 1.0,
+        "max": 2.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage",
+        "index": 2,
+        "min": 25.0,
+        "max": 27.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 48",
+    "id": "abyss_murderous_notable_48",
+    "stats": [
+      "Adds (2-3) to (4-5) Physical Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage",
+      "attack_maximum_added_physical_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage",
+        "index": 2,
+        "min": 4.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 49",
+    "id": "abyss_murderous_notable_49",
+    "stats": [
+      "Adds (8-9) to (14-17) Chaos Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_chaos_damage",
+      "attack_maximum_added_chaos_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_chaos_damage",
+        "index": 1,
+        "min": 8.0,
+        "max": 9.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_chaos_damage",
+        "index": 2,
+        "min": 14.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 50",
+    "id": "abyss_murderous_notable_50",
+    "stats": [
+      "(8-10)% increased Damage over Time while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_dual_wielding",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 51",
+    "id": "abyss_murderous_notable_51",
+    "stats": [
+      "(8-10)% increased Damage over Time while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 52",
+    "id": "abyss_murderous_notable_52",
+    "stats": [
+      "(8-10)% increased Damage over Time while holding a Shield"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_holding_a_shield",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 1",
+    "id": "abyss_searching_notable_1",
+    "stats": [
+      "+(21-30) to maximum Life"
+    ],
+    "sorted_stats": [
+      "base_maximum_life"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_life",
+        "index": 1,
+        "min": 21.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 2",
+    "id": "abyss_searching_notable_2",
+    "stats": [
+      "10% increased Effect of Cold Ailments"
+    ],
+    "sorted_stats": [
+      "cold_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 3",
+    "id": "abyss_searching_notable_3",
+    "stats": [
+      "+(12-16) to Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity",
+        "index": 1,
+        "min": 12.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 4",
+    "id": "abyss_searching_notable_4",
+    "stats": [
+      "+(6-8) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 5",
+    "id": "abyss_searching_notable_5",
+    "stats": [
+      "+(12-15)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 12.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 6",
+    "id": "abyss_searching_notable_6",
+    "stats": [
+      "+(6-8)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 7",
+    "id": "abyss_searching_notable_7",
+    "stats": [
+      "(3-5)% increased Attack Speed"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 8",
+    "id": "abyss_searching_notable_8",
+    "stats": [
+      "(8-12)% increased Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%",
+        "index": 1,
+        "min": 8.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 9",
+    "id": "abyss_searching_notable_9",
+    "stats": [
+      "+(4-8)% to Critical Strike Multiplier"
+    ],
+    "sorted_stats": [
+      "base_critical_strike_multiplier_+"
+    ],
+    "rolls": [
+      {
+        "key": "base_critical_strike_multiplier_+",
+        "index": 1,
+        "min": 4.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 10",
+    "id": "abyss_searching_notable_10",
+    "stats": [
+      "(10-18)% increased Damage over Time while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_dual_wielding",
+        "index": 1,
+        "min": 10.0,
+        "max": 18.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 11",
+    "id": "abyss_searching_notable_11",
+    "stats": [
+      "(10-18)% increased Damage over Time while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 10.0,
+        "max": 18.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 12",
+    "id": "abyss_searching_notable_12",
+    "stats": [
+      "(10-18)% increased Damage over Time while holding a Shield"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_holding_a_shield",
+        "index": 1,
+        "min": 10.0,
+        "max": 18.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 13",
+    "id": "abyss_searching_notable_13",
+    "stats": [
+      "(3-6)% chance to Blind Enemies on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "attacks_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "attacks_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 14",
+    "id": "abyss_searching_notable_14",
+    "stats": [
+      "(31-40)% chance to Avoid being Frozen"
+    ],
+    "sorted_stats": [
+      "base_avoid_freeze_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_freeze_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 15",
+    "id": "abyss_searching_notable_15",
+    "stats": [
+      "(31-40)% chance to Avoid Bleeding"
+    ],
+    "sorted_stats": [
+      "base_avoid_bleed_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_bleed_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 16",
+    "id": "abyss_searching_notable_16",
+    "stats": [
+      "+(31-120) to Accuracy Rating"
+    ],
+    "sorted_stats": [
+      "accuracy_rating"
+    ],
+    "rolls": [
+      {
+        "key": "accuracy_rating",
+        "index": 1,
+        "min": 31.0,
+        "max": 120.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 17",
+    "id": "abyss_searching_notable_17",
+    "stats": [
+      "+(36-100) to Evasion Rating"
+    ],
+    "sorted_stats": [
+      "base_evasion_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_evasion_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 100.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 18",
+    "id": "abyss_searching_notable_18",
+    "stats": [
+      "2% increased Cooldown Recovery Rate"
+    ],
+    "sorted_stats": [
+      "base_cooldown_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cooldown_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 19",
+    "id": "abyss_searching_notable_19",
+    "stats": [
+      "2% additional Physical Damage Reduction if you weren't Damaged by a Hit Recently"
+    ],
+    "sorted_stats": [
+      "additional_physical_damage_reduction_%_if_not_damaged_by_a_hit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "additional_physical_damage_reduction_%_if_not_damaged_by_a_hit_recently",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 20",
+    "id": "abyss_searching_notable_20",
+    "stats": [
+      "3% increased Movement Speed if you haven't taken Damage Recently"
+    ],
+    "sorted_stats": [
+      "movement_speed_+%_if_have_not_taken_damage_recently"
+    ],
+    "rolls": [
+      {
+        "key": "movement_speed_+%_if_have_not_taken_damage_recently",
+        "index": 1,
+        "min": 3.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 21",
+    "id": "abyss_searching_notable_21",
+    "stats": [
+      "+(8-10)% to Critical Strike Multiplier if you've Killed Recently"
+    ],
+    "sorted_stats": [
+      "critical_strike_multiplier_+_if_enemy_killed_recently"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_multiplier_+_if_enemy_killed_recently",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 22",
+    "id": "abyss_searching_notable_22",
+    "stats": [
+      "(20-30)% increased Evasion Rating while moving"
+    ],
+    "sorted_stats": [
+      "evasion_rating_+%_while_moving"
+    ],
+    "rolls": [
+      {
+        "key": "evasion_rating_+%_while_moving",
+        "index": 1,
+        "min": 20.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 23",
+    "id": "abyss_searching_notable_23",
+    "stats": [
+      "(4-6)% increased Attack Speed if you've dealt a Critical Strike Recently"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%_if_have_crit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%_if_have_crit_recently",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 24",
+    "id": "abyss_searching_notable_24",
+    "stats": [
+      "(20-30)% increased Critical Strike Chance if you haven't dealt a Critical Strike Recently"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%_if_have_not_crit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%_if_have_not_crit_recently",
+        "index": 1,
+        "min": 20.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 25",
+    "id": "abyss_searching_notable_25",
+    "stats": [
+      "5% chance to gain Phasing for 4 seconds on Kill"
+    ],
+    "sorted_stats": [
+      "phasing_for_4_seconds_on_kill_%"
+    ],
+    "rolls": [
+      {
+        "key": "phasing_for_4_seconds_on_kill_%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 26",
+    "id": "abyss_searching_notable_26",
+    "stats": [
+      "Enemies Blinded by you have (15-20)% reduced Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "enemies_you_blind_have_critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_blind_have_critical_strike_chance_+%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 27",
+    "id": "abyss_searching_notable_27",
+    "stats": [
+      "Adds (6-7) to (13-16) Fire Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage",
+      "attack_maximum_added_fire_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage",
+        "index": 1,
+        "min": 6.0,
+        "max": 7.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage",
+        "index": 2,
+        "min": 13.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 28",
+    "id": "abyss_searching_notable_28",
+    "stats": [
+      "Adds (6-7) to (11-13) Cold Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage",
+      "attack_maximum_added_cold_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage",
+        "index": 1,
+        "min": 6.0,
+        "max": 7.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage",
+        "index": 2,
+        "min": 11.0,
+        "max": 13.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 29",
+    "id": "abyss_searching_notable_29",
+    "stats": [
+      "Adds (1-2) to (25-27) Lightning Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage",
+      "attack_maximum_added_lightning_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage",
+        "index": 1,
+        "min": 1.0,
+        "max": 2.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage",
+        "index": 2,
+        "min": 25.0,
+        "max": 27.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 30",
+    "id": "abyss_searching_notable_30",
+    "stats": [
+      "Adds (2-3) to (4-5) Physical Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage",
+      "attack_maximum_added_physical_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage",
+        "index": 2,
+        "min": 4.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 31",
+    "id": "abyss_searching_notable_31",
+    "stats": [
+      "Adds (8-9) to (14-17) Chaos Damage to Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_chaos_damage",
+      "attack_maximum_added_chaos_damage"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_chaos_damage",
+        "index": 1,
+        "min": 8.0,
+        "max": 9.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_chaos_damage",
+        "index": 2,
+        "min": 14.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 32",
+    "id": "abyss_searching_notable_32",
+    "stats": [
+      "4 to (5-6) Added Physical Damage with Wand Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage_with_wands",
+      "attack_maximum_added_physical_damage_with_wands"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage_with_wands",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage_with_wands",
+        "index": 2,
+        "min": 5.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 33",
+    "id": "abyss_searching_notable_33",
+    "stats": [
+      "4 to (5-6) Added Physical Damage with Bow Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_physical_damage_with_bow",
+      "attack_maximum_added_physical_damage_with_bow"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_physical_damage_with_bow",
+        "index": 1,
+        "min": 4.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_physical_damage_with_bow",
+        "index": 2,
+        "min": 5.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 34",
+    "id": "abyss_searching_notable_34",
+    "stats": [
+      "(1-3) to (28-30) Added Lightning Damage with Wand Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage_with_wand",
+      "attack_maximum_added_lightning_damage_with_wand"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage_with_wand",
+        "index": 1,
+        "min": 1.0,
+        "max": 3.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage_with_wand",
+        "index": 2,
+        "min": 28.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 35",
+    "id": "abyss_searching_notable_35",
+    "stats": [
+      "(1-3) to (28-30) Added Lightning Damage with Bow Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_lightning_damage_with_bows",
+      "attack_maximum_added_lightning_damage_with_bows"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_lightning_damage_with_bows",
+        "index": 1,
+        "min": 1.0,
+        "max": 3.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_lightning_damage_with_bows",
+        "index": 2,
+        "min": 28.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 36",
+    "id": "abyss_searching_notable_36",
+    "stats": [
+      "(9-11) to (16-19) Added Fire Damage with Wand Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage_with_wand",
+      "attack_maximum_added_fire_damage_with_wand"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage_with_wand",
+        "index": 1,
+        "min": 9.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage_with_wand",
+        "index": 2,
+        "min": 16.0,
+        "max": 19.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 37",
+    "id": "abyss_searching_notable_37",
+    "stats": [
+      "(9-11) to (16-19) Added Fire Damage with Bow Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_fire_damage_with_bow",
+      "attack_maximum_added_fire_damage_with_bow"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_fire_damage_with_bow",
+        "index": 1,
+        "min": 9.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_fire_damage_with_bow",
+        "index": 2,
+        "min": 16.0,
+        "max": 19.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 38",
+    "id": "abyss_searching_notable_38",
+    "stats": [
+      "(8-9) to (14-16) Added Cold Damage with Wand Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage_with_wand",
+      "attack_maximum_added_cold_damage_with_wand"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage_with_wand",
+        "index": 1,
+        "min": 8.0,
+        "max": 9.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage_with_wand",
+        "index": 2,
+        "min": 14.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 39",
+    "id": "abyss_searching_notable_39",
+    "stats": [
+      "(8-9) to (14-16) Added Cold Damage with Bow Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_cold_damage_with_bows",
+      "attack_maximum_added_cold_damage_with_bows"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_cold_damage_with_bows",
+        "index": 1,
+        "min": 8.0,
+        "max": 9.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_cold_damage_with_bows",
+        "index": 2,
+        "min": 14.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 40",
+    "id": "abyss_searching_notable_40",
+    "stats": [
+      "(8-9) to (14-16) Added Chaos Damage with Bow Attacks"
+    ],
+    "sorted_stats": [
+      "attack_minimum_added_chaos_damage_with_bows",
+      "attack_maximum_added_chaos_damage_with_bows"
+    ],
+    "rolls": [
+      {
+        "key": "attack_minimum_added_chaos_damage_with_bows",
+        "index": 1,
+        "min": 8.0,
+        "max": 9.0,
+        "fmt": "d"
+      },
+      {
+        "key": "attack_maximum_added_chaos_damage_with_bows",
+        "index": 2,
+        "min": 14.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 41",
+    "id": "abyss_searching_notable_41",
+    "stats": [
+      "3% increased Cooldown Recovery Rate"
+    ],
+    "sorted_stats": [
+      "base_cooldown_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cooldown_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 42",
+    "id": "abyss_searching_notable_42",
+    "stats": [
+      "(8-10)% increased Damage over Time while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_dual_wielding",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 43",
+    "id": "abyss_searching_notable_43",
+    "stats": [
+      "(8-10)% increased Damage over Time while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 44",
+    "id": "abyss_searching_notable_44",
+    "stats": [
+      "(8-10)% increased Damage over Time while holding a Shield"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_holding_a_shield",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 1",
+    "id": "abyss_hypnotic_notable_1",
+    "stats": [
+      "+(21-30) to maximum Mana"
+    ],
+    "sorted_stats": [
+      "base_maximum_mana"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_mana",
+        "index": 1,
+        "min": 21.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 2",
+    "id": "abyss_hypnotic_notable_2",
+    "stats": [
+      "(10-15)% increased Effect of Lightning Ailments"
+    ],
+    "sorted_stats": [
+      "lightning_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 3",
+    "id": "abyss_hypnotic_notable_3",
+    "stats": [
+      "+(12-16) to Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_intelligence",
+        "index": 1,
+        "min": 12.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 4",
+    "id": "abyss_hypnotic_notable_4",
+    "stats": [
+      "+(6-8) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 5",
+    "id": "abyss_hypnotic_notable_5",
+    "stats": [
+      "+(12-15)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 12.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 6",
+    "id": "abyss_hypnotic_notable_6",
+    "stats": [
+      "+(6-8)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 7",
+    "id": "abyss_hypnotic_notable_7",
+    "stats": [
+      "(2-4)% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "base_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cast_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 8",
+    "id": "abyss_hypnotic_notable_8",
+    "stats": [
+      "Regenerate (1.1-3) Mana per second"
+    ],
+    "sorted_stats": [
+      "base_mana_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_mana_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 1.1,
+        "max": 3.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 9",
+    "id": "abyss_hypnotic_notable_9",
+    "stats": [
+      "(3-8)% chance to Hinder Enemies on Hit with Spells"
+    ],
+    "sorted_stats": [
+      "spells_chance_to_hinder_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "spells_chance_to_hinder_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 10",
+    "id": "abyss_hypnotic_notable_10",
+    "stats": [
+      "(31-40)% chance to Avoid being Shocked"
+    ],
+    "sorted_stats": [
+      "base_avoid_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_shock_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 11",
+    "id": "abyss_hypnotic_notable_11",
+    "stats": [
+      "2% of Damage taken Recouped as Mana"
+    ],
+    "sorted_stats": [
+      "damage_taken_goes_to_mana_%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_taken_goes_to_mana_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 12",
+    "id": "abyss_hypnotic_notable_12",
+    "stats": [
+      "+(3-4)% Chance to Block Spell Damage if you were Damaged by a Hit Recently"
+    ],
+    "sorted_stats": [
+      "chance_to_block_spells_%_if_damaged_by_a_hit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "chance_to_block_spells_%_if_damaged_by_a_hit_recently",
+        "index": 1,
+        "min": 3.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 13",
+    "id": "abyss_hypnotic_notable_13",
+    "stats": [
+      "Damage Penetrates 2% Elemental Resistances if you haven't Killed Recently"
+    ],
+    "sorted_stats": [
+      "damage_penetrates_%_elemental_resistance_if_enemy_not_killed_recently"
+    ],
+    "rolls": [
+      {
+        "key": "damage_penetrates_%_elemental_resistance_if_enemy_not_killed_recently",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 14",
+    "id": "abyss_hypnotic_notable_14",
+    "stats": [
+      "(20-25)% increased Mana Regeneration Rate while moving"
+    ],
+    "sorted_stats": [
+      "mana_regeneration_rate_+%_while_moving"
+    ],
+    "rolls": [
+      {
+        "key": "mana_regeneration_rate_+%_while_moving",
+        "index": 1,
+        "min": 20.0,
+        "max": 25.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 15",
+    "id": "abyss_hypnotic_notable_15",
+    "stats": [
+      "(5-7)% increased Cast Speed if you've dealt a Critical Strike Recently"
+    ],
+    "sorted_stats": [
+      "cast_speed_+%_if_have_crit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "cast_speed_+%_if_have_crit_recently",
+        "index": 1,
+        "min": 5.0,
+        "max": 7.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 16",
+    "id": "abyss_hypnotic_notable_16",
+    "stats": [
+      "(10-15)% reduced Effect of Curses on you while on Consecrated Ground"
+    ],
+    "sorted_stats": [
+      "curse_effect_on_self_+%_while_on_consecrated_ground"
+    ],
+    "rolls": [
+      {
+        "key": "curse_effect_on_self_+%_while_on_consecrated_ground",
+        "index": 1,
+        "min": 10.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 17",
+    "id": "abyss_hypnotic_notable_17",
+    "stats": [
+      "Enemies Hindered by you have (15-20)% reduced Life Regeneration rate"
+    ],
+    "sorted_stats": [
+      "enemies_you_hinder_have_life_regeneration_rate_+%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_hinder_have_life_regeneration_rate_+%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 18",
+    "id": "abyss_hypnotic_notable_18",
+    "stats": [
+      "Enemies Withered by you have -2% to all Resistances"
+    ],
+    "sorted_stats": [
+      "enemies_you_wither_have_all_resistances_%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_wither_have_all_resistances_%",
+        "index": 1,
+        "min": -2.0,
+        "max": -2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 19",
+    "id": "abyss_hypnotic_notable_19",
+    "stats": [
+      "(13-16) to (18-21) Added Spell Fire Damage while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_fire_damage_while_dual_wielding",
+      "spell_maximum_added_fire_damage_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_fire_damage_while_dual_wielding",
+        "index": 1,
+        "min": 13.0,
+        "max": 16.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_fire_damage_while_dual_wielding",
+        "index": 2,
+        "min": 18.0,
+        "max": 21.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 20",
+    "id": "abyss_hypnotic_notable_20",
+    "stats": [
+      "(12-14) to (17-19) Added Spell Cold Damage while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_cold_damage_while_dual_wielding",
+      "spell_maximum_added_cold_damage_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_cold_damage_while_dual_wielding",
+        "index": 1,
+        "min": 12.0,
+        "max": 14.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_cold_damage_while_dual_wielding",
+        "index": 2,
+        "min": 17.0,
+        "max": 19.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 21",
+    "id": "abyss_hypnotic_notable_21",
+    "stats": [
+      "(1-4) to (29-34) Added Spell Lightning Damage while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_lightning_damage_while_dual_wielding",
+      "spell_maximum_added_lightning_damage_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_lightning_damage_while_dual_wielding",
+        "index": 1,
+        "min": 1.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_lightning_damage_while_dual_wielding",
+        "index": 2,
+        "min": 29.0,
+        "max": 34.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 22",
+    "id": "abyss_hypnotic_notable_22",
+    "stats": [
+      "(9-12) to (14-17) Added Spell Physical Damage while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_physical_damage_while_dual_wielding",
+      "spell_maximum_added_physical_damage_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_physical_damage_while_dual_wielding",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_physical_damage_while_dual_wielding",
+        "index": 2,
+        "min": 14.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 23",
+    "id": "abyss_hypnotic_notable_23",
+    "stats": [
+      "(9-12) to (14-17) Added Spell Chaos Damage while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_chaos_damage_while_dual_wielding",
+      "spell_maximum_added_chaos_damage_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_chaos_damage_while_dual_wielding",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_chaos_damage_while_dual_wielding",
+        "index": 2,
+        "min": 14.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 24",
+    "id": "abyss_hypnotic_notable_24",
+    "stats": [
+      "(13-16) to (18-21) Added Spell Fire Damage while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_fire_damage_while_wielding_two_handed_weapon",
+      "spell_maximum_added_fire_damage_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_fire_damage_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 13.0,
+        "max": 16.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_fire_damage_while_wielding_two_handed_weapon",
+        "index": 2,
+        "min": 18.0,
+        "max": 21.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 25",
+    "id": "abyss_hypnotic_notable_25",
+    "stats": [
+      "(12-14) to (17-19) Added Spell Cold Damage while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_cold_damage_while_wielding_two_handed_weapon",
+      "spell_maximum_added_cold_damage_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_cold_damage_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 12.0,
+        "max": 14.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_cold_damage_while_wielding_two_handed_weapon",
+        "index": 2,
+        "min": 17.0,
+        "max": 19.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 26",
+    "id": "abyss_hypnotic_notable_26",
+    "stats": [
+      "(1-4) to (29-34) Added Spell Lightning Damage while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_lightning_damage_while_wielding_two_handed_weapon",
+      "spell_maximum_added_lightning_damage_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_lightning_damage_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 1.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_lightning_damage_while_wielding_two_handed_weapon",
+        "index": 2,
+        "min": 29.0,
+        "max": 34.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 27",
+    "id": "abyss_hypnotic_notable_27",
+    "stats": [
+      "(9-12) to (14-17) Added Spell Physical Damage while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_physical_damage_while_wielding_two_handed_weapon",
+      "spell_maximum_added_physical_damage_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_physical_damage_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_physical_damage_while_wielding_two_handed_weapon",
+        "index": 2,
+        "min": 14.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 28",
+    "id": "abyss_hypnotic_notable_28",
+    "stats": [
+      "(9-12) to (14-17) Added Spell Chaos Damage while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_chaos_damage_while_wielding_two_handed_weapon",
+      "spell_maximum_added_chaos_damage_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_chaos_damage_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_chaos_damage_while_wielding_two_handed_weapon",
+        "index": 2,
+        "min": 14.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 29",
+    "id": "abyss_hypnotic_notable_29",
+    "stats": [
+      "(13-16) to (18-21) Added Spell Fire Damage while holding a Shield"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_fire_damage_while_holding_a_shield",
+      "spell_maximum_added_fire_damage_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_fire_damage_while_holding_a_shield",
+        "index": 1,
+        "min": 13.0,
+        "max": 16.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_fire_damage_while_holding_a_shield",
+        "index": 2,
+        "min": 18.0,
+        "max": 21.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 30",
+    "id": "abyss_hypnotic_notable_30",
+    "stats": [
+      "(12-14) to (17-19) Added Spell Cold Damage while holding a Shield"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_cold_damage_while_holding_a_shield",
+      "spell_maximum_added_cold_damage_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_cold_damage_while_holding_a_shield",
+        "index": 1,
+        "min": 12.0,
+        "max": 14.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_cold_damage_while_holding_a_shield",
+        "index": 2,
+        "min": 17.0,
+        "max": 19.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 31",
+    "id": "abyss_hypnotic_notable_31",
+    "stats": [
+      "(1-4) to (29-34) Added Spell Lightning Damage while holding a Shield"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_lightning_damage_while_holding_a_shield",
+      "spell_maximum_added_lightning_damage_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_lightning_damage_while_holding_a_shield",
+        "index": 1,
+        "min": 1.0,
+        "max": 4.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_lightning_damage_while_holding_a_shield",
+        "index": 2,
+        "min": 29.0,
+        "max": 34.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 32",
+    "id": "abyss_hypnotic_notable_32",
+    "stats": [
+      "(9-12) to (14-17) Added Spell Physical Damage while holding a Shield"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_physical_damage_while_holding_a_shield",
+      "spell_maximum_added_physical_damage_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_physical_damage_while_holding_a_shield",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_physical_damage_while_holding_a_shield",
+        "index": 2,
+        "min": 14.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 33",
+    "id": "abyss_hypnotic_notable_33",
+    "stats": [
+      "(9-12) to (14-17) Added Spell Chaos Damage while holding a Shield"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_chaos_damage_while_holding_a_shield",
+      "spell_maximum_added_chaos_damage_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_chaos_damage_while_holding_a_shield",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_chaos_damage_while_holding_a_shield",
+        "index": 2,
+        "min": 14.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 34",
+    "id": "abyss_hypnotic_notable_34",
+    "stats": [
+      "Adds (9-12) to (14-17) Fire Damage to Spells"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_fire_damage",
+      "spell_maximum_added_fire_damage"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_fire_damage",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_fire_damage",
+        "index": 2,
+        "min": 14.0,
+        "max": 17.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 35",
+    "id": "abyss_hypnotic_notable_35",
+    "stats": [
+      "Adds (8-11) to (13-16) Cold Damage to Spells"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_cold_damage",
+      "spell_maximum_added_cold_damage"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_cold_damage",
+        "index": 1,
+        "min": 8.0,
+        "max": 11.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_cold_damage",
+        "index": 2,
+        "min": 13.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 36",
+    "id": "abyss_hypnotic_notable_36",
+    "stats": [
+      "Adds (1-3) to (22-27) Lightning Damage to Spells"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_lightning_damage",
+      "spell_maximum_added_lightning_damage"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_lightning_damage",
+        "index": 1,
+        "min": 1.0,
+        "max": 3.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_lightning_damage",
+        "index": 2,
+        "min": 22.0,
+        "max": 27.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 37",
+    "id": "abyss_hypnotic_notable_37",
+    "stats": [
+      "Adds (4-7) to (10-13) Physical Damage to Spells"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_physical_damage",
+      "spell_maximum_added_physical_damage"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_physical_damage",
+        "index": 1,
+        "min": 4.0,
+        "max": 7.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_physical_damage",
+        "index": 2,
+        "min": 10.0,
+        "max": 13.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 38",
+    "id": "abyss_hypnotic_notable_38",
+    "stats": [
+      "Adds (4-7) to (10-13) Chaos Damage to Spells"
+    ],
+    "sorted_stats": [
+      "spell_minimum_added_chaos_damage",
+      "spell_maximum_added_chaos_damage"
+    ],
+    "rolls": [
+      {
+        "key": "spell_minimum_added_chaos_damage",
+        "index": 1,
+        "min": 4.0,
+        "max": 7.0,
+        "fmt": "d"
+      },
+      {
+        "key": "spell_maximum_added_chaos_damage",
+        "index": 2,
+        "min": 10.0,
+        "max": 13.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 39",
+    "id": "abyss_hypnotic_notable_39",
+    "stats": [
+      "3% increased Cooldown Recovery Rate"
+    ],
+    "sorted_stats": [
+      "base_cooldown_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cooldown_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 40",
+    "id": "abyss_hypnotic_notable_40",
+    "stats": [
+      "(8-10)% increased Damage over Time while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_dual_wielding",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 41",
+    "id": "abyss_hypnotic_notable_41",
+    "stats": [
+      "(8-10)% increased Damage over Time while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 42",
+    "id": "abyss_hypnotic_notable_42",
+    "stats": [
+      "(8-10)% increased Damage over Time while holding a Shield"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_holding_a_shield",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 1",
+    "id": "abyss_ghastly_notable_1",
+    "stats": [
+      "+(12-16) to Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_intelligence",
+        "index": 1,
+        "min": 12.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 2",
+    "id": "abyss_ghastly_notable_2",
+    "stats": [
+      "+(6-8) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 3",
+    "id": "abyss_ghastly_notable_3",
+    "stats": [
+      "+(5-7)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 5.0,
+        "max": 7.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 4",
+    "id": "abyss_ghastly_notable_4",
+    "stats": [
+      "Minions Regenerate (22-40) Life per second"
+    ],
+    "sorted_stats": [
+      "minion_life_regeneration_rate_per_second"
+    ],
+    "rolls": [
+      {
+        "key": "minion_life_regeneration_rate_per_second",
+        "index": 1,
+        "min": 22.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 5",
+    "id": "abyss_ghastly_notable_5",
+    "stats": [
+      "Regenerate (9-16) Energy Shield per second"
+    ],
+    "sorted_stats": [
+      "energy_shield_regeneration_rate_per_second"
+    ],
+    "rolls": [
+      {
+        "key": "energy_shield_regeneration_rate_per_second",
+        "index": 1,
+        "min": 9.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 6",
+    "id": "abyss_ghastly_notable_6",
+    "stats": [
+      "Minions have (3-5)% chance to Blind on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_attacks_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attacks_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 7",
+    "id": "abyss_ghastly_notable_7",
+    "stats": [
+      "Minions have (3-5)% chance to Taunt on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_attacks_chance_to_taunt_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attacks_chance_to_taunt_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 8",
+    "id": "abyss_ghastly_notable_8",
+    "stats": [
+      "Minions have (3-5)% chance to Hinder Enemies on Hit with Spells"
+    ],
+    "sorted_stats": [
+      "minion_spells_chance_to_hinder_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_spells_chance_to_hinder_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 9",
+    "id": "abyss_ghastly_notable_9",
+    "stats": [
+      "Minions have 10% chance to Poison Enemies on Hit"
+    ],
+    "sorted_stats": [
+      "minions_chance_to_poison_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minions_chance_to_poison_on_hit_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 10",
+    "id": "abyss_ghastly_notable_10",
+    "stats": [
+      "Minions have 10% chance to Ignite"
+    ],
+    "sorted_stats": [
+      "minion_chance_to_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_chance_to_ignite_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 11",
+    "id": "abyss_ghastly_notable_11",
+    "stats": [
+      "Minions have 10% chance to cause Bleeding with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_bleed_on_hit_with_attacks_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_bleed_on_hit_with_attacks_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 12",
+    "id": "abyss_ghastly_notable_12",
+    "stats": [
+      "(31-40)% chance to Avoid being Poisoned"
+    ],
+    "sorted_stats": [
+      "base_avoid_poison_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_poison_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 13",
+    "id": "abyss_ghastly_notable_13",
+    "stats": [
+      "Minions Regenerate (0.4-0.8)% of Life per second"
+    ],
+    "sorted_stats": [
+      "minion_life_regeneration_rate_per_minute_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_life_regeneration_rate_per_minute_%",
+        "index": 1,
+        "min": 0.4,
+        "max": 0.8,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 14",
+    "id": "abyss_ghastly_notable_14",
+    "stats": [
+      "Minions Leech (0.3-0.5)% of Damage as Life"
+    ],
+    "sorted_stats": [
+      "minion_life_leech_from_any_damage_permyriad"
+    ],
+    "rolls": [
+      {
+        "key": "minion_life_leech_from_any_damage_permyriad",
+        "index": 1,
+        "min": 0.3,
+        "max": 0.5,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 15",
+    "id": "abyss_ghastly_notable_15",
+    "stats": [
+      "Minions have (6-10)% increased Movement Speed"
+    ],
+    "sorted_stats": [
+      "minion_movement_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_movement_speed_+%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 16",
+    "id": "abyss_ghastly_notable_16",
+    "stats": [
+      "Minions have (6-10)% increased maximum Life"
+    ],
+    "sorted_stats": [
+      "minion_maximum_life_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_maximum_life_+%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 17",
+    "id": "abyss_ghastly_notable_17",
+    "stats": [
+      "Minions have +(6-10)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "minion_elemental_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_elemental_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 18",
+    "id": "abyss_ghastly_notable_18",
+    "stats": [
+      "Minions have +(7-11)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "minion_chaos_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_chaos_resistance_%",
+        "index": 1,
+        "min": 7.0,
+        "max": 11.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 19",
+    "id": "abyss_ghastly_notable_19",
+    "stats": [
+      "2% increased Effect of your Curses"
+    ],
+    "sorted_stats": [
+      "curse_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "curse_effect_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 20",
+    "id": "abyss_ghastly_notable_20",
+    "stats": [
+      "(6-8)% increased Cast Speed if a Minion has been Killed Recently"
+    ],
+    "sorted_stats": [
+      "cast_speed_+%_if_player_minion_has_been_killed_recently"
+    ],
+    "rolls": [
+      {
+        "key": "cast_speed_+%_if_player_minion_has_been_killed_recently",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 21",
+    "id": "abyss_ghastly_notable_21",
+    "stats": [
+      "Minions deal (10-15)% increased Damage if you've used a Minion Skill Recently"
+    ],
+    "sorted_stats": [
+      "minion_damage_+%_if_have_used_a_minion_skill_recently"
+    ],
+    "rolls": [
+      {
+        "key": "minion_damage_+%_if_have_used_a_minion_skill_recently",
+        "index": 1,
+        "min": 10.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 22",
+    "id": "abyss_ghastly_notable_22",
+    "stats": [
+      "Minions have (6-8)% increased Attack and Cast Speed if you or your Minions have Killed Recently"
+    ],
+    "sorted_stats": [
+      "minion_attack_and_cast_speed_+%_if_you_or_minions_have_killed_enemy_recently"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attack_and_cast_speed_+%_if_you_or_minions_have_killed_enemy_recently",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 23",
+    "id": "abyss_ghastly_notable_23",
+    "stats": [
+      "Minions deal (15-18) to (21-24) additional Fire Damage"
+    ],
+    "sorted_stats": [
+      "minion_global_minimum_added_fire_damage",
+      "minion_global_maximum_added_fire_damage"
+    ],
+    "rolls": [
+      {
+        "key": "minion_global_minimum_added_fire_damage",
+        "index": 1,
+        "min": 15.0,
+        "max": 18.0,
+        "fmt": "d"
+      },
+      {
+        "key": "minion_global_maximum_added_fire_damage",
+        "index": 2,
+        "min": 21.0,
+        "max": 24.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 24",
+    "id": "abyss_ghastly_notable_24",
+    "stats": [
+      "Minions deal (15-18) to (21-24) additional Cold Damage"
+    ],
+    "sorted_stats": [
+      "minion_global_minimum_added_cold_damage",
+      "minion_global_maximum_added_cold_damage"
+    ],
+    "rolls": [
+      {
+        "key": "minion_global_minimum_added_cold_damage",
+        "index": 1,
+        "min": 15.0,
+        "max": 18.0,
+        "fmt": "d"
+      },
+      {
+        "key": "minion_global_maximum_added_cold_damage",
+        "index": 2,
+        "min": 21.0,
+        "max": 24.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 25",
+    "id": "abyss_ghastly_notable_25",
+    "stats": [
+      "Minions deal (1-3) to (33-39) additional Lightning Damage"
+    ],
+    "sorted_stats": [
+      "minion_global_minimum_added_lightning_damage",
+      "minion_global_maximum_added_lightning_damage"
+    ],
+    "rolls": [
+      {
+        "key": "minion_global_minimum_added_lightning_damage",
+        "index": 1,
+        "min": 1.0,
+        "max": 3.0,
+        "fmt": "d"
+      },
+      {
+        "key": "minion_global_maximum_added_lightning_damage",
+        "index": 2,
+        "min": 33.0,
+        "max": 39.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 26",
+    "id": "abyss_ghastly_notable_26",
+    "stats": [
+      "Minions deal (9-12) to (15-18) additional Physical Damage"
+    ],
+    "sorted_stats": [
+      "minion_global_minimum_added_physical_damage",
+      "minion_global_maximum_added_physical_damage"
+    ],
+    "rolls": [
+      {
+        "key": "minion_global_minimum_added_physical_damage",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "minion_global_maximum_added_physical_damage",
+        "index": 2,
+        "min": 15.0,
+        "max": 18.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 27",
+    "id": "abyss_ghastly_notable_27",
+    "stats": [
+      "Minions deal (9-12) to (15-18) additional Chaos Damage"
+    ],
+    "sorted_stats": [
+      "minion_global_minimum_added_chaos_damage",
+      "minion_global_maximum_added_chaos_damage"
+    ],
+    "rolls": [
+      {
+        "key": "minion_global_minimum_added_chaos_damage",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      },
+      {
+        "key": "minion_global_maximum_added_chaos_damage",
+        "index": 2,
+        "min": 15.0,
+        "max": 18.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 28",
+    "id": "abyss_ghastly_notable_28",
+    "stats": [
+      "3% increased Cooldown Recovery Rate"
+    ],
+    "sorted_stats": [
+      "base_cooldown_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cooldown_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 1",
+    "id": "abyss_special_notable_1",
+    "stats": [
+      "+(31-120) to Accuracy Rating"
+    ],
+    "sorted_stats": [
+      "accuracy_rating"
+    ],
+    "rolls": [
+      {
+        "key": "accuracy_rating",
+        "index": 1,
+        "min": 31.0,
+        "max": 120.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 2",
+    "id": "abyss_special_notable_2",
+    "stats": [
+      "+(6-8) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 3",
+    "id": "abyss_special_notable_3",
+    "stats": [
+      "+(12-16) to Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity",
+        "index": 1,
+        "min": 12.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 4",
+    "id": "abyss_special_notable_4",
+    "stats": [
+      "+(12-16) to Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_intelligence",
+        "index": 1,
+        "min": 12.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 5",
+    "id": "abyss_special_notable_5",
+    "stats": [
+      "2% additional Physical Damage Reduction if you weren't Damaged by a Hit Recently"
+    ],
+    "sorted_stats": [
+      "additional_physical_damage_reduction_%_if_not_damaged_by_a_hit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "additional_physical_damage_reduction_%_if_not_damaged_by_a_hit_recently",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 6",
+    "id": "abyss_special_notable_6",
+    "stats": [
+      "+(12-16) to Strength"
+    ],
+    "sorted_stats": [
+      "additional_strength"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength",
+        "index": 1,
+        "min": 12.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 7",
+    "id": "abyss_special_notable_7",
+    "stats": [
+      "(3-5)% increased Attack Speed"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 8",
+    "id": "abyss_special_notable_8",
+    "stats": [
+      "(4-6)% increased Attack Speed if you've dealt a Critical Strike Recently"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%_if_have_crit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%_if_have_crit_recently",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 9",
+    "id": "abyss_special_notable_9",
+    "stats": [
+      "(3-6)% chance to Blind Enemies on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "attacks_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "attacks_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 10",
+    "id": "abyss_special_notable_10",
+    "stats": [
+      "(3-8)% chance to Taunt Enemies on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "attacks_chance_to_taunt_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "attacks_chance_to_taunt_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 11",
+    "id": "abyss_special_notable_11",
+    "stats": [
+      "(31-40)% chance to Avoid Bleeding"
+    ],
+    "sorted_stats": [
+      "base_avoid_bleed_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_bleed_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 12",
+    "id": "abyss_special_notable_12",
+    "stats": [
+      "(31-40)% chance to Avoid being Frozen"
+    ],
+    "sorted_stats": [
+      "base_avoid_freeze_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_freeze_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 13",
+    "id": "abyss_special_notable_13",
+    "stats": [
+      "(31-40)% chance to Avoid being Ignited"
+    ],
+    "sorted_stats": [
+      "base_avoid_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_ignite_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 14",
+    "id": "abyss_special_notable_14",
+    "stats": [
+      "(31-40)% chance to Avoid being Poisoned"
+    ],
+    "sorted_stats": [
+      "base_avoid_poison_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_poison_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 15",
+    "id": "abyss_special_notable_15",
+    "stats": [
+      "(31-40)% chance to Avoid being Shocked"
+    ],
+    "sorted_stats": [
+      "base_avoid_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_shock_%",
+        "index": 1,
+        "min": 31.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 16",
+    "id": "abyss_special_notable_16",
+    "stats": [
+      "(21-30)% chance to Avoid being Stunned"
+    ],
+    "sorted_stats": [
+      "base_avoid_stun_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_stun_%",
+        "index": 1,
+        "min": 21.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 17",
+    "id": "abyss_special_notable_17",
+    "stats": [
+      "(2-4)% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "base_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cast_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 18",
+    "id": "abyss_special_notable_18",
+    "stats": [
+      "+(5-7)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 5.0,
+        "max": 7.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 19",
+    "id": "abyss_special_notable_19",
+    "stats": [
+      "+(12-15)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 12.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 20",
+    "id": "abyss_special_notable_20",
+    "stats": [
+      "3% increased Cooldown Recovery Rate"
+    ],
+    "sorted_stats": [
+      "base_cooldown_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cooldown_speed_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 21",
+    "id": "abyss_special_notable_21",
+    "stats": [
+      "+(4-8)% to Critical Strike Multiplier"
+    ],
+    "sorted_stats": [
+      "base_critical_strike_multiplier_+"
+    ],
+    "rolls": [
+      {
+        "key": "base_critical_strike_multiplier_+",
+        "index": 1,
+        "min": 4.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 22",
+    "id": "abyss_special_notable_22",
+    "stats": [
+      "+(36-100) to Evasion Rating"
+    ],
+    "sorted_stats": [
+      "base_evasion_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_evasion_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 100.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 23",
+    "id": "abyss_special_notable_23",
+    "stats": [
+      "+(12-15)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 12.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 24",
+    "id": "abyss_special_notable_24",
+    "stats": [
+      "Regenerate (9-16) Life per second"
+    ],
+    "sorted_stats": [
+      "base_life_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_life_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 9.0,
+        "max": 16.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 25",
+    "id": "abyss_special_notable_25",
+    "stats": [
+      "+(12-15)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 12.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 26",
+    "id": "abyss_special_notable_26",
+    "stats": [
+      "Regenerate (1.1-3) Mana per second"
+    ],
+    "sorted_stats": [
+      "base_mana_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_mana_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 1.1,
+        "max": 3.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 27",
+    "id": "abyss_special_notable_27",
+    "stats": [
+      "+(21-30) to maximum Life"
+    ],
+    "sorted_stats": [
+      "base_maximum_life"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_life",
+        "index": 1,
+        "min": 21.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 28",
+    "id": "abyss_special_notable_28",
+    "stats": [
+      "+(21-30) to maximum Mana"
+    ],
+    "sorted_stats": [
+      "base_maximum_mana"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_mana",
+        "index": 1,
+        "min": 21.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 29",
+    "id": "abyss_special_notable_29",
+    "stats": [
+      "+(61-100) to Armour"
+    ],
+    "sorted_stats": [
+      "base_physical_damage_reduction_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_physical_damage_reduction_rating",
+        "index": 1,
+        "min": 61.0,
+        "max": 100.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 30",
+    "id": "abyss_special_notable_30",
+    "stats": [
+      "+(6-8)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 31",
+    "id": "abyss_special_notable_31",
+    "stats": [
+      "+(3-4)% Chance to Block Attack Damage if you were Damaged by a Hit Recently"
+    ],
+    "sorted_stats": [
+      "block_chance_on_damage_taken_%"
+    ],
+    "rolls": [
+      {
+        "key": "block_chance_on_damage_taken_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 32",
+    "id": "abyss_special_notable_32",
+    "stats": [
+      "(5-7)% increased Cast Speed if you've dealt a Critical Strike Recently"
+    ],
+    "sorted_stats": [
+      "cast_speed_+%_if_have_crit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "cast_speed_+%_if_have_crit_recently",
+        "index": 1,
+        "min": 5.0,
+        "max": 7.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 33",
+    "id": "abyss_special_notable_33",
+    "stats": [
+      "(6-8)% increased Cast Speed if a Minion has been Killed Recently"
+    ],
+    "sorted_stats": [
+      "cast_speed_+%_if_player_minion_has_been_killed_recently"
+    ],
+    "rolls": [
+      {
+        "key": "cast_speed_+%_if_player_minion_has_been_killed_recently",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 34",
+    "id": "abyss_special_notable_34",
+    "stats": [
+      "+(3-4)% Chance to Block Spell Damage if you were Damaged by a Hit Recently"
+    ],
+    "sorted_stats": [
+      "chance_to_block_spells_%_if_damaged_by_a_hit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "chance_to_block_spells_%_if_damaged_by_a_hit_recently",
+        "index": 1,
+        "min": 3.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 35",
+    "id": "abyss_special_notable_35",
+    "stats": [
+      "10% increased Effect of Cold Ailments"
+    ],
+    "sorted_stats": [
+      "cold_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 36",
+    "id": "abyss_special_notable_36",
+    "stats": [
+      "(8-12)% increased Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%",
+        "index": 1,
+        "min": 8.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 37",
+    "id": "abyss_special_notable_37",
+    "stats": [
+      "(20-30)% increased Critical Strike Chance if you haven't dealt a Critical Strike Recently"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%_if_have_not_crit_recently"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%_if_have_not_crit_recently",
+        "index": 1,
+        "min": 20.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 38",
+    "id": "abyss_special_notable_38",
+    "stats": [
+      "+(8-10)% to Critical Strike Multiplier if you've Killed Recently"
+    ],
+    "sorted_stats": [
+      "critical_strike_multiplier_+_if_enemy_killed_recently"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_multiplier_+_if_enemy_killed_recently",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 39",
+    "id": "abyss_special_notable_39",
+    "stats": [
+      "2% increased Effect of your Curses"
+    ],
+    "sorted_stats": [
+      "curse_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "curse_effect_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 40",
+    "id": "abyss_special_notable_40",
+    "stats": [
+      "(10-15)% reduced Effect of Curses on you while on Consecrated Ground"
+    ],
+    "sorted_stats": [
+      "curse_effect_on_self_+%_while_on_consecrated_ground"
+    ],
+    "rolls": [
+      {
+        "key": "curse_effect_on_self_+%_while_on_consecrated_ground",
+        "index": 1,
+        "min": 10.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 41",
+    "id": "abyss_special_notable_41",
+    "stats": [
+      "(15-20)% increased Damage if you've Killed Recently"
+    ],
+    "sorted_stats": [
+      "damage_+%_if_enemy_killed_recently"
+    ],
+    "rolls": [
+      {
+        "key": "damage_+%_if_enemy_killed_recently",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 42",
+    "id": "abyss_special_notable_42",
+    "stats": [
+      "(10-18)% increased Damage over Time while Dual Wielding"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_dual_wielding"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_dual_wielding",
+        "index": 1,
+        "min": 10.0,
+        "max": 18.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 43",
+    "id": "abyss_special_notable_43",
+    "stats": [
+      "(10-18)% increased Damage over Time while holding a Shield"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_holding_a_shield"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_holding_a_shield",
+        "index": 1,
+        "min": 10.0,
+        "max": 18.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 44",
+    "id": "abyss_special_notable_44",
+    "stats": [
+      "(10-18)% increased Damage over Time while wielding a Two Handed Weapon"
+    ],
+    "sorted_stats": [
+      "damage_over_time_+%_while_wielding_two_handed_weapon"
+    ],
+    "rolls": [
+      {
+        "key": "damage_over_time_+%_while_wielding_two_handed_weapon",
+        "index": 1,
+        "min": 10.0,
+        "max": 18.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 45",
+    "id": "abyss_special_notable_45",
+    "stats": [
+      "Damage Penetrates 2% Elemental Resistances if you haven't Killed Recently"
+    ],
+    "sorted_stats": [
+      "damage_penetrates_%_elemental_resistance_if_enemy_not_killed_recently"
+    ],
+    "rolls": [
+      {
+        "key": "damage_penetrates_%_elemental_resistance_if_enemy_not_killed_recently",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 46",
+    "id": "abyss_special_notable_46",
+    "stats": [
+      "2% of Damage taken Recouped as Mana"
+    ],
+    "sorted_stats": [
+      "damage_taken_goes_to_mana_%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_taken_goes_to_mana_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 47",
+    "id": "abyss_special_notable_47",
+    "stats": [
+      "Enemies Blinded by you have (15-20)% reduced Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "enemies_you_blind_have_critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_blind_have_critical_strike_chance_+%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 48",
+    "id": "abyss_special_notable_48",
+    "stats": [
+      "Enemies Hindered by you have (15-20)% reduced Life Regeneration rate"
+    ],
+    "sorted_stats": [
+      "enemies_you_hinder_have_life_regeneration_rate_+%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_hinder_have_life_regeneration_rate_+%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 49",
+    "id": "abyss_special_notable_49",
+    "stats": [
+      "Enemies Intimidated by you have 10% increased duration of stuns against them"
+    ],
+    "sorted_stats": [
+      "enemies_you_intimidate_have_stun_duration_on_self_+%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_intimidate_have_stun_duration_on_self_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 50",
+    "id": "abyss_special_notable_50",
+    "stats": [
+      "Enemies Maimed by you take (4-5)% increased Damage Over Time"
+    ],
+    "sorted_stats": [
+      "enemies_you_maim_have_damage_taken_over_time_+%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_maim_have_damage_taken_over_time_+%",
+        "index": 1,
+        "min": 4.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 51",
+    "id": "abyss_special_notable_51",
+    "stats": [
+      "Enemies Withered by you have -2% to all Resistances"
+    ],
+    "sorted_stats": [
+      "enemies_you_wither_have_all_resistances_%"
+    ],
+    "rolls": [
+      {
+        "key": "enemies_you_wither_have_all_resistances_%",
+        "index": 1,
+        "min": -2.0,
+        "max": -2.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 52",
+    "id": "abyss_special_notable_52",
+    "stats": [
+      "Regenerate (9-16) Energy Shield per second"
+    ],
+    "sorted_stats": [
+      "energy_shield_regeneration_rate_per_second"
+    ],
+    "rolls": [
+      {
+        "key": "energy_shield_regeneration_rate_per_second",
+        "index": 1,
+        "min": 9.0,
+        "max": 16.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 53",
+    "id": "abyss_special_notable_53",
+    "stats": [
+      "(20-30)% increased Evasion Rating while moving"
+    ],
+    "sorted_stats": [
+      "evasion_rating_+%_while_moving"
+    ],
+    "rolls": [
+      {
+        "key": "evasion_rating_+%_while_moving",
+        "index": 1,
+        "min": 20.0,
+        "max": 30.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 54",
+    "id": "abyss_special_notable_54",
+    "stats": [
+      "(3-5)% increased Impale Effect"
+    ],
+    "sorted_stats": [
+      "impale_debuff_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "impale_debuff_effect_+%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 55",
+    "id": "abyss_special_notable_55",
+    "stats": [
+      "Regenerate (0.5-1)% of Life per second while moving"
+    ],
+    "sorted_stats": [
+      "life_regeneration_rate_per_minute_%_while_moving"
+    ],
+    "rolls": [
+      {
+        "key": "life_regeneration_rate_per_minute_%_while_moving",
+        "index": 1,
+        "min": 0.5,
+        "max": 1.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 56",
+    "id": "abyss_special_notable_56",
+    "stats": [
+      "(10-15)% increased Effect of Lightning Ailments"
+    ],
+    "sorted_stats": [
+      "lightning_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 57",
+    "id": "abyss_special_notable_57",
+    "stats": [
+      "(20-25)% increased Mana Regeneration Rate while moving"
+    ],
+    "sorted_stats": [
+      "mana_regeneration_rate_+%_while_moving"
+    ],
+    "rolls": [
+      {
+        "key": "mana_regeneration_rate_+%_while_moving",
+        "index": 1,
+        "min": 20.0,
+        "max": 25.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 58",
+    "id": "abyss_special_notable_58",
+    "stats": [
+      "Minions have (6-8)% increased Attack and Cast Speed if you or your Minions have Killed Recently"
+    ],
+    "sorted_stats": [
+      "minion_attack_and_cast_speed_+%_if_you_or_minions_have_killed_enemy_recently"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attack_and_cast_speed_+%_if_you_or_minions_have_killed_enemy_recently",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 59",
+    "id": "abyss_special_notable_59",
+    "stats": [
+      "Minions have (3-5)% chance to Blind on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_attacks_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attacks_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 60",
+    "id": "abyss_special_notable_60",
+    "stats": [
+      "Minions have (3-5)% chance to Taunt on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_attacks_chance_to_taunt_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attacks_chance_to_taunt_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 61",
+    "id": "abyss_special_notable_61",
+    "stats": [
+      "Minions have 10% chance to cause Bleeding with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_bleed_on_hit_with_attacks_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_bleed_on_hit_with_attacks_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 62",
+    "id": "abyss_special_notable_62",
+    "stats": [
+      "Minions have 10% chance to Ignite"
+    ],
+    "sorted_stats": [
+      "minion_chance_to_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_chance_to_ignite_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 63",
+    "id": "abyss_special_notable_63",
+    "stats": [
+      "Minions have +(7-11)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "minion_chaos_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_chaos_resistance_%",
+        "index": 1,
+        "min": 7.0,
+        "max": 11.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 64",
+    "id": "abyss_special_notable_64",
+    "stats": [
+      "Minions deal (10-15)% increased Damage if you've used a Minion Skill Recently"
+    ],
+    "sorted_stats": [
+      "minion_damage_+%_if_have_used_a_minion_skill_recently"
+    ],
+    "rolls": [
+      {
+        "key": "minion_damage_+%_if_have_used_a_minion_skill_recently",
+        "index": 1,
+        "min": 10.0,
+        "max": 15.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 65",
+    "id": "abyss_special_notable_65",
+    "stats": [
+      "Minions have +(6-10)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "minion_elemental_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_elemental_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 66",
+    "id": "abyss_special_notable_66",
+    "stats": [
+      "Minions Leech (0.3-0.5)% of Damage as Life"
+    ],
+    "sorted_stats": [
+      "minion_life_leech_from_any_damage_permyriad"
+    ],
+    "rolls": [
+      {
+        "key": "minion_life_leech_from_any_damage_permyriad",
+        "index": 1,
+        "min": 0.3,
+        "max": 0.5,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 67",
+    "id": "abyss_special_notable_67",
+    "stats": [
+      "Minions Regenerate (0.4-0.8)% of Life per second"
+    ],
+    "sorted_stats": [
+      "minion_life_regeneration_rate_per_minute_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_life_regeneration_rate_per_minute_%",
+        "index": 1,
+        "min": 0.4,
+        "max": 0.8,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Notable 68",
+    "id": "abyss_special_notable_68",
+    "stats": [
+      "Minions Regenerate (22-40) Life per second"
+    ],
+    "sorted_stats": [
+      "minion_life_regeneration_rate_per_second"
+    ],
+    "rolls": [
+      {
+        "key": "minion_life_regeneration_rate_per_second",
+        "index": 1,
+        "min": 22.0,
+        "max": 40.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 69",
+    "id": "abyss_special_notable_69",
+    "stats": [
+      "Minions have (6-10)% increased maximum Life"
+    ],
+    "sorted_stats": [
+      "minion_maximum_life_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_maximum_life_+%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 70",
+    "id": "abyss_special_notable_70",
+    "stats": [
+      "Minions have (6-10)% increased Movement Speed"
+    ],
+    "sorted_stats": [
+      "minion_movement_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_movement_speed_+%",
+        "index": 1,
+        "min": 6.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 71",
+    "id": "abyss_special_notable_71",
+    "stats": [
+      "Minions have (3-5)% chance to Hinder Enemies on Hit with Spells"
+    ],
+    "sorted_stats": [
+      "minion_spells_chance_to_hinder_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_spells_chance_to_hinder_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 72",
+    "id": "abyss_special_notable_72",
+    "stats": [
+      "Minions have 10% chance to Poison Enemies on Hit"
+    ],
+    "sorted_stats": [
+      "minions_chance_to_poison_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minions_chance_to_poison_on_hit_%",
+        "index": 1,
+        "min": 10.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 73",
+    "id": "abyss_special_notable_73",
+    "stats": [
+      "3% increased Movement Speed if you haven't taken Damage Recently"
+    ],
+    "sorted_stats": [
+      "movement_speed_+%_if_have_not_taken_damage_recently"
+    ],
+    "rolls": [
+      {
+        "key": "movement_speed_+%_if_have_not_taken_damage_recently",
+        "index": 1,
+        "min": 3.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 74",
+    "id": "abyss_special_notable_74",
+    "stats": [
+      "5% chance to gain Phasing for 4 seconds on Kill"
+    ],
+    "sorted_stats": [
+      "phasing_for_4_seconds_on_kill_%"
+    ],
+    "rolls": [
+      {
+        "key": "phasing_for_4_seconds_on_kill_%",
+        "index": 1,
+        "min": 5.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Notable 75",
+    "id": "abyss_special_notable_75",
+    "stats": [
+      "(3-8)% chance to Hinder Enemies on Hit with Spells"
+    ],
+    "sorted_stats": [
+      "spells_chance_to_hinder_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "spells_chance_to_hinder_on_hit_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 8.0,
         "fmt": "d"
       }
     ]

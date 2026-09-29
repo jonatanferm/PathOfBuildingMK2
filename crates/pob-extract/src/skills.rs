@@ -70,7 +70,7 @@ fn extract_one(path: &Path) -> Result<serde_json::Value> {
     let flag_fn = lua_globals_get::<mlua::Function>(&lua, "__pob_flag")?;
     let skill_fn = lua_globals_get::<mlua::Function>(&lua, "__pob_skill")?;
 
-    func.call::<()>((skills_table.clone(), mod_fn, flag_fn, skill_fn))
+    crate::call_pob_data_chunk(&func, (skills_table.clone(), mod_fn, flag_fn, skill_fn))
         .with_context(|| format!("executing {}", path.display()))?;
 
     let value: Value = Value::Table(skills_table);

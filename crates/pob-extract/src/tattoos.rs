@@ -30,6 +30,11 @@ pub fn extract(pob_root: &Path) -> Result<TattooSet> {
 
     let mut nodes = IndexMap::with_capacity(nodes_raw.len());
     for (name, raw) in nodes_raw {
+        // Current PoB data carries a nameless placeholder entry (`[""]`,
+        // "Limited to 1 Ascendancy Tattoo") that isn't a real tattoo.
+        if name.is_empty() {
+            continue;
+        }
         let mut tattoo = parse_tattoo(raw).with_context(|| format!("parsing tattoo `{name}`"))?;
         // The Lua key is the canonical display name; copy it onto the value if upstream
         // omits the redundant `dn` field.

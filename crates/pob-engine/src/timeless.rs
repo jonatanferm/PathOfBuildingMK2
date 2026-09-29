@@ -514,7 +514,12 @@ mod tests {
             return;
         }
         let lut = inflate_timeless_lut(&compressed).expect("inflate");
-        assert_eq!(lut.len(), 452 * 8001, "flat LUT = notables × seedSize");
+        // notable_count is 452 in 3.25-era data; read the matching index.
+        let notables = std::fs::read_to_string("../../data/timeless_node_index.json")
+            .ok()
+            .and_then(|j| pob_data::load_timeless_node_index(&j).ok())
+            .map_or(452, |idx| idx.notable_count as usize);
+        assert_eq!(lut.len(), notables * 8001, "flat LUT = notables × seedSize");
     }
 
     use pob_data::{

@@ -903,7 +903,13 @@ mod tests {
         let nodes = load_legion_nodes(&node_json).expect("nodes");
         let index = load_timeless_node_index(&idx_json).expect("index");
         let pool = LegionPool { additions, nodes };
-        assert_eq!(pool.split(), 96, "additions = data.timelessJewelAdditions");
+        // `data.timelessJewelAdditions`: 96 in 3.25-era data, 337 since the
+        // Foulborn / Vestigial additions.
+        assert!(
+            pool.split() == 96 || pool.split() == 337,
+            "additions = data.timelessJewelAdditions, got {}",
+            pool.split()
+        );
         assert!(pool
             .node_1based(77)
             .is_some_and(|n| n.name.contains("Might")));
@@ -912,10 +918,12 @@ mod tests {
             .is_some_and(|n| n.name.contains("Legacy")));
         // Fire Damage (global id 0) carries its roll range.
         assert_eq!(pool.additions[0].rolls[0].min, 7.0);
-        assert_eq!(index.node_count, 1931);
-        assert_eq!(index.notable_count, 452);
-        assert_eq!(index.nodes.len(), 1931);
-        assert_eq!(index.local_to_global.len(), 6, "six jewel types");
+        // 1931 / 452 in 3.25-era data; grows as the tree gains nodes.
+        assert!(index.node_count >= 1931);
+        assert!(index.notable_count >= 452);
+        assert_eq!(index.nodes.len() as u32, index.node_count);
+        // Six classic timeless jewels; current PoB adds five Abyss types (7-11).
+        assert!(index.local_to_global.len() >= 6, "jewel types");
     }
 
     #[test]

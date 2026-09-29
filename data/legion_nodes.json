@@ -3222,7 +3222,7 @@
     "name": "War Games",
     "id": "eternal_notable_accuracy_1",
     "stats": [
-      "25% increased Global Accuracy Rating"
+      "25% increased Accuracy Rating"
     ],
     "sorted_stats": [
       "accuracy_rating_+%"
@@ -3947,6 +3947,3814 @@
         "index": 1,
         "min": 1.0,
         "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Overwhelming Hate",
+    "id": "abyss_murderous_keystone",
+    "stats": [
+      "20% less maximum Life",
+      "Increases and reductions to Maximum Life also apply to Maximum Rage at 20% Value"
+    ],
+    "sorted_stats": [
+      "keystone_abyss_murderous"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_abyss_murderous",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Weighted Exchange",
+    "id": "abyss_searching_keystone",
+    "stats": [
+      "Take 15% more damage from Non-Critical Strikes",
+      "Take 30% less damage from Critical Strikes"
+    ],
+    "sorted_stats": [
+      "keystone_abyss_searching"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_abyss_searching",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Reconstructed Essence",
+    "id": "abyss_hypnotic_keystone",
+    "stats": [
+      "Life Recoup also recovers Mana",
+      "50% less recovery from Recoup"
+    ],
+    "sorted_stats": [
+      "keystone_abyss_hypnotic"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_abyss_hypnotic",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "The Loyal Few",
+    "id": "abyss_ghastly_keystone",
+    "stats": [
+      "Minions take 10% less Damage while you have a Zombie",
+      "Minions deal 10% more Damage while you have a Skeleton",
+      "Minions gain 10% of Non-Chaos Damage as extra Chaos Damage while you have a Spectre",
+      "Maximum number of raised Spectres, Skeletons and Zombies is 1"
+    ],
+    "sorted_stats": [
+      "keystone_abyss_ghastly"
+    ],
+    "rolls": [
+      {
+        "key": "keystone_abyss_ghastly",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Sanguine Bargain",
+    "id": "abyss_special_ascendancy_notable_1",
+    "stats": [
+      "Attacks gain 1% more damage for each 2% of your Maximum Life they cost if Life Cost is not higher than the maximum you could spend",
+      "Attack Skills cost Life instead of Mana"
+    ],
+    "sorted_stats": [
+      "reclaimed_malevolence_notable_abyss_murderous"
+    ],
+    "rolls": [
+      {
+        "key": "reclaimed_malevolence_notable_abyss_murderous",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ephemeral Bolts",
+    "id": "abyss_special_ascendancy_notable_2",
+    "stats": [
+      "Projectiles have 5 metres maximum Direct Flight",
+      "40% more Projectile Speed"
+    ],
+    "sorted_stats": [
+      "reclaimed_malevolence_notable_abyss_searching"
+    ],
+    "rolls": [
+      {
+        "key": "reclaimed_malevolence_notable_abyss_searching",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "From Below",
+    "id": "abyss_special_ascendancy_notable_3",
+    "stats": [
+      "Insufficient Mana doesn't prevent your Spells",
+      "Cannot recover Mana"
+    ],
+    "sorted_stats": [
+      "reclaimed_malevolence_notable_abyss_hypnotic"
+    ],
+    "rolls": [
+      {
+        "key": "reclaimed_malevolence_notable_abyss_hypnotic",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Spiteful Allies",
+    "id": "abyss_special_ascendancy_notable_4",
+    "stats": [
+      "Minions Impale on Hit"
+    ],
+    "sorted_stats": [
+      "reclaimed_malevolence_notable_abyss_ghastly"
+    ],
+    "rolls": [
+      {
+        "key": "reclaimed_malevolence_notable_abyss_ghastly",
+        "index": 1,
+        "min": 1.0,
+        "max": 1.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life",
+    "id": "abyss_murderous_small_attribute1",
+    "stats": [
+      "+(9-12) to maximum Life"
+    ],
+    "sorted_stats": [
+      "base_maximum_life"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_life",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana ",
+    "id": "abyss_murderous_small_attribute2",
+    "stats": [
+      "+(8-11) to maximum Mana"
+    ],
+    "sorted_stats": [
+      "base_maximum_mana"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_mana",
+        "index": 1,
+        "min": 8.0,
+        "max": 11.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield Regeneration",
+    "id": "abyss_murderous_small_attribute3",
+    "stats": [
+      "Regenerate (9-12) Energy Shield per second"
+    ],
+    "sorted_stats": [
+      "energy_shield_regeneration_rate_per_second"
+    ],
+    "rolls": [
+      {
+        "key": "energy_shield_regeneration_rate_per_second",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life Regeneration",
+    "id": "abyss_murderous_small_attribute4",
+    "stats": [
+      "Regenerate (4.5-6) Life per second"
+    ],
+    "sorted_stats": [
+      "base_life_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_life_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 4.5,
+        "max": 6.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Mana Regeneration",
+    "id": "abyss_murderous_small_attribute5",
+    "stats": [
+      "Regenerate (0.6-1) Mana per second"
+    ],
+    "sorted_stats": [
+      "base_mana_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_mana_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 0.6,
+        "max": 1.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Armour",
+    "id": "abyss_murderous_small_attribute6",
+    "stats": [
+      "+(36-60) to Armour"
+    ],
+    "sorted_stats": [
+      "base_physical_damage_reduction_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_physical_damage_reduction_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Evasion Rating",
+    "id": "abyss_murderous_small_attribute7",
+    "stats": [
+      "+(36-60) to Evasion Rating"
+    ],
+    "sorted_stats": [
+      "base_evasion_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_evasion_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield",
+    "id": "abyss_murderous_small_attribute8",
+    "stats": [
+      "+(9-12) to maximum Energy Shield"
+    ],
+    "sorted_stats": [
+      "base_maximum_energy_shield"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_energy_shield",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Impale Effect",
+    "id": "abyss_murderous_small_attribute9",
+    "stats": [
+      "(2-4)% increased Impale Effect"
+    ],
+    "sorted_stats": [
+      "impale_debuff_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "impale_debuff_effect_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana Recoup",
+    "id": "abyss_murderous_small_attribute10",
+    "stats": [
+      "(2-3)% of Damage taken Recouped as Mana"
+    ],
+    "sorted_stats": [
+      "damage_taken_goes_to_mana_%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_taken_goes_to_mana_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Ailment Effect",
+    "id": "abyss_murderous_small_attribute11",
+    "stats": [
+      "(10-20)% increased Effect of Cold Ailments"
+    ],
+    "sorted_stats": [
+      "cold_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Ailment Effect",
+    "id": "abyss_murderous_small_attribute12",
+    "stats": [
+      "(10-20)% increased Effect of Lightning Ailments"
+    ],
+    "sorted_stats": [
+      "lightning_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength",
+    "id": "abyss_murderous_small_attribute13",
+    "stats": [
+      "+(8-10) to Strength"
+    ],
+    "sorted_stats": [
+      "additional_strength"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity",
+    "id": "abyss_murderous_small_attribute14",
+    "stats": [
+      "+(8-10) to Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Intelligence",
+    "id": "abyss_murderous_small_attribute15",
+    "stats": [
+      "+(8-10) to Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_intelligence",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Dexterity",
+    "id": "abyss_murderous_small_attribute16",
+    "stats": [
+      "+(6-8) to Strength and Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_dexterity",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Intelligence",
+    "id": "abyss_murderous_small_attribute17",
+    "stats": [
+      "+(6-8) to Strength and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity and Intelligence",
+    "id": "abyss_murderous_small_attribute18",
+    "stats": [
+      "+(6-8) to Dexterity and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_dexterity_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attributes",
+    "id": "abyss_murderous_small_attribute19",
+    "stats": [
+      "+(4-6) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire Resistance",
+    "id": "abyss_murderous_small_attribute20",
+    "stats": [
+      "+(6-8)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Resistance",
+    "id": "abyss_murderous_small_attribute21",
+    "stats": [
+      "+(6-8)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Resistance",
+    "id": "abyss_murderous_small_attribute22",
+    "stats": [
+      "+(6-8)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Cold Resistance",
+    "id": "abyss_murderous_small_attribute23",
+    "stats": [
+      "+(4-6)% to Fire and Cold Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_cold_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Lightning Resistance",
+    "id": "abyss_murderous_small_attribute24",
+    "stats": [
+      "+(4-6)% to Fire and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold and Lightning Resistance",
+    "id": "abyss_murderous_small_attribute25",
+    "stats": [
+      "+(4-6)% to Cold and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "cold_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Elemental Resistance",
+    "id": "abyss_murderous_small_attribute26",
+    "stats": [
+      "+(3-5)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chaos Resistance",
+    "id": "abyss_murderous_small_attribute27",
+    "stats": [
+      "+(4-6)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attack Speed",
+    "id": "abyss_murderous_small_attribute28",
+    "stats": [
+      "(2-3)% increased Attack Speed"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Chance",
+    "id": "abyss_murderous_small_attribute29",
+    "stats": [
+      "(6-8)% increased Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Multiplier",
+    "id": "abyss_murderous_small_attribute30",
+    "stats": [
+      "+(7-9)% to Critical Strike Multiplier"
+    ],
+    "sorted_stats": [
+      "base_critical_strike_multiplier_+"
+    ],
+    "rolls": [
+      {
+        "key": "base_critical_strike_multiplier_+",
+        "index": 1,
+        "min": 7.0,
+        "max": 9.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Blind Chance",
+    "id": "abyss_murderous_small_attribute31",
+    "stats": [
+      "(2-3)% chance to Blind Enemies on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "attacks_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "attacks_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Taunt Chance",
+    "id": "abyss_murderous_small_attribute32",
+    "stats": [
+      "(2-3)% chance to Taunt Enemies on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "attacks_chance_to_taunt_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "attacks_chance_to_taunt_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ignite Avoidance",
+    "id": "abyss_murderous_small_attribute33",
+    "stats": [
+      "(15-20)% chance to Avoid being Ignited"
+    ],
+    "sorted_stats": [
+      "base_avoid_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_ignite_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Freeze Avoidance",
+    "id": "abyss_murderous_small_attribute34",
+    "stats": [
+      "(15-20)% chance to Avoid being Frozen"
+    ],
+    "sorted_stats": [
+      "base_avoid_freeze_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_freeze_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Shock Avoidance",
+    "id": "abyss_murderous_small_attribute35",
+    "stats": [
+      "(15-20)% chance to Avoid being Shocked"
+    ],
+    "sorted_stats": [
+      "base_avoid_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_shock_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Poison Avoidance",
+    "id": "abyss_murderous_small_attribute36",
+    "stats": [
+      "(15-20)% chance to Avoid being Poisoned"
+    ],
+    "sorted_stats": [
+      "base_avoid_poison_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_poison_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Bleed Avoidance",
+    "id": "abyss_murderous_small_attribute37",
+    "stats": [
+      "(15-20)% chance to Avoid Bleeding"
+    ],
+    "sorted_stats": [
+      "base_avoid_bleed_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_bleed_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Stun Avoidance",
+    "id": "abyss_murderous_small_attribute38",
+    "stats": [
+      "(15-20)% chance to Avoid being Stunned"
+    ],
+    "sorted_stats": [
+      "base_avoid_stun_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_stun_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Accuracy",
+    "id": "abyss_murderous_small_attribute39",
+    "stats": [
+      "+(31-60) to Accuracy Rating"
+    ],
+    "sorted_stats": [
+      "accuracy_rating"
+    ],
+    "rolls": [
+      {
+        "key": "accuracy_rating",
+        "index": 1,
+        "min": 31.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life",
+    "id": "abyss_searching_small_attribute1",
+    "stats": [
+      "+(9-12) to maximum Life"
+    ],
+    "sorted_stats": [
+      "base_maximum_life"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_life",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana ",
+    "id": "abyss_searching_small_attribute2",
+    "stats": [
+      "+(8-11) to maximum Mana"
+    ],
+    "sorted_stats": [
+      "base_maximum_mana"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_mana",
+        "index": 1,
+        "min": 8.0,
+        "max": 11.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield Regeneration",
+    "id": "abyss_searching_small_attribute3",
+    "stats": [
+      "Regenerate (9-12) Energy Shield per second"
+    ],
+    "sorted_stats": [
+      "energy_shield_regeneration_rate_per_second"
+    ],
+    "rolls": [
+      {
+        "key": "energy_shield_regeneration_rate_per_second",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life Regeneration",
+    "id": "abyss_searching_small_attribute4",
+    "stats": [
+      "Regenerate (4.5-6) Life per second"
+    ],
+    "sorted_stats": [
+      "base_life_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_life_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 4.5,
+        "max": 6.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Mana Regeneration",
+    "id": "abyss_searching_small_attribute5",
+    "stats": [
+      "Regenerate (0.6-1) Mana per second"
+    ],
+    "sorted_stats": [
+      "base_mana_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_mana_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 0.6,
+        "max": 1.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Armour",
+    "id": "abyss_searching_small_attribute6",
+    "stats": [
+      "+(36-60) to Armour"
+    ],
+    "sorted_stats": [
+      "base_physical_damage_reduction_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_physical_damage_reduction_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Evasion Rating",
+    "id": "abyss_searching_small_attribute7",
+    "stats": [
+      "+(36-60) to Evasion Rating"
+    ],
+    "sorted_stats": [
+      "base_evasion_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_evasion_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield",
+    "id": "abyss_searching_small_attribute8",
+    "stats": [
+      "+(9-12) to maximum Energy Shield"
+    ],
+    "sorted_stats": [
+      "base_maximum_energy_shield"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_energy_shield",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Impale Effect",
+    "id": "abyss_searching_small_attribute9",
+    "stats": [
+      "(2-4)% increased Impale Effect"
+    ],
+    "sorted_stats": [
+      "impale_debuff_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "impale_debuff_effect_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana Recoup",
+    "id": "abyss_searching_small_attribute10",
+    "stats": [
+      "(2-3)% of Damage taken Recouped as Mana"
+    ],
+    "sorted_stats": [
+      "damage_taken_goes_to_mana_%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_taken_goes_to_mana_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Ailment Effect",
+    "id": "abyss_searching_small_attribute11",
+    "stats": [
+      "(10-20)% increased Effect of Cold Ailments"
+    ],
+    "sorted_stats": [
+      "cold_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Ailment Effect",
+    "id": "abyss_searching_small_attribute12",
+    "stats": [
+      "(10-20)% increased Effect of Lightning Ailments"
+    ],
+    "sorted_stats": [
+      "lightning_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength",
+    "id": "abyss_searching_small_attribute13",
+    "stats": [
+      "+(8-10) to Strength"
+    ],
+    "sorted_stats": [
+      "additional_strength"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity",
+    "id": "abyss_searching_small_attribute14",
+    "stats": [
+      "+(8-10) to Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Intelligence",
+    "id": "abyss_searching_small_attribute15",
+    "stats": [
+      "+(8-10) to Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_intelligence",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Dexterity",
+    "id": "abyss_searching_small_attribute16",
+    "stats": [
+      "+(6-8) to Strength and Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_dexterity",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Intelligence",
+    "id": "abyss_searching_small_attribute17",
+    "stats": [
+      "+(6-8) to Strength and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity and Intelligence",
+    "id": "abyss_searching_small_attribute18",
+    "stats": [
+      "+(6-8) to Dexterity and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_dexterity_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attributes",
+    "id": "abyss_searching_small_attribute19",
+    "stats": [
+      "+(4-6) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire Resistance",
+    "id": "abyss_searching_small_attribute20",
+    "stats": [
+      "+(6-8)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Resistance",
+    "id": "abyss_searching_small_attribute21",
+    "stats": [
+      "+(6-8)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Resistance",
+    "id": "abyss_searching_small_attribute22",
+    "stats": [
+      "+(6-8)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Cold Resistance",
+    "id": "abyss_searching_small_attribute23",
+    "stats": [
+      "+(4-6)% to Fire and Cold Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_cold_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Lightning Resistance",
+    "id": "abyss_searching_small_attribute24",
+    "stats": [
+      "+(4-6)% to Fire and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold and Lightning Resistance",
+    "id": "abyss_searching_small_attribute25",
+    "stats": [
+      "+(4-6)% to Cold and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "cold_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Elemental Resistance",
+    "id": "abyss_searching_small_attribute26",
+    "stats": [
+      "+(3-5)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chaos Resistance",
+    "id": "abyss_searching_small_attribute27",
+    "stats": [
+      "+(4-6)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attack Speed",
+    "id": "abyss_searching_small_attribute28",
+    "stats": [
+      "(2-3)% increased Attack Speed"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Chance",
+    "id": "abyss_searching_small_attribute29",
+    "stats": [
+      "(6-8)% increased Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Multiplier",
+    "id": "abyss_searching_small_attribute30",
+    "stats": [
+      "+(7-9)% to Critical Strike Multiplier"
+    ],
+    "sorted_stats": [
+      "base_critical_strike_multiplier_+"
+    ],
+    "rolls": [
+      {
+        "key": "base_critical_strike_multiplier_+",
+        "index": 1,
+        "min": 7.0,
+        "max": 9.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Blind Chance",
+    "id": "abyss_searching_small_attribute31",
+    "stats": [
+      "(2-3)% chance to Blind Enemies on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "attacks_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "attacks_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ignite Avoidance",
+    "id": "abyss_searching_small_attribute32",
+    "stats": [
+      "(15-20)% chance to Avoid being Ignited"
+    ],
+    "sorted_stats": [
+      "base_avoid_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_ignite_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Freeze Avoidance",
+    "id": "abyss_searching_small_attribute33",
+    "stats": [
+      "(15-20)% chance to Avoid being Frozen"
+    ],
+    "sorted_stats": [
+      "base_avoid_freeze_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_freeze_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Shock Avoidance",
+    "id": "abyss_searching_small_attribute34",
+    "stats": [
+      "(15-20)% chance to Avoid being Shocked"
+    ],
+    "sorted_stats": [
+      "base_avoid_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_shock_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Poison Avoidance",
+    "id": "abyss_searching_small_attribute35",
+    "stats": [
+      "(15-20)% chance to Avoid being Poisoned"
+    ],
+    "sorted_stats": [
+      "base_avoid_poison_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_poison_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Bleed Avoidance",
+    "id": "abyss_searching_small_attribute36",
+    "stats": [
+      "(15-20)% chance to Avoid Bleeding"
+    ],
+    "sorted_stats": [
+      "base_avoid_bleed_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_bleed_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Stun Avoidance",
+    "id": "abyss_searching_small_attribute37",
+    "stats": [
+      "(15-20)% chance to Avoid being Stunned"
+    ],
+    "sorted_stats": [
+      "base_avoid_stun_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_stun_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Accuracy",
+    "id": "abyss_searching_small_attribute38",
+    "stats": [
+      "+(31-60) to Accuracy Rating"
+    ],
+    "sorted_stats": [
+      "accuracy_rating"
+    ],
+    "rolls": [
+      {
+        "key": "accuracy_rating",
+        "index": 1,
+        "min": 31.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life",
+    "id": "abyss_hypnotic_small_attribute1",
+    "stats": [
+      "+(9-12) to maximum Life"
+    ],
+    "sorted_stats": [
+      "base_maximum_life"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_life",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana ",
+    "id": "abyss_hypnotic_small_attribute2",
+    "stats": [
+      "+(8-11) to maximum Mana"
+    ],
+    "sorted_stats": [
+      "base_maximum_mana"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_mana",
+        "index": 1,
+        "min": 8.0,
+        "max": 11.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield Regeneration",
+    "id": "abyss_hypnotic_small_attribute3",
+    "stats": [
+      "Regenerate (9-12) Energy Shield per second"
+    ],
+    "sorted_stats": [
+      "energy_shield_regeneration_rate_per_second"
+    ],
+    "rolls": [
+      {
+        "key": "energy_shield_regeneration_rate_per_second",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life Regeneration",
+    "id": "abyss_hypnotic_small_attribute4",
+    "stats": [
+      "Regenerate (4.5-6) Life per second"
+    ],
+    "sorted_stats": [
+      "base_life_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_life_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 4.5,
+        "max": 6.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Mana Regeneration",
+    "id": "abyss_hypnotic_small_attribute5",
+    "stats": [
+      "Regenerate (0.6-1) Mana per second"
+    ],
+    "sorted_stats": [
+      "base_mana_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_mana_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 0.6,
+        "max": 1.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Armour",
+    "id": "abyss_hypnotic_small_attribute6",
+    "stats": [
+      "+(36-60) to Armour"
+    ],
+    "sorted_stats": [
+      "base_physical_damage_reduction_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_physical_damage_reduction_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Evasion Rating",
+    "id": "abyss_hypnotic_small_attribute7",
+    "stats": [
+      "+(36-60) to Evasion Rating"
+    ],
+    "sorted_stats": [
+      "base_evasion_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_evasion_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield",
+    "id": "abyss_hypnotic_small_attribute8",
+    "stats": [
+      "+(9-12) to maximum Energy Shield"
+    ],
+    "sorted_stats": [
+      "base_maximum_energy_shield"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_energy_shield",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana Recoup",
+    "id": "abyss_hypnotic_small_attribute9",
+    "stats": [
+      "(2-3)% of Damage taken Recouped as Mana"
+    ],
+    "sorted_stats": [
+      "damage_taken_goes_to_mana_%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_taken_goes_to_mana_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Ailment Effect",
+    "id": "abyss_hypnotic_small_attribute10",
+    "stats": [
+      "(10-20)% increased Effect of Cold Ailments"
+    ],
+    "sorted_stats": [
+      "cold_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Ailment Effect",
+    "id": "abyss_hypnotic_small_attribute11",
+    "stats": [
+      "(10-20)% increased Effect of Lightning Ailments"
+    ],
+    "sorted_stats": [
+      "lightning_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength",
+    "id": "abyss_hypnotic_small_attribute12",
+    "stats": [
+      "+(8-10) to Strength"
+    ],
+    "sorted_stats": [
+      "additional_strength"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity",
+    "id": "abyss_hypnotic_small_attribute13",
+    "stats": [
+      "+(8-10) to Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Intelligence",
+    "id": "abyss_hypnotic_small_attribute14",
+    "stats": [
+      "+(8-10) to Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_intelligence",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Dexterity",
+    "id": "abyss_hypnotic_small_attribute15",
+    "stats": [
+      "+(6-8) to Strength and Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_dexterity",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Intelligence",
+    "id": "abyss_hypnotic_small_attribute16",
+    "stats": [
+      "+(6-8) to Strength and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity and Intelligence",
+    "id": "abyss_hypnotic_small_attribute17",
+    "stats": [
+      "+(6-8) to Dexterity and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_dexterity_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attributes",
+    "id": "abyss_hypnotic_small_attribute18",
+    "stats": [
+      "+(4-6) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire Resistance",
+    "id": "abyss_hypnotic_small_attribute19",
+    "stats": [
+      "+(6-8)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Resistance",
+    "id": "abyss_hypnotic_small_attribute20",
+    "stats": [
+      "+(6-8)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Resistance",
+    "id": "abyss_hypnotic_small_attribute21",
+    "stats": [
+      "+(6-8)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Cold Resistance",
+    "id": "abyss_hypnotic_small_attribute22",
+    "stats": [
+      "+(4-6)% to Fire and Cold Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_cold_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Lightning Resistance",
+    "id": "abyss_hypnotic_small_attribute23",
+    "stats": [
+      "+(4-6)% to Fire and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold and Lightning Resistance",
+    "id": "abyss_hypnotic_small_attribute24",
+    "stats": [
+      "+(4-6)% to Cold and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "cold_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Elemental Resistance",
+    "id": "abyss_hypnotic_small_attribute25",
+    "stats": [
+      "+(3-5)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chaos Resistance",
+    "id": "abyss_hypnotic_small_attribute26",
+    "stats": [
+      "+(4-6)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cast Speed",
+    "id": "abyss_hypnotic_small_attribute27",
+    "stats": [
+      "(2-3)% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "base_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cast_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Chance",
+    "id": "abyss_hypnotic_small_attribute28",
+    "stats": [
+      "(6-8)% increased Critical Strike Chance"
+    ],
+    "sorted_stats": [
+      "critical_strike_chance_+%"
+    ],
+    "rolls": [
+      {
+        "key": "critical_strike_chance_+%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Critical Strike Multiplier",
+    "id": "abyss_hypnotic_small_attribute29",
+    "stats": [
+      "+(7-9)% to Critical Strike Multiplier"
+    ],
+    "sorted_stats": [
+      "base_critical_strike_multiplier_+"
+    ],
+    "rolls": [
+      {
+        "key": "base_critical_strike_multiplier_+",
+        "index": 1,
+        "min": 7.0,
+        "max": 9.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Hinder Chance",
+    "id": "abyss_hypnotic_small_attribute30",
+    "stats": [
+      "(2-3)% chance to Hinder Enemies on Hit with Spells"
+    ],
+    "sorted_stats": [
+      "spells_chance_to_hinder_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "spells_chance_to_hinder_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ignite Avoidance",
+    "id": "abyss_hypnotic_small_attribute31",
+    "stats": [
+      "(15-20)% chance to Avoid being Ignited"
+    ],
+    "sorted_stats": [
+      "base_avoid_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_ignite_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Freeze Avoidance",
+    "id": "abyss_hypnotic_small_attribute32",
+    "stats": [
+      "(15-20)% chance to Avoid being Frozen"
+    ],
+    "sorted_stats": [
+      "base_avoid_freeze_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_freeze_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Shock Avoidance",
+    "id": "abyss_hypnotic_small_attribute33",
+    "stats": [
+      "(15-20)% chance to Avoid being Shocked"
+    ],
+    "sorted_stats": [
+      "base_avoid_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_shock_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Poison Avoidance",
+    "id": "abyss_hypnotic_small_attribute34",
+    "stats": [
+      "(15-20)% chance to Avoid being Poisoned"
+    ],
+    "sorted_stats": [
+      "base_avoid_poison_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_poison_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Bleed Avoidance",
+    "id": "abyss_hypnotic_small_attribute35",
+    "stats": [
+      "(15-20)% chance to Avoid Bleeding"
+    ],
+    "sorted_stats": [
+      "base_avoid_bleed_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_bleed_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Stun Avoidance",
+    "id": "abyss_hypnotic_small_attribute36",
+    "stats": [
+      "(15-20)% chance to Avoid being Stunned"
+    ],
+    "sorted_stats": [
+      "base_avoid_stun_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_stun_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life",
+    "id": "abyss_ghastly_small_attribute1",
+    "stats": [
+      "+(9-12) to maximum Life"
+    ],
+    "sorted_stats": [
+      "base_maximum_life"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_life",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana ",
+    "id": "abyss_ghastly_small_attribute2",
+    "stats": [
+      "+(8-11) to maximum Mana"
+    ],
+    "sorted_stats": [
+      "base_maximum_mana"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_mana",
+        "index": 1,
+        "min": 8.0,
+        "max": 11.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield Regeneration",
+    "id": "abyss_ghastly_small_attribute3",
+    "stats": [
+      "Regenerate (9-12) Energy Shield per second"
+    ],
+    "sorted_stats": [
+      "energy_shield_regeneration_rate_per_second"
+    ],
+    "rolls": [
+      {
+        "key": "energy_shield_regeneration_rate_per_second",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life Regeneration",
+    "id": "abyss_ghastly_small_attribute4",
+    "stats": [
+      "Regenerate (4.5-6) Life per second"
+    ],
+    "sorted_stats": [
+      "base_life_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_life_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 4.5,
+        "max": 6.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Mana Regeneration",
+    "id": "abyss_ghastly_small_attribute5",
+    "stats": [
+      "Regenerate (0.6-1) Mana per second"
+    ],
+    "sorted_stats": [
+      "base_mana_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_mana_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 0.6,
+        "max": 1.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Armour",
+    "id": "abyss_ghastly_small_attribute6",
+    "stats": [
+      "+(36-60) to Armour"
+    ],
+    "sorted_stats": [
+      "base_physical_damage_reduction_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_physical_damage_reduction_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Evasion Rating",
+    "id": "abyss_ghastly_small_attribute7",
+    "stats": [
+      "+(36-60) to Evasion Rating"
+    ],
+    "sorted_stats": [
+      "base_evasion_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_evasion_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield",
+    "id": "abyss_ghastly_small_attribute8",
+    "stats": [
+      "+(9-12) to maximum Energy Shield"
+    ],
+    "sorted_stats": [
+      "base_maximum_energy_shield"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_energy_shield",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana Recoup",
+    "id": "abyss_ghastly_small_attribute9",
+    "stats": [
+      "(2-3)% of Damage taken Recouped as Mana"
+    ],
+    "sorted_stats": [
+      "damage_taken_goes_to_mana_%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_taken_goes_to_mana_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength",
+    "id": "abyss_ghastly_small_attribute10",
+    "stats": [
+      "+(8-10) to Strength"
+    ],
+    "sorted_stats": [
+      "additional_strength"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity",
+    "id": "abyss_ghastly_small_attribute11",
+    "stats": [
+      "+(8-10) to Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Intelligence",
+    "id": "abyss_ghastly_small_attribute12",
+    "stats": [
+      "+(8-10) to Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_intelligence",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Dexterity",
+    "id": "abyss_ghastly_small_attribute13",
+    "stats": [
+      "+(6-8) to Strength and Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_dexterity",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Intelligence",
+    "id": "abyss_ghastly_small_attribute14",
+    "stats": [
+      "+(6-8) to Strength and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity and Intelligence",
+    "id": "abyss_ghastly_small_attribute15",
+    "stats": [
+      "+(6-8) to Dexterity and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_dexterity_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attributes",
+    "id": "abyss_ghastly_small_attribute16",
+    "stats": [
+      "+(4-6) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire Resistance",
+    "id": "abyss_ghastly_small_attribute17",
+    "stats": [
+      "+(6-8)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Resistance",
+    "id": "abyss_ghastly_small_attribute18",
+    "stats": [
+      "+(6-8)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Resistance",
+    "id": "abyss_ghastly_small_attribute19",
+    "stats": [
+      "+(6-8)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Cold Resistance",
+    "id": "abyss_ghastly_small_attribute20",
+    "stats": [
+      "+(4-6)% to Fire and Cold Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_cold_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Lightning Resistance",
+    "id": "abyss_ghastly_small_attribute21",
+    "stats": [
+      "+(4-6)% to Fire and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold and Lightning Resistance",
+    "id": "abyss_ghastly_small_attribute22",
+    "stats": [
+      "+(4-6)% to Cold and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "cold_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Elemental Resistance",
+    "id": "abyss_ghastly_small_attribute23",
+    "stats": [
+      "+(3-5)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chaos Resistance",
+    "id": "abyss_ghastly_small_attribute24",
+    "stats": [
+      "+(4-6)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cast Speed",
+    "id": "abyss_ghastly_small_attribute25",
+    "stats": [
+      "(2-3)% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "base_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cast_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Blind Chance",
+    "id": "abyss_ghastly_small_attribute26",
+    "stats": [
+      "Minions have (2-3)% chance to Blind on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_attacks_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attacks_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Taunt Chance",
+    "id": "abyss_ghastly_small_attribute27",
+    "stats": [
+      "Minions have (2-3)% chance to Taunt on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_attacks_chance_to_taunt_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attacks_chance_to_taunt_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Hinder Chance",
+    "id": "abyss_ghastly_small_attribute28",
+    "stats": [
+      "Minions have (2-3)% chance to Hinder Enemies on Hit with Spells"
+    ],
+    "sorted_stats": [
+      "minion_spells_chance_to_hinder_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_spells_chance_to_hinder_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ignite Avoidance",
+    "id": "abyss_ghastly_small_attribute29",
+    "stats": [
+      "(15-20)% chance to Avoid being Ignited"
+    ],
+    "sorted_stats": [
+      "base_avoid_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_ignite_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Freeze Avoidance",
+    "id": "abyss_ghastly_small_attribute30",
+    "stats": [
+      "(15-20)% chance to Avoid being Frozen"
+    ],
+    "sorted_stats": [
+      "base_avoid_freeze_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_freeze_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Shock Avoidance",
+    "id": "abyss_ghastly_small_attribute31",
+    "stats": [
+      "(15-20)% chance to Avoid being Shocked"
+    ],
+    "sorted_stats": [
+      "base_avoid_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_shock_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Poison Avoidance",
+    "id": "abyss_ghastly_small_attribute32",
+    "stats": [
+      "(15-20)% chance to Avoid being Poisoned"
+    ],
+    "sorted_stats": [
+      "base_avoid_poison_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_poison_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Bleed Avoidance",
+    "id": "abyss_ghastly_small_attribute33",
+    "stats": [
+      "(15-20)% chance to Avoid Bleeding"
+    ],
+    "sorted_stats": [
+      "base_avoid_bleed_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_bleed_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Stun Avoidance",
+    "id": "abyss_ghastly_small_attribute34",
+    "stats": [
+      "(15-20)% chance to Avoid being Stunned"
+    ],
+    "sorted_stats": [
+      "base_avoid_stun_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_stun_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Attack and Cast Speed",
+    "id": "abyss_ghastly_small_attribute35",
+    "stats": [
+      "Minions have (2-3)% increased Attack Speed",
+      "Minions have (2-3)% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "minion_attack_speed_+%",
+      "minion_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attack_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      },
+      {
+        "key": "minion_cast_speed_+%",
+        "index": 2,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life",
+    "id": "abyss_special_small_attribute1",
+    "stats": [
+      "+(9-12) to maximum Life"
+    ],
+    "sorted_stats": [
+      "base_maximum_life"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_life",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana ",
+    "id": "abyss_special_small_attribute2",
+    "stats": [
+      "+(8-11) to maximum Mana"
+    ],
+    "sorted_stats": [
+      "base_maximum_mana"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_mana",
+        "index": 1,
+        "min": 8.0,
+        "max": 11.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield Regeneration",
+    "id": "abyss_special_small_attribute3",
+    "stats": [
+      "Regenerate (9-12) Energy Shield per second"
+    ],
+    "sorted_stats": [
+      "energy_shield_regeneration_rate_per_second"
+    ],
+    "rolls": [
+      {
+        "key": "energy_shield_regeneration_rate_per_second",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Life Regeneration",
+    "id": "abyss_special_small_attribute4",
+    "stats": [
+      "Regenerate (4.5-6) Life per second"
+    ],
+    "sorted_stats": [
+      "base_life_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_life_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 4.5,
+        "max": 6.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Mana Regeneration",
+    "id": "abyss_special_small_attribute5",
+    "stats": [
+      "Regenerate (0.6-1) Mana per second"
+    ],
+    "sorted_stats": [
+      "base_mana_regeneration_rate_per_minute"
+    ],
+    "rolls": [
+      {
+        "key": "base_mana_regeneration_rate_per_minute",
+        "index": 1,
+        "min": 0.6,
+        "max": 1.0,
+        "fmt": "g"
+      }
+    ]
+  },
+  {
+    "name": "Armour",
+    "id": "abyss_special_small_attribute6",
+    "stats": [
+      "+(36-60) to Armour"
+    ],
+    "sorted_stats": [
+      "base_physical_damage_reduction_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_physical_damage_reduction_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Evasion Rating",
+    "id": "abyss_special_small_attribute7",
+    "stats": [
+      "+(36-60) to Evasion Rating"
+    ],
+    "sorted_stats": [
+      "base_evasion_rating"
+    ],
+    "rolls": [
+      {
+        "key": "base_evasion_rating",
+        "index": 1,
+        "min": 36.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Energy Shield",
+    "id": "abyss_special_small_attribute8",
+    "stats": [
+      "+(9-12) to maximum Energy Shield"
+    ],
+    "sorted_stats": [
+      "base_maximum_energy_shield"
+    ],
+    "rolls": [
+      {
+        "key": "base_maximum_energy_shield",
+        "index": 1,
+        "min": 9.0,
+        "max": 12.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Mana Recoup",
+    "id": "abyss_special_small_attribute9",
+    "stats": [
+      "(2-3)% of Damage taken Recouped as Mana"
+    ],
+    "sorted_stats": [
+      "damage_taken_goes_to_mana_%"
+    ],
+    "rolls": [
+      {
+        "key": "damage_taken_goes_to_mana_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength",
+    "id": "abyss_special_small_attribute10",
+    "stats": [
+      "+(8-10) to Strength"
+    ],
+    "sorted_stats": [
+      "additional_strength"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity",
+    "id": "abyss_special_small_attribute11",
+    "stats": [
+      "+(8-10) to Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Intelligence",
+    "id": "abyss_special_small_attribute12",
+    "stats": [
+      "+(8-10) to Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_intelligence",
+        "index": 1,
+        "min": 8.0,
+        "max": 10.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Dexterity",
+    "id": "abyss_special_small_attribute13",
+    "stats": [
+      "+(6-8) to Strength and Dexterity"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_dexterity"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_dexterity",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Strength and Intelligence",
+    "id": "abyss_special_small_attribute14",
+    "stats": [
+      "+(6-8) to Strength and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_strength_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_strength_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Dexterity and Intelligence",
+    "id": "abyss_special_small_attribute15",
+    "stats": [
+      "+(6-8) to Dexterity and Intelligence"
+    ],
+    "sorted_stats": [
+      "additional_dexterity_and_intelligence"
+    ],
+    "rolls": [
+      {
+        "key": "additional_dexterity_and_intelligence",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attributes",
+    "id": "abyss_special_small_attribute16",
+    "stats": [
+      "+(4-6) to all Attributes"
+    ],
+    "sorted_stats": [
+      "additional_all_attributes"
+    ],
+    "rolls": [
+      {
+        "key": "additional_all_attributes",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire Resistance",
+    "id": "abyss_special_small_attribute17",
+    "stats": [
+      "+(6-8)% to Fire Resistance"
+    ],
+    "sorted_stats": [
+      "base_fire_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_fire_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Resistance",
+    "id": "abyss_special_small_attribute18",
+    "stats": [
+      "+(6-8)% to Cold Resistance"
+    ],
+    "sorted_stats": [
+      "base_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cold_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Resistance",
+    "id": "abyss_special_small_attribute19",
+    "stats": [
+      "+(6-8)% to Lightning Resistance"
+    ],
+    "sorted_stats": [
+      "base_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 6.0,
+        "max": 8.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Cold Resistance",
+    "id": "abyss_special_small_attribute20",
+    "stats": [
+      "+(4-6)% to Fire and Cold Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_cold_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_cold_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Fire and Lightning Resistance",
+    "id": "abyss_special_small_attribute21",
+    "stats": [
+      "+(4-6)% to Fire and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "fire_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "fire_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold and Lightning Resistance",
+    "id": "abyss_special_small_attribute22",
+    "stats": [
+      "+(4-6)% to Cold and Lightning Resistances"
+    ],
+    "sorted_stats": [
+      "cold_and_lightning_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_and_lightning_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Elemental Resistance",
+    "id": "abyss_special_small_attribute23",
+    "stats": [
+      "+(3-5)% to all Elemental Resistances"
+    ],
+    "sorted_stats": [
+      "base_resist_all_elements_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_resist_all_elements_%",
+        "index": 1,
+        "min": 3.0,
+        "max": 5.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Chaos Resistance",
+    "id": "abyss_special_small_attribute24",
+    "stats": [
+      "+(4-6)% to Chaos Resistance"
+    ],
+    "sorted_stats": [
+      "base_chaos_damage_resistance_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_chaos_damage_resistance_%",
+        "index": 1,
+        "min": 4.0,
+        "max": 6.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cast Speed",
+    "id": "abyss_special_small_attribute25",
+    "stats": [
+      "(2-3)% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "base_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "base_cast_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Blind Chance",
+    "id": "abyss_special_small_attribute26",
+    "stats": [
+      "Minions have (2-3)% chance to Blind on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_attacks_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attacks_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Taunt Chance",
+    "id": "abyss_special_small_attribute27",
+    "stats": [
+      "Minions have (2-3)% chance to Taunt on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "minion_attacks_chance_to_taunt_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attacks_chance_to_taunt_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Hinder Chance",
+    "id": "abyss_special_small_attribute28",
+    "stats": [
+      "Minions have (2-3)% chance to Hinder Enemies on Hit with Spells"
+    ],
+    "sorted_stats": [
+      "minion_spells_chance_to_hinder_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_spells_chance_to_hinder_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Ignite Avoidance",
+    "id": "abyss_special_small_attribute29",
+    "stats": [
+      "(15-20)% chance to Avoid being Ignited"
+    ],
+    "sorted_stats": [
+      "base_avoid_ignite_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_ignite_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Freeze Avoidance",
+    "id": "abyss_special_small_attribute30",
+    "stats": [
+      "(15-20)% chance to Avoid being Frozen"
+    ],
+    "sorted_stats": [
+      "base_avoid_freeze_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_freeze_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Shock Avoidance",
+    "id": "abyss_special_small_attribute31",
+    "stats": [
+      "(15-20)% chance to Avoid being Shocked"
+    ],
+    "sorted_stats": [
+      "base_avoid_shock_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_shock_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Poison Avoidance",
+    "id": "abyss_special_small_attribute32",
+    "stats": [
+      "(15-20)% chance to Avoid being Poisoned"
+    ],
+    "sorted_stats": [
+      "base_avoid_poison_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_poison_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Bleed Avoidance",
+    "id": "abyss_special_small_attribute33",
+    "stats": [
+      "(15-20)% chance to Avoid Bleeding"
+    ],
+    "sorted_stats": [
+      "base_avoid_bleed_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_bleed_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Stun Avoidance",
+    "id": "abyss_special_small_attribute34",
+    "stats": [
+      "(15-20)% chance to Avoid being Stunned"
+    ],
+    "sorted_stats": [
+      "base_avoid_stun_%"
+    ],
+    "rolls": [
+      {
+        "key": "base_avoid_stun_%",
+        "index": 1,
+        "min": 15.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Minion Attack and Cast Speed",
+    "id": "abyss_special_small_attribute35",
+    "stats": [
+      "Minions have (2-3)% increased Attack Speed",
+      "Minions have (2-3)% increased Cast Speed"
+    ],
+    "sorted_stats": [
+      "minion_attack_speed_+%",
+      "minion_cast_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "minion_attack_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      },
+      {
+        "key": "minion_cast_speed_+%",
+        "index": 2,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Hinder Chance",
+    "id": "abyss_special_small_attribute36",
+    "stats": [
+      "(2-3)% chance to Hinder Enemies on Hit with Spells"
+    ],
+    "sorted_stats": [
+      "spells_chance_to_hinder_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "spells_chance_to_hinder_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Cold Ailment Effect",
+    "id": "abyss_special_small_attribute37",
+    "stats": [
+      "(10-20)% increased Effect of Cold Ailments"
+    ],
+    "sorted_stats": [
+      "cold_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "cold_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Lightning Ailment Effect",
+    "id": "abyss_special_small_attribute38",
+    "stats": [
+      "(10-20)% increased Effect of Lightning Ailments"
+    ],
+    "sorted_stats": [
+      "lightning_ailment_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "lightning_ailment_effect_+%",
+        "index": 1,
+        "min": 10.0,
+        "max": 20.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Blind Chance",
+    "id": "abyss_special_small_attribute39",
+    "stats": [
+      "(2-3)% chance to Blind Enemies on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "attacks_chance_to_blind_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "attacks_chance_to_blind_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Accuracy",
+    "id": "abyss_special_small_attribute40",
+    "stats": [
+      "+(31-60) to Accuracy Rating"
+    ],
+    "sorted_stats": [
+      "accuracy_rating"
+    ],
+    "rolls": [
+      {
+        "key": "accuracy_rating",
+        "index": 1,
+        "min": 31.0,
+        "max": 60.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Attack Speed",
+    "id": "abyss_special_small_attribute41",
+    "stats": [
+      "(2-3)% increased Attack Speed"
+    ],
+    "sorted_stats": [
+      "attack_speed_+%"
+    ],
+    "rolls": [
+      {
+        "key": "attack_speed_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Impale Effect",
+    "id": "abyss_special_small_attribute42",
+    "stats": [
+      "(2-4)% increased Impale Effect"
+    ],
+    "sorted_stats": [
+      "impale_debuff_effect_+%"
+    ],
+    "rolls": [
+      {
+        "key": "impale_debuff_effect_+%",
+        "index": 1,
+        "min": 2.0,
+        "max": 4.0,
+        "fmt": "d"
+      }
+    ]
+  },
+  {
+    "name": "Taunt Chance",
+    "id": "abyss_special_small_attribute43",
+    "stats": [
+      "(2-3)% chance to Taunt Enemies on Hit with Attacks"
+    ],
+    "sorted_stats": [
+      "attacks_chance_to_taunt_on_hit_%"
+    ],
+    "rolls": [
+      {
+        "key": "attacks_chance_to_taunt_on_hit_%",
+        "index": 1,
+        "min": 2.0,
+        "max": 3.0,
         "fmt": "d"
       }
     ]

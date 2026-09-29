@@ -64,14 +64,20 @@ fn load_minions_lua(
         .into_function()
         .with_context(|| format!("compiling {}", path.display()))?;
 
-    let minions_table = lua.create_table()?;
+    // Legacy PoB: `local minions, mod[, flag] = ...` fills the passed table.
+    // Current PoB: `return function(mod, flag) … return minions end`.
+    let mut minions_table = lua.create_table()?;
     let mod_fn = lua.globals().get::<LuaFn>("__pob_mod")?;
-    if pass_flag {
-        let flag_fn = lua.globals().get::<LuaFn>("__pob_flag")?;
-        func.call::<()>((minions_table.clone(), mod_fn, flag_fn))
-            .with_context(|| format!("executing {}", path.display()))?;
+    let flag_fn = lua.globals().get::<LuaFn>("__pob_flag")?;
+    let ret = if pass_flag {
+        func.call::<Value>((minions_table.clone(), mod_fn.clone(), flag_fn.clone()))
     } else {
-        func.call::<()>((minions_table.clone(), mod_fn))
+        func.call::<Value>((minions_table.clone(), mod_fn.clone()))
+    }
+    .with_context(|| format!("executing {}", path.display()))?;
+    if let Value::Function(inner) = ret {
+        minions_table = inner
+            .call::<mlua::Table>((mod_fn, flag_fn))
             .with_context(|| format!("executing {}", path.display()))?;
     }
 

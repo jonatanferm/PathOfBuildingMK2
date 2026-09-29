@@ -239,8 +239,12 @@ mod tests {
             return;
         }
         let (additions, nodes) = extract(pob).expect("extract real LegionPassives");
-        // The additions pool is exactly 96 (= data.timelessJewelAdditions).
-        assert_eq!(additions.len(), 96, "additions pool size");
+        // The additions pool size is data.timelessJewelAdditions.
+        assert_eq!(
+            additions.len() as u32,
+            crate::timeless_nodes::tests::legion_additions_count(pob),
+            "additions pool size"
+        );
         // The file head shows global id 1 = the Vaal small "Fire Damage".
         assert_eq!(additions[0].name, "Fire Damage");
         assert_eq!(additions[0].id, "vaal_small_fire_damage");

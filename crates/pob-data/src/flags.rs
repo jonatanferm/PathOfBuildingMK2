@@ -255,16 +255,23 @@ pub enum SkillType {
     GainsIntensity = 139,
     CreatesSentinelMinion = 140,
     SupportedByAutoExertion = 141,
+    // Added upstream after PoB renumbered SkillType (Sept 2026). MK2 keeps
+    // its own stable numbering; the extractor maps upstream names onto it.
+    CreatesCorpse = 142,
+    Pact = 143,
+    RequiresStaff = 144,
+    SupportedByCrabTotem = 145,
+    SupportedBySpellTotem = 146,
 }
 
 impl SkillType {
     #[must_use]
     pub fn from_u8(v: u8) -> Option<Self> {
         // Generated from the enum above. Keep in sync.
-        if v == 0 || v > 141 {
+        if v == 0 || v > 146 {
             return None;
         }
-        // Safety: SkillType is repr(u8) and densely populated 1..=141 (with some
+        // Safety: SkillType is repr(u8) and densely populated 1..=146 (with some
         // intentional Removed* slots). Use a match for clarity.
         Some(match v {
             1 => Self::Attack,
@@ -408,6 +415,11 @@ impl SkillType {
             139 => Self::GainsIntensity,
             140 => Self::CreatesSentinelMinion,
             141 => Self::SupportedByAutoExertion,
+            142 => Self::CreatesCorpse,
+            143 => Self::Pact,
+            144 => Self::RequiresStaff,
+            145 => Self::SupportedByCrabTotem,
+            146 => Self::SupportedBySpellTotem,
             _ => return None,
         })
     }
@@ -447,7 +459,7 @@ mod tests {
 
     #[test]
     fn skill_type_round_trip() {
-        for v in 1u8..=141 {
+        for v in 1u8..=146 {
             if let Some(st) = SkillType::from_u8(v) {
                 assert_eq!(st as u8, v);
             }

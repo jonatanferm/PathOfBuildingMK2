@@ -244,6 +244,49 @@
     ]
   },
   {
+    "id": "Pacts",
+    "width": 3,
+    "group": 1,
+    "color": "^xE07030",
+    "subsections": [
+      {
+        "label": "Empowered Spells",
+        "default_collapsed": false,
+        "rows": [
+          {
+            "label": "",
+            "have_output": "CreatePactOffensiveCalcSection",
+            "format": "Uptime"
+          },
+          {
+            "label": "Pact of Beidat",
+            "output_key": "BeidatUpTimeRatio",
+            "have_output": "BeidatUpTimeRatio",
+            "format": "{2:output:BeidatUpTimeRatio}%"
+          },
+          {
+            "label": "Pact of Ghorr",
+            "output_key": "GhorrUpTimeRatio",
+            "have_output": "GhorrUpTimeRatio",
+            "format": "{2:output:GhorrUpTimeRatio}%"
+          },
+          {
+            "label": "Pact of K'Tash",
+            "output_key": "KtashUpTimeRatio",
+            "have_output": "KtashUpTimeRatio",
+            "format": "{2:output:KtashUpTimeRatio}%"
+          },
+          {
+            "label": "Pact of Lycia",
+            "output_key": "LyciaUpTimeRatio",
+            "have_output": "LyciaUpTimeRatio",
+            "format": "{2:output:LyciaUpTimeRatio}%"
+          }
+        ]
+      }
+    ]
+  },
+  {
     "id": "Dot",
     "width": 3,
     "group": 1,
@@ -492,6 +535,13 @@
             "label": "Crit Multiplier",
             "output_key": "CritMultiplier",
             "format": "x {2:output:CritMultiplier}",
+            "not_flag": "attack"
+          },
+          {
+            "label": "Crit Bifurcates",
+            "output_key": "CritBifurcates",
+            "have_output": "CritBifurcates",
+            "format": "x {2:output:CritBifurcates}",
             "not_flag": "attack"
           },
           {
@@ -840,6 +890,12 @@
             "output_key": "SoulGainPreventionDuration",
             "have_output": "SoulGainPreventionDuration",
             "format": "{3:output:SoulGainPreventionDuration}s"
+          },
+          {
+            "label": "Soul Refund Chance",
+            "output_key": "KtashSoulRefundChance",
+            "have_output": "KtashSoulRefundChance",
+            "format": "{2:output:KtashSoulRefundChance}%"
           },
           {
             "label": "Uptime",
@@ -3677,6 +3733,12 @@
             "format": "{0:output:FrostShieldLife}"
           },
           {
+            "label": "Minion Ally",
+            "output_key": "TotalMinionLife",
+            "have_output": "TotalMinionLife",
+            "format": "{0:output:TotalMinionLife}"
+          },
+          {
             "label": "Spectre Ally",
             "output_key": "TotalSpectreLife",
             "have_output": "TotalSpectreLife",
@@ -3693,6 +3755,24 @@
             "output_key": "TotalVaalRejuvenationTotemLife",
             "have_output": "TotalVaalRejuvenationTotemLife",
             "format": "{0:output:TotalVaalRejuvenationTotemLife}"
+          },
+          {
+            "label": "Sentinel of Radiance",
+            "output_key": "TotalRadianceSentinelLife",
+            "have_output": "TotalRadianceSentinelLife",
+            "format": "{0:output:TotalRadianceSentinelLife}"
+          },
+          {
+            "label": "Void Spawn Ally",
+            "output_key": "TotalVoidSpawnLife",
+            "have_output": "TotalVoidSpawnLife",
+            "format": "{0:output:TotalVoidSpawnLife}"
+          },
+          {
+            "label": "Stone Golem Ally",
+            "output_key": "TotalStoneGolemLife",
+            "have_output": "TotalStoneGolemLife",
+            "format": "{0:output:TotalStoneGolemLife}"
           },
           {
             "label": "Soul Link",
