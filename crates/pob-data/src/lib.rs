@@ -5,6 +5,8 @@
 
 pub mod bases;
 pub mod calc_sections;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod disk;
 pub mod cluster_jewel_mods;
 pub mod cluster_jewels;
 pub mod enchants;

@@ -11,3 +11,4 @@
 app/pob-web/dist/
 # Claude Code agent worktrees (ephemeral, auto-managed by the harness).
 .claude/worktrees/
+/.parity

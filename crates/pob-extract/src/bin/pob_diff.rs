@@ -34,21 +34,30 @@ fn default_pob_path() -> PathBuf {
 
 fn main() -> Result<()> {
     let mut pob_root = default_pob_path();
-    let mut build_xml_path: Option<PathBuf> = None;
+    let mut build_paths: Vec<PathBuf> = Vec::new();
+    let mut json_out: Option<PathBuf> = None;
+    let mut explain: Vec<String> = Vec::new();
     let mut verbose = false;
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--pob" => pob_root = iter.next().expect("--pob requires arg").into(),
-            "--build" => build_xml_path = Some(iter.next().expect("--build requires arg").into()),
+            "--build" => build_paths.push(iter.next().expect("--build requires arg").into()),
+            "--json-out" => json_out = Some(iter.next().expect("--json-out requires arg").into()),
+            "--explain" => explain.extend(
+                iter.next()
+                    .expect("--explain requires STAT[,STAT…]")
+                    .split(',')
+                    .map(str::to_owned),
+            ),
             "--verbose" | "-v" => verbose = true,
             "--help" | "-h" => {
                 println!(
-                    "Usage: pob_diff [--pob PATH] [--build XML_FILE] [--verbose]\n\
+                    "Usage: pob_diff [--pob PATH] [--build XML_FILE]... [--json-out DIR] [--verbose]\n\
                      \n\
-                     Boots PoB's Lua codebase under mlua, optionally loads a build XML, and\n\
-                     prints player.output. Used to validate pob-engine against the canonical\n\
-                     PoB calc pipeline."
+                     Boots PoB's Lua codebase under mlua once, loads each build XML, and\n\
+                     diffs player.output against pob-engine. With --json-out, writes\n\
+                     <DIR>/<build stem>.json holding both output maps per build."
                 );
                 return Ok(());
             }
@@ -61,21 +70,87 @@ fn main() -> Result<()> {
     }
     let pob_runtime_lua = pob_root.join("runtime/lua");
 
-    // Read the build XML (if provided) BEFORE chdir, then chdir for PoB's
-    // relative loadfile calls.
-    let build_xml = build_xml_path
-        .as_ref()
-        .map(|p| std::fs::read_to_string(p).with_context(|| format!("read {}", p.display())))
-        .transpose()?
-        .unwrap_or_else(default_witch_xml);
+    // Read the builds (and resolve output paths) BEFORE chdir, then chdir
+    // for PoB's relative loadfile calls.
+    let mut builds: Vec<(String, String)> = Vec::new();
+    for p in &build_paths {
+        let xml = std::fs::read_to_string(p).with_context(|| format!("read {}", p.display()))?;
+        let stem = p.file_stem().map_or_else(|| "build".into(), |s| s.to_string_lossy().into_owned());
+        builds.push((stem, xml));
+    }
+    if builds.is_empty() {
+        builds.push(("default".into(), default_witch_xml()));
+    }
+    let json_out = json_out
+        .map(|d| {
+            std::fs::create_dir_all(&d)?;
+            std::fs::canonicalize(&d)
+        })
+        .transpose()?;
+    let game_data =
+        pob_data::disk::GameData::load(&PathBuf::from(format!("{}/../../data", env!("CARGO_MANIFEST_DIR"))));
 
     let lua = build_lua_sandbox(&pob_runtime_lua)?;
     std::env::set_current_dir(&pob_src)
         .with_context(|| format!("chdir to {}", pob_src.display()))?;
 
-    boot_pob(&lua, &build_xml, verbose)?;
-
+    boot_pob(&lua)?;
+    let multi = builds.len() > 1;
+    for (stem, xml) in &builds {
+        if multi {
+            println!("\n##### {stem}");
+        }
+        let pob_entries = match run_build(&lua, xml, verbose) {
+            Ok(entries) => entries,
+            Err(e) => {
+                println!("[{stem}] PoB failed: {e}");
+                continue;
+            }
+        };
+        if !explain.is_empty() {
+            explain_pob(&lua, &explain);
+        }
+        let ours = match diff_against_pob_engine(&pob_entries, xml, &game_data, verbose, !multi, &explain) {
+            Ok(ours) => ours,
+            Err(e) => {
+                println!("[{stem}] pob-engine failed: {e}");
+                continue;
+            }
+        };
+        if let Some(dir) = &json_out {
+            write_json_report(&dir.join(format!("{stem}.json")), stem, &pob_entries, &ours)?;
+        }
+    }
     Ok(())
+}
+
+/// `{ "build": stem, "pob": {key: value}, "ours": {key: value} }` — the raw
+/// material for `parity_report`.
+fn write_json_report(
+    path: &std::path::Path,
+    stem: &str,
+    pob_entries: &[(String, mlua::Value)],
+    ours: &[(String, f64)],
+) -> Result<()> {
+    let mut pob = serde_json::Map::new();
+    for (k, v) in pob_entries {
+        let j = match v {
+            mlua::Value::Number(n) if n.is_finite() => serde_json::json!(n),
+            mlua::Value::Integer(i) => serde_json::json!(i),
+            mlua::Value::Boolean(b) => serde_json::json!(b),
+            mlua::Value::String(s) => serde_json::json!(s.to_string_lossy()),
+            _ => continue,
+        };
+        pob.insert(k.clone(), j);
+    }
+    let ours: serde_json::Map<String, serde_json::Value> = ours
+        .iter()
+        .filter(|(_, v)| v.is_finite())
+        .map(|(k, v)| (k.clone(), serde_json::json!(v)))
+        .collect();
+    let doc = serde_json::json!({ "build": stem, "pob": pob, "ours": ours });
+    std::fs::write(path, serde_json::to_string(&doc)?)
+        .with_context(|| format!("write {}", path.display()))
 }
 
 fn default_witch_xml() -> String {
@@ -130,7 +205,7 @@ fn run(lua: &Lua, name: &str, src: &str) {
     }
 }
 
-fn boot_pob(lua: &Lua, build_xml: &str, verbose: bool) -> Result<()> {
+fn boot_pob(lua: &Lua) -> Result<()> {
     // Step 1: load HeadlessWrapper.lua but strip the `dofile("Launch.lua")` tail —
     // we want to drive Launch ourselves to skip the manifest XML / update-check
     // bits that need a real disk layout.
@@ -144,6 +219,7 @@ fn boot_pob(lua: &Lua, build_xml: &str, verbose: bool) -> Result<()> {
         None => &hw_src,
     };
     run(lua, "HeadlessWrapper.lua", hw_trimmed);
+    install_host_shims(lua)?;
 
     // Step 2: dofile Launch.lua. Launch sets up `launch` and calls runCallback chain.
     // Then call OnInit by hand because HeadlessWrapper's own runCallback("OnInit")
@@ -162,6 +238,13 @@ fn boot_pob(lua: &Lua, build_xml: &str, verbose: bool) -> Result<()> {
         .eval()
         .unwrap_or_else(|_| "<eval failed>".into());
     println!("[boot] launch.promptMsg = {prompt}");
+    Ok(())
+}
+
+/// Load one build into the booted PoB and return `env.player.output`'s scalars.
+fn run_build(lua: &Lua, build_xml: &str, verbose: bool) -> Result<Vec<(String, mlua::Value)>> {
+    // Clear any error prompt left by a previous build.
+    run(lua, "reset_prompt", "launch.promptMsg = nil");
 
     // Stash the build XML in a Lua global so the loader script can pick it up.
     lua.globals()
@@ -169,9 +252,7 @@ fn boot_pob(lua: &Lua, build_xml: &str, verbose: bool) -> Result<()> {
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
     // Step 5: drive a build through PoB.
-    run(
-        lua,
-        "load_build",
+    lua.load(
         r"
 local m = launch.main
 if not m then error('launch.main not loaded') end
@@ -181,7 +262,10 @@ if launch.promptMsg then
     error('build load failed: '..tostring(launch.promptMsg))
 end
 ",
-    );
+    )
+    .set_name("load_build")
+    .exec()
+    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
     // Probe build state to verify class registration and tree alloc count.
     if verbose {
@@ -267,11 +351,14 @@ return dst
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
 
+    if !verbose {
+        return Ok(entries);
+    }
     println!(
         "\n=== PoB env.player.output ({} scalar keys) ===",
         entries.len()
     );
-    let limit = if verbose { entries.len() } else { 80 };
+    let limit = entries.len();
     for (k, v) in entries.iter().take(limit) {
         let s = format_value(v);
         println!("  {k:<32} = {s}");
@@ -283,19 +370,17 @@ return dst
         );
     }
 
-    // Step 7: also run pob-engine on a comparable input and print a side-by-side
-    // diff for the keys both engines emit. The XML→CharacterState bridge is a
-    // simplified mapping for now (class+level only); items/tree allocs are TODO.
-    diff_against_pob_engine(&entries, build_xml, verbose)?;
-
-    Ok(())
+    Ok(entries)
 }
 
 fn diff_against_pob_engine(
     pob_entries: &[(String, mlua::Value)],
     build_xml: &str,
+    data: &pob_data::disk::GameData,
     verbose: bool,
-) -> Result<()> {
+    detailed: bool,
+    explain: &[String],
+) -> Result<Vec<(String, f64)>> {
     // Use pob-engine's PoB XML importer so the character we feed into compute_full
     // mirrors what PoB itself constructed from the same XML — class, level,
     // ascendancy, allocated nodes, notes are all picked up.
@@ -305,19 +390,56 @@ fn diff_against_pob_engine(
     let level = character.level;
     let allocated = character.allocated.len();
 
-    let tree_version = build_tree_version(build_xml);
-    let tree = load_tree(tree_version.as_deref()).context("load tree fixture for diff")?;
-    let skills = load_skill_registry();
-    // Same inputs the desktop app feeds the engine: canonical item bases give
-    // armour / evasion / ES / weapon stats their base values.
-    let bases = std::fs::read_to_string(format!(
-        "{}/../../data/bases.json",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .ok()
-    .and_then(|j| pob_data::load_bases(&j).ok());
-    let output =
-        pob_engine::perform::compute_full(&character, &tree, skills.as_ref(), bases.as_ref());
+    let tree_version = build_tree_version(build_xml).unwrap_or_else(|| "3_28".into());
+    let tree = data
+        .load_tree(&tree_version)
+        .or_else(|_| data.load_tree("3_28"))
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let skills = pob_engine::SkillRegistry::from_files(data.skill_sets.clone());
+    let mut luts: ahash::HashMap<u32, Vec<u8>> = ahash::HashMap::default();
+    for jt in pob_engine::timeless_lut_types_needed(&character) {
+        if let Some(lut) = data
+            .timeless_lut_compressed(jt)
+            .and_then(|c| pob_engine::inflate_timeless_lut(&c).ok())
+        {
+            luts.insert(jt, lut);
+        }
+    }
+    let calc_data = pob_engine::CalcData {
+        skills: Some(&skills),
+        bases: data.bases.as_ref(),
+        cluster_jewels: data.cluster_jewels.as_ref(),
+        cluster_jewel_mods: data.cluster_jewel_mods.as_ref(),
+        timeless_jewels: data.timeless_jewels.as_ref(),
+        timeless_node_index: data.timeless_node_index.as_ref(),
+        legion_pool: data.legion_pool.as_ref(),
+        timeless_luts: Some(&luts),
+        minions: data.minions.as_ref(),
+    };
+    let (output, env) = pob_engine::compute_with_data(&character, &tree, &calc_data);
+    for name in explain {
+        explain_ours(&env, name);
+    }
+    let ours: Vec<(String, f64)> = output.iter().map(|(k, v)| (k.to_string(), v)).collect();
+    if !detailed {
+        let lookup: std::collections::HashMap<&str, f64> = pob_entries
+            .iter()
+            .filter_map(|(k, v)| lua_number(v).map(|n| (k.as_str(), n)))
+            .collect();
+        let (mut shared, mut div) = (0, 0);
+        for (k, v) in &ours {
+            if let Some(p) = lookup.get(k.as_str()) {
+                shared += 1;
+                if !close_enough(*v, *p) {
+                    div += 1;
+                }
+            }
+        }
+        println!(
+            "  class={class} level={level} allocated={allocated}: {shared} shared keys, {div} off by >1%"
+        );
+        return Ok(ours);
+    }
 
     println!(
         "\n=== diff: pob-engine vs PoB (class={class}, level={level}, allocated={allocated}) ==="
@@ -496,32 +618,88 @@ fn diff_against_pob_engine(
     println!("the active skill picks the gem at <Build mainSocketGroup=N>'s");
     println!("`mainActiveSkill`. Support gems in the same group buff the active");
     println!("skill via skill_mods + addSkillTypes/excludeSkillTypes filtering.");
-    Ok(())
+    Ok(ours)
 }
 
-fn load_skill_registry() -> Option<pob_engine::SkillRegistry> {
-    let dir = format!("{}/../../data/skills", env!("CARGO_MANIFEST_DIR"));
-    let entries = std::fs::read_dir(&dir).ok()?;
-    let mut sets = Vec::new();
-    for entry in entries.flatten() {
-        let p = entry.path();
-        if p.extension().and_then(|s| s.to_str()) != Some("json") {
-            continue;
-        }
-        if p.file_stem().and_then(|s| s.to_str()) == Some("index") {
-            continue;
-        }
-        if let Ok(json) = std::fs::read_to_string(&p) {
-            if let Ok(set) = pob_data::load_skill_file(&json) {
-                sets.push(set);
-            }
+/// Print PoB's player modDB entries for each stat (`modDB:Tabulate`).
+fn explain_pob(lua: &Lua, names: &[String]) {
+    for name in names {
+        let _ = lua.globals().set("__POB_DIFF_EXPLAIN__", name.as_str());
+        let res = lua
+            .load(
+                r#"
+local b = launch.main.modes['BUILD']
+local env = b.calcsTab and (b.calcsTab.mainEnv or b.calcsTab.calcsEnv)
+local db = env.player.modDB
+local rows = db:Tabulate(nil, nil, __POB_DIFF_EXPLAIN__)
+table.sort(rows, function(a, b) return tostring(a.mod.source) < tostring(b.mod.source) end)
+local out = {}
+for _, r in ipairs(rows) do
+    local m = r.mod
+    local tags = {}
+    for _, t in ipairs(m) do
+        local parts = {}
+        for k, v in pairs(t) do if k ~= 'type' then parts[#parts+1] = k .. '=' .. tostring(v) end end
+        table.sort(parts)
+        tags[#tags+1] = t.type .. '{' .. table.concat(parts, ',') .. '}'
+    end
+    out[#out+1] = string.format('    %-5s %10s  %-40s %s flags=%s kw=%s',
+        m.type, tostring(r.value), tostring(m.source), table.concat(tags, ' '), tostring(m.flags), tostring(m.keywordFlags))
+end
+local o = env.player.output
+return string.format('%d mods (output %s = %s)\n', #rows, __POB_DIFF_EXPLAIN__, tostring(o[__POB_DIFF_EXPLAIN__])) .. table.concat(out, '\n')
+"#,
+            )
+            .eval::<String>();
+        match res {
+            Ok(text) => println!("[pob:{name}] {text}"),
+            Err(e) => println!("[pob:{name}] error: {e}"),
         }
     }
-    if sets.is_empty() {
-        None
-    } else {
-        Some(pob_engine::SkillRegistry::from_files(sets))
+}
+
+/// Print pob-engine's modDB entries for a stat with each mod's evaluated value.
+fn explain_ours(env: &pob_engine::Env, name: &str) {
+    use pob_engine::ModStore;
+    let mut rows: Vec<String> = env
+        .mod_db
+        .iter_named(name)
+        .map(|m| {
+            let v = pob_engine::mod_db::eval_mod(m, &env.state)
+                .map_or_else(|| "(inactive)".to_owned(), |v| format!("{v}"));
+            format!(
+                "    {:<5} {:>10}  {:<40} tags={:?} flags={:?} kw={:?}",
+                format!("{:?}", m.kind),
+                v,
+                m.source.as_ref().map_or_else(|| "-".to_owned(), |s| format!("{s:?}")),
+                m.tags,
+                m.flags,
+                m.keyword_flags
+            )
+        })
+        .collect();
+    rows.sort();
+    println!(
+        "[ours:{name}] {} mods (output {name} = {:?})\n{}",
+        rows.len(),
+        env.output.try_get(name),
+        rows.join("\n")
+    );
+}
+
+fn lua_number(v: &mlua::Value) -> Option<f64> {
+    match v {
+        mlua::Value::Number(n) => Some(*n),
+        mlua::Value::Integer(i) => Some(*i as f64),
+        mlua::Value::Boolean(b) => Some(f64::from(u8::from(*b))),
+        _ => None,
     }
+}
+
+/// Parity tolerance: within 1% (relative) or 0.5 absolute.
+fn close_enough(a: f64, b: f64) -> bool {
+    let d = (a - b).abs();
+    d < 0.5 || d <= 0.01 * a.abs().max(b.abs())
 }
 
 /// `<Spec treeVersion="3_13">` of the build's active spec (first one found).
@@ -531,28 +709,106 @@ fn build_tree_version(build_xml: &str) -> Option<String> {
     Some(build_xml[start..start + len].to_string())
 }
 
-fn load_tree(version: Option<&str>) -> Result<pob_data::PassiveTree> {
-    // Resolve relative to CARGO_MANIFEST_DIR so this works regardless of cwd
-    // (we chdir'd into PoB's src/ for the Lua boot path).
-    let mut candidates = Vec::new();
-    if let Some(v) = version {
-        candidates.push(format!(
-            "{}/../../data/trees/{v}.json",
-            env!("CARGO_MANIFEST_DIR")
-        ));
-    }
-    candidates.extend([
-        // ../.. from this crate gets to repo root, then data/trees/...
-        format!("{}/../../data/trees/3_28.json", env!("CARGO_MANIFEST_DIR")),
-        format!("{}/../../data/trees/3_25.json", env!("CARGO_MANIFEST_DIR")),
-    ]);
-    for path in &candidates {
-        if let Ok(json) = std::fs::read_to_string(path) {
-            return pob_data::load_passive_tree(&json)
-                .map_err(|e| anyhow::anyhow!("parse tree {path}: {e}"));
-        }
-    }
-    anyhow::bail!("no tree fixture found in data/trees/")
+/// Replace HeadlessWrapper's inert SimpleGraphic stubs with working ones where
+/// the calc depends on them: `Inflate` + `NewFileSearch` let PoB load the
+/// timeless-jewel LUTs (otherwise every Timeless jewel is silently inert on
+/// the PoB side), and `io.open` accepts LuaJIT's lenient `"wb+"` mode.
+fn install_host_shims(lua: &Lua) -> Result<()> {
+    let g = lua.globals();
+    g.set(
+        "Inflate",
+        lua.create_function(|lua, data: mlua::String| {
+            match pob_engine::inflate_timeless_lut(&data.as_bytes()) {
+                Ok(out) => Ok(mlua::Value::String(lua.create_string(&out)?)),
+                Err(_) => Ok(mlua::Value::String(lua.create_string("")?)),
+            }
+        })?,
+    )?;
+    g.set(
+        "NewFileSearch",
+        lua.create_function(|lua, (pattern, _dirs): (String, Option<bool>)| {
+            let (dir, prefix, exact) = match pattern.strip_suffix('*') {
+                Some(p) => {
+                    let pp = std::path::Path::new(p);
+                    (
+                        pp.parent().map(std::path::Path::to_path_buf).unwrap_or_default(),
+                        pp.file_name().map(|n| n.to_string_lossy().into_owned()),
+                        false,
+                    )
+                }
+                None => {
+                    let pp = std::path::Path::new(&pattern);
+                    (
+                        pp.parent().map(std::path::Path::to_path_buf).unwrap_or_default(),
+                        pp.file_name().map(|n| n.to_string_lossy().into_owned()),
+                        true,
+                    )
+                }
+            };
+            let Some(prefix) = prefix else {
+                return Ok(mlua::Value::Nil);
+            };
+            let dir = if dir.as_os_str().is_empty() { std::path::PathBuf::from(".") } else { dir };
+            let mut files: Vec<(String, f64)> = std::fs::read_dir(&dir)
+                .map(|rd| {
+                    rd.filter_map(Result::ok)
+                        .filter_map(|e| {
+                            let name = e.file_name().to_string_lossy().into_owned();
+                            let hit = if exact { name == prefix } else { name.starts_with(&prefix) };
+                            let modified = e
+                                .metadata()
+                                .and_then(|m| m.modified())
+                                .ok()
+                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                .map_or(0.0, |d| d.as_secs_f64());
+                            hit.then_some((name, modified))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if files.is_empty() {
+                return Ok(mlua::Value::Nil);
+            }
+            files.sort_by(|a, b| a.0.cmp(&b.0));
+            let handle = lua.create_table()?;
+            let list = lua.create_table()?;
+            for (i, (name, modified)) in files.into_iter().enumerate() {
+                let entry = lua.create_table()?;
+                entry.set("name", name)?;
+                entry.set("modified", modified)?;
+                list.set(i + 1, entry)?;
+            }
+            handle.set("files", list)?;
+            handle.set("idx", 1)?;
+            Ok(mlua::Value::Table(handle))
+        })?,
+    )?;
+    lua.load(
+        r#"
+local function current(self) return self.files[self.idx] end
+local raw_search = NewFileSearch
+function NewFileSearch(...)
+    local h = raw_search(...)
+    if not h then return nil end
+    function h:GetFileName() return current(self).name end
+    function h:GetFileModifiedTime() return current(self).modified end
+    function h:GetFileSize() return 0 end
+    function h:NextFile()
+        self.idx = self.idx + 1
+        return self.files[self.idx] ~= nil
+    end
+    return h
+end
+local raw_open = io.open
+io.open = function(path, mode)
+    if mode then mode = mode:gsub("([rwa])b%+", "%1+b") end
+    return raw_open(path, mode)
+end
+"#,
+    )
+    .set_name("host_shims")
+    .exec()?;
+    Ok(())
 }
 
 fn build_lua_sandbox(pob_runtime_lua: &std::path::Path) -> Result<Lua> {

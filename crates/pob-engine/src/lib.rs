@@ -19,6 +19,7 @@
 //! - [`perform`] — top-level `compute(build) -> Output`. Calls the basic-stats passes.
 
 pub mod breakdown;
+pub mod calc_data;
 pub mod character;
 pub mod cluster_synth;
 pub mod env;
@@ -40,6 +41,7 @@ pub mod share;
 pub mod skill;
 pub mod timeless;
 
+pub use calc_data::{compute_with_data, timeless_lut_types_needed, CalcData};
 pub use breakdown::{derive_for, Breakdown, BreakdownStep, ModSource, COVERED_KEYS};
 pub use character::{Character, CharacterSnapshot, ClassRef, ConfigState};
 pub use cluster_synth::{
