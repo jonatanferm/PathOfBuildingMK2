@@ -39,6 +39,8 @@ mod notable_db;
 mod notes_tab;
 mod party_tab;
 #[cfg(not(target_arch = "wasm32"))]
+mod pob_config_panel;
+#[cfg(not(target_arch = "wasm32"))]
 mod pob_session;
 mod popup;
 mod set_switcher;
@@ -308,6 +310,8 @@ struct LoadedApp {
     /// backend. `None` when PoB's Lua sources can't be found.
     #[cfg(not(target_arch = "wasm32"))]
     pob: Option<pob_session::PobSession>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_config_state: pob_config_panel::PobConfigState,
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -749,6 +753,8 @@ impl PobApp {
             #[cfg(not(target_arch = "wasm32"))]
             pob: pob_session::PobSession::locate_pob_src(&data_root)
                 .map(pob_session::PobSession::spawn),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_config_state: pob_config_panel::PobConfigState::default(),
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -853,6 +859,8 @@ impl PobApp {
             compare_spec_idx: None,
             #[cfg(not(target_arch = "wasm32"))]
             pob: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_config_state: pob_config_panel::PobConfigState::default(),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1130,6 +1138,18 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         if pob.poll() {
             if let Some(out) = pob.output() {
                 app.output = out;
+            }
+            if let Some(mirrored) = pob.take_mirror() {
+                if let Some(v) = pob.mirror_tree_version.clone() {
+                    if v != app.tree_version {
+                        if let Ok(tree) = load_passive_tree_for_version(&app.data_root, &v) {
+                            app.tree = tree;
+                            app.tree_view.rebind(&app.tree);
+                            app.tree_version = v;
+                        }
+                    }
+                }
+                app.character = mirrored;
             }
         }
         if matches!(
@@ -2737,6 +2757,17 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             if skills_tab::ui(ui, &mut app.skills_state, &mut app.character, &app.skills) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        Tab::Config
+            if app
+                .pob
+                .as_ref()
+                .is_some_and(|p| !matches!(p.status, pob_session::SessionStatus::Failed(_))) =>
+        {
+            if let Some(pob) = app.pob.as_mut() {
+                pob_config_panel::ui(ui, &mut app.pob_config_state, pob);
             }
         }
         Tab::Config => {

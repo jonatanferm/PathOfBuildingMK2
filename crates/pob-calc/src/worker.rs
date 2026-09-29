@@ -28,6 +28,9 @@ pub enum Command {
     Lua { code: String },
     /// Just resend the current snapshot.
     Refresh,
+    /// Run read-only Lua and return its first result as a string, without
+    /// recalculating or snapshotting ([`Event::QueryResult`]).
+    Query { code: String },
 }
 
 /// State after a command.
@@ -44,9 +47,15 @@ pub struct Snapshot {
 /// Messages from the worker.
 #[derive(Debug, Clone)]
 pub enum Event {
-    Booted { millis: u128 },
+    Booted {
+        millis: u128,
+    },
     BootFailed(String),
     Snapshot(Snapshot),
+    QueryResult {
+        seq: u64,
+        result: Result<String, String>,
+    },
 }
 
 /// UI-side handle.
@@ -114,14 +123,35 @@ fn run(pob_src: PathBuf, rx: &Receiver<(u64, Command)>, tx: &Sender<Event>) {
     while let Ok((seq, cmd)) = rx.recv() {
         // Coalesce: if more commands are queued, run them all before
         // snapshotting (only the last snapshot matters to the UI).
+        if let Command::Query { code } = &cmd {
+            let result = pob
+                .exec(code)
+                .map(|v| v.first().map(|x| x.to_string()).unwrap_or_default());
+            if tx.send(Event::QueryResult { seq, result }).is_err() {
+                return;
+            }
+            continue;
+        }
         let mut batch = vec![(seq, cmd)];
         while let Ok(next) = rx.try_recv() {
+            if let Command::Query { code } = &next.1 {
+                // Queries see the state before the rest of this batch; answer
+                // them in order after applying what came before.
+                let _ = code;
+                batch.push(next);
+                break;
+            }
             batch.push(next);
         }
         let mut last_seq = seq;
         let mut error = None;
         let mut result = None;
+        let mut deferred_query = None;
         for (s, cmd) in batch {
+            if let Command::Query { code } = cmd {
+                deferred_query = Some((s, code));
+                continue;
+            }
             last_seq = s;
             match apply(&mut pob, cmd) {
                 Ok(r) => {
@@ -135,6 +165,14 @@ fn run(pob_src: PathBuf, rx: &Receiver<(u64, Command)>, tx: &Sender<Event>) {
         let snapshot = snapshot(&mut pob, last_seq, result, error);
         if tx.send(Event::Snapshot(snapshot)).is_err() {
             return;
+        }
+        if let Some((qseq, code)) = deferred_query {
+            let result = pob
+                .exec(&code)
+                .map(|v| v.first().map(|x| x.to_string()).unwrap_or_default());
+            if tx.send(Event::QueryResult { seq: qseq, result }).is_err() {
+                return;
+            }
         }
     }
 }
@@ -170,7 +208,7 @@ end
                 _ => None,
             }))
         }
-        Command::Refresh => Ok(None),
+        Command::Refresh | Command::Query { .. } => Ok(None),
     }
 }
 

@@ -79,6 +79,13 @@ pub struct PobSession {
     pub boot_millis: Option<u128>,
     /// Last command error from PoB, if any.
     pub last_error: Option<String>,
+    /// PoB's current build as an MK2 [`Character`], set when a snapshot
+    /// answers the newest command; the UI adopts it via [`Self::take_mirror`].
+    mirror: Option<Character>,
+    /// Tree version of the mirrored build.
+    pub mirror_tree_version: Option<String>,
+    /// Answers to [`Self::query`], by sequence number.
+    query_results: ahash::AHashMap<u64, Result<String, String>>,
 }
 
 impl PobSession {
@@ -93,6 +100,9 @@ impl PobSession {
             snapshot: None,
             boot_millis: None,
             last_error: None,
+            mirror: None,
+            mirror_tree_version: None,
+            query_results: ahash::AHashMap::default(),
         }
     }
 
@@ -217,7 +227,7 @@ impl PobSession {
         let name = lua_str(pob_slot_name(slot));
         match item {
             Some(item) => format!(
-                "do\n  local item = new(\"Item\", {raw})\n  if item.base then\n    build.itemsTab:AddItem(item, true)\n    build.itemsTab.slots[{name}]:SetSelItemId(item.id)\n    build.itemsTab:PopulateSlots()\n    build.itemsTab:AddUndoState()\n  end\nend\n",
+                "do\n  local item = new(\"Item\"):Item({raw})\n  if item.base then\n    build.itemsTab:AddItem(item, true)\n    build.itemsTab.slots[{name}]:SetSelItemId(item.id)\n    build.itemsTab:PopulateSlots()\n    build.itemsTab:AddUndoState()\n  end\nend\n",
                 raw = lua_str(&item.raw),
             ),
             None => format!(
@@ -242,13 +252,46 @@ impl PobSession {
                     self.last_error = s.error.clone();
                     if s.seq >= self.latest_seq {
                         self.status = SessionStatus::Ready;
+                        // PoB is the source of truth: mirror its build back
+                        // into MK2's model once nothing newer is in flight.
+                        if let Ok(c) = pob_engine::import_pob_xml(&s.xml) {
+                            self.baseline = Some(c.clone());
+                            self.mirror = Some(c);
+                            self.mirror_tree_version = pob_engine::pob_tree_version(&s.xml);
+                        }
                     }
                     self.snapshot = Some(s);
+                    updated = true;
+                }
+                Event::QueryResult { seq, result } => {
+                    self.query_results.insert(seq, result);
                     updated = true;
                 }
             }
         }
         updated
+    }
+
+    /// PoB's build mirrored into MK2's model, once per snapshot.
+    pub fn take_mirror(&mut self) -> Option<Character> {
+        self.mirror.take()
+    }
+
+    /// Run read-only Lua in PoB; collect the answer with [`Self::take_query`].
+    pub fn query(&mut self, code: &str) -> u64 {
+        self.handle.send(Command::Query {
+            code: code.to_owned(),
+        })
+    }
+
+    pub fn take_query(&mut self, seq: u64) -> Option<Result<String, String>> {
+        self.query_results.remove(&seq)
+    }
+
+    /// Run Lua that changes the build (PoB recalculates afterwards).
+    pub fn command(&mut self, code: String) {
+        self.latest_seq = self.handle.send(Command::Lua { code });
+        self.status = SessionStatus::Busy;
     }
 
     /// PoB's outputs as an MK2 [`Output`], with MK2's legacy key aliases
@@ -288,4 +331,93 @@ impl PobSession {
         out.set("MainSkillIsDotOnly", if dot_only { 1.0 } else { 0.0 });
         Some(out)
     }
+}
+
+/// Lua that lists PoB's config options (sections, types, labels, current
+/// values, visibility as PoB's own Config tab decides it) as JSON.
+pub const CONFIG_QUERY: &str = r#"
+local varList = require("Modules.ConfigOptions")
+local tab = build.configTab
+local set = tab.configSets[tab.activeConfigSetId]
+local function esc(s)
+    s = tostring(s):gsub("%^x%x%x%x%x%x%x", ""):gsub("%^%d", "")
+    return '"' .. s:gsub('[%c"\\]', function(c)
+        if c == '"' then return '\\"' elseif c == "\\" then return "\\\\" elseif c == "\n" then return "\\n" end
+        return ""
+    end) .. '"'
+end
+local function val(v)
+    local t = type(v)
+    if t == "boolean" then return tostring(v)
+    elseif t == "number" then return string.format("%.10g", v)
+    elseif t == "string" then return esc(v) end
+    return "null"
+end
+local out, section = {}, ""
+for _, vd in ipairs(varList) do
+    if vd.section then
+        section = vd.section
+    elseif vd.var then
+        local ctrl = tab.varControls[vd.var]
+        local shown = true
+        if ctrl then
+            local ok, s = pcall(function() return ctrl:IsShown() end)
+            shown = ok and s and true or false
+        end
+        local tip = nil
+        if type(vd.tooltip) == "string" then tip = vd.tooltip end
+        if ctrl and ctrl.tooltipText then
+            local ok, t = pcall(function() return type(ctrl.tooltipText) == "function" and ctrl.tooltipText() or ctrl.tooltipText end)
+            if ok and type(t) == "string" then tip = t end
+        end
+        local opts = {}
+        if vd.list then
+            for _, o in ipairs(vd.list) do opts[#opts + 1] = "[" .. val(o.val) .. "," .. esc(o.label or o.val) .. "]" end
+        end
+        out[#out + 1] = "{" .. table.concat({
+            '"s":' .. esc(section), '"v":' .. esc(vd.var), '"t":' .. esc(vd.type or ""),
+            '"l":' .. esc(vd.label or vd.var), '"sh":' .. tostring(shown),
+            '"val":' .. val(set.input[vd.var]), '"ph":' .. val(set.placeholder[vd.var]),
+            '"opts":[' .. table.concat(opts, ",") .. "]",
+            '"tip":' .. (tip and esc(tip) or "null"),
+        }, ",") .. "}"
+    end
+end
+return "[" .. table.concat(out, ",") .. "]"
+"#;
+
+/// One of PoB's config options.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ConfigOption {
+    #[serde(rename = "s")]
+    pub section: String,
+    #[serde(rename = "v")]
+    pub var: String,
+    #[serde(rename = "t")]
+    pub ty: String,
+    #[serde(rename = "l")]
+    pub label: String,
+    #[serde(rename = "sh")]
+    pub shown: bool,
+    #[serde(rename = "val")]
+    pub value: Option<serde_json::Value>,
+    #[serde(rename = "ph")]
+    pub placeholder: Option<serde_json::Value>,
+    pub opts: Vec<(serde_json::Value, String)>,
+    pub tip: Option<String>,
+}
+
+/// Lua that sets a config input the way PoB's Config tab controls do.
+#[must_use]
+pub fn set_config_command(var: &str, value: &serde_json::Value) -> String {
+    let lua_value = match value {
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => lua_str(s),
+        _ => "nil".to_owned(),
+    };
+    format!(
+        "do\n  local tab = build.configTab\n  tab.configSets[tab.activeConfigSetId].input[{var}] = {lua_value}\n  tab:UpdateControls()\n  tab:AddUndoState()\n  tab:BuildModList()\nend\n",
+        var = lua_str(var)
+    )
 }
