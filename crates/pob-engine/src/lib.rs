@@ -41,8 +41,8 @@ pub mod share;
 pub mod skill;
 pub mod timeless;
 
-pub use calc_data::{compute_with_data, timeless_lut_types_needed, CalcData};
 pub use breakdown::{derive_for, Breakdown, BreakdownStep, ModSource, COVERED_KEYS};
+pub use calc_data::{compute_with_data, timeless_lut_types_needed, CalcData};
 pub use character::{Character, CharacterSnapshot, ClassRef, ConfigState};
 pub use cluster_synth::{
     parse_cluster_jewel, synthesise_all, synthesise_for_socket, ClusterJewelSpec,
@@ -85,7 +85,8 @@ pub use perform::{
 };
 pub use pob_export::{export_pob_code, export_pob_xml};
 pub use pob_import::{
-    import_pob_code, import_pob_xml, pob_tree_version, resolve_share_url, PobImportError,
+    import_pob_code, import_pob_xml, pob_code_to_xml, pob_tree_version, pob_xml_from_input,
+    resolve_share_url, PobImportError,
 };
 pub use power::{
     compare_item_modline_attribution, compare_node_attribution, format_top_contributors,

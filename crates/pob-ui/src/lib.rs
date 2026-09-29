@@ -38,6 +38,8 @@ mod node_power_heatmap;
 mod notable_db;
 mod notes_tab;
 mod party_tab;
+#[cfg(not(target_arch = "wasm32"))]
+mod pob_session;
 mod popup;
 mod set_switcher;
 mod settings;
@@ -302,6 +304,10 @@ struct LoadedApp {
     data_root: std::path::PathBuf,
     /// Hash of the inputs `compute_full` last ran with — skip recompute when unchanged.
     last_compute_hash: u64,
+    /// Path of Building itself (headless, on a worker thread) — the calc
+    /// backend. `None` when PoB's Lua sources can't be found.
+    #[cfg(not(target_arch = "wasm32"))]
+    pob: Option<pob_session::PobSession>,
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -740,6 +746,9 @@ impl PobApp {
             spec_save_name: String::new(),
             active_spec_idx: None,
             compare_spec_idx: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pob: pob_session::PobSession::locate_pob_src(&data_root)
+                .map(pob_session::PobSession::spawn),
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -842,6 +851,8 @@ impl PobApp {
             spec_save_name: String::new(),
             active_spec_idx: None,
             compare_spec_idx: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pob: None,
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1112,6 +1123,22 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // Tab switches don't count as input changes, only modifications to the character
     // (class, level, allocated nodes, items, skills, config, notes).
     let mut recompute = false;
+
+    // Path of Building backend: pick up finished calcs, keep polling while busy.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(pob) = app.pob.as_mut() {
+        if pob.poll() {
+            if let Some(out) = pob.output() {
+                app.output = out;
+            }
+        }
+        if matches!(
+            pob.status,
+            pob_session::SessionStatus::Booting | pob_session::SessionStatus::Busy
+        ) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
+    }
 
     // Issue #101: drain async storage events first thing each frame
     // so list refreshes / load completions / status toasts surface
@@ -2805,6 +2832,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     }
                 }
                 app.tree_view.rebind(&app.tree);
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(xml) = app.import_export_state.imported_xml.take() {
+                    if let Some(pob) = app.pob.as_mut() {
+                        pob.load_xml(xml, "Imported build", &app.character);
+                    }
+                }
                 // Issue #204: drop history on build replace so Cmd+Z
                 // can't restore the previous character — its allocated
                 // node ids may not even exist in the new build.
@@ -2929,8 +2962,22 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 &mut output,
             );
         }
-        app.output = output;
+        // Show the built-in engine's numbers only until PoB has produced a
+        // result; PoB's outputs (applied when they arrive) are authoritative.
+        #[cfg(not(target_arch = "wasm32"))]
+        let pob_has_result = app.pob.as_ref().is_some_and(|p| p.snapshot.is_some());
+        #[cfg(target_arch = "wasm32")]
+        let pob_has_result = false;
+        if !pob_has_result {
+            app.output = output;
+        }
         app.last_env = Some(env);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(pob) = app.pob.as_mut() {
+            if !matches!(pob.status, pob_session::SessionStatus::Failed(_)) {
+                pob.sync(&app.character, &app.tree_version);
+            }
+        }
     }
     // Issue #110: re-gate the class portrait sprites whenever the
     // active class might have changed. `set_active_class` is a no-op

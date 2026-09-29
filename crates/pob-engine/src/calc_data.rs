@@ -39,7 +39,11 @@ pub fn compute_with_data(
         (Some(jewels), Some(mods)) => Some(ClusterContext::new(jewels, mods)),
         _ => None,
     };
-    let lut_ctx = match (data.timeless_node_index, data.legion_pool, data.timeless_luts) {
+    let lut_ctx = match (
+        data.timeless_node_index,
+        data.legion_pool,
+        data.timeless_luts,
+    ) {
         (Some(node_index), Some(pool), Some(luts)) if !luts.is_empty() => {
             Some(TimelessLutContext {
                 node_index,

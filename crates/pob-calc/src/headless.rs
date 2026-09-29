@@ -108,20 +108,24 @@ build = __mainObject__.main.modes["BUILD"]
         Ok(())
     }
 
-    /// The main calc env's player output (what PoB's sidebar and Calcs tab show).
+    /// The main calc env's player output (what PoB's sidebar and Calcs tab
+    /// show), plus the summoned minion's output under a `Minion` prefix.
     pub fn player_output(&mut self) -> Result<Outputs, String> {
         let v = self.exec(
             r"
 local b = __mainObject__.main.modes['BUILD']
 local env = b.calcsTab and (b.calcsTab.mainEnv or b.calcsTab.calcsEnv)
-return env and env.player and env.player.output
+return env and env.player and env.player.output, env and env.minion and env.minion.output
 ",
         )?;
         let mut out = Outputs::default();
-        if let Some(Val::Table(t)) = v.first() {
+        for (i, prefix) in [(0usize, ""), (1, "Minion")] {
+            let Some(Val::Table(t)) = v.get(i) else {
+                continue;
+            };
             for (k, v) in t.pairs() {
                 let Val::Str(k) = k else { continue };
-                let k = k.to_str().into_owned();
+                let k = format!("{prefix}{}", k.to_str());
                 match v {
                     Val::Num(n) => {
                         out.numbers.insert(k, n);

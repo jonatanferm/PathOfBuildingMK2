@@ -34,8 +34,8 @@ pub struct Closure {
 }
 
 struct Frame<'c> {
-    /// Uncaptured locals.
-    regs: Vec<Val>,
+    /// Uncaptured locals live in `Interp::stack[base..base + nslots]`.
+    base: usize,
     /// Captured locals (shared with closures); `None` until declared.
     cells: Vec<Option<Cell>>,
     captured: &'c [bool],
@@ -53,6 +53,8 @@ enum Flow {
 /// The interpreter: globals plus call-depth bookkeeping.
 pub struct Interp {
     pub globals: TableRef,
+    /// Register stack shared by all Lua frames (avoids a heap allocation per call).
+    stack: Vec<Val>,
     k_index: LStr,
     k_newindex: LStr,
     k_call: LStr,
@@ -72,6 +74,7 @@ impl Interp {
     pub fn new() -> Self {
         let mut it = Self {
             globals: TableRef::new(),
+            stack: Vec::with_capacity(4096),
             k_index: LStr::intern("__index"),
             k_newindex: LStr::intern("__newindex"),
             k_call: LStr::intern("__call"),
@@ -145,9 +148,11 @@ impl Interp {
         }
         let proto = &c.proto;
         let n = proto.nslots as usize;
-        let any_captured = proto.captured.iter().any(|c| *c);
+        let any_captured = proto.has_captured;
+        let base = self.stack.len();
+        self.stack.resize(base + n, Val::Nil);
         let mut frame = Frame {
-            regs: vec![Val::Nil; n],
+            base,
             cells: if any_captured {
                 vec![None; n]
             } else {
@@ -163,7 +168,7 @@ impl Interp {
         }
         args.resize(nparams, Val::Nil);
         for (slot, v) in proto.params.iter().zip(args) {
-            Self::set_local(&mut frame, *slot, v);
+            self.set_local(&mut frame, *slot, v);
         }
         let res = self.exec_block(&proto.body, &mut frame).map_err(|mut e| {
             // Lua-style traceback, capped so deep recursion stays readable.
@@ -176,6 +181,7 @@ impl Interp {
             e
         });
         self.depth -= 1;
+        self.stack.truncate(base);
         match res? {
             Flow::Return(v) => Ok(v),
             _ => Ok(Vec::new()),
@@ -216,12 +222,12 @@ impl Interp {
 
     /// Declare (or re-declare) a local: captured slots get a fresh cell so
     /// closures from earlier iterations keep their own.
-    fn set_local(fr: &mut Frame<'_>, slot: u32, v: Val) {
+    fn set_local(&mut self, fr: &mut Frame<'_>, slot: u32, v: Val) {
         let s = slot as usize;
         if fr.captured[s] {
             fr.cells[s] = Some(Rc::new(RefCell::new(v)));
         } else {
-            fr.regs[s] = v;
+            self.stack[fr.base + s] = v;
         }
     }
 
@@ -234,23 +240,23 @@ impl Interp {
                     && !matches!(exprs[0], Expr::Call(..) | Expr::Method(..) | Expr::Vararg) =>
             {
                 let v = self.eval(&exprs[0], fr)?;
-                Self::set_local(fr, slots[0], v);
+                self.set_local(fr, slots[0], v);
             }
             Stat::Local(slots, exprs) => {
                 let vals = self.eval_list(exprs, fr, slots.len())?;
                 for (slot, v) in slots.iter().zip(vals) {
-                    Self::set_local(fr, *slot, v);
+                    self.set_local(fr, *slot, v);
                 }
             }
             Stat::LocalFunc(slot, proto) => {
                 // Declare first so the function can see itself.
-                Self::set_local(fr, *slot, Val::Nil);
+                self.set_local(fr, *slot, Val::Nil);
                 let f = self.make_closure(proto, fr);
                 let s = *slot as usize;
                 if fr.captured[s] {
                     *fr.cells[s].as_ref().expect("cell").borrow_mut() = f;
                 } else {
-                    fr.regs[s] = f;
+                    self.stack[fr.base + s] = f;
                 }
             }
             Stat::Assign(targets, exprs) if targets.len() == 1 && exprs.len() == 1 => {
@@ -349,7 +355,7 @@ impl Interp {
                 };
                 let mut i = start;
                 while (step > 0.0 && i <= limit) || (step <= 0.0 && i >= limit) {
-                    Self::set_local(fr, *var, Val::Num(i));
+                    self.set_local(fr, *var, Val::Num(i));
                     match self.exec_block(body, fr)? {
                         Flow::Break => break,
                         Flow::Return(v) => return Ok(Flow::Return(v)),
@@ -371,7 +377,7 @@ impl Interp {
                     ctl = first;
                     rets.resize(vars.len(), Val::Nil);
                     for (slot, v) in vars.iter().zip(rets) {
-                        Self::set_local(fr, *slot, v);
+                        self.set_local(fr, *slot, v);
                     }
                     match self.exec_block(body, fr)? {
                         Flow::Break => break,
@@ -423,7 +429,7 @@ impl Interp {
                         .map(|c| c.borrow().clone())
                         .unwrap_or_default()
                 } else {
-                    fr.regs[s].clone()
+                    self.stack[fr.base + s].clone()
                 }
             }
             VarRef::Upval(i) => fr.closure.upvals[*i as usize].borrow().clone(),
@@ -431,7 +437,7 @@ impl Interp {
         }
     }
 
-    fn assign_var(&self, v: &VarRef, val: Val, fr: &mut Frame<'_>) {
+    fn assign_var(&mut self, v: &VarRef, val: Val, fr: &mut Frame<'_>) {
         match v {
             VarRef::Local(s) => {
                 let s = *s as usize;
@@ -441,7 +447,7 @@ impl Interp {
                         None => fr.cells[s] = Some(Rc::new(RefCell::new(val))),
                     }
                 } else {
-                    fr.regs[s] = val;
+                    self.stack[fr.base + s] = val;
                 }
             }
             VarRef::Upval(i) => *fr.closure.upvals[*i as usize].borrow_mut() = val,

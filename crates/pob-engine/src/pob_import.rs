@@ -150,6 +150,27 @@ fn is_share_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// Decode a PoB share code (url-safe or standard base64 of zlib-deflated
+/// XML) to its XML text.
+#[must_use]
+pub fn pob_code_to_xml(code: &str) -> Option<String> {
+    let raw = decode_loose_base64(code.trim())?;
+    let mut dec = ZlibDecoder::new(raw.as_slice());
+    let mut xml_bytes = Vec::new();
+    dec.read_to_end(&mut xml_bytes).ok()?;
+    String::from_utf8(xml_bytes).ok()
+}
+
+/// The PoB XML behind `input`: raw XML as-is, or a decoded share code.
+#[must_use]
+pub fn pob_xml_from_input(input: &str) -> Option<String> {
+    let t = input.trim();
+    if t.starts_with('<') {
+        return Some(t.to_owned());
+    }
+    pob_code_to_xml(t)
+}
+
 pub fn import_pob_code(code: &str) -> Result<Character, PobImportError> {
     // PoB shares use both `+/=` (standard base64) and `-_` (url-safe). Try url-safe first.
     let stripped = code.trim();

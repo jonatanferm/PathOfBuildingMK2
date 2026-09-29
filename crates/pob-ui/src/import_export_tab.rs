@@ -97,6 +97,9 @@ pub struct ImportExportTabState {
     /// Tree version of the build imported this frame, for the host app to
     /// switch to (node ids differ between tree versions). Taken by the host.
     pub imported_tree_version: Option<String>,
+    /// The build's original PoB XML from the last import, handed to the
+    /// PoB backend verbatim. Taken by the host.
+    pub imported_xml: Option<String>,
     pub generated: String,
     pub last_message: Option<(bool, String)>,
     /// Issue #194 follow-up: which serialisation the next "Generate"
@@ -414,6 +417,7 @@ fn handle_import_click(
         Ok((c, kind)) => {
             *character = c;
             state.imported_tree_version = pob_engine::pob_tree_version(trimmed);
+            state.imported_xml = pob_engine::pob_xml_from_input(trimmed);
             state.last_message = Some((true, format!("Imported as {kind}.")));
             state.paste.clear();
             *changed = true;
@@ -802,9 +806,11 @@ fn poll_share_url_job(state: &mut ImportExportTabState, character: &mut Characte
             character: imported,
             site,
             tree_version,
+            xml,
         })) => {
             *character = imported;
             state.imported_tree_version = tree_version;
+            state.imported_xml = xml;
             state.last_message = Some((true, format!("Imported from {site}.")));
             state.paste.clear();
             state.share_url_job = None;

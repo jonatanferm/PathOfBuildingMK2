@@ -128,6 +128,7 @@ pub struct FuncProto {
     /// Slots captured by a nested closure: these live in shared cells;
     /// all others are plain registers.
     pub captured: Vec<bool>,
+    pub has_captured: bool,
     pub upvals: Vec<UpvalDesc>,
     pub body: Block,
     pub line: u32,
@@ -311,6 +312,7 @@ impl<'a> Parser<'a> {
             params: Vec::new(),
             is_vararg: true,
             nslots: fs.nslots,
+            has_captured: fs.captured.iter().any(|c| *c),
             captured: fs.captured,
             upvals: Vec::new(),
             body,
@@ -617,6 +619,7 @@ impl<'a> Parser<'a> {
             params,
             is_vararg,
             nslots: fs.nslots,
+            has_captured: fs.captured.iter().any(|c| *c),
             captured: fs.captured,
             upvals: fs.upvals.into_iter().map(|(_, d)| d).collect(),
             body,

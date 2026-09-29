@@ -70,6 +70,8 @@ pub enum ShareUrlFetchResult {
         site: &'static str,
         /// Passive-tree version the build was made on (`"3_13"`, …).
         tree_version: Option<String>,
+        /// The build's PoB XML, for the PoB backend.
+        xml: Option<String>,
     },
     Err(ShareUrlFetchError),
 }
@@ -134,6 +136,7 @@ pub fn decode_share_body(body: &str, site: &'static str) -> ShareUrlFetchResult 
             character,
             site,
             tree_version: pob_engine::pob_tree_version(trimmed),
+            xml: pob_engine::pob_xml_from_input(trimmed),
         },
         Err(e) => ShareUrlFetchResult::Err(ShareUrlFetchError::Parse(e.to_string())),
     }
