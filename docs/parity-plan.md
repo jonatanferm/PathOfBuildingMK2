@@ -36,6 +36,14 @@ than PUC Lua — optimisation pending).
 Next: switch the MK2 app to the embedded PoB (Lua model is the source of
 truth; the Rust UI binds to it), then optimise the interpreter.
 
+## Update 2026-09-30 (later): app switched; LuaJIT on desktop
+
+Done: the app calculates everything with PoB, and most tabs render PoB's
+own controls (see `STATUS.md`). Instead of optimising the interpreter,
+the desktop worker runs PoB under vendored LuaJIT (`pob_calc::jit`) —
+5–10× faster, identical outputs on the whole corpus. The Rust interpreter
+remains the wasm engine.
+
 ## Approach (original, superseded for the calc — kept for history)
 
 Port PoB module-by-module into `crates/pob-engine/src/calc/`, keeping PoB's
@@ -82,6 +90,7 @@ parity corpus, then the UI switches over and the old code is deleted.
 | 2026-09-30 | old `perform.rs` (vs LuaJIT oracle) | 57 | 53.3% |
 | 2026-09-30 | embedded PoB in `pob_calc::lua` | 57 | 99.992% |
 | 2026-09-30 | embedded PoB, same build load order as oracle | 57 | **100.000%** (38,384/38,384 exact) |
+| 2026-09-30 | LuaJIT engine vs Rust-Lua engine | 57 | **100.000%** (38,966/38,966 exact) |
 
 Note: the last 0.008% was PoB's own state leak — loading build A before
 build B changes B's mana reservation in real PoB too (e.g. corpus builds

@@ -1,18 +1,21 @@
 # Path of Building MK2
 
-A Rust port of [Path of Building Community](https://github.com/PathOfBuildingCommunity/PathOfBuilding).
-Pure-Rust calc engine, egui desktop UI, eventual Wasm support.
+A Rust front end for [Path of Building Community](https://github.com/PathOfBuildingCommunity/PathOfBuilding):
+an egui desktop (and web) UI driving PoB's own Lua, run headlessly — under
+LuaJIT on desktop, under a pure-Rust Lua interpreter on the web — so every
+number matches PoB exactly.
 
 ## Status
 
-**Phase 0 — Reconnaissance done.** See [docs/architecture-current.md](docs/architecture-current.md)
-for the map of the source codebase being ported.
+See [STATUS.md](STATUS.md) for architecture, parity numbers, performance and
+feature coverage, and [docs/parity-plan.md](docs/parity-plan.md) for history.
 
 ## Workspace layout
 
 | Crate | Role |
 |---|---|
-| `crates/pob-engine` | Pure calc engine. No I/O, no UI, Wasm-clean. |
+| `crates/pob-calc` | Runs PoB's Lua: pure-Rust Lua interpreter, LuaJIT engine (desktop), headless boot, worker thread. |
+| `crates/pob-engine` | MK2's character model, import/export, and the legacy hand-written calc engine. |
 | `crates/pob-data` | Data types + loaders. Shared by engine and UI. |
 | `crates/pob-extract` | Build-time tool: reads PoB's `src/Data/` Lua tables, emits Rust-loadable files. |
 | `crates/pob-ui` | egui application. |
