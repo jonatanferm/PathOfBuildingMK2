@@ -897,6 +897,11 @@ pub trait PobItems {
     fn db_equip(&mut self, rare: bool, name: &str, slot: Option<Slot>);
     /// Whether PoB is available at all.
     fn available(&self) -> bool;
+    /// Draw PoB's own slot list (all slots, weapon swap, flask activation,
+    /// abyssal and tree jewel sockets) in place of the built-in one.
+    /// Clicking a slot label selects the matching slot for the editor.
+    /// Returns false when PoB isn't available.
+    fn draw_slots(&mut self, ui: &mut egui::Ui, selected: &mut Option<Slot>) -> bool;
 }
 
 /// No Path of Building (web build / not booted).
@@ -914,6 +919,9 @@ impl PobItems for NoPob {
     }
     fn db_equip(&mut self, _: bool, _: &str, _: Option<Slot>) {}
     fn available(&self) -> bool {
+        false
+    }
+    fn draw_slots(&mut self, _: &mut egui::Ui, _: &mut Option<Slot>) -> bool {
         false
     }
 }
@@ -1131,35 +1139,40 @@ pub fn ui(
     // users don't have to dive into the Config tab to swap. The
     // active button is rendered as "selected" so it's obvious which
     // pair is currently driving the calc engine.
-    ui.horizontal(|ui| {
-        ui.label("Weapon Set:");
-        let active_one = !character.config.use_second_weapon_set;
-        if ui
-            .selectable_label(active_one, "I (Primary)")
-            .on_hover_text("Use the primary weapon pair (Weapon 1 / Weapon 2) as the live pair.")
-            .clicked()
-            && !active_one
-        {
-            character.config.use_second_weapon_set = false;
-            changed = true;
-        }
-        if ui
-            .selectable_label(!active_one, "II (Swap)")
-            .on_hover_text(
-                "Use the swap weapon pair (Weapon 1 Swap / Weapon 2 Swap) as the live \
+    // PoB's own slot list carries the weapon-set switch when it's running.
+    if !pob_tip.available() {
+        ui.horizontal(|ui| {
+            ui.label("Weapon Set:");
+            let active_one = !character.config.use_second_weapon_set;
+            if ui
+                .selectable_label(active_one, "I (Primary)")
+                .on_hover_text(
+                    "Use the primary weapon pair (Weapon 1 / Weapon 2) as the live pair.",
+                )
+                .clicked()
+                && !active_one
+            {
+                character.config.use_second_weapon_set = false;
+                changed = true;
+            }
+            if ui
+                .selectable_label(!active_one, "II (Swap)")
+                .on_hover_text(
+                    "Use the swap weapon pair (Weapon 1 Swap / Weapon 2 Swap) as the live \
                  pair. Mirrors PoB's X-key weapon swap. Useful for caster off-hand-buff \
                  stacking and Storm Brand swap-trap setups.",
-            )
-            .clicked()
-            && active_one
-        {
-            character.config.use_second_weapon_set = true;
-            changed = true;
-        }
-        if !active_one {
-            ui.weak("(swap pair is live)");
-        }
-    });
+                )
+                .clicked()
+                && active_one
+            {
+                character.config.use_second_weapon_set = true;
+                changed = true;
+            }
+            if !active_one {
+                ui.weak("(swap pair is live)");
+            }
+        });
+    }
     ui.separator();
 
     let use_swap = character.config.use_second_weapon_set;
@@ -1172,109 +1185,112 @@ pub fn ui(
             ui.set_max_width(300.0);
             ui.heading("Slots");
             ui.separator();
-            // Issue #109 (slice 3): visually separate the swap pair
-            // from the primary pair so it's clear which entries the
-            // calc engine reads when `use_second_weapon_set` is on.
-            // We render the slot list in three groups: primary
-            // equipment, the swap pair, and flasks. Slice 4 marks
-            // the active pair with a small marker so the user
-            // doesn't have to mentally cross-reference the toggle.
-            let is_primary_weapon = |s: &Slot| matches!(s, Slot::Weapon1 | Slot::Weapon2);
-            let is_swap = |s: &Slot| matches!(s, Slot::Weapon1Swap | Slot::Weapon2Swap);
-            let is_flask = |s: &Slot| {
-                matches!(
-                    s,
-                    Slot::Flask1 | Slot::Flask2 | Slot::Flask3 | Slot::Flask4 | Slot::Flask5
-                )
-            };
-            let mut render_slot =
-                |ui: &mut egui::Ui, slot: &Slot, state: &mut ItemsTabState, inactive: bool| {
-                    let equipped = items.get(*slot);
-                    let label = if let Some(item) = equipped {
-                        let rarity_glyph = rarity_glyph(item.rarity);
-                        if item.name.is_empty() {
-                            format!("{rarity_glyph} {} — {}", slot.label(), item.base_name)
-                        } else {
-                            format!("{rarity_glyph} {} — {}", slot.label(), item.name)
-                        }
-                    } else {
-                        format!("· {} — (empty)", slot.label())
-                    };
-                    let selected = state.selected_slot == Some(*slot);
-                    let response = if inactive {
-                        // Dim weapons that are *not* the current live pair so it's
-                        // clear at a glance which weapons drive the calc engine.
-                        let dim = egui::RichText::new(label).weak();
-                        ui.selectable_label(selected, dim)
-                    } else {
-                        ui.selectable_label(selected, label)
-                    };
-                    // Issue #203 (slice 2): rich item-card hover.
-                    // Build the tooltip lines per hover frame — cheap
-                    // (a few clones / formats) and avoids caching that
-                    // would have to invalidate on every item edit.
-                    let response = if let Some(item) = equipped {
-                        let lines = item_tooltip_lines(item);
-                        let pob_lines = if response.hovered() {
-                            pob_tip.tooltip(item, Some(*slot))
-                        } else {
-                            None
-                        };
-                        response.on_hover_ui(|ui| {
-                            if let Some(pob_lines) = &pob_lines {
-                                ui.set_max_width(520.0);
-                                crate::pob_tooltip::render(ui, pob_lines);
-                                return;
-                            }
-                            // Issue #225 (color-code coverage): item names
-                            // and mod lines from PoB carry `^N` / `^xRRGGBB`
-                            // escapes (uniques use them for the gold
-                            // namebar, corrupted lines for red text, etc.).
-                            // Route through `label_with_escapes` so the
-                            // tooltip shows them coloured instead of as
-                            // raw escape characters.
-                            for line in &lines {
-                                color_codes::label_with_escapes(ui, line);
-                            }
-                        })
-                    } else {
-                        response
-                    };
-                    if response.clicked() {
-                        state.selected_slot = Some(*slot);
-                        state.paste_buffer.clear();
-                        state.last_error = None;
-                    }
+            // With Path of Building running, its own slot list (jewel and
+            // abyssal sockets, flask activation, weapon swap) replaces ours.
+            if !pob_tip.draw_slots(ui, &mut state.selected_slot) {
+                // Issue #109 (slice 3): visually separate the swap pair
+                // from the primary pair so it's clear which entries the
+                // calc engine reads when `use_second_weapon_set` is on.
+                // We render the slot list in three groups: primary
+                // equipment, the swap pair, and flasks. Slice 4 marks
+                // the active pair with a small marker so the user
+                // doesn't have to mentally cross-reference the toggle.
+                let is_primary_weapon = |s: &Slot| matches!(s, Slot::Weapon1 | Slot::Weapon2);
+                let is_swap = |s: &Slot| matches!(s, Slot::Weapon1Swap | Slot::Weapon2Swap);
+                let is_flask = |s: &Slot| {
+                    matches!(
+                        s,
+                        Slot::Flask1 | Slot::Flask2 | Slot::Flask3 | Slot::Flask4 | Slot::Flask5
+                    )
                 };
-            for slot in Slot::all() {
-                if is_swap(slot) || is_flask(slot) {
-                    continue;
+                let mut render_slot =
+                    |ui: &mut egui::Ui, slot: &Slot, state: &mut ItemsTabState, inactive: bool| {
+                        let equipped = items.get(*slot);
+                        let label = if let Some(item) = equipped {
+                            let rarity_glyph = rarity_glyph(item.rarity);
+                            if item.name.is_empty() {
+                                format!("{rarity_glyph} {} — {}", slot.label(), item.base_name)
+                            } else {
+                                format!("{rarity_glyph} {} — {}", slot.label(), item.name)
+                            }
+                        } else {
+                            format!("· {} — (empty)", slot.label())
+                        };
+                        let selected = state.selected_slot == Some(*slot);
+                        let response = if inactive {
+                            // Dim weapons that are *not* the current live pair so it's
+                            // clear at a glance which weapons drive the calc engine.
+                            let dim = egui::RichText::new(label).weak();
+                            ui.selectable_label(selected, dim)
+                        } else {
+                            ui.selectable_label(selected, label)
+                        };
+                        // Issue #203 (slice 2): rich item-card hover.
+                        // Build the tooltip lines per hover frame — cheap
+                        // (a few clones / formats) and avoids caching that
+                        // would have to invalidate on every item edit.
+                        let response = if let Some(item) = equipped {
+                            let lines = item_tooltip_lines(item);
+                            let pob_lines = if response.hovered() {
+                                pob_tip.tooltip(item, Some(*slot))
+                            } else {
+                                None
+                            };
+                            response.on_hover_ui(|ui| {
+                                if let Some(pob_lines) = &pob_lines {
+                                    ui.set_max_width(520.0);
+                                    crate::pob_tooltip::render(ui, pob_lines);
+                                    return;
+                                }
+                                // Issue #225 (color-code coverage): item names
+                                // and mod lines from PoB carry `^N` / `^xRRGGBB`
+                                // escapes (uniques use them for the gold
+                                // namebar, corrupted lines for red text, etc.).
+                                // Route through `label_with_escapes` so the
+                                // tooltip shows them coloured instead of as
+                                // raw escape characters.
+                                for line in &lines {
+                                    color_codes::label_with_escapes(ui, line);
+                                }
+                            })
+                        } else {
+                            response
+                        };
+                        if response.clicked() {
+                            state.selected_slot = Some(*slot);
+                            state.paste_buffer.clear();
+                            state.last_error = None;
+                        }
+                    };
+                for slot in Slot::all() {
+                    if is_swap(slot) || is_flask(slot) {
+                        continue;
+                    }
+                    let inactive = is_primary_weapon(slot) && use_swap;
+                    render_slot(ui, slot, state, inactive);
                 }
-                let inactive = is_primary_weapon(slot) && use_swap;
-                render_slot(ui, slot, state, inactive);
-            }
-            ui.add_space(4.0);
-            if use_swap {
-                ui.label(egui::RichText::new("Swap weapon set (live)").strong());
-            } else {
-                ui.weak("Swap weapon set");
-            }
-            for slot in Slot::all() {
-                if !is_swap(slot) {
-                    continue;
+                ui.add_space(4.0);
+                if use_swap {
+                    ui.label(egui::RichText::new("Swap weapon set (live)").strong());
+                } else {
+                    ui.weak("Swap weapon set");
                 }
-                let inactive = !use_swap;
-                render_slot(ui, slot, state, inactive);
-            }
-            ui.add_space(4.0);
-            ui.weak("Flasks");
-            for slot in Slot::all() {
-                if !is_flask(slot) {
-                    continue;
+                for slot in Slot::all() {
+                    if !is_swap(slot) {
+                        continue;
+                    }
+                    let inactive = !use_swap;
+                    render_slot(ui, slot, state, inactive);
                 }
-                render_slot(ui, slot, state, false);
+                ui.add_space(4.0);
+                ui.weak("Flasks");
+                for slot in Slot::all() {
+                    if !is_flask(slot) {
+                        continue;
+                    }
+                    render_slot(ui, slot, state, false);
+                }
             }
-
             // Browse-panel toggle. Mirrors PoB's "Browse" button on the
             // Items tab that opens an `ItemDBControl` listing every base
             // type. We render the toggle at the bottom of the slot grid

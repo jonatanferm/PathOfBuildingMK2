@@ -492,6 +492,55 @@ function __mk2_group_tooltip(i)
     return __mk2_tooltip(tt)
 end
 
+-- The Items tab's slots as PoB shows them: base slots, the active weapon
+-- set, flasks (with activation), abyssal and tree jewel sockets.
+function __mk2_item_slots()
+    local it = build.itemsTab
+    it:UpdateSockets()
+    it:PopulateSlots()
+    local out = { swap = it.activeItemSet.useSecondWeaponSet and true or false, slots = {} }
+    for _, slot in ipairs(it.orderedSlots) do
+        local d = __mk2_ctl(slot.slotName, slot)
+        if d.shown then
+            d.label = slot.label
+            local item = it.items[slot.selItemId]
+            d.item = item and item.name or ""
+            d.rarity = item and item.rarity or ""
+            d.abyssal = slot.parentSlot and true or false
+            d.jewel = slot.nodeId and true or false
+            if slot.controls.activate then
+                d.flask = true
+                d.active = slot.active and true or false
+            end
+            out.slots[#out.slots + 1] = d
+        end
+    end
+    return __mk2_json(out)
+end
+
+function __mk2_item_slot_op(op, name, v)
+    local it = build.itemsTab
+    if op == "sel" then
+        __mk2_set_ctl(it.slots[name], v)
+    elseif op == "activate" then
+        __mk2_set_ctl(it.slots[name].controls.activate, v)
+    elseif op == "swap" then
+        local b = v and it.controls.weaponSwap2 or it.controls.weaponSwap1
+        b.onClick()
+    end
+end
+
+-- PoB's tooltip for whatever is in slot `name`.
+function __mk2_slot_tooltip(name)
+    local it = build.itemsTab
+    local slot = it.slots[name]
+    local item = slot and it.items[slot.selItemId]
+    if not item then return "[]" end
+    local tt = new("Tooltip"):Tooltip()
+    it:AddItemTooltip(tt, item, slot)
+    return __mk2_tooltip(tt)
+end
+
 -- Drive a PoB control the way a click / edit would.
 function __mk2_set_ctl(c, v)
     if c.list then

@@ -9,11 +9,47 @@ use crate::items_tab::{DbEntry, PobItems};
 use crate::pob_session::{lua_str, pob_slot_name, PobSession};
 use crate::pob_tooltip::{self, Fetcher, Line};
 
-/// Loaded databases, kept across frames.
+/// Loaded databases and PoB's slot list, kept across frames.
 #[derive(Default)]
 pub struct PobItemDbState {
     lists: [Option<Vec<DbEntry>>; 2],
     pending: [Option<u64>; 2],
+    slots: Option<SlotList>,
+    slots_pending: Option<u64>,
+    slots_for: Option<u64>,
+    bufs: crate::pob_controls::EditBufs,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+struct SlotList {
+    #[serde(default)]
+    swap: bool,
+    #[serde(default)]
+    slots: Vec<SlotRow>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct SlotRow {
+    #[serde(flatten)]
+    ctl: crate::pob_controls::Ctl,
+    #[serde(default)]
+    item: String,
+    #[serde(default)]
+    abyssal: bool,
+    #[serde(default)]
+    jewel: bool,
+    #[serde(default)]
+    flask: bool,
+    #[serde(default)]
+    active: bool,
+}
+
+/// MK2's slot for a PoB slot name, when it has one.
+fn mk2_slot(name: &str) -> Option<Slot> {
+    Slot::all()
+        .iter()
+        .copied()
+        .find(|s| pob_slot_name(*s) == name)
 }
 
 pub struct Bridge<'a> {
@@ -142,5 +178,134 @@ end
 
     fn available(&self) -> bool {
         self.pob.as_ref().is_some_and(|p| p.snapshot.is_some())
+    }
+
+    fn draw_slots(&mut self, ui: &mut egui::Ui, selected: &mut Option<Slot>) -> bool {
+        if !self.available() {
+            return false;
+        }
+        let Some(pob) = self.pob.as_deref_mut() else {
+            return false;
+        };
+        let snap = pob.snapshot.as_ref().map(|s| s.seq);
+        if self.db.slots_pending.is_none() && self.db.slots_for != snap {
+            self.db.slots_pending = Some(pob.query("return __mk2_item_slots()"));
+            self.db.slots_for = snap;
+        }
+        if let Some(seq) = self.db.slots_pending {
+            if let Some(res) = pob.take_query(seq) {
+                self.db.slots_pending = None;
+                if let Some(list) = res.ok().and_then(|j| serde_json::from_str(&j).ok()) {
+                    self.db.slots = Some(list);
+                    self.db.bufs.clear();
+                }
+            } else {
+                self.ctx
+                    .request_repaint_after(std::time::Duration::from_millis(30));
+            }
+        }
+        let Some(list) = self.db.slots.clone() else {
+            ui.spinner();
+            return true;
+        };
+        let mut commands: Vec<String> = Vec::new();
+        ui.horizontal(|ui| {
+            ui.label("Weapon set:");
+            for (swap, label) in [(false, "I"), (true, "II")] {
+                if ui.selectable_label(list.swap == swap, label).clicked() && list.swap != swap {
+                    commands.push(format!("__mk2_item_slot_op('swap', nil, {swap})\n"));
+                }
+            }
+        });
+        let mut last_jewel_header = false;
+        // The surrounding horizontal layout under-reports free height; size
+        // the list from the window instead, leaving room for the buttons.
+        let max_h = (ui.ctx().screen_rect().bottom() - ui.cursor().top() - 110.0).max(160.0);
+        egui::ScrollArea::vertical()
+            .id_salt("pob_item_slots")
+            .max_height(max_h)
+            .min_scrolled_height(max_h)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for row in &list.slots {
+                    if row.jewel && !last_jewel_header {
+                        ui.add_space(4.0);
+                        ui.weak("Tree jewel sockets");
+                        last_jewel_header = true;
+                    }
+                    let name = row.ctl.n.clone();
+                    ui.horizontal(|ui| {
+                        if row.abyssal {
+                            ui.add_space(14.0);
+                        }
+                        if row.flask {
+                            let mut on = row.active;
+                            if ui
+                                .checkbox(&mut on, "")
+                                .on_hover_text("Activate this flask.")
+                                .changed()
+                            {
+                                commands.push(format!(
+                                    "__mk2_item_slot_op('activate', {}, {on})\n",
+                                    lua_str(&name)
+                                ));
+                            }
+                        }
+                        let label = row.ctl.label.clone().unwrap_or_else(|| name.clone());
+                        let mapped = mk2_slot(&name);
+                        let is_sel = mapped.is_some() && *selected == mapped;
+                        let resp = ui.add_sized(
+                            [72.0, 18.0],
+                            egui::SelectableLabel::new(is_sel, egui::RichText::new(label).small()),
+                        );
+                        if resp.clicked() {
+                            if let Some(m) = mapped {
+                                *selected = Some(m);
+                            }
+                        }
+                        if !row.item.is_empty() && resp.hovered() {
+                            let key = format!("slot:{name}:{}", row.item);
+                            let lines = self
+                                .tips
+                                .get(pob, &key, || {
+                                    format!("return __mk2_slot_tooltip({})", lua_str(&name))
+                                })
+                                .map(<[Line]>::to_vec);
+                            if self.tips.busy() {
+                                self.ctx
+                                    .request_repaint_after(std::time::Duration::from_millis(30));
+                            }
+                            resp.on_hover_ui(|ui| {
+                                ui.set_max_width(520.0);
+                                match &lines {
+                                    Some(l) => pob_tooltip::render(ui, l),
+                                    None => {
+                                        ui.spinner();
+                                    }
+                                }
+                            });
+                        }
+                        if let Some(v) = crate::pob_controls::show(
+                            ui,
+                            &row.ctl,
+                            &format!("slot_{name}"),
+                            &mut self.db.bufs,
+                        ) {
+                            commands.push(format!(
+                                "__mk2_item_slot_op('sel', {}, {})\n",
+                                lua_str(&name),
+                                match v {
+                                    serde_json::Value::Number(n) => n.to_string(),
+                                    _ => "nil".to_owned(),
+                                }
+                            ));
+                        }
+                    });
+                }
+            });
+        for c in commands {
+            pob.command(c);
+        }
+        true
     }
 }
