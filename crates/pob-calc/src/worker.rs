@@ -139,10 +139,34 @@ fn run(pob_src: PathBuf, rx: &Receiver<(u64, Command)>, tx: &Sender<Event>) {
         }
     };
     let pob = pob.as_mut();
+    let mut last_snapshot_seq = 0u64;
     let _ = tx.send(Event::Booted {
         millis: t.elapsed().as_millis(),
     });
-    while let Ok((seq, cmd)) = rx.recv() {
+    loop {
+        // Wake up periodically for work PoB finished in the background
+        // (e.g. the OAuth login redirect), then snapshot.
+        let (seq, cmd) = match rx.recv_timeout(std::time::Duration::from_millis(300)) {
+            Ok(m) => m,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let n = pob
+                    .run("return __mk2_poll_subscripts and __mk2_poll_subscripts() or 0")
+                    .ok()
+                    .and_then(|v| v.first().map(|r| r.text().to_owned()))
+                    .unwrap_or_default();
+                if n != "0" && !n.is_empty() {
+                    let _ = pob.run(
+                        "if __mk2_flush_callbacks then __mk2_flush_callbacks() end\nbuild.buildFlag = true\nrunCallback('OnFrame')",
+                    );
+                    let snap = snapshot(pob, last_snapshot_seq, None, None);
+                    if tx.send(Event::Snapshot(snap)).is_err() {
+                        return;
+                    }
+                }
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+        };
         // Coalesce: if more commands are queued, run them all before
         // snapshotting (only the last snapshot matters to the UI).
         if let Command::Query { code } = &cmd {
@@ -184,6 +208,7 @@ fn run(pob_src: PathBuf, rx: &Receiver<(u64, Command)>, tx: &Sender<Event>) {
                 Err(e) => error = Some(e),
             }
         }
+        last_snapshot_seq = last_seq;
         let snapshot = snapshot(pob, last_seq, result, error);
         if tx.send(Event::Snapshot(snapshot)).is_err() {
             return;

@@ -51,12 +51,16 @@ bridge (`__mk2_ctl` / `__mk2_set_ctl` in `headless::BOOT_SCRIPT`,
 | Calcs | PoB's calc sections, formatting, breakdowns, skill-select controls |
 | Party | PoB's Party tab (import members' buffs from build codes, edit lists) |
 | Compare | Builds loaded for comparison are calculated by PoB (`CompareEntry`) |
+| Timeless jewels | PoB's "Find a Timeless Jewel" search (tree toolbar) |
+| Network (desktop) | PoB's `launch:DownloadPage` over Rust HTTP, `OpenURL`, and PoB's OAuth login (native replacement for its LuaSocket redirect server) — Trader dialog, build-site URLs |
+| Dialogs | Any PoB popup renders as a window from PoB's own controls |
 | Notes | Yes |
 
-Known gaps: trade-query generator and other network features (PoB uses
-lcurl), timeless-jewel search tool, PoB's own compare views (MK2's compare
-tab and per-mod attribution still use the old engine), drag-and-drop in
-item lists.
+Known gaps: PoB's own compare views (MK2's compare tab and per-mod
+attribution still use the old engine), drag-and-drop in item lists,
+PoB's update checker; the web build has no network features and uses the
+slower interpreter. Trade searching end to end is untested (needs a PoE
+login).
 
 ## Testing
 

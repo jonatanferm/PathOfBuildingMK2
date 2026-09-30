@@ -18,6 +18,118 @@ pub struct JitPob {
     lua: Lua,
 }
 
+/// Results of sub-scripts that finished on background threads:
+/// `(id, return values)`, delivered by `__mk2_poll_subscripts`.
+type Finished = std::sync::Arc<std::sync::Mutex<Vec<(u32, Vec<Option<String>>)>>>;
+
+/// PoB's OAuth redirect listener (`LaunchServer.lua`, which needs
+/// LuaSocket), natively: bind localhost:49082-49084, open the browser at
+/// `url` + redirect_uri, wait up to 60 s for `?code=&state=`.
+/// Returns `code, errMsg, state, port` as the Lua script does.
+fn oauth_listen(url: &str) -> Vec<Option<String>> {
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+    let listener = (49082..=49084).find_map(|p| TcpListener::bind(("127.0.0.1", p)).ok());
+    let Some(listener) = listener else {
+        return vec![
+            None,
+            Some("Couldn't open a local port for the login redirect".into()),
+        ];
+    };
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+    let full = format!("{url}&redirect_uri=http://localhost:{port}");
+    open_url(&full);
+    let _ = listener.set_nonblocking(true);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while std::time::Instant::now() < deadline {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let _ = stream.set_nonblocking(false);
+                let mut line = String::new();
+                let _ = BufReader::new(&stream).read_line(&mut line);
+                let target = line.split_whitespace().nth(1).unwrap_or("");
+                let query = target.split_once('?').map_or("", |(_, q)| q);
+                let mut params = std::collections::HashMap::new();
+                for pair in query.split('&') {
+                    if let Some((k, v)) = pair.split_once('=') {
+                        params.insert(k.to_owned(), url_decode(v));
+                    }
+                }
+                let (body, done) = if let Some(code) = params.get("code") {
+                    let _ = code;
+                    ("<h1>Authentication complete</h1><p>You can return to Path of Building MK2.</p>", true)
+                } else if params.contains_key("error") {
+                    ("<h1>Authentication failed</h1>", true)
+                } else {
+                    ("", false)
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE html><html><body style=\"font-family:sans-serif;background:#121212;color:#fff\">{body}</body></html>"
+                );
+                if done {
+                    return vec![
+                        params.get("code").cloned(),
+                        params.get("error").map(|e| {
+                            format!(
+                                "{e}: {}",
+                                params.get("error_description").cloned().unwrap_or_default()
+                            )
+                        }),
+                        params.get("state").cloned(),
+                        Some(port.to_string()),
+                    ];
+                }
+            }
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    }
+    vec![
+        None,
+        Some("Timeout reached without a response received by the local server".into()),
+        None,
+        Some(port.to_string()),
+    ]
+}
+
+fn url_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'+' => out.push(b' '),
+            b'%' if i + 2 < b.len() => {
+                if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                    out.push(v);
+                    i += 2;
+                } else {
+                    out.push(b'%');
+                }
+            }
+            c => out.push(c),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn open_url(url: &str) {
+    // Tests / scripted runs: don't launch a browser.
+    if std::env::var_os("MK2_NO_BROWSER").is_some() {
+        eprintln!("open_url: {url}");
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+}
+
 fn err(e: mlua::Error) -> String {
     e.to_string()
 }
@@ -360,17 +472,75 @@ fn install_natives(lua: &Lua) -> mlua::Result<()> {
     g.set(
         "OpenURL",
         lua.create_function(|_, url: String| {
-            #[cfg(target_os = "macos")]
-            let cmd = ("open", vec![url]);
-            #[cfg(target_os = "windows")]
-            let cmd = (
-                "cmd",
-                vec!["/C".to_owned(), "start".to_owned(), String::new(), url],
-            );
-            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-            let cmd = ("xdg-open", vec![url]);
-            let _ = std::process::Command::new(cmd.0).args(cmd.1).spawn();
+            open_url(&url);
             Ok(())
+        })?,
+    )?;
+    // Sub-scripts: PoB's OAuth redirect server runs natively on a thread;
+    // other sub-scripts (update checks, …) aren't supported headless.
+    let finished: Finished = std::sync::Arc::default();
+    let next_id = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(1));
+    {
+        let finished = finished.clone();
+        g.set(
+            "LaunchSubScript",
+            lua.create_function(move |_, args: MultiValue| {
+                let script = match args.front() {
+                    Some(Value::String(s)) => s.to_string_lossy(),
+                    _ => return Ok(Value::Nil),
+                };
+                let first_arg = match args.get(3) {
+                    Some(Value::String(s)) => s.to_string_lossy(),
+                    _ => String::new(),
+                };
+                if !(script.contains("require(\"socket\")")
+                    && first_arg.contains("/oauth/authorize"))
+                {
+                    return Ok(Value::Nil);
+                }
+                let id = next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let finished = finished.clone();
+                std::thread::spawn(move || {
+                    let ret = oauth_listen(&first_arg);
+                    if let Ok(mut f) = finished.lock() {
+                        f.push((id, ret));
+                    }
+                });
+                Ok(Value::Integer(i64::from(id)))
+            })?,
+        )?;
+    }
+    g.set(
+        "__mk2_poll_subscripts",
+        lua.create_function(move |lua, ()| {
+            let done: Vec<_> = finished
+                .lock()
+                .map(|mut f| std::mem::take(&mut *f))
+                .unwrap_or_default();
+            let n = done.len();
+            let launch: mlua::Table = lua.globals().get("launch")?;
+            let subs: mlua::Table = launch.get("subScripts")?;
+            for (id, ret) in done {
+                let entry: Option<mlua::Table> = subs.get(id)?;
+                subs.set(id, Value::Nil)?;
+                if let Some(entry) = entry {
+                    let cb: Option<mlua::Function> = entry.get("callback")?;
+                    if let Some(cb) = cb {
+                        let vals: Vec<Value> = ret
+                            .into_iter()
+                            .map(|v| {
+                                v.map_or(Ok(Value::Nil), |s| {
+                                    lua.create_string(s).map(Value::String)
+                                })
+                            })
+                            .collect::<mlua::Result<_>>()?;
+                        if let Err(e) = cb.call::<()>(MultiValue::from_iter(vals)) {
+                            eprintln!("sub-script callback failed: {e}");
+                        }
+                    }
+                }
+            }
+            Ok(n)
         })?,
     )?;
     lua.load(FILE_SEARCH).set_name("file_search").exec()
