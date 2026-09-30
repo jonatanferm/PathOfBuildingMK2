@@ -46,6 +46,11 @@ pub struct Snapshot {
     pub sidebar: Vec<SidebarLine>,
     /// PoB's warnings (e.g. insufficient mana, unmet requirements).
     pub warnings: Vec<String>,
+    /// PoB's passive point counter (`^7123 / 122   ^78 / 8`) and its tooltip.
+    pub point_display: String,
+    pub point_req: String,
+    /// JSON array of the sidebar's main-skill controls (`__mk2_ctl`).
+    pub skill_select: String,
 }
 
 /// One line of PoB's sidebar: `label` / `value` with `^7` / `^xRRGGBB`
@@ -232,7 +237,7 @@ fn snapshot(pob: &mut Pob, seq: u64, result: Option<String>, error: Option<Strin
         .and_then(|v| v.first().and_then(|x| x.as_str().map(str::to_owned)))
         .unwrap_or_default();
     let outputs = pob.player_output().unwrap_or_default();
-    let raw = pob
+    let ret = pob
         .exec(
             r"
 local out = {}
@@ -244,12 +249,21 @@ out[#out + 1] = '\1'
 for _, w in ipairs(build and build.controls.warnings and build.controls.warnings.lines or {}) do
     out[#out + 1] = tostring(w)
 end
-return table.concat(out, '\n')
+local pd = build and build.controls.pointDisplay
+local ctls = {}
+if build then
+    pcall(function() build:RefreshSkillSelectControls(build.controls, build.mainSocketGroup, '') end)
+    for _, n in ipairs({ 'mainSocketGroup', 'mainSkill', 'mainSkillPart', 'mainSkillStageCount', 'mainSkillMineCount', 'mainSkillMinion', 'mainSkillMinionSkill' }) do
+        local c = build.controls[n]
+        if c then ctls[#ctls + 1] = __mk2_ctl(n, c) end
+    end
+end
+return table.concat(out, '\n'), pd and pd.str or '', pd and pd.req or '', __mk2_json(ctls)
 ",
         )
-        .ok()
-        .and_then(|v| v.first().map(ToString::to_string))
         .unwrap_or_default();
+    let nth = |i: usize| ret.get(i).map(ToString::to_string).unwrap_or_default();
+    let raw = nth(0);
     let (lines, warns) = raw.split_once("\n\u{1}").unwrap_or((raw.as_str(), ""));
     let sidebar = lines
         .lines()
@@ -275,5 +289,8 @@ return table.concat(out, '\n')
         error,
         sidebar,
         warnings,
+        point_display: nth(1),
+        point_req: nth(2),
+        skill_select: nth(3),
     }
 }

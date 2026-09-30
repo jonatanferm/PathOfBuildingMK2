@@ -84,10 +84,25 @@ pub fn format_export_size_label(generated: &str) -> String {
 /// as a banner. Pulled out so each branch has a unit-test home and the
 /// UI side stays a thin dispatch.
 pub fn export_in_format(character: &Character, format: ExportFormat) -> Result<String, String> {
-    match format {
-        ExportFormat::Mk2 => export_code(character).map_err(|e| format!("{e}")),
-        ExportFormat::PobShare => export_pob_code(character).map_err(|e| format!("{e}")),
-        ExportFormat::PobXml => Ok(export_pob_xml(character)),
+    export_in_format_with(character, None, format)
+}
+
+/// Like [`export_in_format`], but PoB formats use `pob_xml` — the build as
+/// Path of Building holds it — when available, so nothing MK2 doesn't model
+/// is lost.
+pub fn export_in_format_with(
+    character: &Character,
+    pob_xml: Option<&str>,
+    format: ExportFormat,
+) -> Result<String, String> {
+    match (format, pob_xml) {
+        (ExportFormat::Mk2, _) => export_code(character).map_err(|e| format!("{e}")),
+        (ExportFormat::PobShare, Some(xml)) => {
+            pob_engine::encode_pob_code(xml).map_err(|e| format!("{e}"))
+        }
+        (ExportFormat::PobShare, None) => export_pob_code(character).map_err(|e| format!("{e}")),
+        (ExportFormat::PobXml, Some(xml)) => Ok(xml.to_owned()),
+        (ExportFormat::PobXml, None) => Ok(export_pob_xml(character)),
     }
 }
 
@@ -100,6 +115,9 @@ pub struct ImportExportTabState {
     /// The build's original PoB XML from the last import, handed to the
     /// PoB backend verbatim. Taken by the host.
     pub imported_xml: Option<String>,
+    /// The current build as Path of Building holds it (set by the host each
+    /// frame); exports use it instead of MK2's own serialisation.
+    pub pob_xml: Option<String>,
     pub generated: String,
     pub last_message: Option<(bool, String)>,
     /// Issue #194 follow-up: which serialisation the next "Generate"
@@ -237,7 +255,11 @@ pub fn ui(
                         }
                     });
                 if ui.button("Generate").clicked() {
-                    match export_in_format(character, state.export_format) {
+                    match export_in_format_with(
+                        character,
+                        state.pob_xml.as_deref(),
+                        state.export_format,
+                    ) {
                         Ok(code) => {
                             state.generated = code;
                             state.last_message =

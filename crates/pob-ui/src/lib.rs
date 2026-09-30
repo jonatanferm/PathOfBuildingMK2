@@ -42,6 +42,7 @@ mod party_tab;
 mod pob_calcs_panel;
 #[cfg(not(target_arch = "wasm32"))]
 mod pob_config_panel;
+mod pob_controls;
 #[cfg(not(target_arch = "wasm32"))]
 mod pob_session;
 mod pob_sidebar;
@@ -317,6 +318,9 @@ struct LoadedApp {
     pob_config_state: pob_config_panel::PobConfigState,
     #[cfg(not(target_arch = "wasm32"))]
     pob_calcs_state: pob_calcs_panel::PobCalcsState,
+    /// Uncommitted sidebar skill-control edits, and the snapshot they're for.
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_skill_bufs: (Option<u64>, pob_controls::EditBufs),
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -526,6 +530,16 @@ impl PobApp {
             }
         }
         let state = match Self::load_initial() {
+            #[cfg(not(target_arch = "wasm32"))]
+            Ok(mut loaded) => {
+                // `pob-desktop <build file>` opens it at start-up (file
+                // associations, scripted testing).
+                if let Some(path) = std::env::args_os().nth(1) {
+                    open_build_file(&mut loaded, std::path::Path::new(&path));
+                }
+                AppState::Loaded(loaded)
+            }
+            #[cfg(target_arch = "wasm32")]
             Ok(loaded) => AppState::Loaded(loaded),
             Err(e) => AppState::Error(e),
         };
@@ -762,6 +776,8 @@ impl PobApp {
             pob_config_state: pob_config_panel::PobConfigState::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_calcs_state: pob_calcs_panel::PobCalcsState::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_skill_bufs: Default::default(),
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -870,6 +886,8 @@ impl PobApp {
             pob_config_state: pob_config_panel::PobConfigState::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_calcs_state: pob_calcs_panel::PobCalcsState::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_skill_bufs: Default::default(),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1143,12 +1161,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
     // Path of Building backend: pick up finished calcs, keep polling while busy.
     #[cfg(not(target_arch = "wasm32"))]
+    let mut reseed_saved = false;
+    #[cfg(not(target_arch = "wasm32"))]
     if let Some(pob) = app.pob.as_mut() {
         if pob.poll() {
             if let Some(out) = pob.output() {
                 app.output = out;
             }
-            if let Some(mirrored) = pob.take_mirror() {
+            if let Some((mirrored, from_load)) = pob.take_mirror() {
                 if let Some(v) = pob.mirror_tree_version.clone() {
                     if v != app.tree_version {
                         if let Ok(tree) = load_passive_tree_for_version(&app.data_root, &v) {
@@ -1159,6 +1179,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     }
                 }
                 app.character = mirrored;
+                // Adopting PoB's view of a just-opened file isn't an edit:
+                // keep it clean so auto-save doesn't rewrite a file nobody
+                // touched.
+                if from_load {
+                    reseed_saved = true;
+                }
             }
         }
         if matches!(
@@ -1167,6 +1193,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         ) {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if reseed_saved {
+        app.last_saved_hash = app_save_fp(app);
+        app.pending_seed_saved_hash = false;
+        app.dirty_since = None;
     }
 
     // Issue #101: drain async storage events first thing each frame
@@ -2088,35 +2120,41 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         );
                 }
             });
-            let asc_alloc = app.character.ascendancy_alloc_count(&app.tree);
-            let total_alloc = app.character.allocated.len() as u32;
-            let passive_alloc = total_alloc - asc_alloc;
-            // Issue #220 follow-up: show the level-derived passive cap
-            // so users see how many more points they can still spend.
-            // Over-allocation (imported builds higher-level than the
-            // current character) goes red to flag the mismatch.
-            let passive_cap = max_passive_points(app.character.level);
-            let passive_label = format!("Allocated: {passive_alloc} / {passive_cap} (passive)");
-            if passive_alloc > passive_cap {
-                ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), passive_label)
-                    .on_hover_text(
-                        "Allocated more passives than the character's level + quest \
-                     rewards permits. Either raise the character level or trim the \
-                     allocated set.",
-                    );
-            } else {
-                ui.label(passive_label);
-            }
-            ui.label(format!(
-                "{asc_alloc} / {} (ascendancy)",
-                app.tree.points.ascendancy_points,
-            ));
-            let item_count = app.character.items.iter().count();
-            if item_count > 0 {
-                ui.label(format!("Items equipped: {item_count}"));
-            }
-            if let Some(main_skill) = app.character.main_skill.as_ref() {
-                ui.label(format!("Main skill: {}", main_skill.skill_id));
+            #[cfg(not(target_arch = "wasm32"))]
+            let pob_shown = pob_character_summary(ui, app);
+            #[cfg(target_arch = "wasm32")]
+            let pob_shown = false;
+            if !pob_shown {
+                let asc_alloc = app.character.ascendancy_alloc_count(&app.tree);
+                let total_alloc = app.character.allocated.len() as u32;
+                let passive_alloc = total_alloc - asc_alloc;
+                // Issue #220 follow-up: show the level-derived passive cap
+                // so users see how many more points they can still spend.
+                // Over-allocation (imported builds higher-level than the
+                // current character) goes red to flag the mismatch.
+                let passive_cap = max_passive_points(app.character.level);
+                let passive_label = format!("Allocated: {passive_alloc} / {passive_cap} (passive)");
+                if passive_alloc > passive_cap {
+                    ui.colored_label(egui::Color32::from_rgb(0xDD, 0x00, 0x22), passive_label)
+                        .on_hover_text(
+                            "Allocated more passives than the character's level + quest \
+                         rewards permits. Either raise the character level or trim the \
+                         allocated set.",
+                        );
+                } else {
+                    ui.label(passive_label);
+                }
+                ui.label(format!(
+                    "{asc_alloc} / {} (ascendancy)",
+                    app.tree.points.ascendancy_points,
+                ));
+                let item_count = app.character.items.iter().count();
+                if item_count > 0 {
+                    ui.label(format!("Items equipped: {item_count}"));
+                }
+                if let Some(main_skill) = app.character.main_skill.as_ref() {
+                    ui.label(format!("Main skill: {}", main_skill.skill_id));
+                }
             }
 
             ui.add_space(10.0);
@@ -2899,6 +2937,11 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             notes_tab::ui(ui, &mut app.character.notes, &mut app.notes_state);
         }
         Tab::ImportExport => {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                app.import_export_state.pob_xml =
+                    app.pob.as_ref().and_then(|p| p.snapshot.as_ref()).map(|s| s.xml.clone());
+            }
             if import_export_tab::ui(
                 ui,
                 &mut app.import_export_state,
@@ -3094,7 +3137,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     // Computed on native only (autosave is native-only); on wasm there's
     // no disk, so the seed value is irrelevant.
     #[cfg(not(target_arch = "wasm32"))]
-    let save_fp = pob_engine::save_state_fingerprint(&app.character);
+    let save_fp = app_save_fp(app);
     #[cfg(target_arch = "wasm32")]
     let save_fp = 0u64;
     if app.pending_seed_saved_hash {
@@ -3114,6 +3157,19 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
     }
 }
 
+/// Fingerprint of everything a save writes: MK2's model plus PoB's own
+/// build XML (config, calcs view, item sets, … that MK2 doesn't model).
+fn app_save_fp(app: &LoadedApp) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    pob_engine::save_state_fingerprint(&app.character).hash(&mut h);
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(snap) = app.pob.as_ref().and_then(|p| p.snapshot.as_ref()) {
+        snap.xml.hash(&mut h);
+    }
+    h.finish()
+}
+
 /// Issue #100 (slice 1): auto-save the build to its current path
 /// once it has been dirty for at least `IDLE_AUTOSAVE_MS`. Mirrors
 /// PoB's `Modules/Build.lua::SaveDBFile` cadence — saves on a debounce,
@@ -3124,6 +3180,15 @@ fn try_autosave(app: &mut LoadedApp) {
     let Some(since) = app.dirty_since else {
         return;
     };
+    // Wait for PoB to finish so the saved XML reflects the latest edit.
+    if app.pob.as_ref().is_some_and(|p| {
+        matches!(
+            p.status,
+            pob_session::SessionStatus::Busy | pob_session::SessionStatus::Booting
+        )
+    }) {
+        return;
+    }
     // Issue #225 follow-up: user-configurable idle threshold (was a
     // hard-coded 2.0s). `autosave_idle_secs` is clamped at load /
     // commit time, but re-clamp defensively in case a hand-edited
@@ -3141,14 +3206,19 @@ fn try_autosave(app: &mut LoadedApp) {
         .and_then(|s| s.to_str())
         .map(|s| s.eq_ignore_ascii_case("xml"))
         .unwrap_or(false);
+    let pob_xml = app
+        .pob
+        .as_ref()
+        .and_then(|p| p.snapshot.as_ref())
+        .map(|s| s.xml.clone());
     let payload = if is_xml {
-        Ok(pob_engine::export_pob_xml(&app.character))
+        Ok(pob_xml.unwrap_or_else(|| pob_engine::export_pob_xml(&app.character)))
     } else {
         pob_engine::export_code(&app.character).map_err(|e| e.to_string())
     };
     match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
         Ok(()) => {
-            app.last_saved_hash = pob_engine::save_state_fingerprint(&app.character);
+            app.last_saved_hash = app_save_fp(app);
             app.dirty_since = None;
             app.status_message = Some((
                 StatusKind::Info,
@@ -3901,11 +3971,127 @@ enum MenuAction {
     SaveAs,
 }
 
+/// PoB's passive-point counter and main-skill selectors for the character
+/// panel. Returns false (so the caller shows MK2's own) until PoB has a
+/// snapshot.
+#[cfg(not(target_arch = "wasm32"))]
+fn pob_character_summary(ui: &mut egui::Ui, app: &mut LoadedApp) -> bool {
+    let Some(pob) = app.pob.as_mut() else {
+        return false;
+    };
+    let Some(snap) = pob
+        .snapshot
+        .as_ref()
+        .filter(|s| !s.point_display.is_empty())
+    else {
+        return false;
+    };
+    ui.horizontal(|ui| {
+        ui.label("Points:");
+        let resp = ui.label(pob_sidebar::job(&snap.point_display, 14.0));
+        if !snap.point_req.is_empty() {
+            resp.on_hover_text(pob_sidebar::job(&snap.point_req, 13.0));
+        }
+    });
+    let item_count = app.character.items.iter().count();
+    if item_count > 0 {
+        ui.label(format!("Items equipped: {item_count}"));
+    }
+    let ctls = pob_controls::parse(&snap.skill_select);
+    let seq = snap.seq;
+    let bufs = &mut app.pob_skill_bufs;
+    if bufs.0 != Some(seq) {
+        bufs.1.clear();
+        bufs.0 = Some(seq);
+    }
+    let mut change = None;
+    egui::Grid::new("pob_main_skill")
+        .num_columns(2)
+        .spacing([6.0, 3.0])
+        .show(ui, |ui| {
+            for c in ctls.iter().filter(|c| c.shown) {
+                let label = match c.n.as_str() {
+                    "mainSocketGroup" => "Main skill:",
+                    "mainSkillPart" => "Skill part:",
+                    "mainSkillStageCount" => "Stages:",
+                    "mainSkillMineCount" => "Active mines:",
+                    "mainSkillMinion" => "Minion:",
+                    "mainSkillMinionSkill" => "Minion skill:",
+                    _ => "",
+                };
+                ui.label(label);
+                if let Some(v) = pob_controls::show(ui, c, &c.n, &mut bufs.1) {
+                    change = Some((c.n.clone(), v));
+                }
+                ui.end_row();
+            }
+        });
+    if let Some((name, v)) = change {
+        pob.command(pob_controls::set_command(
+            &format!("build.controls[{}]", pob_session::lua_str(&name)),
+            &v,
+        ));
+    }
+    true
+}
+
+/// Open a build file (MK2 / PoB XML / share code): parse it into MK2's
+/// model and, when it is PoB XML, hand PoB the file verbatim so nothing
+/// MK2 doesn't model is lost.
+#[cfg(not(target_arch = "wasm32"))]
+fn open_build_file(app: &mut LoadedApp, path: &std::path::Path) {
+    // Auto-detect via the shared helper compare_tab already uses — keeps
+    // the MK2 / PoB-XML / share-code dispatch rule in one place.
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string());
+    let parsed: Result<Character, String> = text
+        .clone()
+        .and_then(|s| compare_tab::import_build_text(&s));
+    match parsed {
+        Ok(c) => {
+            app.character = c;
+            let pob_xml = text.ok().and_then(|t| pob_engine::pob_xml_from_input(&t));
+            if let Some(pob) = app.pob.as_mut() {
+                match pob_xml {
+                    Some(xml) => {
+                        if let Some(v) = pob_engine::pob_tree_version(&xml) {
+                            if v != app.tree_version {
+                                if let Ok(tree) = load_passive_tree_for_version(&app.data_root, &v)
+                                {
+                                    app.tree = tree;
+                                    app.tree_view.rebind(&app.tree);
+                                    app.tree_version = v;
+                                }
+                            }
+                        }
+                        pob.load_xml(xml, &path.display().to_string(), &app.character);
+                    }
+                    None => pob.reset(),
+                }
+            }
+            app.current_build_path = Some(path.to_path_buf());
+            // Just loaded → matches what's on disk. Defer seeding
+            // `last_saved_hash` to the next compute (when the new input hash
+            // exists), so auto-save doesn't fire on a no-op write.
+            app.pending_seed_saved_hash = true;
+            app.dirty_since = None;
+            // Issue #204: drop history on build replace.
+            app.undo_stack.clear();
+            app.status_message = Some((StatusKind::Info, format!("Opened {}", path.display())));
+        }
+        Err(e) => {
+            app.status_message = Some((StatusKind::Error, format!("Open failed: {e}")));
+        }
+    }
+}
+
 fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
     match action {
         MenuAction::New => {
             app.character = Character::new(ClassRef::marauder(), 1);
             app.current_build_path = None;
+            if let Some(pob) = app.pob.as_mut() {
+                pob.reset();
+            }
             // Issue #204: drop history so cmd+Z can't restore the
             // previous build over the freshly-created one.
             app.undo_stack.clear();
@@ -3914,6 +4100,9 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
         MenuAction::DemoBuild => {
             app.character = build_demo_character();
             app.current_build_path = None;
+            if let Some(pob) = app.pob.as_mut() {
+                pob.reset();
+            }
             // Issue #204: drop history on build replace.
             app.undo_stack.clear();
             app.status_message = Some((
@@ -3934,29 +4123,7 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
                     // helper compare_tab already uses — keeps the
                     // MK2 / PoB-XML / share-code dispatch rule in one
                     // place. PR #475 follow-up.
-                    let parse_result: Result<Character, String> = std::fs::read_to_string(&path)
-                        .map_err(|e| e.to_string())
-                        .and_then(|s| compare_tab::import_build_text(&s));
-                    match parse_result {
-                        Ok(c) => {
-                            app.character = c;
-                            app.current_build_path = Some(path.clone());
-                            // Just loaded → matches what's on disk.
-                            // Defer seeding `last_saved_hash` to the next
-                            // compute (when the new input hash exists),
-                            // so auto-save doesn't fire on a no-op write.
-                            app.pending_seed_saved_hash = true;
-                            app.dirty_since = None;
-                            // Issue #204: drop history on build replace.
-                            app.undo_stack.clear();
-                            app.status_message =
-                                Some((StatusKind::Info, format!("Opened {}", path.display())));
-                        }
-                        Err(e) => {
-                            app.status_message =
-                                Some((StatusKind::Error, format!("Open failed: {e}")));
-                        }
-                    }
+                    open_build_file(app, &path);
                 }
             }
             #[cfg(target_arch = "wasm32")]
@@ -4358,26 +4525,7 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
             app.builds_state.folder_supported = false;
             app.builds_state.folder_connected = false;
         }
-        BuildsAction::Load(BuildId::Disk(path)) => {
-            let parsed: Result<Character, String> = std::fs::read_to_string(&path)
-                .map_err(|e| e.to_string())
-                .and_then(|s| compare_tab::import_build_text(&s));
-            match parsed {
-                Ok(c) => {
-                    app.character = c;
-                    app.current_build_path = Some(path.clone());
-                    app.pending_seed_saved_hash = true;
-                    app.dirty_since = None;
-                    // Issue #204: drop history on build replace.
-                    app.undo_stack.clear();
-                    app.status_message =
-                        Some((StatusKind::Info, format!("Opened {}", path.display())));
-                }
-                Err(e) => {
-                    app.status_message = Some((StatusKind::Error, format!("Load failed: {e}")));
-                }
-            }
-        }
+        BuildsAction::Load(BuildId::Disk(path)) => open_build_file(app, &path),
         BuildsAction::Save { name, category } => {
             let Some(dir) = dir else {
                 app.status_message = Some((
@@ -4396,7 +4544,7 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
             match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
                 Ok(()) => {
                     app.current_build_path = Some(path.clone());
-                    app.last_saved_hash = pob_engine::save_state_fingerprint(&app.character);
+                    app.last_saved_hash = app_save_fp(app);
                     app.dirty_since = None;
                     app.status_message =
                         Some((StatusKind::Info, format!("Saved to {}", path.display())));
@@ -4777,9 +4925,9 @@ fn apply_storage_events(app: &mut LoadedApp) -> bool {
 fn save_build(app: &mut LoadedApp, force_dialog: bool) {
     let path = if force_dialog || app.current_build_path.is_none() {
         rfd::FileDialog::new()
-            .add_filter("MK2 build", &["mk2"])
-            .add_filter("PoB XML", &["xml"])
-            .set_file_name("build.mk2")
+            .add_filter("Path of Building build (XML)", &["xml"])
+            .add_filter("MK2 build (legacy, lossy)", &["mk2"])
+            .set_file_name("build.xml")
             .save_file()
     } else {
         app.current_build_path.clone()
@@ -4803,7 +4951,7 @@ fn save_build(app: &mut LoadedApp, force_dialog: bool) {
     match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
         Ok(()) => {
             app.current_build_path = Some(path.clone());
-            app.last_saved_hash = pob_engine::save_state_fingerprint(&app.character);
+            app.last_saved_hash = app_save_fp(app);
             app.dirty_since = None;
             app.status_message = Some((StatusKind::Info, format!("Saved to {}", path.display())));
         }

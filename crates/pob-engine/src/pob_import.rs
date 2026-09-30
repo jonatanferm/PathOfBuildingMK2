@@ -914,6 +914,16 @@ fn handle_start_attrs(
                             character.bandit = b;
                         }
                     }
+                    "pantheonMajorGod" => {
+                        if let Some(g) = crate::character::MajorGod::from_pob_name(&val) {
+                            character.pantheon_major = g;
+                        }
+                    }
+                    "pantheonMinorGod" => {
+                        if let Some(g) = crate::character::MinorGod::from_pob_name(&val) {
+                            character.pantheon_minor = g;
+                        }
+                    }
                     "mainSocketGroup" => {
                         if let Ok(n) = val.parse::<u32>() {
                             *main_socket_group = Some(n);

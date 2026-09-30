@@ -231,6 +231,13 @@ fn main() -> Result<()> {
         wrote.push(dst);
     }
 
+    // PoB's own Lua (the app runs it headless as its calc engine): every
+    // module and data file the headless boot + calc reads, minus images,
+    // regenerated caches and the dev-only Export tool. See pob_calc::headless.
+    let pob_out = args.out.join("pob");
+    let copied = copy_pob_runtime(&args.pob, &pob_out)?;
+    eprintln!("  data/pob: {copied} files");
+
     // Trees — one JSON per tree version directory under data/trees/.
     let trees_dir = args.out.join("trees");
     std::fs::create_dir_all(&trees_dir)?;
@@ -738,4 +745,63 @@ pub(crate) fn merge_into(
         dest.insert(k, v);
     }
     Ok(())
+}
+
+/// Copy the parts of a PoB checkout the headless calc needs into `out`
+/// (`out/src/...`, `out/runtime/lua/...`, `out/manifest.xml`).
+fn copy_pob_runtime(pob: &Path, out: &Path) -> Result<usize> {
+    fn wanted(rel: &Path) -> bool {
+        let s = rel.to_string_lossy().replace('\\', "/");
+        if s.starts_with("src/Export/") || s.ends_with(".bin") {
+            return false;
+        }
+        let name = rel
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        s == "manifest.xml"
+            || s.starts_with("runtime/lua/")
+            || (s.starts_with("src/")
+                && (name.ends_with(".lua")
+                    || name.ends_with(".jsonc")
+                    || (s.starts_with("src/Data/TimelessJewelData/")
+                        && (name.ends_with(".zip") || name.contains(".zip.part")))))
+    }
+    fn walk(root: &Path, dir: &Path, out: &Path, n: &mut usize) -> Result<()> {
+        for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+            let entry = entry?;
+            let path = entry.path();
+            let rel = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
+            if entry.file_type()?.is_dir() {
+                let top = rel
+                    .components()
+                    .next()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned());
+                if matches!(top.as_deref(), Some("src" | "runtime")) || rel.as_os_str().is_empty() {
+                    walk(root, &path, out, n)?;
+                }
+            } else if wanted(&rel) {
+                let dst = out.join(&rel);
+                if let Some(parent) = dst.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                // Skip unchanged files (the tree .lua files are large).
+                let same = std::fs::metadata(&dst)
+                    .ok()
+                    .zip(std::fs::metadata(&path).ok())
+                    .is_some_and(|(a, b)| {
+                        a.len() == b.len() && a.modified().ok() >= b.modified().ok()
+                    });
+                if !same {
+                    std::fs::copy(&path, &dst)
+                        .with_context(|| format!("copying {}", path.display()))?;
+                }
+                *n += 1;
+            }
+        }
+        Ok(())
+    }
+    let mut n = 0;
+    walk(pob, pob, out, &mut n)?;
+    Ok(n)
 }

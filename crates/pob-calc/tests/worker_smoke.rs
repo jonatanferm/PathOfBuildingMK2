@@ -31,6 +31,11 @@ fn worker_snapshot() {
                     eprintln!("  {:?}", l);
                 }
                 assert!(!s.sidebar.is_empty());
+                eprintln!(
+                    "points={:?} skill_select={}",
+                    s.point_display, s.skill_select
+                );
+                assert!(s.skill_select.contains("mainSocketGroup"));
                 assert_eq!(s.outputs.get("Life"), Some(6728.0));
                 break;
             }

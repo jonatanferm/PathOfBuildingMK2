@@ -36,11 +36,13 @@ pub fn export_pob_xml(character: &Character) -> String {
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<PathOfBuilding>\n");
     let _ = writeln!(
         out,
-        "    <Build level=\"{level}\" targetVersion=\"3_0\" className=\"{class}\" ascendClassName=\"{asc}\" bandit=\"{bandit}\" mainSocketGroup=\"{msg}\"/>",
+        "    <Build level=\"{level}\" targetVersion=\"3_0\" className=\"{class}\" ascendClassName=\"{asc}\" bandit=\"{bandit}\" pantheonMajorGod=\"{major}\" pantheonMinorGod=\"{minor}\" mainSocketGroup=\"{msg}\"/>",
         level = character.level.max(1),
         class = class,
         asc = ascendancy,
         bandit = character.bandit.as_pob_name(),
+        major = character.pantheon_major.as_pob_name(),
+        minor = character.pantheon_minor.as_pob_name(),
         msg = character.main_socket_group.max(1),
     );
     out.push_str("    <Tree activeSpec=\"1\">\n");
@@ -406,13 +408,18 @@ fn class_name_to_id(class: &str) -> u32 {
 
 /// Encode the `xml(deflate(bytes))` PoB share-code format.
 pub fn export_pob_code(character: &Character) -> Result<String, std::io::Error> {
+    encode_pob_code(&export_pob_xml(character))
+}
+
+/// PoB share code for a build's XML: zlib + url-safe base64, as PoB's
+/// Import/Export tab produces it.
+pub fn encode_pob_code(xml: &str) -> Result<String, std::io::Error> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
     use flate2::write::ZlibEncoder;
     use flate2::Compression;
     use std::io::Write;
 
-    let xml = export_pob_xml(character);
     let mut compressed = Vec::with_capacity(xml.len() / 2);
     let mut enc = ZlibEncoder::new(&mut compressed, Compression::default());
     enc.write_all(xml.as_bytes())?;
@@ -440,6 +447,17 @@ mod tests {
     use super::*;
     use crate::character::ClassRef;
     use crate::skill::MainSkill;
+
+    #[test]
+    fn encode_pob_code_round_trips_verbatim() {
+        let xml = "<?xml version=\"1.0\"?><PathOfBuilding><Build level=\"90\"/></PathOfBuilding>";
+        let code = encode_pob_code(xml).unwrap();
+        assert!(!code.contains('+') && !code.contains('/'));
+        assert_eq!(
+            crate::pob_import::pob_code_to_xml(&code).as_deref(),
+            Some(xml)
+        );
+    }
 
     #[test]
     fn round_trip_through_pob_xml() {

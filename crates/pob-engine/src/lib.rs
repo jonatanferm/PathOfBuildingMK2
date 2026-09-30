@@ -83,7 +83,7 @@ pub use perform::{
     compute_full_with_clusters_and_timeless, compute_full_with_clusters_and_timeless_lut,
     compute_full_with_env, ClusterContext,
 };
-pub use pob_export::{export_pob_code, export_pob_xml};
+pub use pob_export::{encode_pob_code, export_pob_code, export_pob_xml};
 pub use pob_import::{
     import_pob_code, import_pob_xml, pob_code_to_xml, pob_tree_version, pob_xml_from_input,
     resolve_share_url, PobImportError,

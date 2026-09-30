@@ -30,6 +30,10 @@ pub struct DirEntry {
 /// its `src/` working directory, `/`-separated).
 pub trait HostFs {
     fn read(&self, path: &str) -> Option<Vec<u8>>;
+    /// Whether `path` is an existing file (cheaper than reading it).
+    fn exists(&self, path: &str) -> bool {
+        self.read(path).is_some()
+    }
     fn write(&self, path: &str, data: &[u8]) -> bool;
     /// Entries matching `pattern` (a path whose last component may end in `*`).
     fn search(&self, pattern: &str, dirs: bool) -> Vec<DirEntry>;
@@ -53,7 +57,15 @@ impl StdFs {
 
 impl HostFs for StdFs {
     fn read(&self, path: &str) -> Option<Vec<u8>> {
-        std::fs::read(self.resolve(path)).ok()
+        let r = std::fs::read(self.resolve(path)).ok();
+        if r.is_some() && std::env::var_os("POB_FS_TRACE").is_some() {
+            eprintln!("[fs] read {path}");
+        }
+        r
+    }
+
+    fn exists(&self, path: &str) -> bool {
+        self.resolve(path).is_file()
     }
 
     fn write(&self, path: &str, data: &[u8]) -> bool {
@@ -65,6 +77,9 @@ impl HostFs for StdFs {
     }
 
     fn search(&self, pattern: &str, dirs: bool) -> Vec<DirEntry> {
+        if std::env::var_os("POB_FS_TRACE").is_some() {
+            eprintln!("[fs] search {pattern}");
+        }
         let full = self.resolve(pattern);
         let (dir, name) = (
             full.parent()
@@ -320,22 +335,20 @@ pub fn install(it: &mut Interp, fs: Rc<dyn HostFs>) {
                 .and_then(|v| v.as_str().map(str::to_owned))
                 .unwrap_or_else(|| "r".into());
             let writing = mode.contains('w') || mode.contains('a');
+            // Reading is lazy: PoB often opens files only to test they exist.
             let content = if writing {
-                if mode.contains('a') {
+                Some(if mode.contains('a') {
                     fs.read(&path).unwrap_or_default()
                 } else {
                     Vec::new()
-                }
+                })
+            } else if fs.exists(&path) {
+                None
             } else {
-                match fs.read(&path) {
-                    Some(c) => c,
-                    None => {
-                        return Ok(vec![
-                            Val::Nil,
-                            Val::str(&format!("{path}: No such file or directory")),
-                        ])
-                    }
-                }
+                return Ok(vec![
+                    Val::Nil,
+                    Val::str(&format!("{path}: No such file or directory")),
+                ]);
             };
             Ok(vec![Val::Table(make_file(
                 fs.clone(),
@@ -632,12 +645,29 @@ fn make_search(entries: Vec<DirEntry>) -> TableRef {
     h
 }
 
-fn make_file(fs: Rc<dyn HostFs>, path: String, content: Vec<u8>, writing: bool) -> TableRef {
+fn make_file(
+    fs: Rc<dyn HostFs>,
+    path: String,
+    content: Option<Vec<u8>>,
+    writing: bool,
+) -> TableRef {
     let f = TableRef::new();
-    let buf = Rc::new(RefCell::new(content));
+    let pending = Rc::new(RefCell::new(content.is_none()));
+    let buf = Rc::new(RefCell::new(content.unwrap_or_default()));
+    // Load the file on first access.
+    let ensure = {
+        let (fs, path, buf, pending) = (fs.clone(), path.clone(), buf.clone(), pending.clone());
+        Rc::new(move || {
+            if *pending.borrow() {
+                *buf.borrow_mut() = fs.read(&path).unwrap_or_default();
+                *pending.borrow_mut() = false;
+            }
+        })
+    };
     let pos = Rc::new(RefCell::new(0usize));
-    let (b, p) = (buf.clone(), pos.clone());
+    let (b, p, en) = (buf.clone(), pos.clone(), ensure.clone());
     reg(&f, "read", move |_, a| {
+        en();
         let fmt = a.get(1).cloned().unwrap_or_else(|| Val::str("*l"));
         let data = b.borrow();
         let mut i = p.borrow_mut();
@@ -681,8 +711,9 @@ fn make_file(fs: Rc<dyn HostFs>, path: String, content: Vec<u8>, writing: bool) 
         };
         Ok(vec![out])
     });
-    let (b, p) = (buf.clone(), pos.clone());
+    let (b, p, en) = (buf.clone(), pos.clone(), ensure.clone());
     reg(&f, "lines", move |_, _| {
+        en();
         let text = String::from_utf8_lossy(&b.borrow()[*p.borrow()..]).into_owned();
         let lines: Vec<String> = text.lines().map(str::to_owned).collect();
         let idx = RefCell::new(0usize);

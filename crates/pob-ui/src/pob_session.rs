@@ -41,7 +41,7 @@ pub fn pob_slot_name(slot: Slot) -> &'static str {
 }
 
 /// Quote a string as a Lua literal.
-fn lua_str(s: &str) -> String {
+pub fn lua_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for c in s.chars() {
@@ -84,6 +84,11 @@ pub struct PobSession {
     mirror: Option<Character>,
     /// Tree version of the mirrored build.
     pub mirror_tree_version: Option<String>,
+    /// Sequence of the last verbatim load (open / import): a mirror
+    /// answering it reflects the file, not an edit.
+    load_seq: Option<u64>,
+    /// Whether the pending mirror answers `load_seq`.
+    mirror_is_load: bool,
     /// Answers to [`Self::query`], by sequence number.
     query_results: ahash::AHashMap<u64, Result<String, String>>,
 }
@@ -102,6 +107,8 @@ impl PobSession {
             last_error: None,
             mirror: None,
             mirror_tree_version: None,
+            load_seq: None,
+            mirror_is_load: false,
             query_results: ahash::AHashMap::default(),
         }
     }
@@ -126,8 +133,15 @@ impl PobSession {
             xml,
             name: name.to_owned(),
         });
+        self.load_seq = Some(self.latest_seq);
         self.baseline = Some(character.clone());
         self.status = SessionStatus::Busy;
+    }
+
+    /// Forget PoB's build: the next [`Self::sync`] rebuilds it from scratch
+    /// (new build / non-PoB file opened), dropping PoB-only state.
+    pub fn reset(&mut self) {
+        self.baseline = None;
     }
 
     /// Bring PoB's build in line with `character`: replay each changed
@@ -383,6 +397,7 @@ impl PobSession {
                         if let Ok(c) = pob_engine::import_pob_xml(&s.xml) {
                             self.baseline = Some(c.clone());
                             self.mirror = Some(c);
+                            self.mirror_is_load = self.load_seq == Some(s.seq);
                             self.mirror_tree_version = pob_engine::pob_tree_version(&s.xml);
                         }
                     }
@@ -399,8 +414,9 @@ impl PobSession {
     }
 
     /// PoB's build mirrored into MK2's model, once per snapshot.
-    pub fn take_mirror(&mut self) -> Option<Character> {
-        self.mirror.take()
+    /// The flag is true when the snapshot answered a verbatim file load.
+    pub fn take_mirror(&mut self) -> Option<(Character, bool)> {
+        self.mirror.take().map(|c| (c, self.mirror_is_load))
     }
 
     /// Run read-only Lua in PoB; collect the answer with [`Self::take_query`].
@@ -566,13 +582,20 @@ for si, section in ipairs(tab.sectionList) do
             for ri, row in ipairs(subSec.data) do
                 if tab:CheckFlag(row) then
                     local cells = {}
+                    local hidden = false
                     for ci, col in ipairs(row) do
                         if col.format and tab:CheckFlag(col) then
                             local ok, text = pcall(formatCalcStr, col.format, actor, col)
                             cells[#cells + 1] = { t = ok and text or "?", r = { si, subi, ri, ci }, b = #col > 0 }
+                        elseif col.controlName and section.controls[col.controlName] then
+                            local c = __mk2_ctl(col.controlName, section.controls[col.controlName])
+                            hidden = hidden or not c.shown
+                            cells[#cells + 1] = { r = { si, subi, ri, ci }, ctl = c }
                         end
                     end
-                    rows[#rows + 1] = { l = row.label or "", c = row.color, cells = cells }
+                    if not hidden then
+                        rows[#rows + 1] = { l = row.label or "", c = row.color, cells = cells }
+                    end
                 end
             end
             local extra
@@ -621,7 +644,11 @@ return __mk2_json(out)
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct CalcCell {
+    #[serde(default)]
     pub t: String,
+    /// A PoB control in place of text (the skill-select section).
+    #[serde(default)]
+    pub ctl: Option<crate::pob_controls::Ctl>,
     pub r: [u32; 4],
     #[serde(default)]
     pub b: bool,

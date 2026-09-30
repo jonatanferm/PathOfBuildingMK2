@@ -17,6 +17,7 @@ pub struct PobCalcsState {
     breakdown: Vec<BreakdownSection>,
     pending_breakdown: Option<u64>,
     search: String,
+    edit_bufs: crate::pob_controls::EditBufs,
 }
 
 fn colour(code: Option<&str>) -> egui::Color32 {
@@ -47,6 +48,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PobCalcsState, pob: &mut PobSession) {
                 Ok(s) => {
                     state.sections = s;
                     state.error = None;
+                    state.edit_bufs.clear();
                 }
                 Err(e) => state.error = Some(e),
             }
@@ -76,6 +78,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PobCalcsState, pob: &mut PobSession) {
 
     let search = state.search.to_lowercase();
     let mut clicked: Option<[u32; 4]> = None;
+    let mut control_change: Option<(u32, String, serde_json::Value)> = None;
     let breakdown_width = if state.breakdown.is_empty() {
         0.0
     } else {
@@ -122,15 +125,30 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PobCalcsState, pob: &mut PobSession) {
                                         .spacing([6.0, 1.0])
                                         .show(ui, |ui| {
                                             for row in visible_rows {
+                                                let colon = if row.l.is_empty() { "" } else { ":" };
                                                 ui.label(job(
                                                     &format!(
-                                                        "{}{}:",
+                                                        "{}{}{colon}",
                                                         row.c.as_deref().unwrap_or("^7"),
                                                         row.l
                                                     ),
                                                     13.0,
                                                 ));
                                                 for cell in &row.cells {
+                                                    if let Some(ctl) = &cell.ctl {
+                                                        let id =
+                                                            format!("calc{}_{}", cell.r[0], ctl.n);
+                                                        if let Some(v) = crate::pob_controls::show(
+                                                            ui,
+                                                            ctl,
+                                                            &id,
+                                                            &mut state.edit_bufs,
+                                                        ) {
+                                                            control_change =
+                                                                Some((cell.r[0], ctl.n.clone(), v));
+                                                        }
+                                                        continue;
+                                                    }
                                                     let selected = state.selected == Some(cell.r);
                                                     let resp = ui.add(
                                                         egui::Button::new(job(&cell.t, 13.0))
@@ -209,6 +227,15 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PobCalcsState, pob: &mut PobSession) {
             });
         }
     });
+    if let Some((section, name, value)) = control_change {
+        pob.command(crate::pob_controls::set_command(
+            &format!(
+                "build.calcsTab.sectionList[{section}].controls[{}]",
+                crate::pob_session::lua_str(&name)
+            ),
+            &value,
+        ));
+    }
     if let Some(r) = clicked {
         state.selected = Some(r);
         state.pending_breakdown = Some(pob.query(&breakdown_query(r)));

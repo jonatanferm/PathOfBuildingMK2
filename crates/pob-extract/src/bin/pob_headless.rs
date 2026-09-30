@@ -4,7 +4,10 @@ use std::time::Instant;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let pob_root = std::path::PathBuf::from(".PathOfBuilding");
+    let pob_root = std::env::var_os("POB_ROOT").map_or_else(
+        || std::path::PathBuf::from(".PathOfBuilding"),
+        std::path::PathBuf::from,
+    );
     let t = Instant::now();
     let mut pob = match pob_calc::headless::Pob::boot_from_dir(&pob_root) {
         Ok(p) => p,

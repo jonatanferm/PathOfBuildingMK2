@@ -115,6 +115,45 @@ function __mk2_json(v, depth, seen)
     end
     return "null"
 end
+
+-- A PoB UI control as data: dropdown items/selection, edit buffer or
+-- checkbox state, plus PoB's own shown/enabled rules.
+function __mk2_ctl(name, c)
+    local shown = c:GetProperty("shown")
+    if shown == nil then shown = true end
+    local enabled = c:GetProperty("enabled")
+    if enabled == nil then enabled = true end
+    local d = { n = name, shown = shown and true or false, en = enabled and true or false }
+    if c.list then
+        d.k = "drop"
+        d.items = {}
+        for i, v in ipairs(c.list) do
+            d.items[i] = type(v) == "table" and tostring(v.label or v.val or "") or tostring(v)
+        end
+        d.sel = c.selIndex or 1
+    elseif c.buf ~= nil then
+        d.k = "edit"
+        d.buf = c.buf
+    elseif c.changeFunc and c.state ~= nil or c.CheckBoxControl then
+        d.k = "check"
+        d.state = c.state and true or false
+    else
+        d.k = "other"
+    end
+    return d
+end
+
+-- Drive a PoB control the way a click / edit would.
+function __mk2_set_ctl(c, v)
+    if c.list then
+        c:SetSel(tonumber(v))
+    elseif c.buf ~= nil then
+        c:SetText(tostring(v), true)
+    elseif c.CheckBoxControl then
+        c.state = v and true or false
+        if c.changeFunc then c.changeFunc(c.state) end
+    end
+end
 "#,
             "boot",
             Vec::new(),
