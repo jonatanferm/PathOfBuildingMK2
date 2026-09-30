@@ -226,8 +226,11 @@ build = __mainObject__.main.modes["BUILD"]
             let ret = pob.run(&code)?;
             pob.run(
                 r"
+if __mk2_flush_callbacks then __mk2_flush_callbacks() end
 build.buildFlag = true
 runCallback('OnFrame')
+-- PoB refreshes jewel-socket state while drawing the Items tab.
+if build.itemsTab then build.itemsTab:UpdateSockets() end
 if __mainObject__.promptMsg then
     local msg = __mainObject__.promptMsg
     __mainObject__.promptMsg = nil

@@ -304,5 +304,74 @@ fn install_natives(lua: &Lua) -> mlua::Result<()> {
             Ok(Value::Table(handle))
         })?,
     )?;
+    // HTTP for launch:DownloadPage: (url, headerLines, body, userAgent) ->
+    // body, errMsg, responseHeader.
+    g.set(
+        "__mk2_http",
+        lua.create_function(
+            |lua,
+             (url, header, body, agent): (
+                String,
+                Option<String>,
+                Option<mlua::String>,
+                Option<String>,
+            )| {
+                let agent_b = ureq::AgentBuilder::new()
+                    .user_agent(agent.as_deref().unwrap_or("Path of Building"))
+                    .timeout_connect(std::time::Duration::from_secs(10))
+                    .timeout(std::time::Duration::from_secs(30))
+                    .build();
+                let mut req = match body {
+                    Some(_) => agent_b.post(&url),
+                    None => agent_b.get(&url),
+                };
+                for line in header.as_deref().unwrap_or("").lines() {
+                    if let Some((k, v)) = line.split_once(':') {
+                        req = req.set(k.trim(), v.trim());
+                    }
+                }
+                let result = match &body {
+                    Some(b) => req.send_bytes(&b.as_bytes()),
+                    None => req.call(),
+                };
+                let (resp, err) = match result {
+                    Ok(r) => (Some(r), None),
+                    Err(ureq::Error::Status(code, r)) => {
+                        (Some(r), Some(format!("Response code: {code}")))
+                    }
+                    Err(e) => (None, Some(e.to_string())),
+                };
+                let mut head = String::new();
+                let mut data = Vec::new();
+                if let Some(r) = resp {
+                    head = r
+                        .headers_names()
+                        .iter()
+                        .filter_map(|n| r.header(n).map(|v| format!("{n}: {v}\r\n")))
+                        .collect();
+                    let _ = r.into_reader().read_to_end(&mut data);
+                }
+                let err = err.or_else(|| data.is_empty().then(|| "No data returned".to_owned()));
+                Ok((lua.create_string(&data)?, err, head))
+            },
+        )?,
+    )?;
+    // Open a URL in the user's browser.
+    g.set(
+        "OpenURL",
+        lua.create_function(|_, url: String| {
+            #[cfg(target_os = "macos")]
+            let cmd = ("open", vec![url]);
+            #[cfg(target_os = "windows")]
+            let cmd = (
+                "cmd",
+                vec!["/C".to_owned(), "start".to_owned(), String::new(), url],
+            );
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            let cmd = ("xdg-open", vec![url]);
+            let _ = std::process::Command::new(cmd.0).args(cmd.1).spawn();
+            Ok(())
+        })?,
+    )?;
     lua.load(FILE_SEARCH).set_name("file_search").exec()
 }

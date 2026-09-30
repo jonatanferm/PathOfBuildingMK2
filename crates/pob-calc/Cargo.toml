@@ -20,10 +20,12 @@ flate2.workspace = true
 # Desktop: run PoB's Lua under LuaJIT (the same runtime PoB ships with);
 # the pure-Rust interpreter remains the wasm backend and a fallback.
 mlua = { workspace = true, optional = true }
+# PoB's network features (trade, build sites) via launch:DownloadPage.
+ureq = { version = "2.12", default-features = false, features = ["tls"], optional = true }
 
 [features]
 default = ["luajit"]
-luajit = ["dep:mlua"]
+luajit = ["dep:mlua", "dep:ureq"]
 
 [lints]
 workspace = true

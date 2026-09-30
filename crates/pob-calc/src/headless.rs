@@ -53,6 +53,7 @@ if __mainObject__.promptMsg then
     error("build load failed: " .. tostring(__mainObject__.promptMsg))
 end
 build = __mainObject__.main.modes["BUILD"]
+if build.itemsTab then build.itemsTab:UpdateSockets() end
 "#;
 
 /// The main calc env's player and minion output tables.
@@ -576,6 +577,29 @@ function __mk2_slot_tooltip(name)
     return __mk2_tooltip(tt)
 end
 
+-- Network: with a host HTTP function (desktop), serve launch:DownloadPage
+-- synchronously but run its callback after the current command, as PoB
+-- expects it to arrive later.
+__mk2_callbacks = {}
+if __mk2_http then
+    function launch:DownloadPage(url, callback, params)
+        params = params or {}
+        local body, err, header = __mk2_http(url, params.header, params.body, "Path of Building/" .. tostring(self.versionNumber))
+        __mk2_callbacks[#__mk2_callbacks + 1] = function()
+            callback({ header = header or "", body = body or "" }, err)
+        end
+    end
+end
+function __mk2_flush_callbacks()
+    local n = 0
+    while #__mk2_callbacks > 0 and n < 50 do
+        local cb = table.remove(__mk2_callbacks, 1)
+        local ok, e = pcall(cb)
+        if not ok then ConPrintf("callback error: %s", tostring(e)) end
+        n = n + 1
+    end
+end
+
 -- Drive a PoB control the way a click / edit would.
 function __mk2_set_ctl(c, v)
     if c.ListControl and c.list then
@@ -637,7 +661,8 @@ end
 function __mk2_item_editor()
     local it = build.itemsTab
     local keepNames = { craftDisplayItem = true, newDisplayItem = true, addDisplayItem = true,
-        editDisplayItem = true, removeDisplayItem = true, craftingSorting = true, craftingSortingLabel = true }
+        editDisplayItem = true, removeDisplayItem = true, craftingSorting = true, craftingSortingLabel = true,
+        priceDisplayItem = true }
     local out = {
         has = it.displayItem ~= nil,
         ctls = __mk2_ctls(it.controls, function(n) return keepNames[n] or n:match("^displayItem") ~= nil end),
