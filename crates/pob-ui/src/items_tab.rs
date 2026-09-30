@@ -213,6 +213,10 @@ pub enum BrowseView {
     Bases,
     /// The user's saved shared items (persisted across restarts).
     Shared,
+    /// Path of Building's unique database.
+    Uniques,
+    /// Path of Building's rare templates.
+    Rares,
 }
 
 impl Default for ItemsTabState {
@@ -858,11 +862,63 @@ fn unique_clone_name(base: &str, character: &Character) -> String {
 }
 
 /// Returns true if the equipped items changed (so the caller can recompute).
-/// Supplies Path of Building's tooltip for an item (in a slot, or not
-/// equipped), when the PoB backend is running; `None` falls back to the
-/// built-in tooltip.
-pub type PobTip<'a> =
-    &'a mut dyn FnMut(&Item, Option<Slot>) -> Option<Vec<crate::pob_tooltip::Line>>;
+/// One entry of Path of Building's unique / rare item database.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct DbEntry {
+    /// Item name (the database key).
+    pub n: String,
+    /// PoB item type (`"Amulet"`, `"One Handed Sword"`, …).
+    #[serde(default)]
+    pub t: String,
+    /// Base name.
+    #[serde(default)]
+    pub b: String,
+    /// Required level.
+    #[serde(default)]
+    pub l: u32,
+    /// Mod lines, newline-separated (for searching).
+    #[serde(default)]
+    pub m: String,
+}
+
+/// What the Items tab can ask of a running Path of Building. Every method
+/// returns `None` / does nothing without one, and the tab falls back to
+/// its built-in behaviour.
+pub trait PobItems {
+    /// PoB's tooltip for an item (in `slot`, or not equipped).
+    fn tooltip(&mut self, item: &Item, slot: Option<Slot>)
+        -> Option<Vec<crate::pob_tooltip::Line>>;
+    /// PoB's unique (`rare == false`) or rare-template database; `None`
+    /// while it loads or without PoB.
+    fn db(&mut self, rare: bool) -> Option<&[DbEntry]>;
+    /// PoB's tooltip for a database item, with its equip comparisons.
+    fn db_tooltip(&mut self, rare: bool, name: &str) -> Option<Vec<crate::pob_tooltip::Line>>;
+    /// Add a database item to the build, equipped in `slot` when it fits.
+    fn db_equip(&mut self, rare: bool, name: &str, slot: Option<Slot>);
+    /// Whether PoB is available at all.
+    fn available(&self) -> bool;
+}
+
+/// No Path of Building (web build / not booted).
+pub struct NoPob;
+
+impl PobItems for NoPob {
+    fn tooltip(&mut self, _: &Item, _: Option<Slot>) -> Option<Vec<crate::pob_tooltip::Line>> {
+        None
+    }
+    fn db(&mut self, _: bool) -> Option<&[DbEntry]> {
+        None
+    }
+    fn db_tooltip(&mut self, _: bool, _: &str) -> Option<Vec<crate::pob_tooltip::Line>> {
+        None
+    }
+    fn db_equip(&mut self, _: bool, _: &str, _: Option<Slot>) {}
+    fn available(&self) -> bool {
+        false
+    }
+}
+
+pub type PobTip<'a> = &'a mut dyn PobItems;
 
 pub fn ui(
     ui: &mut egui::Ui,
@@ -1109,9 +1165,11 @@ pub fn ui(
     let use_swap = character.config.use_second_weapon_set;
     let items: &mut ItemSet = &mut character.items;
     ui.horizontal(|ui| {
-        // Left: slot grid
+        // Left: slot grid. Capped so its separators don't stretch the
+        // column over the editor and browse panels.
         ui.vertical(|ui| {
             ui.set_min_width(180.0);
+            ui.set_max_width(300.0);
             ui.heading("Slots");
             ui.separator();
             // Issue #109 (slice 3): visually separate the swap pair
@@ -1158,7 +1216,7 @@ pub fn ui(
                     let response = if let Some(item) = equipped {
                         let lines = item_tooltip_lines(item);
                         let pob_lines = if response.hovered() {
-                            pob_tip(item, Some(*slot))
+                            pob_tip.tooltip(item, Some(*slot))
                         } else {
                             None
                         };
@@ -1234,270 +1292,271 @@ pub fn ui(
 
         ui.separator();
 
-        // Right: editor
-        ui.vertical(|ui| {
-            ui.heading(
-                state
-                    .selected_slot
-                    .map(|s| s.label().to_string())
-                    .unwrap_or_else(|| "(no slot selected)".to_owned()),
-            );
-            ui.separator();
+        // Right: editor — replaced by the browse panel while that's open.
+        if !state.browse_open {
+            ui.vertical(|ui| {
+                ui.heading(
+                    state
+                        .selected_slot
+                        .map(|s| s.label().to_string())
+                        .unwrap_or_else(|| "(no slot selected)".to_owned()),
+                );
+                ui.separator();
 
-            if let Some(slot) = state.selected_slot {
-                // Snapshot the equipped item once so the closures below
-                // can capture it independently of `items` and
-                // `shared_items` mutating borrows.
-                let equipped: Option<Item> = items.get(slot).cloned();
-                if let Some(item) = equipped {
-                    let mut socket_click = SocketClick::default();
+                if let Some(slot) = state.selected_slot {
+                    // Snapshot the equipped item once so the closures below
+                    // can capture it independently of `items` and
+                    // `shared_items` mutating borrows.
+                    let equipped: Option<Item> = items.get(slot).cloned();
+                    if let Some(item) = equipped {
+                        let mut socket_click = SocketClick::default();
+                        egui::ScrollArea::vertical()
+                            .max_height(220.0)
+                            .show(ui, |ui| {
+                                socket_click = render_item_summary(ui, &item);
+                            });
+                        // Issue #221 follow-up: a dot click cycles the
+                        // socket's colour; a gap click toggles the link
+                        // separator. Pure helpers do the string work; we
+                        // just plumb the new string back into the live
+                        // ItemSet and dirty-flag the build so the auto-save
+                        // / Save button picks it up.
+                        if let Some(idx) = socket_click.dot {
+                            if let Some(item_mut) = items.get_mut(slot) {
+                                let new_sockets = crate::socket_renderer::apply_socket_cycle_at(
+                                    &item_mut.sockets,
+                                    idx,
+                                );
+                                if new_sockets != item_mut.sockets {
+                                    item_mut.sockets = new_sockets;
+                                    changed = true;
+                                }
+                            }
+                        } else if let Some(idx) = socket_click.link {
+                            if let Some(item_mut) = items.get_mut(slot) {
+                                let new_sockets =
+                                    crate::socket_renderer::apply_socket_link_toggle_at(
+                                        &item_mut.sockets,
+                                        idx,
+                                    );
+                                if new_sockets != item_mut.sockets {
+                                    item_mut.sockets = new_sockets;
+                                    changed = true;
+                                }
+                            }
+                        }
+                        ui.add_space(4.0);
+                        // Issue #221: variant picker. Only renders for
+                        // items that declared `Variant:` entries (the
+                        // common case is empty, so most slots see no
+                        // dropdown). Picking a different variant flips
+                        // `item.variant`, rewrites the `Selected Variant:`
+                        // line in `item.raw` (so PoB-XML export round-trips
+                        // the new pick), and triggers a recompute so the
+                        // Calcs tab reflects the gated mods.
+                        if !item.variants.is_empty() {
+                            let mut current = item.variant.unwrap_or(1);
+                            let before = current;
+                            ui.horizontal(|ui| {
+                                ui.label("Variant:");
+                                let active_label = item
+                                    .variants
+                                    .get(current.saturating_sub(1) as usize)
+                                    .cloned()
+                                    .unwrap_or_else(|| current.to_string());
+                                egui::ComboBox::from_id_salt(("variant-combo", slot.label()))
+                                    .selected_text(active_label)
+                                    .show_ui(ui, |ui| {
+                                        for (idx, name) in item.variants.iter().enumerate() {
+                                            let id = u32::try_from(idx + 1).unwrap_or(1);
+                                            ui.selectable_value(
+                                                &mut current,
+                                                id,
+                                                format!("{id}. {name}"),
+                                            );
+                                        }
+                                    });
+                            });
+                            if current != before {
+                                if let Some(equipped_mut) = items.get_mut(slot) {
+                                    equipped_mut.set_active_variant(current);
+                                    changed = true;
+                                }
+                            }
+                        }
+                        let mut do_unequip = false;
+                        let mut do_save_shared = false;
+                        ui.horizontal(|ui| {
+                            if ui.button("Unequip").clicked() {
+                                do_unequip = true;
+                            }
+                            // Issue #209: snapshot the equipped item into
+                            // the user-global shared-item store so it
+                            // survives across builds + app restarts. The
+                            // label input falls back to the item's own
+                            // name when blank; auto-dedup handles repeat
+                            // saves under the same label.
+                            ui.add(
+                                egui::TextEdit::singleline(&mut state.new_shared_label)
+                                    .desired_width(140.0)
+                                    .hint_text("Save label"),
+                            );
+                            if ui
+                                .button("Save to shared")
+                                .on_hover_text(
+                                    "Save this item into your user-global shared list. \
+                                 Persists across app restarts.",
+                                )
+                                .clicked()
+                            {
+                                do_save_shared = true;
+                            }
+                            // Issue #221 (picker slice): "Apply
+                            // Enchantment" renders on every slot that
+                            // has a matching catalogue loaded. Helmet
+                            // uses the skill-keyed `HelmetEnchantSet`
+                            // shape; every other slot (gloves, boots,
+                            // body, belt, weapons, flasks) uses the
+                            // flat `FlatEnchantSet` shape via
+                            // `LoadedEnchants::flat_for`.
+                            let has_catalogue = if slot == Slot::Helmet {
+                                helmet_enchants.is_some()
+                            } else {
+                                enchants.flat_for(slot).is_some()
+                            };
+                            if has_catalogue
+                                && ui
+                                    .button("Apply Enchantment…")
+                                    .on_hover_text(
+                                        "Pick an enchant from the lab catalogue. \
+                                     Replaces any existing enchant on this slot.",
+                                    )
+                                    .clicked()
+                            {
+                                state.enchant_picker_open = true;
+                                state.enchant_picker_filter.clear();
+                            }
+                            // Issue #221 (anoint slice): "Apply
+                            // Anointment…" lives on the Amulet slot.
+                            // Anoint mods are notable stats from the
+                            // live passive tree (no separate catalogue
+                            // — the tree itself is the data source), so
+                            // the picker dispatches into
+                            // `anoint_picker` instead of the lab-enchant
+                            // path.
+                            if slot == Slot::Amulet
+                                && ui
+                                    .button("Apply Anointment…")
+                                    .on_hover_text(
+                                        "Pick a passive-tree notable to anoint onto \
+                                     this amulet. Replaces any existing anointment.",
+                                    )
+                                    .clicked()
+                            {
+                                state.anoint_picker.open = true;
+                                state.anoint_picker.filter.clear();
+                            }
+                        });
+                        if do_unequip {
+                            items.unequip(slot);
+                            changed = true;
+                        }
+                        if do_save_shared {
+                            shared_items.add(state.new_shared_label.clone(), item);
+                            state.new_shared_label.clear();
+                        }
+                        ui.separator();
+                    }
+                    ui.label("Paste an item from PoE / PoB:");
                     egui::ScrollArea::vertical()
                         .max_height(220.0)
                         .show(ui, |ui| {
-                            socket_click = render_item_summary(ui, &item);
-                        });
-                    // Issue #221 follow-up: a dot click cycles the
-                    // socket's colour; a gap click toggles the link
-                    // separator. Pure helpers do the string work; we
-                    // just plumb the new string back into the live
-                    // ItemSet and dirty-flag the build so the auto-save
-                    // / Save button picks it up.
-                    if let Some(idx) = socket_click.dot {
-                        if let Some(item_mut) = items.get_mut(slot) {
-                            let new_sockets = crate::socket_renderer::apply_socket_cycle_at(
-                                &item_mut.sockets,
-                                idx,
+                            ui.add(
+                                egui::TextEdit::multiline(&mut state.paste_buffer)
+                                    .desired_width(f32::INFINITY)
+                                    .desired_rows(10)
+                                    .font(egui::TextStyle::Monospace),
                             );
-                            if new_sockets != item_mut.sockets {
-                                item_mut.sockets = new_sockets;
-                                changed = true;
-                            }
-                        }
-                    } else if let Some(idx) = socket_click.link {
-                        if let Some(item_mut) = items.get_mut(slot) {
-                            let new_sockets = crate::socket_renderer::apply_socket_link_toggle_at(
-                                &item_mut.sockets,
-                                idx,
-                            );
-                            if new_sockets != item_mut.sockets {
-                                item_mut.sockets = new_sockets;
-                                changed = true;
-                            }
-                        }
-                    }
-                    ui.add_space(4.0);
-                    // Issue #221: variant picker. Only renders for
-                    // items that declared `Variant:` entries (the
-                    // common case is empty, so most slots see no
-                    // dropdown). Picking a different variant flips
-                    // `item.variant`, rewrites the `Selected Variant:`
-                    // line in `item.raw` (so PoB-XML export round-trips
-                    // the new pick), and triggers a recompute so the
-                    // Calcs tab reflects the gated mods.
-                    if !item.variants.is_empty() {
-                        let mut current = item.variant.unwrap_or(1);
-                        let before = current;
-                        ui.horizontal(|ui| {
-                            ui.label("Variant:");
-                            let active_label = item
-                                .variants
-                                .get(current.saturating_sub(1) as usize)
-                                .cloned()
-                                .unwrap_or_else(|| current.to_string());
-                            egui::ComboBox::from_id_salt(("variant-combo", slot.label()))
-                                .selected_text(active_label)
-                                .show_ui(ui, |ui| {
-                                    for (idx, name) in item.variants.iter().enumerate() {
-                                        let id = u32::try_from(idx + 1).unwrap_or(1);
-                                        ui.selectable_value(
-                                            &mut current,
-                                            id,
-                                            format!("{id}. {name}"),
-                                        );
-                                    }
-                                });
                         });
-                        if current != before {
-                            if let Some(equipped_mut) = items.get_mut(slot) {
-                                equipped_mut.set_active_variant(current);
-                                changed = true;
-                            }
-                        }
-                    }
-                    let mut do_unequip = false;
-                    let mut do_save_shared = false;
                     ui.horizontal(|ui| {
-                        if ui.button("Unequip").clicked() {
-                            do_unequip = true;
+                        if ui.button("Equip from paste").clicked() {
+                            match parse_item(&state.paste_buffer) {
+                                Ok(item) => {
+                                    items.equip(slot, item);
+                                    state.last_error = None;
+                                    state.paste_buffer.clear();
+                                    changed = true;
+                                }
+                                Err(e) => {
+                                    state.last_error = Some(e.to_string());
+                                }
+                            }
                         }
-                        // Issue #209: snapshot the equipped item into
-                        // the user-global shared-item store so it
-                        // survives across builds + app restarts. The
-                        // label input falls back to the item's own
-                        // name when blank; auto-dedup handles repeat
-                        // saves under the same label.
-                        ui.add(
-                            egui::TextEdit::singleline(&mut state.new_shared_label)
-                                .desired_width(140.0)
-                                .hint_text("Save label"),
-                        );
                         if ui
-                            .button("Save to shared")
+                            .button("Auto-equip (detect slot)")
                             .on_hover_text(
-                                "Save this item into your user-global shared list. \
-                                 Persists across app restarts.",
-                            )
-                            .clicked()
-                        {
-                            do_save_shared = true;
-                        }
-                        // Issue #221 (picker slice): "Apply
-                        // Enchantment" renders on every slot that
-                        // has a matching catalogue loaded. Helmet
-                        // uses the skill-keyed `HelmetEnchantSet`
-                        // shape; every other slot (gloves, boots,
-                        // body, belt, weapons, flasks) uses the
-                        // flat `FlatEnchantSet` shape via
-                        // `LoadedEnchants::flat_for`.
-                        let has_catalogue = if slot == Slot::Helmet {
-                            helmet_enchants.is_some()
-                        } else {
-                            enchants.flat_for(slot).is_some()
-                        };
-                        if has_catalogue
-                            && ui
-                                .button("Apply Enchantment…")
-                                .on_hover_text(
-                                    "Pick an enchant from the lab catalogue. \
-                                     Replaces any existing enchant on this slot.",
-                                )
-                                .clicked()
-                        {
-                            state.enchant_picker_open = true;
-                            state.enchant_picker_filter.clear();
-                        }
-                        // Issue #221 (anoint slice): "Apply
-                        // Anointment…" lives on the Amulet slot.
-                        // Anoint mods are notable stats from the
-                        // live passive tree (no separate catalogue
-                        // — the tree itself is the data source), so
-                        // the picker dispatches into
-                        // `anoint_picker` instead of the lab-enchant
-                        // path.
-                        if slot == Slot::Amulet
-                            && ui
-                                .button("Apply Anointment…")
-                                .on_hover_text(
-                                    "Pick a passive-tree notable to anoint onto \
-                                     this amulet. Replaces any existing anointment.",
-                                )
-                                .clicked()
-                        {
-                            state.anoint_picker.open = true;
-                            state.anoint_picker.filter.clear();
-                        }
-                    });
-                    if do_unequip {
-                        items.unequip(slot);
-                        changed = true;
-                    }
-                    if do_save_shared {
-                        shared_items.add(state.new_shared_label.clone(), item);
-                        state.new_shared_label.clear();
-                    }
-                    ui.separator();
-                }
-                ui.label("Paste an item from PoE / PoB:");
-                egui::ScrollArea::vertical()
-                    .max_height(220.0)
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::multiline(&mut state.paste_buffer)
-                                .desired_width(f32::INFINITY)
-                                .desired_rows(10)
-                                .font(egui::TextStyle::Monospace),
-                        );
-                    });
-                ui.horizontal(|ui| {
-                    if ui.button("Equip from paste").clicked() {
-                        match parse_item(&state.paste_buffer) {
-                            Ok(item) => {
-                                items.equip(slot, item);
-                                state.last_error = None;
-                                state.paste_buffer.clear();
-                                changed = true;
-                            }
-                            Err(e) => {
-                                state.last_error = Some(e.to_string());
-                            }
-                        }
-                    }
-                    if ui
-                        .button("Auto-equip (detect slot)")
-                        .on_hover_text(
-                            "Parse the pasted item and equip it to whichever \
+                                "Parse the pasted item and equip it to whichever \
                              slot its `Item Class:` line maps to (e.g. amulets \
                              → Amulet slot). When the swap pair is live, \
                              detected weapons go to the swap slots so the \
                              paste targets the visible/active pair.",
-                        )
-                        .clicked()
-                    {
-                        match parse_item(&state.paste_buffer) {
-                            Ok(item) => {
-                                let detected = detect_slot(&item.base_name)
-                                    .or_else(|| detect_slot_from_class(&state.paste_buffer));
-                                // Issue #109 (slice 4): when the swap pair
-                                // is live, detected weapons should target
-                                // the swap slots — that's the pair the
-                                // user is staring at and wants to fill.
-                                let detected = detected.map(|s| {
-                                    if use_swap {
-                                        match s {
-                                            Slot::Weapon1 => Slot::Weapon1Swap,
-                                            Slot::Weapon2 => Slot::Weapon2Swap,
-                                            other => other,
+                            )
+                            .clicked()
+                        {
+                            match parse_item(&state.paste_buffer) {
+                                Ok(item) => {
+                                    let detected = detect_slot(&item.base_name)
+                                        .or_else(|| detect_slot_from_class(&state.paste_buffer));
+                                    // Issue #109 (slice 4): when the swap pair
+                                    // is live, detected weapons should target
+                                    // the swap slots — that's the pair the
+                                    // user is staring at and wants to fill.
+                                    let detected = detected.map(|s| {
+                                        if use_swap {
+                                            match s {
+                                                Slot::Weapon1 => Slot::Weapon1Swap,
+                                                Slot::Weapon2 => Slot::Weapon2Swap,
+                                                other => other,
+                                            }
+                                        } else {
+                                            s
                                         }
+                                    });
+                                    if let Some(target) = detected {
+                                        items.equip(target, item);
+                                        state.selected_slot = Some(target);
+                                        state.last_error = None;
+                                        state.paste_buffer.clear();
+                                        changed = true;
                                     } else {
-                                        s
-                                    }
-                                });
-                                if let Some(target) = detected {
-                                    items.equip(target, item);
-                                    state.selected_slot = Some(target);
-                                    state.last_error = None;
-                                    state.paste_buffer.clear();
-                                    changed = true;
-                                } else {
-                                    state.last_error = Some(
-                                        "Could not detect the right slot — \
+                                        state.last_error = Some(
+                                            "Could not detect the right slot — \
                                          use \"Equip from paste\" with a \
                                          specific slot selected."
-                                            .into(),
-                                    );
+                                                .into(),
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    state.last_error = Some(e.to_string());
                                 }
                             }
-                            Err(e) => {
-                                state.last_error = Some(e.to_string());
-                            }
                         }
+                        if ui.button("Clear paste").clicked() {
+                            state.paste_buffer.clear();
+                            state.last_error = None;
+                        }
+                    });
+                    if let Some(err) = &state.last_error {
+                        ui.colored_label(egui::Color32::LIGHT_RED, err);
                     }
-                    if ui.button("Clear paste").clicked() {
-                        state.paste_buffer.clear();
-                        state.last_error = None;
-                    }
-                });
-                if let Some(err) = &state.last_error {
-                    ui.colored_label(egui::Color32::LIGHT_RED, err);
+                } else {
+                    ui.label("Pick a slot on the left.");
                 }
-            } else {
-                ui.label("Pick a slot on the left.");
-            }
-        });
-
-        // Far right: optional browse panel.
+            });
+        }
+        // Browse panel (in the editor's place).
         if state.browse_open {
-            ui.separator();
             ui.vertical(|ui| {
                 ui.set_min_width(280.0);
                 // Issue #209: Bases / Shared tab toggle. Switches the
@@ -1513,6 +1572,10 @@ pub fn ui(
                         format!("Shared ({})", shared_items.len())
                     };
                     ui.selectable_value(&mut state.browse_view, BrowseView::Shared, shared_label);
+                    if pob_tip.available() {
+                        ui.selectable_value(&mut state.browse_view, BrowseView::Uniques, "Uniques");
+                        ui.selectable_value(&mut state.browse_view, BrowseView::Rares, "Rares");
+                    }
                 });
                 // Issue #209: shared filter row — search + slot pills +
                 // rarity pills. Rendered above the view body so the user's
@@ -1541,6 +1604,15 @@ pub fn ui(
                                  workspace root to populate `data/bases.json`.",
                             );
                         }
+                    }
+                    BrowseView::Uniques | BrowseView::Rares => {
+                        render_pob_db_panel(
+                            ui,
+                            state.browse_view == BrowseView::Rares,
+                            &state.browse_filter,
+                            state.selected_slot,
+                            pob_tip,
+                        );
                     }
                     BrowseView::Shared => {
                         if render_shared_panel(
@@ -1743,6 +1815,82 @@ pub fn sort_and_format_contributors(
     });
     format_top_contributors(&scores, top_n)
 }
+/// Path of Building's unique / rare databases: filtered by the browse
+/// filter (search over name, base and mods; slot pill), PoB's tooltip on
+/// hover, double-click to add the item to the build.
+fn render_pob_db_panel(
+    ui: &mut egui::Ui,
+    rare: bool,
+    filter: &BrowseFilter,
+    selected_slot: Option<Slot>,
+    pob: PobTip<'_>,
+) {
+    let search = filter.search.trim().to_lowercase();
+    let rows: Vec<DbEntry> = match pob.db(rare) {
+        None => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Loading Path of Building's item database…");
+            });
+            return;
+        }
+        Some(list) => list
+            .iter()
+            .filter(|e| {
+                filter
+                    .slot
+                    .map_or(true, |s| BrowseSlot::from_base_type(&e.t) == s)
+                    && (search.is_empty()
+                        || e.n.to_lowercase().contains(&search)
+                        || e.b.to_lowercase().contains(&search)
+                        || e.m.to_lowercase().contains(&search))
+            })
+            .cloned()
+            .collect(),
+    };
+    ui.weak(format!(
+        "{} items — double-click to add{}",
+        rows.len(),
+        selected_slot.map_or(String::new(), |s| format!(" (to {} if it fits)", s.label()))
+    ));
+    let colour = if rare {
+        egui::Color32::from_rgb(0xFF, 0xFF, 0x77)
+    } else {
+        egui::Color32::from_rgb(0xAF, 0x60, 0x25)
+    };
+    let row_h = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+    egui::ScrollArea::vertical()
+        .id_salt(("pob_item_db", rare))
+        .auto_shrink([false, false])
+        .show_rows(ui, row_h, rows.len(), |ui, range| {
+            for e in &rows[range] {
+                let resp = ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("{}  ·  {}", e.n, e.t)).color(colour),
+                    )
+                    .truncate()
+                    .sense(egui::Sense::click()),
+                );
+                let lines = if resp.hovered() {
+                    pob.db_tooltip(rare, &e.n)
+                } else {
+                    None
+                };
+                let resp = resp.on_hover_ui(|ui| {
+                    ui.set_max_width(520.0);
+                    match &lines {
+                        Some(l) => crate::pob_tooltip::render(ui, l),
+                        None => {
+                            ui.spinner();
+                        }
+                    }
+                });
+                if resp.double_clicked() {
+                    pob.db_equip(rare, &e.n, selected_slot);
+                }
+            }
+        });
+}
 
 /// Issue #209: render the shared-items sub-list inside the Browse panel.
 /// Each row shows the user's label + base name with a Delete button;
@@ -1824,7 +1972,7 @@ fn render_shared_panel(
                     lines.push("Right-click for more actions.".into());
                     let row = ui.add(egui::Label::new(label_text).sense(egui::Sense::click()));
                     let pob_lines = if row.hovered() {
-                        pob_tip(&saved.item, None)
+                        pob_tip.tooltip(&saved.item, None)
                     } else {
                         None
                     };

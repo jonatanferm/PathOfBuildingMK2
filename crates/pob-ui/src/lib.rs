@@ -43,6 +43,7 @@ mod pob_calcs_panel;
 #[cfg(not(target_arch = "wasm32"))]
 mod pob_config_panel;
 mod pob_controls;
+mod pob_items;
 #[cfg(not(target_arch = "wasm32"))]
 mod pob_session;
 mod pob_sets;
@@ -331,6 +332,8 @@ struct LoadedApp {
     /// Outstanding PoB power-report query (heatmap refresh).
     #[cfg(not(target_arch = "wasm32"))]
     pob_power_query: Option<u64>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_item_db: pob_items::PobItemDbState,
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -799,6 +802,8 @@ impl PobApp {
             pob_sets_state: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_power_query: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_item_db: Default::default(),
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -915,6 +920,8 @@ impl PobApp {
             pob_sets_state: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_power_query: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_item_db: Default::default(),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -2903,33 +2910,14 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             #[cfg(target_arch = "wasm32")]
             let hide_sets = false;
             #[cfg(not(target_arch = "wasm32"))]
-            let (pob, tips) = (&mut app.pob, &mut app.pob_tooltips);
-            let repaint_ctx = ui.ctx().clone();
-            let mut pob_tip = |item: &pob_data::Item, slot: Option<pob_data::Slot>| {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let pob = pob.as_mut()?;
-                    let slot_name = slot.map(pob_session::pob_slot_name);
-                    let key = {
-                        use std::hash::{Hash, Hasher};
-                        let mut h = std::collections::hash_map::DefaultHasher::new();
-                        item.raw.hash(&mut h);
-                        format!("item:{slot_name:?}:{}", h.finish())
-                    };
-                    let lines = tips
-                        .get(pob, &key, || pob_tooltip::item_query(&item.raw, slot_name))
-                        .map(<[pob_tooltip::Line]>::to_vec);
-                    if tips.busy() {
-                        repaint_ctx.request_repaint_after(std::time::Duration::from_millis(30));
-                    }
-                    lines.filter(|l| !l.is_empty())
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let _ = (item, slot);
-                    None
-                }
+            let mut bridge = pob_items::Bridge {
+                pob: app.pob.as_mut(),
+                tips: &mut app.pob_tooltips,
+                db: &mut app.pob_item_db,
+                ctx: ui.ctx().clone(),
             };
+            #[cfg(target_arch = "wasm32")]
+            let mut bridge = items_tab::NoPob;
             if items_tab::ui(
                 ui,
                 &mut app.items_state,
@@ -2939,7 +2927,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 app.bases.as_ref(),
                 &mut app.shared_items,
                 &app.enchants,
-                &mut pob_tip,
+                &mut bridge,
                 hide_sets,
             ) {
                 pending.commit(&mut app.undo_stack);

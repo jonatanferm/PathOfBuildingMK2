@@ -192,7 +192,22 @@ __mainObject__.continuousIntegrationMode = nil
 runCallback("OnInit")
 local main = __mainObject__.main
 if main and main.onFrameFuncs then
+    -- Kept for `__mk2_load_item_dbs` (the unique / rare browsers).
+    __mk2_load_items = main.onFrameFuncs["LoadItems"]
     main.onFrameFuncs["LoadItems"] = nil
+end
+
+-- Build PoB's unique and rare item databases on first use.
+function __mk2_load_item_dbs()
+    local m = __mainObject__.main
+    local guard = 0
+    while __mk2_load_items and (m.uniqueDB.loading or m.rareDB.loading) and guard < 100000 do
+        m.onFrameFuncs["LoadItems"] = __mk2_load_items
+        __mk2_load_items()
+        guard = guard + 1
+    end
+    m.onFrameFuncs["LoadItems"] = nil
+    __mk2_load_items = nil
 end
 runCallback("OnFrame")
 if __mainObject__.promptMsg then
