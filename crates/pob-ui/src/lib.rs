@@ -334,6 +334,9 @@ struct LoadedApp {
     /// Outstanding PoB power-report query (heatmap refresh).
     #[cfg(not(target_arch = "wasm32"))]
     pob_power_query: Option<u64>,
+    /// Outstanding PoB calculation of the Compare tab's loaded build.
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_compare_query: Option<u64>,
     #[cfg(not(target_arch = "wasm32"))]
     pob_item_db: pob_items::PobItemDbState,
     #[cfg(not(target_arch = "wasm32"))]
@@ -812,6 +815,8 @@ impl PobApp {
             #[cfg(not(target_arch = "wasm32"))]
             pob_power_query: None,
             #[cfg(not(target_arch = "wasm32"))]
+            pob_compare_query: None,
+            #[cfg(not(target_arch = "wasm32"))]
             pob_item_db: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_skills_state: Default::default(),
@@ -937,6 +942,8 @@ impl PobApp {
             pob_sets_state: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_power_query: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_compare_query: None,
             #[cfg(not(target_arch = "wasm32"))]
             pob_item_db: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1250,6 +1257,28 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             pob.status,
             pob_session::SessionStatus::Booting | pob_session::SessionStatus::Busy
         ) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if let (Some(seq), Some(pob)) = (app.pob_compare_query, app.pob.as_mut()) {
+        if let Some(res) = pob.take_query(seq) {
+            app.pob_compare_query = None;
+            match res.ok().and_then(|j| pob_session::output_from_json(&j)) {
+                Some(out) => {
+                    if let Some(snap) = app.compare_state.snapshot.as_mut() {
+                        snap.output = out;
+                        app.compare_state.clear_attribution();
+                    }
+                }
+                None => {
+                    app.status_message = Some((
+                        StatusKind::Error,
+                        "Path of Building couldn't calculate the comparison build.".into(),
+                    ));
+                }
+            }
+        } else {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
     }
@@ -4681,9 +4710,15 @@ fn refresh_compare_attribution(app: &mut LoadedApp) {
 /// writes the result into `app.compare_state.snapshot`.
 #[cfg(not(target_arch = "wasm32"))]
 fn load_compare_from_path(app: &mut LoadedApp, path: std::path::PathBuf) {
-    let parsed = std::fs::read_to_string(&path)
-        .map_err(|e| e.to_string())
-        .and_then(|s| compare_tab::import_build_text(&s));
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+    // Path of Building calculates the comparison build itself; the
+    // built-in engine's numbers only stand in until its answer arrives.
+    if let (Ok(t), Some(pob)) = (&text, app.pob.as_mut().filter(|p| p.snapshot.is_some())) {
+        if let Some(xml) = pob_engine::pob_xml_from_input(t) {
+            app.pob_compare_query = Some(pob.query_build_outputs(&xml));
+        }
+    }
+    let parsed = text.and_then(|s| compare_tab::import_build_text(&s));
     match parsed {
         Ok(comp_char) => {
             let output = pob_engine::compute_full(

@@ -519,14 +519,52 @@ end
     #[must_use]
     pub fn output(&self) -> Option<Output> {
         let s = self.snapshot.as_ref()?;
-        let mut out = Output::default();
-        for (k, v) in &s.outputs.numbers {
-            out.set(k.clone(), *v);
-        }
+        let mut numbers = s.outputs.numbers.clone();
         for (k, v) in &s.outputs.flags {
-            out.set(k.clone(), if *v { 1.0 } else { 0.0 });
+            numbers.insert(k.clone(), if *v { 1.0 } else { 0.0 });
         }
-        let n = |k: &str| s.outputs.numbers.get(k).copied();
+        Some(output_from_numbers(&numbers))
+    }
+
+    /// Calculate another build (PoB XML) with PoB's own comparison-build
+    /// machinery, without touching the current build. Answer via
+    /// [`Self::take_query`]: a JSON object of output numbers (minion stats
+    /// `Minion`-prefixed), for [`output_from_json`].
+    pub fn query_build_outputs(&mut self, xml: &str) -> u64 {
+        self.query(&format!(
+            r#"
+local entry = new("CompareEntry"):CompareEntry({xml}, "MK2 comparison")
+local o = entry and entry.calcsTab and entry.calcsTab.mainOutput
+if not o then return "{{}}" end
+local out = {{}}
+local function put(prefix, t)
+    for k, v in pairs(t) do
+        if type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge then
+            out[prefix .. k] = v
+        elseif type(v) == "boolean" then
+            out[prefix .. k] = v and 1 or 0
+        end
+    end
+end
+put("", o)
+if type(o.Minion) == "table" then put("Minion", o.Minion) end
+return __mk2_json(out)
+"#,
+            xml = lua_str(xml)
+        ))
+    }
+}
+
+/// An MK2 [`Output`] from PoB output numbers, with MK2's legacy key
+/// aliases filled in so existing panels keep working.
+#[must_use]
+pub fn output_from_numbers(numbers: &ahash::AHashMap<String, f64>) -> Output {
+    let mut out = Output::default();
+    for (k, v) in numbers {
+        out.set(k.clone(), *v);
+    }
+    {
+        let n = |k: &str| numbers.get(k).copied();
         for (alias, key) in [
             ("Strength", "Str"),
             ("Dexterity", "Dex"),
@@ -549,8 +587,15 @@ end
         }
         let dot_only = n("TotalDPS").unwrap_or(0.0) == 0.0 && n("TotalDot").unwrap_or(0.0) > 0.0;
         out.set("MainSkillIsDotOnly", if dot_only { 1.0 } else { 0.0 });
-        Some(out)
     }
+    out
+}
+
+/// Parse [`PobSession::query_build_outputs`]' answer.
+#[must_use]
+pub fn output_from_json(json: &str) -> Option<Output> {
+    let numbers: ahash::AHashMap<String, f64> = serde_json::from_str(json).ok()?;
+    (!numbers.is_empty()).then(|| output_from_numbers(&numbers))
 }
 
 /// Lua that lists PoB's config options (sections, types, labels, current
