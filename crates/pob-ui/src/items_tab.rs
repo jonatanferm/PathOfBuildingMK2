@@ -858,6 +858,12 @@ fn unique_clone_name(base: &str, character: &Character) -> String {
 }
 
 /// Returns true if the equipped items changed (so the caller can recompute).
+/// Supplies Path of Building's tooltip for an item (in a slot, or not
+/// equipped), when the PoB backend is running; `None` falls back to the
+/// built-in tooltip.
+pub type PobTip<'a> =
+    &'a mut dyn FnMut(&Item, Option<Slot>) -> Option<Vec<crate::pob_tooltip::Line>>;
+
 pub fn ui(
     ui: &mut egui::Ui,
     state: &mut ItemsTabState,
@@ -867,6 +873,7 @@ pub fn ui(
     bases: Option<&ItemBaseSet>,
     shared_items: &mut SharedItemStore,
     enchants: &LoadedEnchants,
+    pob_tip: PobTip<'_>,
 ) -> bool {
     let mut changed = false;
     let helmet_enchants = enchants.helmet.as_ref();
@@ -1117,7 +1124,7 @@ pub fn ui(
                     Slot::Flask1 | Slot::Flask2 | Slot::Flask3 | Slot::Flask4 | Slot::Flask5
                 )
             };
-            let render_slot =
+            let mut render_slot =
                 |ui: &mut egui::Ui, slot: &Slot, state: &mut ItemsTabState, inactive: bool| {
                     let equipped = items.get(*slot);
                     let label = if let Some(item) = equipped {
@@ -1145,7 +1152,17 @@ pub fn ui(
                     // would have to invalidate on every item edit.
                     let response = if let Some(item) = equipped {
                         let lines = item_tooltip_lines(item);
+                        let pob_lines = if response.hovered() {
+                            pob_tip(item, Some(*slot))
+                        } else {
+                            None
+                        };
                         response.on_hover_ui(|ui| {
+                            if let Some(pob_lines) = &pob_lines {
+                                ui.set_max_width(520.0);
+                                crate::pob_tooltip::render(ui, pob_lines);
+                                return;
+                            }
                             // Issue #225 (color-code coverage): item names
                             // and mod lines from PoB carry `^N` / `^xRRGGBB`
                             // escapes (uniques use them for the gold
@@ -1529,6 +1546,7 @@ pub fn ui(
                             &mut state.selected_slot,
                             &mut state.shared_rename,
                             use_swap,
+                            pob_tip,
                         ) {
                             changed = true;
                         }
@@ -1736,6 +1754,7 @@ fn render_shared_panel(
     selected_slot: &mut Option<Slot>,
     rename_state: &mut Option<SharedRenameState>,
     use_swap: bool,
+    pob_tip: PobTip<'_>,
 ) -> bool {
     let mut changed = false;
     if shared_items.is_empty() {
@@ -1798,9 +1817,20 @@ fn render_shared_panel(
                     lines.push(String::new());
                     lines.push("Double-click to equip this saved item.".into());
                     lines.push("Right-click for more actions.".into());
-                    let row = ui
-                        .add(egui::Label::new(label_text).sense(egui::Sense::click()))
-                        .on_hover_ui(|ui| {
+                    let row = ui.add(egui::Label::new(label_text).sense(egui::Sense::click()));
+                    let pob_lines = if row.hovered() {
+                        pob_tip(&saved.item, None)
+                    } else {
+                        None
+                    };
+                    let row = row.on_hover_ui(|ui| {
+                            if let Some(pob_lines) = &pob_lines {
+                                ui.set_max_width(520.0);
+                                crate::pob_tooltip::render(ui, pob_lines);
+                                ui.separator();
+                                ui.weak("Double-click to equip this saved item. Right-click for more actions.");
+                                return;
+                            }
                             // Issue #225 (color-code coverage): shared-item
                             // tooltip mirrors the equipped-slot tooltip; both
                             // route through `label_with_escapes` so unique

@@ -61,6 +61,9 @@ pub struct TreeView {
     pub search_matches: ahash::HashSet<NodeId>,
     /// Path overlay (set externally, drawn on top of edges).
     pub path_overlay: Vec<NodeId>,
+    /// Path of Building's tooltip for a node, when the host has it; shown
+    /// instead of the built-in one while that node is hovered.
+    pub pob_tooltip: Option<(NodeId, Vec<crate::pob_tooltip::Line>)>,
 }
 
 #[derive(Default, Clone)]
@@ -82,6 +85,7 @@ impl TreeView {
             frame_table: compute_frame_table(sprites),
             search_matches: ahash::HashSet::default(),
             path_overlay: Vec::new(),
+            pob_tooltip: None,
             active_class_index: None,
         }
     }
@@ -540,11 +544,21 @@ impl TreeView {
                 // own `ui.label` so the rendered tooltip wraps and
                 // styles per-line — not as one fused string.
                 let lines = tree_node_tooltip_lines(node, allocated);
+                let pob_lines = self
+                    .pob_tooltip
+                    .as_ref()
+                    .filter(|(nid, l)| *nid == id && !l.is_empty())
+                    .map(|(_, l)| l);
                 egui::show_tooltip_at_pointer(
                     ui.ctx(),
                     egui::LayerId::new(egui::Order::Tooltip, ui.id()),
                     egui::Id::new(("tree-tooltip", id)),
                     |ui| {
+                        if let Some(pob_lines) = pob_lines {
+                            ui.set_max_width(520.0);
+                            crate::pob_tooltip::render(ui, pob_lines);
+                            return;
+                        }
                         // Issue #225 (color-code coverage): node stat
                         // lines often carry `^N` escapes (e.g.
                         // `"^7+5% increased Fire Damage"` on notable

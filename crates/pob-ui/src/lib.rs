@@ -46,6 +46,7 @@ mod pob_controls;
 #[cfg(not(target_arch = "wasm32"))]
 mod pob_session;
 mod pob_sidebar;
+mod pob_tooltip;
 mod popup;
 mod set_switcher;
 mod settings;
@@ -321,6 +322,9 @@ struct LoadedApp {
     /// Uncommitted sidebar skill-control edits, and the snapshot they're for.
     #[cfg(not(target_arch = "wasm32"))]
     pob_skill_bufs: (Option<u64>, pob_controls::EditBufs),
+    /// PoB-generated hover tooltips (tree nodes, items, gems).
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_tooltips: pob_tooltip::Fetcher,
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -524,6 +528,11 @@ impl PobApp {
         // skill atlases (active + inactive). With the wgpu backend forced in
         // `pob-desktop/main.rs`, `cc.wgpu_render_state` is always available;
         // the early-return path keeps tests / future backends from panicking.
+        // Path of Building shows hover tooltips immediately.
+        cc.egui_ctx.style_mut(|s| {
+            s.interaction.tooltip_delay = 0.0;
+            s.interaction.show_tooltips_only_when_still = false;
+        });
         if let Some(rs) = cc.wgpu_render_state.as_ref() {
             if let Some(atlases) = load_atlases() {
                 tree_renderer::TreeRenderer::install(rs, atlases);
@@ -778,6 +787,8 @@ impl PobApp {
             pob_calcs_state: pob_calcs_panel::PobCalcsState::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_skill_bufs: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_tooltips: Default::default(),
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -888,6 +899,8 @@ impl PobApp {
             pob_calcs_state: pob_calcs_panel::PobCalcsState::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_skill_bufs: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_tooltips: Default::default(),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -2537,6 +2550,20 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // shortest path from any allocated node (or the class-start anchor) to it.
             // Using `pathfind_seeds` keeps the preview in sync with `allocate_path`'s
             // anchor-aware behaviour, so a fresh Marauder sees the path from the start.
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                app.tree_view.pob_tooltip = None;
+                if let (Some(hover), Some(pob)) = (interaction.hovered, app.pob.as_mut()) {
+                    if let Some(lines) = app.pob_tooltips.get(pob, &format!("node:{hover}"), || {
+                        pob_tooltip::node_query(hover)
+                    }) {
+                        app.tree_view.pob_tooltip = Some((hover, lines.to_vec()));
+                    }
+                    if app.pob_tooltips.busy() {
+                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
+                    }
+                }
+            }
             app.tree_view.path_overlay.clear();
             if let Some(hover) = interaction.hovered {
                 if !allocated.contains(&hover) && !is_synthetic_anchor(&app.tree, hover) {
@@ -2812,6 +2839,34 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // Capture pre-mutation Character once before the call, push
             // it onto the undo stack only when the tab signals change.
             let pending = PendingSnapshot::capture(&app.build_snapshot());
+            #[cfg(not(target_arch = "wasm32"))]
+            let (pob, tips) = (&mut app.pob, &mut app.pob_tooltips);
+            let repaint_ctx = ui.ctx().clone();
+            let mut pob_tip = |item: &pob_data::Item, slot: Option<pob_data::Slot>| {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let pob = pob.as_mut()?;
+                    let slot_name = slot.map(pob_session::pob_slot_name);
+                    let key = {
+                        use std::hash::{Hash, Hasher};
+                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                        item.raw.hash(&mut h);
+                        format!("item:{slot_name:?}:{}", h.finish())
+                    };
+                    let lines = tips
+                        .get(pob, &key, || pob_tooltip::item_query(&item.raw, slot_name))
+                        .map(<[pob_tooltip::Line]>::to_vec);
+                    if tips.busy() {
+                        repaint_ctx.request_repaint_after(std::time::Duration::from_millis(30));
+                    }
+                    lines.filter(|l| !l.is_empty())
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = (item, slot);
+                    None
+                }
+            };
             if items_tab::ui(
                 ui,
                 &mut app.items_state,
@@ -2821,6 +2876,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 app.bases.as_ref(),
                 &mut app.shared_items,
                 &app.enchants,
+                &mut pob_tip,
             ) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
@@ -4089,6 +4145,7 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
         MenuAction::New => {
             app.character = Character::new(ClassRef::marauder(), 1);
             app.current_build_path = None;
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(pob) = app.pob.as_mut() {
                 pob.reset();
             }
@@ -4100,6 +4157,7 @@ fn apply_menu_action(app: &mut LoadedApp, action: MenuAction) {
         MenuAction::DemoBuild => {
             app.character = build_demo_character();
             app.current_build_path = None;
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(pob) = app.pob.as_mut() {
                 pob.reset();
             }
@@ -4490,7 +4548,8 @@ fn handle_compare_action(app: &mut LoadedApp, action: compare_tab::CompareAction
     match action {
         compare_tab::CompareAction::LoadFromFile
         | compare_tab::CompareAction::ReimportCurrent
-        | compare_tab::CompareAction::SaveSnapshotToFile => {
+        | compare_tab::CompareAction::SaveSnapshotToFile
+        | compare_tab::CompareAction::SnapshotWithSets { .. } => {
             app.status_message = Some((
                 StatusKind::Info,
                 "File-backed snapshots are desktop-only for now.".to_owned(),

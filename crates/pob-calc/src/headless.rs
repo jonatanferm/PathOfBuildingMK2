@@ -143,6 +143,23 @@ function __mk2_ctl(name, c)
     return d
 end
 
+-- A PoB Tooltip as JSON lines ({s = size, t = text}; no t = separator),
+-- minus hints about PoB's keyboard shortcuts.
+function __mk2_tooltip(tt)
+    local out = {}
+    for _, l in ipairs(tt.lines) do
+        local text = l.text
+        local plain = text and text:gsub("%^x%x%x%x%x%x%x", ""):gsub("%^%d", "")
+        if text == nil then
+            if #out > 0 and out[#out].t ~= nil then out[#out + 1] = { s = l.size } end
+        elseif not plain:match("^%s*Tip:") and not (plain == "" and text ~= "") then
+            out[#out + 1] = { s = l.size, t = text }
+        end
+    end
+    while #out > 0 and out[#out].t == nil do out[#out] = nil end
+    return __mk2_json(out)
+end
+
 -- Drive a PoB control the way a click / edit would.
 function __mk2_set_ctl(c, v)
     if c.list then
