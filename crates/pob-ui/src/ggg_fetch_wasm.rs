@@ -89,6 +89,10 @@ pub enum CharacterFetchResult {
         character: Character,
         summary: GggCharacterSummary,
         passive: GggPassiveSkillsResponse,
+        /// The raw `get-passive-skills` / `get-items` JSON, so Path of
+        /// Building's own importer can build the character.
+        raw_passive: String,
+        raw_items: String,
     },
     Err(FetchError),
 }
@@ -253,6 +257,8 @@ async fn run_character_fetch(
         character,
         summary,
         passive,
+        raw_passive: passive_body,
+        raw_items: items_body,
     }
 }
 

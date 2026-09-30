@@ -168,6 +168,9 @@ pub struct GggImportState {
     pub list_job: Option<CharacterListFetchJob>,
     /// In-flight import job.
     pub import_job: Option<CharacterFetchJob>,
+    /// Raw `(passive-skills JSON, items JSON)` of the last completed
+    /// import, for the host to hand to Path of Building's own importer.
+    pub pob_import: Option<(String, String)>,
     /// One-line status text shown under the GGG section. `Some
     /// ((ok, msg))` mirrors the rest of the tab's banner colours.
     pub status: Option<(bool, String)>,
@@ -761,8 +764,11 @@ fn poll_ggg_jobs(
                 character: imported,
                 summary,
                 passive,
+                raw_passive,
+                raw_items,
             })) => {
                 *character = imported;
+                state.pob_import = Some((raw_passive, raw_items));
                 // Issue #194 (slice 3): wire passive-tree jewels
                 // (cluster + radius + abyss + timeless) into the
                 // character via the live tree. Cluster jewels land

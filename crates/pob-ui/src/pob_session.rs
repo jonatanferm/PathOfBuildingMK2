@@ -147,6 +147,43 @@ impl PobSession {
         ));
     }
 
+    /// Import a character from pathofexile.com's `get-passive-skills` and
+    /// `get-items` JSON with PoB's own importer, into a fresh build.
+    /// `character` is MK2's reading of the same data (the new baseline).
+    pub fn import_account(&mut self, passive_json: &str, items_json: &str, character: &Character) {
+        self.command(format!(
+            r#"
+local dkjson = require("dkjson")
+local passives = dkjson.decode({passive})
+local items = dkjson.decode({items})
+local char = (items and items.character) or {{}}
+__mainObject__.promptMsg = nil
+__mainObject__.main:SetMode("BUILD", false, char.name or "Imported character")
+runCallback("OnFrame")
+build = __mainObject__.main.modes["BUILD"]
+if passives then
+    passives.bandit_choice = passives.bandit_choice or build.configTab.input.bandit
+    passives.pantheon_major = passives.pantheon_major or build.configTab.input.pantheonMajorGod
+    passives.pantheon_minor = passives.pantheon_minor or build.configTab.input.pantheonMinorGod
+    local cd = copyTable(char)
+    cd.passives = passives
+    cd.jewels = passives.items
+    build.importTab:ImportPassiveTreeAndJewels(cd, true)
+end
+if items then
+    local cd = copyTable(char)
+    cd.equipment = items.items
+    cd.guardian = items.guardian
+    build.importTab:ImportItemsAndSkills(cd, true, true, false)
+end
+"#,
+            passive = lua_str(passive_json),
+            items = lua_str(items_json),
+        ));
+        self.load_seq = Some(self.latest_seq);
+        self.baseline = Some(character.clone());
+    }
+
     /// Forget PoB's build: the next [`Self::sync`] rebuilds it from scratch
     /// (new build / non-PoB file opened), dropping PoB-only state.
     pub fn reset(&mut self) {

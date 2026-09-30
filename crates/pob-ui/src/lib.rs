@@ -3095,6 +3095,16 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                         pob.load_xml(xml, "Imported build", &app.character);
                     }
                 }
+                // Account import: PoB's own importer builds the character
+                // from pathofexile.com's JSON (MK2's reading is only the
+                // placeholder until PoB's result is mirrored back).
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some((passive, items)) = app.import_export_state.ggg.pob_import.take() {
+                    if let Some(pob) = app.pob.as_mut() {
+                        pob.import_account(&passive, &items, &app.character);
+                        app.current_build_path = None;
+                    }
+                }
                 // Issue #204: drop history on build replace so Cmd+Z
                 // can't restore the previous character — its allocated
                 // node ids may not even exist in the new build.
