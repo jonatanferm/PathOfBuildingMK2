@@ -340,6 +340,8 @@ struct LoadedApp {
     #[cfg(not(target_arch = "wasm32"))]
     pob_item_db: pob_items::PobItemDbState,
     #[cfg(not(target_arch = "wasm32"))]
+    pob_popup: pob_items::PopupState,
+    #[cfg(not(target_arch = "wasm32"))]
     pob_skills_state: pob_skills_panel::PobSkillsState,
     #[cfg(not(target_arch = "wasm32"))]
     pob_party_state: pob_party_panel::PobPartyState,
@@ -819,6 +821,8 @@ impl PobApp {
             #[cfg(not(target_arch = "wasm32"))]
             pob_item_db: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
+            pob_popup: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
             pob_skills_state: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_party_state: Default::default(),
@@ -946,6 +950,8 @@ impl PobApp {
             pob_compare_query: None,
             #[cfg(not(target_arch = "wasm32"))]
             pob_item_db: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_popup: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_skills_state: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1789,6 +1795,16 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                          Refresh — focuses the overlay on the main passive \
                          tree.",
                     );
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(pob) = app.pob.as_mut().filter(|p| p.snapshot.is_some()) {
+                    if ui
+                        .button("Find timeless jewel…")
+                        .on_hover_text("Path of Building's timeless jewel search.")
+                        .clicked()
+                    {
+                        pob.command("build.treeTab:FindTimelessJewel()\n".to_owned());
+                    }
+                }
                 if ui
                     .button("Refresh heatmap")
                     .on_hover_text(
@@ -2599,6 +2615,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         }
     }
 
+    // Path of Building's own dialogs (craft item, anoint, timeless jewel
+    // search, …), whichever tab opened them.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(pob) = app.pob.as_mut() {
+        pob_items::draw_popup(ctx, &mut app.pob_popup, pob);
+    }
     egui::CentralPanel::default().show(ctx, |ui| match app.active_tab {
         Tab::Tree => {
             let allocated: HashSet<NodeId> = app.character.allocated.iter().copied().collect();

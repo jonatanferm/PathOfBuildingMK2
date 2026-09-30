@@ -25,11 +25,11 @@ pub struct PobItemDbState {
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
-struct Popup {
+pub struct Popup {
     #[serde(default)]
-    title: String,
+    pub title: String,
     #[serde(default)]
-    ctls: Vec<crate::pob_controls::Ctl>,
+    pub ctls: Vec<crate::pob_controls::Ctl>,
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
@@ -38,8 +38,6 @@ struct Editor {
     has: bool,
     #[serde(default)]
     ctls: Vec<crate::pob_controls::Ctl>,
-    #[serde(default)]
-    popup: Option<Popup>,
     /// JSON of the item's tooltip lines.
     #[serde(default)]
     tooltip: Option<String>,
@@ -47,7 +45,7 @@ struct Editor {
 
 /// Lay out position-ordered PoB controls: controls on the same line (by
 /// PoB's own y) share a row. Returns the changes, in order.
-fn draw_rows(
+pub fn draw_rows(
     ui: &mut egui::Ui,
     ctls: &[crate::pob_controls::Ctl],
     id: &str,
@@ -309,31 +307,6 @@ end
                     );
                 }
             });
-        // PoB's popup (craft / create from text / enchant / anoint / …).
-        if let Some(p) = &ed.popup {
-            let mut open = true;
-            egui::Window::new(if p.title.is_empty() {
-                "Path of Building"
-            } else {
-                &p.title
-            })
-            .id(egui::Id::new("pob_popup"))
-            .collapsible(false)
-            .resizable(true)
-            .default_width(520.0)
-            .open(&mut open)
-            .show(ui.ctx(), |ui| {
-                for (name, v) in draw_rows(ui, &p.ctls, "popup", &mut self.db.editor_bufs) {
-                    commands.push(crate::pob_controls::set_command(
-                        &format!("main.popups[1].controls[{}]", lua_str(&name)),
-                        &v,
-                    ));
-                }
-            });
-            if !open {
-                commands.push("while main.popups[1] do main:ClosePopup() end\n".to_owned());
-            }
-        }
         for c in commands {
             pob.command(c);
         }
@@ -467,5 +440,61 @@ end
             pob.command(c);
         }
         true
+    }
+}
+
+/// Path of Building's open popup dialog, wherever it came from (item
+/// editor, tree tools, …), drawn as a window over the app.
+#[derive(Default)]
+pub struct PopupState {
+    bufs: crate::pob_controls::EditBufs,
+    seen_seq: Option<u64>,
+}
+
+pub fn draw_popup(ctx: &egui::Context, state: &mut PopupState, pob: &mut PobSession) {
+    let Some(snap) = pob.snapshot.as_ref() else {
+        return;
+    };
+    if state.seen_seq != Some(snap.seq) {
+        state.seen_seq = Some(snap.seq);
+        state.bufs.clear();
+    }
+    let Some(p) = serde_json::from_str::<Option<Popup>>(&snap.popup)
+        .ok()
+        .flatten()
+    else {
+        return;
+    };
+    let mut commands = Vec::new();
+    let mut open = true;
+    egui::Window::new(if p.title.is_empty() {
+        "Path of Building"
+    } else {
+        &p.title
+    })
+    .id(egui::Id::new(("pob_popup", p.title.clone())))
+    .collapsible(false)
+    .resizable(true)
+    .default_width(640.0)
+    .default_height(ctx.screen_rect().height() - 120.0)
+    .max_height(ctx.screen_rect().height() - 60.0)
+    .open(&mut open)
+    .show(ctx, |ui| {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (name, v) in draw_rows(ui, &p.ctls, "popup", &mut state.bufs) {
+                    commands.push(crate::pob_controls::set_command(
+                        &format!("main.popups[1].controls[{}]", lua_str(&name)),
+                        &v,
+                    ));
+                }
+            });
+    });
+    if !open {
+        commands.push("main:ClosePopup()\n".to_owned());
+    }
+    for c in commands {
+        pob.command(c);
     }
 }

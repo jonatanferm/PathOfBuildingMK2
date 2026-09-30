@@ -52,6 +52,8 @@ pub struct Snapshot {
     pub skill_select: String,
     /// JSON of PoB's specs / item / skill / config sets (`__mk2_sets`).
     pub sets: String,
+    /// JSON of PoB's topmost popup dialog (`__mk2_popup`), or `null`.
+    pub popup: String,
 }
 
 /// One line of PoB's sidebar: `label` / `value` with `^7` / `^xRRGGBB`
@@ -281,7 +283,12 @@ if build then
     local ok, v = pcall(__mk2_sets)
     if ok then sets = __mk2_json(v) end
 end
-return table.concat(out, '\n'), pd and pd.str or '', pd and pd.req or '', __mk2_json(ctls), sets
+local popup = 'null'
+if build then
+    local ok, v = pcall(__mk2_popup)
+    if ok and v then popup = __mk2_json(v) end
+end
+return table.concat(out, '\n'), pd and pd.str or '', pd and pd.req or '', __mk2_json(ctls), sets, popup
 ",
         )
         .unwrap_or_default();
@@ -316,5 +323,6 @@ return table.concat(out, '\n'), pd and pd.str or '', pd and pd.req or '', __mk2_
         point_req: nth(2),
         skill_select: nth(3),
         sets: nth(4),
+        popup: nth(5),
     }
 }

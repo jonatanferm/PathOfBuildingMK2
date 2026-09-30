@@ -115,12 +115,15 @@ pub fn show(ui: &mut egui::Ui, c: &Ctl, id: &str, bufs: &mut EditBufs) -> Option
             (resp.lost_focus() && *buf != c.buf).then(|| Value::String(buf.clone()))
         }
         "button" => ui
-            .button(job(c.label.as_deref().unwrap_or("?"), 13.0))
+            .add(
+                egui::Button::new(job(c.label.as_deref().unwrap_or("?"), 13.0))
+                    .wrap_mode(egui::TextWrapMode::Extend),
+            )
             .clicked()
             .then_some(Value::Bool(true)),
         "label" => {
             if let Some(l) = &c.label {
-                ui.label(job(l, 13.0));
+                ui.add(egui::Label::new(job(l, 13.0)).extend());
             }
             None
         }
