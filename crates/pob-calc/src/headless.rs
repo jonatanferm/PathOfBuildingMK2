@@ -267,6 +267,9 @@ function __mk2_ctl(name, c)
     if c.shown ~= nil then shown = c:GetProperty("shown") and true or false end
     if c.enabled ~= nil then enabled = c:GetProperty("enabled") and true or false end
     local d = { n = name, shown = shown, en = enabled }
+    -- Width only for edit boxes: some controls' width functions have side
+    -- effects (the Party tab re-wraps its notes label to the width).
+    if c.buf ~= nil and type(c.width) == "number" then d.w = c.width end
     if c.label ~= nil then
         local ok, label = pcall(c.GetProperty, c, "label")
         if ok and type(label) == "string" then d.label = label end
@@ -281,9 +284,15 @@ function __mk2_ctl(name, c)
     elseif c.buf ~= nil then
         d.k = "edit"
         d.buf = c.buf
-    elseif c.changeFunc and c.state ~= nil or c.CheckBoxControl then
+        if c.lineHeight then d.ml = true end
+        if type(c.prompt) == "string" then d.prompt = c.prompt end
+    elseif c.CheckBoxControl then
         d.k = "check"
         d.state = c.state and true or false
+    elseif c.ButtonControl then
+        d.k = "button"
+    elseif c.LabelControl then
+        d.k = "label"
     else
         d.k = "other"
     end
@@ -550,6 +559,12 @@ function __mk2_set_ctl(c, v)
     elseif c.CheckBoxControl then
         c.state = v and true or false
         if c.changeFunc then c.changeFunc(c.state) end
+    elseif c.ButtonControl then
+        if c.onClick then c.onClick() end
+        -- Buttons may open confirmation popups; accept them as a click would.
+        local p = main.popups[1]
+        if p and p.controls.confirm then p.controls.confirm.onClick() end
+        while main.popups[1] do main:ClosePopup() end
     end
 end
 "#;

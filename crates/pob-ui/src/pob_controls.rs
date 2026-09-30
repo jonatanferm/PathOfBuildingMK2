@@ -29,6 +29,15 @@ pub struct Ctl {
     /// The control's own label, when PoB gives it one.
     #[serde(default)]
     pub label: Option<String>,
+    /// Multi-line edit box.
+    #[serde(default)]
+    pub ml: bool,
+    /// Placeholder text for edits.
+    #[serde(default)]
+    pub prompt: Option<String>,
+    /// PoB's width for the control (pixels at PoB's scale).
+    #[serde(default)]
+    pub w: Option<f32>,
 }
 
 fn yes() -> bool {
@@ -82,14 +91,40 @@ pub fn show(ui: &mut egui::Ui, c: &Ctl, id: &str, bufs: &mut EditBufs) -> Option
                 .filter(|&i| i != c.sel)
                 .map(|i| Value::from(i as u64))
         }
-        "edit" => {
+        "edit" if c.ml => {
             let buf = bufs
                 .bufs
                 .entry(id.to_owned())
                 .or_insert_with(|| c.buf.clone());
             let resp = ui.add(
+                egui::TextEdit::multiline(buf)
+                    .hint_text(c.prompt.clone().unwrap_or_default())
+                    .desired_width(ui.available_width().min(520.0))
+                    .desired_rows(4)
+                    .font(egui::TextStyle::Monospace),
+            );
+            (resp.lost_focus() && *buf != c.buf).then(|| Value::String(buf.clone()))
+        }
+        "button" => ui
+            .button(job(c.label.as_deref().unwrap_or("?"), 13.0))
+            .clicked()
+            .then_some(Value::Bool(true)),
+        "label" => {
+            if let Some(l) = &c.label {
+                ui.label(job(l, 13.0));
+            }
+            None
+        }
+        "edit" => {
+            let buf = bufs
+                .bufs
+                .entry(id.to_owned())
+                .or_insert_with(|| c.buf.clone());
+            let width = c.w.map_or(60.0, |w| w * 0.85).clamp(36.0, 420.0);
+            let resp = ui.add(
                 egui::TextEdit::singleline(buf)
-                    .desired_width(ui.available_width().clamp(36.0, 60.0)),
+                    .hint_text(c.prompt.clone().unwrap_or_default())
+                    .desired_width(width.min(ui.available_width().max(36.0))),
             );
             let commit = resp.lost_focus()
                 || (resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
@@ -97,7 +132,11 @@ pub fn show(ui: &mut egui::Ui, c: &Ctl, id: &str, bufs: &mut EditBufs) -> Option
         }
         "check" => {
             let mut on = c.state;
-            ui.checkbox(&mut on, "")
+            let label = c
+                .label
+                .as_deref()
+                .map(|l| job(l.trim_end_matches(':'), 13.0));
+            ui.checkbox(&mut on, label.unwrap_or_default())
                 .changed()
                 .then_some(Value::Bool(on))
         }
@@ -116,4 +155,53 @@ pub fn set_command(ctl: &str, value: &Value) -> String {
         _ => "nil".to_owned(),
     };
     format!("__mk2_set_ctl({ctl}, {v})\n")
+}
+
+/// One PoB control at a fixed Lua path, refreshed after each recalculation
+/// (e.g. the Import/Export tab's "Export support" checkbox).
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Single {
+    path: &'static str,
+    ctl: Option<Ctl>,
+    pending: Option<u64>,
+    fetched_for: Option<u64>,
+    bufs: EditBufs,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Single {
+    #[must_use]
+    pub fn new(path: &'static str) -> Self {
+        Self {
+            path,
+            ctl: None,
+            pending: None,
+            fetched_for: None,
+            bufs: EditBufs::default(),
+        }
+    }
+
+    /// Draw the control (if PoB has answered); changes go straight to PoB.
+    pub fn ui(&mut self, ui: &mut egui::Ui, pob: &mut crate::pob_session::PobSession) {
+        let snap = pob.snapshot.as_ref().map(|s| s.seq);
+        if self.pending.is_none() && snap.is_some() && self.fetched_for != snap {
+            self.pending = Some(pob.query(&format!(
+                "local c = {p}\nreturn c and __mk2_json(__mk2_ctl('c', c)) or 'null'",
+                p = self.path
+            )));
+            self.fetched_for = snap;
+        }
+        if let Some(seq) = self.pending {
+            if let Some(res) = pob.take_query(seq) {
+                self.pending = None;
+                self.ctl = res.ok().and_then(|j| serde_json::from_str(&j).ok());
+                self.bufs.clear();
+            }
+        }
+        if let Some(c) = self.ctl.as_ref().filter(|c| c.shown) {
+            if let Some(v) = show(ui, c, self.path, &mut self.bufs) {
+                pob.command(set_command(self.path, &v));
+            }
+        }
+    }
 }

@@ -44,6 +44,7 @@ mod pob_calcs_panel;
 mod pob_config_panel;
 mod pob_controls;
 mod pob_items;
+mod pob_party_panel;
 #[cfg(not(target_arch = "wasm32"))]
 mod pob_session;
 mod pob_sets;
@@ -337,6 +338,11 @@ struct LoadedApp {
     pob_item_db: pob_items::PobItemDbState,
     #[cfg(not(target_arch = "wasm32"))]
     pob_skills_state: pob_skills_panel::PobSkillsState,
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_party_state: pob_party_panel::PobPartyState,
+    /// PoB's "Export support" (party buffs in exported codes) checkbox.
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_export_support: pob_controls::Single,
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -809,6 +815,12 @@ impl PobApp {
             pob_item_db: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_skills_state: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_party_state: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_export_support: pob_controls::Single::new(
+                "build.importTab.controls.enablePartyExportBuffs",
+            ),
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -929,6 +941,12 @@ impl PobApp {
             pob_item_db: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_skills_state: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_party_state: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_export_support: pob_controls::Single::new(
+                "build.importTab.controls.enablePartyExportBuffs",
+            ),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -3037,6 +3055,12 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 handle_compare_action(app, action);
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        Tab::Party if app.pob.as_ref().is_some_and(|p| p.snapshot.is_some()) => {
+            if let Some(pob) = app.pob.as_mut() {
+                pob_party_panel::ui(ui, &mut app.pob_party_state, pob);
+            }
+        }
         Tab::Party => {
             // Issue #204 (slice 2): same pattern as Items / Skills — capture
             // pre-mutation Character, commit only on `changed = true` so
@@ -3073,6 +3097,13 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             {
                 app.import_export_state.pob_xml =
                     app.pob.as_ref().and_then(|p| p.snapshot.as_ref()).map(|s| s.xml.clone());
+                if let Some(pob) = app.pob.as_mut().filter(|p| p.snapshot.is_some()) {
+                    ui.horizontal(|ui| {
+                        app.pob_export_support.ui(ui, pob);
+                        ui.weak("— include this build's auras, curses and buffs in exported codes, for party members to import.");
+                    });
+                    ui.separator();
+                }
             }
             if import_export_tab::ui(
                 ui,
