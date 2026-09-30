@@ -2409,6 +2409,7 @@ dependencies = [
  "ahash",
  "flate2",
  "indexmap",
+ "mlua",
  "serde",
  "serde_json",
  "smallvec",

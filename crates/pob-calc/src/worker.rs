@@ -11,9 +11,8 @@ use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread::JoinHandle;
 
-use crate::headless::{Outputs, Pob};
+use crate::headless::{Engine, Outputs, Pob, Ret};
 use crate::lua::host::StdFs;
-use crate::lua::Val;
 
 /// A request to the worker.
 #[derive(Debug, Clone)]
@@ -130,13 +129,14 @@ impl PobHandle {
 
 fn run(pob_src: PathBuf, rx: &Receiver<(u64, Command)>, tx: &Sender<Event>) {
     let t = std::time::Instant::now();
-    let mut pob = match Pob::boot(Rc::new(StdFs { root: pob_src })) {
+    let mut pob = match boot_engine(pob_src) {
         Ok(p) => p,
         Err(e) => {
             let _ = tx.send(Event::BootFailed(e));
             return;
         }
     };
+    let pob = pob.as_mut();
     let _ = tx.send(Event::Booted {
         millis: t.elapsed().as_millis(),
     });
@@ -145,8 +145,8 @@ fn run(pob_src: PathBuf, rx: &Receiver<(u64, Command)>, tx: &Sender<Event>) {
         // snapshotting (only the last snapshot matters to the UI).
         if let Command::Query { code } = &cmd {
             let result = pob
-                .exec(code)
-                .map(|v| v.first().map(|x| x.to_string()).unwrap_or_default());
+                .run(code)
+                .map(|v| v.first().map(|x| x.text().to_owned()).unwrap_or_default());
             if tx.send(Event::QueryResult { seq, result }).is_err() {
                 return;
             }
@@ -173,7 +173,7 @@ fn run(pob_src: PathBuf, rx: &Receiver<(u64, Command)>, tx: &Sender<Event>) {
                 continue;
             }
             last_seq = s;
-            match apply(&mut pob, cmd) {
+            match apply(pob, cmd) {
                 Ok(r) => {
                     if r.is_some() {
                         result = r;
@@ -182,14 +182,14 @@ fn run(pob_src: PathBuf, rx: &Receiver<(u64, Command)>, tx: &Sender<Event>) {
                 Err(e) => error = Some(e),
             }
         }
-        let snapshot = snapshot(&mut pob, last_seq, result, error);
+        let snapshot = snapshot(pob, last_seq, result, error);
         if tx.send(Event::Snapshot(snapshot)).is_err() {
             return;
         }
         if let Some((qseq, code)) = deferred_query {
             let result = pob
-                .exec(&code)
-                .map(|v| v.first().map(|x| x.to_string()).unwrap_or_default());
+                .run(&code)
+                .map(|v| v.first().map(|x| x.text().to_owned()).unwrap_or_default());
             if tx.send(Event::QueryResult { seq: qseq, result }).is_err() {
                 return;
             }
@@ -197,11 +197,21 @@ fn run(pob_src: PathBuf, rx: &Receiver<(u64, Command)>, tx: &Sender<Event>) {
     }
 }
 
-fn apply(pob: &mut Pob, cmd: Command) -> Result<Option<String>, String> {
+/// LuaJIT on desktop (PoB's own runtime); the embedded Rust interpreter
+/// when LuaJIT isn't built in or `MK2_POB_ENGINE=rust`.
+fn boot_engine(pob_src: PathBuf) -> Result<Box<dyn Engine>, String> {
+    #[cfg(feature = "luajit")]
+    if std::env::var("MK2_POB_ENGINE").map_or(true, |v| v != "rust") {
+        return crate::jit::JitPob::boot(&pob_src).map(|p| Box::new(p) as Box<dyn Engine>);
+    }
+    Pob::boot(Rc::new(StdFs { root: pob_src })).map(|p| Box::new(p) as Box<dyn Engine>)
+}
+
+fn apply(pob: &mut dyn Engine, cmd: Command) -> Result<Option<String>, String> {
     match cmd {
         Command::LoadXml { xml, name } => pob.load_build_xml(&xml, &name).map(|()| None),
         Command::NewBuild => pob
-            .exec(
+            .run(
                 r#"
 __mainObject__.promptMsg = nil
 __mainObject__.main:SetMode("BUILD", false, "New build")
@@ -211,8 +221,8 @@ build = __mainObject__.main.modes["BUILD"]
             )
             .map(|_| None),
         Command::Lua { code } => {
-            let ret = pob.exec(&code)?;
-            pob.exec(
+            let ret = pob.run(&code)?;
+            pob.run(
                 r"
 build.buildFlag = true
 runCallback('OnFrame')
@@ -223,24 +233,30 @@ if __mainObject__.promptMsg then
 end
 ",
             )?;
-            Ok(ret.first().and_then(|v| match v {
-                Val::Str(s) => Some(s.to_str().into_owned()),
-                _ => None,
+            Ok(ret.into_iter().next().and_then(|v| match v {
+                Ret::Str(s) => Some(s),
+                Ret::Other(_) => None,
             }))
         }
         Command::Refresh | Command::Query { .. } => Ok(None),
     }
 }
 
-fn snapshot(pob: &mut Pob, seq: u64, result: Option<String>, error: Option<String>) -> Snapshot {
+fn snapshot(
+    pob: &mut dyn Engine,
+    seq: u64,
+    result: Option<String>,
+    error: Option<String>,
+) -> Snapshot {
     let xml = pob
-        .exec("return build and build:SaveDB('code') or ''")
+        .run("return build and build:SaveDB('code') or ''")
         .ok()
-        .and_then(|v| v.first().and_then(|x| x.as_str().map(str::to_owned)))
+        .and_then(|v| v.into_iter().next())
+        .map(|r| r.text().to_owned())
         .unwrap_or_default();
     let outputs = pob.player_output().unwrap_or_default();
     let ret = pob
-        .exec(
+        .run(
             r"
 local out = {}
 local list = build and build.controls.statBox and build.controls.statBox.list or {}
@@ -269,7 +285,7 @@ return table.concat(out, '\n'), pd and pd.str or '', pd and pd.req or '', __mk2_
 ",
         )
         .unwrap_or_default();
-    let nth = |i: usize| ret.get(i).map(ToString::to_string).unwrap_or_default();
+    let nth = |i: usize| ret.get(i).map(|r| r.text().to_owned()).unwrap_or_default();
     let raw = nth(0);
     let (lines, warns) = raw.split_once("\n\u{1}").unwrap_or((raw.as_str(), ""));
     let sidebar = lines

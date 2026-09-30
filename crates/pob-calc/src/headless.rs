@@ -17,6 +17,72 @@ pub struct Pob {
     pub interp: Interp,
 }
 
+/// One Lua return value as the UI consumes it: strings verbatim, anything
+/// else as Lua's `tostring` would print it.
+#[derive(Debug, Clone)]
+pub enum Ret {
+    Str(String),
+    Other(String),
+}
+
+impl Ret {
+    #[must_use]
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Str(s) | Self::Other(s) => s,
+        }
+    }
+}
+
+/// A booted Path of Building, whichever Lua runs it.
+pub trait Engine {
+    /// Run a Lua chunk (with `build` bound), returning its results.
+    fn run(&mut self, code: &str) -> Result<Vec<Ret>, String>;
+    /// Load a build from PoB XML and calculate it.
+    fn load_build_xml(&mut self, xml: &str, name: &str) -> Result<(), String>;
+    /// The player's (and minion's, `Minion`-prefixed) calc outputs.
+    fn player_output(&mut self) -> Result<Outputs, String>;
+}
+
+/// Load `__pob_xml` as build `__pob_name`.
+pub const LOAD_SCRIPT: &str = r#"
+__mainObject__.promptMsg = nil
+__mainObject__.main:SetMode("BUILD", false, __pob_name, __pob_xml)
+runCallback("OnFrame")
+if __mainObject__.promptMsg then
+    error("build load failed: " .. tostring(__mainObject__.promptMsg))
+end
+build = __mainObject__.main.modes["BUILD"]
+"#;
+
+/// The main calc env's player and minion output tables.
+pub const OUTPUT_SCRIPT: &str = r"
+local b = __mainObject__.main.modes['BUILD']
+local env = b.calcsTab and (b.calcsTab.mainEnv or b.calcsTab.calcsEnv)
+return env and env.player and env.player.output, env and env.minion and env.minion.output
+";
+
+impl Engine for Pob {
+    fn run(&mut self, code: &str) -> Result<Vec<Ret>, String> {
+        Ok(self
+            .exec(code)?
+            .iter()
+            .map(|v| match v {
+                Val::Str(s) => Ret::Str(s.to_str().into_owned()),
+                other => Ret::Other(other.to_string()),
+            })
+            .collect())
+    }
+
+    fn load_build_xml(&mut self, xml: &str, name: &str) -> Result<(), String> {
+        Pob::load_build_xml(self, xml, name)
+    }
+
+    fn player_output(&mut self) -> Result<Outputs, String> {
+        Pob::player_output(self)
+    }
+}
+
 /// Scalar outputs of a calc (`env.player.output` / `calcsTab.mainOutput`).
 #[derive(Debug, Clone, Default)]
 pub struct Outputs {
@@ -57,8 +123,71 @@ impl Pob {
         host::install_natives(&mut it, fs);
         it.exec_chunk("dofile('Launch.lua')", "boot", Vec::new())
             .map_err(err)?;
-        it.exec_chunk(
-            r#"
+        it.exec_chunk(BOOT_SCRIPT, "boot", Vec::new())
+            .map_err(err)?;
+        Ok(Self { interp: it })
+    }
+
+    /// Boot from a PoB checkout on disk (`<root>/src`).
+    pub fn boot_from_dir(pob_root: &std::path::Path) -> Result<Self, String> {
+        Self::boot(Rc::new(host::StdFs {
+            root: pob_root.join("src"),
+        }))
+    }
+
+    /// Run a Lua snippet (for tests / tooling).
+    pub fn exec(&mut self, src: &str) -> Result<Vec<Val>, String> {
+        self.interp.exec_chunk(src, "exec", Vec::new()).map_err(err)
+    }
+
+    /// Load a build from PoB XML and calculate it.
+    pub fn load_build_xml(&mut self, xml: &str, name: &str) -> Result<(), String> {
+        self.interp.set_global("__pob_xml", Val::str(xml));
+        self.interp.set_global("__pob_name", Val::str(name));
+        self.exec(LOAD_SCRIPT)?;
+        Ok(())
+    }
+
+    /// The main calc env's player output (what PoB's sidebar and Calcs tab
+    /// show), plus the summoned minion's output under a `Minion` prefix.
+    pub fn player_output(&mut self) -> Result<Outputs, String> {
+        let v = self.exec(OUTPUT_SCRIPT)?;
+        let mut out = Outputs::default();
+        for (i, prefix) in [(0usize, ""), (1, "Minion")] {
+            let Some(Val::Table(t)) = v.get(i) else {
+                continue;
+            };
+            for (k, v) in t.pairs() {
+                let Val::Str(k) = k else { continue };
+                let k = format!("{prefix}{}", k.to_str());
+                match v {
+                    Val::Num(n) => {
+                        out.numbers.insert(k, n);
+                    }
+                    Val::Bool(b) => {
+                        out.flags.insert(k, b);
+                    }
+                    Val::Str(s) => {
+                        out.strings.insert(k, s.to_str().into_owned());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Recalculate the loaded build (`calcsTab:BuildOutput()`).
+    pub fn recalc(&mut self) -> Result<(), String> {
+        self.exec("build.calcsTab:BuildOutput()").map(|_| ())
+    }
+}
+
+/// Run after `Launch.lua`: PoB's `OnInit` and first `OnFrame` (minus the
+/// item-database load), then the helpers MK2's UI queries use
+/// (`__mk2_json`, `__mk2_ctl`, `__mk2_tooltip`, `__mk2_sets`, …). Shared by
+/// every engine.
+pub const BOOT_SCRIPT: &str = r#"
 __mainObject__.continuousIntegrationMode = nil
 runCallback("OnInit")
 local main = __mainObject__.main
@@ -228,81 +357,4 @@ function __mk2_set_ctl(c, v)
         if c.changeFunc then c.changeFunc(c.state) end
     end
 end
-"#,
-            "boot",
-            Vec::new(),
-        )
-        .map_err(err)?;
-        Ok(Self { interp: it })
-    }
-
-    /// Boot from a PoB checkout on disk (`<root>/src`).
-    pub fn boot_from_dir(pob_root: &std::path::Path) -> Result<Self, String> {
-        Self::boot(Rc::new(host::StdFs {
-            root: pob_root.join("src"),
-        }))
-    }
-
-    /// Run a Lua snippet (for tests / tooling).
-    pub fn exec(&mut self, src: &str) -> Result<Vec<Val>, String> {
-        self.interp.exec_chunk(src, "exec", Vec::new()).map_err(err)
-    }
-
-    /// Load a build from PoB XML and calculate it.
-    pub fn load_build_xml(&mut self, xml: &str, name: &str) -> Result<(), String> {
-        self.interp.set_global("__pob_xml", Val::str(xml));
-        self.interp.set_global("__pob_name", Val::str(name));
-        self.exec(
-            r#"
-__mainObject__.promptMsg = nil
-__mainObject__.main:SetMode("BUILD", false, __pob_name, __pob_xml)
-runCallback("OnFrame")
-if __mainObject__.promptMsg then
-    error("build load failed: " .. tostring(__mainObject__.promptMsg))
-end
-build = __mainObject__.main.modes["BUILD"]
-"#,
-        )?;
-        Ok(())
-    }
-
-    /// The main calc env's player output (what PoB's sidebar and Calcs tab
-    /// show), plus the summoned minion's output under a `Minion` prefix.
-    pub fn player_output(&mut self) -> Result<Outputs, String> {
-        let v = self.exec(
-            r"
-local b = __mainObject__.main.modes['BUILD']
-local env = b.calcsTab and (b.calcsTab.mainEnv or b.calcsTab.calcsEnv)
-return env and env.player and env.player.output, env and env.minion and env.minion.output
-",
-        )?;
-        let mut out = Outputs::default();
-        for (i, prefix) in [(0usize, ""), (1, "Minion")] {
-            let Some(Val::Table(t)) = v.get(i) else {
-                continue;
-            };
-            for (k, v) in t.pairs() {
-                let Val::Str(k) = k else { continue };
-                let k = format!("{prefix}{}", k.to_str());
-                match v {
-                    Val::Num(n) => {
-                        out.numbers.insert(k, n);
-                    }
-                    Val::Bool(b) => {
-                        out.flags.insert(k, b);
-                    }
-                    Val::Str(s) => {
-                        out.strings.insert(k, s.to_str().into_owned());
-                    }
-                    _ => {}
-                }
-            }
-        }
-        Ok(out)
-    }
-
-    /// Recalculate the loaded build (`calcsTab:BuildOutput()`).
-    pub fn recalc(&mut self) -> Result<(), String> {
-        self.exec("build.calcsTab:BuildOutput()").map(|_| ())
-    }
-}
+"#;

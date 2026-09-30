@@ -5,6 +5,8 @@
 
 pub mod flags;
 pub mod headless;
+#[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+pub mod jit;
 pub mod lua;
 pub mod lua_pattern;
 pub mod mod_parser;

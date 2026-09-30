@@ -2,6 +2,8 @@
 //! builds, print headline stats and timings.
 use std::time::Instant;
 
+use pob_calc::headless::Engine;
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let pob_root = std::env::var_os("POB_ROOT").map_or_else(
@@ -9,7 +11,16 @@ fn main() {
         std::path::PathBuf::from,
     );
     let t = Instant::now();
-    let mut pob = match pob_calc::headless::Pob::boot_from_dir(&pob_root) {
+    // POB_ENGINE=jit runs PoB under LuaJIT (the desktop app's engine);
+    // default is the embedded Rust interpreter.
+    let booted: Result<Box<dyn Engine>, String> = if std::env::var("POB_ENGINE")
+        .is_ok_and(|v| v == "jit")
+    {
+        pob_calc::jit::JitPob::boot(&pob_root.join("src")).map(|p| Box::new(p) as Box<dyn Engine>)
+    } else {
+        pob_calc::headless::Pob::boot_from_dir(&pob_root).map(|p| Box::new(p) as Box<dyn Engine>)
+    };
+    let mut pob = match booted {
         Ok(p) => p,
         Err(e) => {
             eprintln!("boot failed: {e}");
@@ -27,15 +38,15 @@ fn main() {
         let load = t.elapsed();
         let t = Instant::now();
         if std::env::var("HEADLESS_RECALC").is_ok() {
-            pob.recalc().expect("recalc");
+            pob.run("build.calcsTab:BuildOutput()").expect("recalc");
         }
         let recalc = t.elapsed();
         if let Ok(snippet) = std::env::var("HEADLESS_EXEC") {
-            match pob.exec(&snippet) {
+            match pob.run(&snippet) {
                 Ok(v) => println!(
                     "{}",
                     v.iter()
-                        .map(ToString::to_string)
+                        .map(|r| r.text().to_owned())
                         .collect::<Vec<_>>()
                         .join("\n")
                 ),

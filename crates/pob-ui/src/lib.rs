@@ -328,6 +328,9 @@ struct LoadedApp {
     pob_tooltips: pob_tooltip::Fetcher,
     #[cfg(not(target_arch = "wasm32"))]
     pob_sets_state: pob_sets::PobSetsState,
+    /// Outstanding PoB power-report query (heatmap refresh).
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_power_query: Option<u64>,
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -794,6 +797,8 @@ impl PobApp {
             pob_tooltips: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_sets_state: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_power_query: None,
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -908,6 +913,8 @@ impl PobApp {
             pob_tooltips: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_sets_state: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_power_query: None,
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1215,6 +1222,11 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
+    if app.pob_power_query.is_some() {
+        poll_pob_power(app);
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     if reseed_saved {
         app.last_saved_hash = app_save_fp(app);
         app.pending_seed_saved_hash = false;
@@ -1516,7 +1528,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
     if app.active_tab == Tab::Tree {
         egui::TopBottomPanel::top("search_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label("Search:");
                 let edit = egui::TextEdit::singleline(&mut app.search)
                     .desired_width(220.0)
@@ -1719,9 +1731,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 if ui
                     .button("Refresh heatmap")
                     .on_hover_text(
-                        "Recompute the per-node power heatmap. Multi-second on \
-                         a real tree — runs synchronously, so the UI will \
-                         freeze briefly. Enables the overlay automatically.",
+                        "Recompute the per-node power heatmap with Path of \
+                         Building's power report (a few seconds; the UI stays \
+                         responsive). Enables the overlay automatically.",
                     )
                     .clicked()
                 {
@@ -3470,6 +3482,60 @@ fn focus_prev_search_match(app: &mut LoadedApp) -> bool {
     true
 }
 
+/// PoB's power report for every unallocated node: combined offence /
+/// defence power (PoB's own heatmap metric), relative to the current build.
+#[cfg(not(target_arch = "wasm32"))]
+const POB_POWER_QUERY: &str = r#"
+local ct = build.calcsTab
+local savedStat = ct.powerStat
+ct.powerStat = nil
+ct:PowerBuilder()
+ct.powerStat = savedStat
+local function finite(x)
+    x = x or 0
+    if x ~= x or x == math.huge or x == -math.huge then return 0 end
+    return x
+end
+local out = {}
+for id, node in pairs(build.spec.nodes) do
+    local p = node.power
+    if p and not node.alloc and (p.offence or p.defence) then
+        out[#out + 1] = { id, finite(p.offence), finite(p.defence) }
+    end
+end
+return __mk2_json(out)
+"#;
+
+/// Pick up PoB's power report once it arrives.
+#[cfg(not(target_arch = "wasm32"))]
+fn poll_pob_power(app: &mut LoadedApp) {
+    let (Some(seq), Some(pob)) = (app.pob_power_query, app.pob.as_mut()) else {
+        return;
+    };
+    let Some(res) = pob.take_query(seq) else {
+        return;
+    };
+    app.pob_power_query = None;
+    match res
+        .and_then(|j| serde_json::from_str::<Vec<(u32, f64, f64)>>(&j).map_err(|e| e.to_string()))
+    {
+        Ok(rows) => {
+            let ranked = rows
+                .into_iter()
+                .map(|(node_id, offence, defence)| pob_engine::NodeScore {
+                    node_id,
+                    dps_delta: offence,
+                    ehp_delta: defence,
+                })
+                .collect();
+            apply_power_ranking(app, ranked);
+        }
+        Err(e) => {
+            app.status_message = Some((StatusKind::Error, format!("Power report failed: {e}")));
+        }
+    }
+}
+
 /// Issue #220 / #207: rebuild the cached node-power heatmap and turn
 /// the overlay on. Called from the "Refresh heatmap" button. Runs
 /// `rank_node_additions` under the hood (`O(N+1) perform`s on the
@@ -3481,6 +3547,14 @@ fn focus_prev_search_match(app: &mut LoadedApp) -> bool {
 /// frames (unallocated nodes that get allocated are filtered out at
 /// paint time, so a stale-by-one-pick map still renders correctly).
 fn refresh_power_overlay(app: &mut LoadedApp) {
+    // With Path of Building running, its own power report (PowerBuilder)
+    // scores every node; the answer arrives via `poll_pob_power`.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(pob) = app.pob.as_mut().filter(|p| p.snapshot.is_some()) {
+        app.pob_power_query = Some(pob.query(POB_POWER_QUERY));
+        app.status_message = Some((StatusKind::Info, "Calculating node power…".into()));
+        return;
+    }
     let cluster_ctx = match (&app.cluster_jewels, &app.cluster_jewel_mods) {
         (Some(cj), Some(cm)) => Some(pob_engine::ClusterContext::new(cj, cm)),
         _ => None,
@@ -3488,7 +3562,7 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
     // Issue #207 follow-up: rank once, reuse for both the colour map
     // and the cached Top-candidate-nodes panel. Two consumers of the
     // same expensive walk share one N+1-perform-calls pass.
-    let mut ranked = pob_engine::rank_node_additions(
+    let ranked = pob_engine::rank_node_additions(
         &app.character,
         &app.tree,
         Some(&app.skills),
@@ -3496,6 +3570,11 @@ fn refresh_power_overlay(app: &mut LoadedApp) {
         cluster_ctx,
         None,
     );
+    apply_power_ranking(app, ranked);
+}
+
+/// Filter a node ranking by the heatmap options and install the overlay.
+fn apply_power_ranking(app: &mut LoadedApp, mut ranked: Vec<pob_engine::NodeScore>) {
     // Issue #220 follow-up: depth filter is applied here so both
     // the colour map and the cached ranked list reflect the same
     // "reachable within N points" set.
