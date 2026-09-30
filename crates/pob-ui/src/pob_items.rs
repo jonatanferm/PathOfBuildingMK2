@@ -18,6 +18,66 @@ pub struct PobItemDbState {
     slots_pending: Option<u64>,
     slots_for: Option<u64>,
     bufs: crate::pob_controls::EditBufs,
+    editor: Option<Editor>,
+    editor_pending: Option<u64>,
+    editor_for: Option<u64>,
+    editor_bufs: crate::pob_controls::EditBufs,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+struct Popup {
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    ctls: Vec<crate::pob_controls::Ctl>,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+struct Editor {
+    #[serde(default)]
+    has: bool,
+    #[serde(default)]
+    ctls: Vec<crate::pob_controls::Ctl>,
+    #[serde(default)]
+    popup: Option<Popup>,
+    /// JSON of the item's tooltip lines.
+    #[serde(default)]
+    tooltip: Option<String>,
+}
+
+/// Lay out position-ordered PoB controls: controls on the same line (by
+/// PoB's own y) share a row. Returns the changes, in order.
+fn draw_rows(
+    ui: &mut egui::Ui,
+    ctls: &[crate::pob_controls::Ctl],
+    id: &str,
+    bufs: &mut crate::pob_controls::EditBufs,
+) -> Vec<(String, serde_json::Value)> {
+    let mut changes = Vec::new();
+    let mut i = 0;
+    while i < ctls.len() {
+        let y = ctls[i].y;
+        let mut j = i;
+        while j < ctls.len() && (ctls[j].y - y).abs() <= 4.0 {
+            j += 1;
+        }
+        let row = &ctls[i..j];
+        let multi = row.iter().any(|c| c.ml || c.k == "list");
+        let mut draw = |ui: &mut egui::Ui| {
+            for c in row {
+                if let Some(v) = crate::pob_controls::show(ui, c, &format!("{id}_{}", c.n), bufs) {
+                    changes.push((c.n.clone(), v));
+                }
+            }
+        };
+        if multi {
+            ui.vertical(|ui| draw(ui));
+        } else {
+            ui.horizontal_wrapped(|ui| draw(ui));
+        }
+        i = j;
+    }
+    changes
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
@@ -178,6 +238,106 @@ end
 
     fn available(&self) -> bool {
         self.pob.as_ref().is_some_and(|p| p.snapshot.is_some())
+    }
+
+    fn draw_editor(&mut self, ui: &mut egui::Ui, selected: Option<Slot>) -> bool {
+        let Some(pob) = self.pob.as_deref_mut() else {
+            return false;
+        };
+        if pob.snapshot.is_none() {
+            return false;
+        }
+        let snap = pob.snapshot.as_ref().map(|s| s.seq);
+        if self.db.editor_pending.is_none() && self.db.editor_for != snap {
+            self.db.editor_pending = Some(pob.query("return __mk2_item_editor()"));
+            self.db.editor_for = snap;
+        }
+        if let Some(seq) = self.db.editor_pending {
+            if let Some(res) = pob.take_query(seq) {
+                self.db.editor_pending = None;
+                if let Some(e) = res.ok().and_then(|j| serde_json::from_str(&j).ok()) {
+                    self.db.editor = Some(e);
+                    self.db.editor_bufs.clear();
+                }
+            } else {
+                self.ctx
+                    .request_repaint_after(std::time::Duration::from_millis(30));
+            }
+        }
+        let Some(ed) = self.db.editor.clone() else {
+            ui.spinner();
+            return true;
+        };
+        let mut commands: Vec<String> = Vec::new();
+        ui.horizontal(|ui| {
+            ui.heading("Item editor");
+            if let Some(slot) = selected {
+                if ui
+                    .button(format!("Edit {} item", slot.label()))
+                    .on_hover_text("Copy the item in this slot into the editor.")
+                    .clicked()
+                {
+                    commands.push(format!(
+                        "__mk2_edit_slot_item({})\n",
+                        lua_str(pob_slot_name(slot))
+                    ));
+                }
+            }
+        });
+        ui.separator();
+        egui::ScrollArea::vertical()
+            .id_salt("pob_item_editor")
+            .min_scrolled_height(
+                (ui.ctx().screen_rect().bottom() - ui.cursor().top() - 110.0).max(160.0),
+            )
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for (name, v) in draw_rows(ui, &ed.ctls, "itemed", &mut self.db.editor_bufs) {
+                    commands.push(crate::pob_controls::set_command(
+                        &format!("build.itemsTab.controls[{}]", lua_str(&name)),
+                        &v,
+                    ));
+                }
+                if let Some(tt) = &ed.tooltip {
+                    ui.separator();
+                    pob_tooltip::render(ui, &pob_tooltip::parse(tt));
+                }
+                if !ed.has {
+                    ui.weak(
+                        "Craft an item from a base, create one from text, or pick an \
+                         equipped item to edit it.",
+                    );
+                }
+            });
+        // PoB's popup (craft / create from text / enchant / anoint / …).
+        if let Some(p) = &ed.popup {
+            let mut open = true;
+            egui::Window::new(if p.title.is_empty() {
+                "Path of Building"
+            } else {
+                &p.title
+            })
+            .id(egui::Id::new("pob_popup"))
+            .collapsible(false)
+            .resizable(true)
+            .default_width(520.0)
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                for (name, v) in draw_rows(ui, &p.ctls, "popup", &mut self.db.editor_bufs) {
+                    commands.push(crate::pob_controls::set_command(
+                        &format!("main.popups[1].controls[{}]", lua_str(&name)),
+                        &v,
+                    ));
+                }
+            });
+            if !open {
+                commands.push("while main.popups[1] do main:ClosePopup() end\n".to_owned());
+            }
+        }
+        for c in commands {
+            pob.command(c);
+        }
+        true
     }
 
     fn draw_slots(&mut self, ui: &mut egui::Ui, selected: &mut Option<Slot>) -> bool {

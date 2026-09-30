@@ -902,6 +902,10 @@ pub trait PobItems {
     /// Clicking a slot label selects the matching slot for the editor.
     /// Returns false when PoB isn't available.
     fn draw_slots(&mut self, ui: &mut egui::Ui, selected: &mut Option<Slot>) -> bool;
+    /// Draw PoB's item editor (craft / create / edit, affixes, influences,
+    /// enchants, …) in place of the built-in editor. Returns false when
+    /// PoB isn't available.
+    fn draw_editor(&mut self, ui: &mut egui::Ui, selected: Option<Slot>) -> bool;
 }
 
 /// No Path of Building (web build / not booted).
@@ -922,6 +926,9 @@ impl PobItems for NoPob {
         false
     }
     fn draw_slots(&mut self, _: &mut egui::Ui, _: &mut Option<Slot>) -> bool {
+        false
+    }
+    fn draw_editor(&mut self, _: &mut egui::Ui, _: Option<Slot>) -> bool {
         false
     }
 }
@@ -1308,8 +1315,13 @@ pub fn ui(
 
         ui.separator();
 
-        // Right: editor — replaced by the browse panel while that's open.
-        if !state.browse_open {
+        // Right: editor — replaced by the browse panel while that's open,
+        // and by Path of Building's own item editor when it's running.
+        if !state.browse_open && pob_tip.available() {
+            ui.vertical(|ui| {
+                pob_tip.draw_editor(ui, state.selected_slot);
+            });
+        } else if !state.browse_open {
             ui.vertical(|ui| {
                 ui.heading(
                     state

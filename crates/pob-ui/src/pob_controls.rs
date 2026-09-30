@@ -38,6 +38,14 @@ pub struct Ctl {
     /// PoB's width for the control (pixels at PoB's scale).
     #[serde(default)]
     pub w: Option<f32>,
+    /// Slider position, 0..=1.
+    #[serde(default)]
+    pub val: f32,
+    /// PoB's layout position (for ordering).
+    #[serde(default)]
+    pub x: f32,
+    #[serde(default)]
+    pub y: f32,
 }
 
 fn yes() -> bool {
@@ -59,7 +67,8 @@ pub struct EditBufs {
 impl EditBufs {
     /// Drop edits (PoB state changed underneath).
     pub fn clear(&mut self) {
-        self.bufs.clear();
+        // List search filters are the user's, not PoB state: keep them.
+        self.bufs.retain(|k, _| k.ends_with("#filter"));
     }
 }
 
@@ -129,6 +138,52 @@ pub fn show(ui: &mut egui::Ui, c: &Ctl, id: &str, bufs: &mut EditBufs) -> Option
             let commit = resp.lost_focus()
                 || (resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
             (commit && *buf != c.buf).then(|| Value::String(buf.clone()))
+        }
+        "list" => {
+            // Searchable list box; the filter text lives in the edit buffers.
+            let filter = bufs.bufs.entry(format!("{id}#filter")).or_default();
+            ui.add(
+                egui::TextEdit::singleline(filter)
+                    .hint_text("Search…")
+                    .desired_width(ui.available_width().min(360.0)),
+            );
+            let needle = filter.to_lowercase();
+            let mut picked = None;
+            egui::ScrollArea::vertical()
+                .id_salt(("pob_list", id))
+                .max_height(260.0)
+                .min_scrolled_height(260.0)
+                .show(ui, |ui| {
+                    for (i, item) in c.items.iter().enumerate() {
+                        if !needle.is_empty() {
+                            let plain: String =
+                                crate::pob_sidebar::runs(item, egui::Color32::WHITE)
+                                    .into_iter()
+                                    .map(|(t, _)| t)
+                                    .collect();
+                            if !plain.to_lowercase().contains(&needle) {
+                                continue;
+                            }
+                        }
+                        if ui
+                            .selectable_label(i + 1 == c.sel, job(item, 13.0))
+                            .clicked()
+                        {
+                            picked = Some(i + 1);
+                        }
+                    }
+                });
+            picked
+                .filter(|&i| i != c.sel)
+                .map(|i| Value::from(i as u64))
+        }
+        "slider" => {
+            let mut v = c.val;
+            let r = ui.add(egui::Slider::new(&mut v, 0.0..=1.0).show_value(false));
+            // Commit when a drag ends or on a click, not every drag frame.
+            (r.drag_stopped() || (r.changed() && !r.dragged()))
+                .then(|| Value::from(f64::from(v)))
+                .filter(|_| (v - c.val).abs() > f32::EPSILON)
         }
         "check" => {
             let mut on = c.state;

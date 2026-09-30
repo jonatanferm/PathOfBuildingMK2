@@ -309,7 +309,13 @@ impl CharacterSnapshot {
             class: c.class.0.clone(),
             ascendancy: c.ascendancy.clone(),
             level: c.level,
-            allocated: c.allocated.iter().copied().collect(),
+            allocated: {
+                // Sorted: `allocated` is a set, and snapshots feed the
+                // saved-state fingerprint, which must not depend on hash order.
+                let mut a: Vec<_> = c.allocated.iter().copied().collect();
+                a.sort_unstable();
+                a
+            },
             items: c.items.clone(),
             main_skill_id: c.main_skill.as_ref().map(|m| m.skill_id.clone()),
             main_skill_level: c.main_skill.as_ref().map_or(20, |m| m.level),

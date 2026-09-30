@@ -1337,3 +1337,26 @@ Quality: +20% (augmented)
         assert_eq!(resolve_share_url("https://pob.cool/abc/def"), None);
     }
 }
+
+#[cfg(test)]
+mod fingerprint_stability {
+    #[test]
+    fn same_xml_same_fingerprint() {
+        // The app re-imports PoB's XML after every edit; an unchanged build
+        // must fingerprint identically or it looks modified (and auto-saves).
+        let Ok(dir) = std::fs::read_dir("../../.parity/builds") else {
+            return;
+        };
+        for entry in dir.flatten() {
+            let xml = std::fs::read_to_string(entry.path()).unwrap();
+            let Ok(first) = super::import_pob_xml(&xml) else {
+                continue;
+            };
+            let fp = crate::save_state_fingerprint(&first);
+            for _ in 0..4 {
+                let again = crate::save_state_fingerprint(&super::import_pob_xml(&xml).unwrap());
+                assert_eq!(fp, again, "{}", entry.path().display());
+            }
+        }
+    }
+}

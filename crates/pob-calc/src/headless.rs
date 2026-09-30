@@ -267,6 +267,29 @@ function __mk2_ctl(name, c)
     if c.shown ~= nil then shown = c:GetProperty("shown") and true or false end
     if c.enabled ~= nil then enabled = c:GetProperty("enabled") and true or false end
     local d = { n = name, shown = shown, en = enabled }
+    if c.ListControl and c.list and c.GetRowValue then
+        -- A list box (PoB's notable / item / gem lists): rows as PoB draws
+        -- them, selection by index.
+        d.k = "list"
+        -- DB lists (notables, uniques) build lazily in Draw; build now.
+        if c.listBuildFlag and c.ListBuilder then
+            c.listBuildFlag = false
+            local co = coroutine.create(c.ListBuilder)
+            local guard = 0
+            repeat
+                local ok = coroutine.resume(co, c)
+                guard = guard + 1
+            until not ok or coroutine.status(co) == "dead" or guard > 100000
+            c.listOutputRevision = build and build.outputRevision
+        end
+        d.items = {}
+        for i, v in ipairs(c.list) do
+            local ok, text = pcall(c.GetRowValue, c, 1, i, v)
+            d.items[i] = ok and tostring(text or "") or tostring(v)
+        end
+        d.sel = c.selIndex or 0
+        return d
+    end
     -- Width only for edit boxes: some controls' width functions have side
     -- effects (the Party tab re-wraps its notes label to the width).
     if c.buf ~= nil and type(c.width) == "number" then d.w = c.width end
@@ -289,6 +312,9 @@ function __mk2_ctl(name, c)
     elseif c.CheckBoxControl then
         d.k = "check"
         d.state = c.state and true or false
+    elseif c.SliderControl then
+        d.k = "slider"
+        d.val = c.val or 0
     elseif c.ButtonControl then
         d.k = "button"
     elseif c.LabelControl then
@@ -552,19 +578,91 @@ end
 
 -- Drive a PoB control the way a click / edit would.
 function __mk2_set_ctl(c, v)
-    if c.list then
+    if c.ListControl and c.list then
+        local i = tonumber(v)
+        c.selIndex, c.selValue = i, c.list[i]
+        if c.OnSelect then c:OnSelect(i, c.list[i]) end
+    elseif c.list then
         c:SetSel(tonumber(v))
     elseif c.buf ~= nil then
         c:SetText(tostring(v), true)
     elseif c.CheckBoxControl then
         c.state = v and true or false
         if c.changeFunc then c.changeFunc(c.state) end
+    elseif c.SliderControl then
+        c:SetVal(tonumber(v) or 0)
     elseif c.ButtonControl then
+        local before = main.popups[1]
         if c.onClick then c.onClick() end
-        -- Buttons may open confirmation popups; accept them as a click would.
+        -- A button that asks "are you sure?" was clicked on purpose: accept.
         local p = main.popups[1]
-        if p and p.controls.confirm then p.controls.confirm.onClick() end
-        while main.popups[1] do main:ClosePopup() end
+        if p and p ~= before and p.controls.confirm and not p.controls.save then
+            p.controls.confirm.onClick()
+            if main.popups[1] == p then main:ClosePopup() end
+        end
+    end
+end
+
+-- Visible controls of a control table, in reading order (top to bottom,
+-- left to right, by PoB's own layout). `keep(name)` filters by name.
+function __mk2_ctls(tbl, keep)
+    local list = {}
+    for name, c in pairs(tbl) do
+        if type(name) == "string" and type(c) == "table" and c.GetProperty and (not keep or keep(name)) then
+            local ok, d = pcall(__mk2_ctl, name, c)
+            local okShown, shown = pcall(function() return c:IsShown() end)
+            if ok and d.shown and (not okShown or shown) and d.k ~= "other" then
+                local okp, x, y = pcall(c.GetPos, c)
+                d.x, d.y = okp and x or 0, okp and y or 0
+                list[#list + 1] = d
+            end
+        end
+    end
+    table.sort(list, function(a, b)
+        if math.abs(a.y - b.y) > 4 then return a.y < b.y end
+        return a.x < b.x
+    end)
+    return list
+end
+
+-- The topmost PoB popup (title + controls), or nil.
+function __mk2_popup()
+    local p = main.popups[1]
+    if not p then return nil end
+    return { title = p.title or "", ctls = __mk2_ctls(p.controls) }
+end
+
+-- The Items tab's item editor: PoB's display-item controls, the item's
+-- tooltip and any open popup (craft / create / edit / enchant / ...).
+function __mk2_item_editor()
+    local it = build.itemsTab
+    local keepNames = { craftDisplayItem = true, newDisplayItem = true, addDisplayItem = true,
+        editDisplayItem = true, removeDisplayItem = true, craftingSorting = true, craftingSortingLabel = true }
+    local out = {
+        has = it.displayItem ~= nil,
+        ctls = __mk2_ctls(it.controls, function(n) return keepNames[n] or n:match("^displayItem") ~= nil end),
+        popup = __mk2_popup(),
+    }
+    if it.displayItem then
+        local tt = new("Tooltip"):Tooltip()
+        it:AddItemTooltip(tt, it.displayItem, nil)
+        out.tooltip = __mk2_tooltip(tt)
+    end
+    return __mk2_json(out)
+end
+
+-- Put the item in PoB slot `slotName` into the editor (a copy, as PoB's
+-- item list does on click).
+function __mk2_edit_slot_item(slotName)
+    local it = build.itemsTab
+    local slot = it.slots[slotName]
+    local item = slot and it.items[slot.selItemId]
+    if item then
+        -- As PoB's item list does on double-click: a fresh copy that keeps
+        -- the id, so "Save" replaces the original.
+        local newItem = new("Item"):Item(item:BuildRaw())
+        newItem.id = item.id
+        it:SetDisplayItem(newItem)
     end
 end
 "#;
