@@ -138,6 +138,15 @@ impl PobSession {
         self.status = SessionStatus::Busy;
     }
 
+    /// Left-click on a passive node, exactly as in PoB's tree view:
+    /// deallocate it (and whatever depends on it) or allocate the path to
+    /// it. PoB's result comes back through the mirror.
+    pub fn click_node(&mut self, id: u32) {
+        self.command(format!(
+            "do\n  local spec = build.spec\n  local node = spec.nodes[{id}]\n  if node then\n    if node.alloc then\n      spec:DeallocNode(node)\n    elseif node.path then\n      spec:AllocNode(node)\n    end\n    spec:AddUndoState()\n  end\nend\n"
+        ));
+    }
+
     /// Forget PoB's build: the next [`Self::sync`] rebuilds it from scratch
     /// (new build / non-PoB file opened), dropping PoB-only state.
     pub fn reset(&mut self) {
@@ -152,7 +161,7 @@ impl PobSession {
     pub fn sync(&mut self, character: &Character, tree_version: &str) {
         let Some(base) = self.baseline.clone() else {
             // First sync: PoB has only its default build.
-            self.full_reload(character);
+            self.full_reload(character, tree_version);
             return;
         };
         let mut lua = String::new();
@@ -167,7 +176,7 @@ impl PobSession {
             || base.allocated != character.allocated
             || base.mastery_selections != character.mastery_selections
         {
-            lua.push_str(&Self::tree_command(character, tree_version));
+            lua.push_str(&Self::tree_command(&base, character, tree_version));
         }
         for slot in Slot::all() {
             let old = base.items.get(*slot).map(|i| i.raw.as_str());
@@ -229,8 +238,14 @@ impl PobSession {
         self.status = SessionStatus::Busy;
     }
 
-    fn full_reload(&mut self, character: &Character) {
-        let xml = pob_engine::export_pob_xml(character);
+    fn full_reload(&mut self, character: &Character, tree_version: &str) {
+        let mut xml = pob_engine::export_pob_xml(character);
+        if !tree_version.is_empty() {
+            xml = xml.replace(
+                "treeVersion=\"3_25\"",
+                &format!("treeVersion=\"{tree_version}\""),
+            );
+        }
         self.latest_seq = self.handle.send(Command::LoadXml {
             xml,
             name: "MK2 build".to_owned(),
@@ -335,7 +350,10 @@ impl PobSession {
         out
     }
 
-    fn tree_command(c: &Character, tree_version: &str) -> String {
+    /// Re-import the allocation through PoB's `ImportFromNodeList`,
+    /// starting from PoB's own mastery choices and applying only the ones
+    /// MK2 changed (so masteries MK2 didn't touch survive).
+    fn tree_command(base: &Character, c: &Character, tree_version: &str) -> String {
         let class = c
             .ascendancy
             .as_deref()
@@ -348,16 +366,27 @@ impl PobSession {
             .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join(",");
-        let mut masteries: Vec<(u32, u32)> =
-            c.mastery_selections.iter().map(|(k, v)| (*k, *v)).collect();
-        masteries.sort_unstable();
-        let masteries = masteries
-            .iter()
-            .map(|(k, v)| format!("[{k}]={v}"))
-            .collect::<Vec<_>>()
-            .join(",");
+        let mut mastery_edits = String::new();
+        let mut keys: Vec<u32> = base
+            .mastery_selections
+            .keys()
+            .chain(c.mastery_selections.keys())
+            .copied()
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        for k in keys {
+            let (old, new) = (
+                base.mastery_selections.get(&k),
+                c.mastery_selections.get(&k),
+            );
+            if old != new {
+                let v = new.map_or_else(|| "nil".to_owned(), ToString::to_string);
+                mastery_edits.push_str(&format!("  masteries[{k}] = {v}\n"));
+            }
+        }
         format!(
-            "do\n  local spec = build.spec\n  spec:ImportFromNodeList({class}, nil, nil, spec.curSecondaryAscendClassId or 0, {{{ids}}}, spec.hashOverrides, {{{masteries}}}, {version})\n  spec:AddUndoState()\nend\n",
+            "do\n  local spec = build.spec\n  local masteries = copyTable(spec.masterySelections)\n{mastery_edits}  spec:ImportFromNodeList({class}, nil, nil, spec.curSecondaryAscendClassId or 0, {{{ids}}}, spec.hashOverrides, masteries, {version})\n  spec:AddUndoState()\nend\n",
             class = lua_str(class),
             version = if tree_version.is_empty() { "nil".to_owned() } else { lua_str(tree_version) },
         )

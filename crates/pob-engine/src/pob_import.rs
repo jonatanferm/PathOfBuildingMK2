@@ -204,22 +204,30 @@ pub fn pob_tree_version(input: &str) -> Option<String> {
             .ok()?;
         String::from_utf8(out).ok()?
     };
+    let wanted = tree_active_spec(&xml);
+    let mut index = 0;
     let mut rest = xml.as_str();
     let mut fallback = None;
+    let mut first_with_nodes = None;
     while let Some(start) = rest.find("<Spec ") {
+        index += 1;
         let tag_end = rest[start..].find('>').map_or(rest.len(), |e| start + e);
         let tag = &rest[start..tag_end];
         let version = tag.find("treeVersion=\"").and_then(|v| {
             let v = &tag[v + "treeVersion=\"".len()..];
             v.find('"').map(|end| v[..end].to_owned())
         });
-        if tag.contains("nodes=\"") && !tag.contains("nodes=\"\"") {
+        let has_nodes = tag.contains("nodes=\"") && !tag.contains("nodes=\"\"");
+        if has_nodes && wanted == Some(index) {
             return version;
+        }
+        if has_nodes && first_with_nodes.is_none() {
+            first_with_nodes = Some(version.clone());
         }
         fallback = fallback.or(version);
         rest = &rest[tag_end..];
     }
-    fallback
+    first_with_nodes.flatten().or(fallback)
 }
 
 fn decode_loose_base64(s: &str) -> Option<Vec<u8>> {
@@ -239,6 +247,39 @@ fn decode_loose_base64(s: &str) -> Option<Vec<u8>> {
     None
 }
 
+/// Which `<Spec>` the importer takes: PoB's active one when it has nodes,
+/// else the first with nodes.
+#[derive(Default)]
+struct SpecPick {
+    /// `<Tree activeSpec>` (1-based).
+    wanted: Option<usize>,
+    /// 1-based index of the `<Spec>` being parsed.
+    index: usize,
+    /// Index of the spec taken so far.
+    chosen: usize,
+    got_wanted: bool,
+    masteries: Vec<(NodeId, u32)>,
+}
+
+/// `<Tree activeSpec="N">`, if present.
+fn tree_active_spec(xml: &str) -> Option<usize> {
+    let start = xml.find("<Tree ")?;
+    let tag = &xml[start..start + xml[start..].find('>')?];
+    let v = &tag[tag.find("activeSpec=\"")? + "activeSpec=\"".len()..];
+    v[..v.find('"')?].parse().ok()
+}
+
+/// PoB's `masteryEffects="{node,effect},{node,effect}"`.
+fn parse_mastery_effects(s: &str) -> Vec<(NodeId, u32)> {
+    s.split('}')
+        .filter_map(|pair| {
+            let pair = pair.trim_start_matches([',', '{', ' ']);
+            let (a, b) = pair.split_once(',')?;
+            Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+        })
+        .collect()
+}
+
 pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
@@ -250,6 +291,12 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
     let mut active_spec_pending: Option<Vec<NodeId>> = None;
     let mut active_spec_class: Option<String> = None;
     let mut active_spec_ascend: Option<String> = None;
+    // PoB's `<Tree activeSpec="N">` (1-based) picks which `<Spec>` is live;
+    // `specs` tracks the parse position and the chosen spec's extras.
+    let mut specs = SpecPick {
+        wanted: tree_active_spec(xml),
+        ..SpecPick::default()
+    };
     let mut notes_collect = String::new();
     let mut in_notes = false;
 
@@ -289,7 +336,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
     // after the parse loop, ignoring blocks under non-active specs.
     let mut current_override_node_id: Option<u32> = None;
     let mut current_override_body = String::new();
-    let mut tattoo_overrides_pending: std::collections::HashMap<u32, String> =
+    let mut tattoo_overrides_pending: std::collections::HashMap<(usize, u32), String> =
         std::collections::HashMap::new();
 
     loop {
@@ -304,6 +351,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                     &mut active_spec_pending,
                     &mut active_spec_class,
                     &mut active_spec_ascend,
+                    &mut specs,
                     &mut found_root,
                     &mut main_socket_group,
                     &mut active_item_set_id,
@@ -378,6 +426,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                     &mut active_spec_pending,
                     &mut active_spec_class,
                     &mut active_spec_ascend,
+                    &mut specs,
                     &mut found_root,
                     &mut main_socket_group,
                     &mut active_item_set_id,
@@ -491,7 +540,7 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
                     "Override" => {
                         if let Some(node_id) = current_override_node_id.take() {
                             let body = std::mem::take(&mut current_override_body);
-                            tattoo_overrides_pending.insert(node_id, body);
+                            tattoo_overrides_pending.insert((specs.index, node_id), body);
                         }
                     }
                     _ => {}
@@ -542,12 +591,16 @@ pub fn import_pob_xml(xml: &str) -> Result<Character, PobImportError> {
 
     if let Some(nodes) = active_spec_pending {
         character.allocated = nodes.into_iter().collect();
+        character.mastery_selections = specs.masteries.iter().copied().collect();
     }
     // Issue #98: install captured tattoo overrides. PoB strips the
     // outer XML escaping when reading; we round-trip the body verbatim
     // so multi-line mod text survives. Empty entries are dropped.
     if !tattoo_overrides_pending.is_empty() {
-        for (node_id, body) in tattoo_overrides_pending {
+        for ((spec_index, node_id), body) in tattoo_overrides_pending {
+            if spec_index != specs.chosen {
+                continue;
+            }
             let trimmed = body.trim();
             if !trimmed.is_empty() {
                 character
@@ -882,6 +935,7 @@ fn handle_start_attrs(
     active_spec_pending: &mut Option<Vec<NodeId>>,
     active_spec_class: &mut Option<String>,
     active_spec_ascend: &mut Option<String>,
+    specs: &mut SpecPick,
     found_root: &mut bool,
     main_socket_group: &mut Option<u32>,
     active_item_set_id: &mut Option<u32>,
@@ -980,6 +1034,8 @@ fn handle_start_attrs(
             let mut nodes: Option<Vec<NodeId>> = None;
             let mut class_attr: Option<String> = None;
             let mut ascend_attr: Option<String> = None;
+            let mut masteries: Vec<(NodeId, u32)> = Vec::new();
+            specs.index += 1;
             for attr in e.attributes().with_checks(false).flatten() {
                 let key = String::from_utf8_lossy(attr.key.as_ref()).into_owned();
                 let val = attr
@@ -996,15 +1052,22 @@ fn handle_start_attrs(
                             nodes = Some(parsed);
                         }
                     }
+                    "masteryEffects" => masteries = parse_mastery_effects(&val),
                     "classId" | "className" => class_attr = Some(val),
                     "ascendClassId" | "ascendClassName" => ascend_attr = Some(val),
                     _ => {}
                 }
             }
-            if active_spec_pending.is_none() && nodes.is_some() {
+            let is_wanted = specs.wanted == Some(specs.index);
+            if nodes.is_some()
+                && (is_wanted || (active_spec_pending.is_none() && !specs.got_wanted))
+            {
                 *active_spec_pending = nodes;
                 *active_spec_class = class_attr;
                 *active_spec_ascend = ascend_attr;
+                specs.masteries = masteries;
+                specs.chosen = specs.index;
+                specs.got_wanted = is_wanted;
             }
         }
         _ => {}
@@ -1014,6 +1077,19 @@ fn handle_start_attrs(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn imports_active_spec_and_masteries() {
+        let xml = r#"<PathOfBuilding><Build level="90" className="Witch"/><Tree activeSpec="2"><Spec treeVersion="3_12" nodes="1,2" masteryEffects="{9,1}"/><Spec treeVersion="3_29" nodes="3,4,5" masteryEffects="{4424,9088},{12169,39010}"/></Tree></PathOfBuilding>"#;
+        let c = import_pob_xml(xml).unwrap();
+        let mut alloc: Vec<_> = c.allocated.iter().copied().collect();
+        alloc.sort_unstable();
+        assert_eq!(alloc, vec![3, 4, 5]);
+        assert_eq!(c.mastery_selections.get(&4424), Some(&9088));
+        assert_eq!(c.mastery_selections.get(&12169), Some(&39010));
+        assert_eq!(c.mastery_selections.len(), 2);
+        assert_eq!(pob_tree_version(xml).as_deref(), Some("3_29"));
+    }
+
     use super::*;
 
     const SAMPLE_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>

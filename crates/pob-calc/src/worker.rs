@@ -51,6 +51,8 @@ pub struct Snapshot {
     pub point_req: String,
     /// JSON array of the sidebar's main-skill controls (`__mk2_ctl`).
     pub skill_select: String,
+    /// JSON of PoB's specs / item / skill / config sets (`__mk2_sets`).
+    pub sets: String,
 }
 
 /// One line of PoB's sidebar: `label` / `value` with `^7` / `^xRRGGBB`
@@ -258,7 +260,12 @@ if build then
         if c then ctls[#ctls + 1] = __mk2_ctl(n, c) end
     end
 end
-return table.concat(out, '\n'), pd and pd.str or '', pd and pd.req or '', __mk2_json(ctls)
+local sets = '{}'
+if build then
+    local ok, v = pcall(__mk2_sets)
+    if ok then sets = __mk2_json(v) end
+end
+return table.concat(out, '\n'), pd and pd.str or '', pd and pd.req or '', __mk2_json(ctls), sets
 ",
         )
         .unwrap_or_default();
@@ -292,5 +299,6 @@ return table.concat(out, '\n'), pd and pd.str or '', pd and pd.req or '', __mk2_
         point_display: nth(1),
         point_req: nth(2),
         skill_select: nth(3),
+        sets: nth(4),
     }
 }

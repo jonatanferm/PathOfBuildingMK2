@@ -581,6 +581,7 @@ pub fn ui(
     state: &mut SkillsTabState,
     character: &mut Character,
     registry: &SkillRegistry,
+    hide_sets: bool,
 ) -> bool {
     let mut changed = false;
 
@@ -601,90 +602,94 @@ pub fn ui(
     // Issue #222: skill-set switcher + save + manage popup, mirroring the
     // item-set switcher in items_tab. Picking an entry activates that saved
     // loadout (swaps its groups + main socket group onto the character).
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Skill set:");
-        let total = character.skill_sets.len();
-        if let Some(idx) = state.active_skill_set_idx {
-            if idx >= total {
-                state.active_skill_set_idx = None;
-            }
-        }
-        let selected_idx = state.active_skill_set_idx;
-        let closed_label = match selected_idx.and_then(|i| character.skill_sets.get(i)) {
-            Some(set) => {
-                set_switcher::format_set_dropdown_label(&set.name, selected_idx.unwrap(), true)
-            }
-            None if total == 0 => "(no saved sets)".to_owned(),
-            None => "Pick a saved set…".to_owned(),
-        };
-        let entries: Vec<(usize, String)> = character
-            .skill_sets
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (i, s.name.clone()))
-            .collect();
-        egui::ComboBox::from_id_salt("skill-set-switcher")
-            .width(220.0)
-            .selected_text(closed_label)
-            .show_ui(ui, |ui| {
-                if entries.is_empty() {
-                    ui.weak("Save a set below to populate the switcher.");
-                    return;
+    // With Path of Building running, the host draws PoB's own skill-set
+    // row instead (`hide_sets`).
+    if !hide_sets {
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Skill set:");
+            let total = character.skill_sets.len();
+            if let Some(idx) = state.active_skill_set_idx {
+                if idx >= total {
+                    state.active_skill_set_idx = None;
                 }
-                for (idx, name) in &entries {
-                    let is_active = selected_idx == Some(*idx);
-                    let label = set_switcher::format_set_dropdown_label(name, *idx, is_active);
-                    let tooltip = character
-                        .skill_sets
-                        .get(*idx)
-                        .map(|s| format_skill_set_tooltip_lines(s).join("\n"))
-                        .unwrap_or_default();
-                    if ui
-                        .selectable_label(is_active, label)
-                        .on_hover_text(tooltip)
-                        .clicked()
-                        && !is_active
-                        && character.activate_skill_set(*idx)
-                    {
-                        state.active_skill_set_idx = Some(*idx);
-                        changed = true;
+            }
+            let selected_idx = state.active_skill_set_idx;
+            let closed_label = match selected_idx.and_then(|i| character.skill_sets.get(i)) {
+                Some(set) => {
+                    set_switcher::format_set_dropdown_label(&set.name, selected_idx.unwrap(), true)
+                }
+                None if total == 0 => "(no saved sets)".to_owned(),
+                None => "Pick a saved set…".to_owned(),
+            };
+            let entries: Vec<(usize, String)> = character
+                .skill_sets
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (i, s.name.clone()))
+                .collect();
+            egui::ComboBox::from_id_salt("skill-set-switcher")
+                .width(220.0)
+                .selected_text(closed_label)
+                .show_ui(ui, |ui| {
+                    if entries.is_empty() {
+                        ui.weak("Save a set below to populate the switcher.");
+                        return;
                     }
-                }
-            });
-        if ui
-            .add_enabled(total > 0, egui::Button::new("Manage…"))
-            .on_hover_text("Rename / clone / delete / reorder saved skill sets.")
-            .clicked()
-        {
-            state.manage_skill_sets_open = true;
-        }
-    });
-    ui.horizontal(|ui| {
-        ui.label("Save as:");
-        ui.add(
-            egui::TextEdit::singleline(&mut state.skill_set_save_name)
-                .hint_text("new set name")
-                .desired_width(160.0),
-        );
-        let name = state.skill_set_save_name.trim().to_owned();
-        if ui
-            .add_enabled(!name.is_empty(), egui::Button::new("Save"))
-            .on_hover_text("Save the current groups + main socket group as a named skill set")
-            .clicked()
-        {
-            let idx = character.save_skill_set(name);
-            state.active_skill_set_idx = Some(idx);
-            state.skill_set_save_name.clear();
+                    for (idx, name) in &entries {
+                        let is_active = selected_idx == Some(*idx);
+                        let label = set_switcher::format_set_dropdown_label(name, *idx, is_active);
+                        let tooltip = character
+                            .skill_sets
+                            .get(*idx)
+                            .map(|s| format_skill_set_tooltip_lines(s).join("\n"))
+                            .unwrap_or_default();
+                        if ui
+                            .selectable_label(is_active, label)
+                            .on_hover_text(tooltip)
+                            .clicked()
+                            && !is_active
+                            && character.activate_skill_set(*idx)
+                        {
+                            state.active_skill_set_idx = Some(*idx);
+                            changed = true;
+                        }
+                    }
+                });
+            if ui
+                .add_enabled(total > 0, egui::Button::new("Manage…"))
+                .on_hover_text("Rename / clone / delete / reorder saved skill sets.")
+                .clicked()
+            {
+                state.manage_skill_sets_open = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Save as:");
+            ui.add(
+                egui::TextEdit::singleline(&mut state.skill_set_save_name)
+                    .hint_text("new set name")
+                    .desired_width(160.0),
+            );
+            let name = state.skill_set_save_name.trim().to_owned();
+            if ui
+                .add_enabled(!name.is_empty(), egui::Button::new("Save"))
+                .on_hover_text("Save the current groups + main socket group as a named skill set")
+                .clicked()
+            {
+                let idx = character.save_skill_set(name);
+                state.active_skill_set_idx = Some(idx);
+                state.skill_set_save_name.clear();
+                changed = true;
+            }
+        });
+        ui.separator();
+
+        if render_manage_skill_sets_popup(ui, state, character) {
             changed = true;
         }
-    });
-    ui.separator();
-
-    if render_manage_skill_sets_popup(ui, state, character) {
-        changed = true;
-    }
-    if render_skill_set_rename_popup(ui, state, character) {
-        changed = true;
+        if render_skill_set_rename_popup(ui, state, character) {
+            changed = true;
+        }
     }
 
     ui.horizontal(|ui| {

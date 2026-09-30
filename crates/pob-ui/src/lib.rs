@@ -45,6 +45,7 @@ mod pob_config_panel;
 mod pob_controls;
 #[cfg(not(target_arch = "wasm32"))]
 mod pob_session;
+mod pob_sets;
 mod pob_sidebar;
 mod pob_tooltip;
 mod popup;
@@ -325,6 +326,8 @@ struct LoadedApp {
     /// PoB-generated hover tooltips (tree nodes, items, gems).
     #[cfg(not(target_arch = "wasm32"))]
     pob_tooltips: pob_tooltip::Fetcher,
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_sets_state: pob_sets::PobSetsState,
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -789,6 +792,8 @@ impl PobApp {
             pob_skill_bufs: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_tooltips: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_sets_state: Default::default(),
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -901,6 +906,8 @@ impl PobApp {
             pob_skill_bufs: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pob_tooltips: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_sets_state: Default::default(),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -2006,133 +2013,155 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // spec (ascendancy, node count, add/remove delta vs the current
             // tree). Activating a spec swaps its allocation onto the character
             // and triggers a recompute.
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Spec:");
-                let total = app.character.specs.len();
-                if let Some(i) = app.active_spec_idx {
-                    if i >= total {
-                        app.active_spec_idx = None;
-                    }
+            #[cfg(not(target_arch = "wasm32"))]
+            let pob_sets_shown = match app.pob.as_mut() {
+                Some(pob) if pob.snapshot.is_some() => {
+                    pob_sets::row(
+                        ui,
+                        &mut app.pob_sets_state,
+                        pob,
+                        pob_sets::Kind::Spec,
+                        "Tree:",
+                    );
+                    true
                 }
-                let sel = app.active_spec_idx;
-                let closed = match sel.and_then(|i| app.character.specs.get(i)) {
-                    Some(s) => {
-                        crate::set_switcher::format_set_dropdown_label(&s.name, sel.unwrap(), true)
-                    }
-                    None if total == 0 => "(no saved specs)".to_owned(),
-                    None => "Pick a spec…".to_owned(),
-                };
-                let current: std::collections::HashSet<u32> =
-                    app.character.allocated.iter().copied().collect();
-                let entries: Vec<(usize, String, String)> = app
-                    .character
-                    .specs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| {
-                        let nodes: std::collections::HashSet<u32> =
-                            s.allocated.iter().copied().collect();
-                        let added = nodes.difference(&current).count();
-                        let removed = current.difference(&nodes).count();
-                        let tip = format_spec_tooltip(
-                            s.ascendancy.as_deref(),
-                            s.allocated.len(),
-                            added,
-                            removed,
-                        );
-                        (i, s.name.clone(), tip)
-                    })
-                    .collect();
-                egui::ComboBox::from_id_salt("spec-switcher")
-                    .width(200.0)
-                    .selected_text(closed)
-                    .show_ui(ui, |ui| {
-                        if entries.is_empty() {
-                            ui.weak("Save a spec below to populate the switcher.");
-                            return;
-                        }
-                        for (i, name, tip) in &entries {
-                            let is_active = sel == Some(*i);
-                            let label =
-                                crate::set_switcher::format_set_dropdown_label(name, *i, is_active);
-                            if ui
-                                .selectable_label(is_active, label)
-                                .on_hover_text(tip)
-                                .clicked()
-                                && !is_active
-                                && app.character.activate_spec(*i)
-                            {
-                                app.active_spec_idx = Some(*i);
-                                recompute = true;
-                            }
-                        }
-                    });
-                ui.add(
-                    egui::TextEdit::singleline(&mut app.spec_save_name)
-                        .hint_text("new spec name")
-                        .desired_width(120.0),
-                );
-                let nm = app.spec_save_name.trim().to_owned();
-                if ui
-                    .add_enabled(!nm.is_empty(), egui::Button::new("Save"))
-                    .on_hover_text("Save the current tree allocation as a named spec")
-                    .clicked()
-                {
-                    let idx = app.character.save_spec(nm);
-                    app.active_spec_idx = Some(idx);
-                    app.spec_save_name.clear();
-                }
-                if let Some(i) = app.active_spec_idx {
-                    if ui
-                        .add_enabled(i < app.character.specs.len(), egui::Button::new("Delete"))
-                        .on_hover_text("Delete the selected spec")
-                        .clicked()
-                        && app.character.delete_spec(i)
-                    {
-                        app.active_spec_idx = crate::set_switcher::shift_active_idx_after_delete(
-                            app.active_spec_idx,
-                            i,
-                        );
-                        // A deleted spec can't remain the compare target.
-                        if app.compare_spec_idx == Some(i) {
-                            app.compare_spec_idx = None;
+                _ => false,
+            };
+            #[cfg(target_arch = "wasm32")]
+            let pob_sets_shown = false;
+            if !pob_sets_shown {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Spec:");
+                    let total = app.character.specs.len();
+                    if let Some(i) = app.active_spec_idx {
+                        if i >= total {
+                            app.active_spec_idx = None;
                         }
                     }
-                }
-                // Issue #220: in-tree compare overlay — pick a spec to diff
-                // the current tree against (green = it adds, red = it drops).
-                if total > 0 {
-                    if let Some(i) = app.compare_spec_idx {
-                        if i >= app.character.specs.len() {
-                            app.compare_spec_idx = None;
-                        }
-                    }
-                    let cmp_label = match app
-                        .compare_spec_idx
-                        .and_then(|i| app.character.specs.get(i))
-                    {
-                        Some(s) => format!("Compare vs: {}", s.name),
-                        None => "Compare: off".to_owned(),
+                    let sel = app.active_spec_idx;
+                    let closed = match sel.and_then(|i| app.character.specs.get(i)) {
+                        Some(s) => crate::set_switcher::format_set_dropdown_label(
+                            &s.name,
+                            sel.unwrap(),
+                            true,
+                        ),
+                        None if total == 0 => "(no saved specs)".to_owned(),
+                        None => "Pick a spec…".to_owned(),
                     };
-                    egui::ComboBox::from_id_salt("spec-compare-overlay")
-                        .selected_text(cmp_label)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut app.compare_spec_idx, None, "off");
-                            for (i, name, _) in &entries {
-                                ui.selectable_value(
-                                    &mut app.compare_spec_idx,
-                                    Some(*i),
-                                    format!("vs {name}"),
-                                );
-                            }
+                    let current: std::collections::HashSet<u32> =
+                        app.character.allocated.iter().copied().collect();
+                    let entries: Vec<(usize, String, String)> = app
+                        .character
+                        .specs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| {
+                            let nodes: std::collections::HashSet<u32> =
+                                s.allocated.iter().copied().collect();
+                            let added = nodes.difference(&current).count();
+                            let removed = current.difference(&nodes).count();
+                            let tip = format_spec_tooltip(
+                                s.ascendancy.as_deref(),
+                                s.allocated.len(),
+                                added,
+                                removed,
+                            );
+                            (i, s.name.clone(), tip)
                         })
-                        .response
-                        .on_hover_text(
-                            "Overlay the tree with this spec's diff vs the current \
-                             allocation: green = nodes it adds, red = nodes it drops.",
-                        );
-                }
-            });
+                        .collect();
+                    egui::ComboBox::from_id_salt("spec-switcher")
+                        .width(200.0)
+                        .selected_text(closed)
+                        .show_ui(ui, |ui| {
+                            if entries.is_empty() {
+                                ui.weak("Save a spec below to populate the switcher.");
+                                return;
+                            }
+                            for (i, name, tip) in &entries {
+                                let is_active = sel == Some(*i);
+                                let label = crate::set_switcher::format_set_dropdown_label(
+                                    name, *i, is_active,
+                                );
+                                if ui
+                                    .selectable_label(is_active, label)
+                                    .on_hover_text(tip)
+                                    .clicked()
+                                    && !is_active
+                                    && app.character.activate_spec(*i)
+                                {
+                                    app.active_spec_idx = Some(*i);
+                                    recompute = true;
+                                }
+                            }
+                        });
+                    ui.add(
+                        egui::TextEdit::singleline(&mut app.spec_save_name)
+                            .hint_text("new spec name")
+                            .desired_width(120.0),
+                    );
+                    let nm = app.spec_save_name.trim().to_owned();
+                    if ui
+                        .add_enabled(!nm.is_empty(), egui::Button::new("Save"))
+                        .on_hover_text("Save the current tree allocation as a named spec")
+                        .clicked()
+                    {
+                        let idx = app.character.save_spec(nm);
+                        app.active_spec_idx = Some(idx);
+                        app.spec_save_name.clear();
+                    }
+                    if let Some(i) = app.active_spec_idx {
+                        if ui
+                            .add_enabled(i < app.character.specs.len(), egui::Button::new("Delete"))
+                            .on_hover_text("Delete the selected spec")
+                            .clicked()
+                            && app.character.delete_spec(i)
+                        {
+                            app.active_spec_idx =
+                                crate::set_switcher::shift_active_idx_after_delete(
+                                    app.active_spec_idx,
+                                    i,
+                                );
+                            // A deleted spec can't remain the compare target.
+                            if app.compare_spec_idx == Some(i) {
+                                app.compare_spec_idx = None;
+                            }
+                        }
+                    }
+                    // Issue #220: in-tree compare overlay — pick a spec to diff
+                    // the current tree against (green = it adds, red = it drops).
+                    if total > 0 {
+                        if let Some(i) = app.compare_spec_idx {
+                            if i >= app.character.specs.len() {
+                                app.compare_spec_idx = None;
+                            }
+                        }
+                        let cmp_label = match app
+                            .compare_spec_idx
+                            .and_then(|i| app.character.specs.get(i))
+                        {
+                            Some(s) => format!("Compare vs: {}", s.name),
+                            None => "Compare: off".to_owned(),
+                        };
+                        egui::ComboBox::from_id_salt("spec-compare-overlay")
+                            .selected_text(cmp_label)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut app.compare_spec_idx, None, "off");
+                                for (i, name, _) in &entries {
+                                    ui.selectable_value(
+                                        &mut app.compare_spec_idx,
+                                        Some(*i),
+                                        format!("vs {name}"),
+                                    );
+                                }
+                            })
+                            .response
+                            .on_hover_text(
+                                "Overlay the tree with this spec's diff vs the current \
+                                 allocation: green = nodes it adds, red = nodes it drops.",
+                            );
+                    }
+                });
+            }
             #[cfg(not(target_arch = "wasm32"))]
             let pob_shown = pob_character_summary(ui, app);
             #[cfg(target_arch = "wasm32")]
@@ -2607,8 +2636,20 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                     .map(|n| matches!(n.kind, pob_data::NodeKind::Mastery))
                     .unwrap_or(false);
 
+                #[cfg(not(target_arch = "wasm32"))]
+                let pob_ready = app.pob.as_ref().is_some_and(|p| p.snapshot.is_some());
+                #[cfg(target_arch = "wasm32")]
+                let pob_ready = false;
                 if synthetic_anchor {
                     // no-op
+                } else if pob_ready && allowed_ascend && !is_mastery {
+                    // Path of Building decides what a click allocates or
+                    // removes (paths, dependents, jewel-radius nodes, …).
+                    app.record_undo_snapshot();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if let Some(pob) = app.pob.as_mut() {
+                        pob.click_node(id);
+                    }
                 } else if !allowed_ascend {
                     app.status_message = Some((
                         StatusKind::Error,
@@ -2840,6 +2881,16 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // it onto the undo stack only when the tab signals change.
             let pending = PendingSnapshot::capture(&app.build_snapshot());
             #[cfg(not(target_arch = "wasm32"))]
+            let hide_sets = match app.pob.as_mut() {
+                Some(pob) if pob.snapshot.is_some() => {
+                    pob_sets::row(ui, &mut app.pob_sets_state, pob, pob_sets::Kind::Item, "Item set:");
+                    true
+                }
+                _ => false,
+            };
+            #[cfg(target_arch = "wasm32")]
+            let hide_sets = false;
+            #[cfg(not(target_arch = "wasm32"))]
             let (pob, tips) = (&mut app.pob, &mut app.pob_tooltips);
             let repaint_ctx = ui.ctx().clone();
             let mut pob_tip = |item: &pob_data::Item, slot: Option<pob_data::Slot>| {
@@ -2877,6 +2928,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 &mut app.shared_items,
                 &app.enchants,
                 &mut pob_tip,
+                hide_sets,
             ) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
@@ -2901,7 +2953,18 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // Issue #204 (slice 2): same pattern as Items tab — capture
             // pre-mutation Character, commit only on `changed = true`.
             let pending = PendingSnapshot::capture(&app.build_snapshot());
-            if skills_tab::ui(ui, &mut app.skills_state, &mut app.character, &app.skills) {
+            #[cfg(not(target_arch = "wasm32"))]
+            let hide_sets = match app.pob.as_mut() {
+                Some(pob) if pob.snapshot.is_some() => {
+                    pob_sets::row(ui, &mut app.pob_sets_state, pob, pob_sets::Kind::Skill, "Skill set:");
+                    ui.separator();
+                    true
+                }
+                _ => false,
+            };
+            #[cfg(target_arch = "wasm32")]
+            let hide_sets = false;
+            if skills_tab::ui(ui, &mut app.skills_state, &mut app.character, &app.skills, hide_sets) {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
             }
@@ -2914,7 +2977,7 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
                 .is_some_and(|p| !matches!(p.status, pob_session::SessionStatus::Failed(_))) =>
         {
             if let Some(pob) = app.pob.as_mut() {
-                pob_config_panel::ui(ui, &mut app.pob_config_state, pob);
+                pob_config_panel::ui(ui, &mut app.pob_config_state, &mut app.pob_sets_state, pob);
             }
         }
         Tab::Config => {

@@ -874,6 +874,7 @@ pub fn ui(
     shared_items: &mut SharedItemStore,
     enchants: &LoadedEnchants,
     pob_tip: PobTip<'_>,
+    hide_sets: bool,
 ) -> bool {
     let mut changed = false;
     let helmet_enchants = enchants.helmet.as_ref();
@@ -883,160 +884,164 @@ pub fn ui(
     // the inline "Load" button). A "Manage sets…" button next to it
     // opens a popup that surfaces rename / clone / delete in one place
     // so the chip row stays compact on builds with many sets.
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Active set:");
-        let total = character.item_sets.len();
-        // Clamp the remembered index so a delete-while-popup-closed
-        // doesn't leave a dangling out-of-range pointer.
-        if let Some(idx) = state.active_item_set_idx {
-            if idx >= total {
-                state.active_item_set_idx = None;
-            }
-        }
-        let selected_idx = state.active_item_set_idx;
-        let closed_label = match selected_idx.and_then(|i| character.item_sets.get(i)) {
-            Some(set) => format_set_dropdown_label(&set.name, selected_idx.unwrap(), true),
-            None if total == 0 => "(no saved sets)".to_owned(),
-            None => "Pick a saved set…".to_owned(),
-        };
-        // Snapshot the names so the combo body doesn't hold an
-        // immutable borrow of `character.item_sets` while it tries to
-        // call `character.activate_item_set` (which needs `&mut self`).
-        let entries: Vec<(usize, String)> = character
-            .item_sets
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (i, s.name.clone()))
-            .collect();
-        let combo = egui::ComboBox::from_id_salt("item-set-switcher")
-            .width(220.0)
-            .selected_text(closed_label);
-        combo.show_ui(ui, |ui| {
-            if entries.is_empty() {
-                ui.weak("Save a set below to populate the switcher.");
-                return;
-            }
-            for (idx, name) in &entries {
-                let is_active = selected_idx == Some(*idx);
-                let label = format_set_dropdown_label(name, *idx, is_active);
-                // Issue #222: per-row hover surfaces slot + mod-line
-                // counts so the user can size up a set without
-                // committing to the load.
-                let tooltip = character
-                    .item_sets
-                    .get(*idx)
-                    .map(|set| format_item_set_tooltip_lines(set).join("\n"))
-                    .unwrap_or_default();
-                let resp = ui.selectable_label(is_active, label).on_hover_text(tooltip);
-                if resp.clicked() && !is_active {
-                    if character.activate_item_set(*idx) {
-                        state.active_item_set_idx = Some(*idx);
-                        changed = true;
-                    }
+    // With Path of Building running, the host draws PoB's own item-set
+    // row instead (`hide_sets`).
+    if !hide_sets {
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Active set:");
+            let total = character.item_sets.len();
+            // Clamp the remembered index so a delete-while-popup-closed
+            // doesn't leave a dangling out-of-range pointer.
+            if let Some(idx) = state.active_item_set_idx {
+                if idx >= total {
+                    state.active_item_set_idx = None;
                 }
             }
-        });
-        if ui
-            .add_enabled(total > 0, egui::Button::new("Manage sets…"))
-            .on_hover_text("Open the rename / clone / delete popup for saved item sets.")
-            .clicked()
-        {
-            state.manage_sets_open = true;
-        }
-    });
-    // Issue #27: item-set saves. Top row lets the user save the current
-    // loadout as a named set, swap a saved set in, or delete one.
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Item sets:");
-        let total = character.item_sets.len();
-        if total == 0 {
-            ui.weak("(none saved)");
-        } else {
-            // Snapshot names so we don't borrow `character.item_sets`
-            // while mutating it inside the loop.
+            let selected_idx = state.active_item_set_idx;
+            let closed_label = match selected_idx.and_then(|i| character.item_sets.get(i)) {
+                Some(set) => format_set_dropdown_label(&set.name, selected_idx.unwrap(), true),
+                None if total == 0 => "(no saved sets)".to_owned(),
+                None => "Pick a saved set…".to_owned(),
+            };
+            // Snapshot the names so the combo body doesn't hold an
+            // immutable borrow of `character.item_sets` while it tries to
+            // call `character.activate_item_set` (which needs `&mut self`).
             let entries: Vec<(usize, String)> = character
                 .item_sets
                 .iter()
                 .enumerate()
                 .map(|(i, s)| (i, s.name.clone()))
                 .collect();
-            for (idx, name) in entries {
-                if ui.button(format!("Load {name}")).clicked() {
-                    if character.activate_item_set(idx) {
-                        // Issue #222: keep the switcher dropdown in sync
-                        // with the inline chip's load action so both
-                        // entry points agree on the active set.
-                        state.active_item_set_idx = Some(idx);
-                        changed = true;
+            let combo = egui::ComboBox::from_id_salt("item-set-switcher")
+                .width(220.0)
+                .selected_text(closed_label);
+            combo.show_ui(ui, |ui| {
+                if entries.is_empty() {
+                    ui.weak("Save a set below to populate the switcher.");
+                    return;
+                }
+                for (idx, name) in &entries {
+                    let is_active = selected_idx == Some(*idx);
+                    let label = format_set_dropdown_label(name, *idx, is_active);
+                    // Issue #222: per-row hover surfaces slot + mod-line
+                    // counts so the user can size up a set without
+                    // committing to the load.
+                    let tooltip = character
+                        .item_sets
+                        .get(*idx)
+                        .map(|set| format_item_set_tooltip_lines(set).join("\n"))
+                        .unwrap_or_default();
+                    let resp = ui.selectable_label(is_active, label).on_hover_text(tooltip);
+                    if resp.clicked() && !is_active {
+                        if character.activate_item_set(*idx) {
+                            state.active_item_set_idx = Some(*idx);
+                            changed = true;
+                        }
                     }
                 }
-                // Issue #212 (slice 1): rename — opens the popup
-                // seeded with the current name. Validation lives in
-                // `rename_item_set`; the popup surfaces errors inline.
-                if ui
-                    .small_button("✎")
-                    .on_hover_text(format!("Rename {name}"))
-                    .clicked()
-                {
-                    state.item_set_rename = Some(ItemSetRenameState {
-                        index: idx,
-                        buffer: name.clone(),
-                        last_error: None,
-                    });
-                }
-                // Issue #212 (slice 1): clone — duplicates the set in
-                // place (inserted right after the source). Auto-named
-                // " (copy)" / " (copy 2)" / … to avoid collisions.
-                if ui
-                    .small_button("⎘")
-                    .on_hover_text(format!("Clone {name}"))
-                    .clicked()
-                {
-                    let _ = clone_item_set(character, idx);
-                    // No recompute — cloning a saved (inactive) set
-                    // doesn't change `character.items`.
-                }
-                if ui
-                    .small_button("✕")
-                    .on_hover_text(format!("Delete {name}"))
-                    .clicked()
-                {
-                    if character.delete_item_set(idx) {
-                        // Issue #222: keep the switcher pointer
-                        // consistent (clear on self-delete, shift down
-                        // on earlier-delete). No recompute — deleting a
-                        // saved (inactive) set doesn't change
-                        // `character.items`.
-                        state.active_item_set_idx =
-                            shift_active_idx_after_delete(state.active_item_set_idx, idx);
+            });
+            if ui
+                .add_enabled(total > 0, egui::Button::new("Manage sets…"))
+                .on_hover_text("Open the rename / clone / delete popup for saved item sets.")
+                .clicked()
+            {
+                state.manage_sets_open = true;
+            }
+        });
+        // Issue #27: item-set saves. Top row lets the user save the current
+        // loadout as a named set, swap a saved set in, or delete one.
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Item sets:");
+            let total = character.item_sets.len();
+            if total == 0 {
+                ui.weak("(none saved)");
+            } else {
+                // Snapshot names so we don't borrow `character.item_sets`
+                // while mutating it inside the loop.
+                let entries: Vec<(usize, String)> = character
+                    .item_sets
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| (i, s.name.clone()))
+                    .collect();
+                for (idx, name) in entries {
+                    if ui.button(format!("Load {name}")).clicked() {
+                        if character.activate_item_set(idx) {
+                            // Issue #222: keep the switcher dropdown in sync
+                            // with the inline chip's load action so both
+                            // entry points agree on the active set.
+                            state.active_item_set_idx = Some(idx);
+                            changed = true;
+                        }
+                    }
+                    // Issue #212 (slice 1): rename — opens the popup
+                    // seeded with the current name. Validation lives in
+                    // `rename_item_set`; the popup surfaces errors inline.
+                    if ui
+                        .small_button("✎")
+                        .on_hover_text(format!("Rename {name}"))
+                        .clicked()
+                    {
+                        state.item_set_rename = Some(ItemSetRenameState {
+                            index: idx,
+                            buffer: name.clone(),
+                            last_error: None,
+                        });
+                    }
+                    // Issue #212 (slice 1): clone — duplicates the set in
+                    // place (inserted right after the source). Auto-named
+                    // " (copy)" / " (copy 2)" / … to avoid collisions.
+                    if ui
+                        .small_button("⎘")
+                        .on_hover_text(format!("Clone {name}"))
+                        .clicked()
+                    {
+                        let _ = clone_item_set(character, idx);
+                        // No recompute — cloning a saved (inactive) set
+                        // doesn't change `character.items`.
+                    }
+                    if ui
+                        .small_button("✕")
+                        .on_hover_text(format!("Delete {name}"))
+                        .clicked()
+                    {
+                        if character.delete_item_set(idx) {
+                            // Issue #222: keep the switcher pointer
+                            // consistent (clear on self-delete, shift down
+                            // on earlier-delete). No recompute — deleting a
+                            // saved (inactive) set doesn't change
+                            // `character.items`.
+                            state.active_item_set_idx =
+                                shift_active_idx_after_delete(state.active_item_set_idx, idx);
+                        }
                     }
                 }
             }
+            ui.separator();
+            ui.add(
+                egui::TextEdit::singleline(&mut state.new_set_name)
+                    .desired_width(120.0)
+                    .hint_text("New set name…"),
+            );
+            let save_enabled = !state.new_set_name.trim().is_empty();
+            if ui
+                .add_enabled(save_enabled, egui::Button::new("Save current as set"))
+                .clicked()
+            {
+                character.save_item_set(state.new_set_name.trim().to_owned());
+                state.new_set_name.clear();
+            }
+        });
+        // Issue #212 (slice 1): rename popup. Drawn at the top of the tab so
+        // it floats over whatever the user is doing.
+        render_item_set_rename_popup(ui, character, &mut state.item_set_rename);
+        // Issue #222: manage-sets popup. Same actions as the inline chip
+        // row, surfaced in a dedicated window so the top bar stays compact
+        // on builds with many saved sets. Returns true if a load happened
+        // inside the popup so the calc engine recomputes.
+        if render_manage_sets_popup(ui, character, state) {
+            changed = true;
         }
-        ui.separator();
-        ui.add(
-            egui::TextEdit::singleline(&mut state.new_set_name)
-                .desired_width(120.0)
-                .hint_text("New set name…"),
-        );
-        let save_enabled = !state.new_set_name.trim().is_empty();
-        if ui
-            .add_enabled(save_enabled, egui::Button::new("Save current as set"))
-            .clicked()
-        {
-            character.save_item_set(state.new_set_name.trim().to_owned());
-            state.new_set_name.clear();
-        }
-    });
-    // Issue #212 (slice 1): rename popup. Drawn at the top of the tab so
-    // it floats over whatever the user is doing.
-    render_item_set_rename_popup(ui, character, &mut state.item_set_rename);
-    // Issue #222: manage-sets popup. Same actions as the inline chip
-    // row, surfaced in a dedicated window so the top bar stays compact
-    // on builds with many saved sets. Returns true if a load happened
-    // inside the popup so the calc engine recomputes.
-    if render_manage_sets_popup(ui, character, state) {
-        changed = true;
     }
     // Issue #221 (picker slice): the Apply-Enchantment popup.
     // Dispatch on the active slot — helmets use the skill-keyed

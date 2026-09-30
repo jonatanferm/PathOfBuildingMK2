@@ -42,7 +42,12 @@ fn value_as_text(v: Option<&Value>) -> String {
 }
 
 /// Render the tab. Returns true if the build changed.
-pub fn ui(ui: &mut egui::Ui, state: &mut PobConfigState, pob: &mut PobSession) -> bool {
+pub fn ui(
+    ui: &mut egui::Ui,
+    state: &mut PobConfigState,
+    sets: &mut crate::pob_sets::PobSetsState,
+    pob: &mut PobSession,
+) -> bool {
     // (Re)fetch the option list after each recalculation: relevance depends
     // on the build.
     let snap_seq = pob.snapshot.as_ref().map(|s| s.seq);
@@ -66,6 +71,7 @@ pub fn ui(ui: &mut egui::Ui, state: &mut PobConfigState, pob: &mut PobSession) -
         }
     }
 
+    crate::pob_sets::row(ui, sets, pob, crate::pob_sets::Kind::Config, "Config set:");
     ui.horizontal(|ui| {
         ui.label("Search:");
         ui.add(egui::TextEdit::singleline(&mut state.search).desired_width(240.0));

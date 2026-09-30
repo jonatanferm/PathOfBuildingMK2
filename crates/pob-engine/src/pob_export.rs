@@ -46,10 +46,21 @@ pub fn export_pob_xml(character: &Character) -> String {
         msg = character.main_socket_group.max(1),
     );
     out.push_str("    <Tree activeSpec=\"1\">\n");
+    let mut mastery_pairs: Vec<(pob_data::NodeId, u32)> = character
+        .mastery_selections
+        .iter()
+        .map(|(k, v)| (*k, *v))
+        .collect();
+    mastery_pairs.sort_unstable();
+    let masteries = mastery_pairs
+        .iter()
+        .map(|(k, v)| format!("{{{k},{v}}}"))
+        .collect::<Vec<_>>()
+        .join(",");
     if character.tattoo_overrides.is_empty() {
         let _ = writeln!(
             out,
-            "        <Spec masteryEffects=\"\" treeVersion=\"3_25\" classId=\"{cid}\" ascendClassId=\"0\" nodes=\"{nodes}\"/>",
+            "        <Spec masteryEffects=\"{masteries}\" treeVersion=\"3_25\" classId=\"{cid}\" ascendClassId=\"0\" nodes=\"{nodes}\"/>",
             cid = class_id,
             nodes = nodes_str,
         );
@@ -62,7 +73,7 @@ pub fn export_pob_xml(character: &Character) -> String {
         // extraction will populate them in slice 2).
         let _ = writeln!(
             out,
-            "        <Spec masteryEffects=\"\" treeVersion=\"3_25\" classId=\"{cid}\" ascendClassId=\"0\" nodes=\"{nodes}\">",
+            "        <Spec masteryEffects=\"{masteries}\" treeVersion=\"3_25\" classId=\"{cid}\" ascendClassId=\"0\" nodes=\"{nodes}\">",
             cid = class_id,
             nodes = nodes_str,
         );

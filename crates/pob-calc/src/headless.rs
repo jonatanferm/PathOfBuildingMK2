@@ -160,6 +160,63 @@ function __mk2_tooltip(tt)
     return __mk2_json(out)
 end
 
+-- PoB's tree specs / item sets / skill sets / config sets: titles and the
+-- active index of each.
+function __mk2_sets()
+    local function ordered(order, sets, active)
+        local t = { items = {}, sel = 1 }
+        for i, id in ipairs(order) do
+            t.items[i] = sets[id] and sets[id].title or "Default"
+            if id == active then t.sel = i end
+        end
+        return t
+    end
+    return {
+        spec = { items = build.treeTab:GetSpecList(), sel = build.treeTab.activeSpec or 1 },
+        item = ordered(build.itemsTab.itemSetOrderList, build.itemsTab.itemSets, build.itemsTab.activeItemSetId),
+        skill = ordered(build.skillsTab.skillSetOrderList, build.skillsTab.skillSets, build.skillsTab.activeSkillSetId),
+        config = ordered(build.configTab.configSetOrderList, build.configTab.configSets, build.configTab.activeConfigSetId),
+    }
+end
+
+-- Select / new / copy / rename / delete a set, through PoB's own manage
+-- list control and its name / confirm popup.
+function __mk2_set_op(kind, op, index, title)
+    if op == "select" then
+        if kind == "spec" then
+            build.treeTab:SetActiveSpec(index)
+        elseif kind == "item" then
+            build.itemsTab:SetActiveItemSet(build.itemsTab.itemSetOrderList[index])
+        elseif kind == "skill" then
+            build.skillsTab:SetActiveSkillSet(build.skillsTab.skillSetOrderList[index])
+        else
+            build.configTab:SetActiveConfigSet(build.configTab.configSetOrderList[index])
+        end
+        return
+    end
+    local kinds = {
+        spec = { "PassiveSpecListControl", build.treeTab },
+        item = { "ItemSetListControl", build.itemsTab },
+        skill = { "SkillSetListControl", build.skillsTab },
+        config = { "ConfigSetListControl", build.configTab },
+    }
+    local k = kinds[kind]
+    local ctl = new(k[1])
+    ctl[k[1]](ctl, nil, { 0, 0, 300, 300 }, k[2])
+    if index then
+        ctl.selIndex = index
+        ctl.selValue = ctl.list[index]
+    end
+    ctl.controls[op].onClick()
+    local p = main.popups[1]
+    if p then
+        if title and p.controls.edit then p.controls.edit:SetText(title, true) end
+        local b = p.controls.save or p.controls.confirm
+        if b then b.onClick() end
+    end
+    while main.popups[1] do main:ClosePopup() end
+end
+
 -- Drive a PoB control the way a click / edit would.
 function __mk2_set_ctl(c, v)
     if c.list then

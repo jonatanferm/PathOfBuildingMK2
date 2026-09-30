@@ -36,6 +36,8 @@ fn worker_snapshot() {
                     s.point_display, s.skill_select
                 );
                 assert!(s.skill_select.contains("mainSocketGroup"));
+                eprintln!("sets={}", s.sets);
+                assert!(s.sets.contains("\"spec\""));
                 assert_eq!(s.outputs.get("Life"), Some(6728.0));
                 break;
             }
