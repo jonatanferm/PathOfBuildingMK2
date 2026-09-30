@@ -3325,13 +3325,8 @@ fn try_autosave(app: &mut LoadedApp) {
         .and_then(|s| s.to_str())
         .map(|s| s.eq_ignore_ascii_case("xml"))
         .unwrap_or(false);
-    let pob_xml = app
-        .pob
-        .as_ref()
-        .and_then(|p| p.snapshot.as_ref())
-        .map(|s| s.xml.clone());
     let payload = if is_xml {
-        Ok(pob_xml.unwrap_or_else(|| pob_engine::export_pob_xml(&app.character)))
+        Ok(current_pob_xml(app))
     } else {
         pob_engine::export_code(&app.character).map_err(|e| e.to_string())
     };
@@ -4728,8 +4723,8 @@ fn handle_builds_action(app: &mut LoadedApp, action: builds_tab::BuildsAction) {
                 path.push(cat);
                 let _ = std::fs::create_dir_all(&path);
             }
-            path.push(format!("{name}.mk2"));
-            let payload = pob_engine::export_code(&app.character).map_err(|e| e.to_string());
+            path.push(format!("{name}.xml"));
+            let payload: Result<String, String> = Ok(current_pob_xml(app));
             match payload.and_then(|code| std::fs::write(&path, code).map_err(|e| e.to_string())) {
                 Ok(()) => {
                     app.current_build_path = Some(path.clone());
@@ -5110,6 +5105,22 @@ fn apply_storage_events(app: &mut LoadedApp) -> bool {
     character_changed
 }
 
+/// The build as PoB XML: Path of Building's own save when it's running
+/// (everything, including what MK2 doesn't model), else MK2's export.
+fn current_pob_xml(app: &LoadedApp) -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(xml) = app
+        .pob
+        .as_ref()
+        .and_then(|p| p.snapshot.as_ref())
+        .map(|s| s.xml.clone())
+        .filter(|x| !x.is_empty())
+    {
+        return xml;
+    }
+    pob_engine::export_pob_xml(&app.character)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn save_build(app: &mut LoadedApp, force_dialog: bool) {
     let path = if force_dialog || app.current_build_path.is_none() {
@@ -5133,7 +5144,7 @@ fn save_build(app: &mut LoadedApp, force_dialog: bool) {
         .map(|s| s.eq_ignore_ascii_case("xml"))
         .unwrap_or(false);
     let payload = if is_xml {
-        Ok(pob_engine::export_pob_xml(&app.character))
+        Ok(current_pob_xml(app))
     } else {
         pob_engine::export_code(&app.character).map_err(|e| e.to_string())
     };
