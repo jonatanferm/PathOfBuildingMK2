@@ -26,6 +26,9 @@ pub struct Ctl {
     pub buf: String,
     #[serde(default)]
     pub state: bool,
+    /// The control's own label, when PoB gives it one.
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 fn yes() -> bool {
@@ -64,6 +67,7 @@ pub fn show(ui: &mut egui::Ui, c: &Ctl, id: &str, bufs: &mut EditBufs) -> Option
             egui::ComboBox::from_id_salt(("pob_ctl", id))
                 .selected_text(job(&current, 13.0))
                 .width(ui.available_width().min(260.0))
+                .truncate()
                 .show_ui(ui, |ui| {
                     for (i, item) in c.items.iter().enumerate() {
                         if ui
@@ -83,7 +87,10 @@ pub fn show(ui: &mut egui::Ui, c: &Ctl, id: &str, bufs: &mut EditBufs) -> Option
                 .bufs
                 .entry(id.to_owned())
                 .or_insert_with(|| c.buf.clone());
-            let resp = ui.add(egui::TextEdit::singleline(buf).desired_width(60.0));
+            let resp = ui.add(
+                egui::TextEdit::singleline(buf)
+                    .desired_width(ui.available_width().clamp(36.0, 60.0)),
+            );
             let commit = resp.lost_focus()
                 || (resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
             (commit && *buf != c.buf).then(|| Value::String(buf.clone()))

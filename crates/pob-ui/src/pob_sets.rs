@@ -111,7 +111,8 @@ pub fn row(
             .unwrap_or_default();
         egui::ComboBox::from_id_salt(("pob_sets", kind.key()))
             .selected_text(job(&current, 13.0))
-            .width(200.0)
+            .width(180.0)
+            .truncate()
             .show_ui(ui, |ui| {
                 for (i, title) in list.items.iter().enumerate() {
                     if ui

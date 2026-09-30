@@ -263,11 +263,14 @@ end
 -- A PoB UI control as data: dropdown items/selection, edit buffer or
 -- checkbox state, plus PoB's own shown/enabled rules.
 function __mk2_ctl(name, c)
-    local shown = c:GetProperty("shown")
-    if shown == nil then shown = true end
-    local enabled = c:GetProperty("enabled")
-    if enabled == nil then enabled = true end
-    local d = { n = name, shown = shown and true or false, en = enabled and true or false }
+    local shown, enabled = true, true
+    if c.shown ~= nil then shown = c:GetProperty("shown") and true or false end
+    if c.enabled ~= nil then enabled = c:GetProperty("enabled") and true or false end
+    local d = { n = name, shown = shown, en = enabled }
+    if c.label ~= nil then
+        local ok, label = pcall(c.GetProperty, c, "label")
+        if ok and type(label) == "string" then d.label = label end
+    end
     if c.list then
         d.k = "drop"
         d.items = {}
@@ -359,6 +362,134 @@ function __mk2_set_op(kind, op, index, title)
         if b then b.onClick() end
     end
     while main.popups[1] do main:ClosePopup() end
+end
+
+-- The Skills tab: socket groups, and PoB's own controls for the group
+-- being edited (`skillsTab.displayGroup`).
+function __mk2_skills()
+    local st = build.skillsTab
+    local out = { groups = {}, display = 0, main = build.mainSocketGroup }
+    for i, g in ipairs(st.socketGroupList) do
+        out.groups[i] = {
+            label = g.displayLabel or g.label or "",
+            enabled = g.enabled and true or false,
+            slot = g.slot or "",
+            full = g.includeInFullDPS and true or false,
+            source = g.source and true or false,
+            n = #g.gemList,
+        }
+        if g == st.displayGroup then out.display = i end
+    end
+    local g = st.displayGroup
+    if g then
+        st:SetDisplayGroup(g)
+        local c = st.controls
+        out.ctls = {
+            __mk2_ctl("groupLabel", c.groupLabel),
+            __mk2_ctl("groupSlot", c.groupSlot),
+            __mk2_ctl("groupEnabled", c.groupEnabled),
+            __mk2_ctl("includeInFullDPS", c.includeInFullDPS),
+            __mk2_ctl("groupCount", c.groupCount),
+        }
+        out.fromItem = g.source and true or false
+        out.gems = {}
+        for i = 1, #g.gemList + 1 do
+            local s = st.gemSlots[i]
+            local gi = g.gemList[i]
+            if s then
+                out.gems[i] = {
+                    name = s.nameSpec.buf or "",
+                    color = gi and gi.color or "",
+                    err = gi and gi.errMsg or "",
+                    level = __mk2_ctl("level", s.level),
+                    quality = __mk2_ctl("quality", s.quality),
+                    enabled = __mk2_ctl("enabled", s.enabled),
+                    count = __mk2_ctl("count", s.count),
+                    g1 = __mk2_ctl("enableGlobal1", s.enableGlobal1),
+                    g2 = __mk2_ctl("enableGlobal2", s.enableGlobal2),
+                }
+            end
+        end
+    end
+    return __mk2_json(out)
+end
+
+-- Every gem PoB offers: name, support flag, colour (1 str, 2 dex, 3 int).
+function __mk2_gem_catalog()
+    local out = {}
+    for _, g in pairs(build.data.gems) do
+        if not g.grantedEffect.hideFromGemList then
+            out[#out + 1] = {
+                n = g.name,
+                s = g.grantedEffect.support and true or false,
+                c = g.grantedEffect.color or 0,
+                l = g.grantedEffect.legacy and true or false,
+            }
+        end
+    end
+    table.sort(out, function(a, b) return a.n < b.n end)
+    return __mk2_json(out)
+end
+
+local function gemIdByName(name)
+    for id, g in pairs(build.data.gems) do
+        if g.name == name then return id end
+    end
+end
+
+-- Skills tab edits, through PoB's own group list and gem slot controls.
+function __mk2_skills_op(op, a, b, c)
+    local st = build.skillsTab
+    local list = st.controls.groupList
+    if op == "select" then
+        local g = st.socketGroupList[a]
+        list.selIndex, list.selValue = a, g
+        st:SetDisplayGroup(g)
+    elseif op == "new" then
+        list.controls.new.onClick()
+    elseif op == "delete" then
+        local g = st.socketGroupList[a]
+        if g then
+            list.selIndex, list.selValue = a, g
+            list:OnSelDelete(a, g)
+            local p = main.popups[1]
+            if p and p.controls.confirm then p.controls.confirm.onClick() end
+            while main.popups[1] do main:ClosePopup() end
+        end
+    elseif op == "gem" then
+        local s, id = st.gemSlots[a], gemIdByName(b)
+        if s and id then
+            s.nameSpec:SetText(b)
+            s.nameSpec.gemChangeFunc(id, true, false, true)
+        end
+    elseif op == "gemdel" then
+        local s = st.gemSlots[a]
+        if s then s.delete.onClick() end
+    elseif op == "gemctl" then
+        local s = st.gemSlots[a]
+        if s and s[b] then __mk2_set_ctl(s[b], c) end
+    elseif op == "ctl" then
+        __mk2_set_ctl(st.controls[a], b)
+    elseif op == "main" then
+        build.mainSocketGroup = a
+    end
+end
+
+-- PoB's tooltip for gem `i` of the edited group, or for socket group `g`.
+function __mk2_gem_tooltip(i)
+    local g = build.skillsTab.displayGroup
+    local gi = g and g.gemList[i]
+    if not gi then return "[]" end
+    local tt = new("Tooltip"):Tooltip()
+    require("Classes.GemTooltip").AddGemTooltip(tt, build, gi)
+    return __mk2_tooltip(tt)
+end
+function __mk2_group_tooltip(i)
+    local g = build.skillsTab.socketGroupList[i]
+    if not g then return "[]" end
+    local tt = new("Tooltip"):Tooltip()
+    build.skillsTab:AddSocketGroupTooltip(tt, g)
+    return __mk2_tooltip(tt)
 end
 
 -- Drive a PoB control the way a click / edit would.

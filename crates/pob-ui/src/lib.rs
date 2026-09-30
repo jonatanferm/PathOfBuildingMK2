@@ -48,6 +48,7 @@ mod pob_items;
 mod pob_session;
 mod pob_sets;
 mod pob_sidebar;
+mod pob_skills_panel;
 mod pob_tooltip;
 mod popup;
 mod set_switcher;
@@ -334,6 +335,8 @@ struct LoadedApp {
     pob_power_query: Option<u64>,
     #[cfg(not(target_arch = "wasm32"))]
     pob_item_db: pob_items::PobItemDbState,
+    #[cfg(not(target_arch = "wasm32"))]
+    pob_skills_state: pob_skills_panel::PobSkillsState,
     /// Issue #225 follow-up: wall-clock duration of the most recent
     /// `compute_full` pass, in milliseconds. Surfaced as a
     /// `Compute: Nms` indicator in the menu bar so users on slow
@@ -804,6 +807,8 @@ impl PobApp {
             pob_power_query: None,
             #[cfg(not(target_arch = "wasm32"))]
             pob_item_db: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_skills_state: Default::default(),
             data_root,
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -922,6 +927,8 @@ impl PobApp {
             pob_power_query: None,
             #[cfg(not(target_arch = "wasm32"))]
             pob_item_db: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pob_skills_state: Default::default(),
             data_root: PathBuf::from("/data"),
             last_compute_hash: 0,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1848,8 +1855,9 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
 
     egui::SidePanel::left("class_panel")
         .resizable(true)
-        .default_width(260.0)
+        .default_width(330.0)
         .min_width(220.0)
+        .max_width(560.0)
         .show(ctx, |ui| {
             ui.heading("Character");
             ui.separator();
@@ -2953,18 +2961,23 @@ fn render_loaded(ctx: &egui::Context, app: &mut LoadedApp) {
             // Issue #204 (slice 2): same pattern as Items tab — capture
             // pre-mutation Character, commit only on `changed = true`.
             let pending = PendingSnapshot::capture(&app.build_snapshot());
+            // With Path of Building running, its own Skills tab drives this
+            // one (groups, gem slots, tooltips).
             #[cfg(not(target_arch = "wasm32"))]
-            let hide_sets = match app.pob.as_mut() {
-                Some(pob) if pob.snapshot.is_some() => {
+            let pob_drawn = match app.pob.as_mut().filter(|p| p.snapshot.is_some()) {
+                Some(pob) => {
                     pob_sets::row(ui, &mut app.pob_sets_state, pob, pob_sets::Kind::Skill, "Skill set:");
                     ui.separator();
+                    pob_skills_panel::ui(ui, &mut app.pob_skills_state, pob);
                     true
                 }
-                _ => false,
+                None => false,
             };
             #[cfg(target_arch = "wasm32")]
-            let hide_sets = false;
-            if skills_tab::ui(ui, &mut app.skills_state, &mut app.character, &app.skills, hide_sets) {
+            let pob_drawn = false;
+            if !pob_drawn
+                && skills_tab::ui(ui, &mut app.skills_state, &mut app.character, &app.skills, false)
+            {
                 pending.commit(&mut app.undo_stack);
                 recompute = true;
             }

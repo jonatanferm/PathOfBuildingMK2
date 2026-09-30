@@ -91,6 +91,8 @@ pub struct PobSession {
     mirror_is_load: bool,
     /// Answers to [`Self::query`], by sequence number.
     query_results: ahash::AHashMap<u64, Result<String, String>>,
+    /// Queries whose answers nobody will collect.
+    detached: ahash::AHashSet<u64>,
 }
 
 impl PobSession {
@@ -110,6 +112,7 @@ impl PobSession {
             load_seq: None,
             mirror_is_load: false,
             query_results: ahash::AHashMap::default(),
+            detached: ahash::AHashSet::default(),
         }
     }
 
@@ -471,7 +474,9 @@ end
                     updated = true;
                 }
                 Event::QueryResult { seq, result } => {
-                    self.query_results.insert(seq, result);
+                    if !self.detached.remove(&seq) {
+                        self.query_results.insert(seq, result);
+                    }
                     updated = true;
                 }
             }
@@ -486,6 +491,13 @@ end
     }
 
     /// Run read-only Lua in PoB; collect the answer with [`Self::take_query`].
+    /// Run read-only Lua whose result isn't needed (UI-state changes such
+    /// as which socket group PoB's Skills tab is editing).
+    pub fn query_detached(&mut self, code: &str) {
+        let seq = self.query(code);
+        self.detached.insert(seq);
+    }
+
     pub fn query(&mut self, code: &str) -> u64 {
         self.handle.send(Command::Query {
             code: code.to_owned(),
