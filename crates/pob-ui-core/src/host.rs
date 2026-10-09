@@ -1,9 +1,19 @@
 //! Port of PathOfBuilding v2.67.2 (16de4b82d) src/Classes/ControlHost.lua 1-115 and
 //! Control.lua:140-149 (SetFocus). Ui doc §6.6. Owner: U4.
-//! UI-U0 stub: the §6.6 reference bodies; U4 verifies them with the T0 dispatch suites.
+//! Verified against the real ControlHost.lua/Control.lua by `tests/tier0_host.rs` (T0: random
+//! dispatch sequences with per-instance methods, focus returns, holes, drag lock, imbued early
+//! return, `mouseClipRect`, errors on a missing `OnKeyDown`).
+//!
+//! @pob-file Classes/ControlHost.lua @16de4b82d
+//! @pob-file Classes/Control.lua @16de4b82d
+//! @pob Classes/ControlHost.lua:10-13 h=5f643809 (the constructor: `New::host()`, arena.rs)
 //!
 //! ORDER: `pairs(self.controls)` at ControlHost.lua:32 and :110 iterates `cx.children` (D7
-//! canonical order, oracle patch 6).
+//! canonical order, oracle patch 6). A control removed from the table earlier in the same loop
+//! is skipped (`is_child_of`), as `next` skips nil values.
+//!
+//! The `GetMouseOverControl(viewPort)` argument at ControlHost.lua:84 is ignored by the method, so
+//! the port drops it.
 
 use crate::cx::Cx;
 use crate::ids::{CtrlId, ViewPort};
@@ -13,6 +23,8 @@ use crate::widget::{Caps, Duck};
 
 impl Cx {
     /// ControlHost.lua:15-29
+    /// lua: ControlHost.lua:15-29
+    /// @pob Classes/ControlHost.lua:15-29 h=fc0d8d4e
     pub fn select_control(&mut self, host: CtrlId, new: Option<CtrlId>) {
         let cur = self.host(host).sel_control;
         if cur == new {
@@ -31,6 +43,8 @@ impl Cx {
     }
 
     /// ControlHost.lua:31-47 (instance override: Main.lua:1307)
+    /// lua: ControlHost.lua:31-47
+    /// @pob Classes/ControlHost.lua:31-47 h=45bcd6c9
     pub fn get_mouse_over_control(&self, host: CtrlId) -> Option<CtrlId> {
         if let Some(f) = self.ui.node(host).ov.get_mouse_over_control.clone() {
             return f(self, host);
@@ -58,6 +72,8 @@ impl Cx {
     }
 
     /// ControlHost.lua:49-107
+    /// lua: ControlHost.lua:49-107
+    /// @pob Classes/ControlHost.lua:49-107 h=0776ec29
     pub fn process_controls_input(&mut self, host: CtrlId, ev: &mut InputEvents, vp: &ViewPort) {
         let mut i = 0;
         while let Some(e) = ev.next_ipairs(&mut i) {
@@ -133,6 +149,8 @@ impl Cx {
     }
 
     /// The class method (`originalDrawControls` in Main.lua:1276).
+    /// lua: ControlHost.lua:109-115
+    /// @pob Classes/ControlHost.lua:109-115 h=d9ab0b08
     pub fn draw_controls_default(
         &mut self,
         host: CtrlId,
@@ -157,6 +175,8 @@ impl Cx {
     }
 
     /// Control.lua:140-149
+    /// lua: Control.lua:140-149
+    /// @pob Classes/Control.lua:140-149 h=170a5d6c
     pub fn set_focus(&mut self, id: CtrlId, focus: bool) {
         if Some(focus) != self.base(id).has_focus {
             if focus {

@@ -18,6 +18,8 @@ scoped-tls-hkt.workspace = true
 [dev-dependencies]
 # compile_shape.rs checks the §9.2 NotesTab body against the calc plan's XmlNode.
 pob-calc.workspace = true
+# T0 (ui doc §11.1): the real Control.lua/ControlHost.lua/UndoHandler.lua under LuaJIT (U4).
+mlua.workspace = true
 
 [lints]
 workspace = true
