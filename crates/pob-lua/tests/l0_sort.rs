@@ -3,6 +3,9 @@
 //! invalid comparators, including the "invalid order function for sorting"
 //! error and the partially sorted state it leaves behind.
 
+// Test-only pedantic lints: short binding names mirror the Lua under test.
+#![allow(clippy::many_single_char_names)]
+
 mod common;
 
 use common::*;

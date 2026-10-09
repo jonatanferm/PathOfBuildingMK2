@@ -70,24 +70,26 @@ pub fn sub_bytes(s: &[u8], i: i64, j: Option<i64>) -> &[u8] {
     }
 }
 
-/// `s:sub(i, j)`. If the byte range splits a UTF-8 character the cut is not
-/// representable as `&str`: this panics; use [`sub_lossy`] for such input.
-pub fn sub(s: &str, i: i64, j: Option<i64>) -> &str {
+/// `s:sub(i, j)`. Borrowed when the byte range falls on UTF-8 character
+/// boundaries (always the case for ASCII, i.e. PoB text after
+/// `sanitiseText`); when it splits a multi-byte character (possible on raw
+/// item text, unique names, ...) the cut bytes are re-validated lossily
+/// (ui doc §8 rule 4) instead of aborting the calc. Use [`sub_bytes`] when
+/// the exact bytes matter.
+pub fn sub(s: &str, i: i64, j: Option<i64>) -> Cow<'_, str> {
     match sub_range(s.len(), i, j) {
-        Some((a, b)) => s.get(a..b).unwrap_or_else(|| {
-            panic!(
-                "pob_lua::string::sub: byte range {}..{} splits a UTF-8 character (use sub_lossy)",
-                a + 1,
-                b
-            )
-        }),
-        None => "",
+        Some((a, b)) => match s.get(a..b) {
+            Some(cut) => Cow::Borrowed(cut),
+            None => String::from_utf8_lossy(&s.as_bytes()[a..b]),
+        },
+        None => Cow::Borrowed(""),
     }
 }
 
-/// `s:sub(i, j)` re-validated lossily.
+/// `s:sub(i, j)` re-validated lossily (same as [`sub`], kept for callers
+/// that want to name the lossy behaviour explicitly).
 pub fn sub_lossy(s: &str, i: i64, j: Option<i64>) -> Cow<'_, str> {
-    String::from_utf8_lossy(sub_bytes(s.as_bytes(), i, j))
+    sub(s, i, j)
 }
 
 /// `string.rep(s, n)` (`n <= 0` gives "").
@@ -250,6 +252,11 @@ mod tests {
         assert_eq!(sub("hello", 0, Some(0)), "");
         assert_eq!(sub("hello", -100, Some(2)), "he");
         assert_eq!(sub("hello", 4, Some(100)), "lo");
+        // A cut through a multi-byte character does not panic.
+        assert!(matches!(sub("a\u{e9}b", 1, Some(2)), Cow::Owned(_)));
+        assert_eq!(sub("a\u{e9}b", 1, Some(2)), "a\u{fffd}");
+        assert_eq!(sub("a\u{e9}b", 2, Some(3)), "\u{e9}");
+        assert!(matches!(sub("a\u{e9}b", 2, Some(3)), Cow::Borrowed(_)));
         assert_eq!(byte("abc", -1), Some(b'c'));
         assert_eq!(byte("abc", 0), None);
         assert_eq!(rep_sep("a", 3, ","), "a,a,a");

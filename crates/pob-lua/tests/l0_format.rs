@@ -2,6 +2,14 @@
 //! `..`, `string.format` (generated specs + every `s_format`/`string.format`
 //! literal in `Modules/Calc*.lua`), `tonumber(s)` and `tonumber(s, base)`.
 
+// Test-only pedantic lints: short binding names mirror the Lua under test.
+#![allow(
+    clippy::many_single_char_names,
+    clippy::inefficient_to_string,
+    clippy::naive_bytecount,
+    clippy::case_sensitive_file_extension_comparisons
+)]
+
 mod common;
 
 use common::*;

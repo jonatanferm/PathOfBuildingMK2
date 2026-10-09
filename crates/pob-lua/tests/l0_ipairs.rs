@@ -1,6 +1,9 @@
 //! L0 (calc doc §9.4): `for_ipairs!` / `ipairs_live` against LuaJIT `ipairs`
 //! when the loop body appends to the list and punches holes into it.
 
+// Test-only pedantic lints: short binding names mirror the Lua under test.
+#![allow(clippy::many_single_char_names)]
+
 mod common;
 
 use common::*;

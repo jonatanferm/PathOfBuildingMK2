@@ -2,6 +2,9 @@
 //! ≥ 10k random + edge vectors per function, in JIT and interpreter mode.
 //! PoB's Common.lua helpers run from the real Common.lua source.
 
+// Test-only pedantic lints: short binding names mirror the Lua under test.
+#![allow(clippy::many_single_char_names)]
+
 mod common;
 
 use common::*;

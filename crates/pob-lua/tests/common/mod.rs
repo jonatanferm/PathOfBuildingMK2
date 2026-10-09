@@ -295,7 +295,11 @@ impl Check {
         }
     }
     /// Compare numbers: bit-exact (NaN == NaN), except that in `jit.on`
-    /// mode a zero of the other sign is tolerated and counted.
+    /// mode a zero of the other sign is tolerated and counted. This applies
+    /// to EVERY `jit.on` comparison made through `num`, not only to the
+    /// functions whose traces are known to lose the zero sign; the `jit.off`
+    /// run of the same vectors is always bit-exact, so the interpreter
+    /// reference is still fully checked.
     pub fn num(&mut self, mode: &str, want: f64, got: f64, what: impl FnOnce() -> String) {
         if mode == "jit.on" && want == 0.0 && got == 0.0 && want.to_bits() != got.to_bits() {
             self.total += 1;
@@ -354,7 +358,7 @@ pub fn quiet_lua_errors() {
 }
 
 /// LuaJIT prefixes errors raised from C functions with the caller position
-/// ("[string \"...\"]:3: "); compare messages without it.
+/// (`[string "..."]:3: `); compare messages without it.
 /// LuaJIT names the function in "bad argument" errors after the call site
 /// (`'?'` through `pcall`), so function names are compared as wildcards.
 pub fn lua_msg_matches(lua_msg: &str, rs_msg: &str) -> bool {
@@ -370,9 +374,37 @@ pub fn lua_msg_matches(lua_msg: &str, rs_msg: &str) -> bool {
     l == r || l.ends_with(&format!(": {r}"))
 }
 
+/// PoB's `src/` for the L0 tests that quote PoB source (e.g.
+/// `string_format_calc_literals`). Found as `pob_oracle::oracle::find_pob_src`
+/// does (`$POB_SRC`, else `.PathOfBuilding/src` in an ancestor directory,
+/// which covers worktrees nested in the main checkout), else in the main
+/// checkout of a linked git worktree that lives elsewhere (its `.git` file
+/// points at `<main>/.git/worktrees/<name>`). A missing PoB checkout is a
+/// hard failure, not a skip: set `POB_SRC=<main checkout>/.PathOfBuilding/src`.
 pub fn pob_src() -> std::path::PathBuf {
     pob_oracle::oracle::find_pob_src()
-        .expect("PoB checkout (.PathOfBuilding/src or $POB_SRC) is required for L0")
+        .or_else(main_checkout_pob_src)
+        .expect(
+            "PoB checkout is required for L0: set POB_SRC=<main checkout>/.PathOfBuilding/src \
+             (searched $POB_SRC, ancestor .PathOfBuilding/src, and the git worktree's main checkout)",
+        )
+}
+
+/// `.PathOfBuilding/src` in the main checkout of the linked git worktree
+/// holding this crate.
+fn main_checkout_pob_src() -> Option<std::path::PathBuf> {
+    let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dot_git = here
+        .ancestors()
+        .map(|a| a.join(".git"))
+        .find(|p| p.exists())?;
+    // `.git` is a file (not a directory) only in a linked worktree.
+    let text = std::fs::read_to_string(&dot_git).ok()?;
+    let gitdir = std::path::PathBuf::from(text.strip_prefix("gitdir:")?.trim());
+    // <main>/.git/worktrees/<name> -> <main>
+    let main = gitdir.parent()?.parent()?.parent()?;
+    let c = main.join(".PathOfBuilding/src");
+    c.join("HeadlessWrapper.lua").is_file().then_some(c)
 }
 
 /// Lines `a..=b` (1-based) of a PoB source file.

@@ -70,6 +70,24 @@ Smaller contract inaccuracies found on the way:
   dual-number zeros). So L0 on this machine compares like with like, and
   x64/wasm builds behave like x64 PoB. The x64 profile is a faithful
   transcription but **cannot be verified on this machine** (no x64 LuaJIT).
+- `lpow` passes both operands through `std::hint::black_box`. Without it,
+  release builds inlined `lpow(x, 2.0)` and LLVM rewrote `pow(x, 2.0)` as
+  `x*x`, which is the JIT's fold (item 3 above) and not the interpreter's
+  libm `pow`. L0 `lj_math_binary` failed in `--release` only, on 1 of 20928
+  vectors (`x = -1.9948972224101745e7`). LLVM also rewrites
+  `pow(x, -1)` → `1/x`, `pow(2, n)` → `exp2`/`ldexp` and `pow(10, x)` →
+  `exp10`, and constant-folds `pow` at compile time. `black_box` hides
+  the operands from all of these. The unit test
+  `math::tests::lpow_is_not_folded` guards this, and L0 must be run in
+  both debug and `--release`.
+- **libm provenance.** `exp`/`log`/`log2`/`log10`/`pow` come from the
+  target's libm: glibc on this machine (the same libm the oracle's LuaJIT
+  links), MSVC's UCRT for Windows PoB, and Rust's bundled `libm` port
+  (musl-derived) on wasm32. These implementations are not all correctly
+  rounded, so a wasm32 (or any non-Windows) build can differ from Windows
+  PoB by 1 ulp in these functions. Only the native-glibc profile is checked
+  by L0. The diff tolerance for libm-derived keys on wasm32 still needs to
+  be decided (calc doc §9).
 - L0 policy: the interpreter (`jit.off`) is the bit-exact reference. In
   `jit.on` runs, a result where the trace differs from the interpreter and
   Rust equals the interpreter is counted and reported ("JIT-only

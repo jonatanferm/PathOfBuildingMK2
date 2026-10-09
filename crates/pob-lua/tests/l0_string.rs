@@ -4,6 +4,9 @@
 //! byte/rep`, and PoB's `sanitiseText`, `string:split`, `firstToUpper`,
 //! `StripEscapes` run from the real PoB sources.
 
+// Test-only pedantic lints: short binding names mirror the Lua under test.
+#![allow(clippy::many_single_char_names, clippy::inefficient_to_string)]
+
 mod common;
 
 use common::*;

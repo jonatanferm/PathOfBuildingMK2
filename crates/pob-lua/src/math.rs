@@ -11,7 +11,9 @@
 //!   folding) uses the same expressions.
 //! * `%`: `vm_mod` = `a - floor(a/b)*b`.
 //! * `^`: `BC_POW` calls libm `pow` (this LuaJIT has no `lj_vm_powi`); the JIT
-//!   folds `x^0`→1, `x^1`→x, `x^2`→x*x, which `pow` agrees with.
+//!   folds `x^0`→1, `x^1`→x, `x^2`→x*x. `x*x` is NOT always equal to
+//!   `pow(x, 2)` (1 ulp apart for some `x`); the port follows the interpreter
+//!   (CCR-0001), and [`lpow`] blocks LLVM from making the same fold.
 //! * `math.log(x, b)`: `lib_math.c` = `log2(x) * (1/log2(b))`.
 //! * `math.modf`: libm `modf`.
 //!
@@ -123,10 +125,21 @@ pub fn lmod(a: f64, b: f64) -> f64 {
     a - (a / b).floor() * b
 }
 
-/// Lua `a ^ b` (and `math.pow`): libm `pow`.
+/// Lua `a ^ b` (and `math.pow`): libm `pow`, exactly as the interpreter's
+/// `BC_POW` calls it (CCR-0001 names the interpreter as the reference).
+///
+/// Both operands go through [`std::hint::black_box`] so the result does not
+/// depend on the optimisation level: once inlined with a constant operand,
+/// LLVM's libcall simplifier rewrites `pow(x, 2.0)` to `x*x` (LuaJIT's JIT
+/// fold, which differs from libm `pow` by 1 ulp for some `x`, e.g.
+/// `-1.9948972224101745e7`), `pow(x, -1.0)` to `1.0/x`, `pow(2.0, n)` to
+/// `exp2`/`ldexp` and `pow(10.0, x)` to `exp10`, and constant-folds `pow`
+/// with two constant operands at compile time. `black_box` hides the
+/// operands' values from those passes in every profile, so the call reaching
+/// libm is always a plain `pow(a, b)`. Do not remove it.
 #[inline]
 pub fn lpow(a: f64, b: f64) -> f64 {
-    a.powf(b)
+    std::hint::black_box(a).powf(std::hint::black_box(b))
 }
 
 /// `math.pow`.
@@ -288,5 +301,49 @@ mod tests {
         assert_eq!(m_min_n(&[3.0, 1.0, 2.0]), 1.0);
         assert_eq!(m_max_n(&[3.0, 1.0, 2.0]), 3.0);
         assert_eq!(m_log(8.0, Some(2.0)), 3.0);
+    }
+
+    /// `lpow` with a constant operand must reach libm `pow` in every profile
+    /// (release used to fold `lpow(x, 2.0)` to `x*x`; run this test with
+    /// `--release` too). The reference is `pow` called through an opaque
+    /// function pointer, which no optimisation can see through.
+    #[test]
+    fn lpow_is_not_folded() {
+        let pow: fn(f64, f64) -> f64 = std::hint::black_box(f64::powf);
+        // x*x != pow(x, 2) for this x on glibc (LuaJIT `x^2` interpreted
+        // gives 0x42f69f1a1699a1ee, a JIT trace gives x*x = ...a1ef).
+        let x = -1.994_897_222_410_174_5e7;
+        assert_eq!(lpow(x, 2.0).to_bits(), pow(x, 2.0).to_bits());
+        for &x in &[
+            x,
+            0.1,
+            1.1,
+            3.7,
+            -2.5e-3,
+            123_456.789,
+            1e300,
+            f64::MIN_POSITIVE,
+        ] {
+            for &y in &[2.0, -1.0, 0.5, 3.0, -2.0, 0.0, 1.0] {
+                assert_eq!(
+                    lpow(x, y).to_bits(),
+                    pow(x, y).to_bits(),
+                    "lpow({x:e}, {y})"
+                );
+            }
+        }
+        for n in -8..=8 {
+            let n = f64::from(n);
+            assert_eq!(
+                lpow(10.0, n).to_bits(),
+                pow(10.0, n).to_bits(),
+                "lpow(10, {n})"
+            );
+            assert_eq!(
+                lpow(2.0, n).to_bits(),
+                pow(2.0, n).to_bits(),
+                "lpow(2, {n})"
+            );
+        }
     }
 }

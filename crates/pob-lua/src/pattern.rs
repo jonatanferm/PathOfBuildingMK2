@@ -758,7 +758,7 @@ mod tests {
             caps("+43 to strength", "^([%+%-]?%d+) to (%a+)"),
             Some(vec!["+43".into(), "strength".into()])
         );
-        assert_eq!(caps("abc", "b*"), Some(vec!["".into()]));
+        assert_eq!(caps("abc", "b*"), Some(vec![String::new()]));
         assert_eq!(
             caps("hello world", "(%w+) (%w+)"),
             Some(vec!["hello".into(), "world".into()])
