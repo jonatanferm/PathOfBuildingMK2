@@ -22,3 +22,8 @@ pub mod oracle;
 pub mod worker;
 
 pub use oracle::{Oracle, OracleOutput, OracleStages};
+
+/// The LuaJIT binding (mlua with the vendored LuaJIT PoB's oracle runs), for
+/// L0 tests that compare `pob-lua` against real LuaJIT (calc unit P2).
+#[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+pub use mlua;
