@@ -2755,6 +2755,7 @@ dependencies = [
  "indexmap",
  "mlua",
  "pob-calc",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "toml",

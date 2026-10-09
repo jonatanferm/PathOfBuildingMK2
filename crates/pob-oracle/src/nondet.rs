@@ -22,10 +22,19 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as J;
 
+use crate::diff::{store_list_path, store_mods};
 use crate::oracle::{OracleError, Result};
-use crate::schema::{children, is_marker, read_text, resolve_ids, HitsIndex, StateDump};
+use crate::schema::{children, is_marker, read_text, store_class, HitsIndex, StateDump};
 
-pub const NONDET_FORMAT: &str = "pob-nondet/1";
+/// `pob-nondet/2`: state paths are those of the resolved dump root
+/// (`env.player…`, as `pob_calc_diff state` walks it; `/1` prefixed them
+/// with `root.`), mod-store differences are recorded per store name.
+pub const NONDET_FORMAT: &str = "pob-nondet/2";
+
+/// State-record path of a differing hit stack.
+pub const STACK_PATH: &str = "$stack";
+/// State-record path of a differing env identity.
+pub const ENV_PATH: &str = "$env";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -175,9 +184,18 @@ impl NondetRecord {
         self.runs = self.runs.max(other.runs);
     }
 
+    /// Load a record; one of another format (stale paths) is an error.
     pub fn load(path: &Path) -> Result<Self> {
-        serde_json::from_str(&read_text(path)?)
-            .map_err(|e| OracleError(format!("{}: {e}", path.display())))
+        let rec: Self = serde_json::from_str(&read_text(path)?)
+            .map_err(|e| OracleError(format!("{}: {e}", path.display())))?;
+        if rec.format != NONDET_FORMAT {
+            return Err(OracleError(format!(
+                "{}: format {:?}, expected {NONDET_FORMAT} (regenerate: scripts/port/oracle.sh nondet)",
+                path.display(),
+                rec.format
+            )));
+        }
+        Ok(rec)
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -261,7 +279,7 @@ fn canonical(v: &J) -> String {
 
 /// [`canonical`] with every list (arrays, `$seq`) sorted, recursively:
 /// equal for values that differ only in the order of nested lists.
-pub(crate) fn deep_canonical(v: &J) -> String {
+fn deep_canonical(v: &J) -> String {
     match v {
         J::Array(a) => {
             let mut items: Vec<String> = a.iter().map(deep_canonical).collect();
@@ -292,6 +310,13 @@ fn compare(
     let first = vals[0];
     if vals.iter().all(|v| *v == first) {
         return;
+    }
+    if vals
+        .iter()
+        .all(|v| v.is_some_and(|v| store_class(v).is_some()))
+    {
+        let stores: Vec<&J> = vals.iter().flatten().copied().collect();
+        return compare_store(path, &stores, kids, values, orders);
     }
     let structured = |v: Option<&J>| match v {
         Some(J::Array(_)) => true,
@@ -349,18 +374,34 @@ fn compare(
                 s
             };
             if positional && deep.iter().all(|d| sorted(d) == sorted(&deep[0])) {
-                orders.insert(path.to_owned());
+                // pair each element of run 1 with an equal one of every other
+                // run, preferring the same index
                 let mut used: Vec<Vec<bool>> = lists.iter().map(|l| vec![false; l.len()]).collect();
+                let mut moved = false;
+                let mut groups: Vec<(&str, Vec<Option<&J>>)> = Vec::new();
                 for (i, (p, x)) in lists[0].iter().enumerate() {
                     let mut group: Vec<Option<&J>> = vec![Some(*x)];
                     for r in 1..lists.len() {
-                        let j =
-                            (0..lists[r].len()).find(|&j| !used[r][j] && deep[r][j] == deep[0][i]);
+                        let same = i < lists[r].len() && !used[r][i] && deep[r][i] == deep[0][i];
+                        let j = if same {
+                            Some(i)
+                        } else {
+                            (0..lists[r].len()).find(|&j| !used[r][j] && deep[r][j] == deep[0][i])
+                        };
+                        moved |= j != Some(i);
                         group.push(j.map(|j| {
                             used[r][j] = true;
                             lists[r][j].1
                         }));
                     }
+                    groups.push((p.as_str(), group));
+                }
+                // the list itself is reordered only when the pairing is not
+                // the identity; otherwise only lists nested in its elements are
+                if moved {
+                    orders.insert(path.to_owned());
+                }
+                for (p, group) in groups {
                     compare(p, &group, kids, values, orders);
                 }
                 return;
@@ -389,6 +430,68 @@ fn compare(
             entry.push(v);
         }
     }
+}
+
+/// Mod stores of several runs. The diff compares a store's mods as one
+/// multiset per name (a ModList: one for the whole list) at
+/// [`store_list_path`], so differences are recorded there too: an order
+/// when the multisets agree, otherwise each run's whole list as an accepted
+/// alternative (an absent name as `[]`). Recording them per mod position
+/// (`…mods.Life[12].value`) would give paths the multiset diff never asks
+/// about. The other members (parent, conditions, …) compare as usual.
+fn compare_store(
+    path: &str,
+    stores: &[&J],
+    kids: Kids,
+    values: &mut BTreeMap<String, Vec<J>>,
+    orders: &mut BTreeSet<String>,
+) {
+    let classes: Vec<Option<&J>> = stores.iter().map(|s| s.get("$store")).collect();
+    if classes.iter().any(|c| *c != classes[0]) {
+        compare(&format!("{path}.$store"), &classes, kids, values, orders);
+    }
+    let mods: Vec<BTreeMap<String, Vec<J>>> = stores.iter().map(|s| store_mods(s)).collect();
+    let names: BTreeSet<&String> = mods.iter().flat_map(BTreeMap::keys).collect();
+    for name in names {
+        let lists: Vec<&[J]> = mods
+            .iter()
+            .map(|m| m.get(name).map_or(&[][..], Vec::as_slice))
+            .collect();
+        if lists.iter().all(|l| *l == lists[0]) {
+            continue;
+        }
+        let p = store_list_path(path, name);
+        let bags: Vec<Vec<String>> = lists
+            .iter()
+            .map(|l| {
+                let mut b: Vec<String> = l.iter().map(canonical).collect();
+                b.sort();
+                b
+            })
+            .collect();
+        if bags.iter().all(|b| *b == bags[0]) {
+            orders.insert(p);
+            continue;
+        }
+        let entry = values.entry(p).or_default();
+        for l in lists {
+            let v = J::Array(l.to_vec());
+            if !entry.contains(&v) {
+                entry.push(v);
+            }
+        }
+    }
+    let rest: Vec<J> = stores
+        .iter()
+        .map(|s| {
+            let mut m = s.as_object().cloned().unwrap_or_default();
+            m.remove("mods");
+            m.remove("$store");
+            J::Object(m)
+        })
+        .collect();
+    let refs: Vec<Option<&J>> = rest.iter().map(Some).collect();
+    compare(path, &refs, kids, values, orders);
 }
 
 /// A probe run directory: `outputs.json`, `hits.json`, `state/*.json`.
@@ -458,27 +561,32 @@ pub fn compare_runs(build: &str, runs: &[&Path]) -> Result<NondetRecord> {
             rec.dumps_missing.insert(hit.to_owned());
             continue;
         }
-        let docs: Vec<J> = runs
+        let dumps: Vec<StateDump> = runs
             .iter()
             .zip(&files)
-            .map(|(r, f)| {
-                let d = StateDump::load(&r.join(f.unwrap_or(&"")))?;
-                let mut head = serde_json::Map::new();
-                head.insert(
-                    "stack".into(),
-                    serde_json::to_value(&d.stack).unwrap_or(J::Null),
-                );
-                head.insert(
-                    "$env".into(),
-                    serde_json::to_value(&d.env_id).unwrap_or(J::Null),
-                );
-                head.insert("root".into(), resolve_ids(&d.root));
-                Ok(J::Object(head))
-            })
+            .map(|(r, f)| StateDump::load(&r.join(f.unwrap_or(&""))))
             .collect::<Result<_>>()?;
-        let refs: Vec<Option<&J>> = docs.iter().map(Some).collect();
         let mut values = BTreeMap::new();
         let mut orders = BTreeSet::new();
+        // the dump's own head (hit stack, env identity) under `$`-paths no
+        // root path can take
+        let stacks: Vec<J> = dumps
+            .iter()
+            .map(|d| serde_json::to_value(&d.stack).unwrap_or(J::Null))
+            .collect();
+        let envs: Vec<J> = dumps
+            .iter()
+            .map(|d| serde_json::to_value(&d.env_id).unwrap_or(J::Null))
+            .collect();
+        for (p, head) in [(STACK_PATH, &stacks), (ENV_PATH, &envs)] {
+            if head.iter().any(|h| h != &head[0]) {
+                values.insert(p.to_owned(), head.clone());
+            }
+        }
+        // the root at the paths `pob_calc_diff state` walks (`env.player…`,
+        // the paths of `StateDump::resolved`)
+        let roots: Vec<J> = dumps.iter().map(StateDump::resolved).collect();
+        let refs: Vec<Option<&J>> = roots.iter().map(Some).collect();
         compare("", &refs, state_children, &mut values, &mut orders);
         if !values.is_empty() {
             rec.states.insert(hit.to_owned(), values);
@@ -544,6 +652,81 @@ mod tests {
             &mut orders,
         );
         assert!(!values.is_empty());
+    }
+
+    #[test]
+    fn nested_orders_alone_leave_the_list_ordered() {
+        // the buffs keep their order; only the first buff's mods move
+        let a = json!({"buffs": [{"n": "A", "mods": [1, 2]}, {"n": "B", "mods": [3]}]});
+        let b = json!({"buffs": [{"n": "A", "mods": [2, 1]}, {"n": "B", "mods": [3]}]});
+        let mut values = BTreeMap::new();
+        let mut orders = BTreeSet::new();
+        compare(
+            "",
+            &[Some(&a), Some(&b)],
+            state_children,
+            &mut values,
+            &mut orders,
+        );
+        assert!(values.is_empty(), "{values:?}");
+        assert_eq!(
+            orders.into_iter().collect::<Vec<_>>(),
+            vec!["buffs[1].mods".to_owned()]
+        );
+    }
+
+    #[test]
+    fn stores_record_per_name() {
+        let m = |n: &str, v: i64| json!({"name": n, "type": "BASE", "value": v});
+        let a = json!({"env": {"db": {"$store": "ModDB", "parent": 1, "mods": {
+            "Life": [m("Life", 1), m("Life", 2)],
+            "Mana": [m("Mana", 5), m("Mana", 6)],
+            "Gem": [m("Gem", 7)]}}}});
+        let b = json!({"env": {"db": {"$store": "ModDB", "parent": 2, "mods": {
+            "Life": [m("Life", 2), m("Life", 1)],
+            "Mana": [m("Mana", 5), m("Mana", 8)],
+            "GemAltX": [m("GemAltX", 7)]}}}});
+        let mut values = BTreeMap::new();
+        let mut orders = BTreeSet::new();
+        compare(
+            "",
+            &[Some(&a), Some(&b)],
+            state_children,
+            &mut values,
+            &mut orders,
+        );
+        assert_eq!(
+            orders.into_iter().collect::<Vec<_>>(),
+            vec!["env.db.mods.Life".to_owned()]
+        );
+        assert_eq!(
+            values.keys().map(String::as_str).collect::<Vec<_>>(),
+            [
+                "env.db.mods.Gem",
+                "env.db.mods.GemAltX",
+                "env.db.mods.Mana",
+                "env.db.parent"
+            ]
+        );
+        assert_eq!(
+            values["env.db.mods.Gem"],
+            vec![json!([m("Gem", 7)]), json!([])]
+        );
+        // what the state diff of one run against the other then accepts
+        let mut rec = NondetRecord::new("b");
+        rec.states.insert("h#1".into(), values);
+        let mut o = BTreeSet::new();
+        o.insert("env.db.mods.Life".to_owned());
+        rec.state_orders.insert("h#1".into(), o);
+        let opts = crate::diff::DiffOptions {
+            rel: crate::diff::REL_TOL,
+            nondet_values: rec.states.get("h#1"),
+            nondet_orders: rec.state_orders.get("h#1"),
+        };
+        for (x, y) in [(&a, &b), (&b, &a)] {
+            let d = crate::diff::diff_trees(x, y, &opts);
+            assert!(d.is_empty(), "{d:?}");
+        }
     }
 
     #[test]

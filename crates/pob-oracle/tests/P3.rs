@@ -48,6 +48,15 @@ fn scratch(name: &str) -> PathBuf {
     d
 }
 
+/// A test whose inputs (PoB checkout, `.parity`) are absent skips with a
+/// message; with `POB_ORACLE_REQUIRE=1` (or `CI` set) it fails instead.
+fn skip(why: &str) {
+    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
+        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
+    assert!(!required, "required input missing: {why}");
+    eprintln!("SKIPPED: {why}");
+}
+
 fn build_xml(stem: &str) -> Option<PathBuf> {
     find_pob_src()?;
     find_up(&format!(".parity/builds/{stem}.xml"))
@@ -85,7 +94,7 @@ fn probe(build: &Path, out: &Path, src: &Path, extra: &[&str]) {
 #[test]
 fn patcher_round_trips_dummy_stages() {
     let Some(src) = find_pob_src() else {
-        eprintln!("skipped: no PoB checkout");
+        skip("no PoB checkout");
         return;
     };
     let stages = StagesFile::load(&stages_path()).unwrap();
@@ -203,10 +212,71 @@ fn patcher_round_trips_dummy_stages() {
     );
 }
 
+/// Concurrent `patch` calls of one process (the tests' threads) publishing
+/// the same sha into an empty root all succeed with the same copy.
+#[test]
+fn patch_publishes_concurrently() {
+    let Some(src) = find_pob_src() else {
+        skip("no PoB checkout");
+        return;
+    };
+    let root = scratch("concurrent-patch");
+    // the unpatched files of a copy are hard links to PoB's: a publish
+    // must never write through one (the PoB checkout stays intact)
+    fn sizes(dir: &Path, out: &mut BTreeMap<PathBuf, u64>) {
+        for e in std::fs::read_dir(dir).unwrap().filter_map(Result::ok) {
+            let p = e.path();
+            if e.file_type().unwrap().is_dir() {
+                sizes(&p, out);
+            } else if p.extension().is_some_and(|x| x == "lua") {
+                // (not PoB's runtime caches such as TimelessJewelData/*.bin)
+                out.insert(p, e.metadata().unwrap().len());
+            }
+        }
+    }
+    let mut before = BTreeMap::new();
+    sizes(&src, &mut before);
+    let shas: Vec<String> = std::thread::scope(|s| {
+        let hs: Vec<_> = (0..4)
+            .map(|_| {
+                s.spawn(|| {
+                    patcher::patch(&src, Some(&stages_path()), &root)
+                        .unwrap_or_else(|e| panic!("{e}"))
+                        .sha
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert!(shas.iter().all(|s| *s == shas[0]), "{shas:?}");
+    assert!(root
+        .join(&shas[0])
+        .join("src/Modules/CalcPerform.lua")
+        .is_file());
+    let leftovers: Vec<_> = std::fs::read_dir(&root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.contains(".tmp."))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+    let mut after = BTreeMap::new();
+    sizes(&src, &mut after);
+    let changed: Vec<_> = before
+        .iter()
+        .filter(|(p, n)| after.get(*p) != Some(n))
+        .take(5)
+        .collect();
+    assert!(
+        changed.is_empty(),
+        "PoB checkout files changed: {changed:?}"
+    );
+}
+
 #[test]
 fn patcher_rejects_bad_input() {
     let Some(src) = find_pob_src() else {
-        eprintln!("skipped: no PoB checkout");
+        skip("no PoB checkout");
         return;
     };
     let bad_expect = StagesFile::parse(
@@ -303,7 +373,7 @@ fn count_at(v: &J, n: &mut usize, total: &mut usize) {
 #[test]
 fn probe_one_build() {
     let Some(build) = build_xml(BUILD) else {
-        eprintln!("skipped: no PoB checkout / {BUILD}");
+        skip(&format!("no PoB checkout / {BUILD}"));
         return;
     };
     let p = patched();
@@ -526,7 +596,7 @@ fn probe_one_build() {
 #[test]
 fn two_runs_agree_outside_the_nondet_set() {
     let Some(build) = build_xml(BUILD) else {
-        eprintln!("skipped: no PoB checkout / {BUILD}");
+        skip(&format!("no PoB checkout / {BUILD}"));
         return;
     };
     let p = patched();
@@ -595,6 +665,123 @@ fn two_runs_agree_outside_the_nondet_set() {
     let rec_path = work.join("rec.json");
     pair.save(&rec_path).unwrap();
     assert_eq!(NondetRecord::load(&rec_path).unwrap(), pair);
+    // the state diff of run 2 against run 1 accepts what the pair recorded
+    let (kinds, n, lines) = state_diff_runs(&runs[1], &runs[0], &rec_path);
+    eprintln!("state diff run2 vs run1: {n} hits, {kinds:?}");
+    assert!(n >= 4, "{n} hits in common");
+    assert!(kinds.is_empty(), "{kinds:?} {lines:#?}");
+}
+
+/// `pob_calc_diff state` of every hit both runs dumped, one run as PoB and
+/// the other as "ours", with the nondet record `rec`: (mismatches by kind,
+/// hits compared, the first few mismatch lines).
+fn state_diff_runs(
+    pob: &Path,
+    ours: &Path,
+    rec: &Path,
+) -> (BTreeMap<String, usize>, usize, Vec<String>) {
+    let hp = HitsIndex::load(&pob.join("hits.json")).unwrap();
+    let ho = HitsIndex::load(&ours.join("hits.json")).unwrap();
+    let theirs: BTreeMap<&str, &str> = ho
+        .dumps
+        .iter()
+        .map(|d| (d.hit.as_str(), d.file.as_str()))
+        .collect();
+    let out = pob.with_extension("diff.json");
+    let (mut kinds, mut n, mut lines) = (BTreeMap::new(), 0usize, Vec::new());
+    for d in &hp.dumps {
+        let Some(f) = theirs.get(d.hit.as_str()) else {
+            continue;
+        };
+        n += 1;
+        let o = Command::new(env!("CARGO_BIN_EXE_pob_calc_diff"))
+            .arg("state")
+            .arg(pob.join(&d.file))
+            .arg(ours.join(f))
+            .arg("--nondet")
+            .arg(rec)
+            .arg("--json-out")
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let doc: J = serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        for m in doc["mismatches"].as_array().unwrap() {
+            let kind = m["kind"].as_str().unwrap().to_owned();
+            if kind != "LUA-ORDER" && lines.len() < 10 {
+                lines.push(format!("{} {} {kind}", d.hit, m["path"]));
+            }
+            *kinds.entry(kind).or_default() += 1;
+        }
+    }
+    (kinds, n, lines)
+}
+
+/// The state diff accepts everything PoB itself produced: PoB run 2
+/// against PoB run 1 (and back) with the record of exactly those runs has
+/// no mismatch (§9.2 / §9.5). allflame_exp_019 resolves a skill's gem to
+/// different variants in different processes (ExplosiveTrap /
+/// ExplosiveTrapAltX for one uuid), so its mod stores differ beyond order.
+#[test]
+fn state_diff_accepts_pob_against_itself() {
+    const STEM: &str = "allflame_exp_019";
+    let Some(build) = build_xml(STEM) else {
+        skip(&format!("no PoB checkout / {STEM}"));
+        return;
+    };
+    let p = patched();
+    let work = scratch("self_diff");
+    let first = work.join("run1");
+    probe(&build, &first, &p.src, &[]);
+    // a second process that differs in values from the first (whether a
+    // process picks the AltX variant is a per-process coin toss): up to 5
+    let mut second = PathBuf::new();
+    let mut rec = NondetRecord::default();
+    for i in 2..=6 {
+        second = work.join(format!("run{i}"));
+        probe(&build, &second, &p.src, &[]);
+        rec = compare_runs(STEM, &[&first, &second]).unwrap();
+        if !rec.states.is_empty() {
+            break;
+        }
+    }
+    let runs = [first, second];
+    eprintln!(
+        "{} vs {}: {} hits with value differences",
+        runs[0].display(),
+        runs[1].display(),
+        rec.states.len()
+    );
+    let rec_path = work.join("rec.json");
+    rec.save(&rec_path).unwrap();
+    // record paths are those the state diff walks (no `root.` prefix)
+    for paths in rec.state_orders.values() {
+        assert!(paths.iter().all(|p| !p.starts_with("root")), "{paths:?}");
+    }
+    // the store-level entries the gem-variant difference leaves are keyed
+    // where diff_store looks (per store name), not per mod position
+    for vals in rec.states.values() {
+        let positional: Vec<&String> = vals
+            .keys()
+            .filter(|k| k.contains(".mods[") && k.ends_with(".name"))
+            .collect();
+        assert!(positional.is_empty(), "{positional:?}");
+    }
+    eprintln!("record: {} entries", rec.len());
+    for (a, b) in [(&runs[1], &runs[0]), (&runs[0], &runs[1])] {
+        let (kinds, n, lines) = state_diff_runs(a, b, &rec_path);
+        eprintln!("{} vs {}: {n} hits, {kinds:?}", a.display(), b.display());
+        assert!(n > 10, "{n} hits in common");
+        assert!(kinds.is_empty(), "{kinds:?} {lines:#?}");
+    }
+    // without the record the same diff does see PoB's differences
+    // (whenever this pair of processes produced any)
+    if !rec.states.is_empty() || !rec.state_orders.is_empty() {
+        let none = work.join("empty.json");
+        NondetRecord::new(STEM).save(&none).unwrap();
+        let (kinds, _, _) = state_diff_runs(&runs[1], &runs[0], &none);
+        assert!(!kinds.is_empty());
+    }
 }
 
 // ---- pob_calc_diff -> report.py ---------------------------------------------------------------
@@ -602,12 +789,12 @@ fn two_runs_agree_outside_the_nondet_set() {
 #[test]
 fn calc_diff_is_accepted_by_report_py() {
     let Some(parity) = find_parity_dir() else {
-        eprintln!("skipped: no .parity");
+        skip("no .parity");
         return;
     };
     let pob = parity.join("oracle").join(BUILD).join("outputs.json");
     if !pob.is_file() {
-        eprintln!("skipped: no {}", pob.display());
+        skip(&format!("no {}", pob.display()));
         return;
     }
     let dir = scratch("calc_diff");
@@ -706,16 +893,16 @@ fn calc_diff_is_accepted_by_report_py() {
                 .is_some_and(|w| w.contains(".lua:")));
         }
     } else {
-        eprintln!(
-            "skipped --unit: no {} (run oracle.sh corpus)",
+        skip(&format!(
+            "--unit: no {} (run oracle.sh corpus)",
             prov.display()
-        );
+        ));
     }
 
     let script = find_up("scripts/parity/report.py").expect("report.py");
     let rep = Command::new("python3").arg(&script).arg(&results).output();
     let Ok(rep) = rep else {
-        eprintln!("skipped report.py: no python3");
+        skip("report.py: no python3");
         return;
     };
     let rtext = String::from_utf8_lossy(&rep.stdout);

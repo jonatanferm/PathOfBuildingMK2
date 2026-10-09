@@ -50,14 +50,26 @@ probes. Nothing in §9.2 changes; ORC-X tests should name hits as
 
 ## 4. Nondeterminism sampling (§9.5)
 
-Over the 57 builds PoB's outputs never differed between runs; the dumped
-states differ in mod order within mod lists / ModDB names (string-keyed
-iteration in PoB). A third run still adds new order-only entries for many
-builds, so the record is a sample. `pob_oracle nondet --max-runs N` keeps
-running while runs add entries. Proposed addition to §9.5:
+Over the 57 builds PoB's outputs never differed between runs. The dumped
+states differ mostly in mod order within mod lists / ModDB names
+(string-keyed iteration in PoB), but also in values: **the gem variant a
+skill resolves to varies between PoB processes** (allflame_exp_019:
+`ExplosiveTrap` / `ExplosiveTrapAltX` for one skill uuid;
+upstream_Dual_Wield_Cospris_CoC: `VaalRighteousFire` / its AltX variant in
+`requirementsTableGems` and `effectList[i].gemData/grantedEffect`). The calc
+port has to accept either variant where PoB does. A third run still adds
+new order-only entries for many builds, so the record is a sample.
+`pob_oracle nondet --max-runs N` keeps running while runs add entries.
+
+The record (`pob-nondet/2`) uses the paths the state diff walks (the
+resolved root, `env.…`), records a list as unordered only when its own
+elements move, and records mod-store differences per store name (an order,
+or each run's whole list as an accepted multiset). Proposed addition to
+§9.5:
 
 ```diff
 +Order-only differences inside mod stores are sampled, not enumerated; the state
 +diff compares mod stores as multisets and reports unrecorded order differences as
-+`LUA-ORDER` (not a value mismatch).
++`LUA-ORDER` (not a value mismatch). PoB's run-to-run value differences inside a
++mod store are recorded per store name as alternative multisets.
 ```

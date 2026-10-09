@@ -25,6 +25,7 @@ ureq = { version = "2.12", default-features = false, features = ["tls"], optiona
 toml = "0.8"
 zstd = "0.13"
 blake3 = "1"
+rustix = { version = "1", features = ["fs"] }
 
 [features]
 default = ["luajit"]

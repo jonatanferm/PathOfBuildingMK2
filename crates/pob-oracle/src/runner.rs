@@ -234,8 +234,25 @@ pub struct OracleLock {
     _file: Option<std::fs::File>,
 }
 
+/// Block until this process holds an exclusive `flock` on `file`
+/// (`flock(1)` in oracle.sh takes the same lock; released on close).
+#[cfg(unix)]
+fn lock_exclusive(file: &std::fs::File) -> std::io::Result<()> {
+    loop {
+        match rustix::fs::flock(file, rustix::fs::FlockOperation::LockExclusive) {
+            Err(e) if e == rustix::io::Errno::INTR => {}
+            r => return r.map_err(std::io::Error::from),
+        }
+    }
+}
+
+#[cfg(not(unix))]
+#[allow(clippy::incompatible_msrv)]
+fn lock_exclusive(file: &std::fs::File) -> std::io::Result<()> {
+    file.lock()
+}
+
 impl OracleLock {
-    #[allow(clippy::incompatible_msrv)]
     pub fn acquire() -> Result<Self> {
         if std::env::var_os(LOCK_HELD_ENV).is_some_and(|v| v == "1") {
             return Ok(Self { _file: None });
@@ -247,7 +264,7 @@ impl OracleLock {
             .write(true)
             .open(&path)
             .map_err(|e| OracleError(format!("{}: {e}", path.display())))?;
-        file.lock()
+        lock_exclusive(&file)
             .map_err(|e| OracleError(format!("locking {}: {e}", path.display())))?;
         Ok(Self { _file: Some(file) })
     }

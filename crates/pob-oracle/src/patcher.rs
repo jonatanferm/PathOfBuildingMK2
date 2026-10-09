@@ -1506,6 +1506,79 @@ pub fn plan_sha(pob_src: &Path, plan: &Plan, files: &[(String, PathBuf)]) -> Res
     Ok(h.finalize().to_hex()[..16].to_owned())
 }
 
+/// Write the patched tree (src/, links to PoB's siblings, manifest.json)
+/// into the fresh directory `tmp`.
+#[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+fn build_patched_tree(
+    pob_src: &Path,
+    plan: &Plan,
+    tree: &[(String, PathBuf)],
+    manifest: &Manifest,
+    tmp: &Path,
+) -> Result<()> {
+    let io = |e: std::io::Error, p: &Path| err(format!("{}: {e}", p.display()));
+    let patched: BTreeMap<&str, &str> = plan
+        .files
+        .iter()
+        .map(|f| (f.file.as_str(), f.patched.as_str()))
+        .collect();
+    let tsrc = tmp.join("src");
+    // Every file is created new (`create_new`): the unpatched ones are hard
+    // links to PoB's own files, so opening an existing `dst` for writing
+    // would write through the link into the PoB checkout itself (a copy
+    // onto an existing link truncates the original).
+    let create_new = |dst: &Path| {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dst)
+            .map_err(|e| io(e, dst))
+    };
+    for (rel, path) in tree {
+        let dst = tsrc.join(rel);
+        if let Some(d) = dst.parent() {
+            std::fs::create_dir_all(d).map_err(|e| io(e, d))?;
+        }
+        if let Some(text) = patched.get(rel.as_str()) {
+            std::io::Write::write_all(&mut create_new(&dst)?, text.as_bytes())
+                .map_err(|e| io(e, &dst))?;
+            continue;
+        }
+        match std::fs::hard_link(path, &dst) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Err(io(e, &dst)),
+            Err(_) => {
+                // another filesystem: copy
+                let mut from = std::fs::File::open(path).map_err(|e| io(e, path))?;
+                std::io::copy(&mut from, &mut create_new(&dst)?).map_err(|e| io(e, &dst))?;
+            }
+        }
+    }
+    // Everything next to PoB's src/ (runtime/ for the loader, manifest.xml
+    // for Launch.lua's version number, ...) is linked, so the copy boots
+    // exactly like the original checkout.
+    let pob_root = std::fs::canonicalize(pob_src.join("..")).map_err(|e| io(e, pob_src))?;
+    let src_name = std::fs::canonicalize(pob_src)
+        .ok()
+        .and_then(|p| p.file_name().map(std::ffi::OsStr::to_os_string));
+    let mut siblings: Vec<_> = std::fs::read_dir(&pob_root)
+        .map_err(|e| io(e, &pob_root))?
+        .filter_map(std::result::Result::ok)
+        .filter(|e| {
+            Some(e.file_name()) != src_name && !e.file_name().to_string_lossy().starts_with('.')
+        })
+        .collect();
+    siblings.sort_by_key(std::fs::DirEntry::file_name);
+    for e in siblings {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(e.path(), tmp.join(e.file_name())).map_err(|x| io(x, tmp))?;
+        #[cfg(not(unix))]
+        let _ = e;
+    }
+    let json = serde_json::to_string_pretty(manifest).map_err(|e| err(e.to_string()))?;
+    std::fs::write(tmp.join("manifest.json"), json).map_err(|e| io(e, tmp))
+}
+
 /// Plan, validate and publish the patched copy of `pob_src` under `root`
 /// (reused when `<root>/<sha>` already exists).
 #[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
@@ -1548,55 +1621,35 @@ pub fn patch(pob_src: &Path, stages_path: Option<&Path>, root: &Path) -> Result<
             .collect(),
     };
     std::fs::create_dir_all(root).map_err(|e| err(format!("{}: {e}", root.display())))?;
-    let tmp = root.join(format!(".{sha}.tmp.{}", std::process::id()));
+    // a temp dir of this call alone: other threads of this process (cargo
+    // test) and other processes may publish the same sha concurrently
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = root.join(format!(
+        ".{sha}.tmp.{}.{}",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     let _ = std::fs::remove_dir_all(&tmp);
-    let io = |e: std::io::Error, p: &Path| err(format!("{}: {e}", p.display()));
-    let patched: BTreeMap<&str, &str> = plan
-        .files
-        .iter()
-        .map(|f| (f.file.as_str(), f.patched.as_str()))
-        .collect();
-    let tsrc = tmp.join("src");
-    for (rel, path) in &tree {
-        let dst = tsrc.join(rel);
-        if let Some(d) = dst.parent() {
-            std::fs::create_dir_all(d).map_err(|e| io(e, d))?;
-        }
-        if let Some(text) = patched.get(rel.as_str()) {
-            std::fs::write(&dst, text).map_err(|e| io(e, &dst))?;
-        } else if std::fs::hard_link(path, &dst).is_err() {
-            std::fs::copy(path, &dst).map_err(|e| io(e, &dst))?;
-        }
-    }
-    // Everything next to PoB's src/ (runtime/ for the loader, manifest.xml
-    // for Launch.lua's version number, ...) is linked, so the copy boots
-    // exactly like the original checkout.
-    let pob_root = std::fs::canonicalize(pob_src.join("..")).map_err(|e| io(e, pob_src))?;
-    let src_name = std::fs::canonicalize(pob_src)
-        .ok()
-        .and_then(|p| p.file_name().map(std::ffi::OsStr::to_os_string));
-    let mut siblings: Vec<_> = std::fs::read_dir(&pob_root)
-        .map_err(|e| io(e, &pob_root))?
-        .filter_map(std::result::Result::ok)
-        .filter(|e| {
-            Some(e.file_name()) != src_name && !e.file_name().to_string_lossy().starts_with('.')
-        })
-        .collect();
-    siblings.sort_by_key(std::fs::DirEntry::file_name);
-    for e in siblings {
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(e.path(), tmp.join(e.file_name())).map_err(|x| io(x, &tmp))?;
-        #[cfg(not(unix))]
-        let _ = e;
-    }
-    let json = serde_json::to_string_pretty(&manifest).map_err(|e| err(e.to_string()))?;
-    std::fs::write(tmp.join("manifest.json"), json).map_err(|e| io(e, &tmp))?;
-    if std::fs::rename(&tmp, &dir).is_err() {
-        // another process published the same sha first
+    let published = build_patched_tree(pob_src, &plan, &tree, &manifest, &tmp).and_then(|()| {
+        std::fs::rename(&tmp, &dir).map_err(|e| err(format!("{}: {e}", dir.display())))
+    });
+    if let Err(e) = published {
+        // another thread or process published the same sha first (the
+        // rename finds `dir` in place: EEXIST / ENOTEMPTY), or this one failed
         let _ = std::fs::remove_dir_all(&tmp);
-        if !manifest_path.is_file() {
-            return Err(err(format!("could not publish {}", dir.display())));
-        }
+        let theirs = std::fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Manifest>(&t).ok())
+            .filter(|m| m.sha == sha);
+        let Some(manifest) = theirs else {
+            return Err(err(format!("could not publish {}: {e}", dir.display())));
+        };
+        return Ok(Patched {
+            src: dir.join("src"),
+            dir,
+            sha,
+            manifest,
+        });
     }
     Ok(Patched {
         src: dir.join("src"),

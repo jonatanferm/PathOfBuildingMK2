@@ -223,10 +223,14 @@ source tree. No line number changes. Every patched file is compiled with
   `getCachedOutputValue`, `ConfigTab:BuildModList`, every skill hook of
   `Data/Skills/*.lua` (`skill:<id>:<field>`, 133), every ConfigOptions
   `apply` (`config:<var>:apply`, 531 + `config:mapAffixDropDownFunction`),
-  the three jewel-func call sites of CalcSetup (`jewelFunc`), plus
-  `[[function]]` entries of the stages file. `function a.b(p) ... end`
+  plus `[[function]]` entries of the stages file (`mergeBuff` in
+  `corpus/P3/stages.toml`). `function a.b(p) ... end`
   becomes `a.b = __PROBE_FN("<id>", {"p"}, function(p) ... end)` (methods
   and `local function` likewise); the wrapper fires `<id>:in` and `<id>:out`.
+  With the P3 stages that is 678 function probes: 13 named + 133 skill
+  hooks + 532 config applies.
+* **Call probes**: the three jewel-func call sites of CalcSetup
+  (`jewelFunc`), counted separately from the function probes.
 * **Write provenance**: the creation sites of `env.player.output`,
   `env.enemy.output`, `output.MainHand/OffHand/Minion`, `minion.output` and
   the breakdown table become `__PROV(kind, {})` proxies whose `__newindex`
@@ -287,22 +291,41 @@ string keys (and everything derived from it) changes between processes.
 `pob_oracle nondet` probes a build in two processes, and in a third when
 they differ (always with `--verify`), and writes every differing output
 key / state path with the values PoB produced, plus lists whose order alone
-differs, to `.parity/nondet/<stem>.json` (`pob-nondet/1`). With
+differs, to `.parity/nondet/<stem>.json` (`pob-nondet/2`). With
 `--max-runs N` it keeps running (up to N processes) while a run still adds
 something the record does not cover structurally (list indices
 generalised); the result's `lastNew` lists what the last run added.
 `pob_calc_diff` accepts any recorded value and compares recorded lists as
 multisets.
 
+State paths in the record are the paths `pob_calc_diff state` walks (the
+resolved dump root: `env.player.activeSkillList[6].baseSkillModList.mods`;
+a differing hit stack / env id is kept under `$stack` / `$env`). A list is
+recorded as unordered only when its own elements move (not when only lists
+nested in its elements do). Mod stores are recorded where the diff
+compares them, per store name (`<store>.mods.<Name>`, a ModList's
+`<store>.mods`): as an order when the runs' multisets agree, otherwise as
+each run's whole list (an absent name as `[]`), which the diff accepts as a
+multiset. Records of another format fail to load (regenerate them).
+
 Over the 57 corpus builds (`--verify --max-runs 6`: 3-6 processes per
-build, 51 builds converged) PoB's outputs never differed between runs; the
-differences
-are inside the dumped states, overwhelmingly the order of mods within a
-mod list or a ModDB name (`baseSkillModList`, buff mod lists, `enemyDB`
-lists), which PoB builds by iterating string-keyed tables. Such orders are
-only sampled by a few runs, so a further run can still show an order the
-record lacks; the state diff compares mod stores as multisets and reports
-order-only differences as `LUA-ORDER`, not as value mismatches.
+build, 52 builds converged) PoB's outputs never differed between runs; the
+differences are inside the dumped states (22,730 order entries, 222 value
+entries, 93 of them per-name mod-store alternatives). Most are the order of mods within
+a mod list or a ModDB name (`baseSkillModList`, buff mod lists, `enemyDB`
+lists), which PoB builds by iterating string-keyed tables. But PoB also
+differs in values: **which gem variant a skill resolves to changes between
+processes** (allflame_exp_019: `ExplosiveTrap` or `ExplosiveTrapAltX` for
+the same skill uuid, visible in `baseSkillModList` mod sources;
+upstream_Dual_Wield_Cospris_CoC: `VaalRighteousFire` or its AltX variant in
+`requirementsTableGems` and `effectList[i].gemData/grantedEffect`). A calc
+port that picks either variant matches PoB; a test that pins one does not.
+(The Lua cause is not traced yet; Modules/Data.lua builds `gemForSkill` /
+`gemForBaseName` / the AltX/AltY Vaal variants inside `pairs(data.gems)`.)
+Order differences are only sampled by a few runs, so a further run can
+still show an order the record lacks; the state diff compares mod stores as
+multisets and reports order-only differences as `LUA-ORDER`, not as value
+mismatches.
 
 ### `pob_calc_diff`
 

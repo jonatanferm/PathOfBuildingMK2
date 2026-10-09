@@ -70,6 +70,37 @@ pub fn tree_eq(a: &J, b: &J, rel: f64) -> bool {
     }
 }
 
+/// [`tree_eq`] with every list (arrays, `$seq`, a store's mods per name)
+/// compared as a multiset, recursively.
+#[must_use]
+pub fn tree_eq_unordered(a: &J, b: &J, rel: f64) -> bool {
+    if let (Some(x), Some(y)) = (decode_num(a), decode_num(b)) {
+        return num_close(x, y, rel);
+    }
+    let bag_eq = |x: &[J], y: &[J]| {
+        let mut used = vec![false; y.len()];
+        x.len() == y.len()
+            && x.iter().all(|p| {
+                (0..y.len())
+                    .find(|&i| !used[i] && tree_eq_unordered(p, &y[i], rel))
+                    .map(|i| used[i] = true)
+                    .is_some()
+            })
+    };
+    match (a, b) {
+        (J::Array(x), J::Array(y)) => bag_eq(x, y),
+        (J::Object(x), J::Object(y)) => {
+            let kx: Vec<_> = x.keys().filter(|k| k.as_str() != "$at").collect();
+            let ky: Vec<_> = y.keys().filter(|k| k.as_str() != "$at").collect();
+            kx == ky
+                && kx
+                    .iter()
+                    .all(|k| tree_eq_unordered(&x[k.as_str()], &y[k.as_str()], rel))
+        }
+        _ => a == b,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MismatchKind {
     /// Values differ.
@@ -155,7 +186,8 @@ fn multiset_unmatched<'a>(a: &'a [J], b: &'a [J], rel: f64) -> (Vec<&'a J>, Vec<
     (left, right)
 }
 
-fn store_mods(v: &J) -> BTreeMap<String, Vec<J>> {
+/// A mod store's mods by name (a ModList's under `""`).
+pub(crate) fn store_mods(v: &J) -> BTreeMap<String, Vec<J>> {
     let mut out = BTreeMap::new();
     match v.get("mods") {
         Some(J::Object(m)) => {
@@ -170,6 +202,20 @@ fn store_mods(v: &J) -> BTreeMap<String, Vec<J>> {
         _ => {}
     }
     out
+}
+
+/// Path of a store's mods under one name (`<store>.mods.Life`,
+/// `<store>.mods["Name With Spaces"]`; a ModList's whole list `<store>.mods`):
+/// where the diff compares them as a multiset and where the nondet record
+/// keeps their orders and accepted alternatives.
+#[must_use]
+pub fn store_list_path(path: &str, name: &str) -> String {
+    let mods = format!("{path}.mods");
+    if name.is_empty() {
+        mods
+    } else {
+        crate::schema::step_key(&mods, name)
+    }
 }
 
 fn mod_at(m: &J) -> Option<String> {
@@ -193,11 +239,22 @@ fn diff_store(path: &str, a: &J, b: &J, opts: &DiffOptions<'_>, out: &mut Vec<Mi
         let empty = Vec::new();
         let la = ma.get(name).unwrap_or(&empty);
         let lb = mb.get(name).unwrap_or(&empty);
-        let p = if name.is_empty() {
-            format!("{path}.mods")
-        } else {
-            crate::schema::step_key(&format!("{path}.mods"), name)
-        };
+        let p = store_list_path(path, name);
+        // a list PoB produced in some run (the nondet record keeps each
+        // run's list when they differ beyond order; `[]` for an absent name)
+        let alternative = opts
+            .nondet_values
+            .and_then(|m| m.get(&p))
+            .is_some_and(|alts| {
+                alts.iter().any(|alt| {
+                    let alt = alt.as_array().map_or(&[][..], Vec::as_slice);
+                    let (unmatched_alt, unmatched_ours) = multiset_unmatched(alt, lb, opts.rel);
+                    unmatched_alt.is_empty() && unmatched_ours.is_empty()
+                })
+            });
+        if alternative {
+            continue;
+        }
         let (left, right) = multiset_unmatched(la, lb, opts.rel);
         if left.is_empty() && right.is_empty() {
             let same_order = la.iter().zip(lb).all(|(x, y)| tree_eq(x, y, opts.rel));
@@ -286,29 +343,36 @@ fn walk(path: &str, a: &J, b: &J, opts: &DiffOptions<'_>, out: &mut Vec<Mismatch
         };
         let (sa, sb) = (seq(a), seq(b));
         let (left, right) = multiset_unmatched(&sa, &sb, opts.rel);
-        // elements that differ only in the order of lists nested in them
-        // (PoB reorders those too: nondet records them below this path)
-        let mut right_deep: Vec<Option<String>> = right
-            .iter()
-            .map(|y| Some(crate::nondet::deep_canonical(y)))
-            .collect();
-        let left_rest = left
-            .iter()
-            .filter(|x| {
-                let dx = crate::nondet::deep_canonical(x);
-                match right_deep
-                    .iter()
-                    .position(|d| d.as_deref() == Some(dx.as_str()))
-                {
-                    Some(i) => {
-                        right_deep[i] = None;
-                        false
-                    }
-                    None => true,
-                }
+        // elements that differ only in the order of lists nested in them, when
+        // the record has such nested orders below this list (PoB reorders
+        // them together with the list; nondet pairs the elements and records
+        // the nested orders at run 1's positions)
+        let nested = opts.nondet_orders.is_some_and(|s| {
+            s.iter().any(|o| {
+                o.strip_prefix(path)
+                    .is_some_and(|r| r.starts_with('[') || r.starts_with('.'))
             })
-            .count();
-        let right_rest = right_deep.iter().filter(|d| d.is_some()).count();
+        });
+        let (left_rest, right_rest) = if nested {
+            let mut used = vec![false; right.len()];
+            let left_rest = left
+                .iter()
+                .filter(|x| {
+                    match (0..right.len())
+                        .find(|&i| !used[i] && tree_eq_unordered(x, right[i], opts.rel))
+                    {
+                        Some(i) => {
+                            used[i] = true;
+                            false
+                        }
+                        None => true,
+                    }
+                })
+                .count();
+            (left_rest, used.iter().filter(|u| !**u).count())
+        } else {
+            (left.len(), right.len())
+        };
         if left_rest > 0 || right_rest > 0 {
             out.push(Mismatch {
                 path: path.to_owned(),
@@ -732,7 +796,8 @@ mod tests {
     fn unordered_lists_with_nested_orders() {
         let a = json!({"buffs": [{"n": "A", "mods": [1, 2]}, {"n": "B", "mods": [3]}]});
         let b = json!({"buffs": [{"n": "B", "mods": [3]}, {"n": "A", "mods": [2, 1]}]});
-        let orders: BTreeSet<String> = ["buffs".to_owned()].into();
+        // as nondet records it: the list and the nested list it reordered
+        let orders: BTreeSet<String> = ["buffs".to_owned(), "buffs[1].mods".to_owned()].into();
         let opts = DiffOptions {
             rel: REL_TOL,
             nondet_values: None,
@@ -741,6 +806,56 @@ mod tests {
         assert!(diff_trees(&a, &b, &opts).is_empty());
         let c = json!({"buffs": [{"n": "B", "mods": [4]}, {"n": "A", "mods": [2, 1]}]});
         assert_eq!(diff_trees(&a, &c, &opts).len(), 1);
+        // numbers inside still compare with the tolerance
+        let d =
+            json!({"buffs": [{"n": "B", "mods": [3.000_000_000_001]}, {"n": "A", "mods": [2, 1]}]});
+        assert!(diff_trees(&a, &d, &opts).is_empty());
+        // without a nested order below it, only the list's own order is free
+        let only: BTreeSet<String> = ["buffs".to_owned()].into();
+        let opts = DiffOptions {
+            rel: REL_TOL,
+            nondet_values: None,
+            nondet_orders: Some(&only),
+        };
+        assert_eq!(diff_trees(&a, &b, &opts).len(), 1);
+        let e = json!({"buffs": [{"n": "B", "mods": [3]}, {"n": "A", "mods": [1, 2]}]});
+        assert!(diff_trees(&a, &e, &opts).is_empty());
+    }
+
+    #[test]
+    fn store_alternatives_per_name() {
+        let m = |n: &str, v: i64| json!({"name": n, "type": "BASE", "value": v});
+        let pob = json!({"s": {"$store": "ModDB", "mods": {
+            "Life": [m("Life", 1), m("Life", 2)], "Mana": [m("Mana", 5)]}}});
+        // another run: Life holds other mods, Mana is absent
+        let ours = json!({"s": {"$store": "ModDB", "mods": {
+            "Life": [m("Life", 3)]}}});
+        assert_eq!(diff_trees(&pob, &ours, &DiffOptions::strict()).len(), 4);
+        let mut vals = BTreeMap::new();
+        vals.insert(
+            "s.mods.Life".to_owned(),
+            vec![json!([m("Life", 1), m("Life", 2)]), json!([m("Life", 3)])],
+        );
+        vals.insert(
+            "s.mods.Mana".to_owned(),
+            vec![json!([m("Mana", 5)]), json!([])],
+        );
+        let opts = DiffOptions {
+            rel: REL_TOL,
+            nondet_values: Some(&vals),
+            nondet_orders: None,
+        };
+        assert!(diff_trees(&pob, &ours, &opts).is_empty());
+        // an alternative compares as a multiset; anything else still differs
+        let swapped = json!({"s": {"$store": "ModDB", "mods": {
+            "Life": [m("Life", 2), m("Life", 1)], "Mana": [m("Mana", 5)]}}});
+        assert!(diff_trees(&pob, &swapped, &opts).is_empty());
+        let other = json!({"s": {"$store": "ModDB", "mods": {
+            "Life": [m("Life", 4)], "Mana": [m("Mana", 5)]}}});
+        let d = diff_trees(&pob, &other, &opts);
+        assert_eq!(d.len(), 3, "{d:?}");
+        assert_eq!(store_list_path("x", ""), "x.mods");
+        assert_eq!(store_list_path("x", "Two Words"), "x.mods[\"Two Words\"]");
     }
 
     #[test]

@@ -67,6 +67,21 @@ need_parity() {
 
 stage_args=()
 
+# The patched src/ for "${stage_args[@]}" (the patcher's log shown on failure).
+patch_src() {
+    local log rc=0 out
+    log="$(mktemp "${TMPDIR:-/tmp}/oracle_patch.XXXXXX")"
+    out="$("$bin" patch "${stage_args[@]}" 2> "$log")" || rc=$?
+    if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
+        echo "oracle.sh: pob_oracle patch failed (exit $rc):" >&2
+        cat "$log" >&2
+        rm -f "$log"
+        exit 1
+    fi
+    rm -f "$log"
+    printf '%s\n' "$out"
+}
+
 case "$cmd" in
     run)
         build="" select=""
@@ -105,7 +120,7 @@ case "$cmd" in
         if [ ${#builds[@]} -eq 0 ]; then builds=("$parity"/builds/*.xml); fi
         if [ -n "$stages" ]; then stage_args=(--stages "$stages"); fi
         # patch once (outside the lock: no LuaJIT PoB involved)
-        src="$("$bin" patch "${stage_args[@]}" 2>/dev/null)"
+        src="$(patch_src)"
         mkdir -p "$parity/nondet"
         for xml in "${builds[@]}"; do
             stem="$(basename "$xml" .xml)"
@@ -127,7 +142,7 @@ case "$cmd" in
         need_parity
         if [ ${#builds[@]} -eq 0 ]; then builds=("$parity"/builds/*.xml); fi
         if [ -n "$stages" ]; then stage_args=(--stages "$stages"); fi
-        src="$("$bin" patch "${stage_args[@]}" 2>/dev/null)"
+        src="$(patch_src)"
         for xml in "${builds[@]}"; do
             stem="$(basename "$xml" .xml)"
             dir="$parity/probe/$stem"

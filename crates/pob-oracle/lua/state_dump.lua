@@ -553,6 +553,7 @@ encodePlain = function(ctx, v)
 		if tv == "function" then return encodeFn(ctx, v, false) end
 		return encodeScalar(ctx, v)
 	end
+	if v == S.EMPTY_ARRAY then ctx:put("[]") return end
 	local m = ctx.markers[v]
 	if not m and not ctx.plainOnly and not isMod(v) and S.dataIndex()[v] then
 		m = '{"$data":' .. jstr(S.dataIndex()[v]) .. '}'
@@ -984,6 +985,15 @@ function S.encodeDoc(doc)
 	for i, h in ipairs(doc.stack or { }) do stack[i] = jstr(h) end
 	ctx:put(',"stack":[' .. concat(stack, ",") .. "]}")
 	return concat(ctx.buf)
+end
+
+-- An empty list for S.json (`[]`; a plain empty table is written `{}`).
+S.EMPTY_ARRAY = S.EMPTY_ARRAY or { }
+
+-- `t` as a JSON list for S.json, `[]` when empty.
+function S.array(t)
+	if t == nil or next(t) == nil then return S.EMPTY_ARRAY end
+	return t
 end
 
 -- Plain JSON for small Lua values (probe index files): sorted keys,

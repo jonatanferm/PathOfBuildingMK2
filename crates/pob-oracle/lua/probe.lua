@@ -131,7 +131,7 @@ local function doDump(how, hit, id, n, kind, env, locals)
 	local json = S.encodeDoc({ build = cfg.build, hit = hit, probe = id, n = n, kind = kind,
 		stack = ids, env = env, envId = envId, locals = locals })
 	local file = "state/" .. fileName(hit)
-	local entry = { hit = hit, file = file, stack = ids, env = envId }
+	local entry = { hit = hit, file = file, stack = S.array(ids), env = envId }
 	if how == "now" then
 		writeFile(cfg.outDir .. "/" .. file, json)
 		dumps[#dumps + 1] = entry
@@ -264,12 +264,12 @@ function __probe_finish(mainEnv)
 		format = "pob-hits/1",
 		build = cfg.build,
 		counts = countList,
-		dumps = dumps,
+		dumps = S.array(dumps),
 		skipped = skipped,
 		envs = S.nextEnv,
 		mainEnv = mainId or false,
 		mainDumps = mainDumps,
-		select = cfg.select or { },
+		select = S.array(cfg.select),
 	}
 	writeFile(cfg.outDir .. "/hits.json", S.json(doc))
 	if cfg.provenance and S.provenanceOf then
