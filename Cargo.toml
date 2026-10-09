@@ -22,6 +22,8 @@ members = [
     "crates/pob-ui-oracle",
     "app/pob-port-desktop",
     "app/pob-port-web",
+    # Test-only input locator and skip policy (HYG1); dev-dependency only.
+    "crates/pob-testpaths",
 ]
 
 [workspace.package]
@@ -47,6 +49,8 @@ pob-host = { path = "crates/pob-host" }
 pob-ui-core = { path = "crates/pob-ui-core" }
 pob-app = { path = "crates/pob-app" }
 pob-ui-oracle = { path = "crates/pob-ui-oracle" }
+# Test-only (HYG1): gitignored test inputs + skip policy. Never a normal dependency.
+pob-testpaths = { path = "crates/pob-testpaths" }
 
 # General
 serde = { version = "1", features = ["derive"] }

@@ -11,23 +11,15 @@
 use std::path::PathBuf;
 
 use pob_calc::env::Mode;
-use pob_oracle::oracle::{find_parity_dir, find_up};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
         return true;
     }
-    let dir = std::env::var_os("POB_DUMP_DIR")
-        .map(PathBuf::from)
-        .or_else(|| find_up("data/dump/manifest.json").map(|p| p.parent().unwrap().to_path_buf()));
-    let Some(dir) = dir else { return false };
+    let Some(dir) = pob_testpaths::require(pob_testpaths::dump_dir(), "data/dump (run pob-dump)")
+    else {
+        return false; // POB_ALLOW_SKIP=1
+    };
     if dir.join("data.bin").is_file() {
         pob_gamedata::init_from_dir(&dir).unwrap_or_else(|e| panic!("data.bin: {e}"));
     } else {
@@ -60,14 +52,17 @@ fn slice5_xml(entry: &str) -> Option<String> {
     if derived.is_file() {
         return std::fs::read_to_string(derived).ok();
     }
-    let parity = find_parity_dir()?;
-    std::fs::read_to_string(parity.join("builds").join(format!("{entry}.xml"))).ok()
+    let xml = pob_testpaths::require(
+        pob_testpaths::parity_build(entry),
+        &format!("slice5 build {entry} (corpus/U0/slice5 or .parity/builds)"),
+    )?;
+    std::fs::read_to_string(xml).ok()
 }
 
 #[test]
 fn build_output_on_stubs() {
     if !init_data() {
-        return skip("data/dump not found");
+        return; // POB_ALLOW_SKIP=1
     }
     pob_calc::stub::stub_reset();
     let builds = slice5();
@@ -75,7 +70,7 @@ fn build_output_on_stubs() {
     let mut runs = 0;
     for stem in &builds {
         let Some(xml) = slice5_xml(stem) else {
-            return skip(&format!("slice5 build {stem} not found"));
+            return; // POB_ALLOW_SKIP=1
         };
         for mode in [Mode::MAIN, Mode::CALCS, Mode::CALCULATOR] {
             let build = pob_calc::model::build_xml::loadBuildFromXML(&xml, pob_gamedata::data());

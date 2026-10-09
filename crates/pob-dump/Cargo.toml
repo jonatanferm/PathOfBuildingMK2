@@ -24,6 +24,8 @@ serde.workspace = true
 # serde_json's default float parser can be 1 ulp off; the dump's numbers
 # round-trip exactly only with float_roundtrip (e.g. data.misc.stdBossDPSMult)
 serde_json = { workspace = true, features = ["float_roundtrip"] }
+# Test inputs (the PoB checkout) and the skip policy (HYG1).
+pob-testpaths.workspace = true
 
 [lints]
 workspace = true

@@ -18,6 +18,10 @@ ahash.workspace = true
 ustr = { workspace = true, features = ["serde"] }
 postcard = { version = "1", default-features = false, features = ["alloc"] }
 
+[dev-dependencies]
+# Test inputs (data/dump) and the skip policy (HYG1).
+pob-testpaths.workspace = true
+
 [lints]
 workspace = true
 

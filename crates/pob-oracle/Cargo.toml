@@ -31,6 +31,8 @@ rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 pob-gamedata.workspace = true
+# Test inputs (PoB checkout, data/dump, .parity) and the skip policy (HYG1).
+pob-testpaths.workspace = true
 
 [features]
 default = ["luajit"]

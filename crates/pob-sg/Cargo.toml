@@ -21,6 +21,8 @@ xxhash-rust.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+# Test inputs (PoB's fonts) and the skip policy (HYG1).
+pob-testpaths.workspace = true
 
 [lints]
 workspace = true

@@ -6,6 +6,19 @@
 //! an insertion-ordered hash part (§3.4: string-keyed `pairs` order follows
 //! insertion; PoB's own order is random per process). Accessors take one short
 //! borrow each and never hand out references (§3.3).
+//!
+//! `#t` (HYG1): next to its storage every table keeps a model of the layout
+//! LuaJIT would give it (`pob_lua::ljtab::LjTab`: array part, hash part, dead
+//! keys, rehash sizing), fed by every store in the order Lua makes them, and
+//! [`Table::len`] is `lj_tab_len` on that model. A border is therefore the one
+//! LuaJIT picks, holes included: `t[1]=1 t[2]=2 t[3]=3 t[2]=nil` gives 1, a
+//! constructor `{a, b, c}` then `t[2]=nil` gives 3 (`BC_TNEW` asize 4), and a
+//! constructor of constants `{1, 2, 3}` then `t[2]=nil` gives 1 (the template
+//! grew by rehashes). Constructors go through [`Table::from_ctor`] / `tbl!`.
+//! Exact for tables keyed by numbers and booleans; string keys use a
+//! stand-in for LuaJIT's per-process string ids (`ljtab` module docs), so for
+//! a table mixing string keys with holed integer keys LuaJIT itself can give
+//! different borders in different processes. `len()` is always a valid border.
 #![allow(non_snake_case)]
 
 use std::any::Any;
@@ -14,6 +27,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use pob_gamedata::{ModRef, Value, ValueTable};
+use pob_lua::ljtab::{self, CtorKey, LjKey, LjTab};
 use pob_lua::{lua_error, CheapClone, Name};
 
 /// Non-key strings (breakdown lines) are not interned.
@@ -377,6 +391,33 @@ impl Key {
     }
 }
 
+/// How LuaJIT's `lj_tab.c` hashes and counts a key (the `#t` layout model).
+impl LjKey for Key {
+    #[inline]
+    fn as_int(&self) -> Option<i64> {
+        match *self {
+            Key::I(i) => Some(i),
+            _ => None,
+        }
+    }
+    #[inline]
+    fn from_int(i: i64) -> Self {
+        Key::I(i)
+    }
+    #[inline]
+    fn hash(&self) -> u32 {
+        match *self {
+            Key::I(i) => ljtab::hashnum(i),
+            Key::B(b) => ljtab::hashbool(b),
+            Key::S(n) => ljtab::str_sid_standin(n.as_str()),
+        }
+    }
+    #[inline]
+    fn is_str(&self) -> bool {
+        matches!(self, Key::S(_))
+    }
+}
+
 /// `setmetatable(t, { __index = … })` (U0 audited every in-scope site, §8).
 #[derive(Clone)]
 pub enum IndexMeta {
@@ -389,11 +430,157 @@ pub enum IndexMeta {
 /// The contents of a [`Table`].
 #[derive(Default)]
 pub struct TableData {
-    /// Keys `1..=len`, no trailing nil.
+    /// Storage for keys `1..=arr.len()` (a dense prefix; may hold nils, no
+    /// trailing nil). Not the border: see `layout`.
     arr: Vec<Val>,
     /// Insertion order; assigning nil leaves a tombstone (Lua's dead key).
     hash: indexmap::IndexMap<Key, Val, ahash::RandomState>,
     meta: Option<IndexMeta>,
+    /// LuaJIT's layout of this table (presence only), for `#t` (module docs).
+    layout: LjTab<Key, ()>,
+}
+
+/// One field of a Lua table constructor `{ ... }` ([`Table::from_ctor`],
+/// `tbl!`): its key, its value, and whether the value is a Lua constant
+/// (`nil`, `true`, `false`, a number or a string literal; LuaJIT keeps those
+/// in a template table, `lj_parse.c` `expr_table`).
+pub struct TableField {
+    pub key: CtorKey<Key>,
+    pub konst: bool,
+    pub val: Val,
+}
+
+impl TableField {
+    /// A positional item `v`.
+    pub fn item(konst: bool, val: impl Into<Val>) -> Self {
+        Self {
+            key: CtorKey::Item,
+            konst,
+            val: val.into(),
+        }
+    }
+    /// `name = v`.
+    pub fn named(name: Name, konst: bool, val: impl Into<Val>) -> Self {
+        Self {
+            key: CtorKey::Named(Key::S(name)),
+            konst,
+            val: val.into(),
+        }
+    }
+    /// `[k] = v`; `key_konst`: `k` is a constant (a literal).
+    pub fn bracket(key: impl Into<Key>, key_konst: bool, konst: bool, val: impl Into<Val>) -> Self {
+        Self {
+            key: CtorKey::Bracket {
+                key: key.into(),
+                konst: key_konst,
+            },
+            konst,
+            val: val.into(),
+        }
+    }
+}
+
+/// `tbl!` helper: is the Rust source text of a constructor key or value (from
+/// `stringify!`) a Lua constant, i.e. a literal: `true`, `false`, `Val::Nil`,
+/// a number literal (optionally negated), a string literal or `n!("…")`?
+/// LuaJIT also folds constant arithmetic (`1 + 2`); write such a value as its
+/// folded literal.
+#[doc(hidden)]
+pub const fn __is_lua_const(s: &str) -> bool {
+    const fn eq(b: &[u8], i: usize, j: usize, w: &[u8]) -> bool {
+        if j - i != w.len() {
+            return false;
+        }
+        let mut p = 0;
+        while p < w.len() {
+            if b[i + p] != w[p] {
+                return false;
+            }
+            p += 1;
+        }
+        true
+    }
+    const fn str_lit(b: &[u8], i: usize, j: usize) -> bool {
+        if j - i < 2 || b[i] != b'"' || b[j - 1] != b'"' {
+            return false;
+        }
+        let mut p = i + 1;
+        while p < j - 1 {
+            if b[p] == b'\\' {
+                p += 2;
+                continue;
+            }
+            if b[p] == b'"' {
+                return false;
+            }
+            p += 1;
+        }
+        p == j - 1
+    }
+    let b = s.as_bytes();
+    let (mut i, mut j) = (0, b.len());
+    while i < j && b[i] == b' ' {
+        i += 1;
+    }
+    while j > i && b[j - 1] == b' ' {
+        j -= 1;
+    }
+    if i == j {
+        return false;
+    }
+    if eq(b, i, j, b"true")
+        || eq(b, i, j, b"false")
+        || eq(b, i, j, b"Val::Nil")
+        || eq(b, i, j, b"Val :: Nil")
+    {
+        return true;
+    }
+    if b[i] == b'"' {
+        return str_lit(b, i, j);
+    }
+    // n!("…") / n! ("…")
+    if j - i > 4 && b[i] == b'n' && b[i + 1] == b'!' && b[j - 1] == b')' {
+        let mut p = i + 2;
+        while p < j && b[p] == b' ' {
+            p += 1;
+        }
+        if p < j && b[p] == b'(' {
+            let (mut a, mut z) = (p + 1, j - 1);
+            while a < z && b[a] == b' ' {
+                a += 1;
+            }
+            while z > a && b[z - 1] == b' ' {
+                z -= 1;
+            }
+            return str_lit(b, a, z);
+        }
+        return false;
+    }
+    // number literal, optionally negated
+    let mut p = i;
+    if b[p] == b'-' {
+        p += 1;
+        while p < j && b[p] == b' ' {
+            p += 1;
+        }
+    }
+    if p >= j || !b[p].is_ascii_digit() {
+        return false;
+    }
+    let mut prev = 0u8;
+    while p < j {
+        let c = b[p];
+        let ok = c.is_ascii_alphanumeric()
+            || c == b'_'
+            || c == b'.'
+            || ((c == b'+' || c == b'-') && (prev == b'e' || prev == b'E'));
+        if !ok {
+            return false;
+        }
+        prev = c;
+        p += 1;
+    }
+    true
 }
 
 /// A mutable Lua table. `Clone` = a new alias (`Rc`).
@@ -418,7 +605,8 @@ impl fmt::Debug for Table {
     }
 }
 
-/// Lua `#t` on the array part plus trailing integer keys in the hash part.
+/// Storage: move integer keys that now extend the dense prefix out of the hash
+/// part.
 fn migrate_from_hash(d: &mut TableData) {
     loop {
         let next = Key::I(d.arr.len() as i64 + 1);
@@ -529,12 +717,19 @@ impl Table {
         let k = k.into();
         let v = v.into();
         let mut d = self.0.borrow_mut();
+        // LuaJIT layout: every store, nil included (a missing key gets a dead node).
+        d.layout.set(k, (!v.is_nil()).then_some(()));
+        Self::store(&mut d, k, v);
+    }
+
+    /// The storage half of `t[k] = v` (the layout is the caller's).
+    fn store(d: &mut TableData, k: Key, v: Val) {
         if let Key::I(i) = k {
             let len = d.arr.len();
             if i >= 1 && (i as usize) <= len {
                 d.arr[i as usize - 1] = v;
                 if i as usize == len {
-                    // keep "no trailing nil": the border moves down
+                    // storage keeps "no trailing nil" (not the border: `layout`)
                     while d.arr.last().is_some_and(Val::is_nil) {
                         d.arr.pop();
                     }
@@ -550,7 +745,7 @@ impl Table {
                 }
                 d.hash.shift_remove(&k);
                 d.arr.push(v);
-                migrate_from_hash(&mut d);
+                migrate_from_hash(d);
                 return;
             }
         }
@@ -589,7 +784,8 @@ impl Table {
 
     /// `#t`.
     pub fn len(&self) -> usize {
-        self.0.borrow().arr.len()
+        // lj_tab_len on the LuaJIT layout model (module docs).
+        self.0.borrow().layout.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -683,6 +879,9 @@ impl Table {
         let mut d = self.0.borrow_mut();
         d.arr.clear();
         d.hash.clear();
+        // L553-555: `tbl[k] = nil` for every key; LuaJIT keeps the sizes and
+        // the (now dead) nodes.
+        d.layout.wipe();
     }
 
     /// Common.lua `copyTable(tbl, noRecurse)`. It does NOT keep the metatable
@@ -701,6 +900,10 @@ impl Table {
                 v => out.set(k, v),
             }
         }
+        // LuaJIT layout: Lua fills `out` in LuaJIT's `pairs` order of `tbl`
+        // (lj_tab_next), not in this table's insertion order.
+        let layout = self.0.borrow().layout.copyTable();
+        out.0.borrow_mut().layout = layout;
         out
     }
 
@@ -715,6 +918,41 @@ impl Table {
     /// Identity of the table (for `PtrMap`-style keys and debugging).
     pub fn as_ptr(&self) -> *const () {
         Rc::as_ptr(&self.0).cast()
+    }
+
+    /// A table constructor `{ ... }` (`tbl!`): LuaJIT's `expr_table` builds a
+    /// template table from the constant fields and `BC_TDUP` copies it, or
+    /// `BC_TNEW` presizes an empty table; the other fields are stored at run
+    /// time in field order (`pob_lua::ljtab::table_ctor`). The values in the
+    /// template are in place before any run-time store, as in Lua.
+    pub fn from_ctor(fields: Vec<TableField>) -> Table {
+        let shape: Vec<ljtab::CtorField<Key>> = fields
+            .iter()
+            .map(|f| ljtab::CtorField {
+                key: f.key,
+                konst: f.konst,
+                nil: f.val.is_nil(),
+            })
+            .collect();
+        let ctor = ljtab::table_ctor(&shape);
+        let t = Table::new();
+        {
+            let mut d = t.0.borrow_mut();
+            d.layout = ctor.table;
+            // BC_TDUP: the template's values.
+            for (f, &(k, runtime)) in fields.iter().zip(&ctor.fields) {
+                if !runtime {
+                    Self::store(&mut d, k, f.val.clone());
+                }
+            }
+        }
+        // TSETB/TSETV/TSETS, in field order.
+        for (f, (k, runtime)) in fields.into_iter().zip(ctor.fields) {
+            if runtime {
+                t.set(k, f.val);
+            }
+        }
+        t
     }
 
     /// A data table converted into a fresh calc table (`copyTable` of data).
@@ -762,32 +1000,55 @@ impl Iterator for TablePairs {
     }
 }
 
-/// `tbl![ "a", "b" ]`, `tbl!{ key = v, … }`, `tbl!{ "a"; key = v }`,
-/// `tbl!{ [k] => v, … }` (computed keys).
+/// A Lua table constructor: `tbl![ "a", "b" ]`, `tbl!{ key = v, … }`,
+/// `tbl!{ "a"; key = v }`, `tbl!{ [k] => v, … }` (computed keys), `tbl!()`.
+/// Built by [`Table::from_ctor`] with LuaJIT's layout: a value (or a `[k]`
+/// key) written as a literal (`1.0`, `-2`, `"s"`, `n!("s")`, `true`,
+/// `false`, `Val::Nil`) is a Lua constant and goes into the template table;
+/// anything else is stored at run time (`__is_lua_const`).
 #[macro_export]
 macro_rules! tbl {
     () => { $crate::lua_table::Table::new() };
-    ($($k:ident = $v:expr),+ $(,)?) => {{
-        let t = $crate::lua_table::Table::new();
-        $( t.set({ static N: ::std::sync::OnceLock<::pob_lua::Name> = ::std::sync::OnceLock::new(); *N.get_or_init(|| ::pob_lua::Name::from(stringify!($k))) }, $v); )+
-        t
-    }};
-    ($([$k:expr] => $v:expr),+ $(,)?) => {{
-        let t = $crate::lua_table::Table::new();
-        $( t.set($k, $v); )+
-        t
-    }};
-    ($($a:expr),+ ; $($k:ident = $v:expr),* $(,)?) => {{
-        let t = $crate::lua_table::Table::new();
-        $( t.push($a); )+
-        $( t.set({ static N: ::std::sync::OnceLock<::pob_lua::Name> = ::std::sync::OnceLock::new(); *N.get_or_init(|| ::pob_lua::Name::from(stringify!($k))) }, $v); )*
-        t
-    }};
-    ($($a:expr),+ $(,)?) => {{
-        let t = $crate::lua_table::Table::new();
-        $( t.push($a); )+
-        t
-    }};
+    ($($k:ident = $v:expr),+ $(,)?) => {
+        $crate::lua_table::Table::from_ctor(::std::vec![
+            $( $crate::lua_table::TableField::named(
+                { static N: ::std::sync::OnceLock<::pob_lua::Name> = ::std::sync::OnceLock::new(); *N.get_or_init(|| ::pob_lua::Name::from(stringify!($k))) },
+                { const K: bool = $crate::lua_table::__is_lua_const(stringify!($v)); K },
+                $v,
+            ), )+
+        ])
+    };
+    ($([$k:expr] => $v:expr),+ $(,)?) => {
+        $crate::lua_table::Table::from_ctor(::std::vec![
+            $( $crate::lua_table::TableField::bracket(
+                $k,
+                { const K: bool = $crate::lua_table::__is_lua_const(stringify!($k)); K },
+                { const K: bool = $crate::lua_table::__is_lua_const(stringify!($v)); K },
+                $v,
+            ), )+
+        ])
+    };
+    ($($a:expr),+ ; $($k:ident = $v:expr),* $(,)?) => {
+        $crate::lua_table::Table::from_ctor(::std::vec![
+            $( $crate::lua_table::TableField::item(
+                { const K: bool = $crate::lua_table::__is_lua_const(stringify!($a)); K },
+                $a,
+            ), )+
+            $( $crate::lua_table::TableField::named(
+                { static N: ::std::sync::OnceLock<::pob_lua::Name> = ::std::sync::OnceLock::new(); *N.get_or_init(|| ::pob_lua::Name::from(stringify!($k))) },
+                { const K: bool = $crate::lua_table::__is_lua_const(stringify!($v)); K },
+                $v,
+            ), )*
+        ])
+    };
+    ($($a:expr),+ $(,)?) => {
+        $crate::lua_table::Table::from_ctor(::std::vec![
+            $( $crate::lua_table::TableField::item(
+                { const K: bool = $crate::lua_table::__is_lua_const(stringify!($a)); K },
+                $a,
+            ), )+
+        ])
+    };
 }
 
 /// `actor.output`, `output.MainHand`, minion output: same type and keys.
@@ -884,6 +1145,96 @@ mod tests {
         let e = tbl!["a", "b"; k = true];
         assert_eq!(e.len(), 2);
         assert!(e.truthy(n!("k")));
+    }
+
+    /// HYG1: LuaJIT borders (`luajit` with `jit.off()`; the property test
+    /// `tests/hyg1_len.rs` covers 10k random sequences).
+    #[test]
+    fn luajit_borders() {
+        let t = Table::new();
+        t.set(1, 1.0);
+        t.set(2, 2.0);
+        t.set(3, 3.0);
+        t.set(2, Val::Nil);
+        assert_eq!(t.len(), 1);
+
+        // `{a, b, c}`: BC_TNEW with asize 4.
+        let (a, b, c) = (1.0, 2.0, 3.0);
+        let t = tbl![a, b, c];
+        t.set(2, Val::Nil);
+        assert_eq!(t.len(), 3);
+
+        // `{1, 2, 3}`: a template grown by rehashes to asize 5.
+        let t = tbl![1.0, 2.0, 3.0];
+        t.set(2, Val::Nil);
+        assert_eq!(t.len(), 1);
+
+        // `t[1] = 1 t[2] = 2 t[4] = 4` → 4: storing 4 rehashes to asize 5,
+        // whose last slot (key 4) is non-nil.
+        let t = Table::new();
+        for k in [1, 2, 4] {
+            t.set(k, 1.0);
+        }
+        assert_eq!(t.len(), 4);
+
+        // table.insert uses the border: `{1, 2, 3}`, `t[2] = nil`, insert → t[2].
+        let t = tbl![1.0, 2.0, 3.0];
+        t.set(2, Val::Nil);
+        t.push(9.0);
+        assert_eq!(t.rawget(2).num(), 9.0);
+        assert_eq!(t.len(), 3);
+
+        // copyTable / wipeTable follow LuaJIT's layout rules.
+        let t = tbl![a, b, c];
+        t.set(2, Val::Nil);
+        assert_eq!(t.copyTable(true).len(), 1);
+        t.wipe();
+        assert_eq!(t.len(), 0);
+        t.set(1, 1.0);
+        t.set(3, 3.0);
+        assert_eq!(t.len(), 3);
+    }
+
+    #[test]
+    fn lua_const_detection() {
+        for s in [
+            "1",
+            "1.0",
+            "-1.5",
+            "- 2",
+            "1e-5",
+            "2.5E+3",
+            "0x10",
+            "3_000.0",
+            "1.0f64",
+            "true",
+            "false",
+            "Val::Nil",
+            "Val :: Nil",
+            r#""a""#,
+            r#""a\"b""#,
+            r#"n!("Life")"#,
+            r#"n! ("Life")"#,
+            " 7 ",
+        ] {
+            assert!(__is_lua_const(s), "{s:?} is a constant");
+        }
+        for s in [
+            "x",
+            "a.b",
+            "1.0 + 2.0",
+            "f(1)",
+            "1.0.max(x)",
+            "-x",
+            r#""a".to_owned()"#,
+            r#""a" == "b""#,
+            "n!(x)",
+            "Val::from(1.0)",
+            "",
+            "(1.0)",
+        ] {
+            assert!(!__is_lua_const(s), "{s:?} is not a constant");
+        }
     }
 
     #[test]

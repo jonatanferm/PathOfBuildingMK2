@@ -432,41 +432,22 @@ pub fn lua_msg_matches(lua_msg: &str, rs_msg: &str) -> bool {
 }
 
 /// PoB's `src/` for the L0 tests that quote PoB source (e.g.
-/// `string_format_calc_literals`). Found as `pob_oracle::oracle::find_pob_src`
-/// does (`$POB_SRC`, else `.PathOfBuilding/src` in an ancestor directory,
-/// which covers worktrees nested in the main checkout), else in the main
-/// checkout of a linked git worktree that lives elsewhere (its `.git` file
-/// points at `<main>/.git/worktrees/<name>`). A missing PoB checkout is a
-/// hard failure, not a skip: set `POB_SRC=<main checkout>/.PathOfBuilding/src`.
-pub fn pob_src() -> std::path::PathBuf {
-    pob_oracle::oracle::find_pob_src()
-        .or_else(main_checkout_pob_src)
-        .expect(
-            "PoB checkout is required for L0: set POB_SRC=<main checkout>/.PathOfBuilding/src \
-             (searched $POB_SRC, ancestor .PathOfBuilding/src, and the git worktree's main checkout)",
-        )
+/// `string_format_calc_literals`), found by `pob_testpaths` (`$POB_SRC`, this
+/// workspace and its ancestors, the linked worktree's main checkout, the main
+/// checkout's absolute path). A missing PoB checkout fails the test; `None`
+/// only with `POB_ALLOW_SKIP=1` (the test then returns).
+pub fn pob_src() -> Option<std::path::PathBuf> {
+    pob_testpaths::require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src) for L0",
+    )
 }
 
-/// `.PathOfBuilding/src` in the main checkout of the linked git worktree
-/// holding this crate.
-fn main_checkout_pob_src() -> Option<std::path::PathBuf> {
-    let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let dot_git = here
-        .ancestors()
-        .map(|a| a.join(".git"))
-        .find(|p| p.exists())?;
-    // `.git` is a file (not a directory) only in a linked worktree.
-    let text = std::fs::read_to_string(&dot_git).ok()?;
-    let gitdir = std::path::PathBuf::from(text.strip_prefix("gitdir:")?.trim());
-    // <main>/.git/worktrees/<name> -> <main>
-    let main = gitdir.parent()?.parent()?.parent()?;
-    let c = main.join(".PathOfBuilding/src");
-    c.join("HeadlessWrapper.lua").is_file().then_some(c)
-}
-
-/// Lines `a..=b` (1-based) of a PoB source file.
+/// Lines `a..=b` (1-based) of a PoB source file. The test checked
+/// [`pob_src`] first.
 pub fn pob_lines(rel: &str, a: usize, b: usize) -> String {
-    let text = std::fs::read(pob_src().join(rel)).expect("read PoB file");
+    let src = pob_testpaths::pob_src().expect("PoB checkout (check pob_src() first)");
+    let text = std::fs::read(src.join(rel)).expect("read PoB file");
     let text = String::from_utf8_lossy(&text);
     text.split('\n')
         .skip(a - 1)

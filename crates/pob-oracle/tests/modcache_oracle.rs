@@ -1,5 +1,6 @@
 //! Oracle: every line in PoB's `Data/ModCache.lua` must parse to exactly the
-//! mods PoB itself cached for it. Self-skips without a PoB checkout.
+//! mods PoB itself cached for it. Needs the PoB checkout (`pob_testpaths`;
+//! missing fails unless `POB_ALLOW_SKIP=1`).
 
 use pob_oracle::legacy_modifier::{Mod, Value};
 use pob_oracle::lua::{Interp, Val};
@@ -57,11 +58,16 @@ use pob_oracle::mod_parser::{lua_to_mod, ModParser};
 #[test]
 fn modcache_oracle() {
     let (Some(pob), Some(env)) = (
-        pob_oracle::oracle::find_pob_src(),
-        pob_oracle::oracle::find_up("data/lua/modparser_env.lua"),
+        pob_testpaths::require(
+            pob_testpaths::pob_src(),
+            "PoB checkout (.PathOfBuilding/src)",
+        ),
+        pob_testpaths::require(
+            pob_testpaths::find("data/lua/modparser_env.lua"),
+            "data/lua/modparser_env.lua",
+        ),
     ) else {
-        eprintln!("skipped: no PoB checkout / data/lua/modparser_env.lua");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let (pob, env) = (pob.as_path(), env.as_path());
     let parser = ModParser::from_paths(pob, env).unwrap_or_else(|e| panic!("{e}"));

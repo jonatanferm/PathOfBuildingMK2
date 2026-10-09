@@ -12,24 +12,19 @@ mod global;
 #[path = "../generated/misc.rs"]
 mod misc;
 
+/// PoB's `src/` via `pob_testpaths` (`$POB_SRC`, this workspace, the main
+/// checkout). Missing: the test fails, or returns with `POB_ALLOW_SKIP=1`.
 fn pob_src() -> Option<PathBuf> {
-    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        std::env::var_os("POB_SRC").map(PathBuf::from),
-        Some(here.join("../../.PathOfBuilding/src")),
-        Some(here.join("../../../../../.PathOfBuilding/src")),
-    ];
-    candidates
-        .into_iter()
-        .flatten()
-        .find(|p| p.join("Modules/Data.lua").exists())
+    pob_testpaths::require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src)",
+    )
 }
 
 #[test]
 fn generated_files_up_to_date() {
     let Some(src) = pob_src() else {
-        eprintln!("skipping: PoB source not found (set POB_SRC)");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let stale = pob_dump::codegen::check_all(&src, &pob_dump::codegen::default_dir()).unwrap();
     assert!(
@@ -43,8 +38,7 @@ fn generated_files_up_to_date() {
 #[test]
 fn codegen_check_cli() {
     let Some(src) = pob_src() else {
-        eprintln!("skipping: PoB source not found (set POB_SRC)");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let exe = env!("CARGO_BIN_EXE_pob-dump");
     let run = |dir: &Path, check: bool| {
@@ -134,8 +128,7 @@ fn sorted<T: Copy + Into<f64>>(e: &[(&str, T)]) -> Vec<(String, f64)> {
 fn global_matches_lua() {
     use global::{KeywordFlag, ModFlag, SkillType, SkillTypeExpr, SkillTypeSet};
     let Some(src) = pob_src() else {
-        eprintln!("skipping: PoB source not found (set POB_SRC)");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let env = global_env(&src);
     let g = env.lua.globals();
@@ -225,8 +218,7 @@ fn global_matches_lua() {
 #[test]
 fn misc_matches_lua() {
     let Some(src) = pob_src() else {
-        eprintln!("skipping: PoB source not found (set POB_SRC)");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let env = pob_dump::Env::new(&src).unwrap();
     env.boot_pob().unwrap();

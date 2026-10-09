@@ -18,29 +18,27 @@
 //!
 //! `buildOutput` end to end on stubs is `tests/u0_smoke.rs`.
 //!
-//! A test whose inputs (data/dump, the PoB checkout) are absent skips with a
-//! message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! The inputs (data/dump, the PoB checkout) are found by `pob_testpaths`; a
+//! missing input fails the test unless `POB_ALLOW_SKIP=1`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Instant;
 
-use pob_oracle::oracle::{find_pob_src, find_up};
 use pob_oracle::patcher::{self, StagesFile};
 
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
+/// `data/dump` (missing: fail, or `None` with `POB_ALLOW_SKIP=1`).
+fn dump_dir() -> Option<PathBuf> {
+    pob_testpaths::require(pob_testpaths::dump_dir(), "data/dump (run pob-dump)")
 }
 
-fn dump_dir() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
-        return p.join("manifest.json").is_file().then_some(p);
-    }
-    find_up("data/dump/manifest.json").map(|p| p.parent().unwrap().to_path_buf())
+/// PoB's `src/` (missing: fail, or `None` with `POB_ALLOW_SKIP=1`).
+fn pob_src() -> Option<PathBuf> {
+    pob_testpaths::require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src)",
+    )
 }
 
 fn repo_root() -> PathBuf {
@@ -50,7 +48,7 @@ fn repo_root() -> PathBuf {
 #[test]
 fn compile_zero_unknown_keys() {
     let Some(dir) = dump_dir() else {
-        return skip("data/dump not found (run pob-dump)");
+        return; // POB_ALLOW_SKIP=1
     };
     let t0 = Instant::now();
     let tree = pob_gamedata::load_dump_dir(&dir).unwrap_or_else(|e| panic!("load dump: {e}"));
@@ -158,7 +156,7 @@ fn unknown_key_is_an_error() {
 #[test]
 fn registry_complete() {
     let Some(dir) = dump_dir() else {
-        return skip("data/dump not found");
+        return; // POB_ALLOW_SKIP=1
     };
     let text = std::fs::read_to_string(dir.join("closures.json")).unwrap();
     let j: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -262,8 +260,8 @@ fn registry_complete() {
 
 #[test]
 fn stages_patch_loads() {
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    let Some(src) = pob_src() else {
+        return; // POB_ALLOW_SKIP=1
     };
     let stages_path = repo_root().join("docs/port/stages.toml");
     let stages = StagesFile::load(&stages_path).unwrap_or_else(|e| panic!("{e}"));
@@ -290,8 +288,8 @@ fn stages_fire_on_slice5() {
         eprintln!("SKIPPED: opt-in (POB_ORACLE_PROBE=1)");
         return;
     }
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    let Some(src) = pob_src() else {
+        return; // POB_ALLOW_SKIP=1
     };
     let root = repo_root();
     let bin = std::env::var_os("POB_ORACLE_BIN")
@@ -353,15 +351,17 @@ fn stages_fire_on_slice5() {
 
 #[test]
 fn provenance_check_and_coverage() {
-    if find_pob_src().is_none() {
-        return skip("PoB checkout not found");
-    }
+    let Some(src) = pob_src() else {
+        return; // POB_ALLOW_SKIP=1
+    };
     let root = repo_root();
     for args in [vec!["check"], vec!["coverage"]] {
         let out = Command::new("python3")
             .arg(root.join("scripts/port/provenance.py"))
             .args(&args)
             .current_dir(&root)
+            // the checkout pob_testpaths found (scripts/port/pobpaths.py reads $POB_DIR)
+            .env("POB_DIR", src.parent().expect("PoB root"))
             .output()
             .expect("python3");
         let text = String::from_utf8_lossy(&out.stdout);

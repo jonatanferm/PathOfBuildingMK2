@@ -331,8 +331,8 @@ fn conversions(f: &[u8]) -> Vec<u8> {
 }
 
 /// Every `s_format("...")` / `string.format("...")` literal in Modules/Calc*.lua.
-fn calc_format_literals() -> Vec<String> {
-    let dir = pob_src().join("Modules");
+fn calc_format_literals(src: &std::path::Path) -> Vec<String> {
+    let dir = src.join("Modules");
     let mut lits = std::collections::BTreeSet::new();
     for e in std::fs::read_dir(&dir).unwrap() {
         let p = e.unwrap().path();
@@ -363,7 +363,8 @@ fn calc_format_literals() -> Vec<String> {
 
 #[test]
 fn string_format_calc_literals() {
-    let lits = calc_format_literals();
+    let Some(src) = pob_src() else { return };
+    let lits = calc_format_literals(&src);
     assert!(lits.len() > 600, "found only {} literals", lits.len());
     // Let LuaJIT parse the literals' escapes.
     let lua0 = lua("jit.off");

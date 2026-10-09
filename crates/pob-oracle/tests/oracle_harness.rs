@@ -1,48 +1,45 @@
 //! The oracle harness end to end: run the `pob_oracle` binary on one build
 //! (fresh process per dump), deserialise both dumps, and check them against
-//! each other and against PoB's known numbers for the build. Self-skips
-//! without a PoB checkout (`$POB_SRC` or `.PathOfBuilding/src` in an ancestor)
-//! or the OccVortex build; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails
-//! instead, as U0.rs and u0_smoke.rs do.
+//! each other and against PoB's known numbers for the build. Needs the PoB
+//! checkout and the OccVortex build (`pob_testpaths`); a missing input fails
+//! the test unless `POB_ALLOW_SKIP=1`.
 
 use std::path::PathBuf;
 
 use pob_oracle::legacy_modifier::Mod;
-use pob_oracle::oracle::{find_pob_src, find_up, Leaf, Oracle};
+use pob_oracle::oracle::{Leaf, Oracle};
 
-fn build() -> Option<PathBuf> {
-    let src = find_pob_src()?;
-    find_up(".parity/builds/upstream_OccVortex.xml")
-        .or_else(|| find_up(".PathOfBuilding/spec/TestBuilds/3.13/OccVortex.xml"))
-        // `$POB_SRC` from a worktree outside the main checkout: the build sits
-        // beside PoB's `src/` (spec/TestBuilds/3.13/OccVortex.xml is the file
-        // .parity/builds/upstream_OccVortex.xml was copied from).
-        .or_else(|| {
-            let p = src.parent()?.join("spec/TestBuilds/3.13/OccVortex.xml");
-            p.is_file().then_some(p)
-        })
+/// PoB's `src/` and the OccVortex build: `.parity/builds/upstream_OccVortex.xml`,
+/// else the file it was copied from, PoB's `spec/TestBuilds/3.13/OccVortex.xml`.
+fn inputs() -> Option<(PathBuf, PathBuf)> {
+    let src = pob_testpaths::require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src)",
+    )?;
+    let build = pob_testpaths::parity_build("upstream_OccVortex").or_else(|| {
+        let p = src.parent()?.join("spec/TestBuilds/3.13/OccVortex.xml");
+        p.is_file().then_some(p)
+    });
+    let build = pob_testpaths::require(
+        build,
+        "OccVortex build (.parity/builds/upstream_OccVortex.xml or PoB spec/TestBuilds/3.13)",
+    )?;
+    Some((src, build))
 }
 
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
-
-fn oracle() -> Oracle {
+fn oracle(src: PathBuf) -> Oracle {
     let mut o = Oracle::with_bin(env!("CARGO_BIN_EXE_pob_oracle"));
+    o.pob_src = Some(src);
     o.cache = None;
     o
 }
 
 #[test]
 fn outputs_and_stages() {
-    let Some(build) = build() else {
-        skip("no PoB checkout (POB_SRC) or OccVortex build (.parity/builds, PoB spec/TestBuilds)");
-        return;
+    let Some((src, build)) = inputs() else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let o = oracle();
+    let o = oracle(src);
 
     let t = std::time::Instant::now();
     let out = o.run_outputs(&build).unwrap_or_else(|e| panic!("{e}"));
@@ -52,7 +49,11 @@ fn outputs_and_stages() {
     let lj = out.luajit.as_ref().expect("luajit header");
     assert!(!lj.jit, "oracle parity runs use jit.off()");
     let single = matches!(lj.arch.as_str(), "x86" | "x64");
-    assert_eq!(lj.number_mode, if single { "single" } else { "dual" }, "{lj:?}");
+    assert_eq!(
+        lj.number_mode,
+        if single { "single" } else { "dual" },
+        "{lj:?}"
+    );
     // PoB's own expected values for this build (spec/TestBuilds/3.13/OccVortex.lua).
     assert_eq!(out.num("Life"), Some(6728.0));
     let main = out.main_skill.as_ref().expect("main skill");
@@ -122,11 +123,10 @@ fn outputs_and_stages() {
 /// model doesn't distinguish from absent).
 #[test]
 fn stage_mods_round_trip() {
-    let Some(build) = build() else {
-        skip("no PoB checkout (POB_SRC) or OccVortex build (.parity/builds, PoB spec/TestBuilds)");
-        return;
+    let Some((src, build)) = inputs() else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let raw = oracle()
+    let raw = oracle(src)
         .run(pob_oracle::oracle::Dump::Stages, &build)
         .unwrap_or_else(|e| panic!("{e}"));
     let v: serde_json::Value = serde_json::from_str(&raw).unwrap();

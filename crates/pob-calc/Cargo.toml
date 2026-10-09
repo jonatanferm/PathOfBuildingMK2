@@ -17,6 +17,10 @@ ahash.workspace = true
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# HYG1 `#t` property test against LuaJIT (tests/hyg1_len.rs). Dev-only: the calc has no Lua runtime.
+mlua.workspace = true
+
 [features]
 default = []
 # State export for the oracle (calc doc §9.2, ORC-X): `probe!` and `ProbeState`.

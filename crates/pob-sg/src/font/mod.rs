@@ -266,35 +266,25 @@ pub(crate) mod tests {
         }
     }
 
-    /// `.PathOfBuilding` of the main checkout (or `$POB_ROOT`), found from this crate's directory.
+    /// `.PathOfBuilding` (`$POB_ROOT`, this workspace, the main checkout) via
+    /// `pob_testpaths`, when it holds SimpleGraphic's fonts.
     pub(crate) fn locate() -> Option<DirSource> {
-        let mut starts = Vec::new();
-        if let Some(p) = std::env::var_os("POB_ROOT") {
-            starts.push(PathBuf::from(p));
-        }
-        starts.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-        for s in starts {
-            for d in s.ancestors() {
-                let root = d.join(".PathOfBuilding");
-                if root
-                    .join("runtime/SimpleGraphic/Fonts/Liberation Sans.tgf")
-                    .is_file()
-                {
-                    return Some(DirSource {
-                        src: root.join("src"),
-                        runtime: root.join("runtime/SimpleGraphic"),
-                    });
-                }
-            }
-        }
-        None
+        let root = pob_testpaths::pob_root()?;
+        root.join("runtime/SimpleGraphic/Fonts/Liberation Sans.tgf")
+            .is_file()
+            .then(|| DirSource {
+                src: root.join("src"),
+                runtime: root.join("runtime/SimpleGraphic"),
+            })
     }
 
+    /// The PoB fonts; missing fails the test (`None` only with
+    /// `POB_ALLOW_SKIP=1`, the test then returns).
     pub(crate) fn fonts_and_images() -> Option<(FontSet, ImageRegistry)> {
-        let Some(src) = locate() else {
-            eprintln!("SKIP: PoB fonts not found (set POB_ROOT)");
-            return None;
-        };
+        let src = pob_testpaths::require(
+            locate(),
+            "PoB fonts (.PathOfBuilding/runtime/SimpleGraphic/Fonts)",
+        )?;
         let mut images = ImageRegistry::new(Box::new(crate::image::tests::MemLoader::default()));
         let fs = FontSet::load(&src, &mut images).expect("load fonts");
         Some((fs, images))
