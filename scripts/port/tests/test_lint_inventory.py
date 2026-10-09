@@ -1,0 +1,127 @@
+import contextlib
+import io
+import os
+import shutil
+import tempfile
+import unittest
+
+import _util
+import calcscope
+import globals_lint
+import luaast
+import pairs_inventory
+
+
+def mini_pob(files):
+    root = tempfile.mkdtemp(prefix="p4-pob-")
+    for rel, text in files.items():
+        full = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as fh:
+            fh.write(text)
+    return root
+
+
+class GlobalsLintFixtureTest(unittest.TestCase):
+    def setUp(self):
+        self.root = mini_pob({
+            "src/Modules/Defs.lua": (
+                "definedGlobal = 1\n"
+                "function globalFn() end\n"
+                "_G.viaG = 1\n"
+                'rawset(_G, "viaRawset", 1)\n'
+                "local function f() leakedLater = 2 end\n"),
+            "src/Modules/Calc.lua": (
+                "local localName = 1\n"                                   # 1
+                "local function calc(cfg)\n"                              # 2
+                "\tlocal x = definedGlobal + globalFn() + viaG + viaRawset\n"  # 3
+                "\tlocal y = string.format('%d', cfg) .. tostring(localName)\n"  # 4
+                "\tif x then local dotCfg = 1 end\n"                       # 5
+                "\treturn dotCfg, missingGlobal, leakedLater\n"            # 6
+                "end\n"                                                    # 7
+                "function topLevelFn() implicitOne = 3; return implicitOne end\n"),  # 8
+            "src/Export/Skip.lua": "missingGlobal = 1\n",   # Export/ is not a runtime file
+            "src/TreeData/x/tree.lua": "return {}\n",
+        })
+        self.scope = calcscope.Scope([("Modules/Calc.lua", [(1, 8)], "")], "test")
+
+    def tearDown(self):
+        shutil.rmtree(self.root)
+
+    def test_reads_and_implicit_globals(self):
+        reads, implicit, implicit_reads = globals_lint.lint(self.root, self.scope)
+        self.assertEqual([(r["line"], r["name"]) for r in reads], [(6, "dotCfg"), (6, "missingGlobal")])
+        self.assertEqual(reads[0]["function"], "calc")
+        self.assertEqual([(r["line"], r["name"]) for r in implicit], [(8, "implicitOne")])
+        self.assertEqual([(r["line"], r["name"]) for r in implicit_reads], [(8, "implicitOne")])
+
+    def test_runtime_files_exclude_export_and_treedata(self):
+        rels = sorted(globals_lint.src_rel(self.root, f) for f in globals_lint.runtime_files(self.root))
+        self.assertEqual(rels, ["Modules/Calc.lua", "Modules/Defs.lua"])
+
+
+@_util.needs_pob
+class GlobalsLintPinTest(unittest.TestCase):
+    """Acceptance: globals_lint reports the calc doc §7.3 sites (and the CCR-0001 ones)."""
+
+    def test_check(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = globals_lint.main(["--check"])
+        self.assertEqual(rc, 0, buf.getvalue())
+        self.assertIn("all 6 calc doc §7.3 sites reported", buf.getvalue())
+
+
+class PairsInventoryFixtureTest(unittest.TestCase):
+    def test_fixture_sites(self):
+        chunk = luaast.parse_file(_util.fixture("pairs_sites.lua"))
+        res = luaast.resolve(chunk)
+        scope = calcscope.Scope([("pairs_sites.lua", [(1, 100)], "")], "test")
+        sites, next_calls = pairs_inventory.find_sites("pairs_sites.lua", chunk, res, scope)
+        got = [(s.line, s.via, s.cls, s.shape) for s in sites]
+        self.assertEqual(got, [
+            (4, "pairs", "int", "map"),          # spec.allocNodes (node-id map)
+            (5, "pairs", "int", "list"),         # positional constructor
+            (6, "pairs", "string", ""),          # named constructor
+            (10, "pairs", "identity", ""),       # obj.name
+            (11, "pairs", "string", ""),         # name:match()
+            (12, "pairs", "int", ""),            # i + 1
+            (13, "next-for", None, ""),          # unknown table via next
+            (16, "pairs", "int", "list"),        # t_insert(list, ...)
+            (17, "pairs", None, ""),             # nothing known
+        ])
+        self.assertEqual(next_calls, 1)
+
+    def test_decide(self):
+        self.assertEqual(pairs_inventory.decide([("int", ""), ("string", "")]), "mixed")
+        self.assertEqual(pairs_inventory.decide([("string?", "")]), "string")
+        self.assertEqual(pairs_inventory.decide([("int", ""), ("string?", "")]), "int")
+        self.assertIsNone(pairs_inventory.decide([("int", ""), ("identity", "")]))
+        self.assertIsNone(pairs_inventory.decide([]))
+
+
+@_util.needs_pob
+class PairsInventoryPinTest(unittest.TestCase):
+    """Acceptance: every pairs() site in scope is classified int/string/identity (or mixed/generic)."""
+
+    def test_check(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = pairs_inventory.main(["--check"])
+        self.assertEqual(rc, 0, buf.getvalue())
+
+    def test_known_node_maps(self):
+        pairs_inventory._register_overrides() if not pairs_inventory.OVERRIDES else None
+        scope = calcscope.load_scope(None, calcscope.default_closures_json(_util.pobpaths.main_checkout()))
+        sites, _, stale = pairs_inventory.inventory(_util.real_pob(), scope)
+        self.assertEqual(stale, [])
+        by = {(s.path, s.line): s for s in sites}
+        # calc doc §3.4 names these node-id maps
+        for key in [("Modules/CalcSetup.lua", 284), ("Modules/CalcSetup.lua", 747), ("Modules/CalcSetup.lua", 1439),
+                    ("Modules/CalcSetup.lua", 273), ("Modules/CalcSetup.lua", 898)]:
+            self.assertEqual(by[key].cls, "int", key)
+        self.assertEqual(by[("Modules/CalcPerform.lua", 3464)].cls, "identity")  # pairs(affectedByAura)
+
+
+if __name__ == "__main__":
+    unittest.main()
