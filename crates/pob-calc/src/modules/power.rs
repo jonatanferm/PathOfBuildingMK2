@@ -55,6 +55,21 @@ pub fn CalculatePowerStat(selection: &Table, original: &Output, modified: &Outpu
     unported!("Classes/CalcsTab.lua:742-746")
 }
 
+/// @pob Modules/Data.lua:186-212 h=0cefea12
+/// `data.powerStatList.GetFromOutput(output, statTable, skipTransform)` (called by
+/// `CalculatePowerStat`; `statTable` is a `data.powerStatList` entry or a `{ stat = … }` table).
+pub fn GetFromOutput(output: &Output, statTable: &Table, skipTransform: bool) -> f64 {
+    unported!("Modules/Data.lua:186-212")
+}
+
+/// @pob Modules/Data.lua:131-131 h=107327e2
+/// @pob Modules/Data.lua:164-168 h=e900d657
+/// The `transform` closures of `data.powerStatList` entries (`PowerStat::transform`), by
+/// closure id: `Name` strips a leading "The "; the five `*TakenHit` stats negate.
+pub fn powerStatTransform(fnId: &str, value: Val) -> Val {
+    unported!("Modules/Data.lua:131,164-168")
+}
+
 /// @pob Classes/CalcsTab.lua:748-758 h=d5dfc379
 pub fn CalculateCombinedOffDefStat(original: &Output, modified: &Output) -> f64 {
     unported!("Classes/CalcsTab.lua:748-758")

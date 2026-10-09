@@ -42,8 +42,8 @@ Every unit-owned file exists as a compiling stub with its final signatures, `@po
 `pob_gamedata::Data`. Every schema struct is `#[serde(deny_unknown_fields)]` or a hand-written
 strict deserializer; an unknown key fails with its Lua path (e.g.
 `data.skills.X.statMap.Y: unknown statMap entry key "flags"`). Every dump root must be typed
-(`data::TYPED_ROOTS`, 78 roots), a stat-description scope (22), or listed in
-`data::DYNAMIC_ROOTS` (35); any other root fails the compile. Result at the pin: **zero unknown
+(`data::TYPED_ROOTS`, 93 roots), a stat-description scope (22), or listed in
+`data::DYNAMIC_ROOTS` (20); any other root fails the compile. Result at the pin: **zero unknown
 keys**; `data.bin` 39.7 MB; release runtime load (postcard decode + typed deserialise) 0.27 s.
 
 The deserializer (`loader::TreeDeserializer`) presents each Lua table in the dump's JSON shape:
@@ -69,17 +69,34 @@ cursePriority, ConfigOptions (`ConfigOptionDef`), mapMods (`ModMapDefs`), CalcSe
 `DataValue`, UI data), PearlSupports, GameVersions, ModCache (line → `{mods, extra}`), the
 timeless scalars (`TimelessMeta`).
 
-**Dynamic roots** (`Data::other`, resolve refs with `Data::resolve`): global, abyssNotableNames,
-beastCraft, casterTagCrucibleUniques, clusterJewelInfoForNotable, crucible, enchantments,
-enchantmentSource, essences, flavourText, foulbornMap, gemGrantedEffectIdForVaalGemId,
-gemVaalGemIdForBaseGemId, gemsByGameId, itemBaseLists, itemBaseTypeList, itemTagSpecial,
-itemTagSpecialExclusionPattern, minionTagCrucibleUniques, modScalability,
-monsterExperienceLevelMap, nodeIDList, powerStatList, rareLikeUniques, skillColorMap,
-vestigialModMappings, vestigialUniqueBaseTypes, bossStats, and the `files[…]` CurrencyNames,
-DelveDropOnly, IncursionDropOnly, ModFoulbornMap, QueryMods, TattooPassives, TradeSiteStats.
-Calc code that reads one of these (e.g. CT's `getGameIdFromGemName` reads
-`gemVaalGemIdForBaseGemId`, LUT reads `nodeIDList`) either reads it as `DataValue` or files a
-CCR to type it. Trees are per version in `data/dump/trees/<ver>.bin` (`tree_bytes`).
+**Calc-read roots typed by CCR-0011 §7** (`schema/item_data.rs`; each with its reader): enchantments
+(`Enchantments`, slot → key → `EnchantmentList::{Lines, BySource}`, `UtilityFlask`/`Flask` share the
+`Arc`; Item.lua:1043-1048, IT-A), foulbornMap (`FoulbornMap`, dkjson `$meta` checked; Item.lua:1028,
+IT-A), rareLikeUniques (`RareLikeUnique`; Item.lua:1036, IT-A), itemTagSpecial and
+itemTagSpecialExclusionPattern (`ItemTagSpecial`; Item.lua:164-324, IT-A), casterTagCrucibleUniques
+and minionTagCrucibleUniques (`NameSet`; Item.lua:2713/2716, IT-C), abyssNotableNames
+(PassiveTree.lua:728, PT), modScalability (`ModScalabilityMap`; ItemTools.lua:146-191, IT-C),
+monsterExperienceLevelMap (Build.lua:236, outside the calc scope but typed), bossStats
+(`BossStats`; ConfigOptions.lua:2185-2220, CO), gemVaalGemIdForBaseGemId (CalcTools.lua:287, CT),
+gemsByGameId (`GemsByGameId`, the `data.gems` `Arc`s; SkillsTab.lua:466, BM-B), powerStatList
+(`PowerStatList` with `GetFromOutput` and the `transform` closures as `LuaFnRef`;
+CalcsTab.lua:743-744, PWR), nodeIDList (`NodeIdList`; DataLegionLookUpTableHelper.lua, LUT).
+
+**Dynamic roots** (`Data::other`, resolve refs with `Data::resolve`). None is read by in-scope calc
+Lua (scope.toml); the reader of each: global (its calc members `SkillType`, `ModFlag`,
+`KeywordFlag`, `colorCodes`, `MatchKeywordFlags`, … are P1's generated code,
+crates/pob-dump/generated/global.rs), beastCraft (ItemsTab.lua:3737), clusterJewelInfoForNotable
+(ItemsTab.lua:899), crucible (ItemsTab.lua:3882), enchantmentSource (ItemsTab.lua:2770/2804),
+essences (ItemsTab.lua:3642, TradeQueryGenerator.lua:470), flavourText (ItemsTab.lua:63),
+gemGrantedEffectIdForVaalGemId (ImportTab.lua:1839), itemBaseLists (ItemsTab.lua:2678/2683,
+TradeQueryGenerator.lua:64; Data.lua:1400/1449 at load, which the typed rareLikeUniques
+`validBases` captures), itemBaseTypeList (ItemsTab.lua:2677), skillColorMap (SkillsTab.lua:338/1290/
+1333/1349, CompareTab.lua:4076), vestigialModMappings and vestigialUniqueBaseTypes
+(AddImplicitPopup.lua:122/164), and the `files[…]` CurrencyNames (TradeQuery.lua:173),
+DelveDropOnly and IncursionDropOnly (TradeQueryGenerator.lua:479), ModFoulbornMap (not read; the
+runtime reads `Data/ModFoulbornMap.jsonc` into `data.foulbornMap`), QueryMods and TradeSiteStats
+(TradeQueryGenerator.lua), TattooPassives (not read by PoB's Lua). A unit that needs one of these
+files a CCR to type it. Trees are per version in `data/dump/trees/<ver>.bin` (`tree_bytes`).
 
 ## tag-census
 
@@ -168,7 +185,9 @@ and `<fn>:end` before each final `end`. The patched oracle with all of them plan
 (`oracle.sh run --build allflame_exp_021.xml --stage 'initEnv:*@main,perform:*@main,…'`, scratch
 parity dir) loaded the build and dumped 40 stage/function hits, every boundary of initEnv (except
 `initEnv:488`, which fires before the main env exists, so `@main` cannot select it), perform,
-defence, buildDefenceEstimations and offence (incl. both loop splits).
+defence, buildDefenceEstimations and offence (incl. both loop splits). The opt-in test
+`stages_fire_on_slice5` (`POB_ORACLE_PROBE=1`, tests/U0.rs) runs the patched oracle with every
+stage on `slice5_allflame_exp_031` and asserts that each of the 32 stage ids fires.
 
 ## class-census
 

@@ -157,8 +157,9 @@ pub fn offence(env: &EnvRef, actor: &ActorRef, activeSkill: &ActiveSkillRef) {
     seg!(skill_types::seg_skillTypeStats(&mut ctx)); // OF-B 1037-1691
     seg!(costs_passes::seg_costsAndPasses(&mut ctx)); // OF-C 1692-2173
     seg!(speed::seg_speed(&mut ctx)); // OF-D 2174-2605 (sets globalOutput at 2176)
-                                      // `for _, pass in ipairs(passList) do` (the hit pass loop header; `passList` is read live)
-                                      // @pob Modules/CalcOffence.lua:2606-2606 h=a7253828
+
+    // `for _, pass in ipairs(passList) do` (the hit pass loop header; `passList` is read live)
+    // @pob Modules/CalcOffence.lua:2606-2606 h=a7253828
     let passList = ctx.passList.clone();
     for_ipairs!((_, pass) in passList => {
         let mut hp = HitPassLocals::new(table_or_raise(pass));
@@ -167,8 +168,9 @@ pub fn offence(env: &EnvRef, actor: &ActorRef, activeSkill: &ActiveSkillRef) {
     });
     seg!(hit_dps::seg_combinePasses(&mut ctx)); // OF-F 3956-4154
     seg!(ailments_a::seg_ailmentPrelude(&mut ctx)); // OF-G 4155-4163
-                                                    // `for _, pass in ipairs(passList) do` (the ailment loop header)
-                                                    // @pob Modules/CalcOffence.lua:4164-4164 h=a7253828
+
+    // `for _, pass in ipairs(passList) do` (the ailment loop header)
+    // @pob Modules/CalcOffence.lua:4164-4164 h=a7253828
     let passList = ctx.passList.clone();
     for_ipairs!((_, pass) in passList => {
         let mut al = AilmentPassLocals::new(table_or_raise(pass));

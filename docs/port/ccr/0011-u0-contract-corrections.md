@@ -1,7 +1,7 @@
 # CCR-0011 (U0): corrections to the calc doc's contract text, as frozen by U0
 
 **Raised by:** U0 (skeleton). **Affects:** calc-architecture.md §3.2, §4.3, §4.4, §5.1-§5.4, §5.7,
-§5.10, §6, §7.2. **Status:** implemented in U0's frozen files (they are the contract); this CCR asks
+§5.10, §6, §7.2, AMENDMENTS A1. **Status:** implemented in U0's frozen files (they are the contract); this CCR asks
 the integrator to update the doc text to match. `docs/port/contracts.md` is the reference for the
 final shapes. Pin: 16de4b82d.
 
@@ -81,7 +81,35 @@ A `ModCfg` holds `Cell`/`RefCell`/`Rc` and is not `Sync`, so it cannot be a `sta
 - `Data.skills` is an `IndexMap` (dump order) rather than an `AHashMap`.
 - `data.bin` is postcard of the dump tree (roots + ref targets), and `Data` is deserialised from it
   at load (≈0.27 s release); typed `Data` is not serialised.
-- Roots not read by the calc are kept untyped in `Data.other` (35 roots; listed in contracts.md).
+- **Calc-read roots are typed** (`schema/item_data.rs`, `Data` fields of the same name). The first
+  U0 draft kept 35 roots untyped in `Data.other` and claimed they were "not read by the calc"; that
+  was false for these 15, each read by in-scope Lua (scope.toml):
+
+  | root | type | read at | unit |
+  |---|---|---|---|
+  | `enchantments` (§4.4 `pub enchantments: Enchantments`) | `Enchantments` (slot → key → `EnchantmentList::{Lines, BySource}`; `UtilityFlask` and `Flask` share the `Arc`) | Item.lua:1043-1048 | IT-A |
+  | `foulbornMap` | `FoulbornMap` (title → `FoulbornLines`; the dkjson `$meta` is checked) | Item.lua:1028, 1553 | IT-A |
+  | `rareLikeUniques` | `RareLikeUniques` (`RareLikeUnique { affixes: AffixTable, prefixLimit, suffixLimit, validBases, ignoreModType, allowDuplicateGroups, supportsCustomModifiers }`) | Item.lua:1036-1038, 1493-1495, 2059, 2719-2721 | IT-A, IT-C |
+  | `itemTagSpecial`, `itemTagSpecialExclusionPattern` | `ItemTagSpecial` (tag → slot → patterns) | Item.lua:164-324 | IT-A |
+  | `casterTagCrucibleUniques`, `minionTagCrucibleUniques` | `NameSet` | Item.lua:2713, 2716 | IT-C |
+  | `abyssNotableNames` | `AHashMap<Name, AStr>` | PassiveTree.lua:728 | PT |
+  | `modScalability` | `ModScalabilityMap` (line → `[ModScalability { isScalable, formats }]`; `""` → `[]` is kept: truthy in Lua) | ItemTools.lua:146-191 | IT-C |
+  | `bossStats` | `BossStats` | ConfigOptions.lua:2185-2220 | CO |
+  | `gemVaalGemIdForBaseGemId` | `AHashMap<Name, Name>` | CalcTools.lua:287 | CT |
+  | `gemsByGameId` | `GemsByGameId` (the `data.gems` `Arc`s) | SkillsTab.lua:466 | BM-B |
+  | `powerStatList` | `PowerStatList { stats: Vec<PowerStat>, GetFromOutput: LuaFnRef }` | CalcsTab.lua:743-744 | PWR |
+  | `nodeIDList` | `NodeIdList { size, sizeNotable, localIdToGlobalId, nodes }` | DataLegionLookUpTableHelper.lua:13-252 | LUT |
+  | `monsterExperienceLevelMap` | `Vec<f64>` | Build.lua:236 (outside the calc scope; typed anyway) | — |
+
+  `powerStatList.GetFromOutput` (Data.lua:186-212) and the entries' `transform` closures (Data.lua:131,
+  164-168) were outside scope.toml although `CalculatePowerStat` calls them; U0 added those ranges
+  (owner PWR) and stubs `power::GetFromOutput` / `power::powerStatTransform`.
+- The 20 roots left in `Data.other` (`data::DYNAMIC_ROOTS`) are read only by UI/trade code outside
+  scope.toml; contracts.md#schema names the reader of each. `global` is the exception: its calc
+  members are P1's generated code (crates/pob-dump/generated/global.rs).
+- `TimelessMeta` keeps `timelessJewelTypes`, `timelessJewelSeedMin/Max`, `timelessJewelTradeIDs`,
+  `timelessJewelLUTs` and `legionPassives` as `DataValue` (typed roots, untyped values). LUT owns
+  those reads: it either reads them raw or files a CCR that types them.
 
 ## 8. ModParser (§6)
 
@@ -102,6 +130,34 @@ The lua2rs output compiles against the real crates.
 Line probes before a split function's final `end` are `<fn>:end`; `<fn>:in`/`<fn>:out` are the
 patcher's function probes (a line probe named `<fn>:out` collides with them).
 
+## 10. `Table::insert` / `Table::remove` follow LuaJIT 2.1 (§5.1)
+
+§5.1 froze `insert(&self, pos: usize, v)` / `remove(&self, pos: Option<usize>)`, and the first U0
+draft raised "bad argument #2 … (position out of bounds)" (Lua 5.3). LuaJIT 2.1 `lib_table.c`
+(vendored luajit2/src/lib_table.c:79-104, 108-129) never raises: `table.insert(t, pos, v)` moves
+`t[i] = t[i-1]` for `i = #t+1` down to `pos+1` and sets `t[pos] = v`, so a `pos > #t+1` only sets
+`t[pos]` (`#t` unchanged) and `pos <= 0` shifts through the hash part; `table.remove(t, pos)` acts
+only for `1 <= pos <= #t` and otherwise returns nothing. Froze `insert(&self, pos: i64, v)` and
+`remove(&self, pos: Option<i64>) -> Val` with exactly that behaviour (test
+`lua_table::tests::insert_remove_luajit`, vectors from `luajit -e`). `Shared<Vec<T>>` (pob-lua,
+hole-free list contract) keeps its own documented error for positions that would make a hole.
+
+```diff
+-    pub fn insert(&self, pos: usize, v: impl Into<Val>);
+-    pub fn remove(&self, pos: Option<usize>) -> Val;
++    pub fn insert(&self, pos: i64, v: impl Into<Val>);      // LuaJIT lib_table.c: no bounds error
++    pub fn remove(&self, pos: Option<i64>) -> Val;          // nil unless 1 <= pos <= #t
+```
+
+## 11. Legacy Mod / pattern copies stay in pob-oracle (AMENDMENTS A1)
+
+A1 moves `modifier.rs`/`modifier_serde.rs` to pob-gamedata and `lua_pattern.rs` to pob-lua. U0 did
+that (pob-gamedata `Mod`, pob-lua patterns), and also kept the old files in pob-oracle
+(`legacy_modifier.rs`, `legacy_modifier_serde.rs`, `lua/lua_pattern.rs`) because the oracle still
+reads and writes mods in the legacy JSON shape. Until ORC-X there are two `Mod` types and two
+pattern engines; ORC-X owns the legacy → `pob_gamedata::Mod` conversion and then deletes the
+legacy copies. The calc crates never use the legacy types.
+
 ## Proposed doc diff
 
-Apply items 1-9 to the named sections (the text above is the replacement wording).
+Apply items 1-11 to the named sections (the text above is the replacement wording).

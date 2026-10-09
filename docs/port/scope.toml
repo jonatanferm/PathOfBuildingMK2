@@ -39,8 +39,10 @@ owner = "CT"
 
 [[file]]
 path = "Modules/Data.lua"
-ranges = ["51-93", "583-600", "1033-1077"]
-owner = "CT, PT"
+# U0 (CCR-0011 §7): + data.powerStatList's `transform` closures (131, 164-168) and
+# `GetFromOutput` (186-212), which CalcsTab.lua:743-744 (PWR) calls
+ranges = ["51-93", "131-131", "164-168", "186-212", "583-600", "1033-1077"]
+owner = "CT, PT, PWR"
 
 [[file]]
 path = "Modules/ModParser.lua"

@@ -18,6 +18,10 @@ use crate::schema::bases::{Costs, ItemBaseRef, UnarmedWeaponData, WeaponTypeInfo
 use crate::schema::calc_sections::CalcSections;
 use crate::schema::config_defs::ConfigOptionDef;
 use crate::schema::gems::GemDataRef;
+use crate::schema::item_data::{
+    BossStats, Enchantments, FoulbornMap, GemsByGameId, ItemTagSpecial, ModScalabilityMap,
+    NodeIdList, PowerStatList, RareLikeUniques,
+};
 use crate::schema::minions::MinionDataRef;
 use crate::schema::misc::{
     AilmentData, Boss, BossSkill, ClusterJewelData, JewelRadius, LabelVal, Pantheon,
@@ -28,7 +32,7 @@ use crate::schema::stat_descriptions::StatDescriptionsLazy;
 use crate::schema::tree::GameVersions;
 use crate::schema::uniques::UniqueTexts;
 use crate::value::{AStr, DataValue};
-use crate::{LuaFnRef, ModRef, ModType, Name};
+use crate::{LuaFnRef, ModRef, ModType, Name, NameSet};
 
 /// One `ModCache` entry: `c["<line>"] = { modList, extraText }`.
 #[derive(Debug, Clone, Deserialize)]
@@ -120,6 +124,34 @@ pub struct Data {
     pub veiledMods: AffixTable,
     pub necropolisMods: AffixTable,
     pub uniqueMods: UniqueMods,
+    /// `data.enchantments[slot][key]` (Item.lua:1043-1048).
+    pub enchantments: Enchantments,
+    /// `data.foulbornMap[title]` (Item.lua:1028).
+    pub foulbornMap: FoulbornMap,
+    /// `data.rareLikeUniques[lowercase title]` (Item.lua:1036).
+    pub rareLikeUniques: RareLikeUniques,
+    /// Item.lua:164-324.
+    pub itemTagSpecial: ItemTagSpecial,
+    pub itemTagSpecialExclusionPattern: ItemTagSpecial,
+    /// Unique titles (Item.lua:2713/2716).
+    pub casterTagCrucibleUniques: NameSet,
+    pub minionTagCrucibleUniques: NameSet,
+    /// stat id → display name (PassiveTree.lua:728).
+    pub abyssNotableNames: ahash::AHashMap<Name, AStr>,
+    /// ItemTools.lua:146-191.
+    pub modScalability: ModScalabilityMap,
+    /// `data.monsterExperienceLevelMap[level]` (Build.lua:236).
+    pub monsterExperienceLevelMap: Vec<f64>,
+    /// ConfigOptions.lua:2185-2220.
+    pub bossStats: BossStats,
+    /// Vaal gem id → base gem id (CalcTools.lua:287).
+    pub gemVaalGemIdForBaseGemId: ahash::AHashMap<Name, Name>,
+    /// SkillsTab.lua:466.
+    pub gemsByGameId: GemsByGameId,
+    /// CalcsTab.lua:743-744.
+    pub powerStatList: PowerStatList,
+    /// DataLegionLookUpTableHelper.lua.
+    pub nodeIDList: NodeIdList,
     pub pantheons: indexmap::IndexMap<Name, Pantheon>,
     pub bosses: indexmap::IndexMap<Name, Boss>,
     pub bossSkills: indexmap::IndexMap<Name, BossSkill>,
@@ -202,6 +234,21 @@ pub const TYPED_ROOTS: &[&str] = &[
     "data.veiledMods",
     "data.necropolisMods",
     "data.uniqueMods",
+    "data.enchantments",
+    "data.foulbornMap",
+    "data.rareLikeUniques",
+    "data.itemTagSpecial",
+    "data.itemTagSpecialExclusionPattern",
+    "data.casterTagCrucibleUniques",
+    "data.minionTagCrucibleUniques",
+    "data.abyssNotableNames",
+    "data.modScalability",
+    "data.monsterExperienceLevelMap",
+    "data.bossStats",
+    "data.gemVaalGemIdForBaseGemId",
+    "data.gemsByGameId",
+    "data.powerStatList",
+    "data.nodeIDList",
     "data.pantheons",
     "data.bosses",
     "data.bossSkills",
@@ -426,6 +473,32 @@ impl Data {
             veiledMods: t.get("data.veiledMods")?,
             necropolisMods: t.get("data.necropolisMods")?,
             uniqueMods: t.get("data.uniqueMods")?,
+            enchantments: t.get("data.enchantments")?,
+            foulbornMap: t.get("data.foulbornMap")?,
+            rareLikeUniques: t.get("data.rareLikeUniques")?,
+            itemTagSpecial: t.get("data.itemTagSpecial")?,
+            itemTagSpecialExclusionPattern: t.get("data.itemTagSpecialExclusionPattern")?,
+            casterTagCrucibleUniques: NameSetRoot::get(t, "data.casterTagCrucibleUniques")?,
+            minionTagCrucibleUniques: NameSetRoot::get(t, "data.minionTagCrucibleUniques")?,
+            abyssNotableNames: t
+                .get::<indexmap::IndexMap<Name, AStr>>("data.abyssNotableNames")?
+                .into_iter()
+                .collect(),
+            modScalability: t
+                .get::<indexmap::IndexMap<AStr, Vec<crate::schema::item_data::ModScalability>>>(
+                    "data.modScalability",
+                )?
+                .into_iter()
+                .collect(),
+            monsterExperienceLevelMap: t.get("data.monsterExperienceLevelMap")?,
+            bossStats: t.get("data.bossStats")?,
+            gemVaalGemIdForBaseGemId: t
+                .get::<indexmap::IndexMap<Name, Name>>("data.gemVaalGemIdForBaseGemId")?
+                .into_iter()
+                .collect(),
+            gemsByGameId: t.get("data.gemsByGameId")?,
+            powerStatList: t.get("data.powerStatList")?,
+            nodeIDList: t.get("data.nodeIDList")?,
             pantheons: t.get("data.pantheons")?,
             bosses: t.get("data.bosses")?,
             bossSkills: t.get("data.bossSkills")?,
@@ -481,6 +554,19 @@ impl Data {
     }
 }
 
+struct NameSetRoot;
+impl NameSetRoot {
+    fn get(t: &DumpTree, root: &str) -> Result<NameSet, LoadError> {
+        struct W(NameSet);
+        impl<'de> Deserialize<'de> for W {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+                loader::name_set(d).map(W)
+            }
+        }
+        Ok(t.get::<W>(root)?.0)
+    }
+}
+
 struct IntMap;
 impl IntMap {
     fn get<T: for<'de> Deserialize<'de>>(
@@ -497,37 +583,28 @@ impl IntMap {
     }
 }
 
-/// Dump roots kept untyped in [`Data::other`]: UI-only or not read by the
-/// calc (contracts.md#schema). Adding a root here is a schema decision.
+/// Dump roots kept untyped in [`Data::other`]. None of them is read by the
+/// in-scope calc Lua (docs/port/scope.toml); each is read only by UI/trade code
+/// outside the port's calc scope (CCR-0011 §7 lists the reader of each).
+/// `global` is the exception: its calc members (`SkillType`, `ModFlag`,
+/// `KeywordFlag`, `colorCodes`, `MatchKeywordFlags`, …) are P1's generated code
+/// (crates/pob-dump/generated/global.rs), so the root itself stays untyped.
+/// Calc-read roots are typed (`TYPED_ROOTS`); adding a root here is a schema
+/// decision that needs a CCR.
 pub const DYNAMIC_ROOTS: &[&str] = &[
     "global",
-    "data.abyssNotableNames",
     "data.beastCraft",
-    "data.casterTagCrucibleUniques",
     "data.clusterJewelInfoForNotable",
     "data.crucible",
-    "data.enchantments",
     "data.enchantmentSource",
     "data.essences",
     "data.flavourText",
-    "data.foulbornMap",
     "data.gemGrantedEffectIdForVaalGemId",
-    "data.gemVaalGemIdForBaseGemId",
-    "data.gemsByGameId",
     "data.itemBaseLists",
     "data.itemBaseTypeList",
-    "data.itemTagSpecial",
-    "data.itemTagSpecialExclusionPattern",
-    "data.minionTagCrucibleUniques",
-    "data.modScalability",
-    "data.monsterExperienceLevelMap",
-    "data.nodeIDList",
-    "data.powerStatList",
-    "data.rareLikeUniques",
     "data.skillColorMap",
     "data.vestigialModMappings",
     "data.vestigialUniqueBaseTypes",
-    "data.bossStats",
     "files[\"Data/CurrencyNames.lua\"]",
     "files[\"Data/DelveDropOnly.lua\"]",
     "files[\"Data/IncursionDropOnly.lua\"]",

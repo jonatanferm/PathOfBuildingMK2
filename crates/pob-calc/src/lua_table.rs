@@ -603,39 +603,48 @@ impl Table {
         self.set(Key::I(n as i64 + 1), v);
     }
 
-    /// `t_insert(t, pos, v)`.
-    pub fn insert(&self, pos: usize, v: impl Into<Val>) {
+    /// `t_insert(t, pos, v)`, exactly as LuaJIT 2.1 `lib_table.c` `table_insert`:
+    /// no bounds check. With `i = #t + 1`, every `t[k] = t[k-1]` for
+    /// `k = i, i-1, ..., pos+1` (raw), then `t[pos] = v`. So `pos > #t + 1` just
+    /// sets `t[pos]` (a hole; `#t` is unchanged) and `pos <= 0` shifts `t[pos..=#t]`
+    /// up by one through the hash part.
+    pub fn insert(&self, pos: i64, v: impl Into<Val>) {
         let v = v.into();
-        let mut d = self.0.borrow_mut();
-        let len = d.arr.len();
-        if pos < 1 || pos > len + 1 {
-            drop(d);
-            lua_error!("bad argument #2 to 'insert' (position out of bounds)");
+        let mut i = self.len() as i64 + 1;
+        while i > pos {
+            let src = self.rawget(Key::I(i - 1));
+            self.set(Key::I(i), src);
+            i -= 1;
         }
-        d.arr.insert(pos - 1, v);
-        migrate_from_hash(&mut d);
+        self.set(Key::I(pos), v);
     }
 
-    /// `t_remove(t)` / `t_remove(t, pos)`.
-    pub fn remove(&self, pos: Option<usize>) -> Val {
-        let mut d = self.0.borrow_mut();
-        let len = d.arr.len();
-        let pos = pos.unwrap_or(len);
-        if len == 0 && (pos == 0 || pos == len) {
-            return Val::Nil;
+    /// `t_remove(t)` / `t_remove(t, pos)`, exactly as LuaJIT 2.1 `lib_table.c`
+    /// `table_remove`: it acts only when `pos` is nil (and `#t ~= 0`) or
+    /// `1 <= pos <= #t`; any other `pos` returns nothing and raises no error.
+    pub fn remove(&self, pos: Option<i64>) -> Val {
+        let len = self.len() as i64;
+        match pos {
+            None => {
+                if len != 0 {
+                    let old = self.get(Key::I(len));
+                    self.set(Key::I(len), Val::Nil);
+                    old
+                } else {
+                    Val::Nil
+                }
+            }
+            Some(pos) if pos >= 1 && pos <= len => {
+                let old = self.get(Key::I(pos));
+                for i in pos + 1..=len {
+                    let v = self.get(Key::I(i));
+                    self.set(Key::I(i - 1), v);
+                }
+                self.set(Key::I(len), Val::Nil);
+                old
+            }
+            Some(_) => Val::Nil,
         }
-        if pos < 1 || pos > len + 1 {
-            drop(d);
-            lua_error!("bad argument #2 to 'remove' (position out of bounds)");
-        }
-        if pos == len + 1 {
-            return Val::Nil;
-        }
-        let v = d.arr.remove(pos - 1);
-        while d.arr.last().is_some_and(Val::is_nil) {
-            d.arr.pop();
-        }
-        v
     }
 
     /// `pairs(t)`: a key snapshot (array part, then hash part in insertion
@@ -816,6 +825,47 @@ mod tests {
         let c = t.copyTable(true);
         assert!(!c.ptr_eq(&t));
         assert_eq!(c.num(1), 10.0);
+    }
+
+    /// LuaJIT 2.1 `lib_table.c` semantics (no Lua 5.3 bounds errors). Expected
+    /// values were taken from `luajit -e` on the same calls.
+    #[test]
+    fn insert_remove_luajit() {
+        fn dump(t: &Table) -> (Vec<(i64, f64)>, usize) {
+            let kv = (-2..=8)
+                .filter_map(|k| t.rawget(Key::I(k)).opt_num().map(|v| (k, v)))
+                .collect();
+            (kv, t.len())
+        }
+        let t123 = || tbl![1.0, 2.0, 3.0];
+        let t = t123();
+        t.insert(6, 9.0);
+        assert_eq!(dump(&t), (vec![(1, 1.0), (2, 2.0), (3, 3.0), (6, 9.0)], 3));
+        let t = t123();
+        assert!(t.remove(Some(7)).is_nil());
+        assert_eq!(dump(&t), (vec![(1, 1.0), (2, 2.0), (3, 3.0)], 3));
+        let t = t123();
+        assert!(t.remove(Some(0)).is_nil());
+        assert!(t.remove(Some(4)).is_nil());
+        assert_eq!(dump(&t), (vec![(1, 1.0), (2, 2.0), (3, 3.0)], 3));
+        let t = t123();
+        t.insert(0, 9.0);
+        assert_eq!(dump(&t), (vec![(0, 9.0), (2, 1.0), (3, 2.0), (4, 3.0)], 4));
+        let t = t123();
+        t.insert(-1, 9.0);
+        assert_eq!(dump(&t), (vec![(-1, 9.0), (2, 1.0), (3, 2.0), (4, 3.0)], 4));
+        let t = t123();
+        t.insert(2, 9.0);
+        assert_eq!(dump(&t), (vec![(1, 1.0), (2, 9.0), (3, 2.0), (4, 3.0)], 4));
+        let t = t123();
+        t.insert(4, 9.0);
+        assert_eq!(dump(&t), (vec![(1, 1.0), (2, 2.0), (3, 3.0), (4, 9.0)], 4));
+        let t = Table::new();
+        assert!(t.remove(None).is_nil());
+        assert_eq!(dump(&t), (vec![], 0));
+        let t = t123();
+        assert_eq!(t.remove(Some(1)).num(), 1.0);
+        assert_eq!(dump(&t), (vec![(1, 2.0), (2, 3.0)], 2));
     }
 
     #[test]

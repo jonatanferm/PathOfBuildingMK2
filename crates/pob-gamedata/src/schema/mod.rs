@@ -8,6 +8,7 @@ pub mod bases;
 pub mod calc_sections;
 pub mod config_defs;
 pub mod gems;
+pub mod item_data;
 pub mod minions;
 pub mod misc;
 pub mod mod_map_defs;

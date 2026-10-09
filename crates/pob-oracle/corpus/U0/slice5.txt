@@ -1,8 +1,14 @@
-# slice5 (calc doc §9.3): one weapon (Weapon 2 is a shield or off-hand), no auras, a single attack or
-# spell. Chosen by U0 from .parity/builds: the five builds with no aura/herald/blessing/banner gem and
-# the fewest enabled active skills.
-upstream_Dual_Savior
-allflame_exp_021
-allflame_exp_024
-allflame_exp_035
-allflame_exp_028
+# slice5 (calc doc §9.3): one weapon, no auras; a single attack or spell.
+# No all57 build (.parity/builds) qualifies as is (CCR-0012): every single-weapon build enables an
+# aura, herald, minion, curse, warcry or buff skill (often item-granted), has a tree/item
+# ExtraAura (e.g. Deadeye Tailwind, Tree:24848), or has a second active skill. Each entry below is
+# derived from the all57 build named in it by corpus/U0/derive_slice5.py (every socket group but
+# the main one disabled; items, tree and config unchanged) and lives in corpus/U0/slice5/<entry>.xml.
+# Checked against the oracle (`derive_slice5.py --check`): one active skill, no
+# ExtraAura/ExtraCurse/ExtraAuraDebuff/ExtraLinkEffect/ExtraMinion mod.
+#   entry                    main skill                         weapons
+slice5_allflame_exp_024 # Winter Orb (spell)                   Wand + Shield
+slice5_allflame_exp_007 # Spark of the Nova (spell)            Wand + Shield
+slice5_allflame_exp_030 # Ethereal Knives of the Massacre      Two Handed Sword
+slice5_allflame_exp_031 # Shield Crush (attack)                Sceptre + Shield
+slice5_allflame_exp_046 # Poisonous Concoction of Bouncing     (unarmed) + Shield

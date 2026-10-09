@@ -9,6 +9,10 @@
 //!   row, with the same sha256.
 //! * `stages_patch_loads`: the patched oracle with every `docs/port/stages.toml`
 //!   stage plans and passes the `loadstring` validation.
+//! * `stages_fire_on_slice5` (opt-in, `POB_ORACLE_PROBE=1`): the patched oracle
+//!   runs a slice5 build and every stage id fires (`hits.json`). It runs the
+//!   release `pob_oracle` binary (`POB_ORACLE_BIN`, else `target/release/pob_oracle`;
+//!   build it first with `scripts/port/cargo.sh build --release -p pob-oracle --bin pob_oracle`).
 //! * `provenance_check_and_coverage`: `scripts/port/provenance.py check` and
 //!   `coverage` (docs/port/scope.toml) are clean.
 //!
@@ -67,6 +71,44 @@ fn compile_zero_unknown_keys() {
         &fb.grantedEffect,
         &data.skills[&pob_gamedata::Name::from("Fireball")]
     ));
+    // the calc-read roots CCR-0011 §7 types (they are not in `Data::other`)
+    {
+        use pob_gamedata::schema::item_data::EnchantmentList;
+        use pob_gamedata::Name;
+        let e = &data.enchantments;
+        assert!(std::sync::Arc::ptr_eq(
+            e.get("UtilityFlask").unwrap(),
+            e.get("Flask").unwrap()
+        ));
+        assert!(matches!(
+            e.get("Helmet").unwrap()[&Name::from("Arc")],
+            EnchantmentList::BySource(_)
+        ));
+        assert!(matches!(
+            e.get("Claw").unwrap()[&Name::from("HARVEST")],
+            EnchantmentList::Lines(_)
+        ));
+        assert_eq!(data.foulbornMap.0.len(), 248);
+        assert_eq!(data.rareLikeUniques.0.len(), 8);
+        assert!(data
+            .casterTagCrucibleUniques
+            .contains(&Name::from("Mjolner")));
+        assert_eq!(data.bossStats.UberArmourMean, 125.0);
+        assert_eq!(data.nodeIDList.nodes.len(), 1937);
+        assert_eq!(data.nodeIDList.size, 1937.0);
+        assert_eq!(data.powerStatList.stats.len(), 85);
+        assert!(data.modScalability.len() > 15000);
+        let fb = &data.gemsByGameId.0[&Name::from("Metadata/Items/Gems/SkillGemFireball")];
+        assert!(fb
+            .values()
+            .any(|g| std::sync::Arc::ptr_eq(g, &data.gems[&g.id])));
+        for root in pob_gamedata::data::DYNAMIC_ROOTS {
+            assert!(
+                !pob_gamedata::data::TYPED_ROOTS.contains(root),
+                "{root} both typed and dynamic"
+            );
+        }
+    }
     eprintln!(
         "U0 compile: {} roots ({} dynamic), {} skills, {} gems, json load {:.2}s",
         tree.roots.len(),
@@ -239,6 +281,73 @@ fn stages_patch_loads() {
         line_sites,
         plan.sites.len(),
         plan.files.len()
+    );
+}
+
+#[test]
+fn stages_fire_on_slice5() {
+    if std::env::var_os("POB_ORACLE_PROBE").is_none_or(|v| v != "1") {
+        eprintln!("SKIPPED: opt-in (POB_ORACLE_PROBE=1)");
+        return;
+    }
+    let Some(src) = find_pob_src() else {
+        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    };
+    let root = repo_root();
+    let bin = std::env::var_os("POB_ORACLE_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| root.join("target"))
+                .join("release/pob_oracle")
+        });
+    assert!(
+        bin.is_file(),
+        "{} not found: build it with scripts/port/cargo.sh build --release -p pob-oracle --bin pob_oracle",
+        bin.display()
+    );
+    let stages_path = root.join("docs/port/stages.toml");
+    let stages = StagesFile::load(&stages_path).unwrap_or_else(|e| panic!("{e}"));
+    let build = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("corpus/U0/slice5/slice5_allflame_exp_031.xml");
+    let out = std::env::temp_dir().join(format!("u0-stages-probe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    let status = Command::new(&bin)
+        .arg("probe")
+        .arg(&build)
+        .arg("--out-dir")
+        .arg(&out)
+        .arg("--stages")
+        .arg(&stages_path)
+        .arg("--pob")
+        .arg(&src)
+        .status()
+        .expect("pob_oracle");
+    assert!(status.success(), "pob_oracle probe failed");
+    let hits: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("hits.json")).unwrap()).unwrap();
+    let counts = hits["counts"].as_object().expect("hits.json counts");
+    let missing: Vec<&str> = stages
+        .stage
+        .iter()
+        .map(|s| s.id.as_str())
+        .filter(|id| {
+            counts
+                .get(*id)
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0)
+                == 0
+        })
+        .collect();
+    let _ = std::fs::remove_dir_all(&out);
+    assert!(
+        missing.is_empty(),
+        "stage ids that never fired: {missing:?}"
+    );
+    eprintln!(
+        "stages_fire_on_slice5: all {} stage ids fired",
+        stages.stage.len()
     );
 }
 
