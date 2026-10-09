@@ -1,0 +1,17 @@
+[package]
+name = "pob-modparser"
+description = "Faithful Rust port of Path of Building's ModParser.lua (calc doc §6): mod lines to Mods. No Lua runtime."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pob-lua.workspace = true
+pob-gamedata.workspace = true
+smallvec.workspace = true
+ahash.workspace = true
+
+[lints]
+workspace = true

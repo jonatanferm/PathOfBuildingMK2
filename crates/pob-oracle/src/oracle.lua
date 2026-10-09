@@ -4,7 +4,7 @@
 -- Nothing in PoB's sources is edited: `calcs.initEnv` is wrapped from here
 -- so the main env can be snapshotted the moment it is initialised, before
 -- `calcs.perform` adds to it. See crates/pob-oracle/README.md for the JSON
--- conventions (they match pob_calc::modifier_serde for mods and values).
+-- conventions (they match pob_oracle::legacy_modifier_serde for mods and values).
 
 local calcs = require("Modules.Calcs")
 local fmt, concat, sort = string.format, table.concat, table.sort

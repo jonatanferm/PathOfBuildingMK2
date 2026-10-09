@@ -7,6 +7,10 @@
 pub mod host;
 pub mod interp;
 pub mod lexer;
+/// Lua 5.1 patterns for the interpreter's string library (the legacy
+/// `pob-calc/src/lua_pattern.rs`, moved here by calc U0 / AMENDMENTS A1; the
+/// port's own copy is `pob_lua::pattern`).
+pub mod lua_pattern;
 pub mod parser;
 pub mod stdlib;
 pub mod value;

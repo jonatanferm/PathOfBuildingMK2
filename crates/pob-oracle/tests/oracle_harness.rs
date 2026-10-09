@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use pob_calc::modifier::Mod;
+use pob_oracle::legacy_modifier::Mod;
 use pob_oracle::oracle::{find_pob_src, find_up, Leaf, Oracle};
 
 fn build() -> Option<PathBuf> {
@@ -96,7 +96,7 @@ fn outputs_and_stages() {
     assert!(st.skill_outputs.len() >= 5);
 }
 
-/// Every mod PoB holds round-trips through `pob_calc::modifier::Mod`'s serde
+/// Every mod PoB holds round-trips through `pob_oracle::legacy_modifier::Mod`'s serde
 /// shape unchanged (modulo fields PoB set to false / nil, which the typed
 /// model doesn't distinguish from absent).
 #[test]

@@ -18,6 +18,7 @@ use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 
 pub mod codegen;
+pub mod compile;
 pub mod parse_oracle;
 
 const PRELUDE: &str = include_str!("lua/prelude.lua");

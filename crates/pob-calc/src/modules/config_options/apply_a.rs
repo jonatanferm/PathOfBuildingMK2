@@ -1,0 +1,4078 @@
+//! @pob-file Modules/ConfigOptions.lua @16de4b82d
+//! ConfigOptions `apply` closures, Modules/ConfigOptions.lua 1-1188 (calc doc §8).
+//! The option definitions themselves are data (`data().configOptions`, `ConfigOptionDef`).
+//!
+//! Owner: CO-A. Stub created by U0: signatures are final (frozen; change through a CCR),
+//! bodies are `unported!` until the owner ports them (calc doc D9, §10.2).
+#![allow(
+    non_snake_case,
+    unused_variables,
+    unused_imports,
+    dead_code,
+    clippy::all,
+    clippy::pedantic
+)]
+
+use crate::prelude::*;
+
+use super::{ConfigApply, FnRow};
+
+/// Every closure of this file: id (closures.json), sha256 of its source lines, Rust body.
+pub static ROWS: &[FnRow<ConfigApply>] = &[
+    FnRow {
+        id: "ConfigOptions[278].apply",
+        hash: "3b2d8cd94190aa522b296b76091fe6fc3ab9078aec72e73042962a70ff6edf25",
+        f: opt_278_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[6].apply",
+        hash: "365f6281dd9987c6176065f577235b1fe76f9de7e69abc0886dc05f1a5ee30ad",
+        f: opt_6_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[7].apply",
+        hash: "b2b613056cad9f33386e2361d842c3fd325594af734038eb4e761a767f1a8fd3",
+        f: opt_7_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[8].apply",
+        hash: "90b615ed5b44c6d5018b6977206565bb5ff66ced0ecbacdfa5f19d278c256150",
+        f: opt_8_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[9].apply",
+        hash: "b696f1a1ba42ff2a9fea93fef66d5c3041c3a130ae5c0bcbbab82341d17da32f",
+        f: opt_9_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[10].apply",
+        hash: "e775456ffcbd46bb4dcf2634c00b791d11e0248ad14fa0f0e61dcf22903e28d7",
+        f: opt_10_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[11].apply",
+        hash: "4dcb00a474c8834b183bd4c44c5f99abdedada927449d79f5020f22b843d3e56",
+        f: opt_11_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[12].apply",
+        hash: "fd49e02ac923d84481144e60fcb3d49c9e7ce9b7b3770c7aa8d531ef72049393",
+        f: opt_12_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[13].apply",
+        hash: "7fe1613d14e5d495535a9e4ebbd720c74096b05573962324528e54184bc0db96",
+        f: opt_13_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[14].apply",
+        hash: "3fb630200ea7af65d9f79efc49d49e07f3249c9efe74e3338bc34732e17dd03e",
+        f: opt_14_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[15].apply",
+        hash: "fcad58eda67b1fe00ee67daf9da9ae4023fab48c81ee51847e8be0cfa6a00981",
+        f: opt_15_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[16].apply",
+        hash: "53c8caddca87fcc21a595cb411b06beaf450a189fc96d1847cf2731ae6383952",
+        f: opt_16_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[17].apply",
+        hash: "6d03870062e36ce897bdc43ac1d9f27721b1200e32d44bf9550eec9b60d97c5f",
+        f: opt_17_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[18].apply",
+        hash: "10863a6ae62949f6751d7f9a37e04986686cc7e61ffd220fe6bf887e06e708a7",
+        f: opt_18_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[19].apply",
+        hash: "0059fe00da40774af1263a36bd11a73575cca37cae918710184792d7b6d82681",
+        f: opt_19_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[20].apply",
+        hash: "0c4b6a6abf3616a4477abf678f90f11b357ba3219b0ad3812c663818908b6393",
+        f: opt_20_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[23].apply",
+        hash: "1eff94238a4cf2febafe79aa48c5b3f166f21304697d4643c5d1e1e4abbecc47",
+        f: opt_23_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[24].apply",
+        hash: "ebfe6d41ba268031d92a7ddfe184a4f95d96440ec93bca16d2ab8b065fd0761f",
+        f: opt_24_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[27].apply",
+        hash: "36bdc4e7ed1392e7d4e0ed0de0d7614ac5d0e041e65d508347d5c4f3e05db41e",
+        f: opt_27_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[28].apply",
+        hash: "340e3b32f05b055830799521758113f80d20c5fb498ad72fb50f089ab74c6596",
+        f: opt_28_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[29].apply",
+        hash: "813e5133bed4bf8fb975dc7aa1e4329e63715513ac9a7511e48c454221ec5462",
+        f: opt_29_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[30].apply",
+        hash: "44624a434dda2aac245edd30097924999885d7bc82253b0f4dc5a2cf9ce741eb",
+        f: opt_30_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[39].apply",
+        hash: "9b1c6870ce6ebf97c2e72a93d89901a1be1b49ec48640cd9f1f5c6f4d6e5f91b",
+        f: opt_39_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[41].apply",
+        hash: "c71ded45dbd7d267b4dfad044ae445f3f756e120275e2bc58583f8dd3a681283",
+        f: opt_41_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[42].apply",
+        hash: "e490f49b1a6d873c8d1f634510de4dcb2b01c9edb7fdd4c7e328dd2a41ea452a",
+        f: opt_42_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[44].apply",
+        hash: "25da6fd513a11103dcadf1c2d7304a35be2e23bc82ba32cfce509a5c069ba788",
+        f: opt_44_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[46].apply",
+        hash: "d0f1a56514330e14f93fe52581e733b95e311f88250e1c3f9438087d071496c6",
+        f: opt_46_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[47].apply",
+        hash: "4f05641422de647f563fc29f999b74b5aafebd7b8e419c1c85cef8377741a851",
+        f: opt_47_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[49].apply",
+        hash: "df2f03631982be5cf222731e03f88f6c5790e1682c09729e789b0ff3863e3011",
+        f: opt_49_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[50].apply",
+        hash: "eb2d72f9ea099768eab1b22289a8cac6e6fad1c3971f38fc17cbb8adc9698828",
+        f: opt_50_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[52].apply",
+        hash: "69773be77619b9b5e5b14c17de67b408c35ed680be34d1bd80f76ce1519c3ad3",
+        f: opt_52_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[54].apply",
+        hash: "97110c670d6213dd242a5dc6e7aab06c2310a2e7a6e03f2d6d0bdc1bb2789d6d",
+        f: opt_54_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[56].apply",
+        hash: "2139906e139bc08dd4921b057545dc23f832c804876c4b3841c172b4bce46e3e",
+        f: opt_56_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[57].apply",
+        hash: "0bfb2121f1536cdaf87087797da0a1f3a98e8dc7640f9d678eac2d9413c7ac2f",
+        f: opt_57_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[59].apply",
+        hash: "05ffa6372c5d48feb496b372264cdb13a2c4abcd3f262db021c55afa289c7c79",
+        f: opt_59_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[61].apply",
+        hash: "1e426346da2b7a1cc8fd7ecd5e06b7d4cbe2f7e93539b640de97e402edfc3bc5",
+        f: opt_61_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[63].apply",
+        hash: "87f40417ebe591344754801cbae4798fcd1d3ba47171263d4bf0b86d8b83ae2a",
+        f: opt_63_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[64].apply",
+        hash: "434dbdf1b515c2eeca213a3ef67d2d8323b9c3fd3ee4888314596444e75c5b80",
+        f: opt_64_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[66].apply",
+        hash: "1b04493ac5df93e664e0a1ea987649b2abbe4034c46712b1b98f0e12ee717a24",
+        f: opt_66_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[68].apply",
+        hash: "1fae53651f6e86fbb812557739d362da2a5a5158883b566322dca023798a0014",
+        f: opt_68_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[70].apply",
+        hash: "6b89de3f8dbaea1b7288aeb092bfb35280e6ac6c910e058bde638ea0de0ddb81",
+        f: opt_70_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[71].apply",
+        hash: "1d786cf588781e3c4da9648cd522c99d3178cff6e7a460c175971d42f2624f18",
+        f: opt_71_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[72].apply",
+        hash: "c0ba9d8c392689a2244a214dd0616233d68ede9d1283c3260e7bcf3fb407bc8b",
+        f: opt_72_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[73].apply",
+        hash: "d88a768a9629f7e75f453bd91201fdf229ecf5f89848b2a6ab8ef4ffa9c3dc43",
+        f: opt_73_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[74].apply",
+        hash: "2ca4784260d2f922be5c367fa6dc6b6859c0d184cd223ec4d774711c76b61d2b",
+        f: opt_74_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[76].apply",
+        hash: "5d840086dea481ed7d2663c89b278ca1a7abfa4fe220738b04104201585240c3",
+        f: opt_76_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[77].apply",
+        hash: "6277a20da89632d874888de205f41cdf50ace39832e901f2f74e2f08f43506f2",
+        f: opt_77_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[78].apply",
+        hash: "28d46687a5e01c456eea1426cb7fe7516d0b83a39121c7be61f9a684c00ac9dc",
+        f: opt_78_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[79].apply",
+        hash: "670e14247778724a7869556567ca53fadf3254c4efff0e6f77f5dd82bf0fdc50",
+        f: opt_79_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[80].apply",
+        hash: "9abc39244b3a8042a11d6e86ec8e23b5c6a80c6806a26e3f10b8b18624311561",
+        f: opt_80_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[82].apply",
+        hash: "f608fd4cc6a44b6686995e7a6f221e5a1d4aa99e16821bc63f9c4324c4fa0df2",
+        f: opt_82_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[84].apply",
+        hash: "afa204d6006de1559f7d88bba8c15914bcd60c1ccdb5a36a53e95d18d22ce162",
+        f: opt_84_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[86].apply",
+        hash: "9f424363834101a705599479c98d6ad68440f65cee23375b2751166b3e57b53a",
+        f: opt_86_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[88].apply",
+        hash: "f74154527d5c755cef296cc2f96a270c6bad5374573b5eb0f822c577230c38d5",
+        f: opt_88_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[90].apply",
+        hash: "c5407aee16a39eedab23886870ceaee3e33d668b9546f73f1147769987642f36",
+        f: opt_90_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[92].apply",
+        hash: "51351a86df56397d2355f536202e8ab5a966a5ba9f3ec2f7ca217e0d819567bc",
+        f: opt_92_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[94].apply",
+        hash: "7dbcb7caea231f22916eaa151c6ae2d6e62bcbc0dc6d56519315f94540cd111b",
+        f: opt_94_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[96].apply",
+        hash: "bcb0340e035075a9945467397488b1cb68587504788721b2e00a755d9f70b2d1",
+        f: opt_96_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[97].apply",
+        hash: "65921c7c31d3fcba2f97edfae58728c10ffaf3526688aa209c6cf3da5c5be43e",
+        f: opt_97_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[98].apply",
+        hash: "b28792a84efcff20257b34127c27e5fb3d1d616ad9e4c1a756fde6f21895ee59",
+        f: opt_98_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[99].apply",
+        hash: "c64362cea27ba25963f1c370e94f518e114aced897bf826759cc3f813e6387d8",
+        f: opt_99_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[100].apply",
+        hash: "48193d785b5a97a45cab4e23d87f460346686ae4b5ae4744a8de27a945837bd4",
+        f: opt_100_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[101].apply",
+        hash: "897c6ec286090b70fbb1bdadde99da938e31a137f4d1cbf5008fc244bb33506d",
+        f: opt_101_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[104].apply",
+        hash: "7b5acc79bd4b95fdb3a84addba4f123b268c86a43f2029ed97f5509b5c102a0b",
+        f: opt_104_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[106].apply",
+        hash: "d8b97983fc1ba6bb9eaf3eaf5fd189051145612dfccd1ea97c492120f077326c",
+        f: opt_106_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[108].apply",
+        hash: "f5f6710cbbeb0510895d276714b4ef260b9856421722cb917e9242aa0743a4a3",
+        f: opt_108_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[109].apply",
+        hash: "837f2a37582f374819bead60f604b4a91f8023ab65e688c2c321f8063c2b764a",
+        f: opt_109_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[111].apply",
+        hash: "97998c1e8f790b7c812005ed5b0829b6700c0026739f22c748e3467d26f6fe0c",
+        f: opt_111_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[113].apply",
+        hash: "3536b1f61699204138fd14f99fd9fa5e3c6cfd1a7a2e332ad79a2ffb54072e57",
+        f: opt_113_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[115].apply",
+        hash: "1a454a754c973832d61e78989a198f26d2a2654d06542f17fbbf63bb5821f522",
+        f: opt_115_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[117].apply",
+        hash: "4c298e8432172c90fbea7bed115f7cba4e4b2562eb6c4fc11d4bcfabe5c43052",
+        f: opt_117_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[119].apply",
+        hash: "d7abd24539133fe2772ebc994c01fa54c3e360f06466568e0c27ff875924f023",
+        f: opt_119_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[121].apply",
+        hash: "a40a7e7f7ba2424d2468a80cbf607861541c342ef9ced0ed9d1e6279faecacf7",
+        f: opt_121_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[123].apply",
+        hash: "23e731966e9b707ac3283c79d8a6bc661e56e8a52a4739ad82f8f5562afab3e1",
+        f: opt_123_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[125].apply",
+        hash: "843d49f3ba7a3e7a87a105944b0ab603ed893c6b2859175e972acde2e8e95012",
+        f: opt_125_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[127].apply",
+        hash: "3ce52a74276be56812ce8b68c562df73adbeaa6100a2dde0049a8c812746dd86",
+        f: opt_127_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[129].apply",
+        hash: "1ab57bbee400ac86ea7a9226c298655b10b0373eb56a94c42cd8dd64409ab06e",
+        f: opt_129_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[131].apply",
+        hash: "a1b5bd8c4b4635840dc2060fef4da1ac39f7aa9fcfddfa31662e626957bb86c8",
+        f: opt_131_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[133].apply",
+        hash: "3ba9c6b92da091fc91441e4df622cf07758e1d2a035f78de9308b87067b6f068",
+        f: opt_133_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[135].apply",
+        hash: "37074d297a4d9aa84a2c23440df8c953d402ffcb8f8c873d81bf269120ed1743",
+        f: opt_135_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[137].apply",
+        hash: "76d06ee3b571df0065cc7c665565ccbaadaee515c79469dce1acb8bebef91aca",
+        f: opt_137_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[139].apply",
+        hash: "e4f9fef89cd8332634bd32a419ae672e05d6080843df228a6522a4e69c938cff",
+        f: opt_139_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[141].apply",
+        hash: "b3cdd83174e4e2b618ef3723123afa2b9ed0471ea5b58d8e6ee56260a11de79e",
+        f: opt_141_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[143].apply",
+        hash: "8bed8f0daf81795dc6f8a5d6f87cd903a3134e74c22a7d4b8f3e528d3a2e0d0d",
+        f: opt_143_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[144].apply",
+        hash: "d95ae85d6d5f2a787cd5683781fdf7d762ea35740142bb45dfbb13c3b1bfc276",
+        f: opt_144_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[146].apply",
+        hash: "f91a4b6c8349635d6f8fc4964533c204185a5ba60009d279cfa4d2ac865c0450",
+        f: opt_146_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[147].apply",
+        hash: "9913871a7ff974a3fae0fc6e60915acefb42d3507d5f306daf1edf56bc3848b8",
+        f: opt_147_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[148].apply",
+        hash: "5a516ef167b0272e91fffdfc833387adfcb9273dd036a41235465275a859c905",
+        f: opt_148_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[150].apply",
+        hash: "76d38bfec17635ca7669444b90598e6dde054adfeb3add6b83c663b280068a9c",
+        f: opt_150_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[152].apply",
+        hash: "52d96067db032348f9fd1b0e9c42f04263a238e9270677305f912cca886e34de",
+        f: opt_152_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[154].apply",
+        hash: "8b464a8578e69e912d6d0bf06460dab6a524a733f07271a487eac63339c98956",
+        f: opt_154_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[156].apply",
+        hash: "775a7172ec19e9cb7b3127dcf3ccb1aacbff167a437abb00079b59f623658f5e",
+        f: opt_156_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[158].apply",
+        hash: "a5b9e16d7dc7f060beb17e5d4cf9ea4b24c38c182c16e7f838116603c547f3c6",
+        f: opt_158_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[160].apply",
+        hash: "bdaa579202ebd1d16013eac0a357404edbe92715dfef39387ce3dbbcbd14ad57",
+        f: opt_160_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[161].apply",
+        hash: "b0a9219a5a80a4023bc3b05c4ecb6ae7678c0f7306714324aa9dc7882a630b96",
+        f: opt_161_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[163].apply",
+        hash: "078a89f70fe84eadd25120e1e91b43df8c8fa85641f8b99dbe92d679a9009558",
+        f: opt_163_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[165].apply",
+        hash: "e5013c5a44076fc8617f383e2e7e55a27eced01e4284fa1a77d06edb4524bd11",
+        f: opt_165_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[167].apply",
+        hash: "41a23c81c1c030ae6294d37b12dcfd5c05bc0f4daeada07aaf78329508e1b885",
+        f: opt_167_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[169].apply",
+        hash: "95c2afa3a8af2b9483f5913d81dd2555844b1e8520d1cb970e23a4c22183efbf",
+        f: opt_169_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[171].apply",
+        hash: "8e3682139e2ca7e7f4d6bc08af198c7a31b2822121f3ba24d184d1b906a9a9c3",
+        f: opt_171_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[173].apply",
+        hash: "4bc3f95ae1fe64b5f08299d381ea5992aa03d97c990383436178949f4aee9a61",
+        f: opt_173_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[175].apply",
+        hash: "4ee916ab444e253ac5e8edaa2f66a54031f4d758f42f91d487facd88f24d9e91",
+        f: opt_175_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[176].apply",
+        hash: "8914e2a3ab770c3723ffa7dfd65a01ff1d98de2d44eca56bac076f9cbb9d7990",
+        f: opt_176_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[177].apply",
+        hash: "2e9f7649989f3e97950be9791cec0ccd51d5fae1a712deaf4e4383222c893421",
+        f: opt_177_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[178].apply",
+        hash: "22b8e242cf6017fc69a615c05dd58c47f2e5e2816f8e30669f5123994c1d8e68",
+        f: opt_178_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[179].apply",
+        hash: "e2498fc4c42b98ea1979e26f386fcbc493f0339f0f407aad272333382e2f940a",
+        f: opt_179_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[180].apply",
+        hash: "d48dc007c412887575cf9f18a1749c086b54414f31402986d0dc8b671c3ed6cf",
+        f: opt_180_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[181].apply",
+        hash: "669ea74619e93b8ae7c412e5a26d2eb9ac00119939f35a81bb00f82a8f4950b0",
+        f: opt_181_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[182].apply",
+        hash: "884d7e29569529feb792549a462f619f8f2a9fba3ff4e5f886890775984c013c",
+        f: opt_182_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[184].apply",
+        hash: "65709f5337da7b885c42124d6f53bd05932bc18cad04020fb247682e3b1948dd",
+        f: opt_184_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[186].apply",
+        hash: "c76249d6b530d41963eb28c8138c911cdd036fc7f9ca73a0b02567c53220b672",
+        f: opt_186_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[187].apply",
+        hash: "4ef29bc1b1a3c6cf97be560dd42b7049648af51bb65fdd3b70f54b18d9dbb8a3",
+        f: opt_187_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[189].apply",
+        hash: "acfe8c40f367f20f19ffd378f21e043332360f343a2e1714208a519e71a948c4",
+        f: opt_189_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[191].apply",
+        hash: "e6e9b9bb75afdb3079805f63f34cedb91b3ccd91c583da83d28407119bbe880d",
+        f: opt_191_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[193].apply",
+        hash: "adceb46393ae1f0a5619f070c00e5b21637e437c5385a08c148f6aade9c584d3",
+        f: opt_193_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[195].apply",
+        hash: "180eb20cf2089c465b2290cad9bcda16423347cc88e2a684ca3772657b32d612",
+        f: opt_195_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[197].apply",
+        hash: "0b700acbc0cf5e862c220c98b0f93634f0108664d1cdd4600d6291134084a285",
+        f: opt_197_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[199].apply",
+        hash: "3a46b69db858c404d59671582076907847936bc28c9da191111d7cf41dad0637",
+        f: opt_199_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[201].apply",
+        hash: "e7b96b1718aa2798b232ac6e27399d62e7354ec42aa187290ac890af94c1943a",
+        f: opt_201_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[202].apply",
+        hash: "77371b4fe44d407d58279fc5bd1ff5ee392a7c665d8438cd57f0d3db9876b4bf",
+        f: opt_202_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[204].apply",
+        hash: "d46cfa229069cdd351cec0e255ee8d3003849147437e6734dd6d9e6f9d359a3e",
+        f: opt_204_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[205].apply",
+        hash: "a1919dcf3924103de3bdcfd2b97f4b0348a841dacaba371adaf827815302c127",
+        f: opt_205_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[207].apply",
+        hash: "26926acf04a06651be2e3c45148df241ca4539637d874a618b0ea77e757b74b0",
+        f: opt_207_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[209].apply",
+        hash: "f13531d5e057d068830abb94b2cde3b32f046d7ddc910b198b6628583723cec5",
+        f: opt_209_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[211].apply",
+        hash: "e3351f04588cbd58023676f2b0d54a140d1b249301494aa742d420a5dcdbdb40",
+        f: opt_211_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[212].apply",
+        hash: "0804fae3461983a27d752d06a595bb3513b9f025b70f0ff9224ddaec2f9ef9de",
+        f: opt_212_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[213].apply",
+        hash: "8d9152516f704c5becf7fcf1a01d7844e4667ef3bda4a98a9c7ead2ffc88093e",
+        f: opt_213_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[215].apply",
+        hash: "42b86a2bb093ba7764f76851ed0e4965fbacd3e1e3db73e673534007e10ed533",
+        f: opt_215_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[217].apply",
+        hash: "f8278b97792df07f7c076938eaebd36bcd43f5e54533d5fdc117c8b2d338519a",
+        f: opt_217_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[219].apply",
+        hash: "0f374bc51f0550c3b41d7c0730b042c353133ff41d362c3e08d2c6cc00cfcf3b",
+        f: opt_219_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[220].apply",
+        hash: "0813040ede4ab730a4bcd285fa7590fa9378274037ee81f3dc7c6af822d498b5",
+        f: opt_220_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[222].apply",
+        hash: "b1a0822b10f64a24a762122f38735548036be78b3c1d9b3eefae22f8336c186c",
+        f: opt_222_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[224].apply",
+        hash: "abc793966f1009e5bf8f74b0255bc8975af6715252caef05a26b606962461c8c",
+        f: opt_224_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[226].apply",
+        hash: "17a8c089fc6222df5b7b65c71e6cce8e8276fc2b530e92b68dc81223bd0e9472",
+        f: opt_226_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[228].apply",
+        hash: "83b390f619f3832f3facfaef555ca98c1f1454a78eda57221a1316aa8ffaf4c5",
+        f: opt_228_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[230].apply",
+        hash: "f1de639c6fbb8cfc61f81c8afdbc2e252731f88ad7d8753a31405d4433c85b76",
+        f: opt_230_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[232].apply",
+        hash: "2ad685b09023a1e919160a772503bbc5d2e775765c0022608a8d6b310820f11e",
+        f: opt_232_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[234].apply",
+        hash: "faa6b4585b6b81922b867bdb28d273e10498fb54ba2a2cbde2b543ce4784cb6b",
+        f: opt_234_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[236].apply",
+        hash: "b41bae9974ecbcd6e354303310bdfa7c33938750c4a4e6e6dd99c8a814924f1d",
+        f: opt_236_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[238].apply",
+        hash: "a4108c586709e8b96e4e68d5ba373a271fb1184c3e098731f36b8601ad26c282",
+        f: opt_238_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[240].apply",
+        hash: "590223d9acf13803f0837c0632d4ad999460545e0014796cd0ce121be0240cf9",
+        f: opt_240_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[242].apply",
+        hash: "bd60e9aa086a60eb31f4c24fe261720b2e53c3b250adcfc115dfbf57b8081903",
+        f: opt_242_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[244].apply",
+        hash: "a564b9a75354a621ffda4f3ddf8ce7fd1f325e49718f02a47491de22b1f1000b",
+        f: opt_244_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[245].apply",
+        hash: "7ad8ddc9297fc8acca5b349735d6ae7e81f46f1fb336526ded0eb00c1c990275",
+        f: opt_245_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[246].apply",
+        hash: "2f3c3ed07e7d4274b5786f05624b862def2fcd7e21070da2e56b56138897514d",
+        f: opt_246_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[247].apply",
+        hash: "773aaea87b2f3b8c6152461fe111e5571cc0f414986839339d2b783ed1390557",
+        f: opt_247_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[248].apply",
+        hash: "999fc104ac1166b06c3c93ed8dc46bc260ef7bf62207ae72d5bc88b51aa13bc7",
+        f: opt_248_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[250].apply",
+        hash: "c1d7e1d7226a633c36000e9965c0acbd0b9322d6fbbc9af52ca1f2485ba1b82c",
+        f: opt_250_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[252].apply",
+        hash: "b5c2d142df46e93af074e0b65648fc5ec748a49a7314823995d4cfa32037dd1f",
+        f: opt_252_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[254].apply",
+        hash: "b6fbaec2d2ed71f698282dee1ae4b8013116ecdafa8793078809aad034e7adf5",
+        f: opt_254_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[255].apply",
+        hash: "9123b53f960bd95bfe2faa4e9a17aa35e8df3f1b61c3cd584f15bce4ab64f77e",
+        f: opt_255_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[256].apply",
+        hash: "c5c2b35fcfd0f7aa31253a80d292eb41ad82f2151828124b832fc2e5fa51c103",
+        f: opt_256_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[257].apply",
+        hash: "e7dd4c2b17fd79e682eeb0ba72b5f161276cb8474f4ea9c9ca3739398f604682",
+        f: opt_257_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[258].apply",
+        hash: "363986c9985675b7f44a8114a26e0e356bf25b5fcf1a7975ec6f285f8b956fd1",
+        f: opt_258_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[259].apply",
+        hash: "934519999d72066d5758e1618f88fd3b4f6476e9eb64611c7313158b378aaf1e",
+        f: opt_259_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[260].apply",
+        hash: "8a4c8e86ce81ed7c83bbfe80aa306c1d4c6e1663da782553e0ebc77c2a15e3c4",
+        f: opt_260_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[261].apply",
+        hash: "487a577e547a54cf7017906ba91c9b74d113a7e6b2df50402fdebf042c70713b",
+        f: opt_261_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[262].apply",
+        hash: "953e895d4980d04872e08a1a79b72ae7fd9b1a0285c046655689a8c148d0330a",
+        f: opt_262_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[274].apply",
+        hash: "95e962fae8dfda50716a2c9fc1564009d0617e8606139fba49e44ae141d78ba6",
+        f: opt_274_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[288].apply",
+        hash: "1239bb96ecdcaa7ae1a584179a704001771f5f4ad68f0122aa70dd1522c0b84b",
+        f: opt_288_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[290].apply",
+        hash: "e639a5dff4c8ccbdbb5010da646f0028ab2603a7fe27b5e06b54d6900683c4f4",
+        f: opt_290_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[291].apply",
+        hash: "a8279fc301b20fe3381082f6816548c8dd36af4c469f04c4497bc9f1f90ff9d5",
+        f: opt_291_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[292].apply",
+        hash: "7a091795f4769775ade890431c554cbd2d14fd4fbcba202075711be7781e011d",
+        f: opt_292_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[293].apply",
+        hash: "d2164ca6d4df9c61893fbe417b64221f811b6c9d89e3abc878de6c2ffba65cfc",
+        f: opt_293_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[294].apply",
+        hash: "24c9ae99fe87a2ef39cb2427d19ffdf80ee8bf0e7dfcaeb41d4d8cb742141508",
+        f: opt_294_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[295].apply",
+        hash: "33928dae685d4c81b4b714e37fdaa6d8ffc055fede9e0d27ca3e72a166b475ef",
+        f: opt_295_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[296].apply",
+        hash: "235d79221e25b3030d4844cadf089d88c891c2c0d1589fc1d719280c54839c58",
+        f: opt_296_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[297].apply",
+        hash: "4b0bb57bccfa536650df74311e3a789c0fccd21b0f4d510a2eef68a5f855c424",
+        f: opt_297_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[298].apply",
+        hash: "c2ee0c27771ce12816183e890245f925fa1aa59757888de85a572ae727695b3b",
+        f: opt_298_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[299].apply",
+        hash: "14a0df920fca0688d17c667d9ff9774f8670dd8a0b7b904edfe4552f0eff97fe",
+        f: opt_299_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[300].apply",
+        hash: "15602e69a36d5cd5bbdaa05a40c2728f960f54bfdfedcac0335a996025bb2c02",
+        f: opt_300_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[301].apply",
+        hash: "461a4b054c07322dc7448c12cbbeb76da492bb64cf8c60ea2b34e6e4f434a9dd",
+        f: opt_301_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[302].apply",
+        hash: "26d68dde32509b44676832652e48d38a6706c4adcca1c398e3cb25af421701dc",
+        f: opt_302_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[304].apply",
+        hash: "02ee3e2ba74c8f51f9e0c3c7cb1ed25f751961e206cb7d2caad73a1a1bc8d237",
+        f: opt_304_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[305].apply",
+        hash: "172f1090478f231a73b8b9efd685b34d1caa2ebe84a2fef3b8163c6c7e791670",
+        f: opt_305_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[306].apply",
+        hash: "5b1e679956d73ed048f299e34e8cfe5f00deed94014034c56132a92defafada8",
+        f: opt_306_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[307].apply",
+        hash: "2345fb18004c75ff92cbde1da95061d2208d75719526e4e9f423c81fe89ee3fa",
+        f: opt_307_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[308].apply",
+        hash: "a9f56e0cabc817ccc99a7820fdd36be5184cb0ebd720bddde25cf9eabe639fd9",
+        f: opt_308_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[309].apply",
+        hash: "53e73806b59581ad6cdc9a8b87865cd421d5e642890013dd16c4b7ee279d1e57",
+        f: opt_309_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[310].apply",
+        hash: "b2ff9fba26a1b4a589940e49fb3044d4c7d9c38b3d65e2873dd8fc3c2d726aef",
+        f: opt_310_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[311].apply",
+        hash: "8bd3df8331b446e2db7acec61d7cd0f0b3e5253b34b557a9c7c32032adf05d47",
+        f: opt_311_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[312].apply",
+        hash: "1505817a184d0f75dedf7a4f2f2318ddc18f1910311f9e0334fd26eeed1b8143",
+        f: opt_312_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[313].apply",
+        hash: "5231c95a88f74093c0b188ea1181b87eeb91c700f933350ff8c3241f7bfe842a",
+        f: opt_313_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[314].apply",
+        hash: "ee964c15a2fe541f2ff698a24e0a40e9764980c5419017f721194988449f38a1",
+        f: opt_314_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[315].apply",
+        hash: "37fd899b391660081fd890c981c0164cc1df68bf9e523a88ffffc914b49fa1b6",
+        f: opt_315_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[316].apply",
+        hash: "076bf660f1a305856ebfeca77dcf3f61b1d9b3ff273f504380d57fe0c0f89fa5",
+        f: opt_316_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[317].apply",
+        hash: "e5fefb45c41e4e00f3dfed880f5fce972159f3fe70c60709cd9f88a997d746da",
+        f: opt_317_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[318].apply",
+        hash: "1615941f43fcc6d69aabc48d0c8df4f4d85ca93894c01d86d8e98e966b511e4b",
+        f: opt_318_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[319].apply",
+        hash: "ee41dfbe5ddb8cfe3491d1798768969af10e92ffc909ee96e2bbe1519789a518",
+        f: opt_319_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[320].apply",
+        hash: "9f974a26fa6af76eeedcc537ad03b8c26c5e282865e62917aa412b9d6e7e8549",
+        f: opt_320_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[321].apply",
+        hash: "7e50ce2711bee1c4611bb82535fd92f6d3e33ab0df365d0aca8ade1986e0ff8b",
+        f: opt_321_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[324].apply",
+        hash: "2aae0ccd4c33aef67f8d51fdfd28537d447dacef13319797b2c7f9f0016f11e7",
+        f: opt_324_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[325].apply",
+        hash: "0cf62b364685ee05d9e72bce797b5c851bc19d20bf42545d9ff0bc5e9bb5a573",
+        f: opt_325_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[326].apply",
+        hash: "dc573e3e17f210e04a2fbc8daf34b70a8d539e93e75dc5e5e99d10d6dd8d0f8e",
+        f: opt_326_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[327].apply",
+        hash: "4376d6e8b7c2bab4911d764fc28dc390ecee7f3431573c68b90433fb0b67b5a5",
+        f: opt_327_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[328].apply",
+        hash: "b6f474f53409a4b5f8f08eb6c84d64bbab86730fefee1ac9b7a7c036cf5933f4",
+        f: opt_328_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[329].apply",
+        hash: "a12638b64b1dd49481b947b8c3a75d294965801cc3609137fdaca89d471bf1a4",
+        f: opt_329_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[330].apply",
+        hash: "e757b2e45078e4bfd0695ed20b32e4f0bd3df9730ab6e8e8ff23abb5c711ebbf",
+        f: opt_330_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[331].apply",
+        hash: "2513009b1fb6cee32d4e1115796750b0751ad0e5c42ad7a838721c1a5fa1e3f7",
+        f: opt_331_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[332].apply",
+        hash: "f56ccb98de1d89b622228414a223ad90b304d59c77dd38198f250077df1850f6",
+        f: opt_332_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[333].apply",
+        hash: "175073f3d7d9c906335e1267359beeaec31164ab01a1dd17f26df34c38b53c99",
+        f: opt_333_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[334].apply",
+        hash: "0b221da4ac5e2182a31de4c1122a403530d511ebcb12938c1c4c4544b23323c1",
+        f: opt_334_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[335].apply",
+        hash: "334cd82c5f77e6a8d58a952b2d1356204a816fbd60f3ea7d6c8a49a6f29f6407",
+        f: opt_335_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[336].apply",
+        hash: "c86819a2e8ea78f4915de728bbf81fd0a62b13e21100b193a9a2b67fd9da7dc0",
+        f: opt_336_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[337].apply",
+        hash: "c97ece418316fb7ef4c57033d0ba86d60a63ca13f35b5341d7de77bd5b26cbe7",
+        f: opt_337_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[338].apply",
+        hash: "96a9b38ea6e8afcca7b11defc81282d3a5ec2ee5b2e38c1b21db999adde6872a",
+        f: opt_338_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[339].apply",
+        hash: "429535abc206497c615b7ba9025b8d58955e143c4c5559609a0b99f04eaff70b",
+        f: opt_339_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[340].apply",
+        hash: "c3ae89823b98a20bd97773954db77879534b9edf8fefef0bc6b5ac945c20de82",
+        f: opt_340_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[341].apply",
+        hash: "eeb994973109194d13195d2c46152af99328992623f1b4fc0545c5b11ac70822",
+        f: opt_341_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[342].apply",
+        hash: "adf1367fa45f6cc083f0b08bb7815ea419d5924909442aec59a20458653f3695",
+        f: opt_342_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[343].apply",
+        hash: "d0e6bc0ac9bfe2a56d4258d51de5bcafaa8934624a2acb63854daaa2b1967ad8",
+        f: opt_343_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[344].apply",
+        hash: "ffcb6239d5ec75ebbf7eaa8bf98b5e8cb6bfa1e2fcd4b166b24e83ad9ea41861",
+        f: opt_344_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[345].apply",
+        hash: "045524fd7080ed7a0c6b2b55dc593be8e79110097b38e14f7a0f6aba1967bddc",
+        f: opt_345_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[346].apply",
+        hash: "4b5190de1acd4f9a44ce1643b450677d65dc818204f5d9454103be9bf5c9cad2",
+        f: opt_346_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[347].apply",
+        hash: "d6f3eb7dd239e120b0d40a437ff37f680ef21d4f2394bbcbd32bba578ede220c",
+        f: opt_347_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[348].apply",
+        hash: "3a7f9c0091883df855c16505065ae995251ca274c38e3b02d247cdae3f35b8ee",
+        f: opt_348_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[349].apply",
+        hash: "fc23bab8ced0add1d86ee5544d8d80ed0ca775062e6effbedca949aca478e7eb",
+        f: opt_349_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[350].apply",
+        hash: "1168c075991b15752df409c6ba62840f0532428071916c612e2e2d3bfe190c38",
+        f: opt_350_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[351].apply",
+        hash: "c86843842ca3cc77b3fc4922c16a48105879bcddbeb380f1f29f1a84383ce6be",
+        f: opt_351_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[352].apply",
+        hash: "f7b50b94f4d1135cf496fae3e18522a9f5767635c2cfd977c3c93002d8dff6c5",
+        f: opt_352_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[353].apply",
+        hash: "500703599a7259649814330ad56b203bb8c5e5b9ce1765b26bfbbb3b505263a9",
+        f: opt_353_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[354].apply",
+        hash: "e1c5fc727c40ca796f313f8759867fdc17054825386446f12dd25e22df8ca8c2",
+        f: opt_354_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[355].apply",
+        hash: "45959135835964f850c3dbb1fe245f64fd295706ba5a73591e2d176ded28c5ea",
+        f: opt_355_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[356].apply",
+        hash: "85a5f6fc372c56e10b252212432dde46043dfc7cdf4f4c98a4f1b0e8c65a1fd2",
+        f: opt_356_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[357].apply",
+        hash: "65187c9a4fc4fd422e292d325204926ee6aaa41c34a9b79d9b2506e016552ac4",
+        f: opt_357_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[358].apply",
+        hash: "35f9f8405316a80be53638301b36c00cd08b0f2063fd8b2b52eb48bc7c4c5421",
+        f: opt_358_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[359].apply",
+        hash: "9b76a4d5a4221a8897dc2589e2c53e2c845e63fc8c8375bc1bd1334d5ffef835",
+        f: opt_359_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[360].apply",
+        hash: "1463f8cd35792fa8e744080c6eecaa426a20589c03396a9aecff0c33e7dd8b60",
+        f: opt_360_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[361].apply",
+        hash: "d0b8deb688bbcb10d5a9428c547c6da8d0c5475561556678bbbafb6a2fca8572",
+        f: opt_361_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[362].apply",
+        hash: "fe8f12f04c9e654833114fe3102d790ea5b9dbf03248d1c72975e6f35339ba8b",
+        f: opt_362_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[363].apply",
+        hash: "6a98390c5724647a4565c21faa7a19356a9ba01679492702a067c60abb15bd80",
+        f: opt_363_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[364].apply",
+        hash: "4ac1006777240f6efdafff729af25f2c2658b8e8be785ffd5ff600b43f0bb81a",
+        f: opt_364_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[365].apply",
+        hash: "0d906add92d79fbed2a76d92afffdfb0bde0572afe59b14fa96fc2f19f7412a0",
+        f: opt_365_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[366].apply",
+        hash: "e9363b3a22355ee18e86e76f2bc40a2346938a13636af5beb6dfab6dc207a044",
+        f: opt_366_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[367].apply",
+        hash: "fab0737b2f54020cb219529ad689d1ecaa9d94c14ee609a283c6509a9532174b",
+        f: opt_367_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[368].apply",
+        hash: "9b7608ca1818b5e713fe8fe9c5316207af76fc8c97a2f9c3ead72a896e2d0b20",
+        f: opt_368_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[369].apply",
+        hash: "a9aba56a24a5391de7be6ae11f16911bd1a706faaf5a773d18ecc2f9a57d7fd6",
+        f: opt_369_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[370].apply",
+        hash: "eaafd93427f8188374afabbbf397a51a478169e8871ef3b167fd5dc048d7294f",
+        f: opt_370_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[372].apply",
+        hash: "abeb20a9b875cee9989e913002c5ab6e14518b7ede469e7f0ac640083620fd8e",
+        f: opt_372_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[373].apply",
+        hash: "d4783644cbea85c68dbd09f12c81d7f17725d0b793c976ed57c49b58ef7aae64",
+        f: opt_373_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[374].apply",
+        hash: "ab4502f2d2ab42143088511054431fe9a33289ae8e48aeef573edd639130d55b",
+        f: opt_374_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[375].apply",
+        hash: "9b336866c08843f471be3c1b803f7c3849b259734abc51ed80f5316888bff406",
+        f: opt_375_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[376].apply",
+        hash: "1989d5ec43e0903733334f5992bbef32685dffdb22770ca32a5b353a64a4dd29",
+        f: opt_376_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[377].apply",
+        hash: "8d477c3f16ec7048c7b51773da0ef3ab152f741edba92b8847040f0aed38fa04",
+        f: opt_377_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[378].apply",
+        hash: "76886c7f3c528a2b49eb9baed364745f3f4cbcdbdc94c3a9edfb0c1dc9b3040a",
+        f: opt_378_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[379].apply",
+        hash: "826a100655ae701f142d274afdf0de3e5a3c0c7d32b1e0629b032d50b5109b91",
+        f: opt_379_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[380].apply",
+        hash: "e164cbca90782a60e44310cf7e3a790ad46cff243bd38e77eb06c502fe629a92",
+        f: opt_380_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[381].apply",
+        hash: "321034759b18b023a90720a4e634f5822bd40c37fb2b4d7e0de4cc326f03bcfd",
+        f: opt_381_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[382].apply",
+        hash: "2c541522af253ec1f4635c122ee1f13708ad75bc19831c163e3d4c1edc74246c",
+        f: opt_382_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[383].apply",
+        hash: "8130aaa320f161ef0c510894f8a22e3301cb5433dd7858b0e087ba3e289a65a3",
+        f: opt_383_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[384].apply",
+        hash: "491bd55885976841a9178b923fbf463d33668b0c13f808ebf6b6491b7af7b4a0",
+        f: opt_384_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[385].apply",
+        hash: "07070b8af15815cf359f3f91ef786750c09fccfc0be0758c7d721a57f7fcf7dd",
+        f: opt_385_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[386].apply",
+        hash: "842b1b78c3560209997638676c9b4668ff24349a70a8ce5aadb358602229079b",
+        f: opt_386_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[387].apply",
+        hash: "c3e603ce985a8fe43d1389e61be9a98fd59928f128e22b45c4aad4be465ecab4",
+        f: opt_387_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[388].apply",
+        hash: "c866b44070148d3a2dea2e0c468eb22bda1b5ba9b317114ca0d15ac8821a0423",
+        f: opt_388_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[389].apply",
+        hash: "24a9bcba4f593072910e1118afeb9a2e4f82ae47fc44c9c032ddaa5c1c81d473",
+        f: opt_389_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[390].apply",
+        hash: "9b412f3f699a4c259c2b22c4a28ce1934633a3f9d8eef8a2100bd7e6c0646844",
+        f: opt_390_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[391].apply",
+        hash: "18e72c943251a5745a9a569a7bcc23b15356d5de040ea8ad57102a5bce7c2593",
+        f: opt_391_apply,
+    },
+    FnRow {
+        id: "ConfigOptions[392].apply",
+        hash: "5655fcb4855f0af909886c4c84498da7ca505cb02c52385193671e6da259ddcc",
+        f: opt_392_apply,
+    },
+];
+
+// @pob-skip Modules/ConfigOptions.lua:7-9 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+// @pob-skip Modules/ConfigOptions.lua:11-30 reason="UI tooltip helper (tooltipFunc bodies): not part of the calc"
+
+// @pob-skip Modules/ConfigOptions.lua:32-44 reason="UI tooltip helper (tooltipFunc bodies): not part of the calc"
+
+// @pob-skip Modules/ConfigOptions.lua:46-59 reason="UI tooltip helper (tooltipFunc bodies): not part of the calc"
+
+// @pob-skip Modules/ConfigOptions.lua:61-65 reason="UI tooltip helper (tooltipFunc bodies): not part of the calc"
+
+// @pob-skip Modules/ConfigOptions.lua:67-72 reason="UI tooltip helper (tooltipFunc bodies): not part of the calc"
+
+// @pob-skip Modules/ConfigOptions.lua:74-115 reason="UI tooltip helper (tooltipFunc bodies): not part of the calc"
+
+/// @pob Modules/ConfigOptions.lua:117-130 h=ed82db17
+/// `ConfigOptions[278].apply` (also: ConfigOptions[279].apply, ConfigOptions[280].apply, ConfigOptions[281].apply, ConfigOptions[283].apply, ConfigOptions[284].apply, ConfigOptions[285].apply)…
+pub(crate) fn opt_278_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:117-130")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:132-154 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:155-157 h=6ab74a80
+/// `ConfigOptions[6].apply`
+pub(crate) fn opt_6_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:155-157")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:158-159 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:160-170 h=9dca2e8b
+/// `ConfigOptions[7].apply`
+pub(crate) fn opt_7_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:160-170")
+}
+
+/// @pob Modules/ConfigOptions.lua:171-173 h=53e8145b
+/// `ConfigOptions[8].apply`
+pub(crate) fn opt_8_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:171-173")
+}
+
+/// @pob Modules/ConfigOptions.lua:174-176 h=9b68498f
+/// `ConfigOptions[9].apply`
+pub(crate) fn opt_9_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:174-176")
+}
+
+/// @pob Modules/ConfigOptions.lua:177-179 h=83224a17
+/// `ConfigOptions[10].apply`
+pub(crate) fn opt_10_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:177-179")
+}
+
+/// @pob Modules/ConfigOptions.lua:180-182 h=d3bf1e7d
+/// `ConfigOptions[11].apply`
+pub(crate) fn opt_11_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:180-182")
+}
+
+/// @pob Modules/ConfigOptions.lua:183-185 h=c792bc13
+/// `ConfigOptions[12].apply`
+pub(crate) fn opt_12_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:183-185")
+}
+
+/// @pob Modules/ConfigOptions.lua:186-188 h=ba4b68e8
+/// `ConfigOptions[13].apply`
+pub(crate) fn opt_13_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:186-188")
+}
+
+/// @pob Modules/ConfigOptions.lua:189-191 h=6e689f8a
+/// `ConfigOptions[14].apply`
+pub(crate) fn opt_14_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:189-191")
+}
+
+/// @pob Modules/ConfigOptions.lua:192-194 h=006f5187
+/// `ConfigOptions[15].apply`
+pub(crate) fn opt_15_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:192-194")
+}
+
+/// @pob Modules/ConfigOptions.lua:195-197 h=1c103d72
+/// `ConfigOptions[16].apply`
+pub(crate) fn opt_16_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:195-197")
+}
+
+/// @pob Modules/ConfigOptions.lua:198-200 h=f9a9d103
+/// `ConfigOptions[17].apply`
+pub(crate) fn opt_17_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:198-200")
+}
+
+/// @pob Modules/ConfigOptions.lua:201-203 h=8e23f4a0
+/// `ConfigOptions[18].apply`
+pub(crate) fn opt_18_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:201-203")
+}
+
+/// @pob Modules/ConfigOptions.lua:204-206 h=5845d44e
+/// `ConfigOptions[19].apply`
+pub(crate) fn opt_19_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:204-206")
+}
+
+/// @pob Modules/ConfigOptions.lua:207-209 h=6408fc80
+/// `ConfigOptions[20].apply`
+pub(crate) fn opt_20_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:207-209")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:210-211 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:212-218 h=357d72f4
+/// `ConfigOptions[23].apply`
+pub(crate) fn opt_23_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:212-218")
+}
+
+/// @pob Modules/ConfigOptions.lua:219-225 h=d98679d5
+/// `ConfigOptions[24].apply`
+pub(crate) fn opt_24_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:219-225")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:226-227 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:228-234 h=2046e8a0
+/// `ConfigOptions[27].apply`
+pub(crate) fn opt_27_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:228-234")
+}
+
+/// @pob Modules/ConfigOptions.lua:235-239 h=2cbfcf60
+/// `ConfigOptions[28].apply`
+pub(crate) fn opt_28_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:235-239")
+}
+
+/// @pob Modules/ConfigOptions.lua:240-244 h=d6f98696
+/// `ConfigOptions[29].apply`
+pub(crate) fn opt_29_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:240-244")
+}
+
+/// @pob Modules/ConfigOptions.lua:245-247 h=7bfb9a89
+/// `ConfigOptions[30].apply`
+pub(crate) fn opt_30_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:245-247")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:248-257 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:258-260 h=729c63bf
+/// `ConfigOptions[39].apply`
+pub(crate) fn opt_39_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:258-260")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:261-261 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:262-264 h=ef3a499c
+/// `ConfigOptions[41].apply`
+pub(crate) fn opt_41_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:262-264")
+}
+
+/// @pob Modules/ConfigOptions.lua:265-267 h=b3d3f883
+/// `ConfigOptions[42].apply`
+pub(crate) fn opt_42_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:265-267")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:268-268 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:269-271 h=54dcbc02
+/// `ConfigOptions[44].apply`
+pub(crate) fn opt_44_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:269-271")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:272-272 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:273-275 h=7d50a3d4
+/// `ConfigOptions[46].apply`
+pub(crate) fn opt_46_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:273-275")
+}
+
+/// @pob Modules/ConfigOptions.lua:276-278 h=89db06db
+/// `ConfigOptions[47].apply`
+pub(crate) fn opt_47_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:276-278")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:279-279 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:280-282 h=5b2deefc
+/// `ConfigOptions[49].apply`
+pub(crate) fn opt_49_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:280-282")
+}
+
+/// @pob Modules/ConfigOptions.lua:283-285 h=df4b87f7
+/// `ConfigOptions[50].apply`
+pub(crate) fn opt_50_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:283-285")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:286-286 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:287-289 h=91527e5a
+/// `ConfigOptions[52].apply`
+pub(crate) fn opt_52_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:287-289")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:290-290 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:291-296 h=a2e78523
+/// `ConfigOptions[54].apply`
+pub(crate) fn opt_54_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:291-296")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:297-297 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:298-300 h=9b855b71
+/// `ConfigOptions[56].apply`
+pub(crate) fn opt_56_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:298-300")
+}
+
+/// @pob Modules/ConfigOptions.lua:301-303 h=f084cd3e
+/// `ConfigOptions[57].apply`
+pub(crate) fn opt_57_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:301-303")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:304-304 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:305-308 h=6c3ebb21
+/// `ConfigOptions[59].apply`
+pub(crate) fn opt_59_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:305-308")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:309-309 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:310-312 h=8af3b9c1
+/// `ConfigOptions[61].apply`
+pub(crate) fn opt_61_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:310-312")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:313-313 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:314-316 h=07a0c611
+/// `ConfigOptions[63].apply`
+pub(crate) fn opt_63_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:314-316")
+}
+
+/// @pob Modules/ConfigOptions.lua:317-319 h=9dcf7b4a
+/// `ConfigOptions[64].apply`
+pub(crate) fn opt_64_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:317-319")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:320-320 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:321-325 h=1c9b92e7
+/// `ConfigOptions[66].apply`
+pub(crate) fn opt_66_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:321-325")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:326-326 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:327-329 h=62637573
+/// `ConfigOptions[68].apply`
+pub(crate) fn opt_68_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:327-329")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:330-330 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:331-333 h=b7067933
+/// `ConfigOptions[70].apply`
+pub(crate) fn opt_70_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:331-333")
+}
+
+/// @pob Modules/ConfigOptions.lua:334-336 h=63892da6
+/// `ConfigOptions[71].apply`
+pub(crate) fn opt_71_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:334-336")
+}
+
+/// @pob Modules/ConfigOptions.lua:337-339 h=c3042b50
+/// `ConfigOptions[72].apply`
+pub(crate) fn opt_72_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:337-339")
+}
+
+/// @pob Modules/ConfigOptions.lua:340-343 h=3dc5c3b3
+/// `ConfigOptions[73].apply`
+pub(crate) fn opt_73_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:340-343")
+}
+
+/// @pob Modules/ConfigOptions.lua:344-346 h=5304ee69
+/// `ConfigOptions[74].apply`
+pub(crate) fn opt_74_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:344-346")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:347-347 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:348-350 h=96653ad9
+/// `ConfigOptions[76].apply`
+pub(crate) fn opt_76_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:348-350")
+}
+
+/// @pob Modules/ConfigOptions.lua:351-353 h=34b47883
+/// `ConfigOptions[77].apply`
+pub(crate) fn opt_77_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:351-353")
+}
+
+/// @pob Modules/ConfigOptions.lua:354-356 h=d0278a60
+/// `ConfigOptions[78].apply`
+pub(crate) fn opt_78_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:354-356")
+}
+
+/// @pob Modules/ConfigOptions.lua:357-359 h=e2f97cac
+/// `ConfigOptions[79].apply`
+pub(crate) fn opt_79_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:357-359")
+}
+
+/// @pob Modules/ConfigOptions.lua:360-362 h=334d6476
+/// `ConfigOptions[80].apply`
+pub(crate) fn opt_80_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:360-362")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:363-363 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:364-366 h=a1b5e276
+/// `ConfigOptions[82].apply`
+pub(crate) fn opt_82_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:364-366")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:367-367 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:368-370 h=ff17e047
+/// `ConfigOptions[84].apply`
+pub(crate) fn opt_84_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:368-370")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:371-371 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:372-374 h=43dd0f39
+/// `ConfigOptions[86].apply`
+pub(crate) fn opt_86_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:372-374")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:375-375 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:376-380 h=6876e3ed
+/// `ConfigOptions[88].apply`
+pub(crate) fn opt_88_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:376-380")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:381-381 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:382-384 h=33701583
+/// `ConfigOptions[90].apply`
+pub(crate) fn opt_90_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:382-384")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:385-385 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:386-388 h=b2524939
+/// `ConfigOptions[92].apply`
+pub(crate) fn opt_92_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:386-388")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:389-389 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:390-392 h=c60cdb0b
+/// `ConfigOptions[94].apply`
+pub(crate) fn opt_94_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:390-392")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:393-393 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:394-397 h=4da1d571
+/// `ConfigOptions[96].apply`
+pub(crate) fn opt_96_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:394-397")
+}
+
+/// @pob Modules/ConfigOptions.lua:398-401 h=d4bd6b76
+/// `ConfigOptions[97].apply`
+pub(crate) fn opt_97_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:398-401")
+}
+
+/// @pob Modules/ConfigOptions.lua:402-405 h=7e3b723b
+/// `ConfigOptions[98].apply`
+pub(crate) fn opt_98_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:402-405")
+}
+
+/// @pob Modules/ConfigOptions.lua:406-409 h=96ceb814
+/// `ConfigOptions[99].apply`
+pub(crate) fn opt_99_apply(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef) {
+    unported!("Modules/ConfigOptions.lua:406-409")
+}
+
+/// @pob Modules/ConfigOptions.lua:410-413 h=6fec043d
+/// `ConfigOptions[100].apply`
+pub(crate) fn opt_100_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:410-413")
+}
+
+/// @pob Modules/ConfigOptions.lua:414-417 h=b84b4152
+/// `ConfigOptions[101].apply`
+pub(crate) fn opt_101_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:414-417")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:418-419 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:420-422 h=aac9d5c1
+/// `ConfigOptions[104].apply`
+pub(crate) fn opt_104_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:420-422")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:423-423 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:424-432 h=dea23d03
+/// `ConfigOptions[106].apply`
+pub(crate) fn opt_106_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:424-432")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:433-433 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:434-436 h=cc56c983
+/// `ConfigOptions[108].apply`
+pub(crate) fn opt_108_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:434-436")
+}
+
+/// @pob Modules/ConfigOptions.lua:437-445 h=16873556
+/// `ConfigOptions[109].apply`
+pub(crate) fn opt_109_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:437-445")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:446-446 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:447-452 h=df3707e9
+/// `ConfigOptions[111].apply`
+pub(crate) fn opt_111_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:447-452")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:453-453 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:454-456 h=e3250cf0
+/// `ConfigOptions[113].apply`
+pub(crate) fn opt_113_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:454-456")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:457-457 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:458-460 h=253652f3
+/// `ConfigOptions[115].apply`
+pub(crate) fn opt_115_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:458-460")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:461-461 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:462-464 h=cddd0b68
+/// `ConfigOptions[117].apply`
+pub(crate) fn opt_117_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:462-464")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:465-465 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:466-468 h=c2dd86ce
+/// `ConfigOptions[119].apply`
+pub(crate) fn opt_119_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:466-468")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:469-469 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:470-472 h=5ae33617
+/// `ConfigOptions[121].apply`
+pub(crate) fn opt_121_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:470-472")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:473-473 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:474-476 h=09be6f3c
+/// `ConfigOptions[123].apply`
+pub(crate) fn opt_123_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:474-476")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:477-477 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:478-480 h=41fbebad
+/// `ConfigOptions[125].apply`
+pub(crate) fn opt_125_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:478-480")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:481-481 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:482-484 h=72e60393
+/// `ConfigOptions[127].apply`
+pub(crate) fn opt_127_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:482-484")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:485-485 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:486-488 h=4abb7077
+/// `ConfigOptions[129].apply`
+pub(crate) fn opt_129_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:486-488")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:489-489 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:490-492 h=e4612168
+/// `ConfigOptions[131].apply`
+pub(crate) fn opt_131_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:490-492")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:493-493 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:494-496 h=89f72cd0
+/// `ConfigOptions[133].apply`
+pub(crate) fn opt_133_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:494-496")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:497-497 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:498-500 h=3e887bb5
+/// `ConfigOptions[135].apply`
+pub(crate) fn opt_135_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:498-500")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:501-501 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:502-504 h=1a629d50
+/// `ConfigOptions[137].apply`
+pub(crate) fn opt_137_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:502-504")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:505-505 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:506-508 h=249248a1
+/// `ConfigOptions[139].apply`
+pub(crate) fn opt_139_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:506-508")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:509-509 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:510-512 h=d892c980
+/// `ConfigOptions[141].apply`
+pub(crate) fn opt_141_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:510-512")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:513-513 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:514-516 h=52420165
+/// `ConfigOptions[143].apply`
+pub(crate) fn opt_143_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:514-516")
+}
+
+/// @pob Modules/ConfigOptions.lua:517-519 h=06bd0710
+/// `ConfigOptions[144].apply`
+pub(crate) fn opt_144_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:517-519")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:520-520 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:521-523 h=c93c68bb
+/// `ConfigOptions[146].apply`
+pub(crate) fn opt_146_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:521-523")
+}
+
+/// @pob Modules/ConfigOptions.lua:524-526 h=6a077582
+/// `ConfigOptions[147].apply`
+pub(crate) fn opt_147_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:524-526")
+}
+
+/// @pob Modules/ConfigOptions.lua:527-529 h=6df91b62
+/// `ConfigOptions[148].apply`
+pub(crate) fn opt_148_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:527-529")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:530-530 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:531-533 h=f0c8e1c3
+/// `ConfigOptions[150].apply`
+pub(crate) fn opt_150_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:531-533")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:534-534 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:535-537 h=2b4504e4
+/// `ConfigOptions[152].apply`
+pub(crate) fn opt_152_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:535-537")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:538-538 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:539-541 h=fd511c35
+/// `ConfigOptions[154].apply`
+pub(crate) fn opt_154_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:539-541")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:542-542 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:543-545 h=e1d24de5
+/// `ConfigOptions[156].apply`
+pub(crate) fn opt_156_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:543-545")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:546-546 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:547-549 h=c0adfbed
+/// `ConfigOptions[158].apply`
+pub(crate) fn opt_158_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:547-549")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:550-550 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:551-553 h=43d6f3c0
+/// `ConfigOptions[160].apply`
+pub(crate) fn opt_160_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:551-553")
+}
+
+/// @pob Modules/ConfigOptions.lua:554-556 h=d5ccfeef
+/// `ConfigOptions[161].apply`
+pub(crate) fn opt_161_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:554-556")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:557-557 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:558-564 h=b8b7243e
+/// `ConfigOptions[163].apply`
+pub(crate) fn opt_163_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:558-564")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:565-565 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:566-568 h=1f2d7ee7
+/// `ConfigOptions[165].apply`
+pub(crate) fn opt_165_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:566-568")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:569-569 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:570-572 h=0547d65d
+/// `ConfigOptions[167].apply`
+pub(crate) fn opt_167_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:570-572")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:573-573 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:574-576 h=fccd18d0
+/// `ConfigOptions[169].apply`
+pub(crate) fn opt_169_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:574-576")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:577-577 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:578-582 h=3ab31a56
+/// `ConfigOptions[171].apply`
+pub(crate) fn opt_171_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:578-582")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:583-583 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:584-586 h=c991904a
+/// `ConfigOptions[173].apply`
+pub(crate) fn opt_173_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:584-586")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:587-587 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:588-590 h=b80496c6
+/// `ConfigOptions[175].apply`
+pub(crate) fn opt_175_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:588-590")
+}
+
+/// @pob Modules/ConfigOptions.lua:591-594 h=0b783593
+/// `ConfigOptions[176].apply`
+pub(crate) fn opt_176_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:591-594")
+}
+
+/// @pob Modules/ConfigOptions.lua:595-597 h=e12f7ee0
+/// `ConfigOptions[177].apply`
+pub(crate) fn opt_177_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:595-597")
+}
+
+/// @pob Modules/ConfigOptions.lua:598-601 h=79102af9
+/// `ConfigOptions[178].apply`
+pub(crate) fn opt_178_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:598-601")
+}
+
+/// @pob Modules/ConfigOptions.lua:602-604 h=9faff22a
+/// `ConfigOptions[179].apply`
+pub(crate) fn opt_179_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:602-604")
+}
+
+/// @pob Modules/ConfigOptions.lua:605-607 h=d8319e73
+/// `ConfigOptions[180].apply`
+pub(crate) fn opt_180_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:605-607")
+}
+
+/// @pob Modules/ConfigOptions.lua:608-610 h=02869270
+/// `ConfigOptions[181].apply`
+pub(crate) fn opt_181_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:608-610")
+}
+
+/// @pob Modules/ConfigOptions.lua:611-613 h=a48cb4c1
+/// `ConfigOptions[182].apply`
+pub(crate) fn opt_182_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:611-613")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:614-614 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:615-618 h=dae1316f
+/// `ConfigOptions[184].apply`
+pub(crate) fn opt_184_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:615-618")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:619-619 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:620-622 h=5c7e7ffa
+/// `ConfigOptions[186].apply`
+pub(crate) fn opt_186_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:620-622")
+}
+
+/// @pob Modules/ConfigOptions.lua:623-625 h=2ed21960
+/// `ConfigOptions[187].apply`
+pub(crate) fn opt_187_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:623-625")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:626-626 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:627-629 h=66f7591f
+/// `ConfigOptions[189].apply`
+pub(crate) fn opt_189_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:627-629")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:630-630 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:631-633 h=b6a9b332
+/// `ConfigOptions[191].apply`
+pub(crate) fn opt_191_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:631-633")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:634-634 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:635-638 h=2e34ccf3
+/// `ConfigOptions[193].apply`
+pub(crate) fn opt_193_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:635-638")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:639-639 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:640-642 h=c3f2d307
+/// `ConfigOptions[195].apply`
+pub(crate) fn opt_195_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:640-642")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:643-643 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:644-647 h=63f68973
+/// `ConfigOptions[197].apply`
+pub(crate) fn opt_197_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:644-647")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:648-648 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:649-652 h=31cac5a1
+/// `ConfigOptions[199].apply`
+pub(crate) fn opt_199_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:649-652")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:653-653 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:654-658 h=2efacd68
+/// `ConfigOptions[201].apply`
+pub(crate) fn opt_201_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:654-658")
+}
+
+/// @pob Modules/ConfigOptions.lua:659-661 h=430dc040
+/// `ConfigOptions[202].apply`
+pub(crate) fn opt_202_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:659-661")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:662-662 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:663-665 h=b6aca1f0
+/// `ConfigOptions[204].apply`
+pub(crate) fn opt_204_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:663-665")
+}
+
+/// @pob Modules/ConfigOptions.lua:666-668 h=54597b2d
+/// `ConfigOptions[205].apply`
+pub(crate) fn opt_205_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:666-668")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:669-669 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:670-672 h=c3275e2d
+/// `ConfigOptions[207].apply`
+pub(crate) fn opt_207_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:670-672")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:673-673 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:674-676 h=6a206d1e
+/// `ConfigOptions[209].apply`
+pub(crate) fn opt_209_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:674-676")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:677-677 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:678-680 h=f65b87e4
+/// `ConfigOptions[211].apply`
+pub(crate) fn opt_211_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:678-680")
+}
+
+/// @pob Modules/ConfigOptions.lua:681-683 h=576554be
+/// `ConfigOptions[212].apply`
+pub(crate) fn opt_212_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:681-683")
+}
+
+/// @pob Modules/ConfigOptions.lua:684-686 h=e19c1455
+/// `ConfigOptions[213].apply`
+pub(crate) fn opt_213_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:684-686")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:687-687 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:688-690 h=9dda79c0
+/// `ConfigOptions[215].apply`
+pub(crate) fn opt_215_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:688-690")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:691-691 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:692-694 h=5f82ec98
+/// `ConfigOptions[217].apply`
+pub(crate) fn opt_217_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:692-694")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:695-695 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:696-698 h=234c90e4
+/// `ConfigOptions[219].apply`
+pub(crate) fn opt_219_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:696-698")
+}
+
+/// @pob Modules/ConfigOptions.lua:699-701 h=8c3df51e
+/// `ConfigOptions[220].apply`
+pub(crate) fn opt_220_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:699-701")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:702-702 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:703-705 h=7a440830
+/// `ConfigOptions[222].apply`
+pub(crate) fn opt_222_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:703-705")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:706-706 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:707-709 h=f95d1b13
+/// `ConfigOptions[224].apply`
+pub(crate) fn opt_224_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:707-709")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:710-710 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:711-713 h=cd7a6840
+/// `ConfigOptions[226].apply`
+pub(crate) fn opt_226_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:711-713")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:714-714 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:715-717 h=14d5ae9a
+/// `ConfigOptions[228].apply`
+pub(crate) fn opt_228_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:715-717")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:718-718 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:719-721 h=f026fb69
+/// `ConfigOptions[230].apply`
+pub(crate) fn opt_230_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:719-721")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:722-722 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:723-725 h=40dd018f
+/// `ConfigOptions[232].apply`
+pub(crate) fn opt_232_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:723-725")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:726-726 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:727-729 h=96c1334a
+/// `ConfigOptions[234].apply`
+pub(crate) fn opt_234_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:727-729")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:730-730 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:731-733 h=b0180d32
+/// `ConfigOptions[236].apply`
+pub(crate) fn opt_236_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:731-733")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:734-734 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:735-737 h=f4874812
+/// `ConfigOptions[238].apply`
+pub(crate) fn opt_238_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:735-737")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:738-738 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:739-741 h=69e4da2a
+/// `ConfigOptions[240].apply`
+pub(crate) fn opt_240_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:739-741")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:742-742 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:743-745 h=3cc86748
+/// `ConfigOptions[242].apply`
+pub(crate) fn opt_242_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:743-745")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:746-746 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:747-755 h=d69298c6
+/// `ConfigOptions[244].apply`
+pub(crate) fn opt_244_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:747-755")
+}
+
+/// @pob Modules/ConfigOptions.lua:756-758 h=2b389111
+/// `ConfigOptions[245].apply`
+pub(crate) fn opt_245_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:756-758")
+}
+
+/// @pob Modules/ConfigOptions.lua:759-761 h=c5075cf9
+/// `ConfigOptions[246].apply`
+pub(crate) fn opt_246_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:759-761")
+}
+
+/// @pob Modules/ConfigOptions.lua:762-764 h=1ac14a09
+/// `ConfigOptions[247].apply`
+pub(crate) fn opt_247_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:762-764")
+}
+
+/// @pob Modules/ConfigOptions.lua:765-767 h=901b2c0c
+/// `ConfigOptions[248].apply`
+pub(crate) fn opt_248_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:765-767")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:768-768 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:769-771 h=d61f237f
+/// `ConfigOptions[250].apply`
+pub(crate) fn opt_250_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:769-771")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:772-772 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:773-775 h=8d561073
+/// `ConfigOptions[252].apply`
+pub(crate) fn opt_252_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:773-775")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:776-786 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:787-801 h=9dbe8d30
+/// `ConfigOptions[254].apply`
+pub(crate) fn opt_254_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:787-801")
+}
+
+/// @pob Modules/ConfigOptions.lua:802-804 h=a7e146b7
+/// `ConfigOptions[255].apply`
+pub(crate) fn opt_255_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:802-804")
+}
+
+/// @pob Modules/ConfigOptions.lua:805-807 h=2f7f90ba
+/// `ConfigOptions[256].apply`
+pub(crate) fn opt_256_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:805-807")
+}
+
+/// @pob Modules/ConfigOptions.lua:808-810 h=ded75d7c
+/// `ConfigOptions[257].apply`
+pub(crate) fn opt_257_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:808-810")
+}
+
+/// @pob Modules/ConfigOptions.lua:811-813 h=0fc12572
+/// `ConfigOptions[258].apply`
+pub(crate) fn opt_258_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:811-813")
+}
+
+/// @pob Modules/ConfigOptions.lua:814-816 h=1a5d784d
+/// `ConfigOptions[259].apply`
+pub(crate) fn opt_259_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:814-816")
+}
+
+/// @pob Modules/ConfigOptions.lua:817-819 h=a77a12ea
+/// `ConfigOptions[260].apply`
+pub(crate) fn opt_260_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:817-819")
+}
+
+/// @pob Modules/ConfigOptions.lua:820-822 h=ab3053eb
+/// `ConfigOptions[261].apply`
+pub(crate) fn opt_261_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:820-822")
+}
+
+/// @pob Modules/ConfigOptions.lua:823-825 h=b0c51aaa
+/// `ConfigOptions[262].apply`
+pub(crate) fn opt_262_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:823-825")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:826-837 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:838-840 h=25bbd25b
+/// `ConfigOptions[274].apply`
+pub(crate) fn opt_274_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:838-840")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:841-853 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:854-856 h=7912a65d
+/// `ConfigOptions[288].apply`
+pub(crate) fn opt_288_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:854-856")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:857-857 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:858-860 h=83defa53
+/// `ConfigOptions[290].apply`
+pub(crate) fn opt_290_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:858-860")
+}
+
+/// @pob Modules/ConfigOptions.lua:861-863 h=e7e4d473
+/// `ConfigOptions[291].apply`
+pub(crate) fn opt_291_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:861-863")
+}
+
+/// @pob Modules/ConfigOptions.lua:864-866 h=acfff6ee
+/// `ConfigOptions[292].apply`
+pub(crate) fn opt_292_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:864-866")
+}
+
+/// @pob Modules/ConfigOptions.lua:867-869 h=82764e70
+/// `ConfigOptions[293].apply`
+pub(crate) fn opt_293_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:867-869")
+}
+
+/// @pob Modules/ConfigOptions.lua:870-872 h=a0b847ba
+/// `ConfigOptions[294].apply`
+pub(crate) fn opt_294_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:870-872")
+}
+
+/// @pob Modules/ConfigOptions.lua:873-875 h=513ce51b
+/// `ConfigOptions[295].apply`
+pub(crate) fn opt_295_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:873-875")
+}
+
+/// @pob Modules/ConfigOptions.lua:876-878 h=d8e20926
+/// `ConfigOptions[296].apply`
+pub(crate) fn opt_296_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:876-878")
+}
+
+/// @pob Modules/ConfigOptions.lua:879-881 h=e9bff93d
+/// `ConfigOptions[297].apply`
+pub(crate) fn opt_297_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:879-881")
+}
+
+/// @pob Modules/ConfigOptions.lua:882-884 h=ecfd1eb0
+/// `ConfigOptions[298].apply`
+pub(crate) fn opt_298_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:882-884")
+}
+
+/// @pob Modules/ConfigOptions.lua:885-887 h=65205a4f
+/// `ConfigOptions[299].apply`
+pub(crate) fn opt_299_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:885-887")
+}
+
+/// @pob Modules/ConfigOptions.lua:888-890 h=19e3058a
+/// `ConfigOptions[300].apply`
+pub(crate) fn opt_300_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:888-890")
+}
+
+/// @pob Modules/ConfigOptions.lua:891-893 h=c3987ea6
+/// `ConfigOptions[301].apply`
+pub(crate) fn opt_301_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:891-893")
+}
+
+/// @pob Modules/ConfigOptions.lua:894-896 h=cef08e24
+/// `ConfigOptions[302].apply`
+pub(crate) fn opt_302_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:894-896")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:899-899 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:900-902 h=55516649
+/// `ConfigOptions[304].apply`
+pub(crate) fn opt_304_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:900-902")
+}
+
+/// @pob Modules/ConfigOptions.lua:903-905 h=5b70aad5
+/// `ConfigOptions[305].apply`
+pub(crate) fn opt_305_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:903-905")
+}
+
+/// @pob Modules/ConfigOptions.lua:906-908 h=b876d533
+/// `ConfigOptions[306].apply`
+pub(crate) fn opt_306_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:906-908")
+}
+
+/// @pob Modules/ConfigOptions.lua:909-911 h=be89622b
+/// `ConfigOptions[307].apply`
+pub(crate) fn opt_307_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:909-911")
+}
+
+/// @pob Modules/ConfigOptions.lua:912-914 h=d56e2c79
+/// `ConfigOptions[308].apply`
+pub(crate) fn opt_308_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:912-914")
+}
+
+/// @pob Modules/ConfigOptions.lua:915-917 h=c48b6030
+/// `ConfigOptions[309].apply`
+pub(crate) fn opt_309_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:915-917")
+}
+
+/// @pob Modules/ConfigOptions.lua:918-920 h=870479d3
+/// `ConfigOptions[310].apply`
+pub(crate) fn opt_310_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:918-920")
+}
+
+/// @pob Modules/ConfigOptions.lua:921-923 h=0da0c4ed
+/// `ConfigOptions[311].apply`
+pub(crate) fn opt_311_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:921-923")
+}
+
+/// @pob Modules/ConfigOptions.lua:924-926 h=24d3bd0e
+/// `ConfigOptions[312].apply`
+pub(crate) fn opt_312_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:924-926")
+}
+
+/// @pob Modules/ConfigOptions.lua:927-929 h=fed0dd75
+/// `ConfigOptions[313].apply`
+pub(crate) fn opt_313_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:927-929")
+}
+
+/// @pob Modules/ConfigOptions.lua:930-932 h=3e948945
+/// `ConfigOptions[314].apply`
+pub(crate) fn opt_314_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:930-932")
+}
+
+/// @pob Modules/ConfigOptions.lua:933-935 h=4d159450
+/// `ConfigOptions[315].apply`
+pub(crate) fn opt_315_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:933-935")
+}
+
+/// @pob Modules/ConfigOptions.lua:936-938 h=67d83bcc
+/// `ConfigOptions[316].apply`
+pub(crate) fn opt_316_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:936-938")
+}
+
+/// @pob Modules/ConfigOptions.lua:939-941 h=957d2aed
+/// `ConfigOptions[317].apply`
+pub(crate) fn opt_317_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:939-941")
+}
+
+/// @pob Modules/ConfigOptions.lua:942-944 h=7974c24a
+/// `ConfigOptions[318].apply`
+pub(crate) fn opt_318_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:942-944")
+}
+
+/// @pob Modules/ConfigOptions.lua:945-947 h=580ba506
+/// `ConfigOptions[319].apply`
+pub(crate) fn opt_319_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:945-947")
+}
+
+/// @pob Modules/ConfigOptions.lua:948-950 h=a9519d43
+/// `ConfigOptions[320].apply`
+pub(crate) fn opt_320_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:948-950")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:951-955 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:956-964 h=c4e8d54d
+/// `ConfigOptions[321].apply`
+pub(crate) fn opt_321_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:956-964")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:965-966 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:967-969 h=56db5646
+/// `ConfigOptions[324].apply`
+pub(crate) fn opt_324_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:967-969")
+}
+
+/// @pob Modules/ConfigOptions.lua:970-972 h=8f9ab74b
+/// `ConfigOptions[325].apply`
+pub(crate) fn opt_325_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:970-972")
+}
+
+/// @pob Modules/ConfigOptions.lua:973-975 h=04b0360f
+/// `ConfigOptions[326].apply`
+pub(crate) fn opt_326_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:973-975")
+}
+
+/// @pob Modules/ConfigOptions.lua:976-978 h=dda22f2b
+/// `ConfigOptions[327].apply`
+pub(crate) fn opt_327_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:976-978")
+}
+
+/// @pob Modules/ConfigOptions.lua:979-981 h=b64f9077
+/// `ConfigOptions[328].apply`
+pub(crate) fn opt_328_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:979-981")
+}
+
+/// @pob Modules/ConfigOptions.lua:982-984 h=ec016e11
+/// `ConfigOptions[329].apply`
+pub(crate) fn opt_329_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:982-984")
+}
+
+/// @pob Modules/ConfigOptions.lua:985-987 h=d16ac695
+/// `ConfigOptions[330].apply`
+pub(crate) fn opt_330_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:985-987")
+}
+
+/// @pob Modules/ConfigOptions.lua:988-990 h=2b7b98f0
+/// `ConfigOptions[331].apply`
+pub(crate) fn opt_331_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:988-990")
+}
+
+/// @pob Modules/ConfigOptions.lua:991-993 h=8b9d6fc8
+/// `ConfigOptions[332].apply`
+pub(crate) fn opt_332_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:991-993")
+}
+
+/// @pob Modules/ConfigOptions.lua:994-996 h=55d06483
+/// `ConfigOptions[333].apply`
+pub(crate) fn opt_333_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:994-996")
+}
+
+/// @pob Modules/ConfigOptions.lua:997-999 h=22f9caf2
+/// `ConfigOptions[334].apply`
+pub(crate) fn opt_334_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:997-999")
+}
+
+/// @pob Modules/ConfigOptions.lua:1000-1002 h=835490d9
+/// `ConfigOptions[335].apply`
+pub(crate) fn opt_335_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1000-1002")
+}
+
+/// @pob Modules/ConfigOptions.lua:1003-1005 h=94968385
+/// `ConfigOptions[336].apply`
+pub(crate) fn opt_336_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1003-1005")
+}
+
+/// @pob Modules/ConfigOptions.lua:1006-1009 h=ef9081de
+/// `ConfigOptions[337].apply`
+pub(crate) fn opt_337_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1006-1009")
+}
+
+/// @pob Modules/ConfigOptions.lua:1010-1012 h=f3429ae1
+/// `ConfigOptions[338].apply`
+pub(crate) fn opt_338_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1010-1012")
+}
+
+/// @pob Modules/ConfigOptions.lua:1013-1015 h=cfaf648a
+/// `ConfigOptions[339].apply`
+pub(crate) fn opt_339_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1013-1015")
+}
+
+/// @pob Modules/ConfigOptions.lua:1016-1018 h=db7687b1
+/// `ConfigOptions[340].apply`
+pub(crate) fn opt_340_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1016-1018")
+}
+
+/// @pob Modules/ConfigOptions.lua:1019-1022 h=c4aa1725
+/// `ConfigOptions[341].apply`
+pub(crate) fn opt_341_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1019-1022")
+}
+
+/// @pob Modules/ConfigOptions.lua:1023-1026 h=b980b496
+/// `ConfigOptions[342].apply`
+pub(crate) fn opt_342_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1023-1026")
+}
+
+/// @pob Modules/ConfigOptions.lua:1027-1029 h=1f95484e
+/// `ConfigOptions[343].apply`
+pub(crate) fn opt_343_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1027-1029")
+}
+
+/// @pob Modules/ConfigOptions.lua:1030-1032 h=becc6736
+/// `ConfigOptions[344].apply`
+pub(crate) fn opt_344_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1030-1032")
+}
+
+/// @pob Modules/ConfigOptions.lua:1033-1035 h=55cd8e6a
+/// `ConfigOptions[345].apply`
+pub(crate) fn opt_345_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1033-1035")
+}
+
+/// @pob Modules/ConfigOptions.lua:1036-1038 h=8896ef19
+/// `ConfigOptions[346].apply`
+pub(crate) fn opt_346_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1036-1038")
+}
+
+/// @pob Modules/ConfigOptions.lua:1039-1041 h=34c88a8d
+/// `ConfigOptions[347].apply`
+pub(crate) fn opt_347_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1039-1041")
+}
+
+/// @pob Modules/ConfigOptions.lua:1042-1044 h=6fbcc278
+/// `ConfigOptions[348].apply`
+pub(crate) fn opt_348_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1042-1044")
+}
+
+/// @pob Modules/ConfigOptions.lua:1045-1047 h=94c8ffcc
+/// `ConfigOptions[349].apply`
+pub(crate) fn opt_349_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1045-1047")
+}
+
+/// @pob Modules/ConfigOptions.lua:1048-1050 h=96b83072
+/// `ConfigOptions[350].apply`
+pub(crate) fn opt_350_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1048-1050")
+}
+
+/// @pob Modules/ConfigOptions.lua:1051-1053 h=f9c35894
+/// `ConfigOptions[351].apply`
+pub(crate) fn opt_351_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1051-1053")
+}
+
+/// @pob Modules/ConfigOptions.lua:1054-1056 h=c8d5dd27
+/// `ConfigOptions[352].apply`
+pub(crate) fn opt_352_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1054-1056")
+}
+
+/// @pob Modules/ConfigOptions.lua:1057-1059 h=bb940bd8
+/// `ConfigOptions[353].apply`
+pub(crate) fn opt_353_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1057-1059")
+}
+
+/// @pob Modules/ConfigOptions.lua:1060-1063 h=042a9a07
+/// `ConfigOptions[354].apply`
+pub(crate) fn opt_354_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1060-1063")
+}
+
+/// @pob Modules/ConfigOptions.lua:1064-1066 h=a48c2b38
+/// `ConfigOptions[355].apply`
+pub(crate) fn opt_355_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1064-1066")
+}
+
+/// @pob Modules/ConfigOptions.lua:1067-1069 h=10933525
+/// `ConfigOptions[356].apply`
+pub(crate) fn opt_356_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1067-1069")
+}
+
+/// @pob Modules/ConfigOptions.lua:1070-1072 h=175310c1
+/// `ConfigOptions[357].apply`
+pub(crate) fn opt_357_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1070-1072")
+}
+
+/// @pob Modules/ConfigOptions.lua:1073-1075 h=921fda0d
+/// `ConfigOptions[358].apply`
+pub(crate) fn opt_358_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1073-1075")
+}
+
+/// @pob Modules/ConfigOptions.lua:1076-1078 h=869eb849
+/// `ConfigOptions[359].apply`
+pub(crate) fn opt_359_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1076-1078")
+}
+
+/// @pob Modules/ConfigOptions.lua:1079-1081 h=5de843a9
+/// `ConfigOptions[360].apply`
+pub(crate) fn opt_360_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1079-1081")
+}
+
+/// @pob Modules/ConfigOptions.lua:1082-1085 h=687a27c5
+/// `ConfigOptions[361].apply`
+pub(crate) fn opt_361_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1082-1085")
+}
+
+/// @pob Modules/ConfigOptions.lua:1086-1089 h=eea67660
+/// `ConfigOptions[362].apply`
+pub(crate) fn opt_362_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1086-1089")
+}
+
+/// @pob Modules/ConfigOptions.lua:1090-1093 h=96bba4ef
+/// `ConfigOptions[363].apply`
+pub(crate) fn opt_363_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1090-1093")
+}
+
+/// @pob Modules/ConfigOptions.lua:1094-1097 h=f68c467a
+/// `ConfigOptions[364].apply`
+pub(crate) fn opt_364_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1094-1097")
+}
+
+/// @pob Modules/ConfigOptions.lua:1098-1100 h=6190c29f
+/// `ConfigOptions[365].apply`
+pub(crate) fn opt_365_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1098-1100")
+}
+
+/// @pob Modules/ConfigOptions.lua:1101-1103 h=e47c07ff
+/// `ConfigOptions[366].apply`
+pub(crate) fn opt_366_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1101-1103")
+}
+
+/// @pob Modules/ConfigOptions.lua:1104-1106 h=f5cd0caf
+/// `ConfigOptions[367].apply`
+pub(crate) fn opt_367_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1104-1106")
+}
+
+/// @pob Modules/ConfigOptions.lua:1107-1109 h=08f711eb
+/// `ConfigOptions[368].apply`
+pub(crate) fn opt_368_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1107-1109")
+}
+
+/// @pob Modules/ConfigOptions.lua:1110-1112 h=44516198
+/// `ConfigOptions[369].apply`
+pub(crate) fn opt_369_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1110-1112")
+}
+
+/// @pob Modules/ConfigOptions.lua:1113-1115 h=b866e76a
+/// `ConfigOptions[370].apply`
+pub(crate) fn opt_370_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1113-1115")
+}
+
+// @pob-skip Modules/ConfigOptions.lua:1116-1116 reason="option definition data (dumped: data().configOptions / ConfigOptionDef)"
+
+/// @pob Modules/ConfigOptions.lua:1117-1119 h=bc646ab5
+/// `ConfigOptions[372].apply`
+pub(crate) fn opt_372_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1117-1119")
+}
+
+/// @pob Modules/ConfigOptions.lua:1120-1122 h=f205e9ff
+/// `ConfigOptions[373].apply`
+pub(crate) fn opt_373_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1120-1122")
+}
+
+/// @pob Modules/ConfigOptions.lua:1123-1126 h=2ebb7290
+/// `ConfigOptions[374].apply`
+pub(crate) fn opt_374_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1123-1126")
+}
+
+/// @pob Modules/ConfigOptions.lua:1127-1129 h=cb3cd4cd
+/// `ConfigOptions[375].apply`
+pub(crate) fn opt_375_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1127-1129")
+}
+
+/// @pob Modules/ConfigOptions.lua:1130-1132 h=04842c1e
+/// `ConfigOptions[376].apply`
+pub(crate) fn opt_376_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1130-1132")
+}
+
+/// @pob Modules/ConfigOptions.lua:1133-1135 h=89f94d94
+/// `ConfigOptions[377].apply`
+pub(crate) fn opt_377_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1133-1135")
+}
+
+/// @pob Modules/ConfigOptions.lua:1136-1138 h=841dad52
+/// `ConfigOptions[378].apply`
+pub(crate) fn opt_378_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1136-1138")
+}
+
+/// @pob Modules/ConfigOptions.lua:1139-1141 h=86cc6128
+/// `ConfigOptions[379].apply`
+pub(crate) fn opt_379_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1139-1141")
+}
+
+/// @pob Modules/ConfigOptions.lua:1142-1144 h=0606a9f2
+/// `ConfigOptions[380].apply`
+pub(crate) fn opt_380_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1142-1144")
+}
+
+/// @pob Modules/ConfigOptions.lua:1145-1147 h=dc134b18
+/// `ConfigOptions[381].apply`
+pub(crate) fn opt_381_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1145-1147")
+}
+
+/// @pob Modules/ConfigOptions.lua:1148-1151 h=c9c772f4
+/// `ConfigOptions[382].apply`
+pub(crate) fn opt_382_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1148-1151")
+}
+
+/// @pob Modules/ConfigOptions.lua:1152-1154 h=e3bd83f1
+/// `ConfigOptions[383].apply`
+pub(crate) fn opt_383_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1152-1154")
+}
+
+/// @pob Modules/ConfigOptions.lua:1155-1157 h=6481cbf7
+/// `ConfigOptions[384].apply`
+pub(crate) fn opt_384_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1155-1157")
+}
+
+/// @pob Modules/ConfigOptions.lua:1158-1162 h=1296d1c6
+/// `ConfigOptions[385].apply`
+pub(crate) fn opt_385_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1158-1162")
+}
+
+/// @pob Modules/ConfigOptions.lua:1163-1167 h=8ac892c6
+/// `ConfigOptions[386].apply`
+pub(crate) fn opt_386_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1163-1167")
+}
+
+/// @pob Modules/ConfigOptions.lua:1168-1170 h=7d00422b
+/// `ConfigOptions[387].apply`
+pub(crate) fn opt_387_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1168-1170")
+}
+
+/// @pob Modules/ConfigOptions.lua:1171-1173 h=e689cf5e
+/// `ConfigOptions[388].apply`
+pub(crate) fn opt_388_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1171-1173")
+}
+
+/// @pob Modules/ConfigOptions.lua:1174-1177 h=9aa9b0aa
+/// `ConfigOptions[389].apply`
+pub(crate) fn opt_389_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1174-1177")
+}
+
+/// @pob Modules/ConfigOptions.lua:1178-1181 h=7cae7ecf
+/// `ConfigOptions[390].apply`
+pub(crate) fn opt_390_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1178-1181")
+}
+
+/// @pob Modules/ConfigOptions.lua:1182-1185 h=fdf3637d
+/// `ConfigOptions[391].apply`
+pub(crate) fn opt_391_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1182-1185")
+}
+
+/// @pob Modules/ConfigOptions.lua:1186-1188 h=ff66ce9d
+/// `ConfigOptions[392].apply`
+pub(crate) fn opt_392_apply(
+    val: &Val,
+    modList: &ModList,
+    enemyModList: &ModList,
+    build: &BuildRef,
+) {
+    unported!("Modules/ConfigOptions.lua:1186-1188")
+}

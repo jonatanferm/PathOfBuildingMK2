@@ -1,7 +1,7 @@
 //! Oracle: every line in PoB's `Data/ModCache.lua` must parse to exactly the
 //! mods PoB itself cached for it. Self-skips without a PoB checkout.
 
-use pob_calc::modifier::{Mod, Value};
+use pob_oracle::legacy_modifier::{Mod, Value};
 use pob_oracle::lua::{Interp, Val};
 
 /// ModCache.lua prints floats with 14 significant digits.
@@ -101,7 +101,7 @@ fn modcache_oracle() {
                 } else {
                     bad += 1;
                     if failures.len() < 40 {
-                        let show = |m: &Option<Vec<pob_calc::Mod>>| {
+                        let show = |m: &Option<Vec<pob_oracle::legacy_modifier::Mod>>| {
                             m.as_ref().map_or_else(
                                 || "nil".to_owned(),
                                 |v| {
