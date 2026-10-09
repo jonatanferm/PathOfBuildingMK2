@@ -2791,6 +2791,7 @@ dependencies = [
  "ahash",
  "getrandom 0.3.4",
  "indexmap",
+ "miniz_oxide",
  "pob-lua",
  "postcard",
  "serde",
