@@ -1,0 +1,21 @@
+[package]
+name = "pob-dump"
+description = "Faithful dump of Path of Building's loaded data (run under LuaJIT) to canonical JSON, plus enum codegen."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "pob-dump"
+path = "src/main.rs"
+
+[dependencies]
+mlua.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+sha2 = "0.10"
+
+[lints]
+workspace = true
