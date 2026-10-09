@@ -1,0 +1,22 @@
+# Compile check for lua2rs output (unit T1). NOT part of the product.
+#
+# `python3 scripts/port/lua2rs check` regenerates src/gen/ (gitignored) from the PoB
+# checkout and runs `scripts/port/cargo.sh check` on this crate. src/{gamedata,modparser,calc}.rs
+# are minimal stand-ins for the calc-doc contract types (§4.3, §5.1, §5.3, §5.8, §6, §8.1)
+# that U0 has not frozen yet; ModFlag/KeywordFlag/SkillType and the data records are P1's
+# generated code (crates/pob-dump/generated). This package is its own workspace, so it never
+# enters a `cargo --workspace` build of the main tree.
+[package]
+name = "lua2rs-check"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+pob-lua = { path = "../../../../crates/pob-lua" }
+serde = { version = "1", features = ["derive"] }
