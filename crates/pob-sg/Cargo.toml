@@ -1,6 +1,6 @@
 [package]
 name = "pob-sg"
-description = "SimpleGraphic-equivalent renderer for the Rust port of Path of Building: draw-command recording core, TGF/TGA bitmap fonts, image handles, wgpu backend and a winit host."
+description = "Pure SimpleGraphic equivalent for the Rust port of Path of Building (ui doc §4): layer queues, DPI, colour escapes, TGF/TGA bitmap fonts, image registry, trace. No GPU, no winit, no threads, no std::fs; builds for wasm32."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,28 +9,18 @@ repository.workspace = true
 
 [features]
 default = []
-# wgpu backend: batched tinted textured quads (desktop + WebGL2).
-gpu = ["dep:wgpu", "dep:bytemuck"]
-# Desktop window/event-loop host (winit) mapping input to PoB semantics.
-host = ["gpu", "dep:winit", "dep:arboard", "dep:pollster"]
+# CPU reference rasteriser (Frame -> RGBA), ui doc §3 `raster.rs` (U6).
+raster = []
 
 [dependencies]
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
-wgpu = { version = "30.0.1", optional = true, features = ["webgl"] }
-bytemuck = { version = "1.25", features = ["derive"], optional = true }
-winit = { version = "0.30.13", optional = true }
-pollster = { version = "1.0.1", optional = true }
+pob-lua.workspace = true
+image.workspace = true
+bitflags.workspace = true
+serde.workspace = true
+xxhash-rust.workspace = true
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-arboard = { version = "3.6.1", optional = true, default-features = false }
-
-[[bin]]
-name = "sg-demo"
-path = "src/bin/sg-demo.rs"
-required-features = ["host"]
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-pollster = "1.0.1"

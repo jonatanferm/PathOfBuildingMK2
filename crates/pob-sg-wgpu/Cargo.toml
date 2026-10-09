@@ -1,0 +1,21 @@
+[package]
+name = "pob-sg-wgpu"
+description = "wgpu backend for pob-sg (ui doc §5.1): renders a pob_sg::Frame into an Rgba8Unorm offscreen target and blits it to a non-sRGB surface view. WebGL2-compatible."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pob-sg.workspace = true
+# ui doc D1: the newest stable wgpu pinned exactly in the new crates only (30.0.1 at UI-U0).
+wgpu = { version = "=30.0.1", features = ["webgl"] }
+bytemuck.workspace = true
+image.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "pob-app"
+description = "Path of Building itself on the Rust UI port (ui doc §3, §10): Launch, Main, BuildList and Build modes, every tab, the passive tree view, tooltips and the calc facade."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pob-ui-core.workspace = true
+pob-sg.workspace = true
+pob-host.workspace = true
+pob-lua.workspace = true
+# The calc plan's crates (calc doc §2): the model and the calc, as U0 stubs until their units land.
+pob-calc.workspace = true
+pob-gamedata.workspace = true
+
+[lints]
+workspace = true
