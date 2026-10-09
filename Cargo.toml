@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/pob-engine",
     "crates/pob-calc",
+    "crates/pob-oracle",
     "crates/pob-data",
     "crates/pob-extract",
     "crates/pob-ui",
@@ -20,6 +21,7 @@ repository = "https://github.com/jferm/PathOfBuildingMK2"
 [workspace.dependencies]
 pob-engine = { path = "crates/pob-engine" }
 pob-calc = { path = "crates/pob-calc" }
+pob-oracle = { path = "crates/pob-oracle" }
 pob-data = { path = "crates/pob-data" }
 pob-ui = { path = "crates/pob-ui" }
 

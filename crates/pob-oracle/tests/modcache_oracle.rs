@@ -1,10 +1,8 @@
 //! Oracle: every line in PoB's `Data/ModCache.lua` must parse to exactly the
 //! mods PoB itself cached for it. Self-skips without a PoB checkout.
 
-use std::path::Path;
-
-use pob_calc::lua::{Interp, Val};
 use pob_calc::modifier::{Mod, Value};
+use pob_oracle::lua::{Interp, Val};
 
 /// ModCache.lua prints floats with 14 significant digits.
 fn close(a: f64, b: f64) -> bool {
@@ -54,15 +52,18 @@ fn mods_close(a: &Option<Vec<Mod>>, b: &Option<Vec<Mod>>) -> bool {
         _ => false,
     }
 }
-use pob_calc::mod_parser::{lua_to_mod, ModParser};
+use pob_oracle::mod_parser::{lua_to_mod, ModParser};
 
 #[test]
 fn modcache_oracle() {
-    let pob = Path::new("../../.PathOfBuilding/src");
-    let env = Path::new("../../data/lua/modparser_env.lua");
-    if !pob.exists() || !env.exists() {
+    let (Some(pob), Some(env)) = (
+        pob_oracle::oracle::find_pob_src(),
+        pob_oracle::oracle::find_up("data/lua/modparser_env.lua"),
+    ) else {
+        eprintln!("skipped: no PoB checkout / data/lua/modparser_env.lua");
         return;
-    }
+    };
+    let (pob, env) = (pob.as_path(), env.as_path());
     let parser = ModParser::from_paths(pob, env).unwrap_or_else(|e| panic!("{e}"));
     let mut it = Interp::new();
     let src = std::fs::read_to_string(pob.join("Data/ModCache.lua")).unwrap();

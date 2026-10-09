@@ -2,7 +2,7 @@
 //! PoB's colour codes.
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use pob_calc::worker::SidebarLine as Line;
+pub use pob_oracle::worker::SidebarLine as Line;
 
 /// Stand-in on wasm (no PoB backend there yet).
 #[cfg(target_arch = "wasm32")]

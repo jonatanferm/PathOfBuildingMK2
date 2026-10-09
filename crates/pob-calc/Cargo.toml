@@ -11,21 +11,7 @@ repository.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 smallvec.workspace = true
-indexmap.workspace = true
 ahash.workspace = true
-thiserror.workspace = true
-flate2.workspace = true
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# Desktop: run PoB's Lua under LuaJIT (the same runtime PoB ships with);
-# the pure-Rust interpreter remains the wasm backend and a fallback.
-mlua = { workspace = true, optional = true }
-# PoB's network features (trade, build sites) via launch:DownloadPage.
-ureq = { version = "2.12", default-features = false, features = ["tls"], optional = true }
-
-[features]
-default = ["luajit"]
-luajit = ["dep:mlua", "dep:ureq"]
 
 [lints]
 workspace = true

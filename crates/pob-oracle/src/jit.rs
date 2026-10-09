@@ -238,6 +238,12 @@ end
 impl JitPob {
     /// Boot PoB from its `src/` directory.
     pub fn boot(src: &Path) -> Result<Self, String> {
+        Self::boot_with(src, None)
+    }
+
+    /// [`Self::boot`], running `pre` (Lua) right after the file-access
+    /// prelude, before any of PoB loads.
+    pub fn boot_with(src: &Path, pre: Option<&str>) -> Result<Self, String> {
         let lua = Lua::new();
         let root = std::fs::canonicalize(src).map_err(|e| format!("{}: {e}", src.display()))?;
         let mut root_s = root.to_string_lossy().replace('\\', "/");
@@ -247,6 +253,9 @@ impl JitPob {
         let g = lua.globals();
         g.set("__mk2_root", root_s).map_err(err)?;
         lua.load(PRELUDE).set_name("prelude").exec().map_err(err)?;
+        if let Some(pre) = pre {
+            lua.load(pre).set_name("pre").exec().map_err(err)?;
+        }
 
         let wrapper = std::fs::read_to_string(root.join("HeadlessWrapper.lua"))
             .map_err(|e| format!("HeadlessWrapper.lua: {e}"))?;

@@ -2,13 +2,17 @@ use std::path::Path;
 
 #[test]
 fn modparser_smoke() {
-    let pob = Path::new("../../.PathOfBuilding/src");
-    let env = Path::new("../../data/lua/modparser_env.lua");
-    if !pob.exists() || !env.exists() {
+    let (Some(pob), Some(env)) = (
+        pob_oracle::oracle::find_pob_src(),
+        pob_oracle::oracle::find_up("data/lua/modparser_env.lua"),
+    ) else {
+        eprintln!("skipped: no PoB checkout / data/lua/modparser_env.lua");
         return;
-    }
+    };
+    let (pob, env): (&Path, &Path) = (&pob, &env);
     let t = std::time::Instant::now();
-    let p = pob_calc::mod_parser::ModParser::from_paths(pob, env).unwrap_or_else(|e| panic!("{e}"));
+    let p =
+        pob_oracle::mod_parser::ModParser::from_paths(pob, env).unwrap_or_else(|e| panic!("{e}"));
     eprintln!("load: {:?}", t.elapsed());
     for line in [
         "+43 to Strength",

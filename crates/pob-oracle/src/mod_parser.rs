@@ -15,8 +15,8 @@ use std::rc::Rc;
 use ahash::AHashMap;
 
 use crate::lua::{Interp, LuaError, TableRef, Val};
-use crate::lua_pattern;
-use crate::modifier::{Mod, ModType, Sockets, Table, Tag, TagType, Value};
+use pob_calc::lua_pattern;
+use pob_calc::modifier::{Mod, ModType, Sockets, Table, Tag, TagType, Value};
 
 /// PoB helper functions ModParser expects as globals.
 const PRELUDE: &str = r#"
@@ -447,6 +447,7 @@ pub fn lua_to_mod(v: &Val) -> Result<Mod, String> {
     m.flags = lnum(&t.get_str("flags")).unwrap_or(0.0) as u32;
     m.keyword_flags = lnum(&t.get_str("keywordFlags")).unwrap_or(0.0) as u32;
     m.source = lstr(&t.get_str("source"));
+    m.source_slot = lstr(&t.get_str("sourceSlot"));
     for tag in t.array() {
         if tag.truthy() {
             m.tags.push(lua_to_tag(&tag)?);

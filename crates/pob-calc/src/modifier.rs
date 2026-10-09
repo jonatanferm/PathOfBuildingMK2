@@ -596,6 +596,9 @@ pub struct Mod {
     pub flags: u32,
     pub keyword_flags: u32,
     pub source: Option<String>,
+    /// `mod.sourceSlot`: the item slot an item mod came from (set by
+    /// `Item:BuildModList`; CalcSetup reads it for cross-linked supports).
+    pub source_slot: Option<String>,
     pub tags: SmallVec<[Tag; 1]>,
     /// ReplaceMod bookkeeping (`mod.replaced` / `mod.converted` in PoB).
     pub replaced: bool,
@@ -613,6 +616,7 @@ impl Mod {
             flags: 0,
             keyword_flags: 0,
             source: None,
+            source_slot: None,
             tags: SmallVec::new(),
             replaced: false,
             converted: false,

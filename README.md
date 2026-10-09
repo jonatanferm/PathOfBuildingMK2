@@ -14,7 +14,8 @@ feature coverage, and [docs/parity-plan.md](docs/parity-plan.md) for history.
 
 | Crate | Role |
 |---|---|
-| `crates/pob-calc` | Runs PoB's Lua: pure-Rust Lua interpreter, LuaJIT engine (desktop), headless boot, worker thread. |
+| `crates/pob-calc` | The Rust port of PoB's calculations (no Lua): mod model, mod store, flags, Lua-pattern semantics. |
+| `crates/pob-oracle` | Runs PoB's own Lua: pure-Rust Lua interpreter, LuaJIT engine (desktop), headless boot, worker thread, and the `pob_oracle` parity harness (test oracle for `pob-calc`). |
 | `crates/pob-engine` | MK2's character model, import/export, and the legacy hand-written calc engine. |
 | `crates/pob-data` | Data types + loaders. Shared by engine and UI. |
 | `crates/pob-extract` | Build-time tool: reads PoB's `src/Data/` Lua tables, emits Rust-loadable files. |

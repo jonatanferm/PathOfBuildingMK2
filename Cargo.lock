@@ -2407,14 +2407,9 @@ name = "pob-calc"
 version = "0.0.1"
 dependencies = [
  "ahash",
- "flate2",
- "indexmap",
- "mlua",
  "serde",
  "serde_json",
  "smallvec",
- "thiserror 2.0.18",
- "ureq",
 ]
 
 [[package]]
@@ -2465,12 +2460,25 @@ dependencies = [
  "anyhow",
  "indexmap",
  "mlua",
- "pob-calc",
  "pob-data",
  "pob-engine",
  "serde",
  "serde_json",
  "smallvec",
+]
+
+[[package]]
+name = "pob-oracle"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "flate2",
+ "indexmap",
+ "mlua",
+ "pob-calc",
+ "serde",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]
@@ -2486,9 +2494,9 @@ dependencies = [
  "indexmap",
  "js-sys",
  "keyring",
- "pob-calc",
  "pob-data",
  "pob-engine",
+ "pob-oracle",
  "rfd",
  "serde",
  "serde_json",

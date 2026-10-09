@@ -1,5 +1,5 @@
 //! The app's calc backend: Path of Building itself, running headless in
-//! `pob_calc`'s interpreter on a worker thread.
+//! `pob_oracle`'s interpreter on a worker thread.
 //!
 //! PoB's build object is the source of truth for calculation. The UI still
 //! edits MK2's [`Character`]; [`PobSession::sync`] diffs it against the last
@@ -12,9 +12,9 @@
 
 use std::path::PathBuf;
 
-use pob_calc::worker::{Command, Event, PobHandle, Snapshot};
 use pob_data::{Item, Slot};
 use pob_engine::{Character, Output};
+use pob_oracle::worker::{Command, Event, PobHandle, Snapshot};
 
 /// PoB's slot name for an MK2 slot.
 #[must_use]

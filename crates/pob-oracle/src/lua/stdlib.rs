@@ -4,7 +4,7 @@ use std::cell::RefCell;
 
 use super::interp::{lt, Interp, LuaError};
 use super::value::{num_to_string, LStr, TableRef, Val};
-use crate::lua_pattern::{self as pat, Capture};
+use pob_calc::lua_pattern::{self as pat, Capture};
 
 type R<T> = Result<T, LuaError>;
 

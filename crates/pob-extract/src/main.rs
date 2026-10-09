@@ -233,7 +233,7 @@ fn main() -> Result<()> {
 
     // PoB's own Lua (the app runs it headless as its calc engine): every
     // module and data file the headless boot + calc reads, minus images,
-    // regenerated caches and the dev-only Export tool. See pob_calc::headless.
+    // regenerated caches and the dev-only Export tool. See pob_oracle::headless.
     let pob_out = args.out.join("pob");
     let copied = copy_pob_runtime(&args.pob, &pob_out)?;
     eprintln!("  data/pob: {copied} files");

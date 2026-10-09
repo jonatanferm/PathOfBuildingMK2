@@ -1,0 +1,42 @@
+[package]
+name = "pob-oracle"
+description = "Path of Building itself, run headless (LuaJIT on desktop): the test oracle for pob-calc and the app's current calc backend."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pob-calc.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+indexmap.workspace = true
+ahash.workspace = true
+flate2.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Desktop: run PoB's Lua under LuaJIT (the same runtime PoB ships with);
+# the pure-Rust interpreter remains the wasm backend and a fallback.
+mlua = { workspace = true, optional = true }
+# PoB's network features (trade, build sites) via launch:DownloadPage.
+ureq = { version = "2.12", default-features = false, features = ["tls"], optional = true }
+
+[features]
+default = ["luajit"]
+luajit = ["dep:mlua", "dep:ureq"]
+
+[[bin]]
+name = "pob_oracle"
+required-features = ["luajit"]
+
+[[bin]]
+name = "pob_headless"
+required-features = ["luajit"]
+
+[[bin]]
+name = "lua_bench"
+required-features = ["luajit"]
+
+[lints]
+workspace = true

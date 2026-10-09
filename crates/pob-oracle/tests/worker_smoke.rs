@@ -2,12 +2,14 @@
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn worker_snapshot() {
-    use pob_calc::worker::{Command, Event, PobHandle};
-    let src = std::path::PathBuf::from("../../.PathOfBuilding/src");
-    let build = std::path::Path::new("../../.parity/builds/upstream_OccVortex.xml");
-    if !src.exists() || !build.exists() {
+    use pob_oracle::worker::{Command, Event, PobHandle};
+    let (Some(src), Some(build)) = (
+        pob_oracle::oracle::find_pob_src(),
+        pob_oracle::oracle::find_up(".parity/builds/upstream_OccVortex.xml"),
+    ) else {
+        eprintln!("skipped: no PoB checkout / .parity build corpus");
         return;
-    }
+    };
     let mut h = PobHandle::spawn(src);
     h.send(Command::LoadXml {
         xml: std::fs::read_to_string(build).unwrap(),

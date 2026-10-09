@@ -1,8 +1,8 @@
-//! Boot Path of Building headless inside pob-calc's interpreter, load
+//! Boot Path of Building headless inside pob-oracle's interpreter, load
 //! builds, print headline stats and timings.
 use std::time::Instant;
 
-use pob_calc::headless::Engine;
+use pob_oracle::headless::Engine;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -16,9 +16,9 @@ fn main() {
     let booted: Result<Box<dyn Engine>, String> = if std::env::var("POB_ENGINE")
         .is_ok_and(|v| v == "jit")
     {
-        pob_calc::jit::JitPob::boot(&pob_root.join("src")).map(|p| Box::new(p) as Box<dyn Engine>)
+        pob_oracle::jit::JitPob::boot(&pob_root.join("src")).map(|p| Box::new(p) as Box<dyn Engine>)
     } else {
-        pob_calc::headless::Pob::boot_from_dir(&pob_root).map(|p| Box::new(p) as Box<dyn Engine>)
+        pob_oracle::headless::Pob::boot_from_dir(&pob_root).map(|p| Box::new(p) as Box<dyn Engine>)
     };
     let mut pob = match booted {
         Ok(p) => p,

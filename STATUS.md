@@ -6,10 +6,10 @@ Status as of 2026-09-30 (branch `parity/real-builds`).
 
 MK2 runs **Path of Building's own, unmodified Lua** headlessly and puts a
 Rust/egui UI on top. On desktop PoB runs under vendored **LuaJIT**
-(`pob_calc::jit`, PoB's own runtime); the web build uses the pure-Rust Lua
-interpreter in `pob_calc::lua` (`pob_calc::headless`). Both implement
+(`pob_oracle::jit`, PoB's own runtime); the web build uses the pure-Rust Lua
+interpreter in `pob_oracle::lua` (`pob_oracle::headless`). Both implement
 `headless::Engine` and give identical numbers. A worker thread
-(`pob_calc::worker`) owns PoB; the UI sends Lua commands/queries and gets
+(`pob_oracle::worker`) owns PoB; the UI sends Lua commands/queries and gets
 snapshots back (PoB's build XML, outputs, sidebar, warnings, sets, skill
 selectors). PoB's XML is mirrored back into MK2's `Character` model after
 every change. Most tabs now render PoB's own UI controls through a generic
@@ -64,7 +64,10 @@ login).
 
 ## Testing
 
-- `cargo test --workspace` (plus `pob-calc` worker / modcache oracle tests).
+- `cargo test --workspace` (plus `pob-oracle` worker / modcache / oracle-harness tests).
+- `scripts/parity/oracle_dump.sh` dumps PoB's complete outputs and calc stages per
+  build (fresh `pob_oracle` process each) to `.parity/oracle/`;
+  `scripts/parity/diff.py REF CAND` scores one output set against another.
 - `scripts/parity/run.sh` and `pob_headless` (`POB_ENGINE=jit`,
   `HEADLESS_EXEC`, `HEADLESS_JSON_OUT`) for corpus runs.
 - `pob-desktop <build file>` opens a build at start-up (handy for scripted
