@@ -21,6 +21,11 @@ flate2.workspace = true
 mlua = { workspace = true, optional = true }
 # PoB's network features (trade, build sites) via launch:DownloadPage.
 ureq = { version = "2.12", default-features = false, features = ["tls"], optional = true }
+# Oracle tooling (patcher, probe cache, stages.toml).
+toml = "0.8"
+zstd = "0.13"
+blake3 = "1"
+rustix = { version = "1", features = ["fs"] }
 
 [features]
 default = ["luajit"]
@@ -28,6 +33,13 @@ luajit = ["dep:mlua", "dep:ureq"]
 
 [[bin]]
 name = "pob_oracle"
+required-features = ["luajit"]
+
+[[bin]]
+name = "pob_calc_diff"
+
+[[bin]]
+name = "pob_timing"
 required-features = ["luajit"]
 
 [[bin]]

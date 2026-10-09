@@ -10,9 +10,15 @@ that `pob-calc` (the Rust port of PoB's calculations) has no Lua runtime:
 | `worker` | A background thread owning a booted PoB; the current app's calc backend. |
 | `mod_parser` | PoB's `Modules/ModParser.lua`, run unchanged. |
 | `oracle` | The parity harness: PoB's numbers per build as JSON, and typed loaders for tests. |
+| `patcher` | The probe oracle's patched copy of PoB's sources (line / function probes, write provenance). |
+| `runner` | Runs the patched PoB (one build per process, machine-wide lock, probe cache). |
+| `schema` | Readers for `pob-state/1`, `pob-hits/1`, `pob-provenance/1`; `$id`/`$ref` resolution. |
+| `diff` | PoB-vs-Rust comparison (§9.2 tolerance, mod-store multisets, `LUA-ORDER`, unit filters). |
+| `nondet` | PoB's run-to-run differences (`.parity/nondet/<build>.json`). |
 
-Binaries: `pob_oracle` (the harness), `pob_headless` (ad-hoc runs with
-`HEADLESS_EXEC`), `lua_bench`.
+Binaries: `pob_oracle` (the harness), `pob_calc_diff` (PoB vs Rust),
+`pob_timing` (LuaJIT ModStore query timings, gate G1a), `pob_headless`
+(ad-hoc runs with `HEADLESS_EXEC`), `lua_bench`.
 
 ## The oracle
 
@@ -171,10 +177,175 @@ OccVortex stages dump round-trips through `Mod` unchanged up to that
   `tests/oracle_harness.rs`). `count` / `enabled` are calcFullDPS's
   `getActiveSkillCount`.
 
+## The probe oracle (calc-architecture.md §9.2, §9.5)
+
+```text
+pob_oracle patch   [--stages F] [--pob SRC] [--root DIR]        # prints <root>/<sha>/src
+pob_oracle probe   <build.xml> --out-dir DIR [--stages F | --patched SRC]
+                   [--select G,..] [--max-dumps N] [--no-provenance] [--cache]
+pob_oracle nondet  <build.xml> [--out FILE] [--keep DIR] [--verify] [--max-runs N] [--cache]
+                   [--stages F | --patched SRC] [--select G,..]
+pob_calc_diff outputs POB OURS [--json-out DIR] [--nondet DIR] [--unit ID] [--provenance DIR]
+pob_calc_diff state   POB.json[.zst] OURS.json[.zst] [--nondet FILE]
+pob_timing <build.xml> [--iters N] [--json OUT]
+```
+
+Every command that boots PoB holds an exclusive `flock` on
+`$POB_ORACLE_LOCK` (default `/tmp/pob-port-oracle.lock`), the lock
+`scripts/port/oracle.sh` takes, so one LuaJIT PoB (≈400 MB) runs at a time
+machine-wide. Run corpus work through the script:
+
+```text
+scripts/port/oracle.sh run --build X.xml [--stage HIT[,HIT..]] [--stages F]  # -> probe cache
+scripts/port/oracle.sh corpus [--stages F] [build.xml ..]   # -> .parity/probe/<stem>/ + cache
+scripts/port/oracle.sh nondet [--verify] [--max-runs N] [--stages F] [build.xml ..] # -> .parity/nondet/<stem>.json
+```
+
+`--stages` defaults to `docs/port/stages.toml` (U0); the P3 tests use the
+dummy `corpus/P3/stages.toml`.
+
+### Patched sources
+
+`patcher::patch` copies PoB's `src/` to `target/oracle-src/<sha>/src/`
+(patched files written, the rest hard-linked; every other entry of the PoB
+checkout symlinked next to it, so `runtime/` and `manifest.xml` resolve) and
+writes `manifest.json` (every site and edit). `<sha>` hashes the patcher
+version, the stages file, the patched texts and a stat fingerprint of the
+source tree. No line number changes. Every patched file is compiled with
+`loadstring` (after the loader's `a += b` rewrite) before it is published.
+
+* **Line probes** (`[[stage]]`: `id`, `file`, `line`, `locals`, optional
+  `expect` text the line must contain): the line is prefixed with
+  `if __PROBE then __PROBE("<id>", { a = a, ... }) end `.
+* **Function probes**: `calcs.initEnv`, `perform`, `defence`,
+  `buildDefenceEstimations`, `offence`, `triggers`, `mirages`,
+  `buildActiveSkillModList`, `createActiveSkill`, `runSkillFunc`,
+  `getCachedOutputValue`, `ConfigTab:BuildModList`, every skill hook of
+  `Data/Skills/*.lua` (`skill:<id>:<field>`, 133), every ConfigOptions
+  `apply` (`config:<var>:apply`, 531 + `config:mapAffixDropDownFunction`),
+  plus `[[function]]` entries of the stages file (`mergeBuff` in
+  `corpus/P3/stages.toml`). `function a.b(p) ... end`
+  becomes `a.b = __PROBE_FN("<id>", {"p"}, function(p) ... end)` (methods
+  and `local function` likewise); the wrapper fires `<id>:in` and `<id>:out`.
+  With the P3 stages that is 678 function probes: 13 named + 133 skill
+  hooks + 532 config applies.
+* **Call probes**: the three jewel-func call sites of CalcSetup
+  (`jewelFunc`), counted separately from the function probes.
+* **Write provenance**: the creation sites of `env.player.output`,
+  `env.enemy.output`, `output.MainHand/OffHand/Minion`, `minion.output` and
+  the breakdown table become `__PROV(kind, {})` proxies whose `__newindex`
+  records the last writer `file:line` per key (`pairs`/`next`/`ipairs` are
+  replaced before PoB boots so they iterate the backing table in the same
+  order); every statement of `ModDB.lua`/`ModList.lua` that stores a mod
+  records the first caller outside the mod store classes.
+
+Over the 57 corpus builds the probed PoB's `outputs.json` is identical to
+the unpatched oracle's.
+
+### Hits and dumps
+
+Hits are numbered `<id>#<n>` per process (a function probe's `:in` and
+`:out` share n), which separates passes, recursive envs and repeated
+performs; each dump records its env (`env<k>`, numbered as `initEnv`
+returns them) and the stack of enclosing function-probe hits. `--select`
+globs (`perform:in#1`, `offence:*`, `config:*:apply:in#1`) choose which
+hits are serialised; `<glob>@main` takes, per matching probe id, the first
+hit in the build's final main env (`calcsTab.mainEnv`, whose outputs are
+`outputs.json`; candidates are the envs of `calcs.buildOutput(build,
+"MAIN")`, buffered until the run ends). The default is
+`runner::DEFAULT_SELECT` (the env-level probes and skill hooks `@main`, the
+env-less config applies / jewel funcs / `ConfigTab:BuildModList` `#1`) plus
+`<id>@main` for every line probe. A probe run directory holds:
+
+* `outputs.json`: as `pob_oracle outputs`;
+* `hits.json` (`pob-hits/1`): `counts` per probe id, `dumps`
+  (`{hit, file, stack, env}`), `envs`, `mainEnv`, `skipped`;
+* `provenance.json` (`pob-provenance/1`): flattened output key -> last
+  writer for `output`, `breakdown`, `enemy`, `minion`, `minionBreakdown` of
+  the main env;
+* `state/<hit>.json` (`pob-state/1`): `{"$env", build, format, hit, kind
+  (line|in|out), n, probe, root: {env, locals, globalCache}, stack}`.
+
+`pob-state/1` values follow `crates/pob-dump/FORMAT.md` (`$seq`, `$num`,
+`$keys`, `$meta`, `$float`, `$bytes`, `$$`-escaped keys), keys sorted.
+Identity: every table is written in full once, at its canonical path (first
+reached breadth-first, so the shortest path wins), with `"$id": n` when it is
+referenced again, and as `{"$ref": n}` elsewhere (`schema::resolve_ids`
+turns these into path references). Markers: `{"$data": "data.skills.X"}`
+for PoB's data tables, `{"$node": id}` / `{"$treeNode": id}`,
+`{"$object": class}`, `{"$foreign": {env, path}}` for other envs' objects,
+`{"$fn": "file:a-b"}`. Mod stores are `{"$store": "ModDB"|"ModList",
+"mods": ...}` (ModDB grouped by name, names sorted) with each mod in
+`pob_calc::Mod`'s shape plus `"$at": "<file>:<line>"`; items are
+`{"$item": name, ...}` with modList, slotModList and the weapon / armour /
+flask / tincture / jewel data; active skills carry `"$uuid"`.
+
+Dumps are cached zstd-compressed at
+`.parity/probe-cache/<sha>/<build-blake3>/<hit>.json.zst`
+(`runner::cached_state` prints the `oracle.sh` command on a miss).
+
+### Nondeterminism
+
+LuaJIT seeds its string hash per process, so PoB's `pairs` order over
+string keys (and everything derived from it) changes between processes.
+`pob_oracle nondet` probes a build in two processes, and in a third when
+they differ (always with `--verify`), and writes every differing output
+key / state path with the values PoB produced, plus lists whose order alone
+differs, to `.parity/nondet/<stem>.json` (`pob-nondet/2`). With
+`--max-runs N` it keeps running (up to N processes) while a run still adds
+something the record does not cover structurally (list indices
+generalised); the result's `lastNew` lists what the last run added.
+`pob_calc_diff` accepts any recorded value and compares recorded lists as
+multisets.
+
+State paths in the record are the paths `pob_calc_diff state` walks (the
+resolved dump root: `env.player.activeSkillList[6].baseSkillModList.mods`;
+a differing hit stack / env id is kept under `$stack` / `$env`). A list is
+recorded as unordered only when its own elements move (not when only lists
+nested in its elements do). Mod stores are recorded where the diff
+compares them, per store name (`<store>.mods.<Name>`, a ModList's
+`<store>.mods`): as an order when the runs' multisets agree, otherwise as
+each run's whole list (an absent name as `[]`), which the diff accepts as a
+multiset. Records of another format fail to load (regenerate them).
+
+Over the 57 corpus builds (`--verify --max-runs 6`: 3-6 processes per
+build, 52 builds converged) PoB's outputs never differed between runs; the
+differences are inside the dumped states (22,730 order entries, 222 value
+entries, 93 of them per-name mod-store alternatives). Most are the order of mods within
+a mod list or a ModDB name (`baseSkillModList`, buff mod lists, `enemyDB`
+lists), which PoB builds by iterating string-keyed tables. But PoB also
+differs in values: **which gem variant a skill resolves to changes between
+processes** (allflame_exp_019: `ExplosiveTrap` or `ExplosiveTrapAltX` for
+the same skill uuid, visible in `baseSkillModList` mod sources;
+upstream_Dual_Wield_Cospris_CoC: `VaalRighteousFire` or its AltX variant in
+`requirementsTableGems` and `effectList[i].gemData/grantedEffect`). A calc
+port that picks either variant matches PoB; a test that pins one does not.
+(The Lua cause is not traced yet; Modules/Data.lua builds `gemForSkill` /
+`gemForBaseName` / the AltX/AltY Vaal variants inside `pairs(data.gems)`.)
+Order differences are only sampled by a few runs, so a further run can
+still show an order the record lacks; the state diff compares mod stores as
+multisets and reports order-only differences as `LUA-ORDER`, not as value
+mismatches.
+
+### `pob_calc_diff`
+
+`outputs` pairs builds by stem (files or directories, as
+`scripts/parity/diff.py`) and compares flattened outputs:
+`|a-b| <= 1e-9·max(1,|a|)`, booleans and strings exact, nondeterministic
+keys per `.parity/nondet`. `--json-out DIR` writes
+`DIR/<stem>.json = {build, pob, ours, mismatches, summary}`, which
+`scripts/parity/report.py DIR` scores. `--unit ID` keeps only mismatches
+whose PoB writer (provenance) lies in the unit's Lua ranges from the unit
+table of `docs/port/calc-architecture.md`. `state` diffs two `pob-state/1`
+dumps: mod stores as multisets per name, order-only differences reported as
+`LUA-ORDER`.
+
 ## Tests
 
 `cargo test -p pob-oracle` runs the harness end to end on OccVortex
-(`tests/oracle_harness.rs`), the ModCache parser oracle and the worker /
-ModParser smoke tests. They need the PoB checkout (and `data/lua`,
+(`tests/oracle_harness.rs`), the probe oracle's acceptance tests
+(`tests/P3.rs`; `-- --ignored all57` checks the `oracle.sh corpus` /
+`nondet` results over the whole corpus), the ModCache parser oracle and the
+worker / ModParser smoke tests. They need the PoB checkout (and `data/lua`,
 `.parity/builds`); they are found upward from the crate, and the tests skip
 with a message when absent.
