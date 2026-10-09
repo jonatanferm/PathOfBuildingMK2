@@ -2,7 +2,7 @@
 
 > **Read `docs/port/AMENDMENTS.md` first** — it reconciles this document with the crates already built (pob-oracle, pob-dump, pob-sg) and wins on conflict.
 
-Status: **final**. This document is the contract for every UI porting agent. If code and this document disagree, the code is wrong unless the unit that owns the code amends this document, and the orchestrator approves the amendment.
+Status: **final**. This document is the contract for every UI porting agent. CCR-0013 (UI-U0's contract notes) is applied in place (unit CCR1, 2026-10-09); its two open choices are recorded in §13 items 10-11. If code and this document disagree, the code is wrong unless the unit that owns the code amends this document, and the orchestrator approves the amendment.
 
 **Scope.** This covers the Rust port of Path of Building v2.67.2's user interface. The Lua source is `.PathOfBuilding/src` at HEAD `16de4b82d`. In scope:
 
@@ -109,7 +109,7 @@ crates/
     src/color.rs      is_color_escape, read_color_escape, strip_escapes, PALETTE
     src/font/{mod,tgf,tga,layout}.rs   FontSet/FontFace; .tgf parser; RLE/raw 32-bpp TGA; r_font.cpp port
     src/image.rs      ImageRegistry, ImageHandle (Rc-shared), ImageFlags, TexId, ImageLoader trait, mip gen
-    src/assets.rs     AssetSource trait (PoB src root + runtime/SimpleGraphic root)
+    src/assets.rs     AssetSource trait: read_src(path) (PoB src/) and read_runtime(path) (runtime/SimpleGraphic/)
     src/sys.rs        Sys (cursor, key state, time), Platform / Fs / Net traits
     src/trace.rs      ApiCall, DrawOp, FrameTrace, TraceRecorder, normalize(), diff()
     src/raster.rs     [feature "raster"] CPU reference rasteriser: Frame -> RGBA
@@ -373,7 +373,10 @@ impl Sg {
     #[track_caller]
     pub fn draw_image_tc(&mut self, img: Option<&ImageHandle>, x: Num, y: Num, w: Num, h: Num,
                          l: Num, t: Num, r: Num, b: Num) {
-        self.rec(|| ApiCall::draw_image(img, [x, y, w, h], Some([l, t, r, b])));
+        if self.trace.is_some() {                     // the trace records what the image was loaded from (CCR-0013 A4)
+            let ir = self.img_ref(img);               // ImageRegistry::source(tex) -> ImgRef { path, flags }
+            self.rec(|| ApiCall::draw_image(ir, [x, y, w, h], Some([l, t, r, b])));
+        }
         let s = self.scale();
         let (x, y, w, h) = (x as f32 * s, y as f32 * s, w as f32 * s, h as f32 * s); // (float)val * dpiScale
         let (l, t, r, b) = (l as f32, t as f32, r as f32, b as f32);
@@ -481,7 +484,10 @@ impl TexId { pub const WHITE: TexId = TexId(0); pub const BLACK: TexId = TexId(1
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TexStatus { Init, InQueue, Processing, SizeKnown, PendingUpload, Done }
 
-pub struct ImageData { pub width: u32, pub height: u32, pub levels: Vec<Vec<u8>> /* RGBA8, mip 0.. */ }
+/// `flags` carries the sampler state (CLAMP / NEAREST): the backend only receives `Frame` and indexes
+/// `samplers[8]` by CLAMP|NEAREST|MIPMAP (§5.1; CCR-0013 A1).
+pub struct ImageData { pub width: u32, pub height: u32, pub levels: Vec<Vec<u8>> /* RGBA8, mip 0.. */,
+                       pub flags: ImageFlags }
 
 pub enum LoadEvent { Size(TexId, u32, u32), Done(TexId, ImageData), Failed(TexId) }
 
@@ -496,12 +502,31 @@ pub trait ImageLoader {
 }
 
 pub struct ImageRegistry { /* infos, by_key: HashMap<(String, ImageFlags), TexId>, loader: Box<dyn ImageLoader>, uploads */ }
+impl ImageRegistry {                                     // surface frozen by UI-U0 (CCR-0013 A3)
+    /// Registers `@white`, `@black` and the default texture as TexId 0/1/2, with pending uploads.
+    pub fn new(loader: Box<dyn ImageLoader>) -> ImageRegistry;
+    pub fn insert_ready(&mut self, name: &str, data: ImageData) -> TexId;    // font atlases, built-ins
+    pub fn load(&mut self, h: &ImageHandle, path: &str, flags: ImageFlags);
+    pub fn pump(&mut self);                                                   // poll the loader
+    pub fn status(&self, id: TexId) -> TexStatus;
+    pub fn source(&self, id: TexId) -> Option<(&str, ImageFlags)>;           // the trace's ImgRef
+    pub fn tex_size(&self, id: TexId) -> Option<(u32, u32)>;
+    pub fn image_size(&mut self, id: TexId) -> (i32, i32);                   // blocking emulation via ImageLoader::read_size
+    pub fn set_priority(&mut self, id: TexId, priority: i32);
+    pub fn take_uploads(&mut self) -> Vec<(TexId, std::rc::Rc<ImageData>)>;
+    pub fn take_releases(&mut self) -> Vec<TexId>;
+}
+pub fn decode_image(bytes: &[u8], name: &str, flags: ImageFlags) -> Option<ImageData>;
+pub fn read_image_size(bytes: &[u8], name: &str) -> Option<(u32, u32)>;
+pub fn build_mips(w: u32, h: u32, base: Vec<u8>) -> Vec<Vec<u8>>; pub fn default_texture() -> ImageData;
 
 /// imgHandle userdata. Clone shares the slot (Lua aliasing): Load/Unload through any alias is seen by all.
 #[derive(Clone, Default)]
 pub struct ImageHandle(std::rc::Rc<std::cell::Cell<Option<TexId>>>);
 impl ImageHandle {
     pub fn load(&self, sg: &mut Sg, path: &str, flags: ImageFlags); // relative paths resolve against the script dir (src/)
+    /// UI-U0: clears the shared slot only; `Frame::releases` stays empty (textures live until exit). Open (U3 decides,
+    /// §13 item 10): `unload(&self, sg: &mut Sg)` dropping one registry reference, 0 => `Frame::releases` (CCR-0013 A2).
     pub fn unload(&self);
     pub fn is_valid(&self) -> bool;                     // hnd != NULL
     pub fn is_loading(&self, sg: &mut Sg) -> bool;      // image_size().0 == 0
@@ -517,7 +542,7 @@ Image rules:
 
 - Registration is deduplicated by `(path, flags)`. U3 verifies this against `RegisterShader` at `r_main.cpp:1366`.
 - A missing file falls back to `TexId::DEFAULT`'s pixels, and its size reads as `(0,0)`.
-- MIPMAP levels use a 2×2 box filter on raw (gamma) values.
+- MIPMAP levels use a 2×2 box filter on raw (gamma) values. (UI-U0 still uses the moved sRGB-correct filter; U3 switches it, CCR-0013 D.)
 - **Deterministic mode** (oracle, headless, tests): every load completes synchronously, pixels included.
 - **Web.** `image_size` cannot block. The host prefetches all synchronously loaded assets (fonts, `Assets/*`, the active tree version's sprite sheets) into a VFS before `on_init` and before a tree version switch. Only ASYNC images are fetched lazily.
 
@@ -566,6 +591,7 @@ pub struct Sys {
     keys: std::collections::HashSet<Key>, // heldKeyState, updated by the host before each key callback
 }
 impl Sys {
+    pub fn new(platform: Box<dyn Platform>, fs: Box<dyn Fs>, net: Box<dyn Net>) -> Sys;   // CCR-0013 A5
     pub fn begin_frame(&mut self, cursor_phys: (i32, i32), scale: f32);
     /// GetCursorPos: lround(cursorPhys / dpiScale) (int / float)
     pub fn cursor_pos(&self) -> (Num, Num) {
@@ -608,6 +634,16 @@ pub struct FrameTrace { pub index: u32, pub screen: Option<ScreenInfo>, pub call
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DrawOp { pub viewport: [f64; 4], pub color: [f32; 4], pub call: ApiCall, pub ctl: Option<String>, pub src: Option<String> }
 pub type Buckets = std::collections::BTreeMap<(i32, i32), Vec<DrawOp>>;
+
+/// Recording (frozen by UI-U0, CCR-0013 A4): `Sg.trace: Option<TraceRecorder>`; `ApiCall::draw_image(img: Option<ImgRef>,
+/// rect, tc)` and siblings build the calls; `Sg` resolves an `ImageHandle` to its `ImgRef` before recording.
+#[derive(Default)]
+pub struct TraceRecorder { pub frames: Vec<FrameTrace>, pub cur: FrameTrace, /* ctl path stack, src */ }
+impl TraceRecorder {
+    pub fn new() -> TraceRecorder; pub fn begin_frame(&mut self, screen: ScreenInfo); pub fn end_frame(&mut self);
+    pub fn record(&mut self, call: ApiCall, caller: &std::panic::Location<'_>); pub fn effect(&mut self, e: SideEffect);
+    pub fn ctl_push(&mut self, path_elem: &str); pub fn ctl_pop(&mut self); pub fn set_src(&mut self, src: Option<String>);
+}
 
 /// Replays SetDrawLayer/SetViewport/SetDrawColor semantics, including the DrawString escape leak
 /// (the colour after a DrawString is the last escape in the text with alpha 1, else unchanged).
@@ -717,7 +753,7 @@ Desktop host rules (SG parity, §2):
 - **Window.**
   - `Resized`/`ScaleFactorChanged` reconfigure: `ScreenInfo { fb = inner_size, win_h = inner_size.h, dpi = scale_factor }`.
   - `CloseRequested` calls `can_exit`, then `on_exit` and exits.
-- **Frame order.** Poll `Net` and deliver completions, then `sys.begin_frame`, `sg.begin_frame`, `on_frame`, `sg.end_frame`, prepare/render, present.
+- **Frame order.** Poll `Net` and deliver completions, then `sys.begin_frame`, `sg.begin_frame`, `on_frame`, `sg.end_frame`, prepare/render, present. `App` has no completion entry point yet and UI-U0's desktop host does not poll `Net`: U7 (with U16) picks either `fn on_net(&mut self, id: u64, resp: pob_sg::HttpResponse)` on `App` or "the port of `launch:OnFrame` polls `sys.net` first" (CCR-0013 A6, §13 item 11).
 - **Pacing.** Use `ControlFlow::Poll` while focused, hovered, or `wants_frames()` is true; otherwise wait 100 ms between frames. Always run 10 frames after boot.
 - **Panics.** Each callback runs inside `catch_unwind(AssertUnwindSafe(..))`. On panic, call `App::on_lua_error(msg)` (Launch's `ShowErrMsg`).
 - **Clipboard and network.**
@@ -992,8 +1028,9 @@ pub trait Widget: Any + Sized {
     crate::lua_error!("attempt to call method '{}' (a nil value) on {} {:?}", m, W::NAME, me)
 }
 
-/// `impl_parts!(GemSelectControl: edit => EditControl)` implements part/part_mut chaining to the embedded base.
-#[macro_export] macro_rules! impl_parts { /* U4 writes it */ }
+/// `impl_parts!(GemSelectControl: edit => EditControl)` expands to the two `Widget` methods `part`/`part_mut`
+/// (chaining to the embedded base), so it is invoked INSIDE `impl Widget for …` (CCR-0013 B4).
+#[macro_export] macro_rules! impl_parts { /* frozen by UI-U0; U4 owns it */ }
 
 pub struct VTable {
     pub name: &'static str,
@@ -1490,6 +1527,9 @@ impl ListControl {
     pub fn list_len(cx: &Cx, me: CtrlId) -> usize;
     pub fn list_get(cx: &Cx, me: CtrlId, i: usize) -> Option<ListValue>;
 }
+/// `cx.is::<ListControl>(id)` (the `selControl.ListControl` is-a check) needs `W: Widget`, so ListControl implements
+/// `Widget` by delegating to the functions above (CCR-0013 B5; U12 owns the file).
+impl Widget for ListControl { /* … */ }
 ```
 
 `DropDownControl` (U13) follows the same pattern:
@@ -1796,7 +1836,7 @@ A Lua property closure that assigns fields must have those fields declared as `C
 
 ## 8. Lua-semantics rules (binding)
 
-1. **Numbers** are `f64` everywhere in UI code. `math.floor`/`ceil` map to `f64::floor`/`ceil`. Use `pob_lua::math::{min, max}` for `math.min`/`math.max`, because `f64::min` differs from Lua on NaN. Lua `%` is floored modulo: use `pob_lua::fmod_lua`, never Rust `%`. PoB's `round(v, dec)` (`Common.lua:709`) is `pob_lua::round`.
+1. **Numbers** are `f64` everywhere in UI code. `math.floor`/`ceil` map to `f64::floor`/`ceil`. Use `pob_lua::math::{m_min, m_max}` for `math.min`/`math.max`, because `f64::min` differs from Lua on NaN. Lua `%` is floored modulo: use `pob_lua::fmod_lua`, never Rust `%`. PoB's `round(v, dec)` (`Common.lua:709`) is `pob_lua::round`.
 2. **Truthiness.** `nil` and `false` are falsy; `0` and `""` are truthy. `a and b or c` must keep its exact result even when `b` is falsy. A Lua `nil` becomes `Option::None`, and a nil/false distinction becomes `Option<bool>`. `x or 0` becomes `x.unwrap_or(0.0)`.
 3. **Indices.** Fields that mirror Lua indices (`sel_index`, `caret`, `scroll` rows, list positions) stay **1-based** and keep Lua's arithmetic. Convert only at Rust slice access (`v[i - 1]`).
 4. **Strings** are byte strings. All `string.*` operations go through `pob_lua` helpers with Lua byte semantics (1-based, negative indices count from the end). Text buffers are `String`. When Lua byte slicing could split a multibyte character, the helper works on bytes and re-validates lossily; this is a documented divergence, which PoB avoids because its input is ASCII after filtering. Numbers turned into text go through `pob_lua::tostring` (`%.14g`), and `string.format` through `lformat!`.
@@ -1960,8 +2000,9 @@ impl Widget for ButtonControl {
 
 ```rust
 //! Port of PathOfBuilding v2.67.2 (16de4b82d) src/Classes/NotesTab.lua
-use pob_lua::{gsub, lmatch};
-use crate::model::xml::{XmlChild, XmlNode};   // calc:BM-A port of runtime/lua/xml.lua
+use pob_ui_core::luastr::{gsub, lmatch};       // first-value wrappers (§8 rule 5): gsub(s, p, r) -> String,
+                                               // lmatch(s, p) -> Option<String> (CCR-0013 B1; U5 owns the file)
+use crate::model::xml::{XmlChild, XmlNode};   // calc:BM-A port of runtime/lua/xml.lua (pob-app re-exports the types)
 use pob_ui_core::{prelude::*, color_codes::ColorCodes, controls::{ButtonControl, EditArgs, EditControl, LabelControl}};
 use crate::main_mode::background::draw_background;
 
@@ -2056,7 +2097,7 @@ impl NotesTab {
     /// lua: NotesTab.lua:75-82
     pub fn load(cx: &mut Cx, me: CtrlId, xml: &XmlNode, _file_name: &str) {
         let edit = cx.child_as::<EditControl>(me, "edit");
-        for node in xml.children() {
+        for node in &xml.children {
             if let XmlChild::Text(t) = node { EditControl::set_text(cx, edit.id(), t, false); }
         }
         let buf = cx.get(edit).buf.clone();
@@ -2067,7 +2108,7 @@ impl NotesTab {
     pub fn save(cx: &mut Cx, me: CtrlId, xml: &mut XmlNode) {
         Self::set_show_color_codes(cx, me, false);
         let buf = cx.get(cx.child_as::<EditControl>(me, "edit")).buf.clone();
-        xml.push_text(buf.clone());
+        xml.children.push(XmlChild::Text(buf.clone().into()));
         cx.w_mut::<NotesTab>(me).last_content = buf;
     }
 
@@ -2102,8 +2143,8 @@ impl NotesTab {
 ```rust
 //! Port of … src/Classes/GemSelectControl.lua (newClass("GemSelectControl", "EditControl"))
 pub struct GemSelectControl { pub edit: EditControl, pub skills_tab: CtrlId, pub index: usize, pub dps_builder: Coroutine, /* … */ }
-pob_ui_core::impl_parts!(GemSelectControl: edit => EditControl);
 impl Widget for GemSelectControl {
+    pob_ui_core::impl_parts!(GemSelectControl: edit => EditControl);
     const NAME: &'static str = "GemSelectControl";
     const CAPS: Caps = EditControl::CAPS;                       // plus whatever GemSelect adds
     /// lua: GemSelectControl.lua:… (`self.EditControl:Draw(viewPort, noTooltip and not self.forceTooltip)`)
@@ -2147,7 +2188,7 @@ cx.base_mut(build_name).width = Prop::f(move |cx, _control| {
     };
     let bnw = cx.sg.draw_string_width(16.0, Font::Var, &cx.build().build_name);   // self.buildName
     let bm = cx.w::<BuildMode>(me);
-    bm.str_width.set(pob_lua::math::min(bnw, limit));        // Cell: written by a property (Build.lua:154)
+    bm.str_width.set(pob_lua::math::m_min(bnw, limit));        // Cell: written by a property (Build.lua:154)
     bm.str_limited.set(bnw > limit);
     bm.str_width.get() + 98.0
 });
@@ -2509,6 +2550,10 @@ Critical path: U0 → U4 → U9 → U11/U12/U13 → U16 → U19 → U20 → U22 
 7. **Performance.** Prop closures and recursive `GetPos` cost about what they cost in Lua. The tree view is the hot spot; U23 and U53 profile it.
 8. **Borrow ergonomics.** Associated-function widgets are verbose (`cx.w::<Self>(me)` per access). This is accepted in exchange for compile-time aliasing safety. Helpers (`cx.prop`, `cx.child_as`, `cx.lend`, the disjoint `cx.ui`/`cx.sg` borrows) keep ports close to the Lua.
 9. **Licensing of redistributed fonts and assets** (critic): must be checked before any web deploy. This is not a UI architecture blocker.
+10. **`ImageHandle::unload` cannot release a texture** (CCR-0013 A2). The frozen `unload(&self)` has no `Sg`/registry access while SG refcounts shared textures (`RegisterShader`, r_main.cpp:1366). U3 decides between keeping it (textures live until exit) and `unload(&self, sg: &mut Sg)`.
+11. **Net completions** (CCR-0013 A6): U7 (with U16) decides how completions reach the app (§5.2 Frame order).
+12. **Placeholder types** (CCR-0013 C). UI-U0 defined these minimally so the stubs compile; each owner may amend them before its wave gate: `ListColumn`, `ColumnProp`, `ScrollDir`, `TextListColumn`, `TextListRow` and the non-§6 constructor signatures of the generic controls (U9/U12); `DropTipMode`, `DropTipArgs`, `DropDownHooks` fields, `SearchHost` fields (U13); `TooltipLine`, `TooltipBlock` (U10); `ArrowDir`, `world_to_screen` (U9); `EditUndoState` (U11); `script::{Script, Step}` (U7); `TreeCache`, `TreeAssets`, `ListMode`, `LaunchState`, `MainState` (U16/U18/U23); the split-struct parts (`State`, §12.1).
+13. **Small frozen additions** (CCR-0013 A5): `Sg::viewport()`, `Sg::current_draw_color()` (inspection), `FontSet::empty()` (no PoB assets: measuring returns 0, drawing applies escapes only), `FontFace::heights()`, `Align::from_lua`/`lua_name`, `Font::index`, `Quad::is_culled` (moved from `DrawCmd::is_culled`), `frame::LayerSink`, `frame::digest`. `Sg::set_draw_color*` check `renderEnable` like `ui_api.cpp:821`.
 
 ---
 

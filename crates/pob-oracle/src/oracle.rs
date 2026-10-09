@@ -256,6 +256,21 @@ pub struct SkillRef {
     pub skill_part_name: Option<String>,
 }
 
+/// The LuaJIT build and mode of an oracle dump (CCR-0001/0002). Oracle parity
+/// runs use the interpreter (`jit: false`, [`crate::jit::ORACLE_JIT_OFF`]); on
+/// a `numberMode: "dual"` host a ±0 difference from the Rust port (which
+/// follows x64 PoB) is a host artefact, never a port bug.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LuajitInfo {
+    /// `jit.arch` (`x64`, `arm64`, ...).
+    pub arch: String,
+    /// `jit.status()`: whether the JIT compiler was on.
+    pub jit: bool,
+    /// `single` (x86/x64, PoB's platform) or `dual` (ARM64 and others).
+    pub number_mode: String,
+}
+
 /// `pob_oracle outputs`: the main env's complete output tables.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -264,6 +279,9 @@ pub struct OracleOutput {
     /// The build name PoB was given (the XML file stem).
     pub build: String,
     pub pob_version: Option<String>,
+    /// The LuaJIT that produced the dump (absent in dumps made before CCR1).
+    #[serde(default)]
+    pub luajit: Option<LuajitInfo>,
     pub main_skill: Option<SkillRef>,
     /// `env.player.output`.
     pub player: Tree,
@@ -456,6 +474,8 @@ pub struct OracleStages {
     pub format: String,
     pub build: String,
     pub pob_version: Option<String>,
+    #[serde(default)]
+    pub luajit: Option<LuajitInfo>,
     pub init_env: InitEnvDump,
     /// Whether the captured env is the one PoB kept as `calcsTab.mainEnv`.
     pub main_env_is_captured: bool,
@@ -619,7 +639,7 @@ pub fn dump_in_process(pob_src: &Path, build: &Path, dumps: &[Dump]) -> Result<V
     let name = build
         .file_stem()
         .map_or_else(|| "build".to_owned(), |s| s.to_string_lossy().into_owned());
-    let mut pob = crate::jit::JitPob::boot_with(pob_src, Some(QUIET_PRELUDE))
+    let mut pob = crate::jit::JitPob::boot_oracle(pob_src, Some(QUIET_PRELUDE))
         .map_err(|e| OracleError(format!("PoB boot failed: {e}")))?;
     pob.run(ORACLE_LUA)
         .map_err(|e| OracleError(format!("oracle.lua: {e}")))?;

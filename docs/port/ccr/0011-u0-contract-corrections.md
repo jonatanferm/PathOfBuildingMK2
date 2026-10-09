@@ -1,5 +1,7 @@
 # CCR-0011 (U0): corrections to the calc doc's contract text, as frozen by U0
 
+**Status: applied 2026-10-09 by CCR1.** Applied: the doc text follows the frozen code (calc doc §3.2, §4.3, §4.4, §5.1-§5.3, §5.10, §6, §7.2, §9.2; STYLE.md re-synced).
+
 **Raised by:** U0 (skeleton). **Affects:** calc-architecture.md §3.2, §4.3, §4.4, §5.1-§5.4, §5.7,
 §5.10, §6, §7.2, AMENDMENTS A1. **Status:** implemented in U0's frozen files (they are the contract); this CCR asks
 the integrator to update the doc text to match. `docs/port/contracts.md` is the reference for the

@@ -1,5 +1,7 @@
 # CCR-0001: The oracle's LuaJIT is an ARM64 dual-number build; pob-lua mirrors the target's LuaJIT profile
 
+**Status: applied 2026-10-09 by CCR1.** Orchestrator decision: the shipped Rust product always follows x64 (single-number) PoB semantics regardless of host; the ARM64 profile moved behind the test-only `oracle-dualnum` feature of pob-lua (`profile.rs`), and L0 compares the shipped profile with the LuaJIT interpreter (`jit.off`), tolerating only mismatches the ARM64 profile reproduces. All oracle parity runs use the interpreter (`JitPob::boot_oracle`). The §4.1 corrections (lpow = libm pow, `nan`, content-keyed `CatBuf` memo, `From<&LStr>`, `string::sub -> Cow`) are accepted. Applied to calc doc §3.5, §4.1, §9.2, §9.4 and AMENDMENTS A6.
+
 **Raised by:** P2 (pob-lua). **Affects:** calc doc D8, §3.4, §3.5, §4.1 (`math.rs`, `format.rs`), §9.4 L0, §9.5; P3/ORC-X (oracle), every unit that relies on the sign of zero.
 
 ## Problem

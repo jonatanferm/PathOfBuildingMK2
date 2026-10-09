@@ -2,7 +2,7 @@
 
 > **Read `docs/port/AMENDMENTS.md` first** — it reconciles this document with the crates already built (pob-oracle, pob-dump, pob-sg) and wins on conflict.
 
-**Status:** FINAL. This document is binding for every calc porting agent.
+**Status:** FINAL. This document is binding for every calc porting agent. CCRs 0001-0006 and 0010-0013 are applied in place (unit CCR1, 2026-10-09); `docs/port/ccr/` keeps each CCR with its evidence.
 **Upstream pin:** PathOfBuilding v2.67.2, commit `16de4b82d57f1c0de6eb40f37143c32d4da36a02`, checked out at `.PathOfBuilding/`. All Lua line numbers in this document refer to that commit and were checked against it.
 **Scope:** everything from "PoB build XML or UI edits" up to and including `env.player.output`, `env.player.breakdown`, minion and enemy outputs, and the actor and skill mod stores that the Calcs tab Tabulates after the calc. Included: the misc calculator and power report (`Calcs.lua`, `CalcsTab.lua` 441-773). Excluded: rendering, controls and tabs. Those are covered by the UI architecture, which consumes this crate.
 **Source of this design:** the "fidelity" proposal won both judge panels and is the base. Ideas are grafted from the "parallel-porting" and "performance" proposals. Every factual error the judges found was re-verified against the Lua and fixed (§12 lists them).
@@ -83,14 +83,15 @@ Owner ids refer to §11. `[U0]` files are **frozen contract files** after Wave 1
 
 ```
 crates/pob-lua/src/
-  lib.rs name.rs field.rs error.rs                                      [U0]
+  lib.rs name.rs field.rs error.rs profile.rs                           [U0] (profile.rs: CCR-0001/0002)
   math.rs bit.rs format.rs string.rs pattern.rs(copied lua_pattern.rs)
   sort.rs ipairs.rs ljtab.rs                                            [P2]
 crates/pob-gamedata/src/
   lib.rs data.rs loader.rs fnref.rs modifier.rs value.rs                [U0]
   schema/{skills,gems,bases,minions,uniques,affixes,tree,config_defs,
           mod_map_defs,calc_sections,stat_descriptions,misc}.rs          [U0]
-  generated/{global.rs,misc.rs}                                          [P1, generated, checked in]
+  generated/mod.rs    (includes crates/pob-dump/generated/{global.rs,misc.rs} by path; one copy,
+                       `pob-dump --codegen --check` guards them; CCR-0003)   [P1, generated, checked in]
   mod_tools.rs            (Modules/ModTools.lua 1-258 minus mergeKeystones) [CT]
   skill_stat_map.rs       (Modules/Data.lua 51-93, 1033-1077 fallback)       [CT]
   timeless_lut.rs         (DataLegion*/DataAbyss*/DataJewelFileLoader)       [LUT]
@@ -194,14 +195,14 @@ No file has two owners. A unit edits only its own files, its `crates/pob-oracle/
 | `#t` | `t.len()` (border; hole-free contract) |
 | `for i, v in ipairs(t)` | `for_ipairs!((i, v) in t => { ... })`. It reads `t[i]` live on every step and stops at the first nil, exactly like Lua. |
 | `for k, v in pairs(t)` | `for (k, v) in t.pairs() { ... }`. Keys are a snapshot; values are read live; keys whose live value is nil are skipped. Add `// LUA-ORDER` when the result can depend on order (§3.4). |
-| `t_insert(t, v)` / `t_insert(t, i, v)` / `t_remove(t, i)` | `t.push(v)` / `t.insert(i, v)` / `t.remove(Some(i))` |
-| `wipeTable(t)` / `copyTable(t)` / `copyTable(t, true)` | `t.wipe()` / `t.copyTable(false)` / `t.copyTable(true)`. Both keep the metatable (Common.lua:496). |
+| `t_insert(t, v)` / `t_insert(t, i, v)` / `t_remove(t, i)` | `t.push(v)` / `t.insert(i, v)` / `t.remove(Some(i))`. Positions are `i64` and follow LuaJIT 2.1 `lib_table.c`: no bounds error; `remove` acts only for `1 <= i <= #t` (CCR-0011 §10). |
+| `wipeTable(t)` / `copyTable(t)` / `copyTable(t, true)` | `t.wipe()` / `t.copyTable(false)` / `t.copyTable(true)`. `wipe` keeps the metatable; `copyTable` does not (Common.lua:477-487; only `copyTableSafe(…, preserveMeta)` copies it, 494-496; CCR-0011 §1). |
 | `goto continue` | `continue` |
 | `return` at the top level of a split function | the segment returns `Flow::Return` |
 | `return calcs.initEnv(build, mode, override, specEnv)` | the segment returns `Flow::Restart` (§7.2) |
 | `error(...)`, or an arithmetic, index or call on nil | `lua_error!("...")` |
 | a read of an undeclared global (`dotCfg` at CalcOffence:3527) | literal `nil` / `None`, marked `// LUA-GLOBAL-NIL` |
-| a string passed where a cfg is expected (`skillModList:More("MORE", cfg, "Accuracy")`, CalcOffence.lua:2194-2195) | `Some(&ModCfg::STRING_CFG)` (all fields nil; the table that ends up in the name list matches nothing), marked `// LUA-QUIRK` |
+| a string passed where a cfg is expected (`skillModList:More("MORE", cfg, "Accuracy")`, CalcOffence.lua:2194-2195) | `Some(ModCfg::STRING_CFG())` (all fields nil; the table that ends up in the name list matches nothing), marked `// LUA-QUIRK` |
 
 ### 3.3 Borrow rules (they also apply under `Rc`)
 
@@ -220,8 +221,10 @@ No file has two owners. A unit edits only its own files, its `crates/pob-oracle/
 ### 3.5 Numbers and strings
 
 - Lua numbers are `f64` everywhere. Integers are used only for indices and ids.
+- **Number mode and LuaJIT build profile (CCR-0001, CCR-0002).** PoB's reference LuaJIT is the x64 build: single-number (every number is a double, so `-x` of a zero is `-0`) with `cvttsd2si` float→int casts (NaN and out-of-range give MIN). **The shipped port always follows that profile, on every host and target** (desktop aarch64 and wasm32 included): Rust `f64` arithmetic matches it, and `pob_lua::{LJ_TARGET_X86ORX64, LJ_DUALNUM}` are the constants `true`/`false`. ARM64 LuaJIT builds (this project's oracle host) are dual-number: integer-valued results are int32 values without `-0` (`-tonumber("0")` and the literal `-0` give `+0` in the interpreter, `-0` once traced), casts saturate (`string.format("%d", 1e30)` = `9223372036854775807`, `("%d", 0/0)` = `0`), and `tonumber("-0", base)` / `tonumber("-0b0")` are `+0`. That behaviour exists in `pob-lua` only behind the test-only feature `oracle-dualnum` (`pob_lua::profile::with_luajit_arm64_profile`), which the L0 tests use to explain host differences (§9.4). Oracle parity runs use the LuaJIT interpreter (`jit.off()`, §9.2), and the diff treats a `±0` sign mismatch as a host artefact, never as a port bug; values derived from the sign (`1/x` = `±inf`, a formatted `"-0"`) are recorded in `known_diffs.toml` citing CCR-0002.
+- **LuaJIT traces are not the reference.** Compiled traces of the vendored LuaJIT differ from its interpreter: `string.sub(s, i, j)` with a variable negative `j` returns the wrong substring in traces, trace narrowing drops the sign of zero of `math.floor`/`math.ceil` results, and the JIT folds `x^2` to `x*x` (1 ulp from libm `pow` for some `x`). The port follows the interpreter (CCR-0001).
 - **Flags.** Flag bit operations use `u32` (the largest flag is `MatchAll = 0x40000000`, so bit 31 is unused). `bnot` only ever appears inside `band` masks; U0's grep test asserts this.
-- **Number formatting.** `tostring(number)` is `%.14g` with LuaJIT spellings (`inf`, `-inf`, `nan`/`-nan`, `-0`). `string.format` is a port of `lj_strfmt` (§4.1).
+- **Number formatting.** `tostring(number)` is `%.14g` with LuaJIT spellings (`inf`, `-inf`, `nan`, `-0`; LuaJIT 2.1's own formatter never prints a NaN sign). LuaJIT's `%.14g` rounds exact decimal ties up (`nd_add_m10e`), unlike glibc `printf`: `tostring(123456789012345)` = `1.2345678901235e+14`. `string.format` is a port of `lj_strfmt` (§4.1).
 - **Division.** Division by zero yields IEEE inf/NaN. Never clamp or guard where Lua does not.
 - **`m_modf` truncates toward zero.** In `subMod.value = m_modf(round(x, 2))` (ModStore.lua:84) only the first return value is used.
 - **`ModStore:Max` drops non-positive values.** It returns nil when every value is ≤ 0, because it starts from `val > (max or 0)` (ModStore.lua:248-257). Port literally.
@@ -251,8 +254,9 @@ pub type Name = ustr::Ustr;                       // interned, Copy, precomputed
 /// `"A", "B"` query name lists.
 #[macro_export] macro_rules! nm { ($($s:literal),* $(,)?) => { &[$($crate::n!($s)),*][..] }; }
 /// Lua `a .. b .. c` producing an interned Name. Numbers use tostring (%.14g).
-/// Formats into a 128-byte stack buffer (heap only beyond that), then calls `cat_intern`, which consults
-/// a thread-local memo keyed on the parts' (ptr,len)/f64 bits before touching the global interner.
+/// Formats into a 128-byte stack buffer (heap only beyond that), then calls `intern`, which consults
+/// a thread-local memo keyed on the concatenated bytes before touching the global interner (a (ptr,len)
+/// key is unsound for transient parts; CCR-0001).
 #[macro_export] macro_rules! cat {
     ($($p:expr),+ $(,)?) => {{ let mut b = $crate::name::CatBuf::new();
         $( $crate::format::LuaConcat::concat_into(&$p, &mut b); )+ b.intern() }};
@@ -320,7 +324,8 @@ pub fn m_min(a: f64, b: f64) -> f64;                 // LuaJIT NaN / ±0 behavio
 pub fn m_max(a: f64, b: f64) -> f64;
 pub fn m_min_n(xs: &[f64]) -> f64; pub fn m_max_n(xs: &[f64]) -> f64;
 pub fn lmod(a: f64, b: f64) -> f64;                  // a - floor(a/b)*b
-pub fn lpow(a: f64, b: f64) -> f64;                  // LuaJIT `^` (integral exponent: lj_vm_powi)
+pub fn lpow(a: f64, b: f64) -> f64;                  // LuaJIT `^` = libm pow, as BC_POW calls it (the JIT folds x^2
+                                                     // to x*x; the port follows the interpreter; operands black_boxed)
 pub fn round(val: f64, dec: Option<i32>) -> f64;     // Common.lua `round`
 pub fn floor(val: f64, dec: Option<i32>) -> f64;     // Common.lua `floor(val, dec)` (+0.0001 fudge)
 pub fn roundSymmetric(val: f64, dec: Option<i32>) -> f64; pub fn floorSymmetric(val: f64, dec: Option<i32>) -> f64;
@@ -334,7 +339,7 @@ pub fn tobit(x: f64) -> i32;
 
 // ===== format.rs [P2] =====
 pub enum FmtArg<'a> { Num(f64), Str(&'a str), Bool(bool), Nil }
-impl From<f64> for FmtArg<'_> { /* … */ }  /* + &str, Name, LStr, bool, i64 */
+impl From<f64> for FmtArg<'_> { /* … */ }  /* + &str, &String, Name, &Name, &LStr (FmtArg::Str borrows), bool, i64, Option<f64> */
 /// lj_strfmt: %d %i %u %c %x %X %o %e %E %f %g %G %q %s %%, flags `-+ #0`, width, precision.
 /// `%d` on a non-integral number follows LuaJIT 2.1 (oracle-verified), and `%s` of a number uses tostring_num.
 pub fn lua_format(fmt: &str, args: &[FmtArg]) -> String;
@@ -346,7 +351,8 @@ pub trait LuaConcat { fn concat_into(&self, out: &mut crate::name::CatBuf); }   
 
 // ===== string.rs + pattern.rs [P2] (byte-wise, ASCII) =====
 pub fn lower(s: &str) -> String; pub fn upper(s: &str) -> String;
-pub fn sub(s: &str, i: i64, j: Option<i64>) -> &str;   // 1-based, negative indices
+pub fn sub(s: &str, i: i64, j: Option<i64>) -> std::borrow::Cow<'_, str>;   // 1-based, negative indices; byte-wise
+                                                     // (`sub_bytes` is the reference; Owned only when a UTF-8 char is split)
 pub fn rep(s: &str, n: usize) -> String; pub fn byte(s: &str, i: i64) -> Option<u8>;
 pub use crate::pattern::{find, r#match, gmatch, gsub, gsub_fn, gsub_table, Captures, Capture};
 /// PoB Common.lua helpers used by calc/model: split, firstToUpper, sanitiseText (306), stripEscapes.
@@ -362,6 +368,14 @@ pub fn sort<T>(v: &mut [T], lt: impl FnMut(&T, &T) -> bool);
 #[macro_export] macro_rules! for_ipairs { /* … */ }
 /// Vec<Option<T>> with holes punched during iteration (createActiveSkill rejectedSupportsIndices, CalcActiveSkill.lua:49-54).
 pub fn ipairs_live<T: Clone>(v: &mut Vec<Option<T>>, f: impl FnMut(usize, T, &mut Vec<Option<T>>));
+
+// ===== profile.rs [U0] (CCR-0001/0002) =====
+/// The LuaJIT build profile the port follows: always x64 single-number (§3.5).
+pub const LJ_TARGET_X86ORX64: bool = true; pub const LJ_DUALNUM: bool = false;
+pub fn x64_casts() -> bool; pub fn dualnum() -> bool;          // constant true / false without the feature
+/// Feature `oracle-dualnum` ONLY (pob-lua's own dev-dependency on itself; no shipping crate enables it):
+/// run `f` with the ARM64 dual-number profile on this thread (saturating casts, int32 `tonumber` zeros).
+#[cfg(feature = "oracle-dualnum")] pub fn with_luajit_arm64_profile<R>(f: impl FnOnce() -> R) -> R;
 
 // ===== ljtab.rs [P2] =====
 /// Integer-keyed Lua table whose `pairs()` order is LuaJIT 2.1's (D8). Values are opaque to the layout.
@@ -379,30 +393,42 @@ impl<V: Clone> LjIntMap<V> {
 
 ### 4.2 `pob-gamedata`: generated enums (P1 output; shape fixed here)
 
+The files are generated into `crates/pob-dump/generated/{global.rs,misc.rs}` and included by path from `pob-gamedata/src/generated/mod.rs`, so there is one copy; `pob-dump --codegen --check` guards them (CCR-0003). Every item carries a `/// @pob Data/Global.lua:<a>-<b> h=<8hex>` marker and the file a `//! @pob-file Data/Global.lua @16de4b82d` header (§3.1 rule 5).
+
 ```rust
-// generated/global.rs — GENERATED from Data/Global.lua @16de4b82d by `pob-extract dump --codegen`. Do not edit.
+// generated/global.rs — GENERATED from Data/Global.lua @16de4b82d by `pob-dump --codegen`. Do not edit.
 #![allow(non_upper_case_globals, non_snake_case)]
 pub mod ModFlag {
     pub const Attack: u32 = 0x0000_0001; pub const Spell: u32 = 0x0000_0002; /* … every entry … */
     pub const WeaponMask: u32 = /* … */ 0;
+    pub const ENTRIES: &[(&str, u32)];                   // source order
     pub fn by_name(s: &str) -> Option<u32>;
 }
 pub mod KeywordFlag {
     pub const Aura: u32 = 0x0000_0001; /* … */ pub const MatchAll: u32 = 0x4000_0000;
+    pub const ENTRIES: &[(&str, u32)];
     pub fn by_name(s: &str) -> Option<u32>;              // KeywordFlag[damageType.."Dot"]
 }
-/// Global.lua:178-214 (the cache is a pure memo, so it is not reproduced).
+/// Global.lua:174-214 (needs the `band`/`MatchAllMask` locals at 174-175; the cache is a pure memo, so it is
+/// not reproduced).
 pub fn MatchKeywordFlags(keywordFlags: u32, modKeywordFlags: u32) -> bool;
+/// Global.lua:179-184; a no-op (no memo). CalcSetup.lua:476 calls it.
+pub fn ClearMatchKeywordFlagsCache();
 pub mod SkillType {
     pub type T = u8;
     pub const Attack: T = 1; pub const Spell: T = 2; /* … */ pub const Area: T = 8; /* … */
-    pub const Aura: T = 39; /* … */ pub const Pact: T = 135;
+    pub const Aura: T = 39; /* … */ pub const OR: T = 73; pub const AND: T = 74; pub const NOT: T = 75; /* … */
+    pub const Pact: T = 135;
     pub const COUNT: usize = 136;
-    pub fn by_name(s: &str) -> Option<T>;
+    pub const ENTRIES: &[(&str, T)];                     // 135 entries incl. OR/AND/NOT, source order
+    pub fn by_name(s: &str) -> Option<T>; pub fn name(t: T) -> Option<&'static str>;
 }
-/// requireSkillTypes / excludeSkillTypes RPN tokens (data uses the strings "AND"/"OR"/"NOT").
+/// requireSkillTypes / excludeSkillTypes RPN tokens. The data holds SkillType numbers; the operators are
+/// SkillType.OR (73), SkillType.AND (74), SkillType.NOT (75) (Global.lua:291-293; act_int.lua:483 is
+/// `{ SkillType.Instant, SkillType.Spell, SkillType.AND }`). The schema maps numbers through `from_skill_type`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SkillTypeExpr { Type(SkillType::T), AND, OR, NOT }
+impl SkillTypeExpr { pub fn from_skill_type(t: SkillType::T) -> Self; }   // 73/74/75 -> OR/AND/NOT
 /// `{[SkillType.X] = true}`; 136 bits.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SkillTypeSet(pub [u64; 3]);
@@ -410,6 +436,8 @@ impl SkillTypeSet { pub fn has(&self, t: SkillType::T) -> bool; pub fn set(&mut 
                     pub fn iter(&self) -> impl Iterator<Item = SkillType::T> + '_; }
 pub static colorCodes: &[(&str, &str)] = &[("NORMAL", "^xC8C8C8") /* … */];
 ```
+
+`generated/misc.rs` holds four record structs: `Misc` (`data.misc`, Modules/Data.lua:236-304), `GameConstants`, `CharacterConstants` and `MonsterConstants` (Data/Misc.lua). Keys that are not Rust identifiers become fields with `%`→`pct`, `+`→`plus`, `-`→`minus` and `#[serde(rename = "<verbatim key>")]`; each struct has `get("<verbatim key>")`, so `data.characterConstants["base_maximum_all_resistances_%"]` ports as `.get("base_maximum_all_resistances_%")` or the field.
 
 ### 4.3 `pob-gamedata`: Mod, Tag, Value (U0, adapted from today's `pob-calc/src/modifier.rs`)
 
@@ -421,7 +449,8 @@ pub type ModRef = Arc<Mod>;                      // clone = refcount; immutable 
 pub type AStr = Arc<str>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum ModType { BASE, INC, MORE, FLAG, OVERRIDE, LIST, MAX, MIN, Flag /* "Flag" (CanNotUseItem) */, CHANCE, DUMMY }
+pub enum ModType { BASE, INC, MORE, FLAG, OVERRIDE, LIST, MAX, MIN, Flag /* "Flag" (CanNotUseItem) */, CHANCE, DUMMY,
+                   Nil /* a nil type: sup_str.lua:1448 mod("CorruptingCryStagesFromExerted", nil, 0, …) */ }
 
 /// Immutable Lua value carried by mods and data (Send + Sync).
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -441,6 +470,9 @@ impl Value {
     pub fn truthy(&self) -> bool;  pub fn num(&self) -> Option<f64>;  pub fn get(&self, k: Name) -> &Value;
     pub fn inner_mod(&self) -> Option<&ModRef>;
 }
+/// Conversions the generated ModParser/ConfigOptions code relies on (CCR-0006 §4): `From<T> for Value` for
+/// f64, i32, Option<f64> (None → Nil), bool, &str, String, AStr, Name, Option<Name> (None → Nil), ValueTable,
+/// ModRef and Mod (→ `Value::Mod(Arc::new(m))`, the `{ mod = … }` payloads).
 
 /// A ModParser jewel closure as data: which jewelFuncList entry it is, plus the captured upvalues.
 #[derive(Debug, Clone, PartialEq)]
@@ -449,6 +481,7 @@ pub struct JewelFuncSpec {
     pub kind: JewelFuncKind,
     pub args: smallvec::SmallVec<[Value; 4]>,    // captures, as passed by the defining entry
     pub r#type: Option<Name>,                    // { type = "Self"/"SelfUnalloc"/"Threshold"/"Other" }
+    pub radius: Option<Name>,                    // { radius = "Large" } (ExtraJewelFunc, ModParser.lua:2622/2630)
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)] pub enum JewelFuncKind { Other, Self_, SelfUnalloc, Threshold }
 
@@ -461,7 +494,10 @@ pub struct Mod {
     pub keywordFlags: u32,
     pub source: Option<AStr>,
     pub tags: smallvec::SmallVec<[Tag; 1]>,      // Lua mod[1], mod[2], …
-    pub extra: Option<Box<ValueTable>>,          // rare non-standard keys (e.g. sourceSlot); keeps round-trips lossless
+    pub extra: Option<Box<ValueTable>>,          // rare non-standard keys (e.g. sourceSlot); keeps round-trips lossless:
+                                                 // "flags" = a tag table given as flags (SkillStatMap.lua:509; MS-A raises
+                                                 // where Lua's band raises), "#n" = a tag at a non-sequence index (holey
+                                                 // tags, mod[1] = nil; ipairs never sees it)
 }
 impl Mod { pub fn source_category(&self) -> Option<&str>; /* mod.source:match("[^:]+") */ }
 
@@ -469,7 +505,12 @@ impl Mod { pub fn source_category(&self) -> Option<&str>; /* mod.source:match("[
 pub enum TagType { #[default] Condition, ActorCondition, Multiplier, MultiplierThreshold, PerStat, PercentStat,
     StatThreshold, DistanceRamp, MeleeProximity, Limit, ItemCondition, SocketedIn, SkillName, SkillId, SkillPart,
     SkillType, BaseFlag, SlotName, ModFlagOr, KeywordFlagAnd, MonsterTag,              // the 21 EvalMod branches
-    GlobalEffect, InSlot, SlotNumber, DisablesItem, IgnoreCond, Other(Name) }
+    GlobalEffect, InSlot, SlotNumber, DisablesItem, IgnoreCond,
+    Global,      // { type = "Global" } (1252 census hits; inert in EvalMod; ModParser.lua:427/1087/2410/5013)
+    Skill,       // 2 census hits
+    LuaNonTable, // a non-table tag entry (SkillStatMap.lua:1735 passes flags into makeSkillDataMod's varargs);
+                 // the raw value is in Tag.extra["$value"]
+    Other(Name) }
 
 /// One PoB tag table. Field names are verbatim Lua keys, so `tag!({ type = Condition, var = "X" })`
 /// reads like `{ type = "Condition", var = "X" }`.
@@ -483,7 +524,7 @@ pub struct Tag {
     pub limitNegTotal: bool, pub limitActor: Option<Name>, pub percent: Option<f64>, pub percentVar: Option<Name>,
     pub threshold: Option<f64>, pub thresholdVar: Option<Name>, pub thresholdStat: Option<Name>,
     pub thresholdActor: Option<Name>, pub thresholdPercent: Option<f64>, pub thresholdPercentVar: Option<Name>,
-    pub upper: bool, pub equals: bool, pub ramp: Option<Arc<[[f64; 2]]>>,
+    pub upper: bool, pub equals: bool, pub ramp: Option<Ramp>,
     pub itemSlot: Option<Name>, pub allSlots: bool, pub bothSlots: bool, pub excludeSelf: bool,
     pub searchCond: Option<AStr>, pub rarityCond: Option<Name>, pub corruptedCond: Option<bool>,
     pub shaperCond: Option<bool>, pub elderCond: Option<bool>, pub nameCond: Option<AStr>,
@@ -498,13 +539,23 @@ pub struct Tag {
     pub effectEnemyCond: Option<Name>, pub effectStackVar: Option<Name>, pub effectStackLimit: Option<f64>,
     pub modCond: Option<Name>, pub unscalable: bool, pub allowTotemBuff: bool, pub applyNotPlayer: bool,
     pub applyMinions: bool,
-    pub extra: Option<Box<ValueTable>>,          // any other key (U0 census over dump + ModCache + parse oracle)
+    pub excludeItemType: Option<Name>,           // { type = "DisablesItem", excludeItemType = "Tincture" } (ModParser.lua:5256;
+                                                 // read at CalcSetup.lua:952/970)
+    pub extra: Option<Box<ValueTable>>,          // any other key (U0 census over dump + ModCache + parse oracle). A numeric
+                                                 // key that holds a Lua string (`div = "10"`, `limit`, `percent`) keeps
+                                                 // tonumber(s) in the field and the string here under the same key
 }
+/// `tag.ramp`: DistanceRamp's `{ {35,0}, {70,1} }` points, or MeleeProximity's flat `{ max, min }` pair
+/// (ModParser.lua:3005; read as tag.ramp[1]/[2] at ModStore.lua:615-630).
+#[derive(Debug, Clone, PartialEq)] pub enum Ramp { Points(Arc<[[f64; 2]]>), Flat(Arc<[f64]>) }
 #[derive(Debug, Clone, PartialEq)] pub enum Sockets { All, Count(f64), List(Arc<[f64]>) }
 #[macro_export] macro_rules! tag { ({ type = $t:ident $(, $k:ident = $v:expr)* $(,)? }) => {{
     let mut t = $crate::Tag { r#type: $crate::TagType::$t, ..Default::default() };
     $( t.$k = $crate::modifier::IntoTagField::into_tag_field($v); )* t }}; }
-pub trait IntoTagField<T> { fn into_tag_field(self) -> T; }   // &str→Option<Name>, f64→Option<f64>, bool→bool, …
+/// &str/Name/Option<Name> → Option<Name>; &str → Option<AStr>; f64/i32/Option<f64> → Option<f64>; bool → bool and
+/// Option<bool>; u32 → u32; SkillType::T → Option<SkillType::T>; &[&str]/&[Name]/Vec<Name>, &[f64], &[SkillType::T]
+/// → the matching Option<Arc<[_]>>; &[[f64; 2]]/Ramp → Option<Ramp>; Sockets → Option<Sockets> (CCR-0006 §4).
+pub trait IntoTagField<T> { fn into_tag_field(self) -> T; }
 
 // mod_tools.rs [CT] — ModTools.lua
 pub fn createMod(modName: Name, modType: ModType, modVal: impl Into<Value>, source: Option<&str>,
@@ -566,17 +617,20 @@ pub struct SkillLevel {
     pub values: Vec<f64>,                        // positional "#1".."#n"
     #[serde(default)] pub levelRequirement: f64, #[serde(default)] pub statInterpolation: Vec<u8>,
     #[serde(default)] pub cost: Vec<(Name, f64)>,
-    #[serde(default)] pub extra: Vec<(Name, Value)>,   // manaMultiplier, critChance, damageEffectiveness, cooldown, storedUses, …
+    #[serde(default)] pub extra: Vec<(Name, Value)>,   // exactly the census keys (SkillLevel::EXTRA_KEYS: manaMultiplier,
+                                                       // critChance, damageEffectiveness, cooldown, storedUses, …); others fail the load
 }
 impl SkillLevel { pub fn get(&self, k: Name) -> &Value; pub fn num(&self, k: Name) -> Option<f64>; }
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct StatMapEntry {                        // a statMap[stat] table: array of mods/groups + value/mult/div/base
     pub items: Vec<StatMapItem>, pub value: Option<Value>, pub mult: Option<f64>, pub div: Option<f64>, pub base: Option<f64>,
+    pub skillFlag: Option<Name>,                 // skillFlag = "permanentMinion" (data.skillStatMap, 2 entries)
 }
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub enum StatMapItem { Mod(ModRef), Group { mods: Vec<ModRef>, value: Option<Value>, mult: Option<f64>, div: Option<f64>, base: Option<f64> } }
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct SkillPart { pub name: AStr, #[serde(default)] pub flags: Option<NameSet>, #[serde(default)] pub extra: Vec<(Name, Value)> }
+/// A part's other keys are boolean skill flags (CalcActiveSkill.lua:257-263 copies true/false into skillFlags).
+pub struct SkillPart { pub name: AStr, pub flags: Vec<(Name, bool)> }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct GemData { pub id: Name, pub name: Name, pub gameId: Name, pub variantId: Name, pub baseTypeName: Name,
@@ -586,9 +640,11 @@ pub struct GemData { pub id: Name, pub name: Name, pub gameId: Name, pub variant
 
 /// The PoB global `data` (post-processed). Immutable.
 pub struct Data {
-    pub skills: ahash::AHashMap<Name, GrantedEffectRef>,
+    pub skills: indexmap::IndexMap<Name, GrantedEffectRef>,   // dump order
     pub gems: indexmap::IndexMap<Name, GemDataRef>,            // dump order
-    pub gemForSkill: ahash::AHashMap<Name, GemDataRef>, pub gemForBaseName: ahash::AHashMap<AStr, GemDataRef>,
+    /// The Lua values are gem ids, not gem tables (`data.gems[data.gemForSkill[ge]]`); `Data::gem_for_skill` does
+    /// the double lookup.
+    pub gemForSkill: ahash::AHashMap<Name, Name>, pub gemForBaseName: ahash::AHashMap<AStr, Name>,
     pub skillStatMap: ahash::AHashMap<Name, StatMapEntry>,
     pub itemBases: indexmap::IndexMap<AStr, ItemBaseRef>,
     pub minions: indexmap::IndexMap<Name, MinionDataRef>, pub spectres: indexmap::IndexMap<Name, MinionDataRef>,
@@ -598,7 +654,8 @@ pub struct Data {
     pub monsterConstants: generated::misc::MonsterConstants, pub gameConstants: generated::misc::GameConstants,
     pub monsterLifeTable: Vec<f64>, /* … every monster*Table, ally tables … */
     pub weaponTypeInfo: ahash::AHashMap<Name, WeaponTypeInfo>, pub unarmedWeaponData: Vec<ValueTable>,
-    pub nonDamagingAilment: indexmap::IndexMap<Name, AilmentData>,
+    pub nonDamagingAilment: indexmap::IndexMap<Name, AilmentData>,   // AilmentData.default: Option<f64> (nil for Freeze;
+                                                                     // ModParser.lua:2942-2947, 3736, 3769-3793; CCR-0006 §3)
     pub ailmentTypeList: Vec<Name>, pub elementalAilmentTypeList: Vec<Name>,
     pub jewelRadii: ahash::AHashMap<Name, Vec<JewelRadius>>,  // "3_15", "3_16"
     pub clusterJewels: ClusterJewelData, pub keystones: Vec<Name>,
@@ -607,12 +664,24 @@ pub struct Data {
     pub configOptions: Vec<ConfigOptionDef>, pub mapMods: ModMapDefs, pub calcSections: CalcSections,
     pub statDescriptions: StatDescriptionsLazy, pub pearlSupports: ValueTable, pub treeVersions: Vec<TreeVersionMeta>,
     pub modCache: ModCacheData,                               // Data/ModCache.lua (parse tier)
-    pub timeless: TimelessMeta,
+    pub timeless: TimelessMeta,                               // timelessJewel*/legionPassives kept as DataValue; LUT owns those reads
+    // Calc-read roots typed by CCR-0011 §7 (schema/item_data.rs), each with its reader: enchantments (Item.lua:1043-1048),
+    // foulbornMap (1028, 1553), rareLikeUniques (1036-1038, 1493-1495, 2059, 2719-2721), itemTagSpecial and
+    // itemTagSpecialExclusionPattern (164-324), casterTagCrucibleUniques / minionTagCrucibleUniques (2713/2716),
+    // abyssNotableNames (PassiveTree.lua:728), modScalability (ItemTools.lua:146-191), bossStats (ConfigOptions.lua:2185-2220),
+    // gemVaalGemIdForBaseGemId (CalcTools.lua:287), gemsByGameId (SkillsTab.lua:466), powerStatList (CalcsTab.lua:743-744;
+    // GetFromOutput and the transform closures as LuaFnRef, owner PWR), nodeIDList (DataLegionLookUpTableHelper.lua, LUT),
+    // monsterExperienceLevelMap (Build.lua:236).
+    pub other: indexmap::IndexMap<AStr, DataValue>,           // data::DYNAMIC_ROOTS (20): read only by UI/trade code outside
+                                                              // scope.toml (contracts.md#schema names each reader)
 }
 impl Costs { pub fn by_resource(&self, r: Name) -> Option<&CostInfo>; }   // Data.lua:722-726 __index
 static DATA: std::sync::OnceLock<Data> = std::sync::OnceLock::new();
 pub fn data() -> &'static Data { DATA.get().expect("pob_gamedata::init not called") }
-pub fn init(bytes: &[u8]) -> Result<(), LoadError>;          // postcard; desktop reads the file, wasm fetches it
+/// `data.bin` is postcard of the dump tree (roots + ref targets); `Data` is deserialised from it at load
+/// (≈0.27 s release). Typed `Data` is not serialised. Every root is in TYPED_ROOTS, a stat-description scope, or
+/// DYNAMIC_ROOTS; anything else fails the compile.
+pub fn init(bytes: &[u8]) -> Result<(), LoadError>;          // desktop reads the file, wasm fetches it
 pub fn tree_bytes(version: &str) -> Option<std::borrow::Cow<'static, [u8]>>;   // lazy per tree version
 
 /// The only mutable parts of PoB's `data` (Data.lua:583-600, TreeTab.lua:553). Thread-local, like the Lua VM.
@@ -699,12 +768,13 @@ impl Table {
     // array part
     pub fn len(&self) -> usize;                              // #t
     pub fn push(&self, v: impl Into<Val>);                   // t_insert(t, v)
-    pub fn insert(&self, pos: usize, v: impl Into<Val>);
-    pub fn remove(&self, pos: Option<usize>) -> Val;
+    pub fn insert(&self, pos: i64, v: impl Into<Val>);      // LuaJIT lib_table.c: no bounds error (pos > #t+1 only
+                                                             // sets t[pos]; pos <= 0 shifts through the hash part)
+    pub fn remove(&self, pos: Option<i64>) -> Val;          // nil (nothing) unless 1 <= pos <= #t
     /// pairs(): key snapshot (array then hash, insertion order); each value read live; skip keys that are nil when reached.
     pub fn pairs(&self) -> TablePairs;
     pub fn wipe(&self);                                      // wipeTable (keeps the metatable)
-    pub fn copyTable(&self, noRecurse: bool) -> Table;       // Common.lua:477-500 (keeps the metatable)
+    pub fn copyTable(&self, noRecurse: bool) -> Table;       // Common.lua:477-487 (no metatable on the copy; CCR-0011 §1)
     pub fn ptr_eq(&self, o: &Table) -> bool;
     pub fn meta(&self) -> Option<IndexMeta>;
 }
@@ -738,12 +808,15 @@ pub struct ModCfg {
     pub slotName: Cell<Option<Name>>, pub socketColor: Cell<Option<Name>>, pub socketNum: Cell<Option<f64>>,
     pub strengthGems: Cell<Option<f64>>, pub dexterityGems: Cell<Option<f64>>, pub intelligenceGems: Cell<Option<f64>>,
     pub item: Field<Option<ItemRef>>,
+    pub conversionTable: Field<Option<Table>>,    // CalcOffence.lua:77/145 read cfg.conversionTable
+    pub baseFlags: Field<Option<NameSet>>,        // ModStore.lua:882 reads cfg.baseFlags (BaseFlag tag)
     pub extra: Table,                             // any other key a cfg literal sets (U0 census)
 }
 impl ModCfg {
     pub fn copyTable(&self, noRecurse: bool) -> Cfg;  // shallow shares skillCond/skillTypes/skillStats handles
-    /// The `"MORE"` string used as a cfg (CalcOffence.lua:2194-2195): every field nil.
-    pub const STRING_CFG: &'static ModCfg = &MODCFG_STRING;
+    /// The `"MORE"` string used as a cfg (CalcOffence.lua:2194-2195): every field nil. A function, not a
+    /// `static`: ModCfg holds Cell/RefCell/Rc and is not Sync (one leaked all-nil cfg per thread; CCR-0011 §5).
+    pub fn STRING_CFG() -> &'static ModCfg;
 }
 ```
 
@@ -758,7 +831,7 @@ pub type ModDB = ModStoreRef;  pub type ModList = ModStoreRef;   // names mirror
 pub struct ModStore {
     pub kind: StoreKind,
     mods: RefCell<StoreMods>,                     // private; only the *Internal fns touch it
-    pub parent: Option<ModStoreRef>,              // self.parent (false → None)
+    pub parent: Field<Option<ModStoreRef>>,       // self.parent (false → None); reassigned at CalcSetup.lua:689-692
     pub actor: Field<ActorWeak>,                  // ModStore.lua:42: parent.actor at construction time, else {} (= dangling Weak)
     pub conditions: Table, pub multipliers: Table,
 }
@@ -1144,8 +1217,9 @@ pub mod calcs {
 //   isTriggered / calcMultiSpellRotationImpact (CalcTriggers:41/91), cacheSkillUUID / cacheData / wipeGlobalCache (Common).
 
 // modules/calcs.rs [CA]
+/// The cached DBs are `ModDB?` in Lua (CalcSetup.lua:472-474): nil until CS1's specCopy (590-692).
 pub fn initEnv(build: &BuildRef, mode: Mode, r#override: Option<Rc<Override>>, specEnv: Option<&SpecEnv>)
-    -> (EnvRef, ModDB, ModDB, Option<ModDB>);                                  // CalcSetup.lua:475
+    -> (EnvRef, Option<ModDB>, Option<ModDB>, Option<ModDB>);                  // CalcSetup.lua:475
 pub fn perform(env: &EnvRef, skipEHP: bool);
 pub fn buildOutput(build: &BuildRef, mode: Mode) -> EnvRef;                    // Calcs.lua:384
 pub fn calcFullDPS(build: &BuildRef, mode: Mode, r#override: Rc<Override>, specEnv: Option<&SpecEnv>) -> FullDPS;
@@ -1170,16 +1244,29 @@ pub fn try_buildOutput(build: &BuildRef, mode: Mode) -> Result<EnvRef, pob_lua::
 
 ```rust
 pub enum Cap<'s> { Str(&'s str), Nil }
-/// Lua closure params: #1 = num (tonumber(cap1)), #k≥2 = caps[k-2] (strings). Matches `function(num, a, b, …)`.
+/// Lua closure params, in three call shapes (CCR-0006 §5):
+///   specialModList `f(tonumber(cap[1]), unpack(cap))` (6662-6663): #1 = caps.num, #k≥2 = caps.cap[k-2];
+///   preFlagList    `f(unpack(preFlagCap))` (6680-6682):             #1 = caps.cap[0] (a string), #k≥2 = caps.cap[k-1];
+///   modTagList     `f(tonumber(c1), …)` if c1 matches "%d+", else `f(c1, …)` (6698-6712): #1 = caps.num or caps.cap[0].
+/// `scan` fills caps.num = tonumber(cap1) for specialModList and, for modTagList, whenever cap1 contains a digit.
 pub struct Caps<'s> { pub num: Option<f64>, pub cap: [Option<&'s str>; 5] }
-/// The Lua "misc" table returned by form/tag/flag lists (ModParser.lua 6640-6993 reads these keys).
+/// The Lua "misc" table returned by form/tag/flag lists (ModParser.lua 6640-6993 reads these keys;
+/// contracts.md#modspec has the census).
 #[derive(Default, Clone)]
 pub struct ModSpec {
     pub flags: u32, pub keywordFlags: u32, pub tag: Option<Tag>, pub tagList: Vec<Tag>,
     pub addToMinion: bool, pub addToMinionTag: Option<Tag>, pub addToSkill: Option<Tag>, pub addToAura: bool,
-    pub applyToEnemy: bool, pub newAura: bool, pub newAuraOnlyAllies: bool, pub affectedByAura: bool,
+    pub onlyAddToBanners: bool,                    // read at 6935 (set at 1292)
+    pub applyToEnemy: bool, pub actorEnemy: bool,  // actorEnemy: read at 6983 (set at 1283)
+    pub newAura: bool, pub newAuraOnlyAllies: bool, pub affectedByAura: bool,
+    pub playerTag: Option<Tag>, pub playerTagList: Vec<Tag>,   // 6959-6963, 6976-6979 (set at 1133-1137, 1263-1269)
     pub modSuffix: Option<Name>, pub modName: Option<Vec<Name>>, pub modType: Option<ModType>,
-    pub extra: Vec<(Name, Value)>,                 // U0 census of every key the driver reads
+    /// The modNameList entry was a table, not a string: the DOUBLED form (6858-6863) writes
+    /// `modName[2] = "Multiplier:"..modName[1].."Doubled"` into the shared table itself, so the overwrite persists
+    /// for later parses; a string gets a fresh table each time. MP0/MP1 reproduce it or list it as a known diff.
+    pub modNameIsTable: bool,
+    pub entries: Vec<ModSpec>,                     // the array part of a multi-mod modExtraTags table (6888-6907)
+    pub extra: Vec<(Name, Value)>,                 // any other key
 }
 pub enum TagVal { Spec(ModSpec), Fn(fn(&Caps) -> ModSpec) }
 pub enum SpecialVal { Mods(Vec<Mod>), Fn(fn(&Caps) -> Option<Vec<Mod>>), Dyn(std::sync::Arc<dyn Fn(&Caps) -> Option<Vec<Mod>> + Send + Sync>) }
@@ -1187,12 +1274,16 @@ pub struct PatternEntry<T> { pub pat: &'static str, pub val: T, pub lua_line: u3
 /// Built once (LazyLock) in source order. Generated entries (keystones 5943-5955, skill-name loops) use `Dyn`.
 pub struct PatternList<T>(pub Vec<PatternEntry<T>>);
 /// ModParser.lua:6616 scan(): lowest start, then longest end, then longest pattern; full ties → lowest lua_line (§3.4).
-pub fn scan<'l, T>(line: &'l str, list: &PatternList<T>, plain: bool) -> Option<(&T, String, Caps<'l>)>;
+pub fn scan<'l, T>(line: &'l str, list: &PatternList<T>, plain: bool) -> Option<(&'static T, String, Caps<'l>)>;
 /// modLib.parseMod (ModParser.lua 6994-7021): the two-order pass + memo cache, seeded from data().modCache.
 /// Returns fresh copies on each call (Lua: unpack(copyTable(cache[line]))).
 pub fn parseMod(line: &str, isComb: bool) -> (Option<Vec<Mod>>, Option<String>);
 pub fn parseModNative(line: &str) -> (Option<Vec<Mod>>, Option<String>);   // the ModCache tier bypassed (L1 tests)
 ```
+
+MP0's `helpers.rs` signatures (the generated lists call these; argument conversion such as `tonumber(level)` happens at the call site, CCR-0006 §6): `pub use pob_gamedata::mod_tools::createMod as r#mod` (createMod's argument dispatch, ModTools.lua:36-51, is resolved by the generator); `flag(name, source: Option<&str>, flags, keywordFlags, tags: &[Tag]) -> Mod`; `grantedExtraSkill(name: &str, level: Option<f64>, noSupports: Option<bool>) -> Option<Vec<Mod>>`; `triggerExtraSkill(name: &str, level: Option<f64>, options: Option<TriggerExtraSkillOptions>) -> Vec<Mod>` with `TriggerExtraSkillOptions { noSupports: Option<bool>, sourceSkill: Option<String>, triggerChance: Option<f64>, ignoreHexproof: bool, onCrit: bool }`; `extraSupport(name, level: Option<f64>, slot: Option<&str>, appliesToGrantedSkills: Option<bool>) -> Option<Vec<Mod>>`; `explodeFunc(chance: Option<f64>, amount: LuaArg, r#type: &str, tags: &[Tag]) -> Option<Vec<Mod>>` with `enum LuaArg<'a> { Nil, Num(f64), Str(&'a str) }`; `dealNoNonDamageType(dmgType: &str, forMinion: bool) -> Option<Vec<Mod>>`; `gemIdLookup(name: &str) -> Option<Name>`; `dmgTypes(name: &str) -> Option<Name>`. ConfigOptions applies that call `NewMod` without a source port as `modList.AddMod(Arc::new(createMod(…, None, …)))` (ModStore.lua:109-111).
+
+Known parse-level differences (MP3-MP6 record them as `known_diffs.toml` entries in ModCache / parse-oracle comparisons; EvalMod, the only reader in the calc, sees the same): 8 specialModList entries (4576-4580, 5686, 5689, 5692) call `mod(…, nil, {tag})`, so createMod stores nil at `mod[1]` and `ipairs(mod)` never reaches the tag; 10 tag fields (`div`/`limit`/`percent`/`globalLimit`/`base`) hold a capture string in Lua and `tonumber` of it in Rust, only where the capture can hold nothing but digits.
 
 Jewel funcs: the parser emits `Value::JewelFunc(JewelFuncSpec)`. The bodies run in pob-calc:
 
@@ -1208,7 +1299,7 @@ pub fn callJewelFunc(spec: &JewelFuncSpec, node: Option<&NodeRef>, out: &ModList
 
 ### 7.1 Measured cross-segment locals
 
-These lists come from `scripts/port/locals_audit.py`, a scope-aware analyser that resolves every identifier to its declaration. The analyser was run against the pin for this document. A ctx holds **exactly** the locals declared in one segment and referenced in another. Everything else stays a local in its segment. If U0's re-run differs, U0's output wins and is recorded in `contracts.md`.
+These lists come from `scripts/port/locals_audit.py`, a scope-aware analyser that resolves every identifier to its declaration. The analyser was run against the pin for this document. A ctx holds **exactly** the locals declared in one segment and referenced in another, plus the function's parameters: a parameter is a field unless it does not cross and a function-body local of the same name shadows it (initEnv's `override`; the local `override`485 is the field). At the pin the only listed parameter that does not itself cross is `env` of `calcs.defence` (CCR-0005). Everything else stays a local in its segment. If U0's re-run differs, U0's output wins and is recorded in `contracts.md`.
 
 | Function | Segment starts (inclusive) | Crossing locals (declaration line) |
 |---|---|---|
@@ -1238,7 +1329,8 @@ ctx_struct! { pub struct OffenceCtx {
     skillModList: ModList, skillData: Table, skillFlags: Table, skillCfg: Cfg,
     isAttack: bool, debuffDurationMult: f64, costs: Table, monsterLife: f64, canDeal: Table,
     passList: Shared<Vec<Table>>, storedMainHandAccuracy: Option<f64>, storedMainHandAccuracyVsEnemy: Option<f64>,
-    storedSustainedTraumaBreakdown: Table, quantityMultiplier: f64, ailmentData: Table,
+    storedSustainedTraumaBreakdown: Table, quantityMultiplier: f64,
+    ailmentData: Option<&'static IndexMap<Name, AilmentData>>,   // = data.nonDamagingAilment (4156), immutable data; None until OF-G
 }}
 ctx_struct! { pub struct HitPassLocals { pass: Table, source: Table, output: Output, cfg: Cfg, breakdown: Option<Breakdown>, hitRate: Option<f64> } }
 ctx_struct! { pub struct AilmentPassLocals { pass: Table, output: Output, cfg: Cfg, breakdown: Option<Breakdown>, ailmentMode: Option<Name> } }
@@ -1278,7 +1370,8 @@ ctx_struct! { pub struct PerformCtx {
     partyTabEnableExportBuffs: bool, hasGuaranteedBonechill: bool, guaranteedChillSkills: Table,
     summonedMinionOverride: Option<f64>, nonUniqueFlasksApplyToMinion: bool,
     buffs: Table, guards: Table, minionBuffs: Table, debuffs: Table, curses: Table, minionCurses: Table,
-    linkSkills: Table, allyBuffs: Table, buffExports: Table, appliedCombustion: bool, warcryList: Table,
+    linkSkills: Table, allyBuffs: Option<Table> /* env.partyMembers["Aura"], 2206: nil when absent */,
+    buffExports: Table, appliedCombustion: bool, warcryList: Table,
 }}
 // setup_flasks.rs [PF-C]: pub(super) fn mergeFlasks(ctx: &PerformCtx, flasks: &PtrMap<Item,bool>, onlyRecovery: bool,
 //                                                   checkNonRecoveryFlasksForMinions: bool);
@@ -1310,11 +1403,11 @@ pub fn buildDefenceEstimations(env: &EnvRef, actor: &ActorRef) { let mut c = Def
 ctx_struct! { pub struct InitEnvCtx {
     build: BuildRef, mode: Mode, specEnv: Option<SpecEnv>,
     cachedPlayerDB: Option<ModDB>, cachedEnemyDB: Option<ModDB>, cachedMinionDB: Option<ModDB>,
-    env: EnvRef, accelerate: Accelerate, r#override: Rc<Override>, modDB: ModDB,
+    env: Option<EnvRef>, accelerate: Accelerate, r#override: Rc<Override>, modDB: Option<ModDB>,   // env/modDB nil until CS1 (481, 486)
 }}
 /// @pob Modules/CalcSetup.lua:475-487 (header, ClearMatchKeywordFlagsCache, accelerator locals)
 pub fn initEnv(build: &BuildRef, mode: Mode, r#override: Option<Rc<Override>>, specEnv: Option<&SpecEnv>)
-    -> (EnvRef, ModDB, ModDB, Option<ModDB>) {
+    -> (EnvRef, Option<ModDB>, Option<ModDB>, Option<ModDB>) {
     let mut ctx = InitEnvCtx::init(build, mode, r#override, specEnv);   // L476-487 (override = override or {})
     for f in [init_env_base::seg as fn(&mut InitEnvCtx) -> Flow,       // CS1 488-799
               init_env_items::seg,                                     // CS2 800-1450 (Restart at 1433)
@@ -1334,7 +1427,8 @@ A segment receives `&mut Ctx` and assigns ctx fields where Lua assigns the local
 ### 7.3 Module-level state and globals
 
 - `globalOutput`/`globalBreakdown` live in `OFFENCE_STATE` (§5.6). Segments read and write them through `OFFENCE_STATE.with(|s| s.globalOutput.get())`. The explosiveArrowFunc hook receives them (CalcOffence.lua:3038).
-- The undeclared-global sites listed by `globals_lint.py` at the pin are: `dotCfg` (CalcOffence 3527, 3538), `affectedByAura` (CalcPerform 3464; `pairs(nil)` raises a LuaError when an `AffectedByAuraMod` LIST mod exists), and `modSource` (CalcDefence 1606, so `nil or "…"` takes the literal). Each is ported literally with `// LUA-GLOBAL-NIL`. `nullValue` (ModDB.lua:262, ModList.lua:207) is also an undeclared global (nil), so `EvalMod(…) or nullValue` leaves nil results out of `List`.
+- The undeclared-global read sites listed by `globals_lint.py` at the pin (CCR-0004) are: `dotCfg` (CalcOffence 3527, 3538), `cfg` (CalcOffence 2506, 2507; no `cfg` is in scope at the top level of `calcs.offence` there, so `Sum("BASE", nil, "Multiplier:TraumaStacks")`), `affectedByAura` (CalcPerform 3464; `pairs(nil)` raises a LuaError when an `AffectedByAuraMod` LIST mod exists), `skillCfg` (CalcPerform 915; CalcBreakdown 212, 232), `modSource` (CalcDefence 1606, so `nil or "…"` takes the literal), `aura` (PartyTab 919; the loop variable of 911-917 is out of scope), `cfg` (Data/Skills/act_dex.lua:12991, Scourge Arrow `preDamageFunc`) and `scriptPath` (DataLegionLookUpTableHelper 136, 144; `nil .. "/Data/…"` raises a LuaError). Each is ported literally with `// LUA-GLOBAL-NIL`. `nullValue` (ModDB.lua:262, ModList.lua:207) is also an undeclared global (nil), so `EvalMod(…) or nullValue` leaves nil results out of `List`. `globals_lint.py --check` parses this bullet and fails unless the reported set equals it exactly.
+- `globals_lint.py` also lists *implicit globals*: assignments to a name that no scope declares, inside a function (e.g. `mult` CalcPerform 2575/2580, `newMod` 1925, `srcList` 1738, `uncancellableReservation` 563, `simBreakdown` CalcTriggers 814), and their reads. Ports keep them as function locals unless a read before the write is reachable.
 
 ---
 
@@ -1405,7 +1499,7 @@ pub struct MirageConfig {
 }
 ```
 
-Function ids in the manifest are the dotted path from the `data` root, for example `skills.Barrage.preDamageFunc`, `configOptions.<var>.apply` and `mapMods.<key>.apply`.
+Function ids are the ids of `data/dump/closures.json` (AMENDMENTS A2, `crates/pob-dump/FORMAT.md`), for example `skills.Barrage.preDamageFunc` and `ConfigOptions[<i>].apply` (1-based position in ConfigOptions.lua; not `configOptions.<var>.apply`, CCR-0006 §7), with sha256 body hashes.
 
 ---
 ## 9. Data pipeline, oracle and testing
@@ -1436,24 +1530,27 @@ Function ids in the manifest are the dotted path from the `data` root, for examp
    | metatable | `"$meta":"<name>"` |
 
 4. **Compile (U0's `pob-extract compile`).** Deserialise into `pob_gamedata::Data` with `#[serde(deny_unknown_fields)]` on every schema struct, then write `data/dump/data.bin` (postcard). Runtime loads only `data.bin`, plus lazily loaded tree files.
-5. **Codegen (P1).** Writes `generated/global.rs` and the verbatim-key record structs for `misc`, `characterConstants`, `monsterConstants` and `gameConstants`. Generated files are checked in, and `dump --codegen --check` fails CI when they differ.
+5. **Codegen (P1).** `pob-dump --codegen` writes `crates/pob-dump/generated/{enums.rs,global.rs,misc.rs}`: `global.rs` and the verbatim-key record structs for `misc`, `characterConstants`, `monsterConstants` and `gameConstants` (§4.2). pob-gamedata includes `global.rs`/`misc.rs` by path (CCR-0003). Generated files are checked in, and `pob-dump --codegen --check` fails CI when they differ. `data.misc` is in `misc.json["misc"]` (data keys whose own file name is reserved go into the `misc.json` group).
 6. **Determinism.** Two dumps MUST be byte-identical.
 
 ### 9.2 Oracle infrastructure (P3, ORC-X)
 
 **Process model.** One fresh LuaJIT PoB process per build, which avoids the known cross-build state leak (corpus 031→051). Every run goes through `scripts/port/oracle.sh`, which holds a `flock`, so only one oracle process exists at a time (≈400 MB).
 
+**Interpreter only (CCR-0001/0002).** Every oracle parity run uses the LuaJIT interpreter: `JitPob::boot_oracle` runs `jit.off()` (and `jit.flush()`) before anything else (`pob_oracle::jit::ORACLE_JIT_OFF`), as the parse oracle in pob-dump does. Compiled traces of this LuaJIT are wrong for `string.sub` with a variable negative end and drop the sign of zero of narrowed results (§3.5). `POB_ORACLE_JIT=on` exists for diagnostics only; the `pob_timing` baseline (G1a) runs PoB as it ships, JIT on. Every `outputs.json`/`stages.json` records the LuaJIT that produced it: `"luajit": {"arch", "jit", "numberMode": "single"|"dual"}`. On a dual-number host a `±0` difference is a host artefact (§3.5).
+
 **Patched source.** The patcher copies `.PathOfBuilding/src` to `target/oracle-src/<sha>/`.
 - For every `[[stage]]` in `docs/port/stages.toml` (`id`, `file`, `line`, `locals`), it inserts `if __PROBE then __PROBE("<id>", {<locals>}) end` before the line. Both the `:in` and `:out` boundaries of every segment in §7 are stages.
 - It wraps function probes around `calcs.initEnv`, `perform`, `defence`, `buildDefenceEstimations`, `offence`, `triggers`, `mirages`, `buildActiveSkillModList`, `createActiveSkill`, `runSkillFunc`, every skill hook, every config apply, jewel funcs, `getCachedOutputValue` and `ConfigTab:BuildModList`.
 - It validates the patched files with `loadstring`.
-- Hits are numbered `<id>#<n>` per process, which separates passes, recursive envs and repeated performs. Each dump also records the env identity (`$env`) and the call stack of probe ids.
+- Hits are numbered `<id>#<n>` per process, which separates passes, recursive envs and repeated performs. Each dump also records the env identity (`$env`) and the call stack of probe ids. A build load runs `calcs.buildOutput` several times (plus `buildActiveSkill`/`calcFullDPS` envs), so `#1` is usually not the main env: the selector `<glob>@main` picks the first hit of each matching probe in `calcsTab.mainEnv` and is the default for env-level and line probes. Tests name hits as `hits.json` lists them (e.g. `offence:out#4`), never assume `#1` (CCR-0010).
+- Line probes before a split function's final `end` are `<fn>:end`; `<fn>:in`/`<fn>:out` are the patcher's function probes (a line probe named `<fn>:out` would collide with them; CCR-0011 §9).
 
-**pob-state/1 dump.** Each dump is deterministic JSON, keys sorted, with an identity-preserving graph (`$id`/`$ref`). Data objects are written as `{"$data":"skills/Barrage"}`, nodes as `{"$node":id}`, and items field-wise with modList, slotModList, weaponData, armourData, flaskData and jewelData. Contents:
+**pob-state/1 dump.** Each dump is deterministic JSON, keys sorted, with an identity-preserving graph (`$id`/`$ref`). Data objects are written as `{"$data":"data.skills.Barrage"}` (pob-dump canonical paths, FORMAT.md, so a marker resolves against `data/dump` directly; CCR-0010), nodes as `{"$node":id}` (allocated) / `{"$treeNode":id}`, and items field-wise with modList, slotModList, weaponData, armourData, flaskData and jewelData. The full format is in `crates/pob-oracle/README.md`. Contents:
 - **env:** modes, flags, override, alloc nodes, granted lists.
 - **Each actor:** fields, output (nested), breakdown (structural).
 - **Each mod store:** mods per name in order, written with a canonical `formatMod`-equivalent encoding plus the inserting Lua `file:line`; conditions; multipliers; parent `$ref`.
-- **Each active skill:** uuid, effect ids/levels/quality, skillTypes, skillFlags, skillData, every cfg (skillCond flattened per layer, with its `IndexMeta` kind), skillModList, buffList.
+- **Each active skill:** uuid, effect ids/levels/quality, skillTypes, skillFlags, skillData, every cfg (skillCond layers via `$meta.__index`: a `$ref` for table layers, `{"$fn": "Modules/CalcOffence.lua:4422-4422", "upnames": ["skillCfg", "cfg"]}` for the function layer, whose upvalues the oracle cannot read since its state has no `debug` library; CCR-0010), skillModList, buffList.
 - **The listed locals.**
 - **GlobalCache entries:** scalars plus `$ref` to env and skill.
 
@@ -1466,7 +1563,7 @@ Function ids in the manifest are the dotted path from the `data` root, for examp
 **Replay.** `pob_oracle::replay` swaps a not-yet-ported callee for its recorded `in→out` state delta, keyed by hit id. Examples: PF-G calling `offence`, OF-A calling skill hooks, triggers calling `buildActiveSkill`.
 
 **Diff.**
-- Numbers must agree within `|a-b| ≤ 1e-9·max(1,|a|)`; bools and strings must be identical.
+- Numbers must agree within `|a-b| ≤ 1e-9·max(1,|a|)`, so a `±0` sign mismatch passes (a dual-number host artefact, CCR-0002); bools and strings must be identical.
 - ModStores compare as a multiset per name, plus an order check whose failures are reported as `LUA-ORDER`.
 - Lists compare in order, except the nondeterministic set (§9.5).
 - Output is `{build, pob, ours}`, so `scripts/parity/report.py` works unchanged.
@@ -1476,7 +1573,7 @@ Function ids in the manifest are the dotted path from the `data` root, for examp
 ### 9.3 Corpora
 
 - `all57`: `.parity/builds`.
-- `slice5`: one weapon, no auras; a single attack or spell.
+- `slice5`: `crates/pob-oracle/corpus/U0/slice5.txt` — five all57 builds reduced to their main socket group (`corpus/U0/derive_slice5.py`, CCR-0012; files in `corpus/U0/slice5/`): exactly one weapon, a single attack or spell, no aura, curse, buff, warcry, mirage, trigger or minion skill and no `Extra*` aura/curse/link/minion mod (checked against the oracle with `derive_slice5.py --check`). No all57 build meets that as is. Entries: `slice5_allflame_exp_024` (Winter Orb), `_007` (Spark of the Nova), `_030` (Ethereal Knives of the Massacre), `_031` (Shield Crush), `_048` (Flicker Strike; CCR1 replaced `_046`, which had no weapon). If undoctored builds are preferred later, P3's `synthetic` one-skill builds are the alternative.
 - `dps30`: the builds with TotalDPS > 0.
 - `curated/<topic>`: triggers, mirages, timeless, cluster, minion, aura, party, flasks.
 - `unit/<id>`: micro-builds each unit authors in `crates/pob-oracle/corpus/<id>/`.
@@ -1486,7 +1583,7 @@ Function ids in the manifest are the dotted path from the `data` root, for examp
 
 | Level | What | Gate |
 |---|---|---|
-| L0 | `pob-lua` helpers and `LjIntMap` vs LuaJIT: random and edge vectors, ≥10k per fn. Includes every `s_format` literal in Calc*.lua, NaN/±0 cases for `m_min`/`m_max`, and `table.sort` permutations with tie-heavy comparators | 100% identical |
+| L0 | `pob-lua` helpers and `LjIntMap` vs the LuaJIT **interpreter** (`jit.off`; `L0_JIT_ON=1` adds an informational `jit.on` run whose trace-only divergences are counted): random and edge vectors, ≥10k per fn. Includes every `s_format` literal in Calc*.lua, NaN/±0 cases for `m_min`/`m_max`, and `table.sort` permutations with tie-heavy comparators. The port's x64 profile is compared as shipped; on a dual-number host a mismatch is tolerated (and counted) only when `with_luajit_arm64_profile` reproduces the oracle exactly (CCR-0001 table). Run in debug and `--release` (`lpow` folding) | 100% identical (modulo the counted, ARM64-profile-reproduced host differences) |
 | L1 | ModParser: all of ModCache (23,207 lines) with the cache tier **disabled**, plus `parse_oracle.jsonl` | ≥ 99.95%; full-tie lines accepted per §3.4; every entry in a unit's range is hit by ≥ 1 oracle line, or listed |
 | L2 | Model. Item: ParseRaw fields, modList, slotModList[1..2], weaponData, armourData, flaskData, tinctureData, jewelData for every unique (all variants) and corpus item. Tree: node.modList and nodesInRadius for every node of every version. Spec: alloc, conquered and timeless rewrites, cluster subgraphs. Jewel funcs: each func on every node of the 3_26 tree | 100% |
 | L3 | ModStore query matrix on dumped DBs at `perform:out`: every mod name × cfg ∈ {nil, skillCfg, weapon1Cfg, weapon2Cfg, dotCfg, bleed/poison/ignite cfgs} × {Sum BASE/INC, More, Flag, Override, List, Max, Min, Tabulate, GetCondition, GetMultiplier, GetStat} | 100% |
@@ -1496,7 +1593,9 @@ Function ids in the manifest are the dotted path from the `data` root, for examp
 
 ### 9.5 PoB nondeterminism (D8)
 
-`pob_oracle` runs each build **twice** (two processes, so two hash seeds). Any key, mod order or list order that differs between the runs is recorded in `.parity/nondet/<build>.json`. The diff accepts a Rust value that equals any value PoB produced; for orders, it compares as sets. For a build flagged by the first pair, the oracle runs a third time. Integer-keyed orders MUST NOT appear in this set: if one does, `LjIntMap` usage is missing at that site, which is a bug.
+`pob_oracle` runs each build **twice** (two processes, so two hash seeds). Any key, mod order or list order that differs between the runs is recorded in `.parity/nondet/<build>.json`. The diff accepts a Rust value that equals any value PoB produced; for orders, it compares as sets. For a build flagged by the first pair, the oracle runs a third time (`pob_oracle nondet --max-runs N` keeps running while runs add entries). Integer-keyed orders MUST NOT appear in this set: if one does, `LjIntMap` usage is missing at that site, which is a bug.
+
+Recorded by P3 (CCR-0010): over the corpus PoB's outputs never differed between runs, but the dumped states do — mostly mod order within mod lists / ModDB names, and also values: the gem variant a skill resolves to varies between PoB processes (`ExplosiveTrap` / `ExplosiveTrapAltX` in allflame_exp_019; `VaalRighteousFire` / its AltX variant in upstream_Dual_Wield_Cospris_CoC), so the calc port accepts either variant where PoB does. The record (`pob-nondet/2`) uses the paths the state diff walks, records a list as unordered only when its own elements move, and records mod-store differences per store name. Order-only differences inside mod stores are sampled, not enumerated: the state diff compares mod stores as multisets and reports unrecorded order differences as `LUA-ORDER` (not a value mismatch); PoB's run-to-run value differences inside a mod store are recorded per store name as alternative multisets. With the JIT off (§9.2), a `±0` difference between runs cannot come from trace timing.
 
 ### 9.6 Provenance and upstream sync (P4)
 
@@ -1549,7 +1648,7 @@ scripts/port/oracle.sh run --build X.xml --stage <id>   # flock-serialised LuaJI
 
 - Frozen files change only through `docs/port/ccr/NNNN-<slug>.md`, which states the problem, the Lua evidence (file:line) and the proposed diff.
 - Until the CCR is merged, the requesting agent works around the gap locally in its own file and marks the workaround `// CCR-NNNN`.
-- The integrator applies CCRs serially between merges and re-runs `cargo.sh check` for all crates.
+- The integrator applies CCRs serially between merges and re-runs `cargo.sh check` for all crates. An applied CCR file gets a `Status: applied <date> by <unit>` line and stays in `docs/port/ccr/` as the evidence record; the binding text is the edited doc.
 
 ---
 ## 11. Work units
@@ -1564,7 +1663,7 @@ A **wave** is a dependency level: it lists what *may* run in parallel. It does n
 | **P1** dump + codegen | Data/Global.lua 1-360; Modules/Data.lua (executed); TreeData/*; GameVersions.lua; ModCache; ConfigOptions; ModMap; CalcSections; StatDescriptions; PearlSupports | `pob-extract/src/dump/{mod.rs,walker.lua,canonical.rs,codegen.rs}`, `pob-gamedata/src/generated/*` | REN | two dumps byte-identical; SkillType has 135 entries (Area=8, Aura=39, Pact=135); `closures.json` = 133 skill + 531 config + 41 modmap; 41 tree versions; `parse_oracle.jsonl` ≥ 80k lines | 0 |
 | **P2** pob-lua | Common.lua 709-800, 1013-1023, 306 (sanitiseText); LuaJIT `lib_math`, `lib_string` format, `lib_table` sort, `lj_tab` | `pob-lua/src/{math,bit,format,string,pattern,sort,ipairs,ljtab}.rs` | — | L0: ≥ 10k vectors per fn identical to LuaJIT (dev-dep on pob-luahost); `LjIntMap` order equals LuaJIT for 10k random insert/delete sequences | 0 |
 | **P3** oracle core | HeadlessWrapper boot; patching of Calc*.lua | `pob-oracle/{Cargo.toml,src/{lib,runner,patcher,schema,diff,nondet}.rs,lua/*.lua,src/bin/*}`, `scripts/port/oracle.sh` | REN | function probes dump pob-state/1 for all57; two runs identical outside the nondet set; the patcher round-trips a dummy stages.toml through `loadstring`; write provenance covers ≥ 99% of output keys; `pob_calc_diff` output accepted by `report.py` | 0 |
-| **P4** port scripts | all in-scope Lua (analysis only) | `scripts/port/{locals_audit,segments,provenance,globals_lint,pairs_inventory}.py`, `scripts/port/cargo.sh` | — | `locals_audit` reproduces §7.1 exactly; `globals_lint` reports the §7.3 sites; `pairs_inventory` lists every `pairs()` site in scope with its key class (int/string/identity); provenance check/coverage/bump pass on fixtures | 0 |
+| **P4** port scripts | all in-scope Lua (analysis only) | `scripts/port/{locals_audit,segments,provenance,globals_lint,pairs_inventory}.py`, `scripts/port/cargo.sh` | — | `locals_audit` reproduces §7.1 exactly; `globals_lint --check` reports exactly the §7.3 sites (parsed from the doc text); `pairs_inventory` lists every `pairs()` site in scope with its key class (int/string/identity); provenance check/coverage/bump pass on fixtures | 0 |
 | **U0** skeleton | everything (signatures, census) | every `[U0]` file in §2.1; `pob-extract/src/compile.rs`; `docs/port/{stages.toml,scope.toml,STYLE.md,contracts.md,known_diffs.toml,pairs_inventory.md}`; one stub per unit-owned file with final signatures, `@pob` markers and `unported!` bodies | P1-P4 | `cargo.sh check -p pob-lua -p pob-gamedata -p pob-modparser -p pob-calc` green; wasm32 check green; `compile` reports zero unknown keys and `data.bin` loads in < 1 s; `registry_complete` lists every manifest id; `provenance coverage` = 100%; the patched oracle with every stage loads; `buildOutput` on slice5 runs end to end on stubs without panicking (`tests/u0_smoke.rs`) | 1 |
 | **T1** transpiler | ModParser table syntax; `apply = function(val, modList, enemyModList)` forms | `scripts/port/lua2rs/**` | P4 | formList, modNameList and modFlagList translate to compiling Rust; ≥ 80% of ConfigOptions applies and ≥ 95% of static plus one-line specialModList entries translate; golden tests | 1 |
 | **MS-A** ModStore/DB/List | ModStore.lua 1-362; ModDB.lua 1-370; ModList.lua 1-249 | `pob-calc/src/classes/{mod_store,mod_db,mod_list}.rs` | U0 | L3 for all non-tag paths; ScaleAddMod/ScaleAddList aura scaling on all57; Replace/Convert parent recursion; no ModList globalLimits; `HasMod` on a ModList raises LuaError; Max returns nil for all values ≤ 0 | 2 |
@@ -1662,7 +1761,7 @@ A **wave** is a dependency level: it lists what *may* run in parallel. It does n
 | parallel-porting: 22/33 parallel agents; shared CARGO_TARGET_DIR across worktrees | 3 GB RAM → ≤ 3 agents; per-worktree target dirs + flock | D20, §10.1 |
 | all three: insertion order = PoB pairs order | string-key order is random per process (seeded hash, lj_str.c:367); integer-key order is deterministic | D8, §3.4, §9.5 |
 | all three: no module-level mutable upvalues | `globalOutput`/`globalBreakdown`; `mergeLevelCache` (CalcActiveSkill:21) | §5.6 |
-| all three: no undeclared-global handling | `dotCfg` (CalcOffence:3527/3538), `affectedByAura` (CalcPerform:3464), `modSource` (CalcDefence:1606), `nullValue` (ModDB:262, ModList:207) | D16, §7.3 |
+| all three: no undeclared-global handling | `dotCfg` (CalcOffence:3527/3538), `affectedByAura` (CalcPerform:3464), `modSource` (CalcDefence:1606), `nullValue` (ModDB:262, ModList:207); CCR-0004 added `cfg` (CalcOffence:2506/2507, act_dex:12991), `skillCfg` (CalcPerform:915, CalcBreakdown:212/232), `aura` (PartyTab:919), `scriptPath` (DataLegionLookUpTableHelper:136/144) | D16, §7.3 |
 | (new) `data` treated as immutable | `data.setJewelRadiiGlobally` mutates `data.jewelRadius`/`maxJewelRadius` on SetActiveSpec (Data.lua:583-600, TreeTab.lua:553) and PassiveTree reads them (PassiveTree.lua:662-676) | `DataSel` (§4.4) |
 | (new) ModMap apply has one signature | three call shapes chosen by affix type (ConfigOptions.lua:117-130); bodies differ in arity (ModMap.lua:12 vs :20) | `ModMapApply` enum (§8.1) |
 | (new) ModList:HasMod works | ModList.lua defines no HasModInternal → Lua error | §5.3 |
@@ -1680,6 +1779,6 @@ A **wave** is a dependency level: it lists what *may* run in parallel. It does n
   - ModMap apply: 41;
   - CalcTriggers configTable: 82.
 - **ModFlag/KeywordFlag:** u32, max bit `MatchAll = 0x40000000`.
-- **SkillType:** 135 entries (Area 8, Aura 39, Pact 135).
+- **SkillType:** 135 entries incl. the operators OR 73, AND 74, NOT 75 (Area 8, Aura 39, Pact 135); `COUNT` = 136 bits.
 - **Hooks:** `runSkillFunc` passes the offence top-level `output`/`breakdown` (CalcOffence:509-514). Call sites: 516, 1054, 1908, 3315, 5806. explosiveArrowFunc is called at 3038.
 - **Global functions defined by calc modules:** `wipeEnv`, `doActorLifeMana`, `doActorLifeManaReservation`, `isTriggered`, `calcMultiSpellRotationImpact`, `cacheSkillUUID`, `cacheData`, `wipeGlobalCache`, `MatchKeywordFlags`, `ClearMatchKeywordFlagsCache`.

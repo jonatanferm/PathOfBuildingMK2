@@ -26,7 +26,7 @@ fn common_lua_chunk() -> String {
 }
 
 fn unary(name: &str, expr: &str, rs: impl Fn(f64) -> f64, seed: u64) {
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let xs = numbers(seed, N);
         let f = func(&lua, &format!("{ENC} return function(xs) local out = {{}} for i = 1, #xs do local x = xs[i] E(out, i, {expr}) end return out end"));
@@ -70,7 +70,7 @@ fn binary_alt(
     ys_gen: impl Fn(&mut Rng) -> f64,
     jit_alt: Option<fn(f64, f64) -> f64>,
 ) {
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let xs = numbers(seed, N);
         let mut r = Rng(seed ^ 0x5555);
@@ -184,7 +184,7 @@ fn lj_math_binary() {
 
 #[test]
 fn common_lua_rounding() {
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let fns: pob_oracle::mlua::Table = lua
             .load(common_lua_chunk())
@@ -269,7 +269,7 @@ fn common_lua_rounding() {
 
 #[test]
 fn lj_bit() {
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let mut xs = numbers(41, N);
         let mut r = Rng(42);

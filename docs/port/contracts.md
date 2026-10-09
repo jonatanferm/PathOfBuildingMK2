@@ -10,7 +10,7 @@ Changes go through a CCR (§10.3). Pin: PathOfBuilding 16de4b82d.
 | Contract | File(s) | Doc |
 |---|---|---|
 | `Name`, `n!`/`nm!`/`cat!`, `Field`, `Shared`, `PtrSet`/`PtrMap`, `LuaError`/`lua_error!`/`catch` | `crates/pob-lua/src/{name,field,error}.rs` (built by P2 to the §4.1 shape; U0 accepted them unchanged) | §4.1 |
-| Generated enums (`ModFlag`, `KeywordFlag`, `SkillType`, `SkillTypeExpr`, `SkillTypeSet`, `MatchKeywordFlags`, `colorCodes`), `data.misc` records | `crates/pob-dump/generated/{global,misc}.rs`, included by path from `pob-gamedata/src/generated/mod.rs` (one copy; `pob-dump --codegen --check` guards them) | §4.2, CCR-0001-p1 |
+| Generated enums (`ModFlag`, `KeywordFlag`, `SkillType`, `SkillTypeExpr`, `SkillTypeSet`, `MatchKeywordFlags`, `colorCodes`), `data.misc` records | `crates/pob-dump/generated/{global,misc}.rs`, included by path from `pob-gamedata/src/generated/mod.rs` (one copy; `pob-dump --codegen --check` guards them) | §4.2, CCR-0003 |
 | `Mod`, `ModRef`, `ModType`, `Tag`, `TagType`, `Ramp`, `Sockets`, `JewelFuncSpec`, `tag!`, `IntoTagField` | `crates/pob-gamedata/src/modifier.rs` | §4.3, [#tag-census](#tag-census) |
 | `Value`, `ValueTable`, `AStr`, `DataValue`/`DataTable` | `crates/pob-gamedata/src/value.rs` | §4.3 |
 | `LuaFnRef` | `crates/pob-gamedata/src/fnref.rs` | §4.4 |
@@ -261,7 +261,7 @@ code reassigns those `skillCond` fields after CalcActiveSkill.lua 464-487).
 
 ## globals
 
-`scripts/port/globals_lint.py --check`: ok (the 6 §7.3 sites + the 9 of CCR-0004).
+`scripts/port/globals_lint.py --check`: ok (the 15 sites of calc doc §7.3, which includes CCR-0004 since CCR1; the lint parses them from the doc text).
 
 ## pairs
 

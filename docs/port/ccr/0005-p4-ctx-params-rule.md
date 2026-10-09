@@ -1,5 +1,7 @@
 # CCR-0005: §7.1 "exactly the crossing locals" does not hold for parameters
 
+**Status: applied 2026-10-09 by CCR1.** Applied to calc doc §7.1.
+
 - **Raised by:** P4 (`scripts/port/locals_audit.py`)
 - **Affects:** calc-architecture.md §7.1 (wording only; no table or ctx struct changes)
 - **Pin:** 16de4b82d

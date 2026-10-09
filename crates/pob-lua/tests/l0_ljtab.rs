@@ -109,7 +109,7 @@ fn ljintmap_order_matches_luajit() {
     let seqs: Vec<Seq> = (0..SEQUENCES).map(|_| gen_seq(&mut r)).collect();
     let total_ops: usize = seqs.iter().map(|s| s.ops.len()).sum();
     eprintln!("  {SEQUENCES} sequences, {total_ops} operations");
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let f = func(
             &lua,

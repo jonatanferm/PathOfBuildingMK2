@@ -392,10 +392,23 @@ local function mainEnv()
 	return b.calcsTab and b.calcsTab.mainEnv
 end
 
+-- The LuaJIT build and mode that produced a dump (CCR-0001/0002): on a
+-- dual-number host (ARM64) the sign of a zero can differ from x64 PoB.
+local function luajitInfo()
+	if not jit then return "null" end
+	local negZero = loadstring("return -0")()
+	return obj({
+		{ "arch", jstr(jit.arch) },
+		{ "jit", (jit.status()) and "true" or "false" },
+		{ "numberMode", jstr((1 / negZero < 0) and "single" or "dual") },
+	})
+end
+
 local function meta()
 	return {
 		{ "build", jstr(tostring(__pob_name or "")) },
 		{ "pobVersion", jopt(launch and launch.versionNumber) },
+		{ "luajit", luajitInfo() },
 	}
 end
 

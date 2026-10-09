@@ -87,6 +87,8 @@ fn run() -> Result<(), String> {
         .file_stem()
         .map_or_else(|| "build".to_owned(), |s| s.to_string_lossy().into_owned());
     let _lock = OracleLock::acquire().map_err(|e| e.0)?;
+    // Timing baseline: PoB as it ships, JIT on (not an oracle parity run, so not
+    // `boot_oracle`; CCR-0001).
     let mut pob = pob_oracle::jit::JitPob::boot_with(&src, Some(QUIET_PRELUDE))?;
     pob.load_build_xml(&xml, &name)?;
     let r = pob.run(&format!("__timing_iters = {iters}\n{TIMING_LUA}"))?;

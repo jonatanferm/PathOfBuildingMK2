@@ -64,7 +64,7 @@ fn gen_arrays(seed: u64, count: usize) -> Vec<Vec<f64>> {
 #[test]
 fn table_sort_comparators() {
     quiet_lua_errors();
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         for (ci, (name, cmp)) in COMPARATORS.iter().enumerate() {
             let arrays = gen_arrays(900 + ci as u64, PER_COMPARATOR);

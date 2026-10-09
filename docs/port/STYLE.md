@@ -38,14 +38,14 @@ listed here; then the verbatim text.
 | `#t` | `t.len()` (border; hole-free contract) |
 | `for i, v in ipairs(t)` | `for_ipairs!((i, v) in t => { ... })`. It reads `t[i]` live on every step and stops at the first nil, exactly like Lua. |
 | `for k, v in pairs(t)` | `for (k, v) in t.pairs() { ... }`. Keys are a snapshot; values are read live; keys whose live value is nil are skipped. Add `// LUA-ORDER` when the result can depend on order (§3.4). |
-| `t_insert(t, v)` / `t_insert(t, i, v)` / `t_remove(t, i)` | `t.push(v)` / `t.insert(i, v)` / `t.remove(Some(i))` |
-| `wipeTable(t)` / `copyTable(t)` / `copyTable(t, true)` | `t.wipe()` / `t.copyTable(false)` / `t.copyTable(true)`. Both keep the metatable (Common.lua:496). |
+| `t_insert(t, v)` / `t_insert(t, i, v)` / `t_remove(t, i)` | `t.push(v)` / `t.insert(i, v)` / `t.remove(Some(i))`. Positions are `i64` and follow LuaJIT 2.1 `lib_table.c`: no bounds error; `remove` acts only for `1 <= i <= #t` (CCR-0011 §10). |
+| `wipeTable(t)` / `copyTable(t)` / `copyTable(t, true)` | `t.wipe()` / `t.copyTable(false)` / `t.copyTable(true)`. `wipe` keeps the metatable; `copyTable` does not (Common.lua:477-487; only `copyTableSafe(…, preserveMeta)` copies it, 494-496; CCR-0011 §1). |
 | `goto continue` | `continue` |
 | `return` at the top level of a split function | the segment returns `Flow::Return` |
 | `return calcs.initEnv(build, mode, override, specEnv)` | the segment returns `Flow::Restart` (§7.2) |
 | `error(...)`, or an arithmetic, index or call on nil | `lua_error!("...")` |
 | a read of an undeclared global (`dotCfg` at CalcOffence:3527) | literal `nil` / `None`, marked `// LUA-GLOBAL-NIL` |
-| a string passed where a cfg is expected (`skillModList:More("MORE", cfg, "Accuracy")`, CalcOffence.lua:2194-2195) | `Some(&ModCfg::STRING_CFG)` (all fields nil; the table that ends up in the name list matches nothing), marked `// LUA-QUIRK` |
+| a string passed where a cfg is expected (`skillModList:More("MORE", cfg, "Accuracy")`, CalcOffence.lua:2194-2195) | `Some(ModCfg::STRING_CFG())` (all fields nil; the table that ends up in the name list matches nothing), marked `// LUA-QUIRK` |
 
 ### 3.3 Borrow rules (they also apply under `Rc`)
 
@@ -64,8 +64,10 @@ listed here; then the verbatim text.
 ### 3.5 Numbers and strings
 
 - Lua numbers are `f64` everywhere. Integers are used only for indices and ids.
+- **Number mode and LuaJIT build profile (CCR-0001, CCR-0002).** PoB's reference LuaJIT is the x64 build: single-number (every number is a double, so `-x` of a zero is `-0`) with `cvttsd2si` float→int casts (NaN and out-of-range give MIN). **The shipped port always follows that profile, on every host and target** (desktop aarch64 and wasm32 included): Rust `f64` arithmetic matches it, and `pob_lua::{LJ_TARGET_X86ORX64, LJ_DUALNUM}` are the constants `true`/`false`. ARM64 LuaJIT builds (this project's oracle host) are dual-number: integer-valued results are int32 values without `-0` (`-tonumber("0")` and the literal `-0` give `+0` in the interpreter, `-0` once traced), casts saturate (`string.format("%d", 1e30)` = `9223372036854775807`, `("%d", 0/0)` = `0`), and `tonumber("-0", base)` / `tonumber("-0b0")` are `+0`. That behaviour exists in `pob-lua` only behind the test-only feature `oracle-dualnum` (`pob_lua::profile::with_luajit_arm64_profile`), which the L0 tests use to explain host differences (§9.4). Oracle parity runs use the LuaJIT interpreter (`jit.off()`, §9.2), and the diff treats a `±0` sign mismatch as a host artefact, never as a port bug; values derived from the sign (`1/x` = `±inf`, a formatted `"-0"`) are recorded in `known_diffs.toml` citing CCR-0002.
+- **LuaJIT traces are not the reference.** Compiled traces of the vendored LuaJIT differ from its interpreter: `string.sub(s, i, j)` with a variable negative `j` returns the wrong substring in traces, trace narrowing drops the sign of zero of `math.floor`/`math.ceil` results, and the JIT folds `x^2` to `x*x` (1 ulp from libm `pow` for some `x`). The port follows the interpreter (CCR-0001).
 - **Flags.** Flag bit operations use `u32` (the largest flag is `MatchAll = 0x40000000`, so bit 31 is unused). `bnot` only ever appears inside `band` masks; U0's grep test asserts this.
-- **Number formatting.** `tostring(number)` is `%.14g` with LuaJIT spellings (`inf`, `-inf`, `nan`/`-nan`, `-0`). `string.format` is a port of `lj_strfmt` (§4.1).
+- **Number formatting.** `tostring(number)` is `%.14g` with LuaJIT spellings (`inf`, `-inf`, `nan`, `-0`; LuaJIT 2.1's own formatter never prints a NaN sign). LuaJIT's `%.14g` rounds exact decimal ties up (`nd_add_m10e`), unlike glibc `printf`: `tostring(123456789012345)` = `1.2345678901235e+14`. `string.format` is a port of `lj_strfmt` (§4.1).
 - **Division.** Division by zero yields IEEE inf/NaN. Never clamp or guard where Lua does not.
 - **`m_modf` truncates toward zero.** In `subMod.value = m_modf(round(x, 2))` (ModStore.lua:84) only the first return value is used.
 - **`ModStore:Max` drops non-positive values.** It returns nil when every value is ≤ 0, because it starts from `val > (max or 0)` (ModStore.lua:248-257). Port literally.
@@ -81,15 +83,21 @@ listed here; then the verbatim text.
 
 ### Accepted rule changes (CCRs)
 
-- **CCR-0001 (LuaJIT build profile) / CCR-0002 (dual-number ±0).** PoB's reference is x86-64
-  single-number LuaJIT; the oracle machine is ARM64 dual-number. `pob_lua::{LJ_TARGET_X86ORX64,
-  LJ_DUALNUM}` mirror the target's profile; a ±0 difference against an ARM64 oracle is a host
-  artefact (record it in `known_diffs.toml` with the CCR number), never a port bug. `lpow` is libm
-  `pow` (no `lj_vm_powi`); LuaJIT never prints a NaN sign.
-- **CCR-0004 (undeclared globals).** The `LUA-GLOBAL-NIL` sites are §7.3's list plus the nine sites
-  of CCR-0004 (`cfg` CalcOffence 2506/2507, `skillCfg` CalcPerform 915 and CalcBreakdown 212/232,
-  `aura` PartyTab 919, `cfg` act_dex 12991, `scriptPath` DataLegionLookUpTableHelper 136/144).
-  `scripts/port/globals_lint.py --check` must stay green.
+All CCRs below are applied to the calc doc text (unit CCR1, 2026-10-09), so §3 above already
+contains them; this list says where each one bites.
+
+- **CCR-0001 (LuaJIT build profile) / CCR-0002 (dual-number ±0).** The shipped port always
+  follows x64 single-number PoB, on every host and target: `pob_lua::{LJ_TARGET_X86ORX64,
+  LJ_DUALNUM}` are the constants `true`/`false`; the ARM64 dual-number profile exists only behind
+  pob-lua's test-only `oracle-dualnum` feature. Oracle parity runs use the LuaJIT interpreter
+  (`jit.off()`). A ±0 difference against an ARM64 oracle is a host artefact (the numeric diff
+  tolerates it; record sign-derived differences in `known_diffs.toml` with the CCR number), never a
+  port bug. `lpow` is libm `pow` (no `lj_vm_powi`); LuaJIT never prints a NaN sign.
+- **CCR-0004 (undeclared globals).** The `LUA-GLOBAL-NIL` sites are §7.3's list, which now includes
+  the nine sites of CCR-0004 (`cfg` CalcOffence 2506/2507, `skillCfg` CalcPerform 915 and
+  CalcBreakdown 212/232, `aura` PartyTab 919, `cfg` act_dex 12991, `scriptPath`
+  DataLegionLookUpTableHelper 136/144). `scripts/port/globals_lint.py --check` parses §7.3 and
+  must stay green.
 - **CCR-0006 (lua2rs shapes, T1).** Adopted by U0: the extra `ModSpec` keys, `TagType::Global`,
   `Tag.excludeItemType`, the conversion impls and the MP0 helper signatures; generated pattern
   lists and config applies compile against the real crates.

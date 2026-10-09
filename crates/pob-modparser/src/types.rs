@@ -13,8 +13,17 @@ pub enum Cap<'s> {
     Nil,
 }
 
-/// The arguments a pattern closure receives: `function(num, a, b, …)`: #1 =
-/// `num` (`tonumber(cap1)`), #k≥2 = `cap[k-2]` (strings).
+/// The arguments a pattern closure receives, in three call shapes (CCR-0006 §5,
+/// calc doc §6):
+/// * specialModList `f(tonumber(cap[1]), unpack(cap))` (ModParser.lua:6662-6663):
+///   #1 = `num`, #k≥2 = `cap[k-2]`;
+/// * preFlagList `f(unpack(preFlagCap))` (6680-6682): #1 = `cap[0]` (a string),
+///   #k≥2 = `cap[k-1]`;
+/// * modTagList `f(tonumber(c1), …)` when `c1` matches `%d+`, else `f(c1, …)`
+///   (6698-6712): #1 = `num` or `cap[0]`, #k≥2 = `cap[k-2]`.
+///
+/// `scan` fills `num = tonumber(cap1)` for specialModList and, for modTagList,
+/// whenever cap1 contains a digit.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Caps<'s> {
     pub num: Option<f64>,

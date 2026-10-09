@@ -21,7 +21,7 @@ Usage:
   globals_lint.py [--scope FILE] [--json]
   globals_lint.py --check [--doc FILE]
                               exit 1 unless the undeclared-read sites equal the ones calc doc
-                              §7.3 lists (parsed from the doc) plus CCR-0004
+                              §7.3 lists (parsed from the doc text, which includes CCR-0004)
 """
 
 import argparse
@@ -43,27 +43,54 @@ setfenv setmetatable tonumber tostring type unpack xpcall
 coroutine debug io math os package string table bit jit arg
 """.split())
 
-# calc doc §7.3 as of this writing: the undeclared-global read sites at the pin (D16). `--check`
-# reads the sites from the doc itself (doc_sites()); this copy only guards the doc parser in tests.
+# calc doc §7.3 as of this writing (CCR-0004 applied by CCR1): the undeclared-global read sites
+# at the pin (D16). `--check` reads the sites from the doc itself (doc_sites()); this copy only
+# guards the doc parser in tests.
 KNOWN_DOC_SITES = {
     ("Modules/CalcOffence.lua", 3527, "dotCfg"),
     ("Modules/CalcOffence.lua", 3538, "dotCfg"),
+    ("Modules/CalcOffence.lua", 2506, "cfg"),
+    ("Modules/CalcOffence.lua", 2507, "cfg"),
     ("Modules/CalcPerform.lua", 3464, "affectedByAura"),
+    ("Modules/CalcPerform.lua", 915, "skillCfg"),
+    ("Modules/CalcBreakdown.lua", 212, "skillCfg"),
+    ("Modules/CalcBreakdown.lua", 232, "skillCfg"),
     ("Modules/CalcDefence.lua", 1606, "modSource"),
+    ("Classes/PartyTab.lua", 919, "aura"),
+    ("Data/Skills/act_dex.lua", 12991, "cfg"),
+    ("Modules/DataLegionLookUpTableHelper.lua", 136, "scriptPath"),
+    ("Modules/DataLegionLookUpTableHelper.lua", 144, "scriptPath"),
     ("Classes/ModDB.lua", 262, "nullValue"),
     ("Classes/ModList.lua", 207, "nullValue"),
 }
 
 _SITE_GROUP = re.compile(r"`([A-Za-z_][A-Za-z_0-9]*)` \(([^)]*)\)")
-_SITE_REF = re.compile(r"(?:\b([A-Z][A-Za-z0-9_]*)(?:\.lua)?(?::|\s+))?(\d+)")
+# One site reference: an optional file (`CalcOffence`, `ModDB.lua`, `Data/Skills/act_dex.lua`)
+# followed by `:` or spaces, then a line number. Without a file the previous one carries over.
+_SITE_REF = re.compile(r"^(?:((?:[A-Za-z0-9_]+/)*[A-Za-z][A-Za-z0-9_]*)(?:\.lua)?(?::|\s+))?(\d+)$")
+
+
+def _resolve(pob, module):
+    """`Data/Skills/act_dex` -> that path; `CalcOffence` -> Modules/, else Classes/, else Data/."""
+    if "/" in module:
+        cands = ["%s.lua" % module]
+    else:
+        cands = ["%s/%s.lua" % (d, module) for d in ("Modules", "Classes", "Data")]
+    for rel in cands:
+        if os.path.isfile(os.path.join(pob, "src", rel)):
+            return rel
+    return None
 
 
 def doc_sites(doc_path, pob):
     """The undeclared-global read sites that calc doc §7.3 lists, as (path, line, name).
 
-    §7.3 writes them in prose: `name` (Module line[, line]; ...) or `name` (File.lua:line, ...).
-    Only the bullet(s) that mention undeclared globals are read. A module name is resolved to
-    Modules/<X>.lua, else Classes/<X>.lua, else Data/<X>.lua under the checkout's src/."""
+    §7.3 writes them in prose: `name` (Module line[, line][; Module line, ...][; remark]). Each
+    `;`-separated part that starts with a site reference is read up to the first item that is not
+    one (a remark such as `so nil or "…" takes the literal`); parts that start with a remark are
+    skipped. Only the bullet(s) that mention undeclared globals are read. A bare module name is
+    resolved to Modules/<X>.lua, else Classes/<X>.lua, else Data/<X>.lua under the checkout's src/;
+    a name with a `/` is a path under src/."""
     with open(doc_path, encoding="utf-8") as fh:
         text = fh.read()
     m = re.search(r"^### 7\.3 .*?$(.*?)^##? ", text, re.S | re.M)
@@ -74,35 +101,23 @@ def doc_sites(doc_path, pob):
         if "undeclared" not in para:
             continue
         for name, inner in _SITE_GROUP.findall(para):
-            module = None
-            for mod, line in _SITE_REF.findall(inner.split(";")[0]):
-                module = mod or module
-                if module is None:
-                    continue
-                for d in ("Modules", "Classes", "Data"):
-                    rel = "%s/%s.lua" % (d, module)
-                    if os.path.isfile(os.path.join(pob, "src", rel)):
-                        sites.add((rel, int(line), name))
+            for part in inner.split(";"):
+                module = None
+                for item in part.split(","):
+                    ref = _SITE_REF.match(item.strip())
+                    if not ref:
                         break
-                else:
-                    raise SystemExit("§7.3: cannot resolve %r (site of `%s`)" % (module, name))
+                    module = ref.group(1) or module
+                    if module is None:
+                        break
+                    rel = _resolve(pob, module)
+                    if rel is None:
+                        raise SystemExit("§7.3: cannot resolve %r (site of `%s`)" % (module, name))
+                    sites.add((rel, int(ref.group(2)), name))
     if not sites:
         raise SystemExit("§7.3 of %s lists no undeclared-global sites" % doc_path)
     return sites
 
-# CCR-0004 (docs/port/ccr/0004-p4-undeclared-global-sites.md): further undeclared-global reads
-# in the calc scope at the pin that §7.3 does not list. Each was verified by hand.
-CCR_0004_SITES = {
-    ("Classes/PartyTab.lua", 919, "aura"),                       # loop var of 911-917 is out of scope
-    ("Data/Skills/act_dex.lua", 12991, "cfg"),                   # Scourge Arrow preDamageFunc
-    ("Modules/CalcBreakdown.lua", 212, "skillCfg"),              # breakdown.leech
-    ("Modules/CalcBreakdown.lua", 232, "skillCfg"),
-    ("Modules/CalcOffence.lua", 2506, "cfg"),                    # Mantra of Flames BuffOnSelf
-    ("Modules/CalcOffence.lua", 2507, "cfg"),
-    ("Modules/CalcPerform.lua", 915, "skillCfg"),                # doActorMisc rage; local at 661 is out of scope
-    ("Modules/DataLegionLookUpTableHelper.lua", 136, "scriptPath"),  # repairLUTs; local only in UpdateCheck.lua
-    ("Modules/DataLegionLookUpTableHelper.lua", 144, "scriptPath"),
-}
 
 EXCLUDE_DIRS = ("Export", "TreeData")
 EXCLUDE_FILES = ("runtime/lua/sha1/lua53_ops.lua",)
@@ -240,18 +255,16 @@ def main(argv=None):
     if args.check:
         got = {(r["file"], r["line"], r["name"]) for r in reads}
         expected = doc_sites(args.doc or os.path.join(pobpaths.docs_port(), "calc-architecture.md"), pob)
-        allowed = expected | CCR_0004_SITES
-        missing = allowed - got
-        extra = got - allowed
+        missing = expected - got
+        extra = got - expected
         for m in sorted(missing):
             print("FAIL expected site not reported: %s:%d %s" % m)
         for x in sorted(extra):
-            print("FAIL site in neither §7.3 nor CCR-0004: %s:%d %s" % x)
+            print("FAIL site not listed in §7.3: %s:%d %s" % x)
         if missing or extra:
             return 1
         fmt = lambda s: ", ".join("%s %s:%d" % (n, f.rsplit("/", 1)[-1], l) for f, l, n in sorted(s))  # noqa: E731
         print("ok: all %d calc doc §7.3 sites reported (%s)" % (len(expected), fmt(expected)))
-        print("ok: %d further sites, all filed in CCR-0004 (%s)" % (len(CCR_0004_SITES), fmt(CCR_0004_SITES)))
     return 0
 
 
