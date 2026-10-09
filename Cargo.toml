@@ -4,6 +4,7 @@ members = [
     "crates/pob-engine",
     "crates/pob-calc",
     "crates/pob-oracle",
+    "crates/pob-sg",
     "crates/pob-data",
     "crates/pob-dump",
     "crates/pob-extract",
