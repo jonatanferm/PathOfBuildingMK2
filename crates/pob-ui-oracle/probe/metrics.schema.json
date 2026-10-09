@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pob-ui-oracle/probe/metrics.schema.json#1",
+  "title": "U2 font probe metrics (real SimpleGraphic.dll under Wine)",
+  "description": "Written by probe/Launch.lua as out/metrics.json, copied to probe/expected/metrics.json by run.sh, compared by crates/pob-sg/tests/font_probe.rs. Indices: width[f][h][s], cursor[f][h][s][p] for fonts[f], heights[h], strings[s], points[p] (Lua arrays, 1-based in Lua, 0-based in JSON). Values are what Lua receives: DrawStringWidth(height, font, text) and DrawStringCursorIndex(height, font, text, x, y) with x = points[p][0], y = points[p][1] * height + points[p][2]; the cursor index is 1-based (r_main.cpp byte offset + 1). The probe forces SetDPIScaleOverridePercent(100), so screenScale must be 1 for the metrics to be physical pixels.",
+  "type": "object",
+  "required": ["schema", "screenScale", "fonts", "heights", "points", "strings", "width", "cursor"],
+  "properties": {
+    "schema": { "const": "pob-ui-oracle/probe/metrics.schema.json#1" },
+    "screenScale": { "type": "number", "description": "GetScreenScale() after the override" },
+    "dpiScaleOverridePercent": { "type": "number" },
+    "screenSize": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+    "luaVersion": { "type": "string" },
+    "fonts": { "type": "array", "items": { "enum": ["FIXED", "VAR", "VAR BOLD", "FONTIN SC", "FONTIN SC ITALIC", "FONTIN", "FONTIN ITALIC"] } },
+    "heights": { "type": "array", "items": { "type": "integer" } },
+    "points": {
+      "type": "array",
+      "items": { "type": "array", "items": { "type": "integer" }, "minItems": 3, "maxItems": 3 },
+      "description": "[x, ky, ay]: the cursor is at (x, ky * height + ay)"
+    },
+    "strings": { "type": "array", "items": { "type": "string" } },
+    "width": {
+      "type": "array",
+      "items": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } }
+    },
+    "cursor": {
+      "type": "array",
+      "items": { "type": "array", "items": { "type": "array", "items": { "type": "array", "items": { "type": "integer" } } } }
+    }
+  }
+}
