@@ -26,7 +26,8 @@ are classified by hand in OVERRIDES (each with its reason); `--check` fails on a
 unclassified site and on any stale override.
 
 Also listed: generic-for loops over `next` (`for k, v in next, t`), which iterate exactly
-like pairs. Plain `next(t)` calls (emptiness tests) are counted, not listed.
+like pairs. Plain `next(t)` calls are listed in their own table, each marked as an
+emptiness test or as a use of the first key/value (order-dependent, D8).
 
 Usage:
   pairs_inventory.py [--out docs/port/pairs_inventory.md] [--scope FILE]
@@ -113,6 +114,52 @@ class Site:
         self.shape = ""
         self.evidence = []
         self.override = False
+
+
+class NextCall:
+    """A plain `next(t[, k])` call (not a `for ... in next, t` loop)."""
+
+    def __init__(self, path, line, func, text, use):
+        self.path = path
+        self.line = line
+        self.func = func
+        self.text = text
+        self.use = use          # 'empty-test' | 'first-entry' | 'step'
+
+
+def next_call_use(call, par):
+    """How a `next(...)` call's result is used.
+
+    'empty-test'   only its truthiness / nil-ness is observed (`if next(t)`, `not next(t)`,
+                   `next(t) == nil`): order-independent.
+    'step'         `next(t, k)` with an explicit key: a manual iteration step (pairs order).
+    'first-entry'  the returned key or value is used: it depends on which entry LuaJIT
+                   iterates first (D8: LjIntMap order for int keys, nondet for string keys).
+    """
+    if len(call.args) >= 2:
+        return "step"
+    n, p = call, par.get(id(call))
+    while p is not None:
+        if p.kind == "UnOp" and p.op == "not":
+            return "empty-test"
+        if p.kind == "BinOp" and p.op == "and" and p.left is n:
+            # `next(t) and x`: next's own value only escapes when it is nil
+            return "empty-test"
+        if p.kind == "Paren" or (p.kind == "BinOp" and p.op in ("and", "or")):
+            n, p = p, par.get(id(p))
+            continue
+        if (p.kind == "Call" and p.func.kind == "Name" and p.func.name == "assert" and p.args and p.args[0] is n
+                and par.get(id(p)) is not None and par[id(p)].kind == "CallStat"):
+            return "empty-test"
+        if p.kind == "BinOp" and p.op in ("==", "~="):
+            other = p.right if p.left is n else p.left
+            return "empty-test" if other.kind == "Nil" else "first-entry"
+        if p.kind in ("While", "Repeat") and p.cond is n:
+            return "empty-test"
+        if p.kind == "If" and any(c is n for c, _ in p.clauses):
+            return "empty-test"
+        return "first-entry"
+    return "first-entry"
 
 
 def _dotted(e):
@@ -352,7 +399,7 @@ def classify(site, call, forstmt, par, chunk):
 def find_sites(path, chunk, res, scope):
     par = _parents(chunk)
     sites = []
-    next_calls = 0
+    next_calls = []
     for n in luaast.walk(chunk):
         if n.kind == "GenFor" and n.exprs:
             e0 = n.exprs[0]
@@ -375,7 +422,8 @@ def find_sites(path, chunk, res, scope):
             if not (d.init is not None and d.init.kind == "Name" and d.init.name == fname and d.init.decl is None):
                 continue
         if fname == "next":
-            next_calls += 1
+            next_calls.append(NextCall(path, n.line, luaast.enclosing_function_name(_func_of(n, par)),
+                                       luaast.source_text(chunk, n), next_call_use(n, par)))
             continue
         if fname != "pairs":
             continue
@@ -398,14 +446,14 @@ def _func_of(n, par):
 
 def inventory(pob, scope):
     all_sites = []
-    next_calls = 0
+    next_calls = []
     for path in scope.files():
         full = os.path.normpath(os.path.join(pob, "src", path))
         chunk = luaast.parse_file(full)
         res = luaast.resolve(chunk)
         s, nc = find_sites(path, chunk, res, scope)
         all_sites.extend(s)
-        next_calls += nc
+        next_calls.extend(nc)
     used = set()
     for s in all_sites:
         key = (s.path, s.line, s.expr)
@@ -419,6 +467,7 @@ def inventory(pob, scope):
     in_scope = set(scope.files())  # overrides for files outside the scope (e.g. no closures.json) are not stale
     stale = sorted(k for k in set(OVERRIDES) - used if k[0] in in_scope)
     all_sites.sort(key=lambda s: (s.path, s.line, s.expr))
+    next_calls.sort(key=lambda c: (c.path, c.line, c.text))
     return all_sites, next_calls, stale
 
 
@@ -437,8 +486,9 @@ def render_md(sites, next_calls, scope_src):
                "**identity** (table keys) is random per process (`PtrMap`/`PtrSet`, insertion order); **generic** helpers (copyTable, wipeTable, ...) iterate whatever table they are given; **mixed** has "
                "both an integer and a string part.")
     out.append("")
-    out.append("Sites: %d (%s). `for k, v in next, t` loops are included; plain `next(t)` calls (%d) are not." % (
-        len(sites), ", ".join("%s %d" % (k, v) for k, v in sorted(cnt.items())), next_calls))
+    out.append("Sites: %d (%s). `for k, v in next, t` loops are included; plain `next(t)` calls (%d) are listed "
+               "separately below." % (len(sites), ", ".join("%s %d" % (k, v) for k, v in sorted(cnt.items())),
+                                      len(next_calls)))
     out.append("")
     out.append("## Integer-keyed maps (LjIntMap candidates)")
     out.append("")
@@ -452,6 +502,33 @@ def render_md(sites, next_calls, scope_src):
         if s.cls == "int" and s.shape != "list":
             out.append("| %s:%d | `%s` | %s |" % (s.path, s.line, s.expr.replace("|", "\\|"),
                                                  "; ".join(w for _, w in s.evidence[:2]).replace("|", "\\|")))
+    out.append("")
+    weak = [s for s in sites if not s.override and s.cls and s.evidence and all(c.endswith("?") for c, _ in s.evidence)]
+    out.append("## Sites decided by weak evidence only (review)")
+    out.append("")
+    out.append("The class of these sites rests only on weak hints, such as the key used in `..` (numbers "
+               "concatenate too) or passed to a string helper. They were not classified by hand; U0 should "
+               "confirm them.")
+    out.append("")
+    out.append("| Site | Iterated | Class | Evidence |")
+    out.append("|---|---|---|---|")
+    for s in weak:
+        ev = "; ".join(sorted(set(w for _, w in s.evidence)))
+        out.append("| %s:%d | `%s` | %s | %s |" % (s.path, s.line, s.expr.replace("|", "\\|"), s.cls,
+                                                  ev.replace("|", "\\|")))
+    out.append("")
+    out.append("## Plain next() calls")
+    out.append("")
+    out.append("Use: **empty-test** only observes whether the table is empty (order-independent); "
+               "**first-entry** uses the key or value that LuaJIT iterates first, so it depends on the "
+               "table's iteration order exactly like a pairs loop that stops after one entry (D8: "
+               "`LjIntMap` order for integer keys, nondet for string keys); **step** is `next(t, k)`.")
+    out.append("")
+    out.append("| Site | Function | Call | Use |")
+    out.append("|---|---|---|---|")
+    for c in next_calls:
+        text = c.text if len(c.text) <= 80 else c.text[:77] + "..."
+        out.append("| %s:%d | `%s` | `%s` | **%s** |" % (c.path, c.line, c.func, text.replace("|", "\\|"), c.use))
     out.append("")
     by_file = OrderedDict()
     for s in sites:

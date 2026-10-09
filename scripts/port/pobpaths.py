@@ -8,8 +8,27 @@ then `<main checkout>/.PathOfBuilding` (found through `git rev-parse --git-commo
 import os
 import subprocess
 
+# The upstream pin the port targets. It is the fallback for checkout_pin() when the checkout
+# is not a git repository, and the pin `provenance.py scope --emit` writes. Update it after
+# `provenance.py bump --apply` has moved the whole port to a new upstream commit.
 PIN = "16de4b82d57f1c0de6eb40f37143c32d4da36a02"
 PIN_SHORT = PIN[:9]
+
+
+def checkout_pin(pob):
+    """The commit the PathOfBuilding checkout `pob` has checked out (its HEAD), or PIN when `pob`
+    is not a git repository. Marker hashes are verified against the files of this checkout, so
+    @pob-file pins are compared with this commit too."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=pob,
+                             capture_output=True, text=True, check=True).stdout.strip()
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=pob,
+                             capture_output=True, text=True, check=True).stdout.strip()
+        if out and os.path.realpath(top) == os.path.realpath(pob):
+            return out
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return PIN
 
 
 def repo_root(start=None):

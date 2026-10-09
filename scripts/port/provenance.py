@@ -10,15 +10,23 @@ name files outside src). The hash is the first 8 hex digits of SHA-1 over lines 
 each with trailing whitespace stripped, joined with "\\n".
 
 Commands:
-  check     [RS_PATHS...]   verify every @pob hash and @pob-file/@pob-skip against the checkout
+  check     [RS_PATHS...] [--pin SHA]
+                            verify every @pob hash and @pob-file/@pob-skip against the checkout;
+                            @pob-file pins must name the checkout's HEAD (or --pin)
   coverage  [RS_PATHS...]   report in-scope Lua lines (docs/port/scope.toml) that no marker or
                             @pob-skip covers, or that two cover. Blank and comment-only lines
                             are ignored unless --strict. --range PATH:A-B restricts the scope.
-  bump --to SHA [RS_PATHS...] [--apply] [--report FILE]
-                            remap every range through `git diff -U0 PIN SHA` hunks; markers
-                            whose hash is unchanged get new line numbers (written with
-                            --apply, together with the @pob-file pin when the whole file is
-                            clean); every other range is listed with its Lua diff as a work item.
+  bump --to SHA [--from SHA] [RS_PATHS...] [--apply] [--report FILE]
+                            remap every range through `git diff -U0 FROM SHA` hunks (FROM
+                            defaults to the checkout's HEAD); markers whose hash is unchanged
+                            get new line numbers (written with --apply, together with the
+                            @pob-file pin when the whole file is clean); every other range is
+                            listed with its Lua diff as a work item.
+
+Upgrade workflow: with the checkout at the old pin, run `bump --to NEW --apply`; then check
+out NEW in the PathOfBuilding checkout. `check` now passes for every bumped file and fails for
+the work items' files (their pins still name the old commit) until they are re-ported and
+their @pob-file pins edited. When no work items remain, set pobpaths.PIN to NEW.
   marker PATH:A-B           print the @pob marker (with its hash) for a range
   scope --emit              print the default scope.toml (calc doc §11.1) for U0
 
@@ -156,6 +164,12 @@ def scan_markers(files):
 def cmd_check(args, markers):
     errors = 0
     counts = {"file": 0, "pob": 0, "skip": 0}
+    # Hashes are verified against the files on disk, so pins are compared with the commit the
+    # checkout has checked out (not with a hard-coded constant that a bump leaves stale).
+    pin = (args.pin or pobpaths.checkout_pin(args.pob)).lower()
+    if not args.pin and pin != pobpaths.PIN:
+        print("note: checkout is at %s, pobpaths.PIN is %s (update PIN once the whole port is bumped)" % (
+            pin[:9], pobpaths.PIN_SHORT))
     for m in markers:
         counts[m.kind] += 1
         full = lua_file(args.pob, m.path)
@@ -164,8 +178,9 @@ def cmd_check(args, markers):
             errors += 1
             continue
         if m.kind == "file":
-            if not pobpaths.PIN.startswith(m.sha.lower()) or len(m.sha) < 7:
-                print("FAIL %s: @pob-file pin @%s is not the pin %s" % (m.where(), m.sha, pobpaths.PIN_SHORT))
+            if not pin.startswith(m.sha.lower()) or len(m.sha) < 7:
+                print("FAIL %s: @pob-file pin @%s is not the pin %s (the checkout's HEAD)" % (
+                    m.where(), m.sha, pin[:9]))
                 errors += 1
             continue
         n = len(read_lua(args.pob, m.path))
@@ -350,9 +365,13 @@ def map_line(hunks, x, end=False):
 
 def cmd_bump(args, markers):
     pob = args.pob
-    frm = args.frm or pobpaths.PIN
+    frm = git(pob, "rev-parse", args.frm or pobpaths.checkout_pin(pob)).decode().strip()
     to = git(pob, "rev-parse", args.to).decode().strip()
     to_short = to[:9]
+    if frm == to:
+        print("bump: --from and --to are both %s; run bump while the checkout is still at the old pin, "
+              "or pass --from <old pin>" % to_short)
+        return 2
     lua_paths = sorted({m.path for m in markers if m.kind in ("pob", "skip", "file")})
     hunks_by_path = {}
     new_lines = {}
@@ -471,6 +490,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("check")
     p.add_argument("paths", nargs="*")
+    p.add_argument("--pin", help="expected @pob-file pin (default: the checkout's HEAD)")
     p = sub.add_parser("coverage")
     p.add_argument("paths", nargs="*")
     p.add_argument("--scope")

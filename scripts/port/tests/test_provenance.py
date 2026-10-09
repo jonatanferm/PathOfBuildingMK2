@@ -191,7 +191,38 @@ class BumpTest(ProvenanceBase):
         provenance._FILE_CACHE.clear()
         rc2, out2 = run(["--pob", self.pob, "check", os.path.join(self.rs, "foo.rs")])
         self.assertIn("h=", out2)
-        self.assertIn("1 error(s)", out2)  # only the work item (its hash no longer matches)
+        # The work item's hash no longer matches, and its file is still pinned to the old commit.
+        self.assertIn("2 error(s)", out2)
+        self.assertIn("@pob-file pin @16de4b82d is not the pin %s" % self.v2[:9], out2)
+
+    def test_check_after_bump_uses_checkout_head(self):
+        # A clean file bumped to v2 verifies against the v2 checkout without editing pobpaths.PIN.
+        self.write_rs("clean.rs", "\n".join([
+            "//! @pob-file Modules/Foo.lua @16de4b82d",
+            "/// @pob Modules/Foo.lua:14-16 h=%s" % h(FOO, 14, 16),
+            "",
+        ]))
+        self.git("checkout", "-q", self.v1)
+        rc, out = run(["--pob", self.pob, "bump", "--from", self.v1, "--to", self.v2, "--apply", self.rs])
+        self.assertEqual(rc, 0, out)
+        self.git("checkout", "-q", self.v2)
+        provenance._FILE_CACHE.clear()
+        rc, out = run(["--pob", self.pob, "check", self.rs])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("note: checkout is at %s" % self.v2[:9], out)
+        rc, out = run(["--pob", self.pob, "check", "--pin", self.v1, self.rs])
+        self.assertEqual(rc, 1, out)
+
+    def test_bump_from_defaults_to_checkout_head(self):
+        self.good_rs()
+        self.git("checkout", "-q", self.v1)
+        rc, out = run(["--pob", self.pob, "bump", "--to", self.v2, self.rs])
+        self.assertIn("# provenance bump %s -> %s" % (self.v1[:9], self.v2[:9]), out)
+        self.assertIn("Modules/Foo.lua:4-6 -> 5-7", out)
+        self.git("checkout", "-q", self.v2)
+        rc, out = run(["--pob", self.pob, "bump", "--to", self.v2, self.rs])
+        self.assertEqual(rc, 2)
+        self.assertIn("--from <old pin>", out)
 
     def test_apply_bumps_pin_of_clean_file(self):
         self.write_rs("clean.rs", "\n".join([

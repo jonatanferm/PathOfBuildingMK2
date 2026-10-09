@@ -16,3 +16,10 @@ t_insert(list, 1)
 for _, v in pairs(list) do end
 for k in pairs(mystery) do end
 if next(list) then end
+local first = next(spec.allocNodes)
+local _, sprite = next(seen)
+if not next(list) or next(seen) == nil then end
+local k2 = next(seen, key)
+local id = next(seen) and seen.id
+assert(next(seen), "msg")
+local fb = next(seen) or 0

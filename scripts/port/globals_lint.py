@@ -19,11 +19,14 @@ functions defined at the top level of a chunk on purpose (calc doc §13) are not
 
 Usage:
   globals_lint.py [--scope FILE] [--json]
-  globals_lint.py --check     exit 1 unless the undeclared-read sites equal calc doc §7.3
+  globals_lint.py --check [--doc FILE]
+                              exit 1 unless the undeclared-read sites equal the ones calc doc
+                              §7.3 lists (parsed from the doc) plus CCR-0004
 """
 
 import argparse
 import json
+import re
 import os
 import sys
 
@@ -40,8 +43,9 @@ setfenv setmetatable tonumber tostring type unpack xpcall
 coroutine debug io math os package string table bit jit arg
 """.split())
 
-# calc doc §7.3: the undeclared-global read sites at the pin (D16).
-EXPECTED_SITES = {
+# calc doc §7.3 as of this writing: the undeclared-global read sites at the pin (D16). `--check`
+# reads the sites from the doc itself (doc_sites()); this copy only guards the doc parser in tests.
+KNOWN_DOC_SITES = {
     ("Modules/CalcOffence.lua", 3527, "dotCfg"),
     ("Modules/CalcOffence.lua", 3538, "dotCfg"),
     ("Modules/CalcPerform.lua", 3464, "affectedByAura"),
@@ -49,6 +53,42 @@ EXPECTED_SITES = {
     ("Classes/ModDB.lua", 262, "nullValue"),
     ("Classes/ModList.lua", 207, "nullValue"),
 }
+
+_SITE_GROUP = re.compile(r"`([A-Za-z_][A-Za-z_0-9]*)` \(([^)]*)\)")
+_SITE_REF = re.compile(r"(?:\b([A-Z][A-Za-z0-9_]*)(?:\.lua)?(?::|\s+))?(\d+)")
+
+
+def doc_sites(doc_path, pob):
+    """The undeclared-global read sites that calc doc §7.3 lists, as (path, line, name).
+
+    §7.3 writes them in prose: `name` (Module line[, line]; ...) or `name` (File.lua:line, ...).
+    Only the bullet(s) that mention undeclared globals are read. A module name is resolved to
+    Modules/<X>.lua, else Classes/<X>.lua, else Data/<X>.lua under the checkout's src/."""
+    with open(doc_path, encoding="utf-8") as fh:
+        text = fh.read()
+    m = re.search(r"^### 7\.3 .*?$(.*?)^##? ", text, re.S | re.M)
+    if not m:
+        raise SystemExit("§7.3 not found in %s" % doc_path)
+    sites = set()
+    for para in m.group(1).split("\n- "):
+        if "undeclared" not in para:
+            continue
+        for name, inner in _SITE_GROUP.findall(para):
+            module = None
+            for mod, line in _SITE_REF.findall(inner.split(";")[0]):
+                module = mod or module
+                if module is None:
+                    continue
+                for d in ("Modules", "Classes", "Data"):
+                    rel = "%s/%s.lua" % (d, module)
+                    if os.path.isfile(os.path.join(pob, "src", rel)):
+                        sites.add((rel, int(line), name))
+                        break
+                else:
+                    raise SystemExit("§7.3: cannot resolve %r (site of `%s`)" % (module, name))
+    if not sites:
+        raise SystemExit("§7.3 of %s lists no undeclared-global sites" % doc_path)
+    return sites
 
 # CCR-0004 (docs/port/ccr/0004-p4-undeclared-global-sites.md): further undeclared-global reads
 # in the calc scope at the pin that §7.3 does not list. Each was verified by hand.
@@ -173,6 +213,7 @@ def main(argv=None):
     ap.add_argument("--scope", help="scope.toml (default docs/port/scope.toml, else the built-in default)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--check", action="store_true", help="compare the undeclared reads with calc doc §7.3")
+    ap.add_argument("--doc", help="calc architecture doc whose §7.3 --check reads (default docs/port/calc-architecture.md)")
     args = ap.parse_args(argv)
     pob = pobpaths.find_pob(args.pob)
     scope_path = args.scope or os.path.join(pobpaths.docs_port(), "scope.toml")
@@ -198,7 +239,8 @@ def main(argv=None):
             print("%s:%d\t%s\t(in %s)" % (r["file"], r["line"], r["name"], r["function"]))
     if args.check:
         got = {(r["file"], r["line"], r["name"]) for r in reads}
-        allowed = EXPECTED_SITES | CCR_0004_SITES
+        expected = doc_sites(args.doc or os.path.join(pobpaths.docs_port(), "calc-architecture.md"), pob)
+        allowed = expected | CCR_0004_SITES
         missing = allowed - got
         extra = got - allowed
         for m in sorted(missing):
@@ -208,7 +250,7 @@ def main(argv=None):
         if missing or extra:
             return 1
         fmt = lambda s: ", ".join("%s %s:%d" % (n, f.rsplit("/", 1)[-1], l) for f, l, n in sorted(s))  # noqa: E731
-        print("ok: all %d calc doc §7.3 sites reported (%s)" % (len(EXPECTED_SITES), fmt(EXPECTED_SITES)))
+        print("ok: all %d calc doc §7.3 sites reported (%s)" % (len(expected), fmt(expected)))
         print("ok: %d further sites, all filed in CCR-0004 (%s)" % (len(CCR_0004_SITES), fmt(CCR_0004_SITES)))
     return 0
 

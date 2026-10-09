@@ -5,7 +5,7 @@ Produced by P4, frozen by U0 (calc doc §3.4). Scope: default (calc doc §11.1 +
 
 Key classes (calc doc §3.4, D8): **int** follows LuaJIT's integer-key order (deterministic, not insertion order; `LjIntMap` where the order is observable; shape `list` = a 1..n sequence, walked in index order); **string** is random per PoB process (insertion order in Rust, oracle nondet runs); **identity** (table keys) is random per process (`PtrMap`/`PtrSet`, insertion order); **generic** helpers (copyTable, wipeTable, ...) iterate whatever table they are given; **mixed** has both an integer and a string part.
 
-Sites: 348 (generic 5, identity 9, int 151, mixed 5, string 178). `for k, v in next, t` loops are included; plain `next(t)` calls (15) are not.
+Sites: 348 (generic 5, identity 9, int 151, mixed 5, string 178). `for k, v in next, t` loops are included; plain `next(t)` calls (15) are listed separately below.
 
 ## Integer-keyed maps (LjIntMap candidates)
 
@@ -88,6 +88,57 @@ Sites of class **int** that are not plain sequences (shape `map`, or unknown sha
 | Modules/CalcSetup.lua:898 | `node.nodesInRadius[item.jewelRadiusIndex]` | indexes allocNodes; indexes nodes |
 | Modules/CalcSetup.lua:925 | `node.nodesInRadius[radius]` | indexes allocNodes; indexes nodes |
 | Modules/CalcSetup.lua:1439 | `env.allocNodes` | table name allocNodes |
+
+## Sites decided by weak evidence only (review)
+
+The class of these sites rests only on weak hints, such as the key used in `..` (numbers concatenate too) or passed to a string helper. They were not classified by hand; U0 should confirm them.
+
+| Site | Iterated | Class | Evidence |
+|---|---|---|---|
+| Classes/PartyTab.lua:748 | `enemyModList` | string | modName .. x |
+| Classes/PartyTab.lua:907 | `list["Aura"]["Vaal"]` | string | aura .. x |
+| Classes/PartyTab.lua:920 | `list["AuraDebuff"]["Vaal"]` | string | aura .. x |
+| Classes/PartyTab.lua:948 | `list["Warcry"] or {}` | string | warcry .. x |
+| Classes/PartyTab.lua:959 | `list["Link"] or {}` | string | link .. x |
+| Classes/PartyTab.lua:970 | `list["Curse"] or {}` | string | curse .. x |
+| Classes/PartyTab.lua:1017 | `buff` | string | innerBuffName .. x |
+| Modules/CalcDefence.lua:166 | `actor.damageShiftTable[damageType]` | string | damageConvertedType .. x |
+| Modules/CalcDefence.lua:214 | `damageTable` | string | damageType .. x |
+| Modules/CalcDefence.lua:221 | `damageTable` | string | damageType .. x |
+| Modules/CalcDefence.lua:250 | `damageTable` | string | damageType .. x |
+| Modules/CalcDefence.lua:1816 | `enemyDamageConversion[damageType]` | string | damageTypeFrom .. x |
+| Modules/CalcDefence.lua:2753 | `poolTable.damageTakenThatCanBeRecouped` | string | damageType .. x |
+| Modules/CalcDefence.lua:3281 | `passDamages` | string | partType .. x |
+| Modules/CalcDefence.lua:3326 | `takenDamages` | string | s_format(takenType); takenType .. x |
+| Modules/CalcDefence.lua:3389 | `actor.damageOverTimeShiftTable[damageType]` | string | damageConvertedType .. x |
+| Modules/CalcDefence.lua:3556 | `actor.damageOverTimeShiftTable[damageType]` | string | damageConvertedType .. x |
+| Modules/CalcDefence.lua:3625 | `actor.damageOverTimeShiftTable[ailment.damageType]` | string | damageConvertedType .. x |
+| Modules/ConfigOptions.lua:2287 | `bossData.DamageMultipliers` | string | damageType .. x |
+| Modules/ConfigOptions.lua:2302 | `bossData.DamagePenetrations` | string | penType .. x |
+| Modules/DataAbyssJewelLookUpTableHelper.lua:257 | `ascendancyOffsets` | string | name .. x |
+| Modules/ModParser.lua:5951 | `oldList` | string | k .. x |
+
+## Plain next() calls
+
+Use: **empty-test** only observes whether the table is empty (order-independent); **first-entry** uses the key or value that LuaJIT iterates first, so it depends on the table's iteration order exactly like a pairs loop that stops after one entry (D8: `LjIntMap` order for integer keys, nondet for string keys); **step** is `next(t, k)`.
+
+| Site | Function | Call | Use |
+|---|---|---|---|
+| Classes/PassiveSpec.lua:1278 | `PassiveSpecClass:BuildAllDependsAndPaths` | `next(jewelDataTbl)` | **empty-test** |
+| Classes/PassiveSpec.lua:1351 | `PassiveSpecClass:BuildAllDependsAndPaths` | `next(jewelData)` | **empty-test** |
+| Classes/PassiveSpec.lua:1374 | `PassiveSpecClass:BuildAllDependsAndPaths` | `next(jewelDataTbl)` | **empty-test** |
+| Classes/PassiveTree.lua:148 | `PassiveTreeClass:PassiveTree` | `next(legacyAscMap)` | **empty-test** |
+| Classes/PassiveTree.lua:171 | `PassiveTreeClass:PassiveTree` | `next(filteredAlternateAscendancies)` | **empty-test** |
+| Classes/PassiveTree.lua:381 | `PassiveTreeClass:PassiveTree` | `next(spriteSet)` | **first-entry** |
+| Modules/Build.lua:1084 | `buildMode:Save` | `next(self.timelessData.jewelType)` | **empty-test** |
+| Modules/Build.lua:1085 | `buildMode:Save` | `next(self.timelessData.conquerorType)` | **empty-test** |
+| Modules/Build.lua:1088 | `buildMode:Save` | `next(self.timelessData.jewelSocket)` | **empty-test** |
+| Modules/Build.lua:1089 | `buildMode:Save` | `next(self.timelessData.fallbackWeightMode)` | **empty-test** |
+| Modules/CalcOffence.lua:5489 | `calcs.offence` | `next(labels)` | **empty-test** |
+| Modules/CalcTools.lua:56 | `calcLib.validateGemLevel` | `next(grantedEffect.levels)` | **first-entry** |
+| Modules/CalcTools.lua:137 | `calcLib.canGrantedEffectSupportActiveSkill` | `next(activeTypeLookup)` | **empty-test** |
+| Modules/DataAbyssJewelLookUpTableHelper.lua:244 | `readAbyssJewelLUT` | `next(modification)` | **empty-test** |
+| Modules/DataLegionLookUpTableHelper.lua:224 | `readLUT` | `next(data.timelessJewelLUTs[jewelType].data)` | **empty-test** |
 
 ## ../runtime/lua/xml.lua
 

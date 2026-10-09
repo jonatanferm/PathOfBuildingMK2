@@ -71,6 +71,30 @@ class GlobalsLintPinTest(unittest.TestCase):
         self.assertEqual(rc, 0, buf.getvalue())
         self.assertIn("all 6 calc doc §7.3 sites reported", buf.getvalue())
 
+    def test_doc_sites_parsed_from_doc(self):
+        doc = os.path.join(_util.pobpaths.docs_port(), "calc-architecture.md")
+        self.assertEqual(globals_lint.doc_sites(doc, _util.real_pob()), globals_lint.KNOWN_DOC_SITES)
+
+    def test_check_follows_doc_edits(self):
+        doc = os.path.join(_util.pobpaths.docs_port(), "calc-architecture.md")
+        with open(doc, encoding="utf-8") as fh:
+            text = fh.read()
+        tmp = tempfile.mkdtemp(prefix="p4-doc-")
+        try:
+            edited = os.path.join(tmp, "calc.md")
+            # Drop a listed site: --check must now report it as unexpected.
+            with open(edited, "w", encoding="utf-8") as fh:
+                fh.write(text.replace("`dotCfg` (CalcOffence 3527, 3538)", "`dotCfg` (CalcOffence 3527)"))
+            self.assertNotIn(("Modules/CalcOffence.lua", 3538, "dotCfg"),
+                             globals_lint.doc_sites(edited, _util.real_pob()))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = globals_lint.main(["--check", "--doc", edited])
+            self.assertEqual(rc, 1, buf.getvalue())
+            self.assertIn("neither §7.3 nor CCR-0004: Modules/CalcOffence.lua:3538 dotCfg", buf.getvalue())
+        finally:
+            shutil.rmtree(tmp)
+
 
 class PairsInventoryFixtureTest(unittest.TestCase):
     def test_fixture_sites(self):
@@ -90,7 +114,18 @@ class PairsInventoryFixtureTest(unittest.TestCase):
             (16, "pairs", "int", "list"),        # t_insert(list, ...)
             (17, "pairs", None, ""),             # nothing known
         ])
-        self.assertEqual(next_calls, 1)
+        got = sorted((c.line, c.text, c.use) for c in next_calls)
+        self.assertEqual(got, [
+            (18, "next(list)", "empty-test"),                  # if next(t)
+            (19, "next(spec.allocNodes)", "first-entry"),       # first key: order-dependent
+            (20, "next(seen)", "first-entry"),                  # first value: order-dependent
+            (21, "next(list)", "empty-test"),                   # not next(t)
+            (21, "next(seen)", "empty-test"),                   # next(t) == nil
+            (22, "next(seen, key)", "step"),
+            (23, "next(seen)", "empty-test"),                   # next(t) and x
+            (24, "next(seen)", "empty-test"),                   # assert(next(t), msg)
+            (25, "next(seen)", "first-entry"),                  # next(t) or default
+        ])
 
     def test_decide(self):
         self.assertEqual(pairs_inventory.decide([("int", ""), ("string", "")]), "mixed")
