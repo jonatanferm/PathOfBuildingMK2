@@ -1,5 +1,7 @@
 # CCR-0004: §7.3 misses nine undeclared-global read sites
 
+**Status: applied 2026-10-09 by CCR1.** Applied to calc doc §7.3 (and §12). `globals_lint.py --check` now parses the applied doc text; `CCR_0004_SITES` was dropped.
+
 - **Raised by:** P4 (`scripts/port/globals_lint.py`)
 - **Affects:** calc-architecture.md §7.3 (and D16), units CT, PF-B, OF-D, BM-B, SK-B, LUT
 - **Pin:** 16de4b82d

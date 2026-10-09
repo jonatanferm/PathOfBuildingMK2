@@ -5,10 +5,12 @@
 # derived from the all57 build named in it by corpus/U0/derive_slice5.py (every socket group but
 # the main one disabled; items, tree and config unchanged) and lives in corpus/U0/slice5/<entry>.xml.
 # Checked against the oracle (`derive_slice5.py --check`): one active skill, no
-# ExtraAura/ExtraCurse/ExtraAuraDebuff/ExtraLinkEffect/ExtraMinion mod.
+# ExtraAura/ExtraCurse/ExtraAuraDebuff/ExtraLinkEffect/ExtraMinion mod. CCR1 replaced
+# slice5_allflame_exp_046 (no weapon: unarmed + Shield) with slice5_allflame_exp_048 (exactly one
+# weapon; oracle with jit.off: TotalDPS 10938351.299094979).
 #   entry                    main skill                         weapons
 slice5_allflame_exp_024 # Winter Orb (spell)                   Wand + Shield
 slice5_allflame_exp_007 # Spark of the Nova (spell)            Wand + Shield
 slice5_allflame_exp_030 # Ethereal Knives of the Massacre      Two Handed Sword
 slice5_allflame_exp_031 # Shield Crush (attack)                Sceptre + Shield
-slice5_allflame_exp_046 # Poisonous Concoction of Bouncing     (unarmed) + Shield
+slice5_allflame_exp_048 # Flicker Strike (attack)              Claw + Shield

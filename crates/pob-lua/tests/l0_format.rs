@@ -49,7 +49,7 @@ impl Arg {
 /// with `lua_format_bytes`.
 fn run_format_vectors(name: &str, fmts: &[Vec<u8>], args: &[Vec<Arg>]) {
     quiet_lua_errors();
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let argt = lua.create_table().unwrap();
         for (i, a) in args.iter().enumerate() {
@@ -72,13 +72,15 @@ fn run_format_vectors(name: &str, fmts: &[Vec<u8>], args: &[Vec<Arg>]) {
             let ok = matches!(get(&out, 2 * i + 1), Value::Boolean(true));
             let r = bytes_of(&get(&out, 2 * i + 2)).unwrap_or_default();
             let fa: Vec<FmtArg> = args[i].iter().map(Arg::fmt_arg).collect();
-            let got = rs_catch(|| lua_format_bytes(&fmts[i], &fa));
-            let same = match (&got, ok) {
+            let run = || rs_catch(|| lua_format_bytes(&fmts[i], &fa));
+            let cmp = |got: &Result<Vec<u8>, String>| match (got, ok) {
                 (Ok(g), true) => *g == r,
                 (Err(m), false) => lua_msg_matches(&String::from_utf8_lossy(&r), m),
                 _ => false,
             };
-            c.ok(same, || {
+            let got = run();
+            // `%d %i %o %u %x %X %c` casts depend on the LuaJIT build profile (CCR-0001).
+            c.ok_profile(cmp(&got), || cmp(&run()), || {
                 format!(
                     "format({}, {:?}): lua {}{} rust {:?}",
                     show(&fmts[i]),
@@ -96,7 +98,7 @@ fn run_format_vectors(name: &str, fmts: &[Vec<u8>], args: &[Vec<Arg>]) {
 
 #[test]
 fn tostring_and_concat() {
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let xs = numbers(101, 30_000);
         let f = func(
@@ -528,7 +530,7 @@ fn tonumber_strings() {
             .into_bytes(),
         );
     }
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let f = func(&lua, &format!("{ENC} local tn = tonumber return function(xs) local out = {{}} for i = 1, #xs do local v = tn(xs[i]) if v ~= nil then E(out, i, v) end end return out end"));
         let out: Table = f.call(seq_bytes(&lua, &strs)).unwrap();
@@ -539,13 +541,14 @@ fn tonumber_strings() {
             } else {
                 Some(num_at(&out, i + 1))
             };
-            let got = tonumber_bytes(s);
-            let same = match (want, got) {
+            let cmp = |got: Option<f64>| match (want, got) {
                 (None, None) => true,
                 (Some(a), Some(b)) => same_num(a, b),
                 _ => false,
             };
-            c.ok(same, || {
+            let got = tonumber_bytes(s);
+            // Dual-number builds scan "-0" / "-0b0" as integer +0 (CCR-0001).
+            c.ok_profile(cmp(got), || cmp(tonumber_bytes(s)), || {
                 format!("tonumber({}): lua {want:?} rust {got:?}", show(s))
             });
         }
@@ -585,7 +588,7 @@ fn tonumber_with_base() {
             base
         });
     }
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let f = func(
             &lua,
@@ -604,8 +607,8 @@ fn tonumber_with_base() {
             } else {
                 Some(num_at(&out, i + 1))
             };
-            let got = rs_catch(|| tonumber_base_bytes(s, bases[i]));
-            let same = match (&lerr, &got) {
+            let run = || rs_catch(|| tonumber_base_bytes(s, bases[i]));
+            let cmp = |got: &Result<Option<f64>, String>| match (&lerr, got) {
                 (Some(m), Err(e)) => lua_msg_matches(&String::from_utf8_lossy(m), e),
                 (None, Ok(g)) => match (want, *g) {
                     (None, None) => true,
@@ -614,12 +617,14 @@ fn tonumber_with_base() {
                 },
                 _ => false,
             };
-            c.ok(same, || {
+            let got = run();
+            // Dual-number builds return "-0" in any base as integer +0 (CCR-0001).
+            c.ok_profile(cmp(&got), || cmp(&run()), || {
                 format!(
                     "tonumber({}, {}): lua {want:?} err {:?} rust {got:?}",
                     show(s),
                     bases[i],
-                    lerr.map(|m| show(&m))
+                    lerr.as_ref().map(|m| show(m))
                 )
             });
         }

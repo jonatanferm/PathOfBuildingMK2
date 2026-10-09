@@ -174,7 +174,7 @@ pub fn probe_in_process(
         root_s.push('/');
     }
     let pre = probe_prelude(&root_s, &out_dir, &name, opts);
-    let mut pob = crate::jit::JitPob::boot_with(&root, Some(&pre))
+    let mut pob = crate::jit::JitPob::boot_oracle(&root, Some(&pre))
         .map_err(|x| e(format!("PoB boot failed: {x}")))?;
     pob.run(crate::oracle::ORACLE_LUA)
         .map_err(|x| e(format!("oracle.lua: {x}")))?;

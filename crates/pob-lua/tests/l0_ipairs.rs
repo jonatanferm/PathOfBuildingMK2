@@ -17,7 +17,7 @@ fn ipairs_live_semantics() {
     let lists: Vec<Vec<f64>> = (0..10_000)
         .map(|_| (0..r.range(0, 30)).map(|_| r.range(1, 60) as f64).collect())
         .collect();
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let f = func(
             &lua,

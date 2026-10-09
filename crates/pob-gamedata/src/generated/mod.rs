@@ -1,5 +1,5 @@
 //! Generated code (P1, `pob-dump --codegen`; `--codegen --check` guards it).
-//! The files live in `crates/pob-dump/generated/` (CCR 0001-p1 §3) and are
+//! The files live in `crates/pob-dump/generated/` (CCR-0003 §3) and are
 //! included here by path, so there is one copy of each.
 
 #[rustfmt::skip]

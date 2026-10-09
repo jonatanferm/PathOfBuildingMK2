@@ -2,15 +2,12 @@
 //! bodies compile against the frozen pob-ui-core surface. Nothing here runs: the stubs' bodies
 //! are `todo!()`; the test only proves the contracts fit the binding porting style.
 //!
-//! The bodies are copied verbatim from docs/port/ui-architecture.md §9.1/§9.2. The only edits,
-//! each marked `// CCR-0013`, are forced by this file being a separate crate or by a mismatch
-//! with the calc plan's frozen crates:
+//! The bodies are copied verbatim from docs/port/ui-architecture.md §9.1/§9.2 (CCR-0013 applied
+//! to the doc by CCR1: `pob_ui_core::luastr::{gsub, lmatch}`, `&xml.children`,
+//! `xml.children.push(XmlChild::Text(..))`). The only edits, each marked `// CCR-0013`, are forced
+//! by this file being a separate crate:
 //! - `impl New<ButtonControl> { .. }` is an inherent impl on a foreign type here, so it becomes an
 //!   extension trait (inside pob-ui-core, where U9 writes it, the inherent impl is legal);
-//! - `pob_lua::{gsub, lmatch}` become `pob_ui_core::luastr::{gsub, lmatch}` (pob_lua's `gsub`
-//!   returns `(String, count)` and its `match` returns captures);
-//! - `XmlNode::children()` / `push_text()` come from a local extension trait over the calc plan's
-//!   real `pob_calc::model::XmlNode` (which has a pub `children` field and no `push_text`);
 //! - `crate::main_mode::background::draw_background` (pob-app, U17) is a local shim.
 #![allow(dead_code, unused_imports, clippy::all, clippy::pedantic)]
 
@@ -26,20 +23,6 @@ mod tooltip {
 mod model {
     pub mod xml {
         pub use pob_calc::model::{XmlChild, XmlNode};
-
-        // CCR-0013: helpers the §9.2 body assumes.
-        pub trait XmlNodeExt {
-            fn children(&self) -> std::slice::Iter<'_, XmlChild>;
-            fn push_text(&mut self, text: String);
-        }
-        impl XmlNodeExt for XmlNode {
-            fn children(&self) -> std::slice::Iter<'_, XmlChild> {
-                self.children.iter()
-            }
-            fn push_text(&mut self, text: String) {
-                self.children.push(XmlChild::Text(text.into()));
-            }
-        }
     }
 }
 
@@ -205,9 +188,9 @@ mod button_9_1 {
 #[rustfmt::skip]
 mod notes_9_2 {
     //! Port of PathOfBuilding v2.67.2 (16de4b82d) src/Classes/NotesTab.lua
-    use pob_ui_core::luastr::{gsub, lmatch}; // CCR-0013: §9.2 says `use pob_lua::{gsub, lmatch};`
-    use crate::model::xml::{XmlChild, XmlNode};   // calc:BM-A port of runtime/lua/xml.lua
-    use crate::model::xml::XmlNodeExt; // CCR-0013
+    use pob_ui_core::luastr::{gsub, lmatch};       // first-value wrappers (§8 rule 5): gsub(s, p, r) -> String,
+                                                   // lmatch(s, p) -> Option<String> (CCR-0013 B1; U5 owns the file)
+    use crate::model::xml::{XmlChild, XmlNode};   // calc:BM-A port of runtime/lua/xml.lua (pob-app re-exports the types)
     use pob_ui_core::{prelude::*, color_codes::ColorCodes, controls::{ButtonControl, EditArgs, EditControl, LabelControl}};
     use crate::main_mode::background::draw_background;
 
@@ -302,7 +285,7 @@ Below are some common color codes PoB uses:\t";
         /// lua: NotesTab.lua:75-82
         pub fn load(cx: &mut Cx, me: CtrlId, xml: &XmlNode, _file_name: &str) {
             let edit = cx.child_as::<EditControl>(me, "edit");
-            for node in xml.children() {
+            for node in &xml.children {
                 if let XmlChild::Text(t) = node { EditControl::set_text(cx, edit.id(), t, false); }
             }
             let buf = cx.get(edit).buf.clone();
@@ -313,7 +296,7 @@ Below are some common color codes PoB uses:\t";
         pub fn save(cx: &mut Cx, me: CtrlId, xml: &mut XmlNode) {
             Self::set_show_color_codes(cx, me, false);
             let buf = cx.get(cx.child_as::<EditControl>(me, "edit")).buf.clone();
-            xml.push_text(buf.clone());
+            xml.children.push(XmlChild::Text(buf.clone().into()));
             cx.w_mut::<NotesTab>(me).last_content = buf;
         }
 

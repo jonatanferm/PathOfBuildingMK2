@@ -144,7 +144,7 @@ fn empty_table<'de, D: Deserializer<'de>>(d: D) -> Result<(), D::Error> {
 }
 
 /// requireSkillTypes / excludeSkillTypes: SkillType numbers, where OR (73),
-/// AND (74) and NOT (75) are operators (CCR-0001-p1 §1).
+/// AND (74) and NOT (75) are operators (CCR-0003, formerly 0001-p1, §1).
 pub fn skill_type_exprs<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<SkillTypeExpr>, D::Error> {
     let v: Vec<SkillType::T> = Vec::deserialize(d)?;
     Ok(v.into_iter().map(SkillTypeExpr::from_skill_type).collect())

@@ -240,7 +240,7 @@ fn patterns_find_match_gmatch_gsub() {
             Some(r.range(-1, 3))
         });
     }
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let f = func(
             &lua,
@@ -416,13 +416,13 @@ fn string_lib_basics() {
         })
         .collect();
     let reps: Vec<i64> = (0..n).map(|_| r.range(-1, 4)).collect();
-    // string.sub results of the interpreter run (MODES runs jit.off first).
+    // string.sub results of the interpreter run (modes() runs jit.off first).
     // The vendored LuaJIT's compiled traces of `s:sub(i, j)` with variable
     // negative `j` return wrong results (they behave as if j were -1); see
     // the P2 report. Rust follows the interpreter; in jit.on mode a
     // mismatch where Rust equals the interpreter result is counted, not failed.
     let mut interp_sub: Vec<Vec<u8>> = Vec::new();
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let jt = lua.create_table().unwrap();
         for (k, j) in js.iter().enumerate() {
@@ -581,7 +581,7 @@ fn pob_string_helpers() {
                 .to_string()
         })
         .collect();
-    for mode in MODES {
+    for mode in modes() {
         let lua = lua(mode);
         let fns: Table = lua
             .load(pob_string_chunk())

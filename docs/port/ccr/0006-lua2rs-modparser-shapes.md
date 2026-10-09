@@ -1,5 +1,7 @@
 # CCR-0006: types and helper signatures that ModParser/ConfigOptions ports need (from T1 lua2rs)
 
+**Status: applied 2026-10-09 by CCR1.** Accepted. Reconciled with U0's frozen pob-modparser/pob-gamedata types: every type-level item (§1-§4, §6) was already present in the frozen code (CCR-0011 §8b), so no field had to be added; the `Caps` doc comment in `pob-modparser/src/types.rs` now names the §5 call shapes. Applied to calc doc §4.3, §4.4, §6, §8.1.
+
 - **Raised by:** T1 (`scripts/port/lua2rs/`)
 - **Affects:** calc-architecture.md §4.3 (`Tag`, `TagType`, `Value` conversions), §4.4 (`AilmentData`),
   §6 (`ModSpec`, `Caps` semantics, MP0 `helpers.rs` signatures). Consumers: U0, MP0-MP6, CO-A/B.

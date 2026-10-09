@@ -5,7 +5,7 @@ that `pob-calc` (the Rust port of PoB's calculations) has no Lua runtime:
 
 | Module | What |
 |---|---|
-| `jit` | PoB booted under vendored LuaJIT (desktop; PoB's own runtime). |
+| `jit` | PoB booted under vendored LuaJIT (desktop; PoB's own runtime). Oracle parity runs boot through `JitPob::boot_oracle`, which switches the JIT off first (`jit.off()`: the interpreter is the reference, CCR-0001/0002; `POB_ORACLE_JIT=on` for diagnostics only). |
 | `lua`, `headless` | A small pure-Rust Lua 5.1 interpreter and PoB booted in it (wasm / fallback). |
 | `worker` | A background thread owning a booted PoB; the current app's calc backend. |
 | `mod_parser` | PoB's `Modules/ModParser.lua`, run unchanged. |
@@ -128,6 +128,7 @@ OccVortex stages dump round-trips through `Mod` unchanged up to that
 
 ```text
 { "format": "pob-oracle/outputs/1", "build": <stem>, "pobVersion": "2.67.2",
+  "luajit": { "arch": "arm64", "jit": false, "numberMode": "dual" },   # the LuaJIT that ran (CCR-0001/0002)
   "mainSkill": { "index", "id", "name", "skillPartName" },     # index into activeSkillList, 1-based
   "player": <env.player.output>,                             # calcsTab.mainEnv, after the build loaded
   "minion": <env.minion.output> | null }
@@ -139,7 +140,7 @@ OccVortex stages dump round-trips through `Mod` unchanged up to that
 ### `stages.json`
 
 ```text
-{ "format": "pob-oracle/stages/1", "build", "pobVersion",
+{ "format": "pob-oracle/stages/1", "build", "pobVersion", "luajit",
   "mainEnvIsCaptured": bool,            # the captured env is calcsTab.mainEnv
   "initEnv": {                          # right after calcs.initEnv(build, "MAIN")
     "mode": "MAIN", "mainSkillIndex",

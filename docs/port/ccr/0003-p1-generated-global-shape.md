@@ -1,4 +1,6 @@
-# CCR 0001 (P1): generated `global.rs` / `misc.rs` — corrections to calc-architecture.md §4.2 and §9.1
+# CCR-0003 (P1; filed as a second "CCR 0001"): generated `global.rs` / `misc.rs` — corrections to calc-architecture.md §4.2 and §9.1
+
+**Status: applied 2026-10-09 by CCR1.** Renamed from the duplicate `0001-p1-generated-global-shape.md` and accepted (orchestrator decision): SkillType operator numbers, generated files stay in `crates/pob-dump/generated/` and are included by pob-gamedata. Calc doc §2.1, §4.2, §9.1, §13; AMENDMENTS A2.
 
 Requested by: P1 (dump + codegen). Affects: calc-architecture.md §4.2 (frozen shape of
 `generated/global.rs`), §9.1 step 5, §2.1 ownership line `generated/{global.rs,misc.rs}`.

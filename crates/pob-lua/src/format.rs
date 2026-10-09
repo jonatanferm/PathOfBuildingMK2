@@ -1,9 +1,10 @@
 //! `string.format`, `tostring(number)`, `tonumber` and `..` with LuaJIT 2.1
 //! semantics (calc doc §3.5, §4.1 `format.rs`).
 //!
-//! Ports of the vendored LuaJIT (`luajit-src 210.5.12+a4f56a4`, GC64; the
-//! x64 or ARM64 build profile per [`crate::LJ_TARGET_X86ORX64`] /
-//! [`crate::LJ_DUALNUM`], CCR-0001):
+//! Ports of the vendored LuaJIT (`luajit-src 210.5.12+a4f56a4`, GC64), x64
+//! single-number build profile (PoB's platform) on every host; the ARM64
+//! dual-number branches exist only for oracle tests ([`crate::profile`],
+//! CCR-0001/0002):
 //! * `lj_strfmt.c`: `lj_strfmt_parse`, `lj_strfmt_putfxint`,
 //!   `lj_strfmt_putfnum_int/uint`, `strfmt_putquotedlen`,
 //!   `lj_strfmt_putfchar`, `strfmt_putfstrlen`, `lj_strfmt_putarg`.
@@ -241,16 +242,16 @@ pub(crate) fn at(s: &[u8], i: usize) -> u8 {
 }
 
 // ---------------------------------------------------------------------------
-// C float→int casts as compiled for the mirrored LuaJIT build (CCR-0001):
-// x86/x64 `cvttsd2si` gives the "integer indefinite" value (MIN) for NaN and
-// out-of-range inputs; ARM64 `fcvtzs` saturates and maps NaN to 0 (which is
-// Rust's `as`).
+// C float→int casts of the LuaJIT build profile (CCR-0001, [`crate::profile`]):
+// x86/x64 `cvttsd2si` (the shipped profile) gives the "integer indefinite"
+// value (MIN) for NaN and out-of-range inputs; ARM64 `fcvtzs` (oracle tests
+// only) saturates and maps NaN to 0 (which is Rust's `as`).
 // ---------------------------------------------------------------------------
 
 /// `(int64_t)n`.
 #[inline]
 pub(crate) fn cvtt_i64(n: f64) -> i64 {
-    if crate::LJ_TARGET_X86ORX64
+    if crate::profile::x64_casts()
         && (n.is_nan() || n >= 9_223_372_036_854_775_808.0 || n < -9_223_372_036_854_775_808.0)
     {
         i64::MIN
@@ -262,7 +263,7 @@ pub(crate) fn cvtt_i64(n: f64) -> i64 {
 /// `(int32_t)n` (`lj_num2int`).
 #[inline]
 pub(crate) fn cvtt_i32(n: f64) -> i32 {
-    if crate::LJ_TARGET_X86ORX64 && (n.is_nan() || n >= 2_147_483_648.0 || n <= -2_147_483_649.0) {
+    if crate::profile::x64_casts() && (n.is_nan() || n >= 2_147_483_648.0 || n <= -2_147_483_649.0) {
         i32::MIN
     } else {
         n as i32
@@ -1774,7 +1775,7 @@ fn strscan_bin(s: &[u8], mut p: usize, ex2: i32, neg: bool, dig: u32) -> Option<
     // Format-specific handling. Dual-number builds scan with
     // STRSCAN_OPT_TOINT: `x < 0x80000000u+neg` becomes an integer, so `-0b0`
     // is integer 0 (+0). Other values are the same number either way.
-    if crate::LJ_DUALNUM && x == 0 {
+    if crate::profile::dualnum() && x == 0 {
         return Some(0.0);
     }
     let mut ex2 = ex2;
@@ -2278,7 +2279,7 @@ pub fn tonumber_base_bytes(s: &[u8], base: u32) -> Option<f64> {
     if at(s, ep) != 0 {
         return None;
     }
-    if crate::LJ_DUALNUM && ul < 0x8000_0000u64 + u64::from(neg) {
+    if crate::profile::dualnum() && ul < 0x8000_0000u64 + u64::from(neg) {
         // setintV((int32_t)(neg ? ~ul+1u : ul)): an integer, so "-0" is +0.
         let i = if neg {
             (!(ul as u32)).wrapping_add(1) as i32

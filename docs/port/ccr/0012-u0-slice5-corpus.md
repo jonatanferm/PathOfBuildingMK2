@@ -1,5 +1,7 @@
 # CCR-0012 (U0): no all57 build meets the slice5 definition; slice5 is derived
 
+**Status: applied 2026-10-09 by CCR1.** Accepted with one change (orchestrator decision): `slice5_allflame_exp_046` (no weapon) was replaced by `slice5_allflame_exp_048` (Flicker Strike, Claw + Shield: exactly one weapon), derived with `derive_slice5.py` and checked with `--check` against the oracle (jit.off): one active skill, no aura/curse/link/minion `Extra*` mod. Calc doc §9.3.
+
 - **Raised by:** U0 (corpus `crates/pob-oracle/corpus/U0/slice5.txt`)
 - **Affects:** calc-architecture.md §9.3 (`slice5`), §9.7 (G1b "slice5 from XML"), §11.1 row U0
 - **Pin:** 16de4b82d

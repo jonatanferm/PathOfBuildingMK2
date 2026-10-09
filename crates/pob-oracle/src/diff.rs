@@ -2,7 +2,11 @@
 //! §9.2 "Diff").
 //!
 //! * Numbers agree when `|a-b| <= 1e-9 * max(1, |a|)` (`a` = PoB); booleans
-//!   and strings must be identical; markers compare as whole values.
+//!   and strings must be identical; markers compare as whole values. A ±0
+//!   sign mismatch is therefore tolerated: it is a host artefact of a
+//!   dual-number (ARM64) oracle LuaJIT, never a port bug (CCR-0001/0002).
+//!   Values derived from the sign (`1/x` = ±inf, a formatted `"-0"`) are
+//!   not; record those in `known_diffs.toml` citing CCR-0002.
 //! * Mod stores (`$store`) compare as a multiset of mods per name (ModList:
 //!   over the whole list); when the multisets agree but the order does not,
 //!   the mismatch is reported as `LUA-ORDER`.
@@ -749,6 +753,9 @@ mod tests {
         assert!(!num_close(1.0, 1.0 + 1e-8, REL_TOL));
         assert!(num_close(0.0, 5e-10, REL_TOL));
         assert!(num_close(f64::NAN, f64::NAN, REL_TOL));
+        // ±0 is a host artefact (CCR-0001/0002).
+        assert!(num_close(-0.0, 0.0, REL_TOL) && num_close(0.0, -0.0, REL_TOL));
+        assert!(leaf_eq(&json!(-0.0), &json!(0), REL_TOL));
         assert!(leaf_eq(
             &json!({"$float": "inf"}),
             &json!({"$num": "inf"}),

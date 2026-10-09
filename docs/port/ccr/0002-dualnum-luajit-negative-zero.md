@@ -1,5 +1,7 @@
 # CCR 0002 (P1): the oracle LuaJIT is dual-number on this machine; ±0 differs from PoB on x86-64
 
+**Status: applied 2026-10-09 by CCR1.** Applied with CCR-0001 (orchestrator decision): oracle parity runs use `jit.off()`; diffs tolerate a ±0 sign mismatch as a host artefact; dumps record `luajit.numberMode`. Calc doc §3.5, §9.2, §9.5; AMENDMENTS A6.
+
 Requested by: P1 (dump + parse oracle). Affects: calc-architecture.md D8/§3 (Lua-semantics
 rules: "LuaJIT NaN and ±0 semantics, oracle-verified"), §9.2 (oracle, P3/ORC-X), §9.5
 (nondeterminism runs), and every unit that compares numbers against the oracle.

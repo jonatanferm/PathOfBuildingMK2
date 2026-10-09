@@ -1,5 +1,7 @@
 # CCR 0010 (P3): pob-state/1 details as built
 
+**Status: applied 2026-10-09 by CCR1.** Applied to calc doc §9.2 and §9.5.
+
 **Requested by:** P3 (oracle core). **Affects:** calc-architecture.md §9.2, §9.5
 (documentation only; no Rust contract changes). The full format is in
 `crates/pob-oracle/README.md` ("The probe oracle").

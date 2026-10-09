@@ -235,10 +235,41 @@ function NewFileSearch(pattern, dirs)
 end
 ";
 
+/// Lua run first in every oracle parity state: the LuaJIT interpreter is the
+/// reference (CCR-0001/0002, orchestrator decision applied by CCR1). Compiled
+/// traces of the vendored LuaJIT differ from the interpreter (wrong
+/// `string.sub` with a variable negative end, sign of zero after trace
+/// narrowing, `x^2` folded to `x*x`), and on a dual-number (ARM64) host the
+/// sign of a zero depends on trace timing. `jit.off()` with no argument
+/// disables the JIT compiler for the whole VM; `jit.flush()` drops traces.
+pub const ORACLE_JIT_OFF: &str = "if jit then jit.off() jit.flush() end\n";
+
+/// Whether oracle states run with the JIT off: always, unless
+/// `POB_ORACLE_JIT=on` (diagnostics only; parity data must not be produced
+/// that way).
+#[must_use]
+pub fn oracle_jit_off() -> bool {
+    std::env::var("POB_ORACLE_JIT").map_or(true, |v| v != "on")
+}
+
 impl JitPob {
-    /// Boot PoB from its `src/` directory.
+    /// Boot PoB from its `src/` directory (JIT on: the app's calc backend).
     pub fn boot(src: &Path) -> Result<Self, String> {
         Self::boot_with(src, None)
+    }
+
+    /// [`Self::boot_with`] for oracle parity runs: the JIT is switched off
+    /// ([`ORACLE_JIT_OFF`]) before anything else runs, unless
+    /// [`oracle_jit_off`] says otherwise.
+    pub fn boot_oracle(src: &Path, pre: Option<&str>) -> Result<Self, String> {
+        if !oracle_jit_off() {
+            return Self::boot_with(src, pre);
+        }
+        let mut code = String::from(ORACLE_JIT_OFF);
+        if let Some(pre) = pre {
+            code.push_str(pre);
+        }
+        Self::boot_with(src, Some(&code))
     }
 
     /// [`Self::boot`], running `pre` (Lua) right after the file-access

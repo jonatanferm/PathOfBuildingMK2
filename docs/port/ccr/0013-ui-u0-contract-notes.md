@@ -1,6 +1,8 @@
 # CCR-0013: UI-U0 contract corrections and additions (ui doc §4-§9)
 
-Unit: UI-U0 (ui doc §12.2 U0). Status: proposed; every item is already applied locally in the
+**Status: applied 2026-10-09 by CCR1.** Applied: the ui doc follows the frozen code (§4.2, §4.5, §4.6, §5.2, §6.4, §6.8, §8, §9.2-§9.4, §13). A2 (`ImageHandle::unload` signature) is U3's call and A6 (Net completions entry point) is U7's call; both are recorded as open items in ui doc §13 (items 10, 11). `pob-ui-core/tests/compile_shape.rs` copies the applied §9.2 text again (its XmlNode extension trait is gone).
+
+Unit: UI-U0 (ui doc §12.2 U0). Originally proposed; every item is already applied locally in the
 UI-U0 stubs (marked `CCR-0013` where it touches code), so the orchestrator only needs to amend the
 doc text. Nothing here changes calc-plan crates.
 

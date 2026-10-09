@@ -37,34 +37,13 @@ pub mod ljtab;
 pub mod math;
 pub mod name;
 pub mod pattern;
+pub mod profile;
 pub mod sort;
 pub mod string;
 
-// ---------------------------------------------------------------------------
-// LuaJIT build profile (CCR-0001).
-//
-// LuaJIT's observable behaviour depends on the architecture it is built for:
-// x86/x64 builds use single-number mode and `cvttsd2si` float→int
-// conversions ("integer indefinite" on overflow/NaN); ARM64 builds use
-// dual-number mode (`LJ_DUALNUM`: integer-valued results are int32 values, so
-// some zeros lose their sign) and saturating `fcvtzs` conversions. (The two
-// `hashrot` spellings in lj_tab.h are the same function, so `LjIntMap` order
-// is target-independent.) PoB ships on Windows x64; the oracle runs whatever
-// LuaJIT the test machine builds (aarch64 here). pob-lua mirrors the LuaJIT
-// profile of the target it is compiled for, so L0 compares like with like;
-// wasm32 (no LuaJIT) takes PoB's shipping x64 profile.
-// ---------------------------------------------------------------------------
-
-/// `LJ_TARGET_X86ORX64` of the mirrored LuaJIT build.
-pub const LJ_TARGET_X86ORX64: bool = cfg!(any(
-    target_arch = "x86_64",
-    target_arch = "x86",
-    target_arch = "wasm32"
-));
-
-/// `LJ_DUALNUM` of the mirrored LuaJIT build (ARM/ARM64/MIPS/PPC builds are
-/// dual-number).
-pub const LJ_DUALNUM: bool = !LJ_TARGET_X86ORX64;
+// LuaJIT build profile (CCR-0001/0002, applied by CCR1): the shipped port
+// always follows PoB's x64 single-number LuaJIT; see [`profile`].
+pub use profile::{LJ_DUALNUM, LJ_TARGET_X86ORX64};
 
 pub use error::LuaError;
 pub use field::{CheapClone, Field, PtrMap, PtrSet, Shared};

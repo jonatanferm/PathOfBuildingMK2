@@ -62,14 +62,14 @@ class GlobalsLintFixtureTest(unittest.TestCase):
 
 @_util.needs_pob
 class GlobalsLintPinTest(unittest.TestCase):
-    """Acceptance: globals_lint reports the calc doc §7.3 sites (and the CCR-0001 ones)."""
+    """Acceptance: globals_lint reports exactly the calc doc §7.3 sites (CCR-0004 applied)."""
 
     def test_check(self):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = globals_lint.main(["--check"])
         self.assertEqual(rc, 0, buf.getvalue())
-        self.assertIn("all 6 calc doc §7.3 sites reported", buf.getvalue())
+        self.assertIn("all 15 calc doc §7.3 sites reported", buf.getvalue())
 
     def test_doc_sites_parsed_from_doc(self):
         doc = os.path.join(_util.pobpaths.docs_port(), "calc-architecture.md")
@@ -91,7 +91,28 @@ class GlobalsLintPinTest(unittest.TestCase):
             with contextlib.redirect_stdout(buf):
                 rc = globals_lint.main(["--check", "--doc", edited])
             self.assertEqual(rc, 1, buf.getvalue())
-            self.assertIn("neither §7.3 nor CCR-0004: Modules/CalcOffence.lua:3538 dotCfg", buf.getvalue())
+            self.assertIn("not listed in §7.3: Modules/CalcOffence.lua:3538 dotCfg", buf.getvalue())
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_doc_parser_forms(self):
+        """Path-style refs, `;`-separated modules, and remarks after a site list."""
+        tmp = tempfile.mkdtemp(prefix="p4-doc-")
+        try:
+            edited = os.path.join(tmp, "calc.md")
+            with open(edited, "w", encoding="utf-8") as fh:
+                fh.write("### 7.3 Globals\n\n- The undeclared-global read sites are: "
+                         "`a` (CalcPerform 915; CalcBreakdown 212, 232), "
+                         "`b` (CalcDefence 1606, so `nil or 1` takes 2), "
+                         "`c` (Data/Skills/act_dex.lua:12991, Scourge Arrow 3), "
+                         "`d` (CalcPerform 3464; `pairs(nil)` raises at 7), "
+                         "`e` (ModDB.lua:262, ModList.lua:207).\n\n## 8. Next\n")
+            self.assertEqual(globals_lint.doc_sites(edited, _util.real_pob()), {
+                ("Modules/CalcPerform.lua", 915, "a"), ("Modules/CalcBreakdown.lua", 212, "a"),
+                ("Modules/CalcBreakdown.lua", 232, "a"), ("Modules/CalcDefence.lua", 1606, "b"),
+                ("Data/Skills/act_dex.lua", 12991, "c"), ("Modules/CalcPerform.lua", 3464, "d"),
+                ("Classes/ModDB.lua", 262, "e"), ("Classes/ModList.lua", 207, "e"),
+            })
         finally:
             shutil.rmtree(tmp)
 

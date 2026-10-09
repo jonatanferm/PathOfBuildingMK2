@@ -1,7 +1,9 @@
 //! The oracle harness end to end: run the `pob_oracle` binary on one build
 //! (fresh process per dump), deserialise both dumps, and check them against
 //! each other and against PoB's known numbers for the build. Self-skips
-//! without a PoB checkout.
+//! without a PoB checkout (`$POB_SRC` or `.PathOfBuilding/src` in an ancestor)
+//! or the OccVortex build; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails
+//! instead, as U0.rs and u0_smoke.rs do.
 
 use std::path::PathBuf;
 
@@ -9,9 +11,23 @@ use pob_oracle::legacy_modifier::Mod;
 use pob_oracle::oracle::{find_pob_src, find_up, Leaf, Oracle};
 
 fn build() -> Option<PathBuf> {
-    find_pob_src()?;
+    let src = find_pob_src()?;
     find_up(".parity/builds/upstream_OccVortex.xml")
         .or_else(|| find_up(".PathOfBuilding/spec/TestBuilds/3.13/OccVortex.xml"))
+        // `$POB_SRC` from a worktree outside the main checkout: the build sits
+        // beside PoB's `src/` (spec/TestBuilds/3.13/OccVortex.xml is the file
+        // .parity/builds/upstream_OccVortex.xml was copied from).
+        .or_else(|| {
+            let p = src.parent()?.join("spec/TestBuilds/3.13/OccVortex.xml");
+            p.is_file().then_some(p)
+        })
+}
+
+fn skip(why: &str) {
+    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
+        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
+    assert!(!required, "required input missing: {why}");
+    eprintln!("SKIPPED: {why}");
 }
 
 fn oracle() -> Oracle {
@@ -23,7 +39,7 @@ fn oracle() -> Oracle {
 #[test]
 fn outputs_and_stages() {
     let Some(build) = build() else {
-        eprintln!("skipped: no PoB checkout / OccVortex build");
+        skip("no PoB checkout (POB_SRC) or OccVortex build (.parity/builds, PoB spec/TestBuilds)");
         return;
     };
     let o = oracle();
@@ -32,6 +48,11 @@ fn outputs_and_stages() {
     let out = o.run_outputs(&build).unwrap_or_else(|e| panic!("{e}"));
     eprintln!("outputs: {:?}", t.elapsed());
     assert_eq!(out.format, pob_oracle::oracle::OUTPUTS_FORMAT);
+    // CCR-0001/0002: interpreter only; numberMode follows jit.arch.
+    let lj = out.luajit.as_ref().expect("luajit header");
+    assert!(!lj.jit, "oracle parity runs use jit.off()");
+    let single = matches!(lj.arch.as_str(), "x86" | "x64");
+    assert_eq!(lj.number_mode, if single { "single" } else { "dual" }, "{lj:?}");
     // PoB's own expected values for this build (spec/TestBuilds/3.13/OccVortex.lua).
     assert_eq!(out.num("Life"), Some(6728.0));
     let main = out.main_skill.as_ref().expect("main skill");
@@ -102,7 +123,7 @@ fn outputs_and_stages() {
 #[test]
 fn stage_mods_round_trip() {
     let Some(build) = build() else {
-        eprintln!("skipped: no PoB checkout / OccVortex build");
+        skip("no PoB checkout (POB_SRC) or OccVortex build (.parity/builds, PoB spec/TestBuilds)");
         return;
     };
     let raw = oracle()

@@ -2821,6 +2821,7 @@ dependencies = [
 name = "pob-lua"
 version = "0.0.1"
 dependencies = [
+ "pob-lua",
  "pob-oracle",
  "smallvec",
  "ustr",

@@ -5,9 +5,33 @@
 
 use pob_oracle::mlua::{self, Function, Lua, Table, Value};
 
-/// JIT modes every L0 comparison runs in: compiled traces and the plain
-/// interpreter must both agree with the Rust port.
-pub const MODES: [&str; 2] = ["jit.off", "jit.on"];
+/// JIT modes the L0 comparisons run in. The reference is the LuaJIT
+/// interpreter (`jit.off`, CCR-0001; every oracle parity run uses it too).
+/// `L0_JIT_ON=1` adds an informational `jit.on` run, in which documented
+/// trace-only divergences are counted, not failed.
+pub fn modes() -> Vec<&'static str> {
+    let mut m = vec!["jit.off"];
+    if std::env::var_os("L0_JIT_ON").is_some_and(|v| v == "1") {
+        m.push("jit.on");
+    }
+    m
+}
+
+/// Is the oracle's LuaJIT a dual-number build (any non-x86 `jit.arch`;
+/// `lj_arch.h` LJ_ARCH_NUMMODE)? The shipped port follows the x64
+/// single-number profile (CCR-0001/0002); on a dual-number host, L0
+/// tolerates exactly the mismatches that the ARM64 profile
+/// (`pob_lua::profile::with_luajit_arm64_profile`) reproduces.
+pub fn host_dualnum() -> bool {
+    static D: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *D.get_or_init(|| {
+        let arch: String = Lua::new()
+            .load("return jit and jit.arch or 'x64'")
+            .eval()
+            .expect("jit.arch");
+        !matches!(arch.as_str(), "x86" | "x64")
+    })
+}
 
 pub fn lua(mode: &str) -> Lua {
     let lua = Lua::new();
@@ -277,6 +301,10 @@ pub struct Check {
     /// so PoB itself is not deterministic there; Rust follows the
     /// interpreter, which the `jit.off` run checks bit-exactly.
     pub jit_zero_sign: usize,
+    /// Vectors where the shipped x64 profile differs from a dual-number
+    /// (ARM64) oracle and the ARM64 profile reproduces the oracle exactly
+    /// (CCR-0001 table: saturating float->int casts, int32 `tonumber` zeros).
+    pub profile_tolerated: usize,
 }
 
 impl Check {
@@ -286,6 +314,7 @@ impl Check {
             total: 0,
             bad: Vec::new(),
             jit_zero_sign: 0,
+            profile_tolerated: 0,
         }
     }
     pub fn ok(&mut self, cond: bool, what: impl FnOnce() -> String) {
@@ -293,6 +322,26 @@ impl Check {
         if !cond {
             self.bad.push(what());
         }
+    }
+    /// Like [`Self::ok`] for a result that depends on the LuaJIT build
+    /// profile: a mismatch is tolerated (and counted) only on a dual-number
+    /// host and only when `arm64_same` (the comparison redone under
+    /// `with_luajit_arm64_profile`) holds.
+    pub fn ok_profile(
+        &mut self,
+        cond: bool,
+        arm64_same: impl FnOnce() -> bool,
+        what: impl FnOnce() -> String,
+    ) {
+        self.total += 1;
+        if cond {
+            return;
+        }
+        if host_dualnum() && pob_lua::profile::with_luajit_arm64_profile(arm64_same) {
+            self.profile_tolerated += 1;
+            return;
+        }
+        self.bad.push(what());
     }
     /// Compare numbers: bit-exact (NaN == NaN), except that in `jit.on`
     /// mode a zero of the other sign is tolerated and counted. This applies
@@ -310,7 +359,7 @@ impl Check {
     }
     pub fn finish(self) -> usize {
         eprintln!(
-            "L0 {:<40} {:>7} vectors, {:>4} mismatches{}",
+            "L0 {:<40} {:>7} vectors, {:>4} mismatches{}{}",
             self.name,
             self.total,
             self.bad.len(),
@@ -318,6 +367,14 @@ impl Check {
                 format!(
                     " ({} JIT-only divergences tolerated: trace result differs from interpreter)",
                     self.jit_zero_sign
+                )
+            } else {
+                String::new()
+            },
+            if self.profile_tolerated > 0 {
+                format!(
+                    " ({} x64-vs-ARM64 LuaJIT profile differences tolerated, each reproduced by the ARM64 profile)",
+                    self.profile_tolerated
                 )
             } else {
                 String::new()
