@@ -9,8 +9,12 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+#[rustfmt::skip]
 #[path = "../generated/enums.rs"]
 mod enums;
+#[rustfmt::skip]
+#[path = "../generated/misc.rs"]
+mod misc;
 
 #[test]
 fn generated_enums() {
@@ -31,6 +35,8 @@ fn pob_src() -> Option<PathBuf> {
     let candidates = [
         std::env::var_os("POB_SRC").map(PathBuf::from),
         Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.PathOfBuilding/src")),
+        // a git worktree under <main checkout>/.claude/worktrees/<name>
+        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../../.PathOfBuilding/src")),
     ];
     candidates
         .into_iter()
@@ -190,6 +196,7 @@ fn full_dump() {
         out: out.clone(),
         pretty: true,
         skip_trees: false,
+        parse_oracle: false,
     })
     .unwrap();
     eprintln!(
@@ -248,6 +255,47 @@ fn full_dump() {
         skills["Fireball"]["statMap"]["$meta"]["$ref"],
         "data.skillStatMapMeta"
     );
+
+    // The 14 `value=-0` literals of Data/ModCache.lua are -0, as on x86-64
+    // PoB, also on a dual-number LuaJIT (prelude.lua restores them).
+    let modcache = load(&out.join("modCache.json"));
+    let neg_zero = |v: &Value| v.to_string().contains(r#"{"$float":"-0"}"#);
+    let neg_entries = modcache
+        .as_object()
+        .unwrap()
+        .values()
+        .filter(|e| neg_zero(e))
+        .count();
+    assert_eq!(neg_entries, 14, "modCache.json entries with -0");
+    assert!(neg_zero(&modcache["0% reduced Attack Speed"]));
+    if let Some(&rewrites) = report.stats.get("negZeroLiterals:Data/ModCache.lua") {
+        assert_eq!(rewrites, 14);
+        assert_eq!(
+            report
+                .stats
+                .keys()
+                .filter(|k| k.starts_with("negZeroLiterals:"))
+                .count(),
+            1
+        );
+    }
+
+    // misc.json: Data/Misc.lua keys, non-table values, and data.misc (whose
+    // own file name would collide with misc.json); the generated record
+    // structs deserialise from it.
+    let misc_json = load(&out.join("misc.json"));
+    assert_eq!(misc_json["misc"]["ServerTickTime"], 0.033);
+    let m: misc::misc = serde_json::from_value(misc_json["misc"].clone()).unwrap();
+    assert_eq!(m, misc::misc::PINNED);
+    let c: misc::characterConstants =
+        serde_json::from_value(misc_json["characterConstants"].clone()).unwrap();
+    assert_eq!(c, misc::characterConstants::PINNED);
+    let c: misc::monsterConstants =
+        serde_json::from_value(misc_json["monsterConstants"].clone()).unwrap();
+    assert_eq!(c, misc::monsterConstants::PINNED);
+    let c: misc::gameConstants =
+        serde_json::from_value(misc_json["gameConstants"].clone()).unwrap();
+    assert_eq!(c, misc::gameConstants::PINNED);
 
     let global = load(&out.join("global.json"));
     assert_eq!(global["SkillType"]["Area"], 8);
@@ -389,4 +437,24 @@ fn full_dump() {
         all.fn_ids.len()
     );
     assert!(resolved > 30_000);
+
+    // --- determinism: a second dump is byte-identical, manifest included ---
+    let out2 = Path::new(env!("CARGO_TARGET_TMPDIR")).join("pob-dump-test-2");
+    let report2 = pob_dump::dump(&pob_dump::Options {
+        pob_src: src,
+        out: out2.clone(),
+        pretty: true,
+        skip_trees: false,
+        parse_oracle: false,
+    })
+    .unwrap();
+    assert_eq!(report.files.len(), report2.files.len());
+    let mut compared = 0;
+    for f in &report.files {
+        let a = std::fs::read(out.join(&f.name)).unwrap();
+        let b = std::fs::read(out2.join(&f.name)).unwrap();
+        assert!(a == b, "{} differs between two dumps", f.name);
+        compared += 1;
+    }
+    eprintln!("determinism: {compared} files byte-identical across two dumps");
 }

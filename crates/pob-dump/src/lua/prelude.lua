@@ -39,6 +39,26 @@ local function rewrite_line(line)
     end
     return line
 end
+-- In-memory source hooks, keyed by path relative to the PoB src dir
+-- (e.g. "Modules/ModParser.lua"): hook(src) -> src. Used by the parse
+-- oracle to instrument ModParser; hooks must keep every line number.
+-- Nothing on disk is changed.
+__dump_src_hooks = {}
+-- Negative zero literals. PoB's reference LuaJIT (x86-64, single-number
+-- mode) reads the literal `-0` (Data/ModCache.lua: `value=-0`) as the double
+-- -0. A dual-number LuaJIT (every ARM64 build; the vendored luajit-src
+-- 210.5.12 also on unary minus of an integer 0) folds it to the integer 0,
+-- losing the sign. When this LuaJIT does, a `=-0` followed by `,` or `}`
+-- (a table field value) is rewritten to `=(0/-1)`, which is -0 on every
+-- build; the count per file is recorded. Line numbers are unchanged.
+__dump_negzero_lost = 1 / loadstring("return -0")() > 0
+__dump_negzero_rewrites = {}
+local function fix_negzero(rel, src)
+    if not __dump_negzero_lost or not src:find("=-0", 1, true) then return src end
+    local out, n = src:gsub("=%-0([,}])", "=(0/-1)%1")
+    if n > 0 then __dump_negzero_rewrites[rel] = (__dump_negzero_rewrites[rel] or 0) + n end
+    return out
+end
 loadfile = function(path)
     local full = abs(path)
     local f, e = raw_open(full, "rb")
@@ -46,6 +66,10 @@ loadfile = function(path)
     local src = f:read("*a")
     f:close()
     __dump_loaded[full] = true
+    local rel = full:sub(1, #root) == root and full:sub(#root + 1) or full
+    local hook = __dump_src_hooks[rel]
+    if hook then src = hook(src) end
+    src = fix_negzero(rel, src)
     if src:sub(1, 1) == "#" then src = "--" .. src end
     if src:find("[%+%-%*/%%%.]=") then
         src = src:gsub("[^\n]+", rewrite_line)
