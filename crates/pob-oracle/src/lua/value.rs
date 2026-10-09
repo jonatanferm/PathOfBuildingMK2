@@ -601,7 +601,7 @@ impl Val {
     pub fn to_num(&self) -> Option<f64> {
         match self {
             Val::Num(n) => Some(*n),
-            Val::Str(s) => pob_calc::lua_pattern::to_number(s.as_str()),
+            Val::Str(s) => crate::lua::lua_pattern::to_number(s.as_str()),
             _ => None,
         }
     }

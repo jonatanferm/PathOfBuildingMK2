@@ -1,0 +1,8 @@
+# slice5 (calc doc §9.3): one weapon (Weapon 2 is a shield or off-hand), no auras, a single attack or
+# spell. Chosen by U0 from .parity/builds: the five builds with no aura/herald/blessing/banner gem and
+# the fewest enabled active skills.
+upstream_Dual_Savior
+allflame_exp_021
+allflame_exp_024
+allflame_exp_035
+allflame_exp_028

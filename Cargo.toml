@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "crates/pob-lua",
+    "crates/pob-gamedata",
+    "crates/pob-modparser",
     "crates/pob-engine",
     "crates/pob-calc",
     "crates/pob-oracle",
@@ -23,6 +25,8 @@ repository = "https://github.com/jferm/PathOfBuildingMK2"
 
 [workspace.dependencies]
 pob-lua = { path = "crates/pob-lua" }
+pob-gamedata = { path = "crates/pob-gamedata" }
+pob-modparser = { path = "crates/pob-modparser" }
 pob-engine = { path = "crates/pob-engine" }
 pob-calc = { path = "crates/pob-calc" }
 pob-oracle = { path = "crates/pob-oracle" }

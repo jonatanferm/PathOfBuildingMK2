@@ -1,0 +1,242 @@
+# In-scope Lua line ranges for the calc port (calc doc §9.6). Owned by U0.
+# `scripts/port/provenance.py coverage` checks that every code line in these ranges is covered by
+# exactly one `@pob` / `@pob-skip` marker. Derived from the calc doc §11.1 "Lua sources" column
+# (P4 draft, `provenance.py scope --emit`) with the corrections marked "U0:" below; the skill hook
+# ranges come from data/dump/closures.json.
+pin = "16de4b82d57f1c0de6eb40f37143c32d4da36a02"
+
+[[file]]
+path = "Modules/Common.lua"
+# U0: isValueInTable ends at 566; 959-962 is the comment and header of `stringify` (not calc) (P4 draft: ["306-306", "477-560", "709-800", "897-962", "1013-1023"])
+ranges = ["306-306", "477-566", "709-800", "897-958", "1013-1023"]
+owner = "P2, CT"
+
+[[file]]
+path = "Modules/ModTools.lua"
+# U0: the file has 259 lines; mergeKeystones ends at 259 (P4 draft: ["1-258"])
+ranges = ["1-259"]
+owner = "CT"
+
+[[file]]
+path = "Modules/CalcTools.lua"
+ranges = ["1-303"]
+owner = "CT"
+
+[[file]]
+path = "Modules/CalcBreakdown.lua"
+ranges = ["1-255"]
+owner = "CT"
+
+[[file]]
+path = "Modules/CalcBase.lua"
+ranges = ["1-93"]
+owner = "CT"
+
+[[file]]
+path = "Modules/CalcFormat.lua"
+ranges = ["1-74"]
+owner = "CT"
+
+[[file]]
+path = "Modules/Data.lua"
+ranges = ["51-93", "583-600", "1033-1077"]
+owner = "CT, PT"
+
+[[file]]
+path = "Modules/ModParser.lua"
+ranges = ["1-7021"]
+owner = "MP0-MP7"
+
+[[file]]
+path = "Modules/DataLegionLookUpTableHelper.lua"
+ranges = ["1-262"]
+owner = "LUT"
+
+[[file]]
+path = "Modules/DataAbyssJewelLookUpTableHelper.lua"
+ranges = ["1-275"]
+owner = "LUT"
+
+[[file]]
+path = "Modules/DataJewelFileLoader.lua"
+ranges = ["1-95"]
+owner = "LUT"
+
+[[file]]
+path = "Classes/PassiveTree.lua"
+ranges = ["1-908", "1041-1062"]
+owner = "PT"
+
+[[file]]
+path = "Classes/Item.lua"
+ranges = ["1-2736"]
+owner = "IT-A, IT-B, IT-C"
+
+[[file]]
+path = "Modules/ItemSlotHelper.lua"
+ranges = ["1-40"]
+owner = "IT-B"
+
+[[file]]
+path = "Modules/Utils.lua"
+ranges = ["1-125"]
+owner = "IT-B"
+
+[[file]]
+path = "Modules/ItemTools.lua"
+ranges = ["1-413"]
+owner = "IT-C"
+
+[[file]]
+path = "Classes/SkillsTab.lua"
+ranges = ["441-630", "1129-1274", "1478-1502"]
+owner = "BM-B"
+
+[[file]]
+path = "Classes/PartyTab.lua"
+# U0: exportBuffs ends at 1043 (P4 draft: ["516-669", "718-1042"])
+ranges = ["516-669", "718-1043"]
+owner = "BM-B"
+
+[[file]]
+path = "Classes/ConfigTab.lua"
+ranges = ["839-1129", "1130-1204"]
+owner = "BM-B, CO-C"
+
+[[file]]
+path = "Classes/ModStore.lua"
+ranges = ["1-971"]
+owner = "MS-A, MS-B"
+
+[[file]]
+path = "Classes/ModDB.lua"
+ranges = ["1-370"]
+owner = "MS-A"
+
+[[file]]
+path = "Classes/ModList.lua"
+ranges = ["1-249"]
+owner = "MS-A"
+
+[[file]]
+path = "Classes/PassiveSpec.lua"
+ranges = ["1-2494"]
+owner = "PS-A, PS-B, PS-C"
+
+[[file]]
+path = "Modules/Build.lua"
+ranges = ["976-1099", "2222-2335"]
+owner = "BM-A"
+
+[[file]]
+path = "Classes/ItemsTab.lua"
+ranges = ["1216-1727", "2998-3010"]
+owner = "BM-A"
+
+[[file]]
+path = "Classes/TreeTab.lua"
+# U0: SetActiveSpec spans 549-585 (P4 draft: ["500-560"])
+ranges = ["500-585"]
+owner = "BM-A"
+
+[[file]]
+path = "Classes/CalcsTab.lua"
+ranges = ["163-225", "441-773"]
+owner = "BM-A, PWR"
+
+[[file]]
+path = "../runtime/lua/xml.lua"
+ranges = ["1-186"]
+owner = "BM-A"
+
+[[file]]
+path = "Modules/ConfigOptions.lua"
+ranges = ["1-2380"]
+owner = "CO-A, CO-B"
+
+[[file]]
+path = "Data/ModMap.lua"
+ranges = ["1-441"]
+owner = "CO-C"
+
+[[file]]
+path = "Modules/CalcActiveSkill.lua"
+ranges = ["1-934"]
+owner = "AS"
+
+[[file]]
+path = "Modules/CalcSetup.lua"
+ranges = ["1-1975"]
+owner = "CS0-CS3"
+
+[[file]]
+path = "Modules/PantheonTools.lua"
+# U0: applySoulMod ends at 19 (P4 draft: ["1-18"])
+ranges = ["1-19"]
+owner = "CS1"
+
+[[file]]
+path = "Modules/CalcPerform.lua"
+ranges = ["1-3990"]
+owner = "PF-*"
+
+[[file]]
+path = "Modules/CalcDefence.lua"
+ranges = ["1-3873"]
+owner = "DF-*"
+
+[[file]]
+path = "Modules/CalcOffence.lua"
+ranges = ["1-6263"]
+owner = "OF-*"
+
+[[file]]
+path = "Modules/CalcTriggers.lua"
+ranges = ["1-1627"]
+owner = "TR-A, TR-B"
+
+[[file]]
+path = "Modules/CalcMirages.lua"
+# U0: calcs.mirages ends at 428 (P4 draft: ["1-427"])
+ranges = ["1-428"]
+owner = "MI"
+
+[[file]]
+path = "Modules/Calcs.lua"
+ranges = ["1-872"]
+owner = "CA"
+
+[[file]]
+path = "Data/Skills/act_int.lua"
+ranges = ["552-554", "715-717", "895-897", "1086-1167", "1252-1275", "1375-1393", "1470-1481", "1647-1658", "1823-1827", "2298-2309", "2413-2424", "3889-3903", "4006-4022", "4602-4606", "4712-4716", "4823-4825", "5518-5520", "5611-5613", "5704-5706", "6800-6802", "6905-6907", "7008-7010", "7390-7434", "7549-7589", "7686-7689", "7933-7936", "8543-8545", "8663-8665", "8972-8976", "9383-9385", "9805-9809", "9915-9919", "10284-10288", "10422-10426", "10561-10565", "11009-11045", "11046-11123", "11227-11263", "11264-11341", "11667-11788", "11912-12028", "12150-12260", "12642-12650", "12651-12662", "13527-13532", "13621-13623", "13809-13811", "13901-13903", "14015-14017", "15428-15434", "15533-15537", "15625-15631", "16721-16727", "16811-16817", "16902-16908", "17373-17375", "17470-17472", "18036-18048", "18151-18157", "20267-20269", "20356-20358", "20445-20448", "20542-20544", "20629-20631", "20795-20800", "20889-20894", "20983-20987", "21107-21131"]
+owner = "SK-A"
+
+[[file]]
+path = "Data/Skills/act_dex.lua"
+ranges = ["1026-1030", "1114-1118", "1374-1379", "1466-1471", "1906-1916", "2023-2033", "2209-2211", "2428-2430", "2787-2789", "2893-2897", "3939-3944", "4064-4069", "4355-4359", "4473-4477", "4592-4594", "4703-4716", "4809-4822", "4934-4947", "6699-6778", "7156-7221", "7691-7717", "7809-7827", "10234-10241", "10337-10344", "10590-10594", "11747-11752", "11851-11856", "11958-11964", "12990-12992", "13381-13496", "13622-13671", "13779-13787", "13867-13875", "14935-14937", "15027-15029", "15116-15118", "16051-16062", "17423-17428", "17524-17529", "18034-18036", "18127-18130"]
+owner = "SK-B"
+
+[[file]]
+path = "Data/Skills/act_str.lua"
+ranges = ["3363-3366", "4679-4713", "4797-4831", "5743-5745", "7115-7123", "7241-7249", "7599-7603", "7701-7705", "7832-7882", "8011-8082", "8304-8306", "8400-8402", "8501-8503", "9082-9091", "10726-10730"]
+owner = "SK-B"
+
+[[file]]
+path = "Data/Skills/other.lua"
+ranges = ["669-677", "1282-1288", "2258-2260", "2596-2598", "6204-6252"]
+owner = "SK-B"
+
+[[file]]
+path = "Data/Skills/minion.lua"
+ranges = ["756-758", "1756-1758"]
+owner = "SK-B"
+
+[[file]]
+path = "Data/Skills/spectre.lua"
+ranges = ["7277-7279"]
+owner = "SK-B"
+
+[[file]]
+path = "Data/Skills/sup_str.lua"
+ranges = ["2540-2548"]
+owner = "SK-B"

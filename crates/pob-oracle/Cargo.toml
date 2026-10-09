@@ -8,10 +8,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-pob-calc.workspace = true
+# the Rust port, with its state export (calc doc §2 rule 2)
+pob-calc = { workspace = true, features = ["probe"] }
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 indexmap.workspace = true
+smallvec.workspace = true
 ahash.workspace = true
 flate2.workspace = true
 
@@ -26,6 +28,9 @@ toml = "0.8"
 zstd = "0.13"
 blake3 = "1"
 rustix = { version = "1", features = ["fs"] }
+
+[dev-dependencies]
+pob-gamedata.workspace = true
 
 [features]
 default = ["luajit"]

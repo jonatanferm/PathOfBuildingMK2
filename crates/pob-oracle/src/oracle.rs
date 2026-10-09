@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use pob_calc::modifier::{Mod, Value};
+use crate::legacy_modifier::{Mod, Value};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value as J};
 

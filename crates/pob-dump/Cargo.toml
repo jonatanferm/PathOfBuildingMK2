@@ -16,6 +16,7 @@ mlua.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 sha2 = "0.10"
+pob-gamedata.workspace = true
 
 [dev-dependencies]
 # the generated record structs (generated/*.rs) derive serde

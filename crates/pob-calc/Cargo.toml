@@ -1,6 +1,6 @@
 [package]
 name = "pob-calc"
-description = "Faithful Rust port of Path of Building's calculation pipeline."
+description = "Faithful Rust port of Path of Building's calculation pipeline (calc doc §2, §5-§8). No Lua runtime."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,10 +8,19 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
+pob-lua.workspace = true
+pob-gamedata.workspace = true
+pob-modparser.workspace = true
 smallvec.workspace = true
+indexmap.workspace = true
 ahash.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[features]
+default = []
+# State export for the oracle (calc doc §9.2, ORC-X): `probe!` and `ProbeState`.
+probe = ["dep:serde", "dep:serde_json"]
 
 [lints]
 workspace = true

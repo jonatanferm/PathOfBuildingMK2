@@ -1,0 +1,22 @@
+# Known, accepted differences between PoB (the oracle) and the Rust calc (calc doc §9.4 L4/L5).
+# Owned by U0 (format); entries are added by the unit that owns the code, in the same PR,
+# each with its reason. The diff tools (pob_calc_diff, the L4 segment tests) skip a mismatch only
+# when an entry here matches it exactly.
+#
+# Format:
+#   [[diff]]
+#   id = "<unit>-<n>"                       # unique, e.g. "OF-D-1"
+#   unit = "<unit id>"                      # owner (calc doc §11.1)
+#   builds = ["<build stem>", …]            # or ["*"]
+#   stage = "<stage id or 'outputs'>"       # e.g. "offence:2174", "perform:end", "outputs"
+#   keys = ["<flattened key path>", …]      # as pob_calc_diff prints them; "*" suffix = prefix match
+#   kind = "value" | "order" | "missing" | "extra" | "sign-of-zero"
+#   reason = "<why; cite the Lua file:line and the CCR when there is one>"
+#   ccr = "<CCR-NNNN>"                      # optional
+#
+# Host-artefact classes accepted globally (no entry needed per key):
+#   - "sign-of-zero" differences against an ARM64 (dual-number) oracle: CCR-0001 / CCR-0002.
+#   - order-only differences of string-keyed tables recorded by the nondeterminism runs
+#     (.parity/nondet, calc doc §9.5, CCR-0010 §4).
+#
+# No entries yet (U0 ships stubs only).

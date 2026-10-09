@@ -1,0 +1,232 @@
+# Line probes at every segment boundary of the split giant functions (calc doc §7, §9.2).
+# Owned by U0. Generated from scripts/port/segments.py (the segment table) plus the first-segment
+# `:in` probes; `id` is `<function>:<segment start line>` (`:end` = before the final `end`; the
+# function probes `<function>:in` / `<function>:out` are the patcher's).
+# A probe fires *before* `line` runs (the first statement at/after the boundary) and dumps `locals`
+# (the ctx fields of calc doc §7.2 declared by then). The `:out` of a segment is the `:in` of the next
+# one. `expect` must occur in the original line (guards against upstream drift).
+# Function probes (`calcs.initEnv:in/out`, `perform`, `offence`, …) are the patcher's built-in list.
+
+[[stage]]
+id = "initEnv:488"
+file = "Modules/CalcSetup.lua"
+line = 488
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "local classStats = nil"
+
+[[stage]]
+id = "initEnv:800"
+file = "Modules/CalcSetup.lua"
+line = 800
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "if not accelerate.requirementsItems then"
+
+[[stage]]
+id = "initEnv:1451"
+file = "Modules/CalcSetup.lua"
+line = 1451
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "if not accelerate.skills then"
+
+[[stage]]
+id = "initEnv:end"
+file = "Modules/CalcSetup.lua"
+line = 1974
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "return env, cachedPlayerDB, cachedEnemyDB, cache"
+
+[[stage]]
+id = "perform:1289"
+file = "Modules/CalcPerform.lua"
+line = 1291
+locals = ["env", "skipEHP", "modDB", "enemyDB"]
+expect = "env.keystonesAdded = { }"
+
+[[stage]]
+id = "perform:1943"
+file = "Modules/CalcPerform.lua"
+line = 1944
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures"]
+expect = "doActorAttribsConditions(env, env.player)"
+
+[[stage]]
+id = "perform:2308"
+file = "Modules/CalcPerform.lua"
+line = 2308
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "for _, activeSkill in ipairs(env.player.activeSk"
+
+[[stage]]
+id = "perform:2997"
+file = "Modules/CalcPerform.lua"
+line = 2997
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "if allyBuffs[\"otherEffects\"] then"
+
+[[stage]]
+id = "perform:3497"
+file = "Modules/CalcPerform.lua"
+line = 3498
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "local ailmentData = data.nonDamagingAilment"
+
+[[stage]]
+id = "perform:end"
+file = "Modules/CalcPerform.lua"
+line = 3990
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "end"
+
+[[stage]]
+id = "defence:659"
+file = "Modules/CalcDefence.lua"
+line = 660
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown"]
+expect = "local condList = modDB.conditions"
+
+[[stage]]
+id = "defence:1211"
+file = "Modules/CalcDefence.lua"
+line = 1212
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown", "spellSuppressionChance"]
+expect = "output.LifeRecoveryRateMod = 1"
+
+[[stage]]
+id = "defence:end"
+file = "Modules/CalcDefence.lua"
+line = 1671
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown", "spellSuppressionChance"]
+expect = "end"
+
+[[stage]]
+id = "buildDefenceEstimations:1681"
+file = "Modules/CalcDefence.lua"
+line = 1682
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown"]
+expect = "local condList = modDB.conditions"
+
+[[stage]]
+id = "buildDefenceEstimations:2153"
+file = "Modules/CalcDefence.lua"
+line = 2154
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown", "damageCategoryConfig"]
+expect = "do"
+
+[[stage]]
+id = "buildDefenceEstimations:2612"
+file = "Modules/CalcDefence.lua"
+line = 2613
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown", "damageCategoryConfig"]
+expect = "local function numberOfHitsToDie(DamageIn)"
+
+[[stage]]
+id = "buildDefenceEstimations:3165"
+file = "Modules/CalcDefence.lua"
+line = 3165
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown", "damageCategoryConfig"]
+expect = "do"
+
+[[stage]]
+id = "buildDefenceEstimations:end"
+file = "Modules/CalcDefence.lua"
+line = 3872
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown", "damageCategoryConfig"]
+expect = "end"
+
+[[stage]]
+id = "offence:362"
+file = "Modules/CalcOffence.lua"
+line = 362
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg"]
+expect = "if skillData.showAverage then"
+
+[[stage]]
+id = "offence:1037"
+file = "Modules/CalcOffence.lua"
+line = 1038
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc"]
+expect = "if skillModList:Flag(nil, \"SupportedByMomentum\")"
+
+[[stage]]
+id = "offence:1692"
+file = "Modules/CalcOffence.lua"
+line = 1693
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult"]
+expect = "local costs = {"
+
+[[stage]]
+id = "offence:2174"
+file = "Modules/CalcOffence.lua"
+line = 2175
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown"]
+expect = "for _, pass in ipairs(passList) do"
+
+[[stage]]
+id = "offence:2606"
+file = "Modules/CalcOffence.lua"
+line = 2606
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier"]
+expect = "for _, pass in ipairs(passList) do"
+
+[[stage]]
+id = "offence:2607"
+file = "Modules/CalcOffence.lua"
+line = 2607
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier", "pass"]
+expect = "globalOutput, globalBreakdown = output, breakdow"
+
+[[stage]]
+id = "offence:3346"
+file = "Modules/CalcOffence.lua"
+line = 3347
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier", "pass", "source", "cfg", "hitRate"]
+expect = "for _, damageType in ipairs(dmgTypeList) do"
+
+[[stage]]
+id = "offence:3957"
+file = "Modules/CalcOffence.lua"
+line = 3957
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier"]
+expect = "if isAttack then"
+
+[[stage]]
+id = "offence:4155"
+file = "Modules/CalcOffence.lua"
+line = 4156
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier"]
+expect = "local ailmentData = data.nonDamagingAilment"
+
+[[stage]]
+id = "offence:4164"
+file = "Modules/CalcOffence.lua"
+line = 4164
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier", "ailmentData"]
+expect = "for _, pass in ipairs(passList) do"
+
+[[stage]]
+id = "offence:4165"
+file = "Modules/CalcOffence.lua"
+line = 4165
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier", "ailmentData", "pass"]
+expect = "globalOutput, globalBreakdown = output, breakdow"
+
+[[stage]]
+id = "offence:4990"
+file = "Modules/CalcOffence.lua"
+line = 4991
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier", "ailmentData", "pass", "cfg", "ailmentMode", "checkWeapon1HFlags", "calcAverageSourceDamage", "calcAilmentDamage"]
+expect = "if canDeal.Fire and (output.IgniteChanceOnHit + "
+
+[[stage]]
+id = "offence:5650"
+file = "Modules/CalcOffence.lua"
+line = 5651
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier", "ailmentData"]
+expect = "if isAttack then"
+
+[[stage]]
+id = "offence:end"
+file = "Modules/CalcOffence.lua"
+line = 6263
+locals = ["env", "actor", "activeSkill", "modDB", "enemyDB", "output", "breakdown", "skillModList", "skillData", "skillFlags", "skillCfg", "calcAreaOfEffect", "calcResistForType", "runSkillFunc", "isAttack", "debuffDurationMult", "costs", "monsterLife", "canDeal", "passList", "combineStat", "storedMainHandAccuracy", "storedMainHandAccuracyVsEnemy", "storedSustainedTraumaBreakdown", "quantityMultiplier", "ailmentData"]
+expect = "end"

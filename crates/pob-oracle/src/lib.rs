@@ -21,8 +21,15 @@
 #[cfg(not(target_arch = "wasm32"))]
 pub mod diff;
 pub mod headless;
+/// ORC-X: injection of pob-state/1 dumps into the Rust graph (stub by U0).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod inject;
 #[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
 pub mod jit;
+/// The pre-port modifier model (old `pob-calc/src/modifier.rs`, moved here by
+/// calc U0 / AMENDMENTS A1): the serde shape of the oracle's stage dumps.
+pub mod legacy_modifier;
+pub mod legacy_modifier_serde;
 pub mod lua;
 pub mod mod_parser;
 #[cfg(not(target_arch = "wasm32"))]
@@ -30,10 +37,16 @@ pub mod nondet;
 pub mod oracle;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod patcher;
+/// ORC-X: replay of recorded callee deltas (stub by U0).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod replay;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod runner;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod schema;
+/// ORC-X: helpers for the unit acceptance tests (stub by U0).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod testkit;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod worker;
 

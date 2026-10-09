@@ -28,7 +28,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value as J};
 
-use crate::modifier::{Mod, ModType, Sockets, Table, Tag, TagType, Value};
+use crate::legacy_modifier::{Mod, ModType, Sockets, Table, Tag, TagType, Value};
 
 // ---- encode ----------------------------------------------------------------
 

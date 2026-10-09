@@ -216,8 +216,9 @@ pub fn sanitiseText_bytes(text: &[u8]) -> Vec<u8> {
     g(t, b"[\x80-\xff]", b"?")
 }
 
-/// `sanitiseText(text)` (the result is always ASCII when a replacement ran).
-/// @pob Modules/Common.lua:303-329 h=e58537d0
+/// `sanitiseText(text)` (the result is always ASCII when a replacement ran):
+/// the `&str` form of [`sanitiseText_bytes`] (Modules/Common.lua:303-329; one
+/// provenance marker per Lua range, so the marker is on the byte function).
 pub fn sanitiseText(text: &str) -> String {
     let b = sanitiseText_bytes(text.as_bytes());
     match String::from_utf8(b) {

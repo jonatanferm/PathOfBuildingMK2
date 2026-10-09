@@ -14,9 +14,9 @@ use std::rc::Rc;
 
 use ahash::AHashMap;
 
+use crate::legacy_modifier::{Mod, ModType, Sockets, Table, Tag, TagType, Value};
+use crate::lua::lua_pattern;
 use crate::lua::{Interp, LuaError, TableRef, Val};
-use pob_calc::lua_pattern;
-use pob_calc::modifier::{Mod, ModType, Sockets, Table, Tag, TagType, Value};
 
 /// PoB helper functions ModParser expects as globals.
 const PRELUDE: &str = r#"

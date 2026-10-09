@@ -1,0 +1,27 @@
+[package]
+name = "pob-gamedata"
+description = "Path of Building's game data for the Rust calc port: generated Global.lua enums, Mod/Tag/Value, the typed `data` schema and its loader (calc doc §4.2-§4.4). No Lua runtime."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pob-lua.workspace = true
+serde = { workspace = true, features = ["rc"] }
+# float_roundtrip: the dump's decimals round-trip exactly only with it (crates/pob-dump/FORMAT.md)
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+smallvec.workspace = true
+indexmap.workspace = true
+ahash.workspace = true
+ustr = { workspace = true, features = ["serde"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+
+[lints]
+workspace = true
+
+# getrandom 0.3 (via ahash runtime-rng) needs its wasm_js backend on wasm32; the backend cfg is set
+# in .cargo/config.toml (as for app/pob-web).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }

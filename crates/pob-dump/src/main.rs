@@ -5,6 +5,7 @@
 //! pob-dump [--pob <PoB src dir>] [--out <dir>] --parse-oracle-only
 //! pob-dump [--pob <PoB src dir>] --codegen [--check] [--generated <dir>]
 //! pob-dump [--pob <PoB src dir>] --codegen-enums <out.rs>
+//! pob-dump [--out <dir>] --compile [--bin-out <dir>]
 //! ```
 //! Defaults: `--pob .PathOfBuilding/src`, `--out data/dump` (relative to the
 //! current directory), `--generated crates/pob-dump/generated` (this crate's).
@@ -22,7 +23,10 @@ pob-dump [--pob <PoB src>] --codegen [--check] [--generated <dir>]
     write the generated Rust files (enums.rs, global.rs, misc.rs) into <dir>;
     with --check, write nothing and fail when a committed file differs
 pob-dump [--pob <PoB src>] --codegen-enums <out.rs>
-    write only enums.rs to <out.rs>";
+    write only enums.rs to <out.rs>
+pob-dump [--out <dir>] --compile [--bin-out <dir>]
+    deserialise the dump in <dir> into the typed schema (fails on any unknown key)
+    and write <bin-out>/data.bin + <bin-out>/trees/<ver>.bin (default: <dir>)";
 
 fn main() -> Result<()> {
     let mut pob = PathBuf::from(".PathOfBuilding/src");
@@ -35,6 +39,8 @@ fn main() -> Result<()> {
     let mut codegen = false;
     let mut check = false;
     let mut generated = pob_dump::codegen::default_dir();
+    let mut compile = false;
+    let mut bin_out: Option<PathBuf> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -45,6 +51,8 @@ fn main() -> Result<()> {
             "--skip-parse-oracle" => parse_oracle = false,
             "--parse-oracle-only" => parse_oracle_only = true,
             "--codegen" => codegen = true,
+            "--compile" => compile = true,
+            "--bin-out" => bin_out = Some(args.next().context("--bin-out needs a path")?.into()),
             "--check" => check = true,
             "--generated" => generated = args.next().context("--generated needs a path")?.into(),
             "--codegen-enums" => {
@@ -56,6 +64,11 @@ fn main() -> Result<()> {
             }
             other => bail!("unknown argument {other:?} (see --help)"),
         }
+    }
+    if compile {
+        let r = pob_dump::compile::compile(&out, bin_out.as_deref().unwrap_or(&out))?;
+        r.print();
+        return Ok(());
     }
     if check && !codegen {
         bail!("--check goes with --codegen");
