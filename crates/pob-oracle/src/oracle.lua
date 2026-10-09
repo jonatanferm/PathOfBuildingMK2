@@ -394,13 +394,18 @@ end
 
 -- The LuaJIT build and mode that produced a dump (CCR-0001/0002): on a
 -- dual-number host (ARM64) the sign of a zero can differ from x64 PoB.
+-- numberMode comes from jit.arch, as pob-lua's host_dualnum() does: lj_arch.h
+-- gives x86/x64 LJ_NUMMODE_SINGLE_DUAL (single unless built with
+-- LUAJIT_NUMMODE=2) and every other target (arm, arm64, mips, ppc) a dual
+-- default. Probing the literal `-0` is not reliable: newer dual-number
+-- LuaJIT builds keep its sign too (CCR-0002).
 local function luajitInfo()
 	if not jit then return "null" end
-	local negZero = loadstring("return -0")()
+	local single = jit.arch == "x86" or jit.arch == "x64"
 	return obj({
 		{ "arch", jstr(jit.arch) },
 		{ "jit", (jit.status()) and "true" or "false" },
-		{ "numberMode", jstr((1 / negZero < 0) and "single" or "dual") },
+		{ "numberMode", jstr(single and "single" or "dual") },
 	})
 end
 

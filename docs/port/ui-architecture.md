@@ -1826,7 +1826,7 @@ A Lua property closure that assigns fields must have those fields declared as `C
 | `self.build.itemsTab:PopulateSlots()` (another tab's UI method) | `let t = cx.build().tabs.items; ItemsTab::populate_slots(cx, t.0)` |
 | `calcFunc(override, useFullDPS)` | `let f = cx.build().calc_func.clone().unwrap(); match f.call(Some(Rc::new(ov)), use_full_dps) { Poll::Ready(out) => …, Poll::Pending => /* site placeholder; never on desktop */ }` |
 | `tooltip:CheckForUpdate(node, build.outputRevision)` | `tt.check_for_update(cx, &[TtKey::Obj(TtObj(node.clone())), TtKey::Num(model.outputRevision.get())])` |
-| `s:gsub(p, r)`, `s:match(p)`, `s:find(p, i, plain)`, `string.format(f, ..)` | `pob_lua::{gsub, lmatch, find}`, `pob_lua::lformat!(f, ..)` |
+| `s:gsub(p, r)`, `s:match(p)`, `s:find(p, i, plain)`, `string.format(f, ..)` | In expression position (rule 5, first value only): `pob_ui_core::luastr::{gsub, lmatch}` (`gsub(s, p, r) -> String`, `lmatch(s, p) -> Option<String>`; CCR-0013 B1). When every return value is used: `pob_lua::{gsub, lmatch}` (`(String, usize)`, `Option<Captures>`). `pob_lua::find`, `pob_lua::lformat!(f, ..)` |
 | `tostring(n)`, `x .. ""` (number) | `pob_lua::tostring(n)` |
 | `table.sort(t, f)` | `pob_lua::sort(&mut v, \|a, b\| lt)` (Lua 5.1 algorithm, not stable) |
 | `coroutine.create(f)` / `resume` / `yield` | `Coroutine::create(async move {..})` / `co.resume(cx)` (via lend) / `co::yield_now().await` |

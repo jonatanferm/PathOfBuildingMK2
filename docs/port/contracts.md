@@ -31,6 +31,7 @@ Changes go through a CCR (§10.3). Pin: PathOfBuilding 16de4b82d.
 | Registries (`SkillHook`, `FnRow`, `SKILL_FUNCS`, `CONFIG_APPLY`, `ModMapApply`, `MODMAP_APPLY`) | `data_fns/mod.rs`, `modules/config_options/mod.rs`, `modules/mod_map.rs` (frame) | §8.1, [#registries](#registries) |
 | `ctx_struct!`, `ProbeState` (stub; ORC-X owns `probe.rs`) | `crates/pob-calc/src/probe.rs` | §7.2, §9.2 |
 | `inject::state`, `replay::Replay`, `testkit` (stubs; ORC-X) | `crates/pob-oracle/src/{inject,replay,testkit}.rs` | §9.2 |
+| Legacy `Mod` JSON shape and pattern engine (oracle only; the calc crates never use them; ORC-X converts to `pob_gamedata::Mod`, then deletes them) | `crates/pob-oracle/src/{legacy_modifier,legacy_modifier_serde}.rs`, `crates/pob-oracle/src/lua/lua_pattern.rs` | AMENDMENTS A1, CCR-0011 §11 |
 | Stage probes, scope, style, known diffs | `docs/port/{stages.toml,scope.toml,STYLE.md,known_diffs.toml}` | §9 |
 
 Every unit-owned file exists as a compiling stub with its final signatures, `@pob` markers and

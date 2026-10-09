@@ -9,7 +9,7 @@ Where this file and either doc disagree, **this file wins**.
 | Doc says | Reality | Rule |
 |---|---|---|
 | `pob-luahost` (old `pob-calc` renamed: jit.rs, headless.rs, worker.rs, lua/) | **`crates/pob-oracle`** holds all of it (moved by commit 46ef7e3) plus the oracle harness (`pob_oracle outputs\|stages\|all`, `src/oracle.rs`, `src/oracle.lua`). | Read every `pob-luahost` as `pob-oracle`. Unit **REN is done**. The legacy app (`pob-ui`) imports the worker from `pob_oracle`. |
-| `pob-calc` = new calc crate | `crates/pob-calc` already exists and is Lua-free: `flags.rs`, `modifier.rs`, `modifier_serde.rs`, `mod_store.rs`, `lua_pattern.rs`. | calc:U0 turns it into the new calc crate: `modifier.rs`/`modifier_serde.rs` move to `pob-gamedata`, `lua_pattern.rs` moves to `pob-lua/src/pattern.rs`, `flags.rs` is replaced by generated enums, `mod_store.rs` is kept as `classes/legacy_mod_store_reference.rs` (reference only, deleted by MS-B) . |
+| `pob-calc` = new calc crate | `crates/pob-calc` already exists and is Lua-free: `flags.rs`, `modifier.rs`, `modifier_serde.rs`, `mod_store.rs`, `lua_pattern.rs`. | calc:U0 turns it into the new calc crate: `modifier.rs`/`modifier_serde.rs` move to `pob-gamedata`, `lua_pattern.rs` moves to `pob-lua/src/pattern.rs`, `flags.rs` is replaced by generated enums, `mod_store.rs` is kept as `classes/legacy_mod_store_reference.rs` (reference only, deleted by MS-B). **Done by U0, with legacy copies kept (CCR-0011 §11):** the old files also stay in pob-oracle (`crates/pob-oracle/src/legacy_modifier.rs`, `legacy_modifier_serde.rs`, `src/lua/lua_pattern.rs`), because the oracle still reads and writes mods in the legacy JSON shape. Until ORC-X there are therefore two `Mod` types (`pob_oracle::legacy_modifier::Mod`, `pob_gamedata::Mod`) and two pattern engines (pob-oracle's, `pob_lua::pattern`). **ORC-X** owns the legacy → `pob_gamedata::Mod` conversion and then deletes the legacy copies. The calc crates (pob-gamedata, pob-lua, pob-calc, pob-modparser) never use the legacy types. |
 | `pob-extract dump` / `pob-extract/src/dump/*` / `pob-extract compile` | **`crates/pob-dump`** (binary `pob-dump`) does the dump. | P1's remaining work and U0's `compile.rs` go into `crates/pob-dump/src/`. `pob-extract` stays legacy. |
 
 ## A2. Dump format
@@ -97,7 +97,8 @@ U3 switches it).
   and `LJ_DUALNUM` are constants (`true`/`false`). The ARM64 dual-number behaviour (saturating
   casts, int32 `tonumber` zeros) lives in `crates/pob-lua/src/profile.rs` behind the test-only
   feature `oracle-dualnum` (enabled solely by pob-lua's own dev-dependency on itself; no shipping
-  crate may enable it) as `with_luajit_arm64_profile`.
+  crate may enable it; `crates/pob-lua/tests/oracle_dualnum_feature.rs` fails if any other workspace
+  manifest names it) as `with_luajit_arm64_profile`.
 - **L0** compares the shipped profile with the LuaJIT interpreter (`jit.off`). On a dual-number
   host (this machine is aarch64), a mismatch is tolerated and counted only when the ARM64
   profile reproduces the oracle exactly; any other mismatch fails. `L0_JIT_ON=1` adds an
@@ -123,6 +124,6 @@ U3 switches it).
 | 0005 ctx params rule | calc doc §7.1 | |
 | 0006 lua2rs modparser shapes | calc doc §4.3, §4.4, §6, §8.1 | every type-level item was already in U0's frozen code; the `Caps` doc comment now names the three call shapes |
 | 0010 pob-state format | calc doc §9.2, §9.5 | |
-| 0011 U0 contract corrections | calc doc §3.2, §4.3, §4.4, §5.1-§5.3, §5.10, §6, §7.2, §9.2 | docs follow the frozen code |
+| 0011 U0 contract corrections | calc doc §3.2, §4.3, §4.4, §5.1-§5.3, §5.10, §6, §7.2, §9.2, §11.1 (ORC-X row); A1 | docs follow the frozen code; A1 records the legacy `Mod`/pattern copies in pob-oracle and ORC-X's ownership of their conversion and deletion (§11) |
 | 0012 slice5 corpus | calc doc §9.3 | `slice5_allflame_exp_046` (no weapon) replaced by `slice5_allflame_exp_048` (Flicker Strike, Claw + Shield) |
 | 0013 UI-U0 contract notes | ui doc §4.2, §4.5, §4.6, §5.2, §6.4, §6.8, §8, §9.2-§9.4, §13; A4 | docs follow frozen code. **Open:** A2 `ImageHandle::unload` signature is U3's call; A6 Net completions is U7's call |

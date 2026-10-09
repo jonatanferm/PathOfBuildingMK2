@@ -673,7 +673,9 @@ pub struct Data {
     // GetFromOutput and the transform closures as LuaFnRef, owner PWR), nodeIDList (DataLegionLookUpTableHelper.lua, LUT),
     // monsterExperienceLevelMap (Build.lua:236).
     pub other: indexmap::IndexMap<AStr, DataValue>,           // data::DYNAMIC_ROOTS (20): read only by UI/trade code outside
-                                                              // scope.toml (contracts.md#schema names each reader)
+                                                              // scope.toml (contracts.md#schema names each reader). `global`
+                                                              // is the exception: its calc members are P1's generated code
+                                                              // (crates/pob-dump/generated/global.rs, CCR-0003/CCR-0011 §7)
 }
 impl Costs { pub fn by_resource(&self, r: Name) -> Option<&CostInfo>; }   // Data.lua:722-726 __index
 static DATA: std::sync::OnceLock<Data> = std::sync::OnceLock::new();
@@ -1247,7 +1249,9 @@ pub enum Cap<'s> { Str(&'s str), Nil }
 /// Lua closure params, in three call shapes (CCR-0006 §5):
 ///   specialModList `f(tonumber(cap[1]), unpack(cap))` (6662-6663): #1 = caps.num, #k≥2 = caps.cap[k-2];
 ///   preFlagList    `f(unpack(preFlagCap))` (6680-6682):             #1 = caps.cap[0] (a string), #k≥2 = caps.cap[k-1];
-///   modTagList     `f(tonumber(c1), …)` if c1 matches "%d+", else `f(c1, …)` (6698-6712): #1 = caps.num or caps.cap[0].
+///   modTagList     `f(tonumber(c1), …)` if c1 matches "%d+", else `f(c1, …)` (6698-6712): #k≥2 = caps.cap[k-2];
+///                  #1 is chosen by whether c1 contains a digit, not by whether tonumber succeeds: digit → caps.num,
+///                  which is None (nil) when tonumber(c1) fails (e.g. "1-2"), never caps.cap[0]; no digit → caps.cap[0].
 /// `scan` fills caps.num = tonumber(cap1) for specialModList and, for modTagList, whenever cap1 contains a digit.
 pub struct Caps<'s> { pub num: Option<f64>, pub cap: [Option<&'s str>; 5] }
 /// The Lua "misc" table returned by form/tag/flag lists (ModParser.lua 6640-6993 reads these keys;
@@ -1537,7 +1541,7 @@ Function ids are the ids of `data/dump/closures.json` (AMENDMENTS A2, `crates/po
 
 **Process model.** One fresh LuaJIT PoB process per build, which avoids the known cross-build state leak (corpus 031→051). Every run goes through `scripts/port/oracle.sh`, which holds a `flock`, so only one oracle process exists at a time (≈400 MB).
 
-**Interpreter only (CCR-0001/0002).** Every oracle parity run uses the LuaJIT interpreter: `JitPob::boot_oracle` runs `jit.off()` (and `jit.flush()`) before anything else (`pob_oracle::jit::ORACLE_JIT_OFF`), as the parse oracle in pob-dump does. Compiled traces of this LuaJIT are wrong for `string.sub` with a variable negative end and drop the sign of zero of narrowed results (§3.5). `POB_ORACLE_JIT=on` exists for diagnostics only; the `pob_timing` baseline (G1a) runs PoB as it ships, JIT on. Every `outputs.json`/`stages.json` records the LuaJIT that produced it: `"luajit": {"arch", "jit", "numberMode": "single"|"dual"}`. On a dual-number host a `±0` difference is a host artefact (§3.5).
+**Interpreter only (CCR-0001/0002).** Every oracle parity run uses the LuaJIT interpreter: `JitPob::boot_oracle` runs `jit.off()` (and `jit.flush()`) before anything else (`pob_oracle::jit::ORACLE_JIT_OFF`), as the parse oracle in pob-dump does. Compiled traces of this LuaJIT are wrong for `string.sub` with a variable negative end and drop the sign of zero of narrowed results (§3.5). `POB_ORACLE_JIT=on` exists for diagnostics only; the `pob_timing` baseline (G1a) runs PoB as it ships, JIT on. Every `outputs.json`/`stages.json` records the LuaJIT that produced it: `"luajit": {"arch", "jit", "numberMode": "single"|"dual"}` (`numberMode` from `jit.arch`: x86/x64 → single, else dual, as lj_arch.h defaults; the sign of the literal `-0` does not tell them apart). On a dual-number host a `±0` difference is a host artefact (§3.5).
 
 **Patched source.** The patcher copies `.PathOfBuilding/src` to `target/oracle-src/<sha>/`.
 - For every `[[stage]]` in `docs/port/stages.toml` (`id`, `file`, `line`, `locals`), it inserts `if __PROBE then __PROBE("<id>", {<locals>}) end` before the line. Both the `:in` and `:out` boundaries of every segment in §7 are stages.
@@ -1677,7 +1681,7 @@ A **wave** is a dependency level: it lists what *may* run in parallel. It does n
 | **IT-A** Item ParseRaw | Item.lua 424-1645 | `pob-calc/src/classes/item_parse.rs` | U0, MP0 | L2 ParseRaw fields for every unique (all variants) and corpus item | 2 |
 | **IT-B** Item core | Item.lua 1-423, 1646-2191; ItemSlotHelper.lua 1-40; Utils.lua 1-125 | `pob-calc/src/classes/item.rs` | U0 | `BuildRaw(ParseRaw(x))` text equals Lua; NormaliseQuality, variants, GetPrimarySlot, FindModifierSubstring | 2 |
 | **BM-B** skills/party/config model | SkillsTab.lua 441-630, 1129-1274, 1478-1502; PartyTab.lua 516-669, 718-1042; ConfigTab.lua 839-1129 | `pob-calc/src/model/{skills_tab,party_tab,config_tab}.rs` | U0 | socketGroupList after UpdateSocketGroups equals the oracle on the corpus; ParseBuffs mod lists equal; config Load/Save round trip | 2 |
-| **ORC-X** inject/replay | — | `pob-oracle/src/{inject,replay,testkit}.rs`, `pob-calc/src/probe.rs` | U0, P3, MS-A (AddMod) | identity round trip (Lua dump → inject → Rust export = dump) at `initEnv:out`, `perform:in` and `offence:in` for all57; replay of `offence`/`runSkillFunc` deltas | 2 |
+| **ORC-X** inject/replay | — | `pob-oracle/src/{inject,replay,testkit}.rs`, `pob-calc/src/probe.rs`; the legacy `Mod` → `pob_gamedata::Mod` conversion, then deletion of `pob-oracle/src/{legacy_modifier,legacy_modifier_serde}.rs` and `pob-oracle/src/lua/lua_pattern.rs` (AMENDMENTS A1, CCR-0011 §11) | U0, P3, MS-A (AddMod) | identity round trip (Lua dump → inject → Rust export = dump) at `initEnv:out`, `perform:in` and `offence:in` for all57; replay of `offence`/`runSkillFunc` deltas; the legacy copies are gone and nothing outside pob-oracle used them | 2 |
 | **MP3-MP6** specialModList | ModParser.lua 2130-3083 / 3084-4036 / 4037-4988 / 4989-5942 | `pob-modparser/src/special_{a,b,c,d}.rs` | U0, T1, MP2 (ModSpec helpers) | L1: every entry in range hit and matching; after MP6, whole-parser L1 ≥ 99.95% with the cache disabled | 3 |
 | **MP7** jewel funcs | ModParser.lua 6151-6615 | `pob-modparser/src/jewel_func_list.rs`, `pob-calc/src/modules/jewel_funcs.rs` | MP0, MS-A | per func: PoB vs Rust on every node of the 3_26 tree → identical `out` ModList and `data` table | 3 |
 | **IT-C** item mod lists | Item.lua 2192-2736; ItemTools.lua 1-413 | `pob-calc/src/classes/{item_mods,item_tools}.rs` | IT-A, IT-B, MS-A | L2: modList, slotModList, weaponData, armourData, flaskData, tinctureData, jewelData | 3 |

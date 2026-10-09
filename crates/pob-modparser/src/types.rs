@@ -20,7 +20,10 @@ pub enum Cap<'s> {
 /// * preFlagList `f(unpack(preFlagCap))` (6680-6682): #1 = `cap[0]` (a string),
 ///   #k≥2 = `cap[k-1]`;
 /// * modTagList `f(tonumber(c1), …)` when `c1` matches `%d+`, else `f(c1, …)`
-///   (6698-6712): #1 = `num` or `cap[0]`, #k≥2 = `cap[k-2]`.
+///   (6698-6712): #k≥2 = `cap[k-2]`; #1 depends on whether `c1` contains a
+///   digit, not on whether `tonumber` succeeds: with a digit it is `num`, which
+///   is `None` (Lua nil) when `tonumber(c1)` fails (e.g. `"1-2"`), never a
+///   fallback to `cap[0]`; without a digit it is `cap[0]` (the string).
 ///
 /// `scan` fills `num = tonumber(cap1)` for specialModList and, for modTagList,
 /// whenever cap1 contains a digit.
