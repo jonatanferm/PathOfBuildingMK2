@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/pob-engine",
     "crates/pob-calc",
+    "crates/pob-sg",
     "crates/pob-data",
     "crates/pob-extract",
     "crates/pob-ui",
