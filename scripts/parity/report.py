@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""Aggregate pob_diff --json-out results into a parity scoreboard.
+"""Aggregate per-build {build, pob, ours} documents into a parity scoreboard.
+
+Reads the --json-out output of pob_diff (legacy) and of pob_calc_diff
+(crates/pob-oracle): one <build>.json per build whose "pob" and "ours"
+members map flattened output keys (`Life`, `MainHand.Speed`) to values.
+Non-finite numbers may be written as {"$num": "inf"|"-inf"|"nan"}; other
+non-numeric values (strings, booleans, markers) are not scored. Other
+members of a document (pob_calc_diff's "mismatches", "summary") are ignored.
 
 Usage: scripts/parity/report.py [.parity/results] [--key KEY] [--top N]
 """
-import json, os, sys, glob, collections
+import json, math, os, sys, glob, collections
 
 HEADLINE = [
     "Life", "Mana", "EnergyShield", "Ward", "Str", "Dex", "Int",
@@ -17,12 +24,16 @@ HEADLINE = [
 ALIASES = {"Str": "Strength", "Dex": "Dexterity", "Int": "Intelligence"}
 
 def close(a, b):
+    if math.isnan(a) or math.isnan(b): return math.isnan(a) and math.isnan(b)
+    if math.isinf(a) or math.isinf(b): return a == b
     d = abs(a - b)
     return d < 0.5 or d <= 0.01 * max(abs(a), abs(b))
 
 def num(v):
     if isinstance(v, bool): return float(v)
     if isinstance(v, (int, float)): return float(v)
+    if isinstance(v, dict) and len(v) == 1 and isinstance(v.get("$num"), str):
+        return {"inf": math.inf, "-inf": -math.inf, "nan": math.nan}.get(v["$num"])
     return None
 
 def main():
@@ -30,13 +41,18 @@ def main():
     d = args[0] if args else ".parity/results"
     key_filter = sys.argv[sys.argv.index("--key") + 1] if "--key" in sys.argv else None
     top = int(sys.argv[sys.argv.index("--top") + 1]) if "--top" in sys.argv else 40
-    docs = [json.load(open(f)) for f in sorted(glob.glob(os.path.join(d, "*.json")))]
+    docs = []
+    for f in sorted(glob.glob(os.path.join(d, "*.json"))):
+        with open(f) as fh:
+            doc = json.load(fh)
+        if isinstance(doc, dict) and isinstance(doc.get("pob"), dict) and isinstance(doc.get("ours"), dict):
+            docs.append(doc)
     if not docs:
         sys.exit("no results")
     if key_filter:
         for doc in docs:
-            p = num(doc["pob"].get(key_filter)); o = doc["ours"].get(ALIASES.get(key_filter, key_filter))
-            o = o if o is not None else doc["ours"].get(key_filter)
+            p = num(doc["pob"].get(key_filter)); o = num(doc["ours"].get(ALIASES.get(key_filter, key_filter)))
+            o = o if o is not None else num(doc["ours"].get(key_filter))
             flag = "" if (p is not None and o is not None and close(o, p)) else "  <--"
             print(f"{doc['build']:<28} pob={p!s:>14} ours={o!s:>14}{flag}")
         return
@@ -47,15 +63,15 @@ def main():
         for k, pv in pob.items():
             p = num(pv)
             if p is None: continue
-            o = ours.get(k)
-            if o is None and k in ALIASES: o = ours.get(ALIASES[k])
+            o = num(ours.get(k))
+            if o is None and k in ALIASES: o = num(ours.get(ALIASES[k]))
             if o is None:
                 if abs(p) >= 0.5: missing[k] += 1
                 continue
             shared[k] += 1
             if not close(o, p):
                 div[k] += 1
-                rel = abs(o - p) / max(abs(p), 1)
+                rel = abs(o - p) / max(abs(p), 1) if math.isfinite(o - p) else math.inf
                 if rel > worst.get(k, (0,))[0]: worst[k] = (rel, doc["build"], o, p)
     n = len(docs)
     print(f"== {n} builds ==\n")

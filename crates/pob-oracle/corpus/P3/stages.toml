@@ -1,0 +1,72 @@
+# Dummy stages for the P3 tests (U0 writes the real docs/port/stages.toml).
+# Line probes fire *before* the given line runs; `locals` are dumped by
+# name; `expect` must occur in the original line (guards upstream drift).
+
+# initEnv segments (calc doc §7.1: 475 · 800 · 1451)
+[[stage]]
+id = "initEnv:items:in"
+file = "Modules/CalcSetup.lua"
+line = 800
+locals = ["build", "mode", "specEnv", "env", "accelerate", "override", "modDB"]
+expect = "if not accelerate.requirementsItems then"
+
+[[stage]]
+id = "initEnv:skills:in"
+file = "Modules/CalcSetup.lua"
+line = 1451
+locals = ["env", "accelerate", "override", "modDB"]
+expect = "if not accelerate.skills then"
+
+# perform segments (1286 · 1943 · 2308 · 2997 · 3497)
+[[stage]]
+id = "perform:pools:in"
+file = "Modules/CalcPerform.lua"
+line = 1943
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "breakdown"]
+expect = "-- Calculate attributes and life/mana pools"
+
+[[stage]]
+id = "perform:buffs:in"
+file = "Modules/CalcPerform.lua"
+line = 2308
+locals = ["env", "modDB", "output", "buffs", "guards", "debuffs", "curses", "appliedCombustion", "warcryList"]
+expect = "for _, activeSkill in ipairs(env.player.activeSkillList) do"
+
+# offence: the speed segment, and the hit half of the pass loop body
+[[stage]]
+id = "offence:speed:in"
+file = "Modules/CalcOffence.lua"
+line = 2174
+locals = ["env", "actor", "activeSkill", "output", "skillModList", "passList", "isAttack"]
+expect = "-- Calculate how often you hit"
+
+[[stage]]
+id = "offence:passHit:in"
+file = "Modules/CalcOffence.lua"
+line = 3346
+locals = ["pass", "source", "output", "cfg", "breakdown", "hitRate"]
+expect = "-- Calculate base hit damage"
+
+# defence: recovery segment (651 · 1211)
+[[stage]]
+id = "defence:recovery:in"
+file = "Modules/CalcDefence.lua"
+line = 1211
+locals = ["env", "actor", "output", "spellSuppressionChance"]
+expect = "-- Recovery modifiers"
+
+# A compound assignment line (PoB's `+=`): the patcher must apply the
+# loader's rewrite before prefixing it. Not reached while loading a build.
+[[stage]]
+id = "main:modcache:count"
+file = "Modules/Main.lua"
+line = 342
+locals = ["count"]
+expect = "count += 1"
+
+# An extra function probe (PF-A's mergeBuff), wrapped like the built-ins.
+[[function]]
+id = "mergeBuff"
+file = "Modules/CalcPerform.lua"
+line = 45
+expect = "local function mergeBuff(src, destTable, destKey)"
