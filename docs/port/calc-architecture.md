@@ -1,5 +1,7 @@
 # Calc port architecture (binding contract)
 
+> **Read `docs/port/AMENDMENTS.md` first** — it reconciles this document with the crates already built (pob-oracle, pob-dump, pob-sg) and wins on conflict.
+
 **Status:** FINAL. This document is binding for every calc porting agent.
 **Upstream pin:** PathOfBuilding v2.67.2, commit `16de4b82d57f1c0de6eb40f37143c32d4da36a02`, checked out at `.PathOfBuilding/`. All Lua line numbers in this document refer to that commit and were checked against it.
 **Scope:** everything from "PoB build XML or UI edits" up to and including `env.player.output`, `env.player.breakdown`, minion and enemy outputs, and the actor and skill mod stores that the Calcs tab Tabulates after the calc. Included: the misc calculator and power report (`Calcs.lua`, `CalcsTab.lua` 441-773). Excluded: rendering, controls and tabs. Those are covered by the UI architecture, which consumes this crate.

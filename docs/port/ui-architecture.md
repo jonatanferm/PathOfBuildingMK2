@@ -1,5 +1,7 @@
 # PoB UI Rust port: architecture (final, binding)
 
+> **Read `docs/port/AMENDMENTS.md` first** — it reconciles this document with the crates already built (pob-oracle, pob-dump, pob-sg) and wins on conflict.
+
 Status: **final**. This document is the contract for every UI porting agent. If code and this document disagree, the code is wrong unless the unit that owns the code amends this document, and the orchestrator approves the amendment.
 
 **Scope.** This covers the Rust port of Path of Building v2.67.2's user interface. The Lua source is `.PathOfBuilding/src` at HEAD `16de4b82d`. In scope:
