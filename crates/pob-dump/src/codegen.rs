@@ -1,0 +1,189 @@
+//! `--codegen-enums`: Rust constants for PoB's `SkillType`, `ModFlag` and
+//! `KeywordFlag`, read from `Data/Global.lua` as PoB itself loads it.
+
+use std::fmt::Write as _;
+use std::path::Path;
+
+use anyhow::{anyhow, bail, Result};
+use mlua::Table;
+
+use crate::Env;
+
+/// `(name, value)` pairs of one enum table, sorted by value then name.
+pub type Entries = Vec<(String, u32)>;
+
+pub struct Enums {
+    pub skill_type: Entries,
+    pub mod_flag: Entries,
+    pub keyword_flag: Entries,
+}
+
+fn entries(t: &Table, what: &str) -> Result<Entries> {
+    let mut v = Vec::new();
+    for pair in t.pairs::<String, f64>() {
+        let (k, n) = pair.map_err(|e| anyhow!("{what}: {e}"))?;
+        if n.fract() != 0.0 || !(0.0..=f64::from(u32::MAX)).contains(&n) {
+            bail!("{what}.{k} = {n} is not a u32");
+        }
+        v.push((k, n as u32));
+    }
+    v.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    Ok(v)
+}
+
+/// Load `Data/Global.lua` (after `Modules/Common`, which it needs) and read
+/// the three enum tables.
+pub fn read_enums(pob_src: &Path) -> Result<Enums> {
+    let env = Env::new(pob_src)?;
+    env.lua
+        .load(
+            r#"
+dofile("_SimpleGraphic.def.lua")
+launch = { devMode = false }
+LoadModule("Modules/Common")
+LoadModule("Data/Global")
+"#,
+        )
+        .set_name("=pob-dump/codegen")
+        .exec()
+        .map_err(|e| anyhow!("loading Global.lua: {e}"))?;
+    let g = env.lua.globals();
+    let get = |name: &str| -> Result<Entries> {
+        let t: Table = g.get(name).map_err(|e| anyhow!("{name}: {e}"))?;
+        entries(&t, name)
+    };
+    Ok(Enums {
+        skill_type: get("SkillType")?,
+        mod_flag: get("ModFlag")?,
+        keyword_flag: get("KeywordFlag")?,
+    })
+}
+
+fn module(out: &mut String, name: &str, lua_name: &str, doc: &str, e: &Entries, is_flags: bool) {
+    let _ = writeln!(out, "/// PoB `{lua_name}` ({doc}).");
+    let _ = writeln!(out, "pub mod {name} {{");
+    for (k, v) in e {
+        if is_flags {
+            let _ = writeln!(out, "    pub const {k}: u32 = 0x{v:08X};");
+        } else {
+            let _ = writeln!(out, "    pub const {k}: u32 = {v};");
+        }
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "    /// `(name, value)` for every entry, ordered by value then name."
+    );
+    let _ = writeln!(out, "    pub const ENTRIES: &[(&str, u32)] = &[");
+    for (k, v) in e {
+        if is_flags {
+            let _ = writeln!(out, "        (\"{k}\", 0x{v:08X}),");
+        } else {
+            let _ = writeln!(out, "        (\"{k}\", {v}),");
+        }
+    }
+    let _ = writeln!(out, "    ];");
+    let _ = writeln!(out);
+    if !is_flags {
+        let max = e.iter().map(|x| x.1).max().unwrap_or(0);
+        let _ = writeln!(
+            out,
+            "    /// Largest value (PoB numbers skill types 1..=MAX)."
+        );
+        let _ = writeln!(out, "    pub const MAX: u32 = {max};");
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    /// Names indexed by value; index 0 and unused values are `\"\"`."
+        );
+        let _ = writeln!(out, "    pub const NAMES: [&str; {}] = [", max + 1);
+        for i in 0..=max {
+            let n = e.iter().find(|x| x.1 == i).map_or("", |x| x.0.as_str());
+            let _ = writeln!(out, "        \"{n}\",");
+        }
+        let _ = writeln!(out, "    ];");
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    pub fn name(value: u32) -> Option<&'static str> {{"
+        );
+        let _ = writeln!(
+            out,
+            "        NAMES.get(value as usize).copied().filter(|n| !n.is_empty())"
+        );
+        let _ = writeln!(out, "    }}");
+    } else {
+        let _ = writeln!(
+            out,
+            "    /// Names of the single-bit entries set in `value`."
+        );
+        let _ = writeln!(out, "    pub fn names(value: u32) -> Vec<&'static str> {{");
+        let _ = writeln!(out, "        ENTRIES");
+        let _ = writeln!(out, "            .iter()");
+        let _ = writeln!(
+            out,
+            "            .filter(|(_, v)| v.is_power_of_two() && value & v != 0)"
+        );
+        let _ = writeln!(out, "            .map(|(n, _)| *n)");
+        let _ = writeln!(out, "            .collect()");
+        let _ = writeln!(out, "    }}");
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "    pub fn from_name(name: &str) -> Option<u32> {{");
+    let _ = writeln!(
+        out,
+        "        ENTRIES.iter().find(|(n, _)| *n == name).map(|(_, v)| *v)"
+    );
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+}
+
+/// Rust source for the three enums.
+pub fn render(e: &Enums, pob_version: Option<&str>) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "// @generated by `pob-dump --codegen-enums` from Path of Building {}'s Data/Global.lua.",
+        pob_version.unwrap_or("(unknown version)")
+    );
+    let _ = writeln!(out, "// Do not edit by hand; regenerate instead.");
+    let _ = writeln!(
+        out,
+        "#![allow(non_upper_case_globals, dead_code, clippy::all, clippy::pedantic)]"
+    );
+    let _ = writeln!(out);
+    module(
+        &mut out,
+        "skill_type",
+        "SkillType",
+        "skill type ids; keys of skillTypes/addSkillTypes/excludeSkillTypes",
+        &e.skill_type,
+        false,
+    );
+    module(
+        &mut out,
+        "mod_flag",
+        "ModFlag",
+        "bit flags of Mod.flags",
+        &e.mod_flag,
+        true,
+    );
+    module(
+        &mut out,
+        "keyword_flag",
+        "KeywordFlag",
+        "bit flags of Mod.keywordFlags",
+        &e.keyword_flag,
+        true,
+    );
+    out.truncate(out.trim_end().len());
+    out.push('\n');
+    out
+}
+
+pub fn codegen_enums(pob_src: &Path) -> Result<String> {
+    let e = read_enums(pob_src)?;
+    let ver = crate::pob_version_of(pob_src);
+    Ok(render(&e, ver.as_deref()))
+}
