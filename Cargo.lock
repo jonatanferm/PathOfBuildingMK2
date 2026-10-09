@@ -2692,6 +2692,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pob-app"
+version = "0.0.1"
+dependencies = [
+ "pob-calc",
+ "pob-gamedata",
+ "pob-host",
+ "pob-lua",
+ "pob-sg",
+ "pob-ui-core",
+]
+
+[[package]]
 name = "pob-calc"
 version = "0.0.1"
 dependencies = [
@@ -2788,6 +2800,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pob-host"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "image",
+ "pob-lua",
+ "pob-sg",
+ "pob-sg-wgpu",
+ "pollster 1.0.1",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu 30.0.1",
+ "winit",
+]
+
+[[package]]
 name = "pob-lua"
 version = "0.0.1"
 dependencies = [
@@ -2827,15 +2857,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "pob-port-desktop"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "image",
+ "pob-app",
+ "pob-host",
+ "pob-sg",
+ "pob-sg-wgpu",
+ "pob-ui-core",
+ "pob-ui-oracle",
+ "pollster 1.0.1",
+ "wgpu 30.0.1",
+]
+
+[[package]]
+name = "pob-port-web"
+version = "0.0.1"
+dependencies = [
+ "pob-app",
+ "pob-host",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "pob-sg"
 version = "0.0.1"
 dependencies = [
- "arboard",
+ "bitflags 2.11.1",
+ "image",
+ "pob-lua",
+ "serde",
+ "serde_json",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "pob-sg-wgpu"
+version = "0.0.1"
+dependencies = [
  "bytemuck",
  "image",
+ "pob-sg",
  "pollster 1.0.1",
  "wgpu 30.0.1",
- "winit",
 ]
 
 [[package]]
@@ -2864,6 +2931,36 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu 22.1.0",
+]
+
+[[package]]
+name = "pob-ui-core"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.11.1",
+ "pob-calc",
+ "pob-lua",
+ "pob-sg",
+ "scoped-tls-hkt",
+ "slotmap",
+ "smallvec",
+]
+
+[[package]]
+name = "pob-ui-oracle"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "mlua",
+ "pob-app",
+ "pob-calc",
+ "pob-host",
+ "pob-oracle",
+ "pob-sg",
+ "pob-sg-wgpu",
+ "pob-ui-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3289,6 +3386,12 @@ name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
+
+[[package]]
+name = "scoped-tls-hkt"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9603871ffe5df3ac39cb624790c296dbd47a400d202f56bf3e414045099524d"
 
 [[package]]
 name = "scopeguard"
@@ -5098,6 +5201,12 @@ name = "xml-rs"
 version = "0.8.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "yoke"

@@ -1,0 +1,23 @@
+[package]
+name = "pob-ui-core"
+description = "The PoB control framework (ui doc §6): Cx, the control arena, Prop, anchors/GetPos, Widget/VTable/Overrides, ControlHost dispatch, input events, focus, undo, coroutines, MainCore, colour codes, draw helpers, tooltips, popups and the generic controls."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pob-sg.workspace = true
+pob-lua.workspace = true
+slotmap.workspace = true
+bitflags.workspace = true
+smallvec.workspace = true
+scoped-tls-hkt.workspace = true
+
+[dev-dependencies]
+# compile_shape.rs checks the §9.2 NotesTab body against the calc plan's XmlNode.
+pob-calc.workspace = true
+
+[lints]
+workspace = true

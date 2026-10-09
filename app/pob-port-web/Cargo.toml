@@ -1,0 +1,22 @@
+[package]
+name = "pob-port-web"
+description = "Browser entry point of the Rust UI port of Path of Building (ui doc §3): wasm32 + Trunk, pob_host::run_web(...)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pob-host.workspace = true
+pob-app.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+
+[lints]
+workspace = true

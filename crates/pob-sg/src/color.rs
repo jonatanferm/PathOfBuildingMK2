@@ -1,4 +1,8 @@
-//! Colour escapes (`^0`-`^9`, `^xRRGGBB`) and PoB's `colorCodes` table.
+//! Colour escapes (`^0`-`^9`, `^xRRGGBB`): is_color_escape, read_color_escape, strip_escapes,
+//! PALETTE (ui doc §3, §2 "SetDrawColor" / "Escape leak"). Owner: U1.
+//!
+//! Moved from the pre-port `pob-sg/src/color.rs` by UI-U0; PoB's `colorCodes` table
+//! (Data/Global.lua) moved to `pob-ui-core/src/color_codes.rs`.
 //!
 //! Source references (SimpleGraphic master @ 8694a07, which matches the
 //! `r_font.cpp` shipped with PoB 2.67.2: that file is unchanged since
@@ -11,7 +15,6 @@
 //!   and `IsColorEscape(std::u32string_view)`.
 //! - escape decoding: `engine/common/common.cpp` `ReadColorEscape`.
 //! - stripping: `ui_api.cpp` `l_StripEscapes`.
-//! - `colorCodes`: PoB `src/Data/Global.lua:7-77`.
 
 /// RGBA colour, components in 0..=1 (SimpleGraphic `col4_t`).
 pub type Rgba = [f32; 4];
@@ -124,152 +127,6 @@ pub fn strip_escapes(s: &str) -> String {
     String::from_utf8(out).unwrap_or_default()
 }
 
-/// PoB `colorCodes` (src/Data/Global.lua:7-64), in source order.
-pub const COLOR_CODES: &[(&str, &str)] = &[
-    ("NORMAL", "^xC8C8C8"),
-    ("MAGIC", "^x8888FF"),
-    ("RARE", "^xFFFF77"),
-    ("UNIQUE", "^xAF6025"),
-    ("RELIC", "^x60C060"),
-    ("GEM", "^x1AA29B"),
-    ("PROPHECY", "^xB54BFF"),
-    ("CURRENCY", "^xAA9E82"),
-    ("CRAFTED", "^xB8DAF1"),
-    ("CUSTOM", "^x5CF0BB"),
-    ("SOURCE", "^x88FFFF"),
-    ("UNSUPPORTED", "^xF05050"),
-    ("DISABLED", "^x7F7F7F"),
-    ("WARNING", "^xFF9922"),
-    ("TIP", "^x80A080"),
-    ("FIRE", "^xB97123"),
-    ("COLD", "^x3F6DB3"),
-    ("LIGHTNING", "^xADAA47"),
-    ("CHAOS", "^xD02090"),
-    ("POSITIVE", "^x33FF77"),
-    ("NEGATIVE", "^xDD0022"),
-    ("HIGHLIGHT", "^xFF0000"),
-    ("OFFENCE", "^xE07030"),
-    ("DEFENCE", "^x8080E0"),
-    ("SCION", "^xFFF0F0"),
-    ("MARAUDER", "^xE05030"),
-    ("RANGER", "^x70FF70"),
-    ("WITCH", "^x7070FF"),
-    ("DUELIST", "^xE0E070"),
-    ("TEMPLAR", "^xC040FF"),
-    ("SHADOW", "^x30C0D0"),
-    ("MAINHAND", "^x50FF50"),
-    ("MAINHANDBG", "^x071907"),
-    ("OFFHAND", "^xB7B7FF"),
-    ("OFFHANDBG", "^x070719"),
-    ("SHAPER", "^x55BBFF"),
-    ("ELDER", "^xAA77CC"),
-    ("FRACTURED", "^xA29160"),
-    ("MUTATED", "^xCD2285"),
-    ("ADJUDICATOR", "^xE9F831"),
-    ("BASILISK", "^x00CB3A"),
-    ("CRUSADER", "^x2946FC"),
-    ("EYRIE", "^xAAB7B8"),
-    ("CLEANSING", "^xF24141"),
-    ("TANGLE", "^x038C8C"),
-    ("CHILLBG", "^x151e26"),
-    ("FREEZEBG", "^x0c262b"),
-    ("SHOCKBG", "^x191732"),
-    ("SCORCHBG", "^x270b00"),
-    ("BRITTLEBG", "^x00122b"),
-    ("SAPBG", "^x261500"),
-    ("SCOURGE", "^xFF6E25"),
-    ("CRUCIBLE", "^xFFA500"),
-    ("SPLITPERSONALITY", "^xFFD62A"),
-    ("VESTIGIAL", "^xCBA5F1"),
-    ("INTANGIBILITY", "^x9BF4BD"),
-    ("MEMORY", "^xBFE2FA"),
-];
-
-/// Aliases assigned after the table (src/Data/Global.lua:65-77): `(alias, target)`.
-pub const COLOR_CODE_ALIASES: &[(&str, &str)] = &[
-    ("STRENGTH", "MARAUDER"),
-    ("DEXTERITY", "RANGER"),
-    ("INTELLIGENCE", "WITCH"),
-    ("LIFE", "MARAUDER"),
-    ("MANA", "WITCH"),
-    ("ES", "SOURCE"),
-    ("WARD", "RARE"),
-    ("ARMOUR", "NORMAL"),
-    ("EVASION", "POSITIVE"),
-    ("RAGE", "WARNING"),
-    ("PHYS", "NORMAL"),
-];
-
-/// The default (unmodified) escape string for a `colorCodes` key, including aliases.
-pub fn default_color_code(name: &str) -> Option<&'static str> {
-    let target = COLOR_CODE_ALIASES.iter().find(|(a, _)| *a == name).map_or(name, |(_, t)| *t);
-    COLOR_CODES.iter().find(|(k, _)| *k == target).map(|(_, v)| *v)
-}
-
-/// Mutable `colorCodes` table (PoB keeps it as a global that Options can
-/// override via `updateColorCode`). Aliases are independent copies, exactly
-/// like the Lua assignments (`colorCodes.LIFE = colorCodes.MARAUDER` copies the
-/// string, so later edits of MARAUDER do not affect LIFE).
-#[derive(Clone, Debug)]
-pub struct ColorCodes {
-    entries: Vec<(String, String)>,
-}
-
-impl Default for ColorCodes {
-    fn default() -> Self {
-        let mut entries: Vec<(String, String)> =
-            COLOR_CODES.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
-        for (alias, target) in COLOR_CODE_ALIASES {
-            let v = default_color_code(target).unwrap_or("^7");
-            entries.push(((*alias).to_owned(), v.to_owned()));
-        }
-        Self { entries }
-    }
-}
-
-impl ColorCodes {
-    pub fn get(&self, name: &str) -> Option<&str> {
-        self.entries.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
-    }
-
-    /// Port of `updateColorCode(code, color)` (Global.lua:80-87): only existing
-    /// keys are updated; `color:gsub("^0", "^")` turns a leading `0` (as in
-    /// `0xRRGGBB`) into `^`. Returns the new HIGHLIGHT rgb when HIGHLIGHT
-    /// changed (Lua sets the global `rgbColor`).
-    pub fn update(&mut self, code: &str, color: &str) -> Option<[f32; 3]> {
-        let entry = self.entries.iter_mut().find(|(k, _)| k == code)?;
-        entry.1 = if let Some(rest) = color.strip_prefix('0') {
-            format!("^{rest}")
-        } else {
-            color.to_owned()
-        };
-        if code == "HIGHLIGHT" {
-            hex_to_rgb(color)
-        } else {
-            None
-        }
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.entries.iter().map(|(k, v)| (k.as_str(), v.as_str()))
-    }
-}
-
-/// Port of `hexToRGB` (Global.lua:89-100): strips `^x`, `0x` and `#`
-/// (all occurrences, as `gsub` does), then requires exactly 6 hex digits.
-pub fn hex_to_rgb(hex: &str) -> Option<[f32; 3]> {
-    let h = hex.replace("^x", "").replace("0x", "").replace('#', "");
-    if h.len() != 6 {
-        return None;
-    }
-    let mut out = [0.0; 3];
-    for (i, o) in out.iter_mut().enumerate() {
-        let v = u8::from_str_radix(&h[i * 2..i * 2 + 2], 16).ok()?;
-        *o = f32::from(v) / 255.0;
-    }
-    Some(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,22 +156,10 @@ mod tests {
     fn palette_and_hex() {
         assert_eq!(parse_escape_color("^8"), Some([0.7, 0.7, 0.7, 1.0]));
         assert_eq!(parse_escape_color("^9"), Some([0.4, 0.4, 0.4, 1.0]));
-        assert_eq!(parse_escape_color("^xFF8000"), Some([1.0, 128.0 / 255.0, 0.0, 1.0]));
+        assert_eq!(
+            parse_escape_color("^xFF8000"),
+            Some([1.0, 128.0 / 255.0, 0.0, 1.0])
+        );
         assert_eq!(parse_escape_color("7"), None);
-    }
-
-    #[test]
-    fn color_codes_table() {
-        let mut cc = ColorCodes::default();
-        assert_eq!(cc.get("NORMAL"), Some("^xC8C8C8"));
-        assert_eq!(cc.get("LIFE"), Some("^xE05030"));
-        assert_eq!(cc.get("PHYS"), Some("^xC8C8C8"));
-        assert_eq!(cc.update("POSITIVE", "0x112233"), None);
-        assert_eq!(cc.get("POSITIVE"), Some("^x112233"));
-        assert_eq!(cc.get("EVASION"), Some("^x33FF77"));
-        let rgb = cc.update("HIGHLIGHT", "^x00FF00").unwrap();
-        assert_eq!(rgb, [0.0, 1.0, 0.0]);
-        assert_eq!(cc.update("NOPE", "^x000000"), None);
-        assert_eq!(cc.get("NOPE"), None);
     }
 }

@@ -14,6 +14,14 @@ members = [
     "crates/pob-ui",
     "app/pob-desktop",
     "app/pob-web",
+    # UI port (ui doc §3, D16): new crates beside the legacy UI until cut-over (U53).
+    "crates/pob-sg-wgpu",
+    "crates/pob-host",
+    "crates/pob-ui-core",
+    "crates/pob-app",
+    "crates/pob-ui-oracle",
+    "app/pob-port-desktop",
+    "app/pob-port-web",
 ]
 
 [workspace.package]
@@ -32,6 +40,13 @@ pob-calc = { path = "crates/pob-calc" }
 pob-oracle = { path = "crates/pob-oracle" }
 pob-data = { path = "crates/pob-data" }
 pob-ui = { path = "crates/pob-ui" }
+# UI port crates (ui doc §3).
+pob-sg = { path = "crates/pob-sg" }
+pob-sg-wgpu = { path = "crates/pob-sg-wgpu" }
+pob-host = { path = "crates/pob-host" }
+pob-ui-core = { path = "crates/pob-ui-core" }
+pob-app = { path = "crates/pob-app" }
+pob-ui-oracle = { path = "crates/pob-ui-oracle" }
 
 # General
 serde = { version = "1", features = ["derive"] }
@@ -65,6 +80,21 @@ rfd = "0.15"
 egui = "0.29"
 wgpu = { version = "22", features = ["webgl"] }
 bytemuck = { version = "1", features = ["derive"] }
+
+# UI port pins (ui doc §3 "Pinned versions (new crates only)"). wgpu for the new
+# crates is pinned per crate (`wgpu = "=30.0.1"`, newest stable at UI-U0) because
+# the workspace key `wgpu` above stays at 22 for the legacy eframe app (D1).
+winit = "=0.30.13"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+slotmap = "1.1"
+arboard = { version = "3.6", default-features = false }
+scoped-tls-hkt = "0.1"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+ron = "0.8"
+pollster = "1.0.1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
 
 # Logging
 tracing = "0.1"

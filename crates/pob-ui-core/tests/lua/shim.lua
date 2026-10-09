@@ -1,0 +1,2 @@
+-- U4: the ~20-line class shim that loads the real Control.lua / ControlHost.lua / UndoHandler.lua
+-- into mlua for the T0 suites (ui doc §11.1 T0). UI-U0 placeholder: U4 writes it.

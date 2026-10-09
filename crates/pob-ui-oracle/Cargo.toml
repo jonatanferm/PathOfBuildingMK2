@@ -1,0 +1,38 @@
+[package]
+name = "pob-ui-oracle"
+description = "DEV ONLY UI oracle (ui doc §11.2): PoB's own Lua under LuaJIT drawing through pob-sg, determinism/order patches, gallery harness, ui-parity CLI, trace-render, pob-lua-gui and the LuaCalcBridge. Never a dependency of a shipping binary."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[dependencies]
+pob-sg.workspace = true
+pob-sg-wgpu.workspace = true
+pob-host.workspace = true
+pob-ui-core.workspace = true
+pob-app.workspace = true
+pob-calc.workspace = true
+# ui doc §11.2: pob-luahost (LuaJIT natives) is pob-oracle as built (AMENDMENTS A1).
+pob-oracle.workspace = true
+mlua.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[[bin]]
+name = "ui-parity"
+path = "src/bin/ui_parity.rs"
+
+[[bin]]
+name = "trace-render"
+path = "src/bin/trace_render.rs"
+
+[[bin]]
+name = "pob-lua-gui"
+path = "src/bin/pob_lua_gui.rs"
+
+[lints]
+workspace = true
