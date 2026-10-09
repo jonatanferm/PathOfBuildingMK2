@@ -11,7 +11,7 @@ lua2rs emits Rust against the doc's code listings. Translating every list entry 
 (`scripts/port/lua2rs/check/src/{gamedata,modparser}.rs`, marked `CCR-0006`), so U0 can adopt,
 rename or reject each item and re-run `python3 scripts/port/lua2rs check` with a `--shape` file.
 
-## 1. `ModSpec` lacks four keys the parseMod driver reads
+## 1. `ModSpec` lacks four keys the parseMod driver reads, and the string/table modName distinction
 
 ModParser.lua:6876-6990 copies every key of the matched spec tables into `misc` and reads:
 
@@ -25,6 +25,18 @@ ModParser.lua:6876-6990 copies every key of the matched spec tables into `misc` 
 `playerTag`/`playerTagList` are tags, which `ModSpec.extra: Vec<(Name, Value)>` cannot hold
 (`Value` has no tag variant).
 
+A fifth gap is not a key: `ModSpec.modName: Option<Vec<Name>>` erases whether the
+modNameList entry was a string (`"Life"`) or a table (`{ "Str", "Dex", "StrDex" }`,
+`{ "Life", tag = ... }`). The driver treats them differently in the DOUBLED form
+(ModParser.lua:6858-6863): for a table it writes `modName[2] = "Multiplier:" .. modName[1] ..
+"Doubled"` into the shared modNameList table itself, so the overwrite persists and corrupts
+every later parse that matches that entry (e.g. a multi-name entry loses its second name for
+the rest of the session); a string gets a fresh `{ name, "Multiplier:...Doubled" }` table each
+time. lua2rs records the difference as `modNameIsTable` (`spec_name_table(&[..])` for a
+names-only table, `modNameIsTable: true` in the struct otherwise), so MP0/MP1 can reproduce
+the mutation (for instance with a per-entry interior-mutable override of name 2) or list it
+as a known_diff.
+
 ```diff
  pub struct ModSpec {
      pub flags: u32, pub keywordFlags: u32, pub tag: Option<Tag>, pub tagList: Vec<Tag>,
@@ -32,6 +44,7 @@ ModParser.lua:6876-6990 copies every key of the matched spec tables into `misc` 
      pub extra: Vec<(Name, Value)>,
 +    pub playerTag: Option<Tag>, pub playerTagList: Vec<Tag>,
 +    pub actorEnemy: bool, pub onlyAddToBanners: bool,
++    pub modNameIsTable: bool,
  }
 ```
 
@@ -122,3 +135,16 @@ already resolved, so `r#mod` is exactly §4.3 `createMod`.
 - `ModStore::NewMod` takes `source: &str`, but 26 ConfigOptions applies call `NewMod` without a
   source. ModStore.lua:109-111 defines `NewMod(...)` as `AddMod(createMod(...))`, so lua2rs emits
   `modList.AddMod(Arc::new(createMod(..., None, ...)))` for those; no contract change needed.
+- Known parse-level differences for MP3-MP6 (record as known_diffs in ModCache / parse-oracle
+  comparisons; both match EvalMod, the only reader in the calc):
+  - 8 specialModList entries (L4576-4580, 5686, 5689, 5692) call `mod(..., nil, {tag})`;
+    createMod stores nil at `mod[1]`, so `ipairs(mod)` never reaches the tag. lua2rs drops it.
+  - 10 tag fields (`div`/`limit`/`percent`/`globalLimit`/`base`) hold a capture string in
+    Lua; lua2rs stores `tonumber` of it (`snum`). It does so only when the bound capture can
+    hold nothing but digits (`lpat.capture_numeric`), so the coercion cannot fail or move an
+    error from EvalMod to parse time; any other string-valued capture there is left untranslated.
+- The compile gate checks the output against lua2rs's own stand-in types
+  (`scripts/port/lua2rs/check/src/{gamedata,modparser,calc}.rs`), which follow calc doc
+  §4.3/§5.1/§5.3/§6/§8.1 plus this CCR. Once U0 freezes the real types, re-run
+  `python3 -m scripts.port.lua2rs check --shape <U0 shape>.json` against them (or replace the
+  stand-ins) before MP0-MP6 consume the generated lists.

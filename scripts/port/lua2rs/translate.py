@@ -68,10 +68,18 @@ FILE_HELPERS = {
         "}",
     ],
     "spec_names": [
-        "/// A modNameList entry given as a string or as a plain list of names (ModParser.lua:6876-6920",
-        "/// reads `modName` as a name list either way).",
+        "/// A modNameList entry given as a string (ModParser.lua:6876-6920 then reads `modName` as",
+        "/// a one-name list; the DOUBLED form, 6858-6863, builds a fresh table for it).",
         "fn spec_names(names: &[Name]) -> ModSpec {",
         "    ModSpec { modName: Some(names.to_vec()), ..Default::default() }",
+        "}",
+    ],
+    "spec_name_table": [
+        "/// A modNameList entry given as a table of names. Unlike a string entry, the DOUBLED form",
+        "/// (ModParser.lua:6858-6863) writes `modName[2]` into this shared table, so the change",
+        "/// persists into later parses: `modNameIsTable` lets the driver reproduce that (CCR-0006 §1).",
+        "fn spec_name_table(names: &[Name]) -> ModSpec {",
+        "    ModSpec { modName: Some(names.to_vec()), modNameIsTable: true, ..Default::default() }",
         "}",
     ],
     "val_value": [
@@ -117,15 +125,16 @@ FILE_HELPERS = {
 
 class T:
     """A translated (or lazily translatable) Lua expression with a static type."""
-    __slots__ = ("code", "ty", "lit", "node", "multi", "parts")
+    __slots__ = ("code", "ty", "lit", "node", "multi", "parts", "cap")
 
-    def __init__(self, code, ty, lit=None, node=None, multi=False, parts=None):
+    def __init__(self, code, ty, lit=None, node=None, multi=False, parts=None, cap=None):
         self.code = code
         self.ty = ty
         self.lit = lit
         self.node = node
         self.multi = multi
         self.parts = parts   # ifexpr: (cond_code, T_then, T_else); orexpr: (T_a, T_b)
+        self.cap = cap       # closure param bound to a pattern capture: that capture's lpat items
 
     def __repr__(self):
         return "T(%r, %s)" % (self.code, self.ty)
@@ -1090,8 +1099,15 @@ class Translator:
             if t.ty in ("flags", "skilltype"):
                 return "f64::from(%s)" % t.code
             if t.ty == "str" and k in self.shape["tag_num_from_string"]:
-                self.note("LUA-QUIRK: tag.%s holds a capture string in Lua; EvalMod only uses it in arithmetic, "
-                          "which coerces it like tonumber" % k)
+                # Lua stores the capture string as is; only EvalMod's arithmetic on it
+                # (ModStore.lua:403/410/547) coerces it, and raises there if it is not a
+                # number. Converting at parse time is equivalent only for a capture that
+                # always holds digits; anything else would move the error (or its absence)
+                # from evaluation to parsing.
+                if t.cap is None or not lpat.capture_numeric(t.cap):
+                    self.fail("tag-field-num-from-nondigit-string", v, k)
+                self.note("LUA-QUIRK: tag.%s holds a digits-only capture string in Lua; EvalMod only uses it in "
+                          "arithmetic, which coerces it like tonumber" % k)
                 self.needs.add("snum")
                 return 'snum(%s, "perform arithmetic on tag.%s")' % (self.as_str_arg(t, v), k)
             self.fail("tag-field-num", v, "%s=%s" % (k, t.ty))
@@ -1149,8 +1165,10 @@ class Translator:
             self.fail("tag-field-sockets", v, t.ty)
         self.fail("tag-field-kind", v, kind)
 
-    def spec(self, node, env, names_only_helper=True):
-        """A ModParser "misc" table -> ModSpec (doc §6)."""
+    def spec(self, node, env, names_only_helper=True, name_table=False):
+        """A ModParser "misc" table -> ModSpec (doc §6). `name_table`: the table is a
+        modNameList entry, so its positional names are the shared `modName` table that the
+        DOUBLED form mutates (ModParser.lua:6858-6863)."""
         kinds = self.shape["spec_fields"]
         names = []
         parts = []
@@ -1198,10 +1216,17 @@ class Translator:
             else:
                 self.fail("spec-kind", v, kind)
             parts.append("%s: %s" % (rust_ident(k), code))
-        if names:
-            if not parts and not extra and names_only_helper:
-                self.needs.add("spec_names")
-                return "%s(&[%s])" % (self.shape["spec_names_fn"], ", ".join(names))
+        if names and not name_table:
+            # Positional keys of other lists land in misc[1..] (ModParser.lua:6912-6914),
+            # which nothing reads; they are not a mod name.
+            self.fail("spec-positional-name", node)
+        if name_table:
+            # The table itself is `modName` (non-nil even without positional names, which
+            # then yield no mods: ipairs at ModParser.lua:6921).
+            if names and not parts and not extra and names_only_helper:
+                self.needs.add("spec_name_table")
+                return "%s(&[%s])" % (self.shape["spec_name_table_fn"], ", ".join(names))
+            parts.insert(0, "%s: true" % self.shape["spec_name_table_field"])
             parts.insert(0, "modName: Some(vec![%s])" % ", ".join(names))
         if extra:
             parts.append("extra: vec![%s]" % ", ".join(extra))
@@ -1261,6 +1286,12 @@ class Translator:
         return source, flags, kw, [typed[i][0] for i in tags], [rest[i] for i in tags]
 
     def mod_call(self, kind, args, env, n, obj=None):
+        # A multi-value call (gsub) in the last argument expands into the following parameter
+        # in Lua, whichever slot it is in: flag(x:gsub(..)) passes the count on as createMod's
+        # first vararg, a gsub in the source slot hands its count to the flags slot, and so on.
+        # The emitted call takes one value per slot, so all of these are refused.
+        if args and self.ex(args[-1], env).multi:
+            self.fail("multi-return-expansion", args[-1])
         if kind == "flag":
             if len(args) < 1:
                 self.fail("arity", n, "flag")
@@ -1475,7 +1506,7 @@ class Translator:
             elif ci < ncaps:
                 self.needs.add("ns")
                 lines.append('let %s = ns(%s, "index local \'%s\'");' % (rid, self.S("caps_cap", i=ci), p))
-                env[p] = T(rid, "str", lit="&str")
+                env[p] = T(rid, "str", lit="&str", cap=caps[ci])
             else:
                 env[p] = T("None", "nil")
         if f.vararg:

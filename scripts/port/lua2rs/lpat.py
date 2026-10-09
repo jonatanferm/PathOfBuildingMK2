@@ -177,3 +177,14 @@ def first_capture_digits(pat):
     if all(k == "never" for k in kinds):
         return "str"
     return "mixed"
+
+
+def capture_numeric(cap):
+    """Does a capture (an item list from `captures`) hold a non-empty digit string on every
+    match, i.e. one that Lua arithmetic coerces to a number without error? True only if each
+    item matches digits only and at least one of them is mandatory (no '*', '-' or '?')."""
+    if cap == "pos" or not cap:
+        return False
+    if any(_item_digits(it) != "always" for it in cap):
+        return False
+    return any(it.quant in ("", "+") for it in cap)

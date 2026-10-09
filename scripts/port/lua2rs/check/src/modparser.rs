@@ -18,6 +18,8 @@ pub struct ModSpec {
     pub extra: Vec<(Name, Value)>,
     // CCR-0006
     pub playerTag: Option<Tag>, pub playerTagList: Vec<Tag>, pub actorEnemy: bool, pub onlyAddToBanners: bool,
+    /// modNameList entry was a table (shared, mutated by the DOUBLED form), not a string.
+    pub modNameIsTable: bool,
 }
 pub enum TagVal { Spec(ModSpec), Fn(fn(&Caps) -> ModSpec) }
 pub enum SpecialVal {

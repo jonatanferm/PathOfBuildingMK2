@@ -94,7 +94,7 @@ class ListGen:
                 return "%s(&[%s])" % (self.shape["spec_names_fn"], tr.name_lit(v.value))
             if v.kind != "Table":
                 raise Untranslatable("spec-value", v.kind)
-            return tr.spec(v, {})
+            return tr.spec(v, {}, name_table=(name == "modNameList"))
         if name in ("preFlagList", "modTagList"):
             if v.kind == "Table":
                 return tr.S("tag_spec", spec=tr.spec(v, {}))

@@ -87,6 +87,8 @@ DEFAULT_SHAPE = {
     "range_push_fn": "pub fn {name}(v: &mut Vec<PatternEntry<{ty}>>) {{",
     "spec_struct": "ModSpec {{ {fields}..Default::default() }}",
     "spec_names_fn": "spec_names",          # file-local helper: string modNameList entry -> ModSpec
+    "spec_name_table_fn": "spec_name_table",  # file-local helper: names-only table modNameList entry
+    "spec_name_table_field": "modNameIsTable",  # ModSpec flag: modName came from a (shared) table (CCR-0006)
     "special_mods": "SpecialVal::Mods({mods})",
     "special_fn": "SpecialVal::Fn({closure})",
     "tag_spec": "TagVal::Spec({spec})",

@@ -6,7 +6,9 @@ Golden tests translate the miniature ModParser.lua / ConfigOptions.lua under fix
 compare with golden/*.rs (regenerate with LUA2RS_UPDATE_GOLDEN=1 and review the diff).
 The real-PoB tests run against an intact checkout at the pin (POB_DIR, the main checkout's
 .PathOfBuilding, or its data/pob copy) and assert the T1 acceptance gates; they are skipped
-when none is found. LUA2RS_CARGO=1 also runs the `cargo check` of the generated code.
+when none is found. They include the "translates to compiling Rust" gate: `cargo check` of
+everything generated (via scripts/port/cargo.sh, i.e. `python3 -m scripts.port.lua2rs check`),
+which is part of the gate and runs by default; LUA2RS_CARGO=0 skips it for a quick run.
 """
 
 import json
@@ -88,6 +90,20 @@ class TestPatterns(unittest.TestCase):
         self.assertEqual(lpat.first_capture_digits("up to %+([%d%.]+)%%"), "mixed")   # "." alone has no digit
         self.assertEqual(lpat.first_capture_digits("no captures"), "none")
 
+    def test_capture_numeric(self):
+        def num(pat, i):
+            return lpat.capture_numeric(lpat.captures(pat)[i])
+        self.assertTrue(num("per (%d+) of (%a+) up to (%d+)", 0))
+        self.assertTrue(num("per (%d+) of (%a+) up to (%d+)", 2))
+        self.assertTrue(num("(%d%d?)", 0))
+        self.assertTrue(num("(1)", 0))
+        self.assertFalse(num("per (%d+) of (%a+) up to (%d+)", 1))   # letters
+        self.assertFalse(num("(%d*) x", 0))                           # may be empty
+        self.assertFalse(num("([%d%.]+)", 0))                         # "." alone is not a number
+        self.assertFalse(num("([%+%-]?%d+)", 0))                      # conservative: sign class
+        self.assertFalse(num("(.+)", 0))
+        self.assertFalse(lpat.capture_numeric("pos"))
+
 
 class TestLiterals(unittest.TestCase):
     def test_numbers(self):
@@ -151,8 +167,10 @@ class TestGolden(unittest.TestCase):
         src = LuaSource(FIXTURE_POB, "Modules/ModParser.lua")
         _, entries = modparser.ListGen(src, self.shape, self.flags).generate("specialModList")
         st = modparser.stats(entries)
-        self.assertEqual(st["all"], {"total": 21, "ok": 20})
-        self.assertEqual(st["fail_reasons"], {"vararg-closure": 1})
+        self.assertEqual(st["all"], {"total": 24, "ok": 20})
+        # a string tag.div bound to a letters capture; gsub expanding into flag()/the flags slot
+        self.assertEqual(st["fail_reasons"], {"vararg-closure": 1, "tag-field-num-from-nondigit-string": 1,
+                                              "multi-return-expansion": 2})
         _, entries = modparser.ListGen(src, self.shape, self.flags).generate("modTagList")
         st = modparser.stats(entries)
         self.assertEqual(st["duplicates"], [entries[6].line])
@@ -223,7 +241,7 @@ class TestRealPoB(unittest.TestCase):
                 self.assertEqual(m.group("h"), provenance.range_hash(REAL, m.group("path"), a, b))
         self.assertGreater(n, 10)
 
-    @unittest.skipUnless(os.environ.get("LUA2RS_CARGO") == "1", "set LUA2RS_CARGO=1 to cargo check")
+    @unittest.skipIf(os.environ.get("LUA2RS_CARGO") == "0", "LUA2RS_CARGO=0: cargo check of the output skipped")
     def test_generated_code_compiles(self):
         self.assertEqual(cli.run_check(REAL, None), 0)
 

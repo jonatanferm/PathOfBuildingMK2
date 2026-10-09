@@ -78,9 +78,12 @@ local specialModList = {
 	["(%d+)%% increased area"] = function(num) return { mod("AreaOfEffect", "INC", num) } end,
 	["(%d+)%% reduced area"] = function(num) return { mod("AreaOfEffect", "INC", -num) } end,
 	["(%d+)%% of (%a+) as extra"] = function(num, _, dmgType) return { mod("PhysicalDamageGainAs"..firstToUpper(dmgType), "BASE", num) } end,
-	["per (%d+) of (%a+) up to (%d+)"] = function(num, _, div, stat, limit) return { mod("Damage", "INC", num, { type = "PerStat", stat = stat, div = div, limit = tonumber(limit) }) } end,
+	["(%d+)%% per (%d+) (%a+) up to (%d+)"] = function(num, _, div, stat, limit) return { mod("Damage", "INC", num, { type = "PerStat", stat = stat, div = div, limit = tonumber(limit) }) } end,
+	["per (%a+) of (%a+)"] = function(_, div, stat) return { mod("Damage", "INC", 1, { type = "PerStat", stat = stat, div = div }) } end,
 	["trigger level (%d+) (.+) on kill"] = function(num, _, skill) return triggerExtraSkill(skill, num, { onCrit = true, triggerChance = 50 }) end,
 	["explode (%d+)%% as (.+)"] = function(amount, _, type) return explodeFunc(100, amount, type) end,
+	["gsub flag (%a+)"] = function(_, name) return { flag(name:gsub(" ", "")) } end,
+	["gsub source (%a+)"] = function(_, name) return { mod("Life", "BASE", 1, name:gsub(" ", "")) } end,
 	["gsub upper (%a+)"] = function(_, name) return { flag("Condition:Have"..name:gsub("^%l", string.upper):gsub(" ", "")) } end,
 	["data constant"] = function(num) return { mod("ShockBase", "BASE", data.nonDamagingAilment["Shock"].default) } end,
 	-- multi-statement closure

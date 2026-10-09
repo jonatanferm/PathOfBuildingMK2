@@ -12,8 +12,15 @@ use pob_gamedata::{data, tag, AStr, KeywordFlag, Mod, ModFlag, ModType, ModType:
 use crate::types::{Caps, ModSpec, PatternEntry, PatternList, SpecialVal, TagVal};
 use crate::helpers::*;
 
-/// A modNameList entry given as a string or as a plain list of names (ModParser.lua:6876-6920
-/// reads `modName` as a name list either way).
+/// A modNameList entry given as a table of names. Unlike a string entry, the DOUBLED form
+/// (ModParser.lua:6858-6863) writes `modName[2]` into this shared table, so the change
+/// persists into later parses: `modNameIsTable` lets the driver reproduce that (CCR-0006 §1).
+fn spec_name_table(names: &[Name]) -> ModSpec {
+    ModSpec { modName: Some(names.to_vec()), modNameIsTable: true, ..Default::default() }
+}
+
+/// A modNameList entry given as a string (ModParser.lua:6876-6920 then reads `modName` as
+/// a one-name list; the DOUBLED form, 6858-6863, builds a fresh table for it).
 fn spec_names(names: &[Name]) -> ModSpec {
     ModSpec { modName: Some(names.to_vec()), ..Default::default() }
 }
@@ -22,10 +29,10 @@ fn spec_names(names: &[Name]) -> ModSpec {
 fn modNameList_18(v: &mut Vec<PatternEntry<ModSpec>>) {
     // Attributes
     v.push(PatternEntry { pat: "strength", val: spec_names(&[n!("Str")]), lua_line: 18 });
-    v.push(PatternEntry { pat: "strength and dexterity", val: spec_names(&[n!("Str"), n!("Dex"), n!("StrDex")]), lua_line: 19 });
-    v.push(PatternEntry { pat: "mana cost of attacks", val: ModSpec { modName: Some(vec![n!("ManaCost")]), tag: Some(tag!({ type = SkillType, skillType = SkillType::Attack })), ..Default::default() }, lua_line: 20 });
+    v.push(PatternEntry { pat: "strength and dexterity", val: spec_name_table(&[n!("Str"), n!("Dex"), n!("StrDex")]), lua_line: 19 });
+    v.push(PatternEntry { pat: "mana cost of attacks", val: ModSpec { modName: Some(vec![n!("ManaCost")]), modNameIsTable: true, tag: Some(tag!({ type = SkillType, skillType = SkillType::Attack })), ..Default::default() }, lua_line: 20 });
     v.push(PatternEntry { pat: "with \"quotes\" and \\ backslash", val: spec_names(&[n!("Quoted")]), lua_line: 21 });
-    v.push(PatternEntry { pat: "global", val: ModSpec { tag: Some(tag!({ type = Global })), ..Default::default() }, lua_line: 22 });
+    v.push(PatternEntry { pat: "global", val: ModSpec { modName: Some(vec![]), modNameIsTable: true, tag: Some(tag!({ type = Global })), ..Default::default() }, lua_line: 22 });
 }
 
 pub static modNameList: LazyLock<PatternList<ModSpec>> = LazyLock::new(|| {
