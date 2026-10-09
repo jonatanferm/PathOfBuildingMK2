@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- BM-B synthetic: three skill sets, every gem lookup path, two config sets with the load quirks. -->
+<PathOfBuilding>
+	<Skills activeSkillSet="2" defaultGemLevel="awakenedMaximum" defaultGemQuality="30" sortGemsByDPS="false" showSupportGemTypes="EXCEPTIONAL" sortGemsByDPSField="TotalDPS" showLegacyGems="true">
+		<SkillSet id="1" title="Mapping">
+			<Skill enabled="true" label="Main" slot="Body Armour" mainActiveSkill="2" mainActiveSkillCalcs="1" includeInFullDPS="true" groupCount="3" skillPart="2">
+				<Gem nameSpec="Fireball" gemId="Metadata/Items/Gems/SkillGemFireball" variantId="Fireball" skillId="Fireball" level="20" quality="20" enabled="true" enableGlobal1="true" enableGlobal2="false" count="2"/>
+				<Gem nameSpec="Old Format" gemId="Metadata/Items/Gems/SkillGemFlameDash" skillId="FlameDash" level="21" quality="0"/>
+				<Gem nameSpec="Unknown" gemId="Metadata/Items/Gems/NoSuchGem" level="1" quality="0" enabled="false"/>
+				<Gem nameSpec="Clarity" level="5" quality="0"/>
+				<Gem nameSpec="Zzqx Not A Gem" level="3" quality="1"/>
+				<Gem nameSpec="" level="1" quality="0"/>
+			</Skill>
+			<Skill enabled="false" active="true" source="Item:7:Some Item" slot="Weapon 1">
+				<Gem skillId="RepeatingShockwave" level="20" quality="0" skillMinion="X" skillMinionCalcs="Y" skillMinionItemSet="2" skillMinionSkill="1" skillMinionSkillCalcs="3" skillPartCalcs="2" skillStageCount="4" skillStageCountCalcs="5" skillMineCount="6" skillMineCountCalcs="7"/>
+				<Gem skillId="Fireball" level="99" quality="0"/>
+				<Gem skillId="NoSuchSkill" level="1" quality="0"/>
+			</Skill>
+		</SkillSet>
+		<SkillSet id="2" title="Bossing">
+			<Skill label="imbued" slot="Gloves" imbuedSupport="Added Fire Damage" mainActiveSkill="1">
+				<Gem nameSpec="Fireball" gemId="Metadata/Items/Gems/SkillGemFireball" variantId="Fireball" level="0" quality="0"/>
+				<Gem nameSpec="Flame Dash" gemId="Metadata/Items/Gems/SkillGemFlameDash" variantId="FlameDash" level="20" quality="0"/>
+			</Skill>
+			<Skill enabled="true" slot="Gloves">
+				<Gem nameSpec="Clarity" gemId="Metadata/Items/Gems/SkillGemClarity" variantId="Clarity" level="20" quality="0"/>
+			</Skill>
+		</SkillSet>
+		<SkillSet title="No id">
+			<Skill enabled="true"/>
+		</SkillSet>
+	</Skills>
+	<Config activeConfigSet="3">
+		<ConfigSet id="1" title="Default">
+			<Input name="enemyIsBoss" string="uber atziri"/>
+			<Input name="presetBossSkills" string="Uber Atziri Flameblast"/>
+			<Input name="customMods" string="+10 to strength"/>
+			<Input name="conditionLowLife" boolean="true"/>
+			<Input name="usePowerCharges" boolean="false"/>
+			<Input name="multiplierPoisonOnEnemy" number="12.5"/>
+			<Placeholder name="enemyLevel" number="84"/>
+			<Placeholder name="someStringPh" string="abc"/>
+		</ConfigSet>
+		<ConfigSet id="3" title="Bossing">
+			<Input name="enemyLevel" number="90"/>
+			<Input name="enemyIsBoss" string="Shaper"/>
+			<CustomModifierBlock title="Block A" enabled="false">10% increased Damage</CustomModifierBlock>
+			<CustomModifierBlock>Adds 1 to 2 Fire Damage</CustomModifierBlock>
+		</ConfigSet>
+	</Config>
+</PathOfBuilding>
