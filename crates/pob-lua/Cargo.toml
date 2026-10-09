@@ -1,0 +1,19 @@
+[package]
+name = "pob-lua"
+description = "Lua/LuaJIT standard-library semantics for the Rust port of Path of Building: math, bit, string.format, patterns, table.sort, LuaJIT integer-key table order, Name interning, Field/Shared, LuaError. No Lua runtime."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ustr.workspace = true
+smallvec.workspace = true
+
+[dev-dependencies]
+# L0 oracle: real LuaJIT (mlua) via pob-oracle. Dev-only: `cargo tree -p pob-lua -e normal` has no mlua.
+pob-oracle = { workspace = true }
+
+[lints]
+workspace = true
