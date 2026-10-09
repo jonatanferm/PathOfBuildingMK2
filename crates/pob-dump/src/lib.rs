@@ -18,6 +18,7 @@ use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 
 pub mod codegen;
+pub mod parse_oracle;
 
 const PRELUDE: &str = include_str!("lua/prelude.lua");
 const WALKER: &str = include_str!("lua/walker.lua");
@@ -158,7 +159,21 @@ pub struct Options {
     pub pretty: bool,
     /// Skip the (large, slow) tree dumps.
     pub skip_trees: bool,
+    /// Also write `parse_oracle.jsonl` (see [`parse_oracle`]).
+    pub parse_oracle: bool,
 }
+
+/// Output file names that `data.<key>` must not take (see `dump_data`).
+const RESERVED_FILES: &[&str] = &[
+    "misc",
+    "global",
+    "gameVersions",
+    "calcSections",
+    "configOptions",
+    "modCache",
+    "closures",
+    "manifest",
+];
 
 #[derive(Debug, Default, Clone)]
 pub struct FileInfo {
@@ -319,8 +334,12 @@ impl Dumper<'_> {
         for k in &keys {
             let v: Value = data.raw_get(k.as_str()).map_err(lerr)?;
             let path = format!("data{}", self.lua_path(k)?);
+            // `data.misc` (Data.lua's magic numbers) would be written to
+            // misc.json and then overwritten by the group file: keys whose
+            // own file name is reserved join the group instead.
             let is_misc = misc_keys.raw_get::<bool>(k.as_str()).unwrap_or(false)
-                || !matches!(v, Value::Table(_));
+                || !matches!(v, Value::Table(_))
+                || RESERVED_FILES.contains(&k.as_str());
             let s = self.encode(&v, &path)?;
             if is_misc {
                 misc.push((k.clone(), s));
@@ -531,6 +550,19 @@ impl Dumper<'_> {
             let (k, v) = pair.map_err(lerr)?;
             self.report.stats.insert(k, v);
         }
+        // `-0` literals restored on a dual-number LuaJIT (prelude.lua).
+        let negzero: Table = self
+            .env
+            .lua
+            .globals()
+            .get("__dump_negzero_rewrites")
+            .map_err(lerr)?;
+        for pair in negzero.pairs::<String, i64>() {
+            let (file, n) = pair.map_err(lerr)?;
+            self.report
+                .stats
+                .insert(format!("negZeroLiterals:{file}"), n);
+        }
         Ok(())
     }
 }
@@ -566,11 +598,55 @@ fn remove_previous_dump(out: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The commit PoB's checkout is at (`<src>/../.git`), if it is a git checkout.
+pub fn pob_commit_of(src: &Path) -> Option<String> {
+    let dot_git = src.join("../.git");
+    let head = std::fs::read_to_string(dot_git.join("HEAD")).ok()?;
+    let head = head.trim();
+    let Some(r) = head.strip_prefix("ref: ") else {
+        return Some(head.to_owned());
+    };
+    if let Ok(s) = std::fs::read_to_string(dot_git.join(r)) {
+        return Some(s.trim().to_owned());
+    }
+    let packed = std::fs::read_to_string(dot_git.join("packed-refs")).ok()?;
+    packed
+        .lines()
+        .find_map(|l| l.strip_suffix(r).map(|h| h.trim().to_owned()))
+}
+
 pub fn pob_version_of(src: &Path) -> Option<String> {
     let text = std::fs::read_to_string(src.join("../manifest.xml")).ok()?;
     let i = text.find("<Version number=\"")? + "<Version number=\"".len();
     let j = text[i..].find('"')?;
     Some(text[i..i + j].to_owned())
+}
+
+/// After `--parse-oracle-only`: put the new `parse_oracle.jsonl` entry and
+/// summary into an existing `manifest.json` (no-op when there is none).
+pub fn update_manifest_parse_oracle(
+    out: &Path,
+    info: &FileInfo,
+    po: &parse_oracle::ParseOracle,
+) -> Result<()> {
+    let path = out.join("manifest.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let mut m: Json = serde_json::from_str(&text)?;
+    let entry = json!({ "file": info.name, "roots": info.roots, "bytes": info.bytes, "sha256": info.sha256 });
+    let files = m["files"]
+        .as_array_mut()
+        .ok_or_else(|| anyhow!("manifest.json: no files list"))?;
+    // (last, where a full dump lists it)
+    files.retain(|f| f["file"] != info.name.as_str());
+    files.push(entry);
+    let total: u64 = files.iter().filter_map(|f| f["bytes"].as_u64()).sum();
+    m["totalBytes"] = json!(total);
+    m["parseOracle"] = po.info.clone();
+    m["stats"]["parseOracleLines"] = json!(po.lines.len());
+    std::fs::write(&path, serde_json::to_string_pretty(&m)? + "\n")?;
+    Ok(())
 }
 
 /// Run the whole dump into `opts.out`.
@@ -616,9 +692,31 @@ pub fn dump(opts: &Options) -> Result<Report> {
     d.write_closures()?;
     d.collect_stats()?;
 
+    let mut report = std::mem::take(&mut d.report);
+    let root = env.root.clone();
+    // The parse oracle boots its own PoB state; release this one first.
+    drop(d);
+    drop(roots);
+    drop(env);
+    let mut parse_oracle_info = Json::Null;
+    if opts.parse_oracle {
+        let t = Instant::now();
+        let po = parse_oracle::run(&opts.pob_src, &parse_oracle::Options::default())?;
+        let info = po.write(&opts.out)?;
+        let secs = t.elapsed().as_secs_f64();
+        eprintln!(
+            "[pob-dump] parse oracle: {secs:.2}s, {} lines",
+            po.lines.len()
+        );
+        report.timings.push(("parse oracle".into(), secs));
+        report
+            .stats
+            .insert("parseOracleLines".into(), po.lines.len() as i64);
+        report.files.push(info);
+        parse_oracle_info = po.info;
+    }
     let total = t0.elapsed().as_secs_f64();
-    d.report.timings.push(("total".into(), total));
-    let mut report = d.report;
+    report.timings.push(("total".into(), total));
     let files: Vec<Json> = report
         .files
         .iter()
@@ -626,8 +724,9 @@ pub fn dump(opts: &Options) -> Result<Report> {
         .collect();
     let manifest = json!({
         "format": FORMAT_VERSION,
-        "pobVersion": pob_version_of(&env.root),
-        "pobSrc": env.root.to_string_lossy(),
+        "pobVersion": pob_version_of(&root),
+        "pobCommit": pob_commit_of(&root),
+        "pobSrc": root.to_string_lossy(),
         "files": files,
         "totalBytes": report.total_bytes(),
         "closures": report.closures,
@@ -635,8 +734,9 @@ pub fn dump(opts: &Options) -> Result<Report> {
         "modCacheEntries": report.modcache_entries,
         "stats": report.stats,
         "skipped": report.skipped.iter().map(|(f, why)| json!({"file": f, "reason": why})).collect::<Vec<_>>(),
-        "timingsSecs": report.timings.iter().map(|(k, v)| json!([k, (v * 1000.0).round() / 1000.0])).collect::<Vec<_>>(),
+        "parseOracle": parse_oracle_info,
     });
+    // (No timings in the manifest: two dumps must be byte-identical.)
     let s = serde_json::to_string_pretty(&manifest)?;
     std::fs::write(opts.out.join("manifest.json"), s + "\n")?;
     report.files.push(FileInfo {
