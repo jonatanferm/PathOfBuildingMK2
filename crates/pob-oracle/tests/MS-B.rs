@@ -254,7 +254,11 @@ fn compare(b: &Build, doc: &J, t: &mut Tally, stem: &str) {
             t.pending_itb += 1;
             continue;
         }
-        let known = if ok { None } else { known_diff(b, si, lua_err) };
+        let known = if ok {
+            None
+        } else {
+            known_diff(b, si, lua_err, b.monster_tag_chain[si])
+        };
         if let Some(k) = known {
             if k == "CCR-0014" {
                 t.known_ccr0014 += 1;
@@ -289,11 +293,19 @@ fn compare(b: &Build, doc: &J, t: &mut Tally, stem: &str) {
     }
 }
 
+/// `tag.type == "MonsterTag"`.
+fn is_monster_tag(t: &Tag) -> bool {
+    t.r#type.as_str() == "MonsterTag"
+}
+
 /// The documented known differences: Lua reads an actor field that is nil for this actor (the
 /// enemy has no `activeSkillList` / `itemList`; GuardianRelicAll's minionData has no
 /// `monsterTags`; an actor without `output`), which the frozen Rust types always hold as a
-/// (possibly empty) table. CCR-0014 §2 and CCR-0015 §3.
-fn known_diff(b: &Build, si: usize, lua_err: Option<&str>) -> Option<&'static str> {
+/// (possibly empty) table. CCR-0014 §2 and CCR-0015 §3. Each case needs the Lua error of that
+/// nil read, except the `monsterTags` one (Lua returns nil there, no error), which needs a
+/// MonsterTag-tagged mod that the query can evaluate (`monster`: one in the store's chain or the
+/// probe mod).
+fn known_diff(b: &Build, si: usize, lua_err: Option<&str>, monster: bool) -> Option<&'static str> {
     if let Some(e) = lua_err {
         if b.no_skill_list.contains(&si) && e.contains("'ipairs'") {
             return Some("CCR-0014");
@@ -305,7 +317,7 @@ fn known_diff(b: &Build, si: usize, lua_err: Option<&str>) -> Option<&'static st
             return Some("CCR-0015");
         }
     }
-    if b.no_monster_tags.contains(&si) {
+    if monster && b.no_monster_tags.contains(&si) {
         return Some("CCR-0015");
     }
     None
@@ -400,16 +412,13 @@ fn compare_synth(b: &Build, doc: &J, s: &mut Synth, stem: &str) {
             s.pending_itb += 1;
             continue;
         }
-        let known = if ok {
+        // The no-parent store (`base == 0`) has no carve-out: its `GetStat` is guarded in Lua
+        // (ModStore.lua:355) and raises only for the three reservation stats, as in MS-A.
+        let known = if ok || base == 0 {
             None
-        } else if base == 0 {
-            // CCR-0015 §2: Lua's GetStat indexes `self.actor.output` (nil on `{ }`) and raises;
-            // MS-A's GetStat skips the actor read.
-            lua_err
-                .is_some_and(|e| e.contains("'output'"))
-                .then_some("CCR-0015")
         } else {
-            known_diff(b, si, lua_err)
+            let monster = b.monster_tag_chain[si] || m.tags.iter().any(is_monster_tag);
+            known_diff(b, si, lua_err, monster)
         };
         if let Some(k) = known {
             if k == "CCR-0014" {
@@ -573,7 +582,7 @@ fn l3_full_matrix_all57() {
     eprintln!(
         "MS-B L3 full matrix over {nbuilds} builds: {nstores} stores, {nactors} actors, {nitems} items, {ncfgs} cfgs ({ge_copies} with a copied skillGrantedEffect); {undecodable} undecodable mods (+{known_undecodable} with CCR-0014 §3 tag keys)\n  \
          queries identical: {}/{} ({} of them PoB errors reproduced)\n  \
-         known differences: CCR-0014 §2 (enemy activeSkillList) {}; CCR-0015 §2-§3 (nil actor fields) {}\n  \
+         known differences: CCR-0014 §2 (enemy activeSkillList) {}; CCR-0015 §3 (nil actor fields) {}\n  \
          pending IT-B (Item:FindModifierSubstring stub reached and result differs): {}\n  \
          skipped (a mod of the queried names is undecodable, CCR-0014 §3): {}",
         total.ok,
@@ -598,7 +607,7 @@ fn l3_full_matrix_all57() {
     }
     eprintln!(
         "MS-B synthetic tag probes ({} distinct tags of the parser cache and skill data, {} probe mods; undecodable: {}, +{} warcry tags with CCR-0014 §3 keys) on the player/enemy/minion modDB of every build:\n  \
-         queries identical: {}/{} ({} PoB errors reproduced); pending IT-B {}; known differences CCR-0014 §2 {}, CCR-0015 §2-§3 (nil actor fields; GetStat on an actor-less store) {}",
+         queries identical: {}/{} ({} PoB errors reproduced); pending IT-B {}; known differences CCR-0014 §2 {}, CCR-0015 §3 (nil actor fields) {}",
         synth.tags,
         synth.probes,
         synth.undecodable_probes,

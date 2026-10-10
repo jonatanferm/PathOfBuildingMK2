@@ -15,8 +15,14 @@
 //!   builds a new [`Value`] (and a new `Mod` for `value.mod`); the stored value is untouched.
 //! * A nil `var`/`stat` argument: `GetMultiplier(target, nil, cfg)` and `GetCondition(target, nil,
 //!   cfg)` raise in Lua (`multiplierName[nil]` / `conditionName[nil]` concatenate nil);
-//!   `GetStat(target, nil, cfg)` indexes with a nil key (no error, the value is nil). See
-//!   [`gm`], [`gc`], [`stat_key`].
+//!   `GetStat(target, nil, cfg)` reaches GetStat's guarded final branch (ModStore.lua:355), reads
+//!   with a nil key (no error) and returns 0. See [`gm`], [`gc`], [`stat_key`].
+//! * `GetStat` on a store without an actor (`self.actor = { }`) does not raise in Lua: its final
+//!   branch is `(self.actor.output and self.actor.output[stat]) or (cfg and cfg.skillStats and
+//!   cfg.skillStats[stat]) or 0` (ModStore.lua:355). Only `ManaReservedPercent`,
+//!   `LifeReservedPercent` and `ManaUnreserved` (L320, L334, L347) index the missing `output` and
+//!   raise; MS-A's `GetStat` does the same, so EvalMod's PerStat / PercentStat / StatThreshold
+//!   tags need nothing special there.
 #![allow(non_snake_case)]
 // Lua statement shapes are kept (`local x` then assigned per branch; `if … then return end`).
 #![allow(
@@ -106,8 +112,9 @@ fn gc(target: &ModStore, var: Option<Name>, cfg: Option<&ModCfg>) -> bool {
     }
 }
 
-/// The key `GetStat` uses for a nil `stat` (`tag.stat` / `tag.thresholdStat` absent). Lua indexes
-/// `self.actor.output[nil]` and `cfg.skillStats[nil]` (both nil, no error); this reserved name is
+/// The key `GetStat` uses for a nil `stat` (`tag.stat` / `tag.thresholdStat` absent). Lua's final
+/// branch (ModStore.lua:355) reads `self.actor.output[nil]` (only when `output` exists) and
+/// `cfg.skillStats[nil]`, both nil without an error, so the result is 0; this reserved name is
 /// never a key of either table, so the Rust `GetStat` (which takes a `Name`) behaves the same.
 #[inline]
 fn stat_key(stat: Option<Name>) -> Name {

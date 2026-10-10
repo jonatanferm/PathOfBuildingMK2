@@ -122,6 +122,9 @@ pub struct Build {
     pub no_monster_tags: HashSet<usize>,
     /// stores whose actor has no `output` table in Lua (CCR-0015 §3)
     pub no_output: HashSet<usize>,
+    /// stores with a MonsterTag-tagged mod anywhere in the chain (narrows the CCR-0015 §3
+    /// `monsterTags` known difference to queries that can evaluate a MonsterTag)
+    pub monster_tag_chain: Vec<bool>,
     /// names with an undecodable mod anywhere in the store's chain
     pub undecodable_names: Vec<HashSet<Name>>,
     /// cfgs whose skillGrantedEffect is not `data.skills[id]` (a copy)
@@ -175,6 +178,7 @@ pub fn load(doc: &J) -> Build {
         .map(|s| s["label"].as_str().unwrap_or("?").to_owned())
         .collect();
     let mut own_bad: Vec<HashSet<Name>> = vec![HashSet::new(); sj.len()];
+    let mut own_monster: Vec<bool> = vec![false; sj.len()];
     for (i, s) in sj.iter().enumerate() {
         let store = &stores[i];
         if let Some(p) = s["parent"].as_u64() {
@@ -185,6 +189,9 @@ pub fn load(doc: &J) -> Build {
         let mut add = |name: Name, id: &J| match mods[id.as_u64().unwrap() as usize - 1].clone() {
             Some(m) => {
                 assert_eq!(m.name, name, "mod stored under another name");
+                if m.tags.iter().any(|t| t.r#type.as_str() == "MonsterTag") {
+                    own_monster[i] = true;
+                }
                 store.AddMod(m);
             }
             None => {
@@ -208,14 +215,18 @@ pub fn load(doc: &J) -> Build {
         }
     }
     let mut undecodable_names = Vec::new();
+    let mut monster_tag_chain = Vec::new();
     for (i, s) in sj.iter().enumerate() {
         let mut set = own_bad[i].clone();
+        let mut monster = own_monster[i];
         let mut p = s["parent"].as_u64();
         while let Some(pi) = p {
             set.extend(own_bad[pi as usize - 1].iter().copied());
+            monster |= own_monster[pi as usize - 1];
             p = sj[pi as usize - 1]["parent"].as_u64();
         }
         undecodable_names.push(set);
+        monster_tag_chain.push(monster);
     }
 
     // items
@@ -433,6 +444,7 @@ pub fn load(doc: &J) -> Build {
         no_item_list,
         no_monster_tags,
         no_output,
+        monster_tag_chain,
         undecodable_names,
         ge_copies,
         tag_types,

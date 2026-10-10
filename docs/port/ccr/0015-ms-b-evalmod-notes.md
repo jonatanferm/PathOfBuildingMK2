@@ -27,7 +27,9 @@ The port computes the value into a local `div`. Evidence (`tests/MS-B.rs::tag_di
   semantics). All outputs of the BUILD and CALCS envs (player/enemy/minion), also after a second
   full recalculation (which reads stale `div`s in stock PoB), are identical, on Rage Vortex variants
   of corpus builds (main skill Rage Vortex part 2: the divVar tags are evaluated, asserted via the
-  wrapper's count and the stock run's written `div`) and on unmodified builds.
+  wrapper's count and the stock run's written `div`) and on unmodified builds. Sample size: by
+  default the test runs the first 3 Rage Vortex variants and the first 3 unmodified builds of the
+  corpus (`MS_B_DIV_RV=3`, `MS_B_DIV_PLAIN=3`, the acceptance run); set the env vars to run more.
 
 So no **calc** reader observes the mutation. The UI does: CalcBreakdownControl.lua:481 prints
 `"per "..(tag.div and (tag.div.." ") or "")..var` for a Multiplier tag, i.e. for the two Rage Vortex
@@ -40,32 +42,26 @@ prints the `div` EvalMod last wrote into the shared tag (calc doc §5.3 forbids 
 print `tag.div` or, when `tag.divVar` is set, `actor.modDB:GetMultiplier(tag.divVar, cfg)` of the
 breakdown's actor/cfg; record the difference in `known_diffs.toml` (CCR-0015 §1)."
 
-## 2. MS-A `GetStat` on a store without an actor does not raise
+## 2. (retracted) MS-A `GetStat` on a store without an actor
 
-`ModStore:GetStat` ends with `return self.actor.output[stat] or …` (ModStore.lua:355). For a store
-made without a parent `self.actor` is `{ }`, so `self.actor.output` is nil and Lua raises. The Rust
-`GetStat` (crates/pob-calc/src/classes/mod_store.rs, MS-A) skips the actor read when the actor is
-missing and returns the cfg/0 fallback. EvalMod reaches this through PerStat / PercentStat /
-StatThreshold tags evaluated in such a store. Over all57 the L3 matrix never hits it (no tagged
-stat mod of the real stores is queried on an actor-less store). The synthetic probes (§5) include
-a ModDB made without a parent, where every stat-reading tag hits it: Lua raises, Rust returns a
-value. MS-B's test counts those as known differences (together with §3; 1,192 synthetic-probe
-queries over all57) instead of gating them.
+An earlier draft of this CCR claimed that `ModStore:GetStat` raises on a store made without a
+parent (`self.actor = { }`) and proposed making MS-A's `GetStat` raise there. That was wrong and
+is withdrawn; **no change to `mod_store.rs` is proposed**.
 
-Proposed diff (mod_store.rs, `GetStat`, final branch):
+The final branch of `GetStat` is guarded (ModStore.lua:355):
+`return (self.actor.output and self.actor.output[stat]) or (cfg and cfg.skillStats and cfg.skillStats[stat]) or 0`.
+On an actor-less store it returns the cfg value or 0 and does not raise. Lua raises only for
+`ManaReservedPercent` (L320 `self.actor.output["Mana"]`), `LifeReservedPercent` (L334) and
+`ManaUnreserved` (L347), and MS-A's `GetStat` raises in exactly those three cases through
+`actor_output("")`. Its final branch (`if let Some(a) = &actor { … }`, then the cfg/0 fallback) is
+therefore faithful. The proposed diff (`actor_output("").get(stat)` unconditionally) would have
+made every `GetStat` on an actor-less store raise where Lua does not.
 
-```diff
--            if let Some(a) = &actor {
--                let v = a.output.get().get(stat);
--                if v.truthy() {
--                    return stat_number(&v);
--                }
--            }
-+            let v = actor_output("").get(stat);
-+            if v.truthy() {
-+                return stat_number(&v);
-+            }
-```
+Data: over all57 (MS_B_VERBOSE), every synthetic CCR-0015 known difference is an `enemy`
+ItemCondition probe (§3, the enemy has no `itemList`); none comes from the no-parent probe store.
+The no-parent store is now gated like every other store (`tests/MS-B.rs::compare_synth` has no
+carve-out for it), so a Lua `'output'` error there that Rust does not reproduce (the three
+reservation stats) fails the test.
 
 ## 3. Lua `nil` actor fields the frozen types cannot express
 
@@ -74,13 +70,26 @@ hold a (possibly empty) value:
 
 | Lua | Rust | EvalMod effect | all57 (L3 / synthetic probes) |
 |---|---|---|---|
-| enemy actor has no `itemList` (CalcSetup.lua:519-522) | `Actor.itemList` always a map | ItemCondition `allSlots`: Lua raises (`pairs(nil)`), Rust evaluates over no items; non-`allSlots`: Lua ignores `cfg.item`, Rust uses it | 0 / counted with §2 (1,192 together) |
+| enemy actor has no `itemList` (CalcSetup.lua:519-522) | `Actor.itemList` always a map | ItemCondition `allSlots`: Lua raises (`pairs(nil)`), Rust evaluates over no items; non-`allSlots`: Lua ignores `cfg.item`, Rust uses it | 0 / 1,192 (every one an `allSlots` ItemCondition probe on the enemy: Lua raises at ModStore.lua:715, Rust returns a value; the non-`allSlots` value case has 0 occurrences, it is gated) |
 | enemy actor has no `activeSkillList` | always a list | already CCR-0014 §2 (PerStat on `ManaReservedPercent`/`LifeReservedPercent` now also reaches it from EvalMod) | 1,420 (GetStat queries, as in MS-A) / 8,940 |
+| an actor table without `output` (any actor the dump marks `hasOutput = false`) | `Actor.output` always a table | GetStat of `ManaReservedPercent` / `LifeReservedPercent` / `ManaUnreserved` (L320/334/347): Lua raises, Rust reads the empty table; every other stat is guarded in Lua (L355) and agrees | 0 / 0 |
 | `data.minions.GuardianRelicAll` has no `monsterTags` | `MinionData.monsterTags: Vec<Name>` | MonsterTag: Lua returns nil, Rust treats it as "no tag matches" (differs only with `neg`) | 0 / 0 |
 
 Proposed: `Actor.itemList: Shared<Option<IndexMap<…>>>` (None for the enemy) and
 `MinionData.monsterTags: Option<Vec<Name>>`, or accept them in `known_diffs.toml`. MS-B counts and
-prints these cases separately (they are not part of the 100% gate).
+prints these cases separately (they are not part of the 100% gate). The known-difference filter
+in `tests/MS-B.rs::known_diff` requires the Lua error of the nil read (`'ipairs'`, `'pairs'`,
+`'output'`) for the list/output rows, and for the `monsterTags` row a MonsterTag-tagged mod in the
+queried store's chain (or the probe mod); any other mismatch on those stores is gated.
+
+**Decision needed from the integrator (not only a `known_diffs` entry)**: the enemy `itemList`
+row is a real value difference, not just a different error. For a non-`allSlots` ItemCondition
+on the enemy, Lua's `elseif self.actor.itemList then` (ModStore.lua:697) is false, so `items`
+stays `{ }` and the tag sees no item; the Rust `Actor.itemList` is always a map, so the port takes
+that branch and uses `cfg.item` (L708/L711). No real enemy mod reaches it over all57 (L3: 0), but
+an enemy-side ItemCondition evaluated with a cfg carrying `item` would differ in value. Either
+make `Actor.itemList` an `Option` (frozen-type change, U0) or add an explicit "actor has no item
+list" flag that EvalMod can test; MS-B will adapt eval_mod.rs to whichever is chosen.
 
 ## 4. Smaller notes
 
@@ -102,7 +111,20 @@ prints these cases separately (they are not part of the 100% gate).
   i.e. CalcPerform.lua:2382 writes into a tag shared with PoB's parser cache (process-global data),
   not into a fresh copy.
 
+- MeleeProximity / DistanceRamp: when both the value and a ramp entry are invalid, the port may
+  raise a different one of the two errors first than LuaJIT does (error text only; whether it
+  raises, and every value, is the same).
+- Both-error queries: when Lua and Rust both raise, the tests count the query as identical
+  without comparing the error kind (L3 prints the pairs it met; synthetic probes do not). This is
+  looser than the value comparisons and is noted here so the gate is not over-read.
+
 ## 6. Gate G1a: the allocations left in `Sum`/`More`/`Flag` are outside MS-B's file
+
+**Status: G1a FAILS at MS-B's commit** (dhat half; the speed half passes). It must not be
+declared passed, and Wave 5 must not start (calc doc §9.7 failure rule), until the integrator or
+the MS-A / U0 owners apply the diffs below or an equivalent. A reviewer reproduced 34
+allocations on 8 builds (ratios 0.21-0.46); the 0-allocation result with both diffs applied
+(below) was measured by MS-B only and has not been independently checked.
 
 `benches/MS-B.rs` measures the speed half of G1a and runs the dhat check (calc doc §9.7). EvalMod
 itself allocates nothing in steady state: ItemCondition's lower-casing and slot lists are
@@ -172,6 +194,7 @@ allocations (4,720 bytes) in 40 queries, all of them `globalLimit` mods (Warning
   query gated; and synthetic probes: every distinct tag of `modLib.parseModCache` and of the skills'
   stat maps / base mods (≈1.5k tags) on a probe mod (BASE value, and `{mod=…}` / `{key,value}` LIST
   values for Multiplier/PerStat/PercentStat) in a ModDB child of the player/enemy/minion modDB of
-  each build, queried with every global cfg.
+  each build and in a ModDB made without a parent (actor-less, gated with no carve-out), queried
+  with every global cfg.
 - `tag_div_no_reader`: §1.
 - `benches/MS-B.rs`: gate G1a (calc doc §9.7) and the dhat check.
