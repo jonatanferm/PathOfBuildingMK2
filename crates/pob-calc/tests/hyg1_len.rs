@@ -280,24 +280,28 @@ fn is_border(t: &Table, n: usize) -> bool {
 
 /// Runs the sequence on `Table`; returns `lens|contents` and whether every
 /// `len()` was a valid border.
+fn rust_ctor(fields: &[Field]) -> Table {
+    Table::from_ctor(
+        fields
+            .iter()
+            .map(|f| {
+                let val = f.val.map_or(Val::Nil, Val::Num);
+                match &f.kind {
+                    FieldKind::Item => TableField::item(f.konst, val),
+                    FieldKind::Named(n) => TableField::named(Name::from(n), f.konst, val),
+                    FieldKind::Bracket { key, konst } => {
+                        TableField::bracket(key.key(), *konst, f.konst, val)
+                    }
+                }
+            })
+            .collect(),
+    )
+}
+
 fn rust_result(s: &Seq) -> (String, bool) {
     let mut t = match &s.ctor {
         None => Table::new(),
-        Some(fields) => Table::from_ctor(
-            fields
-                .iter()
-                .map(|f| {
-                    let val = f.val.map_or(Val::Nil, Val::Num);
-                    match &f.kind {
-                        FieldKind::Item => TableField::item(f.konst, val),
-                        FieldKind::Named(n) => TableField::named(Name::from(n), f.konst, val),
-                        FieldKind::Bracket { key, konst } => {
-                            TableField::bracket(key.key(), *konst, f.konst, val)
-                        }
-                    }
-                })
-                .collect(),
-        ),
+        Some(fields) => rust_ctor(fields),
     };
     let mut borders_ok = is_border(&t, t.len());
     let mut lens = vec![t.len().to_string()];
@@ -379,6 +383,61 @@ fn table_len_matches_luajit() {
         eprintln!("{b}");
     }
     assert!(bad.is_empty(), "{} mismatching sequences", bad.len());
+}
+
+/// Storage order (calc doc §3.4: `pairs` follows insertion) of a constructor
+/// is field order, whatever its constant / run-time split: `from_ctor`'s
+/// `pairs()` equals that of a plain table that stores every field in turn
+/// (items are keys 1, 2, … in turn). That reference takes the LAST field of a
+/// duplicated key, where Lua takes the last run-time one (the template is in
+/// place first), so constructors whose contents differ for that reason are
+/// not compared.
+#[test]
+fn ctor_pairs_follow_field_order() {
+    let mut r = Rng(0x4859_4733);
+    let (mut checked, mut dup) = (0, 0);
+    for _ in 0..SEQUENCES {
+        let profile = r.below(5);
+        let Some(fields) = gen_ctor(&mut r, profile, true) else {
+            continue;
+        };
+        let t = rust_ctor(&fields);
+        let want = Table::new();
+        let mut item = 0;
+        for f in &fields {
+            let k = match &f.kind {
+                FieldKind::Item => {
+                    item += 1;
+                    Key::I(item)
+                }
+                FieldKind::Named(n) => Key::S(Name::from(n)),
+                FieldKind::Bracket { key, .. } => key.key(),
+            };
+            want.set(k, f.val.map_or(Val::Nil, Val::Num));
+        }
+        let pairs = |t: &Table| {
+            t.pairs()
+                .map(|(k, v)| format!("{}={}", key_text(k), val_text(&v)))
+                .collect::<Vec<_>>()
+        };
+        let (got, want) = (pairs(&t), pairs(&want));
+        let sorted = |v: &[String]| {
+            let mut v = v.to_vec();
+            v.sort();
+            v
+        };
+        if sorted(&got) != sorted(&want) {
+            dup += 1;
+            continue;
+        }
+        assert_eq!(got, want, "{fields:?}");
+        checked += 1;
+    }
+    eprintln!(
+        "HYG1 constructor pairs order: {checked} constructors in field order \
+         ({dup} not compared: a duplicate key whose template value Lua overrides)"
+    );
+    assert!(checked > 5_000);
 }
 
 #[test]

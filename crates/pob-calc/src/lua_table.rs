@@ -924,7 +924,18 @@ impl Table {
     /// template table from the constant fields and `BC_TDUP` copies it, or
     /// `BC_TNEW` presizes an empty table; the other fields are stored at run
     /// time in field order (`pob_lua::ljtab::table_ctor`). The values in the
-    /// template are in place before any run-time store, as in Lua.
+    /// template are in place before any run-time store, as in Lua (so with a
+    /// duplicate key the run-time field wins: `{a = x, a = 1}` gives `x`).
+    ///
+    /// Storage, which gives `pairs` order (calc doc §3.4: insertion order),
+    /// is FIELD order: every field is stored in turn, as the U0 `tbl!` did,
+    /// and LuaJIT's parser likewise gives a run-time `name = v` field its
+    /// template slot in field order (`lj_parse.c` `expr_table`: a `settabV`
+    /// dummy, cleared by `fixt`). So `tbl!{ a = x, b = 1.0, c = x }` iterates
+    /// `a, b, c`. Only a key whose last field is a constant one after a
+    /// run-time one is then set again, to the run-time value (it keeps its
+    /// slot unless the constant was nil). The layout (`#t`) follows LuaJIT's
+    /// own order: template, then the run-time stores.
     pub fn from_ctor(fields: Vec<TableField>) -> Table {
         let shape: Vec<ljtab::CtorField<Key>> = fields
             .iter()
@@ -936,22 +947,39 @@ impl Table {
             .collect();
         let ctor = ljtab::table_ctor(&shape);
         let t = Table::new();
-        {
-            let mut d = t.0.borrow_mut();
-            d.layout = ctor.table;
-            // BC_TDUP: the template's values.
-            for (f, &(k, runtime)) in fields.iter().zip(&ctor.fields) {
-                if !runtime {
-                    Self::store(&mut d, k, f.val.clone());
+        let mut d = t.0.borrow_mut();
+        d.layout = ctor.table;
+        // Layout: TSETB/TSETV/TSETS on the TDUP/TNEW table, in field order.
+        for (f, &(k, runtime)) in fields.iter().zip(&ctor.fields) {
+            if runtime {
+                d.layout.set(k, (!f.val.is_nil()).then_some(()));
+            }
+        }
+        // Lua's values: a run-time field beats every constant field of its
+        // key (the template is in place first), field order otherwise.
+        let any_runtime = ctor.fields.iter().any(|&(_, rt)| rt);
+        let any_konst = ctor.fields.iter().any(|&(_, rt)| !rt);
+        let mut fix: Vec<(Key, Val)> = Vec::new();
+        if any_runtime && any_konst {
+            let keys = &ctor.fields;
+            for (i, &(k, rt)) in keys.iter().enumerate() {
+                let last = !keys[i + 1..].iter().any(|&(k2, _)| k2 == k);
+                if rt || !last {
+                    continue;
+                }
+                if let Some(j) = (0..i).rev().find(|&j| keys[j] == (k, true)) {
+                    fix.push((k, fields[j].val.clone()));
                 }
             }
         }
-        // TSETB/TSETV/TSETS, in field order.
-        for (f, (k, runtime)) in fields.into_iter().zip(ctor.fields) {
-            if runtime {
-                t.set(k, f.val);
-            }
+        // Storage: every field in turn.
+        for (f, (k, _)) in fields.into_iter().zip(ctor.fields) {
+            Self::store(&mut d, k, f.val);
         }
+        for (k, v) in fix {
+            Self::store(&mut d, k, v);
+        }
+        drop(d);
         t
     }
 
@@ -1005,7 +1033,10 @@ impl Iterator for TablePairs {
 /// Built by [`Table::from_ctor`] with LuaJIT's layout: a value (or a `[k]`
 /// key) written as a literal (`1.0`, `-2`, `"s"`, `n!("s")`, `true`,
 /// `false`, `Val::Nil`) is a Lua constant and goes into the template table;
-/// anything else is stored at run time (`__is_lua_const`).
+/// anything else is stored at run time (`__is_lua_const`). That split shapes
+/// `#t` (and which of two fields for one key wins), not `pairs`: its order is
+/// field order (§3.4, [`Table::from_ctor`]), and items are keyed by
+/// position (`tbl![a, Val::Nil, c]` is `{[1] = a, [3] = c}`).
 #[macro_export]
 macro_rules! tbl {
     () => { $crate::lua_table::Table::new() };
@@ -1193,6 +1224,53 @@ mod tests {
         t.set(1, 1.0);
         t.set(3, 3.0);
         assert_eq!(t.len(), 3);
+    }
+
+    /// `pairs` over a constructor follows field order (§3.4), constant and
+    /// run-time fields alike; a duplicate key takes the run-time value
+    /// (LuaJIT: `local x = 5; ({a = x, a = 1}).a` and `({a = 1, a = x}).a`
+    /// are both 5).
+    #[test]
+    fn ctor_field_order() {
+        let x = 5.0;
+        let keys = |t: &Table| t.pairs().map(|(k, _)| k).collect::<Vec<_>>();
+        let t = tbl! { a = x, b = 1.0, c = x };
+        assert_eq!(keys(&t), [n!("a"), n!("b"), n!("c")].map(Key::S));
+        let t = tbl! { [n!("p")] => x, [n!("q")] => 2.0, [10] => x, [11] => 1.0, [12] => x };
+        assert_eq!(
+            keys(&t),
+            [
+                Key::S(n!("p")),
+                Key::S(n!("q")),
+                Key::I(10),
+                Key::I(11),
+                Key::I(12)
+            ]
+        );
+        let t = tbl! { x, 1.0; a = x, b = 2.0, c = x };
+        assert_eq!(
+            keys(&t),
+            [
+                Key::I(1),
+                Key::I(2),
+                Key::S(n!("a")),
+                Key::S(n!("b")),
+                Key::S(n!("c"))
+            ]
+        );
+        let t = tbl! { a = x, a = 1.0 };
+        assert_eq!(t.rawget(n!("a")).num(), 5.0);
+        let t = tbl! { a = 1.0, a = x };
+        assert_eq!(t.rawget(n!("a")).num(), 5.0);
+        // a run-time nil leaves no key (and no slot) behind
+        let nil = Val::Nil;
+        let t = tbl! { a = nil.clone(), b = 1.0 };
+        assert_eq!(keys(&t), [Key::S(n!("b"))]);
+        t.set(n!("a"), 2.0);
+        assert_eq!(keys(&t), [Key::S(n!("b")), Key::S(n!("a"))]);
+        // items are keyed by position
+        let t = tbl![x, Val::Nil, x];
+        assert_eq!(keys(&t), [Key::I(1), Key::I(3)]);
     }
 
     #[test]

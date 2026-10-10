@@ -33,8 +33,16 @@ Applied (`crates/pob-calc/src/lua_table.rs`, `crates/pob-lua/src/ljtab.rs`):
 (`1.0`, `-2`, `"s"`, `n!("s")`, `true`, `false`, `Val::Nil`) is a Lua constant (template); any
 other expression is a run-time store. LuaJIT's constant folding of arithmetic (`{1+2}`) is not
 detected: write the folded literal. `copyTable` models LuaJIT filling the copy in LuaJIT's `pairs`
-order of the source; `wipe` keeps sizes and dead nodes, as `wipeTable` does. `pairs()` order,
-`rawget`, `set` semantics are unchanged.
+order of the source; `wipe` keeps sizes and dead nodes, as `wipeTable` does. `rawget` and `set`
+are unchanged. `pairs()` order (§3.4/D8: insertion order) of a constructed table is field order,
+as with the U0 `tbl!`, which stored every field in turn: `from_ctor` stores the fields in turn and
+only the `#t` layout model sees LuaJIT's template-then-run-time order (`tbl!{ a = x, b = 1.0, c = x }`
+iterates `a, b, c`; test `ctor_pairs_follow_field_order`). Two value changes, both to Lua's
+semantics: a positional item is keyed by its position (U0 pushed, so a nil item shifted the rest:
+`tbl![a, Val::Nil, c]` gave `{a, c}`, now `{[1] = a, [3] = c}`), and with a duplicate key a run-time
+field beats a later constant one (`{a = x, a = 1}` is `x` in LuaJIT, whose template is in place
+before the run-time stores); such a key is set to the run-time value after the fields, keeping its
+slot unless the constant was nil.
 
 `pob_lua::ljtab` gains the generic engine (same `lj_tab.c` port, now over any key type):
 

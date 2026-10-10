@@ -87,10 +87,12 @@ fn probe(build: &Path, out: &Path, src: &Path, extra: &[&str]) {
         .stderr(std::fs::File::create(out.with_extension("log")).unwrap())
         .status()
         .unwrap();
+    let log = out.with_extension("log");
     assert!(
         status.success(),
-        "pob_oracle probe failed, see {}",
-        out.with_extension("log").display()
+        "pob_oracle probe failed ({}):\n{}",
+        log.display(),
+        std::fs::read_to_string(&log).unwrap_or_default()
     );
 }
 
@@ -517,17 +519,26 @@ fn probe_one_build() {
         "active skills carry their uuid"
     );
 
-    // the probed PoB computes what the unpatched PoB computes
+    // the probed PoB computes what the unpatched PoB computes (the same
+    // checkout the patched copy was made from: the binary's own ancestor
+    // search does not reach the main checkout from an outside worktree)
     let plain = scratch("plain").join("outputs.json");
+    let plain_log = plain.with_extension("log");
     let st = Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
         .arg("outputs")
         .arg(&build)
         .arg("--json")
         .arg(&plain)
-        .stderr(std::process::Stdio::null())
+        .arg("--pob")
+        .arg(pob_testpaths::pob_src().expect("PoB checkout"))
+        .stderr(std::fs::File::create(&plain_log).unwrap())
         .status()
         .unwrap();
-    assert!(st.success());
+    assert!(
+        st.success(),
+        "pob_oracle outputs failed:\n{}",
+        std::fs::read_to_string(&plain_log).unwrap_or_default()
+    );
     let a = load_outputs(&plain).unwrap();
     let b = load_outputs(&out.join("outputs.json")).unwrap();
     assert_eq!(a.pob_version, b.pob_version);
