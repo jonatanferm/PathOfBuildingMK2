@@ -22,8 +22,10 @@
 //! - `engine/render/r_texture.cpp:340-347` (`r_tex_c::Bind`): a texture without pixels binds
 //!   `@black` (transparent);
 //! - `r_texture.cpp:620-673` (`r_tex_c::Upload`): `CLAMP` -> clamp-to-edge else repeat;
-//!   `NEAREST` -> nearest magnification else linear; minification linear, trilinear
-//!   (`LINEAR_MIPMAP_LINEAR`) when the texture has mips; anisotropy 16.
+//!   `NEAREST` -> nearest magnification else linear; minification `GL_LINEAR` for one level,
+//!   trilinear (`LINEAR_MIPMAP_LINEAR`) when the texture has mips; anisotropy 16; no
+//!   `TEXTURE_MAX_LOD` (default 1000), so a one-level `NEAREST` texture drawn smaller than its
+//!   size is minified bilinearly (here: `lod_max_clamp` 0.25, not 0, see `sampler`).
 //!
 //! The CPU reference for all of this is `pob_sg::raster` (feature `raster`); `tests/t5.rs`
 //! compares the two (ui doc §11.1 T5).
@@ -307,9 +309,15 @@ impl SgRenderer {
                 } else {
                     wgpu::AddressMode::Repeat
                 };
-                // r_texture.cpp:640-673. Without mips the mip filter is irrelevant (one level,
-                // lod clamped to 0), so it is linear whenever the magnification filter is, which
-                // lets wgpu accept SG's anisotropy 16 there.
+                // r_texture.cpp:640-673. SG never sets TEXTURE_MAX_LOD (default 1000), so the
+                // mag/min choice (λ <= 0 vs λ > 0) is made on the unclamped λ. Vulkan, GL and
+                // wgpu clamp λ to lod_max_clamp *before* that choice, so a one-level texture
+                // needs lod_max_clamp > 0 or it is never minified (a NEAREST texture drawn
+                // smaller would sample NEAREST instead of SG's GL_LINEAR). 0.25 with a nearest
+                // mip filter is the usual GL emulation; with one level every λ still reads
+                // level 0. Without mips the mip filter is otherwise irrelevant, so it stays
+                // linear when the magnification filter is, which lets wgpu accept SG's
+                // anisotropy 16 there (mag == min == linear: the clamp changes nothing).
                 let all_linear = !key.nearest;
                 device.create_sampler(&wgpu::SamplerDescriptor {
                     label: Some("pob-sg"),
@@ -328,7 +336,7 @@ impl SgRenderer {
                         wgpu::MipmapFilterMode::Nearest
                     },
                     lod_min_clamp: 0.0,
-                    lod_max_clamp: if key.mips { 32.0 } else { 0.0 },
+                    lod_max_clamp: if key.mips { 32.0 } else { 0.25 },
                     compare: None,
                     // DIVERGENCE(anisotropy): only when every filter is linear (wgpu rule).
                     anisotropy_clamp: if all_linear { ANISOTROPY } else { 1 },
@@ -606,8 +614,10 @@ impl SgRenderer {
                     wgpu::IndexFormat::Uint32,
                 );
                 for b in &self.batches {
-                    // glScissor(lo.x, H - extent.y - lo.y, extent.x, extent.y) in GL's bottom-left
-                    // space == (lo, extent) top-left here, clamped to the target.
+                    // SG discards fragments whose centre lies outside the quad's viewport
+                    // (r_main.cpp:833-838; there is no glScissor at 3b1a346). A scissor
+                    // rectangle (top-left origin, clamped to the target) keeps exactly the same
+                    // pixel centres for integer viewports.
                     let x0 = b.viewport.x.clamp(0, w);
                     let y0 = b.viewport.y.clamp(0, h);
                     let x1 = b.viewport.x.saturating_add(b.viewport.w).clamp(0, w);

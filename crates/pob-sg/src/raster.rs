@@ -166,8 +166,11 @@ fn quad_verts(q: &Quad, vp: IRect) -> [Vert; 4] {
 }
 
 /// `edge(a, b, p)`: twice the signed area of `(a, b, p)`; positive inside a triangle of positive area.
-fn edge(a: (i64, i64), b: (i64, i64), p: (i64, i64)) -> i64 {
-    (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0)
+/// In `i128`: [`snap`] admits coordinates up to 2^40 sub-pixels, so differences reach 2^41 and
+/// their products 2^82 (an `i64` overflows from ~1.2e7 px apart).
+fn edge(a: (i64, i64), b: (i64, i64), p: (i64, i64)) -> i128 {
+    let d = |u: i64, v: i64| i128::from(u) - i128::from(v);
+    d(b.0, a.0) * d(p.1, a.1) - d(b.1, a.1) * d(p.0, a.0)
 }
 
 /// Top-left rule (y down, positive-area orientation): a top edge runs horizontally to the
@@ -525,6 +528,21 @@ mod tests {
         let f = frame(16, 16, vec![l0], vec![(TexId::WHITE, white())]);
         let (_, _, img) = Raster::new().render(&f);
         assert!(img.chunks_exact(4).all(|p| p == [64, 64, 64, 255]));
+    }
+
+    #[test]
+    fn huge_quad_over_the_screen_fills_it() {
+        // 2e8 px apart: the edge products need more than i64 (they reach ~2.6e21 at 1/256 px).
+        let mut l0 = LayerQueue::new(0, 0);
+        l0.cmds = vec![
+            full(4, 4),
+            Cmd::Bind(TexId::WHITE),
+            Cmd::Color([1.0; 4]),
+            Cmd::Quad(rect(-1.0e8, -1.0e8, 1.0e8, 1.0e8)),
+        ];
+        let f = frame(4, 4, vec![l0], vec![(TexId::WHITE, white())]);
+        let (_, _, img) = Raster::new().render(&f);
+        assert!(img.chunks_exact(4).all(|p| p == [255, 255, 255, 255]));
     }
 
     #[test]

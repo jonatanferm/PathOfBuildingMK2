@@ -323,7 +323,9 @@ fn frame_rotated(sg: &mut Sg) -> Frame {
 }
 
 /// 3. Texture coordinates: REPEAT vs CLAMP beyond [0, 1], NEAREST vs LINEAR, flipped UVs,
-///    mip levels (λ = 2, ≈1.4, 0, ≈1.7 with REPEAT) and minification without mips.
+///    mip levels (λ = 2, ≈1.4, 0, ≈1.7 with REPEAT) and minification without mips, both LINEAR
+///    and NEAREST (SG: `MIN_FILTER = GL_LINEAR` for one level, `MAG_FILTER = GL_NEAREST`, no
+///    `TEXTURE_MAX_LOD`, so a minified NEAREST texture samples bilinearly; r_texture.cpp:640-654).
 fn frame_uvs(sg: &mut Sg) -> Frame {
     let grad = load(sg, "grad16.png", ImageFlags::empty());
     let grad_c = load(sg, "grad16.png", ImageFlags::CLAMP);
@@ -331,6 +333,7 @@ fn frame_uvs(sg: &mut Sg) -> Frame {
     let checker_c = load(sg, "checker8.png", ImageFlags::NEAREST | ImageFlags::CLAMP);
     let mip = load(sg, "tex64.png", ImageFlags::MIPMAP);
     let nomip = load(sg, "tex64.png", ImageFlags::empty());
+    let nomip_n = load(sg, "tex64.png", ImageFlags::NEAREST);
     sg.begin_frame(screen(320, 240, 1.0));
     sg.set_draw_color(1.0, 1.0, 1.0);
     sg.draw_image_tc(Some(&grad), 0.0, 0.0, 96.0, 96.0, -1.0, -1.0, 2.0, 2.0);
@@ -368,6 +371,10 @@ fn frame_uvs(sg: &mut Sg) -> Frame {
     sg.draw_image(Some(&nomip), 170.0, 160.0, 32.0, 32.0);
     sg.draw_image(Some(&mip), 210.0, 160.0, 8.0, 8.0);
     sg.draw_image(Some(&mip), 230.0, 160.0, 2.0, 2.0);
+    sg.draw_image(Some(&nomip_n), 240.0, 160.0, 37.0, 37.0);
+    sg.draw_image(Some(&nomip_n), 285.0, 160.0, 21.0, 21.0);
+    sg.draw_image(Some(&nomip_n), 240.0, 200.0, 29.0, 29.0);
+    sg.draw_image_tc(Some(&nomip_n), 280.0, 200.0, 30.0, 30.0, 0.0, 0.0, 2.0, 2.0);
     sg.end_frame()
 }
 
