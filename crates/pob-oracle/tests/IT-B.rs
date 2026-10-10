@@ -10,7 +10,8 @@
 //!   (all types, `data.uniques`), every rare (`data.rares`, state before Craft), every item of
 //!   the all57 build corpus (`.parity/builds`) and 60 synthetic variant-group / version items
 //!   (Zana's Ingenuity, the one unique with groups, and a made-up versioned item, under random
-//!   group/version selections); again for the first 8 and the last variant of each non-group
+//!   group/version selections; the made-up item also has 7-decimal `{range:}` and 5-decimal
+//!   `{corruptedRange:}` lines for BuildRaw's `round(.., 6)` / `round(.., 2)`); again for the first 8 and the last variant of each non-group
 //!   variant item (with `CheckModLineVariant` for every variant);
 //! * `GetPrimarySlot`, `CheckModLineVariant` + `GetModLineVariantCount` for every mod line,
 //!   `FindModifierSubstring` for 32 substrings at the item's primary slot,
@@ -24,12 +25,15 @@
 //!   headless LuaJIT has no `debug` library) on vectors;
 //! * Utils `stringify` / `stringifyInline` / `saveTableToFile` on 300 random tables.
 //!
-//! `Craft` (rares) needs IT-C's `itemLib.applyRange`; while that is a stub its comparison is
-//! counted as skipped. After `MutateMod`/`Craft` PoB re-parses (`BuildAndParseRaw`); while
+//! `Craft` (rares, plus two synthetic crafted rares with list `{range:a,b}` affixes, which no
+//! `data.rares` entry has) needs IT-C's `itemLib.applyRange`; while that is a stub its
+//! comparison is counted as skipped. After `MutateMod`/`Craft` PoB re-parses (`BuildAndParseRaw`); while
 //! IT-A's ParseRaw is a stub the Rust text is the `BuildRaw` before the re-parse, which is the
 //! raw PoB re-parsed (`self.raw`).
 //!
-//! Self-skips without PoB / the data dump (set `POB_ORACLE_REQUIRE=1` to fail instead).
+//! Self-skips without PoB / the data dump (set `POB_ORACLE_REQUIRE=1` to fail instead). The
+//! inputs are gitignored, so from a worktree point `POB_SRC`, `POB_PARITY_DIR` and
+//! `POB_DUMP_DIR` at the main checkout's `.PathOfBuilding/src`, `.parity` and `data/dump`.
 //! `IT_B_LIMIT=<n>` limits the uniques (quick runs); `IT_B_DUMP=<file>` keeps the oracle JSON.
 
 #![allow(clippy::pedantic, clippy::explicit_auto_deref, clippy::op_ref)]
@@ -926,7 +930,7 @@ fn item_core_vs_pob() {
         _ => panic!("findSubstrings"),
     };
     let apply_range_ported =
-        !item_tools::applyRange("+10 to maximum Life", 0.5, None, None).is_empty();
+        !item_tools::applyRange("+10 to maximum Life", &Val::Num(0.5), None, None).is_empty();
 
     // items
     let items = doc["items"].as_array().expect("items");
@@ -1050,6 +1054,16 @@ fn item_core_vs_pob() {
             format!("rust={rust:?}\n   lua={lua:?}")
         });
     }
+    if let Some(lua) = doc["saveErr"].as_str().filter(|s| *s != "$skip") {
+        // Lua's message carries the `Modules/Utils.lua:93: ` position prefix
+        let missing = format!("{}.missing/x.lua", tmp.to_string_lossy());
+        let r =
+            catch(|| item_mod::saveTableToFile(&missing, &Val::Table(Table::new()), None, false));
+        let ok = matches!(&r, Err(e) if !e.is_empty() && lua.ends_with(e.as_str()));
+        t.check("saveTableToFile (open error)", ok, || {
+            format!("rust={r:?}\n   lua={lua:?}")
+        });
+    }
     let delve = d.itemMods[&Name::from("Item")]
         .0
         .values()
@@ -1081,6 +1095,24 @@ fn item_core_vs_pob() {
     assert!(
         kinds.get("unique").copied().unwrap_or(0) > 0,
         "no uniques checked"
+    );
+    // The synthetic crafted rares (item_oracle.lua `craftSynth`) must reach Craft in PoB with a
+    // list `range` (Item.lua:803-809), so that the Craft comparison covers applyRange's table
+    // path (ItemTools.lua:99/104) once IT-C ports it.
+    let synth: Vec<&J> = items.iter().filter(|r| r["kind"] == "craftsynth").collect();
+    let list_range = |rec: &J| match jval(&rec["state"]["prefixes"]) {
+        Val::Table(p) => p.ipairs().into_iter().any(|(_, a)| match a {
+            Val::Table(a) => matches!(a.get(n("range")), Val::Table(_)),
+            _ => false,
+        }),
+        _ => false,
+    };
+    assert!(
+        synth.len() == 2
+            && synth
+                .iter()
+                .all(|r| r["craft"].is_string() && list_range(r)),
+        "synthetic crafted rares: PoB did not parse/craft them with list ranges: {synth:?}"
     );
 }
 

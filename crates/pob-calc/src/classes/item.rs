@@ -1051,6 +1051,9 @@ impl Item {
         let Some(insertIdx) = insertIdx else {
             lua_error!("bad argument #2 to 'insert' (number expected, got nil)")
         };
+        // Lua shares `newMod.modTags` (data) by reference; a copy is equivalent because nothing
+        // mutates a mod line's tags in place: BuildAndParseRaw re-parses the line, and ParseRaw's
+        // t_insert(modLine.modTags, tag) (Item.lua:897) acts on its fresh `{ modTags = {} }` (872).
         let modTags = Table::new();
         for t in &newMod.modTags {
             modTags.push(*t);
@@ -1967,8 +1970,10 @@ impl Item {
                     // L2083
                     for (i, line) in r#mod.lines.iter().enumerate() {
                         // L2084
+                        // `affix.range` is a number or a list (Item.lua:803-809), passed as is
+                        // (CCR-0015 §4)
                         let range = lor(vget(&affix, &Val::from("range")), || Val::Num(0.5));
-                        let line = itemLib::applyRange(line, range.num(), None, None);
+                        let line = itemLib::applyRange(line, &range, None, None);
                         // L2085
                         let order = onum(r#mod.statOrder.get(i).copied());
                         // L2086
@@ -2000,7 +2005,7 @@ impl Item {
                             .0;
                             existing.set(n!("line"), combined);
                         } else {
-                            // L2095
+                            // L2095 (`mod.modTags` copied, not shared: see MutateMod)
                             let modTags = Table::new();
                             for t in &r#mod.modTags {
                                 modTags.push(*t);
@@ -2435,6 +2440,19 @@ fn saveTableContents(table: &Val, description: Option<&str>, allowMultiLine: boo
     )
 }
 
+/// The C `strerror` text LuaJIT's `io.open` / `f:write` report: Rust's `io::Error` display of
+/// an OS error is that text plus ` (os error N)`, which Lua does not have.
+#[cfg(not(target_arch = "wasm32"))]
+fn lua_io_strerror(e: &std::io::Error) -> String {
+    let s = e.to_string();
+    match e.raw_os_error() {
+        Some(code) => s
+            .strip_suffix(&format!(" (os error {code})"))
+            .map_or_else(|| s.clone(), str::to_owned),
+        None => s,
+    }
+}
+
 /// @pob Modules/Utils.lua:90-123 h=7297461d
 pub fn saveTableToFile(
     fileName: &str,
@@ -2455,7 +2473,7 @@ pub fn saveTableToFile(
                 lfmt!(
                     "Could not open %s for writing table: %s",
                     fileName,
-                    format!("{fileName}: {openErr}").as_str()
+                    format!("{fileName}: {}", lua_io_strerror(&openErr)).as_str()
                 )
             ),
         };
@@ -2469,7 +2487,7 @@ pub fn saveTableToFile(
                 lfmt!(
                     "Failed to write to %s: %s",
                     fileName,
-                    writeErr.to_string().as_str()
+                    lua_io_strerror(&writeErr).as_str()
                 )
             );
         }

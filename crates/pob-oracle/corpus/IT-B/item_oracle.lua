@@ -263,7 +263,7 @@ for _, t in ipairs(types) do
 end
 
 -- rares (Main.lua:178-193): state before Craft, raw after Craft
-for i, raw in ipairs(data.rares) do
+local function addRare(src, kind, raw, withWeights)
 	local ok, item = pcall(function() return new("Item"):Item(raw, "RARE", true) end)
 	if ok and item and item.base then
 		if item.crafted then
@@ -276,14 +276,43 @@ for i, raw in ipairs(data.rares) do
 				end
 			end
 		end
-		addItem("rare#" .. i, "rare", item, function(it, o)
-			if i % 2 == 1 then weightsOut(it, o) end
+		addItem(src, kind, item, function(it, o)
+			if withWeights then weightsOut(it, o) end
 			if it.crafted then
 				local okC, err = pcall(it.Craft, it)
 				o[#o + 1] = { "craft", okC and json(it.raw) or jobj({ { "$err", encstr(tostring(err)) } }) }
 			end
 		end)
 	end
+end
+for i, raw in ipairs(data.rares) do
+	addRare("rare#" .. i, "rare", raw, i % 2 == 1)
+end
+
+-- synthetic crafted rares: no data.rares entry has a multi-value `{range:a,b}` affix, which
+-- ParseRaw stores as a list (Item.lua:803-809), BuildRaw writes with table.concat (1811/1815)
+-- and Craft passes to applyRange as is (2084; per-range values, ItemTools.lua:99/104). These
+-- cover a list range on single- and two-range lines, a hybrid (two-line) mod, a list shorter
+-- than the line's ranges (`ranges[i] or 0.5`), combined stats (same statOrder) and
+-- `round(range, 3)` of a number range.
+local craftSynth = { [[
+Synthetic Range Ring
+Ruby Ring
+Crafted: true
+Prefix: {range:0.25,0.75}AddedColdDamage3
+Prefix: {range:1,0}AddedColdDamage2
+Prefix: {range:0.1234567}IncreasedLife7
+Suffix: None
+]], [[
+Synthetic Range Sword
+Corsair Sword
+Crafted: true
+Prefix: {range:0,1}LocalAddedPhysicalDamage3
+Prefix: {fractured}{range:0.2,0.8}LocalIncreasedPhysicalDamagePercentAndAccuracyRating3
+Prefix: {range:0.9,}LocalAddedColdDamage3
+]] }
+for i, raw in ipairs(craftSynth) do
+	addRare("craftsynth#" .. i, "craftsynth", raw, false)
 end
 
 -- synthetic variant-group / version items: the one unique with groups (Zana's Ingenuity) under
@@ -310,6 +339,8 @@ Implicits: 1
 {variant:4}{group:3}{tags:resource}+10 to maximum Mana
 {version:1}{variant:4}{group:3}{tags:resource}+20 to maximum Mana
 {group:2}Line with a group but no variant
+{range:0.1234567}+(20-40) to maximum Life
+{corruptedRange:1.23456}+(10-20) to Strength
 {variant:9}{group:1}Line naming an unknown variant
 (5-15)% increased Attack Speed
 ]]
@@ -434,6 +465,12 @@ if __itb_tmp and __itb_stringify and __itb_stringify[1] then
 		f:close()
 	end
 end
+-- the open-error message (io.open's "<name>: <strerror>"), on a path in a missing directory
+local saveErr = '"$skip"'
+if __itb_tmp then
+	local ok, err = pcall(utils.saveTableToFile, __itb_tmp .. ".missing/x.lua", { 1 }, nil, false)
+	saveErr = ok and '"$noerr"' or encstr(tostring(err))
+end
 
 local delve = 0
 for _, mod in pairs(data.itemMods.Item) do
@@ -450,5 +487,6 @@ return jobj({
 	{ "sort", jarr(fnSort) },
 	{ "stringify", jarr(strOut) },
 	{ "save", saveOut },
+	{ "saveErr", saveErr },
 	{ "delve", json(delve) },
 })
