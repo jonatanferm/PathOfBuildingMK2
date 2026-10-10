@@ -23,6 +23,13 @@ use pob_sg::{Frame, ImageHandle, ScreenInfo, Sg};
 
 use crate::runner::RunResult;
 
+/// Whether T3 uses U1's `pob_sg::trace::{normalize, diff}` (false: this crate's local copy of
+/// their documented semantics, U1-PENDING). The parity harness names the comparison it used in
+/// every gallery and scenario result, so a pass on the local copy is visible (CCR-0028 item 13).
+pub fn uses_u1_diff() -> bool {
+    u1_available()
+}
+
 fn u1_available() -> bool {
     static AVAIL: OnceLock<bool> = OnceLock::new();
     *AVAIL.get_or_init(|| {

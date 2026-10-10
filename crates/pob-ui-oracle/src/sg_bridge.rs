@@ -9,7 +9,8 @@
 //! fixtures need real values where `_SimpleGraphic.def.lua` has headless dummies: GetScriptPath,
 //! GetRuntimePath, GetUserPath, GetWorkDir, MakeDir, RemoveDir, Restart, Exit, LaunchSubScript,
 //! IsSubScriptRunning, AbortSubScript (patch 8: scripted network fixtures), and NewFileSearch
-//! (SG's semantics; pob-oracle's native ignores `findDirectories`, CCR-0028 item 4).
+//! (SG's semantics; pob-oracle's native ignores `findDirectories`, CCR-0028 item 4;
+//! `GetFileModifiedTime` follows U7's headless rule, [`Mtimes`], CCR-0028 item 10).
 //!
 //! Source: SimpleGraphic `engine/ui_api.cpp` at the pinned `3b1a346` (CCR-0021): `l_SetDrawLayer`
 //! 759-781, `l_GetDrawLayer` 783-788, `l_SetViewport` 790-812, `l_SetDrawColor` 826-874,
@@ -24,10 +25,11 @@
 //! `l_AbortSubScript` 1875-1887, `l_IsSubScriptRunning` 1889-1899, `l_ConPrintf` 1972-1984,
 //! `l_OpenURL` 2104-2115, `l_Restart` 2126-2131, `l_Exit` 2133-2147, `l_TakeScreenshot` 2149-2154.
 //!
-//! Argument checks follow SG's order and messages. DIVERGENCE (error paths only): SG checks
-//! `renderEnable` ("X() called outside of OnFrame") before the arguments; here `Sg` checks it when
-//! the call reaches it, after the bridge's argument checks, so a call that is both outside OnFrame
-//! and malformed reports the argument error. DIVERGENCE: the stack index / mask arguments of
+//! Argument checks follow SG's order and messages: SetDrawLayer, SetViewport, SetDrawColor,
+//! DrawImage, DrawImageQuad and DrawString check `renderEnable` ("X() called outside of OnFrame",
+//! [`Bridge::render_enable`], set by the host around the sub-script pass and `OnFrame`) before
+//! their arguments, and DrawImage/DrawImageQuad check "X(): image handle has no image loaded"
+//! after the argument-count switch, as SG does. DIVERGENCE: the stack index / mask arguments of
 //! DrawImage (6, 7, 10, 11 args) and DrawImageQuad (10, 11, 18, 19 args) are validated as SG does,
 //! but `pob_sg::Sg` has no stacked textures, so any value other than stack 1 without a mask is a
 //! Lua error here (PoB 2.67.2 never passes them).
@@ -45,8 +47,9 @@
 //! the CCR lands). `FileWrite` is not recorded on either side yet (CCR-0028 item 3).
 
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -54,12 +57,117 @@ use mlua::{AnyUserData, LightUserData, Lua, MultiValue, UserData, UserDataMethod
 use pob_sg::trace::{ImgRef, SideEffect};
 use pob_sg::{Align, Font, ImageFlags, ImageHandle, Key, Sg, Sys};
 
-/// A scripted `launch:DownloadPage` response (patch 8).
-#[derive(Clone, Debug, Default)]
+/// A scripted `launch:DownloadPage` response (patch 8). `body: None` is a sub-script error
+/// (`launch:OnSubError(id, error)`; U7's `HttpResponse::body == None`, CCR-0028 item 10).
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NetResponse {
     pub body: Option<Vec<u8>>,
     pub error: Option<String>,
-    pub header: String,
+    pub headers: String,
+}
+
+/// The `fixture net=FILE.json` responses, in U7's format and with U7's matching rule (CCR-0026,
+/// `pob_host::headless` on `port/U7`; CCR-0028 item 10): a JSON array of `{"url": .., "body":
+/// "text" | null, "body_file": "path", "error": "msg", "headers": ".."}` (`body_file` relative to
+/// the JSON file, `body: null` a sub-script error, no `body` an empty one). A request takes the
+/// first unused fixture for its URL, else reuses the last one for it; an unknown URL gets an empty
+/// body and `error = "No net fixture for <url>"`.
+#[derive(Clone, Debug, Default)]
+pub struct NetFixtures {
+    fixtures: Vec<(String, NetResponse, bool)>,
+}
+
+impl NetFixtures {
+    /// Parse a fixture file.
+    pub fn load(path: &Path) -> Result<NetFixtures, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        let arr = v
+            .as_array()
+            .ok_or_else(|| format!("{}: expected a JSON array", path.display()))?;
+        let dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut fixtures = Vec::new();
+        for (i, f) in arr.iter().enumerate() {
+            let url = f
+                .get("url")
+                .and_then(|u| u.as_str())
+                .ok_or_else(|| format!("{}: entry {i} has no url", path.display()))?;
+            let body = if let Some(bf) = f.get("body_file").and_then(|b| b.as_str()) {
+                Some(std::fs::read(dir.join(bf)).map_err(|e| format!("{bf}: {e}"))?)
+            } else {
+                match f.get("body") {
+                    Some(serde_json::Value::Null) => None,
+                    Some(b) => Some(b.as_str().unwrap_or_default().as_bytes().to_vec()),
+                    None => Some(Vec::new()),
+                }
+            };
+            let resp = NetResponse {
+                body,
+                error: f.get("error").and_then(|e| e.as_str()).map(str::to_owned),
+                headers: f
+                    .get("headers")
+                    .and_then(|h| h.as_str())
+                    .unwrap_or_default()
+                    .to_owned(),
+            };
+            fixtures.push((url.to_owned(), resp, false));
+        }
+        Ok(NetFixtures { fixtures })
+    }
+
+    /// The response to a request for `url` (marks the fixture used).
+    pub fn take(&mut self, url: &str) -> NetResponse {
+        let idx = self
+            .fixtures
+            .iter()
+            .position(|(u, _, used)| !used && u == url)
+            .or_else(|| self.fixtures.iter().rposition(|(u, _, _)| u == url));
+        match idx {
+            Some(i) => {
+                self.fixtures[i].2 = true;
+                self.fixtures[i].1.clone()
+            }
+            None => NetResponse {
+                body: Some(Vec::new()),
+                error: Some(format!("No net fixture for {url}")),
+                headers: String::new(),
+            },
+        }
+    }
+}
+
+/// Lexically normalised path (`.` dropped, `..` pops): the key of the write-time maps.
+pub fn normalize_path(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            c => out.push(c.as_os_str()),
+        }
+    }
+    out
+}
+
+/// `GetFileModifiedTime` of a file written during a run at virtual clock `clock_ms`: MSVC
+/// `file_clock` ticks (100 ns since 1601) of 2020-09-13T12:26:40Z plus the clock, as U7's
+/// headless `Fs` reports it; files not written during the run report 0 (CCR-0028 item 10).
+pub fn virtual_write_ticks(clock_ms: i64) -> i64 {
+    const UNIX_TO_1601: i64 = 116_444_736_000_000_000;
+    UNIX_TO_1601 + 1_600_000_000 * 10_000_000 + clock_ms * 10_000
+}
+
+/// How a search reports `GetFileModifiedTime`.
+#[derive(Clone, Copy)]
+pub enum Mtimes<'a> {
+    /// U7's headless rule: [`virtual_write_ticks`] of the write time for files in the map
+    /// (normalised absolute paths), 0 for every other file.
+    Virtual(&'a HashMap<PathBuf, i64>),
+    /// The file system's modification time (live sessions).
+    Disk,
 }
 
 /// Per-VM state of the bridge.
@@ -70,8 +178,8 @@ pub struct Bridge {
     pub chunk_root: RefCell<String>,
     /// Image handles by userdata index.
     handles: RefCell<Vec<ImageHandle>>,
-    /// Scripted network fixtures by URL (patch 8).
-    pub net: RefCell<HashMap<String, NetResponse>>,
+    /// Scripted network fixtures (patch 8).
+    pub net: RefCell<NetFixtures>,
     /// Sub-script slots (`ui->subScriptList`): `Some(response)` while the slot's script "runs"
     /// (until the next frame's sub-script pass, `deliver_subscripts`).
     subs: RefCell<Vec<Option<NetResponse>>>,
@@ -79,6 +187,23 @@ pub struct Bridge {
     pub finished_subs: RefCell<VecDeque<usize>>,
     /// Extra per-VM objects other oracle modules register (markers).
     pub extra: RefCell<Vec<Rc<dyn Any>>>,
+    /// SG's `renderEnable`: set by the host around the sub-script pass and `OnFrame`
+    /// (ui_main.cpp:401-421, [`crate::runner::LuaApp`]); the draw-state and draw functions check
+    /// it first, as SG does (ui_api.cpp:763-1136).
+    pub render_enable: Cell<bool>,
+    /// Files PoB opened for writing (`io.open` with "w"/"a", noted by `lua/determinism.lua`
+    /// through `__oracleNoteWrite`) with the virtual clock at that moment.
+    pub writes: RefCell<HashMap<PathBuf, i64>>,
+    /// `GetFileModifiedTime` follows U7's headless rule ([`Mtimes::Virtual`]); false in a live
+    /// session (`pob-lua-gui`), which reports the real modification time.
+    pub virtual_mtimes: Cell<bool>,
+}
+
+/// `ui->LAssert(L, ui->renderEnable, "X() called outside of OnFrame")`.
+fn check_render(b: &Bridge, f: &str) -> mlua::Result<()> {
+    assert(b.render_enable.get(), || {
+        format!("{f}() called outside of OnFrame")
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -369,6 +494,17 @@ impl UserData for ImgUd {
     }
 }
 
+/// The image of a DrawImage/DrawImageQuad call: `ui->LAssert(L, imgHandle->hnd != NULL, "X(): image
+/// handle has no image loaded")` (ui_api.cpp:931, :1050), checked after the argument-count switch.
+fn loaded_handle(b: &Bridge, img: Option<ImgUd>, f: &str) -> mlua::Result<Option<ImageHandle>> {
+    let Some(u) = img else { return Ok(None) };
+    let h = u.handle(b);
+    assert(h.tex().is_some(), || {
+        format!("{f}(): image handle has no image loaded")
+    })?;
+    Ok(Some(h))
+}
+
 /// `!lua_isnil(L, 1) && !ui->IsUserData(L, 1, "uiimghandlemeta")` -> error; else the handle.
 fn img_arg(args: &[Value], f: &str) -> mlua::Result<Option<ImgUd>> {
     match args.first() {
@@ -434,11 +570,11 @@ fn strerror(e: &std::io::Error) -> String {
 /// One directory entry of a search.
 #[derive(Clone, Debug)]
 pub struct FoundFile {
-    name: String,
-    size: u64,
+    pub name: String,
+    pub size: u64,
     /// `last_write_time().time_since_epoch().count()` of MSVC's `file_clock`: 100 ns ticks since
-    /// 1601-01-01.
-    modified: f64,
+    /// 1601-01-01 (see [`Mtimes`]).
+    pub modified: f64,
 }
 
 /// A `searchHandle` userdata (`uisearchhandlemeta`): the matching entries (already filtered by
@@ -520,7 +656,8 @@ pub fn glob_match(glob: &str, name: &str) -> bool {
 /// and `NextFile` keep (`isDirectory == dirOnly`, not `.`/`..`). DIVERGENCE: SG returns
 /// `directory_iterator` order (on NTFS: names ordered by their upper-case form); the oracle sorts
 /// by the upper-cased name, then the name, so runs are deterministic on every file system.
-pub fn find_files(spec: &std::path::Path, dir_only: bool) -> Vec<FoundFile> {
+/// `GetFileModifiedTime` follows `mtimes`.
+pub fn find_files(spec: &std::path::Path, dir_only: bool, mtimes: Mtimes<'_>) -> Vec<FoundFile> {
     let parent = spec.parent().unwrap_or_else(|| std::path::Path::new(""));
     let parent = if parent.as_os_str().is_empty() {
         std::path::Path::new(".")
@@ -543,15 +680,20 @@ pub fn find_files(spec: &std::path::Path, dir_only: bool) -> Vec<FoundFile> {
                     if meta.is_dir() != dir_only {
                         return None;
                     }
-                    let modified = meta
-                        .modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map_or(0.0, |d| {
-                            ((d.as_secs() + 11_644_473_600) * 10_000_000
-                                + u64::from(d.subsec_nanos() / 100))
-                                as f64
-                        });
+                    let modified = match mtimes {
+                        Mtimes::Virtual(w) => w
+                            .get(&normalize_path(&e.path()))
+                            .map_or(0.0, |c| virtual_write_ticks(*c) as f64),
+                        Mtimes::Disk => meta
+                            .modified()
+                            .ok()
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map_or(0.0, |d| {
+                                ((d.as_secs() + 11_644_473_600) * 10_000_000
+                                    + u64::from(d.subsec_nanos() / 100))
+                                    as f64
+                            }),
+                    };
                     Some(FoundFile {
                         name,
                         size: if meta.is_dir() { 0 } else { meta.len() },
@@ -579,10 +721,13 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
         sys,
         chunk_root: RefCell::new(String::new()),
         handles: RefCell::new(Vec::new()),
-        net: RefCell::new(HashMap::new()),
+        net: RefCell::new(NetFixtures::default()),
         subs: RefCell::new(Vec::new()),
         finished_subs: RefCell::new(VecDeque::new()),
         extra: RefCell::new(Vec::new()),
+        render_enable: Cell::new(false),
+        writes: RefCell::new(HashMap::new()),
+        virtual_mtimes: Cell::new(true),
     });
     BRIDGES.with(|m| m.borrow_mut().insert(id, b));
     lua.set_app_data(BridgeId(id));
@@ -606,6 +751,7 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
 
     // SetDrawLayer({layer|nil}[, subLayer])
     def!("SetDrawLayer", |lua, b, args| {
+        check_render(&b, "SetDrawLayer")?;
         let n = args.len();
         assert(n >= 1, || {
             "Usage: SetDrawLayer({layer|nil}[, subLayer])".into()
@@ -643,6 +789,7 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
         .get_draw_layer()));
     // SetViewport([x, y, width, height])
     def!("SetViewport", |lua, b, args| {
+        check_render(&b, "SetViewport")?;
         let n = args.len();
         if n == 0 {
             set_src(lua, &b);
@@ -660,6 +807,7 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
     });
     // SetDrawColor(red, green, blue[, alpha]) or SetDrawColor(escapeStr)
     def!("SetDrawColor", |lua, b, args| {
+        check_render(&b, "SetDrawColor")?;
         let n = args.len();
         let usage = "Usage: SetDrawColor(red, green, blue[, alpha]) or SetDrawColor(escapeStr)";
         assert(n >= 1, || usage.into())?;
@@ -702,6 +850,7 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
 
     // DrawImage({imgHandle|nil}, left, top, width, height[, tcLeft, tcTop, tcRight, tcBottom][, stackIdx[, mask]])
     def!("DrawImage", |lua, b, args| {
+        check_render(&b, "DrawImage")?;
         let n = args.len();
         let usage = "Usage: DrawImage({imgHandle|nil}, left, top, width, height[, tcLeft, tcTop, tcRight, tcBottom][, stackIdx[, mask]])";
         assert(n >= 5, || usage.into())?;
@@ -716,7 +865,7 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
             11 => (true, true, true),
             _ => return Err(rt(usage)),
         };
-        let h = img.map(|u| u.handle(&b));
+        let h = loaded_handle(&b, img, "DrawImage")?;
         let mut v = [0.0; 4];
         for (i, x) in v.iter_mut().enumerate() {
             *x = arg_num(&args, i + 2, "DrawImage")?;
@@ -754,6 +903,7 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
     });
     // DrawImageQuad({imgHandle|nil}, x1, y1, x2, y2, x3, y3, x4, y4[, s1, t1, s2, t2, s3, t3, s4, t4][, stackIdx[, mask]])
     def!("DrawImageQuad", |lua, b, args| {
+        check_render(&b, "DrawImageQuad")?;
         let n = args.len();
         let usage = "Usage: DrawImageQuad({imgHandle|nil}, x1, y1, x2, y2, x3, y3, x4, y4[, s1, t1, s2, t2, s3, t3, s4, t4][, stackIdx[, mask]])";
         assert(n >= 9, || usage.into())?;
@@ -767,7 +917,7 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
             19 => (true, true, true),
             _ => return Err(rt(usage)),
         };
-        let h = img.map(|u| u.handle(&b));
+        let h = loaded_handle(&b, img, "DrawImageQuad")?;
         let mut p = [0.0; 8];
         for (i, x) in p.iter_mut().enumerate() {
             *x = arg_num(&args, i + 2, "DrawImageQuad")?;
@@ -790,6 +940,7 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
     });
     // DrawString(left, top, align, height, font, text)
     def!("DrawString", |lua, b, args| {
+        check_render(&b, "DrawString")?;
         assert(args.len() >= 6, || {
             "Usage: DrawString(left, top, align, height, font, text)".into()
         })?;
@@ -985,6 +1136,16 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
         b.sys.borrow_mut().platform.con_print(&text);
         Ok(())
     });
+    // __oracleNoteWrite(absPath): `lua/determinism.lua`'s `io.open` noted a file opened for
+    // writing; its `GetFileModifiedTime` becomes the virtual write time (U7's headless rule).
+    def!("__oracleNoteWrite", |lua, b, args| {
+        let p = arg_str(lua, &args, 1, "__oracleNoteWrite")?;
+        let now = b.sys.borrow().time_ms();
+        b.writes
+            .borrow_mut()
+            .insert(normalize_path(Path::new(&p)), now);
+        Ok(())
+    });
     // GetScriptPath/GetRuntimePath/GetUserPath push the UTF-8 path and the native one (identical
     // on Linux).
     def!("GetScriptPath", |_lua, b, _args| {
@@ -1086,7 +1247,11 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
             let root = b.chunk_root.borrow();
             path = std::path::PathBuf::from(root.trim_start_matches('@')).join(path);
         }
-        let found = find_files(&path, dir_only);
+        let found = if b.virtual_mtimes.get() {
+            find_files(&path, dir_only, Mtimes::Virtual(&b.writes.borrow()))
+        } else {
+            find_files(&path, dir_only, Mtimes::Disk)
+        };
         if found.is_empty() {
             return Ok(MultiValue::new());
         }
@@ -1140,16 +1305,7 @@ pub fn install(lua: &Lua, sg: Rc<RefCell<Sg>>, sys: Rc<RefCell<Sys>>) -> mlua::R
             return Ok(Value::Nil);
         }
         let url = arg_str(lua, &args, 4, "LaunchSubScript")?;
-        let resp = b
-            .net
-            .borrow()
-            .get(&url)
-            .cloned()
-            .unwrap_or_else(|| NetResponse {
-                body: None,
-                error: Some(format!("pob-ui-oracle: no scripted response for {url}")),
-                header: String::new(),
-            });
+        let resp = b.net.borrow_mut().take(&url);
         let slot = {
             let mut subs = b.subs.borrow_mut();
             let slot = subs.iter().position(Option::is_none).unwrap_or_else(|| {
@@ -1212,7 +1368,8 @@ end
 
 /// The sub-script pass of a frame (ui_main.cpp:403-412, after BeginFrame, before OnFrame): every
 /// scripted sub-script launched since the last pass finishes, in slot order, with
-/// `launch:OnSubFinished(id, body, errMsg, header)`, and its slot is freed.
+/// `launch:OnSubFinished(id, body, errMsg, headers)` (or `launch:OnSubError(id, errMsg)` for a
+/// fixture with `body: null`, a sub-script that failed), and its slot is freed.
 pub fn deliver_subscripts(lua: &Lua) -> mlua::Result<()> {
     let b = bridge(lua)?;
     let mut done: Vec<usize> = b.finished_subs.borrow_mut().drain(..).collect();
@@ -1221,19 +1378,24 @@ pub fn deliver_subscripts(lua: &Lua) -> mlua::Result<()> {
     }
     done.sort_unstable();
     let launch: mlua::Table = lua.globals().get("launch")?;
-    let f: mlua::Function = launch.get("OnSubFinished")?;
     for slot in done {
         let Some(r) = b.subs.borrow_mut().get_mut(slot).and_then(Option::take) else {
             continue;
         };
-        // The curl script returns `responseBody` (initially "") even on failure.
-        let body = Value::String(lua.create_string(r.body.unwrap_or_default())?);
+        let id = Value::LightUserData(LightUserData(slot as *mut std::ffi::c_void));
         let err = match r.error {
             Some(e) => Value::String(lua.create_string(e)?),
             None => Value::Nil,
         };
-        let id = Value::LightUserData(LightUserData(slot as *mut std::ffi::c_void));
-        f.call::<()>((launch.clone(), id, body, err, r.header))?;
+        // The curl script returns `responseBody` (initially "") even on failure.
+        if let Some(body) = r.body {
+            let f: mlua::Function = launch.get("OnSubFinished")?;
+            let body = Value::String(lua.create_string(body)?);
+            f.call::<()>((launch.clone(), id, body, err, r.headers))?;
+        } else {
+            let f: mlua::Function = launch.get("OnSubError")?;
+            f.call::<()>((launch.clone(), id, err))?;
+        }
     }
     Ok(())
 }
@@ -1265,17 +1427,58 @@ mod tests {
         std::fs::write(d.join("b.xml"), "x").unwrap();
         std::fs::write(d.join("A.xml"), "xy").unwrap();
         std::fs::write(d.join("c.txt"), "").unwrap();
-        let files: Vec<(String, u64)> = find_files(&d.join("*.xml"), false)
-            .into_iter()
-            .map(|f| (f.name, f.size))
-            .collect();
-        assert_eq!(files, vec![("A.xml".into(), 2), ("b.xml".into(), 1)]);
-        let dirs: Vec<String> = find_files(&d.join("*"), true)
+        let mut writes = HashMap::new();
+        writes.insert(normalize_path(&d.join("./Sub/../b.xml")), 32);
+        let files: Vec<(String, u64, f64)> =
+            find_files(&d.join("*.xml"), false, Mtimes::Virtual(&writes))
+                .into_iter()
+                .map(|f| (f.name, f.size, f.modified))
+                .collect();
+        // Fixture files report 0, files written during the run the virtual write time.
+        assert_eq!(
+            files,
+            vec![
+                ("A.xml".into(), 2, 0.0),
+                ("b.xml".into(), 1, virtual_write_ticks(32) as f64)
+            ]
+        );
+        let dirs: Vec<String> = find_files(&d.join("*"), true, Mtimes::Disk)
             .into_iter()
             .map(|f| f.name)
             .collect();
         assert_eq!(dirs, vec!["alpha.xml".to_owned(), "Sub".to_owned()]);
-        assert!(find_files(&d.join("missing*"), false).is_empty());
+        assert!(find_files(&d.join("missing*"), false, Mtimes::Disk).is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn net_fixtures_like_u7() {
+        let d = std::env::temp_dir().join(format!("pob-ui-oracle-net-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("page.txt"), "from file").unwrap();
+        std::fs::write(
+            d.join("net.json"),
+            r#"[{"url": "u1", "body": "one", "headers": "h"},
+                {"url": "u1", "body": "two"},
+                {"url": "u2", "body_file": "page.txt"},
+                {"url": "u3", "body": null, "error": "boom"}]"#,
+        )
+        .unwrap();
+        let mut net = NetFixtures::load(&d.join("net.json")).unwrap();
+        let text = |resp: NetResponse| resp.body.map(|bytes| String::from_utf8(bytes).unwrap());
+        let first = net.take("u1");
+        assert_eq!(first.headers, "h");
+        assert_eq!(text(first), Some("one".into()));
+        assert_eq!(text(net.take("u1")), Some("two".into()));
+        assert_eq!(text(net.take("u1")), Some("two".into())); // the last one is reused
+        assert_eq!(text(net.take("u2")), Some("from file".into()));
+        let failed = net.take("u3");
+        assert_eq!((failed.body, failed.error.as_deref()), (None, Some("boom")));
+        let unknown = net.take("nope");
+        assert_eq!(unknown.body, Some(Vec::new()));
+        assert_eq!(unknown.error.as_deref(), Some("No net fixture for nope"));
+        assert!(NetFixtures::load(&d.join("page.txt")).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 

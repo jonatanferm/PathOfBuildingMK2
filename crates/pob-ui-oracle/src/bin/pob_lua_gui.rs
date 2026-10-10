@@ -12,7 +12,7 @@
 //! clipboard. `GetUserPath()` is `--user DIR` (PoB then uses `DIR/Path of Building/`), or by
 //! default a fresh temporary copy of `fixtures/user1`, so the fixture builds are in the build
 //! list and the real user data is never touched. Network sub-scripts are not started (patch 8:
-//! downloads fail with "no scripted response").
+//! downloads fail with "No net fixture for <url>").
 //!
 //! `--record FILE` writes the session as a `.pobscript` (`screen` from the first frame, `frames N`,
 //! `move X Y` when the virtual cursor moved, `key-down`/`key-up`, `type` for typed characters;
@@ -172,11 +172,10 @@ impl App for Gui {
                 let cur = self.app.sys().cursor_pos();
                 if r.last_cursor != Some(cur) {
                     r.last_cursor = Some(cur);
-                    // `move` runs the frame itself.
+                    // `move` runs no frame (U7's expansion): this frame follows it.
                     r.line(&format!("move {} {}", cur.0, cur.1));
-                } else {
-                    r.pending_frames += 1;
                 }
+                r.pending_frames += 1;
             }
         }
         self.app.on_frame();
@@ -253,7 +252,9 @@ fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(&p)?;
         (None, std::fs::canonicalize(&p)?)
     } else {
-        let d = UserDir::new(&pob_ui_oracle::runner::crate_dir().join("fixtures/user1"))?;
+        let d = UserDir::new(Some(
+            &pob_ui_oracle::runner::crate_dir().join("fixtures/user1"),
+        ))?;
         let p = d.path.clone();
         (Some(d), p)
     };

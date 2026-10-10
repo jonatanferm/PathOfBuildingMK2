@@ -1,15 +1,17 @@
 # `fixtures/user1` (ui doc §11.3; owner U8)
 
-The user dir of the app scenarios. `GetUserPath()` returns a fresh run dir and PoB reads
-`<userPath>/Path of Building/` (Main.lua:94-98), so this directory is copied to
-`<run dir>/Path of Building/` before each side of a run (`runner::UserDir`). Runs never modify
-these files.
+The user dir of the app scenarios, laid out for U7's `fixture userdir=DIR` rule (CCR-0026,
+CCR-0028 item 10): `GetUserPath()` is DIR and PoB reads `DIR/Path of Building/` (Main.lua:94-98).
+Scenarios name it relative to their own directory (`fixture userdir=../../fixtures/user1` from
+`scenarios/<unit>/`). The oracle copies this directory to a fresh run dir before each side of a
+run (`runner::UserDir`); runs never modify these files. `GetFileModifiedTime` reports 0 for them
+(U7's headless rule; files written during a run report the virtual write time).
 
-* `Settings.xml`: starts in the build list (`<Mode mode="LIST">` with `GetArgs()`'s two
-  arguments: no selected build, root sub-path), build sort by name, the `main:Init` defaults
-  otherwise, `showPublicBuilds="false"`.
-* `Builds/`: 6 builds of the parity corpus (`.parity/builds`, see `scripts/parity`) whose oracle
-  `TotalDPS` is > 0 (`.parity/oracle/<stem>/outputs.json`):
+* `Path of Building/Settings.xml`: starts in the build list (`<Mode mode="LIST">` with
+  `GetArgs()`'s two arguments: no selected build, root sub-path), build sort by name, the
+  `main:Init` defaults otherwise, `showPublicBuilds="false"`.
+* `Path of Building/Builds/`: 6 builds of the parity corpus (`.parity/builds`, see
+  `scripts/parity`) whose oracle `TotalDPS` is > 0 (`.parity/oracle/<stem>/outputs.json`):
 
 | file | TotalDPS (oracle) |
 |---|---|

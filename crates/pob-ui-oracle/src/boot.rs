@@ -153,13 +153,29 @@ impl pob_sg::Platform for OraclePlatform {
     }
 }
 
-/// File access for `MakeDir`/`RemoveDir` (Lua's `io` is the prelude's, rooted at `src/`).
+/// The Rust side's file access (and `MakeDir`/`RemoveDir` of the Lua side; Lua's `io` is the
+/// prelude's, rooted at `src/`). Searches follow the bridge's `NewFileSearch` (SG's glob, NTFS
+/// name order) and U7's headless modification times ([`crate::sg_bridge::Mtimes::Virtual`]:
+/// the virtual write time for files written through [`pob_sg::Fs::write`], 0 otherwise).
 pub struct OracleFs {
     /// PoB's `src/` (relative paths resolve here, like the prelude's `io.open`).
     pub root: PathBuf,
+    /// The virtual clock (write times).
+    pub clock: Rc<Cell<i64>>,
+    /// Files written during the run (normalised absolute path -> virtual clock).
+    pub writes: std::collections::HashMap<PathBuf, i64>,
 }
 
 impl OracleFs {
+    /// File access rooted at `root` on `clock`.
+    pub fn new(root: PathBuf, clock: Rc<Cell<i64>>) -> OracleFs {
+        OracleFs {
+            root,
+            clock,
+            writes: std::collections::HashMap::new(),
+        }
+    }
+
     fn abs(&self, path: &str) -> PathBuf {
         let p = Path::new(path);
         if p.is_absolute() {
@@ -175,41 +191,26 @@ impl pob_sg::Fs for OracleFs {
         std::fs::read(self.abs(path))
     }
     fn write(&mut self, path: &str, data: &[u8]) -> std::io::Result<()> {
-        std::fs::write(self.abs(path), data)
+        let p = self.abs(path);
+        std::fs::write(&p, data)?;
+        self.writes
+            .insert(crate::sg_bridge::normalize_path(&p), self.clock.get());
+        Ok(())
     }
     fn search(&self, spec: &str, find_dirs: bool) -> Vec<FileEntry> {
-        let p = self.abs(spec);
-        let (dir, pat) = (
-            p.parent().map(Path::to_path_buf).unwrap_or_default(),
-            p.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-        );
-        let prefix = pat.trim_end_matches('*').to_owned();
-        let exact = !pat.ends_with('*');
-        let mut out: Vec<FileEntry> = std::fs::read_dir(dir)
-            .map(|rd| {
-                rd.filter_map(Result::ok)
-                    .filter_map(|e| {
-                        let name = e.file_name().to_string_lossy().into_owned();
-                        let meta = e.metadata().ok()?;
-                        let hit = if exact {
-                            name == prefix
-                        } else {
-                            name.starts_with(&prefix)
-                        };
-                        (hit && meta.is_dir() == find_dirs).then(|| FileEntry {
-                            name,
-                            is_dir: meta.is_dir(),
-                            size: meta.len(),
-                            modified: 0,
-                        })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        out.sort_by(|a, b| a.name.cmp(&b.name));
-        out
+        crate::sg_bridge::find_files(
+            &self.abs(spec),
+            find_dirs,
+            crate::sg_bridge::Mtimes::Virtual(&self.writes),
+        )
+        .into_iter()
+        .map(|f| FileEntry {
+            name: f.name,
+            is_dir: find_dirs,
+            size: f.size,
+            modified: f.modified as i64,
+        })
+        .collect()
     }
     fn make_dir(&mut self, path: &str) -> std::io::Result<()> {
         std::fs::create_dir_all(self.abs(path))
@@ -244,24 +245,21 @@ impl pob_sg::Net for NoNet {
     }
 }
 
-/// The Rust side's `Net` with the same scripted responses as the Lua side's `LaunchSubScript`
-/// (patch 8): a request completes in the next frame, i.e. `poll` returns it once the virtual clock
-/// has moved past the frame it was made in. Unknown URLs fail with the same message.
+/// The Rust side's `Net` over the same fixtures as the Lua side's `LaunchSubScript` (patch 8),
+/// with U7's headless rule (`pob_host::headless::ScriptedNet` on `port/U7`, CCR-0028 item 10):
+/// every request made since the last `poll` completes at the next one, which the driver runs at
+/// the start of the next frame, before `OnFrame`. TRANSITIONAL: replaced by U7's `ScriptedNet`
+/// when the oracle switches to `pob_host::run_headless`.
 pub struct ScriptedNet {
-    responses: std::collections::HashMap<String, crate::sg_bridge::NetResponse>,
-    clock: Rc<Cell<i64>>,
-    pending: Vec<(u64, i64, pob_sg::HttpResponse)>,
+    fixtures: crate::sg_bridge::NetFixtures,
+    pending: Vec<(u64, pob_sg::HttpResponse)>,
     next_id: u64,
 }
 
 impl ScriptedNet {
-    pub fn new(
-        responses: std::collections::HashMap<String, crate::sg_bridge::NetResponse>,
-        clock: Rc<Cell<i64>>,
-    ) -> ScriptedNet {
+    pub fn new(fixtures: crate::sg_bridge::NetFixtures) -> ScriptedNet {
         ScriptedNet {
-            responses,
-            clock,
+            fixtures,
             pending: Vec::new(),
             next_id: 0,
         }
@@ -270,35 +268,20 @@ impl ScriptedNet {
 
 impl pob_sg::Net for ScriptedNet {
     fn download_page(&mut self, req: pob_sg::HttpRequest) -> u64 {
-        let r = self.responses.get(&req.url).cloned().unwrap_or_else(|| {
-            crate::sg_bridge::NetResponse {
-                body: None,
-                error: Some(format!(
-                    "pob-ui-oracle: no scripted response for {}",
-                    req.url
-                )),
-                header: String::new(),
-            }
-        });
+        let r = self.fixtures.take(&req.url);
         self.next_id += 1;
         self.pending.push((
             self.next_id,
-            self.clock.get(),
             pob_sg::HttpResponse {
-                body: Some(r.body.unwrap_or_default()),
+                body: r.body,
                 error: r.error,
-                headers: r.header,
+                headers: r.headers,
             },
         ));
         self.next_id
     }
     fn poll(&mut self) -> Vec<(u64, pob_sg::HttpResponse)> {
-        let now = self.clock.get();
-        let (done, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending)
-            .into_iter()
-            .partition(|p| p.1 < now);
-        self.pending = keep;
-        done.into_iter().map(|(id, _, r)| (id, r)).collect()
+        std::mem::take(&mut self.pending)
     }
     fn busy(&self) -> bool {
         !self.pending.is_empty()
@@ -348,7 +331,7 @@ pub fn oracle_parts(
     };
     let sys = Sys::new(
         Box::new(platform),
-        Box::new(OracleFs { root: canon }),
+        Box::new(OracleFs::new(canon, handles.clock.clone())),
         Box::new(NoNet),
     );
     Ok((sg, sys))
@@ -448,6 +431,10 @@ pub fn boot_with(
     if opts.audit {
         crate::markers::enable_audit(lua).map_err(lerr)?;
     }
+    crate::sg_bridge::bridge(lua)
+        .map_err(lerr)?
+        .virtual_mtimes
+        .set(!opts.live);
     if !opts.live {
         lua.load(include_str!("../lua/determinism.lua"))
             .set_name("@pob-ui-oracle/lua/determinism.lua")

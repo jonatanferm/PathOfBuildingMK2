@@ -1,6 +1,6 @@
 # U8 smoke: PoB boots to the build list (fixtures/user1/Settings.xml: Mode LIST) and idles.
 # The Rust side needs pob-app's PobApp (U16+); until then only the Lua side is meaningful.
-fixture userdir=user1
+fixture userdir=../../fixtures/user1
 frames 3
 move 400 120
 frames 2

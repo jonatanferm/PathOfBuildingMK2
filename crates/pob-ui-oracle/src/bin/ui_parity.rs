@@ -114,13 +114,12 @@ fn parse_args() -> Result<Args, String> {
     });
     let (target, default_name) = match (script, gallery) {
         (Some(p), None) => {
-            let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
-            let s = runner::parse_script(&text).map_err(|e| format!("{}: {e}", p.display()))?;
+            let (script, base_dir) = runner::load_script(&p).map_err(|e| format!("{e:#}"))?;
             let stem = Path::new(&p).file_stem().map_or_else(
                 || "scenario".to_owned(),
                 |s| s.to_string_lossy().into_owned(),
             );
-            (Target::Scenario(s), stem)
+            (Target::Scenario { script, base_dir }, stem)
         }
         (None, Some(g)) => (Target::Gallery(g.clone()), g),
         _ => return Err("give exactly one of <scenario.pobscript> and --gallery NAME".into()),

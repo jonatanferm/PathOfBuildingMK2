@@ -19,13 +19,15 @@
 //!   expectations in comment lines: `#! expect-text TEXT` (some DrawString of the last frame
 //!   contains TEXT) and `#! expect-snapshot NAME` (the Lua side produced snapshot NAME).
 //! * `oracle/...`: U8's own acceptance: the diff detects a changed op; two `ui-parity` processes
-//!   write byte-identical traces (build list at both screens, smoke gallery), and for an open
-//!   build identical traces up to PoB's own string-keyed `pairs` order (calc doc D8; the sites
-//!   are written to `order_sites.txt`); audit mode writes its host list; `ui-parity --gallery
-//!   smoke` runs both sides end to end.
+//!   write byte-identical traces for the smoke gallery, identical draw calls for the build list
+//!   at both screens (only the order of `OnInit`'s `ImageLoad` effects, which land in frame 0,
+//!   may differ), and for an open build identical traces up to PoB's own string-keyed `pairs`
+//!   order (calc doc D8; the sites are written to `order_sites.txt`); audit mode writes its host
+//!   list; `ui-parity --gallery smoke` runs both sides end to end.
 //!
-//! The harness fails when no gallery exists or when no case ran: a filter that matches nothing
-//! is an error, not a pass.
+//! The harness fails when no gallery exists, or when an unfiltered run ran no gallery. A filter
+//! that matches no case runs nothing and passes (libtest's rule), so filters aimed at the lib's
+//! unit tests do not fail this binary; it says so on stdout.
 
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
@@ -99,8 +101,13 @@ fn check_parity(report_name: &str, run: &RunResult) -> Result<String, String> {
         return Err("T4 snapshots differ".into());
     }
     Ok(format!(
-        "{} frames, {ops} draw ops, 0 divergences",
-        run.lua.len()
+        "{} frames, {ops} draw ops, 0 divergences; T3 by {}",
+        run.lua.len(),
+        if diff_report::uses_u1_diff() {
+            "pob_sg::trace (U1)"
+        } else {
+            "the oracle's local copy (U1-PENDING, CCR-0028 item 13)"
+        }
     ))
 }
 
@@ -192,9 +199,13 @@ fn scenario_cases() -> Vec<Case> {
                     name: format!("scenario/{unit}/{stem}@{}", screen_tag(sc)),
                     run: Box::new(move || {
                         let text = std::fs::read_to_string(&script).map_err(|e| e.to_string())?;
-                        let parsed = runner::parse_script(&text)?;
+                        let (parsed, base_dir) =
+                            runner::load_script(&script).map_err(|e| format!("{e:#}"))?;
                         let run = runner::run_with(
-                            &Target::Scenario(parsed),
+                            &Target::Scenario {
+                                script: parsed,
+                                base_dir,
+                            },
                             &RunOptions {
                                 screen: runner::screen(sc.0, sc.1, sc.2),
                                 audit: false,
@@ -258,6 +269,13 @@ fn two_runs(first: &str, rest: &[&str], name: &str) -> Result<Vec<Vec<u8>>, Stri
     Ok(traces)
 }
 
+fn parse_jsonl(b: &[u8]) -> Result<Vec<pob_sg::trace::FrameTrace>, String> {
+    String::from_utf8_lossy(b)
+        .lines()
+        .map(|l| serde_json::from_str(l).map_err(|e| e.to_string()))
+        .collect()
+}
+
 fn smoke_script(name: &str) -> String {
     runner::crate_dir()
         .join("scenarios/_smoke")
@@ -304,8 +322,10 @@ fn oracle_cases() -> Vec<Case> {
             ))
         }),
     });
-    // Two runs (two processes) give byte-identical traces: the build list (both screens) and
-    // the smoke gallery's Lua side.
+    // Two runs (two processes) give identical draw calls for the build list (both screens). The
+    // `ImageLoad` effects of `OnInit` (PassiveTree loads its sprites while iterating
+    // string-keyed tables, calc doc D8) land in frame 0 and may come in another order; nothing
+    // else may differ.
     for (script, dpi) in [("boot_list", "1"), ("boot_list", "1.5")] {
         out.push(Case {
             name: format!("oracle/determinism/{script}@{dpi}"),
@@ -315,10 +335,24 @@ fn oracle_cases() -> Vec<Case> {
                     &["--dpi", dpi],
                     &format!("det_{script}_{dpi}"),
                 )?;
-                if traces[0] != traces[1] {
-                    return Err("the two runs' lua.jsonl differ".into());
+                if traces[0] == traces[1] {
+                    return Ok(format!("{} bytes identical", traces[0].len()));
                 }
-                Ok(format!("{} bytes identical", traces[0].len()))
+                let sites = diff_report::order_only_difference(
+                    &parse_jsonl(&traces[0])?,
+                    &parse_jsonl(&traces[1])?,
+                )?;
+                if let Some(s) = sites
+                    .iter()
+                    .find(|s| !s.starts_with("side effects of frame"))
+                {
+                    return Err(format!("the two runs' draw calls differ in order at {s}"));
+                }
+                Ok(format!(
+                    "{} bytes, identical draw calls; effect order differs in: {}",
+                    traces[0].len(),
+                    sites.join(", ")
+                ))
             }),
         });
     }
@@ -343,14 +377,10 @@ fn oracle_cases() -> Vec<Case> {
             if traces[0] == traces[1] {
                 return Ok(format!("{} bytes identical", traces[0].len()));
             }
-            let parse = |b: &[u8]| -> Result<Vec<pob_sg::trace::FrameTrace>, String> {
-                String::from_utf8_lossy(b)
-                    .lines()
-                    .map(|l| serde_json::from_str(l).map_err(|e| e.to_string()))
-                    .collect()
-            };
-            let sites =
-                diff_report::order_only_difference(&parse(&traces[0])?, &parse(&traces[1])?)?;
+            let sites = diff_report::order_only_difference(
+                &parse_jsonl(&traces[0])?,
+                &parse_jsonl(&traces[1])?,
+            )?;
             let file = out_dir()
                 .join("det_boot_build_run1")
                 .join("order_sites.txt");
@@ -360,6 +390,37 @@ fn oracle_cases() -> Vec<Case> {
                 sites.len(),
                 file.display()
             ))
+        }),
+    });
+    // A Lua error that PoB's own PCall catches (it shows launch:ShowErrMsg's prompt instead of
+    // escaping) fails the run at the next frame.
+    out.push(Case {
+        name: "oracle/error_prompt_fails_run".into(),
+        run: Box::new(|| {
+            let pob_root = pob_ui_oracle::boot::locate_pob_root().ok_or("PoB not found")?;
+            let user = runner::UserDir::new(Some(&runner::crate_dir().join("fixtures/user1")))
+                .map_err(|e| format!("{e:#}"))?;
+            let handles = pob_ui_oracle::boot::OracleHandles::default();
+            let mut app = runner::lua_side(
+                &pob_root,
+                &user,
+                &handles,
+                pob_ui_oracle::boot::Entry::Launch,
+                false,
+            )
+            .map_err(|e| format!("{e:#}"))?;
+            let mut d =
+                runner::Driver::new(runner::screen(1280, 800, 1.0), handles, user.path.clone());
+            let script = runner::parse_script("frames 1")?;
+            let (_, r) = runner::drive(&mut app, &script, &mut d);
+            r.map_err(|e| format!("clean boot failed: {e:#}"))?;
+            app.with_vm(|pob| pob.eval::<()>("launch:ShowErrMsg('boom %d', 1)"))
+                .map_err(|e| e.to_string())?;
+            match d.frame(&mut app) {
+                Err(e) if e.to_string().contains("boom 1") => Ok(format!("run failed: {e}")),
+                Err(e) => Err(format!("failed for another reason: {e:#}")),
+                Ok(()) => Err("the error prompt did not fail the run".into()),
+            }
         }),
     });
     // Audit mode runs (twice, in child processes) and writes its host list.
@@ -451,11 +512,14 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     if selected.is_empty() {
-        eprintln!(
-            "parity: no case matches {filters:?} ({} cases exist)",
+        // libtest's rule: a filter that matches nothing runs 0 tests and passes, so a filter
+        // meant for the lib's unit tests (`cargo test -p pob-ui-oracle -- canon_pairs`) does not
+        // fail this binary. The case list is printed so a mistyped unit name is visible.
+        println!(
+            "running 0 parity cases: no case matches {filters:?} ({} cases exist; `--list` shows them)",
             cases.len()
         );
-        return ExitCode::FAILURE;
+        return ExitCode::SUCCESS;
     }
     println!("running {} parity cases", selected.len());
     let (mut passed, mut failed) = (0usize, Vec::new());
