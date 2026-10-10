@@ -31,10 +31,18 @@ rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 pob-gamedata.workspace = true
+# Gate G1a (calc doc §9.7; benches/MS-B.rs): criterion timing and dhat allocation check.
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+dhat = "0.3"
 
 [features]
 default = ["luajit"]
 luajit = ["dep:mlua", "dep:ureq"]
+
+[[bench]]
+name = "MS-B"
+harness = false
+required-features = ["luajit"]
 
 [[bin]]
 name = "pob_oracle"
