@@ -1,9 +1,12 @@
 //! Shared SimpleGraphic value types (ui doc §4.1). Complete in UI-U0; owned by U1 afterwards.
 //!
-//! Sources (SimpleGraphic, research copy master @ 8694a07; U1 re-verifies at `3b1a346`):
-//! `ui_api.cpp` `fontMap` / `alignMap` (font and alignment names, `luaL_checkoption` order),
-//! `ui_main.cpp:16-61` `ui_keyNameMap` + `NameForKey` / `KeyForName` (key names),
-//! `engine/render/r_main.cpp` `r_viewport_s` (physical viewport), `sys_video.cpp` (screen info).
+//! Sources (PathOfBuilding-SimpleGraphic `3b1a346`, re-verified by U1; see
+//! `docs/port/ui/sg-semantics.md`): `ui_api.cpp:1145-1146` `alignMap` / `fontMap` (font and
+//! alignment names, `luaL_checkoption` order), `ui_main.cpp:16-61` `ui_keyNameMap`,
+//! `:548-591` `CallKeyHandler` / `NameForKey` / `KeyForName` (key names),
+//! `engine/common/keylist.h` (`keyList_e`: `KEY_LMOUSE = 128` .. `KEY_SCROLL = 170`),
+//! `engine/render/r_main.h:24-29` `r_viewport_s` (physical viewport), `sys_video.cpp` (screen
+//! info).
 
 use std::borrow::Cow;
 
@@ -255,6 +258,43 @@ impl Key {
     pub const fn is_button(self) -> bool {
         matches!(self, Key::LeftButton | Key::MiddleButton | Key::RightButton)
     }
+
+    /// What `CallKeyHandler` hands Lua for an SG key code or an `OnChar` codepoint: `< 128` is
+    /// `"%c"`, otherwise `NameForKey`, which searches `ui_keyNameMap` by **value**. Key codes
+    /// share one number space with codepoints (`keyList_e` starts at `KEY_LMOUSE = 128`), so
+    /// an `OnChar` of U+0080..=U+00AA arrives as a key *name* (U+00A3 '£' is `"F10"`, U+00A7
+    /// '§' is `"F14"`, U+00A0 NBSP is `"F7"`); every other codepoint `>= 128` is `"?"`.
+    ///
+    /// sg: ui_main.cpp:522-525, :548-572, engine/common/keylist.h:7-51 @3b1a346
+    pub fn from_sg_code(code: u32) -> Key {
+        if code < 128 {
+            return Key::Char(code as u8);
+        }
+        match code - 128 {
+            i @ 0..=25 => NAMED[i as usize].0,
+            i @ 26..=40 => Key::F((i - 25) as u8),
+            41 => Key::NumLock,
+            42 => Key::ScrollLock,
+            _ => Key::Unknown,
+        }
+    }
+
+    /// The SG key code (`keyList_e`, or the byte for `Char`); `None` for `Unknown`.
+    ///
+    /// sg: engine/common/keylist.h:7-51 @3b1a346
+    pub fn sg_code(self) -> Option<u32> {
+        match self {
+            Key::Char(b) => Some(u32::from(b)),
+            Key::F(n) if (1..=15).contains(&n) => Some(128 + 25 + u32::from(n)),
+            Key::F(_) | Key::Unknown => None,
+            Key::NumLock => Some(128 + 41),
+            Key::ScrollLock => Some(128 + 42),
+            k => NAMED[..26]
+                .iter()
+                .position(|(nk, _)| *nk == k)
+                .map(|i| 128 + i as u32),
+        }
+    }
 }
 
 impl std::fmt::Display for Key {
@@ -286,5 +326,37 @@ mod tests {
         assert_eq!(Font::from_lua("VAR BOLD"), Some(Font::VarBold));
         assert_eq!(Font::from_lua("var"), None);
         assert_eq!(Align::from_lua(None), Some(Align::Left));
+    }
+
+    /// keylist.h numbering and `NameForKey` by value (ui_main.cpp:555-572).
+    #[test]
+    fn sg_codes() {
+        assert_eq!(Key::from_sg_code(128), Key::LeftButton);
+        assert_eq!(Key::from_sg_code(133), Key::WheelUp);
+        assert_eq!(Key::from_sg_code(135), Key::Back);
+        assert_eq!(Key::from_sg_code(153), Key::Right);
+        assert_eq!(Key::from_sg_code(154), Key::F(1));
+        assert_eq!(Key::from_sg_code(168), Key::F(15));
+        assert_eq!(Key::from_sg_code(169), Key::NumLock);
+        assert_eq!(Key::from_sg_code(170), Key::ScrollLock);
+        assert_eq!(Key::from_sg_code(171), Key::Unknown);
+        assert_eq!(Key::from_sg_code(0xE9), Key::Unknown); // 'é' -> "?"
+        assert_eq!(Key::from_sg_code(0x20AC), Key::Unknown); // '€' -> "?"
+        assert_eq!(Key::from_sg_code(u32::from('a')), Key::Char(b'a'));
+        assert_eq!(Key::from_sg_code(8), Key::Char(8)); // extra OnChar "\b"
+                                                        // OnChar codepoints that collide with key codes arrive as names.
+        assert_eq!(Key::from_sg_code(0xA3).name(), "F10"); // '£'
+        assert_eq!(Key::from_sg_code(0xA7).name(), "F14"); // '§'
+        assert_eq!(Key::from_sg_code(0xA0).name(), "F7"); // NBSP
+        assert_eq!(Key::from_sg_code(0x80).name(), "LEFTBUTTON");
+        for code in 0..=200u32 {
+            let k = Key::from_sg_code(code);
+            match k.sg_code() {
+                Some(c) => assert_eq!(c, code),
+                None => assert!(code > 170 && k == Key::Unknown),
+            }
+        }
+        assert_eq!(Key::F(0).sg_code(), None);
+        assert_eq!(Key::F(16).sg_code(), None);
     }
 }
