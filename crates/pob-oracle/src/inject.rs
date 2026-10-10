@@ -87,12 +87,13 @@ pub fn inject(dump: &StateDump, build: &BuildRef) -> Result<Injected, String> {
     run(dump, build, None)
 }
 
-/// Apply a dump's state onto a live graph (replay of a callee's recorded
-/// `:out`): every dumped table found in the live graph at one of its dump
-/// paths (`env.player.output`, `env.player.mainSkill`, …; first the paths
-/// under `env`) is emptied and refilled in place, keeping its identity; the
-/// others are created. The GlobalCache entries of the dump replace the live
-/// ones of the same modes.
+/// Write a complete state onto a live graph: every dumped table found in the
+/// live graph at one of its dump paths (`env.player.output`,
+/// `env.player.mainSkill`, …; first the paths under `env`) is emptied and
+/// refilled in place, keeping its identity; the others are created. The
+/// GlobalCache is replaced by the dump's. Replay passes the live state merged
+/// with a callee's `in → out` delta (`crate::replay::merge`), never a
+/// recorded `:out` as is (that would overwrite the caller's own state).
 pub fn apply_onto(dump: &StateDump, build: &BuildRef, env: &EnvRef) -> Result<Injected, String> {
     pob_calc::global_cache::clear_all();
     run(dump, build, Some(env))
@@ -191,7 +192,7 @@ const MOD_TYPES: &[&str] = &[
 ];
 
 /// state_dump.lua `isMod`.
-fn is_mod(m: &Map<String, J>) -> bool {
+pub(crate) fn is_mod(m: &Map<String, J>) -> bool {
     m.get("name").is_some_and(J::is_string)
         && m
             .get("type")
@@ -203,7 +204,7 @@ fn is_mod(m: &Map<String, J>) -> bool {
 }
 
 /// A single-member `$` marker (never a table).
-fn marker_key(m: &Map<String, J>) -> Option<&str> {
+pub(crate) fn marker_key(m: &Map<String, J>) -> Option<&str> {
     if m.contains_key("$fn") {
         return Some("$fn");
     }
@@ -1108,7 +1109,7 @@ impl<'a> Inj<'a> {
                         Ok((m, at)) => {
                             let m = Arc::new(m);
                             if let Some(at) = at {
-                                with_registry(|r| r.set_mod_at(&m, at));
+                                with_registry(|r| r.set_mod_at(s, &m, at));
                             }
                             s.AddMod(m);
                         }
@@ -1221,7 +1222,7 @@ impl<'a> Inj<'a> {
                                 Ok((m, at)) => {
                                     let m = Arc::new(m);
                                     if let Some(at) = at {
-                                        with_registry(|r| r.set_mod_at(&m, at));
+                                        with_registry(|r| r.set_mod_at(s, &m, at));
                                     }
                                     mods.push(m);
                                 }
@@ -1238,7 +1239,7 @@ impl<'a> Inj<'a> {
                         Ok((m, at)) => {
                             let m = Arc::new(m);
                             if let Some(at) = at {
-                                with_registry(|r| r.set_mod_at(&m, at));
+                                with_registry(|r| r.set_mod_at(s, &m, at));
                             }
                             s.AddMod(m);
                         }

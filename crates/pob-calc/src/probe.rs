@@ -244,8 +244,9 @@ mod imp {
         foreign: HashMap<usize, J>,
         /// dumped `$uuid` of an active skill.
         uuid: HashMap<usize, String>,
-        /// dumped `"$at"` of a mod (Arc ptr).
-        mod_at: HashMap<usize, String>,
+        /// dumped `"$at"` of a mod, per store as state_dump.lua's `modAt[store][mod]`
+        /// (store ptr, mod Arc ptr).
+        mod_at: HashMap<(usize, usize), String>,
         /// fields of objects without an `extra` table (mod stores: `notBuff`, CCR-0030).
         side_extra: HashMap<usize, Vec<(String, Val)>>,
         /// object-keyed entries of a dynamic table (`env.flaskSlotMap[item]`,
@@ -291,8 +292,7 @@ mod imp {
             self.absent.insert((ptr, key));
         }
         pub fn is_absent(&self, ptr: usize, key: &str) -> bool {
-            // keys are the 'static KEYS strings; compare by content
-            self.absent.iter().any(|(p, k)| *p == ptr && *k == key)
+            self.absent.contains(&(ptr, leak_key(key)))
         }
         pub fn set_foreign(&mut self, o: Rc<dyn Any>, marker: J) {
             self.foreign.insert(rc_ptr(&o), marker);
@@ -306,8 +306,8 @@ mod imp {
         pub fn set_uuid(&mut self, skill: &ActiveSkillRef, uuid: String) {
             self.uuid.insert(rc_ptr(skill), uuid);
         }
-        pub fn set_mod_at(&mut self, m: &ModRef, at: String) {
-            self.mod_at.insert(arc_ptr(m), at);
+        pub fn set_mod_at(&mut self, store: &ModStoreRef, m: &ModRef, at: String) {
+            self.mod_at.insert((rc_ptr(store), arc_ptr(m)), at);
             self.keep_mods.push(m.clone());
         }
         pub fn push_side_extra(&mut self, ptr: usize, key: String, v: Val) {
@@ -1861,7 +1861,10 @@ mod imp {
             .extra_get(pob_lua::n!("flags"))
             .map_or_else(|| jnum(f64::from(m.flags)), value_json);
         o.insert("flags".into(), flags);
-        o.insert("keywordFlags".into(), jnum(f64::from(m.keywordFlags)));
+        let keyword_flags = m
+            .extra_get(pob_lua::n!("keywordFlags"))
+            .map_or_else(|| jnum(f64::from(m.keywordFlags)), value_json);
+        o.insert("keywordFlags".into(), keyword_flags);
         if let Some(s) = &m.source {
             o.insert("source".into(), J::String(s.to_string()));
         }
@@ -1872,7 +1875,7 @@ mod imp {
         if let Some(ex) = &m.extra {
             for (k, v) in &ex.fields {
                 let k = k.as_str();
-                if k == "flags" || k.starts_with('#') {
+                if k == "flags" || k == "keywordFlags" || k.starts_with('#') {
                     continue;
                 }
                 o.insert(escape_key(k), value_json(v));
@@ -1975,7 +1978,10 @@ mod imp {
             .extra_get(pob_lua::n!("flags"))
             .map_or_else(|| jnum(f64::from(m.flags)), value_json);
         o.insert("flags".into(), flags);
-        o.insert("keywordFlags".into(), jnum(f64::from(m.keywordFlags)));
+        let keyword_flags = m
+            .extra_get(pob_lua::n!("keywordFlags"))
+            .map_or_else(|| jnum(f64::from(m.keywordFlags)), value_json);
+        o.insert("keywordFlags".into(), keyword_flags);
         if let Some(s) = &m.source {
             o.insert("source".into(), J::String(s.to_string()));
         }
@@ -2529,7 +2535,8 @@ mod imp {
     }
 
     fn store_mods_json(s: &ModStore) -> J {
-        let at = |m: &ModRef| REG.with(|r| r.borrow().mod_at.get(&arc_ptr(m)).cloned());
+        let sp = std::ptr::from_ref(s) as usize;
+        let at = |m: &ModRef| REG.with(|r| r.borrow().mod_at.get(&(sp, arc_ptr(m))).cloned());
         match &*s.mods.borrow() {
             StoreMods::DB(map) => {
                 let mut names: Vec<&Name> = map.keys().collect();
@@ -2950,9 +2957,29 @@ mod imp {
     // L4: one segment from injected locals
     // =====================================================================================
 
-    fn ctx_fill<C: ProbeState>(c: &mut C, locals: &[(String, Val)]) {
+    /// Assign the injected locals the ctx has a field for. A local of the
+    /// ctx whose value does not fit the field's type is an error (it would
+    /// otherwise stay at the ctx default and the segment would run on it);
+    /// function locals (`$fn` markers: Rust has the function itself) and
+    /// locals of other ctxs are skipped.
+    fn ctx_fill<C: ProbeState>(c: &mut C, locals: &[(String, Val)]) -> Result<(), String> {
+        let names = C::locals();
+        let mut bad = Vec::new();
         for (k, v) in locals {
-            let _ = c.probe_set(k, v);
+            if !names.contains(&k.as_str()) {
+                continue;
+            }
+            let is_fn = v
+                .obj::<Marker>()
+                .is_some_and(|m| m.0.get("$fn").is_some());
+            if !c.probe_set(k, v) && !is_fn {
+                bad.push(format!("{k} = {}", v.lua_type()));
+            }
+        }
+        if bad.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("injected locals of the wrong type: {}", bad.join(", ")))
         }
     }
 
@@ -3000,7 +3027,7 @@ mod imp {
                     get("override").obj::<Override>(),
                     spec.as_ref(),
                 );
-                ctx_fill(&mut c, locals);
+                ctx_fill(&mut c, locals)?;
                 let f = match id {
                     "initEnv:488" => cs::init_env_base::seg(&mut c),
                     "initEnv:800" => cs::init_env_items::seg(&mut c),
@@ -3012,7 +3039,7 @@ mod imp {
             "perform:1289" | "perform:1943" | "perform:2308" | "perform:2997" | "perform:3497" => {
                 let skip = matches!(get("skipEHP"), Val::Bool(true));
                 let mut c = cp::PerformCtx::init(&env()?, skip);
-                ctx_fill(&mut c, locals);
+                ctx_fill(&mut c, locals)?;
                 let f = match id {
                     "perform:1289" => cp::setup_flasks::seg(&mut c),
                     "perform:1943" => cp::pools_charges::seg(&mut c),
@@ -3025,7 +3052,7 @@ mod imp {
             }
             "defence:659" | "defence:1211" => {
                 let mut c = cd::DefenceCtx::init(&env()?, &actor()?);
-                ctx_fill(&mut c, locals);
+                ctx_fill(&mut c, locals)?;
                 let f = if id == "defence:659" {
                     cd::primary::seg(&mut c)
                 } else {
@@ -3039,7 +3066,7 @@ mod imp {
             | "buildDefenceEstimations:2612"
             | "buildDefenceEstimations:3165" => {
                 let mut c = cd::DefEstCtx::init(&env()?, &actor()?);
-                ctx_fill(&mut c, locals);
+                ctx_fill(&mut c, locals)?;
                 let f = match id {
                     "buildDefenceEstimations:1681" => cd::est_inputs::seg(&mut c),
                     "buildDefenceEstimations:2153" => cd::est_pools::seg(&mut c),
@@ -3054,7 +3081,7 @@ mod imp {
                     .obj::<ActiveSkill>()
                     .ok_or("local activeSkill is not an active skill")?;
                 let mut c = co::OffenceCtx::init(&env()?, &actor()?, &skill);
-                ctx_fill(&mut c, locals);
+                ctx_fill(&mut c, locals)?;
                 let pass = || get("pass").table().ok_or("local pass is not a table");
                 let mut pass_out = Vec::new();
                 let f = match id {
@@ -3064,7 +3091,7 @@ mod imp {
                     "offence:2174" => co::speed::seg_speed(&mut c),
                     "offence:2607" | "offence:3346" => {
                         let mut hp = co::HitPassLocals::new(pass()?);
-                        ctx_fill(&mut hp, locals);
+                        ctx_fill(&mut hp, locals)?;
                         let f = if id == "offence:2607" {
                             co::crit::seg_passCrit(&mut c, &mut hp)
                         } else {
@@ -3077,7 +3104,7 @@ mod imp {
                     "offence:4155" => co::ailments_a::seg_ailmentPrelude(&mut c),
                     "offence:4165" | "offence:4990" => {
                         let mut al = co::AilmentPassLocals::new(pass()?);
-                        ctx_fill(&mut al, locals);
+                        ctx_fill(&mut al, locals)?;
                         let f = if id == "offence:4165" {
                             co::ailments_a::seg_bleedPoison(&mut c, &mut al)
                         } else {

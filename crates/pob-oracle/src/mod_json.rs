@@ -87,6 +87,7 @@ pub fn decode_tag(j: &J) -> Result<Tag, String> {
     if !extra.is_empty() {
         let mut ex = t.extra.take().map(|b| *b).unwrap_or_default();
         for (k, v) in extra {
+            pob_calc::probe::with_registry(|r| r.fallback(format!("tag.{k}: kept in tag.extra")));
             ex.set(Name::from(k.as_str()), j_to_value(&v));
         }
         t.extra = Some(Box::new(ex));
@@ -116,16 +117,21 @@ pub fn decode_mod(j: &J) -> Result<(Mod, Option<String>), String> {
     let ty = m.get("type").and_then(J::as_str).ok_or("mod without a type")?;
     let ty = ModType::parse(ty).ok_or_else(|| format!("unknown mod type {ty}"))?;
     let mut extra = ValueTable::new();
-    let mut flags = 0u32;
-    match m.get("flags") {
-        Some(J::Number(n)) => flags = n.as_f64().unwrap_or(0.0) as u32,
-        Some(other) => extra.set(pob_lua::n!("flags"), j_to_value(other)),
-        None => {}
-    }
-    let keyword_flags = m
-        .get("keywordFlags")
-        .and_then(J::as_f64)
-        .unwrap_or(0.0) as u32;
+    // a non-number `flags` / `keywordFlags` is kept verbatim in `extra`
+    // (the encoder writes it back in place of the typed field)
+    let mut flag_field = |key: &'static str, name: Name| -> u32 {
+        match m.get(key) {
+            Some(J::Number(n)) => n.as_f64().unwrap_or(0.0) as u32,
+            Some(other) => {
+                pob_calc::probe::with_registry(|r| r.fallback(format!("mod.{key}: not a number, kept in mod.extra")));
+                extra.set(name, j_to_value(other));
+                0
+            }
+            None => 0,
+        }
+    };
+    let flags = flag_field("flags", pob_lua::n!("flags"));
+    let keyword_flags = flag_field("keywordFlags", pob_lua::n!("keywordFlags"));
     let source = m.get("source").and_then(J::as_str).map(Arc::<str>::from);
     if let Some(s) = m.get("source") {
         if !s.is_string() {

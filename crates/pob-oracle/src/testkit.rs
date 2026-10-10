@@ -252,7 +252,9 @@ pub fn segment_diff(build: &Path, stage_in: &str, stage_out: &str) -> Vec<String
 }
 
 /// Diff an exported state against a dump: the env, the GlobalCache and the
-/// locals both sides have (function locals have no Rust counterpart).
+/// dumped locals. Rust locals PoB did not dump are ignored; a dumped local
+/// the Rust side does not export is reported as missing, except function
+/// locals (`$fn` markers), which have no Rust counterpart.
 pub fn diff_against(
     dump: &StateDump,
     env: Option<&EnvRef>,
@@ -273,7 +275,7 @@ pub fn diff_against(
     let mut pob = dump.root.clone();
     if let Some(J::Object(l)) = pob.get_mut("locals") {
         let ours_names: Vec<&String> = kept.iter().map(|(k, _)| k).collect();
-        l.retain(|k, _| ours_names.contains(&k));
+        l.retain(|k, v| ours_names.contains(&k) || !is_fn_marker(v));
     }
     let nondet = find_parity_dir()
         .map(|p| p.join("nondet").join(format!("{stem}.json")))
@@ -285,4 +287,9 @@ pub fn diff_against(
         ..DiffOptions::strict()
     };
     diff_trees(&resolve_ids(&pob), &resolve_ids(&ours), &opts)
+}
+
+/// A dumped function value (`{"$fn": "<file>:<a>-<b>", …}`).
+fn is_fn_marker(v: &J) -> bool {
+    v.as_object().is_some_and(|m| m.contains_key("$fn"))
 }

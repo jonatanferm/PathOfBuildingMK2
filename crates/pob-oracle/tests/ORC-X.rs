@@ -13,7 +13,10 @@
 //!   `in → out` delta (`pob_oracle::replay::Replay`) reproduces its `:out`
 //!   dump, for `offence` (all57) and `runSkillFunc` (dumped by this test into
 //!   `target/orcx-probe/<stem>/` when absent; needs LuaJIT and the machine-wide
-//!   oracle lock).
+//!   oracle lock). Each replay runs a second time after the caller changed
+//!   state of its own (`output.Life`, a key and a mod only the caller has):
+//!   those must survive and the callee's writes (`output.TotalDPS`) must
+//!   still land, so the diff against `:out` is exactly the caller's changes.
 //!
 //! Inputs: `.parity/probe/<stem>/state/` (`scripts/port/oracle.sh corpus`),
 //! `data/dump`. Knobs: `ORCX_BUILDS=stem1,stem2`, `ORCX_LIMIT=n`,
@@ -87,6 +90,10 @@ struct Tally {
     exact_measured: bool,
     exact: usize,
     clean: usize,
+    /// replays with the caller's own changes (non-vacuity), and how many
+    /// showed exactly those changes against `:out`
+    perturbed: usize,
+    perturbed_clean: usize,
     missing: Vec<String>,
     failed: Vec<String>,
     by_path: BTreeMap<String, (usize, String)>,
@@ -126,8 +133,16 @@ impl Tally {
         } else {
             String::new()
         };
+        let perturbed = if self.perturbed > 0 {
+            format!(
+                ", {}/{} with caller changes kept (diff = exactly those changes)",
+                self.perturbed_clean, self.perturbed
+            )
+        } else {
+            String::new()
+        };
         eprintln!(
-            "{title}: {} dumps, {exact}{} with zero state-diff mismatches, {} missing, {} failed",
+            "{title}: {} dumps, {exact}{} with zero state-diff mismatches{perturbed}, {} missing, {} failed",
             self.dumps,
             self.clean,
             self.missing.len(),
@@ -381,16 +396,43 @@ fn orcx_inject_is_typed_and_export_sensitive() {
 
 // ---- replay ------------------------------------------------------------------------------------------
 
+/// The caller's own writes made before a replay ([`replay_one`] with
+/// `perturb`): `output.Life` changed (`offence` and the skill hooks never
+/// write it), a key only the caller has, a mod only the caller added.
+const CALLER_KEY: &str = "ReviewCallerKey";
+const CALLER_MOD: &str = "ReviewCallerMod";
+const LIFE_SHIFT: f64 = 12345.0;
+
 /// Inject `<callee>:in`, apply the recorded delta, diff against `<callee>:out`.
+///
+/// With `perturb`, the caller first changes state the callee does not write
+/// (see [`CALLER_KEY`]); a delta replay must keep those changes and still
+/// land every write of the callee, so the diff against `:out` must be
+/// exactly the caller's three changes (a replay that overwrites the caller's
+/// state with `:out` reports none of them, one that drops the callee's writes
+/// reports more). Returns the remaining mismatches.
 fn replay_one(
     stem: &str,
     din: &StateDump,
     dout: &StateDump,
     callee: &str,
+    perturb: bool,
 ) -> Result<Vec<Mismatch>, String> {
+    use pob_calc::prelude::*;
     let build = testkit::empty_build();
     let inj = pob_oracle::inject::inject(din, &build)?;
     let env = inj.env.clone().ok_or("no env in the :in dump")?;
+    let life_in = env.player.output.get().opt_num("Life");
+    let caller_life = life_in.unwrap_or(0.0) + LIFE_SHIFT;
+    if perturb {
+        let output = env.player.output.get();
+        output.set("Life", caller_life);
+        output.set(CALLER_KEY, 7.0);
+        env.player
+            .modDB
+            .get()
+            .NewMod(n!("ReviewCallerMod"), ModType::BASE, 3.0, "ORC-X review", 0, 0, &[]);
+    }
     let mut dumps = BTreeMap::new();
     dumps.insert(din.hit.clone(), din.clone());
     dumps.insert(dout.hit.clone(), dout.clone());
@@ -399,8 +441,9 @@ fn replay_one(
     let mod_db = env.player.modDB.get();
     let output = env.player.output.get();
     let main = env.player.mainSkill.get();
-    if !replay.apply(&din.hit, &env) {
-        return Err(format!("{} not replayed", din.hit));
+    let applied = replay.apply_report(&din.hit, &env)?;
+    if !applied.notes.is_empty() {
+        return Err(format!("{} replay notes: {:?}", din.hit, applied.notes));
     }
     if !std::rc::Rc::ptr_eq(&mod_db, &env.player.modDB.get()) {
         return Err("replay replaced env.player.modDB".to_owned());
@@ -413,8 +456,113 @@ fn replay_one(
             return Err("replay replaced env.player.mainSkill".to_owned());
         }
     }
-    let locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
-    Ok(testkit::diff_against(dout, Some(&env), &locals, stem))
+    let mut locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
+    // the callee's return value comes back from the replay
+    if let Some(ret) = applied.ret {
+        locals.push(("ret".to_owned(), ret));
+    }
+    let mm = testkit::diff_against(dout, Some(&env), &locals, stem);
+    if !perturb {
+        return Ok(mm);
+    }
+    // the caller's writes survive
+    let output = env.player.output.get();
+    if output.opt_num("Life") != Some(caller_life) {
+        return Err(format!(
+            "caller's output.Life lost: {:?}, want {caller_life}",
+            output.opt_num("Life")
+        ));
+    }
+    if output.opt_num(CALLER_KEY) != Some(7.0) {
+        return Err(format!("caller's output.{CALLER_KEY} lost"));
+    }
+    let has_mod = env
+        .player
+        .modDB
+        .get()
+        .all_mods()
+        .iter()
+        .any(|m| m.name.as_str() == CALLER_MOD);
+    if !has_mod {
+        return Err(format!("caller's {CALLER_MOD} mod lost"));
+    }
+    // a path the callee writes ends at PoB's :out value
+    let out_dps = pob_oracle::schema::get_path(
+        &pob_oracle::schema::resolve_ids(&dout.root),
+        "env.player.output.TotalDPS",
+    )
+    .and_then(pob_oracle::schema::decode_num);
+    let in_dps = pob_oracle::schema::get_path(
+        &pob_oracle::schema::resolve_ids(&din.root),
+        "env.player.output.TotalDPS",
+    )
+    .and_then(pob_oracle::schema::decode_num);
+    if let Some(want) = out_dps {
+        let got = output.opt_num("TotalDPS");
+        let same = |a: f64, b: f64| a == b || (a.is_nan() && b.is_nan());
+        if !got.is_some_and(|g| same(g, want)) {
+            return Err(format!(
+                "callee's output.TotalDPS not replayed: {got:?}, PoB {want} (:in {in_dps:?})"
+            ));
+        }
+    }
+    // the diff against :out is the caller's changes and nothing else
+    let mut seen = [false; 3];
+    let mut rest = Vec::new();
+    for m in mm {
+        let i = if m.path == "env.player.output.Life" {
+            0
+        } else if m.path.contains(CALLER_KEY) {
+            1
+        } else if m.path.contains(CALLER_MOD)
+            || m.ours.as_ref().is_some_and(|v| v.to_string().contains(CALLER_MOD))
+        {
+            2
+        } else {
+            rest.push(m);
+            continue;
+        };
+        seen[i] = true;
+    }
+    // output.Life absent at :in and at :out only shows as an extra
+    if !(seen[1] && seen[2] && (seen[0] || life_in.is_none())) {
+        return Err(format!(
+            "the caller's changes do not show in the diff against :out (Life {}, key {}, mod {})",
+            seen[0], seen[1], seen[2]
+        ));
+    }
+    Ok(rest)
+}
+
+/// Replay with and without the caller's own changes ([`replay_one`]).
+fn replay_both(
+    t: &mut Tally,
+    stem: &str,
+    din: &StateDump,
+    dout: &StateDump,
+    callee: &str,
+) {
+    for perturb in [false, true] {
+        let what = format!("{stem} {}{}", din.hit, if perturb { " (caller changes)" } else { "" });
+        if perturb {
+            t.perturbed += 1;
+        } else {
+            t.dumps += 1;
+        }
+        match replay_one(stem, din, dout, callee, perturb) {
+            Ok(mm) => {
+                if mm.is_empty() {
+                    if perturb {
+                        t.perturbed_clean += 1;
+                    } else {
+                        t.clean += 1;
+                    }
+                }
+                t.add(&what, &mm);
+            }
+            Err(e) => t.failed.push(format!("{what}: {e}")),
+        }
+    }
 }
 
 #[test]
@@ -436,23 +584,13 @@ fn orcx_replay_offence_all57() {
             t.missing.push(format!("{stem} offence:in/out"));
             continue;
         };
-        t.dumps += 1;
-        let what = format!("{stem} {}", din.hit);
-        match replay_one(stem, &din, &dout, "offence") {
-            Ok(mm) => {
-                if mm.is_empty() {
-                    t.clean += 1;
-                }
-                t.add(&what, &mm);
-            }
-            Err(e) => t.failed.push(format!("{what}: {e}")),
-        }
+        replay_both(&mut t, stem, &din, &dout, "offence");
     }
     t.report("replay offence");
     assert!(t.dumps > 0, "no offence:in/out dumps under .parity/probe");
     assert!(
-        t.clean == t.dumps && t.failed.is_empty(),
-        "replaying offence does not reproduce offence:out"
+        t.clean == t.dumps && t.perturbed_clean == t.perturbed && t.failed.is_empty(),
+        "replaying offence does not apply exactly its in→out delta"
     );
 }
 
@@ -525,23 +663,13 @@ fn orcx_replay_run_skill_func_all57() {
             t.failed.push(format!("{stem}: unreadable runSkillFunc dump"));
             continue;
         };
-        t.dumps += 1;
-        let what = format!("{stem} {}", din.hit);
-        match replay_one(stem, &din, &dout, "runSkillFunc") {
-            Ok(mm) => {
-                if mm.is_empty() {
-                    t.clean += 1;
-                }
-                t.add(&what, &mm);
-            }
-            Err(e) => t.failed.push(format!("{what}: {e}")),
-        }
+        replay_both(&mut t, stem, &din, &dout, "runSkillFunc");
     }
     t.report("replay runSkillFunc");
     assert!(t.dumps > 0, "no runSkillFunc:in/out dumps");
     assert!(
-        t.clean == t.dumps && t.failed.is_empty(),
-        "replaying runSkillFunc does not reproduce runSkillFunc:out"
+        t.clean == t.dumps && t.perturbed_clean == t.perturbed && t.failed.is_empty(),
+        "replaying runSkillFunc does not apply exactly its in→out delta"
     );
 }
 

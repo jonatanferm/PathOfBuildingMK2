@@ -59,7 +59,36 @@ fn search_roots() -> Vec<PathBuf> {
     if let Ok(e) = std::env::current_exe() {
         roots.push(e);
     }
+    // a worktree outside the main checkout (e.g. under /tmp) still finds the
+    // main checkout's gitignored inputs (.parity, data/dump, .PathOfBuilding)
+    let more: Vec<PathBuf> = roots.iter().filter_map(|r| main_checkout_of(r)).collect();
+    roots.extend(more);
     roots
+}
+
+/// The main checkout of the linked worktree containing `p`: the nearest
+/// `.git` *file* (`gitdir: <common>/worktrees/<name>`), that directory's
+/// `commondir`, and the common directory's parent. None in the main checkout
+/// itself or outside a repository.
+fn main_checkout_of(p: &Path) -> Option<PathBuf> {
+    let dotgit = p.ancestors().map(|a| a.join(".git")).find(|g| g.exists())?;
+    if !dotgit.is_file() {
+        return None;
+    }
+    let text = std::fs::read_to_string(&dotgit).ok()?;
+    let linked = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
+    let linked = if linked.is_relative() {
+        dotgit.parent()?.join(linked)
+    } else {
+        linked
+    };
+    let common = std::fs::read_to_string(linked.join("commondir")).ok()?;
+    let common = linked.join(common.trim());
+    let common = common.canonicalize().unwrap_or(common);
+    if common.file_name()? != ".git" {
+        return None;
+    }
+    common.parent().map(Path::to_path_buf)
 }
 
 /// `rel` under the nearest ancestor (of the working directory, this crate or
