@@ -121,8 +121,29 @@ impl ConfigTab {
         self.configSets.with(|m| m.get(&k).cloned())
     }
 
+    /// The constructor's config-set half (ConfigTab.lua:145-148): `configSets = { }`,
+    /// `configSetOrderList = { 1 }`, `NewConfigSet(1)`, `SetActiveConfigSet(1, true)`.
+    /// `ConfigTab::default()` leaves `configSets` empty, which PoB never does after its
+    /// constructor (Load refills it, L886/L891), so an empty `configSets` means the
+    /// constructor has not run (CCR-0019 §10). Idempotent.
+    pub fn ctor_model(&self) {
+        if self.configSets.with(|m| !m.is_empty()) {
+            return;
+        }
+        // L146
+        self.configSetOrderList.wipe();
+        self.configSetOrderList.push(1);
+        // L147
+        let configSet = self.NewConfigSet(Some(1.0), None);
+        // L148 (SetActiveConfigSet(1, true): bind input/placeholder; `build.buildFlag = true`
+        // is moot in the constructor, the build has not computed yet)
+        self.bind_active_set(&configSet);
+        self.activeConfigSetId.set(1.0);
+    }
+
     /// `self.configSets[self.activeConfigSetId]`.
     pub fn activeConfigSet(&self) -> Table {
+        self.ctor_model();
         self.configSet(self.activeConfigSetId.get())
             .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"))
     }
@@ -464,6 +485,8 @@ impl ConfigTab {
             attrib: indexmap::IndexMap::new(),
             children: Vec::new(),
         };
+        // constructor state (ConfigTab.lua:145-148, CCR-0019 §10)
+        self.ctor_model();
         // L962
         xml.attrib = indexmap::IndexMap::new();
         xml.attrib.insert(
@@ -612,8 +635,47 @@ impl ConfigTab {
                 }
             }
         }
-        // L1021 self:UpdateCustomModsControls(): returns at once without the UI's customSection
-        // (ConfigTab.lua:1303-1305); the block controls are UI (ui doc U42).
+        // L1021
+        self.UpdateCustomModsControls();
+    }
+}
+
+/// @pob Classes/ConfigTab.lua:1302-1334 h=378e2cbb
+impl ConfigTab {
+    /// The model half of `UpdateCustomModsControls`. PoB's constructor always creates the
+    /// "Custom Modifiers" section (ConfigOptions.lua:2379 → ConfigTab.lua:292-294), so the
+    /// `customSection` guard (L1303) never returns; the block controls (L1315-1333) are UI
+    /// (ui doc U42).
+    pub fn UpdateCustomModsControls(&self) {
+        // L1306
+        let Some(configSet) = self.configSet(self.activeConfigSetId.get()) else {
+            // L1308
+            return;
+        };
+        // L1310
+        let customModsList = match configSet.table(n!("customModsList")) {
+            Some(l) => l,
+            None => {
+                // L1311
+                let l = Table::new();
+                configSet.set(n!("customModsList"), l.clone());
+                l
+            }
+        };
+        // L1313
+        if customModsList.len() == 0 {
+            // L1314
+            let text = match configSet.table(n!("input")) {
+                Some(input) => lor(input.get(n!("customMods")), || Val::from("")),
+                None => Val::from(""),
+            };
+            let b = Table::new();
+            b.set(n!("title"), "Default");
+            b.set(n!("enabled"), true);
+            b.set(n!("text"), text);
+            customModsList.push(b);
+        }
+        // L1317-1333 UI: the CustomModBlockControl list
     }
 }
 

@@ -1680,3 +1680,73 @@ fn set_buff_exports() {
     assert!(conv.truthy(n!("ConvertedToText")));
     assert_eq!(pt.exportBuffs(n!("Aura")), "");
 }
+
+/// The entry points other code calls must work on a fresh `Build` whose tabs never ran Load
+/// (a new build, an XML without `<Party>`/`<Config>`): PoB's constructors set their state
+/// (PartyTab.lua:25, ConfigTab.lua:145-148, SkillsTab.lua:95; CCR-0019 §10).
+#[test]
+fn fresh_build_entry_points() {
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(data) = init_data() else {
+        return skip("data/dump/data.bin not found");
+    };
+    // setBuffExports with export enabled and no prior ctor_model (ImportTab.lua:508/748 →
+    // CalcPerform.lua:1312)
+    let build = Build::new(data);
+    let pt = &build.partyTab;
+    assert!(pt.buffExports.get().is_none(), "Build::new leaves the field unset");
+    pt.enableExportBuffs.set(true);
+    let fresh = Table::new();
+    let aura = Table::new();
+    fresh.set(n!("Aura"), aura.clone());
+    pt.setBuffExports(&fresh);
+    let cur = pt.buffExports.get().expect("installed");
+    assert!(!cur.ptr_eq(&fresh));
+    assert!(cur.table(n!("Aura")).unwrap().ptr_eq(&aura));
+    assert_eq!(pt.exportBuffs(n!("Curse")), "");
+    // disabled export on a fresh build: no error, constructor's `{ }`
+    let build = Build::new(data);
+    build.partyTab.setBuffExports(&fresh);
+    let cur = build.partyTab.buffExports.get().expect("ctor `{ }`");
+    assert!(cur.pairs().next().is_none());
+    // exportBuffs on a fresh build
+    let build = Build::new(data);
+    build.partyTab.enableExportBuffs.set(true);
+    assert_eq!(build.partyTab.exportBuffs(n!("Aura")), "");
+    // GetDefaultState: the constructor's config set 1 (NewConfigSet placeholders)
+    let build = Build::new(data);
+    let ct = &build.configTab;
+    assert!(ct
+        .GetDefaultState(Name::from("noSuchVar"), n!("number"))
+        .raw_eq(&Val::Num(0.0)));
+    assert_eq!(ct.activeConfigSetId.get(), 1.0);
+    assert!(ct.configSet(1.0).is_some());
+    assert!(ct
+        .configSet(1.0)
+        .unwrap()
+        .table(n!("input"))
+        .unwrap()
+        .ptr_eq(&ct.input));
+    for v in &data.configOptions {
+        let Some(var) = v.var else { continue };
+        if let Some(p) = &v.defaultPlaceholderState {
+            assert!(
+                ct.GetDefaultState(var, n!("nil")).raw_eq(&Val::from_value(p)),
+                "placeholder default of {var}"
+            );
+        }
+    }
+    // ProcessGemLevel with defaultGemLevel unset: the constructor's "normalMaximum"
+    let build = Build::new(data);
+    assert!(build.skillsTab.defaultGemLevel.get().is_none());
+    build.characterLevel.set(1.0);
+    let mut n = 0;
+    for gemData in data.gems.values() {
+        let a = build.skillsTab.ProcessGemLevel(&build, gemData, false);
+        assert_eq!(a, gemData.naturalMaxLevel, "{}", gemData.id);
+        n += 1;
+    }
+    assert!(n > 100);
+}

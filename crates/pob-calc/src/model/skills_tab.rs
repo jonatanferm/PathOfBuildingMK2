@@ -221,6 +221,15 @@ impl SkillsTab {
         })
     }
 
+    /// `self.defaultGemLevel`. PoB's constructor sets `"normalMaximum"` (SkillsTab.lua:95) and
+    /// Load always sets a list value (L535), so it is never nil there; `None` in the frozen
+    /// field means the constructor half has not run (CCR-0019 §10).
+    pub fn defaultGemLevel(&self) -> Name {
+        self.defaultGemLevel
+            .get()
+            .unwrap_or_else(|| Name::from(defaultGemLevelList[0]))
+    }
+
     /// `self.skillSets[id]`.
     fn skillSet(&self, id: f64) -> Option<Table> {
         let k = set_key(id)?;
@@ -359,8 +368,12 @@ impl SkillsTab {
                 .get(key.as_str())
                 .and_then(|id| build.data.gems.get(id))
                 .cloned();
-            // gemChangeFunc(gemData, nil, nil, slot): gemMatch is nil
-            self.imbuedSupport_gemChangeFunc(build, gemData, false, Some(Name::from(slot)));
+            // `gemChangeFunc(gemData, nil, nil, socketGroup.slot)` against the signature
+            // `(gemData, _, _, gemMatch, slotName)` (L322): the slot string lands in `gemMatch`
+            // (truthy) and `slotName` is nil, so the target is `displayGroup.slot` (compare
+            // ImportTab.lua:1861, which passes `true, slotName`)
+            let _ = slot;
+            self.imbuedSupport_gemChangeFunc(build, gemData, true, None);
         }
 
         // L461
@@ -662,7 +675,7 @@ impl SkillsTab {
         set_attr(
             xml,
             "defaultGemLevel",
-            self.defaultGemLevel.get().map(|n| n.to_string()),
+            Some(self.defaultGemLevel().to_string()),
         );
         set_attr(
             xml,
@@ -909,8 +922,8 @@ impl SkillsTab {
         let grantedEffect = &gemData.grantedEffect;
         // L1131
         let naturalMaxLevel = gemData.naturalMaxLevel;
-        let defaultGemLevel = self.defaultGemLevel.get();
-        let is = |s: &str| defaultGemLevel.is_some_and(|d| d.as_str() == s);
+        let defaultGemLevel = self.defaultGemLevel();
+        let is = |s: &str| defaultGemLevel.as_str() == s;
         // L1132
         if imbued || is("levelOne") {
             // L1133

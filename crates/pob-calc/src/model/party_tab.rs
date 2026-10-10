@@ -1142,16 +1142,18 @@ impl PartyTab {
 /// @pob Classes/PartyTab.lua:984-990 h=80f3f6ea
 impl PartyTab {
     pub fn setBuffExports(&self, buffExports: &Table) {
+        // PoB's constructor set `self.buffExports = { }` (PartyTab.lua:25); a `Build` whose
+        // party tab never ran Load (a new build, an XML without `<Party>`) gets it here
+        // (CCR-0019 §10)
+        self.ctor_model();
         // L985
         if !self.enableExportBuffs.get() {
             // L986
             return;
         }
-        // L988
+        // L988 (`wipeTable(nil)` returns a new `{ }`, Common.lua:549-551)
         if let Some(old) = self.buffExports.get() {
             old.wipe();
-        } else {
-            lua_error!("bad argument #1 to 'pairs' (table expected, got nil)");
         }
         // L989
         self.buffExports.set(Some(buffExports.copyTable(true)));
@@ -1161,10 +1163,10 @@ impl PartyTab {
 /// @pob Classes/PartyTab.lua:992-1043 h=3b532484
 impl PartyTab {
     pub fn exportBuffs(&self, buffType: Name) -> String {
+        // constructor state (PartyTab.lua:25, CCR-0019 §10)
+        self.ctor_model();
         // L993
-        let Some(buffExports) = self.buffExports.get() else {
-            return String::new();
-        };
+        let buffExports = self.buffExports.get().expect("ctor_model");
         if !self.enableExportBuffs.get() || !buffExports.truthy(buffType) {
             // L994
             return String::new();
