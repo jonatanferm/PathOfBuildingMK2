@@ -1,15 +1,23 @@
 //! TGF/TGA bitmap fonts (ui doc §4.4, port of SimpleGraphic `engine/render/r_font.cpp`). Owner: U2.
 //!
-//! Research copy master @ 8694a07 (the file is unchanged since 2025-10-23 "Use Static Casts", so
-//! it matches the DLL shipped with PoB 2.67.2; U2 re-verifies at `3b1a346`). All coordinates are
-//! *physical* pixels; the Lua-facing DPI conversion lives in [`crate::api::Sg`].
+//! Verified by U2 statement by statement against PathOfBuilding-SimpleGraphic @ 3b1a346 (the
+//! commit the shipped `SimpleGraphic.dll` names, `SimpleGraphic v2.5-3b1a346`); `r_font.cpp`
+//! and `r_font.h` there are byte-identical to the research copy (master @ 8694a07) the pre-port
+//! code was written from. All coordinates are *physical* pixels; the Lua-facing DPI conversion
+//! lives in [`crate::api::Sg`].
 //!
 //! Moved from the pre-port `pob-sg/src/font.rs` by UI-U0 and split into `tgf.rs` (parser),
 //! `tga.rs` (atlas decoder), `layout.rs` (width / cursor / draw) and this file (faces, height
-//! map, atlas registration). Atlases are registered with the [`ImageRegistry`] at load time.
+//! map, atlas registration, `IndexUTF8ToUTF32`). Atlases are registered with the
+//! [`ImageRegistry`] at load time.
 //!
-//! Text is processed as Unicode scalar values, like SimpleGraphic (`IndexUTF8ToUTF32`).
-//! Codepoints without a glyph (>= numGlyph) are drawn as "tofu" (`[U+XXXX]` in a smaller height).
+//! Text is processed as UTF-32 codepoints, like SimpleGraphic (`IndexUTF8ToUTF32`). Codepoints
+//! without a glyph (>= numGlyph) are drawn as "tofu" (`[U+XXXX]` in a smaller height).
+//!
+//! DIVERGENCE(missing atlas): SG creates each `r_tex_c` when it parses `HEIGHT` and a missing or
+//! broken `.tga` silently becomes the default texture with `fileWidth == 0` (texcoords inf/NaN);
+//! [`FontSet::load`] returns an error instead (the assets ship with PoB).
+//! DIVERGENCE(empty font set): [`FontSet::empty`] (no atlases) is not an SG state; see layout.rs.
 
 pub mod layout;
 pub mod tga;
@@ -20,6 +28,7 @@ use crate::image::{ImageData, ImageFlags, ImageRegistry, TexId};
 use crate::types::Font;
 
 /// One glyph (`f_glyph_s`).
+/// sg: r_font.cpp:19-28 @3b1a346
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Glyph {
     pub tc_l: f32,
@@ -49,6 +58,7 @@ const DEF_GLYPH: Glyph = Glyph {
 };
 
 /// One atlas height of a face (`f_fontHeight_s`).
+/// sg: r_font.cpp:30-44 @3b1a346
 pub struct FontHeight {
     pub tex: TexId,
     pub height: i32,
@@ -59,6 +69,7 @@ pub struct FontHeight {
 impl FontHeight {
     /// `f_fontHeight_s::Glyph`: the codepoint is narrowed to a byte (`(char)(unsigned char)cp`);
     /// codes `>= numGlyph` give the all-zero `defGlyph`.
+    /// sg: r_font.cpp:38-43 @3b1a346
     pub fn glyph(&self, cp: u32) -> &Glyph {
         let b = (cp & 0xff) as usize;
         if b < self.num_glyph {
@@ -81,10 +92,12 @@ pub struct FontSet {
     faces: [FontFace; 7],
 }
 
-/// `tofuSizeReduction` in r_font.cpp.
+/// `tofuSizeReduction`.
+/// sg: r_font.cpp:141 @3b1a346
 pub const TOFU_SIZE_REDUCTION: i32 = 3;
 
-/// `BuildTofuString`: `[U+{:04X}]`.
+/// `BuildTofuString`: `[U+{:04X}]` (higher planes get more digits).
+/// sg: r_font.cpp:131-139 @3b1a346
 pub fn tofu_string(cp: u32) -> String {
     format!("[U+{cp:04X}]")
 }
@@ -127,6 +140,7 @@ impl FontSet {
 impl FontFace {
     /// The `r_font_c` constructor: parse `Fonts/<stem>.tgf`, register each `Fonts/<stem>.<h>.tga`
     /// (TF_NOMIPMAP, REPEAT, linear: no flags), then build `fontHeightMap`.
+    /// sg: r_font.cpp:50-115 @3b1a346
     pub fn load(
         src: &dyn AssetSource,
         images: &mut ImageRegistry,
@@ -134,10 +148,9 @@ impl FontFace {
     ) -> std::io::Result<FontFace> {
         let stem = font.file_stem();
         let raw = src.read_runtime(&format!("Fonts/{stem}.tgf"))?;
-        let text = String::from_utf8_lossy(&raw);
         let mut heights: Vec<FontHeight> = Vec::new();
         let mut max_height = 0;
-        for th in tgf::parse(&text) {
+        for th in tgf::parse(&raw) {
             let name = format!("Fonts/{stem}.{}.tga", th.height);
             let bytes = src.read_runtime(&name)?;
             let img = tga::decode(&bytes).map_err(|e| {
@@ -207,6 +220,7 @@ impl FontFace {
     }
 
     /// FindFontHeight: h > max => last; h < 0 => 0; else height_map[h].
+    /// sg: r_font.cpp:304-319 @3b1a346
     pub fn find(&self, h: i32) -> usize {
         if h > self.max_height {
             self.heights.len().saturating_sub(1)
@@ -219,6 +233,7 @@ impl FontFace {
 
     /// FindSmallerFontHeight(height, idx, 3) => (index, y_pad): the first lower atlas height that
     /// is at least `reduction` smaller than `h`, padded to centre it.
+    /// sg: r_font.cpp:288-302 @3b1a346
     pub fn find_smaller(&self, h: i32, idx: usize, reduction: i32) -> (usize, i32) {
         let mut ret = (idx, 0);
         for i in (0..idx).rev() {
@@ -232,17 +247,67 @@ impl FontFace {
     }
 }
 
-/// Convert UTF-8 text to codepoints plus the byte offset of each codepoint
-/// (`common.cpp` `IndexUTF8ToUTF32`; Rust strings are valid UTF-8, so the
-/// replacement-character path never triggers).
-pub fn index_utf8(text: &str) -> (Vec<u32>, Vec<usize>) {
-    let mut cps = Vec::with_capacity(text.len());
-    let mut offs = Vec::with_capacity(text.len());
-    for (o, c) in text.char_indices() {
-        cps.push(c as u32);
-        offs.push(o);
+/// `IndexedUTF32String`: the codepoints and, per codepoint, the byte offset it came from.
+/// sg: common.h:495-498 @3b1a346
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IndexedUtf32 {
+    pub text: Vec<u32>,
+    pub source_code_unit_offsets: Vec<usize>,
+}
+
+/// `IndexUTF8ToUTF32`: decode UTF-8 bytes. Overlong forms and surrogates decode as their bit
+/// patterns; any byte that does not start a complete sequence becomes U+FFFD and advances one
+/// byte.
+/// sg: common.cpp:440-500 @3b1a346
+pub fn index_utf8_to_utf32(input: &[u8]) -> IndexedUtf32 {
+    let byte_count = input.len();
+    let mut ret = IndexedUtf32 {
+        text: Vec::with_capacity(byte_count),
+        source_code_unit_offsets: Vec::with_capacity(byte_count), // conservative reservation
+    };
+    let mut byte_idx = 0;
+    while byte_idx < byte_count {
+        let b = &input[byte_idx..];
+        let left = byte_count - byte_idx;
+        ret.source_code_unit_offsets.push(byte_idx);
+        let cont = |c: u8| c >> 6 == 0b10;
+        let codepoint;
+        if b[0] >> 7 == 0b0 {
+            // 0xxx'xxxx
+            codepoint = u32::from(b[0]);
+            byte_idx += 1;
+        } else if left >= 2 && b[0] >> 5 == 0b110 && cont(b[1]) {
+            let p0 = u32::from(b[0]) & 0b1_1111;
+            let p1 = u32::from(b[1]) & 0b11_1111;
+            codepoint = p0 << 6 | p1;
+            byte_idx += 2;
+        } else if left >= 3 && b[0] >> 4 == 0b1110 && cont(b[1]) && cont(b[2]) {
+            let p0 = u32::from(b[0]) & 0b1111;
+            let p1 = u32::from(b[1]) & 0b11_1111;
+            let p2 = u32::from(b[2]) & 0b11_1111;
+            codepoint = p0 << 12 | p1 << 6 | p2;
+            byte_idx += 3;
+        } else if left >= 4 && b[0] >> 3 == 0b11110 && cont(b[1]) && cont(b[2]) && cont(b[3]) {
+            let p0 = u32::from(b[0]) & 0b111;
+            let p1 = u32::from(b[1]) & 0b11_1111;
+            let p2 = u32::from(b[2]) & 0b11_1111;
+            let p3 = u32::from(b[3]) & 0b11_1111;
+            codepoint = p0 << 18 | p1 << 12 | p2 << 6 | p3;
+            byte_idx += 4;
+        } else {
+            codepoint = 0xFFFD;
+            byte_idx += 1;
+        }
+        ret.text.push(codepoint);
     }
-    (cps, offs)
+    ret
+}
+
+/// [`index_utf8_to_utf32`] of a Rust string as `(codepoints, byte offsets)`. For valid UTF-8 the
+/// SG decoder and `char_indices` agree.
+pub fn index_utf8(text: &str) -> (Vec<u32>, Vec<usize>) {
+    let r = index_utf8_to_utf32(text.as_bytes());
+    (r.text, r.source_code_unit_offsets)
 }
 
 #[cfg(test)]
