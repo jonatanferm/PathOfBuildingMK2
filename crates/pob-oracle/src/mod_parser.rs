@@ -14,8 +14,10 @@ use std::rc::Rc;
 
 use ahash::AHashMap;
 
-use crate::legacy_modifier::{Mod, ModType, Sockets, Table, Tag, TagType, Value};
-use crate::lua::lua_pattern;
+use pob_gamedata::{Mod, Tag, Value};
+use pob_lua::pattern as lua_pattern;
+use serde_json::{Map, Value as J};
+
 use crate::lua::{Interp, LuaError, TableRef, Val};
 
 /// PoB helper functions ModParser expects as globals.
@@ -136,27 +138,31 @@ fn native_scan(args: Vec<Val>) -> Result<Vec<Val>, LuaError> {
             if v.is_nil() {
                 continue;
             }
-            let found = lua_pattern::find(&lower, pattern.as_bytes(), 1, plain)
-                .map_err(|e| LuaError::msg(e.0))?;
-            let Some(f) = found else { continue };
+            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                lua_pattern::find_bytes(&lower, pattern.as_bytes(), Some(1), plain)
+            }))
+            .map_err(|p| match p.downcast::<pob_lua::LuaError>() {
+                Ok(e) => LuaError::msg(e.0),
+                Err(other) => std::panic::resume_unwind(other),
+            })?;
+            let Some((f_start, f_end, f_caps)) = found else { continue };
             let better = match &best {
                 None => true,
                 Some((bs, be, bl, _, _)) => {
-                    f.start < *bs
-                        || (f.start == *bs
-                            && (f.end > *be || (f.end == *be && pattern.len() > *bl)))
+                    f_start < *bs
+                        || (f_start == *bs
+                            && (f_end > *be || (f_end == *be && pattern.len() > *bl)))
                 }
             };
             if better {
-                let caps = f
-                    .captures
+                let caps = f_caps
                     .iter()
                     .map(|c| match c {
                         lua_pattern::Capture::Str(s) => Val::bytes(s),
                         lua_pattern::Capture::Pos(p) => Val::Num(*p as f64),
                     })
                     .collect();
-                best = Some((f.start, f.end, pattern.len(), v.clone(), caps));
+                best = Some((f_start, f_end, pattern.len(), v.clone(), caps));
             }
         }
     }
@@ -271,189 +277,89 @@ impl ModParser {
 }
 
 // ---- Lua table → typed Mod ------------------------------------------------------
+//
+// ORC-X: the interpreter's tables become `pob_gamedata::Mod` through the same
+// decoders the probe injection uses (`crate::mod_json::{decode_mod, decode_tag,
+// j_to_value}`), via the pob-state JSON shape. Keys the typed `Tag` has no
+// field for, or cannot hold exactly, go to `tag.extra` verbatim.
 
-fn lstr(v: &Val) -> Option<String> {
-    v.as_str().map(str::to_owned)
+/// A Lua value as pob-state JSON: tables with string keys, the `1..n` part under
+/// `$seq` (an array when there is nothing else), other number keys under `$num`;
+/// a nested mod (a table with string `name` and `type`) in the plain-table shape
+/// (`$seq` tags), which `j_to_value` reads back as a `Value::Mod`.
+fn lua_to_json(v: &Val) -> J {
+    match v {
+        Val::Nil => J::Null,
+        Val::Bool(b) => J::Bool(*b),
+        Val::Num(n) => pob_calc::probe::jnum(*n),
+        Val::Str(s) => J::String(s.to_str().into_owned()),
+        Val::Func(_) => J::String("<function>".into()),
+        Val::Table(t) => {
+            let arr = t.array();
+            let n = arr.len();
+            let mut o = Map::new();
+            let mut num = Map::new();
+            for (k, val) in t.pairs() {
+                match k {
+                    Val::Num(x) if x.fract() == 0.0 && x >= 1.0 && (x as usize) <= n => {}
+                    Val::Num(x) => {
+                        num.insert(pob_calc::probe::key_text(x), lua_to_json(&val));
+                    }
+                    Val::Str(s) => {
+                        let key = s.to_str().into_owned();
+                        let key = if key.starts_with('$') { format!("${key}") } else { key };
+                        o.insert(key, lua_to_json(&val));
+                    }
+                    _ => {}
+                }
+            }
+            if o.is_empty() && num.is_empty() && n > 0 {
+                return J::Array(arr.iter().map(lua_to_json).collect());
+            }
+            if n > 0 {
+                o.insert("$seq".into(), J::Array(arr.iter().map(lua_to_json).collect()));
+            }
+            if !num.is_empty() {
+                o.insert("$num".into(), J::Object(num));
+            }
+            J::Object(o)
+        }
+    }
 }
 
-fn lnum(v: &Val) -> Option<f64> {
-    v.as_num()
-}
-
-fn lbool(v: &Val) -> bool {
-    v.truthy()
-}
-
-fn str_list(v: &Val) -> Option<Vec<String>> {
-    v.as_table()
-        .map(|t| t.array().iter().filter_map(lstr).collect())
-}
-
-fn num_list(v: &Val) -> Option<Vec<f64>> {
-    v.as_table()
-        .map(|t| t.array().iter().filter_map(lnum).collect())
+/// A Lua mod table in the pob-state mod shape (`tags` as a list).
+fn lua_mod_json(v: &Val) -> Result<J, String> {
+    let t = v.as_table().ok_or("mod is not a table")?;
+    let mut o = Map::new();
+    let tags: Vec<J> = t
+        .array()
+        .iter()
+        .filter(|x| x.truthy())
+        .map(lua_to_json)
+        .collect();
+    for (k, val) in t.pairs() {
+        if let Val::Str(s) = k {
+            o.insert(s.to_str().into_owned(), lua_to_json(&val));
+        }
+    }
+    o.insert("tags".into(), J::Array(tags));
+    Ok(J::Object(o))
 }
 
 /// Convert any Lua value to a mod [`Value`].
 pub fn lua_to_value(v: &Val) -> Result<Value, String> {
-    Ok(match v {
-        Val::Nil => Value::Nil,
-        Val::Bool(b) => Value::Bool(*b),
-        Val::Num(n) => Value::Num(*n),
-        Val::Str(s) => Value::Str(s.to_string()),
-        Val::Func(_) => Value::Str("<function>".into()),
-        Val::Table(t) => {
-            // A mod table (has name + type) nested as a value.
-            let is_mod =
-                t.get_str("name").as_str().is_some() && t.get_str("type").as_str().is_some();
-            if is_mod {
-                return Ok(Value::Mod(Box::new(lua_to_mod(v)?)));
-            }
-            let mut table = Table::default();
-            for (k, val) in t.pairs() {
-                match k {
-                    Val::Num(n) if n.fract() == 0.0 && n >= 1.0 && (n as usize) <= t.len() => {}
-                    Val::Str(s) => table.fields.push((s.to_string(), lua_to_value(&val)?)),
-                    other => table.fields.push((other.to_string(), lua_to_value(&val)?)),
-                }
-            }
-            table.array = t
-                .array()
-                .iter()
-                .map(lua_to_value)
-                .collect::<Result<_, _>>()?;
-            Value::Table(Box::new(table))
-        }
-    })
+    Ok(crate::mod_json::j_to_value(&lua_to_json(v)))
 }
 
 /// Convert a Lua tag table to a [`Tag`].
 pub fn lua_to_tag(v: &Val) -> Result<Tag, String> {
-    let t = v.as_table().ok_or("tag is not a table")?;
-    let ty = t
-        .get_str("type")
-        .as_str()
-        .map(TagType::parse)
-        .ok_or("tag without type")?;
-    let mut tag = Tag::new(ty);
-    for (k, val) in t.pairs() {
-        let Val::Str(key) = &k else { continue };
-        match key.as_str() {
-            "type" => {}
-            "var" => tag.var = lstr(&val),
-            "varList" => tag.var_list = str_list(&val),
-            "neg" => tag.neg = lbool(&val),
-            "actor" => tag.actor = lstr(&val),
-            "stat" => tag.stat = lstr(&val),
-            "statList" => tag.stat_list = str_list(&val),
-            "div" => tag.div = lnum(&val),
-            "divVar" => tag.div_var = lstr(&val),
-            "base" => tag.base = lnum(&val),
-            "noFloor" => tag.no_floor = lbool(&val),
-            "invert" => tag.invert = lbool(&val),
-            "floor" => tag.floor = lbool(&val),
-            "limit" => tag.limit = lnum(&val),
-            "limitVar" => tag.limit_var = lstr(&val),
-            "limitStat" => tag.limit_stat = lstr(&val),
-            "limitTotal" => tag.limit_total = lbool(&val),
-            "limitNegTotal" => tag.limit_neg_total = lbool(&val),
-            "limitActor" => tag.limit_actor = lstr(&val),
-            "percent" => tag.percent = lnum(&val),
-            "percentVar" => tag.percent_var = lstr(&val),
-            "threshold" => tag.threshold = lnum(&val),
-            "thresholdVar" => tag.threshold_var = lstr(&val),
-            "thresholdStat" => tag.threshold_stat = lstr(&val),
-            "thresholdActor" => tag.threshold_actor = lstr(&val),
-            "thresholdPercent" => tag.threshold_percent = lnum(&val),
-            "thresholdPercentVar" => tag.threshold_percent_var = lstr(&val),
-            "upper" => tag.upper = lbool(&val),
-            "equals" => tag.equals = lbool(&val),
-            "ramp" => {
-                tag.ramp = val.as_table().map(|r| {
-                    let arr = r.array();
-                    if arr.iter().all(|x| x.as_num().is_some()) {
-                        vec![arr.iter().filter_map(Val::as_num).collect()]
-                    } else {
-                        arr.iter().filter_map(num_list).collect()
-                    }
-                });
-            }
-            "itemSlot" => tag.item_slot = lstr(&val),
-            "allSlots" => tag.all_slots = lbool(&val),
-            "bothSlots" => tag.both_slots = lbool(&val),
-            "excludeSelf" => tag.exclude_self = lbool(&val),
-            "searchCond" => tag.search_cond = lstr(&val),
-            "rarityCond" => tag.rarity_cond = lstr(&val),
-            "corruptedCond" => tag.corrupted_cond = Some(lbool(&val)),
-            "shaperCond" => tag.shaper_cond = Some(lbool(&val)),
-            "elderCond" => tag.elder_cond = Some(lbool(&val)),
-            "nameCond" => tag.name_cond = lstr(&val),
-            "slotName" => tag.slot_name = lstr(&val),
-            "slotNameList" => tag.slot_name_list = str_list(&val),
-            "keyword" => tag.keyword = lstr(&val),
-            "socketColor" => tag.socket_color = lstr(&val),
-            "sockets" => {
-                tag.sockets = match &val {
-                    Val::Str(s) if s.as_str() == "all" => Some(Sockets::All),
-                    Val::Num(n) => Some(Sockets::Count(*n)),
-                    Val::Table(_) => num_list(&val).map(Sockets::List),
-                    _ => None,
-                }
-            }
-            "skillName" => tag.skill_name = lstr(&val),
-            "skillNameList" => tag.skill_name_list = str_list(&val),
-            "includeTransfigured" => tag.include_transfigured = lbool(&val),
-            "summonSkill" => tag.summon_skill = lbool(&val),
-            "skillId" => tag.skill_id = lstr(&val),
-            "skillPart" => tag.skill_part = lnum(&val),
-            "skillPartList" => tag.skill_part_list = num_list(&val),
-            "skillType" => tag.skill_type = lnum(&val).map(|n| n as u32),
-            "skillTypeList" => {
-                tag.skill_type_list =
-                    num_list(&val).map(|v| v.into_iter().map(|n| n as u32).collect())
-            }
-            "baseFlag" => tag.base_flag = lstr(&val),
-            "modFlags" => tag.mod_flags = lnum(&val).unwrap_or(0.0) as u32,
-            "keywordFlags" => tag.keyword_flags = lnum(&val).unwrap_or(0.0) as u32,
-            "monsterTag" => tag.monster_tag = lstr(&val),
-            "monsterTagList" => tag.monster_tag_list = str_list(&val),
-            "globalLimit" => tag.global_limit = lnum(&val),
-            "globalLimitKey" => tag.global_limit_key = lstr(&val),
-            "num" => tag.num = lnum(&val),
-            "effectType" => tag.effect_type = lstr(&val),
-            "effectName" => tag.effect_name = lstr(&val),
-            "effectCond" => tag.effect_cond = lstr(&val),
-            "effectEnemyCond" => tag.effect_enemy_cond = lstr(&val),
-            "effectStackVar" => tag.effect_stack_var = lstr(&val),
-            "effectStackLimit" => tag.effect_stack_limit = lnum(&val),
-            "modCond" => tag.mod_cond = lstr(&val),
-            "unscalable" => tag.unscalable = lbool(&val),
-            "allowTotemBuff" => tag.allow_totem_buff = lbool(&val),
-            "applyNotPlayer" => tag.apply_not_player = lbool(&val),
-            "applyMinions" => tag.apply_minions = lbool(&val),
-            other => tag.extra.push((other.to_owned(), lua_to_value(&val)?)),
-        }
-    }
-    Ok(tag)
+    v.as_table().ok_or("tag is not a table")?;
+    crate::mod_json::decode_tag(&lua_to_json(v))
 }
 
 /// Convert a Lua mod table to a [`Mod`].
 pub fn lua_to_mod(v: &Val) -> Result<Mod, String> {
-    let t = v.as_table().ok_or("mod is not a table")?;
-    let name = lstr(&t.get_str("name")).ok_or("mod without name")?;
-    let ty_s = lstr(&t.get_str("type")).ok_or("mod without type")?;
-    let ty = ModType::parse(&ty_s).ok_or_else(|| format!("unknown mod type {ty_s}"))?;
-    let mut m = Mod::new(name, ty, lua_to_value(&t.get_str("value"))?);
-    m.flags = lnum(&t.get_str("flags")).unwrap_or(0.0) as u32;
-    m.keyword_flags = lnum(&t.get_str("keywordFlags")).unwrap_or(0.0) as u32;
-    m.source = lstr(&t.get_str("source"));
-    m.source_slot = lstr(&t.get_str("sourceSlot"));
-    for tag in t.array() {
-        if tag.truthy() {
-            m.tags.push(lua_to_tag(&tag)?);
-        }
-    }
-    Ok(m)
+    crate::mod_json::decode_mod(&lua_mod_json(v)?).map(|(m, _)| m)
 }
 
 /// Shared handle for callers that need the parser from several places.

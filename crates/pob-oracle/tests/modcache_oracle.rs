@@ -1,7 +1,7 @@
 //! Oracle: every line in PoB's `Data/ModCache.lua` must parse to exactly the
 //! mods PoB itself cached for it. Self-skips without a PoB checkout.
 
-use pob_oracle::legacy_modifier::{Mod, Value};
+use pob_gamedata::{Mod, Value};
 use pob_oracle::lua::{Interp, Val};
 
 /// ModCache.lua prints floats with 14 significant digits.
@@ -17,9 +17,12 @@ fn value_close(a: &Value, b: &Value) -> bool {
             x.array.len() == y.array.len()
                 && x.array.iter().zip(&y.array).all(|(p, q)| value_close(p, q))
                 && x.fields.len() == y.fields.len()
-                && x.fields
-                    .iter()
-                    .all(|(k, v)| y.get(k).is_some_and(|w| value_close(v, w)))
+                && x.fields.iter().all(|(k, v)| {
+                    y.fields
+                        .iter()
+                        .find(|(n, _)| n == k)
+                        .is_some_and(|(_, w)| value_close(v, w))
+                })
         }
         _ => a == b,
     }
@@ -101,12 +104,12 @@ fn modcache_oracle() {
                 } else {
                     bad += 1;
                     if failures.len() < 40 {
-                        let show = |m: &Option<Vec<pob_oracle::legacy_modifier::Mod>>| {
+                        let show = |m: &Option<Vec<Mod>>| {
                             m.as_ref().map_or_else(
                                 || "nil".to_owned(),
                                 |v| {
                                     v.iter()
-                                        .map(ToString::to_string)
+                                        .map(|m| pob_calc::probe::mod_json(m, None).to_string())
                                         .collect::<Vec<_>>()
                                         .join(" ; ")
                                 },

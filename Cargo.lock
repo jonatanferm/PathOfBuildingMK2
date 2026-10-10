@@ -2848,6 +2848,7 @@ dependencies = [
  "mlua",
  "pob-calc",
  "pob-gamedata",
+ "pob-lua",
  "rustix 1.1.4",
  "serde",
  "serde_json",
