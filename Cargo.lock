@@ -2806,15 +2806,19 @@ dependencies = [
  "anyhow",
  "arboard",
  "image",
+ "js-sys",
  "pob-lua",
  "pob-sg",
  "pob-sg-wgpu",
  "pollster 1.0.1",
+ "serde_json",
+ "ureq",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu 30.0.1",
  "winit",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -2879,8 +2883,11 @@ version = "0.0.1"
 dependencies = [
  "pob-app",
  "pob-host",
+ "pob-sg",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
