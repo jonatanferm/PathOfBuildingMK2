@@ -2952,16 +2952,20 @@ name = "pob-ui-oracle"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "image",
  "mlua",
  "pob-app",
  "pob-calc",
  "pob-host",
+ "pob-lua",
  "pob-oracle",
  "pob-sg",
  "pob-sg-wgpu",
  "pob-ui-core",
+ "pollster 1.0.1",
  "serde",
  "serde_json",
+ "wgpu 30.0.1",
 ]
 
 [[package]]
