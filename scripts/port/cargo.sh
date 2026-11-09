@@ -3,7 +3,7 @@
 #
 # Usage: scripts/port/cargo.sh <cargo args...>      e.g. scripts/port/cargo.sh check -p pob-calc
 #
-# - At most $POB_PORT_SLOTS (default 3) cargo invocations run at a time machine-wide, across all worktrees: the
+# - At most $POB_PORT_SLOTS (default 2) cargo invocations run at a time machine-wide, across all worktrees: the
 #   whole cargo run holds an exclusive flock on $POB_PORT_LOCK_DIR/cargo.lock
 #   (default: ${XDG_RUNTIME_DIR:-/tmp}/pob-port).
 # - Exports CARGO_BUILD_JOBS=${POB_PORT_JOBS:-3} and RUSTC_WRAPPER=$HOME/.cargo/bin/sccache (when executable;
@@ -91,8 +91,8 @@ fi
 
 lock_dir="${POB_PORT_LOCK_DIR:-${XDG_RUNTIME_DIR:-/tmp}/pob-port}"
 mkdir -p "$lock_dir"
-# POB_PORT_SLOTS concurrent cargo runs machine-wide (default 3): slot i holds cargo.lock[.i].
-slots="${POB_PORT_SLOTS:-3}"
+# POB_PORT_SLOTS concurrent cargo runs machine-wide (default 2): slot i holds cargo.lock[.i].
+slots="${POB_PORT_SLOTS:-2}"
 got=""
 waited=0
 while [ -z "$got" ]; do
@@ -112,4 +112,11 @@ case "$here/" in
     "$worktree"/*) ;;
     *) cd "$worktree" ;;
 esac
-cargo "$@"
+# Each cargo run (compiles and the test binaries it starts) gets its own memory-capped systemd
+# scope, so an OOM kills only this run instead of the whole terminal scope (2026-11-09 incident:
+# a 6 GB test binary got the terminal scope, and with it the agent session, stopped).
+if [ "${POB_PORT_NO_SCOPE:-0}" != 1 ] && command -v systemd-run >/dev/null 2>&1 \
+    && systemd-run --user --scope --quiet true >/dev/null 2>&1; then
+    exec systemd-run --user --scope --quiet -p MemoryMax="${POB_PORT_MEM:-5G}" -p MemorySwapMax="${POB_PORT_SWAP:-1G}" cargo "$@"
+fi
+exec cargo "$@"
