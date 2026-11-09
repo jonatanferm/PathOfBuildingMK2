@@ -12,8 +12,10 @@
 //! (`offence:in`, `perform:1943`), which takes the lowest-numbered dump of that
 //! probe present (the selection `@main` dumps one per probe: the main env's).
 
-use std::collections::BTreeMap;
+use std::cell::{OnceCell, RefCell};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use pob_calc::env::EnvRef;
 use pob_calc::lua_table::Val;
@@ -198,38 +200,164 @@ pub fn export_after(env: Option<&EnvRef>, locals: &[(String, Val)]) -> J {
 
 /// L4: inject `<stage_in>`, run the Rust segment, diff against `<stage_out>`'s
 /// dump. Returns the mismatches as text (empty = pass). A missing dump or a
-/// stage without a segment is reported as one mismatch line.
+/// stage without a segment is reported as one mismatch line. Skill hooks the
+/// segment calls through `runSkillFunc` are replayed from the build's
+/// recorded `runSkillFunc:in/out` dumps ([`segment_run`]).
 pub fn segment_diff(build: &Path, stage_in: &str, stage_out: &str) -> Vec<String> {
+    segment_run(build, stage_in, stage_out, None).mismatches
+}
+
+/// What one L4 run ([`segment_run`]) did.
+#[derive(Debug, Default)]
+pub struct SegmentRun {
+    /// Diff lines against `<stage_out>` (empty = pass), or one line naming why the run
+    /// could not be made (missing dump, inject or segment error).
+    pub mismatches: Vec<String>,
+    /// The `runSkillFunc:in` hits whose recorded delta was applied (CCR-0041).
+    pub hooks_replayed: Vec<String>,
+    /// Hook calls of a skill that has the hook but no recorded call to replay
+    /// (the Rust registry body ran instead), and replay notes.
+    pub hook_notes: Vec<String>,
+}
+
+/// L4 with skill-hook replay (CCR-0041): inject `<stage_in>`, install a
+/// `pob_calc::probe` skill-hook handler, run the Rust segment, diff against
+/// `<stage_out>`.
+///
+/// The handler answers each `runSkillFunc(name)` call of the segment. When the
+/// skill's granted effect has no such hook the Lua call does nothing and the
+/// Rust body runs (it does nothing either). Otherwise the handler applies the
+/// recorded `runSkillFunc:in → :out` delta ([`crate::replay::Replay`]) of the
+/// first not yet used recorded call with that `name` made inside the same
+/// enclosing function-probe call as `<stage_in>` (the innermost entry of the
+/// dump's `stack`, e.g. `offence:in#4`); calls made before `<stage_in>` are
+/// dropped when a `hits.json` of the dump directory orders them, so a segment
+/// that starts mid-offence (a later pass) picks its own calls. `hooks` shares
+/// the loaded recordings between the runs of one build (`None`: load here).
+///
+/// Both dumps come from one probe run ([`same_run_dirs`]): PoB's state differs
+/// between processes (calc doc §9.5), so dumps of two runs do not pair.
+pub fn segment_run(
+    build: &Path,
+    stage_in: &str,
+    stage_out: &str,
+    hooks: Option<&Rc<HookCalls>>,
+) -> SegmentRun {
+    let stem = build
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_owned();
+    let dirs = same_run_dirs(&dump_dirs(&stem, Some(build)), &[stage_in, stage_out]);
+    segment_run_in(&dirs, build, stage_in, stage_out, hooks)
+}
+
+/// [`segment_run`] on the dumps of `dirs` (e.g. one probe run's directory; `hooks`
+/// should index the same directories).
+pub fn segment_run_in(
+    dirs: &[PathBuf],
+    build: &Path,
+    stage_in: &str,
+    stage_out: &str,
+    hooks: Option<&Rc<HookCalls>>,
+) -> SegmentRun {
+    let fail = |m: String| SegmentRun {
+        mismatches: vec![m],
+        ..SegmentRun::default()
+    };
     if !init_default_data() {
-        return vec!["no data dump (data/dump)".to_owned()];
+        return fail("no data dump (data/dump)".to_owned());
     }
     let stem = build
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or_default()
         .to_owned();
-    let dirs = dump_dirs(&stem, Some(build));
+    let dirs = dirs.to_vec();
     let (Some(pin), Some(pout)) = (find_dump(&dirs, stage_in), find_dump(&dirs, stage_out)) else {
-        return vec![format!(
+        return fail(format!(
             "missing dump {stage_in} or {stage_out} for {stem} (fill with: scripts/port/oracle.sh run --build {} --stage {stage_in},{stage_out})",
             build.display()
-        )];
+        ));
     };
     let (Ok(din), Ok(dout)) = (StateDump::load(&pin), StateDump::load(&pout)) else {
-        return vec![format!("unreadable dump {} / {}", pin.display(), pout.display())];
+        return fail(format!(
+            "unreadable dump {} / {}",
+            pin.display(),
+            pout.display()
+        ));
     };
     let model = load_build(build).unwrap_or_else(empty_build);
     let inj = match crate::inject::inject(&din, &model) {
         Ok(i) => i,
-        Err(e) => return vec![format!("inject {stage_in}: {e}")],
+        Err(e) => return fail(format!("inject {stage_in}: {e}")),
     };
     let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
+    let hooks = hooks
+        .cloned()
+        .unwrap_or_else(|| Rc::new(HookCalls::new(dirs.clone())));
+    let report = Rc::new(RefCell::new(SegmentRun::default()));
+    if let (Some(env), Some(enclosing)) = (inj.env.clone(), din.stack.last().cloned()) {
+        let before = hooks.calls_before(&din.hit);
+        let report = report.clone();
+        let hooks = hooks.clone();
+        let mut used: BTreeSet<String> = BTreeSet::new();
+        let handler = move |skill: &pob_calc::active_skill::ActiveSkillRef,
+                            hook: pob_calc::data_fns::SkillHook|
+              -> bool {
+            let ge = skill.activeEffect.get().grantedEffect.get();
+            if hook.of(&ge).is_none() {
+                return false;
+            }
+            let name = format!("{hook:?}");
+            let next = hooks
+                .calls(&enclosing, &name)
+                .into_iter()
+                .find(|c| !used.contains(&c.hit) && !before.contains(&c.hit));
+            let Some(call) = next else {
+                report.borrow_mut().hook_notes.push(format!(
+                    "{name} of {}: no recorded runSkillFunc call under {enclosing}",
+                    ge.name
+                ));
+                return false;
+            };
+            used.insert(call.hit.clone());
+            match call.load() {
+                Some(c) => {
+                    let hit = c.din.hit.clone();
+                    let mut calls = BTreeMap::new();
+                    calls.insert(hit.clone(), c);
+                    let replay = crate::replay::Replay { calls };
+                    match replay.apply_report(&hit, &env) {
+                        Ok(a) => {
+                            let mut r = report.borrow_mut();
+                            r.hook_notes
+                                .extend(a.notes.into_iter().map(|n| format!("{hit}: {n}")));
+                            r.hooks_replayed.push(hit);
+                        }
+                        Err(e) => report.borrow_mut().hook_notes.push(format!("{hit}: {e}")),
+                    }
+                }
+                None => report
+                    .borrow_mut()
+                    .hook_notes
+                    .push(format!("{}: unreadable runSkillFunc dumps", call.hit)),
+            }
+            true
+        };
+        pob_calc::probe::set_skill_hook_handler(Some(Box::new(handler)));
+    }
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::probe::run_segment(&din.probe, &locals)
     }));
+    pob_calc::probe::set_skill_hook_handler(None);
+    let mut out = std::mem::take(&mut *report.borrow_mut());
     let after = match run {
         Ok(Ok((_flow, after))) => after,
-        Ok(Err(e)) => return vec![format!("run {stage_in}: {e}")],
+        Ok(Err(e)) => {
+            out.mismatches = vec![format!("run {stage_in}: {e}")];
+            return out;
+        }
         Err(p) => {
             let msg = p
                 .downcast_ref::<pob_lua::LuaError>()
@@ -237,7 +365,8 @@ pub fn segment_diff(build: &Path, stage_in: &str, stage_out: &str) -> Vec<String
                 .or_else(|| p.downcast_ref::<String>().cloned())
                 .or_else(|| p.downcast_ref::<&str>().map(|s| (*s).to_owned()))
                 .unwrap_or_else(|| "panic".to_owned());
-            return vec![format!("run {stage_in}: {msg}")];
+            out.mismatches = vec![format!("run {stage_in}: {msg}")];
+            return out;
         }
     };
     let env = after
@@ -245,10 +374,173 @@ pub fn segment_diff(build: &Path, stage_in: &str, stage_out: &str) -> Vec<String
         .find(|(k, _)| k == "env")
         .and_then(|(_, v)| v.obj::<pob_calc::env::Env>())
         .or(inj.env);
-    diff_against(&dout, env.as_ref(), &after, &stem)
+    out.mismatches = diff_against(&dout, env.as_ref(), &after, &stem)
         .into_iter()
         .map(|m| format!("{} {:?}: pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours))
-        .collect()
+        .collect();
+    out
+}
+
+/// The first of `dirs` (one probe run each) that holds every hit of `hits`, alone; all of
+/// `dirs` when none does.
+pub fn same_run_dirs(dirs: &[PathBuf], hits: &[&str]) -> Vec<PathBuf> {
+    for d in dirs {
+        let one = std::slice::from_ref(d);
+        if hits.iter().all(|h| find_dump(one, h).is_some()) {
+            return vec![d.clone()];
+        }
+    }
+    dirs.to_vec()
+}
+
+/// Every dumped hit of `probe` (`offence:362` → `offence:362#1`, `#2`, …) in `dirs`, by `n`.
+pub fn hits_of(dirs: &[PathBuf], probe: &str) -> Vec<String> {
+    let prefix = format!(
+        "{}#",
+        crate::runner::hit_file_name(probe).trim_end_matches(".json")
+    );
+    let mut ns: BTreeSet<u64> = BTreeSet::new();
+    for d in dirs {
+        let Ok(rd) = std::fs::read_dir(d) else {
+            continue;
+        };
+        for e in rd.filter_map(Result::ok) {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let Some(rest) = name.strip_prefix(&prefix) else {
+                continue;
+            };
+            let n: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            if let Ok(n) = n.parse::<u64>() {
+                ns.insert(n);
+            }
+        }
+    }
+    ns.into_iter().map(|n| format!("{probe}#{n}")).collect()
+}
+
+// ---- skill hooks (CCR-0041) ----------------------------------------------------------------------
+
+/// One recorded `runSkillFunc` call.
+#[derive(Clone, Debug)]
+pub struct HookCall {
+    /// `runSkillFunc:in#n`.
+    pub hit: String,
+    pub n: u64,
+    /// The `name` local (`initialFunc`, `preDamageFunc`, …).
+    pub name: String,
+    pub din: PathBuf,
+    pub dout: Option<PathBuf>,
+}
+
+impl HookCall {
+    /// The `:in`/`:out` dumps (None when one is missing or unreadable).
+    pub fn load(&self) -> Option<crate::replay::Call> {
+        Some(crate::replay::Call {
+            din: StateDump::load(&self.din).ok()?,
+            dout: StateDump::load(self.dout.as_ref()?).ok()?,
+        })
+    }
+}
+
+/// The recorded `runSkillFunc` calls of one build's dump directories, indexed
+/// on first use by their enclosing function-probe hit (`offence:in#4`).
+pub struct HookCalls {
+    dirs: Vec<PathBuf>,
+    index: OnceCell<BTreeMap<String, Vec<HookCall>>>,
+    order: OnceCell<Option<BTreeMap<String, usize>>>,
+}
+
+impl HookCalls {
+    pub fn new(dirs: Vec<PathBuf>) -> Self {
+        HookCalls {
+            dirs,
+            index: OnceCell::new(),
+            order: OnceCell::new(),
+        }
+    }
+
+    fn index(&self) -> &BTreeMap<String, Vec<HookCall>> {
+        self.index.get_or_init(|| {
+            let mut by: BTreeMap<String, Vec<HookCall>> = BTreeMap::new();
+            let mut seen: BTreeSet<String> = BTreeSet::new();
+            for hit in hits_of(&self.dirs, "runSkillFunc:in") {
+                if !seen.insert(hit.clone()) {
+                    continue;
+                }
+                let Some(pin) = find_dump(&self.dirs, &hit) else {
+                    continue;
+                };
+                let Ok(d) = StateDump::load(&pin) else {
+                    continue;
+                };
+                let name = d
+                    .locals()
+                    .and_then(|l| l.get("name"))
+                    .and_then(J::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                let out_hit = hit.replacen("runSkillFunc:in#", "runSkillFunc:out#", 1);
+                let call = HookCall {
+                    hit: hit.clone(),
+                    n: d.n,
+                    name,
+                    din: pin,
+                    dout: find_dump(&self.dirs, &out_hit),
+                };
+                by.entry(d.stack.last().cloned().unwrap_or_default())
+                    .or_default()
+                    .push(call);
+            }
+            for v in by.values_mut() {
+                v.sort_by_key(|c| c.n);
+            }
+            by
+        })
+    }
+
+    /// The recorded calls named `name` inside the enclosing hit, in call order.
+    pub fn calls(&self, enclosing: &str, name: &str) -> Vec<HookCall> {
+        self.index()
+            .get(enclosing)
+            .map(|v| v.iter().filter(|c| c.name == name).cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// The `runSkillFunc:in` hits a `hits.json` of the dump directories lists before `hit`
+    /// (empty when no index lists `hit`).
+    pub fn calls_before(&self, hit: &str) -> BTreeSet<String> {
+        let order = self.order.get_or_init(|| {
+            for d in &self.dirs {
+                for f in ["hits.json", "hits.json.zst"] {
+                    let p = d.join(f);
+                    let alt = d.parent().map(|q| q.join(f));
+                    for p in std::iter::once(p).chain(alt) {
+                        if let Ok(h) = crate::schema::HitsIndex::load(&p) {
+                            return Some(
+                                h.dumps
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, e)| (e.hit.clone(), i))
+                                    .collect(),
+                            );
+                        }
+                    }
+                }
+            }
+            None
+        });
+        let Some(order) = order else {
+            return BTreeSet::new();
+        };
+        let Some(&at) = order.get(hit) else {
+            return BTreeSet::new();
+        };
+        order
+            .iter()
+            .filter(|(h, &i)| i < at && h.starts_with("runSkillFunc:in#"))
+            .map(|(h, _)| h.clone())
+            .collect()
+    }
 }
 
 /// Diff an exported state against a dump: the env, the GlobalCache and the
