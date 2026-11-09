@@ -26,11 +26,9 @@ pub mod headless;
 pub mod inject;
 #[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
 pub mod jit;
-/// The pre-port modifier model (old `pob-calc/src/modifier.rs`, moved here by
-/// calc U0 / AMENDMENTS A1): the serde shape of the oracle's stage dumps.
-pub mod legacy_modifier;
-pub mod legacy_modifier_serde;
 pub mod lua;
+/// ORC-X: mods, tags and mod values from the oracle's JSON into `pob_gamedata` types.
+pub mod mod_json;
 pub mod mod_parser;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod nondet;
