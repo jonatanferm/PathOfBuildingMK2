@@ -25,8 +25,11 @@ fi
 builds=("$@")
 if [ ${#builds[@]} -eq 0 ]; then builds=("$parity"/builds/*.xml "$here"/*.xml); fi
 
-# the patched source once (also builds pob_oracle)
+# the patched source once (also builds pob_oracle); later oracle.sh calls reuse that binary
+# instead of each waiting for a machine-wide cargo slot for a no-op build
 src="$("$root/scripts/port/oracle.sh" patch)"
+export POB_ORACLE_BIN="${POB_ORACLE_BIN:-${CARGO_TARGET_DIR:-$root/target}/release/pob_oracle}"
+[ -x "$POB_ORACLE_BIN" ] || { echo "no pob_oracle binary at $POB_ORACLE_BIN" >&2; exit 1; }
 out_root="$parity/unit/OF-B"
 mkdir -p "$out_root"
 for xml in "${builds[@]}"; do
