@@ -20,3 +20,62 @@
 #     (.parity/nondet, calc doc §9.5, CCR-0010 §4).
 #
 # No entries yet (U0 ships stubs only).
+
+[[diff]]
+id = "MP5-1"
+unit = "MP5"
+builds = ["*"]
+stage = "parse"
+keys = ["Modules/ModParser.lua:4576", "Modules/ModParser.lua:4577", "Modules/ModParser.lua:4578", "Modules/ModParser.lua:4579", "Modules/ModParser.lua:4580"]
+kind = "missing"
+reason = "specialModList entries call mod(name, type, value, nil, {tag}): modLib.createMod (ModTools.lua:36-58) stores nil at mod[1] and the tag at mod[2], so ipairs(mod) (EvalMod, ModStore.lua) never sees it. pob-modparser special_c.rs drops the tag (lua2rs LUA-QUIRK); the parse oracle and ModCache keep it at a non-sequence index (pob_gamedata Mod.extra[\"#2\"]). Identical for every calc reader. calc doc §6, CCR-0006 §7; checked by crates/pob-oracle/tests/MP5.rs."
+ccr = "CCR-0006"
+
+[[diff]]
+id = "MP5-2"
+unit = "MP5"
+builds = ["*"]
+stage = "parse"
+keys = ["Modules/ModParser.lua:4216", "Modules/ModParser.lua:4222"]
+kind = "value"
+reason = "PercentStat tags take percent = <digits-only capture string> in Lua; Rust stores tonumber of it (lua2rs snum). EvalMod only uses tag.percent in arithmetic, (`percent / 100`, ModStore.lua:547-548), which coerces the string the same way. The parse oracle / ModCache mods keep the string (pob_gamedata Tag.extra[\"percent\"]). calc doc §6, CCR-0006 §7; checked by crates/pob-oracle/tests/MP5.rs."
+ccr = "CCR-0006"
+
+[[diff]]
+id = "MP4-1"
+unit = "MP4"
+builds = ["*"]
+stage = "modparser"
+keys = ["specialModList:3535 PerStat tag.div"]
+kind = "value"
+reason = "ModParser.lua:3535 ('shield crush and spectral shield throw gains (%d+) to (%d+) added lightning damage per (%d+) energy shield on shield') stores the digits-only capture string as tag.div; the port stores tonumber of it (calc doc §6 known parse-level differences). EvalMod only uses div in arithmetic (ModStore.lua PerStat), which coerces the string the same way, so the calc sees the same value. crates/pob-oracle/tests/MP4.rs normalises exactly this field (KNOWN_TAG_STR)."
+ccr = "CCR-0006"
+
+[[diff]]
+id = "MP6-1"
+unit = "MP6"
+builds = ["*"]
+stage = "parse"
+keys = ["Modules/ModParser.lua:5686", "Modules/ModParser.lua:5689", "Modules/ModParser.lua:5692"]
+kind = "missing"
+reason = "specialModList entries call mod(name, type, value, nil, {tag}) (ModParser.lua:5687/5690/5693): modLib.createMod (ModTools.lua:36-58) stores nil at mod[1] and the tag at mod[2], so ipairs(mod) (EvalMod, ModStore.lua) never sees it. pob-modparser special_d.rs drops the tag (lua2rs LUA-QUIRK); the parse oracle and ModCache keep it at a non-sequence index (pob_gamedata Mod.extra[\"#2\"]). Identical for every calc reader. calc doc §6, CCR-0006 §7; checked by crates/pob-oracle/tests/MP6.rs."
+ccr = "CCR-0006"
+
+[[diff]]
+id = "MP6-2"
+unit = "MP6"
+builds = ["*"]
+stage = "parse"
+keys = ["Modules/ModParser.lua:5733", "Modules/ModParser.lua:5734", "Modules/ModParser.lua:5741"]
+kind = "value"
+reason = "Multiplier/PerStat tags take div = <digits-only (%d+) capture string> in Lua; Rust stores tonumber of it (lua2rs snum). EvalMod only uses div (and limit = 1000 / num, already a number) in arithmetic (ModStore.lua), which coerces the string the same way. The parse oracle / ModCache mods keep the string (pob_gamedata Tag.extra[\"div\"]). calc doc §6, CCR-0006 §7; checked by crates/pob-oracle/tests/MP6.rs."
+ccr = "CCR-0006"
+
+[[diff]]
+id = "MP6-3"
+unit = "MP6"
+builds = ["*"]
+stage = "parse"
+keys = ["Modules/ModParser.lua:5509"]
+kind = "value"
+reason = "skillTypeList = { SkillType.Instant, SkillType.Totem, SkillType.Triggered } (ModParser.lua:5509): SkillType.Totem is nil (Data/Global.lua defines SummonsTotem, not Totem), so the Lua list has a hole at [2]; the Rust list is [Instant, Triggered], the values its only reader (pairs, ModStore.lua SkillType tag) sees. Not yet in calc doc §6 / CCR-0006 §7 (a binding-doc change, left to a CCR); checked by crates/pob-oracle/tests/MP6.rs."

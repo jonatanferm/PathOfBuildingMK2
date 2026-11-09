@@ -1,39 +1,40 @@
 //! Desktop host: winit window + event loop driving an [`App`] with SimpleGraphic input semantics,
 //! rendering through pob-sg-wgpu (ui doc §5.2 "Desktop host rules"). Owner: U7.
 //!
-//! Moved from the pre-port `pob-sg/src/host.rs` by UI-U0 and adapted to the §5.2 surface (the
-//! App owns `Sg`/`Sys`; keys are [`Key`]s; rendering goes through `SgRenderer`). Behaviour ported
-//! from SimpleGraphic (research copy master @ 8694a07): key names and extra chars (`input.rs`),
-//! wheel = KeyDown+KeyUp, double click, swallowed F10 / Shift+Pause KeyUp, `GetCursorPos`
-//! rounding (in `Sys`).
+//! Port of PathOfBuilding-SimpleGraphic `3b1a346` `sys_main.cpp` `Run` (main loop: poll events,
+//! `core->Frame()` until `exitFlag`), `ui_main.cpp:380-445` `Frame`, `:465-475` `CanExit`, the
+//! GLFW callbacks of `sys_video.cpp:476-620` (through [`crate::input::WinitInput`]) and
+//! `r_main.cpp` `DoScreenshot`. Moved from the pre-port `pob-sg/src/host.rs` by UI-U0.
 //!
-//! Deltas U7 closes: Net completions are not delivered yet (no App callback in the §5.2 trait,
-//! see CCR-0013); Restart/TakeScreenshot requests are ignored.
+//! Loop: winit `about_to_wait` requests a redraw when the next frame is due; `RedrawRequested`
+//! runs [`crate::Driver::frame`] (pacing test, [`crate::run_frame`], render, present); the
+//! following frame is due at once or after the 100 ms idle sleep ([`crate::pacing`]).
+//! Window requests made by Lua (title, `Exit`, `Restart`, `TakeScreenshot`) are applied after
+//! the callback that made them.
+//!
+//! DIVERGENCE(restart): SG's `Restart()` re-runs the script in the same window
+//! (`ScriptShutdown` + `ScriptInit`); `run_desktop` takes its app factory by `FnOnce`, so the
+//! port runs `OnExit`, starts a new process with the same arguments and exits.
+//! DIVERGENCE(screenshot time): the file name uses UTC (`MMDDYY_HHMMSS`), SG local time.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use pob_sg::{FontSet, ImageRegistry, Key, ScreenInfo, Sg, Sys};
-use pob_sg_wgpu::SgRenderer;
+use pob_sg::{FontSet, ImageRegistry, Sg, Sys};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key as WKey, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use crate::fs_native::{DirAssets, NativeFs};
-use crate::input::{
-    extra_char, key_from_winit, mouse_button_key, swallow_key_up, text_chars, DoubleClick,
-};
 use crate::loader_native::NativeLoader;
 use crate::net_native::NativeNet;
-use crate::pacing::Pacing;
 use crate::platform_native::{HostRequests, NativePlatform};
-use crate::{panic_message, App, HostConfig, PlatformParts};
+use crate::{App, Driver, FrameOutcome, Gfx, HostConfig, PlatformParts};
 
 /// Build `Sg` (fonts loaded, native loader installed) and `Sys` for `cfg`. Returns the queue of
 /// window requests the platform writes to.
@@ -54,33 +55,64 @@ pub fn build_parts(
     let sg = Sg::new(Rc::new(fonts), images);
     let platform = NativePlatform::new(cfg.pob_src.clone(), cfg.sg_runtime.clone());
     let requests = platform.requests.clone();
-    let sys = Sys::new(Box::new(platform), Box::new(NativeFs), Box::new(NativeNet));
+    let net = NativeNet::with_clipboard(platform.clipboard());
+    let fs = NativeFs::new(&cfg.pob_src);
+    let sys = Sys::new(Box::new(platform), Box::new(fs), Box::new(net));
     Ok((PlatformParts { sg, sys }, requests))
 }
 
-struct Gfx {
-    window: Arc<Window>,
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    view_format: wgpu::TextureFormat,
-    renderer: SgRenderer,
+/// `{:%m%d%y_%H%M%S}` of a UNIX time (UTC).
+pub fn screenshot_stamp(unix_secs: i64) -> String {
+    let days = unix_secs.div_euclid(86_400);
+    let secs = unix_secs.rem_euclid(86_400);
+    // civil_from_days (Howard Hinnant)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{m:02}{d:02}{:02}_{:02}{:02}{:02}",
+        y.rem_euclid(100),
+        secs / 3600,
+        secs / 60 % 60,
+        secs % 60
+    )
+}
+
+/// lua: r_main.cpp `DoScreenshot`: the frame as RGB JPEG (`r_screenshotFormat` defaults to
+/// `jpg`) at `<runtime>/SimpleGraphic/Screenshots/<MMDDYY_HHMMSS>.jpg` (`CFG_DATAPATH`).
+fn save_screenshot(sg_runtime: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<PathBuf, String> {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    let dir = sg_runtime.join("Screenshots");
+    std::fs::create_dir_all(&dir).map_err(|_| "Couldn't create screenshot folder!".to_owned())?;
+    let path = dir.join(format!("{}.jpg", screenshot_stamp(secs)));
+    let rgb: Vec<u8> = rgba
+        .chunks_exact(4)
+        .flat_map(|p| [p[0], p[1], p[2]])
+        .collect();
+    image::save_buffer(&path, &rgb, w, h, image::ColorType::Rgb8)
+        .map_err(|_| "Couldn't write screenshot!".to_owned())?;
+    Ok(path)
 }
 
 struct Host<A: App> {
-    app: A,
+    drv: Driver<A>,
     cfg: HostConfig,
     requests: Rc<RefCell<HostRequests>>,
     gfx: Option<Gfx>,
-    dbl: DoubleClick,
-    wheel_acc: f64,
-    cursor_phys: Option<(f64, f64)>,
-    focused: bool,
-    hovered: bool,
-    pacing: Pacing,
-    error: Option<String>,
+    start: Instant,
+    next_frame: Instant,
     inited: bool,
+    done: bool,
+    /// A frame ran since the last screenshot check (SG shoots the frame it was asked in).
+    rendered: bool,
 }
 
 impl<A: App> Host<A> {
@@ -105,147 +137,64 @@ impl<A: App> Host<A> {
             .map_err(|e| e.to_string())?;
         let (adapter, device, queue) =
             pollster::block_on(pob_sg_wgpu::request_device(&instance, Some(&surface)))?;
-        let caps = surface.get_capabilities(&adapter);
-        let (format, view_format) = pob_sg_wgpu::pick_surface_format(&caps);
-        let size = window.inner_size();
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            color_space: Default::default(),
-            width: size.width.max(1),
-            height: size.height.max(1),
-            present_mode: wgpu::PresentMode::AutoVsync,
-            desired_maximum_frame_latency: 2,
-            alpha_mode: caps
-                .alpha_modes
-                .first()
-                .copied()
-                .unwrap_or(wgpu::CompositeAlphaMode::Auto),
-            view_formats: if view_format == format {
-                vec![]
-            } else {
-                vec![view_format]
-            },
-        };
-        surface.configure(&device, &config);
-        let renderer = SgRenderer::new(&device, &adapter.limits(), view_format);
-        self.gfx = Some(Gfx {
-            window,
-            surface,
-            device,
-            queue,
-            config,
-            view_format,
-            renderer,
-        });
+        self.gfx = Some(Gfx::new(window, surface, &adapter, device, queue));
         Ok(())
     }
 
-    /// D17: each callback runs inside catch_unwind; a panic goes to `App::on_lua_error`.
-    fn guard(&mut self, f: impl FnOnce(&mut A)) {
-        let app = &mut self.app;
-        if let Err(p) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(app))) {
-            let msg = panic_message(&*p);
-            let app = &mut self.app;
-            if let Err(p2) =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.on_lua_error(msg)))
-            {
-                self.error = Some(panic_message(&*p2));
-            }
-        }
+    fn now_ms(&self) -> f64 {
+        self.start.elapsed().as_secs_f64() * 1000.0
     }
 
-    fn key_down(&mut self, key: Key, dbl: bool) {
-        self.app.sys().set_key(key, true);
-        self.guard(|a| a.on_key_down(key, dbl));
-    }
-
-    fn key_up(&mut self, key: Key) {
-        self.app.sys().set_key(key, false);
-        let shift = self.app.sys().is_key_down(Key::Shift);
-        if swallow_key_up(key, shift) {
-            return;
-        }
-        self.guard(|a| a.on_key_up(key));
-    }
-
-    fn wheel(&mut self, up: bool) {
-        let key = if up { Key::WheelUp } else { Key::WheelDown };
-        self.guard(|a| a.on_key_down(key, false));
-        self.guard(|a| a.on_key_up(key));
-    }
-
-    fn frame(&mut self, el: &ActiveEventLoop) {
-        let Some(gfx) = self.gfx.as_mut() else { return };
-        let size = gfx.window.inner_size();
-        if size.width == 0 || size.height == 0 {
-            return;
-        }
-        if size.width != gfx.config.width || size.height != gfx.config.height {
-            gfx.config.width = size.width;
-            gfx.config.height = size.height;
-            gfx.surface.configure(&gfx.device, &gfx.config);
-        }
-        let screen = ScreenInfo {
-            fb_w: size.width as i32,
-            fb_h: size.height as i32,
-            win_h: size.height as i32,
-            dpi_scale: gfx.window.scale_factor() as f32,
-        };
-        let cursor = self
-            .cursor_phys
-            .map_or((0, 0), |(x, y)| (x.floor() as i32, y.floor() as i32));
-        self.app.sg().begin_frame(screen);
-        let scale = self.app.sg().scale();
-        self.app.sys().begin_frame(cursor, scale);
-        self.guard(A::on_frame);
-        let frame = self.app.sg().end_frame();
-        let gfx = self.gfx.as_mut().unwrap();
-        gfx.renderer.prepare(&gfx.device, &gfx.queue, &frame);
-        let tex = match gfx.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                gfx.surface.configure(&gfx.device, &gfx.config);
-                None
-            }
-            _ => None,
-        };
-        if let Some(tex) = tex {
-            let view = tex.texture.create_view(&wgpu::TextureViewDescriptor {
-                format: Some(gfx.view_format),
-                ..Default::default()
-            });
-            let mut enc = gfx
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("pob-host frame"),
-                });
-            gfx.renderer.render(&mut enc, &view);
-            gfx.queue.submit(Some(enc.finish()));
-            gfx.window.pre_present_notify();
-            gfx.queue.present(tex);
-        }
-        self.pacing.frame_done();
+    /// Apply what Lua asked for during the last callbacks.
+    fn apply_requests(&mut self, el: &ActiveEventLoop) {
         let req = std::mem::take(&mut *self.requests.borrow_mut());
-        if let Some(t) = req.title {
-            gfx.window.set_title(&t);
+        if let (Some(t), Some(g)) = (req.title, &self.gfx) {
+            g.window.set_title(&t);
         }
-        if req.exit || self.error.is_some() {
-            self.app.on_exit();
-            el.exit();
-            return;
-        }
-        match self
-            .pacing
-            .next_wait(self.focused, self.hovered, self.app.wants_frames())
-        {
-            None => {
-                el.set_control_flow(ControlFlow::Poll);
-                gfx.window.request_redraw();
+        if req.screenshot && self.rendered {
+            if let Some(g) = &self.gfx {
+                let (w, h, px) = g.read_back();
+                match save_screenshot(Path::new(&self.cfg.sg_runtime), w, h, &px) {
+                    Ok(p) => println!("Wrote screenshot to {}", p.display()),
+                    Err(e) => println!("{e}"),
+                }
             }
-            Some(d) => el.set_control_flow(ControlFlow::WaitUntil(Instant::now() + d)),
+        } else if req.screenshot {
+            self.requests.borrow_mut().screenshot = true; // wait for the next rendered frame
         }
+        if req.exit || req.restart {
+            self.drv.shutdown();
+            if req.restart && !req.exit {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe)
+                        .args(std::env::args_os().skip(1))
+                        .spawn();
+                }
+            }
+            self.finish(el);
+        }
+        if self.drv.error.is_some() {
+            self.finish(el);
+        }
+    }
+
+    fn finish(&mut self, el: &ActiveEventLoop) {
+        self.done = true;
+        el.exit();
+    }
+
+    fn redraw(&mut self, el: &ActiveEventLoop) {
+        let Some(gfx) = self.gfx.as_mut() else { return };
+        let now = Instant::now();
+        self.rendered = false;
+        match self.drv.frame(gfx) {
+            FrameOutcome::Skipped => self.next_frame = now + crate::pacing::IDLE_WAIT,
+            FrameOutcome::Ran(sleep) => {
+                self.rendered = true;
+                self.next_frame = now + sleep.unwrap_or(Duration::ZERO);
+            }
+        }
+        self.apply_requests(el);
     }
 }
 
@@ -253,14 +202,15 @@ impl<A: App> ApplicationHandler for Host<A> {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         if self.gfx.is_none() {
             if let Err(e) = self.init_gfx(el) {
-                self.error = Some(e);
-                el.exit();
+                self.drv.error = Some(e);
+                self.finish(el);
                 return;
             }
         }
         if !self.inited {
             self.inited = true;
-            self.guard(A::on_init);
+            self.drv.init();
+            self.apply_requests(el);
         }
         if let Some(g) = &self.gfx {
             g.window.request_redraw();
@@ -268,101 +218,38 @@ impl<A: App> ApplicationHandler for Host<A> {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if self.done {
+            return;
+        }
         match event {
             WindowEvent::CloseRequested => {
-                if self.app.can_exit() {
-                    self.app.on_exit();
-                    el.exit();
+                // glfwSetWindowCloseCallback: initialised && CanExit(); then Shutdown → OnExit.
+                if self.drv.can_exit() {
+                    self.drv.shutdown();
+                    self.finish(el);
                 }
             }
-            WindowEvent::RedrawRequested => self.frame(el),
-            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
-                if let Some(g) = &self.gfx {
-                    g.window.request_redraw();
-                }
+            WindowEvent::RedrawRequested => self.redraw(el),
+            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {}
+            ev => {
+                let scale = self.gfx.as_ref().map_or(1.0, |g| g.window.scale_factor());
+                let now = self.now_ms();
+                self.drv.window_event(&ev, now, scale);
+                self.apply_requests(el);
             }
-            WindowEvent::Focused(f) => self.focused = f,
-            WindowEvent::CursorEntered { .. } => self.hovered = true,
-            WindowEvent::CursorMoved { position, .. } => {
-                self.cursor_phys = Some((position.x, position.y));
-            }
-            WindowEvent::CursorLeft { .. } => {
-                // glfwSetCursorEnterCallback: lastCursorPos.reset() on leave.
-                self.cursor_phys = None;
-                self.hovered = false;
-            }
-            WindowEvent::MouseInput { state, button, .. } => {
-                let Some(key) = mouse_button_key(button) else {
-                    return;
-                };
-                match state {
-                    ElementState::Pressed => {
-                        let pos = self.cursor_phys.map(|(x, y)| (x as i32, y as i32));
-                        let dbl = self.dbl.press(key, pos, Instant::now());
-                        self.key_down(key, dbl);
-                    }
-                    ElementState::Released => self.key_up(key),
-                }
-            }
-            WindowEvent::MouseWheel { delta, .. } => match delta {
-                MouseScrollDelta::LineDelta(_, y) => {
-                    if y > 0.0 {
-                        self.wheel(true);
-                    } else if y < 0.0 {
-                        self.wheel(false);
-                    }
-                }
-                MouseScrollDelta::PixelDelta(p) => {
-                    // §5.2: PixelDelta accumulates and gives one pair per 40 logical px.
-                    let step = 40.0 * self.gfx.as_ref().map_or(1.0, |g| g.window.scale_factor());
-                    self.wheel_acc += p.y;
-                    while self.wheel_acc >= step {
-                        self.wheel_acc -= step;
-                        self.wheel(true);
-                    }
-                    while self.wheel_acc <= -step {
-                        self.wheel_acc += step;
-                        self.wheel(false);
-                    }
-                }
-            },
-            WindowEvent::KeyboardInput { event, .. } => {
-                let PhysicalKey::Code(code) = event.physical_key else {
-                    return;
-                };
-                let logical = match &event.logical_key {
-                    WKey::Character(s) => s.chars().next(),
-                    _ => None,
-                };
-                let key = key_from_winit(code, logical);
-                match event.state {
-                    ElementState::Pressed => {
-                        if let Some(k) = key {
-                            self.key_down(k, false);
-                        }
-                        if let Some(c) = extra_char(code) {
-                            self.guard(|a| a.on_char(c));
-                        } else if let Some(text) = event.text.as_ref() {
-                            // GLFW only delivers chars for "plain" input (no CTRL/ALT held), so
-                            // Ctrl+V is a key, not a 'v'.
-                            let held = self.app.sys().is_key_down(Key::Ctrl)
-                                || self.app.sys().is_key_down(Key::Alt);
-                            if !held {
-                                let chars: Vec<Key> = text_chars(text).collect();
-                                for c in chars {
-                                    self.guard(|a| a.on_char(c));
-                                }
-                            }
-                        }
-                    }
-                    ElementState::Released => {
-                        if let Some(k) = key {
-                            self.key_up(k);
-                        }
-                    }
-                }
-            }
-            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        if self.done {
+            return;
+        }
+        let Some(g) = &self.gfx else { return };
+        if Instant::now() >= self.next_frame {
+            g.window.request_redraw();
+            el.set_control_flow(ControlFlow::Wait);
+        } else {
+            el.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
         }
     }
 }
@@ -375,21 +262,33 @@ pub fn run_desktop<A: App>(
     let (parts, requests) = build_parts(&cfg, false)?;
     let app = make(parts);
     let el = EventLoop::new()?;
-    el.set_control_flow(ControlFlow::Poll);
+    el.set_control_flow(ControlFlow::Wait);
+    let now = Instant::now();
     let mut host = Host {
-        app,
+        drv: Driver::new(app),
         cfg,
         requests,
         gfx: None,
-        dbl: DoubleClick::default(),
-        wheel_acc: 0.0,
-        cursor_phys: None,
-        focused: true,
-        hovered: false,
-        pacing: Pacing::default(),
-        error: None,
+        start: now,
+        next_frame: now,
         inited: false,
+        done: false,
+        rendered: false,
     };
     el.run_app(&mut host)?;
-    host.error.map_or(Ok(()), |e| Err(anyhow::anyhow!(e)))
+    host.drv.error.map_or(Ok(()), |e| Err(anyhow::anyhow!(e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stamps() {
+        assert_eq!(screenshot_stamp(0), "010170_000000");
+        // 2026-10-10T13:45:07Z
+        assert_eq!(screenshot_stamp(1_791_639_907), "101026_134507");
+        // 2000-02-29T23:59:59Z
+        assert_eq!(screenshot_stamp(951_868_799), "022900_235959");
+    }
 }

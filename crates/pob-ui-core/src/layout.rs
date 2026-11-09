@@ -1,6 +1,14 @@
 //! Port of PathOfBuilding v2.67.2 (16de4b82d) src/Classes/Control.lua (anchors, rect, GetPos,
 //! GetSize, IsShown, IsEnabled, IsMouseInBounds) and Common.lua:413-416 (isMouseInRegion).
-//! Ui doc §6.3. Owner: U4. UI-U0 stub: the §6.3 reference bodies; U4 verifies them with T0.
+//! Ui doc §6.3. Owner: U4. Verified bit-exact against the real Control.lua over 500 random anchor
+//! graphs by `tests/tier0_layout.rs` (T0).
+//!
+//! @pob-file Classes/Control.lua @16de4b82d
+//! @pob-file Modules/Common.lua @16de4b82d
+//!
+//! Anchor points are a typed enum, so the only invalid anchor position a port can produce is
+//! nil (`Anchor::point`/`other_point` = None with an `other`): the `assert` of Control.lua:106/:111
+//! with the message "invalid anchor position 'nil'".
 #![allow(clippy::many_single_char_names)]
 
 use crate::cx::Cx;
@@ -128,6 +136,8 @@ pub struct Base {
 
 impl Base {
     /// ControlClass:Control(anchor, rect) (Control.lua:55-66). Pass rect(0,0,0,0) for a nil rect.
+    /// lua: Control.lua:55-66
+    /// @pob Classes/Control.lua:55-66 h=0e37c7a8
     pub fn new(anchor: Anchor, rect: [Prop<f64>; 4]) -> Base {
         let [x, y, width, height] = rect.clone();
         Base {
@@ -158,6 +168,8 @@ pub fn rect(
 }
 
 /// Control.lua:92-119. Exact, including floor and WHEN sizes are queried (dynamic dispatch via cx.pos/cx.size).
+/// lua: Control.lua:92-119
+/// @pob Classes/Control.lua:92-119 h=88912855
 pub fn base_pos(cx: &Cx, id: CtrlId) -> (f64, f64) {
     let b = cx.base(id);
     if b.anchor.collapse {
@@ -199,12 +211,16 @@ pub fn base_pos(cx: &Cx, id: CtrlId) -> (f64, f64) {
 }
 
 /// Control.lua:121-123
+/// lua: Control.lua:121-123
+/// @pob Classes/Control.lua:121-123 h=08646074
 pub fn base_size(cx: &Cx, id: CtrlId) -> (f64, f64) {
     let b = cx.base(id);
     (b.width.get(cx, id), b.height.get(cx, id))
 }
 
 /// Control.lua:125-127
+/// lua: Control.lua:125-127
+/// @pob Classes/Control.lua:125-127 h=67261d36
 pub fn base_is_shown(cx: &Cx, id: CtrlId) -> bool {
     let b = cx.base(id);
     (b.anchor.other.is_none() || b.anchor.collapse || cx.is_shown(b.anchor.other.unwrap()))
@@ -212,11 +228,15 @@ pub fn base_is_shown(cx: &Cx, id: CtrlId) -> bool {
 }
 
 /// Control.lua:129-131
+/// lua: Control.lua:129-131
+/// @pob Classes/Control.lua:129-131 h=25a3ac02
 pub fn base_is_enabled(cx: &Cx, id: CtrlId) -> bool {
     cx.base(id).enabled.get(cx, id)
 }
 
 /// Control.lua:133-138
+/// lua: Control.lua:133-138
+/// @pob Classes/Control.lua:133-138 h=163e5d5d
 pub fn base_is_mouse_in_bounds(cx: &Cx, id: CtrlId) -> bool {
     let (x, y) = cx.pos(id);
     let (w, h) = cx.size(id);
@@ -225,6 +245,8 @@ pub fn base_is_mouse_in_bounds(cx: &Cx, id: CtrlId) -> bool {
 }
 
 /// Common.lua:413-416 isMouseInRegion
+/// lua: Common.lua:413-416
+/// @pob Modules/Common.lua:413-416 h=ee452f9d
 pub fn is_mouse_in_region(cx: &Cx, r: &ViewPort) -> bool {
     let (x, y) = cx.sys.cursor_pos();
     x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
