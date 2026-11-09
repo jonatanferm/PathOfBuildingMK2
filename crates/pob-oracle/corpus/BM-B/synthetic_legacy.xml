@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- BM-B synthetic: pre-skill-set and pre-config-set formats, the legacy gem level flag. -->
+<PathOfBuilding>
+	<Skills matchGemLevelToCharacterLevel="true" defaultGemQuality="-5">
+		<Skill enabled="true" label="Legacy" mainActiveSkill="1">
+			<Gem nameSpec="Fireball" level="20" quality="0"/>
+			<Gem nameSpec="Flame Dash" level="20" quality="0"/>
+		</Skill>
+		<Skill enabled="true">
+			<Gem nameSpec="Clarity" level="20" quality="0"/>
+		</Skill>
+	</Skills>
+	<Config>
+		<Input name="enemyLevel" number="70"/>
+		<Input name="customMods" string="+5 to dexterity"/>
+		<Input name="enemyIsBoss" string="Sirus"/>
+		<CustomModifierBlock title="Legacy" enabled="true"></CustomModifierBlock>
+	</Config>
+</PathOfBuilding>

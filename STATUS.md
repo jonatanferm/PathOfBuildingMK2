@@ -1,5 +1,7 @@
 # Project status
 
+> **Rust port in progress:** see `docs/port/STATUS.md` (branch `rust-port`). The text below describes the earlier Lua-at-runtime architecture.
+
 Status as of 2026-09-30 (branch `parity/real-builds`).
 
 ## Architecture in one paragraph

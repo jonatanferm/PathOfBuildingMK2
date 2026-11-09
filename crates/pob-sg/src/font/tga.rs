@@ -1,19 +1,22 @@
 //! TGA decoder for SimpleGraphic font atlases (ui doc §3 `font/tga.rs`: RLE/raw 32-bpp TGA). Owner: U2.
-//! Moved from the pre-port `pob-sg/src/tga.rs` by UI-U0.
+//! Moved from the pre-port `pob-sg/src/tga.rs` by UI-U0; also used by `image.rs` (U3) for `.tga`.
 //!
-//! Port of `engine/core/core_image.cpp` `targa_c::Load` (SimpleGraphic
-//! master @ 8694a07):
+//! Port of `engine/core/core_image.cpp:162-254` `targa_c::Load` (PathOfBuilding-SimpleGraphic
+//! @ 3b1a346; re-verified by U2):
 //! - colour-mapped images are rejected;
 //! - supported (type & 7, depth): (3, 8) grey, (2, 24) RGB, (2, 32) RGBA;
-//!   bit 3 of the image type selects RLE;
-//! - `flipV = !(descriptor & 0x20)`: rows are stored bottom-up unless the
-//!   top-left-origin bit is set (the shipped font atlases use both: e.g.
-//!   `Liberation Sans.16.tga` has descriptor 0x00, `Liberation Sans.32.tga`
-//!   has 0x28);
-//! - BGR(A) is swapped to RGB(A).
+//!   bit 3 of the image type selects RLE; RLE packets never straddle rows ("overlong row");
+//! - `flipV = !(descriptor & 0x20)`: rows are stored bottom-up unless the top-left-origin bit is
+//!   set. The 112 shipped font atlases are all type 10 (RLE), 32 bpp; most have descriptor 0x00
+//!   (bottom-up, e.g. `Liberation Sans.16.tga`), six have 0x28 (top-down + 8 alpha bits, e.g.
+//!   `Liberation Sans.32.tga`);
+//! - BGR(A) is swapped to RGB(A). The font atlases are white with alpha = glyph coverage.
 //!
-//! Output is always top-down RGBA8 (grey expands to `v,v,v,255`, RGB gets
-//! alpha 255), which is what the GL upload ends up sampling.
+//! Output is always top-down RGBA8 (grey expands to `v,v,v,255`, RGB gets alpha 255), which is
+//! what the GL upload ends up sampling.
+//!
+//! DIVERGENCE(truncated file): SG's stream reads past the end leave the buffer as is and the image
+//! loads; here a truncated file is an error (no shipped asset is truncated).
 
 /// Decoded image, top-down RGBA8.
 #[derive(Clone, Debug)]
@@ -35,6 +38,8 @@ pub struct TgaHeader {
     pub descriptor: u8,
 }
 
+/// The 18-byte `tgaHeader_s`.
+/// sg: core_image.cpp:162-184 @3b1a346
 pub fn read_header(data: &[u8]) -> Result<TgaHeader, String> {
     if data.len() < 18 {
         return Err("TGA: couldn't read header".into());
@@ -51,6 +56,8 @@ pub fn read_header(data: &[u8]) -> Result<TgaHeader, String> {
     })
 }
 
+/// `targa_c::Load` into top-down RGBA8.
+/// sg: core_image.cpp:162-254 @3b1a346
 pub fn decode(data: &[u8]) -> Result<Rgba8Image, String> {
     let hdr = read_header(data)?;
     if hdr.color_map_type != 0 {

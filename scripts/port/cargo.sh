@@ -6,7 +6,7 @@
 # - Exactly one cargo invocation runs at a time machine-wide, across all worktrees: the
 #   whole cargo run holds an exclusive flock on $POB_PORT_LOCK_DIR/cargo.lock
 #   (default: ${XDG_RUNTIME_DIR:-/tmp}/pob-port).
-# - Exports CARGO_BUILD_JOBS=3 and RUSTC_WRAPPER=$HOME/.cargo/bin/sccache (when executable;
+# - Exports CARGO_BUILD_JOBS=${POB_PORT_JOBS:-6} and RUSTC_WRAPPER=$HOME/.cargo/bin/sccache (when executable;
 #   an existing RUSTC_WRAPPER is kept).
 # - CARGO_TARGET_DIR defaults to <worktree>/target: never share a target dir between
 #   worktrees (path-based fingerprints thrash).
@@ -27,7 +27,7 @@ if [ "$#" -eq 0 ]; then
     exit 2
 fi
 
-export CARGO_BUILD_JOBS=3
+export CARGO_BUILD_JOBS="${POB_PORT_JOBS:-6}"
 if [ -z "${RUSTC_WRAPPER:-}" ] && [ -x "$HOME/.cargo/bin/sccache" ]; then
     export RUSTC_WRAPPER="$HOME/.cargo/bin/sccache"
 fi

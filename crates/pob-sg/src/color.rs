@@ -4,17 +4,21 @@
 //! Moved from the pre-port `pob-sg/src/color.rs` by UI-U0; PoB's `colorCodes` table
 //! (Data/Global.lua) moved to `pob-ui-core/src/color_codes.rs`.
 //!
-//! Source references (SimpleGraphic master @ 8694a07, which matches the
-//! `r_font.cpp` shipped with PoB 2.67.2: that file is unchanged since
-//! 2025-10-23):
-//! - palette: `engine/common/common.cpp` `colorEscape[10]` table, values from
-//!   `engine/common.h` (`colorBlack` .. `colorDarkGray`). The same float table
-//!   is present in the shipped `SimpleGraphic.dll` (offset 0x185380, see
-//!   docs/port/research/map_pob-ui-lua.md).
-//! - escape recognition: `engine/common/common.cpp` `IsColorEscape(const char*)`
-//!   and `IsColorEscape(std::u32string_view)`.
-//! - escape decoding: `engine/common/common.cpp` `ReadColorEscape`.
-//! - stripping: `ui_api.cpp` `l_StripEscapes`.
+//! Port of PathOfBuilding-SimpleGraphic `3b1a346` (the shipped DLL's commit; `common.cpp` and
+//! `common.h` are byte-identical to the research copy, master @ 8694a07):
+//! - palette: `engine/common/common.cpp:188-199` `colorEscape[10]`, values from
+//!   `engine/common.h:110-119` (`colorBlack` .. `colorDarkGray`). The same 160-byte float
+//!   table is present once in the shipped `SimpleGraphic.dll` (offset 0x185380); the test
+//!   `palette_equals_dll_table` checks it.
+//! - escape recognition: `engine/common/common.cpp:201-218` `IsColorEscape(const char*)` and
+//!   `:220-248` `IsColorEscape(std::u32string_view)` (equivalent on valid UTF-8: every byte of
+//!   an escape is ASCII).
+//! - escape decoding: `engine/common/common.cpp:250-274` `ReadColorEscape`.
+//! - stripping: `ui_api.cpp:1259-1281` `l_StripEscapes` (the NUL cut of the C string is applied
+//!   by `api::strip_escapes`).
+//!
+//! PoB's own colour constants (`Data/Global.lua:7-100`: `colorCodes`, `hexToRGB`) live in
+//! `pob-ui-core/src/color_codes.rs` (U4).
 
 /// RGBA colour, components in 0..=1 (SimpleGraphic `col4_t`).
 pub type Rgba = [f32; 4];
@@ -161,5 +165,68 @@ mod tests {
             Some([1.0, 128.0 / 255.0, 0.0, 1.0])
         );
         assert_eq!(parse_escape_color("7"), None);
+        // `xr / 255.0f` in float, every byte value; upper and lower case hex.
+        for v in 0..=255u8 {
+            let s = format!("^x{v:02x}{v:02X}00");
+            let c = parse_escape_color(&s).unwrap();
+            assert_eq!(c[0], f32::from(v) / 255.0f32);
+            assert_eq!(c[1], f32::from(v) / 255.0f32);
+            assert_eq!(c[2], 0.0);
+            assert_eq!(c[3], 1.0);
+        }
+        // ReadColorEscape copies only RGB.
+        let mut out = [0.5, 0.5, 0.5, 0.25];
+        read_color_escape(b"^1", 2, &mut out);
+        assert_eq!(out, [1.0, 0.0, 0.0, 0.25]);
+    }
+
+    /// Finds the shipped `SimpleGraphic.dll` (gitignored; worktrees search their ancestors,
+    /// `POB_ROOT` overrides).
+    fn shipped_dll() -> Option<Vec<u8>> {
+        let mut starts = Vec::new();
+        if let Some(p) = std::env::var_os("POB_ROOT") {
+            starts.push(std::path::PathBuf::from(p));
+        }
+        starts.push(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        for s in starts {
+            for d in s.ancestors() {
+                let p = d.join(".PathOfBuilding/runtime/SimpleGraphic.dll");
+                if p.is_file() {
+                    return std::fs::read(p).ok();
+                }
+            }
+        }
+        None
+    }
+
+    /// Acceptance (ui doc §12.3 U1): the palette equals the DLL's `colorEscape` float table,
+    /// and the DLL is the pinned `3b1a346`.
+    #[test]
+    fn palette_equals_dll_table() {
+        let Some(dll) = shipped_dll() else {
+            eprintln!("SKIP: .PathOfBuilding/runtime/SimpleGraphic.dll not found (set POB_ROOT)");
+            return;
+        };
+        let ver = b"SimpleGraphic v2.5-3b1a346";
+        assert!(
+            dll.windows(ver.len()).any(|w| w == ver),
+            "DLL is not 3b1a346"
+        );
+        let table: Vec<u8> = PALETTE
+            .iter()
+            .flat_map(|c| c.iter().flat_map(|v| v.to_le_bytes()))
+            .collect();
+        assert_eq!(table.len(), 160);
+        let hits: Vec<usize> = dll
+            .windows(table.len())
+            .enumerate()
+            .filter(|(_, w)| *w == table.as_slice())
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            hits,
+            vec![0x185380],
+            "palette table not found once in the DLL"
+        );
     }
 }

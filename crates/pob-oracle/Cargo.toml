@@ -31,6 +31,8 @@ rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 pob-gamedata.workspace = true
+pob-lua.workspace = true
+pob-modparser.workspace = true
 
 [features]
 default = ["luajit"]

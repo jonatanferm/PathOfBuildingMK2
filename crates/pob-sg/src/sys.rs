@@ -1,12 +1,18 @@
 //! System, platform, file and network access (ui doc §4.6). Owner: U1 (traits implemented by U7
 //! in pob-host).
 //!
-//! `GetCursorPos` / `IsKeyDown` / `GetTime` semantics: `ui_api.cpp` `l_GetCursorPos`
-//! (`lround(cursorPhys / dpiScale)`, int over float), `l_IsKeyDown` + `KeyForName`,
-//! `sys_main_c::GetTime` (ms since start). Moved from the pre-port `pob-sg/src/host.rs`
-//! `InputState` by UI-U0.
+//! `GetCursorPos` / `IsKeyDown` / `GetTime` semantics (PathOfBuilding-SimpleGraphic `3b1a346`):
+//! `ui_api.cpp:1534-1541` `l_GetCursorPos` (`lround(VirtualMap(cursor) / dpiScale)`, int over
+//! float; `VirtualMap` is the identity under `DPI_AWARE`), `ui_main.cpp:398`
+//! (`GetRelativeCursor` snapshotted right after `BeginFrame`), `sys_video.cpp:735-742`
+//! (`floor` of the GLFW cursor position), `ui_api.cpp:1567-1580` `l_IsKeyDown` +
+//! `ui_main.cpp:574-591` `KeyForName`, `sys_video.cpp:533-536` (`heldKeyState` is written
+//! before the key event is dispatched), `ui_api.cpp:1698-1703` `l_GetTime` (`sys->GetTime()`,
+//! ms since start). Moved from the pre-port `pob-sg/src/host.rs` `InputState` by UI-U0.
 
 use std::collections::HashSet;
+
+use pob_lua::lua_error;
 
 use crate::types::{Key, Num};
 
@@ -126,8 +132,32 @@ impl Sys {
     }
 
     /// IsKeyDown(key)
+    ///
+    /// sg: ui_api.cpp:1578 (`sys->IsKeyDown(key)` reads `heldKeyState`) @3b1a346
     pub fn is_key_down(&self, k: Key) -> bool {
         self.keys.contains(&k)
+    }
+
+    /// IsKeyDown(keyName) with SG's argument checks: an empty name and a name `KeyForName`
+    /// does not know are Lua errors.
+    ///
+    /// sg: ui_api.cpp:1567-1580, ui_main.cpp:574-591 @3b1a346
+    #[track_caller]
+    pub fn is_key_down_name(&self, key_name: &str) -> bool {
+        if key_name.is_empty() {
+            lua_error!("IsKeyDown() argument 1: string is empty");
+        }
+        // KeyForName reads a C string: a name with an embedded NUL is cut there.
+        let name = key_name.split('\0').next().unwrap_or("");
+        let key = if name.is_empty() {
+            None
+        } else {
+            Key::from_name(name)
+        };
+        match key {
+            Some(k) => self.is_key_down(k),
+            None => lua_error!("IsKeyDown(): unrecognised key name"),
+        }
     }
 
     /// The host records key state before each key callback.
@@ -234,5 +264,48 @@ pub(crate) mod tests {
         // The host floors the physical position (GetRelativeCursor): (301.7, 99.2) -> (301, 99).
         st.begin_frame((301, 99), 2.0);
         assert_eq!(st.cursor_pos(), (151.0, 50.0)); // lround(150.5)=151 (away from zero), lround(49.5)=50
+    }
+
+    /// GetCursorPos rounding at dpi 1.0 / 1.25 / 1.5: `lround((float)int / float)`.
+    #[test]
+    fn cursor_rounding_at_dpi() {
+        let mut st = sys();
+        st.begin_frame((7, -3), 1.0);
+        assert_eq!(st.cursor_pos(), (7.0, -3.0));
+        st.begin_frame((5, 10), 1.25);
+        assert_eq!(st.cursor_pos(), (4.0, 8.0)); // 4.0, 8.0
+        st.begin_frame((3, 13), 1.25);
+        assert_eq!(st.cursor_pos(), (2.0, 10.0)); // 2.4 -> 2, 10.4 -> 10
+        st.begin_frame((8, 7), 1.25);
+        assert_eq!(st.cursor_pos(), (6.0, 6.0)); // 6.4 -> 6, 5.6 -> 6
+        st.begin_frame((3, 4), 1.5);
+        assert_eq!(st.cursor_pos(), (2.0, 3.0)); // 2.0, 2.666 -> 3
+        st.begin_frame((-3, 1), 1.5);
+        assert_eq!(st.cursor_pos(), (-2.0, 1.0)); // -2.0, 0.666 -> 1
+                                                  // 0.75 in float: lround(0.5) = 1 away from zero, also for negatives
+        st.begin_frame((3, -3), 6.0);
+        assert_eq!(st.cursor_pos(), (1.0, -1.0));
+    }
+
+    /// IsKeyDown(name): SG's argument errors (ui_api.cpp:1575-1577).
+    #[test]
+    fn is_key_down_name_errors() {
+        let mut st = sys();
+        st.set_key(Key::Shift, true);
+        st.set_key(Key::Char(b'a'), true);
+        assert!(st.is_key_down_name("SHIFT"));
+        assert!(st.is_key_down_name("shift"));
+        assert!(st.is_key_down_name("A"));
+        assert!(st.is_key_down_name("a\0zz")); // the C string is "a"
+        assert!(!st.is_key_down_name("CTRL"));
+        let err = |name: &str| {
+            pob_lua::error::catch(|| st.is_key_down_name(name))
+                .unwrap_err()
+                .0
+        };
+        assert_eq!(err(""), "IsKeyDown() argument 1: string is empty");
+        assert_eq!(err("SHFT"), "IsKeyDown(): unrecognised key name");
+        assert_eq!(err(";"), "IsKeyDown(): unrecognised key name");
+        assert_eq!(err("\0a"), "IsKeyDown(): unrecognised key name");
     }
 }
