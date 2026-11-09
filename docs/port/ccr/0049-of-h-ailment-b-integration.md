@@ -43,3 +43,14 @@ OF-H's non-damaging ailment breakdown (5449, 5452, 5455) calls it. No crate fn e
 (`grep -rn isValueInArray crates/` is empty). OF-H uses a private `isValueInArray(&[f64], f64)
 -> bool` (the Lua result is used only as a truth value). Proposed: the owner of
 `modules/common.rs` (CT) adds the general helper; OF-H then switches to it.
+
+## 4. `$foreign` references in nested-env dumps (ORC-X, informational)
+
+`allflame_exp_013` `offence:4990#4` (stack `perform:in#4 > mirages:in#4 > perform:in#5 >
+offence:in#4`, Sacred Wisps mirage) has `activeSkill.baseSkillModList.parent =
+{"$foreign": {"env": "env7", "path": "modDB"}}`: the mirage skill's mod list chains to the main
+env's modDB, which the dump of env8 does not carry, so the injected `skillModList` misses every
+parent mod (e.g. `EnemyChillEffect`, `EnemyAilmentDuration`) and the segment (and OF-A's
+`calcAilmentSourceDamage`) computes different values. OF-H's test reports such hits as
+`foreign-ref` instead of failing them. Proposed: `inject` resolves `$foreign` markers against a
+dump of the referenced env (or the probe dumps it alongside).

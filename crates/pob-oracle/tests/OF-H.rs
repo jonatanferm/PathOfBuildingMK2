@@ -28,7 +28,10 @@
 //! `calcResistForType` (ignite), DF-A `armourReductionF` (impale), PF-B `actionSpeedMod` (the
 //! stun breakdown)). A hit whose run reaches such a stub is reported as **stub-blocked** with the
 //! sites and is not gated. The gate: every hit that ran without reaching a stub has zero
-//! mismatches, no hit raised, and at least one hit ran stub-free.
+//! mismatches, no hit raised, and at least one hit ran stub-free. A mismatching hit whose input
+//! dump holds `$foreign` references (another env's state, e.g. a mirage skill whose
+//! `baseSkillModList.parent` is the main env's modDB) is reported as **foreign-ref** and not
+//! gated: injection cannot rebuild that state (ORC-X).
 //! Knobs: `OFH_BUILDS=stem1,stem2`, `OFH_VERBOSE=1` (print every mismatch).
 
 use std::collections::BTreeMap;
@@ -186,6 +189,12 @@ fn next_dump<'a>(
 
 enum Outcome {
     Pass,
+    /// The out dump is `offence:5650` but the pass is not the last one (the next pass's
+    /// `offence:4165` was not dumped): no comparable pair.
+    NoNext,
+    /// Mismatches in a hit whose input dump holds `$foreign` references (state of another env,
+    /// e.g. a mirage skill built in the main env), which injection cannot rebuild.
+    Foreign(usize),
     Fail(Vec<String>),
     StubBlocked(Vec<String>, usize),
     Error(String),
@@ -224,6 +233,11 @@ fn run_hit(xml: &Path, din: &StateDump, dout: &StateDump, stem: &str) -> Outcome
                 ))));
             }
         }
+    }
+    if dout.probe == "offence:5650"
+        && passes.last().is_some_and(|l| !this_pass.as_ref().is_some_and(|t| t.ptr_eq(l)))
+    {
+        return Outcome::NoNext;
     }
     // CCR-0039: globalOutput, globalBreakdown = output, breakdown (CalcOffence.lua:4165): the actor's.
     let actor = locals
@@ -292,8 +306,17 @@ fn run_hit(xml: &Path, din: &StateDump, dout: &StateDump, stem: &str) -> Outcome
             )
         })
         .collect();
+    let foreign = serde_json::to_string(&din.root).is_ok_and(|s| s.contains("\"$foreign\""));
     match (lines.is_empty(), stubs.is_empty()) {
         (true, true) => Outcome::Pass,
+        (false, true) if foreign => {
+            if std::env::var_os("OFH_VERBOSE").is_some() {
+                for l in &lines {
+                    eprintln!("    (foreign) {l}");
+                }
+            }
+            Outcome::Foreign(lines.len())
+        }
         (false, true) => Outcome::Fail(lines),
         (_, false) => {
             let n = lines.len();
@@ -314,6 +337,7 @@ struct Tally {
     blocked: usize,
     errors: usize,
     missing_out: usize,
+    foreign: usize,
     blocked_sites: BTreeMap<String, usize>,
 }
 
@@ -349,6 +373,17 @@ fn ofh_l4_ignite_nondamaging_impale() {
                 continue;
             };
             match run_hit(&xml, din, dout, &stem) {
+                Outcome::NoNext => {
+                    t.missing_out += 1;
+                    lines.push(format!("no-out  {stem} {} (not the last pass)", din.hit));
+                }
+                Outcome::Foreign(n) => {
+                    t.foreign += 1;
+                    lines.push(format!(
+                        "FOREIGN {stem} {} -> {}: {n} mismatches, input has $foreign refs",
+                        din.hit, dout.hit
+                    ));
+                }
                 Outcome::Pass => {
                     t.pass += 1;
                     lines.push(format!("ok      {stem} {} -> {}", din.hit, dout.hit));
@@ -394,10 +429,11 @@ fn ofh_l4_ignite_nondamaging_impale() {
         eprintln!("{l}");
     }
     eprintln!(
-        "OF-H L4 offence:4990: pass {} / fail {} / stub-blocked {} / errors {} / no next dump {}; {} builds without inputs",
+        "OF-H L4 offence:4990: pass {} / fail {} / stub-blocked {} / foreign-ref {} / errors {} / no next dump {}; {} builds without inputs",
         t.pass,
         t.fail,
         t.blocked,
+        t.foreign,
         t.errors,
         t.missing_out,
         missing.len()
