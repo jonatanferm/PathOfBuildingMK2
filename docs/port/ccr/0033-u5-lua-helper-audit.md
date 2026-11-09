@@ -1,11 +1,11 @@
-# CCR-0014: U5 Lua-helper audit: gaps, `lua-utf8`, and oracle shims
+# CCR-0033: U5 Lua-helper audit: gaps, `lua-utf8`, and oracle shims
 
 **Status: proposed** (U5, ui doc §12.3). Nothing here edits `pob-lua` or the oracle crates: U5
-worked around every item locally (marked `CCR-0014` in `crates/pob-ui-core/src/luastr.rs`).
+worked around every item locally (marked `CCR-0033` in `crates/pob-ui-core/src/luastr.rs`).
 The §8 resolution table itself lives in the module docs of `crates/pob-ui-core/src/luastr.rs`
 and is compile-checked by `crates/pob-ui-core/tests/luastr.rs::audit_resolves`.
 
-Number this CCR again if another Wave-1 unit also filed a 0014 (the code comments say `CCR-0014`).
+Renumbered from 0014 at integration (0014 was already used by CT, MP0 and MS-A); the code comments say `CCR-0033`.
 
 ## 1. `pob-lua`: make the Lua-number → integer casts public (to calc:P2)
 
@@ -15,7 +15,7 @@ Evidence: `crates/pob-lua/src/format.rs:253` `pub(crate) fn cvtt_i64` and `:265`
 `cvttsd2si r32`, `vm_x64.dasc:1935, 1948`) and `lua_tointeger` on 64-bit (what C modules such
 as `lua-utf8` see). UI code keeps indices as `f64` (ui doc §8 rules 1, 3), so it needs both;
 `pob_lua::string::sub` takes `i64` and leaves the conversion to the caller.
-U5 workaround: copies in `luastr::{lua_int, lua_integer}` (marked `CCR-0014 (item 1)`), tested
+U5 workaround: copies in `luastr::{lua_int, lua_integer}` (marked `CCR-0033 (item 1)`), tested
 against LuaJIT (`sub_with_number_indices_vs_luajit`) and, for the x64-only NaN/±inf/out-of-range
 results, against the VM source (`x64_number_arguments`).
 

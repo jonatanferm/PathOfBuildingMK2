@@ -32,7 +32,7 @@
 //! | `math.abs`, `math.sqrt`, `math.modf`, `math.log`, `math.pow`, `x ^ y` | `pob_lua::math::{m_abs, m_sqrt, m_modf, m_log, m_pow, lpow}` |
 //! | `math.huge`, `math.pi` | `pob_lua::math::{m_huge, m_pi}` |
 //! | `math.sin` / `cos` / `tan` / `rad` | `f64::{sin, cos, tan, to_radians}` (libm, like LuaJIT's `lib_math.c`) |
-//! | `math.random` / `randomseed` | **gap** (CCR-0014 item 3) |
+//! | `math.random` / `randomseed` | **gap** (CCR-0033 item 3) |
 //! | `a % b` | `pob_lua::fmod_lua` |
 //! | `round(v, dec)` and the other Common.lua rounding helpers | `pob_lua::round`, `pob_lua::math::*` |
 //! | `bit.band/bor/bxor/bnot/lshift/rshift/tobit` | `pob_lua::bit::*` |
@@ -57,7 +57,7 @@
 //! | `utf8.sub/reverse/find/match/gsub/next` (`lua-utf8`) | [`utf8`] |
 //! | `formatNumSep(str)` | [`format_num_sep`], [`format_num_sep_main`] |
 //!
-//! Gaps and contract notes are filed in `docs/port/ccr/0014-u5-lua-helper-audit.md` (CCR-0014).
+//! Gaps and contract notes are filed in `docs/port/ccr/0033-u5-lua-helper-audit.md` (CCR-0033).
 
 use std::borrow::Cow;
 
@@ -106,7 +106,7 @@ pub fn lmatch(s: &str, p: &str) -> Option<String> {
 /// (`lj_lib_checkint`/`lj_lib_optint`; the `string.sub` fast path's `cvttsd2si r32`): truncate
 /// toward zero; NaN and values outside int32 give `i32::MIN` (x64 "integer indefinite", the
 /// shipped profile, CCR-0001).
-// CCR-0014 (item 1): a copy of `pob_lua::format::cvtt_i32`, which is `pub(crate)`.
+// CCR-0033 (item 1): a copy of `pob_lua::format::cvtt_i32`, which is `pub(crate)`.
 #[inline]
 #[must_use]
 pub fn lua_int(n: f64) -> i32 {
@@ -120,7 +120,7 @@ pub fn lua_int(n: f64) -> i32 {
 /// `lua_tointeger(L, i)` on 64-bit LuaJIT, i.e. `(lua_Integer)n` (x64 `cvttsd2si r64`): what a C
 /// module (`lua-utf8`) sees through `luaL_checkinteger`/`luaL_optinteger`. NaN and values
 /// outside int64 give `i64::MIN`.
-// CCR-0014 (item 1): a copy of `pob_lua::format::cvtt_i64`, which is `pub(crate)`.
+// CCR-0033 (item 1): a copy of `pob_lua::format::cvtt_i64`, which is `pub(crate)`.
 #[inline]
 #[must_use]
 pub fn lua_integer(n: f64) -> i64 {
