@@ -25,10 +25,12 @@ use crate::oracle::{find_parity_dir, find_up};
 use crate::schema::{resolve_ids, StateDump};
 
 /// Initialise `pob_gamedata::data()` from `data/dump` (data.bin, else the JSON dump).
-/// `$POB_DUMP_DIR` overrides the directory. False when no dump is found.
-pub fn init_data(dump_dir: &Path) -> bool {
+/// `$POB_DUMP_DIR` overrides the directory. `Ok(false)` when no dump is found; `Err` when a
+/// dump is found but does not load (a corrupt or stale data.bin, a broken JSON dump), so a
+/// caller can never mistake a bad input for a missing one.
+pub fn try_init_data(dump_dir: &Path) -> Result<bool, String> {
     if pob_gamedata::is_initialised() {
-        return true;
+        return Ok(true);
     }
     let dir = if dump_dir.join("manifest.json").is_file() {
         dump_dir.to_path_buf()
@@ -37,22 +39,26 @@ pub fn init_data(dump_dir: &Path) -> bool {
     } else if let Some(m) = find_up("data/dump/manifest.json") {
         m.parent().map(Path::to_path_buf).unwrap_or_default()
     } else {
-        return false;
+        return Ok(false);
     };
     if dir.join("data.bin").is_file() {
-        pob_gamedata::init_from_dir(&dir).is_ok()
+        pob_gamedata::init_from_dir(&dir)
+            .map_err(|e| format!("{}: {e}", dir.join("data.bin").display()))?;
     } else {
-        match pob_gamedata::load_dump_dir(&dir)
-            .ok()
-            .and_then(|t| pob_gamedata::Data::from_tree(&t).ok())
-        {
-            Some(d) => {
-                pob_gamedata::init_with(d);
-                true
-            }
-            None => false,
-        }
+        let tree =
+            pob_gamedata::load_dump_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let d =
+            pob_gamedata::Data::from_tree(&tree).map_err(|e| format!("{}: {e}", dir.display()))?;
+        pob_gamedata::init_with(d);
     }
+    Ok(true)
+}
+
+/// [`try_init_data`] for tests: false only when no dump is found (the caller applies the
+/// skip policy, `pob_testpaths::require`); a dump that is found but does not load panics
+/// with the load error.
+pub fn init_data(dump_dir: &Path) -> bool {
+    try_init_data(dump_dir).unwrap_or_else(|e| panic!("data dump does not load: {e}"))
 }
 
 /// `init_data` from the default location.

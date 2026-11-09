@@ -31,7 +31,7 @@
 //! IT-A's ParseRaw is a stub the Rust text is the `BuildRaw` before the re-parse, which is the
 //! raw PoB re-parsed (`self.raw`).
 //!
-//! Self-skips without PoB / the data dump (set `POB_ORACLE_REQUIRE=1` to fail instead). The
+//! Fails without PoB / the data dump (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips). The
 //! inputs are gitignored, so from a worktree point `POB_SRC`, `POB_PARITY_DIR` and
 //! `POB_DUMP_DIR` at the main checkout's `.PathOfBuilding/src`, `.parity` and `data/dump`.
 //! `IT_B_LIMIT=<n>` limits the uniques (quick runs); `IT_B_DUMP=<file>` keeps the oracle JSON.
@@ -51,12 +51,6 @@ use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up};
 use serde_json::Value as J;
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -854,17 +848,23 @@ fn check_item(t: &mut Tally, rec: &J, find_subs: &[String], apply_range_ported: 
 
 #[test]
 fn item_core_vs_pob() {
-    let Some(src) = find_pob_src() else {
-        return skip("no PoB checkout (.PathOfBuilding/src)");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "no PoB checkout (.PathOfBuilding/src)")
+    else {
+        return; // POB_ALLOW_SKIP=1
     };
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     quiet_lua_errors();
     let d = pob_gamedata::data();
 
-    // inputs
+    // inputs (HYG2: a missing `.parity` used to drop the corpus half silently)
+    if pob_testpaths::require(find_parity_dir(), ".parity (build corpus)").is_none() {
+        return; // POB_ALLOW_SKIP=1
+    }
     let corpus = corpus_items();
+    let corpus_n = corpus.len();
+    eprintln!("corpus: {corpus_n} <Item>s in .parity/builds");
     let mut r = Lcg(0x1b_2024);
     let mut str_vals: Vec<Val> = Vec::new();
     let mut prologue = String::from("__itb_corpus = {\n");
@@ -1114,7 +1114,48 @@ fn item_core_vs_pob() {
                 .all(|r| r["craft"].is_string() && list_range(r)),
         "synthetic crafted rares: PoB did not parse/craft them with list ranges: {synth:?}"
     );
+    if std::env::var_os("IT_B_LIMIT").is_none() {
+        // coverage and the tolerated buckets (HYG2/V2): the oracle's records by kind, the
+        // checks passed, and the both-raise / skipped counts are bounded
+        let got: Vec<(&str, usize)> = kinds.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        assert_eq!(got, IT_B_KINDS, "oracle records by kind");
+        assert_eq!(
+            corpus_n, IT_B_CORPUS_ITEMS,
+            "corpus <Item>s in .parity/builds"
+        );
+        let pass: u64 = t.rows.values().map(|r| r.0).sum();
+        let both_err: u64 = t
+            .rows
+            .iter()
+            .filter(|(k, _)| k.contains("both raised a Lua error"))
+            .map(|(_, r)| r.0)
+            .sum();
+        let skipped: u64 = t.rows.values().map(|r| r.2).sum();
+        assert!(
+            pass >= IT_B_MIN_PASS,
+            "{pass} checks passed, expected at least {IT_B_MIN_PASS}"
+        );
+        // measured: no check raises on both sides, and no Craft comparison is skipped
+        assert_eq!(
+            (both_err, skipped),
+            (0, 0),
+            "(both raised a Lua error, skipped) checks"
+        );
+    }
 }
+
+/// `<Item>`s in the 57 corpus builds; measured by HYG2 on rust-port 746b103.
+const IT_B_CORPUS_ITEMS: usize = 1527;
+/// Oracle records by kind (sorted); measured by HYG2 on rust-port 746b103.
+const IT_B_KINDS: &[(&str, usize)] = &[
+    ("corpus", 1527),
+    ("craftsynth", 2),
+    ("rare", 205),
+    ("synthetic", 60),
+    ("unique", 1333),
+];
+/// Checks passed (all rows); measured by HYG2 on rust-port 746b103.
+const IT_B_MIN_PASS: u64 = 239_070;
 
 /// Rust-only checks of the plumbing the oracle cannot reach.
 #[test]

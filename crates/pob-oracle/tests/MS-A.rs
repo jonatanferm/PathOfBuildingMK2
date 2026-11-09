@@ -24,8 +24,8 @@
 //! EvalMod returns `mod.value` for an untagged mod).
 //!
 //! Knobs: `MS_A_BUILDS=stem1,stem2` or `MS_A_LIMIT=n` restrict the corpus; `MS_A_VERBOSE=1`
-//! prints every mismatch. A missing input (data/dump, PoB checkout, .parity/builds) skips with a
-//! message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! prints every mismatch. A missing input (data/dump, PoB checkout, .parity/builds) fails
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -40,13 +40,6 @@ use pob_oracle::runner::OracleLock;
 use serde_json::Value as J;
 
 const SCRIPT: &str = include_str!("../corpus/MS-A/l3_queries.lua");
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -779,18 +772,22 @@ fn compare_create_mod(b: &Build, doc: &J, t: &mut Tally, stem: &str) {
 
 #[test]
 fn l3_query_matrix_and_scaling_all57() {
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    let Some(src) = pob_testpaths::require(
+        find_pob_src(),
+        "PoB checkout (.PathOfBuilding/src) not found",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(parity) = find_parity_dir() else {
-        return skip(".parity not found");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     let builds = corpus(&parity);
     if builds.is_empty() {
-        return skip(".parity/builds is empty");
+        let _ = pob_testpaths::require(None::<()>, ".parity/builds is empty");
+        return; // POB_ALLOW_SKIP=1
     }
     quiet_lua_errors();
     let verbose = std::env::var_os("MS_A_VERBOSE").is_some();
@@ -952,4 +949,60 @@ fn l3_query_matrix_and_scaling_all57() {
         total.create_mod_ok, total.create_mod,
         "createMod scenarios differ"
     );
+    // coverage and the ungated buckets (HYG2/V2). MS-B (EvalMod) and CT (createMod) are merged,
+    // so the stub fallbacks above are dead and must stay so; the tag-path queries are MS-B's
+    // gate (MS-B.rs), here their misses are only bounded.
+    assert!(
+        evalmod_ported && ct_ported,
+        "EvalMod / createMod are stubs again"
+    );
+    let filtered =
+        std::env::var_os("MS_A_BUILDS").is_some() || std::env::var_os("MS_A_LIMIT").is_some();
+    if !filtered {
+        assert_eq!(nbuilds, CORPUS_BUILDS, "builds compared");
+        let b = MS_A_BOUNDS;
+        assert!(
+            total.gated >= b.min_gated,
+            "{} non-tag queries, expected at least {}",
+            total.gated,
+            b.min_gated
+        );
+        assert!(
+            total.known <= b.max_known
+                && known_undecodable <= b.max_known_undecodable
+                && total.errors_both <= b.max_errors_both
+                && total.tag_path - total.tag_ok <= b.max_tag_path_misses,
+            "buckets: CCR-0014 known {} / CCR-0014 undecodable {known_undecodable} / both-error {} / \
+             tag-path misses {}; bounds {b:?}",
+            total.known,
+            total.errors_both,
+            total.tag_path - total.tag_ok
+        );
+    }
 }
+
+/// The corpus size (`.parity/builds/*.xml`).
+const CORPUS_BUILDS: usize = 57;
+
+#[derive(Debug)]
+struct MsABounds {
+    min_gated: usize,
+    /// CCR-0014 known diffs (enemy activeSkillList).
+    max_known: usize,
+    /// Mods with CCR-0014 tag keys the Rust model does not decode.
+    max_known_undecodable: usize,
+    /// Errors PoB and the port both raise.
+    max_errors_both: usize,
+    /// Tag-path queries that differ (MS-B's gate; ungated here).
+    max_tag_path_misses: usize,
+}
+
+/// Measured by HYG2 on rust-port 746b103.
+const MS_A_BOUNDS: MsABounds = MsABounds {
+    min_gated: 3_946_278,
+    max_known: 964,
+    max_known_undecodable: 4,
+    max_errors_both: 33_771,
+    // HYG2 exposed: 6771 of 1,326,872 tag-path queries differ (docs/port/FOLLOWUPS.md)
+    max_tag_path_misses: 6771,
+};

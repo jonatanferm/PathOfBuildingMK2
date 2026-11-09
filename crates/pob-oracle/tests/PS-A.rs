@@ -35,8 +35,8 @@
 //! `ImportFromNodeList` with a tree-version switch (latest tree -> the spec's) and with a
 //! `className` gives the same state as a plain import on a fresh spec.
 //!
-//! Self-skips without a PoB checkout, `data/dump` or the corpus (`POB_ORACLE_REQUIRE=1`
-//! makes that a failure). `PSA_BUILDS=substr,...` limits the builds.
+//! Fails without a PoB checkout, `data/dump` or the corpus (`pob_testpaths::require`;
+//! `POB_ALLOW_SKIP=1` skips). `PSA_BUILDS=substr,...` limits the builds.
 #![allow(non_snake_case, clippy::too_many_lines)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -55,13 +55,6 @@ use pob_lua::{tostring_num, Field, Shared};
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -1112,14 +1105,14 @@ fn url_norm(url: &str) -> String {
 
 #[test]
 fn passive_spec_acceptance() {
-    let Some(src) = find_pob_src() else {
-        return skip("no PoB checkout");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "no PoB checkout") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity corpus");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity corpus") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let src = std::fs::canonicalize(&src).unwrap();
     let only: Option<Vec<String>> = std::env::var("PSA_BUILDS")
@@ -1142,7 +1135,8 @@ fn passive_spec_acceptance() {
         .collect();
     files.sort();
     if files.is_empty() {
-        return skip("no builds in .parity/builds");
+        let _ = pob_testpaths::require(None::<()>, "no builds in .parity/builds");
+        return; // POB_ALLOW_SKIP=1
     }
 
     let t0 = std::time::Instant::now();
@@ -1295,4 +1289,38 @@ fn passive_spec_acceptance() {
     let total: usize = total_by_kind.values().sum();
     eprintln!("  asserted records: {}/{total} identical", total - bad);
     assert_eq!(bad, 0, "{bad} mismatching records (see above)");
+    // coverage and the report-only bucket (HYG2/V2): every build's specs were compared, and the
+    // records excused as order-dependent / parser-dependent may not differ more than measured
+    if only.is_none() {
+        assert_eq!(
+            (files.len(), specs),
+            PSA_COVERAGE,
+            "(builds, specs) compared"
+        );
+        assert!(
+            total >= PSA_MIN_RECORDS,
+            "{total} asserted records, expected at least {PSA_MIN_RECORDS}"
+        );
+        for (k, (same, n)) in &info_by_kind {
+            let max = PSA_MAX_REPORT_ONLY_MISSES
+                .iter()
+                .find(|(kk, _)| kk == k)
+                .map_or(0, |(_, m)| *m);
+            assert!(
+                n - same <= max,
+                "report-only {k}: {} of {n} differ, bound {max} (PSA_MAX_REPORT_ONLY_MISSES)",
+                n - same
+            );
+        }
+    }
 }
+
+/// `(builds, specs)` of the corpus; measured by HYG2 on rust-port 746b103.
+const PSA_COVERAGE: (usize, usize) = (57, 59);
+/// Asserted records over the corpus; measured by HYG2 on rust-port 746b103.
+const PSA_MIN_RECORDS: usize = 31_969;
+/// Per report-only kind, the records that may differ (unlisted kinds: 0), measured by HYG2 on
+/// rust-port 746b103. `leap` is the order-dependent leap list of a tree whose node order is
+/// random in PoB (CCR-0024 §5): any order is allowed because the same list is asserted as a set
+/// (`leapset`). Everything else, `mastkey` included, matched on every record.
+const PSA_MAX_REPORT_ONLY_MISSES: &[(&str, usize)] = &[("leap", usize::MAX)];

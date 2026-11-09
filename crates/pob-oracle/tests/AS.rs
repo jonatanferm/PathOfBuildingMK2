@@ -27,7 +27,7 @@
 //! * `as_census`: the data facts the port relies on (`minionList = { }` only on Raise Spectre;
 //!   every support has `addSkillTypes`).
 //!
-//! Inputs missing skip with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) they fail.
+//! A missing input fails (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
 #![allow(non_snake_case)]
 #![allow(clippy::too_many_lines, clippy::format_push_string)]
 
@@ -44,13 +44,6 @@ use pob_gamedata::ValueTable;
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn init_data() -> bool {
     pob_oracle::testkit::init_default_data()
@@ -948,18 +941,28 @@ fn first_diff(a: &str, b: &str) -> String {
 
 #[test]
 fn as_oracle() {
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let parity = find_parity_dir();
-    let cases = build_cases(parity.as_deref());
+    // the corpus half needs `.parity` (HYG2: a missing corpus used to drop 3790 cases silently)
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity (build corpus)") else {
+        return; // POB_ALLOW_SKIP=1
+    };
+    let cases = build_cases(Some(&parity));
     let corpus_n = cases
         .iter()
         .filter(|c| c.name.starts_with("corpus"))
         .count();
+    // coverage (HYG2/V2): every socket group of the 57 corpus builds x 5 weapon set-ups, and
+    // every non-support granted effect
+    assert_eq!(
+        (corpus_n, cases.len() - corpus_n),
+        AS_CASES,
+        "AS case counts (corpus, synthetic)"
+    );
     let _lock = pob_oracle::runner::OracleLock::acquire().unwrap_or_else(|e| panic!("{e}"));
     let t0 = std::time::Instant::now();
     let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
@@ -1041,7 +1044,29 @@ fn as_oracle() {
         eprintln!("MISMATCH {b}");
     }
     assert!(t.bad.is_empty(), "{} mismatching cases", t.bad.len());
+    // The tolerated buckets are bounded (HYG2/V2). LUA-ORDER is the doc's order-only verdict
+    // for mod stores (calc doc §9.5: "ModStores compare as a multiset per name, plus an order
+    // check whose failures are reported as `LUA-ORDER`"; the stat-map runs are added in `pairs`
+    // order, §3.4); its bound is the observed count plus headroom for PoB's per-process order
+    // (a port change that reorders the gem / support runs themselves still fails above). The
+    // other buckets are the doc's CCR-0010 / CCR-0002 artefacts and PoB-and-port-both-raise
+    // cases.
+    let buckets = [t.order, t.nondet, t.zero, t.err_both];
+    assert!(
+        buckets.iter().zip(AS_MAX_BUCKETS).all(|(n, max)| *n <= max),
+        "tolerated buckets (LUA-ORDER, AltX/AltY, ±0, raise on both) {buckets:?} exceed {AS_MAX_BUCKETS:?}"
+    );
 }
+
+/// `as_oracle` case counts (corpus, synthetic); measured by HYG2 on rust-port 746b103.
+const AS_CASES: (usize, usize) = (3790, 1225);
+/// Upper bounds of `as_oracle`'s tolerated buckets (LUA-ORDER, AltX/AltY source, ±0, raise on
+/// both sides). LUA-ORDER and AltX/AltY follow PoB's per-process `pairs` order and variant
+/// choice: observed 2995 / 6 on rust-port 746b103 and 3115 LUA-ORDER in the test audit
+/// (edd8169); the bounds add about 10 % / 2x headroom. ±0 and raise-on-both were 0.
+const AS_MAX_BUCKETS: [usize; 4] = [3400, 12, 0, 0];
+/// `as_l4_corpus`: the `buildActiveSkillModList:in#n`/`:out#n` dump pairs under `.parity/probe`.
+const AS_L4_PAIRS: usize = 56;
 
 // ---------------------------------------------------------------------------------------------
 // L4 on the corpus probe dumps
@@ -1216,11 +1241,11 @@ fn explain(
 fn as_l4_corpus() {
     use pob_oracle::schema::StateDump;
     use pob_oracle::testkit;
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip(".parity not found");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let probe = parity.join("probe");
     let mut stems: Vec<String> = std::fs::read_dir(&probe)
@@ -1349,9 +1374,17 @@ fn as_l4_corpus() {
         }
     }
     if pairs == 0 {
-        return skip("no buildActiveSkillModList probe dumps (scripts/port/oracle.sh corpus)");
+        let _ = pob_testpaths::require(
+            None::<()>,
+            "no buildActiveSkillModList probe dumps (scripts/port/oracle.sh corpus)",
+        );
+        return; // POB_ALLOW_SKIP=1
     }
     eprintln!("AS L4: {pass}/{pairs} buildActiveSkillModList in→out dumps match");
+    assert_eq!(
+        pairs, AS_L4_PAIRS,
+        "buildActiveSkillModList dump pairs compared (HYG2/V2)"
+    );
     for (w, n) in &explained {
         eprintln!("  explained ({n} mismatches): {w}");
     }
@@ -1369,12 +1402,15 @@ fn as_l4_corpus() {
 
 #[test]
 fn as_census() {
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     // every support has an `addSkillTypes` table (CalcActiveSkill.lua:530 reads it as a truth value)
-    let Some(dump) = find_up("data/dump/skills.json") else {
-        return skip("data/dump/skills.json not found");
+    let Some(dump) = pob_testpaths::require(
+        find_up("data/dump/skills.json"),
+        "data/dump/skills.json not found",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
     let j: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dump).unwrap()).unwrap();

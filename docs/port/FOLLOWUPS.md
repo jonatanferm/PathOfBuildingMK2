@@ -1,6 +1,65 @@
-# Port review follow-ups: open issues the final review left on merged units
+# Port follow-ups
+
+Open items found while working on one unit that belong to another. Each entry names the owning
+unit (calc doc §11.1 / ui doc §12), the evidence, and what closes it.
 
 ## CS0
 
+Port review follow-ups: open issues the final review left on merged units.
+
 1. `crates/pob-calc/src/modules/calc_setup/node_mods.rs:353-357` (port/CS0 @d08929d). In `buildModListForNode` L253, when the flag is off the port returns `Val::Bool(false)`, and `buildModListForNodeList` (L275, `if !explode.is_nil() { explodeSources.push(explode) }`) then pushes that `false` into `explodeSources`. Lua never does this. `ModListClass:FlagInternal` (Classes/ModList.lua:156-175, and the same in ModDB.lua:206-227) returns `true` or nothing, so `modList:Flag(nil, "CanExplode") and node` is the node or nil, and `t_insert(explodeSources, nil)` adds nothing. So a CanExplode mod whose Flag is false (e.g. one with an unmet tag, or after scaling or a jewel rewrite) gives Rust a non-empty explodeSources while Lua's stays empty. That flips CalcSetup.lua:1507 (`#env.explodeSources ~= 0`, which creates the 'On Kill Monster Explosion' group), and at 1530-1532 the code would index `.modSource` on a boolean. Fix: return `Val::Nil` in the off case. CCR-0074 §1 and §2 also need fixing: they promise CS2/CS3 that entries can be `Val::Bool(false)` and claim 't_insert(explodeSources, false) happens'. That is wrong and would lead the downstream units to handle a case that cannot occur. The oracle test can't catch this, because the corpus has no CanExplode mod whose flag is off. The fixer's uncommitted round-2 edits in worktree wf_daf28e03-290-29 make exactly this change; they have to be committed (and the CS0 test rerun) before the unit is accepted.
    - Integrator note: at merge time those round-2 edits were still uncommitted in `.claude/worktrees/wf_daf28e03-290-29` (node_mods.rs, support.rs `gemIsTypeVal` non-string keyword handling, tests/CS0.rs, CCR-0074). They are not part of this merge.
+
+## HYG2 exposed
+
+HYG2 (test audit fixes V1, V2, R1) made the oracle tests in `crates/pob-oracle/tests` fail on a
+missing input and bounded their tolerated buckets. Measured on `rust-port` 746b103 (2026-11-09).
+Where a newly honest bound records a real gap, the bound is the measured value and points here,
+so the suite cannot silently get worse; lowering the bound is part of closing the item.
+
+### Gaps behind a bound set to the measured value
+
+- **u0_smoke: `buildOutput` leaves the player output empty** (owners: CS2, CS3, PF-C..PF-G, CA).
+  On all 15 slice5 runs (5 builds x MAIN/CALCS/CALCULATOR) `env.player.output` has 0 keys, the
+  enemy output 0 keys and `activeSkillList` 0 entries. Every run hits the stubs
+  `CalcSetup.lua:488-799`, `:800-1450`, `:1451-1973`, `CalcPerform.lua:1289-1942`, `:1943-2307`,
+  `:2308-2996`, `:2997-3496`, `:3497-3990`, `Calcs.lua:384-870` and `Build.lua:2222-2260`.
+  `tests/u0_smoke.rs` now requires a non-empty output for every run that hits none of the
+  orchestrator stubs (`ORCHESTRATOR_STUBS`); it no longer asserts that stub sites are hit.
+- **MS-A: 6771 of 1,326,872 tag-path queries differ** (owner: MS-B; likely the same cause as the
+  MS-B red below). MS-A counts but does not gate tag-path queries (MS-B owns them);
+  `MS_A_BOUNDS.max_tag_path_misses = 6771` (`tests/MS-A.rs`).
+- **MS-A: the gated Max/Min (EvalMod) queries compare 0 cases** (owner: MS-A). The summary prints
+  `Max/Min (EvalMod ported; gated) 0/0`: the probe script produces no Max/Min query on the
+  corpus, so that gate is vacuous. Not bounded (nothing to bound); needs probe coverage.
+
+### Pre-existing failures seen during the HYG2 runs (not caused by HYG2's assertions)
+
+These assertions were already in the files and fail on 746b103 before any HYG2 bound is reached.
+
+- **BM-B `corpus_tabs_match_oracle` and `synthetic_sections_match_oracle`** (owners: CO-A /
+  BM-B). All 57 corpus builds and all 3 synthetic files fail in `config Load` with
+  `attempt to index field '?' (a nil value)`, raised by
+  `crates/pob-calc/src/modules/config_options/apply_a.rs:5217` (`opt_254_apply`,
+  `varControls['enemyRadius']:SetPlaceholder`, CCR-0037: a missing control raises). The build
+  model the BM-B test loads has no `enemyRadius` control. Because of this, the HYG2 floors in
+  `tests/BM-B.rs` (`TABS_BOUNDS` / `BUFFS_BOUNDS` / `SYNTHETIC_BOUNDS`) come from the last green
+  runs on rust-port (148,776 / 3310 / 1302 values compared, 0 / 5 / 0 pending), not from 746b103.
+- **MS-B `l3_full_matrix_all57`** (owner: MS-B, possibly IT-C for the item mod). 72 of
+  6,948,606 matrix queries and 944 of 5,668,313 synthetic tag-probe queries differ. Example:
+  `allflame_exp_016` player store `SumINC Life`: PoB 159, port 174; `Tabulate` shows an extra mod
+  `[395, 15]` on the port side. Synthetic: `ItemCondition` tags with `searchCond = "life"`,
+  `neg = true`: PoB 0, port 10 (`allflame_exp_000` probe 195). Builds: allflame_exp_016,
+  allflame_exp_049.
+- **IT-B `item_core_vs_pob`** (owner: IT-B; the Table limitation is U0's `lua_table.rs`). One
+  Craft case fails: `rare#195` (a crafted magic flask with `{range:0.028}`): the port raises
+  `non-integral number keys are not supported by Table (929.1)`; PoB crafts the item.
+
+### Bounds that are PoB's own nondeterminism
+
+Not port gaps, recorded so a reader knows why they are not 0:
+
+- AS `LUA-ORDER` (stat-map mods added in `pairs` order, calc doc §3.4/§9.5) and AltX/AltY
+  sources (CCR-0010); BM-B `LUA-ORDER/expected`; CT `stat_map` PoB-nondeterministic records;
+  PS-A `leap` (order-dependent, asserted as a set under `leapset`). The bounds are the observed
+  maxima plus headroom, stated next to each constant.
