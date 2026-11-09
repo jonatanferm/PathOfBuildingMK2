@@ -3145,6 +3145,7 @@ name = "pob-ui-core"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.11.1",
+ "mlua",
  "pob-calc",
  "pob-lua",
  "pob-sg",
