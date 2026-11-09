@@ -20,6 +20,7 @@ scoped-tls-hkt.workspace = true
 pob-calc.workspace = true
 # tests/luastr.rs (U5): the luastr helpers against real LuaJIT (the vendored LuaJIT of the
 # oracle; dev-only, `cargo tree -p pob-ui-core -e normal` has no mlua).
+# T0 (ui doc §11.1): the real Control.lua/ControlHost.lua/UndoHandler.lua under LuaJIT (U4).
 mlua.workspace = true
 
 [lints]
