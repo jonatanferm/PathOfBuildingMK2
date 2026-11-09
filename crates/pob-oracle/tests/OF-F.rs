@@ -12,7 +12,7 @@
 //! The module upvalues `globalOutput`/`globalBreakdown` (CalcOffence.lua:65/67) are not part of a
 //! dump; at both stages they are the function's `output`/`breakdown` (assigned at 2607), i.e.
 //! `actor.output` / `actor.breakdown`, so the test sets `OFFENCE_STATE` from the injected actor
-//! (CCR-0039). `passList` is rebuilt as `Shared<Vec<Table>>` (CCR-0034, OF-D).
+//! (CCR-0075). `passList` is rebuilt as `Shared<Vec<Table>>` (CCR-0034, OF-D).
 //!
 //! Callees owned by other units may still be `unported!` (OF-A `calcDamage`/`calcResistForType`,
 //! OF-C `combineStat`, DF-A `armourReductionF`): a hit whose run reaches such a stub is reported

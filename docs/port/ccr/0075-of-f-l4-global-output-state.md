@@ -1,4 +1,4 @@
-# CCR-0039: OF-F — L4 runs leave `globalOutput`/`globalBreakdown` unset
+# CCR-0075: OF-F — L4 runs leave `globalOutput`/`globalBreakdown` unset
 
 Status: proposed by OF-F (2026-11-09)
 
@@ -40,7 +40,7 @@ harmless.)
 
 ## Workaround (until applied)
 
-`crates/pob-oracle/tests/OF-F.rs` (`run_hit`, cites CCR-0039) sets `OFFENCE_STATE` from the
+`crates/pob-oracle/tests/OF-F.rs` (`run_hit`, cites CCR-0075) sets `OFFENCE_STATE` from the
 injected actor before `run_segment`. OF-E, OF-G, OF-H and OF-I tests need the same.
 
 ## Related inject limit (report only; no contract change proposed)
