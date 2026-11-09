@@ -3,10 +3,10 @@
 #
 # Usage: scripts/port/cargo.sh <cargo args...>      e.g. scripts/port/cargo.sh check -p pob-calc
 #
-# - Exactly one cargo invocation runs at a time machine-wide, across all worktrees: the
+# - At most $POB_PORT_SLOTS (default 3) cargo invocations run at a time machine-wide, across all worktrees: the
 #   whole cargo run holds an exclusive flock on $POB_PORT_LOCK_DIR/cargo.lock
 #   (default: ${XDG_RUNTIME_DIR:-/tmp}/pob-port).
-# - Exports CARGO_BUILD_JOBS=${POB_PORT_JOBS:-6} and RUSTC_WRAPPER=$HOME/.cargo/bin/sccache (when executable;
+# - Exports CARGO_BUILD_JOBS=${POB_PORT_JOBS:-3} and RUSTC_WRAPPER=$HOME/.cargo/bin/sccache (when executable;
 #   an existing RUSTC_WRAPPER is kept).
 # - CARGO_TARGET_DIR defaults to <worktree>/target: never share a target dir between
 #   worktrees (path-based fingerprints thrash).
@@ -27,7 +27,7 @@ if [ "$#" -eq 0 ]; then
     exit 2
 fi
 
-export CARGO_BUILD_JOBS="${POB_PORT_JOBS:-6}"
+export CARGO_BUILD_JOBS="${POB_PORT_JOBS:-3}"
 if [ -z "${RUSTC_WRAPPER:-}" ] && [ -x "$HOME/.cargo/bin/sccache" ]; then
     export RUSTC_WRAPPER="$HOME/.cargo/bin/sccache"
 fi
@@ -91,13 +91,22 @@ fi
 
 lock_dir="${POB_PORT_LOCK_DIR:-${XDG_RUNTIME_DIR:-/tmp}/pob-port}"
 mkdir -p "$lock_dir"
-lock="$lock_dir/cargo.lock"
-
-exec 9>>"$lock"
-if ! flock -n 9; then
-    echo "cargo.sh: waiting for the cargo lock ($lock)..." >&2
-    flock 9
-fi
+# POB_PORT_SLOTS concurrent cargo runs machine-wide (default 3): slot i holds cargo.lock[.i].
+slots="${POB_PORT_SLOTS:-3}"
+got=""
+waited=0
+while [ -z "$got" ]; do
+    for i in $(seq 0 $((slots - 1))); do
+        if [ "$i" = 0 ]; then lock="$lock_dir/cargo.lock"; else lock="$lock_dir/cargo.lock.$i"; fi
+        exec 9>>"$lock"
+        if flock -n 9; then got="$lock"; break; fi
+        exec 9>&-
+    done
+    if [ -z "$got" ]; then
+        if [ "$waited" = 0 ]; then echo "cargo.sh: waiting for one of $slots cargo slots ($lock_dir)..." >&2; waited=1; fi
+        sleep 2
+    fi
+done
 here=$(pwd -P)
 case "$here/" in
     "$worktree"/*) ;;
