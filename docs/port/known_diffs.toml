@@ -20,3 +20,12 @@
 #     (.parity/nondet, calc doc §9.5, CCR-0010 §4).
 #
 # No entries yet (U0 ships stubs only).
+
+[[diff]]
+id = "PF-C-1"
+unit = "PF-C"
+builds = ["allflame_exp_043"]
+stage = "perform:1943"
+keys = ["env.modDB.mods[\"Condition:Onslaught\"]"]
+kind = "value"
+reason = "Two Silver Flasks (a magic one and Cinderswallow Urn) both grant the buff FLAG Condition:Onslaught; mergeBuff (CalcPerform.lua:45-67) keeps the first one merged under the base name, and mergeFlasks visits env.flasks with item-keyed pairs (CalcPerform.lua:1773), PoB's address order (calc doc §3.4: insertion order in Rust). Only the mod's source differs (Item:31 vs Item:25); the value and every query result are the same."
