@@ -29,7 +29,10 @@
     clippy::cast_sign_loss,
     clippy::cast_precision_loss,
     clippy::needless_pass_by_value,
-    clippy::explicit_auto_deref
+    clippy::explicit_auto_deref,
+    clippy::unnecessary_unwrap,
+    clippy::neg_cmp_op_on_partial_ord,
+    clippy::only_used_in_recursion
 )]
 
 use std::cell::RefCell;
