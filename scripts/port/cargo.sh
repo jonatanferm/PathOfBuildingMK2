@@ -8,7 +8,7 @@
 #   (default: ${XDG_RUNTIME_DIR:-/tmp}/pob-port).
 # - Exports CARGO_BUILD_JOBS=${POB_PORT_JOBS:-3} and RUSTC_WRAPPER=$HOME/.cargo/bin/sccache (when executable;
 #   an existing RUSTC_WRAPPER is kept).
-# - CARGO_TARGET_DIR defaults to <worktree>/target: never share a target dir between
+# - The target dir is cargo's default <worktree>/target (not exported, see below): never share a target dir between
 #   worktrees (path-based fingerprints thrash).
 # - cargo runs in the caller's directory when that is inside this worktree, so relative
 #   paths such as --manifest-path resolve as the caller wrote them. From anywhere else it
@@ -34,7 +34,9 @@ fi
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 worktree=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || (cd "$script_dir/../.." && pwd -P))
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$worktree/target}"
+# Do NOT export CARGO_TARGET_DIR: sccache hashes CARGO_* env vars, so a per-worktree value made
+# every worktree miss the cache for every crate (measured 2026-11-09: 1.6% Rust hit rate).
+# cargo's default target dir is already <worktree>/target because we run inside the worktree.
 
 refuse() {
     echo "cargo.sh: refusing $1" >&2
