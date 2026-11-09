@@ -15,15 +15,29 @@ anyhow.workspace = true
 image.workspace = true
 winit.workspace = true
 wgpu = { version = "=30.0.1", features = ["webgl"] }
+# U7: OAuth result encoding (CCR-0026 B), net fixtures; FileWrite effect hashes.
+serde_json.workspace = true
+xxhash-rust.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 arboard.workspace = true
 pollster.workspace = true
+# U7: launch:DownloadPage (the ureq logic of pob-oracle's `__mk2_http`).
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
-web-sys = { workspace = true, features = ["Window", "Document", "HtmlCanvasElement", "Element"] }
+# U7: web Fs/Net/Platform glue (Uint8Array, Promise, Reflect).
+js-sys = "0.3"
+web-sys = { workspace = true, features = [
+    "Window", "Document", "HtmlCanvasElement", "Element", "HtmlElement", "Location", "Performance",
+    "Navigator", "Clipboard", "ClipboardEvent", "DataTransfer", "Event", "EventTarget",
+    "AddEventListenerOptions", "KeyboardEvent", "Headers", "Request", "RequestInit", "Response",
+    "console", "IdbFactory", "IdbDatabase", "IdbOpenDbRequest", "IdbRequest", "IdbTransaction",
+    "IdbTransactionMode", "IdbObjectStore", "IdbVersionChangeEvent", "DomException",
+    "DomStringList",
+] }
 
 [lints]
 workspace = true
