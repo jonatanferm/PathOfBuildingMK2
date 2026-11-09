@@ -1,0 +1,72 @@
+# Interactions of the "u9_scroll" gallery (U9).
+frames 2
+# auto-hide bar (default step = width * 2) with the wheel; disabled bar; locked bar
+move 347 100
+wheel down 2
+frames 1
+move 389 100
+click LEFTBUTTON
+wheel down 1
+move 429 100
+click LEFTBUTTON
+wheel down 1
+frames 1
+# vertical: hover the knob, drag it down over several frames, release
+move 309 77
+frames 1
+key-down LEFTBUTTON
+frames 1
+move 309 120
+frames 2
+move 309 163
+frames 1
+key-up LEFTBUTTON
+frames 1
+# slide area above and below the knob
+move 309 45
+click LEFTBUTTON
+move 309 290
+click LEFTBUTTON
+# up arrow click
+move 309 29
+click LEFTBUTTON
+# down arrow held: repeat after 500 ms, paused while the cursor is off the arrow
+move 309 311
+key-down LEFTBUTTON
+frames 40
+move 500 500
+frames 5
+move 309 311
+frames 5
+key-up LEFTBUTTON
+frames 1
+# wheel and page keys over the bar
+move 309 200
+wheel down 3
+frames 1
+wheel up 1
+frames 1
+press PAGEUP
+press PAGEDOWN
+# past 400 the auto-hide bar loses its content and hides
+move 309 290
+click LEFTBUTTON
+click LEFTBUTTON
+frames 1
+# horizontal: arrows and knob drag
+move 412 348
+click LEFTBUTTON
+move 28 348
+click LEFTBUTTON
+move 97 348
+key-down LEFTBUTTON
+frames 1
+move 200 348
+frames 1
+move 260 360
+key-up LEFTBUTTON
+frames 1
+# ScrollIntoView from a button
+move 70 410
+click LEFTBUTTON
+frames 2

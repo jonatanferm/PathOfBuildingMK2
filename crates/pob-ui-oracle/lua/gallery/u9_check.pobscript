@@ -1,0 +1,49 @@
+# Interactions of the "u9_check" gallery (U9).
+frames 2
+# hover the box, press (held), release: toggles on
+move 209 29
+frames 1
+key-down LEFTBUTTON
+frames 2
+key-up LEFTBUTTON
+frames 1
+# the label on the left is part of the clickable area: toggles off
+move 150 29
+frames 1
+click LEFTBUTTON
+# label on the right
+move 245 60
+frames 1
+click LEFTBUTTON
+# no label: left of the box is outside
+move 190 89
+frames 1
+click LEFTBUTTON
+move 209 89
+click LEFTBUTTON
+# empty label: 5 px of label width
+move 256 89
+click LEFTBUTTON
+# disabled (checked and unchecked)
+move 209 119
+click LEFTBUTTON
+move 269 119
+frames 1
+# borderFunc follows the change count; function label
+move 209 149
+click LEFTBUTTON
+move 600 400
+frames 1
+move 209 179
+click LEFTBUTTON
+# press inside, release outside: no toggle
+move 377 29
+key-down LEFTBUTTON
+frames 1
+move 377 60
+key-up LEFTBUTTON
+frames 1
+move 377 29
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
