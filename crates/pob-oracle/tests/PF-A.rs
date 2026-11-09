@@ -178,25 +178,25 @@ const KNOWN_DIFFS: &[(&str, &str, &str)] = &[
     (
         "allflame_exp_016",
         "doActorLifeMana",
-        "CCR-0046 §5: `15% increased Life` (Tree:41415) carries an ItemCondition searchCond \
+        "CCR-0085 §5: `15% increased Life` (Tree:41415) carries an ItemCondition searchCond \
          tag on the body armour; pob-state/1 dumps no item mod lines, so \
          Item:FindModifierSubstring on the injected Kaom's Heart finds nothing",
     ),
     (
         "allflame_exp_016",
         "doActorAttribsConditions",
-        "CCR-0046 §5: as doActorLifeMana (it ends by calling doActorLifeMana)",
+        "CCR-0085 §5: as doActorLifeMana (it ends by calling doActorLifeMana)",
     ),
     (
         "allflame_exp_049",
         "doActorLifeMana",
-        "CCR-0046 §5: `15% increased Life` (Tree:44316) carries the same ItemCondition \
+        "CCR-0085 §5: `15% increased Life` (Tree:44316) carries the same ItemCondition \
          searchCond tag; the body armour's `Regenerate 10% Life …` line is not in the dump",
     ),
     (
         "allflame_exp_049",
         "doActorAttribsConditions",
-        "CCR-0046 §5: as doActorLifeMana (it ends by calling doActorLifeMana)",
+        "CCR-0085 §5: as doActorLifeMana (it ends by calling doActorLifeMana)",
     ),
 ];
 

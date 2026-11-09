@@ -2,7 +2,7 @@
 //! CalcPerform.lua 1-635: module header and actor helpers A.
 //!
 //! Owner: PF-A. Signatures are U0's (frozen); two additions are marked
-//! `// CCR-0046` (docs/port/ccr/0046-pf-a-perform-helpers.md):
+//! `// CCR-0085` (docs/port/ccr/0085-pf-a-perform-helpers.md):
 //! [`mergeBuff_v`] takes the `src` argument as the Lua value it is (a ModList
 //! object or a plain list of mods; the frozen `mergeBuff` takes a `Table`),
 //! and the `actor.appliedEnemyModifiers` mod-identity cache is kept beside the
@@ -122,7 +122,7 @@ pub(crate) fn mergeBuff(src: &Table, destTable: &Table, destKey: Name) {
 
 /// `mergeBuff` with `src` as the Lua value it is: a ModList object (`srcList`, every
 /// caller but two) or a plain list of mods (`buff.modList`, CalcPerform.lua:2808/2832;
-/// `guard.modList`, 3339). CCR-0046: the frozen signature takes a `Table` only.
+/// `guard.modList`, 3339). CCR-0085: the frozen signature takes a `Table` only.
 /// (Body of CalcPerform.lua:45-67; marker on [`mergeBuff`].)
 pub(crate) fn mergeBuff_v(src: &Val, destTable: &Table, destKey: Name) {
     // L46
@@ -225,7 +225,7 @@ fn dest_ipairs(dest: &Val) -> Vec<ModRef> {
 }
 
 /// `dest[index] = mod` (1-based; `index` is an existing slot whose mod has the same
-/// name, `compareModParams` checked it). CCR-0046: ModList has no public `self[i] = mod`;
+/// name, `compareModParams` checked it). CCR-0085: ModList has no public `self[i] = mod`;
 /// the name → positions index is unchanged because the names are equal.
 fn dest_set(dest: &Val, index: usize, m: ModRef) {
     if let Some(l) = dest.obj::<ModStore>() {
@@ -1725,7 +1725,7 @@ pub(crate) fn applyEnemyModifiers(actor: &ActorRef, clearCache: bool) {
                 let source: Option<AStr> =
                     r#mod.source.clone().or_else(|| value.r#mod.source.clone());
                 // L629 `modLib.setSource(mod, source)` mutates `mod` in place in Lua. It is the
-                // inner mod of the actor's EnemyModifier mod (shared): CCR-0046 §3. When the
+                // inner mod of the actor's EnemyModifier mod (shared): CCR-0085 §3. When the
                 // assignment changes nothing the very mod is added (identity as in Lua);
                 // otherwise a re-sourced copy.
                 let added = setSource_shared(&r#mod, source.as_deref());
@@ -1737,7 +1737,7 @@ pub(crate) fn applyEnemyModifiers(actor: &ActorRef, clearCache: bool) {
     }
 }
 
-/// `modLib.setSource(mod, source)` on a mod Lua shares (CCR-0046 §3): the mod itself when
+/// `modLib.setSource(mod, source)` on a mod Lua shares (CCR-0085 §3): the mod itself when
 /// setting the source changes nothing, else the re-sourced copy (`ModTools.lua:239-246`).
 fn setSource_shared(m: &ModRef, source: Option<&str>) -> ModRef {
     let same = |x: &Mod| x.source.as_deref() == source;
@@ -1763,7 +1763,7 @@ fn setSource_shared(m: &ModRef, source: Option<&str>) -> ModRef {
 
 /// `actor.appliedEnemyModifiers`: a Lua table keyed by mod identity (`cache[mod] = true`).
 /// The frozen field is a `Table`, which has no identity keys (CCR-0030 #6), so the set of
-/// mods lives beside it, per actor, tied to the table it belongs to. CCR-0046.
+/// mods lives beside it, per actor, tied to the table it belongs to. CCR-0085.
 mod enemy_cache {
     use super::*;
     use std::cell::RefCell;

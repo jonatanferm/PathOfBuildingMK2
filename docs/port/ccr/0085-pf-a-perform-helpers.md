@@ -1,10 +1,10 @@
-# CCR-0046: PF-A — `mergeBuff` source type, ModList index store, `setSource` on a shared mod
+# CCR-0085: PF-A — `mergeBuff` source type, ModList index store, `setSource` on a shared mod
 
 Status: proposed by PF-A (2026-11-09)
 
 Unit PF-A ports CalcPerform.lua 1-635 into
 `crates/pob-calc/src/modules/calc_perform/actor_a.rs`. Three contract gaps, each worked around
-in that file and marked `// CCR-0046`.
+in that file and marked `// CCR-0085`.
 
 ## 1. `mergeBuff(src: &Table, …)` cannot receive a ModList
 
@@ -78,7 +78,7 @@ shows the copied source (state dumps of `actor.modDB` only; no calc reads it, an
 mod is identical in value).
 
 **Proposed resolution.** Record the site in contracts.md#mod-mutation as "shared, ported as a
-copy (CCR-0046)". Making it exact would need the actor's mod rebuilt with the re-sourced
+copy (CCR-0085)". Making it exact would need the actor's mod rebuilt with the re-sourced
 payload (changing the identity the cache keys on), which no output depends on.
 
 ## 4. `actor.appliedEnemyModifiers` keys (CCR-0030 #6)
