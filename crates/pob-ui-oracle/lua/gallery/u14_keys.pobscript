@@ -1,0 +1,88 @@
+# Interactions of the "u14_keys" gallery (U14): the popups driven by the keyboard at the real
+# screen size (the popups are centred on it, so only the host buttons are clicked).
+frames 2
+# message popup: RETURN clicks the enter control ("close")
+move 100 30
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 1
+# again: ESCAPE without an escape control closes
+click LEFTBUTTON
+press ESCAPE
+frames 1
+# two-button confirm: ESCAPE closes without confirming, RETURN confirms
+move 100 60
+click LEFTBUTTON
+press ESCAPE
+click LEFTBUTTON
+press RETURN
+frames 1
+# three-button confirm: RETURN clicks "confirm"
+move 100 90
+click LEFTBUTTON
+frames 1
+press RETURN
+# custom: default focus on the edit; the focused edit eats RETURN (it drops the focus), the next
+# RETURN clicks "ok"
+move 100 120
+click LEFTBUTTON
+type "abc"
+frames 1
+press RETURN
+frames 1
+press RETURN
+frames 1
+# custom again: the edit eats ESCAPE, the next ESCAPE clicks "cancel"
+click LEFTBUTTON
+type "x"
+press ESCAPE
+frames 1
+press ESCAPE
+frames 1
+# new folder: the filter drops / and ?, typing enables Create; RETURN (eaten) then RETURN creates
+move 100 150
+click LEFTBUTTON
+frames 1
+type "Dir/One?"
+frames 1
+press RETURN
+press RETURN
+frames 1
+# the same name again: MakeDir fails and the error popup stacks on top; RETURN closes it,
+# ESCAPE (nothing focused) clicks Cancel
+click LEFTBUTTON
+type "DirOne"
+press RETURN
+press RETURN
+frames 1
+press RETURN
+frames 1
+press ESCAPE
+frames 1
+# clearing the name disables Create again: RETURN does nothing
+click LEFTBUTTON
+type "a"
+press BACK
+press ESCAPE
+press RETURN
+frames 1
+press ESCAPE
+# cloud error popup
+move 100 180
+click LEFTBUTTON
+frames 1
+press RETURN
+# scroll popup: KeyUp of the scroll keys scrolls `scrollBar` (scrollBarFunc set)
+move 100 210
+click LEFTBUTTON
+frames 1
+wheel down
+wheel down
+frames 1
+press PAGEDOWN
+press UP
+wheel up
+frames 1
+press ESCAPE
+frames 2
