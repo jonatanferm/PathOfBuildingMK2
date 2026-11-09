@@ -1,7 +1,7 @@
-# CCR-0015 (IT-B): Item core stub signatures and the shape of `Item.extra`
+# CCR-0032 (IT-B): Item core stub signatures and the shape of `Item.extra`
 
 **Status: proposed (IT-B, 2026-10-09; §4 added 2026-10-10).** The changes in §1 are already
-made in the IT-B-owned file `crates/pob-calc/src/classes/item.rs` (marked `CCR-0015`); nothing
+made in the IT-B-owned file `crates/pob-calc/src/classes/item.rs` (marked `CCR-0032`); nothing
 outside it calls the changed functions (`cargo check -p pob-calc` and the wasm32 check are
 green). §2 records a convention that IT-A and IT-C must follow; §3 is one documented deviation;
 §4 changes two IT-C stub signatures in `item_tools.rs`.
@@ -105,7 +105,7 @@ value is a number, a list of numbers, or nil:
 `&Val` keeps all three Lua shapes (number, list `Table`, nil) and the `ranges[i] or 0.5` /
 nil-arithmetic behaviour without a new type. Both bodies are still `unported!` and the only
 callers are IT-B's (`Item::Craft` passes `lor(affix.range, 0.5)` unchanged, the IT-B test's
-`applyRange` probe), so IT-B's branch applies the stub change (marked `CCR-0015 §4`) to keep
+`applyRange` probe), so IT-B's branch applies the stub change (marked `CCR-0032 §4`) to keep
 `cargo check -p pob-calc` green; IT-C ports the body against it. IT-B's oracle
 (`corpus/IT-B/item_oracle.lua`, `craftSynth`) adds two crafted rares with list ranges (single-
 and two-range lines, a hybrid two-line mod, a list shorter than the line's ranges, combined

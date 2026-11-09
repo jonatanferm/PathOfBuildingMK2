@@ -53,20 +53,20 @@ pub fn isZeroValueLine(line: &str) -> bool {
     unported!("Modules/ItemTools.lua:88-90")
 }
 
-/// `range` is a Lua value (CCR-0015 §4): a number, or a list of numbers used per `(x-y)` range
+/// `range` is a Lua value (CCR-0032 §4): a number, or a list of numbers used per `(x-y)` range
 /// (`ranges[rangeIndex] or 0.5`, ItemTools.lua:99/104), as stored by ParseRaw for
 /// `{range:a,b}` (Item.lua:803-809); callers pass `modLine.range`, which may be nil.
 /// @pob Modules/ItemTools.lua:96-355 h=46779a84
 pub fn applyRange(
     line: &str,
-    range: &Val, // CCR-0015 §4
+    range: &Val, // CCR-0032 §4
     valueScalar: Option<f64>,
     baseValueScalar: Option<f64>,
 ) -> String {
     unported!("Modules/ItemTools.lua:96-355")
 }
 
-/// `range` is passed to `applyRange` unchanged (CCR-0015 §4).
+/// `range` is passed to `applyRange` unchanged (CCR-0032 §4).
 /// @pob Modules/ItemTools.lua:357-359 h=49fbc3b8
 pub fn isModLineScalable(line: &str, range: &Val, valueScalar: Option<f64>) -> bool {
     unported!("Modules/ItemTools.lua:357-359")
