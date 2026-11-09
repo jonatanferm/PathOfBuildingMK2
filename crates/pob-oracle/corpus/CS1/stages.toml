@@ -1,0 +1,17 @@
+# CS1 acceptance (crates/pob-oracle/tests/CS1.rs): the two line probes of docs/port/stages.toml
+# that bound initEnv segment CS1 (CalcSetup.lua 488-799). Same ids and locals, so the dumps are
+# the standard pob-state documents ORC-X's injection and diff read.
+
+[[stage]]
+id = "initEnv:488"
+file = "Modules/CalcSetup.lua"
+line = 488
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "local classStats = nil"
+
+[[stage]]
+id = "initEnv:800"
+file = "Modules/CalcSetup.lua"
+line = 800
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "if not accelerate.requirementsItems then"
