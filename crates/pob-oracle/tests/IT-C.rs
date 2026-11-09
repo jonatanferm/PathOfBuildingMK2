@@ -866,7 +866,8 @@ fn item_mods_vs_pob() {
 
     // inputs
     let corpus = corpus_items();
-    let out = std::env::temp_dir().join(format!("itc_oracle_{}.jsonl", std::process::id()));
+    // not std::env::temp_dir(): /tmp is a RAM-backed tmpfs on the port machines
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("itc_oracle_{}.jsonl", std::process::id()));
     let mut prologue = format!("__itc_out = {}\n__itc_corpus = {{\n", lua_long(&out.to_string_lossy()));
     for c in &corpus {
         prologue.push_str(&format!("{{ src = {}, raw = {}", lua_long(&c.src), lua_long(&c.raw)));
@@ -917,47 +918,22 @@ fn item_mods_vs_pob() {
         || format!("lua={}", header["devModeAlt"]),
     );
 
-    // read the oracle output: parseMod results first (they come before the records using them)
-    let f = std::fs::File::open(&out).expect("oracle output");
-    let mut parse: HashMap<(String, bool), ParseResult> = HashMap::new();
-    let mut applies: Vec<J> = Vec::new();
-    let mut items: Vec<J> = Vec::new();
-    for line in std::io::BufReader::new(f).lines() {
-        let line = line.expect("read");
-        let mut rec: J = serde_json::from_str(&line).expect("record JSON");
-        fix_json(&mut rec);
-        match rec["t"].as_str() {
-            Some("P") => {
-                let key = (rec["line"].as_str().unwrap().to_owned(), rec["comb"].as_bool().unwrap());
-                let mods = decode_mods(&rec["mods"]);
-                let extra = rec["extra"].as_str().map(str::to_owned);
-                parse.entry(key).or_insert((mods, extra));
-            }
-            Some("A") => applies.push(rec),
-            Some("I") => items.push(rec),
-            other => panic!("record kind {other:?}"),
-        }
-    }
-    match std::env::var_os("IT_C_KEEP") {
-        Some(p) => {
-            std::fs::rename(&out, p).expect("IT_C_KEEP");
-        }
-        None => {
-            let _ = std::fs::remove_file(&out);
-        }
-    }
-
-    // hooks: parseMod replayed; CanHaveMod runs the port and is compared with PoB
-    let parse = Rc::new(parse);
+    // hooks: parseMod replayed; CanHaveMod runs the port and is compared with PoB. The oracle's
+    // JSONL is streamed (memory budget: never hold every record): a parseMod record precedes every
+    // applyRange / item record whose PoB call made it, so the map is complete when it is used.
+    let parse: Rc<RefCell<HashMap<(String, bool), ParseResult>>> = Rc::default();
     let misses: Rc<RefCell<Vec<String>>> = Rc::default();
     let pm: tools_replay::ParseModFn = {
         let parse = parse.clone();
         let misses = misses.clone();
-        Rc::new(move |line: &str, isComb: bool| match parse.get(&(line.to_owned(), isComb)) {
-            Some(r) => r.clone(),
-            None => {
-                misses.borrow_mut().push(format!("{line:?} {isComb}"));
-                pob_modparser::parseMod(line, isComb)
+        Rc::new(move |line: &str, isComb: bool| {
+            let hit = parse.borrow().get(&(line.to_owned(), isComb)).cloned();
+            match hit {
+                Some(r) => r,
+                None => {
+                    misses.borrow_mut().push(format!("{line:?} {isComb}"));
+                    pob_modparser::parseMod(line, isComb)
+                }
             }
         })
     };
@@ -990,42 +966,66 @@ fn item_mods_vs_pob() {
     }
     tools_replay::set(tools_replay::Hooks { parseMod: Some(pm.clone()) });
 
-    // applyRange
     let t1 = std::time::Instant::now();
-    for a in &applies {
-        let line = a["line"].as_str().unwrap();
-        let range = range_val(&a["range"]);
-        let vs = jnum(&a["vs"]);
-        let bvs = jnum(&a["bvs"]);
-        let r = catch(|| itemLib::applyRange(line, &range, vs, bvs));
-        let ok = match (&r, a["err"].is_null()) {
-            (Ok(s), true) => a["r"].as_str() == Some(s.as_str()),
-            (Err(_), false) => true,
-            _ => false,
-        };
-        t.check("applyRange", ok, || {
-            format!(
-                "{line:?} range={} vs={vs:?} bvs={bvs:?}: rust={r:?} lua={} err={}",
-                a["range"], a["r"], a["err"]
-            )
-        });
-    }
-
-    // items
+    let only = std::env::var("IT_C_ONLY").ok();
+    let mut napplies = 0usize;
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     let mut nparses = 0usize;
-    for rec in &items {
-        let src = rec["src"].as_str().unwrap_or("?").to_owned();
-        if let Ok(only) = std::env::var("IT_C_ONLY") {
-            if !src.contains(only.as_str()) {
-                continue;
+    let f = std::fs::File::open(&out).expect("oracle output");
+    for line in std::io::BufReader::new(f).lines() {
+        let line = line.expect("read");
+        let mut rec: J = serde_json::from_str(&line).expect("record JSON");
+        drop(line);
+        fix_json(&mut rec);
+        match rec["t"].as_str() {
+            Some("P") => {
+                let key = (rec["line"].as_str().unwrap().to_owned(), rec["comb"].as_bool().unwrap());
+                let mods = decode_mods(&rec["mods"]);
+                let extra = rec["extra"].as_str().map(str::to_owned);
+                parse.borrow_mut().entry(key).or_insert((mods, extra));
             }
+            Some("A") => {
+                // applyRange: the result (or that both raise)
+                let a = &rec;
+                napplies += 1;
+                let line = a["line"].as_str().unwrap();
+                let range = range_val(&a["range"]);
+                let vs = jnum(&a["vs"]);
+                let bvs = jnum(&a["bvs"]);
+                let r = catch(|| itemLib::applyRange(line, &range, vs, bvs));
+                let ok = match (&r, a["err"].is_null()) {
+                    (Ok(s), true) => a["r"].as_str() == Some(s.as_str()),
+                    (Err(_), false) => true,
+                    _ => false,
+                };
+                t.check("applyRange", ok, || {
+                    format!(
+                        "{line:?} range={} vs={vs:?} bvs={bvs:?}: rust={r:?} lua={} err={}",
+                        a["range"], a["r"], a["err"]
+                    )
+                });
+            }
+            Some("I") => {
+                let src = rec["src"].as_str().unwrap_or("?").to_owned();
+                if only.as_deref().is_some_and(|o| !src.contains(o)) {
+                    continue;
+                }
+                *kinds.entry(rec["kind"].as_str().unwrap_or("?").to_owned()).or_default() += 1;
+                let item = Item::default();
+                for p in rec["parses"].as_array().unwrap() {
+                    check_parse(&mut t, &src, &item, p, &can);
+                    nparses += 1;
+                }
+            }
+            other => panic!("record kind {other:?}"),
         }
-        *kinds.entry(rec["kind"].as_str().unwrap_or("?").to_owned()).or_default() += 1;
-        let item = Item::default();
-        for p in rec["parses"].as_array().unwrap() {
-            check_parse(&mut t, &src, &item, p, &can);
-            nparses += 1;
+    }
+    match std::env::var_os("IT_C_KEEP") {
+        Some(p) => {
+            std::fs::rename(&out, p).expect("IT_C_KEEP");
+        }
+        None => {
+            let _ = std::fs::remove_file(&out);
         }
     }
     replay::clear();
@@ -1036,8 +1036,7 @@ fn item_mods_vs_pob() {
     });
 
     eprintln!(
-        "IT-C: {} applyRange calls; items by kind {kinds:?}; {nparses} ParseRaw calls; Rust side {:?}",
-        applies.len(),
+        "IT-C: {napplies} applyRange calls; items by kind {kinds:?}; {nparses} ParseRaw calls; Rust side {:?}",
         t1.elapsed()
     );
     eprintln!("{:<32} {:>8} {:>6}", "check", "pass", "fail");
