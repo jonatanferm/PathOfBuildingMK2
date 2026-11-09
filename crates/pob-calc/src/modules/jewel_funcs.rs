@@ -16,7 +16,7 @@
 //!   6238-6242, 6250-6254, 6255-6259, 6388-6395, 6420-6435, 6436-6451), an inner closure a
 //!   capture closure returned (6232-6236 … 6359-6364; upvalues in `args`), or one of the two
 //!   `ExtraJewelFunc` closures of specialModList (2622-2627 `args = [dmgType]`, 2630-2634
-//!   `args = [val, attr]`; CCR-0034 asks the specialModList units to emit exactly these);
+//!   `args = [val, attr]`; CCR-0039 asks the specialModList units to emit exactly these);
 //! * `"$default"`: CalcSetup.lua:877-884, the default radius func of a jewel without a funcList.
 #![allow(non_snake_case, clippy::all, clippy::pedantic)]
 

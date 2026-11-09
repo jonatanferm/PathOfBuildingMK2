@@ -12,7 +12,7 @@
 //!   overlays, exactly as CalcSetup does (`out` = the node's mods, one `data` per func, then the
 //!   finish call `func(nil, out, data)`); `corpus/MP7/jewel_funcs.lua`. The Rust side parses the
 //!   same line with MP0's driver over MP7's jewelFuncList (the two ExtraJewelFunc closures, whose
-//!   specialModList entries are MP3-MP6's, are built per CCR-0034), rebuilds the same nodes from
+//!   specialModList entries are MP3-MP6's, are built per CCR-0039), rebuilds the same nodes from
 //!   the dumped mods, runs `callJewelFunc` the same way and must give, for every call, the same
 //!   error status, the same `out` list (untouched mods by identity, others by value) and the same
 //!   `data` table, and the same finish `out` and `data`. Gate: 100% (calc doc §9.4 L2).
@@ -180,7 +180,7 @@ const CAPTURE_LINES: &[&str] = &[
     "Non-Unique Jewels cause Small and Notable Passive Skills in a Medium Radius to also grant +4 to Intelligence",
 ];
 
-/// The two specialModList ExtraJewelFunc entries (ModParser.lua:2621/2629) as CCR-0034 encodes
+/// The two specialModList ExtraJewelFunc entries (ModParser.lua:2621/2629) as CCR-0039 encodes
 /// them (their lists are MP3-MP6's).
 fn extra_jewel_func(line: &str) -> Option<JewelFuncSpec> {
     let lower = pob_lua::string::lower(line);
@@ -399,7 +399,7 @@ fn build_nodes(doc: &J) -> Vec<RNode> {
         .collect()
 }
 
-/// The func of a line, as the Rust side gets it (MP0's driver; CCR-0034 for ExtraJewelFunc).
+/// The func of a line, as the Rust side gets it (MP0's driver; CCR-0039 for ExtraJewelFunc).
 fn rust_func(line: &str) -> Result<(Name, Option<Name>, JewelFuncSpec), String> {
     if let Some(s) = extra_jewel_func(line) {
         return Ok((n!("ExtraJewelFunc"), Some(n!("Other")), s));
