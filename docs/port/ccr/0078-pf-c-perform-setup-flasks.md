@@ -144,3 +144,25 @@ CalcPerform.lua:1710 reads `env.flaskSlotMap[item]` for magic flasks when
 `MagicFlaskNoAdjacentEffect` ≠ 0 (Essence of Desolation). The frozen `Field<Table>` cannot be
 keyed by items. PF-C raises a `LuaError` citing CCR-0030 #5 on that path instead of silently
 skipping the bonus; it ports as soon as CCR-0030's `Field<Shared<PtrMap<Item, f64>>>` lands.
+
+## §8 Callees that landed for real: fresh skills' typed `bool`s and buff mod-list order
+
+Since AS landed, `createMinionSkills` runs for real inside the segment (the replay hook only
+fires on a stub hit, §2), and the skills it creates expose two export/diff gaps:
+
+* `ActiveSkill.{buffSkill, debuffSkill, totemBuffSkill, minionBuffSkill}` and
+  `SkillEffect.{superseded, appliesToGrantedSkills, fromItem}` are typed `bool`s, `false` on a
+  fresh object, where PoB's tables leave them nil (CalcActiveSkill.lua:85-93, 900-904). Lua only
+  assigns `true` to the four skill flags (CalcPerform.lua:2323-2958) and every reader tests
+  truthiness, so the calc semantics agree; but the exporter drops a default-valued typed field
+  only when it is marked absent, and only injection marks. Proposed (ORC-X / U0): a fresh
+  `ActiveSkill::new` / `SkillEffect::new` marks the fields its Lua table leaves nil absent
+  (feature `probe`), with explicit `superseded = false` (CalcSetup.lua:1691) unmarking.
+  Workaround (test only): `PF-C.rs::mark_fresh_skill_defaults` marks them on the skills not in
+  the injected graph, as `AS.rs::fix_absent_marks` does for fresh minions.
+* A buff's `modList` (CalcActiveSkill.lua:804-869) is a plain array, positionally diffed, whose
+  order inside one source follows `pairs(stats)` in `mergeSkillInstanceMods`
+  (CalcActiveSkill.lua:62), random per PoB process (calc doc §3.4). Workaround (test only):
+  `PF-C.rs::buff_list_order_only` counts a list as LUA-ORDER when both sides hold the same
+  multiset of mods with the same source at every position. Proposed (ORC-X): the nondet record
+  or the diff treats `*.buffList[*].modList` like a ModList (multiset + order check).

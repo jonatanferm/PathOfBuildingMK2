@@ -19,6 +19,10 @@
 //! * `env.partyMembers` is the build model's `partyTab.actor` (CalcPerform.lua:1310);
 //!   the model is empty until BM-A (`Build:LoadDB` is a stub), so its contents are
 //!   not compared ([`MODEL_ONLY`]) and the aliasing is checked instead.
+//! * Skills `createMinionSkills` (AS, real since AS landed) creates in the run: their typed
+//!   `bool` fields that PoB's fresh tables leave nil are marked absent for the exporter
+//!   ([`mark_fresh_skill_defaults`]); their buff mod lists' order inside one source's stat
+//!   map is PoB's per-process `pairs` order and counts as LUA-ORDER ([`buff_list_order_only`]).
 //!
 //! Dumps: `crates/pob-oracle/corpus/PF-C/probe.sh` probes every `.parity/builds`
 //! build with `corpus/PF-C/stages.toml` into `target/tmp/pfc-probe/<stem>/`
@@ -268,6 +272,131 @@ fn party_alias_ok(env: &EnvRef) -> bool {
             .is_some_and(|p| Rc::ptr_eq(&p, party))
 }
 
+/// Every active skill reachable from the env's actors and `env.auxSkillList` (minions'
+/// skill lists and main skills recursively), each once.
+fn reachable_skills(env: &EnvRef) -> Vec<ActiveSkillRef> {
+    use pob_calc::probe::rc_ptr;
+    fn actor(a: &ActorRef, seen: &mut Vec<usize>, out: &mut Vec<ActiveSkillRef>, actors: &mut Vec<usize>) {
+        if actors.contains(&rc_ptr(a)) {
+            return;
+        }
+        actors.push(rc_ptr(a));
+        let list = a.activeSkillList.get().with(Clone::clone);
+        for s in list.iter().chain(a.mainSkill.get().iter()) {
+            skill(s, seen, out, actors);
+        }
+        if let Some(m) = a.minion.get() {
+            actor(&m, seen, out, actors);
+        }
+    }
+    fn skill(s: &ActiveSkillRef, seen: &mut Vec<usize>, out: &mut Vec<ActiveSkillRef>, actors: &mut Vec<usize>) {
+        if seen.contains(&rc_ptr(s)) {
+            return;
+        }
+        seen.push(rc_ptr(s));
+        out.push(s.clone());
+        if let Some(m) = s.minion.get() {
+            actor(&m, seen, out, actors);
+        }
+    }
+    let (mut seen, mut out, mut actors) = (Vec::new(), Vec::new(), Vec::new());
+    actor(&env.player, &mut seen, &mut out, &mut actors);
+    if let Some(m) = env.minion.get() {
+        actor(&m, &mut seen, &mut out, &mut actors);
+    }
+    for s in env.auxSkillList.get().with(Clone::clone) {
+        skill(&s, &mut seen, &mut out, &mut actors);
+    }
+    out
+}
+
+/// Harness bookkeeping for the skills the port created during the run (createMinionSkills,
+/// AS, runs for real since AS landed): the frozen `ActiveSkill` / `SkillEffect` hold
+/// `buffSkill` … `minionBuffSkill` and `superseded` / `appliesToGrantedSkills` / `fromItem` as
+/// typed `bool`s, `false` until set, where PoB's fresh tables leave them nil
+/// (`createActiveSkill`'s table, CalcActiveSkill.lua:85-93; the minion skill's
+/// `activeEffect = { grantedEffect, level, quality }`, CalcActiveSkill.lua:900-904). Lua only
+/// ever assigns `true` to the four skill flags (CalcPerform.lua:2323-2958) and every reader
+/// tests truthiness, so `false` is nil for the calc; the exporter only drops a default-valued
+/// typed field that is marked absent, and the injection marks only the objects it built.
+/// Mark the still-`false` fields of the skills (and their active effects) that were not in the
+/// injected graph (`before`, kept alive so no address is reused) absent.
+fn mark_fresh_skill_defaults(env: &EnvRef, before: &[ActiveSkillRef]) {
+    use pob_calc::probe::{mark_absent, rc_ptr};
+    let old_skills: Vec<usize> = before.iter().map(rc_ptr).collect();
+    let old_effects: Vec<usize> = before.iter().map(|s| rc_ptr(&s.activeEffect.get())).collect();
+    for s in reachable_skills(env) {
+        let p = rc_ptr(&s);
+        if old_skills.contains(&p) {
+            continue;
+        }
+        for (k, v) in [
+            ("buffSkill", s.buffSkill.get()),
+            ("debuffSkill", s.debuffSkill.get()),
+            ("totemBuffSkill", s.totemBuffSkill.get()),
+            ("minionBuffSkill", s.minionBuffSkill.get()),
+        ] {
+            if !v {
+                mark_absent(p, k);
+            }
+        }
+        let ae = s.activeEffect.get();
+        let pe = rc_ptr(&ae);
+        if old_effects.contains(&pe) {
+            continue;
+        }
+        for (k, v) in [
+            ("superseded", ae.superseded.get()),
+            ("appliesToGrantedSkills", ae.appliesToGrantedSkills.get()),
+            ("fromItem", ae.fromItem.get()),
+        ] {
+            if !v {
+                mark_absent(pe, k);
+            }
+        }
+    }
+}
+
+/// `…buffList[i].modList` of a mismatch path under one (`None` otherwise).
+fn buff_mod_list_path(path: &str) -> Option<&str> {
+    let b = path.find(".buffList[")?;
+    let rest = &path[b..];
+    let m = rest.find("].modList")? + "].modList".len();
+    let end = b + m;
+    matches!(path.as_bytes().get(end), None | Some(b'[' | b'.')).then(|| &path[..end])
+}
+
+/// LUA-ORDER for a skill's buff mod lists (CalcActiveSkill.lua:804-869): the buff's
+/// `modList` takes the skill's global-effect mods in `skillModList` order, and the mods of one
+/// granted effect's stat map come in `pairs(stats)` order (`mergeSkillInstanceMods`,
+/// CalcActiveSkill.lua:62, over the string-keyed table `calcLib.buildSkillInstanceStats`
+/// builds, CalcTools.lua:192-250; random per PoB process, calc doc
+/// §3.4/§9.5; AS's own acceptance accepts the same within same-source runs). A buff mod list
+/// whose mismatches are only positional is accepted when both lists hold the same multiset of
+/// mods and the same source at every position (the permutation stays inside one source).
+fn buff_list_order_only(pob: &J, ours: &J, list: &str) -> bool {
+    use pob_oracle::diff::tree_eq;
+    use pob_oracle::schema::{children, get_path};
+    let (Some(a), Some(b)) = (get_path(pob, list), get_path(ours, list)) else {
+        return false;
+    };
+    let la: Vec<&J> = children(list, a).into_iter().map(|(_, v)| v).collect();
+    let lb: Vec<&J> = children(list, b).into_iter().map(|(_, v)| v).collect();
+    if la.len() != lb.len() || la.is_empty() {
+        return false;
+    }
+    if la.iter().zip(&lb).any(|(x, y)| x.get("source") != y.get("source")) {
+        return false;
+    }
+    let mut used = vec![false; lb.len()];
+    la.iter().all(|x| {
+        (0..lb.len())
+            .find(|&i| !used[i] && tree_eq(x, lb[i], 1e-9))
+            .map(|i| used[i] = true)
+            .is_some()
+    })
+}
+
 /// Non-vacuity: the mismatches of the *unrun* `perform:1289` state against `perform:1943`
 /// (the segment's own effect, which the run must account for).
 fn unrun_mismatches(stem: &str, b: &BuildDumps) -> usize {
@@ -301,6 +430,7 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
     // every replay: `apply_onto` refills the items from the export, which lacks the field)
     let lists = Rc::new(b.buffModLists.clone());
     restore_buff_mod_lists(&env, &lists);
+    let injected_skills = reachable_skills(&env);
 
     // the replay hook
     let queues: Rc<RefCell<BTreeMap<&'static str, VecDeque<String>>>> = Rc::new(RefCell::new(
@@ -376,9 +506,29 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
     // (applyEnemyModifiers in doActorMisc, mergeKeystones in later segments)
     out.leftover = queues.borrow().values().map(VecDeque::len).sum();
     out.party_alias_ok = party_alias_ok(&env);
+    mark_fresh_skill_defaults(&env, &injected_skills);
     let mm = testkit::diff_against(&b.dout, Some(&env), &after, stem);
+    // the buff mod lists with positional mismatches, and whether each is order-only
+    let mut buff_lists: BTreeMap<String, bool> = BTreeMap::new();
+    if mm.iter().any(|m| buff_mod_list_path(&m.path).is_some()) {
+        let pob = pob_oracle::schema::resolve_ids(&b.dout.root);
+        let ours = pob_oracle::schema::resolve_ids(&testkit::export_after(Some(&env), &[]));
+        for m in &mm {
+            if let Some(l) = buff_mod_list_path(&m.path) {
+                buff_lists
+                    .entry(l.to_owned())
+                    .or_insert_with(|| buff_list_order_only(&pob, &ours, l));
+            }
+        }
+    }
+    let mut order_lists = std::collections::BTreeSet::new();
     for m in mm {
-        if m.kind == MismatchKind::LuaOrder {
+        let buff_order = buff_mod_list_path(&m.path).is_some_and(|l| buff_lists[l]);
+        if buff_order {
+            if order_lists.insert(buff_mod_list_path(&m.path).unwrap().to_owned()) {
+                out.order_only += 1;
+            }
+        } else if m.kind == MismatchKind::LuaOrder {
             out.order_only += 1;
         } else if MODEL_ONLY.iter().any(|p| m.path.starts_with(p)) {
             out.model_only += 1;
