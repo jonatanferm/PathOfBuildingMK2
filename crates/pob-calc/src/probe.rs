@@ -2954,6 +2954,40 @@ mod imp {
     }
 
     // =====================================================================================
+    // Skill hooks: replay of not-yet-ported hooks during an L4 run (CCR-0041)
+    // =====================================================================================
+
+    /// Receives every `runSkillFunc(name)` call of the offence segments (CalcOffence.lua:509)
+    /// before the Rust body runs: `true` means the call was handled (e.g. the hook's recorded
+    /// `runSkillFunc:in → :out` delta was applied) and the Rust body is skipped.
+    pub type SkillHookHandler = Box<dyn FnMut(&ActiveSkillRef, crate::data_fns::SkillHook) -> bool>;
+
+    thread_local! {
+        static SKILL_HOOK_HANDLER: RefCell<Option<SkillHookHandler>> = RefCell::new(None);
+    }
+
+    /// Install (or with `None` remove) the skill-hook handler; returns the previous one.
+    pub fn set_skill_hook_handler(h: Option<SkillHookHandler>) -> Option<SkillHookHandler> {
+        SKILL_HOOK_HANDLER.with(|s| std::mem::replace(&mut *s.borrow_mut(), h))
+    }
+
+    /// Offer a `runSkillFunc` call to the installed handler (false when none is installed).
+    /// The handler is taken out while it runs, so it may call into the calc freely.
+    pub fn skill_hook_handled(skill: &ActiveSkillRef, name: crate::data_fns::SkillHook) -> bool {
+        let Some(mut h) = SKILL_HOOK_HANDLER.with(|s| s.borrow_mut().take()) else {
+            return false;
+        };
+        let r = h(skill, name);
+        SKILL_HOOK_HANDLER.with(|s| {
+            let mut s = s.borrow_mut();
+            if s.is_none() {
+                *s = Some(h);
+            }
+        });
+        r
+    }
+
+    // =====================================================================================
     // L4: one segment from injected locals
     // =====================================================================================
 

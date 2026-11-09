@@ -22,6 +22,16 @@
 # No entries yet (U0 ships stubs only).
 
 [[diff]]
+id = "OF-A-1"
+unit = "OF-A"
+builds = ["allflame_exp_013", "allflame_exp_036", "allflame_exp_051", "upstream_Dual_Savior", "upstream_Mirage_Archer_Toxic_Rain"]
+stage = "offence:362"
+keys = ["locals.output.ActiveTrapLimit", "locals.output.ActiveMineLimit", "locals.skillModList.mods"]
+kind = "value"
+reason = "L4 inject limit, not a port difference: these offence calls run in a mirage env (env8, stack mirages:in → perform:in → offence:in) on a skill copied from the main env (CalcActiveSkill copyActiveSkill), whose baseSkillModList.parent is the main env's modDB, dumped as {\"$foreign\": {env, path}}. A dump holds one env, so injection leaves that parent unlinked and every skillModList query through it misses the main env's mods: CalcOffence.lua:560/562 (`Sum('BASE', skillCfg, 'ActiveTrapLimit')` → 0 instead of the 'Base' 15) and the conversions reading the player's mods (652-664 Spell→Attack damage, 680-685 projectile speed → bow damage). The OF-A L4 test counts these hits apart (`$foreign` mod-store parent)."
+ccr = "CCR-0041"
+
+[[diff]]
 id = "MP5-1"
 unit = "MP5"
 builds = ["*"]
