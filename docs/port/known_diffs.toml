@@ -79,3 +79,13 @@ stage = "parse"
 keys = ["Modules/ModParser.lua:5509"]
 kind = "value"
 reason = "skillTypeList = { SkillType.Instant, SkillType.Totem, SkillType.Triggered } (ModParser.lua:5509): SkillType.Totem is nil (Data/Global.lua defines SummonsTotem, not Totem), so the Lua list has a hole at [2]; the Rust list is [Instant, Triggered], the values its only reader (pairs, ModStore.lua SkillType tag) sees. Not yet in calc doc §6 / CCR-0006 §7 (a binding-doc change, left to a CCR); checked by crates/pob-oracle/tests/MP6.rs."
+
+[[diff]]
+id = "DF-E-1"
+unit = "DF-E"
+builds = ["*"]
+stage = "buildDefenceEstimations:2153"
+keys = ["locals.breakdown.FrostShieldLife[5]"]
+kind = "value"
+reason = "Host artefact (ARM64 oracle only): s_format(\"= %d\", lifeProtected) at CalcDefence.lua:2498 with lifeProtected = 0 / (0 / 100) * 1 = NaN when no Frost Shield is active. x64 PoB (cvttsd2si, the profile the port follows) prints -9223372036854775808; the ARM64 dual-number oracle saturates the cast and prints 0 (inf: +-9223372036854775807). Tolerated only on aarch64 hosts by crates/pob-oracle/tests/DF-E.rs (is_int_cast_artefact). CCR-0001 / AMENDMENTS A6."
+ccr = "CCR-0001"
