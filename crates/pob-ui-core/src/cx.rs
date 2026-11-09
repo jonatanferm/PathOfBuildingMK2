@@ -111,7 +111,7 @@ impl Cx {
         Some(id)
     }
     /// wipeTable(self.controls)
-    /// @pob Modules/Common.lua:549-557 h=8970b4d5
+    /// lua: Common.lua:549-557 wipeTable (the @pob marker lives on pob-calc lua_table.rs)
     pub fn clear_children(&mut self, host: impl Into<CtrlId>) {
         let host = host.into();
         // ORDER: wipeTable's `pairs` order is unobservable here (every key becomes nil; nothing
@@ -306,10 +306,11 @@ impl Cx {
             .and_then(|n| n.host.as_ref())
             .is_some_and(|h| h.map.values().any(|&v| v == id))
     }
-    /// Control-path markers for the trace (no-op unless tracing): "<HostClass>.<key>".
-    pub fn trace_push(&mut self, host: CtrlId, id: CtrlId) {
+    /// Control-path markers for the trace (no-op unless tracing): "<HostClass>.<key>". Returns whether a
+    /// marker was pushed; the caller pops only then, so toggling tracing mid-draw cannot unbalance the stack.
+    pub fn trace_push(&mut self, host: CtrlId, id: CtrlId) -> bool {
         if self.sg.trace.is_none() {
-            return;
+            return false;
         }
         let class = self.ui.class_name(host);
         let key = self
@@ -324,6 +325,7 @@ impl Cx {
             None => format!("{class}.?"),
         };
         self.sg.trace_ctl_push(&elem);
+        true
     }
     pub fn trace_pop(&mut self) {
         self.sg.trace_ctl_pop();

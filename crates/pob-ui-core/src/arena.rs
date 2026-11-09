@@ -13,7 +13,10 @@
 //! DIVERGENCE(gc): Lua keeps an object alive while anything references it. The arena frees a
 //! node when its owner frees it or when it is buried, even if a `selControl`, a tab group or a
 //! widget field still holds its id; such a stale id panics on its next use (loudly, never
-//! silently).
+//! silently). The same holds for a second host: a node records one `parent`, so `end_frame_gc`
+//! unlinks a freed node only from that host; if the node was also `put` into another host, that
+//! host's `controls` keeps the dead id and its next `children()` panics. PoB keeps each control in
+//! one `controls` table, so code that moves a control between hosts must `detach_child` it first.
 
 use std::any::TypeId;
 use std::collections::BTreeMap;

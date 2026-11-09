@@ -65,7 +65,7 @@ impl InputEvents {
         self.t.len()
     }
     /// wipeTable
-    /// @pob Modules/Common.lua:549-557 h=8970b4d5
+    /// lua: Common.lua:549-557 wipeTable (the @pob marker lives on pob-calc lua_table.rs)
     pub fn wipe(&mut self) {
         self.t.wipe();
     }

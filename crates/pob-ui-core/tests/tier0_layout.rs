@@ -33,8 +33,27 @@ fn pob_src() -> PathBuf {
         if src.join("Classes/Control.lua").exists() {
             return src;
         }
-        assert!(p.pop(), "PathOfBuilding checkout not found (set POB_DIR)");
+        if !p.pop() {
+            break;
+        }
     }
+    // Git worktrees lack the gitignored checkout: fall back to the main checkout, like
+    // scripts/port/pobpaths.py main_checkout().
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("PathOfBuilding checkout not found (set POB_DIR)");
+    let common = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let src = common
+        .parent()
+        .expect("git common dir has a parent")
+        .join(".PathOfBuilding/src");
+    assert!(
+        src.join("Classes/Control.lua").exists(),
+        "PathOfBuilding checkout not found (set POB_DIR)"
+    );
+    src
 }
 
 struct Rng(u64);

@@ -10,7 +10,10 @@
 //!
 //! ORDER: `pairs(self.controls)` at ControlHost.lua:32 and :110 iterates `cx.children` (D7
 //! canonical order, oracle patch 6). A control removed from the table earlier in the same loop
-//! is skipped (`is_child_of`), as `next` skips nil values.
+//! is skipped (`is_child_of`), as `next` skips nil values. The key set is snapshotted by id, so a
+//! key reassigned to a *different* control mid-loop is also skipped, where Lua (and the shim's
+//! `__canonPairs`, which re-reads `t[key]`) would visit the new value. No PoB code path reassigns
+//! a `controls` key from inside these loops' callees (`IsMouseOver`/`Draw`); T0 only removes.
 //!
 //! The `GetMouseOverControl(viewPort)` argument at ControlHost.lua:84 is ignored by the method, so
 //! the port drops it.
@@ -167,9 +170,11 @@ impl Cx {
                 };
                 let no_tooltip =
                     focused(self, self.host(host).sel_control) || focused(self, sel_control);
-                self.trace_push(host, id); // control-path marker (no-op unless tracing)
+                let traced = self.trace_push(host, id); // control-path marker (no-op unless tracing)
                 self.draw(id, vp, no_tooltip);
-                self.trace_pop();
+                if traced {
+                    self.trace_pop();
+                }
             }
         }
     }
