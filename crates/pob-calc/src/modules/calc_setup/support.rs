@@ -1,7 +1,7 @@
 //! @pob-file Modules/CalcSetup.lua @16de4b82d
 //! CalcSetup.lua 305-474: wipeEnv and the support helpers.
 //!
-//! Owner: CS0. Signatures of the three file-local helpers follow the Lua arguments (CCR-0069):
+//! Owner: CS0. Signatures of the three file-local helpers follow the Lua arguments (CCR-0074):
 //! `applyGemMods` takes Tabulate rows, `applySocketMods` the gem's data (`gemInstance.gemData`).
 #![allow(non_snake_case)]
 
@@ -170,7 +170,7 @@ fn effect_num(effect: &SkillEffect, key: &str) -> Option<f64> {
         "itemQuality" => effect.itemQuality.get(),
         "supportQuality" => effect.supportQuality.get(),
         "actorLevel" => effect.actorLevel.get(),
-        // CCR-0069: `effect.req` is a number here (GemProperty `key = "req"`, ModParser.lua
+        // CCR-0074: `effect.req` is a number here (GemProperty `key = "req"`, ModParser.lua
         // 2374-2375; read as `gemInstance.reqOverride = effect.req`, CalcSetup.lua:1705/1776),
         // which the frozen `req: Field<Option<Table>>` cannot hold: it lives in `extra`.
         _ => match effect.extra.get(key) {
@@ -189,7 +189,7 @@ fn set_effect_num(effect: &SkillEffect, key: &str, v: f64) {
         "itemQuality" => effect.itemQuality.set(Some(v)),
         "supportQuality" => effect.supportQuality.set(Some(v)),
         "actorLevel" => effect.actorLevel.set(Some(v)),
-        // CCR-0069 (`req`, see effect_num)
+        // CCR-0074 (`req`, see effect_num)
         _ => effect.extra.set(key, v),
     }
 }
@@ -198,7 +198,7 @@ fn set_effect_num(effect: &SkillEffect, key: &str, v: f64) {
 
 /// @pob Modules/CalcSetup.lua:382-417 h=6cf90c88
 /// `applyGemMods(effect, modList)`: `modList` holds the GemProperty Tabulate rows
-/// (`{ value = …, mod = … }`, CCR-0069).
+/// (`{ value = …, mod = … }`, CCR-0074).
 pub fn applyGemMods(effect: &SkillEffectRef, modList: &[TabRow]) {
     // L383
     for r#mod in modList {
@@ -294,7 +294,7 @@ fn is_quality(key: &Val) -> bool {
 
 /// @pob Modules/CalcSetup.lua:419-426 h=091f9eb8
 /// `applySocketMods(env, gem, groupCfg, socketNum, modSource)`: `gem` is `gemInstance.gemData`
-/// (CalcSetup.lua:1708/1779; CCR-0069).
+/// (CalcSetup.lua:1708/1779; CCR-0074).
 pub fn applySocketMods(
     env: &EnvRef,
     gem: &GemDataRef,
@@ -329,7 +329,7 @@ pub fn applySocketMods(
         };
         // LUA-ALIAS: Lua's setSource rewrites the shared SocketProperty mod in place
         // (ModTools.lua:239-246), so the stored value's mod also carries the new source; the
-        // port adds a re-sourced copy (§3.6, CCR-0069).
+        // port adds a re-sourced copy (§3.6, CCR-0074).
         env.player
             .modDB
             .get()

@@ -16,10 +16,10 @@
 //! * `item`: `Val::Obj(ItemRef)`; `nodeId`: `Val::Num`; `data`: `Val::Table`;
 //!   `attributes`: not read here.
 //!
-//! The two functions return Lua's second value too (CCR-0069): `buildModListForNode` the
+//! The two functions return Lua's second value too (CCR-0074): `buildModListForNode` the
 //! explode source (`nil`, `false` or the node, as a `Val`), `buildModListForNodeList` the
 //! `explodeSources` list (`false` or `Val::Obj(NodeRef)` entries). `reuse` is the scratch
-//! `ModList` the Lua passes, not a flag (CCR-0069).
+//! `ModList` the Lua passes, not a flag (CCR-0074).
 #![allow(non_snake_case)]
 
 use std::any::Any;
@@ -129,7 +129,7 @@ fn listNames(modList: &ModList) -> Vec<Name> {
 /// `reuse`: a ModList to recycle instead of allocating. Only safe when the caller discards the
 /// result. The second value is `Val::Nil` unless the list has a `CanExplode` mod, then
 /// `modList:Flag(nil, "CanExplode") and node` (`false` or `Val::Obj(node)`).
-/// Signature: CCR-0069 §1.
+/// Signature: CCR-0074 §1.
 /// @pob Modules/CalcSetup.lua:123-256 h=610f22bb
 pub fn buildModListForNode(
     env: &EnvRef,
@@ -382,7 +382,7 @@ pub fn buildModListForNode(
 /// Build list of modifiers from the listed tree nodes
 /// `calcs.buildModListForNodeList(env, nodeList, finishJewels)` → `modList, explodeSources`.
 /// `nodeList` is a node-id map (LuaJIT order, D8); `finishJewels` runs the jewel funcs' "finish" call (node = nil).
-/// Signature: CCR-0069 §2.
+/// Signature: CCR-0074 §2.
 /// @pob Modules/CalcSetup.lua:259-304 h=6c6f8915
 pub fn buildModListForNodeList(
     env: &EnvRef,

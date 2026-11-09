@@ -1,8 +1,8 @@
-# CCR-0069 (CS0): CalcSetup.lua 1-474 helper signatures and representations
+# CCR-0074 (CS0): CalcSetup.lua 1-474 helper signatures and representations
 
 **Status: proposed (CS0, 2026-11-09).** CS0 changed the signatures of its own frozen stubs
 (nothing calls them yet: CS1-CS3 and PF-B are their callers) to carry what the Lua passes and
-returns; the changed code is marked `CCR-0069`.
+returns; the changed code is marked `CCR-0074`.
 
 - **Raised by:** CS0
 - **Affects:** calc-architecture.md §5.10 (`calcs.buildModListForNode(List)` re-exports),
