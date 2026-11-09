@@ -1,0 +1,207 @@
+# Interactions of the "u11_single" gallery (U11).
+frames 2
+# hover the prompt edit: border and tooltip
+move 120 30
+frames 2
+# click into the text: caret at the cursor (no select-all: the click set `drag`)
+click LEFTBUTTON
+type " World!"
+type "~é"
+frames 1
+# shift+arrows, then copy the selection
+key-down SHIFT
+press LEFT
+press LEFT
+press LEFT
+key-up SHIFT
+key-down CTRL
+press c
+key-up CTRL
+frames 1
+# arrows collapse the selection; ctrl word jumps
+press RIGHT
+press HOME
+key-down CTRL
+press RIGHT
+press RIGHT
+press LEFT
+key-up CTRL
+press END
+press LEFT
+# backspace, ctrl+backspace, delete, ctrl+delete
+press BACK
+key-down CTRL
+press BACK
+key-up CTRL
+press HOME
+press DELETE
+key-down CTRL
+press DELETE
+key-up CTRL
+frames 1
+# undo twice, redo once
+key-down CTRL
+press z
+press z
+press y
+key-up CTRL
+frames 1
+# ctrl+a, ctrl+x (cut), ctrl+v (paste back), then paste a clipboard with \r\n and non-ASCII
+key-down CTRL
+press a
+press x
+press v
+key-up CTRL
+paste-clipboard "pasted\r\ntext é!"
+key-down CTRL
+press v
+key-up CTRL
+frames 1
+# double click selects everything in a single-line edit; typing replaces it
+click LEFTBUTTON
+click LEFTBUTTON
+type "Zed"
+frames 1
+# drag selection
+move 75 30
+key-down LEFTBUTTON
+frames 1
+move 95 30
+frames 2
+move 260 30
+frames 2
+key-up LEFTBUTTON
+frames 1
+type "q"
+# right click pastes over the mouse
+key-down SHIFT
+press HOME
+key-up SHIFT
+click RIGHTBUTTON
+frames 1
+# TAB advances in the tab group (SelectAll on focus gained); the extra OnChar "\t" is filtered
+key-down TAB
+key-up TAB
+frames 1
+key-down TAB
+key-up TAB
+frames 1
+key-down SHIFT
+press TAB
+key-up SHIFT
+frames 1
+# numeric: typing through %D with limit 4, wheel, UP/DOWN keys, the +/- buttons
+type "12a34"
+wheel up
+wheel up
+frames 1
+press DOWN
+press UP
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+type "1"
+press DOWN
+press DOWN
+press DOWN
+frames 1
+move 113 60
+frames 1
+click LEFTBUTTON
+move 130 60
+click LEFTBUTTON
+click LEFTBUTTON
+frames 1
+# signed: placeholder base, numberInc 2, negative values; a "-" typed through ^%-%d
+move 200 60
+click LEFTBUTTON
+press DOWN
+press DOWN
+press DOWN
+wheel down
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+type "-7x"
+press UP
+move 253 60
+click LEFTBUTTON
+frames 1
+# clearable edit with a limit: hover shows the x, typing stops at 12 bytes, x clears
+move 120 90
+frames 2
+click LEFTBUTTON
+press END
+type " and more text"
+frames 1
+move 210 90
+frames 1
+click LEFTBUTTON
+frames 1
+type "new"
+# protected: stars, a selection, no copy; FIXED font
+move 120 120
+click LEFTBUTTON
+type "xy"
+key-down SHIFT
+press LEFT
+press LEFT
+press LEFT
+key-up SHIFT
+frames 1
+key-down CTRL
+press c
+press x
+key-up CTRL
+frames 1
+press HOME
+frames 1
+# inactiveText (function), then focus shows the buffer; the string variant with inactiveCol
+move 120 150
+frames 1
+click LEFTBUTTON
+type "!"
+frames 1
+move 340 150
+click LEFTBUTTON
+frames 1
+press ESCAPE
+frames 1
+# placeholder (unfocused and focused) and enterFunc; borderFunc colours the border
+move 120 180
+frames 1
+click LEFTBUTTON
+frames 1
+type "find"
+press RETURN
+frames 1
+move 120 300
+frames 1
+# pasteFilter (upper case)
+move 120 210
+click LEFTBUTTON
+paste-clipboard "mixed Case\tTab"
+key-down CTRL
+press v
+key-up CTRL
+frames 1
+# disabled: no focus, no hover
+move 400 30
+click LEFTBUTTON
+type "zz"
+frames 1
+# ctrl+click on a buffer with an URL opens it
+move 480 210
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 1
+click LEFTBUTTON
+press END
+frames 2
+# a click outside releases the focus
+move 700 400
+click LEFTBUTTON
+frames 2
