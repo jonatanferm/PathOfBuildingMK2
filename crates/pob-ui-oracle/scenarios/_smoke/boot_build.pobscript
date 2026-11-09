@@ -1,0 +1,10 @@
+# U8 smoke: PoB boots, then opens a fixture build (main:SetMode("BUILD", false, name, xml)) and
+# shows it for a few frames (the build opens on its saved view, the passive tree here).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_048.xml"
+frames 4
+snapshot opened
+#! expect-text Current build:  allflame_exp_048
+#! expect-text Flicker Strike
+#! expect-snapshot opened
