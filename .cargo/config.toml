@@ -2,3 +2,8 @@
 # transitive deps (egui-wgpu, etc.) keep working when targeting wasm32.
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+
+# Link with the toolchain's bundled rust-lld: 0.30 s per pob-oracle test binary vs 1.97 s with GNU ld
+# (test audit 2026-11-09). The path is this machine's stable toolchain; remove or adjust elsewhere.
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "link-arg=-B/home/ferm/.rustup/toolchains/stable-aarch64-unknown-linux-gnu/lib/rustlib/aarch64-unknown-linux-gnu/bin/gcc-ld"]

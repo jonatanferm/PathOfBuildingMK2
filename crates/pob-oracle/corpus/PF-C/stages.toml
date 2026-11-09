@@ -38,7 +38,7 @@ expect = "local function applyEnemyModifiers(actor, clearCache)"
 
 # `modLib.mergeKeystones` is ported (CT), but it reads `env.spec.tree.keystoneMap` and the
 # keystone nodes' modList, which the injected graph cannot resolve until the tree loads (PT,
-# BM-A): the test replays it (CCR-0040 §4).
+# BM-A): the test replays it (CCR-0078 §4).
 [[function]]
 id = "mergeKeystones"
 file = "Modules/ModTools.lua"
@@ -46,7 +46,7 @@ line = 248
 expect = "function modLib.mergeKeystones(env, modDB)"
 
 # `calcFlaskMods` sees each flask's `item.buffModList`, which the pob-state/1 item dump
-# leaves out (state_dump.lua itemFields; CCR-0040 §3): the test restores it from here.
+# leaves out (state_dump.lua itemFields; CCR-0078 §3): the test restores it from here.
 [[stage]]
 id = "pfc:calcFlaskMods"
 file = "Modules/CalcPerform.lua"

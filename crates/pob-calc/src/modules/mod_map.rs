@@ -3,18 +3,34 @@
 //! The caller (ConfigOptions.lua 117-130 `mapAffixDropDownFunction`) picks one of three call shapes from
 //! `affixData.type`; each body is ported against the shape it actually receives.
 //!
-//! Owner: CO-C. Stub created by U0: signatures are final (frozen; change through a CCR),
-//! bodies are `unported!` until the owner ports them (calc doc D9, §10.2).
-#![allow(
-    non_snake_case,
-    unused_variables,
-    unused_imports,
-    dead_code,
-    clippy::all,
-    clippy::pedantic
-)]
+//! Owner: CO-C. Signatures and `ROWS` are U0's (frozen); the bodies are CO-C's port.
+//!
+//! The frozen signatures name the Lua parameters `val` (the tier for `list`/`count`) and
+//! `rollRange` (`count`) by their call-site meaning (`tier`, `count`); each body rebinds the Lua
+//! names first so the statements read as in the Lua. `values[val]` indexes the caller's
+//! `affixData.values` table: an absent tier (the tier dropdown at "None", or out of range) reads
+//! nil and the arithmetic raises Lua's error, as in PoB.
+#![allow(non_snake_case, unused_variables, clippy::all, clippy::pedantic)]
 
 use crate::prelude::*;
+
+use pob_gamedata::tag;
+use ModType::*;
+
+/// `t[k]` for a numeric key: Lua reads nil for a non-integral or NaN key (only indexing a
+/// non-table raises).
+fn at(values: &Table, k: f64) -> Val {
+    if k.is_finite() && k == k.trunc() {
+        values.get(k)
+    } else {
+        Val::Nil
+    }
+}
+
+/// A value in arithmetic (`nil`/non-numbers raise "attempt to perform arithmetic on …").
+fn v(x: &Val) -> f64 {
+    x.num()
+}
 
 /// The three call shapes of map mod applies (calc doc §8.1).
 #[allow(non_camel_case_types)]
@@ -263,7 +279,17 @@ pub(crate) fn Armoured_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:12-14")
+    let val = tier; // Lua's first parameter is `val`
+                    // L13
+    enemyModList.NewMod(
+        n!("PhysicalDamageReduction"),
+        BASE,
+        v(&at(values, val)) * mapModEffect,
+        "Map mod Armoured",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:15-19 reason="map mod definition data (dumped: data().mapMods)"
@@ -276,7 +302,8 @@ pub(crate) fn Hexproof_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:20-22")
+    // L21
+    enemyModList.NewMod(n!("Hexproof"), FLAG, true, "Map mod Hexproof", 0, 0, &[]);
 }
 
 // @pob-skip Data/ModMap.lua:23-28 reason="map mod definition data (dumped: data().mapMods)"
@@ -290,7 +317,17 @@ pub(crate) fn Hexwarded_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:29-31")
+    let val = tier; // Lua's first parameter is `val`
+                    // L30
+    enemyModList.NewMod(
+        n!("CurseEffectOnSelf"),
+        MORE,
+        -v(&at(values, val)) * mapModEffect,
+        "Map mod Hexwarded",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:32-37 reason="map mod definition data (dumped: data().mapMods)"
@@ -304,7 +341,27 @@ pub(crate) fn Resistant_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:38-41")
+    let val = tier; // Lua's first parameter is `val`
+                    // L39
+    enemyModList.NewMod(
+        n!("ElementalResist"),
+        BASE,
+        v(&at(values, val).get(1.0)) * mapModEffect,
+        "Map mod Resistant",
+        0,
+        0,
+        &[],
+    );
+    // L40
+    enemyModList.NewMod(
+        n!("ChaosResist"),
+        BASE,
+        v(&at(values, val).get(2.0)) * mapModEffect,
+        "Map mod Resistant",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:42-46 reason="map mod definition data (dumped: data().mapMods)"
@@ -319,7 +376,32 @@ pub(crate) fn Unwavering_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:47-50")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L48
+    enemyModList.NewMod(
+        n!("AvoidStun"),
+        BASE,
+        100.0,
+        "Map mod Unwavering",
+        0,
+        0,
+        &[],
+    );
+    // L49
+    enemyModList.NewMod(
+        n!("Life"),
+        MORE,
+        (v(&at(values, val).get(1.0).get(1.0))
+            + (v(&at(values, val).get(1.0).get(2.0)) - v(&at(values, val).get(1.0).get(1.0)))
+                * rollRange
+                / 100.0)
+            * mapModEffect,
+        "Map mod Unwavering",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:51-55 reason="map mod definition data (dumped: data().mapMods)"
@@ -334,7 +416,20 @@ pub(crate) fn Fecund_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:56-58")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L57
+    enemyModList.NewMod(
+        n!("Life"),
+        MORE,
+        (v(&at(values, val).get(1.0))
+            + (v(&at(values, val).get(2.0)) - v(&at(values, val).get(1.0))) * rollRange / 100.0)
+            * mapModEffect,
+        "Map mod Fecund",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:59-63 reason="map mod definition data (dumped: data().mapMods)"
@@ -347,7 +442,17 @@ pub(crate) fn Unstoppable_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:64-67")
+    // MISSING: Monsters cannot be Taunted
+    // L66
+    enemyModList.NewMod(
+        n!("MinimumActionSpeed"),
+        MAX,
+        100.0,
+        "Map mod Unstoppable",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:68-72 reason="map mod definition data (dumped: data().mapMods)"
@@ -361,7 +466,37 @@ pub(crate) fn Impervious_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:73-77")
+    let val = tier; // Lua's first parameter is `val`
+                    // L74
+    enemyModList.NewMod(
+        n!("AvoidPoison"),
+        BASE,
+        v(&at(values, val)) * mapModEffect,
+        "Map mod Impervious",
+        0,
+        0,
+        &[],
+    );
+    // L75
+    enemyModList.NewMod(
+        n!("AvoidImpale"),
+        BASE,
+        v(&at(values, val)) * mapModEffect,
+        "Map mod Impervious",
+        0,
+        0,
+        &[],
+    );
+    // L76
+    enemyModList.NewMod(
+        n!("AvoidBleed"),
+        BASE,
+        v(&at(values, val)) * mapModEffect,
+        "Map mod Impervious",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:78-82 reason="map mod definition data (dumped: data().mapMods)"
@@ -375,7 +510,17 @@ pub(crate) fn Oppressive_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:83-85")
+    let val = tier; // Lua's first parameter is `val`
+                    // L84
+    enemyModList.NewMod(
+        n!("SpellSuppressionChance"),
+        BASE,
+        v(&at(values, val)) * mapModEffect,
+        "Map mod Oppressive",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:86-90 reason="map mod definition data (dumped: data().mapMods)"
@@ -390,7 +535,20 @@ pub(crate) fn Buffered_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:91-93")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L92
+    enemyModList.NewMod(
+        n!("LifeGainAsEnergyShield"),
+        BASE,
+        (v(&at(values, val).get(1.0))
+            + (v(&at(values, val).get(2.0)) - v(&at(values, val).get(1.0))) * rollRange / 100.0)
+            * mapModEffect,
+        "Map mod Buffered",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:94-98 reason="map mod definition data (dumped: data().mapMods)"
@@ -404,7 +562,27 @@ pub(crate) fn data_mapMods_AffixData_Titan_s_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:99-102")
+    let val = tier; // Lua's first parameter is `val`
+                    // L100
+    enemyModList.NewMod(
+        n!("Life"),
+        MORE,
+        v(&at(values, val).get(1.0)) * mapModEffect,
+        "Map mod Titan's",
+        0,
+        0,
+        &[tag!({ type = Condition, var = "RareOrUnique" })],
+    );
+    // L101
+    enemyModList.NewMod(
+        n!("AreaOfEffect"),
+        INC,
+        v(&at(values, val).get(2.0)) * mapModEffect,
+        "Map mod Titan's",
+        0,
+        0,
+        &[tag!({ type = Condition, var = "RareOrUnique" })],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:103-108 reason="map mod definition data (dumped: data().mapMods)"
@@ -419,7 +597,20 @@ pub(crate) fn Savage_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:109-111")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L110
+    enemyModList.NewMod(
+        n!("Damage"),
+        INC,
+        (v(&at(values, val).get(1.0))
+            + (v(&at(values, val).get(2.0)) - v(&at(values, val).get(1.0))) * rollRange / 100.0)
+            * mapModEffect,
+        "Map mod Savage",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:112-116 reason="map mod definition data (dumped: data().mapMods)"
@@ -434,7 +625,20 @@ pub(crate) fn Burning_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:117-119")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L118
+    enemyModList.NewMod(
+        n!("PhysicalDamageGainAsFire"),
+        BASE,
+        (v(&at(values, val).get(1.0))
+            + (v(&at(values, val).get(2.0)) - v(&at(values, val).get(1.0))) * rollRange / 100.0)
+            * mapModEffect,
+        "Map mod Burning",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:120-124 reason="map mod definition data (dumped: data().mapMods)"
@@ -449,7 +653,20 @@ pub(crate) fn Freezing_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:125-127")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L126
+    enemyModList.NewMod(
+        n!("PhysicalDamageGainAsCold"),
+        BASE,
+        (v(&at(values, val).get(1.0))
+            + (v(&at(values, val).get(2.0)) - v(&at(values, val).get(1.0))) * rollRange / 100.0)
+            * mapModEffect,
+        "Map mod Freezing",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:128-132 reason="map mod definition data (dumped: data().mapMods)"
@@ -464,7 +681,20 @@ pub(crate) fn Shocking_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:133-135")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L134
+    enemyModList.NewMod(
+        n!("PhysicalDamageGainAsLightning"),
+        BASE,
+        (v(&at(values, val).get(1.0))
+            + (v(&at(values, val).get(2.0)) - v(&at(values, val).get(1.0))) * rollRange / 100.0)
+            * mapModEffect,
+        "Map mod Shocking",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:136-140 reason="map mod definition data (dumped: data().mapMods)"
@@ -479,7 +709,32 @@ pub(crate) fn Profane_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:141-144")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L142
+    enemyModList.NewMod(
+        n!("PhysicalDamageGainAsChaos"),
+        BASE,
+        (v(&at(values, val).get(1.0).get(1.0))
+            + (v(&at(values, val).get(1.0).get(2.0)) - v(&at(values, val).get(1.0).get(1.0)))
+                * rollRange
+                / 100.0)
+            * mapModEffect,
+        "Map mod Profane",
+        0,
+        0,
+        &[],
+    );
+    // L143
+    modList.NewMod(
+        n!("Condition:CanBeWithered"),
+        FLAG,
+        true,
+        "Map mod Profane",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:145-149 reason="map mod definition data (dumped: data().mapMods)"
@@ -494,7 +749,23 @@ pub(crate) fn Fleet_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:150-153")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // attack and cast is the same so applying it once, movespeed does not matter
+                           // L152
+    enemyModList.NewMod(
+        n!("Speed"),
+        INC,
+        (v(&at(values, val).get(2.0).get(1.0))
+            + (v(&at(values, val).get(2.0).get(2.0)) - v(&at(values, val).get(2.0).get(1.0)))
+                * rollRange
+                / 100.0)
+            * mapModEffect,
+        "Map mod Fleet",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:154-157 reason="map mod definition data (dumped: data().mapMods)"
@@ -507,7 +778,26 @@ pub(crate) fn Conflagrating_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:158-161")
+    // L159
+    enemyModList.NewMod(
+        n!("IgniteChance"),
+        BASE,
+        100.0,
+        "Map mod Conflagrating",
+        0,
+        0,
+        &[],
+    );
+    // L160
+    enemyModList.NewMod(
+        n!("AllDamageIgnites"),
+        FLAG,
+        true,
+        "Map mod Conflagrating",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:162-166 reason="map mod definition data (dumped: data().mapMods)"
@@ -521,7 +811,17 @@ pub(crate) fn Impaling_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:167-169")
+    let val = tier; // Lua's first parameter is `val`
+                    // L168
+    enemyModList.NewMod(
+        n!("ImpaleChance"),
+        BASE,
+        v(&at(values, val)) * mapModEffect,
+        "Map mod Impaling",
+        ModFlag::Attack,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:170-174 reason="map mod definition data (dumped: data().mapMods)"
@@ -535,7 +835,17 @@ pub(crate) fn Empowered_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:175-177")
+    let val = tier; // Lua's first parameter is `val`
+                    // L176
+    enemyModList.NewMod(
+        n!("ElementalAilmentChance"),
+        BASE,
+        v(&at(values, val)) * mapModEffect,
+        "Map mod Empowered",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:178-182 reason="map mod definition data (dumped: data().mapMods)"
@@ -549,7 +859,27 @@ pub(crate) fn data_mapMods_AffixData_Overlord_s_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:183-186")
+    let val = tier; // Lua's first parameter is `val`
+                    // L184
+    enemyModList.NewMod(
+        n!("Damage"),
+        INC,
+        v(&at(values, val).get(1.0)) * mapModEffect,
+        "Map mod Overlord's",
+        0,
+        0,
+        &[tag!({ type = Condition, var = "RareOrUnique" })],
+    );
+    // L185
+    enemyModList.NewMod(
+        n!("Speed"),
+        INC,
+        v(&at(values, val).get(2.0)) * mapModEffect,
+        "Map mod Overlord's",
+        0,
+        0,
+        &[tag!({ type = Condition, var = "RareOrUnique" })],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:187-192 reason="map mod definition data (dumped: data().mapMods)"
@@ -563,7 +893,8 @@ pub(crate) fn Punishing_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:193-194")
+    let val = tier; // Lua's first parameter is `val`
+                    // (empty body)
 }
 
 // @pob-skip Data/ModMap.lua:195-199 reason="map mod definition data (dumped: data().mapMods)"
@@ -577,7 +908,8 @@ pub(crate) fn Mirrored_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:200-201")
+    let val = tier; // Lua's first parameter is `val`
+                    // (empty body)
 }
 
 // @pob-skip Data/ModMap.lua:202-207 reason="map mod definition data (dumped: data().mapMods)"
@@ -590,7 +922,8 @@ pub(crate) fn data_mapMods_AffixData_of_Balance_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:208-211")
+    // Players cannot inflict Exposure
+    // modList:NewMod("Keystone", "LIST", "Elemental Equilibrium", "Map mod of Balance") -- OLD MOD
 }
 
 // @pob-skip Data/ModMap.lua:212-216 reason="map mod definition data (dumped: data().mapMods)"
@@ -603,7 +936,36 @@ pub(crate) fn data_mapMods_AffixData_of_Congealment_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:217-221")
+    // L218
+    enemyModList.NewMod(
+        n!("CannotLeechLifeFromSelf"),
+        FLAG,
+        true,
+        "Map mod of Congealment",
+        0,
+        0,
+        &[],
+    );
+    // L219
+    enemyModList.NewMod(
+        n!("CannotLeechManaFromSelf"),
+        FLAG,
+        true,
+        "Map mod of Congealment",
+        0,
+        0,
+        &[],
+    );
+    // L220
+    enemyModList.NewMod(
+        n!("CannotLeechEnergyShieldFromSelf"),
+        FLAG,
+        true,
+        "Map mod of Congealment",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:222-227 reason="map mod definition data (dumped: data().mapMods)"
@@ -617,7 +979,17 @@ pub(crate) fn data_mapMods_AffixData_of_Drought_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:228-230")
+    let val = tier; // Lua's first parameter is `val`
+                    // L229
+    modList.NewMod(
+        n!("FlaskChargesGained"),
+        INC,
+        -v(&at(values, val)) * mapModEffect,
+        "Map mod of Drought",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:231-237 reason="map mod definition data (dumped: data().mapMods)"
@@ -632,7 +1004,55 @@ pub(crate) fn data_mapMods_AffixData_of_Exposure_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:238-246")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L239
+    if !at(values, val).get(2.0).raw_eq(&Val::Num(0.0)) {
+        // L240
+        let roll = (v(&at(values, val).get(1.0))
+            + (v(&at(values, val).get(2.0)) - v(&at(values, val).get(1.0))) * rollRange / 100.0)
+            * mapModEffect;
+        // L241
+        modList.NewMod(
+            n!("FireResistMax"),
+            BASE,
+            -roll,
+            "Map mod of Exposure",
+            0,
+            0,
+            &[],
+        );
+        // L242
+        modList.NewMod(
+            n!("ColdResistMax"),
+            BASE,
+            -roll,
+            "Map mod of Exposure",
+            0,
+            0,
+            &[],
+        );
+        // L243
+        modList.NewMod(
+            n!("LightningResistMax"),
+            BASE,
+            -roll,
+            "Map mod of Exposure",
+            0,
+            0,
+            &[],
+        );
+        // L244
+        modList.NewMod(
+            n!("ChaosResistMax"),
+            BASE,
+            -roll,
+            "Map mod of Exposure",
+            0,
+            0,
+            &[],
+        );
+    }
 }
 
 // @pob-skip Data/ModMap.lua:247-252 reason="map mod definition data (dumped: data().mapMods)"
@@ -646,7 +1066,17 @@ pub(crate) fn data_mapMods_AffixData_of_Impotence_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:253-255")
+    let val = tier; // Lua's first parameter is `val`
+                    // L254
+    modList.NewMod(
+        n!("AreaOfEffect"),
+        MORE,
+        -v(&at(values, val)) * mapModEffect,
+        "Map mod of Impotence",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:256-261 reason="map mod definition data (dumped: data().mapMods)"
@@ -660,7 +1090,17 @@ pub(crate) fn data_mapMods_AffixData_of_Insulation_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:262-264")
+    let val = tier; // Lua's first parameter is `val`
+                    // L263
+    enemyModList.NewMod(
+        n!("AvoidElementalAilments"),
+        BASE,
+        v(&at(values, val)) * mapModEffect,
+        "Map mod of Insulation",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:265-270 reason="map mod definition data (dumped: data().mapMods)"
@@ -674,7 +1114,28 @@ pub(crate) fn data_mapMods_AffixData_of_Miring_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:271-275")
+    let val = tier; // Lua's first parameter is `val`
+                    // modList:NewMod("DodgeChanceIsUnlucky", "FLAG", true, "Map mod of Miring") -- OLD MOD
+                    // L273
+    modList.NewMod(
+        n!("SpellSuppressionEffect"),
+        BASE,
+        -v(&at(values, val).get(1.0)) * mapModEffect,
+        "Map mod of Miring",
+        0,
+        0,
+        &[],
+    );
+    // L274
+    enemyModList.NewMod(
+        n!("Accuracy"),
+        INC,
+        v(&at(values, val).get(2.0)) * mapModEffect,
+        "Map mod of Miring",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:276-281 reason="map mod definition data (dumped: data().mapMods)"
@@ -688,7 +1149,27 @@ pub(crate) fn data_mapMods_AffixData_of_Rust_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:282-285")
+    let val = tier; // Lua's first parameter is `val`
+                    // L283
+    modList.NewMod(
+        n!("BlockChance"),
+        INC,
+        -v(&at(values, val).get(1.0)) * mapModEffect,
+        "Map mod of Rust",
+        0,
+        0,
+        &[],
+    );
+    // L284
+    modList.NewMod(
+        n!("Armour"),
+        MORE,
+        -v(&at(values, val).get(2.0)) * mapModEffect,
+        "Map mod of Rust",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:286-291 reason="map mod definition data (dumped: data().mapMods)"
@@ -702,7 +1183,27 @@ pub(crate) fn data_mapMods_AffixData_of_Smothering_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:292-295")
+    let val = tier; // Lua's first parameter is `val`
+                    // L293
+    modList.NewMod(
+        n!("LifeRecoveryRate"),
+        MORE,
+        -v(&at(values, val)) * mapModEffect,
+        "Map mod of Smothering",
+        0,
+        0,
+        &[],
+    );
+    // L294
+    modList.NewMod(
+        n!("EnergyShieldRecoveryRate"),
+        MORE,
+        -v(&at(values, val)) * mapModEffect,
+        "Map mod of Smothering",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:296-300 reason="map mod definition data (dumped: data().mapMods)"
@@ -715,7 +1216,36 @@ pub(crate) fn data_mapMods_AffixData_of_Stasis_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:301-305")
+    // L302
+    modList.NewMod(
+        n!("NoLifeRegen"),
+        FLAG,
+        true,
+        "Map mod of Stasis",
+        0,
+        0,
+        &[],
+    );
+    // L303
+    modList.NewMod(
+        n!("NoEnergyShieldRegen"),
+        FLAG,
+        true,
+        "Map mod of Stasis",
+        0,
+        0,
+        &[],
+    );
+    // L304
+    modList.NewMod(
+        n!("NoManaRegen"),
+        FLAG,
+        true,
+        "Map mod of Stasis",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:306-310 reason="map mod definition data (dumped: data().mapMods)"
@@ -730,7 +1260,20 @@ pub(crate) fn data_mapMods_AffixData_of_Toughness_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:311-313")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L312
+    enemyModList.NewMod(
+        n!("SelfCritMultiplier"),
+        INC,
+        -(v(&at(values, val).get(1.0))
+            + (v(&at(values, val).get(2.0)) - v(&at(values, val).get(1.0))) * rollRange / 100.0)
+            * mapModEffect,
+        "Map mod of Toughness",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:314-318 reason="map mod definition data (dumped: data().mapMods)"
@@ -744,7 +1287,17 @@ pub(crate) fn data_mapMods_AffixData_of_Fatigue_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:319-321")
+    let val = tier; // Lua's first parameter is `val`
+                    // L320
+    modList.NewMod(
+        n!("CooldownRecovery"),
+        MORE,
+        -v(&at(values, val)) * mapModEffect,
+        "Map mod of Fatigue",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:322-326 reason="map mod definition data (dumped: data().mapMods)"
@@ -758,7 +1311,8 @@ pub(crate) fn data_mapMods_AffixData_of_Transience_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:327-328")
+    let val = tier; // Lua's first parameter is `val`
+                    // (empty body)
 }
 
 // @pob-skip Data/ModMap.lua:329-333 reason="map mod definition data (dumped: data().mapMods)"
@@ -772,7 +1326,20 @@ pub(crate) fn data_mapMods_AffixData_of_Doubt_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:334-336")
+    let val = tier; // Lua's first parameter is `val`
+                    // L335
+    modList.NewMod(
+        n!("AuraEffect"),
+        INC,
+        -v(&at(values, val)) * mapModEffect,
+        "Map mod of Doubt",
+        0,
+        0,
+        &[
+            tag!({ type = SkillType, skillType = SkillType::Aura }),
+            tag!({ type = SkillType, skillType = SkillType::AppliesCurse, neg = true }),
+        ],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:337-341 reason="map mod definition data (dumped: data().mapMods)"
@@ -786,7 +1353,17 @@ pub(crate) fn data_mapMods_AffixData_of_Imprecision_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:342-344")
+    let val = tier; // Lua's first parameter is `val`
+                    // L343
+    modList.NewMod(
+        n!("Accuracy"),
+        MORE,
+        -v(&at(values, val)) * mapModEffect,
+        "Map mod of Imprecision",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:345-348 reason="map mod definition data (dumped: data().mapMods)"
@@ -799,7 +1376,7 @@ pub(crate) fn data_mapMods_AffixData_of_Blinding_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:349-351")
+    //SHOULD THIS BE SUPPORTED? (as a flag to make "are you blinded" show on config?)
 }
 
 // @pob-skip Data/ModMap.lua:352-355 reason="map mod definition data (dumped: data().mapMods)"
@@ -812,7 +1389,16 @@ pub(crate) fn data_mapMods_AffixData_of_Venom_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:356-358")
+    // L357
+    enemyModList.NewMod(
+        n!("PoisonChance"),
+        BASE,
+        100.0,
+        "Map mod of Venom",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:359-363 reason="map mod definition data (dumped: data().mapMods)"
@@ -827,7 +1413,36 @@ pub(crate) fn data_mapMods_AffixData_of_Deadliness_apply(
     modList: &ModList,
     enemyModList: &ModList,
 ) {
-    unported!("Data/ModMap.lua:364-367")
+    let val = tier; // Lua's first parameter is `val`
+    let rollRange = count; // Lua's second parameter is `rollRange`
+                           // L365
+    enemyModList.NewMod(
+        n!("CritChance"),
+        INC,
+        (v(&at(values, val).get(1.0).get(1.0))
+            + (v(&at(values, val).get(1.0).get(2.0)) - v(&at(values, val).get(1.0).get(1.0)))
+                * rollRange
+                / 100.0)
+            * mapModEffect,
+        "Map mod of Deadliness",
+        0,
+        0,
+        &[],
+    );
+    // L366
+    enemyModList.NewMod(
+        n!("CritMultiplier"),
+        BASE,
+        (v(&at(values, val).get(2.0).get(1.0))
+            + (v(&at(values, val).get(2.0).get(2.0)) - v(&at(values, val).get(2.0).get(1.0)))
+                * rollRange
+                / 100.0)
+            * mapModEffect,
+        "Map mod of Deadliness",
+        0,
+        0,
+        &[],
+    );
 }
 
 // @pob-skip Data/ModMap.lua:368-441 reason="map mod definition data (dumped: data().mapMods)"

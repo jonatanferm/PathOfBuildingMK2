@@ -175,6 +175,22 @@ if_not_else = "allow"
 [profile.dev]
 debug = "line-tables-only"
 
+# Third-party crates optimised in dev/test builds: the oracle tests parse large JSON dumps over the
+# whole corpus, and sccache shares these artefacts across worktrees (workspace crates stay at -O0).
+[profile.dev.package."*"]
+opt-level = 2
+
+# The crates under test run inside every oracle test at -O0 (IT-C: 668 of 807 s in Rust code).
+# opt-level 1 keeps debug assertions and overflow checks (profile settings) and speeds them 3-10x.
+[profile.dev.package.pob-lua]
+opt-level = 1
+[profile.dev.package.pob-gamedata]
+opt-level = 1
+[profile.dev.package.pob-modparser]
+opt-level = 1
+[profile.dev.package.pob-calc]
+opt-level = 1
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

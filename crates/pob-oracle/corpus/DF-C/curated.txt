@@ -1,0 +1,23 @@
+# DF-C curated corpus (calc doc §11.1 row DF-C: CalcDefence.lua 1211-1673, recovery/leech/degen).
+# One .parity/builds stem per line, with what it exercises (values from .parity/oracle/<stem>/outputs.json).
+#
+# energy shield recharge applied to life (1350-1368), MaxLifeLeechRatePercent 10
+allflame_exp_009                        # LifeRecharge 3487, EnergyShieldRechargeAppliesToLife
+# no energy shield recharge (1399-1400)
+allflame_exp_024                        # EnergyShieldRecharge absent / 0, ES regen
+allflame_exp_032                        # ES regen, no recharge
+allflame_exp_038                        # no recharge, Blind on enemy
+# recoup (1404-1520)
+allflame_exp_011                        # ManaRecoup 17
+allflame_exp_016                        # LifeRecoup 34.5, high life regen
+allflame_exp_031                        # anyRecoup 15 (life/mana/damage-type recoup), ES regen
+allflame_exp_041                        # ManaRecoup 10, mana regen 1193
+upstream_OccVortex                      # ManaRecoup 1
+# regeneration / degen (1255-1340)
+allflame_exp_005                        # ES regen 1230.7
+allflame_exp_020                        # ES regen 932.9
+# enemy Blind effect (1557-1559)
+allflame_exp_047                        # BlindEffectMod 115 (BlindEffect/BuffEffectOnSelf modifiers)
+# plain
+upstream_Dual_Savior                    # no life/ES regen, no recharge
+upstream_Generals_Perforate_Zerker      # life regen, base physical damage reduction

@@ -9,9 +9,9 @@
 //! (PF-A), whose arguments are locals no dump reaches, through a stand-in
 //! transcription of CalcPerform.lua 45-67 below. A callee whose unit has landed
 //! runs for real (the segment only hands a call to the hook when it hit the stub;
-//! `setup_flasks::callee_replay`, CCR-0040 §2).
+//! `setup_flasks::callee_replay`, CCR-0078 §2).
 //!
-//! Test-environment gaps, each worked around here and recorded in CCR-0040:
+//! Test-environment gaps, each worked around here and recorded in CCR-0078:
 //! * §3: the pob-state/1 item dump has no `buffModList`; the flasks' lists are
 //!   restored from the `pfc:calcFlaskMods` line dumps (their `buffModList` local).
 //! * §4: the injected graph has no passive tree (PT, BM-A), so `modLib.mergeKeystones`
@@ -40,7 +40,7 @@ use pob_oracle::testkit;
 use serde_json::Value as J;
 
 /// The callees replayed from their recorded deltas. `mergeKeystones` is ported (CT) but
-/// needs the passive tree (CCR-0040 §4); the segment reports every call of it.
+/// needs the passive tree (CCR-0078 §4); the segment reports every call of it.
 const REPLAYED: &[&str] = &[
     "createMinionSkills",
     "initMinionModDB",
@@ -144,7 +144,7 @@ fn deref<'a>(root: &'a J, j: &'a J) -> &'a J {
 }
 
 /// `item.buffModList` per item id from the `pfc:calcFlaskMods` line dumps of the segment's
-/// `calcs.perform` call (CCR-0040 §3: the pob-state/1 item dump leaves the field out).
+/// `calcs.perform` call (CCR-0078 §3: the pob-state/1 item dump leaves the field out).
 fn buff_mod_lists(
     dumps: &BTreeMap<String, StateDump>,
     din: &StateDump,
@@ -297,7 +297,7 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
         return out;
     };
     let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
-    // CCR-0040 §3: restore the flasks' buffModList the item dump leaves out (again after
+    // CCR-0078 §3: restore the flasks' buffModList the item dump leaves out (again after
     // every replay: `apply_onto` refills the items from the export, which lacks the field)
     let lists = Rc::new(b.buffModLists.clone());
     restore_buff_mod_lists(&env, &lists);
