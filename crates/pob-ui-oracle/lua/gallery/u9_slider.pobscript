@@ -1,0 +1,65 @@
+# Interactions of the "u9_slider" gallery (U9).
+frames 2
+# plain: hover the knob, drag it, then past the end (clamped), release outside
+move 30 29
+frames 1
+key-down LEFTBUTTON
+frames 1
+move 90 29
+frames 2
+move 600 40
+frames 1
+key-up LEFTBUTTON
+frames 1
+# slide click jumps the knob to the cursor, then a press-release on the knob
+move 70 29
+click LEFTBUTTON
+# wheel: default, SHIFT, CTRL speeds
+move 120 29
+wheel down 2
+frames 1
+# (the modifier must still be down in the frame that processes the wheel events)
+key-down SHIFT
+wheel up 1
+frames 1
+key-up SHIFT
+key-down CTRL
+wheel up 3
+frames 1
+key-up CTRL
+frames 1
+# arrow keys over the hovered slider
+press RIGHT
+press UP
+press LEFT
+frames 1
+# divCount: dividers, arrow knob, GetDivVal
+move 200 68
+click LEFTBUTTON
+move 60 68
+key-down LEFTBUTTON
+frames 1
+move 250 68
+frames 1
+key-up LEFTBUTTON
+frames 1
+wheel down 1
+frames 1
+# custom wheel table
+move 90 110
+wheel up 2
+frames 1
+key-down SHIFT
+wheel up 1
+frames 1
+key-up SHIFT
+key-down CTRL
+wheel down 1
+frames 1
+key-up CTRL
+frames 1
+# disabled
+move 60 149
+click LEFTBUTTON
+wheel up 1
+frames 2
