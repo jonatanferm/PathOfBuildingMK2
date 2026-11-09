@@ -260,61 +260,18 @@ pub fn mouse_button_key(b: MouseButton) -> Option<Key> {
     })
 }
 
-/// The SG key of `keyList_e` value `code` (`keylist.h:7-51`: `KEY_LMOUSE = 128` …
-/// `KEY_SCROLL = 170`), as `NameForKey` names it.
-fn named_key_for_code(code: u32) -> Option<Key> {
-    const ORDER: [Key; 26] = [
-        Key::LeftButton,
-        Key::MiddleButton,
-        Key::RightButton,
-        Key::Mouse4,
-        Key::Mouse5,
-        Key::WheelUp,
-        Key::WheelDown,
-        Key::Back,
-        Key::Tab,
-        Key::Return,
-        Key::Escape,
-        Key::Shift,
-        Key::Ctrl,
-        Key::Alt,
-        Key::Pause,
-        Key::PageUp,
-        Key::PageDown,
-        Key::End,
-        Key::Home,
-        Key::PrintScreen,
-        Key::Insert,
-        Key::Delete,
-        Key::Up,
-        Key::Down,
-        Key::Left,
-        Key::Right,
-    ];
-    match code {
-        128..=153 => Some(ORDER[(code - 128) as usize]),
-        154..=168 => Some(Key::F((code - 153) as u8)),
-        169 => Some(Key::NumLock),
-        170 => Some(Key::ScrollLock),
-        _ => None,
-    }
-}
-
 /// What Lua's `OnChar` receives for a typed codepoint, or `None` when GLFW drops it.
 ///
 /// GLFW `_glfwInputChar` drops `cp < 32` and `127..=159`. `CallKeyHandler`
 /// (`ui_main.cpp:548-557`) formats `cp < 128` with `"%c"`, otherwise `NameForKey(cp)`, which
 /// looks the codepoint up in `keyList_e` by value: U+00A0..U+00AA arrive as key names (`£`
 /// U+00A3 → `"F10"`, `©` U+00A9 → `"NUMLOCK"`), anything else as `"?"` (CCR-0021 item 6).
-// TODO(U1 merge): equals `pob_sg::Key::from_sg_code` from U1's branch (CCR-0021); switch then.
+/// The naming is [`Key::from_sg_code`]; only the GLFW filter is applied here.
 pub fn char_key(cp: u32) -> Option<Key> {
     if cp < 32 || (cp > 126 && cp < 160) {
         return None;
     }
-    if cp < 128 {
-        return Some(Key::Char(cp as u8));
-    }
-    Some(named_key_for_code(cp).unwrap_or(Key::Unknown))
+    Some(Key::from_sg_code(cp))
 }
 
 /// The `OnChar` keys for a text event (one per codepoint, GLFW-filtered).
@@ -679,10 +636,10 @@ mod tests {
             vec![Key::Char(b'a'), Key::Unknown, Key::F(10)]
         );
         // keyList_e by value: every named code maps back to its name.
-        assert_eq!(named_key_for_code(128), Some(Key::LeftButton));
-        assert_eq!(named_key_for_code(153), Some(Key::Right));
-        assert_eq!(named_key_for_code(154), Some(Key::F(1)));
-        assert_eq!(named_key_for_code(171), None);
+        assert_eq!(Key::from_sg_code(128), Key::LeftButton);
+        assert_eq!(Key::from_sg_code(153), Key::Right);
+        assert_eq!(Key::from_sg_code(154), Key::F(1));
+        assert_eq!(Key::from_sg_code(171), Key::Unknown);
     }
 
     #[test]

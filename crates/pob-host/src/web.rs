@@ -20,10 +20,9 @@
 //! Unwinding is unavailable on wasm32, so a panic (a Lua error) is fatal: the panic hook logs it
 //! to the console.
 //!
-//! DIVERGENCE(web images): images load through the headless loader over the prefetched files, so
-//! a file that was neither prefetched nor listed is missing (default texture, size (0, 0)) and
-//! ASYNC loads complete at once. // CCR-0026 D: switch to U3's `loader_web::WebLoader` (sharing
-//! the prefetched VFS, lazy ASYNC fetches) once U3 has merged.
+//! Images load through U3's [`crate::loader_web::WebLoader`] over the same VFS (CCR-0026 D): the
+//! manifest is fetched by [`WebLoader::prefetch`], non-ASYNC loads read the VFS and ASYNC ones
+//! are fetched lazily from `cfg.pob_src` (the platform divergences are listed in `loader_web`).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -43,6 +42,7 @@ use winit::window::{Window, WindowId};
 
 use crate::fs_web::{Vfs, WebFs};
 use crate::input::Input;
+use crate::loader_web::WebLoader;
 use crate::net_web::WebNet;
 use crate::platform_web::{WebPlatform, USER_PATH};
 use crate::{deliver, App, Driver, FrameOutcome, Gfx, HostConfig, PlatformParts};
@@ -115,7 +115,7 @@ async fn prefetch_fonts(sg_runtime: &str) -> HashMap<String, Vec<u8>> {
     for f in Font::ALL {
         let stem = f.file_stem();
         if let Some(raw) = files.get(&format!("Fonts/{stem}.tgf")) {
-            for th in pob_sg::font::tgf::parse(&String::from_utf8_lossy(raw)) {
+            for th in pob_sg::font::tgf::parse(raw) {
                 atlases.push(format!("Fonts/{stem}.{}.tga", th.height));
             }
         }
@@ -423,6 +423,13 @@ pub async fn run_web<A: App>(
     // Prefetch: fonts, then the manifest's files.
     let runtime = prefetch_fonts(&cfg.sg_runtime).await;
     let vfs: Vfs = Rc::default();
+    // `WebLoader` appends the path to its base: `src/` with a trailing slash ("" = page-relative).
+    let src_base = if cfg.pob_src.is_empty() {
+        String::new()
+    } else {
+        format!("{}/", cfg.pob_src.trim_end_matches('/'))
+    };
+    let loader = WebLoader::with_vfs(src_base, vfs.clone());
     let manifest_url = join_url(&parent_path(&cfg.pob_src), PREFETCH_MANIFEST);
     if let Some(m) = finish_fetch(start_fetch(&manifest_url)).await {
         let list: Vec<String> = String::from_utf8_lossy(&m)
@@ -431,18 +438,13 @@ pub async fn run_web<A: App>(
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
             .map(str::to_owned)
             .collect();
-        let mut files = HashMap::new();
-        fetch_all(&cfg.pob_src, &list, &mut files).await;
-        vfs.borrow_mut().extend(files);
+        loader.prefetch(&list).await;
     }
     let assets = VfsAssets {
         src: vfs.clone(),
         runtime: Rc::new(runtime),
     };
-    // CCR-0026 D: U3's WebLoader once merged.
-    let mut images = ImageRegistry::new(Box::new(crate::loader_headless::HeadlessLoader::new(
-        Box::new(assets.clone()),
-    )));
+    let mut images = ImageRegistry::new(Box::new(loader));
     let fonts = FontSet::load(&assets, &mut images).unwrap_or_else(|e| {
         web_sys::console::error_1(&format!("fonts from {}: {e}", cfg.sg_runtime).into());
         FontSet::empty()
@@ -474,13 +476,13 @@ pub async fn run_web<A: App>(
         }
     })?;
     listen(target, "keyup", None, |e: web_sys::KeyboardEvent| {
-        e.prevent_default()
+        e.prevent_default();
     })?;
     listen(target, "contextmenu", None, |e: web_sys::Event| {
-        e.prevent_default()
+        e.prevent_default();
     })?;
     listen(target, "wheel", Some(false), |e: web_sys::Event| {
-        e.prevent_default()
+        e.prevent_default();
     })?;
     let paste_proxy = proxy.clone();
     listen(

@@ -96,10 +96,14 @@ pub fn find_user_path() -> Result<String, (String, String)> {
 }
 
 /// Open a URL with the desktop's default handler (`l_OpenURL`: `ShellExecute` on Windows).
+///
+/// Windows uses `rundll32 url.dll,FileProtocolHandler`, which hands the URL to `ShellExecute`
+/// without a shell in between. `cmd /C start "" url` would not work: Rust does not quote an
+/// argument that has no spaces, so cmd would split an OAuth URL at its first `&`.
 pub fn open_url(url: &str) -> Result<(), String> {
     let mut cmd = if cfg!(target_os = "windows") {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", "", url]);
+        let mut c = std::process::Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", url]);
         c
     } else if cfg!(target_os = "macos") {
         let mut c = std::process::Command::new("open");

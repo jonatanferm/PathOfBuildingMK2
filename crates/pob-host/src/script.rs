@@ -35,7 +35,7 @@
 //! | `move X Y` | the cursor moves to virtual (X, Y); no frame |
 //! | `click KEY` | frame, KeyDown KEY, frame, KeyUp KEY, frame |
 //! | `key-down KEY` | KeyDown KEY (+ the extra Char `\b` `\t` `\r` `\x1b` for BACK/TAB/RETURN/ESCAPE); no frame |
-//! | `key-up KEY` | KeyUp KEY; no frame |
+//! | `key-up KEY` | KeyUp KEY; no frame (KEY: a key name, case-insensitive, or one ASCII character; letters are lowercased as SG sends them) |
 //! | `press KEY` | `key-down KEY`, frame, `key-up KEY` |
 //! | `type "text"` | per codepoint: `\b` `\t` `\r` `\x1b` are KeyDown+Char+KeyUp of BACK/TAB/RETURN/ESCAPE; other codepoints one Char as SG delivers it (`input::char_key`: control characters dropped, U+00A0..U+00AA as key names, other non-ASCII `?`); no frame |
 //! | `wheel up\|down [N]` | N × (KeyDown+KeyUp WHEELUP/WHEELDOWN), default 1; no frame |
@@ -239,12 +239,14 @@ fn word(s: &str) -> String {
     }
 }
 
-/// A key argument: a name (`CTRL`, `F5`, case-insensitive) or one character, verbatim.
+/// A key argument: a name (`CTRL`, `F5`, case-insensitive) or one ASCII character. Letters are
+/// lowercased: `GlfwKeyToKey` maps `GLFW_KEY_A..Z` to `'a' + n`, so a key event is never `'A'`
+/// (sg: sys_main.cpp:276-341 @3b1a346). Other characters are taken verbatim.
 fn parse_key(s: &str) -> Result<Key, String> {
     let mut it = s.chars();
     if let (Some(c), None) = (it.next(), it.next()) {
         if c.is_ascii() {
-            return Ok(Key::Char(c as u8));
+            return Ok(Key::Char((c as u8).to_ascii_lowercase()));
         }
         return Err(format!("key {s:?} is not ASCII"));
     }
@@ -254,6 +256,9 @@ fn parse_key(s: &str) -> Result<Key, String> {
     }
 }
 
+/// The script spelling of a key. [`Key::Unknown`] has none (SG never sends it as a key event:
+/// `GlfwKeyToKey` yields 0 and no KeyDown/KeyUp is delivered); it prints as its name `?`, which
+/// reads back as `Char('?')`.
 fn key_word(k: Key) -> String {
     word(&k.name())
 }
@@ -597,7 +602,7 @@ snapshot notes_typed                           # dumps build XML from both sides
     #[test]
     fn syntax_details() {
         let s = Script::parse(
-            "fixture userdir=\"a b\";key-down ctrl;key-up \" \" ; type \"a;b#c\\t\\u{e9}\\x41\\e\" # c\nwheel up\nscreen 1920 1080\nexit",
+            "fixture userdir=\"a b\";key-down ctrl;key-up \" \" ; press A; type \"a;b#c\\t\\u{e9}\\x41\\e\" # c\nwheel up\nscreen 1920 1080\nexit",
         )
         .unwrap();
         assert_eq!(
@@ -609,6 +614,7 @@ snapshot notes_typed                           # dumps build XML from both sides
                 },
                 Step::KeyDown(Key::Ctrl),
                 Step::KeyUp(Key::Char(b' ')),
+                Step::Press(Key::Char(b'a')),
                 Step::Type("a;b#c\t\u{e9}A\x1b".into()),
                 Step::Wheel { up: true, count: 1 },
                 Step::Screen {
@@ -673,7 +679,8 @@ snapshot notes_typed                           # dumps build XML from both sides
                     Key::WheelDown,
                     Key::ScrollLock,
                 ][self.below(5) as usize],
-                _ => Key::Char(self.below(128) as u8),
+                // Key events never carry an uppercase letter (`parse_key` lowercases them).
+                _ => Key::Char((self.below(128) as u8).to_ascii_lowercase()),
             }
         }
         fn step(&mut self) -> Step {

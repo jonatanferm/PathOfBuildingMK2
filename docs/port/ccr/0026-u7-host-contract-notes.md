@@ -70,13 +70,13 @@ PoB's proxy / IP-version / no-SSL options (marked in `net_native.rs`). Proposed 
 
 U7 would then map them onto ureq (`proxy`, TLS verification off, resolver family).
 
-## D. Web image loader (interim)
+## D. Web image loader (resolved: U3 merged)
 
-`run_web` must build `PlatformParts` before U3's `loader_web::WebLoader` (with `with_vfs`/`prefetch`, on
-`port/U3`) is merged; `rust-port` still has the stub (`todo!`). `crates/pob-host/src/web.rs` therefore
-loads images through `loader_headless::HeadlessLoader` over the files it prefetched (fonts + the
-`pob/web-prefetch.txt` manifest), marked `// CCR-0026 D`. After U3 merges, replace that with
-`WebLoader::with_vfs(<pob_src>/, vfs)` sharing the same VFS (lazy ASYNC fetches, one decode per frame).
+Interim (before U3 merged): `crates/pob-host/src/web.rs` loaded images through
+`loader_headless::HeadlessLoader` over the files it prefetched. Now `run_web` builds
+`WebLoader::with_vfs(<pob_src>/, vfs)` over the same VFS that `WebFs` and the font `AssetSource`
+read; the `pob/web-prefetch.txt` manifest is fetched with `WebLoader::prefetch`, and ASYNC images are
+fetched lazily with one decode per frame. No contract change remains from this section.
 
 ## E. `App::on_script_step` and the `.pobscript` placeholders (§13 item 12: `script::{Script, Step}` are U7's)
 

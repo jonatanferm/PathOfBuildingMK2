@@ -880,6 +880,13 @@ impl<A: App> Driver<A> {
 
     /// The close button: `CanExit` (guarded; a panic counts as "no"). `true`: the host shuts down.
     /// A browser tab has no close request the page can veto.
+    ///
+    /// A panic counting as "no" matches an error in `main:CanExit`, which `launch:CanExit`
+    /// catches: `ShowErrMsg`, then `return false` (Launch.lua:90-101). An error escaping
+    /// `launch:CanExit` itself is different in SG: `PCall` calls `DoError` (`sys->Exit`, fatal)
+    /// and `lua_toboolean` then reads the traceback string as true (ui_main.cpp:149-185,
+    /// :500-510). Only that launch-level case differs (an edge case for U16, which ports
+    /// `launch:CanExit`).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) fn can_exit(&mut self) -> bool {
         let mut ok = false;
