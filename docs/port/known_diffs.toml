@@ -20,3 +20,13 @@
 #     (.parity/nondet, calc doc §9.5, CCR-0010 §4).
 #
 # No entries yet (U0 ships stubs only).
+
+[[diff]]
+id = "MP4-1"
+unit = "MP4"
+builds = ["*"]
+stage = "modparser"
+keys = ["specialModList:3535 PerStat tag.div"]
+kind = "value"
+reason = "ModParser.lua:3535 ('shield crush and spectral shield throw gains (%d+) to (%d+) added lightning damage per (%d+) energy shield on shield') stores the digits-only capture string as tag.div; the port stores tonumber of it (calc doc §6 known parse-level differences). EvalMod only uses div in arithmetic (ModStore.lua PerStat), which coerces the string the same way, so the calc sees the same value. crates/pob-oracle/tests/MP4.rs normalises exactly this field (KNOWN_TAG_STR)."
+ccr = "CCR-0006"
