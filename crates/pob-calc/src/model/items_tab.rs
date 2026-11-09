@@ -5,7 +5,7 @@
 //! item sets, slot population and `AddItem`. UI statements (controls, undo, tooltips) are left
 //! to the UI port (ui doc U33/U34) and marked `// UI:` where they sit in the Lua.
 //!
-//! CCR-0072 lists the contract gaps this file works around locally:
+//! CCR-0076 lists the contract gaps this file works around locally:
 //! * slots are the `ItemSlotControl`s of the constructor (ItemsTab.lua 140-235). Their model
 //!   half is a [`Table`] per slot (`slotName`, `slotNum`, `label`, `nodeId`, `weaponSet`,
 //!   `selItemId`, `active`, `inactive`, `parentSlot`, `abyssalSocketList`, `items`,
@@ -60,14 +60,14 @@ fn tonum(s: Option<&str>) -> Option<f64> {
     s.and_then(pob_lua::tonumber)
 }
 
-/// A table key from a number id: integral ids only (CCR-0072 §5).
+/// A table key from a number id: integral ids only (CCR-0076 §5).
 pub fn id_key(id: f64) -> Option<u32> {
     (id.fract() == 0.0 && id >= 0.0 && id <= f64::from(u32::MAX)).then_some(id as u32)
 }
 
 /// `id_key` that raises where Lua would store under a key the frozen maps cannot hold.
 fn id_key_or_raise(id: f64, what: &str) -> u32 {
-    id_key(id).unwrap_or_else(|| lua_error!("CCR-0072: non-integer {what} id {}", tostring_num(id)))
+    id_key(id).unwrap_or_else(|| lua_error!("CCR-0076: non-integer {what} id {}", tostring_num(id)))
 }
 
 /// `tostring(v)` of a scalar value.
@@ -119,7 +119,7 @@ pub(crate) fn build_spec(build: &BuildRef) -> Option<PassiveSpecRef> {
         .then_some(spec)
 }
 
-/// The tab's side table (CCR-0072 §2).
+/// The tab's side table (CCR-0076 §2).
 fn tab_extra(build: &BuildRef) -> Table {
     build_extra(build).get_or_new_table(n!("itemsTab"))
 }
@@ -514,7 +514,7 @@ impl ItemsTab {
 /// @pob Classes/ItemsTab.lua:140-235 h=e7cab513
 /// @pob Classes/ItemsTab.lua:1196-1215 h=ae3e60a9
 impl ItemsTab {
-    /// The constructor's model half (idempotent; CCR-0072 §1): `items`, `itemOrderList`,
+    /// The constructor's model half (idempotent; CCR-0076 §1): `items`, `itemOrderList`,
     /// `showStatDifferences`, the slots (base slots with their swap and abyssal slots, then a
     /// socket slot per `Socket` node of `build.latestTree`, by id), the first item set, and
     /// `lastSlot`. Needs `build.latestTree` (Build.lua:605).
@@ -1237,7 +1237,7 @@ impl ItemsTab {
             // L1594
             itemSetId = match self.itemSetOrderList.get(1) {
                 Some(id) => f64::from(id),
-                None => lua_error!("CCR-0072: itemSetOrderList[1] is nil"),
+                None => lua_error!("CCR-0076: itemSetOrderList[1] is nil"),
             };
         }
         // L1596

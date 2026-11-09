@@ -12,7 +12,7 @@
 //! * **save vs PoB** — the Rust `SaveDB` text equals PoB's own `SaveDB` text once both are
 //!   parsed and canonicalised (attributes and children compared as multisets: PoB writes
 //!   `pairs` order). Display-stat elements (`PlayerStat`, `FullDPSSkill`, `MinionStat`) and the
-//!   UI-only sections (`Notes`, `TreeView`, `Import`) are left out (CCR-0072 §8);
+//!   UI-only sections (`Notes`, `TreeView`, `Import`) are left out (CCR-0076 §8);
 //! * **round trip** — Rust `SaveDB` → Rust load gives the same model as PoB loading that
 //!   Rust-saved XML (a save of a legacy build is not a fixed point of load, in PoB either:
 //!   regenerated item text, defaults written out), and saving again gives the same XML (canonicalised; the spec's node / mastery lists and the tree URL
@@ -23,10 +23,9 @@
 //! The Rust model is compared with PoB's at the first `calcsTab:BuildOutput()` of the load
 //! (bma.lua hooks it; `loadBuildModelFromXML` stops there), PoB's `SaveDB` is taken at the same
 //! point, and `UpdateSockets` (which the oracle's load script runs after the load) is checked
-//! against PoB's state after it. Builds with cluster-jewel subgraphs depend on PS-C
-//! (`BuildClusterJewelGraphs`, unported): their subgraph-dependent differences (spec alloc,
-//! socket slots, the `<Tree>`/`<Items>` sections, outputs of PoB on the Rust-saved XML) are
-//! counted as *pending PS-C*, every other difference fails.
+//! against PoB's state after it. Every difference fails, on every build (cluster-jewel
+//! subgraphs are PS-C's `BuildClusterJewelGraphs`, the placeholders CO-C's `BuildModList`,
+//! both real).
 //!
 //! A test whose inputs (data/dump, the PoB checkout, .parity/builds) are absent skips with a
 //! message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead. `BMA_BUILDS=<substring>`
@@ -677,7 +676,6 @@ fn leaf_eq(a: &pob_oracle::oracle::Leaf, b: &pob_oracle::oracle::Leaf) -> bool {
 struct Tally {
     builds: usize,
     loaded: usize,
-    pending_builds: usize,
     model_lines: usize,
     model_mismatch: usize,
     socket_lines: usize,
@@ -688,31 +686,12 @@ struct Tally {
     output_keys: usize,
     output_mismatch: usize,
     output_builds_equal: usize,
-    pending: usize,
-    pending_coc: usize,
     failures: Vec<String>,
-}
-
-/// Lines that depend on cluster-jewel subgraphs (PS-C, `BuildClusterJewelGraphs`, unported):
-/// allocated subgraph nodes and the nested sockets they contain, and the socket slot state
-/// derived from them.
-fn psc_dependent(line: &str) -> bool {
-    let k = line.split_once(' ').map_or(line, |(_, r)| r);
-    (k.starts_with("tree.spec.") && k.contains(".alloc"))
-        || k.starts_with("items.slot.Jewel ")
-        || k.starts_with("items.lastSlot")
-        || line.starts_with("save <Tree>")
-        || line.starts_with("save <Items>")
-        || line.starts_with("outputs ")
-        || line.starts_with("roundtrip save <Tree>")
-        || line.starts_with("roundtrip save <Items>")
 }
 
 const SOCKET_KEYS: [&str; 2] = [".inactive", ".label"];
 
-/// Compares two saved XML texts section by section (canonical, multiset). A `<Config>`
-/// difference that disappears without the `Placeholder` elements is pending CO-C
-/// (`ConfigTab:BuildModList` computes the placeholders; Build.lua:645).
+/// Compares two saved XML texts section by section (canonical, multiset).
 fn compare_saves(tag: &str, rust: &str, pob: &str, t: &mut Tally, fails: &mut Vec<String>) {
     match (canon_sections(rust, false), canon_sections(pob, false)) {
         (Ok(r), Ok(p)) => {
@@ -721,10 +700,6 @@ fn compare_saves(tag: &str, rust: &str, pob: &str, t: &mut Tally, fails: &mut Ve
                 match r.get(k) {
                     Some(rv) if rv == pv => {}
                     Some(rv) => {
-                        if k == "Config" && no_placeholders(rust) == no_placeholders(pob) {
-                            t.pending_coc += 1;
-                            continue;
-                        }
                         t.section_mismatch += 1;
                         fails.push(format!(
                             "{tag} <{k}> differs:\n          {}",
@@ -752,27 +727,6 @@ fn compare_saves(tag: &str, rust: &str, pob: &str, t: &mut Tally, fails: &mut Ve
     }
 }
 
-/// The canonical `<Config>` section without `Placeholder` elements.
-fn no_placeholders(text: &str) -> Option<String> {
-    let (nodes, _) = ParseXML(text);
-    let root = nodes.into_iter().next()?;
-    let mut cfg = root.children.into_iter().find_map(|c| match c {
-        XmlChild::Node(n) if &*n.elem == "Config" => Some(n),
-        _ => None,
-    })?;
-    fn strip(n: &mut XmlNode) {
-        n.children
-            .retain(|c| !matches!(c, XmlChild::Node(x) if &*x.elem == "Placeholder"));
-        for c in &mut n.children {
-            if let XmlChild::Node(x) = c {
-                strip(x);
-            }
-        }
-    }
-    strip(&mut cfg);
-    Some(canon(&cfg, 1, false))
-}
-
 fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDir: Option<&Path>) {
     let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
     let xml = std::fs::read_to_string(path).unwrap();
@@ -782,10 +736,6 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
     // Rust: load, dump, save; UpdateSockets; round trip
     let rust = catch(|| {
         let build = loadBuildModelFromXML(&xml, data).map_err(|e| format!("load: {e}"))?;
-        let pendingPSC = build.treeTab.specList.snapshot().iter().any(|s| {
-            !s.allocSubgraphNodes.with(Vec::is_empty)
-                || s.extra.num_or("clusterHashFormatVersion", 2.0) < 2.0
-        });
         let d1 = rust_dump(&build);
         let saved = build.SaveDB("bma").ok_or("SaveDB returned nil")?;
         build.itemsTab.UpdateSockets(&build);
@@ -794,9 +744,9 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
         let b2 = loadBuildModelFromXML(&saved, data).map_err(|e| format!("reload: {e}"))?;
         let d2 = rust_dump(&b2);
         let saved2 = b2.SaveDB("bma").ok_or("SaveDB returned nil")?;
-        Ok::<_, String>((pendingPSC, d1, saved, d1u, d2, saved2))
+        Ok::<_, String>((d1, saved, d1u, d2, saved2))
     });
-    let (pendingPSC, d1, saved, d1u, d2, saved2) = match rust {
+    let (d1, saved, d1u, d2, saved2) = match rust {
         Ok(Ok(x)) => x,
         Ok(Err(e)) | Err(e) => {
             t.failures.push(format!("{stem}: Rust {e}"));
@@ -804,9 +754,6 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
         }
     };
     t.loaded += 1;
-    if pendingPSC {
-        t.pending_builds += 1;
-    }
     // PoB on the original
     let a = match pob_run(src, &xml, &stem) {
         Ok(a) => a,
@@ -886,29 +833,15 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
         Err(e) => fails.push(format!("PoB (Rust-saved): {e}")),
     }
 
-    let (pend, real): (Vec<String>, Vec<String>) = if pendingPSC {
-        fails.into_iter().partition(|f| psc_dependent(f))
+    if fails.is_empty() {
+        eprintln!("ok   {stem}");
     } else {
-        (Vec::new(), fails)
-    };
-    t.pending += pend.len();
-    if real.is_empty() {
-        if pend.is_empty() {
-            eprintln!("ok   {stem}");
-        } else {
-            eprintln!("ok   {stem} ({} differences pending PS-C)", pend.len());
-        }
-    } else {
-        eprintln!(
-            "FAIL {stem}: {} differences ({} more pending PS-C)",
-            real.len(),
-            pend.len()
-        );
-        for f in real.iter().take(25) {
+        eprintln!("FAIL {stem}: {} differences", fails.len());
+        for f in fails.iter().take(25) {
             eprintln!("       {f}");
         }
         t.failures
-            .push(format!("{stem}: {} differences", real.len()));
+            .push(format!("{stem}: {} differences", fails.len()));
     }
 }
 
@@ -944,14 +877,11 @@ fn bm_a_corpus() {
         run_build(&src, data, b, &mut t, saveDir.as_deref());
     }
     eprintln!(
-        "BM-A: {} builds, {} loaded in Rust ({} with cluster-jewel subgraphs: PS-C pending); \
-         model {} lines, {} mismatches; sockets {} lines, {} mismatches; save sections {} \
-         compared, {} differ; round trip {} mismatches; outputs {} keys, {} differ ({} builds \
-         identical); {} differences pending PS-C; {} <Config> sections differ only in \
-         placeholders (pending CO-C)",
+        "BM-A: {} builds, {} loaded in Rust; model {} lines, {} mismatches; sockets {} lines, \
+         {} mismatches; save sections {} compared, {} differ; round trip {} mismatches; \
+         outputs {} keys, {} differ ({} builds identical)",
         t.builds,
         t.loaded,
-        t.pending_builds,
         t.model_lines,
         t.model_mismatch,
         t.socket_lines,
@@ -961,9 +891,7 @@ fn bm_a_corpus() {
         t.roundtrip_mismatch,
         t.output_keys,
         t.output_mismatch,
-        t.output_builds_equal,
-        t.pending,
-        t.pending_coc
+        t.output_builds_equal
     );
     assert!(
         t.failures.is_empty(),

@@ -5,7 +5,7 @@
 //! read (`self.sectionList`: the `CalcSectionControl`s of the constructor, CalcsTab.lua 45-155,
 //! whose `subSection[i].collapsed` state is saved). [`CalcsTab::sectionList`] keeps the model
 //! half of that list (section `id`, subsection `id` and `collapsed`) in a per-tab side table
-//! (CCR-0072 §3). [`CalcsTab::ctor_model`] runs the constructor's model half (`input`
+//! (CCR-0076 §3). [`CalcsTab::ctor_model`] runs the constructor's model half (`input`
 //! defaults, the section list).
 #![allow(non_snake_case, clippy::all, clippy::pedantic)]
 
@@ -14,6 +14,7 @@ use std::cell::RefCell;
 use pob_gamedata::DataValue;
 
 use crate::model::{XmlChild, XmlNode};
+use crate::model::skills_tab::tostring_val;
 use crate::prelude::*;
 
 thread_local! {
@@ -130,7 +131,7 @@ impl CalcsTab {
         let _ = self.Load_ret(build, xml, dbFileName);
     }
 
-    /// `CalcsTab:Load` with its return value (`true` = error; CCR-0072 §4).
+    /// `CalcsTab:Load` with its return value (`true` = error; CCR-0076 §4).
     pub fn Load_ret(&self, build: &BuildRef, xml: &XmlNode, dbFileName: &str) -> bool {
         let _ = build;
         let sectionList = self.sectionList();
@@ -278,28 +279,17 @@ impl CalcsTab {
                 };
                 // L217
                 let mut attrib = indexmap::IndexMap::new();
-                // L218
-                attrib.insert(
-                    LStr::from("id"),
-                    section.str(n!("id")).unwrap_or_else(|| LStr::from("")),
-                );
-                // L219
-                attrib.insert(
-                    LStr::from("subsection"),
-                    subSection.str(n!("id")).unwrap_or_else(|| LStr::from("")),
-                );
-                // L220
-                let collapsed = match subSection.get(n!("collapsed")) {
-                    Val::Bool(b) => {
-                        if b {
-                            "true"
-                        } else {
-                            "false"
+                // L218-219 (a nil id leaves the attribute out, as a nil table field does)
+                for (name, owner) in [("id", &section), ("subsection", &subSection)] {
+                    match owner.get(n!("id")) {
+                        Val::Nil => {}
+                        v => {
+                            attrib.insert(LStr::from(name), LStr::from(tostring_val(&v)));
                         }
                     }
-                    Val::Nil => "nil",
-                    _ => "true",
-                };
+                }
+                // L220
+                let collapsed = tostring_val(&subSection.get(n!("collapsed")));
                 attrib.insert(LStr::from("collapsed"), LStr::from(collapsed));
                 xml.children.push(XmlChild::Node(XmlNode {
                     elem: LStr::from("Section"),

@@ -1,8 +1,8 @@
-# CCR-0072 (BM-A): build XML load/save — ranges outside the row, side tables, frozen-signature gaps
+# CCR-0076 (BM-A): build XML load/save — ranges outside the row, side tables, frozen-signature gaps
 
 **Status: proposed (BM-A, 2026-11-09).** No frozen file was changed: every item below is worked
 around inside BM-A's own files (`crates/pob-calc/src/model/{build_xml,items_tab,tree_tab,calcs_tab,xml}.rs`),
-marked `CCR-0072`.
+marked `CCR-0076`.
 
 - **Raised by:** BM-A
 - **Affects:** calc doc §5.8 (`Build`, `ItemsTab`, `TreeTab`, `CalcsTab` in `model/mod.rs`, U0),
@@ -24,6 +24,7 @@ the model halves, with `@pob` markers, so that a headless build loads like PoB's
 | TreeTab.lua 26-38 (constructor) | the first spec and `SetActiveSpec(1)` | `TreeTab::ctor_model` |
 | CalcsTab.lua 24-40 (+45, 147-150, 370-375; CalcSectionControl.lua 20-49) | `input` defaults (`skill_number`, `misc_buffMode`) and the section list Load/Save use | `CalcsTab::ctor_model`, `CalcsTab::sectionList` |
 | SkillsTab.lua 89, 95-96, 423-426 | CCR-0019 §10 asked BM-A's `Build:Init` to run them | `build_xml::skillsTab_ctor_model` |
+| ConfigTab.lua 672-681 (constructor, the `varControls` half) | Build.lua:645 runs `BuildModList` right after the constructors; option applies index `configTab.varControls[var]` (`enemySizePreset` → `enemyRadius:SetPlaceholder`, map affixes → `multiplierMapModTier.selIndex`, `enemyIsBoss`/`presetBossSkills`), which raise on a missing control. This is the population CCR-0037 proposes for BM-B; CCR-0038's methods stay CO-B's local helpers | `build_xml::configTab_varControls_model` (one control-state table per option with a `var`: `_className`, `enabled`, `buf`, `state`, `placeholder`, `list`, `selIndex`) |
 | ConfigTab.lua 1205-1240 (`ImportCalcSettings`) | Build.lua:687; no calc or UI unit lists it | `build_xml::ImportCalcSettings` (§6) |
 
 **Slot model.** A slot is a `Table` with the `ItemSlotControl` fields the model reads: `slotName`,
@@ -72,7 +73,7 @@ bodies; `Init_model` uses them. **Proposed:** `Load(...) -> bool` on both.
 
 `ItemsTab.items: Shared<IndexMap<u32, ItemRef>>`, `itemSets: Shared<IndexMap<u32, Table>>` and
 `orderList`/`itemSetOrderList: Shared<Vec<u32>>` cannot hold a non-integral or negative id, which a
-Lua table accepts. The port raises a `LuaError` naming CCR-0072 there (never seen in the corpus;
+Lua table accepts. The port raises a `LuaError` naming CCR-0076 there (never seen in the corpus;
 PoB itself only creates positive integer ids). `id = nil` raises "table index is nil" as in Lua.
 
 ## 6. `ConfigTab:ImportCalcSettings` (ConfigTab.lua 1205-1240)
@@ -111,12 +112,9 @@ other sections; it no longer gives the "empty Build:Init model" its doc comment 
 LoadDB is real. **Proposed:** testkit switches to `loadBuildModelFromXML` (or keeps `Build::new` for
 pure injection).
 
-## 10. Dependencies still pending (seen by `tests/BM-A.rs`)
+## 10. Dependencies
 
-- **PS-C** (`BuildClusterJewelGraphs`, a stub): 49 of the 57 corpus builds have cluster-jewel
-  subgraphs or a legacy `clusterHashFormatVersion`. Their subgraph nodes stay in
-  `allocSubgraphNodes`, so `allocNodes`, the nested-socket slot state, the saved `<Tree>` node
-  list, `SocketIdURL`s and PoB's outputs on the Rust-saved XML differ; the test counts those as
-  pending PS-C and fails on every other difference.
-- **CO-C** (`ConfigTab:BuildModList`, a stub): builds saved without `<Placeholder>`s (the five
-  upstream builds) get no placeholders; their `<Config>` sections differ only there.
+PS-C (`BuildClusterJewelGraphs`) and CO-C (`ConfigTab:BuildModList`) are merged; `tests/BM-A.rs`
+has no pending buckets and fails on every difference on all corpus builds. If BM-B later owns the
+ConfigTab constructor's `varControls` half (CCR-0037), it replaces
+`build_xml::configTab_varControls_model` and `Init_model` calls it instead.

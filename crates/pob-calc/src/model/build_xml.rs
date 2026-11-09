@@ -4,7 +4,7 @@
 //! that [`loadBuildFromXML`] runs.
 //!
 //! Owner: BM-A. UI statements (controls, popups, window title, loadouts) are left to the UI port
-//! (ui doc U19/U20) and marked `// UI:`. CCR-0072 lists the contract gaps worked around here:
+//! (ui doc U19/U20) and marked `// UI:`. CCR-0076 lists the contract gaps worked around here:
 //! * `Build` (model/mod.rs, U0) has no field for `characterLevelAutoMode`, `timelessData`,
 //!   `importLink`, `xmlSectionList`, `dbFileName`, `buildName` nor for the per-tab state the
 //!   frozen tab structs lack: all of it lives in a per-build side table, [`build_extra`];
@@ -22,7 +22,7 @@ use crate::model::xml::{ComposeXML, ParseXML_root};
 use crate::model::{XmlChild, XmlNode};
 use crate::prelude::*;
 
-// ---- the per-build side table (Rust-only plumbing, CCR-0072 §2) ---------------------------
+// ---- the per-build side table (Rust-only plumbing, CCR-0076 §2) ---------------------------
 
 thread_local! {
     static BUILD_EXTRA: RefCell<Vec<(Weak<Build>, Table)>> = const { RefCell::new(Vec::new()) };
@@ -83,7 +83,7 @@ fn self_rc(build: &Build) -> BuildRef {
                 .upgrade()
                 .filter(|b| Rc::as_ptr(b) == ptr)
         })
-        .unwrap_or_else(|| lua_error!("CCR-0072: the build has no Rc handle (Build::new)"))
+        .unwrap_or_else(|| lua_error!("CCR-0076: the build has no Rc handle (Build::new)"))
 }
 
 /// Registers `Build:Save`'s display-stat writer (Build.lua 1033-1080; U21's
@@ -332,6 +332,7 @@ pub fn Init_model(
     build.partyTab.ctor_model();
     // L611
     build.configTab.ctor_model();
+    configTab_varControls_model(build);
     // L612
     build.itemsTab.ctor_model(build);
     // L613
@@ -480,8 +481,74 @@ fn skillsTab_ctor_model(build: &BuildRef) {
     st.SetActiveSkillSet(build, 1.0);
 }
 
+/// @pob Classes/ConfigTab.lua:672-681 h=c9190b17
+/// The ConfigTab constructor's control half (CCR-0076 §1; the proposal of CCR-0037/CCR-0038):
+/// one control-state table per option with a `var` in `self.varControls`, with the fields the
+/// model reads (`_className`, `enabled`, `buf`, `state`, `placeholder`, `list`, `selIndex`).
+/// The control classes' constructors contribute `enabled = true` (Control.lua:60),
+/// `buf = ""` (EditControl.lua:48 `SetText(init or "")`, init is `""`), `list = varData.list`
+/// and `selIndex = 1` (DropDownControl.lua:45-46). The input/placeholder defaults of L673/L676/L679
+/// are `NewConfigSet`'s (ConfigTab.lua:1289-1296, already applied by `ctor_model`), and
+/// `defaultState` (L683-692) is `config_tab::defaultState`.
+fn configTab_varControls_model(build: &BuildRef) {
+    let varControls = &build.configTab.varControls;
+    // L261 for _, varData in ipairs(varList) do (section headers carry no var)
+    for varData in &build.data.configOptions {
+        if varData.section.is_some() {
+            continue;
+        }
+        let control = Table::new();
+        // ConfigTab.lua:280-347: the control class the option's type selects
+        let className = match varData.r#type.as_ref().map(|t| t.as_str()) {
+            Some("check") => "CheckBoxControl",
+            Some("count" | "integer" | "countAllowZero" | "float") => "EditControl",
+            Some("list") => "DropDownControl",
+            // `varData.resizable` is never set in ConfigOptions (the schema has no such field)
+            Some("text") => "EditControl",
+            _ => "Control",
+        };
+        control.set(n!("_className"), className);
+        control.set(n!("enabled"), true);
+        if className == "EditControl" {
+            control.set(n!("buf"), "");
+        } else if className == "DropDownControl" {
+            let list = Table::new();
+            for item in varData.list.iter().flatten() {
+                let e = Table::new();
+                e.set(n!("label"), &*item.label);
+                e.set(n!("val"), Val::from_value(&item.val));
+                list.push(e);
+            }
+            control.set(n!("list"), list);
+            control.set(n!("selIndex"), 1.0);
+        }
+        // L672
+        let Some(var) = varData.var else { continue };
+        // L674
+        control.set(
+            n!("state"),
+            varData.defaultState.as_ref().map_or(Val::Nil, Val::from_value),
+        );
+        // L677
+        control.set(
+            n!("placeholder"),
+            varData
+                .defaultPlaceholderState
+                .as_ref()
+                .map_or(Val::Nil, Val::from_value),
+        );
+        // L678
+        if let Some(defaultIndex) = varData.defaultIndex {
+            // L680
+            control.set(n!("selIndex"), defaultIndex);
+        }
+        // L675
+        varControls.set(var, control);
+    }
+}
+
 /// @pob Classes/ConfigTab.lua:1205-1240 h=66e7f9af
-/// `configTab:ImportCalcSettings()` (Build.lua:687 calls it; no calc unit owns it, CCR-0072 §6).
+/// `configTab:ImportCalcSettings()` (Build.lua:687 calls it; no calc unit owns it, CCR-0076 §6).
 fn ImportCalcSettings(build: &BuildRef) {
     let configTab = &build.configTab;
     // L1206

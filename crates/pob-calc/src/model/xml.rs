@@ -4,7 +4,7 @@
 //! Owner: BM-A. Every pattern goes through `pob_lua::pattern` (the lstrlib port), so the
 //! reader accepts and rejects exactly what PoB's does.
 //!
-//! Representation (CCR-0072 §7): Lua returns the parse result as a pseudo-root table
+//! Representation (CCR-0076 §7): Lua returns the parse result as a pseudo-root table
 //! (`stack[1]`, no `elem`) whose array part holds the top-level element nodes *and* any
 //! top-level text runs. The frozen [`ParseXML`] returns only the element nodes;
 //! [`ParseXML_root`] keeps the pseudo-root (elem `""`) with both kinds of children, for
