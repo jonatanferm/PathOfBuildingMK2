@@ -26,8 +26,8 @@
 //!     other specialModList ranges (MP3, MP4, MP6) are used when ported; while they are stubs
 //!     their keys are present with a sentinel value, and lines that reach them are left out.
 //!
-//! Inputs: `data/dump` and the PoB checkout; missing inputs skip (fail with
-//! `POB_ORACLE_REQUIRE=1` or `CI`). `MP5_L1_STRIDE=n` checks every n-th L1 record.
+//! Inputs: `data/dump` and the PoB checkout; missing inputs fail
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips). `MP5_L1_STRIDE=n` checks every n-th L1 record.
 #![allow(non_snake_case)]
 #![allow(clippy::type_complexity, clippy::too_many_lines)]
 
@@ -59,13 +59,6 @@ const HOLEY_TAG_LINES: [u32; 5] = [4576, 4577, 4578, 4579, 4580];
 /// Known diff MP5-2: a tag field that holds a digits-only capture string in Lua
 /// (`percent = percent`, `div = 1 / percent` coerces) and `tonumber` of it in Rust.
 const STRING_TAG_FIELD_LINES: [u32; 2] = [4216, 4222];
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -139,8 +132,8 @@ fn ours() -> &'static [PatternEntry<SpecialVal>] {
 
 #[test]
 fn list_shape() {
-    let Some(src) = modparser_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(modparser_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let src: Vec<&str> = src.lines().collect();
     pob_gamedata::stub::stub_reset();
@@ -684,18 +677,25 @@ fn compare(line: u32, want: &J, got: &[Mod], what: &str, known: &mut Known, bad:
 
 #[test]
 fn mp5_oracle() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(pob_src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(pob_src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let modparser = std::fs::read_to_string(pob_src.join("Modules/ModParser.lua")).unwrap();
     let srcl: Vec<&str> = modparser.lines().collect();
-    let records = load_oracle(&dir);
-    if records.is_none() {
-        eprintln!("parse_oracle.jsonl not found: synthetic captures only, no L1");
-    }
+    // HYG2: a missing parse oracle used to print and drop L1 and coverage silently
+    let Some(records) = pob_testpaths::require(load_oracle(&dir), "data/dump/parse_oracle.jsonl")
+    else {
+        return; // POB_ALLOW_SKIP=1
+    };
+    assert_eq!(
+        records.len(),
+        PARSE_ORACLE_RECORDS,
+        "parse_oracle.jsonl records"
+    );
+    let records = Some(records);
     let entries = ours();
 
     // -- sample captures per closure
@@ -1034,4 +1034,18 @@ fn l1(src: &[&str], recs: &[Record], bad: &mut Vec<String>) {
         entriesHit.len(),
         t.elapsed().as_secs_f64()
     );
+    // coverage (HYG2/V2); MPFIX owns the selection and raises the floors
+    if stride == 1 {
+        assert!(
+            sel.len() >= MP5_MIN_L1.0 && entriesHit.len() >= MP5_MIN_L1.1,
+            "{} L1 lines / {} entries hit, expected at least {MP5_MIN_L1:?}",
+            sel.len(),
+            entriesHit.len()
+        );
+    }
 }
+
+/// `data/dump/parse_oracle.jsonl` record count.
+const PARSE_ORACLE_RECORDS: usize = 80_993;
+/// `(L1 lines checked, distinct entries hit)` at stride 1; measured by HYG2 on rust-port 746b103.
+const MP5_MIN_L1: (usize, usize) = (1974, 541);

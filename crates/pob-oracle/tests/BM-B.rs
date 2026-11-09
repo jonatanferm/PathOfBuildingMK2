@@ -31,8 +31,8 @@
 //! `validateGemLevel`, `modLib.*`; MS-A: ModStore/ModDB/ModList storage); every
 //! other difference fails the test. With CT and MS-A merged nothing is pending.
 //!
-//! A test whose inputs (data/dump, the PoB checkout, .parity/builds) are absent
-//! skips with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! A missing input (data/dump, the PoB checkout, .parity/builds) fails
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
 //! `BMB_BUILDS=<substring>` restricts the corpus run.
 #![allow(non_snake_case, clippy::pedantic, clippy::type_complexity)]
 
@@ -56,13 +56,6 @@ const BMB_LUA: &str = include_str!("../corpus/BM-B/bmb.lua");
 
 /// The stub counters are process-global: run the tests of this file one at a time.
 static SERIAL: Mutex<()> = Mutex::new(());
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -1412,6 +1405,45 @@ fn report(name: &str, r: &Report, pending_units: &BTreeSet<&str>) {
     }
 }
 
+/// The corpus size (`.parity/builds/*.xml`).
+const CORPUS_BUILDS: usize = 57;
+/// Coverage floors and bucket bounds (HYG2/V2): `(min compared, max pending, max
+/// LUA-ORDER/expected)` per report. The floors and pending counts are the last green runs on
+/// rust-port (148,776 / 3310 / 1302 values, 0 / 5 / 0 pending; on 746b103 this test is red
+/// before reaching them, see docs/port/FOLLOWUPS.md "HYG2 exposed"). The LUA-ORDER counts are
+/// PoB's own `pairs` order, which varies between processes: observed 12-13 (tabs), 26-28
+/// (buffs) and 1 (synthetic) over two runs; the bounds leave about 25 % headroom for that.
+const TABS_BOUNDS: (usize, usize, usize) = (148_776, 0, 16);
+/// ParseBuffs/exportBuffs: the 5 pending values are `str.Warcry` exports whose injected mods
+/// lose the tag key `warcryPowerBonus` (pob_gamedata::Tag does not model it, MS-A CCR-0014).
+const BUFFS_BOUNDS: (usize, usize, usize) = (3310, 5, 34);
+const SYNTHETIC_BOUNDS: (usize, usize, usize) = (1302, 0, 2);
+
+/// A report's coverage and its pending / tolerated buckets stay within `(min compared,
+/// max pending, max tolerated)`.
+#[track_caller]
+fn assert_bounds(
+    name: &str,
+    r: &Report,
+    (min_compared, max_pending, max_tolerated): (usize, usize, usize),
+) {
+    assert!(
+        r.compared >= min_compared,
+        "{name}: {} values compared, expected at least {min_compared}",
+        r.compared
+    );
+    assert!(
+        r.pending <= max_pending,
+        "{name}: {} pending values, bound {max_pending}",
+        r.pending
+    );
+    assert!(
+        r.tolerated <= max_tolerated,
+        "{name}: {} LUA-ORDER/expected values, bound {max_tolerated}",
+        r.tolerated
+    );
+}
+
 fn boot(src: &Path) -> JitPob {
     let mut pob =
         JitPob::boot_oracle(src, Some(QUIET_PRELUDE)).unwrap_or_else(|e| panic!("PoB boot: {e}"));
@@ -1440,25 +1472,32 @@ fn corpus_tabs_match_oracle() {
     let _serial = SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    let Some(src) = pob_testpaths::require(
+        find_pob_src(),
+        "PoB checkout (.PathOfBuilding/src) not found",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(data) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(data) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(parity) = find_parity_dir() else {
-        return skip(".parity not found");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let mut builds: Vec<PathBuf> = std::fs::read_dir(parity.join("builds"))
         .map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path())).collect())
         .unwrap_or_default();
     builds.retain(|p| p.extension().is_some_and(|e| e == "xml"));
-    if let Ok(f) = std::env::var("BMB_BUILDS") {
-        builds.retain(|p| p.to_string_lossy().contains(&f));
+    let filtered = std::env::var("BMB_BUILDS").ok();
+    if let Some(f) = &filtered {
+        builds.retain(|p| p.to_string_lossy().contains(f.as_str()));
+    } else {
+        assert_eq!(builds.len(), CORPUS_BUILDS, ".parity/builds/*.xml count");
     }
     builds.sort();
     if builds.is_empty() {
-        return skip(".parity/builds/*.xml not found");
+        let _ = pob_testpaths::require(None::<()>, ".parity/builds/*.xml not found");
+        return; // POB_ALLOW_SKIP=1
     }
     let mut r = Report::default();
     let mut rx = Report::default();
@@ -1511,6 +1550,18 @@ fn corpus_tabs_match_oracle() {
         r.mismatches.is_empty() && rx.mismatches.is_empty(),
         "BM-B corpus mismatches"
     );
+    if filtered.is_none() {
+        assert_bounds("tabs", &r, TABS_BOUNDS);
+        assert_bounds("ParseBuffs/exportBuffs", &rx, BUFFS_BOUNDS);
+    } else {
+        // a restricted run still bounds the buckets
+        assert_bounds("tabs", &r, (1, TABS_BOUNDS.1, TABS_BOUNDS.2));
+        assert_bounds(
+            "ParseBuffs/exportBuffs",
+            &rx,
+            (0, BUFFS_BOUNDS.1, BUFFS_BOUNDS.2),
+        );
+    }
 }
 
 #[test]
@@ -1518,18 +1569,26 @@ fn synthetic_sections_match_oracle() {
     let _serial = SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    let Some(src) = pob_testpaths::require(
+        find_pob_src(),
+        "PoB checkout (.PathOfBuilding/src) not found",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(data) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(data) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(parity) = find_parity_dir() else {
-        return skip(".parity not found");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let base = parity.join("builds/upstream_OccVortex.xml");
-    if !base.is_file() {
-        return skip(".parity/builds/upstream_OccVortex.xml not found");
+    if pob_testpaths::require(
+        base.is_file().then_some(()),
+        ".parity/builds/upstream_OccVortex.xml not found",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/BM-B");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -1568,6 +1627,7 @@ fn synthetic_sections_match_oracle() {
     }
     report(&format!("synthetic ({} files)", files.len()), &r, &units);
     assert!(r.mismatches.is_empty(), "BM-B synthetic mismatches");
+    assert_bounds("synthetic", &r, SYNTHETIC_BOUNDS);
 }
 
 /// `SkillsTab:ProcessGemLevel` (SkillsTab.lua:1129-1157) for every gem, every default gem
@@ -1577,18 +1637,26 @@ fn process_gem_level_matches_oracle() {
     let _serial = SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    let Some(src) = pob_testpaths::require(
+        find_pob_src(),
+        "PoB checkout (.PathOfBuilding/src) not found",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(data) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(data) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(parity) = find_parity_dir() else {
-        return skip(".parity not found");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let base = parity.join("builds/upstream_OccVortex.xml");
-    if !base.is_file() {
-        return skip(".parity/builds/upstream_OccVortex.xml not found");
+    if pob_testpaths::require(
+        base.is_file().then_some(()),
+        ".parity/builds/upstream_OccVortex.xml not found",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
     let out = {
         let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
@@ -1648,8 +1716,8 @@ fn set_buff_exports() {
     let _serial = SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(data) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(data) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let build = Build::new(data);
     let pt = &build.partyTab;
@@ -1689,8 +1757,8 @@ fn fresh_build_entry_points() {
     let _serial = SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(data) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(data) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     // setBuffExports with export enabled and no prior ctor_model (ImportTab.lua:508/748 →
     // CalcPerform.lua:1312)

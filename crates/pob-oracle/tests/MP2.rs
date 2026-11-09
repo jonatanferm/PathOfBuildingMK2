@@ -22,8 +22,8 @@
 //!     formList and modNameList come from MP1 when it is merged, else they are rebuilt from
 //!     PoB's tables (test-only, read from the instrumented LuaJIT state).
 //!
-//! Inputs: `data/dump` and the PoB checkout; missing inputs skip (fail with
-//! `POB_ORACLE_REQUIRE=1` or `CI`). `MP2_L1_STRIDE=n` checks every n-th L1 record.
+//! Inputs: `data/dump` and the PoB checkout; missing inputs fail
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips). `MP2_L1_STRIDE=n` checks every n-th L1 record.
 #![allow(non_snake_case)]
 #![allow(clippy::type_complexity, clippy::too_many_lines)]
 
@@ -42,13 +42,6 @@ use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_pob_src, find_up};
 use serde_json::{Map, Value as J};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -120,8 +113,8 @@ fn is_fn(v: &TagVal) -> bool {
 
 #[test]
 fn list_shape() {
-    let Some(src) = modparser_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(modparser_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let src: Vec<&str> = src.lines().collect();
     pob_gamedata::stub::stub_reset();
@@ -671,18 +664,25 @@ fn strip_pos(e: &str) -> &str {
 
 #[test]
 fn mp2_oracle() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(pob_src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(pob_src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let modparser = std::fs::read_to_string(pob_src.join("Modules/ModParser.lua")).unwrap();
     let srcl: Vec<&str> = modparser.lines().collect();
-    let records = load_oracle(&dir);
-    if records.is_none() {
-        eprintln!("parse_oracle.jsonl not found: synthetic captures only, no L1");
-    }
+    // HYG2: a missing parse oracle used to print and drop L1 silently
+    let Some(records) = pob_testpaths::require(load_oracle(&dir), "data/dump/parse_oracle.jsonl")
+    else {
+        return; // POB_ALLOW_SKIP=1
+    };
+    assert_eq!(
+        records.len(),
+        PARSE_ORACLE_RECORDS,
+        "parse_oracle.jsonl records"
+    );
+    let records = Some(records);
 
     // -- sample captures per closure
     let mut samples: BTreeMap<&str, BTreeMap<&'static str, Vec<Vec<String>>>> = BTreeMap::new();
@@ -1048,4 +1048,18 @@ fn l1(lua: &mut Lua, src: &[&str], recs: &[Record], bad: &mut Vec<String>) {
         sel.len(),
         t.elapsed().as_secs_f64()
     );
+    // coverage (HYG2/V2): the checked share cannot shrink (MPFIX owns the exclusions above and
+    // raises the floor)
+    if stride == 1 {
+        assert!(
+            sel.len() >= MP2_MIN_L1,
+            "{} L1 lines checked, expected at least {MP2_MIN_L1}",
+            sel.len()
+        );
+    }
 }
+
+/// `data/dump/parse_oracle.jsonl` record count.
+const PARSE_ORACLE_RECORDS: usize = 80_993;
+/// L1 lines checked at stride 1; measured by HYG2 on rust-port 746b103.
+const MP2_MIN_L1: usize = 26_904;

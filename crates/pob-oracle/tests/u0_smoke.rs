@@ -1,12 +1,12 @@
-//! U0 smoke (calc doc §11.1 row U0): `buildOutput` runs end to end on the
-//! stubs for every slice5 build (`corpus/U0/slice5.txt`) in MAIN, CALCS and
-//! CALCULATOR modes without panicking, and the stub report names the unported
-//! sites it went through.
+//! U0 smoke (calc doc §11.1 row U0): `buildOutput` runs end to end for every
+//! slice5 build (`corpus/U0/slice5.txt`) in MAIN, CALCS and CALCULATOR modes
+//! without panicking, and every run that goes through no orchestrator stub leaves a non-empty
+//! player output table.
 //!
-//! On stubs the build loader (BM-A) yields an empty build, initEnv's CS1
-//! skeleton creates the env, every segment returns `Flow::Normal`, and the
-//! orchestrators run in Lua order: initEnv (CS1 → CS2 → CS3 → finish) and
-//! perform (PF-C → PF-D → PF-E → PF-F → PF-G).
+//! The orchestrators run in Lua order: initEnv (CS1 → CS2 → CS3 → finish) and
+//! perform (PF-C → PF-D → PF-E → PF-F → PF-G). The test deliberately does not
+//! assert which `unported!` stub sites are hit (HYG2/R1): that set shrinks as
+//! the CS/PF/CA units land, so the stub report is printed for information only.
 
 use std::path::PathBuf;
 
@@ -74,34 +74,56 @@ fn build_output_on_stubs() {
         };
         for mode in [Mode::MAIN, Mode::CALCS, Mode::CALCULATOR] {
             let build = pob_calc::model::build_xml::loadBuildFromXML(&xml, pob_gamedata::data());
+            let before = pob_calc::stub::stub_report();
             let env = pob_calc::try_buildOutput(&build, mode)
                 .unwrap_or_else(|e| panic!("{stem} {mode:?}: Lua error {e}"));
-            // the pipeline produced an env with a player output table
             assert_eq!(env.mode, mode);
-            let _ = env.player.output.get();
+            // outputs present: a run that went through no orchestrator stub (initEnv, perform,
+            // buildOutput's own tail) must leave a non-empty player output table. While such a
+            // stub is still hit the output may be empty (HYG2: on rust-port 746b103 every run
+            // hits CalcSetup.lua:488-1973, CalcPerform.lua:1289-3990 and Calcs.lua:384-870 and
+            // leaves 0 output keys; docs/port/FOLLOWUPS.md "HYG2 exposed").
+            let keys = env.player.output.get().pairs().count();
+            let stubbed: Vec<&str> = stub_hits_since(&before)
+                .into_iter()
+                .filter(|s| ORCHESTRATOR_STUBS.iter().any(|p| s.starts_with(p)))
+                .collect();
+            assert!(
+                keys > 0 || !stubbed.is_empty(),
+                "{stem} {mode:?}: empty player output with no orchestrator stub hit"
+            );
+            eprintln!(
+                "u0_smoke: {stem} {mode:?}: {keys} player output keys; orchestrator stubs hit: {}",
+                stubbed.len()
+            );
             runs += 1;
         }
     }
+    assert_eq!(runs, 15, "5 slice5 builds x 3 modes");
     let report = pob_calc::stub::stub_report();
-    let sites: Vec<&str> = report.iter().map(|(s, _)| *s).collect();
-    for expect in [
-        "Modules/CalcSetup.lua:488-799",
-        "Modules/CalcSetup.lua:800-1450",
-        "Modules/CalcSetup.lua:1451-1973",
-        "Modules/CalcPerform.lua:1289-1942",
-        "Modules/CalcPerform.lua:3497-3990",
-        "Modules/Calcs.lua:384-870",
-    ] {
-        assert!(
-            sites.contains(&expect),
-            "stub site {expect} not reached; report: {sites:?}"
-        );
-    }
     eprintln!(
-        "u0_smoke: {runs} buildOutput runs on stubs, {} distinct unported sites hit:",
+        "u0_smoke: {runs} buildOutput runs, {} distinct unported sites hit (information only):",
         report.len()
     );
     for (s, n) in &report {
         eprintln!("  {n:>4}  {s}");
     }
+}
+
+/// The orchestrator segments whose stubs may leave the output empty (calc doc §11.1 rows
+/// CS1-CS3, PF-C..PF-G, CA; `pob_calc::stub` site prefixes).
+const ORCHESTRATOR_STUBS: &[&str] = &[
+    "Modules/CalcSetup.lua:",
+    "Modules/CalcPerform.lua:",
+    "Modules/Calcs.lua:",
+    "Modules/Build.lua:",
+];
+
+/// The stub sites whose hit count grew since `before`.
+fn stub_hits_since(before: &[(&'static str, u64)]) -> Vec<&'static str> {
+    pob_calc::stub::stub_report()
+        .into_iter()
+        .filter(|(k, n)| !before.iter().any(|(b, m)| b == k && m >= n))
+        .map(|(k, _)| k)
+        .collect()
 }

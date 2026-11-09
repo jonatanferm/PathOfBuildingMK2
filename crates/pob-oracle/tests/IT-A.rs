@@ -27,7 +27,7 @@
 //! Informational (not gated): how many of PoB's `parseMod` calls the native Rust parser already
 //! reproduces (all, and those served by the ModCache seed).
 //!
-//! Self-skips without PoB / the data dump (set `POB_ORACLE_REQUIRE=1` to fail instead). The inputs
+//! Fails without PoB / the data dump (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips). The inputs
 //! are gitignored, so from a worktree point `POB_SRC`, `POB_PARITY_DIR` and `POB_DUMP_DIR` at the
 //! main checkout's `.PathOfBuilding/src`, `.parity` and `data/dump`. `IT_A_LIMIT=<n>` limits the
 //! uniques; `IT_A_KEEP=<file>` keeps the oracle's JSONL;
@@ -53,12 +53,6 @@ use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up};
 use serde_json::Value as J;
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -978,11 +972,12 @@ fn check_parse(t: &mut Tally, native: &mut NativeStats, src: &str, item: &Item, 
 
 #[test]
 fn parse_raw_vs_pob() {
-    let Some(src) = find_pob_src() else {
-        return skip("no PoB checkout (.PathOfBuilding/src)");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "no PoB checkout (.PathOfBuilding/src)")
+    else {
+        return; // POB_ALLOW_SKIP=1
     };
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     quiet_lua_errors();
     let d = pob_gamedata::data();
@@ -995,12 +990,24 @@ fn parse_raw_vs_pob() {
         maxJewelRadius,
     });
 
-    // inputs
+    // inputs (HYG2: a missing `.parity` used to drop the corpus half silently)
+    if pob_testpaths::require(find_parity_dir(), ".parity (build corpus)").is_none() {
+        return; // POB_ALLOW_SKIP=1
+    }
     let corpus = corpus_items();
+    let corpus_n = corpus.len();
+    eprintln!("corpus: {corpus_n} <Item>s in .parity/builds");
     let out = std::env::temp_dir().join(format!("ita_oracle_{}.jsonl", std::process::id()));
-    let mut prologue = format!("__ita_out = {}\n__ita_corpus = {{\n", lua_long(&out.to_string_lossy()));
+    let mut prologue = format!(
+        "__ita_out = {}\n__ita_corpus = {{\n",
+        lua_long(&out.to_string_lossy())
+    );
     for c in &corpus {
-        prologue.push_str(&format!("{{ src = {}, raw = {}", lua_long(&c.src), lua_long(&c.raw)));
+        prologue.push_str(&format!(
+            "{{ src = {}, raw = {}",
+            lua_long(&c.src),
+            lua_long(&c.raw)
+        ));
         for (k, v) in &c.attrs {
             prologue.push_str(&format!(", {k} = {}", g17(*v)));
         }
@@ -1106,7 +1113,34 @@ fn parse_raw_vs_pob() {
         SYNTH.len(),
         "every synthetic item must reach the oracle"
     );
+    if std::env::var_os("IT_A_LIMIT").is_none() {
+        // coverage (HYG2/V2): every unique, variant, rare, corpus and synthetic item reached
+        // the oracle and came back
+        let got: Vec<(&str, usize)> = kinds.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        assert_eq!(got, IT_A_KINDS, "oracle records by kind");
+        assert_eq!(
+            corpus_n, IT_A_CORPUS_ITEMS,
+            "corpus <Item>s in .parity/builds"
+        );
+        assert!(
+            nparses >= IT_A_MIN_PARSES,
+            "{nparses} ParseRaw calls, expected at least {IT_A_MIN_PARSES}"
+        );
+    }
 }
+
+/// `<Item>`s in the 57 corpus builds; measured by HYG2 on rust-port 746b103.
+const IT_A_CORPUS_ITEMS: usize = 1527;
+/// Oracle records by kind (sorted); measured by HYG2 on rust-port 746b103.
+const IT_A_KINDS: &[(&str, usize)] = &[
+    ("corpus", 1527),
+    ("rare", 205),
+    ("synthetic", 15),
+    ("unique", 1333),
+    ("variant", 5425),
+];
+/// ParseRaw calls compared; measured by HYG2 on rust-port 746b103.
+const IT_A_MIN_PARSES: usize = 10_032;
 
 /// Rust-only checks of paths the oracle corpus cannot reach or that need no oracle.
 #[test]

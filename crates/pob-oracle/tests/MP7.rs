@@ -17,8 +17,8 @@
 //!   error status, the same `out` list (untouched mods by identity, others by value) and the same
 //!   `data` table, and the same finish `out` and `data`. Gate: 100% (calc doc §9.4 L2).
 //!
-//! Inputs: `data/dump`, the PoB checkout; missing inputs skip (fail with `POB_ORACLE_REQUIRE=1`
-//! or `CI`). `MP7_VERBOSE=1` prints every mismatch; `MP7_FUNCS=n` runs the first n lines only.
+//! Inputs: `data/dump`, the PoB checkout; missing inputs fail (`pob_testpaths::require`;
+//! `POB_ALLOW_SKIP=1` skips). `MP7_VERBOSE=1` prints every mismatch; `MP7_FUNCS=n` runs the first n lines only.
 #![allow(non_snake_case)]
 #![allow(clippy::too_many_lines)]
 
@@ -40,13 +40,6 @@ use pob_oracle::runner::OracleLock;
 use serde_json::Value as J;
 
 const SCRIPT: &str = include_str!("../corpus/MP7/jewel_funcs.lua");
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -100,11 +93,11 @@ fn literal_keys(src: &[&str], a: usize, b: usize) -> Vec<String> {
 
 #[test]
 fn list_shape() {
-    if init_data().is_none() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data(), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let text = std::fs::read_to_string(src.join("Modules/ModParser.lua")).unwrap();
     let lines: Vec<&str> = text.lines().collect();
@@ -251,7 +244,11 @@ fn func_lines(dir: &std::path::Path) -> Vec<String> {
             }
             eprintln!("parse oracle: {n} jewel func lines");
         }
-        Err(_) => eprintln!("parse_oracle.jsonl not found: table keys and samples only"),
+        // HYG2: a missing parse oracle used to print and shrink the corpus silently
+        Err(e) => {
+            let _ =
+                pob_testpaths::require(None::<()>, &format!("data/dump/parse_oracle.jsonl ({e})"));
+        }
     }
     set.into_iter().collect()
 }
@@ -434,11 +431,11 @@ struct Tally {
 
 #[test]
 fn mp7_oracle() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     quiet_lua_errors();
     let verbose = std::env::var_os("MP7_VERBOSE").is_some();
@@ -724,4 +721,25 @@ fn mp7_oracle() {
         );
     }
     assert!(t.mismatches.is_empty(), "{} mismatches", t.mismatches.len());
+    if std::env::var("MP7_FUNCS").is_err() {
+        // coverage and the both-raise bucket (HYG2/V2)
+        assert_eq!(t.funcs, MP7_FUNCS_COMPARED, "jewel func lines compared");
+        assert!(
+            t.calls >= MP7_MIN_CALLS,
+            "{} calls compared, expected at least {MP7_MIN_CALLS}",
+            t.calls
+        );
+        assert!(
+            t.errors_both <= MP7_MAX_BOTH_RAISE,
+            "{} calls raised on both sides, bound {MP7_MAX_BOTH_RAISE}",
+            t.errors_both
+        );
+    }
 }
+
+/// Jewel func lines compared; measured by HYG2 on rust-port 746b103.
+const MP7_FUNCS_COMPARED: usize = 234;
+/// Func calls compared; measured by HYG2 on rust-port 746b103.
+const MP7_MIN_CALLS: usize = 883_350;
+/// Calls that raise on both sides; measured by HYG2 on rust-port 746b103.
+const MP7_MAX_BOTH_RAISE: usize = 1;

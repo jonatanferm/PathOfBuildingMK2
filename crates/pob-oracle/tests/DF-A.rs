@@ -33,9 +33,8 @@
 //! A difference only in the sign of a formatted zero is a host artefact (the oracle host is a
 //! dual-number ARM64 LuaJIT; CCR-0002) and is counted apart, as is a `%d` of NaN, which the
 //! port formats as x64's `cvttsd2si` MIN and the ARM64 oracle as 0 (CCR-0001). Errors PoB
-//! raises are compared as such (`ERR` on both sides) and their messages summarised. Missing
-//! inputs skip (with
-//! `POB_ORACLE_REQUIRE=1` or `CI` they fail).
+//! raises are compared as such (`ERR` on both sides) and their messages summarised. A
+//! missing input fails (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
 #![allow(non_snake_case)]
 #![allow(
     clippy::too_many_lines,
@@ -56,13 +55,6 @@ use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src};
 use pob_oracle::testkit;
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 /// Lua `pcall`: a `lua_error!` becomes `Err(())`.
 fn pcall<R>(f: impl FnOnce() -> R) -> Result<R, ()> {
@@ -1203,11 +1195,16 @@ fn check_pools(lua: &mut Lua) -> Check {
 
 #[test]
 fn dfa_random_vs_luajit() {
-    if !testkit::init_default_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "data/dump not found",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let _lock = pob_oracle::runner::OracleLock::acquire().unwrap_or_else(|e| panic!("{e}"));
     let t0 = std::time::Instant::now();
@@ -1309,7 +1306,46 @@ fn dfa_random_vs_luajit() {
         failed |= !c.bad.is_empty();
     }
     assert!(!failed, "DF-A oracle mismatches (see above)");
+    // coverage floors and bucket bounds per check (HYG2/V2)
+    if only.is_none() {
+        let mut names: Vec<&str> = checks.iter().map(|c| c.name).collect();
+        names.sort_unstable();
+        let mut want: Vec<&str> = DFA_BOUNDS.iter().map(|b| b.0).collect();
+        want.sort_unstable();
+        assert_eq!(names, want, "checks run");
+    }
+    for c in &checks {
+        let &(_, min_total, max_errors, max_zero, max_cast) = DFA_BOUNDS
+            .iter()
+            .find(|b| b.0 == c.name)
+            .unwrap_or_else(|| panic!("no DFA_BOUNDS row for {}", c.name));
+        assert!(
+            c.total >= min_total,
+            "{}: {} compared, expected at least {min_total}",
+            c.name,
+            c.total
+        );
+        assert!(
+            c.errors <= max_errors && c.zero_sign <= max_zero && c.cast <= max_cast,
+            "{}: {} raise in PoB / {} sign-of-zero / {} %d-of-NaN, bounds {max_errors} / {max_zero} / {max_cast}",
+            c.name,
+            c.errors,
+            c.zero_sign,
+            c.cast
+        );
+    }
 }
+
+/// `(check, min compared, max raise-in-PoB, max sign-of-zero, max %d-of-NaN)`; measured by HYG2
+/// on rust-port 746b103.
+const DFA_BOUNDS: &[(&str, usize, usize, usize, usize)] = &[
+    ("hitChance", 100_000, 0, 0, 0),
+    ("armourReductionF", 100_000, 0, 1947, 0),
+    ("armourReduction", 100_000, 0, 0, 0),
+    ("applyDmgTakenConversion", 100_000, 1723, 0, 0),
+    ("takenHitFromDamage", 100_000, 2770, 0, 0),
+    ("reducePoolsByDamage", 100_000, 6774, 28, 34),
+];
 
 // ---- resistances / defenceForConditionals on the corpus dumps --------------------------------------
 
@@ -1380,15 +1416,25 @@ const SLOTS: [&str; 6] = [
 
 #[test]
 fn dfa_resistances_probe() {
-    if !testkit::init_default_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "data/dump not found",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity directory");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let builds = corpus(&parity);
     if builds.is_empty() {
-        return skip("no .parity/builds/*.xml");
+        let _ = pob_testpaths::require(None::<()>, "no .parity/builds/*.xml");
+        return; // POB_ALLOW_SKIP=1
+    }
+    let filtered = std::env::var_os("DFA_BUILDS").is_some();
+    if !filtered {
+        assert_eq!(builds.len(), CORPUS_BUILDS, ".parity/builds/*.xml count");
     }
     let mut compared = 0usize;
     let mut keys = 0usize;
@@ -1514,10 +1560,32 @@ fn dfa_resistances_probe() {
         eprintln!("  {b}");
     }
     if compared == 0 {
-        return skip("no defence:in / defence:recovery:in dumps (scripts/port/oracle.sh corpus)");
+        let _ = pob_testpaths::require(
+            None::<()>,
+            "no defence:in / defence:recovery:in dumps (scripts/port/oracle.sh corpus)",
+        );
+        return; // POB_ALLOW_SKIP=1
     }
     assert!(
         bad.is_empty() && cond_bad.is_empty(),
         "DF-A probe mismatches (see above)"
     );
+    // coverage (HYG2/V2): every build has its defence dumps, and every one was compared
+    assert!(
+        missing.is_empty(),
+        "builds without defence:in / defence:recovery:in dumps (scripts/port/oracle.sh corpus): {missing:?}"
+    );
+    assert_eq!(compared, builds.len(), "actors compared");
+    if !filtered {
+        assert!(
+            keys >= DFA_MIN_RESIST_VALUES,
+            "{keys} resistance values compared, expected at least {DFA_MIN_RESIST_VALUES}"
+        );
+    }
 }
+
+/// The corpus size (`.parity/builds/*.xml`).
+const CORPUS_BUILDS: usize = 57;
+/// `dfa_resistances_probe` values compared on the full corpus; measured by HYG2 on rust-port
+/// 746b103.
+const DFA_MIN_RESIST_VALUES: usize = 2793;
