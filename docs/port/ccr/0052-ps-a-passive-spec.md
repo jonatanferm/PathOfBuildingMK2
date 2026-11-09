@@ -18,9 +18,32 @@ reads fall through to the tree node, writes stay on the spec node. `Node`'s fiel
 `Field`/`Cell`s that every consumer reads directly, so the port cannot fall back lazily.
 Convention (`passive_spec::new_spec_node`): the spec node is a **shallow copy** of the tree node
 (`copy_node`: every field cloned; `Field` handles such as `sd`, `mods`, `modList`, `linkedId`,
-`nodesInRadius`, `group` alias the tree node's tables, exactly what an `__index` read returns),
-with a fresh `linked`, its own `extra` (a shallow copy of the tree node's `extra` plus
-`power = {}`) and `Node::tree = Some(treeNode)`.
+`nodesInRadius`, `group` alias the tree node's tables, which is what an `__index` read returns
+when the tree node has that field), with a fresh `linked`, a fresh `depends`, its own `extra`
+(a shallow copy of the tree node's `extra` plus `power = {}`) and `Node::tree = Some(treeNode)`.
+
+Aliasing is only faithful for fields the Lua tree node actually carries. A `Node` cannot hold
+`nil` in its non-`Option` handle fields: `Node::default` gives each one a live, empty handle,
+so for a field that is `nil` on the Lua tree node the copy would alias that placeholder, and
+node N of every spec on the same tree version (TreeTab's specs, the convert spec) would share
+it. Audit of the non-`Option` handle fields of `Node` against PassiveTree.lua:
+- `depends`: never set on tree nodes, so `node.depends` reads `nil` and
+  `node.depends = wipeTable(node.depends)` (:1142, Common.lua:549-552) gives each spec node a
+  fresh `{ }`. `new_spec_node` therefore gives `depends` its own empty list (as for `linked`).
+  Without this, an in-place `wipeTable` of one spec's `depends` (PS-B) would clear and refill
+  another spec's, and `DeallocNode` (:832) would deallocate dependants another spec computed.
+- `linked`: fresh (the `{ linked = { } }` constructor).
+- `linkedId`: set on every tree node (PassiveTree.lua:543); aliasing is faithful.
+- `mods`, `modList`, `modKey`: set on every tree node by `ProcessStats` (:799-800, through
+  `ProcessNode` :623/:905); aliasing is faithful. That includes PoB's in-place
+  `node.modList:NewMod(...)` on a spec node (:1726), which mutates the tree node's list.
+- `sd`: `node.sd = node.stats` (:535); the only tree node without `stats` is `root` (checked on
+  TreeData 3_26 and 3_6: 1 of 3160 and 0 of 1862 nodes), which has no `group` and is not
+  copied into a spec (:54). So every spec node's tree node has a real `sd`.
+- `extra`: shallow-copied, not aliased.
+Every other handle field is an `Option` and copies `nil` as `None`.
+For the tattoo override copies (`copyTable(tattooNode, true)`, :181) `linked` and `depends`
+are fresh as well: tattoo data nodes have neither.
 
 The difference from Lua: a write to the *tree* node after the spec was built is not seen through
 the spec node. In scope the only such write is `treeNode.masteryCache` (PassiveSpec.lua:1046),
@@ -78,7 +101,16 @@ Workaround: `ImportFromNodeList_impl(…, hashOverrides: Shared<LjIntMap<NodeRef
 masteryEffects: &[(f64, f64)] /* pairs order */, …)` holds the body; `Load` calls it with
 `self.hashOverrides` (alias, as in Lua) and the `masteryEffects` `LjIntMap` it built (:153-157).
 The frozen fn converts its `Table`s (keys = node ids, override values `Val::Obj(NodeRef)`,
-effect values numbers or numeric strings, `tonumber` at :278) in their insertion order.
+effect values numbers or numeric strings) in their insertion order.
+
+Effect values: Lua stores the raw `effect` in `masterySelections` (:279) and calls `tonumber`
+only for the `< 65536` test (:278); the frozen `masterySelections` is a `LjIntMap<f64>`, so the
+port stores `tonumber(effect)`. A numeric-string effect would therefore be a string in PoB
+(`tree.masteryEffects["123"]` misses where `[123]` hits) and a number in the port. The only
+caller that passes untyped values is ImportTab (:1137 copies `charPassives.mastery_effects`
+values as they are); the GGG account JSON has numbers there (upstream fixture
+`spec/System/SampleCharacter.json:3450-3458`, e.g. `"63559": 64875`), and `Load` builds numbers
+itself (:153-157), so the two agree on every input PoB receives.
 
 ```diff
      pub fn ImportFromNodeList(&self, className: Option<Name>, classId: f64, ascendClassId: f64,
@@ -127,8 +159,10 @@ The port does not store it. Proposed: `pub showConvert: Cell<bool>` on `TreeTab`
 `linked`, `depends` and `path` of the spec's nodes when the spec is dropped. A spec node that
 outlives its spec (an old env still holding it) therefore loses its links; nothing in scope
 reads them after the spec is gone. `Init` called again on a live spec (ImportFromNodeList with a
-new tree version) replaces the node set without clearing the old one (Lua's GC; the old nodes
-leak until the spec drops).
+new tree version) clears the same links of the node set it replaces (Lua's GC collects that
+set once unreachable); the fields are replaced, never cleared in place. A holder of an old node
+(none in scope: `allocNodes` and the other node tables are re-created by the same `Init`) sees
+it unlinked.
 
 ## 11. Smaller points
 

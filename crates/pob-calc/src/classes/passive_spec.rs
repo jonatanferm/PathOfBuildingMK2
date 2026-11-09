@@ -9,7 +9,8 @@
 //! Representation (CCR-0052, `docs/port/ccr/0052-ps-a-passive-spec.md`):
 //! * (§1) A spec node (`setmetatable({ linked = { }, power = { } }, treeNode)`, L56) is a
 //!   [`Node`] whose fields are a shallow copy of the tree node's (handles alias the tree
-//!   node's tables, as `__index` reads do), with its own `linked`, its own `extra` (a shallow
+//!   node's tables, as `__index` reads do), with its own `linked` and `depends` (tree nodes
+//!   have no `depends`, so Lua's is `nil` → a fresh `{ }`), its own `extra` (a shallow
 //!   copy of the tree node's, plus `power`) and `Node::tree = Some(treeNode)`
 //!   ([`new_spec_node`]). Writes go to the spec node, as `__newindex`-less rawsets do.
 //! * (§2) `curClassId`, `curAscendClassId` and `curSecondaryAscendClassId` are `NaN` while
@@ -238,9 +239,16 @@ pub fn copy_node(src: &Node) -> Node {
 }
 
 /// `setmetatable({ linked = { }, power = { } }, treeNode)` (L56-59; CCR-0052 §1).
+///
+/// `depends` gets its own empty list too: tree nodes never have one (PassiveTree.lua
+/// does not set it), so the spec node's `__index` read is `nil` and
+/// `node.depends = wipeTable(node.depends)` (L1142) gives every spec node a fresh `{ }`.
+/// Aliasing the tree node's (always-present, empty) `Node::depends` would make node N of
+/// every spec on this tree version share one list.
 pub fn new_spec_node(treeNode: &NodeRef) -> Node {
     let node = copy_node(treeNode);
     node.linked.set(Shared::new(Vec::new()));
+    node.depends.set(Shared::new(Vec::new()));
     node.extra.set(n!("power"), Table::new());
     Node {
         tree: Some(treeNode.clone()),
@@ -317,14 +325,20 @@ impl PassiveSpec {
 
 /// Breaks the node reference cycles of a dropped spec (`linked`, `depends`, `path` hold
 /// other spec nodes; calc doc §3.3 rule 4; CCR-0052 §10). Lua's GC collects them.
+/// Breaks the `Rc` cycles of a spec's node set (`linked`, `depends`, `path`; CCR-0052 §10).
+/// Each field is replaced by a new value, never cleared in place, so a list another
+/// holder aliases keeps its contents.
+fn release_node_links(nodes: Vec<(i64, NodeRef)>) {
+    for (_, node) in nodes {
+        node.linked.set(Shared::new(Vec::new()));
+        node.depends.set(Shared::new(Vec::new()));
+        node.path.set(None);
+    }
+}
+
 impl Drop for PassiveSpec {
     fn drop(&mut self) {
-        let nodes = self.nodes.with(LjIntMap::pairs);
-        for (_, node) in nodes {
-            node.linked.set(Shared::new(Vec::new()));
-            node.depends.set(Shared::new(Vec::new()));
-            node.path.set(None);
-        }
+        release_node_links(self.nodes.with(LjIntMap::pairs));
     }
 }
 
@@ -428,7 +442,11 @@ impl PassiveSpec {
                 }
             }
         }
-        self.nodes.with_mut(|m| *m = nodes);
+        let oldNodes = self.nodes.with_mut(|m| std::mem::replace(m, nodes));
+        // CCR-0052 §10: a re-Init (ImportFromNodeList switching tree versions) drops the old
+        // node set, which Lua's GC collects; break its cycles so it is freed here too.
+        release_node_links(oldNodes.pairs());
+        drop(oldNodes);
         // L62
         for (id, node) in self.nodes.with(LjIntMap::pairs) {
             // if the node is allocated and between the old and new tree has the same ID but does not share the same name, add to list of nodes to be ignored
@@ -707,6 +725,9 @@ impl PassiveSpec {
                             // L181-182 (copyTable(node, true), then `.id = nodeId`)
                             let src = val_node(&found).expect("tattoo node");
                             let copy = copy_node(&src);
+                            // tattoo nodes have no `linked`/`depends` in Lua (CCR-0052 §1)
+                            copy.linked.set(Shared::new(Vec::new()));
+                            copy.depends.set(Shared::new(Vec::new()));
                             copy.extra.set(n!("id"), Val::Nil);
                             let copy = Rc::new(Node { id: nodeId, ..copy });
                             self.hashOverrides
@@ -954,7 +975,9 @@ impl PassiveSpec {
                         "PassiveSpec:ImportFromNodeList: masteryEffects key is not a node id"
                     )
                 };
-                // `tonumber(effect)` (ImportTab passes the account JSON's strings)
+                // `tonumber(effect)`. Lua stores the raw `effect` (L279) but the frozen
+                // `masterySelections` holds numbers; ImportTab passes the account JSON's
+                // values, which are numbers (CCR-0052 §5), so the two agree there.
                 let e = match &v {
                     Val::Num(x) => *x,
                     Val::Str(s) => pob_lua::tonumber(s)

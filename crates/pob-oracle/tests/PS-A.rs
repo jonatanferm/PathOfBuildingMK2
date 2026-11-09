@@ -30,6 +30,11 @@
 //! PoB (real PS-B) needs the build's items (PS-B indexes `itemsTab.items` for every jewel) and
 //! is left to PS-B / BM-A.
 //!
+//! Port-only checks on every spec (no oracle side): each spec node has its own `linked` and
+//! `depends`, shared neither with another spec's node nor with the tree node (CCR-0052 §1);
+//! `ImportFromNodeList` with a tree-version switch (latest tree -> the spec's) and with a
+//! `className` gives the same state as a plain import on a fresh spec.
+//!
 //! Self-skips without a PoB checkout, `data/dump` or the corpus (`POB_ORACLE_REQUIRE=1`
 //! makes that a failure). `PSA_BUILDS=substr,...` limits the builds.
 #![allow(non_snake_case, clippy::too_many_lines)]
@@ -660,6 +665,91 @@ fn new_spec(build: &BuildRef, ver: Name) -> PassiveSpecRef {
     new_PassiveSpec(build, ver, false)
 }
 
+/// Two specs on one tree version: each spec node has its own `linked` and `depends`
+/// (Lua: `{ linked = { } }` and `wipeTable(nil)` give fresh tables, PassiveSpec.lua:57/1142),
+/// shared neither with the other spec's node nor with the tree node. CCR-0052 §1.
+fn assert_own_node_lists(a: &PassiveSpecRef, b: &PassiveSpecRef) {
+    let mut n = 0usize;
+    for (id, na) in a.nodes.with(|m| m.pairs()) {
+        let Some(nb) = b.nodes.with(|m| m.get(id)) else {
+            continue;
+        };
+        let t = na.tree.as_ref().expect("spec node has a tree node");
+        for (x, y, what) in [
+            (&na, &nb, "spec A vs spec B"),
+            (&na, t, "spec A vs tree"),
+            (&nb, t, "spec B vs tree"),
+        ] {
+            assert!(
+                !x.depends.get().ptr_eq(&y.depends.get()),
+                "node {id}: depends shared ({what})"
+            );
+            assert!(
+                !x.linked.get().ptr_eq(&y.linked.get()),
+                "node {id}: linked shared ({what})"
+            );
+        }
+        n += 1;
+    }
+    assert!(n > 0, "no common spec nodes");
+}
+
+/// Port-only checks of two `ImportFromNodeList` branches the oracle records do not reach
+/// (PassiveSpec.lua:257-268): the tree-version switch (`Init` again on a live spec, from the
+/// latest tree to `ver`; CCR-0052 §10 releases the old node set there) and the `className`
+/// lookup. Each must leave the same state as a plain import on a fresh `ver` spec.
+fn check_import_branches(build: &BuildRef, spec: &PassiveSpecRef, ver: Name) {
+    let hashes = sorted_alloc(spec);
+    let effects = Table::new();
+    for (k, v) in spec.masterySelections.with(|m| m.pairs()) {
+        effects.set(k, v);
+    }
+    let classId = spec.curClassId.get();
+    let ascendId = spec.curAscendClassId.get();
+    let secId = spec.curSecondaryAscendClassId.get();
+    let sec = if secId.is_nan() { 0.0 } else { secId };
+    let none = Table::new();
+    let dump = |s: &PassiveSpecRef| {
+        let mut r = Rec(BTreeMap::new());
+        state(s, "", &mut r);
+        r.0
+    };
+    let fresh = new_spec(build, ver);
+    fresh.ImportFromNodeList(None, classId, ascendId, sec, &hashes, &none, &effects, None);
+    let want = dump(&fresh);
+    let latest = data().gameVersions.latestTreeVersion;
+    if latest != ver {
+        let sw = new_spec(build, latest);
+        let old = sw.nodes.with(|m| m.pairs());
+        sw.ImportFromNodeList(None, classId, ascendId, sec, &hashes, &none, &effects, Some(ver));
+        assert!(sw.tree.get().treeVersion == ver, "switch: tree version");
+        assert_eq!(dump(&sw), want, "tree-version switch {latest} -> {ver}");
+        // the replaced node set is unlinked (CCR-0052 §10)
+        assert!(old.iter().all(|(_, n)| n.linked.get().is_empty()));
+    }
+    let className = spec
+        .curAscendClassName
+        .get()
+        .filter(|_| ascendId > 0.0)
+        .or_else(|| spec.curClassName.get());
+    if let Some(className) = className {
+        if &*className != "None" {
+            let cn = new_spec(build, ver);
+            cn.ImportFromNodeList(
+                Some(className),
+                f64::NAN,
+                f64::NAN,
+                sec,
+                &hashes,
+                &none,
+                &effects,
+                None,
+            );
+            assert_eq!(dump(&cn), want, "className {className}");
+        }
+    }
+}
+
 fn rust_dump(xml: &XmlNode, ppUrl: &str) -> BTreeMap<String, String> {
     let mut r = Rec(BTreeMap::new());
     let build = Build::new(data());
@@ -667,6 +757,7 @@ fn rust_dump(xml: &XmlNode, ppUrl: &str) -> BTreeMap<String, String> {
     let spec = new_spec(&build, ver);
     spec.Load(xml, "corpus");
     state(&spec, "load/", &mut r);
+    check_import_branches(&build, &spec, ver);
     let mut saved = XmlNode {
         elem: LStr::from("Spec"),
         ..XmlNode::default()
@@ -692,6 +783,7 @@ fn rust_dump(xml: &XmlNode, ppUrl: &str) -> BTreeMap<String, String> {
         s2.DecodeURL(&url).unwrap_or_else(|| "nil".to_owned()),
     );
     state(&s2, "dec/", &mut r);
+    assert_own_node_lists(&spec, &s2);
     for c in &xml.children {
         if let XmlChild::Node(c) = c {
             if &*c.elem == "URL" {
