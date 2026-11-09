@@ -15,6 +15,8 @@ that `pob-calc` (the Rust port of PoB's calculations) has no Lua runtime:
 | `schema` | Readers for `pob-state/1`, `pob-hits/1`, `pob-provenance/1`; `$id`/`$ref` resolution. |
 | `diff` | PoB-vs-Rust comparison (§9.2 tolerance, mod-store multisets, `LUA-ORDER`, unit filters). |
 | `nondet` | PoB's run-to-run differences (`.parity/nondet/<build>.json`). |
+| `inject`, `replay`, `testkit` | ORC-X: a `pob-state/1` dump injected into the Rust calc graph (and `pob_calc::probe::export_root` back), recorded callee deltas applied in place, helpers for the unit L4/L5 tests (`segment_diff`, `round_trip`). |
+| `mod_json` | Mods, tags and mod values of the oracle's JSON as `pob_gamedata::{Mod, Tag, Value}` (the encoders are `pob_calc::probe::{mod_json, tag_json, value_json}`). |
 
 Binaries: `pob_oracle` (the harness), `pob_calc_diff` (PoB vs Rust),
 `pob_timing` (LuaJIT ModStore query timings, gate G1a), `pob_headless`
@@ -71,7 +73,7 @@ let speed = out.get("MainHand.Speed");                    // dotted path, arrays
 let flat = out.flat();                                    // path -> Leaf (Num / Bool / Str)
 
 let st: OracleStages = Oracle::stages("build.xml")?;
-let mods: &[pob_calc::Mod] = &st.init_env.player.mod_db.mods;
+let mods: &[pob_gamedata::Mod] = &st.init_env.player.mod_db.mods;
 let main = st.main_skill().unwrap();                      // SkillStage: types, flags, data, cfg, mods
 ```
 
@@ -107,9 +109,9 @@ sets an attribute requirement) produce reference markers in outputs.
 
 ### Mods
 
-The same shape is `pob_calc::modifier::Mod`'s serde format
-(`pob_calc::modifier_serde`), i.e. the Lua table `modLib.createMod` builds with
-its array part (the tags) under `"tags"`:
+The same shape is what `pob_oracle::mod_json::decode_mod` reads into a
+`pob_gamedata::Mod` and `pob_calc::probe::mod_json` writes, i.e. the Lua table
+`modLib.createMod` builds with its array part (the tags) under `"tags"`:
 
 ```json
 {"name": "Life", "type": "BASE", "value": 12, "flags": 0, "keywordFlags": 0,
@@ -120,9 +122,11 @@ its array part (the tags) under `"tags"`:
 `value` is any value above (a nested `{ mod = … }` value holds a mod object).
 Tags use PoB's field names (`limitVar`, `skillNameList`, `modFlags`, …). PoB
 writes every field it set; the Rust serialiser omits fields that are unset,
-`false` or zero, which the typed model treats alike. Every mod of the
+`false` or zero, which the typed model treats alike (a tag key the typed
+`Tag` cannot hold exactly is kept verbatim in `tag.extra`). Every mod of the
 OccVortex stages dump round-trips through `Mod` unchanged up to that
-(`tests/oracle_harness.rs`).
+(`tests/oracle_harness.rs`), and every mod of the all57 probe dumps exactly
+(`tests/ORC-X.rs`).
 
 ### `outputs.json`
 
@@ -277,7 +281,7 @@ for PoB's data tables, `{"$node": id}` / `{"$treeNode": id}`,
 `{"$object": class}`, `{"$foreign": {env, path}}` for other envs' objects,
 `{"$fn": "file:a-b"}`. Mod stores are `{"$store": "ModDB"|"ModList",
 "mods": ...}` (ModDB grouped by name, names sorted) with each mod in
-`pob_calc::Mod`'s shape plus `"$at": "<file>:<line>"`; items are
+the mod shape (`pob_oracle::mod_json`) plus `"$at": "<file>:<line>"`; items are
 `{"$item": name, ...}` with modList, slotModList and the weapon / armour /
 flask / tincture / jewel data; active skills carry `"$uuid"`.
 
