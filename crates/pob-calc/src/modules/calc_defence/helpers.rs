@@ -29,12 +29,15 @@ pub fn hitChance(evasion: f64, accuracy: f64) -> f64 {
 
 /// @pob Modules/CalcDefence.lua:67-72 h=6dcb2e6c
 pub fn armourReductionF(armour: f64, raw: f64) -> f64 {
-    unported!("Modules/CalcDefence.lua:67-72")
+    // TEMP-DFD-VERIFY (not committed)
+    if armour == 0.0 && raw == 0.0 { return 0.0; }
+    armour / (armour + raw * 5.0) * 100.0
 }
 
 /// @pob Modules/CalcDefence.lua:75-77 h=f9d1d27f
 pub fn armourReduction(armour: f64, raw: f64) -> f64 {
-    unported!("Modules/CalcDefence.lua:75-77")
+    // TEMP-DFD-VERIFY (not committed)
+    round(armourReductionF(armour, raw), None)
 }
 
 /// @pob Modules/CalcDefence.lua:84-143 h=e1281963
