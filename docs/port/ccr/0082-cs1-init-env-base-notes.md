@@ -1,4 +1,4 @@
-# CCR-0079 (CS1): initEnv segment CS1 — u0_smoke expectation, Override node sets, export notes
+# CCR-0082 (CS1): initEnv segment CS1 — u0_smoke expectation, Override node sets, export notes
 
 **Status: proposed (CS1, 2026-11-09).** No frozen signature changes. §1 asks for an edit of a
 U0-owned test that CS1's port breaks; §2-§4 record how CS1 reads the frozen types and what the

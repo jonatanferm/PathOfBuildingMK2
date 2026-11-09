@@ -16,7 +16,7 @@
 //!   (`pairs(override.addNodes)`, `override.removeNodes[node]`); the port holds them as node-id
 //!   maps of the node (`Override.addNodes/removeNodes: LjIntMap<NodeRef>`), so
 //!   `override.removeNodes[node]` is "the map holds this very node" (identity, `Rc::ptr_eq`;
-//!   CCR-0079 §2).
+//!   CCR-0082 §2).
 #![allow(non_snake_case, clippy::explicit_auto_deref)]
 
 use super::InitEnvCtx;
@@ -205,7 +205,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
         env.radiusJewelList.set(Shared::new(Vec::new()));
         // L535
         env.extraRadiusNodeList.set(Shared::new(LjIntMap::new()));
-        // L536 (`itemList` is the fresh actor's own map: emptying it is the new `{ }`; CCR-0079 §4)
+        // L536 (`itemList` is the fresh actor's own map: emptying it is the new `{ }`; CCR-0082 §4)
         env.player.itemList.with_mut(indexmap::IndexMap::clear);
         // L537
         env.grantedSkills.set(Shared::new(Vec::new()));
