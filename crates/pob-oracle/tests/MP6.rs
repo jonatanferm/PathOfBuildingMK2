@@ -21,9 +21,11 @@
 //!     source with a placeholder value that fails the comparison if it ever wins the scan.
 //!   - every entry of the range is hit by >= 1 oracle line, or is listed (printed) as unhit; the
 //!     unhit ones are still covered by the direct comparison above.
-//! * `whole_parser_l1`: once MP3-MP7 are all ported (their stubs return no entries until then),
-//!   `parseModNative` over every parse-oracle record must be >= 99.95% identical. Until then it
-//!   prints PENDING and returns.
+//! * `whole_parser_l1` (the parser's L1 gate, calc doc §11.1 MP0-MP6): `parseModNative` (the
+//!   ModCache tier bypassed) over every one of the 80,993 parse-oracle records must give PoB's
+//!   mods and remainder for >= 99.95% of them. Jewel funcs are compared as far as the dump
+//!   records them (the closure's source range; see `jewel_to_oracle_shape`), and the accepted
+//!   parse-level differences below only at the lines known_diffs.toml lists for them.
 //!
 //! Accepted parse-level differences (calc doc §6 "Known parse-level differences",
 //! docs/port/known_diffs.toml MP6-*): a tag PoB stores at `mod[2]` behind a nil `mod[1]`
@@ -39,10 +41,11 @@
 #![allow(clippy::type_complexity, clippy::too_many_lines)]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Once;
+use std::sync::{Arc, Once};
 
-use pob_gamedata::{Mod, Name, Tag, Value};
+use pob_gamedata::{n, JewelFuncSpec, Mod, Name, Tag, Value};
 use pob_lua::LuaError;
+use pob_modparser::jewel_func_list::{callCaptureClosure, jewelFuncListSource};
 use pob_modparser::scan::{parseModPassWith, ParserLists};
 use pob_modparser::types::{Caps, PatternEntry, PatternList, SpecialVal};
 use pob_oracle::headless::{Engine, Ret};
@@ -1000,42 +1003,253 @@ fn l1(src: &[&str], recs: &[Record], by_line: &BTreeMap<u32, usize>, bad: &mut V
 // whole_parser_l1
 // ---------------------------------------------------------------------------------------------
 
+/// specialModList lines whose `mod(…, nil, {tag})` leaves a tag at `mod[2]` (known_diffs.toml
+/// MP5-1, MP6-1; calc doc §6).
+const ALL_NIL_HOLE_LINES: [u32; 8] = [4576, 4577, 4578, 4579, 4580, 5686, 5689, 5692];
+/// specialModList lines whose closures store a digits-only capture string in a numeric tag field
+/// (known_diffs.toml MP3-1, MP4-1, MP5-2, MP6-2; calc doc §6).
+const ALL_DIGIT_STRING_LINES: [u32; 10] =
+    [2325, 2571, 2862, 2922, 3535, 4216, 4222, 5733, 5734, 5741];
+
+/// The Lua closures a jewel func spec can stand for, by their `debug.getinfo` source range (what
+/// the parse oracle records for a function value, pob-dump walker.lua:182): the closures the
+/// helpers return (getSimpleConv 18-39, getPerStat 6369-6377, getThreshold 6455-6479) and the
+/// jewelFuncList wrappers (6551-6593). `check_closure_ranges` checks each against the source.
+const SIMPLE_CONV_SRC: (usize, usize) = (19, 38);
+const PER_STAT_SRC: (usize, usize) = (6370, 6376);
+const THRESHOLD_SRC: (usize, usize) = (6457, 6478);
+/// `{ func = function(cap1, …, cap5) … end, type = "Other" }` (6555-6570) and the closure it
+/// returns (6564-6569).
+const OTHER_WRAPPER_SRC: (usize, usize) = (6555, 6570);
+const OTHER_INNER_SRC: (usize, usize) = (6564, 6569);
+/// The threshold-table wrapper (6582-6589).
+const THRESHOLD_LIST_SRC: (usize, usize) = (6582, 6589);
+/// The two inline `ExtraJewelFunc` closures: which captures of their specialModList entry
+/// (2621 / 2629) are the closure's upvalues, in `args` order (CCR-0039 §3).
+const EXTRA_JEWEL_UPVALUES: [(&str, &[usize]); 2] = [
+    ("Modules/ModParser.lua:2622-2627", &[1]),
+    ("Modules/ModParser.lua:2630-2634", &[1, 2]),
+];
+
+fn src_key((a, b): (usize, usize)) -> String {
+    format!("Modules/ModParser.lua:{a}-{b}")
+}
+
+/// Each range above starts with a `function(` and ends with the `end` closing it.
+fn check_closure_ranges(src: &[&str]) {
+    for (a, b) in [
+        SIMPLE_CONV_SRC,
+        PER_STAT_SRC,
+        THRESHOLD_SRC,
+        OTHER_WRAPPER_SRC,
+        OTHER_INNER_SRC,
+        THRESHOLD_LIST_SRC,
+        (2622, 2627),
+        (2630, 2634),
+    ] {
+        assert!(
+            src[a - 1].contains("function("),
+            "ModParser.lua:{a}: {:?}",
+            src[a - 1]
+        );
+        assert!(
+            src[b - 1].trim_start().starts_with("end"),
+            "ModParser.lua:{b}: {:?}",
+            src[b - 1]
+        );
+    }
+}
+
+/// The Lua closure a helper / inline spec stands for (`jewel_func_list.rs` module docs).
+fn closure_src(spec: &JewelFuncSpec) -> Option<String> {
+    match spec.key.as_str() {
+        "$getSimpleConv" => Some(src_key(SIMPLE_CONV_SRC)),
+        "$getPerStat" => Some(src_key(PER_STAT_SRC)),
+        "$getThreshold" => Some(src_key(THRESHOLD_SRC)),
+        k if k.starts_with("Modules/ModParser.lua:") => Some(k.to_owned()),
+        _ => None,
+    }
+}
+
+/// The source range of the Lua closure that `jewelFuncList[lineLower].func` (an exact line,
+/// `args` empty, 6649-6651) or `patternVal.func(cap1, …, cap5)` (a pattern match, 6644-6646) is.
+fn list_func_src(o: &JewelFuncSpec) -> Option<String> {
+    if o.r#type.as_deref() == Some("Other") {
+        return Some(src_key(if o.args.is_empty() {
+            OTHER_WRAPPER_SRC
+        } else {
+            OTHER_INNER_SRC
+        }));
+    }
+    let v = jewelFuncListSource.get(o.key.as_str())?;
+    if v.key.as_str() == "$list" {
+        return o.args.is_empty().then(|| src_key(THRESHOLD_LIST_SRC));
+    }
+    if o.args.is_empty() {
+        closure_src(v)
+    } else {
+        closure_src(&callCaptureClosure(v, &o.args)?)
+    }
+}
+
+/// PoB's jewel closures reach the parse oracle as their source range only (the walker does not
+/// dump upvalues), and the dump decoder folds `{ func = <closure>, type = …[, radius = …] }` into
+/// one `Value::JewelFunc` keyed by that range (pob_gamedata `gen_to_jewel_func`). Ours carries
+/// the closure as data (CCR-0014 §3, CCR-0039 §3). This checks what L1 can see against the
+/// record's own winning step, then rewrites our value into the oracle's shape:
+/// * a jewelFuncList value `{ func = spec, type }`: `spec.key` is the step's pattern (the
+///   lowercased key); an exact step gives no `args`, a pattern step `args` = its captures;
+///   `spec.type` is the table's `type`; and the spec stands for the closure range PoB recorded;
+/// * an inline `ExtraJewelFunc` spec (2621 / 2629): `args` are the step's upvalue captures.
+///
+/// The closures' behaviour is MP7's L2 (`MP7.rs`: every func on every node of the 3_26 tree).
+fn jewel_to_oracle_shape(r: &Record, ours: &mut Option<Vec<Mod>>) -> Result<usize, String> {
+    let Some(ms) = ours else {
+        return Ok(0);
+    };
+    let steps = || {
+        r.passes
+            .iter()
+            .flat_map(|p| p.steps.iter())
+            .filter(|s| s.pattern.is_some())
+    };
+    let caps_of = |s: &Step| -> Vec<Value> {
+        s.caps
+            .iter()
+            .map(|c| Value::from(cap_text(c).as_str()))
+            .collect()
+    };
+    let mut n = 0;
+    for m in ms.iter_mut() {
+        let new = match &m.value {
+            Value::Table(t) if matches!(t.get(n!("func")), Value::JewelFunc(_)) => {
+                let Value::JewelFunc(o) = t.get(n!("func")) else {
+                    unreachable!()
+                };
+                let ty = match t.get(n!("type")) {
+                    Value::Str(s) => Name::from(&**s),
+                    other => return Err(format!("jewel func table type {other:?}")),
+                };
+                let radius = match t.get(n!("radius")) {
+                    Value::Nil => None,
+                    Value::Str(s) => Some(Name::from(&**s)),
+                    other => return Err(format!("jewel func table radius {other:?}")),
+                };
+                let nfields = 2 + usize::from(radius.is_some());
+                if t.fields.len() != nfields || !t.array.is_empty() || o.r#type != Some(ty) {
+                    return Err(format!("jewel func table {t:?}"));
+                }
+                let step = steps()
+                    .find(|s| s.list == "jewelFuncList")
+                    .ok_or("a jewelFuncList value without a jewelFuncList step")?;
+                if step.pattern.as_deref() != Some(o.key.as_str()) {
+                    return Err(format!(
+                        "jewelFuncList key {:?}, PoB {:?}",
+                        o.key, step.pattern
+                    ));
+                }
+                let want = if step.exact {
+                    Vec::new()
+                } else {
+                    caps_of(step)
+                };
+                if o.args.as_slice() != want.as_slice() {
+                    return Err(format!("jewel func args {:?}, captures {want:?}", o.args));
+                }
+                let key = list_func_src(o).ok_or_else(|| format!("no Lua closure for {o:?}"))?;
+                JewelFuncSpec {
+                    key: Name::from(key.as_str()),
+                    kind: o.kind,
+                    args: smallvec::SmallVec::new(),
+                    r#type: Some(ty),
+                    radius,
+                }
+            }
+            Value::JewelFunc(o) => {
+                let Some((_, ups)) = EXTRA_JEWEL_UPVALUES
+                    .iter()
+                    .find(|(k, _)| *k == o.key.as_str())
+                else {
+                    return Err(format!("jewel func value {o:?}"));
+                };
+                let step = steps()
+                    .find(|s| s.list == "specialModList")
+                    .ok_or("an inline jewel func without a specialModList step")?;
+                let caps = caps_of(step);
+                let want: Vec<Value> = ups
+                    .iter()
+                    .map(|&i| caps.get(i).cloned().unwrap_or(Value::Nil))
+                    .collect();
+                if o.args.as_slice() != want.as_slice() {
+                    return Err(format!(
+                        "{} upvalues {:?}, captures {want:?}",
+                        o.key, o.args
+                    ));
+                }
+                JewelFuncSpec {
+                    args: smallvec::SmallVec::new(),
+                    ..(**o).clone()
+                }
+            }
+            _ => continue,
+        };
+        m.value = Value::JewelFunc(Arc::new(new));
+        n += 1;
+    }
+    Ok(n)
+}
+
+/// The specialModList entry lines of the record's steps.
+fn special_lines(r: &Record) -> BTreeSet<u32> {
+    r.passes
+        .iter()
+        .flat_map(|p| p.steps.iter())
+        .filter(|s| s.list == "specialModList" && s.pattern.is_some())
+        .filter_map(|s| s.line)
+        .collect()
+}
+
 #[test]
 fn whole_parser_l1() {
     if !init_data() {
         return;
     }
+    let Some(src) = modparser_src() else {
+        return;
+    };
+    let src: Vec<&str> = src.lines().collect();
+    check_closure_ranges(&src);
     let Some(records) = pob_testpaths::require(load_oracle(), "data/dump/parse_oracle.jsonl")
     else {
         return;
     };
-    let pending: Vec<&str> = [
-        ("MP3", pob_modparser::special_a::entries().is_empty()),
-        ("MP4", pob_modparser::special_b::entries().is_empty()),
-        ("MP5", pob_modparser::special_c::entries().is_empty()),
-        (
-            "MP7",
-            pob_modparser::jewel_func_list::jewelFuncList.is_empty(),
-        ),
-    ]
-    .into_iter()
-    .filter(|(_, e)| *e)
-    .map(|(u, _)| u)
-    .collect();
-    if !pending.is_empty() {
-        eprintln!("PENDING: whole-parser L1 needs {pending:?} (their stubs return no entries)");
-        return;
-    }
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let (mut ok, mut nbad) = (0usize, 0usize);
+    let (mut nJewel, mut nNilHole, mut nDigit) = (0usize, 0usize, 0usize);
     let mut first: Vec<String> = Vec::new();
     for r in &records {
         let want = oracle_mods(r);
         let mut notes = Notes::default();
-        match pcall(|| pob_modparser::parseModNative(&r.line)) {
-            Ok((m, e)) if mods_eq(&want, &m, &mut notes) && e.as_deref() == r.extra.as_deref() => {
+        let got = pcall(|| pob_modparser::parseModNative(&r.line)).and_then(|(mut m, e)| {
+            let nj = jewel_to_oracle_shape(r, &mut m)?;
+            Ok((m, e, nj))
+        });
+        let lines = special_lines(r);
+        match got {
+            Ok((m, e, nj))
+                if mods_eq(&want, &m, &mut notes)
+                    && e.as_deref() == r.extra.as_deref()
+                    // an accepted difference only where known_diffs.toml lists it
+                    && (notes.nil_hole == 0
+                        || lines.iter().any(|l| ALL_NIL_HOLE_LINES.contains(l)))
+                    && (notes.digit_string == 0
+                        || lines.iter().any(|l| ALL_DIGIT_STRING_LINES.contains(l))) =>
+            {
                 ok += 1;
+                nJewel += nj;
+                nNilHole += notes.nil_hole;
+                nDigit += notes.digit_string;
             }
             other => {
                 nbad += 1;
@@ -1054,8 +1268,18 @@ fn whole_parser_l1() {
         eprintln!("DIFF {f}");
     }
     eprintln!(
-        "whole-parser L1 (cache disabled): {ok}/{} identical = {pct:.3}%",
+        "whole-parser L1 (cache disabled): {ok}/{} identical = {pct:.3}% ({nJewel} jewel funcs \
+         compared by entry, captures and closure range; accepted known diffs: {nNilHole} nil-hole \
+         tags, {nDigit} digit-string tag fields)",
         ok + nbad
+    );
+    assert_eq!(
+        records.len(),
+        PARSE_ORACLE_RECORDS,
+        "parse-oracle record count"
     );
     assert!(pct >= 99.95, "whole-parser L1 {pct:.3}% < 99.95%");
 }
+
+/// `data/dump/parse_oracle.jsonl` record count.
+const PARSE_ORACLE_RECORDS: usize = 80_993;
