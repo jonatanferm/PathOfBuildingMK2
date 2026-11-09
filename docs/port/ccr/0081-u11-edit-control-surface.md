@@ -1,7 +1,7 @@
-# CCR-0078 (U11): EditControl surface amendments, and two oracle gaps the U11 galleries work around
+# CCR-0081 (U11): EditControl surface amendments, and two oracle gaps the U11 galleries work around
 
 Unit: U11 (Edit family). Status: proposed. Number: next free at the time of writing (0076 and
-0077 are taken by unmerged branches; renumber on collision, the code comments say `CCR-0078`).
+0077 are taken by unmerged branches; renumber on collision, the code comments say `CCR-0081`; renumbered from 0078 at merge, 0078 is U12).
 
 ## 1. `changeFunc` has a second argument (ui doc §6.8 `EditArgs`, frozen)
 
@@ -13,7 +13,7 @@ else ... input[var] = ...; self:AddUndoState(); self:BuildModList() end`), and S
 `notify = true` is called by `Modules/ConfigOptions.lua:2088-2093`. The frozen
 `change_func: Option<Rc<dyn Fn(&mut Cx, &str)>>` cannot carry it.
 
-Local workaround (marked `CCR-0078`, `crates/pob-ui-core/src/controls/edit.rs`): a second slot
+Local workaround (marked `CCR-0081`, `crates/pob-ui-core/src/controls/edit.rs`): a second slot
 for the `placeholder == true` call, used only when it is set, so a one-argument Lua function stays
 one closure:
 

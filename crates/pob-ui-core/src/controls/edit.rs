@@ -3,7 +3,7 @@
 //!
 //! @pob-file Classes/EditControl.lua @16de4b82d
 //!
-//! # Surface (ui doc §6.8, plus the owner's amendments, CCR-0078)
+//! # Surface (ui doc §6.8, plus the owner's amendments, CCR-0081)
 //!
 //! `new`/`state`/`init`, `set_text`, `insert`, `replace_sel`, `get_sel_text`, `select_all`,
 //! `undo`, `redo`, `set_placeholder`, `set_protected`, `buf`, `caret`/`sel` (1-based byte
@@ -17,7 +17,7 @@
 //!   (L114) and ConfigTab.lua:305/323/334 read that second argument. The frozen
 //!   `change_func: Fn(&mut Cx, &str)` cannot carry it, so the `placeholder == true` call goes to
 //!   [`EditControl::placeholder_change_func`] when it is set (else to `change_func`, which is what
-//!   a one-argument Lua function sees). CCR-0078 item 1.
+//!   a one-argument Lua function sees). CCR-0081 item 1.
 //! - The fields Lua reads that callers assign after construction: `enterFunc` (CompareTab.lua:1474,
 //!   ImportTab.lua:672, PartyTab.lua:291, Export/Main.lua:333), `pasteFilter` (ImportTab.lua:342,
 //!   ItemsTab.lua:2728), `inactiveText` (a string or a function of `buf`: ConfigTab.lua:86, :349),
@@ -148,7 +148,7 @@ pub struct EditArgs {
     pub filter: Option<String>,
     pub limit: Option<usize>,
     pub change_func: Option<Rc<dyn Fn(&mut Cx, &str)>>,
-    /// The `placeholder == true` call of a two-argument changeFunc (L114). CCR-0078 item 1.
+    /// The `placeholder == true` call of a two-argument changeFunc (L114). CCR-0081 item 1.
     pub placeholder_change_func: Option<Rc<dyn Fn(&mut Cx, &str)>>,
     pub line_height: Option<f64>,
     pub allow_zoom: bool,
@@ -189,7 +189,7 @@ pub struct EditControl {
     filter_arg: Option<String>,
     pub limit: Option<usize>,
     pub change_func: Option<Rc<dyn Fn(&mut Cx, &str)>>,
-    /// CCR-0078 item 1 (see the module notes)
+    /// CCR-0081 item 1 (see the module notes)
     pub placeholder_change_func: Option<Rc<dyn Fn(&mut Cx, &str)>>,
     pub line_height: Option<f64>,
     pub default_line_height: Option<f64>,
@@ -533,7 +533,7 @@ impl EditControl {
         // L113
         let w = cx.w::<Self>(me);
         if notify && w.change_func.is_some() {
-            // L114 self.changeFunc(self.placeholder, true)  (CCR-0078 item 1)
+            // L114 self.changeFunc(self.placeholder, true)  (CCR-0081 item 1)
             let f = w
                 .placeholder_change_func
                 .clone()

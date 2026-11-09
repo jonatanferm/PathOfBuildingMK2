@@ -3,7 +3,7 @@
 //!
 //! @pob-file Classes/ResizableEditControl.lua @16de4b82d
 //!
-//! Surface notes (owner's amendments to the UI-U0 stub, CCR-0078 item 2):
+//! Surface notes (owner's amendments to the UI-U0 stub, CCR-0081 item 2):
 //! - The constructor takes the rect's 5th..8th entries in Lua's order (`minWidth, minHeight,
 //!   maxWidth, maxHeight`, L14) as `Option<f64>`: nil means the rect's `width`/`height` (L15-L18),
 //!   which are read raw (PoB always passes numbers there: ConfigTab.lua:79, :334).
