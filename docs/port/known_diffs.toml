@@ -22,6 +22,16 @@
 # No entries yet (U0 ships stubs only).
 
 [[diff]]
+id = "OF-A-1"
+unit = "OF-A"
+builds = ["allflame_exp_013", "allflame_exp_036", "allflame_exp_051", "upstream_Dual_Savior", "upstream_Mirage_Archer_Toxic_Rain"]
+stage = "offence:362"
+keys = ["locals.output.ActiveTrapLimit", "locals.output.ActiveMineLimit", "locals.skillModList.mods"]
+kind = "value"
+reason = "L4 inject limit, not a port difference: these offence calls run in a mirage env (env8, stack mirages:in → perform:in → offence:in) on a skill copied from the main env (CalcActiveSkill copyActiveSkill), whose baseSkillModList.parent is the main env's modDB, dumped as {\"$foreign\": {env, path}}. A dump holds one env, so injection leaves that parent unlinked and every skillModList query through it misses the main env's mods: CalcOffence.lua:560/562 (`Sum('BASE', skillCfg, 'ActiveTrapLimit')` → 0 instead of the 'Base' 15) and the conversions reading the player's mods (652-664 Spell→Attack damage, 680-685 projectile speed → bow damage). The OF-A L4 test counts these hits apart (`$foreign` mod-store parent)."
+ccr = "CCR-0041"
+
+[[diff]]
 id = "MP5-1"
 unit = "MP5"
 builds = ["*"]
@@ -103,3 +113,12 @@ keys = ["locals.breakdown.FrostShieldLife[5]"]
 kind = "value"
 reason = "Host artefact (ARM64 oracle only): s_format(\"= %d\", lifeProtected) at CalcDefence.lua:2498 with lifeProtected = 0 / (0 / 100) * 1 = NaN when no Frost Shield is active. x64 PoB (cvttsd2si, the profile the port follows) prints -9223372036854775808; the ARM64 dual-number oracle saturates the cast and prints 0 (inf: +-9223372036854775807). Tolerated only on aarch64 hosts by crates/pob-oracle/tests/DF-E.rs (is_int_cast_artefact). CCR-0001 / AMENDMENTS A6."
 ccr = "CCR-0001"
+
+[[diff]]
+id = "PF-C-1"
+unit = "PF-C"
+builds = ["allflame_exp_043"]
+stage = "perform:1943"
+keys = ["env.modDB.mods[\"Condition:Onslaught\"]"]
+kind = "value"
+reason = "Two Silver Flasks (a magic one and Cinderswallow Urn) both grant the buff FLAG Condition:Onslaught; mergeBuff (CalcPerform.lua:45-67) keeps the first one merged under the base name, and mergeFlasks visits env.flasks with item-keyed pairs (CalcPerform.lua:1773), PoB's address order (calc doc §3.4: insertion order in Rust). Only the mod's source differs (Item:31 vs Item:25); the value and every query result are the same."

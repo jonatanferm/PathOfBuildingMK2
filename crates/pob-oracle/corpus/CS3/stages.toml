@@ -1,0 +1,13 @@
+[[stage]]
+id = "initEnv:1451"
+file = "Modules/CalcSetup.lua"
+line = 1451
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "if not accelerate.skills then"
+
+[[stage]]
+id = "initEnv:end"
+file = "Modules/CalcSetup.lua"
+line = 1974
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "return env, cachedPlayerDB, cachedEnemyDB, cache"

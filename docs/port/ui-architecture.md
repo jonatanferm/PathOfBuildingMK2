@@ -1487,7 +1487,7 @@ pub struct ListHooks {     // ListControl.lua:6-24 + every `self.X and self:X(..
     pub add_value_tooltip: Option<fn(&mut Cx, CtrlId, &mut Tooltip, usize, &ListValue)>,
     pub get_drag_value: Option<fn(&Cx, CtrlId, usize, &ListValue) -> Option<(std::rc::Rc<str>, DragValue)>>,
     pub on_drag_send: Option<fn(&mut Cx, CtrlId, usize, &ListValue, CtrlId)>,
-    pub on_order_change: Option<fn(&mut Cx, CtrlId)>,
+    pub on_order_change: Option<fn(&mut Cx, CtrlId, usize /*selIndex*/, usize /*selDragIndex*/)>, // CCR-0078 A1
     pub on_select: Option<fn(&mut Cx, CtrlId, usize, &ListValue)>,
     pub on_sel_click: Option<fn(&mut Cx, CtrlId, usize, &ListValue, bool) -> Option<bool>>, // Some(false) releases focus
     pub on_sel_copy: Option<fn(&mut Cx, CtrlId, usize, &ListValue)>,
@@ -1497,7 +1497,7 @@ pub struct ListHooks {     // ListControl.lua:6-24 + every `self.X and self:X(..
     pub on_any_key_down: Option<fn(&mut Cx, CtrlId, Key)>,
     pub override_select_index: Option<fn(&mut Cx, CtrlId, usize) -> bool>,
     pub set_highlight_color: Option<fn(&mut Cx, CtrlId, usize, &ListValue) -> bool>,
-    pub can_drag_to_value: Option<fn(&Cx, CtrlId, usize, &ListValue, CtrlId) -> bool>,
+    pub can_drag_to_value: Option<fn(&Cx, CtrlId, usize, &ListValue, Option<CtrlId>) -> bool>, // CCR-0078 A2
     pub re_sort: Option<fn(&mut Cx, CtrlId, usize)>,
     pub get_column_property: fn(&Cx, CtrlId, usize, &str) -> ColumnProp,  // default = ListControl's own
 }
@@ -1531,6 +1531,12 @@ impl ListControl {
 /// `Widget` by delegating to the functions above (CCR-0013 B5; U12 owns the file).
 impl Widget for ListControl { /* … */ }
 ```
+
+Hook set frozen by U12 (CCR-0078, which lists the grep): the 18 `ListHooks` fields are every
+method ListControl.lua calls on `self` (`OnSelCut` included, though the class header omits it).
+`CanReceiveDrag`/`ReceiveDrag` are `Widget` methods of the drag target (any control; presence =
+`Caps::CAN_RECEIVE_DRAG`). `otherDragSource`/`otherDragTargeting` belong on `Base` (CCR-0078 B);
+until then read them with `controls::list::other_drag_source(cx, id)`.
 
 `DropDownControl` (U13) follows the same pattern:
 

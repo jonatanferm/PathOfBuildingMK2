@@ -16,8 +16,8 @@
 //!
 //! Neither side writes into the PoB checkout: the Lua `io.open` refuses writes under
 //! `TimelessJewelData` (PoB then skips its `.bin` cache), and the Rust side uses a
-//! read-only `StdJewelFs`. Self-skips without a PoB checkout or `data/dump`
-//! (`POB_ORACLE_REQUIRE=1` makes that a failure). `LUT_TYPES=1,7` limits the types.
+//! read-only `StdJewelFs`. Fails without a PoB checkout or `data/dump`
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips). `LUT_TYPES=1,7` limits the types.
 #![allow(non_snake_case, clippy::many_single_char_names)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,13 +30,6 @@ use pob_gamedata::{DataValue, Name, Value, ValueTable};
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_pob_src, find_up};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -270,11 +263,11 @@ fn to_value(v: &DataValue) -> Value {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn lut_acceptance() {
-    let Some(src) = find_pob_src() else {
-        return skip("no PoB checkout");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "no PoB checkout") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     let src = std::fs::canonicalize(&src).unwrap();
     let src_s = src.to_string_lossy().into_owned();
@@ -682,4 +675,11 @@ return table.concat(out, "\n")
     let summary: BTreeMap<&str, usize> = [("results", total), ("mismatches", total_bad)].into();
     eprintln!("LUT acceptance: {summary:?} ({:?})", t0.elapsed());
     assert_eq!(total_bad, 0, "LUT results differ from PoB");
+    if types.len() == 11 {
+        // coverage (HYG2/V2): every jewel type x seed x node result was compared
+        assert_eq!(total, LUT_RESULTS, "LUT results compared");
+    }
 }
+
+/// Results compared over all 11 jewel types; measured by HYG2 on rust-port 746b103.
+const LUT_RESULTS: usize = 2_380_556;

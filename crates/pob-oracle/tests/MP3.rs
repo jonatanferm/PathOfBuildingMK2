@@ -25,8 +25,8 @@
 //! the comparison accepts that difference (and counts it) only when the string is the number's
 //! own text.
 //!
-//! Inputs: `data/dump` and the PoB checkout; missing inputs skip (fail with
-//! `POB_ORACLE_REQUIRE=1` or `CI`).
+//! Inputs: `data/dump` and the PoB checkout; missing inputs fail
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips).
 #![allow(non_snake_case)]
 #![allow(clippy::type_complexity, clippy::too_many_lines)]
 
@@ -52,13 +52,6 @@ const N_CLOSURES: usize = 204;
 const NOT_IN_ORACLE: [u32; 15] = [
     2183, 2203, 2223, 2228, 2231, 2232, 2233, 2234, 2293, 2400, 2428, 2561, 2564, 2772, 2929,
 ];
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -138,8 +131,8 @@ fn entries() -> &'static [PatternEntry<SpecialVal>] {
 
 #[test]
 fn list_shape() {
-    let Some(src) = modparser_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(modparser_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     // the closures that read `data` need it; the static entries do not
     let _ = init_data();
@@ -719,16 +712,23 @@ fn rust_call(val: &SpecialVal, cap: &[String]) -> Result<Option<Vec<Mod>>, Strin
 
 #[test]
 fn mp3_oracle() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(pob_src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(pob_src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let records = load_oracle(&dir);
-    if records.is_none() {
-        eprintln!("parse_oracle.jsonl not found: synthetic captures only, no L1");
-    }
+    // HYG2: a missing parse oracle used to print and drop L1 and coverage silently
+    let Some(records) = pob_testpaths::require(load_oracle(&dir), "data/dump/parse_oracle.jsonl")
+    else {
+        return; // POB_ALLOW_SKIP=1
+    };
+    assert_eq!(
+        records.len(),
+        PARSE_ORACLE_RECORDS,
+        "parse_oracle.jsonl records"
+    );
+    let records = Some(records);
     let ents = entries();
     let in_range = |l: u32| (RANGE.0..=RANGE.1).contains(&l);
 
@@ -953,6 +953,11 @@ fn mp3_oracle() {
         eprintln!("MISMATCH {b}");
     }
     assert!(bad.is_empty(), "{} mismatches", bad.len());
+    // the known diff MP3-1 (capture string vs number in a tag field) is bounded (HYG2/V2)
+    assert!(
+        quirks <= MP3_MAX_QUIRKS,
+        "{quirks} tag fields accepted as MP3-1, bound {MP3_MAX_QUIRKS}"
+    );
 }
 
 fn l1(recs: &[Record], bad: &mut Vec<String>, quirks: &mut usize) {
@@ -1006,4 +1011,18 @@ fn l1(recs: &[Record], bad: &mut Vec<String>, quirks: &mut usize) {
         *quirks - q0,
         t.elapsed().as_secs_f64()
     );
+    // coverage (HYG2/V2): the checked share cannot shrink (MPFIX owns the selection)
+    assert!(
+        sel.len() >= MP3_MIN_L1,
+        "{} L1 lines checked, expected at least {MP3_MIN_L1}",
+        sel.len()
+    );
 }
+
+/// `data/dump/parse_oracle.jsonl` record count.
+const PARSE_ORACLE_RECORDS: usize = 80_993;
+/// L1 lines checked; measured by HYG2 on rust-port 746b103.
+const MP3_MIN_L1: usize = 1048;
+/// Tag fields accepted as the known diff MP3-1 (captures and L1); measured by HYG2 on rust-port
+/// 746b103.
+const MP3_MAX_QUIRKS: usize = 82;

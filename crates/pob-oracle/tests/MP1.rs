@@ -16,7 +16,7 @@
 //!   of the two lists no oracle line reaches. `MP1_STRIDE=n` checks every n-th line.
 //!
 //! Inputs: the PoB checkout, `data/dump` (data.bin, manifest.json, parse_oracle.jsonl); a test
-//! skips when they are absent (fails with `POB_ORACLE_REQUIRE=1` or `CI`).
+//! fails when they are absent (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips).
 #![allow(non_snake_case)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,13 +29,6 @@ use pob_modparser::form_list::formList;
 use pob_modparser::mod_name_list::modNameList;
 use pob_modparser::types::ModSpec;
 use pob_oracle::oracle::{find_pob_src, find_up};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -99,8 +92,8 @@ fn literal_keys(src: &[&str], a: usize, b: usize) -> Vec<(String, u32)> {
 
 #[test]
 fn list_sizes_and_source_order() {
-    let Some(src) = modparser_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(modparser_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let src: Vec<&str> = src.lines().collect();
     // the table constructors these ranges hold
@@ -302,8 +295,8 @@ fn ser_spec_fields(s: &ModSpec) -> Vec<(String, String)> {
 #[test]
 fn values_match_luajit() {
     use pob_oracle::mlua::{Function, Lua, Table, Value as LV};
-    let Some(src_dir) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(src_dir) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let modparser = std::fs::read_to_string(src_dir.join("Modules/ModParser.lua")).unwrap();
     let lines: Vec<&str> = modparser.lines().collect();
@@ -467,11 +460,14 @@ const STUB_EXACT: [&str; 3] = ["jewelFuncList", "clusterJewelSkills", "unsupport
 
 #[test]
 fn l1_form_and_name_lines() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Ok(text) = std::fs::read_to_string(dir.join("parse_oracle.jsonl")) else {
-        return skip("data/dump/parse_oracle.jsonl not found");
+    let Some(text) = pob_testpaths::require(
+        std::fs::read_to_string(dir.join("parse_oracle.jsonl")).ok(),
+        "data/dump/parse_oracle.jsonl not found",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
     let stride: usize = std::env::var("MP1_STRIDE")
         .ok()
@@ -567,4 +563,27 @@ fn l1_form_and_name_lines() {
     eprintln!("formList entries no oracle line reaches (ModParser.lua lines): {unhit_form:?}");
     eprintln!("modNameList entries no oracle line reaches (ModParser.lua lines): {unhit_name:?}");
     assert_eq!(ok, checked, "{} L1 lines differ from PoB", checked - ok);
+    // coverage (HYG2/V2): the whole oracle was read, the checked share cannot shrink, and the
+    // entries no oracle line reaches stay within the measured counts (MPFIX owns the
+    // exclusions above and raises the floor)
+    assert_eq!(total, PARSE_ORACLE_RECORDS, "parse_oracle.jsonl records");
+    if stride == 1 {
+        assert!(
+            checked >= MP1_MIN_CHECKED,
+            "{checked} L1 lines checked, expected at least {MP1_MIN_CHECKED}"
+        );
+    }
+    assert!(
+        unhit_form.len() <= MP1_MAX_UNHIT.0 && unhit_name.len() <= MP1_MAX_UNHIT.1,
+        "unreached formList / modNameList entries {} / {}, bounds {MP1_MAX_UNHIT:?}",
+        unhit_form.len(),
+        unhit_name.len()
+    );
 }
+
+/// `data/dump/parse_oracle.jsonl` record count.
+const PARSE_ORACLE_RECORDS: usize = 80_993;
+/// L1 lines checked at stride 1; measured by HYG2 on rust-port 746b103.
+const MP1_MIN_CHECKED: usize = 35_887;
+/// `(formList, modNameList)` entries no oracle line reaches; measured by HYG2 on rust-port 746b103.
+const MP1_MAX_UNHIT: (usize, usize) = (20, 168);
