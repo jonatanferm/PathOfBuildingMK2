@@ -49,7 +49,7 @@ fn item_in(actor: &Actor, slot: Name) -> Option<ItemRef> {
 /// `env.data.weaponTypeInfo[t]` where Lua indexes the result (nil raises).
 fn weaponTypeInfo(t: &Val) -> &'static pob_gamedata::WeaponTypeInfo {
     let info = match t {
-        Val::Str(s) => data().weaponTypeInfo.get(&Name::from(&**s)),
+        Val::Str(s) => data().weaponTypeInfo.get(&Name::from(s)),
         _ => None,
     };
     info.unwrap_or_else(|| lua_error!("attempt to index local 'info' (a nil value)"))
@@ -168,10 +168,9 @@ pub(crate) fn mergeBuff_v(src: &Val, destTable: &Table, destKey: Name) {
                     if let Value::Num(d) = destMod.value {
                         let m = match r#mod.value {
                             Value::Num(m) => m,
-                            ref other => lua_error!(
-                                "attempt to compare number with {}",
-                                value_type(other)
-                            ),
+                            ref other => {
+                                lua_error!("attempt to compare number with {}", value_type(other))
+                            }
                         };
                         if m > d {
                             // L56
@@ -232,7 +231,7 @@ fn dest_set(dest: &Val, index: usize, m: ModRef) {
     if let Some(l) = dest.obj::<ModStore>() {
         match &mut *l.mods.borrow_mut() {
             crate::classes::StoreMods::List { list, .. } => {
-                debug_assert!(list[index - 1].name == m.name);
+                debug_assert_eq!(list[index - 1].name, m.name);
                 list[index - 1] = m;
             }
             crate::classes::StoreMods::DB(_) => unreachable!("ipairs over a ModDB is empty"),
@@ -293,12 +292,20 @@ pub fn doActorLifeMana(actor: &ActorRef) {
     // L80
     output.set(
         n!("FullLifePercentage"),
-        100.0 * (if fullLifePerc > 0.0 { fullLifePerc } else { 1.0 }),
+        100.0
+            * (if fullLifePerc > 0.0 {
+                fullLifePerc
+            } else {
+                1.0
+            }),
     );
 
     // L82 (Flag returns true or nil)
     let ci = modDB.Flag(None, nm!["ChaosInoculation"]);
-    output.set(n!("ChaosInoculation"), if ci { Val::Bool(true) } else { Val::Nil });
+    output.set(
+        n!("ChaosInoculation"),
+        if ci { Val::Bool(true) } else { Val::Nil },
+    );
     // -- Life/mana pools
     // L84
     if output.truthy(n!("ChaosInoculation")) {
@@ -320,7 +327,10 @@ pub fn doActorLifeMana(actor: &ActorRef) {
         // L93
         let life = lor(r#override.clone(), || {
             Val::Num(m_max(
-                round(base * (1.0 + inc / 100.0) * more * (1.0 - conv / 100.0), None),
+                round(
+                    base * (1.0 + inc / 100.0) * more * (1.0 - conv / 100.0),
+                    None,
+                ),
                 1.0,
             ))
         });
@@ -433,7 +443,9 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
     // -- Set conditions
     // L147
     let weapon2 = item_in(actor, n!("Weapon 2"));
-    if (weapon2.as_ref().is_some_and(|i| i.r#type.get() == n!("Shield")))
+    if (weapon2
+        .as_ref()
+        .is_some_and(|i| i.r#type.get() == n!("Shield")))
         || (Rc::ptr_eq(actor, &env.player) && env.aegisModList.get().is_some())
     {
         // L148
@@ -673,24 +685,49 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
         }
         // -- Shrine Buffs: Must be done before life pool calculated for massive shrine
         // L296
-        let shrineEffectMod =
-            1.0 + modDB.Sum(ModType::INC, None, nm!["BuffEffectOnSelf", "ShrineBuffEffect"]) / 100.0;
-        let new = |name: Name, ty: ModType, v: f64, src: &str| modDB.NewMod(name, ty, v, src, 0, 0, &[]);
+        let shrineEffectMod = 1.0
+            + modDB.Sum(
+                ModType::INC,
+                None,
+                nm!["BuffEffectOnSelf", "ShrineBuffEffect"],
+            ) / 100.0;
+        let new =
+            |name: Name, ty: ModType, v: f64, src: &str| modDB.NewMod(name, ty, v, src, 0, 0, &[]);
         let flagged = |f: Name| modDB.Flag(None, &[f]);
         use ModType::{BASE, INC, MORE, OVERRIDE};
         // L297
         if flagged(n!("AccelerationShrine")) {
             // L298
-            new(n!("ActionSpeed"), INC, m_floor(50.0 * shrineEffectMod), "Acceleration Shrine");
+            new(
+                n!("ActionSpeed"),
+                INC,
+                m_floor(50.0 * shrineEffectMod),
+                "Acceleration Shrine",
+            );
             // L299
-            new(n!("ProjectileSpeed"), INC, m_floor(80.0 * shrineEffectMod), "Acceleration Shrine");
+            new(
+                n!("ProjectileSpeed"),
+                INC,
+                m_floor(80.0 * shrineEffectMod),
+                "Acceleration Shrine",
+            );
         }
         // L301
         if flagged(n!("BrutalShrine")) {
             // L302
-            new(n!("Damage"), INC, m_floor(50.0 * shrineEffectMod), "Brutal Shrine");
+            new(
+                n!("Damage"),
+                INC,
+                m_floor(50.0 * shrineEffectMod),
+                "Brutal Shrine",
+            );
             // L303
-            new(n!("EnemyStunDuration"), INC, m_floor(30.0 * shrineEffectMod), "Brutal Shrine");
+            new(
+                n!("EnemyStunDuration"),
+                INC,
+                m_floor(30.0 * shrineEffectMod),
+                "Brutal Shrine",
+            );
             // L304
             new(n!("EnemyKnockbackChance"), INC, 100.0, "Brutal Shrine");
         }
@@ -707,149 +744,365 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
         // L312
         if flagged(n!("EchoingShrine")) {
             // L313
-            modDB.NewMod(n!("Speed"), MORE, m_floor(100.0 * shrineEffectMod), "Echoing Shrine", ModFlag::Attack, 0, &[]);
+            modDB.NewMod(
+                n!("Speed"),
+                MORE,
+                m_floor(100.0 * shrineEffectMod),
+                "Echoing Shrine",
+                ModFlag::Attack,
+                0,
+                &[],
+            );
             // L314
-            modDB.NewMod(n!("Speed"), MORE, m_floor(100.0 * shrineEffectMod), "Echoing Shrine", ModFlag::Cast, 0, &[]);
+            modDB.NewMod(
+                n!("Speed"),
+                MORE,
+                m_floor(100.0 * shrineEffectMod),
+                "Echoing Shrine",
+                ModFlag::Cast,
+                0,
+                &[],
+            );
             // L315
-            new(n!("RepeatCount"), BASE, m_floor(1.0 * shrineEffectMod), "Echoing Shrine");
+            new(
+                n!("RepeatCount"),
+                BASE,
+                m_floor(1.0 * shrineEffectMod),
+                "Echoing Shrine",
+            );
         }
         // L317
         if flagged(n!("GloomShrine")) {
             // L318
-            new(n!("NonChaosDamageGainAsChaos"), BASE, m_floor(10.0 * shrineEffectMod), "Gloom Shrine");
+            new(
+                n!("NonChaosDamageGainAsChaos"),
+                BASE,
+                m_floor(10.0 * shrineEffectMod),
+                "Gloom Shrine",
+            );
         }
         // L320
         if flagged(n!("GreaterFreezingShrine")) {
             // L321
-            new(n!("PhysicalDamageGainAsCold"), BASE, m_floor(30.0 * shrineEffectMod), "Greater Freezing Shrine");
+            new(
+                n!("PhysicalDamageGainAsCold"),
+                BASE,
+                m_floor(30.0 * shrineEffectMod),
+                "Greater Freezing Shrine",
+            );
         }
         // L323
         if flagged(n!("GreaterShockingShrine")) {
             // L324
-            new(n!("PhysicalDamageGainAsLightning"), BASE, m_floor(30.0 * shrineEffectMod), "Greater Shocking Shrine");
+            new(
+                n!("PhysicalDamageGainAsLightning"),
+                BASE,
+                m_floor(30.0 * shrineEffectMod),
+                "Greater Shocking Shrine",
+            );
         }
         // L326
         if flagged(n!("GreaterSkeletalShrine")) {
             // L327
-            new(n!("PhysicalDamageGainAsChaos"), BASE, m_floor(30.0 * shrineEffectMod), "Greater Skeletal Shrine");
+            new(
+                n!("PhysicalDamageGainAsChaos"),
+                BASE,
+                m_floor(30.0 * shrineEffectMod),
+                "Greater Skeletal Shrine",
+            );
         }
         // L329
         if flagged(n!("ImpenetrableShrine")) {
             // L330
-            new(n!("Armour"), INC, m_floor(100.0 * shrineEffectMod), "Impenetrable Shrine");
+            new(
+                n!("Armour"),
+                INC,
+                m_floor(100.0 * shrineEffectMod),
+                "Impenetrable Shrine",
+            );
             // L331
-            new(n!("Evasion"), INC, m_floor(100.0 * shrineEffectMod), "Impenetrable Shrine");
+            new(
+                n!("Evasion"),
+                INC,
+                m_floor(100.0 * shrineEffectMod),
+                "Impenetrable Shrine",
+            );
             // L332
-            new(n!("EnergyShield"), INC, m_floor(100.0 * shrineEffectMod), "Impenetrable Shrine");
+            new(
+                n!("EnergyShield"),
+                INC,
+                m_floor(100.0 * shrineEffectMod),
+                "Impenetrable Shrine",
+            );
         }
         // L334
         if flagged(n!("MassiveShrine")) {
             // L335
-            new(n!("Life"), INC, m_floor(40.0 * shrineEffectMod), "Massive Shrine");
+            new(
+                n!("Life"),
+                INC,
+                m_floor(40.0 * shrineEffectMod),
+                "Massive Shrine",
+            );
             // L336
-            new(n!("AreaOfEffect"), INC, m_floor(40.0 * shrineEffectMod), "Massive Shrine");
+            new(
+                n!("AreaOfEffect"),
+                INC,
+                m_floor(40.0 * shrineEffectMod),
+                "Massive Shrine",
+            );
         }
         // L338
         if flagged(n!("ReplenishingShrine")) {
             // L339
-            new(n!("ManaRegen"), INC, 200.0 * shrineEffectMod, "Replenishing Shrine");
+            new(
+                n!("ManaRegen"),
+                INC,
+                200.0 * shrineEffectMod,
+                "Replenishing Shrine",
+            );
             // L340
-            new(n!("LifeRegenPercent"), BASE, 6.7 * shrineEffectMod, "Replenishing Shrine");
+            new(
+                n!("LifeRegenPercent"),
+                BASE,
+                6.7 * shrineEffectMod,
+                "Replenishing Shrine",
+            );
         }
         // L342
         if flagged(n!("ResistanceShrine")) {
             // L343
-            new(n!("ElementalResist"), BASE, m_floor(50.0 * shrineEffectMod), "Resistance Shrine");
+            new(
+                n!("ElementalResist"),
+                BASE,
+                m_floor(50.0 * shrineEffectMod),
+                "Resistance Shrine",
+            );
             // L344
-            new(n!("ElementalResistMax"), BASE, m_floor(10.0 * shrineEffectMod), "Resistance Shrine");
+            new(
+                n!("ElementalResistMax"),
+                BASE,
+                m_floor(10.0 * shrineEffectMod),
+                "Resistance Shrine",
+            );
             // L345
-            new(n!("ChaosResistMax"), BASE, m_floor(10.0 * shrineEffectMod), "Resistance Shrine");
+            new(
+                n!("ChaosResistMax"),
+                BASE,
+                m_floor(10.0 * shrineEffectMod),
+                "Resistance Shrine",
+            );
         }
         // L347
         if flagged(n!("ResonatingShrine")) {
             // L348
-            new(n!("PowerChargesMax"), BASE, m_floor(1.0 * shrineEffectMod), "Resonating Shrine");
+            new(
+                n!("PowerChargesMax"),
+                BASE,
+                m_floor(1.0 * shrineEffectMod),
+                "Resonating Shrine",
+            );
             // L349
-            new(n!("FrenzyChargesMax"), BASE, m_floor(1.0 * shrineEffectMod), "Resonating Shrine");
+            new(
+                n!("FrenzyChargesMax"),
+                BASE,
+                m_floor(1.0 * shrineEffectMod),
+                "Resonating Shrine",
+            );
             // L350
-            new(n!("EnduranceChargesMax"), BASE, m_floor(1.0 * shrineEffectMod), "Resonating Shrine");
+            new(
+                n!("EnduranceChargesMax"),
+                BASE,
+                m_floor(1.0 * shrineEffectMod),
+                "Resonating Shrine",
+            );
         }
         // L352
         if flagged(n!("LesserAccelerationShrine")) && !flagged(n!("AccelerationShrine")) {
             // L353
-            new(n!("ActionSpeed"), INC, m_floor(10.0 * shrineEffectMod), "Lesser Acceleration Shrine");
+            new(
+                n!("ActionSpeed"),
+                INC,
+                m_floor(10.0 * shrineEffectMod),
+                "Lesser Acceleration Shrine",
+            );
             // L354
-            new(n!("ProjectileSpeed"), INC, m_floor(30.0 * shrineEffectMod), "Lesser Acceleration Shrine");
+            new(
+                n!("ProjectileSpeed"),
+                INC,
+                m_floor(30.0 * shrineEffectMod),
+                "Lesser Acceleration Shrine",
+            );
         }
         // L356
         if flagged(n!("LesserBrutalShrine")) {
             // L357
-            new(n!("Damage"), INC, m_floor(20.0 * shrineEffectMod), "Lesser Brutal Shrine");
+            new(
+                n!("Damage"),
+                INC,
+                m_floor(20.0 * shrineEffectMod),
+                "Lesser Brutal Shrine",
+            );
             // L358
-            new(n!("EnemyStunDuration"), INC, m_floor(20.0 * shrineEffectMod), "Lesser Brutal Shrine");
+            new(
+                n!("EnemyStunDuration"),
+                INC,
+                m_floor(20.0 * shrineEffectMod),
+                "Lesser Brutal Shrine",
+            );
             // L359
-            new(n!("EnemyKnockbackChance"), INC, 100.0, "Lesser Brutal Shrine");
+            new(
+                n!("EnemyKnockbackChance"),
+                INC,
+                100.0,
+                "Lesser Brutal Shrine",
+            );
         }
         // L361
         if flagged(n!("LesserImpenetrableShrine")) {
             // L362
-            new(n!("Armour"), INC, m_floor(50.0 * shrineEffectMod), "Lesser Impenetrable Shrine");
+            new(
+                n!("Armour"),
+                INC,
+                m_floor(50.0 * shrineEffectMod),
+                "Lesser Impenetrable Shrine",
+            );
             // L363
-            new(n!("Evasion"), INC, m_floor(50.0 * shrineEffectMod), "Lesser Impenetrable Shrine");
+            new(
+                n!("Evasion"),
+                INC,
+                m_floor(50.0 * shrineEffectMod),
+                "Lesser Impenetrable Shrine",
+            );
             // L364
-            new(n!("EnergyShield"), INC, m_floor(50.0 * shrineEffectMod), "Lesser Impenetrable Shrine");
+            new(
+                n!("EnergyShield"),
+                INC,
+                m_floor(50.0 * shrineEffectMod),
+                "Lesser Impenetrable Shrine",
+            );
         }
         // L366
         if flagged(n!("LesserMassiveShrine")) {
             // L367
-            new(n!("Life"), INC, m_floor(20.0 * shrineEffectMod), "Lesser Massive Shrine");
+            new(
+                n!("Life"),
+                INC,
+                m_floor(20.0 * shrineEffectMod),
+                "Lesser Massive Shrine",
+            );
             // L368
-            new(n!("AreaOfEffect"), INC, m_floor(20.0 * shrineEffectMod), "Lesser Massive Shrine");
+            new(
+                n!("AreaOfEffect"),
+                INC,
+                m_floor(20.0 * shrineEffectMod),
+                "Lesser Massive Shrine",
+            );
         }
         // L370
         if flagged(n!("LesserReplenishingShrine")) {
             // L371
-            new(n!("ManaRegen"), INC, 100.0 * shrineEffectMod, "Lesser Replenishing Shrine");
+            new(
+                n!("ManaRegen"),
+                INC,
+                100.0 * shrineEffectMod,
+                "Lesser Replenishing Shrine",
+            );
             // L372
-            new(n!("LifeRegenPercent"), BASE, 3.3 * shrineEffectMod, "Lesser Replenishing Shrine");
+            new(
+                n!("LifeRegenPercent"),
+                BASE,
+                3.3 * shrineEffectMod,
+                "Lesser Replenishing Shrine",
+            );
         }
         // L374
         if flagged(n!("LesserResistanceShrine")) {
             // L375
-            new(n!("ElementalResist"), BASE, m_floor(25.0 * shrineEffectMod), "Lesser Resistance Shrine");
+            new(
+                n!("ElementalResist"),
+                BASE,
+                m_floor(25.0 * shrineEffectMod),
+                "Lesser Resistance Shrine",
+            );
             // L376
-            new(n!("ElementalResistMax"), BASE, m_floor(2.0 * shrineEffectMod), "Lesser Resistance Shrine");
+            new(
+                n!("ElementalResistMax"),
+                BASE,
+                m_floor(2.0 * shrineEffectMod),
+                "Lesser Resistance Shrine",
+            );
             // L377
-            new(n!("ChaosResistMax"), BASE, m_floor(2.0 * shrineEffectMod), "Lesser Resistance Shrine");
+            new(
+                n!("ChaosResistMax"),
+                BASE,
+                m_floor(2.0 * shrineEffectMod),
+                "Lesser Resistance Shrine",
+            );
         }
         // L379
         if flagged(n!("BloodShrineOfRats")) {
             // L380
-            new(n!("ElementalDamageGainAsChaos"), BASE, m_floor(30.0 * shrineEffectMod), "Blood Shrine of Rats");
+            new(
+                n!("ElementalDamageGainAsChaos"),
+                BASE,
+                m_floor(30.0 * shrineEffectMod),
+                "Blood Shrine of Rats",
+            );
         }
         // L382
         if flagged(n!("BloodShrineOfLocusts")) {
             // L383
-            new(n!("DotMultiplier"), BASE, m_floor(30.0 * shrineEffectMod), "Blood Shrine of Locusts");
+            new(
+                n!("DotMultiplier"),
+                BASE,
+                m_floor(30.0 * shrineEffectMod),
+                "Blood Shrine of Locusts",
+            );
         }
         // L385
         if flagged(n!("BloodShrineOfToads")) {
             // L386
-            new(n!("BloodShrineExplodingToadTriggerChance"), BASE, m_floor(25.0 * shrineEffectMod), "Blood Shrine of Toads");
+            new(
+                n!("BloodShrineExplodingToadTriggerChance"),
+                BASE,
+                m_floor(25.0 * shrineEffectMod),
+                "Blood Shrine of Toads",
+            );
         }
         // L388
         if flagged(n!("BloodShrineOfCrows")) {
             // L389
-            new(n!("ChaosResist"), BASE, m_floor(50.0 * shrineEffectMod), "Blood Shrine of Crows");
+            new(
+                n!("ChaosResist"),
+                BASE,
+                m_floor(50.0 * shrineEffectMod),
+                "Blood Shrine of Crows",
+            );
             // L390
-            new(n!("ElementalDamageFromHitsTakenAsChaos"), BASE, m_floor(10.0 * shrineEffectMod), "Blood Shrine of Crows");
+            new(
+                n!("ElementalDamageFromHitsTakenAsChaos"),
+                BASE,
+                m_floor(10.0 * shrineEffectMod),
+                "Blood Shrine of Crows",
+            );
             // L391
-            new(n!("PhysicalDamageFromHitsTakenAsChaos"), BASE, m_floor(10.0 * shrineEffectMod), "Blood Shrine of Crows");
+            new(
+                n!("PhysicalDamageFromHitsTakenAsChaos"),
+                BASE,
+                m_floor(10.0 * shrineEffectMod),
+                "Blood Shrine of Crows",
+            );
         }
         // L393
         if flagged(n!("BloodShrineOfBats")) {
             // L394
-            new(n!("EnemyCurseLimit"), BASE, m_floor(1.0 * shrineEffectMod), "Blood Shrine of Bats");
+            new(
+                n!("EnemyCurseLimit"),
+                BASE,
+                m_floor(1.0 * shrineEffectMod),
+                "Blood Shrine of Bats",
+            );
             // L395
             let curse = Value::Table(Arc::new(ValueTable {
                 array: Vec::new(),
@@ -858,7 +1111,15 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
                     (n!("level"), Value::Num(1.0)),
                 ],
             }));
-            modDB.NewMod(n!("ExtraCurse"), ModType::LIST, curse, "Blood Shrine of Bats", 0, 0, &[]);
+            modDB.NewMod(
+                n!("ExtraCurse"),
+                ModType::LIST,
+                curse,
+                "Blood Shrine of Bats",
+                0,
+                0,
+                &[],
+            );
         }
     }
     // L398
@@ -881,7 +1142,11 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
             condList.set(n!("CanApplyColdExposure"), true);
         }
         // L405
-        if skillModList.Sum(ModType::BASE, Some(&skillCfg), nm!["LightningExposureChance"]) > 0.0
+        if skillModList.Sum(
+            ModType::BASE,
+            Some(&skillCfg),
+            nm!["LightningExposureChance"],
+        ) > 0.0
             || modDB.Sum(ModType::BASE, None, nm!["LightningExposureChance"]) > 0.0
         {
             // L406
@@ -897,7 +1162,10 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
             // L413
             for stat in [n!("Str"), n!("Dex"), n!("Int")] {
                 // L414
-                output.set(stat, m_max(round(calcLib::val(&modDB, stat, None), None), 0.0));
+                output.set(
+                    stat,
+                    m_max(round(calcLib::val(&modDB, stat, None), None), 0.0),
+                );
                 // L415
                 if let Some(breakdown) = &breakdown {
                     // L416
@@ -934,7 +1202,10 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
                     // L446
                     let base = base_of(stat);
                     // L447
-                    output.set(stat, m_min(round(calcLib::val(&modDB, stat, None), None), base));
+                    output.set(
+                        stat,
+                        m_min(round(calcLib::val(&modDB, stat, None), None), base),
+                    );
                     // L448
                     if let Some(breakdown) = &breakdown {
                         // L449
@@ -953,9 +1224,25 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
                         &[],
                     );
                     // L453
-                    modDB.NewMod(n!("Omni"), ModType::INC, modDB.Sum(ModType::INC, None, &[stat]), "Omniscience", 0, 0, &[]);
+                    modDB.NewMod(
+                        n!("Omni"),
+                        ModType::INC,
+                        modDB.Sum(ModType::INC, None, &[stat]),
+                        "Omniscience",
+                        0,
+                        0,
+                        &[],
+                    );
                     // L454
-                    modDB.NewMod(n!("Omni"), ModType::MORE, modDB.Sum(ModType::MORE, None, &[stat]), "Omniscience", 0, 0, &[]);
+                    modDB.NewMod(
+                        n!("Omni"),
+                        ModType::MORE,
+                        modDB.Sum(ModType::MORE, None, &[stat]),
+                        "Omniscience",
+                        0,
+                        0,
+                        &[],
+                    );
                 }
             }
 
@@ -965,7 +1252,10 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
                 // L460-461 (`conversion`, `reduction`)
                 let mut reduction = [0.0_f64; 3];
                 // L462
-                for (ti, ty) in [ModType::BASE, ModType::INC, ModType::MORE].into_iter().enumerate() {
+                for (ti, ty) in [ModType::BASE, ModType::INC, ModType::MORE]
+                    .into_iter()
+                    .enumerate()
+                {
                     // L463-466 (`conversion[type][stat] = modDB:Sum(type, nil, stat) or 0`)
                     let c = |s: Name| modDB.Sum(ty, None, &[s]);
                     let StrDex = c(n!("StrDex"));
@@ -993,7 +1283,10 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
             }
 
             // L479
-            output.set(n!("Omni"), m_max(round(calcLib::val(&modDB, n!("Omni"), None), None), 0.0));
+            output.set(
+                n!("Omni"),
+                m_max(round(calcLib::val(&modDB, n!("Omni"), None), None), 0.0),
+            );
             // L480
             if let Some(breakdown) = &breakdown {
                 // L481
@@ -1021,7 +1314,10 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
 
     // -- Special case for Devotion
     // L514
-    output.set(n!("Devotion"), modDB.Sum(ModType::BASE, None, nm!["Devotion"]));
+    output.set(
+        n!("Devotion"),
+        modDB.Sum(ModType::BASE, None, nm!["Devotion"]),
+    );
 
     // -- Add attribute bonuses
     // L517
@@ -1031,27 +1327,46 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
             // L519
             if !modDB.Flag(None, nm!["NoStrBonusToLife"]) {
                 // L520
-                modDB.NewMod(n!("Life"), ModType::BASE, m_floor(output.num(n!("Str")) / 2.0), "Strength", 0, 0, &[]);
+                modDB.NewMod(
+                    n!("Life"),
+                    ModType::BASE,
+                    m_floor(output.num(n!("Str")) / 2.0),
+                    "Strength",
+                    0,
+                    0,
+                    &[],
+                );
             }
             // L522
-            let strDmgBonusRatioOverride = modDB.Sum(ModType::BASE, None, nm!["StrDmgBonusRatioOverride"]);
+            let strDmgBonusRatioOverride =
+                modDB.Sum(ModType::BASE, None, nm!["StrDmgBonusRatioOverride"]);
             // L523
             if strDmgBonusRatioOverride > 0.0 {
                 // L524
                 actor.strDmgBonus.set(m_floor(
-                    (output.num(n!("Str")) + modDB.Sum(ModType::BASE, None, nm!["DexIntToMeleeBonus"]))
+                    (output.num(n!("Str"))
+                        + modDB.Sum(ModType::BASE, None, nm!["DexIntToMeleeBonus"]))
                         * strDmgBonusRatioOverride,
                 ));
             } else {
                 // L526
                 actor.strDmgBonus.set(m_floor(
-                    (output.num(n!("Str")) + modDB.Sum(ModType::BASE, None, nm!["DexIntToMeleeBonus"]))
+                    (output.num(n!("Str"))
+                        + modDB.Sum(ModType::BASE, None, nm!["DexIntToMeleeBonus"]))
                         / 5.0,
                 ));
             }
             probe_written(actor, "strDmgBonus");
             // L528
-            modDB.NewMod(n!("PhysicalDamage"), ModType::INC, actor.strDmgBonus.get(), "Strength", ModFlag::Melee, 0, &[]);
+            modDB.NewMod(
+                n!("PhysicalDamage"),
+                ModType::INC,
+                actor.strDmgBonus.get(),
+                "Strength",
+                ModFlag::Melee,
+                0,
+                &[],
+            );
         }
         // L530
         if !modDB.Flag(None, nm!["NoDexterityAttributeBonuses"]) {
@@ -1060,11 +1375,27 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
                 Val::from_value(&modDB.Override(None, nm!["DexAccBonusOverride"])),
                 || Val::Num(data().misc.AccuracyPerDexBase),
             );
-            modDB.NewMod(n!("Accuracy"), ModType::BASE, output.num(n!("Dex")) * perDex.num(), "Dexterity", 0, 0, &[]);
+            modDB.NewMod(
+                n!("Accuracy"),
+                ModType::BASE,
+                output.num(n!("Dex")) * perDex.num(),
+                "Dexterity",
+                0,
+                0,
+                &[],
+            );
             // L532
             if !modDB.Flag(None, nm!["NoDexBonusToEvasion"]) {
                 // L533
-                modDB.NewMod(n!("Evasion"), ModType::INC, m_floor(output.num(n!("Dex")) / 5.0), "Dexterity", 0, 0, &[]);
+                modDB.NewMod(
+                    n!("Evasion"),
+                    ModType::INC,
+                    m_floor(output.num(n!("Dex")) / 5.0),
+                    "Dexterity",
+                    0,
+                    0,
+                    &[],
+                );
             }
         }
         // L536
@@ -1072,12 +1403,28 @@ pub(crate) fn doActorAttribsConditions(env: &EnvRef, actor: &ActorRef) {
             // L537
             if !modDB.Flag(None, nm!["NoIntBonusToMana"]) {
                 // L538
-                modDB.NewMod(n!("Mana"), ModType::BASE, m_floor(output.num(n!("Int")) / 2.0), "Intelligence", 0, 0, &[]);
+                modDB.NewMod(
+                    n!("Mana"),
+                    ModType::BASE,
+                    m_floor(output.num(n!("Int")) / 2.0),
+                    "Intelligence",
+                    0,
+                    0,
+                    &[],
+                );
             }
             // L540
             if !modDB.Flag(None, nm!["NoIntBonusToES"]) {
                 // L541
-                modDB.NewMod(n!("EnergyShield"), ModType::INC, m_floor(output.num(n!("Int")) / 10.0), "Intelligence", 0, 0, &[]);
+                modDB.NewMod(
+                    n!("EnergyShield"),
+                    ModType::INC,
+                    m_floor(output.num(n!("Int")) / 10.0),
+                    "Intelligence",
+                    0,
+                    0,
+                    &[],
+                );
             }
         }
     }
@@ -1095,7 +1442,11 @@ fn countsAsAll1H(wd: &Table, condList: &Table) {
     // L163 --Varunastra is a sword
     let name = str_of(&wd.get(n!("name")), "name");
     let added = match pob_lua::lmatch(&name, "Varunastra", None) {
-        Some(c) => Val::from(c.first().map(|c| c.to_str().into_owned()).unwrap_or_default()),
+        Some(c) => Val::from(
+            c.first()
+                .map(|c| c.to_str().into_owned())
+                .unwrap_or_default(),
+        ),
         None => Val::Bool(!condList.truthy(n!("UsingSword"))),
     };
     wd.set(n!("AddedUsingSword"), added);
@@ -1183,22 +1534,42 @@ pub fn doActorLifeManaReservation(actor: &ActorRef, addAura: bool) {
             let lowPerc = modDB.Sum(ModType::BASE, None, &[cat!("Low", pool, "Percentage")]);
             // L562
             reserved = actor.extra.get(cat!("reserved_", pool, "Base")).num_or(0.0)
-                + m_ceil(max * actor.extra.get(cat!("reserved_", pool, "Percent")).num_or(0.0) / 100.0);
+                + m_ceil(
+                    max * actor
+                        .extra
+                        .get(cat!("reserved_", pool, "Percent"))
+                        .num_or(0.0)
+                        / 100.0,
+                );
             // L563 (an implicit global in Lua, kept as a local: no read before this write, §7.3)
-            let uncancellableReservation =
-                actor.extra.get(cat!("uncancellable_", pool, "Reservation")).num_or(0.0);
+            let uncancellableReservation = actor
+                .extra
+                .get(cat!("uncancellable_", pool, "Reservation"))
+                .num_or(0.0);
             // L564
             output.set(cat!(pool, "Reserved"), m_min(reserved, max));
             // L565
-            output.set(cat!(pool, "ReservedPercent"), m_min(reserved / max * 100.0, 100.0));
+            output.set(
+                cat!(pool, "ReservedPercent"),
+                m_min(reserved / max * 100.0, 100.0),
+            );
             // L566
             output.set(cat!(pool, "Unreserved"), max - reserved);
             // L567
-            output.set(cat!(pool, "UnreservedPercent"), (max - reserved) / max * 100.0);
+            output.set(
+                cat!(pool, "UnreservedPercent"),
+                (max - reserved) / max * 100.0,
+            );
             // L568
-            output.set(cat!(pool, "UncancellableReservation"), m_min(uncancellableReservation, 0.0));
+            output.set(
+                cat!(pool, "UncancellableReservation"),
+                m_min(uncancellableReservation, 0.0),
+            );
             // L569
-            output.set(cat!(pool, "CancellableReservation"), 100.0 - uncancellableReservation);
+            output.set(
+                cat!(pool, "CancellableReservation"),
+                100.0 - uncancellableReservation,
+            );
             // L570
             if (max - reserved) / max
                 <= (if lowPerc > 0.0 {
@@ -1264,8 +1635,7 @@ fn lua_lt(a: f64, b: &Val) -> bool {
 pub(crate) fn determineCursePriority(curseName: Name, activeSkill: Option<&ActiveSkillRef>) -> f64 {
     let cursePriority = &data().cursePriority;
     let prio = |k: &str| cursePriority.get(&Name::from(k)).copied();
-    // L588
-    let curseName = curseName;
+    // L588 `curseName or ""`: a `Name` is never nil (callers pass "" for nil)
     // L589
     let mut source: LStr = LStr::from("");
     // L590
@@ -1308,12 +1678,12 @@ pub(crate) fn determineCursePriority(curseName: Name, activeSkill: Option<&Activ
     if activeSkill.is_some_and(|s| s.skillTypes.get().with(|t| t.has(SkillType::Aura))) {
         // L608
         sourcePriority = prio("CurseFromAura");
-    } else if &*source != "" {
+    } else if !source.is_empty() {
         // L610
         sourcePriority = prio("CurseFromEquipment");
     }
     // L612
-    if &*source != ""
+    if !source.is_empty()
         && (Some(slotPriority) == prio("Ring 2") || Some(slotPriority) == prio("Ring 3"))
     {
         // -- Implicit and explicit curses from rings have equal priority; only curses from socketed skill gems care about which ring slot they're equipped in
@@ -1322,8 +1692,8 @@ pub(crate) fn determineCursePriority(curseName: Name, activeSkill: Option<&Activ
             .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on a nil value"));
     }
     // L616
-    let sourcePriority =
-        sourcePriority.unwrap_or_else(|| lua_error!("attempt to perform arithmetic on a nil value"));
+    let sourcePriority = sourcePriority
+        .unwrap_or_else(|| lua_error!("attempt to perform arithmetic on a nil value"));
     basePriority + socketPriority + slotPriority + sourcePriority
 }
 
@@ -1352,12 +1722,10 @@ pub(crate) fn applyEnemyModifiers(actor: &ActorRef, clearCache: bool) {
         if let Some(r#mod) = r#mod {
             if !enemy_cache::has(actor, &cache, &r#mod) {
                 // L628
-                let source: Option<AStr> = r#mod
-                    .source
-                    .clone()
-                    .or_else(|| value.r#mod.source.clone());
+                let source: Option<AStr> =
+                    r#mod.source.clone().or_else(|| value.r#mod.source.clone());
                 // L629 `modLib.setSource(mod, source)` mutates `mod` in place in Lua. It is the
-                // inner mod of the actor's EnemyModifier mod (shared): CCR-0046 §2. When the
+                // inner mod of the actor's EnemyModifier mod (shared): CCR-0046 §3. When the
                 // assignment changes nothing the very mod is added (identity as in Lua);
                 // otherwise a re-sourced copy.
                 let added = setSource_shared(&r#mod, source.as_deref());
@@ -1369,7 +1737,7 @@ pub(crate) fn applyEnemyModifiers(actor: &ActorRef, clearCache: bool) {
     }
 }
 
-/// `modLib.setSource(mod, source)` on a mod Lua shares (CCR-0046 §2): the mod itself when
+/// `modLib.setSource(mod, source)` on a mod Lua shares (CCR-0046 §3): the mod itself when
 /// setting the source changes nothing, else the re-sourced copy (`ModTools.lua:239-246`).
 fn setSource_shared(m: &ModRef, source: Option<&str>) -> ModRef {
     let same = |x: &Mod| x.source.as_deref() == source;
@@ -1478,8 +1846,7 @@ mod enemy_cache {
         // EnemyModifier mods is lost), so an injected key matches by value.
         crate::probe::with_registry(|r| {
             r.obj_keys(t).iter().any(|(k, v)| {
-                v.truthy()
-                    && matches!(k, Val::Mod(x) if Arc::ptr_eq(x, m) || (**x == **m))
+                v.truthy() && matches!(k, Val::Mod(x) if Arc::ptr_eq(x, m) || (**x == **m))
             })
         })
     }
@@ -1491,7 +1858,9 @@ mod enemy_cache {
 
     #[cfg(feature = "probe")]
     fn exported_set(t: &Table, exported: &ModRef) {
-        crate::probe::with_registry(|r| r.push_obj_key(t, Val::Mod(exported.clone()), Val::Bool(true)));
+        crate::probe::with_registry(|r| {
+            r.push_obj_key(t, Val::Mod(exported.clone()), Val::Bool(true))
+        });
     }
 
     #[cfg(not(feature = "probe"))]
@@ -1511,7 +1880,11 @@ pub fn probe_call(id: &str, locals: &[(String, Val)]) -> Result<Vec<(String, Val
             .find(|(n, _)| n == k)
             .map_or(Val::Nil, |(_, v)| v.clone())
     };
-    let actor = || get("actor").obj::<Actor>().ok_or("local actor is not an actor");
+    let actor = || {
+        get("actor")
+            .obj::<Actor>()
+            .ok_or("local actor is not an actor")
+    };
     let env = || get("env").obj::<Env>().ok_or("local env is not an env");
     let skill = |k: &str| get(k).obj::<ActiveSkill>();
     let id = id.split_once(':').map_or(id, |(a, _)| a);
@@ -1523,16 +1896,20 @@ pub fn probe_call(id: &str, locals: &[(String, Val)]) -> Result<Vec<(String, Val
                 .map(|t| {
                     t.ipairs()
                         .into_iter()
-                        .filter_map(|(_, v)| v.str().map(|s| Name::from(&*s)))
+                        .filter_map(|(_, v)| v.str().map(|s| Name::from(&s)))
                         .collect()
                 })
                 .unwrap_or_default();
             getCachedOutputValue(&env()?, &s, &names)
         }
         "mergeBuff" => {
-            let destTable = get("destTable").table().ok_or("local destTable is not a table")?;
-            let destKey = get("destKey").str().ok_or("local destKey is not a string")?;
-            mergeBuff_v(&get("src"), &destTable, Name::from(&*destKey));
+            let destTable = get("destTable")
+                .table()
+                .ok_or("local destTable is not a table")?;
+            let destKey = get("destKey")
+                .str()
+                .ok_or("local destKey is not a string")?;
+            mergeBuff_v(&get("src"), &destTable, Name::from(&destKey));
             vec![]
         }
         "doActorLifeMana" => {
@@ -1548,7 +1925,9 @@ pub fn probe_call(id: &str, locals: &[(String, Val)]) -> Result<Vec<(String, Val
             vec![]
         }
         "determineCursePriority" => {
-            let name = get("curseName").str().map_or_else(|| Name::from(""), |s| Name::from(&*s));
+            let name = get("curseName")
+                .str()
+                .map_or_else(|| Name::from(""), |s| Name::from(&s));
             let s = skill("activeSkill");
             vec![Val::Num(determineCursePriority(name, s.as_ref()))]
         }

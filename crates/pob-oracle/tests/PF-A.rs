@@ -65,14 +65,15 @@ fn corpus(parity: &Path) -> Vec<PathBuf> {
     // the unit corpus: synthetic builds for branches all57 does not reach
     // (pfa_cached_outputs: Blight / Penance Brand of Dissipation with skillPart 2 call
     // getCachedOutputValue, CalcPerform.lua:2281/2288)
-    let mut unit: Vec<PathBuf> = std::fs::read_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/PF-A"))
-        .map(|r| {
-            r.filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|x| x == "xml"))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut unit: Vec<PathBuf> =
+        std::fs::read_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/PF-A"))
+            .map(|r| {
+                r.filter_map(Result::ok)
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().is_some_and(|x| x == "xml"))
+                    .collect()
+            })
+            .unwrap_or_default();
     unit.sort();
     v.extend(unit);
     if let Ok(list) = std::env::var("PFA_BUILDS") {
@@ -186,6 +187,17 @@ const KNOWN_DIFFS: &[(&str, &str, &str)] = &[
         "doActorAttribsConditions",
         "CCR-0046 §5: as doActorLifeMana (it ends by calling doActorLifeMana)",
     ),
+    (
+        "allflame_exp_049",
+        "doActorLifeMana",
+        "CCR-0046 §5: `15% increased Life` (Tree:44316) carries the same ItemCondition \
+         searchCond tag; the body armour's `Regenerate 10% Life …` line is not in the dump",
+    ),
+    (
+        "allflame_exp_049",
+        "doActorAttribsConditions",
+        "CCR-0046 §5: as doActorLifeMana (it ends by calling doActorLifeMana)",
+    ),
 ];
 
 fn known_diff(stem: &str, f: &str) -> Option<&'static str> {
@@ -217,7 +229,9 @@ fn pairs(state: &Path, f: &str, all: bool) -> Vec<(PathBuf, Option<PathBuf>)> {
         if let Ok(rd) = std::fs::read_dir(state) {
             for e in rd.filter_map(Result::ok) {
                 let p = e.path();
-                if p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&prefix)) {
+                if p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with(&prefix))
+                {
                     if let Some(n) = hit_n(&p) {
                         ins.push((n, p));
                     }
@@ -254,7 +268,11 @@ fn generalize(path: &str) -> String {
     let mut out = String::new();
     let mut chars = path.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '[' && chars.peek().is_some_and(|d| d.is_ascii_digit() || *d == '-' || *d == '@') {
+        if c == '['
+            && chars
+                .peek()
+                .is_some_and(|d| d.is_ascii_digit() || *d == '-' || *d == '@')
+        {
             out.push_str("[#]");
             for d in chars.by_ref() {
                 if d == ']' {
@@ -295,7 +313,10 @@ impl Tally {
             });
             e.0 += 1;
             if verbose {
-                eprintln!("  {what}: {} {:?} pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours);
+                eprintln!(
+                    "  {what}: {} {:?} pob={:?} ours={:?}",
+                    m.path, m.kind, m.pob, m.ours
+                );
             }
         }
     }
@@ -329,7 +350,13 @@ impl Tally {
 
 /// Inject `:in`, run the Rust helper, diff against `:out`. Returns (mismatches after the
 /// run, whether `:in` already equalled `:out`).
-fn run_pair(xml: &Path, stem: &str, f: &str, din: &StateDump, dout: &StateDump) -> Result<(Vec<Mismatch>, bool), String> {
+fn run_pair(
+    xml: &Path,
+    stem: &str,
+    f: &str,
+    din: &StateDump,
+    dout: &StateDump,
+) -> Result<(Vec<Mismatch>, bool), String> {
     // untouched injection vs :out (non-vacuity)
     let build = testkit::empty_build();
     let inj0 = pob_oracle::inject::inject(din, &build)?;
@@ -353,9 +380,14 @@ fn run_pair(xml: &Path, stem: &str, f: &str, din: &StateDump, dout: &StateDump) 
                 let uuid = pob_calc::modules::common::cacheSkillUUID(&skill, env);
                 if pob_calc::global_cache::cachedData(env.mode, uuid).is_none() {
                     let keys: Vec<String> = pob_calc::global_cache::GlobalCache.with(|g| {
-                        g.borrow().cachedData[env.mode.index()].keys().map(|k| k.to_string()).collect()
+                        g.borrow().cachedData[env.mode.index()]
+                            .keys()
+                            .map(|k| k.to_string())
+                            .collect()
                     });
-                    return Err(format!("the Rust uuid {uuid} is not a GlobalCache key ({keys:?})"));
+                    return Err(format!(
+                        "the Rust uuid {uuid} is not a GlobalCache key ({keys:?})"
+                    ));
                 }
             }
         }
@@ -384,9 +416,8 @@ fn run_pair(xml: &Path, stem: &str, f: &str, din: &StateDump, dout: &StateDump) 
         // table in place, so the identity of those tables (`$ref` links between
         // `env.requirementsTable[i].sourceGem` and the skills' effect lists) differs. Those
         // are the callee's effects, not getCachedOutputValue's: they are counted, not gated.
-        let is_ref = |v: &Option<serde_json::Value>| {
-            v.as_ref().is_some_and(|j| j.get("$ref").is_some())
-        };
+        let is_ref =
+            |v: &Option<serde_json::Value>| v.as_ref().is_some_and(|j| j.get("$ref").is_some());
         let before = mm.len();
         mm.retain(|m| !(is_ref(&m.pob) || is_ref(&m.ours)));
         REPLAY_IDENTITY.with(|c| c.set(c.get() + before - mm.len()));
@@ -451,7 +482,10 @@ fn seed_socket_group_list(env: &pob_calc::env::EnvRef, xml: &Path) {
                 .collect();
             &own == names
         });
-        groups.push(hit.cloned().unwrap_or_else(|| std::rc::Rc::new(SocketGroup::default())));
+        groups.push(
+            hit.cloned()
+                .unwrap_or_else(|| std::rc::Rc::new(SocketGroup::default())),
+        );
     }
     env.build.skillsTab.socketGroupList.set(groups);
 }
@@ -490,7 +524,11 @@ fn replay_build_active_skill(
         .and_then(|l| l.get("varargs"))
         .and_then(|v| v.get("$seq"))
         .and_then(|s| s.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default();
     let ret: Vec<serde_json::Value> = dout
         .locals()
@@ -522,7 +560,11 @@ fn replay_build_active_skill(
                 .get(&pob_lua::Name::from(id))
                 .map(|ge| ge.name.to_string())
         });
-    for (mode, m) in [("MAIN", Mode::MAIN), ("CALCS", Mode::CALCS), ("CALCULATOR", Mode::CALCULATOR)] {
+    for (mode, m) in [
+        ("MAIN", Mode::MAIN),
+        ("CALCS", Mode::CALCS),
+        ("CALCULATOR", Mode::CALCULATOR),
+    ] {
         let before = entries(din, mode);
         for uuid in entries(dout, mode) {
             let entry_name = dout.root["globalCache"]["cachedData"][mode][&uuid]["Name"].as_str();
@@ -562,7 +604,11 @@ fn run_corpus(
             Ok(s) => s,
             Err(e) => {
                 for f in FNS {
-                    tallies.entry(f).or_default().failed.push(format!("{stem}: {e}"));
+                    tallies
+                        .entry(f)
+                        .or_default()
+                        .failed
+                        .push(format!("{stem}: {e}"));
                 }
                 continue;
             }
@@ -594,10 +640,13 @@ fn run_corpus(
                                 t.noop += 1;
                             }
                             if let Some(why) = known {
-                                t.stale.push(format!("{what}: listed as a known diff ({why}) but clean"));
+                                t.stale.push(format!(
+                                    "{what}: listed as a known diff ({why}) but clean"
+                                ));
                             }
                         } else if let Some(why) = known {
-                            t.known.push(format!("{what}: {} mismatches ({why})", mm.len()));
+                            t.known
+                                .push(format!("{what}: {} mismatches ({why})", mm.len()));
                             continue;
                         }
                         t.add(&what, &mm);
@@ -679,7 +728,12 @@ fn pfa_function_probes_hit_sample() {
     if builds.is_empty() {
         return skip("none of the hit-sample builds found");
     }
-    let ok = run_corpus("hit sample #1..#12, any env", &builds, probe_hit_sample, true);
+    let ok = run_corpus(
+        "hit sample #1..#12, any env",
+        &builds,
+        probe_hit_sample,
+        true,
+    );
     assert!(ok, "some PF-A function probes differ from PoB");
 }
 

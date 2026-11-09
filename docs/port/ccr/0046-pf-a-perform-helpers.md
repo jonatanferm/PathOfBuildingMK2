@@ -28,7 +28,11 @@ dynamic table as `Val::Obj(ModStoreRef)`.
 ```
 
 **Workaround.** `mergeBuff_v(src: &Val, …)` holds the body; the frozen `mergeBuff(&Table, …)`
-delegates to it. PF-C/PF-E/PF-F call `mergeBuff_v(&Val::Obj(srcList), …)`.
+delegates to it with the table as a plain list of mods. Either form works: PF-C/PF-E/PF-F
+(written against the stub) currently copy the `srcList` mods into a list table and call the
+frozen `mergeBuff`; `mergeBuff_v(&Val::Obj(srcList), …)` avoids that copy. Both read the source
+mods in order, so the merged result is the same. `destTable[destKey]` is always created as a
+`Val::Obj` ModList (L47), which is what those units read back with `obj::<ModStore>()`.
 
 ## 2. `dest[index] = mod` on a ModList has no public API
 
@@ -95,9 +99,12 @@ lost) is matched by value.
 `enchantModLines` / …, so on an injected item the search finds nothing and the tag evaluates
 differently from PoB. Seen in the PF-A function probes on `allflame_exp_016`
 (`15% increased Life`, Tree:41415, tag `{ type = "ItemCondition", itemSlot = "body armour ",
-searchCond = "life", neg = true }`; Kaom's Heart): Rust Life 9762, PoB 9228. Every other
-all57 pair is exact, so this is the only exclusion (listed in `KNOWN_DIFFS` of
-`crates/pob-oracle/tests/PF-A.rs`, which fails when the entry goes stale).
+searchCond = "life", neg = true }`; Kaom's Heart): Rust Life 9762, PoB 9228; and on
+`allflame_exp_049` (the same tag on `15% increased Life`, Tree:44316; the body armour's
+`Regenerate 10% Life over one second when Hit while Sane`): Rust Life 3140, PoB 2909. Every
+other all57 pair is exact, so these two builds (doActorLifeMana, and doActorAttribsConditions,
+which ends by calling it) are the only exclusions (listed in `KNOWN_DIFFS` of
+`crates/pob-oracle/tests/PF-A.rs`, which fails when an entry goes stale).
 
 **Proposed resolution.** state_dump.lua / `pob_oracle::inject` dump and inject the item mod-line
 lists (`{ line = …, … }` tables), or inject items by re-parsing `item.raw` once IT-A/BM-A land.
