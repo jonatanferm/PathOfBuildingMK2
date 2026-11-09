@@ -124,7 +124,10 @@ fn calcs_hitChance(evasion: f64, accuracy: f64) -> f64 {
 fn override_or(v: Value, d: impl FnOnce() -> f64) -> f64 {
     if v.truthy() {
         v.num().unwrap_or_else(|| {
-            lua_error!("attempt to perform arithmetic on a {} value", value_type(&v))
+            lua_error!(
+                "attempt to perform arithmetic on a {} value",
+                value_type(&v)
+            )
         })
     } else {
         d()
@@ -331,7 +334,9 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
     output.set(n!("ShieldBlockChance"), baseBlockChance);
     // L696
     baseBlockChance = if !env.keystonesAdded.get().truthy(n!("Necromantic Aegis")) {
-        override_or(modDB.Override(None, nm!["ReplaceShieldBlock"]), || baseBlockChance)
+        override_or(modDB.Override(None, nm!["ReplaceShieldBlock"]), || {
+            baseBlockChance
+        })
     } else {
         baseBlockChance
     };
@@ -342,7 +347,10 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
         && env.keystonesAdded.get().truthy(n!("Necromantic Aegis"))
     {
         override_or(
-            env.player.modDB.get().Override(None, nm!["ReplaceShieldBlock"]),
+            env.player
+                .modDB
+                .get()
+                .Override(None, nm!["ReplaceShieldBlock"]),
             || baseBlockChance,
         )
     } else {
@@ -360,8 +368,7 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
     } else if modDB.Flag(None, nm!["BlockAttackChanceIsEqualToPartyMember"]) {
         // L704
         let v = m_min(
-            other_output(actor.partyMembers.get().upgrade(), "partyMembers")
-                .num(n!("BlockChance")),
+            other_output(actor.partyMembers.get().upgrade(), "partyMembers").num(n!("BlockChance")),
             output.num(n!("BlockChanceMax")),
         );
         output.set(n!("BlockChance"), v);
@@ -473,7 +480,10 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
         breakdown.set(n!("BlockChance"), t);
         // L742
         let t = tbl![
-            format!("Max: {}%", tostring_num(output.num(n!("SpellBlockChanceMax")))),
+            format!(
+                "Max: {}%",
+                tostring_num(output.num(n!("SpellBlockChanceMax")))
+            ),
             format!(
                 "Total: {}%",
                 tostring_num(
@@ -556,8 +566,8 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
                 output.set(cat!("Effective", blockType), v);
             } else {
                 // L781
-                let v = lpow(blockChance, m_abs(blockRolls))
-                    * output.num(cat!("Effective", blockType));
+                let v =
+                    lpow(blockChance, m_abs(blockRolls)) * output.num(cat!("Effective", blockType));
                 output.set(cat!("Effective", blockType), v);
             }
         }
@@ -622,7 +632,11 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
     // L802
     if modDB.Flag(None, nm!["ArmourIncreasedByUncappedFireRes"]) {
         // L803
-        for value in modDB.Tabulate(Some(ModType::FLAG), None, nm!["ArmourIncreasedByUncappedFireRes"]) {
+        for value in modDB.Tabulate(
+            Some(ModType::FLAG),
+            None,
+            nm!["ArmourIncreasedByUncappedFireRes"],
+        ) {
             // L804
             let r#mod = value.r#mod.clone();
             // L805
@@ -643,7 +657,11 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
     // L809
     if modDB.Flag(None, nm!["ArmourIncreasedByOvercappedFireRes"]) {
         // L810
-        for value in modDB.Tabulate(Some(ModType::FLAG), None, nm!["ArmourIncreasedByOvercappedFireRes"]) {
+        for value in modDB.Tabulate(
+            Some(ModType::FLAG),
+            None,
+            nm!["ArmourIncreasedByOvercappedFireRes"],
+        ) {
             // L811
             let r#mod = value.r#mod.clone();
             // L812
@@ -664,7 +682,11 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
     // L816
     if modDB.Flag(None, nm!["EvasionRatingIncreasedByUncappedColdRes"]) {
         // L817
-        for value in modDB.Tabulate(Some(ModType::FLAG), None, nm!["EvasionRatingIncreasedByUncappedColdRes"]) {
+        for value in modDB.Tabulate(
+            Some(ModType::FLAG),
+            None,
+            nm!["EvasionRatingIncreasedByUncappedColdRes"],
+        ) {
             // L818
             let r#mod = value.r#mod.clone();
             // L819
@@ -685,7 +707,11 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
     // L823
     if modDB.Flag(None, nm!["EvasionRatingIncreasedByOvercappedColdRes"]) {
         // L824
-        for value in modDB.Tabulate(Some(ModType::FLAG), None, nm!["EvasionRatingIncreasedByOvercappedColdRes"]) {
+        for value in modDB.Tabulate(
+            Some(ModType::FLAG),
+            None,
+            nm!["EvasionRatingIncreasedByOvercappedColdRes"],
+        ) {
             // L825
             let r#mod = value.r#mod.clone();
             // L826
@@ -706,7 +732,11 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
     // L830
     if modDB.Flag(None, nm!["EnergyShieldIncreasedByChanceToBlockSpellDamage"]) {
         // L831
-        for value in modDB.Tabulate(Some(ModType::FLAG), None, nm!["EnergyShieldIncreasedByChanceToBlockSpellDamage"]) {
+        for value in modDB.Tabulate(
+            Some(ModType::FLAG),
+            None,
+            nm!["EnergyShieldIncreasedByChanceToBlockSpellDamage"],
+        ) {
             // L832
             let r#mod = value.r#mod.clone();
             // L833
@@ -727,7 +757,11 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
     // L837
     if modDB.Flag(None, nm!["EnergyShieldIncreasedByChaosResistance"]) {
         // L838
-        for value in modDB.Tabulate(Some(ModType::FLAG), None, nm!["EnergyShieldIncreasedByChaosResistance"]) {
+        for value in modDB.Tabulate(
+            Some(ModType::FLAG),
+            None,
+            nm!["EnergyShieldIncreasedByChaosResistance"],
+        ) {
             // L839
             let r#mod = value.r#mod.clone();
             // L840
@@ -832,8 +866,11 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
                 {
                     // L872
                     let conversion = m_min(
-                        modDB.Sum(ModType::BASE, None, nm!["BodyArmourArmourEvasionToWardPercent"])
-                            / 100.0,
+                        modDB.Sum(
+                            ModType::BASE,
+                            None,
+                            nm!["BodyArmourArmourEvasionToWardPercent"],
+                        ) / 100.0,
                         1.0,
                     );
                     // L873
@@ -878,7 +915,8 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
                         }
                     } else {
                         // L896
-                        ward += wardBase * calcLib::r#mod(&modDB, Some(&slotCfg), nm!["Ward", "Defences"]);
+                        ward += wardBase
+                            * calcLib::r#mod(&modDB, Some(&slotCfg), nm!["Ward", "Defences"]);
                         // L897
                         gearWard += wardBase;
                         // L898
@@ -923,7 +961,11 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
                             * calcLib::r#mod(
                                 &modDB,
                                 Some(&slotCfg),
-                                &[n!("EnergyShield"), n!("Defences"), cat!(slot, "ESAndArmour")],
+                                &[
+                                    n!("EnergyShield"),
+                                    n!("Defences"),
+                                    cat!(slot, "ESAndArmour"),
+                                ],
                             );
                         // L919
                         gearEnergyShield += energyShieldBase;
@@ -936,7 +978,11 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
                                 Some(&slotCfg),
                                 energyShieldBase,
                                 None,
-                                &[n!("EnergyShield"), n!("Defences"), cat!(slot, "ESAndArmour")],
+                                &[
+                                    n!("EnergyShield"),
+                                    n!("Defences"),
+                                    cat!(slot, "ESAndArmour"),
+                                ],
                             );
                         }
                     }
@@ -1044,7 +1090,14 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
                 // L964
                 if let Some(breakdown) = &breakdown {
                     // L965
-                    breakdown.slot("Global", None, None, wardBase, None, nm!["Ward", "Defences"]);
+                    breakdown.slot(
+                        "Global",
+                        None,
+                        None,
+                        wardBase,
+                        None,
+                        nm!["Ward", "Defences"],
+                    );
                 }
             }
         }
@@ -1055,7 +1108,8 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
             // L971
             if modDB.Flag(None, nm!["EnergyShieldToWard"]) {
                 // L972
-                energyShield += energyShieldBase * modDB.More(None, nm!["EnergyShield", "Defences"]);
+                energyShield +=
+                    energyShieldBase * modDB.More(None, nm!["EnergyShield", "Defences"]);
             } else {
                 // L974
                 energyShield += energyShieldBase
@@ -1147,7 +1201,8 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
         // L1011
         if convManaToArmour > 0.0 {
             // L1012
-            armourBase = 2.0 * modDB.Sum(ModType::BASE, None, nm!["Mana"]) * convManaToArmour / 100.0;
+            armourBase =
+                2.0 * modDB.Sum(ModType::BASE, None, nm!["Mana"]) * convManaToArmour / 100.0;
             // L1013
             let total = armourBase
                 * calcLib::r#mod(
@@ -1310,7 +1365,10 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
         output.set(n!("Evasion"), m_max(round(evasion, None), 0.0));
         // L1067
         let v = m_max(
-            round(evasion * calcLib::r#mod(&modDB, None, nm!["MeleeEvasion"]), None),
+            round(
+                evasion * calcLib::r#mod(&modDB, None, nm!["MeleeEvasion"]),
+                None,
+            ),
             0.0,
         );
         output.set(n!("MeleeEvasion"), v);
@@ -1414,7 +1472,10 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
                 // L1100
                 let ov = modDB.Override(None, nm!["EvadeChanceBasedOnWardPercent"]);
                 let multiplier = ov.num().unwrap_or_else(|| {
-                    lua_error!("attempt to perform arithmetic on a {} value", value_type(&ov))
+                    lua_error!(
+                        "attempt to perform arithmetic on a {} value",
+                        value_type(&ov)
+                    )
                 }) / 100.0;
                 // L1101
                 evadeStat = output.num(n!("Ward")) * multiplier;

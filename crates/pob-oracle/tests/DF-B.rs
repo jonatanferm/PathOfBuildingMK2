@@ -28,7 +28,13 @@
 //! done
 //! ```
 //!
-//! `DF_B_ONLY=<stem>[,..]` restricts the builds; `DF_B_VERBOSE=1` prints every mismatch.
+//! Memory: builds run one at a time and each call's dumps are parsed just before it runs and
+//! dropped after it (only the build's few `defence:674..676` minion dumps and its model stay
+//! alive for the build). An earlier version kept every parsed dump of all 59 builds and reached
+//! 6 GB RSS; this one peaks at ~1.4 GB over the full corpus (printed at the end).
+//!
+//! `DF_B_ONLY=<stem>[,..]` restricts the builds; `DF_B_VERBOSE=1` prints every mismatch and a
+//! per-build line with the peak RSS so far.
 #![allow(non_snake_case)]
 #![allow(clippy::type_complexity)]
 
@@ -52,10 +58,10 @@ const P_LM_IN: &str = "defence:674";
 const P_LM_OUT: &str = "defence:675";
 const P_LMR_OUT: &str = "defence:676";
 
-/// One recorded `calcs.defence` call.
+/// One recorded `calcs.defence` call (loaded just before it runs and dropped right after:
+/// the parsed dumps of a build's ~20 calls do not fit in memory together).
 struct Case {
     stem: String,
-    xml: PathBuf,
     hit: String,
     din: StateDump,
     dout: StateDump,
@@ -70,7 +76,10 @@ struct Case {
 fn cache_dir(parity: &Path, xml: &Path) -> Option<PathBuf> {
     let key = pob_oracle::runner::build_key(xml).ok()?;
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-    for sha in std::fs::read_dir(parity.join("probe-cache")).ok()?.flatten() {
+    for sha in std::fs::read_dir(parity.join("probe-cache"))
+        .ok()?
+        .flatten()
+    {
         let d = sha.path().join(&key);
         let Ok(rd) = std::fs::read_dir(&d) else {
             continue;
@@ -84,15 +93,15 @@ fn cache_dir(parity: &Path, xml: &Path) -> Option<PathBuf> {
         let t = std::fs::metadata(&d)
             .and_then(|m| m.modified())
             .unwrap_or(std::time::UNIX_EPOCH);
-        if best.as_ref().is_none_or(|(b, _)| t > *b) {
+        if best.as_ref().map_or(true, |(b, _)| t > *b) {
             best = Some((t, d));
         }
     }
     best.map(|(_, d)| d)
 }
 
-/// Every dump of `dir`, by hit id.
-fn load_dumps(dir: &Path) -> BTreeMap<String, StateDump> {
+/// The dump files of `dir` by hit id (`defence:659#3` → path); nothing is parsed.
+fn dump_files(dir: &Path) -> BTreeMap<String, PathBuf> {
     let mut out = BTreeMap::new();
     if let Ok(rd) = std::fs::read_dir(dir) {
         for e in rd.flatten() {
@@ -100,66 +109,120 @@ fn load_dumps(dir: &Path) -> BTreeMap<String, StateDump> {
             if !name.starts_with("defence:") {
                 continue;
             }
-            if let Ok(d) = StateDump::load(&e.path()) {
-                out.insert(d.hit.clone(), d);
-            }
+            let hit = name.split(".json").next().unwrap_or(&name).to_owned();
+            out.insert(hit, e.path());
         }
     }
     out
 }
 
-fn cases_of(stem: &str, xml: &Path, dumps: &BTreeMap<String, StateDump>, missing: &mut Vec<String>) -> Vec<Case> {
-    let mut out = Vec::new();
-    let same_call = |probe: &str, of: &StateDump| {
-        dumps
-            .values()
-            .find(|d| d.probe == probe && d.stack == of.stack && d.env_id == of.env_id)
+/// The `n` of every `<probe>#n` hit in `files`, ascending.
+fn hits_of(files: &BTreeMap<String, PathBuf>, probe: &str) -> Vec<u64> {
+    let pre = format!("{probe}#");
+    let mut v: Vec<u64> = files
+        .keys()
+        .filter_map(|h| h.strip_prefix(&pre).and_then(|n| n.parse().ok()))
+        .collect();
+    v.sort_unstable();
+    v
+}
+
+/// Load `<probe>#n`, or `None` when the file is absent or unreadable.
+fn load(files: &BTreeMap<String, PathBuf>, probe: &str, n: u64) -> Option<StateDump> {
+    StateDump::load(files.get(&format!("{probe}#{n}"))?).ok()
+}
+
+/// The Formless Inferno dumps of one build (`defence:674/675/676`, minion calls only; few).
+fn minion_dumps(files: &BTreeMap<String, PathBuf>) -> Vec<StateDump> {
+    [P_LM_IN, P_LM_OUT, P_LMR_OUT]
+        .iter()
+        .flat_map(|p| {
+            hits_of(files, p)
+                .into_iter()
+                .filter_map(move |n| load(files, p, n))
+        })
+        .collect()
+}
+
+/// The recorded call `defence:659#n` of a build, or why it cannot be assembled.
+fn case_of(
+    stem: &str,
+    files: &BTreeMap<String, PathBuf>,
+    minion: &[StateDump],
+    n: u64,
+) -> Result<Case, String> {
+    let get = |p: &str| {
+        load(files, p, n).ok_or_else(|| format!("{stem} {P_IN}#{n}: {p}#{n} missing or unreadable"))
+    };
+    let din = get(P_IN)?;
+    let (dout, d665, d666) = (get(P_OUT)?, get(P_RES_IN)?, get(P_RES_OUT)?);
+    let same_call = |probe: &str| {
+        minion
+            .iter()
+            .find(|d| d.probe == probe && d.stack == din.stack && d.env_id == din.env_id)
             .cloned()
     };
-    for din in dumps.values().filter(|d| d.probe == P_IN) {
-        let n = din.n;
-        let get = |p: &str| dumps.get(&format!("{p}#{n}")).cloned();
-        let (Some(dout), Some(d665), Some(d666)) = (get(P_OUT), get(P_RES_IN), get(P_RES_OUT)) else {
-            missing.push(format!("{stem} {}: a paired {P_OUT}/{P_RES_IN}/{P_RES_OUT} dump is missing", din.hit));
-            continue;
-        };
-        let minion = match (same_call(P_LM_IN, din), same_call(P_LM_OUT, din), same_call(P_LMR_OUT, din)) {
-            (Some(a), Some(b), Some(c)) => Some((a, b, c)),
-            _ => None,
-        };
-        out.push(Case {
-            stem: stem.to_owned(),
-            xml: xml.to_path_buf(),
-            hit: din.hit.clone(),
-            din: din.clone(),
-            dout,
-            d665,
-            d666,
-            minion,
-        });
-    }
-    out
+    let minion = match (
+        same_call(P_LM_IN),
+        same_call(P_LM_OUT),
+        same_call(P_LMR_OUT),
+    ) {
+        (Some(a), Some(b), Some(c)) => Some((a, b, c)),
+        _ => None,
+    };
+    Ok(Case {
+        stem: stem.to_owned(),
+        hit: din.hit.clone(),
+        din,
+        dout,
+        d665,
+        d666,
+        minion,
+    })
+}
+
+/// Peak resident set size of this process (`VmHWM`, kB), when the kernel reports it.
+fn peak_rss_kb() -> Option<u64> {
+    let s = std::fs::read_to_string("/proc/self/status").ok()?;
+    let l = s.lines().find(|l| l.starts_with("VmHWM:"))?;
+    l.split_whitespace().nth(1)?.parse().ok()
 }
 
 /// `calcs.hitChance` from PoB's own source, run by LuaJIT (JIT off).
 fn lua_hit_chance(src: &Path) -> Rc<dyn Fn(f64, f64) -> f64> {
     let lines = |file: &str, a: usize, b: usize| -> String {
-        let text = std::fs::read_to_string(src.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
-        text.lines().skip(a - 1).take(b - a + 1).collect::<Vec<_>>().join("\n")
+        let text =
+            std::fs::read_to_string(src.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+        text.lines()
+            .skip(a - 1)
+            .take(b - a + 1)
+            .collect::<Vec<_>>()
+            .join("\n")
     };
     let round = lines("Modules/Common.lua", 709, 715);
     let hit = lines("Modules/CalcDefence.lua", 58, 64);
-    assert!(round.starts_with("function round(val, dec)"), "Common.lua:709 moved: {round}");
-    assert!(hit.starts_with("function calcs.hitChance(evasion, accuracy)"), "CalcDefence.lua:58 moved: {hit}");
+    assert!(
+        round.starts_with("function round(val, dec)"),
+        "Common.lua:709 moved: {round}"
+    );
+    assert!(
+        hit.starts_with("function calcs.hitChance(evasion, accuracy)"),
+        "CalcDefence.lua:58 moved: {hit}"
+    );
     let lua = mlua::Lua::new();
     let chunk = format!(
         "if jit then jit.off() jit.flush() end\nlocal m_floor, m_min, m_max = math.floor, math.min, math.max\n{round}\nlocal calcs = {{}}\n{hit}\nreturn calcs.hitChance"
     );
-    let f: mlua::Function = lua.load(&chunk).set_name("hitChance").eval().unwrap_or_else(|e| panic!("lua: {e}"));
+    let f: mlua::Function = lua
+        .load(&chunk)
+        .set_name("hitChance")
+        .eval()
+        .unwrap_or_else(|e| panic!("lua: {e}"));
     let lua = Rc::new(lua);
     Rc::new(move |e: f64, a: f64| {
         let _keep = &lua;
-        f.call::<f64>((e, a)).unwrap_or_else(|err| panic!("calcs.hitChance({e}, {a}): {err}"))
+        f.call::<f64>((e, a))
+            .unwrap_or_else(|err| panic!("calcs.hitChance({e}, {a}): {err}"))
     })
 }
 
@@ -183,9 +246,12 @@ fn apply_delta(env: &EnvRef, what: &str, din: &StateDump, dout: &StateDump) {
 }
 
 /// L4 for one case: the mismatch lines (empty = pass).
-fn run_case(c: &Case, hit_chance: &Rc<dyn Fn(f64, f64) -> f64>) -> Vec<String> {
-    let model = testkit::load_build(&c.xml).unwrap_or_else(testkit::empty_build);
-    let inj = match pob_oracle::inject::inject(&c.din, &model) {
+fn run_case(
+    c: &Case,
+    model: &pob_calc::model::BuildRef,
+    hit_chance: &Rc<dyn Fn(f64, f64) -> f64>,
+) -> Vec<String> {
+    let inj = match pob_oracle::inject::inject(&c.din, model) {
         Ok(i) => i,
         Err(e) => return vec![format!("inject {}: {e}", c.hit)],
     };
@@ -204,19 +270,26 @@ fn run_case(c: &Case, hit_chance: &Rc<dyn Fn(f64, f64) -> f64>) -> Vec<String> {
     }
     {
         let (env, d665, d666) = (env.clone(), c.d665.clone(), c.d666.clone());
-        h.resistances = Some(Rc::new(move |_| apply_delta(&env, "resistances", &d665, &d666)));
+        h.resistances = Some(Rc::new(move |_| {
+            apply_delta(&env, "resistances", &d665, &d666);
+        }));
     }
     if let Some((a, b, cc)) = c.minion.clone() {
         let (env1, a1, b1) = (env.clone(), a, b.clone());
-        h.doActorLifeMana = Some(Rc::new(move |_| apply_delta(&env1, "doActorLifeMana", &a1, &b1)));
+        h.doActorLifeMana = Some(Rc::new(move |_| {
+            apply_delta(&env1, "doActorLifeMana", &a1, &b1);
+        }));
         let env2 = env.clone();
         h.doActorLifeManaReservation = Some(Rc::new(move |_, _| {
-            apply_delta(&env2, "doActorLifeManaReservation", &b, &cc)
+            apply_delta(&env2, "doActorLifeManaReservation", &b, &cc);
         }));
     } else {
-        h.doActorLifeMana = Some(Rc::new(|_| panic!("doActorLifeMana called but no defence:674 dump of this call")));
-        h.doActorLifeManaReservation =
-            Some(Rc::new(|_, _| panic!("doActorLifeManaReservation called but no defence:675 dump of this call")));
+        h.doActorLifeMana = Some(Rc::new(|_| {
+            panic!("doActorLifeMana called but no defence:674 dump of this call")
+        }));
+        h.doActorLifeManaReservation = Some(Rc::new(|_, _| {
+            panic!("doActorLifeManaReservation called but no defence:675 dump of this call")
+        }));
     }
     h.hitChance = Some(hit_chance.clone());
     hooks::set(h);
@@ -252,7 +325,10 @@ fn df_b_l4() {
     let Some(parity) = pob_testpaths::require(pob_testpaths::parity_dir(), ".parity") else {
         return;
     };
-    let Some(src) = pob_testpaths::require(pob_testpaths::pob_src(), "PoB checkout (.PathOfBuilding/src)") else {
+    let Some(src) = pob_testpaths::require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src)",
+    ) else {
         return;
     };
     assert!(testkit::init_default_data(), "data/dump did not load");
@@ -279,40 +355,69 @@ fn df_b_l4() {
     builds.extend(unit);
     let hit_chance = lua_hit_chance(&src);
 
+    // One build at a time, one call at a time: only the current call's dumps, the build's
+    // few minion dumps and its parsed model are alive at once (memory budget, AMENDMENTS).
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
     let mut missing = Vec::new();
-    let mut cases = Vec::new();
+    let mut failures: Vec<(String, String, Vec<String>)> = Vec::new();
+    let (mut total, mut pass, mut minion_cases) = (0usize, 0usize, 0usize);
+    let (mut unit_cases, mut unit_pass) = (0usize, 0usize);
+    let mut nbuilds = 0usize;
     for xml in &builds {
         let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
         if only.as_ref().is_some_and(|o| !o.contains(&stem)) {
             continue;
         }
+        nbuilds += 1;
         let Some(dir) = cache_dir(&parity, xml) else {
-            missing.push(format!("{stem}: no DF-B dumps (see the fill command in tests/DF-B.rs)"));
+            missing.push(format!(
+                "{stem}: no DF-B dumps (see the fill command in tests/DF-B.rs)"
+            ));
             continue;
         };
-        cases.extend(cases_of(&stem, xml, &load_dumps(&dir), &mut missing));
-    }
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let mut failed = Vec::new();
-    let (mut pass, mut minion_cases) = (0usize, 0usize);
-    let (mut unit_cases, mut unit_pass) = (0usize, 0usize);
-    for c in &cases {
-        minion_cases += usize::from(c.minion.is_some());
-        let is_unit = c.xml.starts_with(&unit_dir);
-        unit_cases += usize::from(is_unit);
-        let m = run_case(c, &hit_chance);
-        if m.is_empty() {
-            pass += 1;
-            unit_pass += usize::from(is_unit);
-        } else {
-            failed.push((c, m));
+        let is_unit = xml.starts_with(&unit_dir);
+        let files = dump_files(&dir);
+        let minion = minion_dumps(&files);
+        let model = testkit::load_build(xml).unwrap_or_else(testkit::empty_build);
+        let (mut bpass, mut btotal) = (0usize, 0usize);
+        for n in hits_of(&files, P_IN) {
+            let c = match case_of(&stem, &files, &minion, n) {
+                Ok(c) => c,
+                Err(e) => {
+                    missing.push(e);
+                    continue;
+                }
+            };
+            total += 1;
+            btotal += 1;
+            minion_cases += usize::from(c.minion.is_some());
+            unit_cases += usize::from(is_unit);
+            let m = run_case(&c, &model, &hit_chance);
+            if m.is_empty() {
+                pass += 1;
+                bpass += 1;
+                unit_pass += usize::from(is_unit);
+            } else {
+                let keep = if verbose { m.len() } else { 8 };
+                let n = m.len();
+                let mut m = m;
+                m.truncate(keep);
+                m.push(format!("({n} mismatches)"));
+                failures.push((c.stem.clone(), c.hit.clone(), m));
+            }
+        }
+        if verbose {
+            eprintln!(
+                "{stem}: {bpass}/{btotal} (peak RSS {} MB)",
+                peak_rss_kb().unwrap_or(0) / 1024
+            );
         }
     }
     std::panic::set_hook(hook);
-    for (c, m) in &failed {
-        eprintln!("FAIL {} {} ({} mismatches)", c.stem, c.hit, m.len());
-        for l in m.iter().take(if verbose { usize::MAX } else { 8 }) {
+    for (stem, hit, m) in &failures {
+        eprintln!("FAIL {stem} {hit}");
+        for l in m {
             eprintln!("    {l}");
         }
     }
@@ -320,11 +425,17 @@ fn df_b_l4() {
         eprintln!("MISSING {l}");
     }
     eprintln!(
-        "DF-B L4: {pass}/{} calcs.defence calls exact ({minion_cases} minion calls; unit corpus {unit_pass}/{unit_cases}) over {} builds; {} builds/hits without dumps",
-        cases.len(),
-        builds.len(),
-        missing.len()
+        "DF-B L4: {pass}/{total} calcs.defence calls exact ({minion_cases} minion calls; unit corpus {unit_pass}/{unit_cases}) over {nbuilds} builds; {} builds/hits without dumps; peak RSS {} MB",
+        missing.len(),
+        peak_rss_kb().unwrap_or(0) / 1024
     );
-    assert!(!cases.is_empty(), "no DF-B dumps found (fill the probe cache, see the module doc)");
-    assert!(failed.is_empty(), "{} of {} DF-B L4 cases differ", failed.len(), cases.len());
+    assert!(
+        total > 0,
+        "no DF-B dumps found (fill the probe cache, see the module doc)"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} of {total} DF-B L4 cases differ",
+        failures.len()
+    );
 }
