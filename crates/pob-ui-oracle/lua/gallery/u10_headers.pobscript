@@ -1,0 +1,33 @@
+# Interactions of the "u10_headers" gallery (U10).
+frames 2
+# pages 2, 3, 4 with flavour text on
+move 50 20
+click LEFTBUTTON
+frames 1
+click LEFTBUTTON
+frames 1
+click LEFTBUTTON
+frames 1
+# the hover overflow tooltip at the right edge (columns shift left)
+move 1230 20
+frames 2
+# flavour text off: page 4, then 1, 2, 3
+move 140 20
+click LEFTBUTTON
+frames 1
+move 50 20
+click LEFTBUTTON
+frames 1
+click LEFTBUTTON
+frames 1
+click LEFTBUTTON
+frames 1
+move 1230 20
+frames 2
+# flavour text on again (page 3), then page 4 and 1
+move 140 20
+click LEFTBUTTON
+move 50 20
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2

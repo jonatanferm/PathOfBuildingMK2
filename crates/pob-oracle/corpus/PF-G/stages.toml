@@ -1,0 +1,142 @@
+# PF-G acceptance probes (crates/pob-oracle/tests/PF-G.rs). Owned by PF-G.
+#
+# The segment's own boundary `perform:3497` (copied from docs/port/stages.toml) plus line probes
+# around every not-yet-ported callee the segment calls: the state between two consecutive probes
+# is exactly one call's in -> out, so the test replays each call (pob_oracle::replay) from the
+# main env's hits (`pfg:*@main`; a line probe fires at most once per perform, so the main env's
+# first hit is the call). `perform:out` is the patcher's function probe.
+
+[[stage]]
+id = "perform:3497"
+file = "Modules/CalcPerform.lua"
+line = 3498
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "local ailmentData = data.nonDamagingAilment"
+
+# before the enemy's doActorCharges
+[[stage]]
+id = "pfg:3624"
+file = "Modules/CalcPerform.lua"
+line = 3624
+locals = ["env"]
+expect = "doActorCharges(env, env.enemy)"
+
+# after doActorCharges, before doActorMisc (enemy)
+[[stage]]
+id = "pfg:3625"
+file = "Modules/CalcPerform.lua"
+line = 3625
+locals = ["env"]
+expect = "doActorMisc(env, env.enemy)"
+
+# after the enemy's doActorMisc
+[[stage]]
+id = "pfg:3627"
+file = "Modules/CalcPerform.lua"
+line = 3627
+locals = ["env"]
+expect = "local major, minor = env.spec.treeVersion:match"
+
+# before defence (player)
+[[stage]]
+id = "pfg:3792"
+file = "Modules/CalcPerform.lua"
+line = 3792
+locals = ["env"]
+expect = "calcs.defence(env, env.player)"
+
+# after defence (player)
+[[stage]]
+id = "pfg:3793"
+file = "Modules/CalcPerform.lua"
+line = 3793
+locals = ["env"]
+expect = "if not skipEHP then"
+
+# before buildDefenceEstimations (player; skipEHP false)
+[[stage]]
+id = "pfg:3794"
+file = "Modules/CalcPerform.lua"
+line = 3794
+locals = ["env"]
+expect = "calcs.buildDefenceEstimations(env, env.player)"
+
+# after buildDefenceEstimations / before triggers (player)
+[[stage]]
+id = "pfg:3797"
+file = "Modules/CalcPerform.lua"
+line = 3797
+locals = ["env"]
+expect = "calcs.triggers(env, env.player)"
+
+# after triggers, before mirages
+[[stage]]
+id = "pfg:3798"
+file = "Modules/CalcPerform.lua"
+line = 3798
+locals = ["env"]
+expect = "if not calcs.mirages(env) then"
+
+# after mirages (returned falsy), before offence (player)
+[[stage]]
+id = "pfg:3799"
+file = "Modules/CalcPerform.lua"
+line = 3799
+locals = ["env"]
+expect = "calcs.offence(env, env.player, env.player.mainSkill)"
+
+# after offence (player), or after mirages when it returned truthy
+[[stage]]
+id = "pfg:3802"
+file = "Modules/CalcPerform.lua"
+line = 3802
+locals = ["env"]
+expect = "if env.minion then"
+
+# before defence (minion)
+[[stage]]
+id = "pfg:3803"
+file = "Modules/CalcPerform.lua"
+line = 3803
+locals = ["env"]
+expect = "calcs.defence(env, env.minion)"
+
+# after defence (minion)
+[[stage]]
+id = "pfg:3804"
+file = "Modules/CalcPerform.lua"
+line = 3804
+locals = ["env"]
+expect = "if not skipEHP then"
+
+# before buildDefenceEstimations (minion)
+[[stage]]
+id = "pfg:3805"
+file = "Modules/CalcPerform.lua"
+line = 3805
+locals = ["env"]
+expect = "calcs.buildDefenceEstimations(env, env.minion)"
+
+# after buildDefenceEstimations / before triggers (minion)
+[[stage]]
+id = "pfg:3807"
+file = "Modules/CalcPerform.lua"
+line = 3807
+locals = ["env"]
+expect = "calcs.triggers(env, env.minion)"
+
+# after triggers, before offence (minion)
+[[stage]]
+id = "pfg:3808"
+file = "Modules/CalcPerform.lua"
+line = 3808
+locals = ["env"]
+expect = "calcs.offence(env, env.minion, env.minion.mainSkill)"
+
+# after the defence/offence dispatch
+[[stage]]
+id = "pfg:3812"
+file = "Modules/CalcPerform.lua"
+line = 3812
+locals = ["env"]
+expect = "if partyTabEnableExportBuffs then"
