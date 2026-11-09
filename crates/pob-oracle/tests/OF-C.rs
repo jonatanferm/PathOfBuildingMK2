@@ -191,7 +191,7 @@ fn l4_one(stem: &str, dumps: &BTreeMap<String, StateDump>) -> Result<(Vec<String
         .and_then(|(_, v)| v.obj::<pob_calc::env::Env>())
         .or(inj.env)
         .ok_or("no env")?;
-    // CCR-0038 §2: `weaponNCfg.skillStats = output.MainHand/OffHand` (2008/2025) stores a still
+    // CCR-0055 §2: `weaponNCfg.skillStats = output.MainHand/OffHand` (2008/2025) stores a still
     // empty table in a typed field the injection marked absent (nil at 1692); the export elides
     // an absent-marked field whose value looks default (probe.rs `struct_members`), so the write
     // is announced to the registry here, as an injection of the :out dump would.

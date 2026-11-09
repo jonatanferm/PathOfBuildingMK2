@@ -12,7 +12,7 @@
 //! * `isElemental` / `dmgTypeList` (CalcOffence.lua:31/34) are OF-A's module-level
 //!   locals (their provenance is OF-A's 7-67 marker); this file reads them through the
 //!   private copies below.
-//! * `combineStat`'s vararg is a stat name, not a table (CCR-0038).
+//! * `combineStat`'s vararg is a stat name, not a table (CCR-0055).
 #![allow(non_snake_case)]
 // Lua locals kept verbatim even where unread (`mainPortion` 2132, `globalTotal` 1969)
 #![allow(unused_variables, unused_assignments)]
@@ -1369,7 +1369,7 @@ fn buildConversionTable(skillModList: &ModList, cfg: Option<&ModCfg>) -> Table {
 /// pass loops (§7.2). Its provenance is part of the OF-C segment marker above. Upvalues:
 /// `output`, `breakdown`, `skillFlags`, `skillData` (the ctx) and `globalOutput`
 /// (`OFFENCE_STATE`). `extra` is the first vararg (`output.MainHand[...]`), a stat name
-/// (CCR-0038: the frozen stub took `Option<&Table>`).
+/// (CCR-0055: the frozen stub took `Option<&Table>`).
 // called after the pass loops by OF-D (2510), OF-F (3959) and OF-I (5652)
 #[allow(dead_code)]
 pub fn combineStat(ctx: &OffenceCtx, stat: Name, mode: Name, extra: Option<Name>) {
