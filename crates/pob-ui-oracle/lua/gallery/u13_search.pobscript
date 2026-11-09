@@ -1,0 +1,69 @@
+# Interactions of the "u13_search" gallery (U13).
+frames 2
+# open the table entries (details), hover row 3 (HOVER tooltip with the search filter)
+move 100 50
+click LEFTBUTTON
+move 100 95
+frames 1
+# type-to-search: "ar" matches the search filters (highlights drawn over the labels)
+type "ar"
+frames 1
+move 100 68
+frames 1
+# a second word, a refused double space; then BACK twice
+type " w"
+frames 1
+type " "
+press BACK
+press BACK
+frames 1
+# no matches; ESCAPE resets the search, a second ESCAPE closes
+type "zz"
+frames 1
+press ESCAPE
+frames 1
+press ESCAPE
+frames 1
+# select a filtered row (DropIndexToListIndex); the search resets once closed
+move 100 50
+click LEFTBUTTON
+type "dar"
+frames 1
+move 100 68
+click LEFTBUTTON
+frames 2
+# ignoreSearchOrder over long strings (CheckDroppedWidth, maxDroppedWidth 420)
+move 400 50
+click LEFTBUTTON
+frames 1
+type "fire phys sic"
+frames 1
+move 400 100
+frames 1
+wheel down 2
+frames 1
+click LEFTBUTTON
+frames 1
+# reopen: selFunc ran CheckDroppedWidth while dropped (scroll bar width included)
+move 400 50
+click LEFTBUTTON
+frames 1
+type "light"
+frames 1
+press ESCAPE
+press ESCAPE
+frames 1
+# enableChangeBoxWidth: select the long entry (box widens to 390), then the short one (190)
+move 640 50
+click LEFTBUTTON
+move 640 97
+frames 1
+click LEFTBUTTON
+frames 1
+move 700 50
+frames 1
+click LEFTBUTTON
+move 640 65
+frames 1
+click LEFTBUTTON
+frames 2

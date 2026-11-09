@@ -1,0 +1,40 @@
+# Interactions of the "u13_slot" gallery (U13).
+frames 2
+# hover the slot (subclass Draw: label, the super Draw with noTooltip nil, BODY tooltip)
+move 450 50
+frames 1
+# drag row 1 (ok) onto the slot: the slot and the plain dropdown are armed (green), the minion is not
+move 100 50
+key-down LEFTBUTTON
+frames 1
+move 200 60
+frames 1
+move 300 60
+frames 1
+move 450 50
+frames 2
+key-up LEFTBUTTON
+frames 1
+# drag row 2 (not ok) over the plain dropdown onto the minion dropdown (instance ReceiveDrag)
+move 100 66
+key-down LEFTBUTTON
+frames 1
+move 300 150
+frames 1
+move 450 210
+frames 1
+move 450 130
+frames 1
+key-up LEFTBUTTON
+frames 1
+# the slot lists the received entry: open it (tooltip reads self.dropped), select row 1
+move 450 50
+click LEFTBUTTON
+move 450 66
+frames 1
+click LEFTBUTTON
+frames 1
+# the minion dropdown: wheel over it while closed
+move 450 130
+wheel down 1
+frames 2
