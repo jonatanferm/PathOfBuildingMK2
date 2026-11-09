@@ -184,6 +184,9 @@ fn lj_math_binary() {
 
 #[test]
 fn common_lua_rounding() {
+    if pob_src().is_none() {
+        return; // POB_ALLOW_SKIP=1
+    }
     for mode in modes() {
         let lua = lua(mode);
         let fns: pob_oracle::mlua::Table = lua

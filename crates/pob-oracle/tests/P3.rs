@@ -11,8 +11,9 @@
 //!   adds nothing structurally new);
 //! * `pob_calc_diff` output is accepted by `scripts/parity/report.py`.
 //!
-//! The PoB runs need the PoB checkout and `.parity/builds` (found upward
-//! from the crate); the tests skip with a message when they are absent.
+//! The PoB runs need the PoB checkout and `.parity/builds` (`pob_testpaths`:
+//! the environment, this workspace, the main checkout); a missing input fails
+//! the test unless `POB_ALLOW_SKIP=1`.
 //! Every PoB process takes the machine-wide oracle lock.
 //!
 //! `all57_corpus` (ignored by default) checks the corpus run that
@@ -27,10 +28,11 @@ use std::process::Command;
 
 use pob_oracle::diff::{diff_flat, flat_outputs, DiffOptions};
 use pob_oracle::nondet::{compare_runs, NondetRecord};
-use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up, load_outputs, Leaf};
+use pob_oracle::oracle::{load_outputs, Leaf};
 use pob_oracle::patcher::{self, SiteKind, StagesFile};
 use pob_oracle::runner::ProbeCache;
 use pob_oracle::schema::{coverage, flatten_state, HitsIndex, Provenance, StateDump};
+use pob_testpaths::require;
 use serde_json::Value as J;
 
 const BUILD: &str = "upstream_OccVortex";
@@ -48,24 +50,27 @@ fn scratch(name: &str) -> PathBuf {
     d
 }
 
-/// A test whose inputs (PoB checkout, `.parity`) are absent skips with a
-/// message; with `POB_ORACLE_REQUIRE=1` (or `CI` set) it fails instead.
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
+/// PoB's `src/` (missing: fail, or `None` with `POB_ALLOW_SKIP=1`).
+fn pob_src() -> Option<PathBuf> {
+    require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src)",
+    )
 }
 
+/// `.parity/builds/<stem>.xml`, with the PoB checkout to run it.
 fn build_xml(stem: &str) -> Option<PathBuf> {
-    find_pob_src()?;
-    find_up(&format!(".parity/builds/{stem}.xml"))
+    pob_src()?;
+    require(
+        pob_testpaths::parity_build(stem),
+        &format!(".parity/builds/{stem}.xml"),
+    )
 }
 
 /// The patched copy for the dummy stages (shared by the tests: the
 /// publish is atomic and keyed by content).
 fn patched() -> patcher::Patched {
-    let src = find_pob_src().expect("PoB checkout");
+    let src = pob_testpaths::pob_src().expect("PoB checkout");
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
     patcher::patch(&src, Some(&stages_path()), &root).unwrap_or_else(|e| panic!("{e}"))
 }
@@ -82,10 +87,12 @@ fn probe(build: &Path, out: &Path, src: &Path, extra: &[&str]) {
         .stderr(std::fs::File::create(out.with_extension("log")).unwrap())
         .status()
         .unwrap();
+    let log = out.with_extension("log");
     assert!(
         status.success(),
-        "pob_oracle probe failed, see {}",
-        out.with_extension("log").display()
+        "pob_oracle probe failed ({}):\n{}",
+        log.display(),
+        std::fs::read_to_string(&log).unwrap_or_default()
     );
 }
 
@@ -93,9 +100,8 @@ fn probe(build: &Path, out: &Path, src: &Path, extra: &[&str]) {
 
 #[test]
 fn patcher_round_trips_dummy_stages() {
-    let Some(src) = find_pob_src() else {
-        skip("no PoB checkout");
-        return;
+    let Some(src) = pob_src() else {
+        return; // POB_ALLOW_SKIP=1
     };
     let stages = StagesFile::load(&stages_path()).unwrap();
     assert!(stages.stage.len() >= 8 && !stages.function.is_empty());
@@ -216,9 +222,8 @@ fn patcher_round_trips_dummy_stages() {
 /// the same sha into an empty root all succeed with the same copy.
 #[test]
 fn patch_publishes_concurrently() {
-    let Some(src) = find_pob_src() else {
-        skip("no PoB checkout");
-        return;
+    let Some(src) = pob_src() else {
+        return; // POB_ALLOW_SKIP=1
     };
     let root = scratch("concurrent-patch");
     // the unpatched files of a copy are hard links to PoB's: a publish
@@ -275,9 +280,8 @@ fn patch_publishes_concurrently() {
 
 #[test]
 fn patcher_rejects_bad_input() {
-    let Some(src) = find_pob_src() else {
-        skip("no PoB checkout");
-        return;
+    let Some(src) = pob_src() else {
+        return; // POB_ALLOW_SKIP=1
     };
     let bad_expect = StagesFile::parse(
         "[[stage]]\nid = \"x:in\"\nfile = \"Modules/CalcPerform.lua\"\nline = 1943\nexpect = \"not on this line\"\n",
@@ -373,8 +377,7 @@ fn count_at(v: &J, n: &mut usize, total: &mut usize) {
 #[test]
 fn probe_one_build() {
     let Some(build) = build_xml(BUILD) else {
-        skip(&format!("no PoB checkout / {BUILD}"));
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let p = patched();
     let out = scratch("probe");
@@ -516,17 +519,26 @@ fn probe_one_build() {
         "active skills carry their uuid"
     );
 
-    // the probed PoB computes what the unpatched PoB computes
+    // the probed PoB computes what the unpatched PoB computes (the same
+    // checkout the patched copy was made from: the binary's own ancestor
+    // search does not reach the main checkout from an outside worktree)
     let plain = scratch("plain").join("outputs.json");
+    let plain_log = plain.with_extension("log");
     let st = Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
         .arg("outputs")
         .arg(&build)
         .arg("--json")
         .arg(&plain)
-        .stderr(std::process::Stdio::null())
+        .arg("--pob")
+        .arg(pob_testpaths::pob_src().expect("PoB checkout"))
+        .stderr(std::fs::File::create(&plain_log).unwrap())
         .status()
         .unwrap();
-    assert!(st.success());
+    assert!(
+        st.success(),
+        "pob_oracle outputs failed:\n{}",
+        std::fs::read_to_string(&plain_log).unwrap_or_default()
+    );
     let a = load_outputs(&plain).unwrap();
     let b = load_outputs(&out.join("outputs.json")).unwrap();
     assert_eq!(a.pob_version, b.pob_version);
@@ -596,8 +608,7 @@ fn probe_one_build() {
 #[test]
 fn two_runs_agree_outside_the_nondet_set() {
     let Some(build) = build_xml(BUILD) else {
-        skip(&format!("no PoB checkout / {BUILD}"));
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let p = patched();
     let work = scratch("nondet");
@@ -726,8 +737,7 @@ fn state_diff_runs(
 fn state_diff_accepts_pob_against_itself() {
     const STEM: &str = "allflame_exp_019";
     let Some(build) = build_xml(STEM) else {
-        skip(&format!("no PoB checkout / {STEM}"));
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let p = patched();
     let work = scratch("self_diff");
@@ -788,15 +798,16 @@ fn state_diff_accepts_pob_against_itself() {
 
 #[test]
 fn calc_diff_is_accepted_by_report_py() {
-    let Some(parity) = find_parity_dir() else {
-        skip("no .parity");
-        return;
+    let Some(parity) = require(pob_testpaths::parity_dir(), ".parity (build corpus)") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let pob = parity.join("oracle").join(BUILD).join("outputs.json");
-    if !pob.is_file() {
-        skip(&format!("no {}", pob.display()));
-        return;
-    }
+    let Some(pob) = require(
+        Some(pob.clone()).filter(|p| p.is_file()),
+        &format!("{} (scripts/parity/oracle_dump.sh)", pob.display()),
+    ) else {
+        return; // POB_ALLOW_SKIP=1
+    };
     let dir = scratch("calc_diff");
     // "ours": PoB's outputs as a plain object, with three perturbations
     let mut ours =
@@ -858,7 +869,8 @@ fn calc_diff_is_accepted_by_report_py() {
         let pdir = dir.join("prov").join(BUILD);
         std::fs::create_dir_all(&pdir).unwrap();
         std::fs::copy(&prov, pdir.join("provenance.json")).unwrap();
-        let doc_md = find_up("docs/port/calc-architecture.md").expect("calc-architecture.md");
+        let doc_md =
+            pob_testpaths::find("docs/port/calc-architecture.md").expect("calc-architecture.md");
         for (unit, kept) in [("OF-F", "TotalDPS"), ("PF-A", "Life")] {
             let unit_dir = dir.join(format!("unit-{unit}"));
             let o = Command::new(env!("CARGO_BIN_EXE_pob_calc_diff"))
@@ -893,17 +905,17 @@ fn calc_diff_is_accepted_by_report_py() {
                 .is_some_and(|w| w.contains(".lua:")));
         }
     } else {
-        skip(&format!(
-            "--unit: no {} (run oracle.sh corpus)",
-            prov.display()
-        ));
+        // The --unit check only (POB_ALLOW_SKIP=1); the rest of the test runs.
+        let _ = require(
+            None::<()>,
+            &format!("--unit: {} (run oracle.sh corpus)", prov.display()),
+        );
     }
 
-    let script = find_up("scripts/parity/report.py").expect("report.py");
+    let script = pob_testpaths::find("scripts/parity/report.py").expect("report.py");
     let rep = Command::new("python3").arg(&script).arg(&results).output();
-    let Ok(rep) = rep else {
-        skip("report.py: no python3");
-        return;
+    let Some(rep) = require(rep.ok(), "python3 (for scripts/parity/report.py)") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let rtext = String::from_utf8_lossy(&rep.stdout);
     eprintln!("{rtext}{}", String::from_utf8_lossy(&rep.stderr));
@@ -936,7 +948,7 @@ fn calc_diff_is_accepted_by_report_py() {
 #[test]
 #[ignore = "needs the oracle.sh corpus and nondet runs over .parity/builds"]
 fn all57_corpus() {
-    let parity = find_parity_dir().expect(".parity");
+    let parity = pob_testpaths::parity_dir().expect(".parity");
     let mut builds: Vec<String> = std::fs::read_dir(parity.join("builds"))
         .unwrap()
         .filter_map(Result::ok)

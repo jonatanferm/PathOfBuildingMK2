@@ -1,0 +1,14 @@
+[package]
+name = "pob-testpaths"
+description = "Test-only: locates the gitignored test inputs (PoB checkout, data/, data/dump, .parity) from any worktree, and the test-skip policy (missing inputs fail unless POB_ALLOW_SKIP=1). Dev-dependency only."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

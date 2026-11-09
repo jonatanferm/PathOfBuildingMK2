@@ -3,11 +3,16 @@ use std::path::Path;
 #[test]
 fn modparser_smoke() {
     let (Some(pob), Some(env)) = (
-        pob_oracle::oracle::find_pob_src(),
-        pob_oracle::oracle::find_up("data/lua/modparser_env.lua"),
+        pob_testpaths::require(
+            pob_testpaths::pob_src(),
+            "PoB checkout (.PathOfBuilding/src)",
+        ),
+        pob_testpaths::require(
+            pob_testpaths::find("data/lua/modparser_env.lua"),
+            "data/lua/modparser_env.lua",
+        ),
     ) else {
-        eprintln!("skipped: no PoB checkout / data/lua/modparser_env.lua");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let (pob, env): (&Path, &Path) = (&pob, &env);
     let t = std::time::Instant::now();

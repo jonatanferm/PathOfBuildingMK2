@@ -905,10 +905,14 @@ pub fn collect_globals(proto: &FuncProto) -> std::collections::BTreeSet<String> 
 mod tests {
     #[test]
     fn modparser_parses_and_lists_globals() {
-        let path = std::path::Path::new("../../.PathOfBuilding/src/Modules/ModParser.lua");
-        let Ok(src) = std::fs::read_to_string(path) else {
+        // HYG1: the PoB checkout via pob_testpaths; missing fails unless POB_ALLOW_SKIP=1.
+        let Some(pob) = pob_testpaths::require(
+            pob_testpaths::pob_src(),
+            "PoB checkout (.PathOfBuilding/src)",
+        ) else {
             return;
         };
+        let src = std::fs::read_to_string(pob.join("Modules/ModParser.lua")).unwrap();
         let proto = super::Parser::new(&src, "ModParser")
             .unwrap()
             .parse_chunk()

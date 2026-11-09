@@ -2,26 +2,21 @@
 //! line, agreement with PoB's own ModCache, determinism, and that the scan
 //! prefilter never changes a result.
 //!
-//! Needs PoB's source: `$POB_SRC`, or `<workspace>/.PathOfBuilding/src`, or
-//! the main checkout's (worktrees). Skipped (with a message) when absent.
+//! Needs PoB's source (`pob_testpaths`: `$POB_SRC`, this workspace, the main
+//! checkout). Missing, the tests fail, unless `POB_ALLOW_SKIP=1`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+/// PoB's `src/` via `pob_testpaths` (`$POB_SRC`, this workspace, the main
+/// checkout). Missing: the test fails, or returns with `POB_ALLOW_SKIP=1`.
 fn pob_src() -> Option<PathBuf> {
-    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let candidates = [
-        std::env::var_os("POB_SRC").map(PathBuf::from),
-        Some(here.join("../../.PathOfBuilding/src")),
-        // a git worktree under <main checkout>/.claude/worktrees/<name>
-        Some(here.join("../../../../../.PathOfBuilding/src")),
-    ];
-    candidates
-        .into_iter()
-        .flatten()
-        .find(|p| p.join("Modules/Data.lua").exists())
+    pob_testpaths::require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src)",
+    )
 }
 
 /// Numbers equal to 13 significant digits (ModCache.lua is written with
@@ -64,8 +59,7 @@ fn lua_key(k: &str) -> String {
 #[test]
 fn full_corpus() {
     let Some(src) = pob_src() else {
-        eprintln!("skipping: PoB source not found (set POB_SRC)");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join("pob-dump-parse-oracle");
     let report = pob_dump::dump(&pob_dump::Options {
@@ -292,8 +286,7 @@ fn full_corpus() {
 #[test]
 fn deterministic_and_prefilter_equivalent() {
     let Some(src) = pob_src() else {
-        eprintln!("skipping: PoB source not found (set POB_SRC)");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let parts: Vec<String> = ["modCache", "cluster", "pantheons", "bases", "legion"]
         .into_iter()

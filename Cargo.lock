@@ -2900,6 +2900,7 @@ version = "0.0.1"
 dependencies = [
  "ahash",
  "indexmap",
+ "mlua",
  "pob-gamedata",
  "pob-lua",
  "pob-modparser",
@@ -2938,6 +2939,7 @@ dependencies = [
  "anyhow",
  "mlua",
  "pob-gamedata",
+ "pob-testpaths",
  "serde",
  "serde_json",
  "sha2",
@@ -2984,6 +2986,7 @@ dependencies = [
  "indexmap",
  "miniz_oxide",
  "pob-lua",
+ "pob-testpaths",
  "postcard",
  "serde",
  "serde_json",
@@ -3015,6 +3018,7 @@ version = "0.0.1"
 dependencies = [
  "pob-lua",
  "pob-oracle",
+ "pob-testpaths",
  "smallvec",
  "ustr",
 ]
@@ -3044,6 +3048,7 @@ dependencies = [
  "pob-gamedata",
  "pob-lua",
  "pob-modparser",
+ "pob-testpaths",
  "rustix 1.1.4",
  "serde",
  "serde_json",
@@ -3086,6 +3091,7 @@ dependencies = [
  "bitflags 2.11.1",
  "image",
  "pob-lua",
+ "pob-testpaths",
  "serde",
  "serde_json",
  "xxhash-rust",
@@ -3101,6 +3107,10 @@ dependencies = [
  "pollster 1.0.1",
  "wgpu 30.0.1",
 ]
+
+[[package]]
+name = "pob-testpaths"
+version = "0.0.1"
 
 [[package]]
 name = "pob-ui"

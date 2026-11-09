@@ -4,11 +4,16 @@
 fn worker_snapshot() {
     use pob_oracle::worker::{Command, Event, PobHandle};
     let (Some(src), Some(build)) = (
-        pob_oracle::oracle::find_pob_src(),
-        pob_oracle::oracle::find_up(".parity/builds/upstream_OccVortex.xml"),
+        pob_testpaths::require(
+            pob_testpaths::pob_src(),
+            "PoB checkout (.PathOfBuilding/src)",
+        ),
+        pob_testpaths::require(
+            pob_testpaths::parity_build("upstream_OccVortex"),
+            ".parity/builds/upstream_OccVortex.xml",
+        ),
     ) else {
-        eprintln!("skipped: no PoB checkout / .parity build corpus");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     let mut h = PobHandle::spawn(src);
     h.send(Command::LoadXml {
