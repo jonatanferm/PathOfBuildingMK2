@@ -79,3 +79,13 @@ stage = "parse"
 keys = ["Modules/ModParser.lua:5509"]
 kind = "value"
 reason = "skillTypeList = { SkillType.Instant, SkillType.Totem, SkillType.Triggered } (ModParser.lua:5509): SkillType.Totem is nil (Data/Global.lua defines SummonsTotem, not Totem), so the Lua list has a hole at [2]; the Rust list is [Instant, Triggered], the values its only reader (pairs, ModStore.lua SkillType tag) sees. Not yet in calc doc §6 / CCR-0006 §7 (a binding-doc change, left to a CCR); checked by crates/pob-oracle/tests/MP6.rs."
+
+[[diff]]
+id = "DF-G-1"
+unit = "DF-G"
+builds = ["*"]
+stage = "buildDefenceEstimations:end"
+keys = ["breakdown.<dmgType>DotEHP[*]", "breakdown.<dmgType>MaximumHitTaken*", "breakdown.<dmgType>TakenHit[*]"]
+kind = "value"
+reason = "s_format('%d', x) of x = inf (CalcDefence.lua 3376-3378, e.g. ChaosDotEHP with Chaos Inoculation: TotalPool / TakenDotMult = inf; also the %d lines of 3331-3343 and 3810-3867 when a pool is inf): lj_strfmt_putfnum_int casts (int64_t)n, which is cvttsd2si on x64 PoB (-9223372036854775808, what the port prints) and a saturating fcvtzs on this ARM64 oracle host (9223372036854775807). Host artefact of the int cast, not a port bug. Only that exact substitution is tolerated; checked by crates/pob-oracle/tests/DF-G.rs (is_ccr0001_int_cast)."
+ccr = "CCR-0001"
