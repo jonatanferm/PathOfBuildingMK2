@@ -40,3 +40,13 @@ keys = ["Modules/ModParser.lua:4216", "Modules/ModParser.lua:4222"]
 kind = "value"
 reason = "PercentStat tags take percent = <digits-only capture string> in Lua; Rust stores tonumber of it (lua2rs snum). EvalMod only uses tag.percent in arithmetic, (`percent / 100`, ModStore.lua:547-548), which coerces the string the same way. The parse oracle / ModCache mods keep the string (pob_gamedata Tag.extra[\"percent\"]). calc doc §6, CCR-0006 §7; checked by crates/pob-oracle/tests/MP5.rs."
 ccr = "CCR-0006"
+
+[[diff]]
+id = "MP4-1"
+unit = "MP4"
+builds = ["*"]
+stage = "modparser"
+keys = ["specialModList:3535 PerStat tag.div"]
+kind = "value"
+reason = "ModParser.lua:3535 ('shield crush and spectral shield throw gains (%d+) to (%d+) added lightning damage per (%d+) energy shield on shield') stores the digits-only capture string as tag.div; the port stores tonumber of it (calc doc §6 known parse-level differences). EvalMod only uses div in arithmetic (ModStore.lua PerStat), which coerces the string the same way, so the calc sees the same value. crates/pob-oracle/tests/MP4.rs normalises exactly this field (KNOWN_TAG_STR)."
+ccr = "CCR-0006"
