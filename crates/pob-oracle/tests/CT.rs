@@ -30,8 +30,8 @@
 //! a `Skill:<id>` source that names a skill's AltX/AltY variant (PoB's own per-process choice,
 //! calc doc §9.5, CCR-0010). `CT_ONLY=a,b` runs a subset of the checks.
 //!
-//! Inputs missing (data/dump, the PoB checkout) skip with a message; with
-//! `POB_ORACLE_REQUIRE=1` (or `CI`) they fail instead.
+//! A missing input (data/dump, the PoB checkout) fails (`pob_testpaths::require`;
+//! `POB_ALLOW_SKIP=1` skips instead).
 #![allow(non_snake_case)]
 #![allow(
     clippy::format_push_string,
@@ -51,13 +51,6 @@ use pob_calc::prelude::*;
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_pob_src, find_up};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -1596,11 +1589,11 @@ local out = {}
 
 #[test]
 fn ct_oracle() {
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let _lock = pob_oracle::runner::OracleLock::acquire().unwrap_or_else(|e| panic!("{e}"));
     let t0 = std::time::Instant::now();
@@ -1623,6 +1616,15 @@ fn ct_oracle() {
         ("format", check_format),
         ("uuid", check_uuid),
     ];
+    if let Some(o) = &only {
+        // a misspelt name used to run zero checks and pass (HYG2)
+        for x in o.split(',') {
+            assert!(
+                all.iter().any(|(n, _)| *n == x),
+                "CT_ONLY names an unknown check {x:?}"
+            );
+        }
+    }
     for (name, f) in all {
         if only
             .as_deref()
@@ -1676,13 +1678,51 @@ fn ct_oracle() {
         failed |= !c.bad.is_empty();
     }
     assert!(!failed, "CT oracle mismatches (see above)");
+    // coverage floors and bucket bounds per check (HYG2/V2)
+    if only.is_none() {
+        assert_eq!(checks.len(), all.len(), "checks run");
+    }
+    for c in &checks {
+        let &(_, min_total, max_zero, max_nondet) = CT_BOUNDS
+            .iter()
+            .find(|b| b.0 == c.name)
+            .unwrap_or_else(|| panic!("no CT_BOUNDS row for {}", c.name));
+        assert!(
+            c.total >= min_total,
+            "{}: {} compared, expected at least {min_total}",
+            c.name,
+            c.total
+        );
+        assert!(
+            c.zero_sign <= max_zero && c.nondet <= max_nondet,
+            "{}: {} sign-of-zero / {} PoB-nondeterministic, bounds {max_zero} / {max_nondet}",
+            c.name,
+            c.zero_sign,
+            c.nondet
+        );
+    }
 }
+
+/// `(check, min compared, max sign-of-zero host artefacts, max PoB-nondeterministic)`; measured
+/// by HYG2 on rust-port 746b103.
+const CT_BOUNDS: [(&str, usize, usize, usize); 10] = [
+    ("modcache", 23_324, 14, 0),
+    ("type_expr", 20_000, 0, 0),
+    ("support", 1_106_175, 0, 0),
+    ("instance_stats", 12_216, 0, 0),
+    ("gem_level", 20_702, 0, 0),
+    ("stat_map", 12_328, 0, STAT_MAP_MAX_NONDET),
+    ("gem_fns", 5871, 0, 0),
+    ("breakdown", 24_001, 0, 0),
+    ("format", 2077, 0, 0),
+    ("uuid", 7, 0, 0),
+];
 
 /// The census facts the port relies on (no LuaJIT needed).
 #[test]
 fn ct_data_census() {
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     let d = pob_gamedata::data();
     // statMapLookup: data.skillStatMap has no groups (the group branch of the fallback cannot
@@ -1742,8 +1782,8 @@ fn ct_copy_table_safe() {
 fn ct_global_cache() {
     use pob_calc::global_cache::cachedData;
     use pob_calc::modules::common::{cacheData, supportEnabled, wipeGlobalCache};
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     let d = pob_gamedata::data();
     let build = Build::new(d);
@@ -1788,3 +1828,7 @@ fn ct_global_cache() {
     assert!(!supportEnabled(n!("SupportA"), &skill), "first match wins");
     assert!(supportEnabled(n!("SupportB"), &skill), "absent gem: true");
 }
+
+/// `stat_map` records that differ only where PoB itself differs between processes (calc doc
+/// §9.5); measured by HYG2 on rust-port 746b103.
+const STAT_MAP_MAX_NONDET: usize = 10;

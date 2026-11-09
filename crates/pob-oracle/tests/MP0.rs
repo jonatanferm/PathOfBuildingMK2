@@ -20,7 +20,7 @@
 //!   ported (until then it is a stub that drops them).
 //!
 //! Inputs: `data/dump` (data.bin, manifest.json, parse_oracle.jsonl) and the PoB checkout;
-//! a test skips when they are absent (fails with `POB_ORACLE_REQUIRE=1` or `CI`).
+//! a test fails when they are absent (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -32,13 +32,6 @@ use pob_modparser::helpers;
 use pob_modparser::scan::ScanCaps;
 use pob_modparser::types::{PatternEntry, PatternList, SpecialVal};
 use pob_oracle::oracle::{find_pob_src, find_up};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -334,8 +327,11 @@ fn pob_src_lines() -> Option<String> {
 
 #[test]
 fn modcache_tier_serves_cached_lines() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump/data.bin not found (run pob-dump --compile)");
+    let Some(dir) = pob_testpaths::require(
+        init_data(),
+        "data/dump/data.bin not found (run pob-dump --compile)",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
     let cache = &data().modCache;
     assert_eq!(cache.len(), 23207, "ModCache lines");
@@ -417,11 +413,11 @@ fn modcache_tier_serves_cached_lines() {
 
 #[test]
 fn generated_list_sizes() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(src) = pob_src_lines() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(pob_src_lines(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let src: Vec<&str> = src.lines().collect();
     let manifest: serde_json::Value =
@@ -457,14 +453,16 @@ fn generated_list_sizes() {
 
 #[test]
 fn scan_matches_parse_oracle() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(src) = pob_src_lines() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(pob_src_lines(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(records) = load_oracle(&dir) else {
-        return skip("data/dump/parse_oracle.jsonl not found");
+    let Some(records) =
+        pob_testpaths::require(load_oracle(&dir), "data/dump/parse_oracle.jsonl not found")
+    else {
+        return; // POB_ALLOW_SKIP=1
     };
     let src: Vec<&str> = src.lines().collect();
     let lists = build_lists(&src);
@@ -591,7 +589,28 @@ fn scan_matches_parse_oracle() {
         "{} scan steps differ from PoB",
         total.bad.len()
     );
+    // coverage (HYG2/V2): the whole oracle was replayed
+    assert_eq!(
+        records.len(),
+        PARSE_ORACLE_RECORDS,
+        "parse_oracle.jsonl records"
+    );
+    if stride == 1 {
+        assert!(
+            total.steps >= MP0_MIN_SCAN_STEPS,
+            "{} scan steps, expected at least {MP0_MIN_SCAN_STEPS}",
+            total.steps
+        );
+    }
 }
+
+/// `data/dump/parse_oracle.jsonl` record count.
+const PARSE_ORACLE_RECORDS: usize = 80_993;
+/// Scan steps replayed at stride 1; measured by HYG2 on rust-port 746b103.
+const MP0_MIN_SCAN_STEPS: usize = 594_306;
+/// `helpers_match_parse_oracle`: `(specialModList helper lines, generated keystone/skill lines)`
+/// compared; measured by HYG2 on rust-port 746b103.
+const MP0_MIN_HELPERS: (usize, usize) = (2129, 103);
 
 /// A specialModList closure that calls a helper, as `(key line, call)`.
 type HelperCall = fn(&ScanCaps) -> Option<Vec<Mod>>;
@@ -733,11 +752,13 @@ fn helper_calls() -> Vec<(u32, HelperCall)> {
 
 #[test]
 fn helpers_match_parse_oracle() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(records) = load_oracle(&dir) else {
-        return skip("data/dump/parse_oracle.jsonl not found");
+    let Some(records) =
+        pob_testpaths::require(load_oracle(&dir), "data/dump/parse_oracle.jsonl not found")
+    else {
+        return; // POB_ALLOW_SKIP=1
     };
     let strict = create_mod_ported();
     if !strict {
@@ -812,12 +833,24 @@ fn helpers_match_parse_oracle() {
         "no oracle lines exercised the helpers"
     );
     assert_eq!(bad + gen_bad, 0, "helper output differs from PoB");
+    // coverage (HYG2/V2)
+    assert_eq!(
+        records.len(),
+        PARSE_ORACLE_RECORDS,
+        "parse_oracle.jsonl records"
+    );
+    assert!(
+        ok + bad >= MP0_MIN_HELPERS.0 && gen_ok + gen_bad >= MP0_MIN_HELPERS.1,
+        "{} helper / {} generated lines compared, expected at least {MP0_MIN_HELPERS:?}",
+        ok + bad,
+        gen_ok + gen_bad
+    );
 }
 
 #[test]
 fn appendmod_and_lookups() {
-    if init_data().is_none() {
-        return skip("data/dump/data.bin not found");
+    if pob_testpaths::require(init_data(), "data/dump/data.bin not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     // appendMod: strings get the suffix, arrays get it per element
     let out = gl::appendMod(

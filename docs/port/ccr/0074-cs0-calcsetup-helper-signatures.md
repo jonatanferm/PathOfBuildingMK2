@@ -22,7 +22,10 @@ of CalcSetup.lua:272), not a flag; it returns `modList` and, when the list has a
 +pub fn buildModListForNode(env: &EnvRef, node: &NodeRef, reuse: Option<&ModList>) -> (ModList, Val)
 ```
 
-The second value is `Val::Nil` (no second return), `Val::Bool(false)` or `Val::Obj(NodeRef)`.
+The second value is `Val::Nil` or `Val::Obj(NodeRef)`, never `false`: `ModList:Flag` returns
+`true` or nothing (ModListClass:FlagInternal, Classes/ModList.lua:156-175, falls off the end or
+returns the parent's result, which is `true` or nil too), so `Flag(...) and node` is the node or
+nil.
 
 ## 2. `buildModListForNodeList` returns `explodeSources`
 
@@ -34,8 +37,10 @@ Lua returns `modList, explodeSources` (CalcSetup.lua:303); CS2 concatenates the 
 +pub fn buildModListForNodeList(env, nodeList, finishJewels) -> (ModList, Vec<Val>)
 ```
 
-Entries are `Val::Obj(NodeRef)` or `Val::Bool(false)` (`t_insert(explodeSources, false)` happens
-when a node has a `CanExplode` mod whose flag is off; a `nil` explode appends nothing).
+Entries are only `Val::Obj(NodeRef)`: the explode value is the node or nil (§1), and
+`t_insert(explodeSources, nil)` (CalcSetup.lua:275) appends nothing. CalcSetup.lua:1507
+(`#env.explodeSources ~= 0`) and 1530-1532 (`explodeSource.modSource`) rely on every entry being a
+node (or an item, CalcSetup.lua:838).
 `env.explodeSources` is `Shared<Vec<Table>>` and cannot hold nodes: that is CCR-0030 row 3 (its
 `ExplodeSource` enum would be the element type here too).
 
@@ -65,9 +70,13 @@ CalcSetup.lua:1708/1779 pass `gemInstance.gemData` (it becomes `socketCfg.skillG
 
 LUA-ALIAS (§3.6 audit addition): `modLib.setSource(value.value, …)` at CalcSetup.lua:424 rewrites
 the mod held by the `SocketProperty` mod value that `env.modDB` stores (ModStore:List returns the
-stored value table; ModTools.lua:239-246 mutate it). The port adds a re-sourced copy to
-`env.player.modDB`, so the stored SocketProperty value keeps its original inner source. The
-player's modDB is identical; only a dump of the SocketProperty value itself differs.
+stored value table; ModTools.lua:239-246 mutate it) and adds that same table to
+`env.player.modDB`. In Lua every instance of one SocketProperty mod already added to the player's
+modDB therefore ends up with the source of the *last* `applySocketMods` call; the port adds a
+re-sourced copy per call, so each instance keeps the source of its own call, and the stored
+SocketProperty value keeps its original inner source. Mod sums are unaffected (the source has no
+`:` prefix, so no `cfg.source` filter matches it either way), but breakdown source labels can
+differ when the same SocketProperty applies under different `modSource` values.
 
 ## 5. Visibility
 

@@ -23,8 +23,8 @@
 //!     give PoB's mods and remainder. The entries of the range that no oracle line hits are
 //!     listed.
 //!
-//! Inputs: `data/dump` and the PoB checkout; missing inputs skip (fail with
-//! `POB_ORACLE_REQUIRE=1` or `CI`). `MP4_L1_STRIDE=n` checks every n-th L1 record.
+//! Inputs: `data/dump` and the PoB checkout; missing inputs fail
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips). `MP4_L1_STRIDE=n` checks every n-th L1 record.
 #![allow(non_snake_case)]
 #![allow(clippy::type_complexity, clippy::too_many_lines)]
 
@@ -45,13 +45,6 @@ use pob_oracle::oracle::{find_pob_src, find_up};
 use serde_json::Value as J;
 
 const RANGE: (u32, u32) = (3084, 4036);
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -128,11 +121,11 @@ fn is_fn(v: &SpecialVal) -> bool {
 
 #[test]
 fn list_shape() {
-    let Some(src) = modparser_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(modparser_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    if init_data().is_none() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data(), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     let src: Vec<&str> = src.lines().collect();
     pob_gamedata::stub::stub_reset();
@@ -629,16 +622,23 @@ fn in_range(l: Option<u32>) -> bool {
 
 #[test]
 fn mp4_oracle() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(pob_src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(pob_src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let records = load_oracle(&dir);
-    if records.is_none() {
-        eprintln!("parse_oracle.jsonl not found: synthetic captures only, no L1");
-    }
+    // HYG2: a missing parse oracle used to print and drop L1 and coverage silently
+    let Some(records) = pob_testpaths::require(load_oracle(&dir), "data/dump/parse_oracle.jsonl")
+    else {
+        return; // POB_ALLOW_SKIP=1
+    };
+    assert_eq!(
+        records.len(),
+        PARSE_ORACLE_RECORDS,
+        "parse_oracle.jsonl records"
+    );
+    let records = Some(records);
     let ours = special_b::entries();
     let keys: BTreeSet<&'static str> = ours.iter().map(|e| e.pat).collect();
 
@@ -916,4 +916,30 @@ fn l1(recs: &[Record], ours: &[PatternEntry<SpecialVal>], bad: &mut Vec<String>)
     for (l, p) in &unhit {
         eprintln!("  not hit: ModParser.lua:{l} {p:?}");
     }
+    // coverage and the known-diff bucket (HYG2/V2); MPFIX owns the selection and raises the floor
+    if stride == 1 {
+        assert!(
+            sel.len() >= MP4_MIN_L1,
+            "{} L1 lines checked, expected at least {MP4_MIN_L1}",
+            sel.len()
+        );
+        assert!(
+            unhit.len() <= MP4_MAX_UNHIT,
+            "{} entries not hit by any oracle line, bound {MP4_MAX_UNHIT}",
+            unhit.len()
+        );
+        assert!(
+            nKnown <= MP4_MAX_KNOWN,
+            "{nKnown} known-diff fields normalised, bound {MP4_MAX_KNOWN}"
+        );
+    }
 }
+
+/// `data/dump/parse_oracle.jsonl` record count.
+const PARSE_ORACLE_RECORDS: usize = 80_993;
+/// L1 lines checked at stride 1; measured by HYG2 on rust-port 746b103.
+const MP4_MIN_L1: usize = 4158;
+/// Entries of the range no oracle line hits; measured by HYG2 on rust-port 746b103.
+const MP4_MAX_UNHIT: usize = 83;
+/// Known-diff fields normalised in L1; measured by HYG2 on rust-port 746b103.
+const MP4_MAX_KNOWN: usize = 4;

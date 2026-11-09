@@ -17,8 +17,9 @@
 //!   `attributes`: not read here.
 //!
 //! The two functions return Lua's second value too (CCR-0074): `buildModListForNode` the
-//! explode source (`nil`, `false` or the node, as a `Val`), `buildModListForNodeList` the
-//! `explodeSources` list (`false` or `Val::Obj(NodeRef)` entries). `reuse` is the scratch
+//! explode source (`nil` or the node, as a `Val`; never `false`, since `ModList:Flag` returns
+//! `true` or nothing), `buildModListForNodeList` the `explodeSources` list (only
+//! `Val::Obj(NodeRef)` entries). `reuse` is the scratch
 //! `ModList` the Lua passes, not a flag (CCR-0074).
 #![allow(non_snake_case)]
 
@@ -128,7 +129,8 @@ fn listNames(modList: &ModList) -> Vec<Name> {
 /// `calcs.buildModListForNode(env, node, reuse)` → `modList[, explode]`.
 /// `reuse`: a ModList to recycle instead of allocating. Only safe when the caller discards the
 /// result. The second value is `Val::Nil` unless the list has a `CanExplode` mod, then
-/// `modList:Flag(nil, "CanExplode") and node` (`false` or `Val::Obj(node)`).
+/// `modList:Flag(nil, "CanExplode") and node` (`Val::Obj(node)`, or `Val::Nil` when the flag is
+/// off: `Flag` returns `true` or nothing, never `false`).
 /// Signature: CCR-0074 §1.
 /// @pob Modules/CalcSetup.lua:123-256 h=610f22bb
 pub fn buildModListForNode(
@@ -367,10 +369,12 @@ pub fn buildModListForNode(
     // L252
     if hasExplode {
         // L253
+        // `ModList:Flag` returns `true` or nothing (ModList.lua:156-175), so `Flag and node` is
+        // the node or nil, never `false`.
         let explode = if modList.Flag(None, nm!["CanExplode"]) {
             Val::Obj(node.clone() as Rc<dyn Any>)
         } else {
-            Val::Bool(false)
+            Val::Nil
         };
         (modList, explode)
     } else {

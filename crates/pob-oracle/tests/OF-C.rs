@@ -22,8 +22,8 @@
 //! Dumps: `target/tmp/ofc-probe/<stem>/` (probed by this test when absent,
 //! selection `offence:1692@main,offence:2174@main,skill:*:preDamageFunc:*@main`;
 //! needs LuaJIT, PoB's checkout and the machine-wide oracle lock). Knobs:
-//! `OFC_BUILDS=stem1,stem2`, `OFC_VERBOSE=1`. A missing input skips with a
-//! message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! `OFC_BUILDS=stem1,stem2`, `OFC_VERBOSE=1`. A missing input fails
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -31,13 +31,6 @@ use std::path::{Path, PathBuf};
 use pob_oracle::oracle::find_parity_dir;
 use pob_oracle::schema::StateDump;
 use pob_oracle::testkit;
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn stem(p: &Path) -> &str {
     p.file_stem().and_then(|s| s.to_str()).unwrap_or_default()
@@ -285,15 +278,21 @@ fn has_conversion_table(d: &StateDump) -> bool {
 
 #[test]
 fn ofc_l4_costs_passes() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "no data dump (data/dump)",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity directory");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let builds = corpus(&parity);
     if builds.is_empty() {
-        return skip("no corpus builds");
+        let _ = pob_testpaths::require(None::<()>, "no corpus builds");
+        return; // POB_ALLOW_SKIP=1
     }
     let verbose = std::env::var_os("OFC_VERBOSE").is_some();
     let mut t = Tally::default();
@@ -367,6 +366,67 @@ fn ofc_l4_costs_passes() {
         all57_dirty as f64 <= 0.02 * all57_hits as f64,
         "{all57_dirty} of {all57_hits} all57 hits differ (> 2 %)"
     );
+    // HYG2/V2: the 2 % slack is only for differences recorded in docs/port/known_diffs.toml
+    // (calc doc §9.4 L4: "the rest in known_diffs.toml"): every dirty all57 build needs an
+    // `offence:2174` entry naming it (or "*")
+    let listed = known_diff_builds("offence:2174");
+    let unlisted: Vec<&str> = t
+        .dirty
+        .iter()
+        .filter(|(_, s, _)| *s == "all57")
+        .map(|(stem, _, _)| stem.as_str())
+        .filter(|stem| !listed.iter().any(|b| b == "*" || b == stem))
+        .collect();
+    assert!(
+        unlisted.is_empty(),
+        "all57 builds differ without a docs/port/known_diffs.toml offence:2174 entry: {unlisted:?}"
+    );
+    // coverage (HYG2/V2): every build was probed, and the builds whose main env never reaches
+    // offence:1692 are exactly the listed ones
+    if std::env::var_os("OFC_BUILDS").is_none() {
+        assert_eq!(builds.len(), OFC_BUILDS, "all57 + slice5 builds");
+        let mut no_hit: Vec<&str> = t.no_hit.iter().map(String::as_str).collect();
+        no_hit.sort_unstable();
+        assert_eq!(
+            no_hit, OFC_NO_HIT,
+            "builds without a main-env offence:1692 hit"
+        );
+        assert_eq!(t.hits, builds.len() - OFC_NO_HIT.len(), "offence:1692 hits");
+    }
+}
+
+/// all57 + the 5 slice5 builds.
+const OFC_BUILDS: usize = 62;
+/// Builds whose main env never runs offence past CalcOffence.lua:371 (no main skill / disabled);
+/// measured by HYG2 on rust-port 746b103.
+const OFC_NO_HIT: &[&str] = &[
+    "allflame_exp_010",
+    "allflame_exp_023",
+    "allflame_exp_028",
+    "upstream_Dual_Savior",
+];
+
+/// The `builds` of the docs/port/known_diffs.toml entries for `stage`.
+fn known_diff_builds(stage: &str) -> Vec<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/port/known_diffs.toml");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let doc: toml::Table = text
+        .parse()
+        .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    doc.get("diff")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|d| d.get("stage").and_then(toml::Value::as_str) == Some(stage))
+        .flat_map(|d| {
+            d.get("builds")
+                .and_then(toml::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|b| b.as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 // ---- combineStat (2066-2170) -----------------------------------------------------------------
@@ -380,17 +440,23 @@ fn ofc_combine_stat_modes() {
     use pob_calc::modules::calc_offence::costs_passes::combineStat;
     use pob_calc::modules::calc_offence::OffenceCtx;
     use pob_calc::prelude::*;
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "no data dump (data/dump)",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity directory");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let Some(dout) = corpus(&parity).iter().find_map(|(_, xml)| {
         let dumps = load_all(&ofc_dumps(xml)?);
         dumps.into_values().find(|d| d.probe == "offence:2174")
     }) else {
-        return skip("no offence:2174 dump");
+        let _ = pob_testpaths::require(None::<()>, "no offence:2174 dump");
+        return; // POB_ALLOW_SKIP=1
     };
     let build = testkit::empty_build();
     let inj = pob_oracle::inject::inject(&dout, &build).expect("inject");
