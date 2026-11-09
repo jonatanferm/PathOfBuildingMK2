@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Build level="90" targetVersion="3_0" className="Ranger" ascendClassName="None" mainSocketGroup="1" viewMode="CALCS" bandit="None" pantheonMajorGod="None" pantheonMinorGod="None"/>
+	<Skills activeSkillSet="1" defaultGemLevel="normalMaximum" defaultGemQuality="0">
+		<SkillSet id="1">
+			<Skill enabled="true" mainActiveSkill="1" mainActiveSkillCalcs="1">
+				<Gem level="20" quality="0" enabled="true" enableGlobal1="true" enableGlobal2="true" gemId="Metadata/Items/Gems/SkillGemPhysCascadeTrap" variantId="SeismicTrap" skillId="SeismicTrap" skillPart="5" skillPartCalcs="5"/>
+			</Skill>
+		</SkillSet>
+	</Skills>
+	<Tree activeSpec="1">
+		<Spec treeVersion="3_29" classId="2" ascendClassId="0" secondaryAscendClassId="0" nodes=""/>
+	</Tree>
+	<Items activeItemSet="1" useSecondWeaponSet="nil">
+		<ItemSet id="1" useSecondWeaponSet="nil">
+		</ItemSet>
+	</Items>
+	<Config>
+		<Input name="enemyIsBoss" string="None"/>
+	</Config>
+</PathOfBuilding>
