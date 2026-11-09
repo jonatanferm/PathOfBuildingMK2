@@ -1,0 +1,56 @@
+# Interactions of the "u12_text" gallery (U12).
+frames 2
+# hover a stat line, click it, click a spacer-free header line
+move 100 70
+frames 1
+click LEFTBUTTON
+move 100 50
+click LEFTBUTTON
+frames 1
+# the wheel, then Shift+wheel section jumps (down past the last section, then up)
+move 100 150
+wheel down 2
+frames 1
+key-down SHIFT
+wheel down 1
+frames 1
+wheel up 1
+frames 1
+wheel up 1
+frames 1
+press PAGEDOWN
+frames 1
+key-up SHIFT
+frames 1
+wheel up 3
+frames 1
+# hover and click in the default-column list
+move 450 70
+click LEFTBUTTON
+frames 1
+# breadcrumbs: the base crumb, deeper twice, shorter, undo, redo, a crumb after Short
+move 30 302
+click LEFTBUTTON
+frames 1
+move 240 380
+click LEFTBUTTON
+click LEFTBUTTON
+frames 1
+move 330 380
+click LEFTBUTTON
+frames 1
+move 60 380
+click LEFTBUTTON
+click LEFTBUTTON
+frames 1
+move 150 380
+click LEFTBUTTON
+frames 1
+move 330 380
+click LEFTBUTTON
+move 95 302
+click LEFTBUTTON
+frames 1
+move 95 342
+click LEFTBUTTON
+frames 2
