@@ -2630,16 +2630,19 @@ pub(crate) fn initMinionModDB(env: &EnvRef, activeSkill: &ActiveSkillRef, output
         // L1212
         if let Some(weapon2) = item_in(&env.player, n!("Weapon 2")) {
             if weapon2.r#type.get() == n!("Quiver") {
-                // L1213 (a nil modList: `AddList(nil)` is a no-op at scale 1, `ipairs(nil)`
-                // raises otherwise, ModStore.lua:99-107)
+                // L1213 (a nil modList raises either way, ModStore.lua:99-107: at scale 1 the
+                // ModDB `AddList(nil)` reaches `ipairs(nil)` (ModDB.lua:111-120 has no nil
+                // guard), otherwise `#modList` raises)
                 let scale = m_max(
                     modDB.Sum(ModType::BASE, None, nm!["WidowHailMultiplier"]),
                     1.0,
                 );
                 match weapon2.modList.get() {
                     Some(l) => minion.modDB.get().ScaleAddList(&l.ipairs(), scale, false),
-                    None if scale == 1.0 => {}
-                    None => lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"),
+                    None if scale == 1.0 => {
+                        lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)")
+                    }
+                    None => lua_error!("attempt to get length of local 'modList' (a nil value)"),
                 }
             }
         }
@@ -3003,10 +3006,13 @@ fn lua_item_by_id(env: &EnvRef, id: &Val) -> Option<ItemRef> {
         .with(|m| m.get(&(id as u32)).cloned())
 }
 
-/// `modDB:AddList(list)`: ModDB.lua:112 / ModList.lua:89 guard `if modList`, so nil adds nothing.
+/// `minion.modDB:AddList(list)` on a ModDB (CalcActiveSkill.lua:186). ModDBClass:AddList
+/// (ModDB.lua:111-120) has no `if modList` guard (only ModListClass:AddList, ModList.lua:88-93,
+/// has one), so a nil list raises in `ipairs`.
 fn add_list_opt(modDB: &ModDB, list: Option<ModList>) {
-    if let Some(list) = list {
-        modDB.AddList(&list.ipairs());
+    match list {
+        Some(list) => modDB.AddList(&list.ipairs()),
+        None => lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"),
     }
 }
 
@@ -3030,5 +3036,23 @@ pub mod probe_fns {
     }
     pub fn allyLifePools() -> Table {
         super::allyLifePools()
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    /// ModDBClass:AddList(nil) raises (ModDB.lua:111-120 has no nil guard).
+    #[test]
+    fn add_list_opt_nil_raises() {
+        let db = ModStore::ModDB(None);
+        let r = pob_lua::error::catch(|| add_list_opt(&db, None));
+        assert_eq!(
+            r.unwrap_err().0,
+            "bad argument #1 to 'ipairs' (table expected, got nil)"
+        );
+        let list = ModStore::ModList(None);
+        assert!(pob_lua::error::catch(|| add_list_opt(&db, Some(list))).is_ok());
     }
 }

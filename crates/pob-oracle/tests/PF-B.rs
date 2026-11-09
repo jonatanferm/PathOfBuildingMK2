@@ -9,7 +9,10 @@
 //! 2. a window of hit numbers after each first call (`<fn>:in#n … #n+W` and `:out`), which
 //!    picks up the later calls of the same perform (`doActorCharges` 2191/3490/3493/3624,
 //!    `doActorMisc` for player/minion/enemy, `actionSpeedMod` from defence and offence, …)
-//!    and the callee calls nested in them (callee windows are three times as wide).
+//!    and the callee calls nested in them (callee windows are three times as wide);
+//! 3. when a recorded caller call has no recorded nested stub-callee call, the next
+//!    `GAP_HITS` callee calls after that window (`p3`), keeping only the ones nested in a
+//!    recorded caller call (picked by the dumps' stacks in `hits.json`).
 //!
 //! Each recorded `<fn>:in#n`/`<fn>:out#n` pair is one case: the `:in` dump is injected
 //! (`pob_oracle::inject`), the Rust function runs on the injected locals and the state is
@@ -26,8 +29,9 @@
 //! they stand for before the run and puts the markers back before the export.
 //!
 //! Cases of `initMinionModDB` whose minion iterates `env.build.itemsTab.slots` (`minion.uses`,
-//! 1222-1240) cannot pass until BM-A's build loader fills the model; they are listed as
-//! "needs BM-A" and not gated.
+//! 1222-1240) cannot pass until BM-A's build loader fills the model: when every value
+//! mismatch is one the empty slots explain (`from_slot_items`) they are listed as
+//! "needs BM-A" and not gated; any other mismatch in such a case is still a failure.
 //!
 //! A case whose stub callee's nested call fell outside the probed hit window (no recorded
 //! call to replay) is not evaluated; it is listed, not counted.
@@ -191,11 +195,125 @@ fn build_dumps(xml: &Path, patched: &Path) -> Option<BTreeMap<String, PathBuf>> 
         if !sel.is_empty() && !run_probe(xml, patched, &dir.join("p2"), &sel) {
             return None;
         }
+        // 3. the stub-callee calls nested in recorded caller calls that the p2 window missed
+        let p3 = dir.join("p3");
+        let _ = std::fs::remove_dir_all(&p3);
+        let sel3 = gap_selection(&dir.join("p2"), &sel);
+        if !sel3.is_empty() {
+            if !run_probe(xml, patched, &p3, &sel3) {
+                return None;
+            }
+            prune_unneeded(&dir.join("p2"), &p3);
+        }
         std::fs::write(&done, "").ok()?;
     }
     let mut all = dump_files(&dir.join("p1"));
     all.extend(dump_files(&dir.join("p2")));
+    all.extend(dump_files(&dir.join("p3")));
     Some(all)
+}
+
+/// The stub callee replayed inside each caller (see `run_case`).
+const NESTED: [(&str, &str); 2] = [
+    ("initMinionModDB", "initModDB"),
+    ("doActorMisc", "applyEnemyModifiers"),
+];
+/// How many callee calls past the p2 window the gap pass probes.
+const GAP_HITS: u64 = 150;
+
+/// `(dumps as (hit, last stack id), counts)` of a probe run's `hits.json`.
+fn hits_index(dir: &Path) -> (Vec<(String, Option<String>)>, BTreeMap<String, u64>) {
+    let Some(doc) = std::fs::read(dir.join("hits.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+    else {
+        return (Vec::new(), BTreeMap::new());
+    };
+    let dumps = doc["dumps"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|d| {
+                    let hit = d["hit"].as_str()?.to_owned();
+                    let last = d["stack"]
+                        .as_array()
+                        .and_then(|s| s.last())
+                        .and_then(|h| h.as_str())
+                        .map(str::to_owned);
+                    Some((hit, last))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let counts = doc["counts"]
+        .as_object()
+        .map(|o| {
+            o.iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_u64()?)))
+                .collect()
+        })
+        .unwrap_or_default();
+    (dumps, counts)
+}
+
+/// Selection for the gap pass: for each caller whose p2 calls lack a recorded nested callee
+/// call, the callee hits after the last one p2 selected (the nested call comes later in the
+/// run, since it fires inside a caller call past the window's start).
+fn gap_selection(p2: &Path, sel2: &[String]) -> Vec<String> {
+    let (dumps, counts) = hits_index(p2);
+    let mut out = Vec::new();
+    for (caller, callee) in NESTED {
+        let covered: std::collections::BTreeSet<&str> = dumps
+            .iter()
+            .filter(|(h, _)| h.starts_with(&format!("{callee}:in#")))
+            .filter_map(|(_, last)| last.as_deref())
+            .collect();
+        let gap = dumps
+            .iter()
+            .any(|(h, _)| h.starts_with(&format!("{caller}:in#")) && !covered.contains(h.as_str()));
+        if !gap {
+            continue;
+        }
+        let last_sel = sel2
+            .iter()
+            .filter_map(|s| s.strip_prefix(&format!("{callee}:in#")))
+            .filter_map(|n| n.parse::<u64>().ok())
+            .max()
+            .unwrap_or(0);
+        let total = counts.get(&format!("{callee}:in")).copied().unwrap_or(0);
+        for j in last_sel + 1..=total.min(last_sel + GAP_HITS) {
+            out.push(format!("{callee}:in#{j}"));
+            out.push(format!("{callee}:out#{j}"));
+        }
+    }
+    out
+}
+
+/// Drops the gap-pass dumps that are not nested in a p2 caller call (keeps memory per build low).
+fn prune_unneeded(p2: &Path, p3: &Path) {
+    let (callers, _) = hits_index(p2);
+    let callers: std::collections::BTreeSet<String> = callers
+        .into_iter()
+        .map(|(h, _)| h)
+        .filter(|h| {
+            NESTED
+                .iter()
+                .any(|(c, _)| h.starts_with(&format!("{c}:in#")))
+        })
+        .collect();
+    let (dumps, _) = hits_index(p3);
+    let keep: std::collections::BTreeSet<String> = dumps
+        .iter()
+        .filter(|(h, last)| {
+            h.contains(":in#") && last.as_ref().is_some_and(|l| callers.contains(l))
+        })
+        .flat_map(|(h, _)| [h.clone(), h.replacen(":in#", ":out#", 1)])
+        .collect();
+    for (hit, path) in dump_files(p3) {
+        if !keep.contains(&hit) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 // ---- one case -------------------------------------------------------------------------------
@@ -474,10 +592,18 @@ fn run_case(
                 .join(", ")
         ));
     }
-    if !value.is_empty() && needs_slots {
+    // with no slots, only what 1222-1240 adds from the slot items may differ: the
+    // `minion.itemList` entries and the item-sourced mods of `minion.modDB`; anything else
+    // is still gated
+    let (slot_value, value): (Vec<&Mismatch>, Vec<&Mismatch>) = if needs_slots {
+        value.into_iter().partition(|m| from_slot_items(m))
+    } else {
+        (Vec::new(), value)
+    };
+    if !slot_value.is_empty() && value.is_empty() {
         t.needs_bm_a.push(format!(
-            "{label}: {} mismatches (minion.uses over itemsTab.slots)",
-            value.len()
+            "{label}: {} mismatches, all from the slot items (minion.uses over itemsTab.slots)",
+            slot_value.len()
         ));
     } else if value.is_empty() {
         t.cases.entry(f).or_default().1 += 1;
@@ -499,6 +625,30 @@ fn run_case(
             shown.join("\n")
         ));
     }
+}
+
+/// A mismatch that an empty `itemsTab.slots` explains: a missing `minion.itemList` entry
+/// (1235) or a missing mod of `minion.modDB` whose source is a slot item (1236: the item's
+/// own mods, `Item:<id>:<name>`, and its derived `Item Sockets` / `Unlinked Item Sockets` /
+/// `Quality` multipliers).
+fn from_slot_items(m: &Mismatch) -> bool {
+    if m.path.starts_with("env.minion.itemList") {
+        return matches!(m.kind, MismatchKind::Missing);
+    }
+    if !m.path.starts_with("env.minion.modDB.mods")
+        || !matches!(m.kind, MismatchKind::ModMissing)
+        || m.ours.is_some()
+    {
+        return false;
+    }
+    let source = m
+        .pob
+        .as_ref()
+        .and_then(|p| p.get("source"))
+        .and_then(|s| s.as_str())
+        .unwrap_or_default();
+    source.starts_with("Item:")
+        || matches!(source, "Item Sockets" | "Unlinked Item Sockets" | "Quality")
 }
 
 fn run_build(t: &mut Tally, xml: &Path, patched: &Path) {
