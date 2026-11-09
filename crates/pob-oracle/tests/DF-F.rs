@@ -20,7 +20,10 @@
 //! an `unported!` callee is **pending**: it is reported with the stub sites
 //! it reached and not judged (its numbers come from a `Default` stand-in).
 //! `DFF_STRICT=1` (or `POB_ORACLE_REQUIRE=1` / `CI`) counts pending hits as
-//! failures.
+//! failures. Until port/DF-A and port/PF-B are merged every hit but the
+//! DamageOverTime variants (which skip numberOfHitsToDie) is pending;
+//! judge the segment on a scratch merge of those branches (2026-11-09:
+//! all57 57/57, unit 14/14).
 //!
 //! Inputs: dumps from `testkit::dump_dirs` (`.parity/probe/<stem>/state/`, the
 //! probe cache), `data/dump`. Fill a build's dumps with

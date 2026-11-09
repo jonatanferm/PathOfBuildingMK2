@@ -6,6 +6,14 @@
 //! private fn taking the ctx for its upvalues (`modDB`, `output`, `actor`).
 //! The rest of the range (2779-3164) is `seg`.
 #![allow(non_snake_case)]
+// literal Lua statement shapes (`x = x + y`, `if … then return … else … end`,
+// the `numHits ~= numHits` NaN test 2773, the duplicate `"n "` arms of 2898/2942)
+#![allow(
+    clippy::assign_op_pattern,
+    clippy::redundant_else,
+    clippy::eq_op,
+    clippy::if_same_then_else
+)]
 
 use super::helpers::{buildAllyLifePools, reducePoolsByDamage};
 use super::DefEstCtx;
