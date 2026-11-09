@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use crate::legacy_modifier::{Mod, Value};
-use serde::{Deserialize, Deserializer, Serialize};
+use pob_gamedata::{Mod, Value};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value as J};
 
 /// The Lua that hooks PoB and produces the dumps (`__oracle_outputs`,
@@ -59,7 +59,36 @@ fn search_roots() -> Vec<PathBuf> {
     if let Ok(e) = std::env::current_exe() {
         roots.push(e);
     }
+    // a worktree outside the main checkout (e.g. under /tmp) still finds the
+    // main checkout's gitignored inputs (.parity, data/dump, .PathOfBuilding)
+    let more: Vec<PathBuf> = roots.iter().filter_map(|r| main_checkout_of(r)).collect();
+    roots.extend(more);
     roots
+}
+
+/// The main checkout of the linked worktree containing `p`: the nearest
+/// `.git` *file* (`gitdir: <common>/worktrees/<name>`), that directory's
+/// `commondir`, and the common directory's parent. None in the main checkout
+/// itself or outside a repository.
+fn main_checkout_of(p: &Path) -> Option<PathBuf> {
+    let dotgit = p.ancestors().map(|a| a.join(".git")).find(|g| g.exists())?;
+    if !dotgit.is_file() {
+        return None;
+    }
+    let text = std::fs::read_to_string(&dotgit).ok()?;
+    let linked = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
+    let linked = if linked.is_relative() {
+        dotgit.parent()?.join(linked)
+    } else {
+        linked
+    };
+    let common = std::fs::read_to_string(linked.join("commondir")).ok()?;
+    let common = linked.join(common.trim());
+    let common = common.canonicalize().unwrap_or(common);
+    if common.file_name()? != ".git" {
+        return None;
+    }
+    common.parent().map(Path::to_path_buf)
 }
 
 /// `rel` under the nearest ancestor (of the working directory, this crate or
@@ -319,6 +348,64 @@ impl OracleOutput {
     }
 }
 
+// ---- pob_gamedata mods and values in the oracle's JSON shape (ORC-X) -------------------------
+
+fn de_mods<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Vec<Mod>, D::Error> {
+    match J::deserialize(d)? {
+        J::Array(a) => a
+            .iter()
+            .map(|j| crate::mod_json::decode_mod(j).map(|(m, _)| m))
+            .collect::<std::result::Result<_, _>>()
+            .map_err(serde::de::Error::custom),
+        J::Object(m) if m.is_empty() => Ok(Vec::new()),
+        J::Null => Ok(Vec::new()),
+        other => Err(serde::de::Error::custom(format!("expected a mod list, got {other}"))),
+    }
+}
+
+fn ser_mods<S: Serializer>(mods: &[Mod], s: S) -> std::result::Result<S::Ok, S::Error> {
+    let list: Vec<J> = mods
+        .iter()
+        .map(|m| pob_calc::probe::mod_json(m, None))
+        .collect();
+    list.serialize(s)
+}
+
+fn de_value<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Option<Value>, D::Error> {
+    let j = J::deserialize(d)?;
+    Ok((!j.is_null()).then(|| crate::mod_json::j_to_value(&j)))
+}
+
+fn ser_value<S: Serializer>(v: &Option<Value>, s: S) -> std::result::Result<S::Ok, S::Error> {
+    v.as_ref()
+        .map(pob_calc::probe::value_json)
+        .unwrap_or(J::Null)
+        .serialize(s)
+}
+
+fn de_values<'de, D: Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<BTreeMap<String, Value>, D::Error> {
+    match J::deserialize(d)? {
+        J::Object(m) => Ok(m
+            .iter()
+            .map(|(k, v)| (k.clone(), crate::mod_json::j_to_value(v)))
+            .collect()),
+        _ => Ok(BTreeMap::new()),
+    }
+}
+
+fn ser_values<S: Serializer>(
+    m: &BTreeMap<String, Value>,
+    s: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    let o: Map<String, J> = m
+        .iter()
+        .map(|(k, v)| (k.clone(), pob_calc::probe::value_json(v)))
+        .collect();
+    o.serialize(s)
+}
+
 fn de_flags<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<u32, D::Error> {
     // LuaJIT's bit ops return signed 32-bit values.
     let v = J::deserialize(d)?;
@@ -333,8 +420,11 @@ pub struct ModStoreDump {
     pub class: String,
     /// ModDB: grouped by name (names sorted), PoB's order within a name.
     /// ModList: PoB's order.
+    #[serde(deserialize_with = "de_mods", serialize_with = "ser_mods")]
     pub mods: Vec<Mod>,
+    #[serde(deserialize_with = "de_values", serialize_with = "ser_values")]
     pub conditions: BTreeMap<String, Value>,
+    #[serde(deserialize_with = "de_values", serialize_with = "ser_values")]
     pub multipliers: BTreeMap<String, Value>,
     pub parent: Option<Box<ModStoreDump>>,
 }
@@ -383,9 +473,10 @@ pub struct SkillCfgDump {
     pub skill_part: Option<f64>,
     #[serde(default)]
     pub skill_types: Vec<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_values", serialize_with = "ser_values")]
     pub skill_cond: BTreeMap<String, Value>,
     /// `false` outside effective mode, else the effective range.
+    #[serde(default, deserialize_with = "de_value", serialize_with = "ser_value")]
     pub skill_dist: Option<Value>,
     pub slot_name: Option<String>,
     pub socket_color: Option<String>,
@@ -416,7 +507,9 @@ pub struct SkillStage {
     pub effects: Vec<EffectDump>,
     pub skill_types: Vec<u32>,
     pub skill_type_names: Vec<String>,
+    #[serde(deserialize_with = "de_values", serialize_with = "ser_values")]
     pub skill_flags: BTreeMap<String, Value>,
+    #[serde(deserialize_with = "de_values", serialize_with = "ser_values")]
     pub skill_data: BTreeMap<String, Value>,
     pub skill_cfg: Option<SkillCfgDump>,
     pub weapon1_cfg: Option<SkillCfgDump>,

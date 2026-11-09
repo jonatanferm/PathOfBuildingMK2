@@ -10,6 +10,9 @@ repository.workspace = true
 [dependencies]
 # the Rust port, with its state export (calc doc §2 rule 2)
 pob-calc = { workspace = true, features = ["probe"] }
+# typed data, mods and Lua helpers for injection (ORC-X) and the oracle's mod JSON
+pob-gamedata.workspace = true
+pob-lua.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 indexmap.workspace = true
@@ -30,8 +33,6 @@ blake3 = "1"
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
-pob-gamedata.workspace = true
-pob-lua.workspace = true
 pob-modparser.workspace = true
 # Gate G1a (calc doc §9.7; benches/MS-B.rs): criterion timing and dhat allocation check.
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
