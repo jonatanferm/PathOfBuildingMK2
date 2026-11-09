@@ -114,6 +114,20 @@ case "$here/" in
     "$worktree"/*) ;;
     *) cd "$worktree" ;;
 esac
+# Merge-time tests use the quick corpus: in the MAIN checkout (only integrators and the orchestrator
+# run tests there) `cargo.sh test` points $POB_PARITY_DIR at .parity-quick (14 of the 57 builds,
+# scripts/port/quick_parity.sh). Worktrees (implementers, reviewers) keep the full corpus, and the
+# full suite runs every few hours (scripts/port/full_suite.sh). POB_FULL_SUITE=1 forces the full corpus.
+if [ -d "$worktree/.git" ] && [ -z "${POB_PARITY_DIR:-}" ] && [ "${POB_FULL_SUITE:-0}" != 1 ]; then
+    case "${sub:-}" in
+        test|t)
+            if [ -d "$worktree/.parity-quick/builds" ]; then
+                export POB_PARITY_DIR="$worktree/.parity-quick"
+                echo "cargo.sh: main checkout -> quick corpus ($(ls "$POB_PARITY_DIR/builds" | wc -l) builds, POB_PARITY_DIR=$POB_PARITY_DIR); POB_FULL_SUITE=1 for all builds" >&2
+            fi ;;
+    esac
+fi
+
 # Each cargo run (compiles and the test binaries it starts) gets its own memory-capped systemd
 # scope, so an OOM kills only this run instead of the whole terminal scope (2026-11-09 incident:
 # a 6 GB test binary got the terminal scope, and with it the agent session, stopped).
