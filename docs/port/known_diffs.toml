@@ -20,3 +20,23 @@
 #     (.parity/nondet, calc doc §9.5, CCR-0010 §4).
 #
 # No entries yet (U0 ships stubs only).
+
+[[diff]]
+id = "MP5-1"
+unit = "MP5"
+builds = ["*"]
+stage = "parse"
+keys = ["Modules/ModParser.lua:4576", "Modules/ModParser.lua:4577", "Modules/ModParser.lua:4578", "Modules/ModParser.lua:4579", "Modules/ModParser.lua:4580"]
+kind = "missing"
+reason = "specialModList entries call mod(name, type, value, nil, {tag}): modLib.createMod (ModTools.lua:36-58) stores nil at mod[1] and the tag at mod[2], so ipairs(mod) (EvalMod, ModStore.lua) never sees it. pob-modparser special_c.rs drops the tag (lua2rs LUA-QUIRK); the parse oracle and ModCache keep it at a non-sequence index (pob_gamedata Mod.extra[\"#2\"]). Identical for every calc reader. calc doc §6, CCR-0006 §7; checked by crates/pob-oracle/tests/MP5.rs."
+ccr = "CCR-0006"
+
+[[diff]]
+id = "MP5-2"
+unit = "MP5"
+builds = ["*"]
+stage = "parse"
+keys = ["Modules/ModParser.lua:4216", "Modules/ModParser.lua:4222"]
+kind = "value"
+reason = "PercentStat tags take percent = <digits-only capture string> in Lua; Rust stores tonumber of it (lua2rs snum). EvalMod only uses tag.percent in arithmetic, (`percent / 100`, ModStore.lua:547-548), which coerces the string the same way. The parse oracle / ModCache mods keep the string (pob_gamedata Tag.extra[\"percent\"]). calc doc §6, CCR-0006 §7; checked by crates/pob-oracle/tests/MP5.rs."
+ccr = "CCR-0006"
