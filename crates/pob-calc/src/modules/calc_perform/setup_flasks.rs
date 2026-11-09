@@ -7,14 +7,14 @@
 //! which later segments call (PF-F 3121, PF-D 2095; calc doc §7.1). Their Lua upvalues are
 //! segment locals the frozen `PerformCtx` does not carry (the flask `effectInc`… and
 //! `flaskDurInc`, the tincture `effectInc`, `effectIncMagic` and the mutable `tinctureLimit`):
-//! CCR-0078 §1. Until it is applied the segment records them per env in a thread-local side
+//! CCR-0079 §1. Until it is applied the segment records them per env in a thread-local side
 //! table ([`MERGE_UPVALUES`]) where the closures are created, and the frozen entry points read
 //! them from there.
 //!
 //! Callees that are not ported yet (createMinionSkills [AS], initMinionModDB [PF-B],
 //! applyEnemyModifiers and mergeBuff [PF-A]) are called through [`callee`]: with the `probe`
 //! feature, a call that only hit an `unported!` stub is handed to the L4 test's replay hook
-//! ([`callee_replay`]; CCR-0078 §2). Without the feature `callee` is the plain call.
+//! ([`callee_replay`]; CCR-0079 §2). Without the feature `callee` is the plain call.
 #![allow(non_snake_case, dead_code, clippy::all, clippy::pedantic)]
 
 use std::cell::RefCell;
@@ -31,7 +31,7 @@ use crate::prelude::*;
 
 // ---- Rust-only plumbing ----------------------------------------------------------------------
 
-/// CCR-0078 §1: the upvalues of the local function `mergeFlasks` (CalcPerform.lua 1691),
+/// CCR-0079 §1: the upvalues of the local function `mergeFlasks` (CalcPerform.lua 1691),
 /// captured when the closure is created (the locals declared at 1655-1664).
 struct FlaskUpvalues {
     effectInc: f64,
@@ -45,7 +45,7 @@ struct FlaskUpvalues {
     flaskDurInc: f64,
 }
 
-/// CCR-0078 §1: the upvalues of the local function `mergeTinctures` (CalcPerform.lua 1862):
+/// CCR-0079 §1: the upvalues of the local function `mergeTinctures` (CalcPerform.lua 1862):
 /// the tincture `effectInc`/`effectIncMagic` (1851-1852, shadowing the flask ones) and
 /// `tinctureLimit` (1853), which `mergeTinctures` decrements (1909), so it is shared.
 struct TinctureUpvalues {
@@ -54,7 +54,7 @@ struct TinctureUpvalues {
     tinctureLimit: Cell<f64>,
 }
 
-/// One `calcs.perform` call's closures, by env (CCR-0078 §1).
+/// One `calcs.perform` call's closures, by env (CCR-0079 §1).
 struct MergeUpvalues {
     env: Weak<Env>,
     flasks: Option<Rc<FlaskUpvalues>>,
@@ -62,7 +62,7 @@ struct MergeUpvalues {
 }
 
 thread_local! {
-    /// CCR-0078 §1: the upvalues of the latest `mergeFlasks` / `mergeTinctures` closures of
+    /// CCR-0079 §1: the upvalues of the latest `mergeFlasks` / `mergeTinctures` closures of
     /// each live env (one perform at a time per env; a new perform replaces the entry).
     static MERGE_UPVALUES: RefCell<Vec<MergeUpvalues>> = const { RefCell::new(Vec::new()) };
 }
@@ -98,7 +98,7 @@ fn flask_upvalues(env: &EnvRef) -> Rc<FlaskUpvalues> {
                 .and_then(|e| e.flasks.clone())
         })
         .unwrap_or_else(|| {
-            lua_error!("CCR-0078: mergeFlasks called before its closure was created (upvalues of CalcPerform.lua 1655-1664 not captured for this env)")
+            lua_error!("CCR-0079: mergeFlasks called before its closure was created (upvalues of CalcPerform.lua 1655-1664 not captured for this env)")
         })
 }
 
@@ -111,11 +111,11 @@ fn tincture_upvalues(env: &EnvRef) -> Rc<TinctureUpvalues> {
                 .and_then(|e| e.tinctures.clone())
         })
         .unwrap_or_else(|| {
-            lua_error!("CCR-0078: mergeTinctures called before its closure was created (upvalues of CalcPerform.lua 1851-1853 not captured for this env)")
+            lua_error!("CCR-0079: mergeTinctures called before its closure was created (upvalues of CalcPerform.lua 1851-1853 not captured for this env)")
         })
 }
 
-/// CCR-0078 §2: callee replay for the L4 test (feature `probe` only). A call of a callee
+/// CCR-0079 §2: callee replay for the L4 test (feature `probe` only). A call of a callee
 /// whose body is still an `unported!` stub is reported to the installed hook with its
 /// arguments, so the test can apply the callee's recorded effect in its place.
 #[cfg(feature = "probe")]
@@ -165,7 +165,7 @@ pub mod callee_replay {
     }
 
     /// `key` of the object `ptr` is set in Lua now (the exporter leaves out a default-valued
-    /// typed field that the injected dump had as nil; CCR-0078 §5).
+    /// typed field that the injected dump had as nil; CCR-0079 §5).
     pub(super) fn present(ptr: usize, key: &str) {
         crate::probe::unmark_absent(ptr, key);
     }
@@ -191,7 +191,7 @@ fn callee(
 
 /// `modLib.mergeKeystones(env, env.modDB)` (CT). With the `probe` feature the call is also
 /// reported to the replay hook: the injected L4 graph has no passive tree to resolve
-/// `env.spec.tree.keystoneMap` against until PT/BM-A land (CCR-0078 §4).
+/// `env.spec.tree.keystoneMap` against until PT/BM-A land (CCR-0079 §4).
 fn merge_keystones(env: &EnvRef) {
     mod_tools_env::mergeKeystones(env, &env.modDB.get());
     #[cfg(feature = "probe")]
@@ -265,7 +265,7 @@ fn buff_mods(v: &Val) -> Vec<ModRef> {
 }
 
 /// A ModList as the frozen `mergeBuff(src: &Table, …)` takes it: the array of its mods
-/// (`ipairs(src)` is all mergeBuff reads; CCR-0078 §3).
+/// (`ipairs(src)` is all mergeBuff reads; CCR-0079 §3).
 fn mods_table(list: &ModList) -> Table {
     let t = Table::new();
     for m in list.ipairs() {
@@ -1354,7 +1354,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
 
     // Merge flask modifiers
     // L1638-1650 getFlaskInstantRecovery, L1652-1689 calcFlaskRecovery: private fns below.
-    // L1691 local function mergeFlasks: its upvalues (CCR-0078 §1)
+    // L1691 local function mergeFlasks: its upvalues (CCR-0079 §1)
     let flaskUp = Rc::new(FlaskUpvalues {
         effectInc,
         effectIncMagic,
@@ -1392,7 +1392,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
         output.set(n!("TinctureLimit"), tinctureLimit);
     }
 
-    // L1862 local function mergeTinctures: its upvalues (CCR-0078 §1)
+    // L1862 local function mergeTinctures: its upvalues (CCR-0079 §1)
     let tinctureUp = Rc::new(TinctureUpvalues {
         effectInc,
         effectIncMagic,
@@ -2119,7 +2119,7 @@ pub(super) fn mergeFlasks(
     onlyRecovery: bool,
     checkNonRecoveryFlasksForMinions: bool,
 ) {
-    let up = flask_upvalues(&ctx.env); // CCR-0078 §1
+    let up = flask_upvalues(&ctx.env); // CCR-0079 §1
     mergeFlasks_up(
         ctx,
         &up,
@@ -2130,6 +2130,6 @@ pub(super) fn mergeFlasks(
 }
 
 pub(super) fn mergeTinctures(ctx: &PerformCtx, tinctures: &PtrMap<Item, bool>) {
-    let up = tincture_upvalues(&ctx.env); // CCR-0078 §1
+    let up = tincture_upvalues(&ctx.env); // CCR-0079 §1
     mergeTinctures_up(ctx, &up, tinctures);
 }

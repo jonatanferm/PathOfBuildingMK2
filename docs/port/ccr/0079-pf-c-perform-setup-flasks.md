@@ -1,9 +1,9 @@
-# CCR-0078: PF-C — mergeFlasks/mergeTinctures upvalues, callee replay, L4 test-environment gaps
+# CCR-0079: PF-C — mergeFlasks/mergeTinctures upvalues, callee replay, L4 test-environment gaps
 
 Status: proposed by PF-C (2026-11-09)
 
 Unit PF-C ports `calcs.perform` segment 1289-1942 (`calc_perform/setup_flasks.rs`). Items §1 and
-§6 are gaps in U0's frozen contracts that the port works around locally (`// CCR-0078`); §2-§5
+§6 are gaps in U0's frozen contracts that the port works around locally (`// CCR-0079`); §2-§5
 are gaps in ORC-X's oracle/inject/export that block an exact L4 run of this (and every other)
 segment; §7 is CCR-0030 #5 biting.
 
@@ -42,7 +42,7 @@ plus two line probes for the L4 tests of PF-D/PF-F, which then seed the fields:
 all still unshadowed there) and `perform:1862` (locals `effectInc`, `effectIncMagic`,
 `tinctureLimit`), with `ProbeState` mapping them to the two structs.
 
-Workaround (PF-C, `// CCR-0078 §1`): `setup_flasks.rs` records both upvalue sets per env in a
+Workaround (PF-C, `// CCR-0079 §1`): `setup_flasks.rs` records both upvalue sets per env in a
 thread-local side table (`MERGE_UPVALUES`, keyed by a `Weak<Env>`) where Lua creates the
 closures; the frozen `mergeFlasks`/`mergeTinctures` look them up and raise a `LuaError` naming
 this CCR when the segment has not run for that env (e.g. a PF-D/PF-F L4 test seeded from a
@@ -103,7 +103,7 @@ spec (the dump's `env.spec` carries the tree version), so `$treeNode`/`$node` an
 `tree.keystoneMap` resolve; until then, dump `env.spec.tree.keystoneMap` entries' `modList` (the
 `$treeNode` marker could carry them).
 
-Workaround (PF-C, `// CCR-0078 §4`): with the `probe` feature the segment also reports each
+Workaround (PF-C, `// CCR-0079 §4`): with the `probe` feature the segment also reports each
 `mergeKeystones` call to the hook (`merge_keystones` in `setup_flasks.rs`), and the test replays
 its recorded delta (function probe `mergeKeystones` in `corpus/PF-C/stages.toml`).
 
