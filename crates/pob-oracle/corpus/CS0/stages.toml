@@ -1,0 +1,39 @@
+# CS0 function probes (crates/pob-oracle/tests/CS0.rs): the patcher wraps these CalcSetup.lua
+# definitions in `__PROBE_FN(id, params, f)`; the test's own probe runtime (corpus/CS0/cs0.lua)
+# records them. No line probes.
+
+[[function]]
+id = "initModDB"
+file = "Modules/CalcSetup.lua"
+line = 19
+expect = "function calcs.initModDB(env, modDB)"
+
+[[function]]
+id = "buildModListForNodeList"
+file = "Modules/CalcSetup.lua"
+line = 259
+expect = "function calcs.buildModListForNodeList(env, nodeList, finishJewels)"
+
+[[function]]
+id = "wipeEnv"
+file = "Modules/CalcSetup.lua"
+line = 306
+expect = "function wipeEnv(env, accelerate)"
+
+[[function]]
+id = "applyGemMods"
+file = "Modules/CalcSetup.lua"
+line = 382
+expect = "local function applyGemMods(effect, modList)"
+
+[[function]]
+id = "applySocketMods"
+file = "Modules/CalcSetup.lua"
+line = 419
+expect = "local function applySocketMods(env, gem, groupCfg, socketNum, modSource)"
+
+[[function]]
+id = "addBestSupport"
+file = "Modules/CalcSetup.lua"
+line = 428
+expect = "local function addBestSupport(supportEffect, appliedSupportList, mode)"
