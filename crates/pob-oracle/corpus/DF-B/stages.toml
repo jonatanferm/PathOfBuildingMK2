@@ -1,0 +1,54 @@
+# DF-B (calc doc §11.1): the defence:659 -> defence:1211 segment pair of docs/port/stages.toml,
+# plus line probes around the segment's not-yet-ported callees, whose recorded state deltas
+# tests/DF-B.rs replays (calcs.resistances: 665 -> 666; doActorLifeMana: 674 -> 675;
+# doActorLifeManaReservation: 675 -> 676). Ids, lines and locals of the two boundary stages
+# are docs/port/stages.toml's.
+
+[[stage]]
+id = "defence:659"
+file = "Modules/CalcDefence.lua"
+line = 660
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown"]
+expect = "local condList = modDB.conditions"
+
+[[stage]]
+id = "defence:665"
+file = "Modules/CalcDefence.lua"
+line = 665
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown"]
+expect = "calcs.resistances(actor)"
+
+[[stage]]
+id = "defence:666"
+file = "Modules/CalcDefence.lua"
+line = 666
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown"]
+expect = "ResistanceAddedToMinions"
+
+[[stage]]
+id = "defence:674"
+file = "Modules/CalcDefence.lua"
+line = 674
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown"]
+expect = "doActorLifeMana(actor)"
+
+[[stage]]
+id = "defence:675"
+file = "Modules/CalcDefence.lua"
+line = 675
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown"]
+expect = "doActorLifeManaReservation(actor)"
+
+[[stage]]
+id = "defence:676"
+file = "Modules/CalcDefence.lua"
+line = 676
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown"]
+expect = "end"
+
+[[stage]]
+id = "defence:1211"
+file = "Modules/CalcDefence.lua"
+line = 1212
+locals = ["env", "actor", "modDB", "enemyDB", "output", "breakdown", "spellSuppressionChance"]
+expect = "output.LifeRecoveryRateMod = 1"
