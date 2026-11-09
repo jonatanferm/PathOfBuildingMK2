@@ -27,15 +27,15 @@ ENTRIES = [
     ("upstream_OccVortex", 3, 2, None, ""),  # Frost Bomb: cooldown spell
     ("upstream_OccVortex", 4, None, None, ""),  # Shield Charge: attack
     (
-        "upstream_OccVortex",
-        4,
+        "allflame_exp_031",
+        7,
         None,
         (
-            "Shield Charge",
+            "Shield Crush",
             'gemId="Metadata/Items/Gems/SkillGemBoneshatter" skillId="Boneshatter" nameSpec="Boneshatter"',
         ),
         "boneshatter",
-    ),  # trauma
+    ),  # trauma (sceptre + shield), Greater Multistrike repeats
     ("upstream_Dual_Wield_Cospris_CoC", 5, 1, None, ""),  # Cyclone, dual wield, channel
     ("upstream_Dual_Wield_Cospris_CoC", 5, 2, None, ""),  # Freezing Pulse via CoC: triggered
     ("upstream_Dual_Wield_Cospris_CoC", 2, None, None, ""),  # Dash
