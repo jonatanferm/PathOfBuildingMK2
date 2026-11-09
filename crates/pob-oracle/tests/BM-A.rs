@@ -25,7 +25,13 @@
 //! point, and `UpdateSockets` (which the oracle's load script runs after the load) is checked
 //! against PoB's state after it. Every difference fails, on every build (cluster-jewel
 //! subgraphs are PS-C's `BuildClusterJewelGraphs`, the placeholders CO-C's `BuildModList`,
-//! both real).
+//! both real), with one bucket that empties itself: while PS-B's `BuildAllDependsAndPaths`
+//! (PassiveSpec.lua:1092-1695) is an `unported!` stub *and the build's Rust load hit it*, a
+//! spec's allocated set that is a strict superset of PoB's (PoB's pass deallocates nodes that
+//! are not connected, ignored, or masteries without an effect; the stub removes nothing), and a
+//! `<Tree>` section that is equal once each Spec's `nodes` list (Rust's a superset of PoB's) and
+//! tree URL are left out, count as *pending PS-B*. Nothing else is excused; PoB's outputs on the
+//! Rust-saved XML are always compared (PoB's own pass prunes the extra nodes again).
 //!
 //! A test whose inputs (data/dump, the PoB checkout, .parity/builds) are absent skips with a
 //! message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead. `BMA_BUILDS=<substring>`
@@ -686,19 +692,99 @@ struct Tally {
     output_keys: usize,
     output_mismatch: usize,
     output_builds_equal: usize,
+    pending_psb_builds: usize,
+    pending_psb: usize,
     failures: Vec<String>,
+}
+
+/// The `unported!` site of PS-B's `BuildAllDependsAndPaths`.
+const PSB_SITE: &str = "Classes/PassiveSpec.lua:1092-1695";
+
+/// The node ids of a dumped `tree.spec.N.alloc` value (`s:1,2,3`).
+fn id_set(v: &str) -> std::collections::BTreeSet<&str> {
+    v.split_once(':')
+        .map_or(v, |(_, r)| r)
+        .split(',')
+        .filter(|x| !x.is_empty())
+        .collect()
+}
+
+/// Model differences pending PS-B: a `tree.spec.N.alloc` whose Rust set strictly contains
+/// PoB's. Removes them from `out` and returns how many.
+fn split_psb_alloc(tag: &str, rust: &Lines, pob: &Lines, out: &mut Vec<String>) -> usize {
+    let pending: Vec<String> = rust
+        .iter()
+        .filter(|(k, _)| k.starts_with("tree.spec.") && k.ends_with(".alloc"))
+        .filter_map(|(k, rv)| {
+            let pv = pob.get(k)?;
+            let (r, p) = (id_set(rv), id_set(pv));
+            (r != p && r.is_superset(&p)).then(|| format!("{tag} {k}: "))
+        })
+        .collect();
+    let before = out.len();
+    out.retain(|f| !pending.iter().any(|pfx| f.starts_with(pfx.as_str())));
+    before - out.len()
+}
+
+/// A `<Tree>` section without the Spec `nodes` attributes and URL texts, and those node lists.
+fn tree_without_nodes(text: &str) -> Option<(String, Vec<std::collections::BTreeSet<String>>)> {
+    let (nodes, _) = ParseXML(text);
+    let root = nodes.into_iter().next()?;
+    let mut tree = root.children.into_iter().find_map(|c| match c {
+        XmlChild::Node(n) if &*n.elem == "Tree" => Some(n),
+        _ => None,
+    })?;
+    let mut lists = Vec::new();
+    for c in &mut tree.children {
+        let XmlChild::Node(spec) = c else { continue };
+        if &*spec.elem != "Spec" {
+            continue;
+        }
+        let ids = spec.attrib.shift_remove("nodes").unwrap_or_default();
+        lists.push(id_set(&ids).into_iter().map(str::to_owned).collect());
+        for k in &mut spec.children {
+            if let XmlChild::Node(u) = k {
+                if &*u.elem == "URL" {
+                    u.children.clear();
+                }
+            }
+        }
+    }
+    Some((canon(&tree, 1, true), lists))
+}
+
+/// A `<Tree>` difference pending PS-B: equal without the node lists, and each Rust spec's
+/// node list a superset of PoB's.
+fn tree_pending_psb(rust: &str, pob: &str) -> bool {
+    match (tree_without_nodes(rust), tree_without_nodes(pob)) {
+        (Some((rc, rl)), Some((pc, pl))) => {
+            rc == pc && rl.len() == pl.len() && rl.iter().zip(&pl).all(|(r, p)| r.is_superset(p))
+        }
+        _ => false,
+    }
 }
 
 const SOCKET_KEYS: [&str; 2] = [".inactive", ".label"];
 
-/// Compares two saved XML texts section by section (canonical, multiset).
-fn compare_saves(tag: &str, rust: &str, pob: &str, t: &mut Tally, fails: &mut Vec<String>) {
+/// Compares two saved XML texts section by section (canonical, multiset). `psb`: PS-B's
+/// `BuildAllDependsAndPaths` is a stub for this build (see the module doc).
+fn compare_saves(
+    tag: &str,
+    rust: &str,
+    pob: &str,
+    psb: bool,
+    t: &mut Tally,
+    fails: &mut Vec<String>,
+) {
     match (canon_sections(rust, false), canon_sections(pob, false)) {
         (Ok(r), Ok(p)) => {
             for (k, pv) in &p {
                 t.sections += 1;
                 match r.get(k) {
                     Some(rv) if rv == pv => {}
+                    Some(_) if psb && k == "Tree" && tree_pending_psb(rust, pob) => {
+                        t.pending_psb += 1;
+                    }
                     Some(rv) => {
                         t.section_mismatch += 1;
                         fails.push(format!(
@@ -731,9 +817,11 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
     let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
     let xml = std::fs::read_to_string(path).unwrap();
     t.builds += 1;
+    let pending_before = t.pending_psb;
     let mut fails: Vec<String> = Vec::new();
 
     // Rust: load, dump, save; UpdateSockets; round trip
+    pob_calc::stub::stub_reset();
     let rust = catch(|| {
         let build = loadBuildModelFromXML(&xml, data).map_err(|e| format!("load: {e}"))?;
         let d1 = rust_dump(&build);
@@ -754,6 +842,9 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
         }
     };
     t.loaded += 1;
+    let psb = pob_calc::stub::stub_report()
+        .iter()
+        .any(|(site, _)| *site == PSB_SITE);
     // PoB on the original
     let a = match pob_run(src, &xml, &stem) {
         Ok(a) => a,
@@ -764,6 +855,9 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
     };
     let mut m = Vec::new();
     diff_lines("load", &d1, &a.pre, &mut m);
+    if psb {
+        t.pending_psb += split_psb_alloc("load", &d1, &a.pre, &mut m);
+    }
     t.model_lines += a.pre.len();
     t.model_mismatch += m.len();
     fails.extend(m);
@@ -785,7 +879,7 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
     fails.extend(s);
 
     // Rust SaveDB vs PoB SaveDB (both before the first BuildOutput)
-    compare_saves("save", &saved, &a.preSave, t, &mut fails);
+    compare_saves("save", &saved, &a.preSave, psb, t, &mut fails);
     if let Some(dir) = saveDir {
         let _ = std::fs::create_dir_all(dir);
         let _ = std::fs::write(dir.join(format!("{stem}.rust.xml")), &saved);
@@ -799,8 +893,11 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
             // the round trip: Rust's model of the Rust-saved XML is PoB's model of it
             let mut r = Vec::new();
             diff_lines("roundtrip", &d2, &b.pre, &mut r);
+            if psb {
+                t.pending_psb += split_psb_alloc("roundtrip", &d2, &b.pre, &mut r);
+            }
             t.roundtrip_mismatch += r.len();
-            compare_saves("roundtrip save", &saved2, &b.preSave, t, &mut r);
+            compare_saves("roundtrip save", &saved2, &b.preSave, psb, t, &mut r);
             fails.extend(r);
             let fa = a.outputs.flat();
             let fb = b.outputs.flat();
@@ -833,6 +930,9 @@ fn run_build(src: &Path, data: &'static Data, path: &Path, t: &mut Tally, saveDi
         Err(e) => fails.push(format!("PoB (Rust-saved): {e}")),
     }
 
+    if t.pending_psb > pending_before {
+        t.pending_psb_builds += 1;
+    }
     if fails.is_empty() {
         eprintln!("ok   {stem}");
     } else {
@@ -879,7 +979,8 @@ fn bm_a_corpus() {
     eprintln!(
         "BM-A: {} builds, {} loaded in Rust; model {} lines, {} mismatches; sockets {} lines, \
          {} mismatches; save sections {} compared, {} differ; round trip {} mismatches; \
-         outputs {} keys, {} differ ({} builds identical)",
+         outputs {} keys, {} differ ({} builds identical); pending PS-B \
+         (BuildAllDependsAndPaths stub): {} differences on {} builds",
         t.builds,
         t.loaded,
         t.model_lines,
@@ -891,7 +992,9 @@ fn bm_a_corpus() {
         t.roundtrip_mismatch,
         t.output_keys,
         t.output_mismatch,
-        t.output_builds_equal
+        t.output_builds_equal,
+        t.pending_psb,
+        t.pending_psb_builds
     );
     assert!(
         t.failures.is_empty(),

@@ -13,8 +13,8 @@ use std::cell::RefCell;
 
 use pob_gamedata::DataValue;
 
-use crate::model::{XmlChild, XmlNode};
 use crate::model::skills_tab::tostring_val;
+use crate::model::{XmlChild, XmlNode};
 use crate::prelude::*;
 
 thread_local! {

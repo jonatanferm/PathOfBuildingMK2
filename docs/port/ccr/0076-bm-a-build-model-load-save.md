@@ -115,6 +115,16 @@ pure injection).
 ## 10. Dependencies
 
 PS-C (`BuildClusterJewelGraphs`) and CO-C (`ConfigTab:BuildModList`) are merged; `tests/BM-A.rs`
-has no pending buckets and fails on every difference on all corpus builds. If BM-B later owns the
-ConfigTab constructor's `varControls` half (CCR-0037), it replaces
-`build_xml::configTab_varControls_model` and `Init_model` calls it instead.
+has no PS-C or CO-C bucket and fails on every difference on all 57 corpus builds, with one
+self-emptying exception for **PS-B** (`BuildAllDependsAndPaths`, PassiveSpec.lua:1092-1695, still
+an `unported!` stub on rust-port; port/PS-B 17bdabd is unmerged). PoB's pass deallocates nodes
+that are disconnected, ignored or masteries without an effect; the stub removes nothing. Two
+legacy upstream builds are affected (`upstream_Mirage_Archer_Toxic_Rain` spec 1 on the 3_6 tree,
+`upstream_Dual_Wield_Cospris_CoC` on 3_13). The test excuses only: a spec's allocated set that is
+a strict superset of PoB's, and a `<Tree>` section equal once the Spec `nodes` lists (Rust's a
+superset of PoB's) and URL texts are left out, and only on a build whose Rust load hit the
+PS-B stub (`stub_report`). Once PS-B merges, the stub is no longer hit and the bucket is empty.
+Merging port/PS-B into this branch locally made both builds pass with zero differences.
+
+If BM-B later owns the ConfigTab constructor's `varControls` half (CCR-0037), it replaces
+`build_xml::configTab_varControls_model`, and `Init_model` calls BM-B's version instead.

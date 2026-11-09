@@ -527,7 +527,10 @@ fn configTab_varControls_model(build: &BuildRef) {
         // L674
         control.set(
             n!("state"),
-            varData.defaultState.as_ref().map_or(Val::Nil, Val::from_value),
+            varData
+                .defaultState
+                .as_ref()
+                .map_or(Val::Nil, Val::from_value),
         );
         // L677
         control.set(
