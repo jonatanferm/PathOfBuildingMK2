@@ -6,6 +6,8 @@
 //! and reshaped to the §6.11 contract: one `pub String` field per Lua key, exact Lua names.
 //! The alias assignments (Global.lua:65-77) copy the string, so a later edit of MARAUDER does
 //! not change LIFE, as in Lua.
+//!
+//! @pob-file Data/Global.lua @16de4b82d
 
 /// ^0..^9 from SimpleGraphic.dll @0x185380 (re-exported from pob_sg::color)
 pub use pob_sg::color::PALETTE;
@@ -127,12 +129,11 @@ impl ColorCodes {
     /// lua: Global.lua:80-87 updateColorCode(code, color): only existing keys are updated;
     /// `color:gsub("^0", "^")` turns a leading `0` (as in `0xRRGGBB`) into `^`. Returns the new
     /// global `rgbColor` when `code == "HIGHLIGHT"` (`hexToRGB(color)`, which may be nil).
+    /// @pob Data/Global.lua:80-87 h=b9dc0de5
     pub fn update_color_code(&mut self, code: &str, color: &str) -> Option<Option<[f64; 3]>> {
         let entry = self.get_mut(code)?;
-        *entry = match color.strip_prefix('0') {
-            Some(rest) => format!("^{rest}"),
-            None => color.to_owned(),
-        };
+        // colorCodes[code] = color:gsub("^0", "^")  (one value kept: the string)
+        *entry = pob_lua::gsub(color, "^0", "^", None).0;
         if code == "HIGHLIGHT" {
             Some(hex_to_rgb(color))
         } else {
@@ -142,20 +143,26 @@ impl ColorCodes {
 }
 
 /// lua: Global.lua:89-100 hexToRGB: strips every `^x`, `0x` and `#` (gsub), then requires exactly
-/// 6 bytes. A non-hex pair makes `tonumber(.., 16)` nil, and `nil / 255` is a Lua error.
+/// 6 bytes. A pair that `tonumber(.., 16)` rejects gives nil, and `nil / 255` is a Lua error.
+/// @pob Data/Global.lua:89-100 h=2db3b563
 pub fn hex_to_rgb(hex: &str) -> Option<[f64; 3]> {
-    let h = hex.replace("^x", "").replace("0x", "").replace('#', "");
-    if h.len() != 6 {
+    let hex = pob_lua::gsub(hex, "%^x", "", None).0; // Remove "^x" prefix
+    let hex = pob_lua::gsub(&hex, "0x", "", None).0; // Remove "0x" prefix
+    let hex = pob_lua::gsub(&hex, "#", "", None).0; // Remove '#' if present
+    if hex.len() != 6 {
         return None;
     }
-    let mut out = [0.0; 3];
-    for (i, o) in out.iter_mut().enumerate() {
-        let pair = h.get(i * 2..i * 2 + 2).unwrap_or("");
-        let v = u8::from_str_radix(pair, 16)
-            .unwrap_or_else(|_| crate::lua_error!("attempt to perform arithmetic on a nil value"));
-        *o = f64::from(v) / 255.0;
-    }
-    Some(out)
+    let b = hex.as_bytes();
+    let channel = |i: usize| {
+        // (tonumber(hex:sub(i, i + 1), 16)) / 255
+        let v = pob_lua::format::tonumber_base_bytes(&b[i..i + 2], 16)
+            .unwrap_or_else(|| crate::lua_error!("attempt to perform arithmetic on a nil value"));
+        v / 255.0
+    };
+    let r = channel(0);
+    let g = channel(2);
+    let bl = channel(4);
+    Some([r, g, bl])
 }
 
 #[cfg(test)]
@@ -181,5 +188,29 @@ mod tests {
         assert_eq!(cc.update_color_code("NOPE", "^x000000"), None);
         assert_eq!(cc.get("NOPE"), None);
         assert_eq!(cc.iter().count(), 57 + 11);
+    }
+
+    /// hexToRGB through Lua's gsub/sub/tonumber(.., 16) (lib_base.c: spaces and a sign are
+    /// accepted around the digits).
+    #[test]
+    fn hex_to_rgb_lua_tonumber() {
+        assert_eq!(hex_to_rgb("#0000ff"), Some([0.0, 0.0, 1.0]));
+        assert_eq!(hex_to_rgb("0x00FF00"), Some([0.0, 1.0, 0.0]));
+        assert_eq!(
+            hex_to_rgb("^x+f0a0b"),
+            Some([15.0 / 255.0, 10.0 / 255.0, 11.0 / 255.0])
+        );
+        assert_eq!(
+            hex_to_rgb(" f-1 a"),
+            Some([15.0 / 255.0, -1.0 / 255.0, 10.0 / 255.0])
+        );
+        assert_eq!(hex_to_rgb("12345"), None);
+        assert_eq!(hex_to_rgb("^x^x1234567"), None);
+        let e = pob_lua::error::catch(|| hex_to_rgb("zz0000"));
+        assert!(e.is_err());
+        let mut cc = ColorCodes::default();
+        // gsub("^0", "^") only touches a leading 0.
+        cc.update_color_code("NORMAL", "x00AA00");
+        assert_eq!(cc.NORMAL, "x00AA00");
     }
 }

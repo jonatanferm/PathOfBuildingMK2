@@ -3,12 +3,12 @@
 #
 # Usage: scripts/port/cargo.sh <cargo args...>      e.g. scripts/port/cargo.sh check -p pob-calc
 #
-# - At most $POB_PORT_SLOTS (default 3) cargo invocations run at a time machine-wide, across all worktrees: the
+# - At most $POB_PORT_SLOTS (default 2) cargo invocations run at a time machine-wide, across all worktrees: the
 #   whole cargo run holds an exclusive flock on $POB_PORT_LOCK_DIR/cargo.lock
 #   (default: ${XDG_RUNTIME_DIR:-/tmp}/pob-port).
 # - Exports CARGO_BUILD_JOBS=${POB_PORT_JOBS:-3} and RUSTC_WRAPPER=$HOME/.cargo/bin/sccache (when executable;
 #   an existing RUSTC_WRAPPER is kept).
-# - CARGO_TARGET_DIR defaults to <worktree>/target: never share a target dir between
+# - The target dir is cargo's default <worktree>/target (not exported, see below): never share a target dir between
 #   worktrees (path-based fingerprints thrash).
 # - cargo runs in the caller's directory when that is inside this worktree, so relative
 #   paths such as --manifest-path resolve as the caller wrote them. From anywhere else it
@@ -34,7 +34,9 @@ fi
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 worktree=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || (cd "$script_dir/../.." && pwd -P))
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$worktree/target}"
+# Do NOT export CARGO_TARGET_DIR: sccache hashes CARGO_* env vars, so a per-worktree value made
+# every worktree miss the cache for every crate (measured 2026-11-09: 1.6% Rust hit rate).
+# cargo's default target dir is already <worktree>/target because we run inside the worktree.
 
 refuse() {
     echo "cargo.sh: refusing $1" >&2
@@ -91,8 +93,8 @@ fi
 
 lock_dir="${POB_PORT_LOCK_DIR:-${XDG_RUNTIME_DIR:-/tmp}/pob-port}"
 mkdir -p "$lock_dir"
-# POB_PORT_SLOTS concurrent cargo runs machine-wide (default 3): slot i holds cargo.lock[.i].
-slots="${POB_PORT_SLOTS:-3}"
+# POB_PORT_SLOTS concurrent cargo runs machine-wide (default 2): slot i holds cargo.lock[.i].
+slots="${POB_PORT_SLOTS:-2}"
 got=""
 waited=0
 while [ -z "$got" ]; do
@@ -112,4 +114,11 @@ case "$here/" in
     "$worktree"/*) ;;
     *) cd "$worktree" ;;
 esac
-cargo "$@"
+# Each cargo run (compiles and the test binaries it starts) gets its own memory-capped systemd
+# scope, so an OOM kills only this run instead of the whole terminal scope (2026-11-09 incident:
+# a 6 GB test binary got the terminal scope, and with it the agent session, stopped).
+if [ "${POB_PORT_NO_SCOPE:-0}" != 1 ] && command -v systemd-run >/dev/null 2>&1 \
+    && systemd-run --user --scope --quiet true >/dev/null 2>&1; then
+    exec systemd-run --user --scope --quiet -p MemoryMax="${POB_PORT_MEM:-5G}" -p MemorySwapMax="${POB_PORT_SWAP:-1G}" cargo "$@"
+fi
+exec cargo "$@"
