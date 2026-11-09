@@ -40,6 +40,15 @@ physical reduction) differs from PoB in `<type>DamageReduction`, `<type>TakenHit
 
 DF-D does **not** copy the body (it is DF-A's). `crates/pob-oracle/tests/DF-D.rs` counts a hit
 whose segment run reached an `unported!` site as *blocked* (listed with the sites), not as a
-failure, and gates the judged hits only. Verified locally (not committed) with the three-line
-Lua body of `armourReductionF`/`armourReduction` in place: all57 363/363, unit corpus and
-slice5 all clean (see the DF-D report). Once DF-A merges, the blocked count must drop to 0.
+failure, and gates the judged hits only.
+
+Results (2026-11-09, branch merged with rust-port at 94e3c58):
+
+| corpus | hits | committed tree (stub): judged / clean / blocked | Lua body of 67-77 patched in locally (not committed): clean |
+|---|---|---|---|
+| all57 | 363 | 208 / 208 / 155 | 363 / 363 |
+| unit corpus `corpus/DF-D` (33 builds) | 198 | 99 / 99 / 99 | 198 / 198 |
+| slice5 | 30 | 15 / 15 / 15 | 30 / 30 |
+
+Every blocked hit reports the single stub site `Modules/CalcDefence.lua:75-77`. Once DF-A
+merges, the blocked count must drop to 0.
