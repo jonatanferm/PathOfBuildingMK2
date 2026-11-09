@@ -4,7 +4,7 @@ use std::cell::RefCell;
 
 use super::interp::{lt, Interp, LuaError};
 use super::value::{num_to_string, LStr, TableRef, Val};
-use crate::lua::lua_pattern::{self as pat, Capture};
+use pob_lua::pattern::{self as pat, Capture};
 
 type R<T> = Result<T, LuaError>;
 
@@ -71,8 +71,15 @@ pub(crate) fn arg_lstr(args: &[Val], i: usize, fname: &str) -> R<LStr> {
     }
 }
 
-fn pat_err(e: pat::PatternError) -> LuaError {
-    LuaError::msg(e.0)
+/// Run a `pob_lua::pattern` call, turning its `lua_error!` (a `pob_lua::LuaError`
+/// panic: malformed pattern, "pattern too complex") into the interpreter's error.
+fn pat_call<T>(f: impl FnOnce() -> T) -> R<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|p| {
+        match p.downcast::<pob_lua::LuaError>() {
+            Ok(e) => LuaError::msg(e.0),
+            Err(other) => std::panic::resume_unwind(other),
+        }
+    })
 }
 
 /// Lua `tostring`.
@@ -108,7 +115,7 @@ pub fn install(it: &mut Interp) {
         let base = opt_num(&a, 1);
         Ok(vec![match (&v, base) {
             (Val::Num(n), None) => Val::Num(*n),
-            (Val::Str(s), None) => pat::to_number(s.as_str()).map_or(Val::Nil, Val::Num),
+            (Val::Str(s), None) => pob_lua::tonumber(s.as_str()).map_or(Val::Nil, Val::Num),
             (Val::Str(s), Some(b)) => i64::from_str_radix(s.as_str().trim(), b as u32)
                 .map_or(Val::Nil, |n| Val::Num(n as f64)),
             _ => Val::Nil,
@@ -290,10 +297,13 @@ pub fn install(it: &mut Interp) {
         let init = opt_num(&a, 2).unwrap_or(1.0) as i64;
         let plain = arg(&a, 3).truthy();
         Ok(
-            match pat::find(st.as_bytes(), p.as_bytes(), init, plain).map_err(pat_err)? {
-                Some(f) => {
-                    let mut v = vec![Val::Num(f.start as f64), Val::Num(f.end as f64)];
-                    v.extend(caps_to_vals(&f.captures));
+            match pat_call(|| {
+                pat::find_bytes(st.as_bytes(), p.as_bytes(), Some(init), plain)
+                    .map(|(s, e, c)| (s, e, caps_to_vals(&c)))
+            })? {
+                Some((start, end, captures)) => {
+                    let mut v = vec![Val::Num(start as f64), Val::Num(end as f64)];
+                    v.extend(captures);
                     v
                 }
                 None => vec![Val::Nil],
@@ -305,8 +315,10 @@ pub fn install(it: &mut Interp) {
         let p = arg_lstr(&a, 1, "match")?;
         let init = opt_num(&a, 2).unwrap_or(1.0) as i64;
         Ok(
-            match pat::matches(st.as_bytes(), p.as_bytes(), init).map_err(pat_err)? {
-                Some(c) => caps_to_vals(&c),
+            match pat_call(|| {
+                pat::match_bytes(st.as_bytes(), p.as_bytes(), Some(init)).map(|c| caps_to_vals(&c))
+            })? {
+                Some(c) => c,
                 None => vec![Val::Nil],
             },
         )
@@ -314,11 +326,11 @@ pub fn install(it: &mut Interp) {
     reg(&s, "gmatch", |_, a| {
         let st = arg_lstr(&a, 0, "gmatch")?;
         let p = arg_lstr(&a, 1, "gmatch")?;
-        let all: Vec<Vec<Val>> = pat::gmatch(st.as_bytes(), p.as_bytes())
-            .map_err(pat_err)?
-            .iter()
-            .map(|c| caps_to_vals(c))
-            .collect();
+        let all: Vec<Vec<Val>> = pat_call(|| {
+            pat::gmatch_bytes(st.as_bytes(), p.as_bytes())
+                .map(|c| caps_to_vals(&c))
+                .collect()
+        })?;
         let pos = RefCell::new(0usize);
         Ok(vec![Val::native(move |_, _| {
             let mut i = pos.borrow_mut();
@@ -331,7 +343,7 @@ pub fn install(it: &mut Interp) {
         let st = arg_lstr(&a, 0, "gsub")?;
         let p = arg_lstr(&a, 1, "gsub")?;
         let repl = arg(&a, 2);
-        let n = opt_num(&a, 3).map(|n| n as usize);
+        let n = opt_num(&a, 3).map(|n| n as i64);
         let to_bytes = |v: &Val| -> Vec<u8> {
             match v {
                 Val::Str(s) => s.as_bytes().to_vec(),
@@ -341,21 +353,20 @@ pub fn install(it: &mut Interp) {
         let (out, count) = match &repl {
             Val::Str(_) | Val::Num(_) => {
                 let r = to_bytes(&repl);
-                pat::gsub(st.as_bytes(), p.as_bytes(), pat::Repl::Str(&r), n).map_err(pat_err)?
+                pat_call(|| pat::gsub_bytes_with(st.as_bytes(), p.as_bytes(), pat::Repl::Str(&r), n))?
             }
             Val::Table(t) => {
                 let t = t.clone();
-                let mut f = |caps: &[Capture<'_>]| -> Option<Vec<u8>> {
-                    let key = caps_to_vals(&caps[..1]).remove(0);
+                let mut f = |cap: &Capture<'_>| -> Option<Vec<u8>> {
+                    let key = caps_to_vals(std::slice::from_ref(cap)).remove(0);
                     let v = t.get(&key);
                     v.truthy().then(|| to_bytes(&v))
                 };
-                pat::gsub(st.as_bytes(), p.as_bytes(), pat::Repl::Func(&mut f), n)
-                    .map_err(pat_err)?
+                pat_call(|| pat::gsub_bytes_with(st.as_bytes(), p.as_bytes(), pat::Repl::Table(&mut f), n))?
             }
             Val::Func(_) => {
                 let mut err: Option<LuaError> = None;
-                let mut f = |caps: &[Capture<'_>]| -> Option<Vec<u8>> {
+                let mut f = |caps: &pat::Captures<'_>| -> Option<Vec<u8>> {
                     if err.is_some() {
                         return None;
                     }
@@ -370,8 +381,9 @@ pub fn install(it: &mut Interp) {
                         }
                     }
                 };
-                let res = pat::gsub(st.as_bytes(), p.as_bytes(), pat::Repl::Func(&mut f), n)
-                    .map_err(pat_err)?;
+                let res = pat_call(|| {
+                    pat::gsub_bytes_with(st.as_bytes(), p.as_bytes(), pat::Repl::Func(&mut f), n)
+                })?;
                 if let Some(e) = err {
                     return Err(e);
                 }
