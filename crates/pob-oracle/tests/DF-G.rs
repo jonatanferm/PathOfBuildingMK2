@@ -131,6 +131,16 @@ fn unordered_lists() -> BTreeSet<String> {
 /// of a CI build, 3378) is the x64 `cvttsd2si` result -9223372036854775808 in the port and the
 /// saturated 9223372036854775807 of this ARM64 host's oracle.
 fn is_ccr0001_int_cast(m: &Mismatch) -> bool {
+    let in_entry = ["Physical", "Lightning", "Cold", "Fire", "Chaos"]
+        .iter()
+        .any(|dt| {
+            ["DotEHP", "MaximumHitTaken", "TakenHit"]
+                .iter()
+                .any(|k| m.path.starts_with(&format!("locals.breakdown.{dt}{k}")))
+        });
+    if !in_entry {
+        return false;
+    }
     match (&m.pob, &m.ours) {
         (Some(J::String(p)), Some(J::String(o))) => {
             p != o && p.replace("9223372036854775807", "-9223372036854775808") == *o
@@ -160,7 +170,9 @@ fn diff_dfg(
     let mut pob = dump.root.clone();
     if let Some(J::Object(l)) = pob.get_mut("locals") {
         let ours_names: Vec<&String> = kept.iter().map(|(k, _)| k).collect();
-        l.retain(|k, v| ours_names.contains(&k) || !v.as_object().is_some_and(|m| m.contains_key("$fn")));
+        l.retain(|k, v| {
+            ours_names.contains(&k) || !v.as_object().is_some_and(|m| m.contains_key("$fn"))
+        });
     }
     let nondet = find_parity_dir()
         .map(|p| p.join("nondet").join(format!("{stem}.json")))
@@ -225,7 +237,9 @@ fn run_build(xml: &Path, no_breakdown: bool) -> Outcome {
         .filter(|m| keep(m))
         .count();
     if pending == 0 {
-        return Outcome::Fail(vec!["vacuous: the :3165 state already equals :end".to_owned()]);
+        return Outcome::Fail(vec![
+            "vacuous: the :3165 state already equals :end".to_owned()
+        ]);
     }
     if no_breakdown {
         for (k, v) in &mut locals {
@@ -408,7 +422,11 @@ fn dfg_l4_no_breakdown_all() {
     if t.pass.len() + t.fail.len() + t.blocked.len() == 0 {
         return skip("no dumps (see the oracle.sh lines above)");
     }
-    assert!(t.fail.is_empty(), "{} builds fail the no-breakdown diff", t.fail.len());
+    assert!(
+        t.fail.is_empty(),
+        "{} builds fail the no-breakdown diff",
+        t.fail.len()
+    );
     assert!(
         t.blocked.is_empty() || !require_helpers(),
         "{} builds blocked on DF-A helper stubs",

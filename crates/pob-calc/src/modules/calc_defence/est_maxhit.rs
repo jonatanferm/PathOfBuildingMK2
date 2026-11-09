@@ -3,55 +3,25 @@
 //! degens / net regen, and the incoming-hit breakdown.
 //!
 //! Owner: DF-G. The module-level locals this segment reads (`isElemental`,
-//! `dmgTypeList`, `allyLifePoolList`, CalcDefence.lua 24-43) are DF-A's lines
-//! (`helpers.rs`, comment marker 7-43); this file keeps private read-only
-//! mirrors of them (immutable constants, no provenance of their own).
+//! `dmgTypeList`, `allyLifePoolList`, CalcDefence.lua 24-43) are DF-A's
+//! (`helpers.rs`, comment marker 7-43).
 #![allow(non_snake_case, unused_assignments)] // unused_assignments: Lua dead stores (`local hitTaken = 0`) kept verbatim
+// literal Lua shapes: `a = a + b`, `local x` assigned in each branch, the NaN test `x == x`
+#![allow(clippy::assign_op_pattern, clippy::needless_late_init, clippy::eq_op)]
 
-use super::helpers::{incomingDamageBreakdown, reducePoolsByDamage, takenHitFromDamage};
+use super::helpers::{
+    allyLifePoolList, dmgTypeList, incomingDamageBreakdown, isElemental, reducePoolsByDamage,
+    takenHitFromDamage,
+};
 use super::DefEstCtx;
 use crate::prelude::*;
 
-// ---- read-only mirrors of CalcDefence.lua module locals (DF-A's lines 24-43) -----------------
-
-/// `dmgTypeList` (CalcDefence.lua:28).
-fn dmgTypeList() -> [Name; 5] {
-    [
-        n!("Physical"),
-        n!("Lightning"),
-        n!("Cold"),
-        n!("Fire"),
-        n!("Chaos"),
-    ]
-}
-
-/// `isElemental[damageType]` (CalcDefence.lua:24).
-fn isElemental(damageType: Name) -> bool {
-    damageType == n!("Fire") || damageType == n!("Cold") || damageType == n!("Lightning")
-}
-
-/// One `allyLifePoolList` entry (the fields this segment reads).
-struct AllyLifePool {
-    key: &'static str,
-    life: &'static str,
-    mitigation: &'static str,
-    label: &'static str,
-}
-
-/// `allyLifePoolList` (CalcDefence.lua:33-43), in source order.
-static allyLifePoolList: &[AllyLifePool] = &[
-    AllyLifePool { key: "minion", life: "TotalMinionLife", mitigation: "MinionAllyDamageMitigation", label: "Minion Life" },
-    AllyLifePool { key: "radianceSentinel", life: "TotalRadianceSentinelLife", mitigation: "RadianceSentinelAllyDamageMitigation", label: "Total Sentinel of Radiance Life" },
-    AllyLifePool { key: "spectres", life: "TotalSpectreLife", mitigation: "SpectreAllyDamageMitigation", label: "Total Spectre Life" },
-    AllyLifePool { key: "totems", life: "TotalTotemLife", mitigation: "TotemAllyDamageMitigation", label: "Nearest Totem Life" },
-    AllyLifePool { key: "vaalRejuvenationTotems", life: "TotalVaalRejuvenationTotemLife", mitigation: "VaalRejuvenationTotemAllyDamageMitigation", label: "Total Vaal Rejuvenation Totem Life" },
-    AllyLifePool { key: "voidSpawn", life: "TotalVoidSpawnLife", mitigation: "VoidSpawnAllyDamageMitigation", label: "Total Void Spawn Life" },
-    AllyLifePool { key: "stoneGolem", life: "TotalStoneGolemLife", mitigation: "StoneGolemAllyDamageMitigation", label: "Total Stone Golem Life" },
-    AllyLifePool { key: "soulLink", life: "AlliedEnergyShield", mitigation: "SoulLinkMitigation", label: "Total Allied Energy shield" },
-    AllyLifePool { key: "frostShield", life: "FrostShieldLife", mitigation: "FrostShieldDamageMitigation", label: "Frost Shield Life" },
-];
-
 // ---- Rust plumbing --------------------------------------------------------------------------
+
+/// `dmgTypeList` (CalcDefence.lua:28) as names, in list order (the `ipairs` loops).
+fn dmg_type_names() -> [Name; 5] {
+    dmgTypeList.map(Name::from)
+}
 
 /// `colorCodes[name]` (a nil code would raise in the `..` that uses it).
 fn color_code(name: &str) -> &'static str {
@@ -92,8 +62,12 @@ fn shift_row(t: Option<Table>, damageType: Name) -> Val {
 
 /// `pairs(t)` on a value that must be a table.
 fn pairs_of(v: &Val) -> Table {
-    v.table()
-        .unwrap_or_else(|| lua_error!("bad argument #1 to 'pairs' (table expected, got {})", v.lua_type()))
+    v.table().unwrap_or_else(|| {
+        lua_error!(
+            "bad argument #1 to 'pairs' (table expected, got {})",
+            v.lua_type()
+        )
+    })
 }
 
 /// `t.rowList` of a breakdown entry (indexing a non-table raises).
@@ -106,8 +80,12 @@ fn row_list(entry: &Val) -> Table {
 
 /// A breakdown entry that must be a table (`t_insert(breakdown.X, …)`).
 fn entry_table(v: Val) -> Table {
-    v.table()
-        .unwrap_or_else(|| lua_error!("bad argument #1 to 'insert' (table expected, got {})", v.lua_type()))
+    v.table().unwrap_or_else(|| {
+        lua_error!(
+            "bad argument #1 to 'insert' (table expected, got {})",
+            v.lua_type()
+        )
+    })
 }
 
 /// `{ label = …, key = … }` column descriptor.
@@ -222,7 +200,10 @@ fn enemy_degen_breakdown(
     row.set(n!("conv"), lfmt!("x %.2f%%", convertPercent));
     row.set(
         n!("mult"),
-        lfmt!("x %.2f", output.num(cat!(damageConvertedType, "TakenDotMult"))),
+        lfmt!(
+            "x %.2f",
+            output.num(cat!(damageConvertedType, "TakenDotMult"))
+        ),
     );
     row.set(n!("total"), lfmt!("%.1f", total));
     row_list(&breakdown.get(n!("TotalDegen"))).push(row);
@@ -243,7 +224,10 @@ fn enemy_degen_breakdown(
     row.set(n!("conv"), lfmt!("x %.2f%%", convertPercent));
     row.set(
         n!("mult"),
-        lfmt!("x %.2f", output.num(cat!(damageConvertedType, "TakenDotMult"))),
+        lfmt!(
+            "x %.2f",
+            output.num(cat!(damageConvertedType, "TakenDotMult"))
+        ),
     );
     row.set(n!("total"), lfmt!("%.1f", total));
     row_list(&breakdown.get(k)).push(row);
@@ -259,8 +243,8 @@ fn split_degen(modDB: &ModDB, output: &Output, damageType: Name, degen: f64) -> 
     // L3475
     let mut manaDegen = 0.0;
     // L3476
-    let takenFromMana = output.num(cat!(damageType, "MindOverMatter"))
-        + output.num(n!("sharedMindOverMatter"));
+    let takenFromMana =
+        output.num(cat!(damageType, "MindOverMatter")) + output.num(n!("sharedMindOverMatter"));
     // L3477
     if output.num(n!("EnergyShieldRegenRecovery")) > 0.0 {
         // L3478
@@ -308,7 +292,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
     {
         // fix total pools, as they aren't used anymore
         // L3167
-        for damageType in dmgTypeList() {
+        for damageType in dmg_type_names() {
             let kPool = cat!(damageType, "TotalHitPool");
             // ward
             // L3169
@@ -316,8 +300,8 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L3170
             if wardBypass > 0.0 {
                 // L3171
-                let poolProtected = output.num(n!("Ward")) / (1.0 - wardBypass / 100.0)
-                    * (wardBypass / 100.0);
+                let poolProtected =
+                    output.num(n!("Ward")) / (1.0 - wardBypass / 100.0) * (wardBypass / 100.0);
                 // L3172
                 let mut sourcePool = output.num(kPool);
                 // L3173
@@ -332,7 +316,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
             }
             // aegis
             // L3179
-            let elemAegis = if isElemental(damageType) {
+            let elemAegis = if isElemental(damageType.as_str()) {
                 output.num0(cat!(damageType, "AegisDisplay"))
             } else {
                 0.0
@@ -374,12 +358,11 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                     output.set(kPool, v);
                 } else {
                     // L3187
-                    let poolProtected = GuardAbsorb / (GuardAbsorbRate / 100.0)
-                        * (1.0 - GuardAbsorbRate / 100.0);
+                    let poolProtected =
+                        GuardAbsorb / (GuardAbsorbRate / 100.0) * (1.0 - GuardAbsorbRate / 100.0);
                     // L3188
                     let v = m_max(output.num(kPool) - poolProtected, 0.0)
-                        + m_min(output.num(kPool), poolProtected)
-                            / (1.0 - GuardAbsorbRate / 100.0);
+                        + m_min(output.num(kPool), poolProtected) / (1.0 - GuardAbsorbRate / 100.0);
                     output.set(kPool, v);
                 }
             }
@@ -393,7 +376,11 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                 // L3195
                 let mitigation = output.get(Name::from(ally.mitigation));
                 // L3196
-                if life.truthy() && life.num() > 0.0 && mitigation.truthy() && mitigation.num() > 0.0 {
+                if life.truthy()
+                    && life.num() > 0.0
+                    && mitigation.truthy()
+                    && mitigation.num() > 0.0
+                {
                     let life = life.num();
                     // L3197
                     let mitigation = m_min(mitigation.num(), 100.0);
@@ -408,8 +395,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                             life / (mitigation / 100.0) * (1.0 - mitigation / 100.0);
                         // L3202
                         let v = m_max(output.num(kPool) - poolProtected, 0.0)
-                            + m_min(output.num(kPool), poolProtected)
-                                / (1.0 - mitigation / 100.0);
+                            + m_min(output.num(kPool), poolProtected) / (1.0 - mitigation / 100.0);
                         output.set(kPool, v);
                     }
                 }
@@ -417,13 +403,13 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
         }
 
         // L3208
-        for damageType in dmgTypeList() {
+        for damageType in dmg_type_names() {
             // L3209
             let mut partMin = m_huge;
             // L3210
             let mut useConversionSmoothing = false;
             // L3211
-            for damageConvertedType in dmgTypeList() {
+            for damageConvertedType in dmg_type_names() {
                 // L3212
                 let convertPercent = shift_row(actor.damageShiftTable.get(), damageType)
                     .get(damageConvertedType)
@@ -480,11 +466,20 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                         // L3231
                         let reductionPercent = if modDB.Flag(
                             None,
-                            &[cat!("SelfIgnore", "Base", damageConvertedType, "DamageReduction")],
+                            &[cat!(
+                                "SelfIgnore",
+                                "Base",
+                                damageConvertedType,
+                                "DamageReduction"
+                            )],
                         ) {
                             0.0
                         } else {
-                            let w = output.get(cat!("Base", damageConvertedType, "DamageReductionWhenHit"));
+                            let w = output.get(cat!(
+                                "Base",
+                                damageConvertedType,
+                                "DamageReductionWhenHit"
+                            ));
                             if w.truthy() {
                                 w.num()
                             } else {
@@ -536,7 +531,8 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                             - 5.0 * (totalHitPool - takenFlat * totalTakenMulti))
                             * resistXConvert;
                         // L3254
-                        let c = -effectiveAppliedArmour * (totalHitPool - takenFlat * totalTakenMulti);
+                        let c =
+                            -effectiveAppliedArmour * (totalHitPool - takenFlat * totalTakenMulti);
 
                         // L3256 (the quotient is a number, so never falsy)
                         let RAW = if a != 0.0 {
@@ -547,11 +543,9 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
 
                         // tack on some caps
                         // L3259
-                        let noDRMaxHit = totalHitPool
-                            / damageConvertedMulti
-                            / totalResistMult
-                            / totalTakenMulti
-                            * (1.0 - takenFlat * totalTakenMulti / totalHitPool);
+                        let noDRMaxHit =
+                            totalHitPool / damageConvertedMulti / totalResistMult / totalTakenMulti
+                                * (1.0 - takenFlat * totalTakenMulti / totalHitPool);
                         // L3260
                         let maxDRMaxHit = noDRMaxHit
                             / (1.0
@@ -586,7 +580,8 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                 let mut n = 1.0;
                 while n <= limit {
                     // L3277
-                    let (_, passDamages) = takenHitFromDamage(passIncomingDamage, damageType, &actor);
+                    let (_, passDamages) =
+                        takenHitFromDamage(passIncomingDamage, damageType, &actor);
                     // L3278
                     let passPools = reducePoolsByDamage(None, &passDamages, &actor);
                     // L3279
@@ -612,9 +607,9 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                     // L3290
                     let mut stepSize = 1.0;
                     // L3291
-                    if let Some(previousOverkill) = previousOverkill.filter(|p| {
-                        n > 1.0 && *p != 0.0 && *p == *p
-                    }) {
+                    if let Some(previousOverkill) =
+                        previousOverkill.filter(|p| n > 1.0 && *p != 0.0 && *p == *p)
+                    {
                         // L3292
                         stepSize = m_min(
                             m_abs((passOverkill - previousOverkill) / previousOverkill),
@@ -675,7 +670,11 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                 let (mut fullTaken, takenDamages) =
                     takenHitFromDamage(finalMaxHit * enemyDamageMult, damageType, &actor);
                 // L3324
-                fullTaken = if fullTaken == fullTaken { fullTaken } else { 0.0 };
+                fullTaken = if fullTaken == fullTaken {
+                    fullTaken
+                } else {
+                    0.0
+                };
 
                 // L3326 LUA-ORDER (string keys: rowList order follows pairs order)
                 for (takenType, takenAmt) in takenDamages.pairs() {
@@ -724,14 +723,20 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                 // L3347
                 if enemyDamageMult != 1.0 {
                     // L3348
-                    entry_table(breakdown.get(maxHitCurType))
-                        .push(lfmt!("/ %.2f ^8(modifiers to enemy damage)", enemyDamageMult));
+                    entry_table(breakdown.get(maxHitCurType)).push(lfmt!(
+                        "/ %.2f ^8(modifiers to enemy damage)",
+                        enemyDamageMult
+                    ));
                 }
                 // L3350
                 entry_table(breakdown.get(maxHitCurType)).push(lfmt!(
                     "= %.0f ^8maximum survivable enemy damage%s",
                     finalMaxHit,
-                    if useConversionSmoothing { " (approximate)" } else { "" }
+                    if useConversionSmoothing {
+                        " (approximate)"
+                    } else {
+                        ""
+                    }
                 ));
 
                 // L3352
@@ -751,7 +756,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
         // L3359
         let mut SecondMinimum = m_huge;
         // L3360
-        for damageType in dmgTypeList() {
+        for damageType in dmg_type_names() {
             let k = cat!(damageType, "MaximumHitTaken");
             // L3361
             if output.num(k) < minimum {
@@ -770,9 +775,10 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
 
     // effective health pool vs dots
     // L3372
-    for damageType in dmgTypeList() {
+    for damageType in dmg_type_names() {
         // L3373
-        let v = output.num(cat!(damageType, "TotalPool")) / output.num(cat!(damageType, "TakenDotMult"));
+        let v = output.num(cat!(damageType, "TotalPool"))
+            / output.num(cat!(damageType, "TakenDotMult"));
         output.set(cat!(damageType, "DotEHP"), v);
         // L3374
         if let Some(breakdown) = &breakdown {
@@ -800,7 +806,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
         // L3385
         output.set(n!("TotalBuildDegen"), 0.0);
         // L3386
-        for damageType in dmgTypeList() {
+        for damageType in dmg_type_names() {
             // L3387
             let baseVal = modDB.Sum(ModType::BASE, None, &[cat!(damageType, "Degen")]);
             // L3388
@@ -841,7 +847,10 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                             row.set(n!("conv"), lfmt!("x %.2f%%", convertPercent));
                             row.set(
                                 n!("mult"),
-                                lfmt!("x %.2f", output.num(cat!(damageConvertedType, "TakenDotMult"))),
+                                lfmt!(
+                                    "x %.2f",
+                                    output.num(cat!(damageConvertedType, "TakenDotMult"))
+                                ),
                             );
                             row.set(n!("total"), lfmt!("%.1f", total));
                             row_list(&breakdown.get(n!("TotalBuildDegen"))).push(row);
@@ -860,7 +869,10 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                             row.set(n!("conv"), lfmt!("x %.2f%%", convertPercent));
                             row.set(
                                 n!("mult"),
-                                lfmt!("x %.2f", output.num(cat!(damageConvertedType, "TakenDotMult"))),
+                                lfmt!(
+                                    "x %.2f",
+                                    output.num(cat!(damageConvertedType, "TakenDotMult"))
+                                ),
                             );
                             row.set(n!("total"), lfmt!("%.1f", total));
                             row_list(&breakdown.get(k)).push(row);
@@ -902,7 +914,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                 );
             }
             // L3471
-            for damageType in dmgTypeList() {
+            for damageType in dmg_type_names() {
                 // L3472
                 if output.truthy(cat!(damageType, "BuildDegen")) {
                     // L3473-3489
@@ -1015,21 +1027,24 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
             && damageCategoryConfig != n!("DamageOverTime")
         {
             // L3537
-            enemyIgniteChance =
-                enemyDB.Sum(ModType::BASE, None, nm!["IgniteChance", "ElementalAilmentChance"]);
+            enemyIgniteChance = enemyDB.Sum(
+                ModType::BASE,
+                None,
+                nm!["IgniteChance", "ElementalAilmentChance"],
+            );
             // L3538 (`(cond and EnemyCritChance or 0)`: a number, never falsy)
-            let enemyCritAilmentChance =
-                if !modDB.Flag(None, nm!["CritsOnYouDontAlwaysApplyElementalAilments"]) {
-                    if output.num(n!("EnemyCritChance")) > enemyCritThreshold
-                        || enemyIgniteChance > 0.0
-                    {
-                        output.num(n!("EnemyCritChance"))
-                    } else {
-                        0.0
-                    }
+            let enemyCritAilmentChance = if !modDB
+                .Flag(None, nm!["CritsOnYouDontAlwaysApplyElementalAilments"])
+            {
+                if output.num(n!("EnemyCritChance")) > enemyCritThreshold || enemyIgniteChance > 0.0
+                {
+                    output.num(n!("EnemyCritChance"))
                 } else {
                     0.0
-                };
+                }
+            } else {
+                0.0
+            };
             // L3539
             enemyIgniteChance = (enemyCritAilmentChance
                 + (1.0 - enemyCritAilmentChance / 100.0) * enemyIgniteChance)
@@ -1057,7 +1072,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L3547
             if damageCategoryConfig == n!("DamageOverTime") {
                 // L3548
-                for damageType in dmgTypeList() {
+                for damageType in dmg_type_names() {
                     // L3549
                     let mut source = "Config";
                     // L3550
@@ -1070,7 +1085,8 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                         // L3553
                         baseVal = Some(
                             tonumber_val(
-                                &env.configPlaceholder.get(cat!("enemy", damageType, "Damage")),
+                                &env.configPlaceholder
+                                    .get(cat!("enemy", damageType, "Damage")),
                             )
                             .unwrap_or(0.0),
                         );
@@ -1127,7 +1143,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                 if enemyIgniteChance > 0.0 {
                     // L3613
                     let sourceTypes = if enemyDB.Flag(None, nm!["AllDamageIgnites"]) {
-                        dmgTypeList().to_vec()
+                        dmg_type_names().to_vec()
                     } else {
                         vec![n!("Fire")]
                     };
@@ -1248,7 +1264,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                     );
                 }
                 // L3712
-                for damageType in dmgTypeList() {
+                for damageType in dmg_type_names() {
                     // L3713
                     let typeDegen = output.num0(cat!(damageType, "BuildDegen"))
                         + output.num0(cat!(damageType, "EnemyDegen"));
@@ -1302,8 +1318,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                 if let Some(breakdown) = &breakdown {
                     let life = || entry_table(breakdown.get(n!("ComprehensiveNetLifeRegen")));
                     let mana = || entry_table(breakdown.get(n!("ComprehensiveNetManaRegen")));
-                    let es =
-                        || entry_table(breakdown.get(n!("ComprehensiveNetEnergyShieldRegen")));
+                    let es = || entry_table(breakdown.get(n!("ComprehensiveNetEnergyShieldRegen")));
                     // L3756
                     life().push(lfmt!(
                         "%.1f ^8(total life regen)",
@@ -1328,10 +1343,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                         ));
                     }
                     // L3764
-                    life().push(lfmt!(
-                        "= %.1f",
-                        output.num(n!("ComprehensiveNetLifeRegen"))
-                    ));
+                    life().push(lfmt!("= %.1f", output.num(n!("ComprehensiveNetLifeRegen"))));
                     // L3765
                     mana().push(lfmt!(
                         "%.1f ^8(total mana regen)",
@@ -1348,10 +1360,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
                     // L3769
                     mana().push(lfmt!("- %.1f ^8(total mana degen)", totalManaDegen));
                     // L3770
-                    mana().push(lfmt!(
-                        "= %.1f",
-                        output.num(n!("ComprehensiveNetManaRegen"))
-                    ));
+                    mana().push(lfmt!("= %.1f", output.num(n!("ComprehensiveNetManaRegen"))));
                     // L3771
                     es().push(lfmt!(
                         "%.1f ^8(total energy shield regen)",
@@ -1408,7 +1417,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
         // L3790
         let takenHit = Table::new();
         // L3791
-        for damageType in dmgTypeList() {
+        for damageType in dmg_type_names() {
             let kHit = cat!(damageType, "TakenHit");
             // L3792 (`x > 0 and x or nil`: x is a number, never falsy)
             let v = if output.num(kHit) > 0.0 {
@@ -1449,7 +1458,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
         breakdown.set(n!("totalTakenHit"), v);
 
         // L3805
-        for damageType in dmgTypeList() {
+        for damageType in dmg_type_names() {
             // L3806
             let breakdownTable = Table::new();
             // L3807
@@ -1477,7 +1486,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
             // L3815
             breakdownTable.push("This part of the hit drains the following resources:");
             // L3816
-            for ally in allyLifePoolList {
+            for ally in &allyLifePoolList {
                 // L3817
                 let lost = resourcesLost.get(Name::from(ally.key));
                 // L3818

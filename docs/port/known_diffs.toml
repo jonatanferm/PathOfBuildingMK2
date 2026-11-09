@@ -99,7 +99,23 @@ id = "DF-G-1"
 unit = "DF-G"
 builds = ["*"]
 stage = "buildDefenceEstimations:end"
-keys = ["breakdown.<dmgType>DotEHP[*]", "breakdown.<dmgType>MaximumHitTaken*", "breakdown.<dmgType>TakenHit[*]"]
+keys = [
+    "locals.breakdown.PhysicalDotEHP*",
+    "locals.breakdown.LightningDotEHP*",
+    "locals.breakdown.ColdDotEHP*",
+    "locals.breakdown.FireDotEHP*",
+    "locals.breakdown.ChaosDotEHP*",
+    "locals.breakdown.PhysicalMaximumHitTaken*",
+    "locals.breakdown.LightningMaximumHitTaken*",
+    "locals.breakdown.ColdMaximumHitTaken*",
+    "locals.breakdown.FireMaximumHitTaken*",
+    "locals.breakdown.ChaosMaximumHitTaken*",
+    "locals.breakdown.PhysicalTakenHit*",
+    "locals.breakdown.LightningTakenHit*",
+    "locals.breakdown.ColdTakenHit*",
+    "locals.breakdown.FireTakenHit*",
+    "locals.breakdown.ChaosTakenHit*",
+]
 kind = "value"
-reason = "s_format('%d', x) of x = inf (CalcDefence.lua 3376-3378, e.g. ChaosDotEHP with Chaos Inoculation: TotalPool / TakenDotMult = inf; also the %d lines of 3331-3343 and 3810-3867 when a pool is inf): lj_strfmt_putfnum_int casts (int64_t)n, which is cvttsd2si on x64 PoB (-9223372036854775808, what the port prints) and a saturating fcvtzs on this ARM64 oracle host (9223372036854775807). Host artefact of the int cast, not a port bug. Only that exact substitution is tolerated; checked by crates/pob-oracle/tests/DF-G.rs (is_ccr0001_int_cast)."
+reason = "s_format('%d', x) of x = inf (CalcDefence.lua 3376-3378, e.g. ChaosDotEHP with Chaos Inoculation: TotalPool / TakenDotMult = inf; also the %d lines of 3331-3343 and 3810-3867 when a pool is inf): lj_strfmt_putfnum_int casts (int64_t)n, which is cvttsd2si on x64 PoB (-9223372036854775808, what the port prints) and a saturating fcvtzs on this ARM64 oracle host (9223372036854775807). Host artefact of the int cast, not a port bug. Only that exact substitution is tolerated; checked by crates/pob-oracle/tests/DF-G.rs (is_ccr0001_int_cast). At the pin it occurs only in 'Total Effective Dot Pool: %d' (13 :end dumps of the 64-build corpus)."
 ccr = "CCR-0001"
