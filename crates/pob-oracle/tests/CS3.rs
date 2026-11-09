@@ -31,10 +31,13 @@
 //! * `value-identity`: PoB shares one table (a GemProperty row's `value` is the mod's own value
 //!   table) where the Rust exporter writes an immutable data value in full; the tables are equal;
 //! * `LUA-ORDER (mod store)` (the diff's own order class), `LUA-ORDER (buffList)` (AS: buff
-//!   order follows the stat-map `pairs` order), `LUA-ORDER (supportLists pairs, 1807/1827)` (an
-//!   item/tree-granted skill collects the slot's supports in `pairs` order over group-keyed
-//!   tables: PoB's address order; accepted when the skill's support list is a permutation of
-//!   PoB's, for every mismatch inside that skill's `supportList`/`effectList` and refs into them);
+//!   order follows the stat-map `pairs` order), `LUA-ORDER (supportLists pairs, 1807/1827)` (a
+//!   skill whose group has a `source`, or whose slot receives cross-linked supports, collects
+//!   supports in `pairs` order over group-keyed tables: PoB's address order. Only for those
+//!   skills, and only when our `supportList`/`effectList` holds the same granted effects as
+//!   PoB's, our list is reordered to PoB's before the diff, pairing effects by granted-effect id,
+//!   and refs into it are rewritten; each effect is then diffed against its PoB counterpart.
+//!   Counted per reordered list);
 //! * `gem variant (CCR-0010)`: mods of a skill whose gem resolved to its `AltX`/`AltY` variant in
 //!   one of the two PoB processes (the oracle's, the data dump's);
 //! * `minion`: AS's minion representation (CCR-0030 #2, CCR-0040) and the minion item set, which
@@ -608,6 +611,26 @@ fn json_is_default(v: &J) -> bool {
     }
 }
 
+/// `key` is a typed field of one of the probe's struct kinds (env, actor, skill, effect, cfg,
+/// gem, group, override): the kinds whose fields cannot hold nil; or `SpecEnv::accelerate`
+/// (the `specEnv` local, a typed struct without a probe kind: probe.rs `impl ProbeField for
+/// SpecEnv` always writes it).
+fn typed_field(path: &str, key: &str) -> bool {
+    path.ends_with("specEnv.accelerate")
+        || [
+            Kind::Env,
+            Kind::Actor,
+            Kind::Skill,
+            Kind::Effect,
+            Kind::Cfg,
+            Kind::Gem,
+            Kind::Group,
+            Kind::Override,
+        ]
+        .into_iter()
+        .any(|k| typed_keys(k).contains(&key))
+}
+
 /// The value at an encoded path (`env.player.modDB`, `x[3]`, `x[@2:key]`) of a resolved tree.
 fn lookup<'a>(root: &'a J, path: &str) -> Option<&'a J> {
     let mut cur = root;
@@ -632,13 +655,15 @@ fn lookup<'a>(root: &'a J, path: &str) -> Option<&'a J> {
     }
 }
 
-/// `testkit::diff_against`, keeping the two resolved trees for the classification.
+/// `testkit::diff_against`, keeping the two resolved trees for the classification, with our
+/// support lists aligned first ([`align_permuted_supports`]; the count of reordered lists is the
+/// last member).
 fn diff_with_trees(
     dump: &StateDump,
     env: Option<&pob_calc::env::EnvRef>,
     locals: &[(String, Val)],
     stem: &str,
-) -> (Vec<Mismatch>, J, J) {
+) -> (Vec<Mismatch>, J, J, usize) {
     let pob_locals: Vec<String> = dump
         .locals()
         .and_then(J::as_object)
@@ -680,8 +705,9 @@ fn diff_with_trees(
         }
     }
     strip(&mut pob);
-    let (pob, ours) = (resolve_ids(&pob), resolve_ids(&ours));
-    (diff_trees(&pob, &ours, &opts), pob, ours)
+    let (pob, mut ours) = (resolve_ids(&pob), resolve_ids(&ours));
+    let reordered = align_permuted_supports(&pob, &mut ours);
+    (diff_trees(&pob, &ours, &opts), pob, ours, reordered)
 }
 
 /// `{"$ref": path}` → path.
@@ -691,6 +717,59 @@ fn ref_path(v: &J) -> Option<&str> {
         o.get("$ref").and_then(J::as_str)
     } else {
         None
+    }
+}
+
+/// `path` is `p` or lies below it.
+fn path_under(path: &str, p: &str) -> bool {
+    path == p
+        || (path.starts_with(p) && matches!(path.as_bytes().get(p.len()), Some(b'.' | b'[' | b'<')))
+}
+
+/// The mutable value at an encoded path (string members, sequence / `$seq` elements and `$num`
+/// keys; the steps a path to a skill's effect list takes).
+fn lookup_mut<'a>(root: &'a mut J, path: &str) -> Option<&'a mut J> {
+    use pob_oracle::schema::{is_marker, step_index, step_key, unescape_key};
+    let mut cur = root;
+    let mut base = String::new();
+    loop {
+        if base == path {
+            return Some(cur);
+        }
+        let (p, next) = match cur {
+            J::Array(a) => a
+                .iter_mut()
+                .enumerate()
+                .map(|(i, x)| (step_index(&base, &(i + 1).to_string()), x))
+                .find(|(p, _)| path_under(path, p))?,
+            J::Object(m) if !is_marker(m) => {
+                let key = m.keys().find_map(|k| {
+                    let p = step_key(&base, unescape_key(k)?);
+                    path_under(path, &p).then(|| (k.clone(), p))
+                });
+                let in_seq = matches!(m.get("$seq"), Some(J::Array(_)));
+                if let Some((k, p)) = key {
+                    (p, m.get_mut(&k)?)
+                } else if in_seq {
+                    let Some(J::Array(seq)) = m.get_mut("$seq") else {
+                        return None;
+                    };
+                    seq.iter_mut()
+                        .enumerate()
+                        .map(|(i, x)| (step_index(&base, &(i + 1).to_string()), x))
+                        .find(|(p, _)| path_under(path, p))?
+                } else if let Some(J::Object(num)) = m.get_mut("$num") {
+                    num.iter_mut()
+                        .map(|(k, x)| (step_index(&base, k), x))
+                        .find(|(p, _)| path_under(path, p))?
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        };
+        base = p;
+        cur = next;
     }
 }
 
@@ -705,11 +784,66 @@ fn effect_ids(root: &J, list: &J) -> Vec<String> {
         .collect()
 }
 
-/// Active-skill paths whose `supportList` is a permutation of PoB's: the skill's group has a
-/// `source` (an item / tree granted skill), so CalcSetup.lua 1807/1827 add the slot's supports in
-/// `pairs` order over a group-keyed table (PoB: address order, per process; calc doc §3.4).
-fn permuted_support_skills(pob: &J, ours: &J) -> Vec<String> {
-    let mut out = Vec::new();
+/// `perm[j]` = the index in `ours` of PoB's `j`-th id (the k-th occurrence of an id pairs with
+/// the k-th occurrence), or `None` when the two are not the same multiset.
+fn id_permutation(pob: &[String], ours: &[String]) -> Option<Vec<usize>> {
+    if pob.len() != ours.len() {
+        return None;
+    }
+    let mut used = vec![false; ours.len()];
+    pob.iter()
+        .map(|id| {
+            let i = (0..ours.len()).find(|&i| !used[i] && ours[i] == *id)?;
+            used[i] = true;
+            Some(i)
+        })
+        .collect()
+}
+
+/// `LUA-ORDER (supportLists pairs, 1807/1827)`. A skill whose socket group has a `source` (item /
+/// tree granted, CalcSetup.lua:1795) gathers the slot's supports through
+/// `pairs(supportLists[slotName])` (1807), and one in a cross-link target slot through
+/// `pairs(supportLists[crossLinkedSupportSlot])` (1827): group-keyed tables, so PoB's order is its
+/// address order (per process; calc doc §3.4). Every other group keeps the deterministic order of
+/// `supportLists[group]` (1791) and is compared as is.
+///
+/// For each such skill (decided on PoB's side) whose `supportList` / `effectList` holds the same
+/// granted effects as PoB's in another order, our list is reordered to PoB's, pairing the
+/// effects by granted-effect id, and every ref into the moved elements is rewritten, so the diff
+/// that follows compares each effect with its PoB counterpart in full (level, quality, flags,
+/// gem config). Returns the number of lists reordered.
+fn align_permuted_supports(pob: &J, ours: &mut J) -> usize {
+    fn rewrite(v: &mut J, moves: &[(String, String)]) {
+        match v {
+            J::Object(m) => {
+                if m.len() == 1 {
+                    if let Some(J::String(r)) = m.get_mut("$ref") {
+                        if let Some((o, n)) = moves.iter().find(|(o, _)| path_under(r, o)) {
+                            *r = format!("{n}{}", &r[o.len()..]);
+                        }
+                        return;
+                    }
+                }
+                m.values_mut().for_each(|x| rewrite(x, moves));
+            }
+            J::Array(a) => a.iter_mut().for_each(|x| rewrite(x, moves)),
+            _ => {}
+        }
+    }
+    let follow = |root: &J, p: &str| -> Option<String> {
+        let v = lookup(root, p)?;
+        Some(ref_path(v).map_or_else(|| p.to_owned(), str::to_owned))
+    };
+    // the slots that receive cross-linked supports (1596-1597), PoB's side
+    let cross_targets: Vec<String> = lookup(pob, "env.crossLinkedSupportGroups")
+        .map(|t| {
+            children("", t)
+                .into_iter()
+                .flat_map(|(_, list)| children("", list))
+                .filter_map(|(_, s)| s.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut cands: Vec<String> = vec!["env.player.mainSkill".to_owned()];
     for list in ["env.player.activeSkillList", "env.auxSkillList"] {
         if let Some(J::Array(a)) = lookup(pob, list) {
@@ -718,26 +852,75 @@ fn permuted_support_skills(pob: &J, ours: &J) -> Vec<String> {
             }
         }
     }
+    let mut skills: Vec<String> = Vec::new();
     for c in cands {
-        let (Some(a), Some(b)) = (lookup(pob, &c), lookup(ours, &c)) else {
+        let (Some(sp), Some(so)) = (follow(pob, &c), follow(ours, &c)) else {
             continue;
         };
-        let a = ref_path(a).and_then(|p| lookup(pob, p)).unwrap_or(a);
-        let b = ref_path(b).and_then(|p| lookup(ours, p)).unwrap_or(b);
-        let (Some(la), Some(lb)) = (a.get("supportList"), b.get("supportList")) else {
+        if sp != so || skills.contains(&sp) {
+            continue;
+        }
+        let Some(skill) = lookup(pob, &sp) else {
             continue;
         };
-        let (ia, ib) = (effect_ids(pob, la), effect_ids(ours, lb));
-        if ia != ib {
-            let (mut sa, mut sb) = (ia.clone(), ib.clone());
-            sa.sort();
-            sb.sort();
-            if sa == sb {
-                out.push(c);
-            }
+        let group = skill
+            .get("socketGroup")
+            .map(|g| ref_path(g).and_then(|p| lookup(pob, p)).unwrap_or(g));
+        let sourced = group
+            .and_then(|g| g.get("source"))
+            .is_some_and(|s| !s.is_null());
+        let cross = group
+            .and_then(|g| g.get("slot"))
+            .and_then(J::as_str)
+            .is_some_and(|s| {
+                let s = s.trim_end_matches(" Swap");
+                cross_targets.iter().any(|t| t == s)
+            });
+        if sourced || cross {
+            skills.push(sp);
         }
     }
-    out
+    // (old path, new path) of every moved element
+    let mut moves: Vec<(String, String)> = Vec::new();
+    let mut reordered = 0;
+    for s in &skills {
+        for list in ["supportList", "effectList"] {
+            let lp = format!("{s}.{list}");
+            let (Some(la), Some(lb)) = (lookup(pob, &lp), lookup(ours, &lp)) else {
+                continue;
+            };
+            let (ia, ib) = (effect_ids(pob, la), effect_ids(ours, lb));
+            if ia == ib {
+                continue;
+            }
+            let Some(perm) = id_permutation(&ia, &ib) else {
+                continue;
+            };
+            let Some(node) = lookup_mut(ours, &lp) else {
+                continue;
+            };
+            let seq = match node {
+                J::Array(a) => a,
+                J::Object(m) => match m.get_mut("$seq") {
+                    Some(J::Array(a)) => a,
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            let old = std::mem::take(seq);
+            *seq = perm.iter().map(|&i| old[i].clone()).collect();
+            for (j, &i) in perm.iter().enumerate() {
+                if i != j {
+                    moves.push((format!("{lp}[{}]", i + 1), format!("{lp}[{}]", j + 1)));
+                }
+            }
+            reordered += 1;
+        }
+    }
+    if !moves.is_empty() {
+        rewrite(ours, &moves);
+    }
+    reordered
 }
 
 /// `Skill:<id>` with a CCR-0010 `AltX`/`AltY` suffix dropped.
@@ -760,18 +943,14 @@ fn classify(
     mm: Vec<Mismatch>,
     pob: &J,
     ours: &J,
+    reordered: usize,
 ) -> (Vec<Mismatch>, BTreeMap<&'static str, usize>) {
     let mut rest = Vec::new();
     let mut why: BTreeMap<&'static str, usize> = BTreeMap::new();
+    if reordered > 0 {
+        why.insert("LUA-ORDER (supportLists pairs, 1807/1827)", reordered);
+    }
     let strict = DiffOptions::strict();
-    let permuted = permuted_support_skills(pob, ours);
-    let in_permuted = |p: &str| {
-        permuted.iter().any(|s| {
-            [".supportList[", ".effectList["]
-                .iter()
-                .any(|l| p.starts_with(&format!("{s}{l}")))
-        })
-    };
     let mod_source = |v: &Option<J>| -> Option<String> {
         v.as_ref()?.get("source")?.as_str().map(str::to_owned)
     };
@@ -784,16 +963,6 @@ fn classify(
         .map(|s| strip_alt(&s))
         .collect();
     for m in mm {
-        if !permuted.is_empty() {
-            let refs_in = [&m.pob, &m.ours]
-                .iter()
-                .all(|v| v.as_ref().and_then(ref_path).is_some_and(in_permuted));
-            if in_permuted(&m.path) || refs_in {
-                *why.entry("LUA-ORDER (supportLists pairs, 1807/1827)")
-                    .or_default() += 1;
-                continue;
-            }
-        }
         if matches!(m.kind, MismatchKind::ModMissing | MismatchKind::ModExtra) {
             if let Some(src) = mod_source(&m.pob).or_else(|| mod_source(&m.ours)) {
                 if alt_bases.contains(&strip_alt(&src)) {
@@ -882,11 +1051,14 @@ fn classify(
             *why.entry("model-marker").or_default() += 1;
             continue;
         }
-        let default_side = match m.kind {
-            MismatchKind::Extra => m.ours.as_ref().is_some_and(json_is_default),
-            MismatchKind::Missing => m.pob.as_ref().is_some_and(json_is_default),
-            _ => false,
-        };
+        // only a typed Rust field (a probe struct's KEYS) has a default where PoB has nil; a key
+        // of an untyped table (an effect's `extra`, a mod's tag) must match as is
+        let default_side = typed_field(&m.path, last)
+            && match m.kind {
+                MismatchKind::Extra => m.ours.as_ref().is_some_and(json_is_default),
+                MismatchKind::Missing => m.pob.as_ref().is_some_and(json_is_default),
+                _ => false,
+            };
         if default_side {
             if std::env::var_os("CS3_SHOW_EXPLAINED").is_some() {
                 eprintln!("    (nil-default) {}", fmt_mismatch(&m));
@@ -1012,8 +1184,8 @@ fn run_hit(din: &StateDump, dout: Option<&StateDump>, stem: &str) -> Outcome {
             serde_json::to_string(&j).unwrap_or_default(),
         );
     }
-    let (mm, pob_tree, ours_tree) = diff_with_trees(dout, env.as_ref(), &after, stem);
-    let (rest, why) = classify(mm, &pob_tree, &ours_tree);
+    let (mm, pob_tree, ours_tree, reordered) = diff_with_trees(dout, env.as_ref(), &after, stem);
+    let (rest, why) = classify(mm, &pob_tree, &ours_tree, reordered);
     let lines: Vec<String> = rest.iter().map(fmt_mismatch).collect();
     match (lines.is_empty(), stubs.is_empty()) {
         (true, true) => Outcome::Pass(why),
@@ -1102,6 +1274,9 @@ fn cs3_l4_skills_segment() {
     let mut lines = Vec::new();
     let mut missing = Vec::new();
     for xml in &builds {
+        // PoB runs one process per build: the CalcSetup.lua:1637 `fromItem` writes (CCR-0076 §1)
+        // last for that build only
+        pob_calc::modules::calc_setup::init_env_skills::reset_grantedEffect_fromItem();
         let stem = stem(xml);
         let dir = match ensure_dumps(xml, &stem) {
             Ok(d) => d,
@@ -1270,6 +1445,7 @@ fn cs3_l5_init_env() {
     let mut sites: BTreeMap<String, usize> = BTreeMap::new();
     let mut lines = Vec::new();
     for xml in &builds {
+        pob_calc::modules::calc_setup::init_env_skills::reset_grantedEffect_fromItem();
         let stem = stem(xml);
         let dir = match ensure_dumps(xml, &stem) {
             Ok(d) => d,
@@ -1337,8 +1513,8 @@ fn cs3_l5_init_env() {
             if let Some(J::Object(l)) = d.root.get_mut("locals") {
                 l.clear();
             }
-            let (mm, pob_tree, ours_tree) = diff_with_trees(&d, Some(&env), &[], &stem);
-            let (rest, _why) = classify(mm, &pob_tree, &ours_tree);
+            let (mm, pob_tree, ours_tree, reordered) = diff_with_trees(&d, Some(&env), &[], &stem);
+            let (rest, _why) = classify(mm, &pob_tree, &ours_tree, reordered);
             if rest.is_empty() {
                 pass += 1;
                 lines.push(format!("ok      {stem} {name}"));
