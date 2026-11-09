@@ -1,8 +1,8 @@
-# CCR-0076 (CS3): CalcSetup.lua 1451-1975 — data write, model nils, oracle model gaps
+# CCR-0083 (CS3): CalcSetup.lua 1451-1975 — data write, model nils, oracle model gaps
 
 **Status: proposed (CS3, 2026-11-09).** No frozen file was changed. Every item below is worked
 around inside CS3's own files (`crates/pob-calc/src/modules/calc_setup/init_env_skills.rs`,
-`crates/pob-oracle/tests/CS3.rs`, `crates/pob-oracle/corpus/CS3/`), marked `CCR-0076`.
+`crates/pob-oracle/tests/CS3.rs`, `crates/pob-oracle/corpus/CS3/`), marked `CCR-0083`.
 
 - **Raised by:** CS3
 - **Affects:** calc doc §5.4 (`SkillEffect`), §5.8 (`SocketGroup`, `GemInstance`, `Build`), §9.2

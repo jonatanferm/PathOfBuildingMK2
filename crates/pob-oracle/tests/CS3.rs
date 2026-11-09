@@ -44,7 +44,7 @@
 //!   is not in the dump (BM-A).
 //!
 //! Before diffing, `warcryPowerBonus` is dropped from PoB's tree (CalcPerform.lua:2382 writes it
-//! into a shared mod's tag in an earlier perform; CCR-0076 §7).
+//! into a shared mod's tag in an earlier perform; CCR-0083 §7).
 //!
 //! **Gate.** No hit raises, every hit that ran without reaching an `unported!` stub has zero
 //! unexplained mismatches, every restart hit restarts, and at least one hit passes. Hits whose
@@ -385,7 +385,7 @@ impl ModelConv {
 
     fn group(&mut self, v: &Val) -> Result<SocketGroupRef, String> {
         if let Some(g) = v.obj::<SocketGroup>() {
-            // nil model numbers are NaN (CCR-0019 / CCR-0076 §3); injection left the default
+            // nil model numbers are NaN (CCR-0019 / CCR-0083 §3); injection left the default
             let p = rc_ptr(&g);
             for (k, c) in [
                 ("mainActiveSkill", &g.mainActiveSkill),
@@ -435,7 +435,7 @@ impl ModelConv {
                 }
             }
         }
-        // nil model numbers are NaN (CCR-0019 / CCR-0076 §3)
+        // nil model numbers are NaN (CCR-0019 / CCR-0083 §3)
         if !seen.iter().any(|s| s == "mainActiveSkill") {
             g.mainActiveSkill.set(f64::NAN);
         }
@@ -1274,7 +1274,7 @@ fn cs3_l4_skills_segment() {
     let mut lines = Vec::new();
     let mut missing = Vec::new();
     for xml in &builds {
-        // PoB runs one process per build: the CalcSetup.lua:1637 `fromItem` writes (CCR-0076 §1)
+        // PoB runs one process per build: the CalcSetup.lua:1637 `fromItem` writes (CCR-0083 §1)
         // last for that build only
         pob_calc::modules::calc_setup::init_env_skills::reset_grantedEffect_fromItem();
         let stem = stem(xml);

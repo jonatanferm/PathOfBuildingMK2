@@ -13,14 +13,14 @@
 //! `ModCfg` whose `extra.propertyModList` is the rows as a Lua list, so `copyTable(groupCfg,
 //! true)` carries it into every `gemCfg` as in Lua) and the rows for `applyGemMods`.
 //!
-//! Contract gaps (CCR-0076, docs/port/ccr/0076-cs3-init-env-skills.md), each site marked:
+//! Contract gaps (CCR-0083, docs/port/ccr/0083-cs3-init-env-skills.md), each site marked:
 //! * `grantedEffect.fromItem = true` (CalcSetup.lua:1637) writes into PoB's global `data`;
 //!   the immutable Rust data cannot take it, so the write goes to a process-wide set
-//!   ([`grantedEffect_fromItem`]) that readers must consult (CCR-0076 §1);
+//!   ([`grantedEffect_fromItem`]) that readers must consult (CCR-0083 §1);
 //! * `env.explodeSources` holds items / nodes (CCR-0030 #3): read from `env.extra` when the
-//!   injection or CS2 put the Lua list there, else from the typed list (CCR-0076 §2);
+//!   injection or CS2 put the Lua list there, else from the typed list (CCR-0083 §2);
 //! * a nil `socketGroup.mainActiveSkill` / `mainActiveSkillCalcs` (groups CS3 creates) is NaN,
-//!   the CCR-0019 convention for nil numbers in typed model fields (CCR-0076 §3);
+//!   the CCR-0019 convention for nil numbers in typed model fields (CCR-0083 §3);
 //! * `SkillEffect.req` is a number kept in `effect.extra["req"]` (CCR-0074 §6).
 #![allow(non_snake_case)]
 // Lua statement shapes are kept (locals assigned per branch, `if … then … else … end`).
@@ -52,14 +52,14 @@ use crate::prelude::*;
 // ---- Rust-only plumbing ---------------------------------------------------------------------
 
 thread_local! {
-    /// CCR-0076 §1: granted effects CalcSetup.lua:1637 flagged `fromItem = true`. PoB writes the
+    /// CCR-0083 §1: granted effects CalcSetup.lua:1637 flagged `fromItem = true`. PoB writes the
     /// flag into its global `data.skills[...]` table, so it persists for the rest of the process
     /// (every later env sees it). Keyed by the granted effect's id.
     static GRANTED_EFFECT_FROM_ITEM: RefCell<ahash::AHashSet<Name>> = RefCell::new(ahash::AHashSet::new());
 }
 
 /// `grantedEffect.fromItem`: the data's own flag, or CalcSetup.lua:1637's runtime write
-/// (CCR-0076 §1).
+/// (CCR-0083 §1).
 pub fn grantedEffect_fromItem(grantedEffect: &GrantedEffect) -> bool {
     grantedEffect.fromItem
         || GRANTED_EFFECT_FROM_ITEM.with(|s| s.borrow().contains(&grantedEffect.id))
@@ -141,7 +141,7 @@ fn group_slotName(group: &SocketGroup) -> Option<Name> {
     }
 }
 
-/// `t[k] or 1` of a model number whose nil is NaN (CCR-0019 / CCR-0076 §3).
+/// `t[k] or 1` of a model number whose nil is NaN (CCR-0019 / CCR-0083 §3).
 fn or1(v: f64) -> f64 {
     if v.is_nan() {
         1.0
@@ -150,7 +150,7 @@ fn or1(v: f64) -> f64 {
     }
 }
 
-/// `env.explodeSources` as the Lua list (CCR-0030 #3, CCR-0076 §2): the Lua list in
+/// `env.explodeSources` as the Lua list (CCR-0030 #3, CCR-0083 §2): the Lua list in
 /// `env.extra` when present (items / nodes / `false`), else the typed list's tables.
 fn env_explodeSources(env: &Env) -> Table {
     if let Some(t) = env.extra.table(n!("explodeSources")) {
@@ -364,7 +364,7 @@ fn addExtraSupports(
     // L1636
     if let (Some(_), Some(ge)) = (value, grantedEffect.as_ref()) {
         // Only item ExtraSupport gems should be flagged as fromItem. Imbued gems do not pass this check
-        // L1637 (a write into PoB's global data: CCR-0076 §1)
+        // L1637 (a write into PoB's global data: CCR-0083 §1)
         GRANTED_EFFECT_FROM_ITEM.with(|s| s.borrow_mut().insert(ge.id));
     }
     // L1639
@@ -549,7 +549,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                         g.gemList.set(Shared::new(Vec::new()));
                         g.source.set(grantedSkill.str(n!("source")));
                         g.slot.set(grantedSkill.str(n!("slotName")).map(|s| Name::from(&*s)));
-                        // nil fields of the literal (CCR-0019 / CCR-0076 §3)
+                        // nil fields of the literal (CCR-0019 / CCR-0083 §3)
                         g.extra.set(n!("$includeInFullDPSNil"), true);
                         g.mainActiveSkill.set(f64::NAN);
                         g.mainActiveSkillCalcs.set(f64::NAN);
