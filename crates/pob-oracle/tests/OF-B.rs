@@ -39,9 +39,16 @@
 //! with `OFB_STRICT=1` every hit must also have zero attributed mismatches (the gate once
 //! OF-A is merged).
 //!
-//! Inputs: `.parity/probe-cache/*/<build-key>/offence:{1037,1692}#n.json.zst` (fill with
-//! `scripts/port/oracle.sh run --build B.xml --stage 'offence:1037#*,offence:1692#*'`),
-//! `data/dump`. Knobs: `OFB_BUILDS=stem1,stem2`, `OFB_VERBOSE=1` (every mismatch).
+//! **Inputs.** `.parity/unit/OF-B/<stem>/` (`$OFB_DUMP_DIR/<stem>/`): one `pob_oracle probe`
+//! run per build selecting `offence:1037#*,offence:1692#*`, written by
+//! `crates/pob-oracle/corpus/OF-B/fill.sh` (re-run it after a change to PoB's source, the
+//! patcher or `docs/port/stages.toml`). Only the dumps that run's `hits.json` lists are used,
+//! so the in and out dumps of a pair come from the same PoB process: mod order inside a
+//! store differs between processes, and the shared probe cache mixes the dumps of every
+//! agent's runs under one key, so it is not read. Builds without a run directory, `1037`
+//! hits without their `1692` dump and runs capped by `maxDumps` are printed and fail the
+//! gate (`POB_ALLOW_SKIP=1` turns a missing run directory into a skip). Also `data/dump`.
+//! Knobs: `OFB_BUILDS=stem1,stem2`, `OFB_VERBOSE=1` (every mismatch).
 
 use std::collections::{BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -235,7 +242,14 @@ struct Tally {
     builds: usize,
     duplicates: usize,
     probed: usize,
+    /// corpus builds without a usable OF-B run directory (`corpus/OF-B/fill.sh`).
     no_dumps: Vec<String>,
+    /// builds whose run has no `offence:1037` hit at all (no `calcs.offence` call reached it).
+    no_hits: Vec<String>,
+    /// `<build>/offence:1037#n` hits of a run without their `offence:1692#n` dump.
+    unpaired: Vec<String>,
+    /// builds whose run dropped selected hits (`maxDumps`), with the count.
+    capped: Vec<(String, u64)>,
     pass_strict: Vec<String>,
     pass_attributed: Vec<(String, usize, Vec<String>)>,
     hook: Vec<(String, usize)>,
@@ -342,44 +356,110 @@ fn foreign_skill_mod_list(root: &serde_json::Value) -> bool {
     false
 }
 
-/// Every `(n, offence:1037#n, offence:1692#n)` pair of dumps of a build (first directory wins).
-fn hit_pairs(dirs: &[PathBuf]) -> Vec<(u64, PathBuf, PathBuf)> {
-    let mut found: BTreeMap<u64, (PathBuf, PathBuf)> = BTreeMap::new();
-    for d in dirs {
-        let Ok(rd) = std::fs::read_dir(d) else {
+/// The `--select` of `corpus/OF-B/fill.sh` (the run directory must have been made by it).
+const SELECT: &[&str] = &["offence:1037#*", "offence:1692#*"];
+
+/// The directory OF-B's own oracle runs write (`corpus/OF-B/fill.sh`): `$OFB_DUMP_DIR`, else
+/// `.parity/unit/OF-B`.
+fn owned_root() -> Option<PathBuf> {
+    if let Some(d) = std::env::var_os("OFB_DUMP_DIR") {
+        return Some(PathBuf::from(d));
+    }
+    pob_testpaths::parity_dir().map(|p| p.join("unit").join("OF-B"))
+}
+
+/// A build's dump pairs, all from one oracle process.
+#[derive(Default)]
+struct BuildPairs {
+    /// `(n, offence:1037#n, offence:1692#n)`.
+    pairs: Vec<(u64, PathBuf, PathBuf)>,
+    /// `offence:1037#n` hits of the run without an `offence:1692#n` (or a file missing).
+    unpaired: Vec<String>,
+    /// Selected hits the run did not dump (`maxDumps`).
+    capped: u64,
+}
+
+/// The pairs of `<owned_root>/<stem>/`, the run directory of one `pob_oracle probe` process
+/// (`fill.sh`). Only dumps that run's `hits.json` lists are used, so the in and out dumps of
+/// a pair always come from the same process (mod order inside a store differs between
+/// processes). `None`: no run directory, or one not made with [`SELECT`].
+///
+/// The shared probe cache (`.parity/probe-cache/<sha>/<build>/`) is deliberately not read: it
+/// accumulates the dumps of every agent's runs under one patched-source key, and its
+/// `hits.json` names only the latest run's.
+fn hit_pairs(dir: &Path) -> Result<BuildPairs, String> {
+    let hits_path = ["hits.json", "hits.json.zst"]
+        .iter()
+        .map(|f| dir.join(f))
+        .find(|p| p.is_file())
+        .ok_or_else(|| format!("{}: no hits.json", dir.display()))?;
+    let hits = pob_oracle::schema::HitsIndex::load(&hits_path).map_err(|e| e.0)?;
+    let mut sel = hits.select.clone();
+    sel.sort();
+    if sel != SELECT {
+        return Err(format!(
+            "{}: run selected {:?}, not {SELECT:?} (re-run corpus/OF-B/fill.sh)",
+            dir.display(),
+            hits.select
+        ));
+    }
+    let file = |e: &pob_oracle::schema::DumpEntry| -> Option<PathBuf> {
+        let p = dir.join(&e.file);
+        let z = dir.join(format!("{}.zst", e.file));
+        [p, z].into_iter().find(|p| p.is_file())
+    };
+    let listed: BTreeMap<&str, &pob_oracle::schema::DumpEntry> =
+        hits.dumps.iter().map(|e| (e.hit.as_str(), e)).collect();
+    let mut out = BuildPairs {
+        capped: hits.skipped,
+        ..BuildPairs::default()
+    };
+    for e in &hits.dumps {
+        let Some(n) = e
+            .hit
+            .strip_prefix(&format!("{STAGE_IN}#"))
+            .and_then(|r| r.parse::<u64>().ok())
+        else {
             continue;
         };
-        for e in rd.filter_map(Result::ok) {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let Some(rest) = name.strip_prefix(&format!("{STAGE_IN}#")) else {
-                continue;
-            };
-            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-            let Ok(n) = digits.parse::<u64>() else {
-                continue;
-            };
-            if found.contains_key(&n) {
-                continue;
-            }
-            if let Some(pout) = testkit::find_dump(dirs, &format!("{STAGE_OUT}#{n}")) {
-                found.insert(n, (e.path(), pout));
-            }
+        let pin = file(e);
+        let pout = listed
+            .get(format!("{STAGE_OUT}#{n}").as_str())
+            .and_then(|o| file(o));
+        match (pin, pout) {
+            (Some(a), Some(b)) => out.pairs.push((n, a, b)),
+            _ => out.unpaired.push(e.hit.clone()),
         }
     }
-    found.into_iter().map(|(n, (a, b))| (n, a, b)).collect()
+    out.pairs.sort_by_key(|(n, _, _)| *n);
+    Ok(out)
 }
 
 fn run_build(xml: &Path, t: &mut Tally, seen: &mut HashSet<u64>, verbose: bool) {
     let stem = stem(xml).to_owned();
-    let dirs = testkit::dump_dirs(&stem, Some(xml));
-    let pairs = hit_pairs(&dirs);
-    if pairs.is_empty() {
+    let Some(dir) = owned_root().map(|r| r.join(&stem)).filter(|d| d.is_dir()) else {
         t.no_dumps.push(stem);
+        return;
+    };
+    let bp = match hit_pairs(&dir) {
+        Ok(bp) => bp,
+        Err(e) => {
+            t.no_dumps.push(format!("{stem} ({e})"));
+            return;
+        }
+    };
+    if bp.capped > 0 {
+        t.capped.push((stem.clone(), bp.capped));
+    }
+    t.unpaired
+        .extend(bp.unpaired.iter().map(|h| format!("{stem}/{h}")));
+    if bp.pairs.is_empty() {
+        t.no_hits.push(stem);
         return;
     }
     t.builds += 1;
     let model = testkit::load_build(xml).unwrap_or_else(testkit::empty_build);
-    for (_, pin, pout) in pairs {
+    for (_, pin, pout) in bp.pairs {
         run_hit(&stem, &model, &pin, &pout, t, seen, verbose);
     }
 }
@@ -586,21 +666,50 @@ fn ofb_l4_skill_type_stats_all57() {
             eprintln!("      {l}");
         }
     }
+    // what was not tested, always printed (and gated below): a silent skip cannot pass
+    eprintln!(
+        "  skipped: {} builds without an OF-B run, {} unpaired {STAGE_IN} hits, {} builds \
+         capped by maxDumps, {} builds with no {STAGE_IN} hit",
+        t.no_dumps.len(),
+        t.unpaired.len(),
+        t.capped.len(),
+        t.no_hits.len()
+    );
     if !t.no_dumps.is_empty() {
         eprintln!(
-            "  no {STAGE_IN}/{STAGE_OUT} dumps ({}): {}",
-            t.no_dumps.len(),
+            "    no OF-B run (crates/pob-oracle/corpus/OF-B/fill.sh): {}",
             t.no_dumps.join(", ")
         );
     }
+    if !t.unpaired.is_empty() {
+        eprintln!("    unpaired: {}", t.unpaired.join(", "));
+    }
+    for (s, n) in &t.capped {
+        eprintln!("    capped: {s}: {n} selected hits not dumped");
+    }
+    if !t.no_hits.is_empty() {
+        eprintln!("    no {STAGE_IN} hit: {}", t.no_hits.join(", "));
+    }
 
-    let probed = t.probed;
     let Some(_) = pob_testpaths::require(
-        (probed > 0).then_some(()),
-        "offence:1037/1692 dumps (scripts/port/oracle.sh run --build B.xml --stage 'offence:1037#*,offence:1692#*')",
+        t.no_dumps.is_empty().then_some(()),
+        &format!(
+            "OF-B oracle runs for {} corpus builds (crates/pob-oracle/corpus/OF-B/fill.sh): {}",
+            t.no_dumps.len(),
+            t.no_dumps.join(", ")
+        ),
     ) else {
         return;
     };
+    // every hit of a run is tested: an incomplete run fails the gate
+    assert!(
+        t.unpaired.is_empty() && t.capped.is_empty(),
+        "{} unpaired {STAGE_IN} hits, {} capped runs (re-run fill.sh)",
+        t.unpaired.len(),
+        t.capped.len()
+    );
+    let probed = t.probed;
+    assert!(probed > 0, "no {STAGE_IN} hit in any corpus build");
     assert!(
         t.changed_paths > 0,
         "vacuous: PoB's dumps show no change by the segment"
