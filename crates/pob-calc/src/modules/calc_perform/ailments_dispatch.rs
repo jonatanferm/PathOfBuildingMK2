@@ -28,11 +28,11 @@ use crate::modules::calc_tools as calcLib;
 use crate::modules::common::{cacheData, cacheSkillUUID};
 use crate::prelude::*;
 
-// ---- callee replay seam (test-only, feature `probe`; CCR-0039) ---------------------------------
+// ---- callee replay seam (test-only, feature `probe`; CCR-0077) ---------------------------------
 
-/// CCR-0039: the L4 test replays callees that are not ported yet (calc doc §9.2 "Replay":
+/// CCR-0077: the L4 test replays callees that are not ported yet (calc doc §9.2 "Replay":
 /// "PF-G calling `offence`") by applying their recorded `in → out` state delta in place of the
-/// call. The frozen code has no interception point, so until CCR-0039 moves this seam into the
+/// call. The frozen code has no interception point, so until CCR-0077 moves this seam into the
 /// facade it lives here, compiled only with the oracle's `probe` feature (the shipped calc has
 /// no hook). A hook returns `Some(ret)` when it replayed the call (`ret` = the callee's packed
 /// results `{ n = k, … }`, or nil), `None` to let the Rust callee run.
@@ -72,7 +72,7 @@ pub mod replay_hook {
 }
 
 /// Run a callee, or (feature `probe`, hook installed) replay it. Returns the callee's packed
-/// results as a Lua value (`Nil` when it returns nothing). CCR-0039.
+/// results as a Lua value (`Nil` when it returns nothing). CCR-0077.
 #[allow(unused_variables)]
 fn callee(name: &'static str, env: &EnvRef, actor: &ActorRef, f: impl FnOnce() -> Val) -> Val {
     #[cfg(feature = "probe")]
@@ -816,7 +816,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
 
     // L3667 Full DPS and builds without a supported redirect do not need ally Life.
     // The ally Life pool tables are PF-B's module-level locals (CalcPerform.lua 1256-1272),
-    // reached through `allyLifePools()` (keys: the five local names; CCR-0039 §3).
+    // reached through `allyLifePools()` (keys: the five local names; CCR-0077 §3).
     let pools = allyLifePools();
     let minionLifePoolBySkill = pools.table(n!("minionLifePoolBySkill"));
     let spectreLifePool = pools.table(n!("spectreLifePool"));
@@ -1181,7 +1181,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
         Val::Nil
     });
     // L3798
-    // CCR-0039 §2: `calcs.mirages(env)` returns a value Lua tests (`return not
+    // CCR-0077 §2: `calcs.mirages(env)` returns a value Lua tests (`return not
     // config.calcMainSkillOffence`, CalcMirages.lua:57) but the frozen Rust signature returns
     // `()`; until the CCR is applied the Rust call counts as returning nil.
     let miragesRet = callee("mirages", &env, &player, || {

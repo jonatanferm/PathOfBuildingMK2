@@ -11,13 +11,13 @@
 //! Each call's `in`/`out` are the line probes around it (`corpus/PF-G/stages.toml`): a line
 //! probe fires at most once per perform, so the main env's first hit (`pfg:*@main`) is the call.
 //! `mirages`' return value is read off the probes (3799 fires only when it returned falsy). The
-//! replays go through the segment's test seam `ailments_dispatch::replay_hook` (CCR-0039).
+//! replays go through the segment's test seam `ailments_dispatch::replay_hook` (CCR-0077).
 //!
 //! At every replayed call the live state is also diffed against the call's `in` probe (before)
 //! and `out` probe (after), which localises a mismatch. Verdicts per build: *clean*;
 //! *replay-limited* (a replay could not reproduce its callee, the Rust segment added nothing;
-//! CCR-0039 §6); *stub-blocked* (PoB ran the ally-Life block, whose helpers are unported stubs;
-//! CCR-0039 §3); *divergent* (the Rust segment itself introduced mismatches: fails). Gate: no
+//! CCR-0077 §6); *stub-blocked* (PoB ran the ally-Life block, whose helpers are unported stubs;
+//! CCR-0077 §3); *divergent* (the Rust segment itself introduced mismatches: fails). Gate: no
 //! divergent or failed build, and ≥ 98 % of the remaining (comparable) builds clean.
 //!
 //! Dumps are probed by this test into `target/tmp/pfg-probe/<stem>/` when absent (LuaJIT, the
@@ -219,7 +219,7 @@ fn live_vs(dump: &StateDump, env: &pob_calc::env::EnvRef) -> usize {
         .count()
 }
 
-/// CCR-0039 §4 workaround: the typed `Option` fields the segment sets that injection may have
+/// CCR-0077 §4 workaround: the typed `Option` fields the segment sets that injection may have
 /// marked absent (`allyLifeList` of each actor) count as present once `Some`.
 fn unmark_present_options(env: &pob_calc::env::EnvRef) {
     let mut actors = vec![env.player.clone(), env.enemy.clone()];
@@ -244,7 +244,7 @@ fn install_hook(calls: BTreeMap<(&'static str, Who), Recorded>) -> Rc<RefCell<Lo
     let log = Rc::new(RefCell::new(Log::default()));
     let l = Rc::clone(&log);
     let hook: replay_hook::Hook = Box::new(move |callee, env, actor| {
-        // CCR-0039 §4: injection marks `player.allyLifeList` absent (nil at 3497); the segment's
+        // CCR-0077 §4: injection marks `player.allyLifeList` absent (nil at 3497); the segment's
         // `env.player.allyLifeList = { }` (3669) writes an empty table, which the exporter then
         // still treats as absent (`reg_absent && val_is_default`), so the replay's export ->
         // merge -> refill would drop it. A `Field<Option<_>>` that is `Some` is present.
@@ -337,7 +337,7 @@ enum Verdict {
     Clean,
     /// A replay could not reproduce its callee's `out` (it added mismatches) and the Rust
     /// segment added none of its own before any call or after the last one: the remaining
-    /// mismatches are the replay's (calc doc §9.2 Replay limits; CCR-0039 §6).
+    /// mismatches are the replay's (calc doc §9.2 Replay limits; CCR-0077 §6).
     ReplayLimited(String),
     /// The Rust segment diverged in the ally-Life block (3667-3789) of a build that needs it:
     /// the block's helpers are unported stubs (see `BuildResult::needs_ally_life`).
