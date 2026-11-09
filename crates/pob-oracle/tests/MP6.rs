@@ -51,8 +51,11 @@ use serde_json::Value as J;
 
 const LO: usize = 4989;
 const HI: usize = 5942;
-const OTHER_RANGES: [(&str, usize, usize); 3] =
-    [("MP3", 2130, 3083), ("MP4", 3084, 4036), ("MP5", 4037, 4988)];
+const OTHER_RANGES: [(&str, usize, usize); 3] = [
+    ("MP3", 2130, 3083),
+    ("MP4", 3084, 4036),
+    ("MP5", 4037, 4988),
+];
 /// Lines whose closures call `mod(…, nil, {tag})` (calc doc §6).
 const NIL_HOLE_LINES: [u32; 3] = [5686, 5689, 5692];
 /// The `SkillType.Totem` (nil) list.
@@ -73,7 +76,10 @@ fn init_data() -> bool {
 }
 
 fn modparser_src() -> Option<String> {
-    let src = pob_testpaths::require(pob_testpaths::pob_src(), "PoB checkout (.PathOfBuilding/src)")?;
+    let src = pob_testpaths::require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src)",
+    )?;
     Some(std::fs::read_to_string(src.join("Modules/ModParser.lua")).unwrap())
 }
 
@@ -103,7 +109,11 @@ fn literal_keys(src: &[&str], a: usize, b: usize) -> Vec<(String, u32, bool)> {
         assert!(!key.contains('\\'), "ModParser.lua:{ln}: escaped key");
         let after = body[end + 1..].trim_start();
         assert!(after.starts_with(']'), "ModParser.lua:{ln}");
-        let val = after[1..].trim_start().strip_prefix('=').unwrap().trim_start();
+        let val = after[1..]
+            .trim_start()
+            .strip_prefix('=')
+            .unwrap()
+            .trim_start();
         let is_fn = val.starts_with("function");
         if by_key.insert(key.to_owned(), (ln as u32, is_fn)).is_none() {
             order.push(key.to_owned());
@@ -178,9 +188,23 @@ fn samples_for(group: &str) -> Vec<&'static str> {
         "%-%d+" => vec!["-5", "-1"],
         "%+%d+" => vec!["+5", "+1"],
         "[%+%-]%d" | "[%+%-]%d+" => vec!["+1", "-2", "-10"],
-        "%a+" => vec!["fire", "physical", "cold", "lightning", "chaos", "rare", "x"],
+        "%a+" => vec![
+            "fire",
+            "physical",
+            "cold",
+            "lightning",
+            "chaos",
+            "rare",
+            "x",
+        ],
         "%D+" => vec!["fire", "x"],
-        ".+" | ".-" => vec!["fireball", "flammability skill", "xibaqua", "arctic armour", "a1"],
+        ".+" | ".-" => vec![
+            "fireball",
+            "flammability skill",
+            "xibaqua",
+            "arctic armour",
+            "a1",
+        ],
         "[%a%s]+" | "[%a%s']+" => vec!["gloves", "body armour", "zealot's oath"],
         "m?r?ag?r?i?e?c?" => vec!["", "magic", "rare"],
         _ => vec!["x", "1"],
@@ -379,7 +403,11 @@ fn mod_eq(lua: &Mod, ours: &Mod, n: &mut Notes) -> bool {
         && lua.source == ours.source
         && value_eq(&lua.value, &ours.value, n)
         && lua.tags.len() == ours.tags.len()
-        && lua.tags.iter().zip(&ours.tags).all(|(x, y)| tag_eq(x, y, n)))
+        && lua
+            .tags
+            .iter()
+            .zip(&ours.tags)
+            .all(|(x, y)| tag_eq(x, y, n)))
     {
         return false;
     }
@@ -393,9 +421,9 @@ fn mod_eq(lua: &Mod, ours: &Mod, n: &mut Notes) -> bool {
         // `mod[2] = tag` behind a nil `mod[1]`: the deserialiser keeps it as extra "#2"
         (Some(x), None)
             if x.array.is_empty()
-                && x.fields.iter().all(|(k, v)| {
-                    k.as_str().starts_with('#') && matches!(v, Value::Table(_))
-                }) =>
+                && x.fields
+                    .iter()
+                    .all(|(k, v)| k.as_str().starts_with('#') && matches!(v, Value::Table(_))) =>
         {
             n.nil_hole += 1;
             true
@@ -435,7 +463,10 @@ fn list_shape() {
         assert_eq!(e.lua_line, *l, "{k:?}: line of the last definition");
         let is_fn = !matches!(e.val, SpecialVal::Mods(_));
         assert_eq!(is_fn, *f, "{k:?} (line {l}): closure vs table");
-        assert!(!matches!(e.val, SpecialVal::Dyn(_)), "{k:?}: no generated entry in this range");
+        assert!(
+            !matches!(e.val, SpecialVal::Dyn(_)),
+            "{k:?}: no generated entry in this range"
+        );
         nFn += usize::from(is_fn);
     }
     // every closure on synthetic captures: no unported! site, no non-Lua panic
@@ -657,8 +688,11 @@ fn mp6_oracle() {
         return;
     };
     let ours = pob_modparser::special_d::entries();
-    let by_line: BTreeMap<u32, usize> =
-        ours.iter().enumerate().map(|(i, e)| (e.lua_line, i)).collect();
+    let by_line: BTreeMap<u32, usize> = ours
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (e.lua_line, i))
+        .collect();
 
     // -- sample captures per closure: PoB's own scans first, then synthetic ones
     let mut samples: Vec<Vec<Vec<String>>> = vec![Vec::new(); ours.len()];
@@ -770,9 +804,7 @@ fn mp6_oracle() {
                                 Some(mods_from_json(&c["v"], &what))
                             };
                             if !mods_eq(&want, &m, &mut notes) {
-                                bad.push(format!(
-                                    "{what} caps {cap:?}: PoB {want:?} / ours {m:?}"
-                                ));
+                                bad.push(format!("{what} caps {cap:?}: PoB {want:?} / ours {m:?}"));
                             }
                         }
                         (false, Err(err)) => {
@@ -802,13 +834,17 @@ fn mp6_oracle() {
     }
     for (line, (nh, ds, cp)) in &accepted {
         if *nh > 0 && !NIL_HOLE_LINES.contains(line) {
-            bad.push(format!("{line}: nil-hole tag difference at an unlisted line"));
+            bad.push(format!(
+                "{line}: nil-hole tag difference at an unlisted line"
+            ));
         }
         if *cp > 0 && !COMPACTED_LIST_LINES.contains(line) {
             bad.push(format!("{line}: holey skillTypeList at an unlisted line"));
         }
         if *ds > 0 && !DIGIT_STRING_LINES.contains(line) {
-            bad.push(format!("{line}: digit-string tag field difference at an unlisted line"));
+            bad.push(format!(
+                "{line}: digit-string tag field difference at an unlisted line"
+            ));
         }
     }
     let unhit: Vec<u32> = ours
@@ -877,7 +913,10 @@ fn special_list(src: &[&str]) -> (&'static PatternList<SpecialVal>, Vec<&'static
     (Box::leak(Box::new(list)), which)
 }
 
-fn parse_with(lists: &ParserLists, line: &str) -> Result<(Option<Vec<Mod>>, Option<String>), String> {
+fn parse_with(
+    lists: &ParserLists,
+    line: &str,
+) -> Result<(Option<Vec<Mod>>, Option<String>), String> {
     pcall(|| {
         let (m, e) = parseModPassWith(lists, line, 1);
         if m.is_some() && e.is_some() {
@@ -923,7 +962,10 @@ fn l1(src: &[&str], recs: &[Record], by_line: &BTreeMap<u32, usize>, bad: &mut V
                 accepted += usize::from(notes.nil_hole + notes.digit_string > 0);
                 let line = special_line(r).unwrap_or(0);
                 if notes.nil_hole > 0 && !NIL_HOLE_LINES.contains(&line) {
-                    bad.push(format!("L1 {:?} (entry line {line}): nil-hole tag difference at an unlisted line", r.line));
+                    bad.push(format!(
+                        "L1 {:?} (entry line {line}): nil-hole tag difference at an unlisted line",
+                        r.line
+                    ));
                 }
                 if notes.digit_string > 0 && !DIGIT_STRING_LINES.contains(&line) {
                     bad.push(format!(
@@ -971,7 +1013,10 @@ fn whole_parser_l1() {
         ("MP3", pob_modparser::special_a::entries().is_empty()),
         ("MP4", pob_modparser::special_b::entries().is_empty()),
         ("MP5", pob_modparser::special_c::entries().is_empty()),
-        ("MP7", pob_modparser::jewel_func_list::jewelFuncList.is_empty()),
+        (
+            "MP7",
+            pob_modparser::jewel_func_list::jewelFuncList.is_empty(),
+        ),
     ]
     .into_iter()
     .filter(|(_, e)| *e)
@@ -995,7 +1040,10 @@ fn whole_parser_l1() {
             other => {
                 nbad += 1;
                 if first.len() < 40 {
-                    first.push(format!("{:?}: PoB {want:?} / {:?}; ours {other:?}", r.line, r.extra));
+                    first.push(format!(
+                        "{:?}: PoB {want:?} / {:?}; ours {other:?}",
+                        r.line, r.extra
+                    ));
                 }
             }
         }
@@ -1005,6 +1053,9 @@ fn whole_parser_l1() {
     for f in &first {
         eprintln!("DIFF {f}");
     }
-    eprintln!("whole-parser L1 (cache disabled): {ok}/{} identical = {pct:.3}%", ok + nbad);
+    eprintln!(
+        "whole-parser L1 (cache disabled): {ok}/{} identical = {pct:.3}%",
+        ok + nbad
+    );
     assert!(pct >= 99.95, "whole-parser L1 {pct:.3}% < 99.95%");
 }
