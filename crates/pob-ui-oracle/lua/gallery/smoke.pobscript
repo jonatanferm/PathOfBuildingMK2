@@ -1,0 +1,11 @@
+# Interactions of the "smoke" gallery (U8).
+frames 2
+move 150 140
+click LEFTBUTTON
+click LEFTBUTTON                # within 500 ms and 5 px: a double click
+move 400 300
+click LEFTBUTTON
+type "ab^1c"
+press RETURN
+wheel up 2 ; wheel down 1
+frames 2

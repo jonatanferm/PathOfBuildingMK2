@@ -136,7 +136,8 @@ fn err(e: mlua::Error) -> String {
 
 /// Lua run before `HeadlessWrapper.lua`: root file access at `__mk2_root`
 /// and provide the optional C modules PoB's desktop host bundles.
-const PRELUDE: &str = r##"
+/// `pub` for the UI oracle (`pob-ui-oracle` boot, ui doc §11.2 step 2; CCR-0028).
+pub const PRELUDE: &str = r##"
 local root = __mk2_root
 local function abs(p)
     if type(p) ~= "string" or p:sub(1, 1) == "/" or p:match("^%a:[/\\]") then return p end
@@ -372,7 +373,9 @@ impl Engine for JitPob {
 }
 
 /// `Inflate` / `Deflate` / `NewFileSearch`, which PoB's C host provides.
-fn install_natives(lua: &Lua) -> mlua::Result<()> {
+/// `pub` for the UI oracle (`pob-ui-oracle` boot, ui doc §11.2 step 2; CCR-0028): it runs
+/// [`PRELUDE`] (with `__mk2_root` set) and then this, before overriding the SimpleGraphic globals.
+pub fn install_natives(lua: &Lua) -> mlua::Result<()> {
     let g = lua.globals();
     g.set(
         "Inflate",
