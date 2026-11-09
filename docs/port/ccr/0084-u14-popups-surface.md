@@ -1,8 +1,8 @@
-# CCR-0082 (U14): popup surface amendments, and two SimpleGraphic functions `Sys` lacks
+# CCR-0084 (U14): popup surface amendments, and two SimpleGraphic functions `Sys` lacks
 
 Unit: U14 (Popups). Status: proposed. Number: next free at the time of writing (0080 and 0081
-are taken; renumber on collision, the code comments say `CCR-0082`). Every item is worked around
-inside U14's own files (`crates/pob-ui-core/src/popups.rs`), marked `// CCR-0082` where the code
+are taken; renumber on collision, the code comments say `CCR-0084`). Every item is worked around
+inside U14's own files (`crates/pob-ui-core/src/popups.rs`), marked `// CCR-0084` where the code
 stands in for a missing contract.
 
 ## 1. `open_cloud_error_popup` needs the `launch` fields (ui doc §6.10, frozen)
@@ -52,7 +52,7 @@ oracle's `sg_bridge.rs` does not bind it, so real PoB under the oracle raises
 `attempt to call global 'GetCloudProvider' (a nil value)` the first time a cloud-error popup opens
 (the U14 galleries define the def-file stub in Lua, `lua/gallery/_u14.lua`).
 
-Local workaround: `popups::get_cloud_provider` returns `(None, None, None)` (marked `CCR-0082`),
+Local workaround: `popups::get_cloud_provider` returns `(None, None, None)` (marked `CCR-0084`),
 which is the value on every platform the port targets. Proposed: U1/U7 add
 `fn cloud_provider(&self, path: &str) -> (Option<String>, Option<String>, Option<i64>)` to
 `Platform` with that default, and U8 binds `GetCloudProvider` in `sg_bridge.rs` (returning
@@ -70,7 +70,7 @@ existing-directory case: `pob-host/src/fs_native.rs` (`create_dir`, Err "File ex
 `pob-ui-oracle/src/boot.rs:215` `OracleFs`
 (`create_dir_all`: Ok, and recursive).
 
-Local workaround (`popups::make_dir`, marked `CCR-0082`): an exact-name `Fs::search(path, true)`
+Local workaround (`popups::make_dir`, marked `CCR-0084`): an exact-name `Fs::search(path, true)`
 first (an existing directory gives `Err("Success")`), then `Fs::make_dir`, with the io error text
 minus its " (os error N)" suffix (the bridge's `strerror`). Proposed: U1 states the contract on
 `Fs::make_dir` (not recursive; `AlreadyExists` for an existing entry) and adds

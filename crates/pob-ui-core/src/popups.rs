@@ -20,14 +20,14 @@
 //! rewrites its own control's anchor, so the order is unobservable (ui doc §11.2 patch 6 leaves
 //! it unpatched).
 //!
-//! Surface notes (owner's amendments to the UI-U0 stub, CCR-0082):
+//! Surface notes (owner's amendments to the UI-U0 stub, CCR-0084):
 //! - `open_cloud_error_popup` takes the `launch` fields and `APP_NAME` it reads as a
 //!   [`LaunchInfo`] (pob-ui-core cannot see pob-app's `LaunchState`), and returns the popup as
 //!   Lua does.
 //! - `draw_popup_layer` is Main.lua:437-443 (listed in U14's sources; pob-app's main:OnFrame calls
 //!   it).
 //! - `GetCloudProvider` and the Lua-level `MakeDir` have no `Sys` counterpart; local ports are
-//!   marked `// CCR-0082`.
+//!   marked `// CCR-0084`.
 
 use std::rc::Rc;
 
@@ -53,7 +53,7 @@ pub struct PopupOpts {
 
 /// The `launch` fields and the `APP_NAME` global that main:OpenCloudErrorPopup reads
 /// (Launch.lua:9 `APP_NAME = "Path of Building"`; `launch.versionNumber`, `launch.versionBranch`,
-/// `launch.devMode`). CCR-0082.
+/// `launch.devMode`). CCR-0084.
 #[derive(Clone, Debug)]
 pub struct LaunchInfo {
     pub app_name: String,
@@ -406,9 +406,9 @@ pub fn open_confirm_popup(
 /// oracle's bridge models it: `std::filesystem::create_directory`, not recursive; `false` for an
 /// existing directory gives `nil, strerror(0)` = "Success"; an error gives `nil, strerror(ec)`).
 /// `Sys` has only `Fs::make_dir`, whose native impls differ on an existing directory, so the
-/// existence test goes through `Fs::search` (exact name). CCR-0082.
+/// existence test goes through `Fs::search` (exact name). CCR-0084.
 fn make_dir(cx: &mut Cx, path: &str) -> Result<(), String> {
-    // CCR-0082
+    // CCR-0084
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
     let exists = !name.is_empty()
         && cx
@@ -530,9 +530,9 @@ pub fn open_new_folder_popup(
 
 /// `GetCloudProvider(path)` -> name, version, status. SimpleGraphic implements it on Windows
 /// only (the Cloud Files API); `_SimpleGraphic.def.lua:333-335` documents `nil, nil, nil`, which
-/// is what every platform the port targets returns. `Sys` has no such query. CCR-0082.
+/// is what every platform the port targets returns. `Sys` has no such query. CCR-0084.
 fn get_cloud_provider(_path: &str) -> (Option<String>, Option<String>, Option<f64>) {
-    // CCR-0082
+    // CCR-0084
     (None, None, None)
 }
 
