@@ -17,11 +17,19 @@ use pob_gamedata::mod_tools::setSource;
 use pob_lua::pattern::{gmatch, r#match};
 use pob_lua::string::StripEscapes;
 
-/// `input[varData.var]` (`t[nil]` reads nil).
-fn get_var(t: &Table, var: Option<Name>) -> Val {
-    match var {
-        Some(var) => t.get(var),
-        None => Val::Nil,
+/// `<local>[varData.var]` (`t[nil]` reads nil). `input` / `placeholder` are bound as whatever
+/// the config set holds (L1135-1136) and only raise when first indexed, as in Lua.
+fn get_var(t: &Val, local: &str, var: Option<Name>) -> Val {
+    match t {
+        Val::Table(t) => match var {
+            Some(var) => t.get(var),
+            None => Val::Nil,
+        },
+        other => lua_error!(
+            "attempt to index local '{}' (a {} value)",
+            local,
+            other.lua_type()
+        ),
     }
 }
 
@@ -35,6 +43,10 @@ fn len_of(x: &Val) -> f64 {
     match x {
         Val::Str(s) => s.len() as f64,
         Val::Table(t) => t.len() as f64,
+        // tables too (lua_type "table"): a data table's border is its array part, a mod's its tags
+        Val::Data(pob_gamedata::Value::Table(t)) => t.len() as f64,
+        Val::Data(_) => 0.0,
+        Val::Mod(m) => m.tags.len() as f64,
         other => lua_error!("attempt to get length of a {} value", other.lua_type()),
     }
 }
@@ -88,21 +100,9 @@ impl ConfigTab {
         // L1134
         self.enemyModList.set(enemyModList.clone());
         // L1135
-        let input = match self.activeConfigSet().get(n!("input")) {
-            Val::Table(t) => t,
-            other => lua_error!(
-                "attempt to index local 'input' (a {} value)",
-                other.lua_type()
-            ),
-        };
+        let input = self.activeConfigSet().get(n!("input"));
         // L1136
-        let placeholder = match self.activeConfigSet().get(n!("placeholder")) {
-            Val::Table(t) => t,
-            other => lua_error!(
-                "attempt to index local 'placeholder' (a {} value)",
-                other.lua_type()
-            ),
-        };
+        let placeholder = self.activeConfigSet().get(n!("placeholder"));
         // L1137
         self.UpdateLevel(build); // enemy level handled here because it's needed to correctly set boss stats
                                  // L1138
@@ -114,31 +114,34 @@ impl ConfigTab {
                 // L1140
                 if ty == Some("check") {
                     // L1141
-                    if get_var(&input, varData.var).truthy() {
+                    if get_var(&input, "input", varData.var).truthy() {
                         // L1142
                         apply(&Val::Bool(true), &modList, &enemyModList, build);
                     }
                 } else if matches!(ty, Some("count" | "integer" | "countAllowZero" | "float")) {
                     // L1145
-                    let iv = get_var(&input, varData.var);
-                    let pv = get_var(&placeholder, varData.var);
+                    let iv = get_var(&input, "input", varData.var);
                     if iv.truthy() && (ne_zero(&iv) || ty == Some("countAllowZero")) {
                         // L1146
                         apply(&iv, &modList, &enemyModList, build);
-                    } else if pv.truthy() && (ne_zero(&pv) || ty == Some("countAllowZero")) {
-                        // L1147-1148
-                        apply(&pv, &modList, &enemyModList, build);
+                    } else {
+                        // L1147 (`placeholder` is only indexed here)
+                        let pv = get_var(&placeholder, "placeholder", varData.var);
+                        if pv.truthy() && (ne_zero(&pv) || ty == Some("countAllowZero")) {
+                            // L1148
+                            apply(&pv, &modList, &enemyModList, build);
+                        }
                     }
                 } else if ty == Some("list") {
                     // L1151
-                    let iv = get_var(&input, varData.var);
+                    let iv = get_var(&input, "input", varData.var);
                     if iv.truthy() {
                         // L1152
                         apply(&iv, &modList, &enemyModList, build);
                     }
                 } else if ty == Some("text") {
                     // L1155
-                    let iv = get_var(&input, varData.var);
+                    let iv = get_var(&input, "input", varData.var);
                     if iv.truthy() {
                         // L1156
                         apply(&iv, &modList, &enemyModList, build);
@@ -203,7 +206,7 @@ impl ConfigTab {
         }
         // Fallback for tests/headless
         // L1187
-        let customMods = input.get(n!("customMods"));
+        let customMods = get_var(&input, "input", Some(n!("customMods")));
         if !hasBlockText && customMods.truthy() && len_of(&customMods) > 0.0 {
             // L1188
             for line in lines_of(&str_of(&customMods)) {
