@@ -40,12 +40,13 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use pob_calc::model::build_xml::{characterLevelAutoMode, loadBuildModelFromXML, timelessData};
 use pob_calc::model::xml::ParseXML;
 use pob_calc::model::{BuildRef, XmlChild, XmlNode};
 use pob_calc::prelude::*;
+use pob_gamedata::timeless_lut as lut;
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{
     find_parity_dir, find_pob_src, find_up, OracleOutput, ORACLE_LUA, QUIET_PRELUDE,
@@ -960,6 +961,15 @@ fn bm_a_corpus() {
         return skip(".parity not found");
     };
     quiet_lua_errors();
+    // Timeless jewel LUTs load from the PoB checkout (PS-B builds jewel
+    // node data through them); the default `StdJewelFs::new("")` probes
+    // the crate directory and finds nothing.
+    let src = std::fs::canonicalize(&src).unwrap_or(src);
+    lut::set_jewel_fs(Arc::new(lut::StdJewelFs {
+        script_path: src.to_string_lossy().into_owned(),
+        writable: false,
+    }));
+    lut::set_con_printf(|_| {});
     let mut builds: Vec<PathBuf> = std::fs::read_dir(parity.join("builds"))
         .map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path())).collect())
         .unwrap_or_default();
@@ -975,6 +985,8 @@ fn bm_a_corpus() {
     let mut t = Tally::default();
     for b in &builds {
         run_build(&src, data, b, &mut t, saveDir.as_deref());
+        // Drop the decoded LUTs between builds to keep RSS low.
+        lut::clear_timeless_jewel_luts(None);
     }
     eprintln!(
         "BM-A: {} builds, {} loaded in Rust; model {} lines, {} mismatches; sockets {} lines, \
