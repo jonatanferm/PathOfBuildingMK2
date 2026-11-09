@@ -8,6 +8,13 @@
 //! `buildDefenceEstimations:3165#n` (§9.2 tolerance, nondet records applied).
 //! Gate: 100 % of the judged hits on the unit corpus, ≥ 98 % on all57.
 //!
+//! `in` and `out` of one hit may come from different PoB processes (the
+//! probe cache fills stages run by run), so they can differ where PoB is
+//! nondeterministic (mod order in `pairs`-built lists, the gem variant;
+//! §9.5). A mismatch is therefore excused when the injected state already
+//! had exactly it before the run and its path is not an `output` /
+//! `breakdown` key this segment assigns; every other mismatch is judged.
+//!
 //! The segment calls `buildAllyLifePools` / `calcs.reducePoolsByDamage`
 //! (DF-A) and `calcs.actionSpeedMod` (PF-B). A hit whose segment run reaches
 //! an `unported!` callee is **pending**: it is reported with the stub sites
@@ -18,6 +25,7 @@
 //! Inputs: dumps from `testkit::dump_dirs` (`.parity/probe/<stem>/state/`, the
 //! probe cache), `data/dump`. Fill a build's dumps with
 //! `scripts/port/oracle.sh run --build X.xml --stage buildDefenceEstimations:2612,buildDefenceEstimations:3165`.
+//! Unit corpus: `corpus/DF-F/*.xml` (`derive.py`), test `dff_l4_unit`.
 //! Knobs: `DFF_BUILDS=stem1,stem2`, `DFF_LIMIT=n`, `DFF_VERBOSE=1` (print
 //! every mismatch), `DFF_ALL_HITS=1` (every recorded pair, not just the
 //! main env's lowest one).
@@ -26,6 +34,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use pob_calc::Val;
+use pob_oracle::diff::Mismatch;
 use pob_oracle::oracle::find_parity_dir;
 use pob_oracle::schema::StateDump;
 use pob_oracle::testkit;
@@ -113,7 +122,8 @@ fn stub_hits_since(before: &[(&'static str, u64)]) -> BTreeSet<&'static str> {
 }
 
 enum Outcome {
-    Pass,
+    /// Passed; the count of excused pre-existing (cross-run) mismatches.
+    Pass(usize),
     Fail(Vec<String>),
     /// The run reached these `unported!` callees.
     Pending(BTreeSet<&'static str>, usize),
@@ -130,6 +140,10 @@ fn run_hit(xml: &Path, stem: &str, din: &StateDump, dout: &StateDump) -> Outcome
         Err(e) => return Outcome::Error(format!("inject {}: {e}", din.hit)),
     };
     let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
+    // The state before the run, against `out`: what the segment did not
+    // touch differs here only where `in` and `out` come from different PoB
+    // processes (mod order in pairs-built lists, the gem variant, §9.5).
+    let baseline: Vec<Mismatch> = testkit::diff_against(dout, inj.env.as_ref(), &locals, stem);
     let before = pob_calc::stub::stub_report();
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::probe::run_segment(&din.probe, &locals)
@@ -156,24 +170,72 @@ fn run_hit(xml: &Path, stem: &str, din: &StateDump, dout: &StateDump) -> Outcome
         .find(|(k, _)| k == "env")
         .and_then(|(_, v)| v.obj::<pob_calc::env::Env>())
         .or(inj.env);
+    let mut excused = 0;
     let mm: Vec<String> = testkit::diff_against(dout, env.as_ref(), &after, stem)
         .into_iter()
+        .filter(|m| {
+            let pre = !segment_writes(&m.path) && baseline.iter().any(|b| same(b, m));
+            excused += usize::from(pre);
+            !pre
+        })
         .map(|m| format!("{} {:?}: pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours))
         .collect();
     if !stubs.is_empty() {
         return Outcome::Pending(stubs, mm.len());
     }
     if mm.is_empty() {
-        Outcome::Pass
+        Outcome::Pass(excused)
     } else {
         Outcome::Fail(mm)
     }
+}
+
+fn same(a: &Mismatch, b: &Mismatch) -> bool {
+    a.path == b.path && a.kind == b.kind && a.pob == b.pob && a.ours == b.ours
+}
+
+/// Whether `path` is an `output` / `breakdown` key this segment assigns
+/// (CalcDefence.lua 2612-3164). A mismatch there is always judged, even when
+/// the injected state already had it.
+fn segment_writes(path: &str) -> bool {
+    let key = ["output.", "breakdown."].iter().find_map(|t| {
+        path.find(t).map(|i| {
+            let rest = &path[i + t.len()..];
+            rest.split(['.', '[']).next().unwrap_or(rest)
+        })
+    });
+    let Some(k) = key else {
+        return false;
+    };
+    matches!(
+        k,
+        "NumberOfDamagingHits"
+            | "NumberOfMitigatedDamagingHits"
+            | "ConfiguredDamageChance"
+            | "ConfiguredNotHitChance"
+            | "TotalNumberOfHits"
+            | "TotalEHP"
+            | "enemySkillTime"
+            | "EHPSurvivalTime"
+            | "LifeLossLostOverTime"
+            | "LifeBelowHalfLossLostOverTime"
+            | "LifeLossLostMax"
+            | "LifeLossLostAvg"
+            | "netLifeRecoupAndLossLostOverTimeMax"
+            | "netLifeRecoupAndLossLostOverTimeAvg"
+            | "showNetRecoup"
+            | "PvPTotalTakenHit"
+    ) || k.ends_with("RecoupableDamageTaken")
+        || (k.starts_with("Total") && (k.ends_with("RecoupRecovery") || k.ends_with("PseudoRecoup")))
+        || k.ends_with("RecoupRecoveryMax")
+        || k.ends_with("RecoupRecoveryAvg")
 }
 
 #[derive(Default)]
 struct Tally {
     hits: usize,
     pass: usize,
+    excused: usize,
     fail: Vec<(String, Vec<String>)>,
     errors: Vec<String>,
     pending: Vec<String>,
@@ -186,9 +248,10 @@ impl Tally {
         let verbose = flag("DFF_VERBOSE");
         let judged = self.pass + self.fail.len() + self.errors.len();
         eprintln!(
-            "{what}: {} hits; judged {judged}: {} pass, {} mismatch, {} error; {} pending (unported callees); {} builds without a paired dump",
+            "{what}: {} hits; judged {judged}: {} pass ({} pre-existing cross-run mismatches excused), {} mismatch, {} error; {} pending (unported callees); {} builds without a paired dump",
             self.hits,
             self.pass,
+            self.excused,
             self.fail.len(),
             self.errors.len(),
             self.pending.len(),
@@ -218,18 +281,12 @@ impl Tally {
     }
 }
 
-#[test]
-fn dff_l4_all57() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
-    }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity directory");
-    };
-    let builds = corpus(&parity);
+/// Run every paired hit of `builds` (the lowest `n` per build unless
+/// `DFF_ALL_HITS`).
+fn run_corpus(builds: &[PathBuf]) -> Tally {
     let all_hits = flag("DFF_ALL_HITS");
     let mut t = Tally::default();
-    for xml in &builds {
+    for xml in builds {
         let stem = stem(xml);
         let dirs = testkit::dump_dirs(stem, Some(xml));
         let mut hits = paired_hits(&dirs);
@@ -256,7 +313,10 @@ fn dff_l4_all57() {
             t.hits += 1;
             let what = format!("{stem} {hin}");
             match run_hit(xml, stem, &din, &dout) {
-                Outcome::Pass => t.pass += 1,
+                Outcome::Pass(e) => {
+                    t.pass += 1;
+                    t.excused += e;
+                }
                 Outcome::Fail(mm) => t.fail.push((what, mm)),
                 Outcome::Error(e) => t.errors.push(format!("{what}: {e}")),
                 Outcome::Pending(sites, nmm) => {
@@ -268,24 +328,78 @@ fn dff_l4_all57() {
             }
         }
     }
-    t.report("DF-F L4 all57");
-    if t.hits == 0 {
-        return skip("no paired buildDefenceEstimations:2612/3165 dumps");
-    }
+    t
+}
+
+/// The gate on a tally: pending hits fail only in strict mode; the judged
+/// hits must pass at `min_rate`.
+fn gate(t: &Tally, what: &str, min_rate: f64) {
     let strict = flag("DFF_STRICT") || required();
     assert!(
         !strict || t.pending.is_empty(),
-        "{} hits pending on unported callees (DFF_STRICT)",
+        "{what}: {} hits pending on unported callees (DFF_STRICT)",
         t.pending.len()
     );
     let judged = t.pass + t.fail.len() + t.errors.len();
     if judged > 0 {
         let rate = t.pass as f64 / judged as f64;
         assert!(
-            rate >= 0.98,
-            "DF-F L4: {}/{judged} judged hits pass ({:.1} % < 98 %)",
+            rate >= min_rate,
+            "{what}: {}/{judged} judged hits pass ({:.1} % < {:.0} %)",
             t.pass,
-            rate * 100.0
+            rate * 100.0,
+            min_rate * 100.0
         );
     }
+}
+
+#[test]
+fn dff_l4_all57() {
+    if !testkit::init_default_data() {
+        return skip("no data dump (data/dump)");
+    }
+    let Some(parity) = find_parity_dir() else {
+        return skip("no .parity directory");
+    };
+    let t = run_corpus(&corpus(&parity));
+    t.report("DF-F L4 all57");
+    if t.hits == 0 {
+        return skip("no paired buildDefenceEstimations:2612/3165 dumps");
+    }
+    gate(&t, "DF-F L4 all57", 0.98);
+}
+
+/// The unit corpus `corpus/DF-F/` (config variants from `derive.py`: PvP,
+/// every enemy damage category incl. DamageOverTime, unlucky avoidance, gain
+/// on block). Gate: 100 %.
+#[test]
+fn dff_l4_unit() {
+    if !testkit::init_default_data() {
+        return skip("no data dump (data/dump)");
+    }
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/DF-F");
+    let mut builds: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .map(|r| {
+            r.filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "xml"))
+                .collect()
+        })
+        .unwrap_or_default();
+    builds.sort();
+    if let Ok(list) = std::env::var("DFF_BUILDS") {
+        let want: Vec<&str> = list.split(',').map(str::trim).collect();
+        builds.retain(|p| want.contains(&stem(p)));
+    }
+    let t = run_corpus(&builds);
+    t.report("DF-F L4 unit");
+    if t.hits == 0 {
+        return skip("no paired dumps for corpus/DF-F (fill: scripts/port/oracle.sh run --build corpus/DF-F/<x>.xml --stage buildDefenceEstimations:2612@main,buildDefenceEstimations:3165@main)");
+    }
+    assert!(
+        t.missing.is_empty(),
+        "DF-F L4 unit: builds without paired dumps: {:?}",
+        t.missing
+    );
+    gate(&t, "DF-F L4 unit", 1.0);
 }
