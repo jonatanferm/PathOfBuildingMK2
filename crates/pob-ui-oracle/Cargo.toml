@@ -9,18 +9,24 @@ repository.workspace = true
 build = "build.rs"
 
 [dependencies]
-pob-sg.workspace = true
+# `raster`: the CPU reference rasteriser for ui-parity's PNGs (U6).
+pob-sg = { workspace = true, features = ["raster"] }
 pob-sg-wgpu.workspace = true
 pob-host.workspace = true
 pob-ui-core.workspace = true
 pob-app.workspace = true
 pob-calc.workspace = true
+pob-lua.workspace = true
 # ui doc §11.2: pob-luahost (LuaJIT natives) is pob-oracle as built (AMENDMENTS A1).
 pob-oracle.workspace = true
 mlua.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
+image.workspace = true
+pollster.workspace = true
+# ui doc D1: the new crates pin wgpu exactly (same as pob-sg-wgpu / pob-host).
+wgpu = { version = "=30.0.1", features = ["webgl"] }
 
 [[bin]]
 name = "ui-parity"
@@ -33,6 +39,13 @@ path = "src/bin/trace_render.rs"
 [[bin]]
 name = "pob-lua-gui"
 path = "src/bin/pob_lua_gui.rs"
+
+# Custom harness: discovers galleries and scenario directories at run time and filters by unit
+# (`cargo test -p pob-ui-oracle -- <unit>`), see tests/parity.rs.
+[[test]]
+name = "parity"
+path = "tests/parity.rs"
+harness = false
 
 [lints]
 workspace = true

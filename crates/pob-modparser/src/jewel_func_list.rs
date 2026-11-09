@@ -314,7 +314,7 @@ pub static jewelSelfUnallocFuncs: LazyLock<Vec<(&'static str, JewelFuncSpec)>> =
 /// Returns the closure as data: `key` `"$getThreshold"`, `args` the upvalues
 /// `[attrib (a string or an array table), baseMod (Value::Mod)]`; `value` is `baseMod.value`.
 /// `...` (flags, keywordFlags, tags) is passed resolved (createMod's dispatch, CCR-0006 §6;
-/// CCR-0034: the frozen stub took `attrib: &str` and no flags).
+/// CCR-0039: the frozen stub took `attrib: &str` and no flags).
 pub fn getThreshold(
     attrib: Value,
     name: &str,

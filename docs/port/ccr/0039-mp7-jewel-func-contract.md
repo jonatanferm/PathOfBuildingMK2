@@ -1,4 +1,4 @@
-# CCR-0034: jewel func contract (MP7)
+# CCR-0039: jewel func contract (MP7)
 
 - **Raised by:** MP7 (`crates/pob-modparser/src/jewel_func_list.rs`, `crates/pob-calc/src/modules/jewel_funcs.rs`)
 - **Affects:** calc-architecture.md §6 (jewel funcs), §8 (closure families row "Jewel funcs");
