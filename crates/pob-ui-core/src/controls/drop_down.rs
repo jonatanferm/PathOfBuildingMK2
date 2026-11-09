@@ -3,7 +3,7 @@
 //!
 //! @pob-file Classes/DropDownControl.lua @16de4b82d
 //!
-//! # Hook set (frozen by U13 at the wave-2 gate, CCR-0082 A)
+//! # Hook set (frozen by U13 at the wave-2 gate, CCR-0086 A)
 //!
 //! Grepped over every DropDownControl use in `src/` (Export/ excluded): 157 `new("DropDownControl")`
 //! sites in 21 files, two subclasses (`ItemSlotControl`, `TimelessJewelSocketControl`), and every
@@ -35,9 +35,9 @@
 //! # Notes
 //!
 //! - `list[i]` is a [`DropItem`]; a Lua string entry has `label` = the string, no `detail` or
-//!   `search_filter`, and `value` = `Rc<String>`. `DropItem::detail` is new (CCR-0082 B):
+//!   `search_filter`, and `value` = `Rc<String>`. `DropItem::detail` is new (CCR-0086 B):
 //!   L319/L393 read `listVal.detail` (ImportTab.lua:1071-1079 sets it).
-//! - `selFunc(index, value)` gets `Option<&DropItem>` (CCR-0082 B): `self.list[newSel]` is nil
+//! - `selFunc(index, value)` gets `Option<&DropItem>` (CCR-0086 B): `self.list[newSel]` is nil
 //!   when the list shrank under `selIndex` (ImportTab.lua:102-103 `SetList({})`) and the clamped
 //!   `SetSel` lands on index 1 of an empty list.
 //! - `SetSel` takes the Lua number ([`DropDownControl::set_sel_num`]: the class itself passes
@@ -81,7 +81,7 @@ use crate::tooltip::TooltipHost;
 pub struct DropItem {
     pub label: String,
     pub search_filter: Option<String>,
-    /// `listVal.detail` (drawn right-aligned in the box and in the list; CCR-0082 B)
+    /// `listVal.detail` (drawn right-aligned in the box and in the list; CCR-0086 B)
     pub detail: Option<String>,
     pub value: Rc<dyn Any>,
 }

@@ -1,7 +1,7 @@
-# CCR-0082 (U13): DropDownHooks frozen (empty); DropItem/selFunc/SearchHost surface amendments
+# CCR-0086 (U13): DropDownHooks frozen (empty); DropItem/selFunc/SearchHost surface amendments
 
 Unit: U13 (dropdown and search). Status: proposed. Number: next free at the time of writing
-(0080 is taken twice on other branches, 0081 by U11; renumber on collision).
+(0080 is taken twice on other branches, 0081 by U11; renumber on collision). Renumbered 0082 -> 0086 at merge: 0082 is CS-1, 0084 U14, 0085 PF-A.
 
 Applies to: ui doc §6.8 (the DropDownControl bullets), §13 item 12 (`DropTipMode`, `DropTipArgs`,
 `DropDownHooks` fields, `SearchHost` fields), the UI-U0 stubs
@@ -87,7 +87,7 @@ written raw.
 
 ## Ui doc text to apply (§6.8, the DropDownControl bullets)
 
-> `DropDownControl` (U13) follows the same pattern, with an empty class-hook table (CCR-0082):
+> `DropDownControl` (U13) follows the same pattern, with an empty class-hook table (CCR-0086):
 >
 > - `DropItem { label: String, search_filter: Option<String>, detail: Option<String>, value: Rc<dyn Any> }`; a Lua string entry is a `DropItem` whose `value` is the `String` (`DropItem::str`).
 > - No `DropDownHooks`: no subclass or instance overrides a method DropDownControl.lua calls on `self`; ItemSlot and TimelessJewelSocket override framework methods (`Widget`), Build.lua's `mainSkillMinion` uses `Overrides`.

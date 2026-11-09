@@ -1538,7 +1538,7 @@ method ListControl.lua calls on `self` (`OnSelCut` included, though the class he
 `Caps::CAN_RECEIVE_DRAG`). `otherDragSource`/`otherDragTargeting` belong on `Base` (CCR-0078 B);
 until then read them with `controls::list::other_drag_source(cx, id)`.
 
-`DropDownControl` (U13) follows the same pattern, with an empty class-hook table (CCR-0082):
+`DropDownControl` (U13) follows the same pattern, with an empty class-hook table (CCR-0086):
 
 - `DropItem { label: String, search_filter: Option<String>, detail: Option<String>, value: Rc<dyn Any> }`; a Lua string entry is a `DropItem` whose `value` is the `String` (`DropItem::str`).
 - No `DropDownHooks`: no subclass or instance overrides a method DropDownControl.lua calls on `self`; ItemSlot and TimelessJewelSocket override framework methods (their own `Widget` impl, super calls to `DropDownControl::{draw, on_key_down, get_hover_index, ..}`), Build.lua's `mainSkillMinion` uses `Overrides`.
