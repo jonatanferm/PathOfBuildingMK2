@@ -604,7 +604,6 @@ fn check_nodeList(rec: &J, ctx: &mut BuildCtx) -> Result<(), String> {
     let rex: Vec<String> = explode
         .iter()
         .map(|v| match v {
-            Val::Bool(b) => b.to_string(),
             Val::Obj(_) => v
                 .obj::<Node>()
                 .map_or("?".to_owned(), |n| tostring_num(n.id)),
@@ -1378,6 +1377,8 @@ fn cs0_function_probes() {
     );
     for (id, t) in &tally {
         assert!(t.records > 0, "{id}: no records");
+        // Every record replays on the current corpus and data; a new skip is a regression.
+        assert_eq!(t.skipped, 0, "{id}: {} records not replayed", t.skipped);
     }
     assert_eq!(total_bad, 0, "CS0 mismatches");
 }

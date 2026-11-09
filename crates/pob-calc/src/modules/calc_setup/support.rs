@@ -131,17 +131,20 @@ pub fn wipeEnv(env: &EnvRef, accelerate: &Accelerate) {
 
 /// `calcLib.gemIsType(gem, type, true)` for `effect.gemData` (nil when the effect has no gem) and
 /// a keyword value. `type == "all"` is tested before `gem` is indexed (CalcTools.lua:165), so a
-/// nil gem only raises for other keywords, as in Lua.
+/// nil gem only raises for other keywords, as in Lua. A non-string keyword (e.g. nil) matches no
+/// clause of CalcTools.lua:165-175: every `type == "<s>"` test and `type == gem.name:lower()` are
+/// false, `isGemIdSame` returns nil for a non-string (CalcTools.lua:280-281) and `gem.tags[type]`
+/// reads nil, so the result is falsy once `gem.name` (L172) has been indexed.
 fn gemIsTypeVal(gem: Option<&GemData>, r#type: &Val) -> bool {
-    let Val::Str(t) = r#type else {
-        lua_error!("calcLib.gemIsType: type is a {} value", r#type.lua_type())
-    };
-    if &**t == "all" {
+    if matches!(r#type, Val::Str(t) if &**t == "all") {
         return true;
     }
-    match gem {
-        Some(g) => calcLib::gemIsType(g, t, true),
-        None => lua_error!("attempt to index local 'gem' (a nil value)"),
+    let Some(g) = gem else {
+        lua_error!("attempt to index local 'gem' (a nil value)")
+    };
+    match r#type {
+        Val::Str(t) => calcLib::gemIsType(g, t, true),
+        _ => false,
     }
 }
 
