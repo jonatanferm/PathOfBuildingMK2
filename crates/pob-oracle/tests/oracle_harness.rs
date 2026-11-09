@@ -6,7 +6,6 @@
 
 use std::path::PathBuf;
 
-use pob_oracle::legacy_modifier::Mod;
 use pob_oracle::oracle::{Leaf, Oracle};
 
 /// PoB's `src/` and the OccVortex build: `.parity/builds/upstream_OccVortex.xml`,
@@ -118,9 +117,10 @@ fn outputs_and_stages() {
     assert!(st.skill_outputs.len() >= 5);
 }
 
-/// Every mod PoB holds round-trips through `pob_oracle::legacy_modifier::Mod`'s serde
-/// shape unchanged (modulo fields PoB set to false / nil, which the typed
-/// model doesn't distinguish from absent).
+/// Every mod PoB holds round-trips through `pob_gamedata::Mod`
+/// (`pob_oracle::mod_json::decode_mod`, `pob_calc::probe::mod_json`) unchanged
+/// (modulo fields PoB set to false / nil, which the typed model doesn't
+/// distinguish from absent; a mod nested in a value compares as a typed `Mod`).
 #[test]
 fn stage_mods_round_trip() {
     let Some((src, build)) = inputs() else {
@@ -135,10 +135,22 @@ fn stage_mods_round_trip() {
     assert!(mods.len() > 500, "{} mods", mods.len());
     let mut bad = Vec::new();
     for m in &mods {
-        let typed: Mod =
-            serde_json::from_value((*m).clone()).unwrap_or_else(|e| panic!("{e}: {m}"));
-        let back = serde_json::to_value(&typed).unwrap();
-        if normalize(&back) != normalize(m) {
+        let (typed, _) =
+            pob_oracle::mod_json::decode_mod(m).unwrap_or_else(|e| panic!("{e}: {m}"));
+        let back = pob_calc::probe::mod_json(&typed, None);
+        // a mod nested in a value is written in the probe dumps' plain-table
+        // shape (`$seq` tags), the stages dump writes `"tags"`: compare those
+        // through the typed model, everything else as JSON
+        let (again, _) =
+            pob_oracle::mod_json::decode_mod(&back).unwrap_or_else(|e| panic!("{e}: {back}"));
+        let mut plain_m = (*m).clone();
+        let mut plain_back = back.clone();
+        for x in [&mut plain_m, &mut plain_back] {
+            if x["value"].get("mod").is_some() {
+                x["value"]["mod"] = serde_json::Value::Null;
+            }
+        }
+        if normalize(&plain_back) != normalize(&plain_m) || again != typed {
             bad.push(format!("{m}\n  -> {back}"));
         }
     }
