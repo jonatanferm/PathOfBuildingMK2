@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CO-A apply probe: an empty build (the probe calls the applies directly). -->
+<PathOfBuilding>
+	<Skills/>
+	<Config/>
+</PathOfBuilding>

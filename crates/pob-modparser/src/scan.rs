@@ -16,8 +16,8 @@ use crate::generated_lists::{
 use crate::helpers::{dmgTypes, mod_payload, r#mod, vtab};
 use crate::types::*;
 use pob_gamedata::{
-    data, tag, JewelFuncKind, JewelFuncSpec, KeywordFlag, Mod, ModType, Name, SkillType, Tag,
-    Value, ValueTable,
+    tag, JewelFuncKind, JewelFuncSpec, KeywordFlag, Mod, ModType, Name, SkillType, Tag, Value,
+    ValueTable,
 };
 use pob_lua::bit::bor;
 use pob_lua::pattern::{find, r#match, Capture};
@@ -376,65 +376,6 @@ static JEWEL_FUNC_INDEX: LazyLock<ahash::AHashMap<&'static str, usize>> = LazyLo
     m
 });
 
-/// CCR-0014: `clusterJewelSkills` (ModParser.lua 6596-6607, MP7's range) is not exposed by
-/// `jewel_func_list.rs`; this local copy of that table stands in until MP7 exports it.
-static CLUSTER_JEWEL_SKILLS_CCR0014: LazyLock<ahash::AHashMap<String, Vec<Mod>>> =
-    LazyLock::new(|| {
-        let mut clusterJewelSkills: ahash::AHashMap<String, Vec<Mod>> = ahash::AHashMap::new();
-        for (_baseName, jewel) in &data().clusterJewels.jewels {
-            for (skillId, skill) in &jewel.skills {
-                let enchant: Vec<&str> = skill.enchant.iter().map(|s| &**s).collect();
-                clusterJewelSkills.insert(
-                    lower(&enchant.join(" ")),
-                    vec![r#mod(
-                        n!("JewelData"),
-                        ModType::LIST,
-                        vtab(vec![
-                            (n!("key"), Value::from("clusterJewelSkill")),
-                            (n!("value"), Value::from(*skillId)),
-                        ]),
-                        None,
-                        0,
-                        0,
-                        &[],
-                    )],
-                );
-            }
-        }
-        for (notable, _) in &data().clusterJewels.notableSortOrder {
-            clusterJewelSkills.insert(
-                format!("1 added passive skill is {}", lower(notable.as_str())),
-                vec![r#mod(
-                    n!("ClusterJewelNotable"),
-                    ModType::LIST,
-                    *notable,
-                    None,
-                    0,
-                    0,
-                    &[],
-                )],
-            );
-        }
-        for keystone in &data().clusterJewels.keystones {
-            clusterJewelSkills.insert(
-                format!("adds {}", lower(keystone.as_str())),
-                vec![r#mod(
-                    n!("JewelData"),
-                    ModType::LIST,
-                    vtab(vec![
-                        (n!("key"), Value::from("clusterJewelKeystone")),
-                        (n!("value"), Value::from(*keystone)),
-                    ]),
-                    None,
-                    0,
-                    0,
-                    &[],
-                )],
-            );
-        }
-        clusterJewelSkills
-    });
-
 /// `modTag(tonumber(tagCap[1]), unpack(tagCap))` if `tagCap[1]:match("%d+")`, else
 /// `modTag(tagCap[1], unpack(tagCap))` (the modTagList call shape, CCR-0006 §5).
 fn call_mod_tag(val: &'static TagVal, tagCap: &ScanCaps) -> ModSpec {
@@ -557,8 +498,8 @@ pub fn parseModPassWith(
             None,
         );
     }
-    // L6653: clusterJewelSkills (CCR-0014: local copy)
-    let clusterJewelSkill = CLUSTER_JEWEL_SKILLS_CCR0014.get(lineLower.as_str());
+    // L6653: clusterJewelSkills (MP7's table, CCR-0014 §2)
+    let clusterJewelSkill = crate::jewel_func_list::clusterJewelSkills.get(lineLower.as_str());
     // L6654
     if let Some(clusterJewelSkill) = clusterJewelSkill {
         // L6655
