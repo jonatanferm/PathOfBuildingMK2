@@ -280,6 +280,35 @@ fn run_build(xml: &Path) -> Outcome {
         }
         !explained
     });
+    // Replay limit (pob_oracle::replay module doc): a mod the callee changed in place (e.g.
+    // `modLib.setSource` on `value.mod` of an `EnemyModifier` LIST mod inside doActorMisc) is
+    // replayed as removed + appended, so its position in the store's list moves. A LUA-ORDER
+    // mismatch on a list that a replayed callee changed in PoB is that artefact, not the
+    // segment's order (the multiset matches, or the diff would report mod-missing/extra).
+    let deltas: Vec<(J, J)> = replayed
+        .iter()
+        .map(|name| {
+            if *name == "mergeFlasks" {
+                (resolve_ids(&d3118.root), resolve_ids(&d3125.root))
+            } else {
+                (resolve_ids(&d3484.root), resolve_ids(&dout.root))
+            }
+        })
+        .collect();
+    mismatches.retain(|m| {
+        let artefact = m.kind == MismatchKind::LuaOrder
+            && deltas.iter().any(|(a, b)| {
+                let (x, y) = (walk(a, &m.path), walk(b, &m.path));
+                x.is_some() && y.is_some() && strip_at(x.unwrap()) != strip_at(y.unwrap())
+            });
+        if artefact {
+            known.push(format!(
+                "{} LUA-ORDER: list changed in place by a replayed callee (replay limit)",
+                m.path
+            ));
+        }
+        !artefact
+    });
     let verdict = if mismatches.is_empty() {
         Verdict::Pass
     } else if blockers.is_empty() {
@@ -439,6 +468,52 @@ fn count_not_buff(din: &StateDump) -> usize {
                 .filter(|v| v.get("notBuff").and_then(J::as_bool) == Some(true))
                 .count()
         })
+}
+
+/// The value at a diff path (`env.modDB.mods.Damage`, `env.buffs["Molten Shell"]`, `a[2]`)
+/// in a resolved root; a store's `mods.<name>` is its list of mods of that name.
+fn walk<'a>(root: &'a J, path: &str) -> Option<&'a J> {
+    let mut v = root;
+    let mut rest = path;
+    while !rest.is_empty() {
+        let key: String;
+        if let Some(r) = rest.strip_prefix("[\"") {
+            let end = r.find("\"]")?;
+            key = r[..end].to_owned();
+            rest = &r[end + 2..];
+        } else if let Some(r) = rest.strip_prefix('[') {
+            let end = r.find(']')?;
+            let i: usize = r[..end].parse().ok()?;
+            rest = &r[end + 1..];
+            v = match v {
+                J::Array(a) => a.get(i.checked_sub(1)?)?,
+                J::Object(m) => m.get("$seq")?.as_array()?.get(i.checked_sub(1)?)?,
+                _ => return None,
+            };
+            continue;
+        } else {
+            let r = rest.strip_prefix('.').unwrap_or(rest);
+            let end = r.find(['.', '[']).unwrap_or(r.len());
+            key = r[..end].to_owned();
+            rest = &r[end..];
+        }
+        v = v.as_object()?.get(&key)?;
+    }
+    Some(v)
+}
+
+/// A JSON value without mod provenance (`$at`).
+fn strip_at(v: &J) -> J {
+    match v {
+        J::Object(m) => J::Object(
+            m.iter()
+                .filter(|(k, _)| k.as_str() != "$at")
+                .map(|(k, x)| (k.clone(), strip_at(x)))
+                .collect(),
+        ),
+        J::Array(a) => J::Array(a.iter().map(strip_at).collect()),
+        other => other.clone(),
+    }
 }
 
 fn clip(v: Option<&serde_json::Value>) -> String {
