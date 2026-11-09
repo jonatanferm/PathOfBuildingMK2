@@ -5,8 +5,10 @@
 //!
 //! Owner: OF-A.
 //!
-//! Contract notes (CCR-0041): `calcRadiusBreakpoints` returns `Option`s (Lua returns four nils
-//! when the radius is 0; `breakdown.area` takes them as such, CCR-0014); `runSkillFunc` offers
+//! Contract notes (CCR-0041): `calcRadiusBreakpoints` keeps its frozen `f64` signature (NaN for
+//! each Lua nil) and `calcRadiusBreakpointsOpt` returns the `Option`s (Lua returns four nils
+//! when the radius is 0; `breakdown.area` takes them as such, CCR-0014);
+//! `setMoltenStrikeTertiaryRadiusBreakdown` takes `label: Option<&str>`; `runSkillFunc` offers
 //! each call to the probe build's skill-hook handler first (`pob_calc::probe`, feature `probe`),
 //! which the L4 tests use to replay the recorded hook deltas.
 #![allow(non_snake_case)]
@@ -480,11 +482,28 @@ pub fn calcMoltenStrikeTertiaryRadius(
     m_floor((maxDistIgnoringSpeed - deadzoneRadius) * speedMod + deadzoneRadius)
 }
 
+/// `calcRadiusBreakpoints` with the frozen U0 signature (OF-B's callers use it): each Lua nil
+/// (a radius that is not positive) comes back as NaN. CCR-0041 §1 / CCR-0043 propose
+/// returning the `Option`s of [`calcRadiusBreakpointsOpt`] instead; OF-A's own callers use
+/// that one.
+pub fn calcRadiusBreakpoints(
+    baseRadius: f64,
+    incArea: f64,
+    moreArea: f64,
+    radiusMod: Option<f64>,
+) -> (f64, f64, f64, f64) {
+    // CCR-0041
+    let (inc, more, red, less) = calcRadiusBreakpointsOpt(baseRadius, incArea, moreArea, radiusMod);
+    let nil = |x: Option<f64>| x.unwrap_or(f64::NAN);
+    (nil(inc), nil(more), nil(red), nil(less))
+}
+
 /// Calculates modifiers needed to reach the next and previous radius breakpoints
 /// @pob Modules/CalcOffence.lua:198-224 h=748821af
 /// → (incAreaBreakpoint, moreAreaBreakpoint, redAreaBreakpoint, lessAreaBreakpoint); all nil
-/// when the radius is not positive (CCR-0041: the frozen stub returned plain numbers).
-pub fn calcRadiusBreakpoints(
+/// when the radius is not positive (CCR-0041 §1: the frozen signature returns plain numbers,
+/// see [`calcRadiusBreakpoints`]).
+pub fn calcRadiusBreakpointsOpt(
     baseRadius: f64,
     incArea: f64,
     moreArea: f64,
@@ -2761,7 +2780,7 @@ pub fn calcAreaOfEffect(
         if let Some(breakdown) = breakdown {
             // L394
             let (incAreaBreakpoint, moreAreaBreakpoint, redAreaBreakpoint, lessAreaBreakpoint) =
-                calcRadiusBreakpoints(baseRadius, incArea, moreArea, Some(radiusMod));
+                calcRadiusBreakpointsOpt(baseRadius, incArea, moreArea, Some(radiusMod));
             // L395
             let t = breakdown.area(
                 baseRadius,
@@ -2810,7 +2829,7 @@ pub fn calcAreaOfEffect(
                 // L405
                 if !skillData.truthy(n!("projectileSpeedAppliesToMSAreaOfEffect")) {
                     // L406
-                    bps = calcRadiusBreakpoints(
+                    bps = calcRadiusBreakpointsOpt(
                         baseRadius,
                         incAreaSecondary,
                         moreAreaSecondary,
@@ -2986,7 +3005,7 @@ pub fn calcAreaOfEffect(
                             radiusForBaseRadius.num(adjustedBaseRadius) / 10.0
                         ));
                         // L461
-                        let (i, m, r, l) = calcRadiusBreakpoints(
+                        let (i, m, r, l) = calcRadiusBreakpointsOpt(
                             adjustedBaseRadius,
                             incAreaTertiary,
                             moreAreaTertiary,
@@ -3042,7 +3061,7 @@ pub fn calcAreaOfEffect(
                         moreAreaBreakpointTertiary,
                         redAreaBreakpointTertiary,
                         lessAreaBreakpointTertiary,
-                    ) = calcRadiusBreakpoints(
+                    ) = calcRadiusBreakpointsOpt(
                         baseRadius,
                         incAreaTertiary,
                         moreAreaTertiary,

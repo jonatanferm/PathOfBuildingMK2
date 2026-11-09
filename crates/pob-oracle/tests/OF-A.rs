@@ -6,9 +6,10 @@
 //!   `seg_setup` and diff against the `offence:1037` dump of the same `calcs.offence` call
 //!   (paired by the enclosing `offence:in#k` hit). Skill hooks (`runSkillFunc("initialFunc")`)
 //!   are replayed from the recorded `runSkillFunc:in/out` dumps of the same call
-//!   (`testkit::segment_run`, CCR-0041). A call whose skill is disabled returns at line 371
+//!   (the local `l4kit`, CCR-0041). A call whose skill is disabled returns at line 371
 //!   (no `offence:1037` hit): the run must return `Flow::Return` with `output.CombinedDPS = 0`.
-//!   Gate (§9.4 L4): 100 % on slice5, ≥ 98 % of the all57 hits.
+//!   Gate (§9.4 L4): 100 % on slice5, ≥ 98 % of the all57 hits. Each build runs in its own
+//!   child process of this binary (`ofa_l4_child`), so memory is returned between builds.
 //! * **fuzz** (`ofa_fuzz_vs_luajit`): the helpers against PoB's own local functions, extracted
 //!   from CalcOffence.lua and run in a PoB booted under LuaJIT with the JIT off: `calcDamage`,
 //!   `calcAilmentSourceDamage`, the area helpers (`calcAreaMod`, `calcRadius`,
@@ -22,7 +23,12 @@
 //! probe cache keeps them). Knobs: `OFA_BUILDS=stem1,stem2`, `OFA_VERBOSE=1`, `OFA_ONLY=a,b`
 //! (fuzz checks), `OFA_FUZZ_N` (cases per check, default 1500).
 #![allow(non_snake_case)]
-#![allow(clippy::too_many_lines, clippy::type_complexity)]
+#![allow(
+    clippy::too_many_lines,
+    clippy::type_complexity,
+    clippy::format_push_string,
+    clippy::many_single_char_names
+)]
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -91,23 +97,23 @@ fn l4_build(xml: &Path, t: &mut L4Tally) {
     let all = testkit::dump_dirs(&stem, Some(xml));
     let dirs: Vec<PathBuf> = all
         .iter()
-        .filter(|d| !testkit::hits_of(std::slice::from_ref(*d), "offence:1037").is_empty())
-        .max_by_key(|d| testkit::hits_of(std::slice::from_ref(*d), "offence:362").len())
+        .filter(|d| !l4kit::hits_of(std::slice::from_ref(*d), "offence:1037").is_empty())
+        .max_by_key(|d| l4kit::hits_of(std::slice::from_ref(*d), "offence:362").len())
         .map(|d| vec![d.clone()])
         .unwrap_or_default();
-    let ins = testkit::hits_of(&dirs, "offence:362");
+    let ins = l4kit::hits_of(&dirs, "offence:362");
     if ins.is_empty() {
         t.missing.push(format!("{stem}: no offence:362 dumps"));
         return;
     }
     // pair each `offence:362` call with the `offence:1037` hit of the same offence call
     let mut outs: BTreeMap<String, String> = BTreeMap::new();
-    for h in testkit::hits_of(&dirs, "offence:1037") {
+    for h in l4kit::hits_of(&dirs, "offence:1037") {
         if let Some(d) = testkit::find_dump(&dirs, &h).and_then(|p| StateDump::load(&p).ok()) {
             outs.insert(enclosing(&d), h);
         }
     }
-    let hooks = Rc::new(testkit::HookCalls::new(dirs.clone()));
+    let hooks = Rc::new(l4kit::HookCalls::new(dirs.clone()));
     let verbose = std::env::var_os("OFA_VERBOSE").is_some();
     for hin in ins {
         let Some(din) = testkit::find_dump(&dirs, &hin).and_then(|p| StateDump::load(&p).ok())
@@ -118,15 +124,15 @@ fn l4_build(xml: &Path, t: &mut L4Tally) {
         t.hits += 1;
         match outs.get(&enclosing(&din)) {
             Some(hout) => {
-                let r = testkit::segment_run_in(&dirs, xml, &hin, hout, Some(&hooks));
+                let r = l4kit::segment_run_in(&dirs, xml, &hin, hout, Some(&hooks));
                 t.hooks_replayed += r.hooks_replayed.len();
                 if baseline_mismatches(&dirs, &din, hout, &stem) > 0 {
                     t.nonvacuous += 1;
                 }
                 if !r.hooks_replayed.is_empty() {
                     // the same run without recordings: the hook's delta must be missing
-                    let none = Rc::new(testkit::HookCalls::new(Vec::new()));
-                    if !testkit::segment_run_in(&dirs, xml, &hin, hout, Some(&none))
+                    let none = Rc::new(l4kit::HookCalls::new(Vec::new()));
+                    if !l4kit::segment_run_in(&dirs, xml, &hin, hout, Some(&none))
                         .mismatches
                         .is_empty()
                     {
@@ -256,6 +262,115 @@ fn l4_report(name: &str, t: &L4Tally) {
     }
 }
 
+// One child process per build: the injected envs of a run are not all freed, so one process
+// running every all57 hit grows past 2 GB RSS. Each build runs in a fresh process of this test
+// binary (`ofa_l4_child`, a no-op unless `OFA_L4_XML` names a build) that prints its tally as
+// `OFA:` lines; the parent adds them up. Peak RSS is then one build's.
+
+/// Separator of the fields of an `OFA:` line (not in mismatch texts).
+const SEP: char = '\u{1f}';
+/// Stands for a newline inside an `OFA:` field.
+const NL: char = '\u{1e}';
+
+fn tally_emit(t: &L4Tally) {
+    let enc = |s: &str| s.replace('\n', &NL.to_string());
+    println!(
+        "OFA:T{SEP}{}{SEP}{}{SEP}{}{SEP}{}{SEP}{}{SEP}{}{SEP}{}",
+        t.hits, t.clean, t.returns, t.hooks_replayed, t.nonvacuous, t.hook_needed, t.foreign
+    );
+    for m in &t.missing {
+        println!("OFA:M{SEP}{}", enc(m));
+    }
+    for f in &t.failed {
+        println!("OFA:F{SEP}{}", enc(f));
+    }
+    for n in &t.hook_notes {
+        println!("OFA:N{SEP}{}", enc(n));
+    }
+}
+
+/// Add the tally a child printed; false when it printed none.
+fn tally_add(t: &mut L4Tally, stdout: &str) -> bool {
+    let dec = |s: &str| s.replace(NL, "\n");
+    let mut seen = false;
+    for line in stdout.lines() {
+        // the harness may print `test ofa_l4_child ... ` on the same line before the first one
+        let Some(rest) = line.find("OFA:").map(|i| &line[i + 4..]) else {
+            continue;
+        };
+        let f: Vec<&str> = rest.split(SEP).collect();
+        match f.as_slice() {
+            ["T", n @ ..] if n.len() == 7 => {
+                let n: Vec<usize> = n.iter().map(|x| x.parse().unwrap_or(0)).collect();
+                t.hits += n[0];
+                t.clean += n[1];
+                t.returns += n[2];
+                t.hooks_replayed += n[3];
+                t.nonvacuous += n[4];
+                t.hook_needed += n[5];
+                t.foreign += n[6];
+                seen = true;
+            }
+            ["M", s] => t.missing.push(dec(s)),
+            ["F", s] => t.failed.push(dec(s)),
+            ["N", s] => t.hook_notes.push(dec(s)),
+            _ => {}
+        }
+    }
+    seen
+}
+
+/// [`l4_build`] for `xml` in a child process; its tally is added to `t`.
+fn l4_build_isolated(xml: &Path, t: &mut L4Tally) {
+    let stem = stem(xml).to_owned();
+    let exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(e) => {
+            t.failed.push(format!("{stem}: no test binary path: {e}"));
+            return;
+        }
+    };
+    let out = std::process::Command::new(exe)
+        .args([
+            "ofa_l4_child",
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("OFA_L4_XML", xml)
+        .output();
+    match out {
+        Ok(o) if tally_add(t, &String::from_utf8_lossy(&o.stdout)) => {}
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            let tail: Vec<&str> = err.lines().rev().take(5).collect();
+            t.failed.push(format!(
+                "{stem}: child process failed ({}): {}",
+                o.status,
+                tail.join(" | ")
+            ));
+        }
+        Err(e) => t
+            .failed
+            .push(format!("{stem}: cannot start child process: {e}")),
+    }
+}
+
+/// The child half of [`l4_build_isolated`] (a no-op unless `OFA_L4_XML` is set).
+#[test]
+#[ignore = "run by ofa_l4_setup, one process per build"]
+fn ofa_l4_child() {
+    let Some(xml) = std::env::var_os("OFA_L4_XML").map(PathBuf::from) else {
+        return;
+    };
+    assert!(testkit::init_default_data(), "data/dump (pob-dump output)");
+    std::panic::set_hook(Box::new(|_| {}));
+    let mut t = L4Tally::default();
+    l4_build(&xml, &mut t);
+    tally_emit(&t);
+}
+
 #[test]
 fn ofa_l4_setup() {
     if pob_testpaths::require(
@@ -269,17 +384,14 @@ fn ofa_l4_setup() {
     let Some(parity) = pob_testpaths::require(pob_testpaths::parity_dir(), ".parity") else {
         return;
     };
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
     let mut unit = L4Tally::default();
     for xml in xmls(&slice5_dir()) {
-        l4_build(&xml, &mut unit);
+        l4_build_isolated(&xml, &mut unit);
     }
     let mut all57 = L4Tally::default();
     for xml in xmls(&parity.join("builds")) {
-        l4_build(&xml, &mut all57);
+        l4_build_isolated(&xml, &mut all57);
     }
-    std::panic::set_hook(hook);
     l4_report("slice5 (unit corpus)", &unit);
     l4_report("all57", &all57);
     assert!(
@@ -297,6 +409,328 @@ fn ofa_l4_setup() {
             "OF-A L4 on all57: {:.2}% < 98%",
             ratio * 100.0
         );
+    }
+}
+
+// ---- local L4 kit (CCR-0041 §4) ----------------------------------------------------------------
+
+/// L4 with skill-hook replay, kept local to this test (unit brief: testkit gaps are filled with
+/// local helpers plus a CCR; CCR-0041 §4 proposes moving this into `pob_oracle::testkit`).
+///
+/// [`l4kit::segment_run_in`] injects `<stage_in>`, installs a `pob_calc::probe` skill-hook
+/// handler, runs the Rust segment and diffs against `<stage_out>`. The handler answers each
+/// `runSkillFunc(name)` call of the segment: when the skill's granted effect has no such hook
+/// the Lua call does nothing and the Rust body runs (it does nothing either); otherwise it
+/// applies the recorded `runSkillFunc:in -> :out` delta (`pob_oracle::replay::Replay`) of the
+/// first not yet used recorded call with that `name` made inside the same enclosing
+/// function-probe call as `<stage_in>` (the innermost entry of the dump's `stack`, e.g.
+/// `offence:in#4`); calls made before `<stage_in>` are dropped when a `hits.json` of the dump
+/// directory orders them. Both dumps must come from one probe run (the caller passes one run's
+/// directory): PoB's state differs between processes (calc doc §9.5).
+mod l4kit {
+    use std::cell::{OnceCell, RefCell};
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::{Path, PathBuf};
+    use std::rc::Rc;
+
+    use pob_calc::lua_table::Val;
+    use pob_oracle::schema::StateDump;
+    use pob_oracle::testkit::{
+        diff_against, empty_build, find_dump, init_default_data, load_build,
+    };
+    use serde_json::Value as J;
+
+    /// What one L4 run ([`segment_run_in`]) did.
+    #[derive(Debug, Default)]
+    pub struct SegmentRun {
+        /// Diff lines against `<stage_out>` (empty = pass), or one line naming why the run
+        /// could not be made (missing dump, inject or segment error).
+        pub mismatches: Vec<String>,
+        /// The `runSkillFunc:in` hits whose recorded delta was applied (CCR-0041).
+        pub hooks_replayed: Vec<String>,
+        /// Hook calls of a skill that has the hook but no recorded call to replay
+        /// (the Rust registry body ran instead), and replay notes.
+        pub hook_notes: Vec<String>,
+    }
+
+    /// L4 on the dumps of `dirs` (one probe run's directory; `hooks` indexes the same
+    /// directories and is shared between the runs of one build).
+    pub fn segment_run_in(
+        dirs: &[PathBuf],
+        build: &Path,
+        stage_in: &str,
+        stage_out: &str,
+        hooks: Option<&Rc<HookCalls>>,
+    ) -> SegmentRun {
+        let fail = |m: String| SegmentRun {
+            mismatches: vec![m],
+            ..SegmentRun::default()
+        };
+        if !init_default_data() {
+            return fail("no data dump (data/dump)".to_owned());
+        }
+        let stem = build
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_owned();
+        let dirs = dirs.to_vec();
+        let (Some(pin), Some(pout)) = (find_dump(&dirs, stage_in), find_dump(&dirs, stage_out))
+        else {
+            return fail(format!(
+                "missing dump {stage_in} or {stage_out} for {stem} (fill with: scripts/port/oracle.sh run --build {} --stage {stage_in},{stage_out})",
+                build.display()
+            ));
+        };
+        let (Ok(din), Ok(dout)) = (StateDump::load(&pin), StateDump::load(&pout)) else {
+            return fail(format!(
+                "unreadable dump {} / {}",
+                pin.display(),
+                pout.display()
+            ));
+        };
+        let model = load_build(build).unwrap_or_else(empty_build);
+        let inj = match pob_oracle::inject::inject(&din, &model) {
+            Ok(i) => i,
+            Err(e) => return fail(format!("inject {stage_in}: {e}")),
+        };
+        let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
+        let hooks = hooks
+            .cloned()
+            .unwrap_or_else(|| Rc::new(HookCalls::new(dirs.clone())));
+        let report = Rc::new(RefCell::new(SegmentRun::default()));
+        if let (Some(env), Some(enclosing)) = (inj.env.clone(), din.stack.last().cloned()) {
+            let before = hooks.calls_before(&din.hit);
+            let report = report.clone();
+            let hooks = hooks.clone();
+            let mut used: BTreeSet<String> = BTreeSet::new();
+            let handler = move |skill: &pob_calc::active_skill::ActiveSkillRef,
+                                hook: pob_calc::data_fns::SkillHook|
+                  -> bool {
+                let ge = skill.activeEffect.get().grantedEffect.get();
+                if hook.of(&ge).is_none() {
+                    return false;
+                }
+                let name = format!("{hook:?}");
+                let next = hooks
+                    .calls(&enclosing, &name)
+                    .into_iter()
+                    .find(|c| !used.contains(&c.hit) && !before.contains(&c.hit));
+                let Some(call) = next else {
+                    report.borrow_mut().hook_notes.push(format!(
+                        "{name} of {}: no recorded runSkillFunc call under {enclosing}",
+                        ge.name
+                    ));
+                    return false;
+                };
+                used.insert(call.hit.clone());
+                match call.load() {
+                    Some(c) => {
+                        let hit = c.din.hit.clone();
+                        let mut calls = BTreeMap::new();
+                        calls.insert(hit.clone(), c);
+                        let replay = pob_oracle::replay::Replay { calls };
+                        match replay.apply_report(&hit, &env) {
+                            Ok(a) => {
+                                let mut r = report.borrow_mut();
+                                r.hook_notes
+                                    .extend(a.notes.into_iter().map(|n| format!("{hit}: {n}")));
+                                r.hooks_replayed.push(hit);
+                            }
+                            Err(e) => report.borrow_mut().hook_notes.push(format!("{hit}: {e}")),
+                        }
+                    }
+                    None => report
+                        .borrow_mut()
+                        .hook_notes
+                        .push(format!("{}: unreadable runSkillFunc dumps", call.hit)),
+                }
+                true
+            };
+            pob_calc::probe::set_skill_hook_handler(Some(Box::new(handler)));
+        }
+        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            pob_calc::probe::run_segment(&din.probe, &locals)
+        }));
+        pob_calc::probe::set_skill_hook_handler(None);
+        let mut out = std::mem::take(&mut *report.borrow_mut());
+        let after = match run {
+            Ok(Ok((_flow, after))) => after,
+            Ok(Err(e)) => {
+                out.mismatches = vec![format!("run {stage_in}: {e}")];
+                return out;
+            }
+            Err(p) => {
+                let msg = p
+                    .downcast_ref::<pob_lua::LuaError>()
+                    .map(|e| e.0.clone())
+                    .or_else(|| p.downcast_ref::<String>().cloned())
+                    .or_else(|| p.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                    .unwrap_or_else(|| "panic".to_owned());
+                out.mismatches = vec![format!("run {stage_in}: {msg}")];
+                return out;
+            }
+        };
+        let env = after
+            .iter()
+            .find(|(k, _)| k == "env")
+            .and_then(|(_, v)| v.obj::<pob_calc::env::Env>())
+            .or(inj.env);
+        out.mismatches = diff_against(&dout, env.as_ref(), &after, &stem)
+            .into_iter()
+            .map(|m| format!("{} {:?}: pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours))
+            .collect();
+        out
+    }
+
+    /// Every dumped hit of `probe` (`offence:362` → `offence:362#1`, `#2`, …) in `dirs`, by `n`.
+    pub fn hits_of(dirs: &[PathBuf], probe: &str) -> Vec<String> {
+        let prefix = format!(
+            "{}#",
+            pob_oracle::runner::hit_file_name(probe).trim_end_matches(".json")
+        );
+        let mut ns: BTreeSet<u64> = BTreeSet::new();
+        for d in dirs {
+            let Ok(rd) = std::fs::read_dir(d) else {
+                continue;
+            };
+            for e in rd.filter_map(Result::ok) {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let Some(rest) = name.strip_prefix(&prefix) else {
+                    continue;
+                };
+                let n: String = rest.chars().take_while(char::is_ascii_digit).collect();
+                if let Ok(n) = n.parse::<u64>() {
+                    ns.insert(n);
+                }
+            }
+        }
+        ns.into_iter().map(|n| format!("{probe}#{n}")).collect()
+    }
+
+    // ---- skill hooks (CCR-0041) ----------------------------------------------------------------------
+
+    /// One recorded `runSkillFunc` call.
+    #[derive(Clone, Debug)]
+    pub struct HookCall {
+        /// `runSkillFunc:in#n`.
+        pub hit: String,
+        pub n: u64,
+        /// The `name` local (`initialFunc`, `preDamageFunc`, …).
+        pub name: String,
+        pub din: PathBuf,
+        pub dout: Option<PathBuf>,
+    }
+
+    impl HookCall {
+        /// The `:in`/`:out` dumps (None when one is missing or unreadable).
+        pub fn load(&self) -> Option<pob_oracle::replay::Call> {
+            Some(pob_oracle::replay::Call {
+                din: StateDump::load(&self.din).ok()?,
+                dout: StateDump::load(self.dout.as_ref()?).ok()?,
+            })
+        }
+    }
+
+    /// The recorded `runSkillFunc` calls of one build's dump directories, indexed
+    /// on first use by their enclosing function-probe hit (`offence:in#4`).
+    pub struct HookCalls {
+        dirs: Vec<PathBuf>,
+        index: OnceCell<BTreeMap<String, Vec<HookCall>>>,
+        order: OnceCell<Option<BTreeMap<String, usize>>>,
+    }
+
+    impl HookCalls {
+        pub fn new(dirs: Vec<PathBuf>) -> Self {
+            HookCalls {
+                dirs,
+                index: OnceCell::new(),
+                order: OnceCell::new(),
+            }
+        }
+
+        fn index(&self) -> &BTreeMap<String, Vec<HookCall>> {
+            self.index.get_or_init(|| {
+                let mut by: BTreeMap<String, Vec<HookCall>> = BTreeMap::new();
+                let mut seen: BTreeSet<String> = BTreeSet::new();
+                for hit in hits_of(&self.dirs, "runSkillFunc:in") {
+                    if !seen.insert(hit.clone()) {
+                        continue;
+                    }
+                    let Some(pin) = find_dump(&self.dirs, &hit) else {
+                        continue;
+                    };
+                    let Ok(d) = StateDump::load(&pin) else {
+                        continue;
+                    };
+                    let name = d
+                        .locals()
+                        .and_then(|l| l.get("name"))
+                        .and_then(J::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    let out_hit = hit.replacen("runSkillFunc:in#", "runSkillFunc:out#", 1);
+                    let call = HookCall {
+                        hit: hit.clone(),
+                        n: d.n,
+                        name,
+                        din: pin,
+                        dout: find_dump(&self.dirs, &out_hit),
+                    };
+                    by.entry(d.stack.last().cloned().unwrap_or_default())
+                        .or_default()
+                        .push(call);
+                }
+                for v in by.values_mut() {
+                    v.sort_by_key(|c| c.n);
+                }
+                by
+            })
+        }
+
+        /// The recorded calls named `name` inside the enclosing hit, in call order.
+        pub fn calls(&self, enclosing: &str, name: &str) -> Vec<HookCall> {
+            self.index()
+                .get(enclosing)
+                .map(|v| v.iter().filter(|c| c.name == name).cloned().collect())
+                .unwrap_or_default()
+        }
+
+        /// The `runSkillFunc:in` hits a `hits.json` of the dump directories lists before `hit`
+        /// (empty when no index lists `hit`).
+        pub fn calls_before(&self, hit: &str) -> BTreeSet<String> {
+            let order = self.order.get_or_init(|| {
+                for d in &self.dirs {
+                    for f in ["hits.json", "hits.json.zst"] {
+                        let p = d.join(f);
+                        let alt = d.parent().map(|q| q.join(f));
+                        for p in std::iter::once(p).chain(alt) {
+                            if let Ok(h) = pob_oracle::schema::HitsIndex::load(&p) {
+                                return Some(
+                                    h.dumps
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, e)| (e.hit.clone(), i))
+                                        .collect(),
+                                );
+                            }
+                        }
+                    }
+                }
+                None
+            });
+            let Some(order) = order else {
+                return BTreeSet::new();
+            };
+            let Some(&at) = order.get(hit) else {
+                return BTreeSet::new();
+            };
+            order
+                .iter()
+                .filter(|(h, &i)| i < at && h.starts_with("runSkillFunc:in#"))
+                .map(|(h, _)| h.clone())
+                .collect()
+        }
     }
 }
 
@@ -408,7 +842,7 @@ fn lua_helpers(src: &Path) -> String {
     let range = |a: usize, b: usize| lines[a - 1..b].join("\n");
     assert!(lines[373].contains("local function calcAreaOfEffect"));
     assert!(lines[493].contains("local function calcResistForType"));
-    assert!(lines[506].trim() == "end");
+    assert_eq!(lines[506].trim(), "end");
     format!(
         "__OFA = (function()\n{}\nlocal M = {{ calcDamage = calcDamage, calcAilmentSourceDamage = calcAilmentSourceDamage, \
          calcAreaMod = calcAreaMod, calcRadius = calcRadius, calcMoltenStrikeTertiaryRadius = calcMoltenStrikeTertiaryRadius, \
@@ -871,7 +1305,20 @@ fn check_area_numeric(n: usize) -> Check {
             f17(hs::calcRadius(base, areaMod, radiusMod)),
         );
         // calcRadiusBreakpoints
-        let (a, b, cc, d) = hs::calcRadiusBreakpoints(base, inc, more, radiusMod);
+        let (a, b, cc, d) = hs::calcRadiusBreakpointsOpt(base, inc, more, radiusMod);
+        // the frozen-signature wrapper (CCR-0041 §1): the same numbers, NaN for each nil
+        let frozen = hs::calcRadiusBreakpoints(base, inc, more, radiusMod);
+        let nan = |x: Option<f64>| x.unwrap_or(f64::NAN).to_bits();
+        assert_eq!(
+            [
+                frozen.0.to_bits(),
+                frozen.1.to_bits(),
+                frozen.2.to_bits(),
+                frozen.3.to_bits()
+            ],
+            [nan(a), nan(b), nan(cc), nan(d)],
+            "calcRadiusBreakpoints wrapper #{i}"
+        );
         c.push(
             format!("calcRadiusBreakpoints #{i}"),
             format!(
@@ -1073,11 +1520,11 @@ fn aoe_rust(c: &AoeCase) -> String {
         actor.weaponRange2.set(c.weaponRange2);
         let skillFlags = Table::new();
         for f in &c.flags {
-            skillFlags.set(Name::from(*f), true);
+            skillFlags.set(Name::from(f), true);
         }
         let skillData = Table::new();
         for (k, v) in &c.data {
-            skillData.set(Name::from(*k), v.clone());
+            skillData.set(Name::from(k), v.clone());
         }
         let output = Table::new();
         let bd = c.withBreakdown.then(|| newBreakdown(&ml, &output, &actor));
