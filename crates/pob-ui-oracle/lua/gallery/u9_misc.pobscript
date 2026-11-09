@@ -1,0 +1,54 @@
+# Interactions of the "u9_misc" gallery (U9).
+# A dragger keeps the focus once pressed (its OnKeyDown/OnKeyUp return self), so the hover tour
+# comes first, the image dragger is pressed last, and the "//" dragger hides after its right
+# click to release the focus.
+frames 2
+# hover tour: glyphs, text, locked, disabled, image
+move 410 130
+frames 1
+move 440 130
+frames 1
+move 470 130
+frames 1
+move 520 130
+frames 1
+move 590 130
+frames 1
+move 660 130
+frames 1
+move 720 130
+frames 1
+# the "//" dragger: hover (onHover), drag down-left with the button held, release
+move 367 127
+frames 2
+key-down LEFTBUTTON
+frames 1
+move 340 160
+frames 2
+move 300 200
+key-up LEFTBUTTON
+frames 1
+# a second drag, released back over it (dragging highlight while over it)
+move 367 127
+key-down LEFTBUTTON
+frames 1
+move 369 129
+frames 1
+key-up LEFTBUTTON
+frames 1
+# right click on it (onRightClick): it hides and releases the focus
+click RIGHTBUTTON
+frames 1
+# locked and disabled draggers refuse the press
+move 590 130
+click LEFTBUTTON
+move 660 130
+click LEFTBUTTON
+# image dragger pressed (clicked overlay)
+move 720 130
+key-down LEFTBUTTON
+frames 2
+key-up LEFTBUTTON
+frames 1
+move 700 500
+frames 2

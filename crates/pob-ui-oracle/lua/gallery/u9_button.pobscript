@@ -1,0 +1,62 @@
+# Interactions of the "u9_button" gallery (U9).
+frames 2
+# hover, press (held over two frames), release: a click
+move 80 32
+frames 2
+key-down LEFTBUTTON
+frames 2
+key-up LEFTBUTTON
+frames 1
+# the "+" and "-" glyph buttons
+move 160 32
+click LEFTBUTTON
+move 192 32
+click LEFTBUTTON
+# "x": press, drag off, release outside (no click)
+move 222 32
+key-down LEFTBUTTON
+frames 1
+move 222 90
+frames 1
+key-up LEFTBUTTON
+frames 1
+# disabled: no click, no hover colour
+move 80 72
+click LEFTBUTTON
+# locked (value), locked (function of the click count)
+move 220 72
+frames 1
+click LEFTBUTTON
+move 360 72
+frames 1
+click LEFTBUTTON
+frames 1
+# image button: pressed overlay, then the disabled image button
+move 40 120
+key-down LEFTBUTTON
+frames 2
+key-up LEFTBUTTON
+frames 1
+move 90 120
+click LEFTBUTTON
+# overSizeText, onHover over several frames
+move 190 112
+frames 1
+move 330 112
+frames 3
+# enterFunc: a non-mouse key while the button holds the focus
+move 470 112
+key-down LEFTBUTTON
+frames 1
+press RETURN
+key-up LEFTBUTTON
+frames 1
+click LEFTBUTTON
+click LEFTBUTTON
+# "+" again pushes the count past 20: the "Hidden" button hides
+move 160 32
+click LEFTBUTTON
+move 610 112
+frames 2
+click LEFTBUTTON
+frames 1
