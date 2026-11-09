@@ -508,7 +508,7 @@ fn ofd_l4_all57() {
         return skip("no offence:2174/2606 dumps could be produced");
     };
     let (num, den) = t.gate();
-    assert!(t.failed.is_empty() || den == 0 || num * 100 >= den * 98, "OF-D L4 all57 failed runs");
+    assert!(t.failed.is_empty(), "OF-D L4 all57: failed runs");
     assert!(
         den == 0 || num * 100 >= den * 98,
         "OF-D L4 all57: {num}/{den} hits clean (< 98%)"
