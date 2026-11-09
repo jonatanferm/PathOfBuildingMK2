@@ -5,7 +5,7 @@
 
 - **Raised by:** IT-A
 - **Affects:** calc doc §11.1 (IT-A row: deps), §5.9 (`Item.name`), §9.2 ("Replay"),
-  docs/port/contracts.md `#class-census` (Item), CCR-0015 §2 (shapes IT-A chooses), IT-C
+  docs/port/contracts.md `#class-census` (Item), CCR-0032 §2 (shapes IT-A chooses), IT-C
   (`item_mods.rs`, `item_tools.rs` read what ParseRaw stores), the UI port (`main` options)
 - **Pin:** 16de4b82d
 
@@ -24,6 +24,11 @@ Proposed: move it to `crates/pob-calc/src/module_state.rs` as a `MainOptions` th
 (`defaultItemAffixQuality: Cell<Option<f64>>`), owned by U0, set by the UI's options dialog;
 item_parse.rs and item_tools.rs read it from there.
 
+Until U0 applies this, the thread-local in item_parse.rs is the only home. IT-C's `formatModLine`
+(ItemTools.lua:363) and the ItemsTab readers must read `item_parse::main_defaultItemAffixQuality()`
+and must not keep their own copy. A second copy would let ParseRaw and formatModLine use different
+values once the options slider changes one of them.
+
 ```diff
  // module_state.rs
 +/// The `main.*` options the calc reads (Modules/Main.lua): defaultItemAffixQuality (Main.lua:113).
@@ -31,12 +36,12 @@ item_parse.rs and item_tools.rs read it from there.
 +thread_local! { pub static MAIN: MainOptions = MainOptions { defaultItemAffixQuality: Cell::new(Some(0.5)) }; }
 ```
 
-## 2. Shapes of the values ParseRaw stores (CCR-0015 §2 leaves these to IT-A)
+## 2. Shapes of the values ParseRaw stores (CCR-0032 §2 leaves these to IT-A)
 
 | Lua value | Rust | Reader |
 |---|---|---|
 | a mod line's `modList` (the fresh mod tables `modLib.parseMod` returned, or `{ }`) | list `Table` of `Val::Mod(Arc<Mod>)` | IT-C BuildModList (Item.lua:2556-2560 sets `mod.source` on them: a mutation of a fresh copy, §3.6 — IT-C replaces the entry with a new `Mod`) |
-| `self.affixes` | `Val::Obj(Rc<item::ItemAffixes>)` (CCR-0015 §2) | `Item::affixes_table()` |
+| `self.affixes` | `Val::Obj(Rc<item::ItemAffixes>)` (CCR-0032 §2) | `Item::affixes_table()` |
 | `self.rareLikeUnique` (`data.rareLikeUniques[title:lower()]`) | `Val::Obj(Rc<RareLikeUniqueRef>)` | `Item::rareLikeUnique_ref()` |
 | `self.enchantments` (`data.enchantments[...]`) | `Val::Obj(Rc<EnchantmentSlotRef>)` | `Item::enchantments_ref()` |
 | `self.mutatedLines` (`data.foulbornMap[title]`) | `Val::Obj(Rc<Arc<FoulbornLines>>)` | `Item::mutatedLines_ref()` |
@@ -74,9 +79,9 @@ ParseRaw calls IT-B's `specToNumber`, `getCatalystScalar`, `normaliseModLine`, `
 `Item:CheckModLineVariant`, `Item:GetModLineVariantCount`, `Item:NormaliseVariantSelections`,
 `Item:NormaliseQuality` and uses the module tables IT-B made public (`influenceItemMap`,
 `lineFlags`/`is_lineFlag`, `catalystList`, `catalystDescriptorList`, `influenceInfo`,
-`uniqueModStatOrder`, `ItemAffixes`; CCR-0015 §2). With U0's stubs, `specToNumber` returns `None`
+`uniqueModStatOrder`, `ItemAffixes`; CCR-0032 §2). With U0's stubs, `specToNumber` returns `None`
 (no quality, item level, requirements, …) and the module tables do not exist. `port/IT-B` (done,
-CCR-0015) was therefore merged into `port/IT-A`.
+CCR-0032) was therefore merged into `port/IT-A`.
 
 ```diff
 -| **IT-A** Item ParseRaw | Item.lua 424-1645 | `pob-calc/src/classes/item_parse.rs` | U0, MP0 | …

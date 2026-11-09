@@ -5,13 +5,13 @@
 //!
 //! Owner: IT-A.
 //!
-//! **Field shapes** follow CCR-0015 §2 (IT-B): untyped `self.<x>` fields live in `Item.extra`
+//! **Field shapes** follow CCR-0032 §2 (IT-B): untyped `self.<x>` fields live in `Item.extra`
 //! under their Lua name with their Lua shape (strings `Val::Str`, numbers `Val::Num`, booleans
 //! `Val::Bool`, tables `Table`); the influence flags are in `Item.influences`; mod lines are
 //! `Table`s with their Lua keys. IT-A's own choices (CCR-0025 §2):
 //! * a mod line's `modList` is a list `Table` of `Val::Mod` (the fresh mods `parseMod`
 //!   returned; `{ }` when it returned nil);
-//! * `affixes` is `Val::Obj(Rc<item::ItemAffixes>)` (CCR-0015 §2); `rareLikeUnique`,
+//! * `affixes` is `Val::Obj(Rc<item::ItemAffixes>)` (CCR-0032 §2); `rareLikeUnique`,
 //!   `enchantments` and `mutatedLines` (references into `data`) are `Val::Obj` of the data `Arc`
 //!   ([`RareLikeUniqueRef`], [`EnchantmentSlotRef`], `Arc<FoulbornLines>`), read through
 //!   [`Item::rareLikeUnique_ref`] / [`Item::enchantments_ref`] / [`Item::mutatedLines_ref`];
@@ -355,7 +355,7 @@ impl Item {
             .map(|r| (*r).clone())
     }
 
-    /// `self.affixes` (`Val::Obj(ItemAffixes)`, CCR-0015 §2).
+    /// `self.affixes` (`Val::Obj(ItemAffixes)`, CCR-0032 §2).
     fn parse_affixes(&self) -> Option<&'static AffixTable> {
         self.extra.obj::<ItemAffixes>(n!("affixes")).map(|a| a.0)
     }
@@ -1586,7 +1586,7 @@ impl Item {
                         if let Some(base) = base {
                             // Items with variants can have multiple bases
                             // L1006 (LUA-ORDER: BuildRaw iterates `pairs(self.baseLines)`;
-                            // insertion order here, CCR-0015 §2)
+                            // insertion order here, CCR-0032 §2)
                             let bl = Table::new();
                             bl.set(n!("line"), vstr(&baseName));
                             bl.set(n!("variantList"), modLine.get(n!("variantList")));
@@ -1729,10 +1729,12 @@ impl Item {
                                         "R"
                                     },
                                 );
-                                // L1058 (`self.base.flask.buff`: a list, `{}` when absent; an
-                                // empty list behaves as nil here)
+                                // L1058 (`self.base.flask.buff`: a list, `{}` when absent. No
+                                // base in Data/Bases has an explicit empty `buff = { }`, so an
+                                // empty list is Lua's nil: the guard keeps `flaskBuffLines` unset
+                                // and a later flask base line with a buff still gets its lines)
                                 if let Some(flask) = base.flask.as_ref() {
-                                    if flaskBuffLines.is_none() {
+                                    if !flask.buff.is_empty() && flaskBuffLines.is_none() {
                                         // L1059
                                         let mut fbl: Vec<LStr> = Vec::new();
                                         // L1060
