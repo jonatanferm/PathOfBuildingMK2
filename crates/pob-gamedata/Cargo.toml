@@ -20,6 +20,10 @@ postcard = { version = "1", default-features = false, features = ["alloc"] }
 # SimpleGraphic `Inflate` for the timeless jewel LUT files (timeless_lut.rs, LUT; pure Rust, wasm-safe)
 miniz_oxide = "0.8"
 
+[dev-dependencies]
+# Test inputs (data/dump) and the skip policy (HYG1).
+pob-testpaths.workspace = true
+
 [lints]
 workspace = true
 

@@ -1,27 +1,18 @@
 //! The runtime load of `data.bin` (calc doc §11.1 U0: "data.bin loads in < 1 s").
 //!
 //! Run with `scripts/port/cargo.sh test --release -p pob-gamedata --test dump_load -- --nocapture`;
-//! the time gate applies to optimised builds only. Skips when `data/dump/data.bin` (written by
-//! `pob-dump --compile`) is absent.
+//! the time gate applies to optimised builds only. Needs `data/dump/data.bin` (written by
+//! `pob-dump --compile`), found by `pob_testpaths` (`$POB_DUMP_DIR`, this workspace, the main
+//! checkout); a missing file fails the test unless `POB_ALLOW_SKIP=1`.
 
-use std::path::PathBuf;
 use std::time::Instant;
-
-fn data_bin() -> Option<PathBuf> {
-    if let Some(d) = std::env::var_os("POB_DUMP_DIR") {
-        let p = PathBuf::from(d).join("data.bin");
-        return p.is_file().then_some(p);
-    }
-    let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    here.ancestors()
-        .map(|a| a.join("data/dump/data.bin"))
-        .find(|p| p.is_file())
-}
 
 #[test]
 fn data_bin_loads_fast() {
-    let Some(path) = data_bin() else {
-        eprintln!("SKIPPED: data/dump/data.bin not found (run `pob-dump --compile`)");
+    let Some(path) = pob_testpaths::require(
+        pob_testpaths::data_bin(),
+        "data/dump/data.bin (run `pob-dump --compile`)",
+    ) else {
         return;
     };
     let bytes = std::fs::read(&path).unwrap();

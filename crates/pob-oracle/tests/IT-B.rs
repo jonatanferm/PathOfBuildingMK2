@@ -3,7 +3,7 @@
 //!
 //! ParseRaw is IT-A's, so the Rust items are not parsed by Rust: PoB parses every item
 //! (`new("Item"):Item(raw, …)`), `corpus/IT-B/item_oracle.lua` dumps the parsed item's fields
-//! (typed and `extra`, CCR-0015 §2 shapes) and PoB's results, and this test injects the dump
+//! (typed and `extra`, CCR-0032 §2 shapes) and PoB's results, and this test injects the dump
 //! into a Rust `Item` and runs the Rust functions on it:
 //!
 //! * `BuildRaw` text (= `BuildRaw(ParseRaw(x))` with ParseRaw from PoB), for every unique

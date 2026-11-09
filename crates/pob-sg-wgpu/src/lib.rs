@@ -1,27 +1,42 @@
 //! `pob-sg-wgpu`: draws a [`pob_sg::Frame`] (ui doc §5.1). Owner: U6.
 //!
-//! Port of SimpleGraphic `engine/render/r_main.cpp` `AdjacentMergeStrategy` and
-//! `r_layer_c::Render` plus the texture setup in `r_texture.cpp` `r_tex_c::Upload`
-//! (research copy master @ 8694a07; U6 re-verifies at `3b1a346`):
-//! - the sorted queues are replayed: `Viewport`/`Bind`/`Color` are state, every `Quad` becomes
-//!   two triangles `0,1,2 / 0,2,3` of the TL,TR,BR,BL corners offset by the viewport origin;
-//! - a new draw call starts whenever the scissor (viewport) or texture changes; each call is
-//!   scissored to its viewport, clamped to the target;
-//! - quads outside their viewport are culled (`r_drawCull` = 1);
-//! - a texture that has no pixels yet binds `@black` (transparent), like SG's not-DONE textures;
-//! - textures and the render target are RGBA8 *UNORM*, so blending happens in gamma space
-//!   (`glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)` for colour and alpha);
-//! - the scene goes into an Rgba8Unorm offscreen target at framebuffer size, cleared to opaque
-//!   black, then a full-screen blit writes it to the (non-sRGB) output view;
-//! - sampling: `CLAMP` -> clamp-to-edge else repeat; `NEAREST` -> nearest magnification else
-//!   linear; minification linear, trilinear when the texture has mips.
+//! Port of PathOfBuilding-SimpleGraphic `3b1a346` (the shipped DLL, ui doc §2), re-verified by U6:
+//! - `engine/render/r_main.cpp:468-569` (`AdjacentMergeStrategy::ProcessCommand`) and
+//!   `:678-719` (`r_layer_c::Render`): the sorted queues are replayed; `Viewport`/`Bind`/`Color`
+//!   latch state (fresh per layer), every `Quad` is culled against its viewport first
+//!   (`r_drawCull` = 1, `:501-509`; [`pob_sg::Quad::is_culled`]) and otherwise becomes the
+//!   triangles `0,1,2 / 0,2,3` of its TL,TR,BR,BL corners (`:556-564`) offset by the viewport
+//!   origin (vertex shader `a_vertex + a_viewport.xy`, `:784-814`);
+//! - `:816-843` (fragment shader): fragments whose centre lies outside the quad's viewport are
+//!   discarded, then `colour = texture(uv) * tint`. Here the viewport is a scissor rectangle
+//!   clamped to the target, which keeps exactly the same pixel centres for integer viewports; a
+//!   new draw call starts whenever the scissor or texture changes (SG batches up to
+//!   `GL_MAX_TEXTURE_IMAGE_UNITS` textures and passes the viewport per vertex; same pixels);
+//! - `:576-647` (`Dispatch`), `:1202` (`BeginFrame` latches `RB_ALPHA`), `:909`:
+//!   `glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)` for colour and alpha;
+//! - `:1161-1206` (`BeginFrame`), `:1415-1490` (`EndFrame`), `:845-870` (blit shaders): the
+//!   scene goes into a UNORM render target at framebuffer size (`VirtualScreenWidth` is the
+//!   framebuffer width under `DPI_AWARE`, `:1866-1899`) cleared to opaque black, then a
+//!   full-screen blit writes its RGB with alpha 1 to the (non-sRGB) output view. Textures and
+//!   target are `Rgba8Unorm`, so blending happens in gamma space (D12; no sRGB anywhere);
+//! - `engine/render/r_texture.cpp:340-347` (`r_tex_c::Bind`): a texture without pixels binds
+//!   `@black` (transparent);
+//! - `r_texture.cpp:620-673` (`r_tex_c::Upload`): `CLAMP` -> clamp-to-edge else repeat;
+//!   `NEAREST` -> nearest magnification else linear; minification `GL_LINEAR` for one level,
+//!   trilinear (`LINEAR_MIPMAP_LINEAR`) when the texture has mips; anisotropy 16; no
+//!   `TEXTURE_MAX_LOD` (default 1000), so a one-level `NEAREST` texture drawn smaller than its
+//!   size is minified bilinearly (here: `lod_max_clamp` 0.25, not 0, see `sampler`).
+//!
+//! The CPU reference for all of this is `pob_sg::raster` (feature `raster`); `tests/t5.rs`
+//! compares the two (ui doc §11.1 T5).
+//!
+//! DIVERGENCE(anisotropy): SG sets 16x anisotropy on every texture; wgpu allows anisotropy only
+//! when the mag, min and mip filters are all linear, so `NEAREST` textures get none (ui doc §5.1).
+//! SG's texture arrays (`stackLayer`/`maskLayer`, unused by PoB) have no equivalent here.
 //!
 //! Moved from the pre-port `pob-sg/src/gpu/mod.rs` (which drew a flat `DrawCmd` list straight
 //! into the target) by UI-U0 and adapted to the §5.1 surface. Works with the WebGL2 backend (no
 //! storage buffers, one texture per bind group, u32 indices, 16-byte uniform).
-//!
-//! Deltas U6 closes: anisotropy (16 when all filters are linear) is not set yet; T5 against the
-//! CPU raster.
 #![allow(clippy::too_many_lines)]
 
 use std::collections::HashMap;
@@ -103,6 +118,12 @@ pub struct SgRenderer {
 
 /// The Rgba8Unorm offscreen target format (D12: no sRGB anywhere).
 pub const RT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// `anisotropyCap` (r_texture.cpp:657); wgpu clamps it to what the device supports.
+pub const ANISOTROPY: u16 = 16;
+
+/// The format every texture is uploaded in (D12: UNORM, gamma-space values).
+pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 fn alpha_blend() -> wgpu::BlendState {
     // SimpleGraphic applies glBlendFunc to colour and alpha alike.
@@ -288,6 +309,16 @@ impl SgRenderer {
                 } else {
                     wgpu::AddressMode::Repeat
                 };
+                // r_texture.cpp:640-673. SG never sets TEXTURE_MAX_LOD (default 1000), so the
+                // mag/min choice (λ <= 0 vs λ > 0) is made on the unclamped λ. Vulkan, GL and
+                // wgpu clamp λ to lod_max_clamp *before* that choice, so a one-level texture
+                // needs lod_max_clamp > 0 or it is never minified (a NEAREST texture drawn
+                // smaller would sample NEAREST instead of SG's GL_LINEAR). 0.25 with a nearest
+                // mip filter is the usual GL emulation; with one level every λ still reads
+                // level 0. Without mips the mip filter is otherwise irrelevant, so it stays
+                // linear when the magnification filter is, which lets wgpu accept SG's
+                // anisotropy 16 there (mag == min == linear: the clamp changes nothing).
+                let all_linear = !key.nearest;
                 device.create_sampler(&wgpu::SamplerDescriptor {
                     label: Some("pob-sg"),
                     address_mode_u: addr,
@@ -299,15 +330,16 @@ impl SgRenderer {
                         wgpu::FilterMode::Linear
                     },
                     min_filter: wgpu::FilterMode::Linear,
-                    mipmap_filter: if key.mips {
+                    mipmap_filter: if key.mips || all_linear {
                         wgpu::MipmapFilterMode::Linear
                     } else {
                         wgpu::MipmapFilterMode::Nearest
                     },
                     lod_min_clamp: 0.0,
-                    lod_max_clamp: if key.mips { 32.0 } else { 0.0 },
+                    lod_max_clamp: if key.mips { 32.0 } else { 0.25 },
                     compare: None,
-                    anisotropy_clamp: 1,
+                    // DIVERGENCE(anisotropy): only when every filter is linear (wgpu rule).
+                    anisotropy_clamp: if all_linear { ANISOTROPY } else { 1 },
                     border_color: None,
                 })
             })
@@ -340,7 +372,7 @@ impl SgRenderer {
             mip_level_count: levels,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: TEXTURE_FORMAT,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -582,8 +614,10 @@ impl SgRenderer {
                     wgpu::IndexFormat::Uint32,
                 );
                 for b in &self.batches {
-                    // glScissor(lo.x, H - extent.y - lo.y, extent.x, extent.y) in GL's bottom-left
-                    // space == (lo, extent) top-left here, clamped to the target.
+                    // SG discards fragments whose centre lies outside the quad's viewport
+                    // (r_main.cpp:833-838; there is no glScissor at 3b1a346). A scissor
+                    // rectangle (top-left origin, clamped to the target) keeps exactly the same
+                    // pixel centres for integer viewports.
                     let x0 = b.viewport.x.clamp(0, w);
                     let y0 = b.viewport.y.clamp(0, h);
                     let x1 = b.viewport.x.saturating_add(b.viewport.w).clamp(0, w);
@@ -737,11 +771,15 @@ pub async fn request_device(
 pub fn pick_surface_format(
     caps: &wgpu::SurfaceCapabilities,
 ) -> (wgpu::TextureFormat, wgpu::TextureFormat) {
-    if let Some(f) = caps.formats.iter().copied().find(|f| !f.is_srgb()) {
+    pick_format(&caps.formats)
+}
+
+/// [`pick_surface_format`] over a plain format list (preferred first).
+pub fn pick_format(formats: &[wgpu::TextureFormat]) -> (wgpu::TextureFormat, wgpu::TextureFormat) {
+    if let Some(f) = formats.iter().copied().find(|f| !f.is_srgb()) {
         return (f, f);
     }
-    let f = caps
-        .formats
+    let f = formats
         .first()
         .copied()
         .unwrap_or(wgpu::TextureFormat::Bgra8Unorm);
@@ -883,6 +921,37 @@ mod tests {
         assert_eq!(px(&img, 32, 19, 20), [0, 0, 0, 255]);
         assert_eq!(px(&img, 32, 24, 20), [0, 0, 0, 255]);
         assert_eq!(r.stats.batches, 3);
+    }
+
+    /// D12 / U6 acceptance "No sRGB anywhere": textures and the target are UNORM, the surface
+    /// view is never sRGB, and no sRGB format is named outside these tests.
+    #[test]
+    fn no_srgb_anywhere() {
+        use wgpu::TextureFormat as F;
+        assert!(!RT_FORMAT.is_srgb());
+        assert!(!TEXTURE_FORMAT.is_srgb());
+        assert_eq!(
+            pick_format(&[F::Bgra8Unorm]),
+            (F::Bgra8Unorm, F::Bgra8Unorm)
+        );
+        assert_eq!(
+            pick_format(&[F::Bgra8UnormSrgb, F::Rgba8Unorm]),
+            (F::Rgba8Unorm, F::Rgba8Unorm)
+        );
+        // Only sRGB offered: configure it, render through its UNORM view.
+        assert_eq!(
+            pick_format(&[F::Bgra8UnormSrgb]),
+            (F::Bgra8UnormSrgb, F::Bgra8Unorm)
+        );
+        let src = include_str!("lib.rs");
+        let code = &src[..src.find("#[cfg(all(test, not(target_arch").unwrap()];
+        for (name, text) in [
+            ("lib.rs", code),
+            ("quad.wgsl", include_str!("quad.wgsl")),
+            ("blit.wgsl", include_str!("blit.wgsl")),
+        ] {
+            assert!(!text.contains("Srgb"), "{name} names an sRGB format");
+        }
     }
 
     #[test]

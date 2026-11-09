@@ -552,6 +552,9 @@ fn pob_string_chunk() -> String {
 
 #[test]
 fn pob_string_helpers() {
+    if pob_src().is_none() {
+        return; // POB_ALLOW_SKIP=1
+    }
     quiet_lua_errors();
     let mut r = Rng(808);
     let n = 14_000;

@@ -1,8 +1,8 @@
 //! Full dump of PoB's data, checked for counts, closure handling and
 //! self-consistency of every `$ref`.
 //!
-//! Needs PoB's source: `$POB_SRC`, or `<workspace>/.PathOfBuilding/src`.
-//! Skipped (with a message) when neither exists.
+//! Needs PoB's source (`pob_testpaths`: `$POB_SRC`, this workspace, the main
+//! checkout). Missing, the tests fail, unless `POB_ALLOW_SKIP=1`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -31,17 +31,13 @@ fn generated_enums() {
     assert_eq!(keyword_flag::names(0x21), vec!["Aura", "Fire"]);
 }
 
+/// PoB's `src/` via `pob_testpaths` (`$POB_SRC`, this workspace, the main
+/// checkout). Missing: the test fails, or returns with `POB_ALLOW_SKIP=1`.
 fn pob_src() -> Option<PathBuf> {
-    let candidates = [
-        std::env::var_os("POB_SRC").map(PathBuf::from),
-        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.PathOfBuilding/src")),
-        // a git worktree under <main checkout>/.claude/worktrees/<name>
-        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../../.PathOfBuilding/src")),
-    ];
-    candidates
-        .into_iter()
-        .flatten()
-        .find(|p| p.join("Modules/Data.lua").exists())
+    pob_testpaths::require(
+        pob_testpaths::pob_src(),
+        "PoB checkout (.PathOfBuilding/src)",
+    )
 }
 
 fn load(path: &Path) -> Value {
@@ -177,8 +173,7 @@ fn scan(v: &Value, s: &mut Scan, file: &str) {
 #[test]
 fn full_dump() {
     let Some(src) = pob_src() else {
-        eprintln!("skipping: PoB source not found (set POB_SRC)");
-        return;
+        return; // POB_ALLOW_SKIP=1
     };
     // The committed enums must match what Global.lua produces today.
     let generated = pob_dump::codegen::codegen_enums(&src).unwrap();

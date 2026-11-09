@@ -16,6 +16,8 @@ image.workspace = true
 
 [dev-dependencies]
 pollster.workspace = true
+# T5 (ui doc §11.1): the CPU reference rasteriser.
+pob-sg = { workspace = true, features = ["raster"] }
 
 [lints]
 workspace = true

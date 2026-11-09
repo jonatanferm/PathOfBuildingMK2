@@ -3,12 +3,12 @@
 //! @pob-file Modules/Utils.lua @16de4b82d
 //! Classes/Item.lua 1-423, 1646-2191 (Item core), Modules/ItemSlotHelper.lua, Modules/Utils.lua.
 //!
-//! Owner: IT-B. Signatures were frozen by U0; the deviations are CCR-0015
+//! Owner: IT-B. Signatures were frozen by U0; the deviations are CCR-0032
 //! (`GetVariantGroupOptions` returns variant ids, `MutateMod` takes a boolean,
 //! `getTagBasedModifiers` returns nothing, `DrawViewer` is UI and skipped).
 //!
 //! **Representation of the untyped Item fields** (they live in `Item.extra`, keyed by
-//! their Lua name, with their Lua shape; CCR-0015 §2 records the convention for IT-A/IT-C):
+//! their Lua name, with their Lua shape; CCR-0032 §2 records the convention for IT-A/IT-C):
 //! strings are `Val::Str`, numbers `Val::Num`, booleans `Val::Bool`; Lua tables are
 //! [`Table`]s (`versionList` = list of strings, `variantGroups[groupId][variantId][versionId]`,
 //! `variantGroupSelections[groupId] = variantId`, `prefixes`/`suffixes` = lists of
@@ -159,7 +159,7 @@ fn onum(x: Option<f64>) -> Val {
 
 /// The data table an item draws affixes from (`self.affixes`, Item.lua:1032-1039): one of
 /// `data.itemMods[...]` or `data.rareLikeUniques[...].affixes`. Stored in `Item.extra`
-/// under `affixes` as `Val::Obj(Rc<ItemAffixes>)` (CCR-0015 §2).
+/// under `affixes` as `Val::Obj(Rc<ItemAffixes>)` (CCR-0032 §2).
 pub struct ItemAffixes(pub &'static AffixTable);
 
 impl Item {
@@ -504,7 +504,7 @@ fn tagSpecialList(
 
 /// @pob Classes/Item.lua:142-286 h=119add6b
 /// A GGPK-update debugging helper (only called from a commented-out line in
-/// FindModifierSubstring). Lua returns nothing (CCR-0015 §1: the U0 stub returned `Vec<Table>`).
+/// FindModifierSubstring). Lua returns nothing (CCR-0032 §1: the U0 stub returned `Vec<Table>`).
 pub fn getTagBasedModifiers(tagName: &str, itemSlotName: &str) {
     let d = data();
     // L143
@@ -859,7 +859,7 @@ impl Item {
 
 /// @pob Classes/Item.lua:346-368 h=f208a3c7
 impl Item {
-    /// The eligible variant ids of a variant group (CCR-0015 §1: U0's stub returned `Vec<Table>`).
+    /// The eligible variant ids of a variant group (CCR-0032 §1: U0's stub returned `Vec<Table>`).
     pub fn GetVariantGroupOptions(&self, groupId: f64, excludeSelected: bool) -> Vec<f64> {
         // L347
         let mut options: Vec<f64> = Vec::new();
@@ -990,7 +990,7 @@ impl Item {
 /// @pob Classes/Item.lua:1646-1682 h=dd18671b
 impl Item {
     /// `mutatedValue` is a boolean in Lua (`not line.mutated`, ItemsTab.lua:1044/1105;
-    /// CCR-0015 §1: U0's stub had `Option<f64>`).
+    /// CCR-0032 §1: U0's stub had `Option<f64>`).
     pub fn MutateMod(&self, modId: Name, newModId: Name, mutatedValue: bool) {
         let d = data();
         let category = |c: Name| match d.itemMods.get(&c) {
@@ -1971,7 +1971,7 @@ impl Item {
                     for (i, line) in r#mod.lines.iter().enumerate() {
                         // L2084
                         // `affix.range` is a number or a list (Item.lua:803-809), passed as is
-                        // (CCR-0015 §4)
+                        // (CCR-0032 §4)
                         let range = lor(vget(&affix, &Val::from("range")), || Val::Num(0.5));
                         let line = itemLib::applyRange(line, &range, None, None);
                         // L2085
@@ -2197,7 +2197,7 @@ impl Item {
 // @pob Modules/ItemSlotHelper.lua:1-1 h=5ce3829c
 // (module-level statements: M)
 
-// @pob-skip Modules/ItemSlotHelper.lua:10-38 reason="M.DrawViewer: UI drawing (SetDrawLayer/DrawImage/SetViewport and the tree viewer); the UI port owns it (CCR-0015 §1)"
+// @pob-skip Modules/ItemSlotHelper.lua:10-38 reason="M.DrawViewer: UI drawing (SetDrawLayer/DrawImage/SetViewport and the tree viewer); the UI port owns it (CCR-0032 §1)"
 
 // @pob Modules/ItemSlotHelper.lua:40-40 h=85c34a63
 // (module-level statements: Return)
@@ -2380,7 +2380,7 @@ pub fn writeStringify(
         }
         buf.push('}');
     } else {
-        // L60 (a mod table is not stringified: CCR-0015 §3)
+        // L60 (a mod table is not stringified: CCR-0032 §3)
         lua_error!("Disallowed stringify type {valType}")
     }
 }
