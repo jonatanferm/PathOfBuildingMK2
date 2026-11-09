@@ -16,8 +16,10 @@
 //!     set-up each, every 3rd with extra player mods (ExtraSkillMod, SkillData, ExtraSkillStat,
 //!     SupportedGemProperty, ExtraMinionSkill, a conditional DisableSkill), every 4th in CALCS mode
 //!     as the main skill, with skill part / stage / mine counts on the gem instance.
-//!   A mod list that matches only as a multiset is counted as `LUA-ORDER` (PoB adds stat-map mods
-//!   in `pairs` order over a string-keyed table, random per process; calc doc §3.4/§9.5). A
+//!   A mod list that matches only up to the order inside its runs of consecutive same-source mods
+//!   (one stat-map block each) is counted as `LUA-ORDER` (PoB adds stat-map mods in `pairs` order
+//!   over a string-keyed table, random per process; calc doc §3.4/§9.5); the order of the runs
+//!   themselves (gem / support merge order) must match exactly. A
 //!   `Skill:<id>AltX/AltY` source is PoB's per-process variant choice (CCR-0010) and compared
 //!   with the suffix dropped; a formatted `-0` vs `0` is the CCR-0002 host artefact.
 //! * `as_l4_corpus`: L4 on the probe dumps `.parity/probe/<stem>/state/buildActiveSkillModList:in#n`:
@@ -834,14 +836,39 @@ fn unsign_zero(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// The record with every mod list sorted (mods, buff mod lists): equality up to `pairs` order.
+/// `ms` (one serialised mod list, `\x1f`-separated `<mod>|<source>` items) with each maximal
+/// run of consecutive mods sharing one source (after [`strip_alt_source`]) sorted, the runs
+/// themselves kept in place. A run is one stat-map block (`mergeStatsInto` walks a gem's stats
+/// with `pairs`), the only place PoB's list order is not deterministic; the order of the blocks
+/// (gem order, the support merge loop at CalcActiveSkill.lua:519) decides last-wins `SkillData`
+/// (L664), the first trigger (L531-537) and which buff mod a merge hits (L852-859), so it must
+/// match exactly.
+fn sort_runs(ms: &str) -> String {
+    let src_of = |m: &str| strip_alt_source(m.rsplit_once('|').map_or("", |(_, s)| s));
+    let items: Vec<&str> = ms.split('\x1f').collect();
+    let mut out: Vec<&str> = Vec::with_capacity(items.len());
+    let mut i = 0;
+    while i < items.len() {
+        let src = src_of(items[i]);
+        let mut j = i + 1;
+        while j < items.len() && src_of(items[j]) == src {
+            j += 1;
+        }
+        let mut run = items[i..j].to_vec();
+        run.sort_unstable();
+        out.extend(run);
+        i = j;
+    }
+    out.join("\x1f")
+}
+
+/// The record with every mod list (mods, buff mod lists) sorted inside its same-source runs
+/// ([`sort_runs`]) and the buff list sorted: equality up to `pairs` order inside one stat map.
 fn order_free(s: &str) -> String {
     s.lines()
         .map(|l| {
             if let Some(rest) = l.strip_prefix("mods=") {
-                let mut v: Vec<&str> = rest.split('\x1f').collect();
-                v.sort_unstable();
-                format!("mods={}", v.join("\x1f"))
+                format!("mods={}", sort_runs(rest))
             } else if let Some(rest) = l.strip_prefix("buffs=") {
                 let (rest, close) = match rest.strip_suffix('}') {
                     Some(r) => (r, "}"),
@@ -852,22 +879,15 @@ fn order_free(s: &str) -> String {
                     .map(|b| match b.split_once('[') {
                         Some((h, ms)) => {
                             let ms = ms.strip_suffix(']').unwrap_or(ms);
-                            let mut v: Vec<&str> = ms.split('\x1f').collect();
-                            v.sort_unstable();
-                            format!("{h}[{}]", v.join("\x1f"))
+                            format!("{h}[{}]", sort_runs(ms))
                         }
                         None => b.to_owned(),
                     })
                     .collect();
+                // a buff is created at the first mod of its name, which can sit inside a
+                // `pairs`-ordered run: the buff list itself compares as a set
                 bs.sort();
                 format!("buffs={}{close}", bs.join("\x1d"))
-            } else if l.starts_with("mskill") {
-                // a minion skill's record is one line: sort its mods part too
-                let mut out = String::new();
-                for part in l.split('\n') {
-                    out.push_str(part);
-                }
-                out
             } else {
                 l.to_owned()
             }
@@ -990,6 +1010,7 @@ fn as_oracle() {
             t.nondet += 1;
         } else if unsign_zero(&strip_alt_source(&order_free(l)))
             == unsign_zero(&strip_alt_source(&order_free(&r)))
+            && fixed_order(&unsign_zero(l)) == fixed_order(&unsign_zero(&r))
         {
             t.zero += 1;
         } else {
