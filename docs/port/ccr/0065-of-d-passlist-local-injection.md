@@ -1,4 +1,4 @@
-# CCR-0034: OF-D — `passList` cannot be injected into `OffenceCtx`
+# CCR-0065: OF-D — `passList` cannot be injected into `OffenceCtx`
 
 Status: proposed by OF-D (2026-11-09)
 
@@ -33,7 +33,7 @@ whose `ProbeField::from_val` accepts only an `SBox<Vec<Table>>`
 
 ## Workaround (until applied)
 
-`crates/pob-oracle/tests/OF-D.rs` (`pass_list`, marked `CCR-0034`) rebuilds
+`crates/pob-oracle/tests/OF-D.rs` (`pass_list`, marked `CCR-0065`) rebuilds
 the injected `passList` local as `Shared<Vec<Table>>` from the same pass tables
 before calling `run_segment`. The other offence units' tests need the same until
 this is applied.

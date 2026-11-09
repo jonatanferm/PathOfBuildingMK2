@@ -43,6 +43,20 @@ fn concat_str(v: &Val) -> String {
     }
 }
 
+/// Lua `a < b` (`a > b` compiles as `b < a`, so the error names the operands
+/// in that order): numbers, or strings by byte order; anything else raises
+/// "attempt to compare …" (LuaJIT `lj_err_comp`).
+fn lua_lt(a: &Val, b: &Val) -> bool {
+    match (a, b) {
+        (Val::Num(x), Val::Num(y)) => x < y,
+        (Val::Str(x), Val::Str(y)) => x.as_bytes() < y.as_bytes(),
+        (x, y) if x.lua_type() == y.lua_type() => {
+            lua_error!("attempt to compare two {} values", x.lua_type())
+        }
+        (x, y) => lua_error!("attempt to compare {} with {}", x.lua_type(), y.lua_type()),
+    }
+}
+
 /// `t[k]` of a value that is a table or a breakdown object (`breakdown.MainHand`).
 fn index(v: &Val, k: Name) -> Val {
     match v.obj::<Breakdown>() {
@@ -112,7 +126,7 @@ pub(crate) fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
         if skillData.truthy(n!("averageBurstHits")) {
             // L2184
             output.set(n!("AverageBurstHits"), skillData.get(n!("averageBurstHits")));
-        } else if output.truthy(n!("Repeats")) && output.num(n!("Repeats")) > 1.0 {
+        } else if output.truthy(n!("Repeats")) && lua_lt(&Val::Num(1.0), &output.get(n!("Repeats"))) {
             // L2185
             // L2186
             output.set(n!("AverageBurstHits"), output.get(n!("Repeats")));
@@ -139,7 +153,7 @@ pub(crate) fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
             m_max(0.0, m_floor(base * (1.0 + inc / 100.0) * more)),
         );
         // L2198
-        let mut accuracyVsEnemy =
+        let accuracyVsEnemy =
             m_max(0.0, m_floor(baseVsEnemy * (1.0 + incVsEnemy / 100.0) * moreVsEnemy));
         // L2199
         if let Some(breakdown) = &breakdown {
@@ -175,6 +189,8 @@ pub(crate) fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
                 );
             }
         }
+        // the local is nil-able from here on (L2223 copies the stored value)
+        let mut accuracyVsEnemy: Option<f64> = Some(accuracyVsEnemy);
         // L2218
         if skillModList.Flag(None, nm!["Condition:OffHandAccuracyIsMainHandAccuracy"])
             && pass.str(n!("label")).as_deref() == Some("Main Hand")
@@ -182,7 +198,7 @@ pub(crate) fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
             // L2219
             ctx.storedMainHandAccuracy = output.opt_num(n!("Accuracy"));
             // L2220
-            ctx.storedMainHandAccuracyVsEnemy = Some(accuracyVsEnemy);
+            ctx.storedMainHandAccuracyVsEnemy = accuracyVsEnemy;
         } else if skillModList.Flag(None, nm!["Condition:OffHandAccuracyIsMainHandAccuracy"])
             && pass.str(n!("label")).as_deref() == Some("Off Hand")
             && ctx.storedMainHandAccuracy.is_some()
@@ -191,9 +207,7 @@ pub(crate) fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
             // L2222
             output.set(n!("Accuracy"), ctx.storedMainHandAccuracy);
             // L2223 (both locals are assigned together at 2219-2220)
-            accuracyVsEnemy = ctx.storedMainHandAccuracyVsEnemy.unwrap_or_else(|| {
-                lua_error!("attempt to compare nil with number")
-            });
+            accuracyVsEnemy = ctx.storedMainHandAccuracyVsEnemy;
             // L2224
             if let Some(breakdown) = &breakdown {
                 // L2225
@@ -220,7 +234,12 @@ pub(crate) fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
             // L2234
             output.set(
                 n!("AccuracyHitChance"),
-                hitChance(enemyEvasion, accuracyVsEnemy)
+                hitChance(
+                    enemyEvasion,
+                    // CalcDefence.lua:58 `if accuracy < 0`
+                    accuracyVsEnemy
+                        .unwrap_or_else(|| lua_error!("attempt to compare nil with number")),
+                )
                     * calcLib::r#mod(&skillModList, cfg_, nm!["HitChance"]),
             );
             // L2235
@@ -309,13 +328,13 @@ pub(crate) fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
         };
         // L2270
         let accuracy = if output.truthy(n!("Accuracy")) {
-            output.num(n!("Accuracy"))
+            output.get(n!("Accuracy"))
         } else {
-            0.0
+            Val::Num(0.0)
         };
         skillModList.conditions.set(
             Name::from(condName.as_str()),
-            accuracy > env.player.output.get().num(n!("Life")),
+            lua_lt(&env.player.output.get().get(n!("Life")), &accuracy),
         );
 
         // L2272 Calculate attack/cast speed
@@ -901,7 +920,7 @@ pub(crate) fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
         }
 
         // L2521
-        if output.num(n!("Time")) > 1.0 {
+        if lua_lt(&Val::Num(1.0), &output.get(n!("Time"))) {
             // L2522 (no source: the mod's source is nil)
             modDB.AddMod(Arc::new(pob_gamedata::mod_tools::createMod(
                 n!("Condition:OneSecondAttackTime"),

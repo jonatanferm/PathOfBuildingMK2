@@ -11,12 +11,17 @@
 //! unit (`combineStat`, OF-C; `calcs.hitChance`, DF-A) is reported as
 //! *blocked* with the stub sites it reached and is left out of the gate's
 //! denominator, so the gate measures this segment only. Likewise a hit with
-//! mismatches whose input dump references another env's objects
-//! (`{"$foreign": …}`: mirage and trigger envs copy skills, whose mod stores'
-//! parents live in the env they were copied from) is reported as *foreign*:
-//! `inject` turns such objects into empty placeholders (inject.rs module
-//! docs), so the mods they hold are absent on the Rust side. `OFD_STRICT=1`
-//! counts blocked and foreign hits as failures.
+//! mismatches whose skill mod-store chain (`locals.skillModList` and its
+//! `parent`s, i.e. `activeSkill.baseSkillModList` and the actor `modDB` it
+//! hangs off) reaches a `{"$foreign": …}` object is reported as *foreign*:
+//! mirage and trigger envs copy skills whose stores' parent is the `modDB` of
+//! the env they were copied from, `inject` turns that into an empty
+//! placeholder (inject.rs module docs), and so the mods it holds are absent
+//! on the Rust side. A `$foreign` anywhere else in the dump (most non-first
+//! envs carry some, e.g. `globalCache.cachedData.*.ActiveSkill`,
+//! `env.auxSkillList[*].socketGroup`) does not make a hit foreign: its
+//! mismatches count. `OFD_STRICT=1` counts blocked and foreign hits as
+//! failures.
 //!
 //! Dumps are probed by this test into `target/tmp/ofd-probe/<stem>/` when
 //! absent (LuaJIT, the machine-wide oracle lock, docs/port/stages.toml):
@@ -203,7 +208,7 @@ fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "panic".to_owned())
 }
 
-/// CCR-0034: `inject` decodes locals untyped, so `passList` (a Lua array of
+/// CCR-0065: `inject` decodes locals untyped, so `passList` (a Lua array of
 /// pass tables) arrives as a plain table, while `OffenceCtx.passList` is a
 /// `Shared<Vec<Table>>`: rebuild it as one (same pass tables, so their
 /// identity is kept).
@@ -217,6 +222,47 @@ fn pass_list(v: Val) -> Val {
         }
     }
     pob_calc::probe::ProbeField::to_val(&pob_lua::Shared::new(list))
+}
+
+/// Whether the skill's mod-store chain (`locals.skillModList` and its
+/// `parent`s: `skillModList` → `activeSkill.baseSkillModList` → the copied-
+/// from env's `modDB`) reaches a `{"$foreign": …}` placeholder. Only then are
+/// mods the segment reads missing on the Rust side; a `$foreign` elsewhere in
+/// the dump (e.g. `globalCache.cachedData.*.ActiveSkill`,
+/// `env.auxSkillList[*].socketGroup`, present in most non-first envs) does not
+/// excuse a mismatch.
+fn foreign_skill_store(root: &serde_json::Value) -> bool {
+    use serde_json::Value as J;
+    fn index<'a>(v: &'a J, ids: &mut BTreeMap<u64, &'a J>) {
+        match v {
+            J::Object(m) => {
+                if let Some(id) = m.get("$id").and_then(J::as_u64) {
+                    ids.entry(id).or_insert(v);
+                }
+                m.values().for_each(|c| index(c, ids));
+            }
+            J::Array(a) => a.iter().for_each(|c| index(c, ids)),
+            _ => {}
+        }
+    }
+    let mut ids = BTreeMap::new();
+    index(root, &mut ids);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut cur = root.get("locals").and_then(|l| l.get("skillModList"));
+    while let Some(v) = cur {
+        if let Some(r) = v.get("$ref").and_then(J::as_u64) {
+            if !seen.insert(r) {
+                return false;
+            }
+            cur = ids.get(&r).copied();
+            continue;
+        }
+        if v.get("$foreign").is_some() {
+            return true;
+        }
+        cur = v.get("parent");
+    }
+    false
 }
 
 fn run_one(stem: &str, pin: &Path, pout: &Path) -> Outcome {
@@ -273,7 +319,7 @@ fn run_one(stem: &str, pin: &Path, pout: &Path) -> Outcome {
         Outcome::Blocked(stubs, Ok(mm))
     } else if mm.is_empty() {
         Outcome::Clean
-    } else if din.root.to_string().contains("\"$foreign\"") {
+    } else if foreign_skill_store(&din.root) {
         Outcome::Foreign(mm)
     } else {
         Outcome::Mismatch(mm)
