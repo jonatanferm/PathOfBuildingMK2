@@ -3717,7 +3717,7 @@ pub(crate) fn WinterOrb_preDamageFunc(
         .get()
         .More(Some(&activeSkill.skillCfg.get()), nm!["HitRate"]);
     // L20986
-    let v = activeSkill.skillData.get().num(n!("repeatFrequency")) / rateMod / mult;
+    let v = activeSkill.skillData.get().num(n!("repeatFrequency")) / rateMod * 1.0001 / mult;
     activeSkill.skillData.get().set(n!("hitTimeOverride"), v);
 }
 
