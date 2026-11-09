@@ -14,11 +14,10 @@
 //! pen, overwhelm and crit inputs, boss skill presets with enemy conversion;
 //! gate 100 %), plus slice5.
 //!
-//! A hit whose segment run reached an `unported!` stub of another unit (the
-//! segment calls DF-A's `calcs.armourReduction`, CalcDefence.lua:75-77) cannot
-//! be judged against PoB until that unit lands: it is counted as *blocked*
-//! and listed with the stub sites, not as a pass or a failure. The gates apply
-//! to the judged hits, and the test fails when nothing could be judged.
+//! A mismatching hit whose segment run reached an `unported!` stub is listed as
+//! *blocked* with the stub sites (for diagnosis), and any blocked hit fails the
+//! test: the only stub the segment used to reach, DF-A's `calcs.armourReduction`
+//! (CalcDefence.lua:75-77), is ported, so a stub hit now is a regression.
 //!
 //! Dumps are read first from the private `target/tmp/dfd-probe/<stem>/state/` (see
 //! [`private_dir`]), then from the shared locations of `testkit::dump_dirs`; the `:in` and
@@ -236,9 +235,13 @@ fn gate(t: &Tally, name: &str, min_clean: f64) {
             "{name}: no {STAGE_IN}/{STAGE_OUT} dumps (scripts/port/oracle.sh run --build <xml> --stage {STAGE_IN},{STAGE_OUT})"
         ));
     }
+    // the only stub this segment reaches (DF-A's `calcs.armourReduction`) is ported: a hit
+    // that reaches any `unported!` site now is a regression, not a pending dependency
     assert!(
-        t.judged() > 0,
-        "{name}: every hit was blocked by another unit's stub; nothing was judged"
+        t.blocked.is_empty(),
+        "{name}: {} hits reached `unported!` stubs (first: {:?})",
+        t.blocked.len(),
+        t.blocked.first()
     );
     let ratio = t.clean as f64 / t.judged() as f64;
     assert!(

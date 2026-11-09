@@ -17,26 +17,11 @@
     clippy::bool_to_int_with_if
 )]
 
+use super::helpers::{dmgTypeList, hitSourceList, isElemental};
 use super::{armourReduction, DefEstCtx};
 use crate::modules::calc_tools as calcLib;
 use crate::prelude::*;
 use pob_gamedata::ModType::{BASE, INC};
-
-// The module-level locals of CalcDefence.lua 24-28 (`isElemental`,
-// `hitSourceList`, `dmgTypeList`) belong to DF-A's `helpers.rs`, whose
-// module-statement marker covers them; at the time of this port DF-A had not
-// exported them, so this segment keeps private copies (CCR-0068).
-
-/// CalcDefence.lua:24 `isElemental[damageType]` (CCR-0068: private copy).
-fn isElemental(damageType: &str) -> bool {
-    matches!(damageType, "Fire" | "Cold" | "Lightning")
-}
-
-/// CalcDefence.lua:27 (CCR-0068: private copy).
-const hitSourceList: [&str; 2] = ["Attack", "Spell"];
-
-/// CalcDefence.lua:28 (CCR-0068: private copy).
-const dmgTypeList: [&str; 5] = ["Physical", "Lightning", "Cold", "Fire", "Chaos"];
 
 /// Lua `tonumber(v)` (nil and non-numeric values give nil).
 fn tonumber(v: &Val) -> Option<f64> {
@@ -94,9 +79,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
     let output = ctx.output.clone();
     let breakdown = ctx.breakdown.clone();
 
-    // L1682
-    let condList = modDB.conditions.clone();
-    let _ = &condList;
+    // L1682 `local condList = modDB.conditions`: never read in this segment
 
     // L1684
     let damageCategoryConfig: Name = match env.configInput.get(n!("enemyDamageType")) {
