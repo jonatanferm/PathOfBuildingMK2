@@ -11,7 +11,7 @@
 //! * `mergeBuff`'s frozen `src` is a `&Table` (calc doc §7.2, actor_a.rs): a freshly built
 //!   `srcList` ModList is handed over as the table of its mods ([`mod_table`]).
 //! * `modList.notBuff` (CalcPerform.lua:3346) is a key on a ModList object, which the frozen
-//!   `ModStore` cannot hold (CCR-0030 row 7, CCR-0034): [`notBuff`] reads it from a table-shaped buff
+//!   `ModStore` cannot hold (CCR-0030 row 7, CCR-0076): [`notBuff`] reads it from a table-shaped buff
 //!   and is false for a store (`// CCR-0030`).
 #![allow(non_snake_case, clippy::all, clippy::pedantic)]
 
@@ -1398,12 +1398,12 @@ fn as_mod_list(v: &Val) -> ModList {
     l
 }
 
-/// `modList.notBuff` (CalcPerform.lua:3346). CCR-0030 row 7 / CCR-0034: a ModList object cannot carry
+/// `modList.notBuff` (CalcPerform.lua:3346). CCR-0030 row 7 / CCR-0076: a ModList object cannot carry
 /// the key in the frozen types, so a store reads as nil.
 fn notBuff(v: &Val) -> bool {
     match v {
         Val::Table(t) => t.truthy(n!("notBuff")),
-        _ => false, // CCR-0030, CCR-0034
+        _ => false, // CCR-0030, CCR-0076
     }
 }
 

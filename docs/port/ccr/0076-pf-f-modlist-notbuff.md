@@ -1,4 +1,4 @@
-# CCR-0034: PF-F — `modList.notBuff` on a ModList object (CCR-0030 row 7, made concrete)
+# CCR-0076: PF-F — `modList.notBuff` on a ModList object (CCR-0030 row 7, made concrete)
 
 Status: proposed by PF-F (2026-11-09)
 
