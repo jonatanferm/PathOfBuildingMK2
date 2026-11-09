@@ -79,3 +79,17 @@ stage = "parse"
 keys = ["Modules/ModParser.lua:5509"]
 kind = "value"
 reason = "skillTypeList = { SkillType.Instant, SkillType.Totem, SkillType.Triggered } (ModParser.lua:5509): SkillType.Totem is nil (Data/Global.lua defines SummonsTotem, not Totem), so the Lua list has a hole at [2]; the Rust list is [Instant, Triggered], the values its only reader (pairs, ModStore.lua SkillType tag) sees. Not yet in calc doc §6 / CCR-0006 §7 (a binding-doc change, left to a CCR); checked by crates/pob-oracle/tests/MP6.rs."
+
+[[diff]]
+id = "MP3-1"
+unit = "MP3"
+builds = ["*"]
+stage = "parse"
+keys = [
+    "Modules/ModParser.lua:2325 mod[1].div",
+    "Modules/ModParser.lua:2571 mod[1].div",
+    "Modules/ModParser.lua:2862 mod[1].div",
+    "Modules/ModParser.lua:2922 mod[1].limit",
+]
+kind = "value"
+reason = "specialModList closures store a digits-only capture string in a numeric tag field (div = val / div = div, limit = max); the Rust Tag field is f64 and holds tonumber of it. EvalMod reads these fields only in arithmetic, which coerces the string exactly like tonumber, so no calc output can differ (calc doc §6 'Known parse-level differences'). crates/pob-oracle/tests/MP3.rs accepts the difference only when the string is the number's own text (77 closure calls and 5 parse-oracle lines at the pin)."
