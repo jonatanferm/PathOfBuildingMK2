@@ -1,0 +1,57 @@
+# Interactions of the "u10_hover" gallery (U10).
+frames 1
+# plain and multi-line tooltipText
+move 70 30
+frames 2
+move 180 30
+frames 2
+# the CheckForUpdate memo: first build, stays, rebuild after a key change, after NSMT
+move 290 30
+frames 3
+move 290 90
+frames 1
+move 290 30
+frames 1
+click LEFTBUTTON
+frames 2
+move 400 30
+click LEFTBUTTON
+move 290 30
+frames 2
+# separators / colour / centre, wrap, strike-through
+move 510 30
+frames 2
+move 620 30
+frames 2
+move 730 30
+frames 2
+# edges: right flip, wide (left clamp + below), bottom flip, corner, tall (top clamp)
+move 1240 70
+frames 2
+move 330 70
+frames 2
+move 50 780
+frames 1
+move 50 700
+frames 1
+move 1240 780
+frames 1
+move 1240 700
+frames 1
+move 530 750
+frames 1
+move 530 670
+frames 1
+# the overridden Draw: hover the slider, drag it, hover again at a new value
+move 60 129
+frames 2
+key-down LEFTBUTTON
+frames 1
+move 150 129
+frames 1
+key-up LEFTBUTTON
+frames 2
+move 200 129
+frames 2
+move 600 400
+frames 1
