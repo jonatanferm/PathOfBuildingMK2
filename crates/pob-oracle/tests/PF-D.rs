@@ -50,6 +50,15 @@ use pob_oracle::replay::{Call, Replay};
 use pob_oracle::schema::StateDump;
 use pob_oracle::testkit;
 
+/// The unported-stub registry (`pob_calc::stub`) is process-global, so the two tests must not
+/// overlap: one test's `load_build` (BM-A's `LoadDB` stub) would land in the other's
+/// `stub_reset` .. `stub_report` window and fail it as an unreplayed callee.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn skip(why: &str) {
     let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
         || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
@@ -439,6 +448,7 @@ fn run_corpus(builds: &[PathBuf]) -> Tally {
 /// L4 on all57: ≥ 98 % of the builds with dumps pass, every one is non-vacuous.
 #[test]
 fn pfd_l4_all57() {
+    let _serial = serial();
     if !testkit::init_default_data() {
         return skip("no data dump (data/dump)");
     }
@@ -470,6 +480,7 @@ fn pfd_l4_all57() {
 /// L4 on the unit corpus (`corpus/PF-D/*.xml`): 100 %.
 #[test]
 fn pfd_l4_unit_corpus() {
+    let _serial = serial();
     if !testkit::init_default_data() {
         return skip("no data dump (data/dump)");
     }
