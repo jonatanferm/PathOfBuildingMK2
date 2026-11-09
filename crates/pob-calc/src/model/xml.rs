@@ -4,12 +4,13 @@
 //! Owner: BM-A. Every pattern goes through `pob_lua::pattern` (the lstrlib port), so the
 //! reader accepts and rejects exactly what PoB's does.
 //!
-//! Representation (CCR-0076 §7): Lua returns the parse result as a pseudo-root table
+//! Representation (CCR-0080 §7): Lua returns the parse result as a pseudo-root table
 //! (`stack[1]`, no `elem`) whose array part holds the top-level element nodes *and* any
 //! top-level text runs. The frozen [`ParseXML`] returns only the element nodes;
 //! [`ParseXML_root`] keeps the pseudo-root (elem `""`) with both kinds of children, for
 //! callers that index `dbXML[1]` (Build.lua:2225). The `empty` flag Lua sets on empty
-//! elements has no reader in scope and is not stored. Attribute values are always strings in
+//! elements is not stored: its one reader (ConfigTab.lua:885) is ported as
+//! `children.is_empty()`, which is equivalent (xml.lua sets it exactly when `#top == 0`). Attribute values are always strings in
 //! [`XmlNode`], so the type errors of `composeNode` (112-158) cannot occur; a caller writes a
 //! Lua `nil`/`false` attribute by leaving the key out.
 #![allow(non_snake_case, clippy::all, clippy::pedantic)]
@@ -217,7 +218,7 @@ pub fn ParseXML_root(str: &str) -> Result<XmlNode, String> {
                     // L75
                     return Err(format!("trying to close <{top_elem}> with '{elem}'"));
                 }
-                // L77 `if #top == 0 then top.empty = true end` (no reader; not stored)
+                // L77 `if #top == 0 then top.empty = true end` (not stored: ConfigTab.lua:885 reads it as `children.is_empty()`)
                 // L80
                 let closed = stack.pop().expect("non-empty");
                 // L81 top = stack[#stack]

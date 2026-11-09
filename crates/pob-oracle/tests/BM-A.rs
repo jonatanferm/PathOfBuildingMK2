@@ -12,7 +12,7 @@
 //! * **save vs PoB** — the Rust `SaveDB` text equals PoB's own `SaveDB` text once both are
 //!   parsed and canonicalised (attributes and children compared as multisets: PoB writes
 //!   `pairs` order). Display-stat elements (`PlayerStat`, `FullDPSSkill`, `MinionStat`) and the
-//!   UI-only sections (`Notes`, `TreeView`, `Import`) are left out (CCR-0076 §8);
+//!   UI-only sections (`Notes`, `TreeView`, `Import`) are left out (CCR-0080 §8);
 //! * **round trip** — Rust `SaveDB` → Rust load gives the same model as PoB loading that
 //!   Rust-saved XML (a save of a legacy build is not a fixed point of load, in PoB either:
 //!   regenerated item text, defaults written out), and saving again gives the same XML (canonicalised; the spec's node / mastery lists and the tree URL

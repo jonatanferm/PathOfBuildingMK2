@@ -1,8 +1,8 @@
-# CCR-0076 (BM-A): build XML load/save — ranges outside the row, side tables, frozen-signature gaps
+# CCR-0080 (BM-A): build XML load/save — ranges outside the row, side tables, frozen-signature gaps
 
 **Status: proposed (BM-A, 2026-11-09).** No frozen file was changed: every item below is worked
 around inside BM-A's own files (`crates/pob-calc/src/model/{build_xml,items_tab,tree_tab,calcs_tab,xml}.rs`),
-marked `CCR-0076`.
+marked `CCR-0080`.
 
 - **Raised by:** BM-A
 - **Affects:** calc doc §5.8 (`Build`, `ItemsTab`, `TreeTab`, `CalcsTab` in `model/mod.rs`, U0),
@@ -73,8 +73,15 @@ bodies; `Init_model` uses them. **Proposed:** `Load(...) -> bool` on both.
 
 `ItemsTab.items: Shared<IndexMap<u32, ItemRef>>`, `itemSets: Shared<IndexMap<u32, Table>>` and
 `orderList`/`itemSetOrderList: Shared<Vec<u32>>` cannot hold a non-integral or negative id, which a
-Lua table accepts. The port raises a `LuaError` naming CCR-0076 there (never seen in the corpus;
+Lua table accepts. The port raises a `LuaError` naming CCR-0080 there (never seen in the corpus;
 PoB itself only creates positive integer ids). `id = nil` raises "table index is nil" as in Lua.
+
+Two other unreachable-by-corpus inputs are also left as a raise rather than a reproduction.
+`CalcsTab:Save` (CalcsTab.lua:211) writes `tostring(v)` for a table or function `input` value, which is
+an address string (`table: 0x...`) no port can reproduce, so the port raises a `LuaError` there. An
+integer or boolean `input` key becomes an `Input name="..."` attribute in the port, while Lua's
+`composeNode` (xml.lua:122-125) would fail the save ("value for attribute 'name' ... is not a
+string"). The Calcs tab only ever writes string keys, so neither case arises from PoB itself.
 
 ## 6. `ConfigTab:ImportCalcSettings` (ConfigTab.lua 1205-1240)
 
@@ -88,8 +95,10 @@ Lua returns a pseudo-root table whose array part holds the top-level element nod
 `dbXML[1]` may therefore be a string (`LoadDB` then reports "root element missing"). The frozen
 `ParseXML -> (Vec<XmlNode>, Option<String>)` keeps only element nodes. Added
 `xml::ParseXML_root -> Result<XmlNode, String>` (pseudo-root with `elem = ""`, both kinds of children);
-`LoadDB` uses it. The `empty = true` flag Lua sets on empty elements has no reader and is not
-stored. `composeNode`'s type errors (non-string element names / attribute values) cannot occur with
+`LoadDB` uses it. The `empty = true` flag Lua sets on empty elements is not stored: its one
+reader, `ConfigTab:Load` (ConfigTab.lua:885 `if xml.empty`), is ported as
+`xml.children.is_empty()` (BM-B, config_tab.rs), which is equivalent because xml.lua sets `empty`
+exactly when the element has no children (xml.lua:64 self-closing tag, :78 `#top == 0`). `composeNode`'s type errors (non-string element names / attribute values) cannot occur with
 a typed `XmlNode`; `SaveXMLFile` returns `None` on success (Lua `true`) and `Some(err)` on failure.
 
 ## 8. `Build:Save` display stats and the UI-only savers

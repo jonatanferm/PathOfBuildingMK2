@@ -4,7 +4,7 @@
 //! that [`loadBuildFromXML`] runs.
 //!
 //! Owner: BM-A. UI statements (controls, popups, window title, loadouts) are left to the UI port
-//! (ui doc U19/U20) and marked `// UI:`. CCR-0076 lists the contract gaps worked around here:
+//! (ui doc U19/U20) and marked `// UI:`. CCR-0080 lists the contract gaps worked around here:
 //! * `Build` (model/mod.rs, U0) has no field for `characterLevelAutoMode`, `timelessData`,
 //!   `importLink`, `xmlSectionList`, `dbFileName`, `buildName` nor for the per-tab state the
 //!   frozen tab structs lack: all of it lives in a per-build side table, [`build_extra`];
@@ -22,7 +22,7 @@ use crate::model::xml::{ComposeXML, ParseXML_root};
 use crate::model::{XmlChild, XmlNode};
 use crate::prelude::*;
 
-// ---- the per-build side table (Rust-only plumbing, CCR-0076 §2) ---------------------------
+// ---- the per-build side table (Rust-only plumbing, CCR-0080 §2) ---------------------------
 
 thread_local! {
     static BUILD_EXTRA: RefCell<Vec<(Weak<Build>, Table)>> = const { RefCell::new(Vec::new()) };
@@ -83,7 +83,7 @@ fn self_rc(build: &Build) -> BuildRef {
                 .upgrade()
                 .filter(|b| Rc::as_ptr(b) == ptr)
         })
-        .unwrap_or_else(|| lua_error!("CCR-0076: the build has no Rc handle (Build::new)"))
+        .unwrap_or_else(|| lua_error!("CCR-0080: the build has no Rc handle (Build::new)"))
 }
 
 /// Registers `Build:Save`'s display-stat writer (Build.lua 1033-1080; U21's
@@ -482,7 +482,7 @@ fn skillsTab_ctor_model(build: &BuildRef) {
 }
 
 /// @pob Classes/ConfigTab.lua:672-681 h=c9190b17
-/// The ConfigTab constructor's control half (CCR-0076 §1; the proposal of CCR-0037/CCR-0038):
+/// The ConfigTab constructor's control half (CCR-0080 §1; the proposal of CCR-0037/CCR-0038):
 /// one control-state table per option with a `var` in `self.varControls`, with the fields the
 /// model reads (`_className`, `enabled`, `buf`, `state`, `placeholder`, `list`, `selIndex`).
 /// The control classes' constructors contribute `enabled = true` (Control.lua:60),
@@ -551,7 +551,7 @@ fn configTab_varControls_model(build: &BuildRef) {
 }
 
 /// @pob Classes/ConfigTab.lua:1205-1240 h=66e7f9af
-/// `configTab:ImportCalcSettings()` (Build.lua:687 calls it; no calc unit owns it, CCR-0076 §6).
+/// `configTab:ImportCalcSettings()` (Build.lua:687 calls it; no calc unit owns it, CCR-0080 §6).
 fn ImportCalcSettings(build: &BuildRef) {
     let configTab = &build.configTab;
     // L1206

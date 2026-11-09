@@ -5,7 +5,7 @@
 //! read (`self.sectionList`: the `CalcSectionControl`s of the constructor, CalcsTab.lua 45-155,
 //! whose `subSection[i].collapsed` state is saved). [`CalcsTab::sectionList`] keeps the model
 //! half of that list (section `id`, subsection `id` and `collapsed`) in a per-tab side table
-//! (CCR-0076 §3). [`CalcsTab::ctor_model`] runs the constructor's model half (`input`
+//! (CCR-0080 §3). [`CalcsTab::ctor_model`] runs the constructor's model half (`input`
 //! defaults, the section list).
 #![allow(non_snake_case, clippy::all, clippy::pedantic)]
 
@@ -131,7 +131,7 @@ impl CalcsTab {
         let _ = self.Load_ret(build, xml, dbFileName);
     }
 
-    /// `CalcsTab:Load` with its return value (`true` = error; CCR-0076 §4).
+    /// `CalcsTab:Load` with its return value (`true` = error; CCR-0080 §4).
     pub fn Load_ret(&self, build: &BuildRef, xml: &XmlNode, dbFileName: &str) -> bool {
         let _ = build;
         let sectionList = self.sectionList();

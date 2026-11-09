@@ -58,7 +58,7 @@ impl TreeTab {
         let _ = self.Load_ret(build, xml, dbFileName);
     }
 
-    /// `TreeTab:Load` with its return value (`true` = error; CCR-0076 §4).
+    /// `TreeTab:Load` with its return value (`true` = error; CCR-0080 §4).
     pub fn Load_ret(&self, build: &BuildRef, xml: &XmlNode, dbFileName: &str) -> bool {
         let gv = &data().gameVersions;
         // L501
