@@ -175,6 +175,11 @@ if_not_else = "allow"
 [profile.dev]
 debug = "line-tables-only"
 
+# Third-party crates optimised in dev/test builds: the oracle tests parse large JSON dumps over the
+# whole corpus, and sccache shares these artefacts across worktrees (workspace crates stay at -O0).
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
