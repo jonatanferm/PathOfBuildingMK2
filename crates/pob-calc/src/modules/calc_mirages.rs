@@ -48,7 +48,7 @@ pub struct MirageConfig {
     pub mirageSkillNotFoundFunc: Box<dyn Fn(&EnvRef, &MirageConfig)>,
 }
 
-// ---- callee replay seam (test-only, feature `probe`; CCR-0077 §1, CCR-0086) ----------------------
+// ---- callee replay seam (test-only, feature `probe`; CCR-0077 §1, CCR-0090) ----------------------
 
 /// The L4 test replaces the callees of this module that cannot run on the injected state (other
 /// units' stubs, or a nested calc whose env a dump does not carry) by recorded results. The
@@ -348,7 +348,7 @@ fn breakdownVal(b: Option<Breakdown>) -> Val {
 ///
 /// `config` is an `Option` (Lua's `if not config then return end`: `calcs.mirages` passes nil when
 /// no family matched and on the General's Cry path). The function is file-local (no other caller);
-/// U0's stub took `&MirageConfig` (CCR-0086 §2).
+/// U0's stub took `&MirageConfig` (CCR-0090 §2).
 pub(crate) fn calculateMirage(env: &EnvRef, config: Option<&MirageConfig>) -> Option<bool> {
     // L25
     let Some(config) = config else {
@@ -414,7 +414,7 @@ pub(crate) fn calculateMirage(env: &EnvRef, config: Option<&MirageConfig>) -> Op
 
 /// @pob Modules/CalcMirages.lua:60-428 h=e1da88f5
 /// The result's truthiness (`nil` → false): perform skips the main skill's offence when it is
-/// true (CalcPerform.lua:3798). U0's stub returned `()` (CCR-0077 §2, CCR-0086 §1).
+/// true (CalcPerform.lua:3798). U0's stub returned `()` (CCR-0077 §2, CCR-0090 §1).
 pub fn mirages(env: &EnvRef) -> bool {
     // L61
     let config: Option<MirageConfig>;

@@ -26,7 +26,7 @@
 //! * `isTriggered` (TR-A, a stub): the Lua expression (CalcTriggers.lua:41-43), inline.
 //!
 //! Reflection / Tawhoa's Chosen: the final `env.player.output` is grafted from `mirages:out`
-//! (above), so for those families its comparison is by construction (a replay limit, CCR-0086
+//! (above), so for those families its comparison is by construction (a replay limit, CCR-0090
 //! §4.3); what MI writes into it (Tawhoa's Chosen 236-239) is still checked. Any
 //! `pob_calc::stub` reached during a call, and a Rust `true` where PoB returned nothing
 //! (`ret.n = 0`), make the call divergent.

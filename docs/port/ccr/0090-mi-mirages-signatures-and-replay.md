@@ -1,4 +1,4 @@
-# CCR-0086: MI — `calcs.mirages` return value, `calculateMirage(config = nil)`, MI's callee replay seam
+# CCR-0090: MI — `calcs.mirages` return value, `calculateMirage(config = nil)`, MI's callee replay seam
 
 Status: proposed by MI (2026-11-10). §1 and §2 are applied in MI's own file
 (`crates/pob-calc/src/modules/calc_mirages.rs`); §1 needs a one-line follow-up in PF-G's file,
