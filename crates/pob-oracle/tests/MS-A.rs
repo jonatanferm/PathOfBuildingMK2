@@ -932,8 +932,7 @@ fn l3_query_matrix_and_scaling_all57() {
         total.scale_list
     );
     eprintln!("  ScaleAddMod paths (scale != 1): {:?}", total.scale_paths);
-    let (hits, misses) = pob_oracle::runner::query_cache_stats();
-    eprintln!("  PoB query cache (HYG3): {hits} builds cached, {misses} run in PoB");
+    eprintln!("  {}", pob_oracle::runner::query_cache_summary());
     eprintln!("  errors raised by both (PoB <-> Rust):");
     for (k, v) in &total.error_kinds {
         eprintln!("    {v:>7}  {k}");

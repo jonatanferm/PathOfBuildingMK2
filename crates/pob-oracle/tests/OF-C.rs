@@ -70,9 +70,10 @@ const SELECT: &str = "offence:1692@main,offence:2174@main,skill:*:preDamageFunc:
 /// The build's OF-C dumps: the `state/` dir of this selection's entry in the shared probe cache
 /// (`.parity/probe-cache/<sha>/<build-key>/sel-<key>/`, `testkit::probe_selection`), probed when
 /// absent. HYG3 (test audit S4): this was a per-worktree `target/tmp/ofc-probe/<stem>/`, keyed by
-/// stem only and never invalidated, under a per-worktree patched copy of PoB.
+/// stem only and never invalidated, under a per-worktree patched copy of PoB. Under
+/// `POB_QUERY_CACHE=off` it is a private run, deleted when the result is dropped.
 #[cfg(feature = "luajit")]
-fn ofc_dumps(xml: &Path) -> Result<PathBuf, String> {
+fn ofc_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
     let stages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/port/stages.toml");
     let opts = pob_oracle::runner::ProbeOptions {
         select: SELECT.split(',').map(str::to_owned).collect(),
@@ -88,7 +89,7 @@ fn ofc_dumps(xml: &Path) -> Result<PathBuf, String> {
 }
 
 #[cfg(not(feature = "luajit"))]
-fn ofc_dumps(_xml: &Path) -> Result<PathBuf, String> {
+fn ofc_dumps(_xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
     Err("needs the luajit feature".to_owned())
 }
 

@@ -1052,8 +1052,8 @@ fn parse_raw_vs_pob() {
         let header = header.clone();
         drop(pob);
         if let Some(c) = &cache {
-            // the records first: a present header marks the entry complete
-            if let Err(e) = c.put_file("records", &out).and_then(|()| c.put("result", &header)) {
+            // the header and the records published as one entry (never paired across runs)
+            if let Err(e) = c.put_entry(&header, &[("records", &out)]) {
                 eprintln!("query cache: not stored: {e}");
             }
         }

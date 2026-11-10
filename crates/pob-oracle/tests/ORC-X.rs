@@ -718,7 +718,7 @@ fn rsf_cached(_xml: &Path) -> Option<PathBuf> {
 /// audit S4): this was a per-worktree `target/tmp/orcx-probe/<stem>/`, keyed by stem only and
 /// never invalidated, under a per-worktree patched copy of PoB.
 #[cfg(feature = "luajit")]
-fn run_skill_func_dumps(xml: &Path) -> Result<PathBuf, String> {
+fn run_skill_func_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
     testkit::probe_selection(
         Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
         xml,
@@ -757,7 +757,8 @@ fn orcx_replay_run_skill_func_all57() {
                 continue;
             }
         };
-        let dirs = vec![state];
+        // `state` (a private run under POB_QUERY_CACHE=off) is held to the end of the iteration
+        let dirs = vec![state.to_path_buf()];
         let (Some(pin), Some(pout)) = (
             testkit::find_dump(&dirs, "runSkillFunc:in"),
             testkit::find_dump(&dirs, "runSkillFunc:out"),

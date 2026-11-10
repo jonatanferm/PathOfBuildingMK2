@@ -295,6 +295,14 @@ zips into these and rewrites them on any run that finds them stale), plus the
 `mlua` / `mlua-sys` / `luajit-src` versions of `Cargo.lock` and
 `runner::ORACLE_CACHE_EPOCH`.
 
+The same tree holds the tests' shared entries (HYG3): `query-<key>/` (the
+results of in-process queries, `runner::QueryCache`) and `sel-<key>/` (one
+`bin probe` run of a selection, `runner::SelectionCache`; the key also hashes
+`runner.rs` and `bin/pob_oracle.rs`, so a change to how a dump is made
+re-probes). `POB_QUERY_CACHE=refresh` reruns PoB and overwrites an entry;
+`POB_QUERY_CACHE=off` neither reads nor writes one (a probe run goes to a
+private `target/tmp/probe-off/` directory that is deleted after use).
+
 ### Nondeterminism
 
 LuaJIT seeds its string hash per process, so PoB's `pairs` order over

@@ -600,8 +600,7 @@ fn l3_full_matrix_all57() {
         total.pending_itb,
         total.undecodable
     );
-    let (hits, misses) = pob_oracle::runner::query_cache_stats();
-    eprintln!("  PoB query cache (HYG3): {hits} builds cached, {misses} run in PoB");
+    eprintln!("  {}", pob_oracle::runner::query_cache_summary());
     eprintln!("  per query (identical/total):");
     for (k, (n, ok)) in &total.by_query {
         eprintln!("    {k:<20} {ok}/{n}");

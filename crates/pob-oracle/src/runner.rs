@@ -502,7 +502,8 @@ mod tests {
 // of one key (other tests, other worktrees) each publish a valid copy.
 //
 // `$POB_QUERY_CACHE`: unset / `on` reads and writes; `refresh` runs PoB again and overwrites;
-// `off` neither reads nor writes (every query and probe runs, as before HYG3).
+// `off` neither reads nor writes (every query and probe runs, as before HYG3; a probe run goes to
+// a private directory outside the cache, deleted after use: `SelectionCache::fill`).
 
 /// What `$POB_QUERY_CACHE` allows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -684,6 +685,21 @@ pub fn query_cache_stats() -> (usize, usize) {
     )
 }
 
+/// The tests' one-line summary of the query cache in this process: the mode, the builds served
+/// from the cache and those run in PoB ([`cached_query`] counts a run under `off` as well).
+#[must_use]
+pub fn query_cache_summary() -> String {
+    let (hits, misses) = query_cache_stats();
+    let mode = match cache_mode() {
+        CacheMode::On => "on",
+        CacheMode::Refresh => "refresh",
+        CacheMode::Off => "off",
+    };
+    format!(
+        "PoB query cache (HYG3, POB_QUERY_CACHE={mode}): {hits} builds cached, {misses} run in PoB"
+    )
+}
+
 impl QueryCache {
     /// The entry of the query `script` (every text that decides the result besides PoB and the
     /// input: the scripts run, in order) over `input` (a build's XML bytes, or the input a test
@@ -765,6 +781,34 @@ impl QueryCache {
         std::fs::rename(&tmp, &dst).map_err(|e| io(e, &dst))
     }
 
+    /// Store the text `result` and the files `files` (`(name, path)`, compressed as streams) as
+    /// one entry: all are written to a private directory that is renamed into place as a whole,
+    /// so a reader never pairs the `result` of one run with a file of another (IT-A/IT-C: the
+    /// header and its JSONL records). When a concurrent writer published a complete entry first,
+    /// that one stands; an incomplete one (no `result`: an older layout) is replaced, and so is
+    /// any entry under `refresh`.
+    pub fn put_entry(&self, result: &str, files: &[(&str, &Path)]) -> Result<()> {
+        let tmp = private_tmp(&self.dir);
+        let _ = std::fs::remove_dir_all(&tmp);
+        let res = (|| {
+            let staged = Self { dir: tmp.clone() };
+            for (name, src) in files {
+                staged.put_file(name, src)?;
+            }
+            staged.put("result", result)?;
+            if cache_mode() == CacheMode::Refresh || !self.path("result").is_file() {
+                let _ = std::fs::remove_dir_all(&self.dir);
+            }
+            match std::fs::rename(&tmp, &self.dir) {
+                Ok(()) => Ok(()),
+                Err(_) if self.path("result").is_file() => Ok(()),
+                Err(e) => Err(OracleError(format!("{}: {e}", self.dir.display()))),
+            }
+        })();
+        let _ = std::fs::remove_dir_all(&tmp);
+        res
+    }
+
     /// The cached file `name` as a decompressing line reader.
     pub fn open(&self, name: &str) -> Result<Box<dyn std::io::BufRead>> {
         let p = self.path(name);
@@ -785,8 +829,16 @@ pub fn cached_query(
     run: impl FnOnce() -> String,
 ) -> String {
     let cache = QueryCache::new(src, input, script).unwrap_or_else(|e| panic!("query cache: {e}"));
-    if let Some(text) = cache.as_ref().and_then(|c| c.get("result")) {
-        return text;
+    match &cache {
+        Some(c) => {
+            if let Some(text) = c.get("result") {
+                return text;
+            }
+        }
+        // no cache (off, or no `.parity`): a run in PoB all the same
+        None => {
+            QUERY_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
     }
     let text = run();
     if let Some(c) = &cache {
@@ -815,6 +867,12 @@ pub fn shared_patch_root(pob_src: &Path) -> PathBuf {
     crate::patcher::default_root()
 }
 
+/// The Rust code of a `bin probe` run beyond [`ORACLE_RUNTIME`]: this file (`probe_prelude`,
+/// `probe_in_process`, the dump layout) and the binary's `probe` command. Part of every
+/// [`SelectionCache`] key, so a change to how a dump is made retires the cached dumps (any edit to
+/// these files does: conservative, the probes just rerun).
+const PROBE_RUNTIME: &[&str] = &[include_str!("runner.rs"), include_str!("bin/pob_oracle.rs")];
+
 /// One probe run of a selection, content-keyed:
 /// `<parity>/probe-cache/<sha>/<build-key>/sel-<options-key>/` with `hits.json.zst`,
 /// `outputs.json.zst` (and `provenance.json.zst`) and `state/<hit>.json.zst`.
@@ -827,15 +885,17 @@ impl SelectionCache {
     pub fn new(parity: &Path, sha: &str, build: &Path, opts: &ProbeOptions) -> Result<Self> {
         let sel = opts.select.join(",");
         let max = opts.max_dumps.to_string();
-        // the Rust/Lua runtime the `bin probe` process boots PoB with (the `<sha>` covers the
-        // patched tree, the probe's Lua and the Lua runtime versions)
+        // the Rust/Lua runtime the `bin probe` process boots PoB with, and the probe run itself
+        // (`probe_prelude`, `probe_in_process`; the binary's `probe` command): the `<sha>`
+        // covers the patched tree, the probe's Lua and the Lua runtime versions
         let mut parts: Vec<&[u8]> = vec![
             sel.as_bytes(),
             max.as_bytes(),
             if opts.provenance { b"prov" } else { b"noprov" },
         ];
         parts.extend(ORACLE_RUNTIME.iter().map(|s| s.as_bytes()));
-        let key = content_key("pob-oracle selection 2", &parts);
+        parts.extend(PROBE_RUNTIME.iter().map(|s| s.as_bytes()));
+        let key = content_key("pob-oracle selection 3", &parts);
         Ok(Self {
             dir: ProbeCache::new(parity, sha, build)?
                 .dir
@@ -843,7 +903,7 @@ impl SelectionCache {
         })
     }
 
-    /// The dumps (`<hit>.json.zst`).
+    /// The entry's dumps (`<hit>.json.zst`).
     #[must_use]
     pub fn state_dir(&self) -> PathBuf {
         self.dir.join("state")
@@ -856,19 +916,49 @@ impl SelectionCache {
     }
 
     /// Probe `build` with `opts` in a fresh `bin probe` process (which takes the [`OracleLock`]
-    /// itself) and publish the run as this entry.
+    /// itself) and return the run's dumps.
+    ///
+    /// `On` publishes the run as this entry (when a concurrent writer published it first, that
+    /// copy is served: it is of the same key). `Refresh` replaces the entry with the run. `Off`
+    /// neither reads nor writes the cache: the run stays in a private directory outside it
+    /// (`target/tmp/probe-off/`), which the returned [`ProbeDumps`] deletes when dropped.
     pub fn fill(
         &self,
         bin: &Path,
         build: &Path,
         patched_src: &Path,
         opts: &ProbeOptions,
-    ) -> Result<()> {
+    ) -> Result<ProbeDumps> {
+        self.fill_with(cache_mode(), &off_scratch_root(), |run| {
+            run_probe_process(bin, build, run, patched_src, opts)
+        })
+    }
+
+    /// [`Self::fill`] with the mode, the root of `Off`'s private runs and the probe run given
+    /// (`probe` writes `state/*.json`, `hits.json`, ... into the directory it is passed).
+    fn fill_with(
+        &self,
+        mode: CacheMode,
+        off_root: &Path,
+        probe: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<ProbeDumps> {
+        if mode == CacheMode::Off {
+            let private = private_tmp(&off_root.join("run"));
+            let _ = std::fs::remove_dir_all(&private);
+            let run = private.join("run");
+            let dumps = ProbeDumps {
+                state: run.join("state"),
+                private: Some(private),
+            };
+            // on error `dumps` is dropped here, deleting the private run
+            probe(&run)?;
+            return Ok(dumps);
+        }
         let tmp = private_tmp(&self.dir);
         let _ = std::fs::remove_dir_all(&tmp);
         let res = (|| {
             let run = tmp.join("run");
-            run_probe_process(bin, build, &run, patched_src, opts)?;
+            probe(&run)?;
             let out = tmp.join("out");
             let state = out.join("state");
             std::fs::create_dir_all(&state)
@@ -892,18 +982,78 @@ impl SelectionCache {
                 std::fs::create_dir_all(d)
                     .map_err(|e| OracleError(format!("{}: {e}", d.display())))?;
             }
-            if cache_mode() == CacheMode::Refresh {
+            if mode == CacheMode::Refresh {
                 let _ = std::fs::remove_dir_all(&self.dir);
             }
             match std::fs::rename(&out, &self.dir) {
                 Ok(()) => Ok(()),
-                // another test or worktree published the same entry first
+                // On: another test or worktree published the same entry first. Refresh: a
+                // concurrent writer published a run of this key after the removal above (also
+                // a run made now, not an old entry).
                 Err(_) if self.dir.join("hits.json.zst").is_file() => Ok(()),
                 Err(e) => Err(OracleError(format!("{}: {e}", self.dir.display()))),
             }
         })();
         let _ = std::fs::remove_dir_all(&tmp);
-        res
+        res.map(|()| ProbeDumps::cached(self.state_dir()))
+    }
+}
+
+/// Where `POB_QUERY_CACHE=off` keeps its private probe runs: `target/tmp/probe-off` of this
+/// checkout (on disk, not the tmpfs `/tmp`; never inside the probe cache).
+fn off_scratch_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/probe-off")
+}
+
+/// The `state/` directory of a probe run (`<hit>.json.zst` from the cache, `<hit>.json` from an
+/// uncached run). An uncached run (`POB_QUERY_CACHE=off`) lives in a private directory that is
+/// deleted when this is dropped, so hold it while the dumps are read.
+#[derive(Debug)]
+pub struct ProbeDumps {
+    state: PathBuf,
+    private: Option<PathBuf>,
+}
+
+impl ProbeDumps {
+    /// A cache entry's dumps (nothing to delete).
+    #[must_use]
+    pub fn cached(state: PathBuf) -> Self {
+        Self {
+            state,
+            private: None,
+        }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.state
+    }
+
+    /// Did the dumps come from the cache (rather than a private run)?
+    #[must_use]
+    pub fn is_cached(&self) -> bool {
+        self.private.is_none()
+    }
+}
+
+impl std::ops::Deref for ProbeDumps {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.state
+    }
+}
+
+impl AsRef<Path> for ProbeDumps {
+    fn as_ref(&self) -> &Path {
+        &self.state
+    }
+}
+
+impl Drop for ProbeDumps {
+    fn drop(&mut self) {
+        if let Some(p) = &self.private {
+            let _ = std::fs::remove_dir_all(p);
+        }
     }
 }
 
@@ -960,6 +1110,42 @@ mod cache_tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// `put_entry` publishes the result and its files together; a complete entry already in
+    /// place stands, an incomplete one (files without `result`) is replaced.
+    #[test]
+    fn query_entry_is_published_whole() {
+        let d = scratch("entry");
+        let c = QueryCache { dir: d.join("q") };
+        let rec = d.join("records.jsonl");
+        // an incomplete entry: records of some run, no result
+        std::fs::write(&rec, "{\"run\":0}\n").unwrap();
+        c.put_file("records", &rec).unwrap();
+        std::fs::write(&rec, "{\"run\":1}\n").unwrap();
+        c.put_entry("header 1", &[("records", &rec)]).unwrap();
+        let lines = |c: &QueryCache| {
+            c.open("records")
+                .unwrap()
+                .lines()
+                .collect::<std::io::Result<Vec<String>>>()
+                .unwrap()
+        };
+        assert_eq!(read_text(&c.path("result")).unwrap(), "header 1");
+        assert_eq!(lines(&c), ["{\"run\":1}"]);
+        if cache_mode() == CacheMode::On {
+            // a second writer of the key leaves the first complete entry as it is
+            std::fs::write(&rec, "{\"run\":2}\n").unwrap();
+            c.put_entry("header 2", &[("records", &rec)]).unwrap();
+            assert_eq!(read_text(&c.path("result")).unwrap(), "header 1");
+            assert_eq!(lines(&c), ["{\"run\":1}"]);
+        }
+        let names: Vec<String> = std::fs::read_dir(&d)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.iter().all(|n| !n.starts_with('.')), "{names:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     /// A selection key covers the selection, the dump cap and provenance.
     #[test]
     fn selection_keys_cover_the_options() {
@@ -999,6 +1185,119 @@ mod cache_tests {
                 ..o.clone()
             })
         );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A fake `bin probe` run: one dump whose content is `tag`, plus `hits.json`.
+    fn fake_probe(tag: &'static str) -> impl FnOnce(&Path) -> Result<()> {
+        move |run: &Path| {
+            std::fs::create_dir_all(run.join("state")).unwrap();
+            std::fs::write(
+                run.join("state").join("offence_in#1.json"),
+                format!("{{\"tag\":\"{tag}\"}}"),
+            )
+            .unwrap();
+            std::fs::write(run.join("hits.json"), "{}").unwrap();
+            Ok(())
+        }
+    }
+
+    /// The text of the one dump in a `state/` dir (compressed or not).
+    fn dump_tag(state: &Path) -> String {
+        let p = state.join("offence_in#1.json");
+        if p.is_file() {
+            return std::fs::read_to_string(p).unwrap();
+        }
+        let z = std::fs::read(state.join("offence_in#1.json.zst")).unwrap();
+        String::from_utf8(zstd::decode_all(&z[..]).unwrap()).unwrap()
+    }
+
+    /// Every file under `dir` with its bytes (to show an entry untouched).
+    fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().path()) {
+                if e.is_dir() {
+                    todo.push(e);
+                } else {
+                    out.push((e.clone(), std::fs::read(&e).unwrap()));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// `POB_QUERY_CACHE=off` over an existing selection entry probes into a private directory
+    /// outside the cache and returns that run, not the cached dumps, and leaves the entry as it
+    /// was; with no entry it publishes none; the private run is gone once the result is dropped.
+    /// `refresh` replaces the entry with the new run. (The mode is passed in rather than set in
+    /// the process environment, which the other tests of this binary read concurrently.)
+    #[test]
+    fn selection_off_bypasses_the_cache() {
+        let d = scratch("seloff");
+        let xml = d.join("b.xml");
+        std::fs::write(&xml, "<PathOfBuilding/>").unwrap();
+        let o = ProbeOptions::default();
+        let cache = SelectionCache::new(&d, "sha", &xml, &o).unwrap();
+        let off_root = d.join("off");
+
+        // no entry yet: Off publishes nothing
+        let fresh = cache
+            .fill_with(CacheMode::Off, &off_root, fake_probe("off-1"))
+            .unwrap();
+        assert!(!fresh.is_cached());
+        assert_eq!(dump_tag(&fresh), "{\"tag\":\"off-1\"}");
+        assert!(!cache.dir.exists(), "Off published an entry");
+        let private = fresh.path().to_path_buf();
+        assert!(private.starts_with(&off_root), "{}", private.display());
+        drop(fresh);
+        assert!(!private.exists(), "private run not deleted");
+
+        // an entry exists: Off returns its own run and leaves the entry alone
+        let old = cache
+            .fill_with(CacheMode::On, &off_root, fake_probe("old"))
+            .unwrap();
+        assert!(old.is_cached());
+        assert_eq!(old.path(), cache.state_dir());
+        assert_eq!(dump_tag(&cache.state_dir()), "{\"tag\":\"old\"}");
+        let before = tree(&cache.dir);
+        let fresh = cache
+            .fill_with(CacheMode::Off, &off_root, fake_probe("new"))
+            .unwrap();
+        assert_ne!(fresh.path(), cache.state_dir());
+        assert!(!fresh.path().starts_with(&cache.dir));
+        assert!(!fresh.path().starts_with(d.join("probe-cache")));
+        assert_eq!(dump_tag(&fresh), "{\"tag\":\"new\"}");
+        assert_eq!(tree(&cache.dir), before, "Off wrote to the entry");
+        let private = fresh.path().to_path_buf();
+        drop(fresh);
+        assert!(!private.exists());
+
+        // a failed Off run leaves nothing behind either
+        assert!(cache
+            .fill_with(CacheMode::Off, &off_root, |_: &Path| Err(OracleError(
+                "boom".to_owned()
+            )))
+            .is_err());
+        assert_eq!(
+            std::fs::read_dir(&off_root).map_or(0, std::iter::Iterator::count),
+            0
+        );
+
+        // Refresh overwrites the existing entry
+        let new = cache
+            .fill_with(CacheMode::Refresh, &off_root, fake_probe("refreshed"))
+            .unwrap();
+        assert_eq!(new.path(), cache.state_dir());
+        assert_eq!(dump_tag(&new), "{\"tag\":\"refreshed\"}");
+        // no temp dirs left beside the entry
+        let names: Vec<String> = std::fs::read_dir(cache.dir.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.iter().all(|n| !n.starts_with('.')), "{names:?}");
         let _ = std::fs::remove_dir_all(&d);
     }
 

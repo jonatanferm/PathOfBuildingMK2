@@ -202,21 +202,23 @@ pub fn selection_cache(
 
 /// The `state/` directory of probing `xml` with `opts`: from the shared probe cache, or probed now
 /// with `bin probe` (a fresh process per build; it takes the machine-wide oracle lock) and stored
-/// there. The key is the patched source's sha, the build's BLAKE3 and the selection, so a cache
-/// entry is never stale and every worktree shares it.
+/// there. The key is the patched source's sha, the build's BLAKE3, the selection and the probe's
+/// Rust code, so every worktree shares an entry. Under `POB_QUERY_CACHE=off` the probe runs into a
+/// private directory (never the cache), which the returned [`crate::runner::ProbeDumps`] deletes
+/// when dropped: hold it while reading the dumps.
 #[cfg(feature = "luajit")]
 pub fn probe_selection(
     bin: &Path,
     xml: &Path,
     stages: Option<&Path>,
     opts: &crate::runner::ProbeOptions,
-) -> Result<PathBuf, String> {
+) -> Result<crate::runner::ProbeDumps, String> {
     let cache = selection_cache(xml, stages, opts)?;
-    if !cache.is_filled() {
-        let patched = shared_patch(stages)?;
-        cache.fill(bin, xml, &patched.src, opts).map_err(|e| e.0)?;
+    if cache.is_filled() {
+        return Ok(crate::runner::ProbeDumps::cached(cache.state_dir()));
     }
-    Ok(cache.state_dir())
+    let patched = shared_patch(stages)?;
+    cache.fill(bin, xml, &patched.src, opts).map_err(|e| e.0)
 }
 
 /// Load the dump of `hit` for a build.
