@@ -26,9 +26,6 @@ so the suite cannot silently get worse; lowering the bound is part of closing th
   `:2308-2996`, `:2997-3496`, `:3497-3990`, `Calcs.lua:384-870` and `Build.lua:2222-2260`.
   `tests/u0_smoke.rs` now requires a non-empty output for every run that hits none of the
   orchestrator stubs (`ORCHESTRATOR_STUBS`); it no longer asserts that stub sites are hit.
-- **MS-A: 6771 of 1,326,872 tag-path queries differ** (owner: MS-B; likely the same cause as the
-  MS-B red below). MS-A counts but does not gate tag-path queries (MS-B owns them);
-  `MS_A_BOUNDS.max_tag_path_misses = 6771` (`tests/MS-A.rs`).
 - **MS-A: the gated Max/Min (EvalMod) queries compare 0 cases** (owner: MS-A). The summary prints
   `Max/Min (EvalMod ported; gated) 0/0`: the probe script produces no Max/Min query on the
   corpus, so that gate is vacuous. Not bounded (nothing to bound); needs probe coverage.
@@ -45,12 +42,6 @@ These assertions were already in the files and fail on 746b103 before any HYG2 b
   model the BM-B test loads has no `enemyRadius` control. Because of this, the HYG2 floors in
   `tests/BM-B.rs` (`TABS_BOUNDS` / `BUFFS_BOUNDS` / `SYNTHETIC_BOUNDS`) come from the last green
   runs on rust-port (148,776 / 3310 / 1302 values compared, 0 / 5 / 0 pending), not from 746b103.
-- **MS-B `l3_full_matrix_all57`** (owner: MS-B, possibly IT-C for the item mod). 72 of
-  6,948,606 matrix queries and 944 of 5,668,313 synthetic tag-probe queries differ. Example:
-  `allflame_exp_016` player store `SumINC Life`: PoB 159, port 174; `Tabulate` shows an extra mod
-  `[395, 15]` on the port side. Synthetic: `ItemCondition` tags with `searchCond = "life"`,
-  `neg = true`: PoB 0, port 10 (`allflame_exp_000` probe 195). Builds: allflame_exp_016,
-  allflame_exp_049.
 - **IT-B `item_core_vs_pob`** (owner: IT-B; the Table limitation is U0's `lua_table.rs`). One
   Craft case fails: `rare#195` (a crafted magic flask with `{range:0.028}`): the port raises
   `non-integral number keys are not supported by Table (929.1)`; PoB crafts the item.
@@ -63,6 +54,17 @@ Not port gaps, recorded so a reader knows why they are not 0:
   sources (CCR-0010); BM-B `LUA-ORDER/expected`; CT `stat_map` PoB-nondeterministic records;
   PS-A `leap` (order-dependent, asserted as a set under `leapset`). The bounds are the observed
   maxima plus headroom, stated next to each constant.
+
+Not port gaps either, but limits of a test's own rebuilt model:
+
+- **MS-A: 6771 of 1,326,872 tag-path queries differ** (`MS_A_BOUNDS.max_tag_path_misses = 6771`,
+  `tests/MS-A.rs`; unchanged after the MS-B fix round, re-measured 2026-11-10). MS-A's Rust model
+  rebuilds only the stores, actor outputs and cfg flags/keywordFlags/source/skillName/skillStats;
+  the actor links, `itemList` items, minionData, weaponData and the cfg fields EvalMod reads
+  (skillCond, skillTypes, skillGrantedEffect, slotName, item, ...) are absent, so tag paths that
+  read them answer differently. MS-B's `l3_full_matrix_all57` rebuilds all of them and gates the
+  same tag paths at 100% (6,948,606/6,948,606 matrix and 5,668,313/5,668,313 synthetic queries).
+  The bound only keeps MS-A's ungated count from drifting.
 
 ## BM-A
 
