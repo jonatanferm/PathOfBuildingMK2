@@ -1,0 +1,73 @@
+screen 1280 800 dpi 1.0
+# U19: hover the instance Draws (buildName, pointDisplay), the level scaling button and the level
+# edit's tooltip (Build.lua:231-258), click every side-bar mode button except Import/Export
+# (ImportTab is U43's), toggle the level scaling, edit the level, open the dropdowns. Clicks
+# that unfocus land in the empty tab area (the stat box's onClick is U21's SetDisplayStat).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+move 30 45
+frames 2
+move 460 14
+frames 2
+move 499 14
+frames 2
+move 580 14
+frames 3
+move 110 96
+click LEFTBUTTON
+frames 2
+move 190 96
+click LEFTBUTTON
+frames 1
+move 260 96
+click LEFTBUTTON
+frames 1
+move 240 70
+click LEFTBUTTON
+frames 1
+move 170 70
+click LEFTBUTTON
+frames 1
+move 40 122
+click LEFTBUTTON
+frames 1
+move 110 122
+click LEFTBUTTON
+frames 1
+move 40 96
+click LEFTBUTTON
+frames 2
+move 499 14
+click LEFTBUTTON
+frames 2
+click LEFTBUTTON
+frames 1
+move 580 14
+click LEFTBUTTON
+frames 1
+press END
+press BACK
+press BACK
+press BACK
+type 85
+frames 2
+move 700 400
+click LEFTBUTTON
+frames 1
+move 580 14
+frames 3
+move 938 14
+click LEFTBUTTON
+frames 2
+move 938 36
+frames 2
+press ESCAPE
+frames 1
+move 687 14
+click LEFTBUTTON
+frames 2
+move 700 400
+click LEFTBUTTON
+frames 2
