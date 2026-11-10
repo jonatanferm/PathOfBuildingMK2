@@ -729,6 +729,12 @@ impl Pending {
 /// Items and slots from the oracle's `inj.*` lines (what BM-A/IT-* would load).
 fn new_build(data: &'static Data, lua: &Lines) -> BuildRef {
     let build = Build::new(data);
+    // The ConfigTab constructor ran in PoB's Build:Init before Load (Build.lua:611): config set
+    // 1 (ConfigTab.lua:145-148) and one control per option (ConfigTab.lua:672-681). Load's
+    // SetActiveConfigSet runs BuildModList (ConfigTab.lua:1358), whose applies index those
+    // controls (ConfigOptions.lua:789 `varControls['enemyRadius']:SetPlaceholder`).
+    build.configTab.ctor_model();
+    build.configTab.ctor_controls_model(data);
     if let Some(cl) = lua.get("inj.characterLevel").and_then(|v| num_of(v)) {
         build.characterLevel.set(cl);
     }
