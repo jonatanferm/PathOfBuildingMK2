@@ -3,9 +3,10 @@
 #
 # Usage: scripts/port/cargo.sh <cargo args...>      e.g. scripts/port/cargo.sh check -p pob-calc
 #
-# - At most $POB_PORT_SLOTS (default 2) cargo invocations run at a time machine-wide, across all worktrees: the
-#   whole cargo run holds an exclusive flock on $POB_PORT_LOCK_DIR/cargo.lock
-#   (default: ${XDG_RUNTIME_DIR:-/tmp}/pob-port).
+# - At most $POB_PORT_SLOTS (default 2) cargo compiles run at a time machine-wide, across all worktrees: each
+#   holds an exclusive flock on one of $POB_PORT_LOCK_DIR/cargo.lock, cargo.lock.1, ...
+#   (default: ${XDG_RUNTIME_DIR:-/tmp}/pob-port). test/bench then run under a run slot (see take_slot);
+#   read-only subcommands (metadata, tree, ...) take no slot.
 # - Exports CARGO_BUILD_JOBS=${POB_PORT_JOBS:-3} and RUSTC_WRAPPER=$HOME/.cargo/bin/sccache (when executable;
 #   an existing RUSTC_WRAPPER is kept).
 # - The target dir is cargo's default <worktree>/target (not exported, see below): never share a target dir between
@@ -43,21 +44,22 @@ refuse() {
     exit 2
 }
 
-if [ "${POB_PORT_ALLOW_WORKSPACE:-0}" != 1 ]; then
-    # The subcommand is the first non-option argument (skipping +toolchain and the values
-    # of the cargo global options that take one).
-    sub=""
-    skip=0
-    for a in "$@"; do
-        if [ "$skip" = 1 ]; then skip=0; continue; fi
-        case "$a" in
-            +*) ;;
-            --config|-Z|-C|--color|--explain) skip=1 ;;
-            -*) ;;
-            *) sub="$a"; break ;;
-        esac
-    done
+# The subcommand is the first non-option argument (skipping +toolchain and the values
+# of the cargo global options that take one). It is found even with POB_PORT_ALLOW_WORKSPACE=1:
+# that override relaxes only the guards below, not the slots, target-dir and corpus handling.
+sub=""
+skip=0
+for a in "$@"; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    case "$a" in
+        +*) ;;
+        --config|-Z|-C|--color|--explain) skip=1 ;;
+        -*) ;;
+        *) sub="$a"; break ;;
+    esac
+done
 
+if [ "${POB_PORT_ALLOW_WORKSPACE:-0}" != 1 ]; then
     has_p=0; has_ws=0; release=0
     if [ "$sub" = bench ]; then release=1; fi
     prev=""
@@ -91,7 +93,6 @@ if [ "${POB_PORT_ALLOW_WORKSPACE:-0}" != 1 ]; then
     fi
 fi
 
-sub="${sub:-}"   # set by the guard block above (empty with POB_PORT_ALLOW_WORKSPACE=1)
 lock_dir="${POB_PORT_LOCK_DIR:-${XDG_RUNTIME_DIR:-/tmp}/pob-port}"
 mkdir -p "$lock_dir"
 
