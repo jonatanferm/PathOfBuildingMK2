@@ -32,7 +32,7 @@ use super::{ItemDb, MainHooks, MainHost, Mode, ModeArg, PendingMode};
 use crate::app::CxApp;
 use crate::model;
 
-/// CCR-0091: the `main.modes` table of L61-63. U18 replaces the LIST entry with BuildList.lua's
+/// CCR-0096: the `main.modes` table of L61-63. U18 replaces the LIST entry with BuildList.lua's
 /// mode object and U19 the BUILD entry with Build.lua's.
 pub fn default_modes() -> IndexMap<String, Rc<dyn Mode>> {
     let mut modes: IndexMap<String, Rc<dyn Mode>> = IndexMap::new();
@@ -43,7 +43,7 @@ pub fn default_modes() -> IndexMap<String, Rc<dyn Mode>> {
     modes
 }
 
-/// CCR-0091: U17's popups (installed by U17) and U23's `main:LoadTree` (until U23 installs it).
+/// CCR-0096: U17's popups (installed by U17) and U23's `main:LoadTree` (until U23 installs it).
 pub fn default_hooks() -> MainHooks {
     MainHooks {
         // U17 (Main.lua:865-1485)

@@ -17,7 +17,7 @@
 //! (U17) are not ported yet, so a full-app scenario diverges in their draws. Here both sides run
 //! U16's code against the same stand-ins: after `OnInit` the Lua side's `main.modes.LIST/BUILD`
 //! become objects that draw nothing and echo their first two `Init` arguments from `GetArgs`
-//! (exactly pob-app's `PendingMode`, CCR-0091), and `main:OpenAboutPopup` / `OpenOptionsPopup`
+//! (exactly pob-app's `PendingMode`, CCR-0096), and `main:OpenAboutPopup` / `OpenOptionsPopup`
 //! open a message popup naming their argument on both sides.
 //!
 //! Compared side effects exclude `ImageLoad`: the Lua side's frame 0 loads the images of modules
@@ -267,7 +267,7 @@ impl RustSide {
         });
         let mut app = pob_app::PobApp::new(parts);
         effects.borrow_mut().clear(); // Launch.lua:11 runs at script load, before tracing
-        // pob-ui-oracle patch 4's equivalent (CCR-0091)
+        // pob-ui-oracle patch 4's equivalent (CCR-0096)
         app.cx.app_mut().launch.force_release_install = true;
         RustSide {
             app,

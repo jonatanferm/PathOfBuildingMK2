@@ -20,7 +20,7 @@
 //! - `main.invertSliderScrollDirection` is also written to SliderControl's stand-in
 //!   `INVERT_SLIDER_SCROLL_DIRECTION` (CCR-0069 A), which SliderControl reads.
 //! - CCR-0099 B: `self.modes.LIST:BuildList()` (L1219) has no counterpart on the frozen
-//!   [`crate::main_mode::Mode`] trait (CCR-0091 A); until U18 adds `build_list` the call is
+//!   [`crate::main_mode::Mode`] trait (CCR-0096 A); until U18 adds `build_list` the call is
 //!   skipped (the stand-in modes have nothing to rebuild).
 //! - The changeFuncs of the colour edits call `updateColorCode` (Data/Global.lua:80-87); for
 //!   HIGHLIGHT it also sets the `rgbColor` global (`MainState::rgb_color`), as U16's

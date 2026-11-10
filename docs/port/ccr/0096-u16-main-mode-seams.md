@@ -1,4 +1,4 @@
-# CCR-0091: U16 seams to the mode objects, the Main popups, LoadTree, and the oracle
+# CCR-0096: U16 seams to the mode objects, the Main popups, LoadTree, and the oracle
 
 Unit: **U16** (Launch and Main core). Status: **pending** (code on `port/U16` follows it).
 
@@ -63,7 +63,7 @@ replace their entries there.
 
 Evidence: `Main.lua:166`, `:180`, `:714`, `:726` (`new("Item")`); `pob-app/src/model.rs` (U15)
 re-exports `Item`/`ItemRef` but not `pob_calc::classes::item::new_Item`. Work-around:
-`main_mode::new_item` calls pob-calc directly (marked CCR-0091). Proposed diff to `model.rs`:
+`main_mode::new_item` calls pob-calc directly (marked CCR-0096). Proposed diff to `model.rs`:
 
 ```diff
  pub use pob_calc::classes::{
