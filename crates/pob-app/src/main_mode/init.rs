@@ -37,7 +37,7 @@ use crate::model;
 pub fn default_modes() -> IndexMap<String, Rc<dyn Mode>> {
     let mut modes: IndexMap<String, Rc<dyn Mode>> = IndexMap::new();
     // L62 self.modes["LIST"] = LoadModule("Modules/BuildList")
-    modes.insert("LIST".to_owned(), Rc::new(PendingMode::new("LIST")));
+    modes.insert("LIST".to_owned(), crate::build_list::mode());
     // L63 self.modes["BUILD"] = LoadModule("Modules/Build")
     modes.insert("BUILD".to_owned(), Rc::new(PendingMode::new("BUILD")));
     modes

@@ -1,0 +1,43 @@
+# U18: the sort drop-down (class, last edited, level, name) re-sorts the list and keeps the
+# selection (SortList -> SelByFullFileName); main.buildSortMode is saved to Settings.xml.
+fixture userdir=user1
+frames 2
+# select "Beta"
+move 400 151
+click LEFTBUTTON
+frames 1
+# Sort by Class
+move 859 14
+click LEFTBUTTON
+frames 1
+move 859 48
+click LEFTBUTTON
+frames 2
+#! expect-text Sort by Class
+# Sort by Level
+move 859 14
+click LEFTBUTTON
+frames 1
+move 859 80
+frames 1
+click LEFTBUTTON
+frames 2
+# Sort by Last Edited
+move 859 14
+click LEFTBUTTON
+frames 1
+move 859 64
+click LEFTBUTTON
+frames 2
+# Sort by Level again, then into a folder (the sort mode applies there too)
+move 859 14
+click LEFTBUTTON
+frames 1
+move 859 80
+click LEFTBUTTON
+frames 1
+move 400 91
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+#! expect-text Sort by Level

@@ -1,0 +1,23 @@
+# U18: FolderListControl (the Save As popup's folder picker, Build.lua:1481) alone in a popup:
+# double click opens a folder, DELETE on a non-empty folder, the path control goes back.
+#! u18-setup folders
+screen 1280 800 dpi 1.0
+fixture userdir=user1
+frames 2
+#! expect-text Leagues
+move 500 260
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+#! expect-text Settlers
+move 500 260
+click LEFTBUTTON
+frames 1
+press DELETE
+frames 2
+#! expect-text The folder is not empty.
+press RETURN
+frames 1
+move 440 236
+click LEFTBUTTON
+frames 2

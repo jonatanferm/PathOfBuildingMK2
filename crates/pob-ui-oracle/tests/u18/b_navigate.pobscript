@@ -1,0 +1,46 @@
+# U18: open a folder (double click, Open button), the path control (click "Builds"), MOUSE4 /
+# MOUSE5 (path undo/redo), keyboard selection, RETURN on a build (LoadBuild -> BUILD mode stub)
+# and back with the "<< Back" equivalent (main:SetMode("LIST") is U19's; the BUILD stub stays).
+fixture userdir=user1
+frames 2
+# double click ">> Leagues"
+move 400 91
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+#! expect-text >> Settlers
+#! expect-text League Witch
+# select ">> Settlers" and press the Open button
+move 400 91
+click LEFTBUTTON
+frames 1
+move 547 14
+click LEFTBUTTON
+frames 2
+#! expect-text Deep 1
+#! expect-text Level 95 Slayer
+press MOUSE4
+frames 2
+press MOUSE4
+frames 2
+press MOUSE5
+frames 2
+# the "Builds" button of the path control
+move 212 65
+frames 1
+click LEFTBUTTON
+frames 2
+# keyboard: down twice, up, home, end
+press DOWN
+press DOWN
+press UP
+frames 1
+press END
+frames 1
+press HOME
+frames 1
+press DOWN
+frames 1
+move 700 300
+press RETURN
+frames 3

@@ -1,0 +1,8 @@
+# U18: an empty build file: ReadBuildHeader's read(2048) returns nil, so main:OpenCloudErrorPopup
+# opens (on every scan) and the entry is left out of the list.
+fixture userdir=user2
+frames 2
+#! expect-text Cannot read file.
+press RETURN
+frames 2
+#! expect-text Beta

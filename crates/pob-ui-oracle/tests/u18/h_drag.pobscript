@@ -1,0 +1,60 @@
+# U18: drag a build onto a folder row (BuildListControl:ReceiveDrag, CanDragToValue highlight),
+# a folder onto another folder, and a build onto the path control's "Builds" button (the
+# PathControl instance overrides CanReceiveDrag/ReceiveDrag).
+fixture userdir=user1
+frames 2
+# a new folder to drag things into
+move 464 14
+click LEFTBUTTON
+frames 1
+type "Archive"
+frames 1
+# the edit box keeps RETURN while focused (EditControl.lua:513-520): ESCAPE leaves it, RETURN = Save
+press ESCAPE
+press RETURN
+frames 2
+# rows: Archive, Leagues, Alpha 2, alpha 10, Beta, Gamma, NoHeader
+# drag "Beta" (row 5) onto "Archive" (row 1)
+move 400 171
+key-down LEFTBUTTON
+frames 1
+move 400 160
+frames 1
+move 400 120
+frames 1
+move 400 92
+frames 2
+key-up LEFTBUTTON
+frames 2
+# drag folder "Leagues" (row 2) onto "Archive" (row 1)
+move 400 111
+key-down LEFTBUTTON
+frames 1
+move 400 104
+frames 1
+move 400 93
+frames 2
+key-up LEFTBUTTON
+frames 2
+# into Archive: Leagues, Beta
+move 400 91
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+#! expect-text >> Leagues
+# drag "Beta" (row 2) onto the path's "Builds" button
+move 400 111
+key-down LEFTBUTTON
+frames 1
+move 400 100
+frames 1
+move 300 70
+frames 1
+move 212 65
+frames 2
+key-up LEFTBUTTON
+frames 2
+move 212 65
+click LEFTBUTTON
+frames 2
+#! expect-text Beta
