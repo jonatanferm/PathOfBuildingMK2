@@ -3,8 +3,10 @@
 # its rows (applyPantheonDescription, mode HOVER, plus the Selecting-this compare), close it;
 # search "prefix" and open a map Prefix dropdown, hover an affix row (mapAffixTooltip: the tier
 # lines) and pick it (the map affix apply reads varControls['multiplierMapModTier'].selIndex
-# through the bridge).
-#! u41-expect-config name="MapPrefix1"
+# through the bridge); then reopen it, hover the Profane row (a multi-line "count" affix whose
+# second line's `values[i][j][2]` is nil, so ConfigOptions.lua:104's `A and B or C` falls through
+# to `values[i][2]`), pick it and hover the closed box (mode BODY).
+#! u41-expect-config name="MapPrefix1" string="Profane"
 fixture userdir=../../fixtures/user1
 frames 2
 move 400 91
@@ -35,5 +37,14 @@ frames 2
 move 990 182
 frames 3
 click LEFTBUTTON
+frames 3
+move 990 149
+click LEFTBUTTON
+frames 2
+move 990 297
+frames 3
+click LEFTBUTTON
+frames 3
+move 990 150
 frames 3
 snapshot prefix

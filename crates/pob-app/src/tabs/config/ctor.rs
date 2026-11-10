@@ -849,7 +849,6 @@ fn map_affix_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, args: &TipArgs) {
             array: affix_data.values.clone(),
             fields: Vec::new(),
         }));
-        let fmt1 = |line: &str, a: &Value| -> String { pob_lua::lformat!(line, value_num(a)) };
         // L83
         if n_lines > 0 {
             let ty = affix_data.r#type.map(|t| t.as_str());
@@ -870,11 +869,13 @@ fn map_affix_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, args: &TipArgs) {
                     // L91
                     for (j, line) in tooltip_lines.iter().enumerate() {
                         let j = j + 1;
-                        // L92
+                        // L92 `(n > 1) and values[i][j] or values[i]`: a nil/false
+                        // `values[i][j]` falls through to the row `values[i]` itself
+                        let vi = at(&values, i);
                         let mod_value = if n_lines > 1 {
-                            at(&at(&values, i), j)
+                            lua_or(at(&vi, j), || vi.clone())
                         } else {
-                            at(&values, i)
+                            vi.clone()
                         };
                         // L93
                         if mod_value == Value::Nil {
@@ -886,7 +887,10 @@ fn map_affix_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, args: &TipArgs) {
                             tooltip.add_line(
                                 cx,
                                 14.0,
-                                &format!("   ^7{}", fmt1(&line[..], &mod_value)),
+                                &format!(
+                                    "   ^7{}",
+                                    pob_lua::lformat!(&line[..], value_fmt_arg(&mod_value))
+                                ),
                             );
                         }
                     }
@@ -901,16 +905,20 @@ fn map_affix_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, args: &TipArgs) {
                     // L103
                     for (j, line) in tooltip_lines.iter().enumerate() {
                         let j = j + 1;
-                        // L104 (`x and y or nil` keeps nil for a missing entry)
+                        // L104 `(n > 1) and (values[i][j] and values[i][j][k] or nil)
+                        // or values[i][k]`: when the parenthesised part is nil/false the
+                        // whole `A and B or C` falls through to `values[i][k]` (Profane's
+                        // `{100}` second line: modValue = {100, {100}})
                         let vi = at(&values, i);
                         let pick = |k: usize| -> Value {
                             if n_lines > 1 {
                                 let vij = at(&vi, j);
-                                if vij == Value::Nil || vij == Value::Bool(false) {
-                                    Value::Nil
-                                } else {
+                                let inner = if lua_truthy(&vij) {
                                     at(&vij, k)
-                                }
+                                } else {
+                                    Value::Nil
+                                };
+                                lua_or(inner, || at(&vi, k))
                             } else {
                                 at(&vi, k)
                             }
@@ -925,8 +933,8 @@ fn map_affix_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, args: &TipArgs) {
                             // L108
                             let s = pob_lua::lformat!(
                                 &line[..],
-                                value_num(&mod_value[0]),
-                                value_num(&mod_value[1])
+                                value_fmt_arg(&mod_value[0]),
+                                value_fmt_arg(&mod_value[1])
                             );
                             tooltip.add_line(cx, 14.0, &format!("   ^7{s}"));
                         }
@@ -937,11 +945,35 @@ fn map_affix_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, args: &TipArgs) {
     }
 }
 
-/// A `string.format` number argument from a data value (nil: the Lua format error).
-fn value_num(v: &pob_gamedata::Value) -> f64 {
+/// Lua truthiness of a data value (everything but nil and false).
+fn lua_truthy(v: &pob_gamedata::Value) -> bool {
+    !matches!(
+        v,
+        pob_gamedata::Value::Nil | pob_gamedata::Value::Bool(false)
+    )
+}
+
+/// `a or b` on data values.
+fn lua_or(a: pob_gamedata::Value, b: impl FnOnce() -> pob_gamedata::Value) -> pob_gamedata::Value {
+    if lua_truthy(&a) {
+        a
+    } else {
+        b()
+    }
+}
+
+/// A `string.format` argument from a data value. Lua ignores surplus arguments, so a table
+/// only matters when a `%d` consumes it; `FmtArg` has no table variant, so it goes in as nil
+/// and a consuming spec raises the same "number expected" format error (Lua says "got table").
+/// Shipped map-mod lines only ever leave a table as the unused trailing argument (Profane).
+fn value_fmt_arg(v: &pob_gamedata::Value) -> pob_lua::format::FmtArg<'_> {
+    use pob_gamedata::Value;
+    use pob_lua::format::FmtArg;
     match v {
-        pob_gamedata::Value::Num(x) => *x,
-        _ => lua_error!("bad argument to 'format' (number expected)"),
+        Value::Num(x) => FmtArg::Num(*x),
+        Value::Str(s) => FmtArg::Str(&s[..]),
+        Value::Bool(b) => FmtArg::Bool(*b),
+        _ => FmtArg::Nil,
     }
 }
 
