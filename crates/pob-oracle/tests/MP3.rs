@@ -13,7 +13,8 @@
 //!     built from the pattern's capture classes. The Lua result and the Rust result must be
 //!     equal; when the Lua raises, the Rust must raise the same message. Jewel closures
 //!     (`ExtraJewelFunc`, 2622-2627 and 2630-2634) are compared as data: the same source range,
-//!     `type` and `radius`, and every string upvalue of the Lua closure among `args`;
+//!     `type` and `radius` (the upvalues are not dumped; MP6's `whole_parser_l1` checks the
+//!     captured `args` against the oracle's captures);
 //!   - L1 for this range: every parse-oracle line whose parse used a specialModList entry of
 //!     2130-3083 (and no other unit's specialModList / jewel / cluster / unsupported entry) is
 //!     parsed by `parseModNative` (MP0's driver over the merged lists) and must give PoB's mods
@@ -655,7 +656,7 @@ fn mods_eq(a: &Option<Vec<Mod>>, b: &Option<Vec<Mod>>, q: &mut usize) -> bool {
 }
 
 /// Compare one PoB result (`v`: the dump-encoded mod list) with ours; jewel closures also by
-/// upvalues ⊆ args.
+/// closure source range == key (args are checked in MP6).
 fn compare_mods(
     ours: &Option<Vec<Mod>>,
     v: Option<&J>,
