@@ -878,10 +878,9 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
                 hasActiveSpectreSkill = true;
                 // L2215
                 if let Some(minion) = activeSkill.minion.get() {
-                    let r#type = minion.extra.get(n!("type"));
-                    if r#type.truthy() {
+                    if let Some(r#type) = minion.r#type.get() {
                         // L2216
-                        activeSpectreList.push(r#type);
+                        activeSpectreList.push(Val::from(r#type.as_str()));
                     }
                 }
             }
