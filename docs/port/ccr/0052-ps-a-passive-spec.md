@@ -1,6 +1,6 @@
 # CCR-0052 (PS-A): PassiveSpec representation notes and four frozen-signature gaps
 
-**Status: proposed (PS-A, 2026-11-09).** §1-§2, §7-§11 are conventions PS-A follows inside its own
+**Status: proposed (PS-A, 2026-11-09).** §1-§2, §7-§12 are conventions PS-A follows inside its own
 file `crates/pob-calc/src/classes/passive_spec.rs` (no frozen file changed). §3-§6 ask for
 signature changes of PS-A's frozen stubs; PS-A works around each locally (marked `CCR-0052`).
 
@@ -177,3 +177,22 @@ it unlinked.
   `override.effectSprites` (:285-286) are nil.
 - `common.base64` (runtime/lua/base64.lua) is ported as `passive_spec::base64_decode` /
   `base64_encode` (lenient decode: characters outside the alphabet are dropped).
+
+## 12. Oracle-test seam: `SpecStubs` (integration fix, 2026-11-10)
+
+The PS-A, PS-B and PS-C oracle tests each run one unit's code against PoB with the other two
+units' methods replaced in PoB (`PassiveSpecClass.X = function() end`). While those were
+`unported!` in the port both sides agreed; once all three landed the port ran the real bodies and
+the tests compared different code: PS-A's `load/msd` carried a runegraft's text that only the
+real `ReplaceNode` at PassiveSpec.lua:287 copies (PoB's stub does not), then the real
+`BuildAllDependsAndPaths` raised "attempt to index local 'item'" (PS-A's builds have no items;
+PassiveSpec.lua:1534 -> :1065); PS-B's real `BuildClusterJewelGraphs` met stand-in jewels and
+PS-C's real `BuildAllDependsAndPaths` loaded the timeless LUTs.
+
+`passive_spec::SpecStubs` (+ `set_spec_stubs`, `spec_stubs`) is a thread-local set of flags. Each
+flag makes the method return at once, as the PoB stub does, for every caller:
+`BuildAllDependsAndPaths` (PS-B; the counters its PoB stub initialises are the port's fields,
+which start at 0), `BuildClusterJewelGraphs` and `ReplaceNode` (PS-C; returns `nil` = `false`).
+The product never sets it (`SpecStubs::NONE`). PS-A sets all three, PS-B the two PS-C ones
+(inside `BuildAllDependsAndPaths` its `PscCalls` recorder, CCR-0070 §2, already takes PS-C's
+calls), PS-C the PS-B one. The whole-spec comparison against an unstubbed PoB is BM-A's.

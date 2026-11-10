@@ -522,6 +522,10 @@ struct RadiusJewel {
 /// @pob Classes/PassiveSpec.lua:1092-1695 h=a50e22ab
 impl PassiveSpec {
     pub fn BuildAllDependsAndPaths(&self) {
+        // oracle-test seam (CCR-0052 §12); never set in the product
+        if crate::classes::passive_spec::spec_stubs().build_all_depends_and_paths {
+            return;
+        }
         let tree = self.tree.get();
         // L1093: timelessJewelTypeByConqueror (the fn above)
         // This table will keep track of which nodes have been visited during each path-finding attempt

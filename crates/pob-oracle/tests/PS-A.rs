@@ -4,8 +4,9 @@
 //! (`.parity/builds`).
 //!
 //! `BuildAllDependsAndPaths` (PS-B), `BuildClusterJewelGraphs` and `ReplaceNode` (PS-C) are
-//! still `unported!` stubs in the port, so the oracle replaces them with no-ops too
-//! ("stubbed" mode): both sides then run exactly PS-A's code. For every spec both sides:
+//! replaced by no-ops on both sides ("stubbed" mode): the oracle replaces the methods, the port
+//! sets `passive_spec::set_spec_stubs` (CCR-0052 §12), so both sides run exactly PS-A's code
+//! (PS-B / PS-C have their own tests). For every spec both sides:
 //!
 //! * `new("PassiveSpec"):PassiveSpec(build, ver)` + `Load(<Spec>)` (the XML node is PoB's own
 //!   `common.xml.ParseXML` result, serialised and rebuilt as a `XmlNode`), then record the
@@ -44,7 +45,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use pob_calc::classes::passive_spec::{
-    base64_encode, main_LoadTree, main_tree_insert, new_PassiveSpec,
+    base64_encode, main_LoadTree, main_tree_insert, new_PassiveSpec, set_spec_stubs, SpecStubs,
 };
 use pob_calc::classes::passive_tree::{new_passive_tree_with_node_order, setJewelRadiiGlobally};
 use pob_calc::classes::{Item, Node, NodeRef, PassiveSpecRef};
@@ -1148,6 +1149,12 @@ fn passive_spec_acceptance() {
         return; // POB_ALLOW_SKIP=1
     }
 
+    // the port side of the oracle's `stub(true)` (LIB): PS-B / PS-C bodies are no-ops
+    set_spec_stubs(SpecStubs {
+        build_all_depends_and_paths: true,
+        build_cluster_jewel_graphs: true,
+        replace_node: true,
+    });
     let t0 = std::time::Instant::now();
     let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
     pob.run(LIB).unwrap_or_else(|e| panic!("{e}"));
@@ -1285,6 +1292,7 @@ fn passive_spec_acceptance() {
             );
         }
     }
+    set_spec_stubs(SpecStubs::NONE);
     eprintln!("\n== PS-A: {specs} specs in {} builds ==", files.len());
     for (k, n) in &total_by_kind {
         let b = bad_by_kind.get(k).copied().unwrap_or(0);

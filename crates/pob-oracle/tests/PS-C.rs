@@ -3,9 +3,10 @@
 //! 1697-2494) against PoB's own `PassiveSpec` class under LuaJIT (interpreter,
 //! `JitPob::boot_oracle`).
 //!
-//! `BuildAllDependsAndPaths` (PS-B) is still an `unported!` stub in the port, so the oracle
-//! replaces it with a no-op too (it only initialises the mastery counters PS-B owns); every
-//! other PassiveSpec function runs for real on both sides.
+//! `BuildAllDependsAndPaths` (PS-B) is a no-op on both sides: the oracle replaces it (it only
+//! initialises the mastery counters PS-B owns), the port sets `passive_spec::set_spec_stubs`
+//! (CCR-0052 §12; PS-B has its own test); every other PassiveSpec function runs for real on
+//! both sides.
 //!
 //! Builds: every build of the all57 corpus (`.parity/builds`) whose items include a cluster
 //! jewel (among them three legacy, v1-hash builds: 3_6 and 3_13 trees without
@@ -51,7 +52,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use pob_calc::classes::item::new_Item;
-use pob_calc::classes::passive_spec::{main_LoadTree, main_tree_insert, new_PassiveSpec};
+use pob_calc::classes::passive_spec::{
+    main_LoadTree, main_tree_insert, new_PassiveSpec, set_spec_stubs, SpecStubs,
+};
 use pob_calc::classes::passive_spec_cluster::set_window_title_subtext_hook;
 use pob_calc::classes::passive_tree::{new_passive_tree_with_node_order, setJewelRadiiGlobally};
 use pob_calc::classes::{Node, NodeRef, PassiveSpecRef};
@@ -91,7 +94,7 @@ if launch then launch.ShowErrMsg = function() end end
 if not common.classes.PassiveSpec then LoadModule("Classes/PassiveSpec") end
 __psc = { }
 local PSC = common.classes.PassiveSpec
--- PS-B is not ported yet: the counters it initialises (the port's fields start at 0)
+-- PS-B is a no-op on both sides (CCR-0052 §12): the counters it initialises (the port's fields start at 0)
 PSC.BuildAllDependsAndPaths = function(self)
     self.allocatedMasteryCount = self.allocatedMasteryCount or 0
     self.allocatedMasteryTypeCount = self.allocatedMasteryTypeCount or 0
@@ -1606,6 +1609,11 @@ fn passive_spec_cluster_acceptance() {
     }
 
     let t0 = std::time::Instant::now();
+    // the port side of the oracle's PS-B no-op (LIB; CCR-0052 §12)
+    set_spec_stubs(SpecStubs {
+        build_all_depends_and_paths: true,
+        ..SpecStubs::NONE
+    });
     let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
     pob.run(LIB).unwrap_or_else(|e| panic!("{e}"));
     eprintln!("oracle boot: {:.1}s", t0.elapsed().as_secs_f64());
