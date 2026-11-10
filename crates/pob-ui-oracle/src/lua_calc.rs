@@ -24,7 +24,13 @@
 //!    inject them (`pob_oracle::inject::inject`) and adopt them into the live model
 //!    ([`adopt_build_output`]): `calcsTab.{mainEnv,mainOutput,calcsEnv,calcsOutput}`,
 //!    `powerBuildFlag`, the socket groups and gem instances the calc wrote (written back onto
-//!    the live objects, and the injected envs re-pointed at them), `node.finalModList`;
+//!    the live objects, and the injected envs re-pointed at them), `skillsTab.displayGroup`
+//!    cleared when the calc removed it (CalcSetup.lua:1556-1558), `node.finalModList`, the
+//!    clamped `build.mainSocketGroup` / `calcsTab.input.skill_number` (CalcSetup.lua:1586,
+//!    :1589), the items' `jewelRadiusData` (:293-298) and `jewelData.limitDisabled` (:852,
+//!    :866), and every item reference of the injected envs (`env.flasks` / `tinctures` keys,
+//!    `actor.itemList`, `radiusJewelList[*].item`, `sourceItem`s, …) re-pointed at
+//!    `build.itemsTab.items[item.id]`;
 //! 4. **MiscCalc::call**: `calcFunc(override, useFullDPS)` on `calcsTab:GetMiscCalculator()`
 //!    with the override rebuilt in Lua ([`override_lua`]), and the returned output dumped and
 //!    injected ([`CALL_MISC_LUA`]).
@@ -40,17 +46,28 @@
 //! * Overrides cross the VM boundary by value: nodes by id (`build.spec.nodes[id]`), items by
 //!   identity when the item is the live `build.itemsTab.items[item.id]`, else as
 //!   `new("Item"):Item(item:BuildRaw())`; `conditions` is copied back after the call (the calc
-//!   appends to it, CalcSetup.lua:1921-1922). `override.spec`, a non-empty
-//!   `override.extraJewelFuncs` and non-scalar `override.extra` entries are not transferable and
-//!   raise a Lua error; an empty `extraJewelFuncs` crosses as `new("ModList"):ModList()`; the
+//!   appends to it, CalcSetup.lua:1921-1922); `override.spec` by its index in
+//!   `build.treeTab.specList` (TreeTab.lua:70; a spec outside the list raises a Lua error). A
+//!   non-empty `override.extraJewelFuncs` and non-scalar `override.extra` entries are not
+//!   transferable and raise a Lua error; an empty `extraJewelFuncs` crosses as `new("ModList"):ModList()`; the
 //!   `extraJewelFuncs` the calc creates (CalcSetup.lua:1425-1431) is not copied back.
-//! * The injected envs keep PoB's own copies of the items (`$item`, whitelisted fields) and of
-//!   the other env's objects (`$foreign` placeholders); socket groups and gem instances are
-//!   the exception (see 3.), because the UI writes through them (`srcInstance.skillPart`,
-//!   Build.lua:494-566).
+//! * The injected envs keep PoB's own copies of the other env's objects (`$foreign`
+//!   placeholders) and of the items the calc makes itself (no `id`: Energy Blade's,
+//!   CalcSetup.lua:1124; `override.repItem` copies). Socket groups, gem instances and the
+//!   build's items are re-pointed at the live objects (see 3.), because the UI writes through
+//!   them (`srcInstance.skillPart`, Build.lua:494-566) or looks them up by identity
+//!   (`mainEnv.flasks[item]`, ItemsTab.lua:4868, :4904).
+//! * Lost to the per-document registry reset (CCR-0088 §2), in the calcsEnv document: its
+//!   object-keyed side entries (`env.flaskSlotMap`, `player.appliedEnemyModifiers`,
+//!   `itemList[*].slotModList`, `grantedSkills[*].sourceItem.slotModList`, the
+//!   `explodeSources` entries' side keys); the mainEnv document's, at the next `inject` (a
+//!   `MiscCalc::call`). No UI code reads them (only `Modules/Calc*.lua` do).
+//! * CalcsTab.lua:465-468 (`SetBreakdownData` refresh when `displayData` is set) is UI-side and
+//!   belongs to the CalcsTab unit (U39), not to either facade implementation.
 //! * A `MiscCalc::call` does not write back what the CALCULATOR pass writes into the model in
-//!   PoB (`gemInstance.displayEffect`/`supportEffect`, granted-skill groups; CalcSetup.lua
-//!   1464-1530, 1672-1787): the live groups keep the state of the last `build_output`. The
+//!   PoB (`gemInstance.displayEffect`/`supportEffect`, CalcSetup.lua 1672-1787; its
+//!   `build.mainSocketGroup` clamp, :1589, is a no-op after `build_output` since only MAIN
+//!   changes the group list): the live groups keep the state of the last `build_output`. The
 //!   returned output's model objects (`ReqStrItem.sourceGem`, …) are re-pointed at the live
 //!   groups and gems by position.
 //! * `calcsTab.miscCalculator` (a `pob_calc::modules::calcs::MiscCalculator`) is not set: the
@@ -73,12 +90,12 @@ use std::task::Poll;
 use pob_app::calc::facade::{BuildRef, CalcFacade, MiscCalc, Output, Override};
 use pob_calc::active_skill::{ActiveSkillRef, SkillEffectRef};
 use pob_calc::actor::ActorRef;
-use pob_calc::classes::{ModStore, NodeRef};
+use pob_calc::classes::{Item, ItemRef, ModStore, NodeRef};
 use pob_calc::env::EnvRef;
 use pob_calc::lua_table::{Key, Table, Val};
 use pob_calc::model::{Build, GemInstance, GemInstanceRef, SocketGroup, SocketGroupRef};
 use pob_calc::probe::{rc_ptr, set_member, PKey, PObj};
-use pob_lua::{lua_error, Shared};
+use pob_lua::{lua_error, PtrMap, Shared};
 use pob_oracle::headless::Engine;
 use pob_oracle::inject::{inject, Injected};
 use pob_oracle::jit::JitPob;
@@ -128,6 +145,13 @@ function __bridge_item(b, id, raw)
 	end
 	return new("Item"):Item(raw)
 end
+function __bridge_spec(b, i)
+	local spec = b.treeTab.specList[i]
+	if not spec then
+		error("LuaCalcBridge: spec " .. tostring(i) .. " is not in build.treeTab.specList")
+	end
+	return spec
+end
 function __bridge_doc(env, hit, locals)
 	local S = __state_dump
 	return S.encodeDoc({ build = __pob_name, hit = hit .. "#1", probe = hit, n = 1, kind = "out",
@@ -176,11 +200,31 @@ for id, node in pairs(b.spec.nodes) do
 		nodeFinal[id] = node.finalModList
 	end
 end
+-- the calc's writes onto the build's items: CalcSetup.lua:293-298 (MAIN) item.jewelRadiusData,
+-- :852 / :866 item.jewelData.limitDisabled (written for the jewels of allocated sockets only, so
+-- only those are reported: elsewhere the live model keeps its own value, as PoB's does)
+local itemRadius, itemLimit = { }, { }
+for id, item in pairs(b.itemsTab.items) do
+	if item.jewelRadiusData then
+		itemRadius[id] = item.jewelRadiusData
+	end
+end
+for _, slot in ipairs(b.itemsTab.orderedSlots) do
+	if slot.nodeId and ct.mainEnv.allocNodes[slot.nodeId] then
+		local item = b.itemsTab.items[slot.selItemId]
+		if item and item.id and type(item.jewelData) == "table" then
+			itemLimit[item.id] = item.jewelData.limitDisabled and true or false
+		end
+	end
+end
 local calcsDoc = __bridge_doc_nocache(ct.calcsEnv, "bridge:calcsEnv",
 	{ socketGroupList = b.skillsTab.socketGroupList })
 local mainDoc = __bridge_doc(ct.mainEnv, "bridge:mainEnv",
 	{ socketGroupList = b.skillsTab.socketGroupList, groupLoad = groupLoad, gemLoad = gemLoad, nodeFinal = nodeFinal,
-	  miscCalcBase = ct.miscCalculator and ct.miscCalculator[2] })
+	  miscCalcBase = ct.miscCalculator and ct.miscCalculator[2],
+	  -- CalcSetup.lua:1586 (CALCS) and :1589 (MAIN) clamp these in the model
+	  mainSocketGroup = b.mainSocketGroup, skillNumber = ct.input.skill_number,
+	  itemRadius = itemRadius, itemLimit = itemLimit })
 return mainDoc, calcsDoc
 "#;
 
@@ -252,6 +296,10 @@ pub struct LuaSession {
 
 impl LuaSession {
     /// Boot PoB at `src` and load `xml` as build `name` (the bridge's tags installed first).
+    ///
+    /// Takes the machine-wide oracle lock (`OracleLock::acquire`, a `flock` on a fresh fd):
+    /// a caller in this process that already holds an `OracleLock` must set
+    /// `POB_ORACLE_LOCK_HELD`, or this call blocks forever.
     pub fn load(src: &Path, xml: &str, name: &str) -> Result<Self, String> {
         let lock = OracleLock::acquire().map_err(|e| e.0)?;
         let root = std::fs::canonicalize(src).map_err(|e| format!("{}: {e}", src.display()))?;
@@ -332,8 +380,18 @@ pub fn override_lua(build: &Build, ov: Option<&Override>) -> Result<String, Stri
         return Ok("return nil".to_owned());
     };
     let mut s = String::from("local o = { }\n");
-    if ov.spec.get().is_some() {
-        return Err("LuaCalcBridge: override.spec cannot cross to the Lua calc".to_owned());
+    if let Some(spec) = ov.spec.get() {
+        // TreeTab.lua:70 `calcFunc({ spec = spec })`, spec an entry of the build's spec list
+        // (TreeTab:Save/Load keep its order)
+        let i = build
+            .treeTab
+            .specList
+            .with(|l| l.iter().position(|x| Rc::ptr_eq(x, &spec)))
+            .ok_or_else(|| {
+                "LuaCalcBridge: override.spec is not in build.treeTab.specList and cannot cross to the Lua calc"
+                    .to_owned()
+            })?;
+        let _ = writeln!(s, "o.spec = __bridge_spec(b, {})", i + 1);
     }
     let nodes = |s: &mut String, field: &str, map: &Shared<pob_lua::LjIntMap<NodeRef>>| {
         let _ = writeln!(s, "o.{field} = {{ }}");
@@ -451,6 +509,10 @@ pub struct AdoptReport {
     pub rebound: usize,
     /// Spec nodes whose `finalModList` was set.
     pub nodes_final: usize,
+    /// Item references (env maps, item lists, tables) re-pointed at `build.itemsTab.items`.
+    pub items_rebound: usize,
+    /// `skillsTab.displayGroup` was a group the calc removed (CalcSetup.lua:1556-1558).
+    pub display_group_cleared: bool,
 }
 
 fn inj(doc: &StateDump, build: &BuildRef, rep: &mut AdoptReport) -> Result<Injected, String> {
@@ -486,11 +548,17 @@ pub fn adopt_build_output(
         .clone()
         .ok_or_else(|| "LuaCalcBridge: the calcsEnv document has no env".to_owned())?;
 
-    let mut rb = Rebind::default();
+    let mut rb = Rebind::new(build);
     adopt_socket_groups(build, &main.locals, &calcs.locals, &mut rb, &mut rep)?;
+    adopt_model_writes(build, &main.locals);
     rb.env(&main_env);
     rb.env(&calcs_env);
     for g in build.skillsTab.socketGroupList.get().snapshot() {
+        // `group.sourceItem`, `group.explodeSources` (CalcSetup.lua:1486, :1520)
+        rb.table(&g.extra);
+        if let Some(t) = g.explodeSources.get() {
+            rb.table(&t);
+        }
         if let Some(l) = g.displaySkillList.get() {
             rb.skills(&l);
         }
@@ -515,6 +583,7 @@ pub fn adopt_build_output(
     }
     rb.table(&base_output);
     rep.rebound = rb.rebound;
+    rep.items_rebound = rb.items_rebound;
     rep.nodes_final = adopt_final_mod_lists(build, main.locals.get("nodeFinal"));
 
     // CalcsTab.lua:442 self.powerBuildFlag = true
@@ -653,8 +722,64 @@ fn adopt_socket_groups(
             }
         }
     }
+    // CalcSetup.lua:1556-1558: a removed group stops being the skills tab's display group
+    if let Some(d) = build.skillsTab.displayGroup.get() {
+        if old.iter().any(|g| Rc::ptr_eq(g, &d)) && !new_list.iter().any(|g| Rc::ptr_eq(g, &d)) {
+            build.skillsTab.displayGroup.set(None);
+            rep.display_group_cleared = true;
+        }
+    }
     live_list.with_mut(|v| *v = new_list);
     Ok(())
+}
+
+/// The calc's other writes into the model (module doc, 3.): CalcSetup.lua:1589
+/// `build.mainSocketGroup`, :1586 `calcsTab.input.skill_number` (the clamps to the final group
+/// count), :293-298 `item.jewelRadiusData`, :852 / :866 `item.jewelData.limitDisabled`.
+fn adopt_model_writes(build: &BuildRef, main: &pob_oracle::inject::Locals) {
+    if let Some(v) = main.get("mainSocketGroup").and_then(Val::opt_num) {
+        build.mainSocketGroup.set(v);
+    }
+    if let Some(v) = main.get("skillNumber").and_then(Val::opt_num) {
+        build.calcsTab.input.set("skill_number", v);
+    }
+    let live = |id: i64| build.itemsTab.items.with(|m| m.get(&(id as u32)).cloned());
+    if let Some(t) = main.get("itemRadius").and_then(Val::table) {
+        for (k, v) in t.pairs() {
+            let (Key::I(id), Some(src)) = (k, v.table()) else {
+                continue;
+            };
+            let Some(item) = live(id) else { continue };
+            // L295-297: created once, then one entry per pass (entries accumulate, as in PoB)
+            let dst = match item.jewelRadiusData.get() {
+                Some(d) => d,
+                None => {
+                    let d = Table::new();
+                    item.jewelRadiusData.set(Some(d.clone()));
+                    d
+                }
+            };
+            for (nk, nv) in src.pairs() {
+                dst.set(nk, nv);
+            }
+        }
+    }
+    if let Some(t) = main.get("itemLimit").and_then(Val::table) {
+        for (k, v) in t.pairs() {
+            let Key::I(id) = k else { continue };
+            let Some(jd) = live(id).and_then(|i| i.jewelData.get()) else {
+                continue;
+            };
+            jd.set(
+                "limitDisabled",
+                if v.truthy() {
+                    Val::Bool(true)
+                } else {
+                    Val::Nil
+                },
+            );
+        }
+    }
 }
 
 /// Every typed field of a socket group from a document's group (the gem list excepted).
@@ -798,17 +923,62 @@ fn adopt_final_mod_lists(build: &BuildRef, v: Option<&Val>) -> usize {
 }
 
 /// Re-points the injected graph at the live socket groups and gem instances (CCR-0088 §1).
-#[derive(Default)]
+/// Re-points the injected graph at the live socket groups, gem instances and items (CCR-0088
+/// §1): groups and gems by the map [`adopt_socket_groups`] fills, items by `item.id` (an item
+/// the calc made itself, e.g. Energy Blade's, CalcSetup.lua:1124, has no id and stays a copy).
 struct Rebind {
     groups: HashMap<usize, SocketGroupRef>,
     gems: HashMap<usize, GemInstanceRef>,
+    /// `build.itemsTab.items`
+    items: HashMap<u32, ItemRef>,
     seen: std::collections::HashSet<usize>,
     rebound: usize,
+    items_rebound: usize,
 }
 
 impl Rebind {
+    fn new(build: &Build) -> Self {
+        Self {
+            groups: HashMap::new(),
+            gems: HashMap::new(),
+            items: build
+                .itemsTab
+                .items
+                .with(|m| m.iter().map(|(k, v)| (*k, v.clone())).collect()),
+            seen: Default::default(),
+            rebound: 0,
+            items_rebound: 0,
+        }
+    }
+
     fn first(&mut self, p: usize) -> bool {
         self.seen.insert(p)
+    }
+
+    /// The live item an injected copy stands for (`None`: keep it).
+    fn live_item(&mut self, it: &ItemRef) -> Option<ItemRef> {
+        let id = it.id.get()?;
+        if id < 0.0 || id != id.trunc() {
+            return None;
+        }
+        let live = self.items.get(&(id as u32))?;
+        if Rc::ptr_eq(live, it) || live.name.get() != it.name.get() {
+            return None;
+        }
+        self.items_rebound += 1;
+        Some(live.clone())
+    }
+
+    /// `env.flasks` / `env.tinctures` (CalcSetup.lua:1031, :1047; read by ItemsTab.lua:4868,
+    /// :4904 with the live item).
+    fn item_flags(&mut self, m: &Shared<PtrMap<Item, bool>>) {
+        let pairs = m.with(PtrMap::pairs);
+        let mut out = PtrMap::new();
+        for (k, v) in pairs {
+            let k = self.live_item(&k).unwrap_or(k);
+            out.set(&k, Some(v));
+        }
+        m.with_mut(|x| *x = out);
     }
 
     fn env(&mut self, env: &EnvRef) {
@@ -818,11 +988,46 @@ impl Rebind {
             self.actor(&m);
         }
         self.skills(&env.auxSkillList.get());
+        self.item_flags(&env.flasks.get());
+        self.item_flags(&env.tinctures.get());
+        if let Some(it) = env.aegisItem.get() {
+            if let Some(l) = self.live_item(&it) {
+                env.aegisItem.set(Some(l));
+            }
+        }
+        for list in [
+            &env.radiusJewelList,
+            &env.grantedSkills,
+            &env.grantedSkillsNodes,
+            &env.grantedSkillsItems,
+            &env.explodeSources,
+        ] {
+            for t in list.get().snapshot() {
+                self.table(&t);
+            }
+        }
+        self.table(&env.requirementsTableItems.get());
     }
 
     fn actor(&mut self, a: &ActorRef) {
         if !self.first(rc_ptr(a)) {
             return;
+        }
+        // `breakdown.X.slots[i].item` (CalcDefence.lua, the armour breakdown) and other items
+        // the breakdown tables hold
+        if let Some(b) = a.breakdown.get() {
+            self.table(&b.t);
+        }
+        // `actor.itemList[slotName] = item` (CalcSetup.lua:1068)
+        let list: Vec<(pob_lua::Name, ItemRef)> = a
+            .itemList
+            .with(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+        for (k, it) in list {
+            if let Some(l) = self.live_item(&it) {
+                a.itemList.with_mut(|m| {
+                    m.insert(k, l);
+                });
+            }
         }
         if let Some(s) = a.mainSkill.get() {
             self.skill(&s);
@@ -872,7 +1077,11 @@ impl Rebind {
             return;
         }
         for (k, v) in t.pairs() {
-            if let Some(g) = v.obj::<GemInstance>() {
+            if let Some(it) = v.obj::<Item>() {
+                if let Some(l) = self.live_item(&it) {
+                    t.set(k, Val::Obj(l));
+                }
+            } else if let Some(g) = v.obj::<GemInstance>() {
                 if let Some(l) = self.gems.get(&rc_ptr(&g)) {
                     if !Rc::ptr_eq(l, &g) {
                         t.set(k, Val::Obj(l.clone()));
@@ -1028,7 +1237,7 @@ impl BridgeMiscCalc {
             .ok_or_else(|| "LuaCalcBridge: calcFunc returned no output table".to_owned())?;
         // the output's model objects (`ReqStrItem.sourceGem`, …) are the live build's: the call
         // VM loaded the live model, so its groups and gems match by position (CCR-0088 §1)
-        let mut rb = Rebind::default();
+        let mut rb = Rebind::new(&self.build);
         let live = self.build.skillsTab.socketGroupList.get().snapshot();
         for (g, l) in doc_list::<SocketGroup>(i.locals.get("socketGroupList"))
             .iter()
@@ -1041,6 +1250,7 @@ impl BridgeMiscCalc {
         }
         rb.table(&out);
         rep.rebound = rb.rebound;
+        rep.items_rebound = rb.items_rebound;
         *self.report.borrow_mut() = Some(rep);
         Ok(out)
     }
