@@ -1,0 +1,10 @@
+# U16: launch:ShowErrMsg prompt; Ctrl+C copies it, Enter dismisses it.
+#! u16-setup prompt
+fixture userdir=../../fixtures/user1
+frames 2
+key-down CTRL
+press c
+key-up CTRL
+frames 1
+press RETURN
+frames 2

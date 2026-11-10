@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Mode mode="BOGUS">
+		<Arg boolean="false"/>
+	</Mode>
+	<Misc buildSortMode="EDITED"/>
+</PathOfBuilding>

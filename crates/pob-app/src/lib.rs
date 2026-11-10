@@ -8,7 +8,9 @@
     clippy::new_ret_no_self,
     clippy::module_inception,
     clippy::wildcard_imports,
-    clippy::too_many_arguments
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::many_single_char_names
 )]
 
 pub mod app;

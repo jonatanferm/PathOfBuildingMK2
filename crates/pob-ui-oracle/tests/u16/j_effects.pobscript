@@ -1,0 +1,8 @@
+# U16: SetWindowTitleSubtext and Ctrl+PrintScreen (side effects).
+#! u16-setup status
+fixture userdir=../../fixtures/user1
+frames 1
+key-down CTRL
+press PRINTSCREEN
+key-up CTRL
+frames 1
