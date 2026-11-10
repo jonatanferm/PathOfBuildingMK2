@@ -17,8 +17,9 @@
 //! that `ProcessStats` makes for a node, with its result. A node record (`node`, `ml`, `mods`,
 //! `mastery`, `legion`, `tattoo`) that differs although its structural fields agree, and for
 //! which at least one of those calls gives a different result in `pob_modparser::parseMod`
-//! (the native ModParser: units MP1-MP7), is reported as "parser-dependent"; every other
-//! mismatch fails the test. Orders that PoB itself does not fix (`tree.nodes` order: CCR-0024 §5) are
+//! (the native ModParser: units MP1-MP7), is classified as "parser-dependent" (a separate count
+//! in the report); both kinds fail the test (MP0-MP7 are ported: the bound on parser-dependent
+//! records is 0). Orders that PoB itself does not fix (`tree.nodes` order: CCR-0024 §5) are
 //! reported, not asserted.
 //!
 //! Fails without a PoB checkout or `data/dump` (`pob_testpaths::require`; `POB_ALLOW_SKIP=1`
@@ -35,7 +36,7 @@ use pob_calc::classes::passive_tree::{
 };
 use pob_calc::classes::{ModList, Node, NodeRef, PassiveTree};
 use pob_calc::lua_table::{Key, Val};
-use pob_gamedata::mod_tools::formatMod;
+use pob_gamedata::mod_tools::{formatMod, FUNCTION_TEXT};
 use pob_gamedata::{data, n, ModRef, Name};
 use pob_lua::{lfmt, tostring_num};
 use pob_oracle::headless::{Engine, Ret};
@@ -96,8 +97,8 @@ function __pt.dump(ver)
     data.setJewelRadiiGlobally(ver)
     local tree = main:LoadTree(ver)
     local out = {}
-    -- formatValue prints a function value (jewel funcs) with its address; the port's
-    -- formatValue prints "table" for it (pob_gamedata::mod_tools::tostring_value)
+    -- formatValue prints a function value (jewel funcs) with its address; the Rust side prints
+    -- pob_gamedata::mod_tools::FUNCTION_TEXT for it, and `fn_text` maps both to "table"
     local function emit(k, v) out[#out + 1] = k .. "\t" .. (v:gsub("\n", "\\n"):gsub("function: 0x%x+", "table")) end
     local function esc(s) if s == nil then return "nil" end return (tostring(s):gsub("\n", "\\n")) end
     local function f17(x) if x == nil then return "nil" end return string.format("%.17g", x) end
@@ -296,6 +297,12 @@ fn key_text(k: Key) -> String {
         Key::I(i) => i.to_string(),
         Key::B(b) => b.to_string(),
     }
+}
+
+/// The Lua side's `gsub("function: 0x%x+", "table")` (a jewel closure's address) on the Rust
+/// side's text for a closure (`FUNCTION_TEXT`).
+fn fn_text(s: String) -> String {
+    s.replace(FUNCTION_TEXT, "table")
 }
 
 fn ms(m: &ModRef) -> String {
@@ -718,8 +725,9 @@ fn rust_dump(ver: &str, order: Option<&[i64]>) -> BTreeMap<String, String> {
     for (id, dn) in tattoo.table(n!("idMap")).expect("idMap").pairs() {
         out.insert(format!("tidmap:{}", key_text(id)), esc(&tostr(&dn)));
     }
+    // the Lua side's `emit`: gsub("\n", "\\n"), then a closure's text as "table"
     for v in out.values_mut() {
-        *v = v.replace('\n', "\\n");
+        *v = fn_text(v.replace('\n', "\\n"));
     }
     out
 }
@@ -798,7 +806,11 @@ fn pos_eq(a: &str, b: &str) -> bool {
 /// `modLib.parseMod(line)` on the Rust side, serialised as the Lua side does (`pres`).
 fn rust_pres(line: &str) -> String {
     let (list, extra) = pob_modparser::parseMod(line, false);
-    let p: Vec<String> = list.iter().flatten().map(formatMod).collect();
+    let p: Vec<String> = list
+        .iter()
+        .flatten()
+        .map(|m| fn_text(formatMod(m)))
+        .collect();
     format!(
         "{}/{}/{}",
         if list.is_some() { "L" } else { "N" },
@@ -807,7 +819,7 @@ fn rust_pres(line: &str) -> String {
     )
 }
 
-/// A node record mismatch that the native ModParser (units MP1-MP7, still stubs) explains:
+/// A node record mismatch that the native ModParser (units MP1-MP7) explains:
 /// PoB's `ProcessStats` made at least one `modLib.parseMod` call for this node (a single or a
 /// combined line; the oracle records each call with its result) whose result the Rust
 /// `pob_modparser::parseMod` does not reproduce; and the record differs only in parse
@@ -1041,9 +1053,13 @@ fn passive_tree_acceptance() {
 const PT_VERSIONS: usize = 41;
 /// `(tree nodes, compared records)` over all 41 versions; measured by HYG2 on rust-port 746b103.
 const PT_MIN_COVERAGE: (usize, usize) = (118_817, 903_303);
-/// Records excused as parser-dependent (a parse PoB makes that the native ModParser does not
-/// reproduce); measured by HYG2 on rust-port 746b103.
-const PT_MAX_PARSER_DEPENDENT: usize = 48;
+/// Records allowed to be parser-dependent (a parse PoB makes that the native ModParser does not
+/// reproduce). HYG2 measured 48 on rust-port 746b103: all node 50692 ("Non-Unique Jewels cause
+/// … Transformed to apply to Fire Damage", 3_22-3_29 and ruthless) with an ExtraJewelFunc mod,
+/// which differed only in the closure's text (Lua `function: 0x…` normalised to `table` by the
+/// Lua emit, Rust `FUNCTION_TEXT` was not); `fn_text` normalises both. MPFIX, rust-port 387db54:
+/// 0.
+const PT_MAX_PARSER_DEPENDENT: usize = 0;
 
 /// CCR-0024 §5 evidence: PoB's own `pairs(tree.nodes)` order of a 3.10+ tree differs between
 /// Lua states (the string key `root` sits in the hash part with a per-state seeded hash).

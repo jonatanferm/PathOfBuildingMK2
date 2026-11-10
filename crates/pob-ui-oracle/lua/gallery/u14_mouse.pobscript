@@ -1,0 +1,108 @@
+# Interactions of the "u14_mouse" gallery (U14): the popups driven by the mouse. main.screenH is
+# pinned to 720, so a popup of height h sits at y = floor((720 - h) / 2) and x is centred on 640
+# at both acceptance screens.
+frames 2
+# open the message popup; the host button under the dim still shows its hover state
+move 100 30
+click LEFTBUTTON
+frames 1
+# a click outside the popup does nothing (the popup gets all input)
+click LEFTBUTTON
+# hover Ok, then click it: closed from its own button (OnKeyUp -> onClick -> ClosePopup)
+move 640 399
+frames 1
+click LEFTBUTTON
+frames 1
+# two-button confirm: Cancel, then Delete
+move 100 60
+click LEFTBUTTON
+move 680 383
+frames 1
+click LEFTBUTTON
+move 100 60
+click LEFTBUTTON
+move 600 383
+click LEFTBUTTON
+frames 1
+# three-button confirm: the centre (extra) button, the left (confirm) one, the right (Cancel) one
+move 100 90
+click LEFTBUTTON
+move 640 383
+frames 1
+click LEFTBUTTON
+move 100 90
+click LEFTBUTTON
+move 540 383
+click LEFTBUTTON
+move 100 90
+click LEFTBUTTON
+move 740 383
+click LEFTBUTTON
+frames 1
+# custom: type, stack a message popup from the string-anchored button (the title counts 2),
+# close the stacked one
+move 100 120
+click LEFTBUTTON
+type "hi"
+move 748 310
+frames 1
+click LEFTBUTTON
+frames 1
+move 640 383
+click LEFTBUTTON
+frames 1
+# click into the edit, type, then Ok
+move 600 310
+click LEFTBUTTON
+type "!"
+move 595 430
+frames 1
+click LEFTBUTTON
+frames 1
+# custom: Cancel by mouse
+move 100 120
+click LEFTBUTTON
+move 685 430
+click LEFTBUTTON
+# new folder: Create by mouse; the same name again stacks the error popup; Ok, then Cancel
+move 100 150
+click LEFTBUTTON
+type "Mouse Dir"
+move 595 390
+frames 1
+click LEFTBUTTON
+frames 1
+move 100 150
+click LEFTBUTTON
+type "Mouse Dir"
+move 595 390
+click LEFTBUTTON
+frames 1
+move 640 383
+click LEFTBUTTON
+move 685 390
+click LEFTBUTTON
+frames 1
+# cloud error: the help button's tooltip, OpenURL, then Ok
+move 100 180
+click LEFTBUTTON
+move 585 447
+frames 2
+click LEFTBUTTON
+move 695 447
+click LEFTBUTTON
+frames 1
+# scroll popup: the wheel over the bar, a knob drag, ESCAPE
+move 100 210
+click LEFTBUTTON
+move 777 350
+wheel down
+frames 1
+key-down LEFTBUTTON
+frames 1
+move 777 400
+frames 1
+key-up LEFTBUTTON
+frames 1
+press ESCAPE
+frames 2

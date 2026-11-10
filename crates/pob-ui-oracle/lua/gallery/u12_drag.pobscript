@@ -1,0 +1,76 @@
+# Interactions of the "u12_drag" gallery (U12).
+frames 2
+# reorder inside src: row 2 to the gap above row 5 (OnOrderChange 2>4)
+move 100 66
+key-down LEFTBUTTON
+frames 1
+move 100 80
+frames 1
+move 100 106
+frames 2
+key-up LEFTBUTTON
+frames 1
+# src row 1 to dst (inserted at dst's marker; OnDragSend; drag text off the source)
+move 100 50
+key-down LEFTBUTTON
+frames 1
+move 100 70
+frames 1
+move 400 60
+frames 2
+key-up LEFTBUTTON
+frames 1
+# src row 3 over the refusing list: nothing happens on release
+move 100 82
+key-down LEFTBUTTON
+frames 1
+move 100 100
+frames 1
+move 650 80
+frames 2
+key-up LEFTBUTTON
+frames 1
+# src row 1 onto the path (no CanReceiveDrag: armed; green folder buttons)
+move 100 50
+key-down LEFTBUTTON
+frames 1
+move 100 70
+frames 1
+move 200 282
+frames 2
+key-up LEFTBUTTON
+frames 1
+# src row 2 onto a folder row of the folders list
+move 100 66
+key-down LEFTBUTTON
+frames 1
+move 100 86
+frames 1
+move 650 206
+frames 2
+key-up LEFTBUTTON
+frames 1
+# inside the folders list (its own drag target, CanDragToValue): Node 1 onto Node 4
+move 650 190
+key-down LEFTBUTTON
+frames 1
+move 650 222
+frames 2
+move 650 238
+frames 2
+key-up LEFTBUTTON
+frames 1
+# dst row 1 back to src
+move 400 50
+key-down LEFTBUTTON
+frames 1
+move 400 70
+frames 1
+move 100 140
+frames 2
+key-up LEFTBUTTON
+frames 1
+# the base breadcrumb of the path
+move 30 282
+click LEFTBUTTON
+frames 2

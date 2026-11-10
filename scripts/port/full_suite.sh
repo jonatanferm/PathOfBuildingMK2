@@ -15,6 +15,11 @@ stamp=$(date +%Y%m%d-%H%M)
 out="$main/.parity/fullsuite/$stamp"; mkdir -p "$out"
 { echo "full suite at rust-port $head, started $(date '+%F %T')"; } > "$out/summary.txt"
 cd "$wt"
+# Gitignored inputs live in the main checkout: tests that look in ancestor dirs or $POB_ROOT
+# (fonts, upstream PoB for the UI patches) failed in the first run without these.
+[ -e "$wt/.PathOfBuilding" ] || ln -s "$main/.PathOfBuilding" "$wt/.PathOfBuilding"
+export POB_ROOT="$main/.PathOfBuilding" POB_SRC="$main/.PathOfBuilding/src" POB_DATA_DIR="$main/data"
+export POB_ORACLE_REQUIRE=1
 for c in $crates; do
     [ -d "crates/$c" ] || continue
     t0=$(date +%s)

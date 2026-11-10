@@ -1,0 +1,170 @@
+# Interactions of the "u11_multi" gallery (U11).
+frames 2
+# hover (lighter background), click into line 2: caret at the cursor, no select-all
+move 150 46
+frames 1
+click LEFTBUTTON
+type "abc"
+press RETURN
+type "new line"
+# TAB: TabAdvance keeps the focus (no group), SG's extra OnChar inserts the Tab char
+key-down TAB
+key-up TAB
+type "after tab"
+frames 1
+# vertical and horizontal caret moves
+press UP
+press UP
+press DOWN
+press LEFT
+press RIGHT
+press HOME
+press END
+key-down CTRL
+press HOME
+key-up CTRL
+frames 1
+key-down CTRL
+press END
+key-up CTRL
+press PAGEUP
+press PAGEDOWN
+frames 1
+# multi-line selection with shift+arrows, copy
+key-down SHIFT
+press UP
+press UP
+press LEFT
+press HOME
+key-up SHIFT
+frames 2
+key-down CTRL
+press c
+key-up CTRL
+press RIGHT
+frames 1
+# double clicks: a word, a run of spaces after a tab, a run of punctuation
+move 60 30
+click LEFTBUTTON
+click LEFTBUTTON
+frames 1
+type "W"
+move 120 62
+click LEFTBUTTON
+click LEFTBUTTON
+frames 1
+move 252 46
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+# drag selection across lines, cut, undo, redo
+move 40 30
+key-down LEFTBUTTON
+frames 1
+move 200 78
+frames 2
+move 300 95
+frames 2
+key-up LEFTBUTTON
+frames 1
+key-down CTRL
+press x
+key-up CTRL
+frames 1
+key-down CTRL
+press z
+key-up CTRL
+frames 1
+key-down CTRL
+press y
+press z
+key-up CTRL
+frames 1
+# paste a block with \r\n and a control character (ReplaceSel/Insert filtering)
+paste-clipboard "pasted\r\nblock\x01x"
+key-down CTRL
+press v
+key-up CTRL
+frames 1
+# ctrl backspace / delete, also across a line start
+press HOME
+key-down CTRL
+press BACK
+press BACK
+press DELETE
+press DELETE
+key-up CTRL
+frames 1
+# grow past the box: the vertical scrollbar appears, the caret scrolls into view
+type "\r\r\r\r\r\r\r"
+type "a very long line that is much wider than the four hundred pixel box of the notes edit"
+frames 2
+# wheel scrolls the focused edit; PAGEUP moves the caret back up
+wheel up
+wheel up
+frames 1
+wheel down
+frames 1
+press PAGEUP
+frames 1
+# zoom: Ctrl +/- and Ctrl+wheel, Ctrl+0 resets
+key-down CTRL
+press +
+press +
+press -
+key-up CTRL
+frames 1
+key-down CTRL
+wheel up
+wheel up
+frames 1
+wheel down
+frames 1
+press 0
+key-up CTRL
+frames 1
+# the small edit: scrollbars from the start; a click on its vertical scrollbar's down arrow goes
+# through the edit's child dispatch; wheel after focusing
+move 100 260
+click LEFTBUTTON
+frames 1
+move 252 278
+key-down LEFTBUTTON
+frames 3
+key-up LEFTBUTTON
+frames 1
+move 100 260
+wheel down
+wheel down
+frames 1
+key-down CTRL
+press END
+key-up CTRL
+frames 1
+press HOME
+frames 1
+# the resize dragger: drag, then right click toggles min/max
+move 760 120
+frames 1
+key-down LEFTBUTTON
+frames 1
+move 820 220
+frames 2
+move 840 240
+frames 1
+key-up LEFTBUTTON
+frames 1
+move 840 240
+click RIGHTBUTTON
+frames 1
+move 660 80
+click RIGHTBUTTON
+frames 2
+move 600 100
+click LEFTBUTTON
+type "typed"
+press ESCAPE
+frames 1
+move 900 600
+click LEFTBUTTON
+frames 2
