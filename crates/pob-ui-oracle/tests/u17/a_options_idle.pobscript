@@ -1,0 +1,11 @@
+# U17: the Options popup (two columns at both acceptance screens), hover with tooltips, the
+# background (main:DrawBackground, sublayer -100) behind it.
+#! u17-setup options
+fixture userdir=../../fixtures/user1
+frames 3
+move 360 210
+frames 3
+move 360 250
+frames 2
+move 930 260
+frames 2

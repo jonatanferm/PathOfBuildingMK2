@@ -1,0 +1,19 @@
+# U17: two Update popups (display only), the changelog since 2.60.0, scrolling; Cancel closes
+# the top one; Update closes the other (the stand-in mode's CanExit "UPDATE" is nil, and
+# launch:ApplyUpdate(nil) does nothing).
+screen 1280 800 dpi 1.0
+#! u17-setup dev
+#! u17-setup version
+#! u17-setup update
+#! u17-setup update
+fixture userdir=../../fixtures/user1
+frames 2
+move 640 400
+wheel down 8
+frames 2
+move 685 680
+click LEFTBUTTON
+frames 2
+move 595 680
+click LEFTBUTTON
+frames 2
