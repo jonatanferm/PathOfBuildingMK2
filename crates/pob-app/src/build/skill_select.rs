@@ -378,9 +378,13 @@ pub fn refresh_skill_select_controls(cx: &mut Cx, controls: CtrlId, mainGroup: f
                     }),
                 ));
             }
-            // L1697 (`srcInstance.skillMinion or list[1]`: with no skillMinion the value is the
-            // first entry, a table, which equals no `minionId`)
-            let value = srcInstance().skillMinion.get();
+            // L1697 (`srcInstance["skillMinion"..suffix] or list[1]`: with no such field the
+            // value is the first entry, a table, which equals no `minionId`)
+            let value = if calcs {
+                srcInstance().skillMinionCalcs.get()
+            } else {
+                srcInstance().skillMinion.get()
+            };
             DropDownControl::sel_by_value(cx, main_skill_minion, &|item| {
                 value.as_ref().is_some_and(|v| {
                     item.get::<MinionListValue>()

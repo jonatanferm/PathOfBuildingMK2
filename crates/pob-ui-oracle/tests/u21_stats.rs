@@ -14,6 +14,11 @@
 //!   unallocating one notable, allocating one (with `nodeCount = 2`) and the full-DPS calculator,
 //!   each compared line by line (size and text) with PoB's tooltip; the Rust side's outputs come
 //!   from the bridge's `MiscCalc`.
+//! * `u21_sidebar_breakdown`: `buildMode:GetSidebarBreakdown` (through it `BuildBreakdownIndex`
+//!   and `GetStatBreakdownKey`) for the 6 fixtures: every index key, and every display-stat row
+//!   of both lists with its breakdown key and with its raw `breakdown or stat`; each result is
+//!   serialized with sorted keys (CalcSectionControl's `calcSection` / `enabled` skipped) and
+//!   compared with PoB's.
 //!
 //! Stand-ins (both sides run the same ones): `main.modes.LIST` draws nothing; `UpdateClassDropdowns`
 //! records its argument as a window title and `SyncLoadouts` does nothing (U20);
@@ -813,6 +818,231 @@ fn u21_compare_tooltips() {
     }
     println!("u21_compare_tooltips: {compared} comparisons, {lines_total} tooltip lines");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+// ---- u21_sidebar_breakdown ------------------------------------------------------------------
+
+/// CalcSectionControl's own fields on the section data (CalcSectionControl.lua:38 `calcSection`,
+/// the per-frame `data.enabled`): not part of the index (stats.rs DIVERGENCE(section-list)).
+const SECTION_CONTROL_FIELDS: &str = "{ calcSection = true, enabled = true }";
+
+/// The Lua serializer: keys sorted (by type name, then value), functions as `function`,
+/// CalcSectionControl fields skipped.
+const LUA_SER: &str = r#"
+local skip = __SKIP__
+local function ser(v)
+	local t = type(v)
+	if t == "table" then
+		local keys = { }
+		for k in pairs(v) do
+			if not skip[k] then table.insert(keys, k) end
+		end
+		table.sort(keys, function(a, b)
+			local ta, tb = type(a), type(b)
+			if ta ~= tb then return ta < tb end
+			if ta == "boolean" then return not a and b end
+			return a < b
+		end)
+		local parts = { }
+		for _, k in ipairs(keys) do
+			table.insert(parts, tostring(k) .. "=" .. ser(v[k]))
+		end
+		return "{" .. table.concat(parts, ",") .. "}"
+	elseif t == "string" then
+		return '"' .. v .. '"'
+	elseif t == "function" then
+		return "function"
+	else
+		return tostring(v)
+	end
+end
+"#;
+
+/// [`LUA_SER`] on the Rust side.
+fn rust_ser(v: &Val) -> String {
+    use pob_calc::prelude::Key;
+    match v {
+        Val::Nil => "nil".to_owned(),
+        Val::Bool(b) => b.to_string(),
+        Val::Num(n) => pob_lua::tostring_num(*n),
+        Val::Str(s) => format!("\"{s}\""),
+        Val::Table(t) => {
+            let mut kv: Vec<(Key, Val)> = t
+                .pairs()
+                .filter(|(k, _)| {
+                    !matches!(k, Key::S(n) if &**n == "calcSection" || &**n == "enabled")
+                })
+                .collect();
+            // Lua type names order: boolean < number < string
+            let rank = |k: &Key| match k {
+                Key::B(_) => 0,
+                Key::I(_) => 1,
+                Key::S(_) => 2,
+            };
+            kv.sort_by(|(a, _), (b, _)| {
+                rank(a).cmp(&rank(b)).then_with(|| match (a, b) {
+                    (Key::B(x), Key::B(y)) => x.cmp(y),
+                    (Key::I(x), Key::I(y)) => x.cmp(y),
+                    (Key::S(x), Key::S(y)) => x.as_bytes().cmp(y.as_bytes()),
+                    _ => std::cmp::Ordering::Equal,
+                })
+            });
+            let parts: Vec<String> = kv
+                .iter()
+                .map(|(k, v)| {
+                    let ks = match k {
+                        Key::B(b) => b.to_string(),
+                        Key::I(i) => i.to_string(),
+                        Key::S(s) => s.to_string(),
+                    };
+                    format!("{ks}={}", rust_ser(v))
+                })
+                .collect();
+            format!("{{{}}}", parts.join(","))
+        }
+        other => format!("{other:?}"),
+    }
+}
+
+fn lua_sidebar(lua: &mut LuaSide) -> Vec<String> {
+    let mut code = LUA_SER.replace("__SKIP__", SECTION_CONTROL_FIELDS);
+    code.push_str(
+        r#"
+local b = main.modes.BUILD
+local res = { }
+local keys = { }
+for k in pairs(b:BuildBreakdownIndex()) do table.insert(keys, k) end
+table.sort(keys)
+for _, k in ipairs(keys) do
+	table.insert(res, "index " .. k .. " => " .. ser(b:GetSidebarBreakdown(k, nil, nil, "player")))
+end
+for _, list in ipairs({ { b.displayStats, "player" }, { b.minionDisplayStats, "minion" } }) do
+	for i, statData in ipairs(list[1]) do
+		local ignored
+		if statData.ignoredSections then
+			ignored = { }
+			for _, label in ipairs(statData.ignoredSections) do ignored[label] = true end
+		end
+		local key = b:GetStatBreakdownKey(statData, list[2])
+		table.insert(res, list[2] .. " " .. i .. " " .. tostring(key) .. " => " .. ser(b:GetSidebarBreakdown(key, statData.modNames, ignored, list[2])))
+		local raw = statData.breakdown or statData.stat
+		if raw then
+			table.insert(res, list[2] .. " " .. i .. " raw " .. raw .. " => " .. ser(b:GetSidebarBreakdown(raw, statData.modNames, ignored, "player")))
+		end
+	end
+end
+return res
+"#,
+    );
+    lua.app
+        .with_vm(|pob| pob.eval::<Vec<String>>(&code))
+        .unwrap_or_else(|e| panic!("Lua sidebar breakdown: {e}"))
+}
+
+fn rust_sidebar(rust: &mut RustSide) -> Vec<String> {
+    use pob_app::build::display_stats;
+    let cx = &mut rust.app.cx;
+    let mut res = Vec::new();
+    let mut keys: Vec<String> = stats::build_breakdown_index(cx).keys().cloned().collect();
+    keys.sort();
+    for k in keys {
+        let t = stats::get_sidebar_breakdown(cx, Some(&k), None, None, Some("player"));
+        res.push(format!("index {k} => {}", rust_ser(&Val::Table(t))));
+    }
+    for (list, actor) in [
+        (display_stats::displayStats(), "player"),
+        (display_stats::minionDisplayStats(), "minion"),
+    ] {
+        for (i, stat_data) in list.iter().enumerate() {
+            let i = i + 1;
+            let ignored: Option<Vec<String>> = stat_data
+                .ignoredSections
+                .map(|s| s.iter().map(|x| (*x).to_owned()).collect());
+            let key = stats::get_stat_breakdown_key(cx, stat_data, actor);
+            let t = stats::get_sidebar_breakdown(
+                cx,
+                key.as_deref(),
+                stat_data.modNames,
+                ignored.as_deref(),
+                Some(actor),
+            );
+            res.push(format!(
+                "{actor} {i} {} => {}",
+                key.as_deref().unwrap_or("nil"),
+                rust_ser(&Val::Table(t))
+            ));
+            if let Some(raw) = stat_data.breakdown.or(stat_data.stat) {
+                let t = stats::get_sidebar_breakdown(
+                    cx,
+                    Some(raw),
+                    stat_data.modNames,
+                    ignored.as_deref(),
+                    Some("player"),
+                );
+                res.push(format!("{actor} {i} raw {raw} => {}", rust_ser(&Val::Table(t))));
+            }
+        }
+    }
+    res
+}
+
+/// `buildMode:GetSidebarBreakdown` (and through it `BuildBreakdownIndex`) for the 6 fixtures:
+/// every index key, then every display-stat row (player and minion lists) with its
+/// `GetStatBreakdownKey` key and with its raw `breakdown or stat`, each result serialized
+/// field by field (sorted keys) and compared with PoB's.
+#[test]
+fn u21_sidebar_breakdown() {
+    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(root) = inputs() else { return };
+    let mut failures = Vec::new();
+    let (mut compared, mut cells) = (0, 0);
+    for name in fixture_builds() {
+        let script = runner::parse_script(&format!(
+            "frames 1\nload-build \"Builds/{name}\"\nframes 2\n"
+        ))
+        .unwrap();
+        let user = UserDir::new(Some(&fixture_dir())).unwrap();
+        let screen = runner::screen(1280, 800, 1.0);
+        // Lua
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(&root, &user, &handles, Entry::Launch, false).unwrap();
+        let mut lua_side = LuaSide { app: lua_app };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (_, r) = runner::drive(&mut lua_side, &script, &mut d);
+        r.unwrap_or_else(|e| panic!("{name}: Lua: {e}"));
+        let lua = lua_sidebar(&mut lua_side);
+        drop(lua_side);
+        // Rust
+        user.reset().unwrap();
+        let handles = OracleHandles::default();
+        let (sg, sys) = boot::oracle_parts(&root, &user.path, &handles).unwrap();
+        let mut rust_side = RustSide::new(PlatformParts { sg, sys }, Some(root.join("src")));
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (_, r) = runner::drive(&mut rust_side, &script, &mut d);
+        r.unwrap_or_else(|e| panic!("{name}: Rust: {e}"));
+        let rust = rust_sidebar(&mut rust_side);
+        drop(rust_side);
+        let index_keys = lua.iter().filter(|l| l.starts_with("index ")).count();
+        let n_cells: usize = lua.iter().map(|l| l.matches("breakdown=").count()).sum();
+        let bytes: usize = lua.iter().map(String::len).sum();
+        println!(
+            "{name}: {} calls ({index_keys} index keys), {n_cells} breakdown fields, {bytes} bytes",
+            lua.len()
+        );
+        compared += lua.len();
+        cells += n_cells;
+        if lua.len() != rust.len() {
+            failures.push(format!("{name}: {} Lua calls, {} Rust", lua.len(), rust.len()));
+        }
+        for (l, r) in lua.iter().zip(&rust) {
+            if l != r {
+                failures.push(format!("{name}:\n  lua:  {l}\n  rust: {r}"));
+            }
+        }
+    }
+    println!("u21_sidebar_breakdown: {compared} calls, {cells} breakdown fields");
+    let shown: Vec<_> = failures.iter().take(20).cloned().collect();
+    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), shown.join("\n"));
 }
 
 // ---- u21_format_stat ------------------------------------------------------------------------

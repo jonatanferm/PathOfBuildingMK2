@@ -584,7 +584,7 @@ pub fn get_sidebar_breakdown(
     let breakdownData = env
         .and_then(|e| e.breakdown.get())
         .map_or(Val::Nil, |b| match key {
-            Some(k) => b.get(Name::from(k)),
+            Some(k) => bd_val(b.get(Name::from(k))),
             // reading `t[nil]` is nil
             None => Val::Nil,
         });
@@ -702,6 +702,17 @@ pub fn get_sidebar_breakdown(
     displayData
 }
 
+/// A value read from a breakdown table, with a nested breakdown instance as its data table.
+/// `breakdown.MainHand` / `.OffHand` (CalcOffence.lua:2006/2023) are module instances, plain
+/// tables in Lua; the calc stores them as `Val::Obj(Breakdown)` (costs_passes.rs
+/// `newSubBreakdown`), which `Val::get` / `#` would raise on.
+fn bd_val(v: Val) -> Val {
+    match v.obj::<pob_calc::breakdown::Breakdown>() {
+        Some(b) => Val::Table(b.t.clone()),
+        None => v,
+    }
+}
+
 /// `#t` of a breakdown value (only tables have a length here).
 #[track_caller]
 fn len_of(v: &Val) -> usize {
@@ -719,7 +730,7 @@ pub fn get_stat_breakdown_key(cx: &Cx, statData: &DisplayStat, actorName: &str) 
     // L1874
     let breakdown = env.and_then(|e| e.breakdown.get())?;
     // L1875-1877
-    let get = |k: &str| breakdown.get(Name::from(k));
+    let get = |k: &str| bd_val(breakdown.get(Name::from(k)));
     // L1878
     let key: Option<String>;
     // L1879
@@ -761,7 +772,7 @@ pub fn get_stat_breakdown_key(cx: &Cx, statData: &DisplayStat, actorName: &str) 
             Some((namespace, name)) => {
                 let ns = get(namespace);
                 if ns.truthy() {
-                    ns.get(Name::from(name.as_str()))
+                    bd_val(ns.get(Name::from(name.as_str())))
                 } else {
                     ns
                 }
