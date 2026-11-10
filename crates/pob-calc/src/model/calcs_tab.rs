@@ -54,6 +54,8 @@ fn new_section(id: &str, subSections: &[(String, Val)]) -> Table {
 /// @pob Classes/CalcsTab.lua:24-40 h=79e5157a
 // @pob-skip Classes/CalcsTab.lua:41-42 reason="the search EditControl (UI, ui doc CalcsTab unit)"
 /// @pob Classes/CalcsTab.lua:45-45 h=6c3c4839
+// (45 is the first line of the SkillSelect NewSection statement, which runs to 144: 46-144 are its
+// section data and UI callback, outside the calc scope, whose range for this statement ends at 45.)
 /// @pob Classes/CalcsTab.lua:151-154 h=f22e4c5a
 /// @pob Classes/CalcsTab.lua:370-375 h=d92da281
 impl CalcsTab {

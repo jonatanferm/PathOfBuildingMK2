@@ -182,6 +182,16 @@ class PairsInventoryPinTest(unittest.TestCase):
             self.assertEqual(by[key].cls, "int", key)
         self.assertEqual(by[("Modules/CalcPerform.lua", 3464)].cls, "identity")  # pairs(affectedByAura)
 
+    def test_scope_label_is_checkout_independent(self):
+        # The committed inventory must not name the checkout that generated it, or --check fails
+        # in every other worktree (CCR2 review round 2).
+        repo_scope = os.path.join(_util.pobpaths.docs_port(), "scope.toml")
+        self.assertEqual(pairs_inventory.scope_label(repo_scope), "docs/port/scope.toml")
+        default = "default (calc doc §11.1 + closures.json)"
+        self.assertEqual(pairs_inventory.scope_label(default), default)
+        with open(os.path.join(_util.pobpaths.docs_port(), "pairs_inventory.md")) as fh:
+            self.assertNotIn(_util.pobpaths.repo_root(), fh.read())
+
 
 if __name__ == "__main__":
     unittest.main()
