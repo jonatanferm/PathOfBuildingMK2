@@ -9,7 +9,7 @@
 //! Save As popup, `destList` of the Spectre library) are `Rc<RefCell<_>>`.
 //!
 //! The Spectre library's list controls (U31) and the similar-builds list (U52) come from
-//! `on_frame::ShellHooks` (CCR-0101 §1).
+//! `on_frame::ShellHooks` (CCR-0104 §1).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -182,6 +182,8 @@ pub fn open_save_popup(cx: &mut Cx, mode: &str) {
                         }
                         "UPDATE" => {
                             // L1441
+                            // nil `updateAvailable` reads "": ApplyUpdate (Launch.lua:325-337) only acts on
+                            // "basic" / "normal", so "" does nothing, as nil does
                             let update =
                                 cx.app().launch.update_available.clone().unwrap_or_default();
                             crate::launch::apply_update(cx, &update);
@@ -235,7 +237,9 @@ pub fn open_save_as_popup(cx: &mut Cx) {
         let base = build_name
             .clone()
             .or_else(|| db_file_name.clone())
-            .unwrap_or_else(|| lua_error!("attempt to index a nil value"));
+            // a build without a file has `dbFileName = false` (SetMode("BUILD", false, ..)), so
+            // `(nil or false):gsub` indexes a boolean
+            .unwrap_or_else(|| lua_error!("attempt to index a boolean value"));
         pob_lua::gsub(&base, "[\\/:%*%?\"<>|%c]", "-", None).0
     };
     // L1518
@@ -591,8 +595,6 @@ pub fn open_similar_popup(cx: &mut Cx) {
     let height = |cx: &Cx| cx.main.screen_h * 0.8;
     // L1589
     let padding = 50.0;
-    // L1598 (SaveDB before the popup opens; Deflate / base64 are U43's, inside the hook)
-    let code = io::save_db(cx, "code").unwrap_or_default();
     let h0 = height(cx);
     // L1614
     popups::open_popup(
@@ -601,8 +603,11 @@ pub fn open_similar_popup(cx: &mut Cx) {
         h0,
         "Similar Builds",
         move |cx, p| {
-            // L1590-1599
-            (h.similar_build_list)(cx, p.id(), &code);
+            // L1590-1599 (the hook runs L1598's SaveDB after creating the control; Deflate /
+            // base64 are U43's, inside the hook)
+            (h.similar_build_list)(cx, p.id(), &|cx: &mut Cx| {
+                io::save_db(cx, "code").unwrap_or_default()
+            });
 
             // controls.similarBuildList.shown = not controls.similarBuildList:IsShown()
 

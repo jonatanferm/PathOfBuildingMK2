@@ -8,7 +8,7 @@
 //! OnFrame calls into units that are not ported yet: the tabs' `Draw` and mod flags, the
 //! ImportTab code box (U43), the CalcsTab breakdown (U39/U40), the sidebar CalcBreakdownControl
 //! (U40), `GetSidebarBreakdown` / `RefreshSkillSelectControls` (U21), the Spectre library lists
-//! (U31) and the similar-builds list (U52). They go through [`ShellHooks`] (CCR-0101 §1), the
+//! (U31) and the similar-builds list (U52). They go through [`ShellHooks`] (CCR-0104 §1), the
 //! same pattern as U19's `init::BuildHooks`; each default names its owner. A tab that is not
 //! ported has no node, so its default `Draw` draws nothing and its mod flags read `false`.
 //!
@@ -17,9 +17,12 @@
 //! (wasm only, calc doc D15) skips the statements that read the result in this frame.
 //!
 //! `self.lastShowThousandsSeparators`, `lastShowThousandsSeparator`, `lastUseCompactValues`,
-//! `lastShowDecimalSeparator` and `lastShowTitlebarName` are never written anywhere in PoB, so
-//! the five comparisons at L1274-1288 are always true: `RefreshStatList` runs four more times and
-//! the window title is set on every frame. Ported as written ([`State`] keeps the nil fields).
+//! `lastShowDecimalSeparator` and `lastShowTitlebarName` are written by `buildMode:FormatStat`
+//! (Build.lua:1749-1753, U21's range) on every formatted stat, so the five comparisons at
+//! L1274-1288 only fire after a display setting changes (or before the first stat is formatted).
+//! They live in [`State`] (`BuildMode::on_frame`, all `pub`); U21's FormatStat writes them
+//! (CCR-0104 §2). Until U21 lands nothing formats a stat, the fields stay nil and the comparisons
+//! fire every frame, on both sides of the oracle test (its Lua side stubs RefreshStatList too).
 //!
 //! Overlay panes (`self.overlayPanes`, Build.lua:626; CalcSectionControl's ToggleOverlay /
 //! RaiseOverlay, U39) are [`OverlayPane`] trait objects; the loops read `overlayPanes[i]` live,
@@ -97,7 +100,7 @@ pub trait OverlayPane {
 
 /// The fields of a stat-box line (`hovered.line`) that SetDisplayStat reads: `breakdown`,
 /// `modNames`, `ignoredSections`, `actorName`, `breakdownColour`. The stat list (U21) stores
-/// one in each line's `TextListRow::extra` (CCR-0101 §2).
+/// one in each line's `TextListRow::extra` (CCR-0104 §2).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StatLineInfo {
     /// `line.breakdown` (a breakdown key)
@@ -151,7 +154,8 @@ pub struct State {
     pub secondary_ascend_drop_alt_ascendancies: Option<model::Table>,
     /// `self.secondaryAscendDropLegacySelection`
     pub secondary_ascend_drop_legacy_selection: Option<String>,
-    /// `self.lastShowThousandsSeparators` &c. (never written by PoB, see the module doc)
+    /// `self.lastShowThousandsSeparators` &c.: written by U21's `FormatStat` (Build.lua:1749-1753;
+    /// CCR-0104 §2), compared by OnFrame (L1274-1288); see the module doc
     pub last_show_thousands_separators: Option<bool>,
     pub last_show_thousands_separator: Option<String>,
     pub last_use_compact_values: Option<bool>,
@@ -159,7 +163,7 @@ pub struct State {
     pub last_show_titlebar_name: Option<bool>,
 }
 
-// ---- seams to the units U20's code calls (CCR-0101 §1) ---------------------------------------
+// ---- seams to the units U20's code calls (CCR-0104 §1) ---------------------------------------
 
 /// The methods U20's code calls that other units port. Each default names its owner; owners
 /// replace their entry in [`default_shell_hooks`] (one line each).
@@ -200,9 +204,10 @@ pub struct ShellHooks {
     // U52 (ExtBuildListControl, PoBArchivesProvider) and U43 (build codes)
     /// `controls.similarBuildList = new("ExtBuildListControl"):ExtBuildListControl(nil, {0,
     /// padding, width, height}, buildProviders)` with its `shown`/`height`/`width` overrides,
-    /// `SetImportCode(code)` and `Init("PoB Archives")` (L1586-1602) in the popup `p`, given
-    /// the build XML `self:SaveDB("code")`
-    pub similar_build_list: Rc<dyn Fn(&mut Cx, CtrlId, &str)>,
+    /// `SetImportCode(code)` and `Init("PoB Archives")` (L1586-1602) in the popup `p`. The
+    /// third argument is `self:SaveDB("code")` (L1598): the hook calls it after creating the
+    /// control, where the Lua does, and encodes the XML it returns
+    pub similar_build_list: Rc<dyn Fn(&mut Cx, CtrlId, &dyn Fn(&mut Cx) -> String)>,
     // the UI-only savers (Build.lua:629-639: `Notes` U22, `TreeView` U25-U28, `Import` U43)
     /// `saver:Save(node)` of a UI-only saver (`elem` is the section name): `Some(node)` replaces
     /// the section calc:BM-A's SaveDB wrote (the section it loaded, CCR-0080 §8); `None` keeps it
@@ -213,7 +218,7 @@ fn not_ported(what: &str, owner: &str) -> ! {
     lua_error!("{what} is not ported yet ({owner})")
 }
 
-/// The placeholders installed until the owners land (CCR-0101 §1). OnFrame calls the tab
+/// The placeholders installed until the owners land (CCR-0104 §1). OnFrame calls the tab
 /// draws, the flags, the CalcsTab breakdown, the sidebar breakdown and
 /// RefreshSkillSelectControls every frame, so those read as "no tab / nothing pinned" and draw
 /// nothing; the user-triggered ones raise a Lua error naming the owner.
@@ -398,7 +403,12 @@ pub fn on_frame(cx: &mut Cx, input_events: &mut InputEvents, _vp: &ViewPort) {
         breakdown,
         overlay_breakdown,
     } = (h.calcs_breakdown)(cx);
-    let mouse_over_breakdown = |cx: &Cx| breakdown.is_some_and(|b| cx.is_mouse_over(b));
+    // `breakdown:IsMouseOver()` on a nil breakdown raises, as in Lua (only reached when
+    // `overlay_breakdown` is true without a control, which CalcsTab never reports)
+    let mouse_over_breakdown = |cx: &Cx| match breakdown {
+        Some(b) => cx.is_mouse_over(b),
+        None => lua_error!("attempt to index local 'breakdown' (a nil value)"),
+    };
     // L1216
     let mut i = input_events.lua_len();
     while i >= 1 {
@@ -522,7 +532,7 @@ pub fn on_frame(cx: &mut Cx, input_events: &mut InputEvents, _vp: &ViewPort) {
     // L1258
     if cx.build().model.buildFlag.get() {
         // Wipe Global Cache
-        // L1260 (CCR-0101 §4: model.rs does not re-export modules::common)
+        // L1260 (CCR-0104 §4: model.rs does not re-export modules::common)
         pob_calc::modules::common::wipeGlobalCache();
 
         // Rebuild calculation output tables

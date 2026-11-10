@@ -1,8 +1,8 @@
-# CCR-0101: U20 build shell B seams (ShellHooks, stat-line fields, main.tree peek, T4 notes)
+# CCR-0104: U20 build shell B seams (ShellHooks, stat-line fields, main.tree peek, T4 notes)
 
 Unit: **U20** (Build shell B: `Build.lua:771-1617`, `2222-2335`). Status: **pending** (code on
-`port/U20` follows it). Numbered 0101, the next free number on rust-port when U20 started; an
-in-flight unit that merges first with the same number keeps it and this file takes the next.
+`port/U20` follows it). First filed as 0101; calc:PWR's `0101-pwr-power-seams.md` merged first
+(74fb78a), so this file was renumbered to 0104 (reserved with `scripts/port/next_ccr.sh`).
 
 ## 1. `on_frame::ShellHooks`: the calls U20's lines make into units not ported yet
 
@@ -45,6 +45,19 @@ all-nil). Proposed: U21 stores a `StatLineInfo` in each stat line's `extra` and 
 … }` list; SetDisplayStat sets its `x`, `y`, `width` and compares it with `tableDeepEquals`,
 ported here from Common.lua:625-640).
 
+Also (Build.lua:1749-1753, the tail of U21's `buildMode:FormatStat`): every formatted stat sets
+`self.lastShowThousandsSeparators = main.showThousandsSeparators`, `lastShowThousandsSeparator
+= main.thousandsSeparator`, `lastShowDecimalSeparator = main.decimalSeparator`,
+`lastShowTitlebarName = main.showTitlebarName` and `lastUseCompactValues =
+main.useCompactValues`. OnFrame (L1274-1288, U20) compares them with `main` and calls
+`RefreshStatList` / `spec:SetWindowTitleWithBuildClass` when one differs. Applied: the five fields
+are `pub` in `on_frame::State` (`BuildMode::on_frame.last_show_thousands_separators`,
+`last_show_thousands_separator`, `last_show_decimal_separator`, `last_show_titlebar_name`,
+`last_use_compact_values`; `Option`, nil until the first FormatStat). Proposed: U21's
+`FormatStat` writes all five, as Build.lua:1749-1753 does. Until then the fields stay nil and
+the comparisons fire every frame (the u20 test matches PoB only because both sides stub
+RefreshStatList, so FormatStat never runs on either).
+
 ## 3. U19's `BuildHooks` entries U20 installed
 
 `init::default_hooks` now names U20's functions for `on_frame`, `shutdown`, `can_exit`,
@@ -60,14 +73,14 @@ SyncLoadouts).
 
 * `wipeGlobalCache` (Build.lua:1260) lives in `pob_calc::modules::common`, which `model.rs`
   (U15) does not re-export. Work-around: `on_frame.rs` calls
-  `pob_calc::modules::common::wipeGlobalCache()` directly (marked CCR-0101 §4). Proposed:
+  `pob_calc::modules::common::wipeGlobalCache()` directly (marked CCR-0104 §4). Proposed:
   `pub use pob_calc::modules::common::wipeGlobalCache;` in `pob-app/src/model.rs`.
 * `main.tree[treeVersion]` (Build.lua:1554) indexes the cache without loading:
   `pob_calc::classes::passive_spec::main_LoadTree` also runs `setJewelRadiiGlobally`
   (Main.lua:354), which would switch the jewel radii to the latest tree on Init's
   `UpdateClassDropdowns()` (Build.lua:646) for an older-tree build. Work-around
   (`class_drop::main_tree`): `build.latestTree` for the latest version, else the tree of a spec
-  of the build with that version, else `main_LoadTree` (marked CCR-0101 §4). Proposed
+  of the build with that version, else `main_LoadTree` (marked CCR-0104 §4). Proposed
   (calc:PS-A, `passive_spec.rs`):
 
 ```diff
@@ -121,6 +134,8 @@ the range twice.
   write `Socket`/`Override` children in per-process order (calc doc §3.4).
 * **Display stats** (U21, `build_xml::set_save_stats_hook`): no `PlayerStat` / `FullDPSSkill` /
   `MinionStat` until U21 registers the writer.
-* `calc:PWR`'s `power::BuildOutput` is still `unported!` on rust-port, so `calcsTab.mainOutput`
-  stays nil with the Rust calc (EstimatePlayerProgress then shows `ExtraPoints` 0). U20's oracle
-  test runs the Rust side on U15's LuaCalcBridge (ui doc §12.1 `ext:calc`).
+* `calc:PWR`'s `power::BuildOutput` has merged (74fb78a) and the Rust calc (`calc/rust.rs`)
+  calls it, so `calcsTab.mainOutput` is set with the Rust calc too. U20's oracle test still runs
+  the Rust side on U15's LuaCalcBridge (ui doc §12.1 `ext:calc`): the Rust calculator is not at
+  L6 parity yet (CA's floors; FOLLOWUPS PWR item 3), and a calc difference there would show as
+  a T4 difference that is not U20's.

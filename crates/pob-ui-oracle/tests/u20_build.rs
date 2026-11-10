@@ -8,20 +8,27 @@
 //! names with `#! u20-saved FILE` (written by Save / Save As) identical between the sides after
 //! the normalisation below.
 //!
-//! The Rust side's calc is U15's LuaCalcBridge (ext:calc, ui doc §12.1: calc:PWR's
-//! `BuildOutput` is not on rust-port yet), so the calc numbers are PoB's and the comparison is
-//! of U20's code.
+//! The Rust side's calc is U15's LuaCalcBridge (ext:calc, ui doc §12.1), so the calc numbers
+//! are PoB's and the comparison is of U20's code. calc:PWR's `power::BuildOutput` is on
+//! rust-port now, but the Rust calculator is not at L6 parity yet (CA's floors; FOLLOWUPS PWR
+//! item 3), so running it here would test the calc units rather than U20.
 //!
 //! Real on both sides: Init (U19), OnFrame (the input loop, the overlay-pane loop, the class
 //! dropdown sync, the recalc on `buildFlag` through the calc, the four RefreshStatList calls
-//! and the title of every frame, the top/side bar backgrounds), SyncLoadouts,
+//! and the title of every frame (see the RefreshStatList stand-in below), the top/side bar
+//! backgrounds), SyncLoadouts,
 //! EstimatePlayerProgress, UpdateClassDropdowns, UpdateSecondaryAscendancyDropdown,
 //! CloseBuild, Shutdown, CanExit, ResetModFlags, SaveDB / SaveDBFile, the Save and Save As
 //! popups. Stand-ins (both sides run the same ones) for the units not ported yet:
 //! * `main.modes.LIST` draws nothing (pob-app's `PendingMode`, as in u16-u19);
 //! * `RefreshStatList` (U21) only calls `EstimatePlayerProgress` (Build.lua:2118 is its only
 //!   call into U20); `RefreshSkillSelectControls` (U21) does nothing (the skill dropdowns stay
-//!   empty);
+//!   empty). With RefreshStatList stubbed, `FormatStat` (U21) never runs, so nothing writes
+//!   `self.lastShowThousandsSeparators` &c. (Build.lua:1749-1753) and the five comparisons at
+//!   L1274-1288 fire on every frame on both sides: the four extra RefreshStatList calls and the
+//!   per-frame window title above are a property of the stubs, not of PoB, where they only
+//!   happen after a display setting changes. The sides match because both run the same stubs;
+//!   once U21 lands, its FormatStat writes `on_frame::State.last_*` (CCR-0104 §2);
 //! * the tabs' `Draw` (U22-U46) draw nothing; the Lua tabs are PoB's own otherwise (Init
 //!   constructs and loads them, and their modFlags count in `self.unsaved`). The Rust side reads
 //!   `spec.modFlag` from the stand-in of `spec:AddUndoState` (UndoHandler.lua:37 sets it; the

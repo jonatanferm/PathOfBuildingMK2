@@ -225,6 +225,8 @@ pub fn save_db_file(cx: &mut Cx) -> bool {
         }
         Some("UPDATE") => {
             // L2331
+            // nil `updateAvailable` reads "": ApplyUpdate (Launch.lua:325-337) only acts on
+            // "basic" / "normal", so "" does nothing, as nil does
             let update = cx.app().launch.update_available.clone().unwrap_or_default();
             crate::launch::apply_update(cx, &update);
         }

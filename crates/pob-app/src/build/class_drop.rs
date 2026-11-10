@@ -5,7 +5,7 @@
 //!
 //! `main.tree[treeVersion]` (Build.lua:1554) is read through [`main_tree`]: PoB indexes the
 //! `main.tree` cache directly (no load, no `data.setJewelRadiiGlobally`), and pob-calc's cache
-//! (`passive_spec::main_LoadTree`) has no peek that leaves the jewel radii alone (CCR-0101 §4).
+//! (`passive_spec::main_LoadTree`) has no peek that leaves the jewel radii alone (CCR-0104 §4).
 //! The trees UpdateClassDropdowns is called with are the latest tree (`build.latestTree`, loaded
 //! by Init) and the tree of a spec of the build, so those are used; any other version falls back
 //! to `main_LoadTree`.
@@ -33,7 +33,7 @@ fn is_legacy_alternate_ascendancy(id: &str) -> bool {
     matches!(id, "Warden" | "Warlock" | "Primalist")
 }
 
-/// `main.tree[treeVersion]` (see the module doc; CCR-0101 §4).
+/// `main.tree[treeVersion]` (see the module doc; CCR-0104 §4).
 pub fn main_tree(cx: &Cx, tree_version: model::Name) -> Option<model::PassiveTreeRef> {
     let m = &cx.build().model;
     if tree_version == m.data.gameVersions.latestTreeVersion {
@@ -50,7 +50,7 @@ pub fn main_tree(cx: &Cx, tree_version: model::Name) -> Option<model::PassiveTre
             return Some(s.tree.get());
         }
     }
-    // CCR-0101 §4
+    // CCR-0104 §4
     pob_calc::classes::passive_spec::main_LoadTree(tree_version)
 }
 
@@ -208,7 +208,12 @@ pub fn update_class_dropdowns(cx: &mut Cx, tree_version: Option<model::Name>) {
         for i in 0..=n_asc {
             // L1561
             let ascend_class = class_classes.get(i as f64);
-            // L1562-1565
+            // L1562-1565 (`ascendClass.name` on a nil entry raises, as in Lua)
+            if !ascend_class.truthy() {
+                lua_error!("attempt to index local 'ascendClass' (a nil value)");
+            }
+            // DIVERGENCE(nil-label): a nil `ascendClass.name` is a nil label in Lua; `DropItem`
+            // labels are strings, so it reads "" here (real tree data always names them).
             let label = ascend_class.get(n!("name")).str().map(|s| s.to_string());
             ascendancies.push(DropItem::new(
                 label.unwrap_or_default(),
