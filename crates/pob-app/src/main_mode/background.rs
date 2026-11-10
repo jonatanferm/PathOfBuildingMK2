@@ -6,7 +6,7 @@
 //! `main.tree[latestTreeVersion].assets.Background2/Background1` are image handles that
 //! PassiveTree.lua:263-266 (`self:LoadImage(name..".png", ..., data, "ASYNC")`) creates. The UI
 //! half of the tree (`tree_view/assets.rs`, `TreeAssets`) is U23's and has no fields yet, and
-//! `main:LoadTree` is a no-op until U23 lands (CCR-0091 B), so [`tree_background`] stands in
+//! `main:LoadTree` is a no-op until U23 lands (CCR-0096 B), so [`tree_background`] stands in
 //! (CCR-0099 A): it loads the image the Lua loads for the latest tree. Every tree version from
 //! 3_19 on (`latestTreeVersion` included) has no `assets` of its own and copies
 //! `TreeData/3_19/Assets.lua` (PassiveTree.lua:234-236), which has `Background2`; LoadImage finds

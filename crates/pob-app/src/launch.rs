@@ -83,7 +83,7 @@ pub struct LaunchState {
     /// Not in PoB: treat a manifest without branch/platform as a release install (no dev mode).
     /// The UI oracle patches the Lua the same way (pob-ui-oracle patch 4: the checkout's
     /// manifest.xml has neither, which turns dev mode on); the Rust side of a parity run sets
-    /// this before `on_init` (CCR-0091).
+    /// this before `on_init` (CCR-0096).
     pub force_release_install: bool,
 }
 

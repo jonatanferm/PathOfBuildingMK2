@@ -1,0 +1,41 @@
+# U18: the search box filters the whole index (sub-folders included, with the sub-path prefix),
+# "class:" terms, several terms, the filtered characters "(" ")", and clearing it again.
+fixture userdir=user1
+frames 2
+move 640 39
+click LEFTBUTTON
+type "witch"
+frames 2
+#! expect-text Leagues/League Witch
+type " (alpha"
+frames 2
+key-down CTRL
+press a
+key-up CTRL
+type "class:slayer"
+frames 2
+#! expect-text Leagues/Settlers/Deep 1
+key-down CTRL
+press a
+key-up CTRL
+type "class:"
+frames 2
+key-down CTRL
+press a
+key-up CTRL
+type "settlers"
+frames 2
+press BACK
+press BACK
+press BACK
+press BACK
+press BACK
+press BACK
+press BACK
+press BACK
+frames 2
+# the list keeps the filter while browsing: select a row and open a folder
+move 400 91
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2

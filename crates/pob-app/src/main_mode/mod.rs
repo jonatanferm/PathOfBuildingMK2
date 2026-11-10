@@ -9,8 +9,8 @@
 //! The mode objects (`main.modes.LIST` = Modules/BuildList.lua, `main.modes.BUILD` =
 //! Modules/Build.lua) are U18's and U19-U21's. `main:CallMode` reaches them through the [`Mode`]
 //! trait; until those units register their objects, `main:Init` installs [`PendingMode`]
-//! placeholders (CCR-0091). The popups `main:OpenOptionsPopup` / `OpenAboutPopup` /
-//! `OpenUpdatePopup` are U17's and are reached through [`MainHooks`] (CCR-0091).
+//! placeholders (CCR-0096). The popups `main:OpenOptionsPopup` / `OpenAboutPopup` /
+//! `OpenUpdatePopup` are U17's and are reached through [`MainHooks`] (CCR-0096).
 //!
 //! Props with side effects (ui doc §7.3): none in U16's range (the bottom-bar closures only read).
 
@@ -106,7 +106,7 @@ pub fn mode_arg(args: &[ModeArg], i: usize) -> ModeArg {
 }
 
 /// A mode object (`main.modes[name]`): the methods `main:CallMode` (Main.lua:513-518) and the
-/// other `main.modes.*` readers call. CCR-0091: U18 implements it for BuildList.lua's
+/// other `main.modes.*` readers call. CCR-0096: U18 implements it for BuildList.lua's
 /// `listMode`, U19-U21 for Build.lua's `buildMode`.
 ///
 /// Methods whose Lua function may be absent return `Option` (`modeTbl[func]` is nil: CallMode
@@ -147,7 +147,7 @@ pub trait Mode {
     }
 }
 
-/// CCR-0091: the stand-in mode object `main:Init` installs for `main.modes.LIST` and
+/// CCR-0096: the stand-in mode object `main:Init` installs for `main.modes.LIST` and
 /// `main.modes.BUILD` until U18 / U19 register theirs. It draws nothing; `GetArgs` returns the
 /// first two `Init` arguments (what `listMode:GetArgs` and `buildMode:GetArgs` return for a mode
 /// that was just opened with them: BuildList.lua:131-133, Build.lua:967-969), so Settings.xml
@@ -186,7 +186,7 @@ impl Mode for PendingMode {
 
 /// `main:OpenOptionsPopup()`, `main:OpenAboutPopup(helpSectionName)`, `main:OpenUpdatePopup()`
 /// (U17's Main.lua:865-1485) and `main:LoadTree(treeVersion)` (U23's Main.lua:352-364), which
-/// U16's code calls. CCR-0091: the owners install their functions here (one line each in
+/// U16's code calls. CCR-0096: the owners install their functions here (one line each in
 /// `init::default_hooks`); until then the popups raise a Lua error naming the missing unit and
 /// `LoadTree` does nothing.
 #[derive(Clone)]
@@ -365,7 +365,7 @@ impl Default for MainState {
 }
 
 /// `new("Item", raw, rarity, highQuality)` (Classes/Item.lua:94-99, calc:IT-A).
-/// CCR-0091: `model.rs` (U15) does not re-export the Item constructor, so this one call goes to
+/// CCR-0096: `model.rs` (U15) does not re-export the Item constructor, so this one call goes to
 /// pob-calc directly.
 pub fn new_item(raw: Option<&str>, rarity: Option<&str>, high_quality: bool) -> model::ItemRef {
     pob_calc::classes::item::new_Item(raw, rarity, high_quality)

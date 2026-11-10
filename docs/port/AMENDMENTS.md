@@ -145,7 +145,7 @@ cite 0036. Stale references left by earlier renumbers were fixed too (`CCR-0038`
 `dot_combined.rs`, `CCR-0039` → 0075 in `tests/OF-H.rs`). 0089 is used by HYG3's in-flight branch
 and was left free. Three in-flight units hold CCR files numbered **0091**, which CT's CCR now
 holds on rust-port: PF-B (`0091-pf-b-minion-fields-and-fn-probes.md` on `port/PF-B`; it was 0034
-earlier), U16 (`0091-u16-main-mode-seams.md`, `port/U16` worktree) and CA (`0091-ca-calcs-seams.md`,
+earlier), U16 (`0096-u16-main-mode-seams.md`, `port/U16` worktree) and CA (`0091-ca-calcs-seams.md`,
 `port/CA` worktree). Each must take the next free number (0095 or later, one per unit in merge
 order) when it merges, and update its markers to match.
 

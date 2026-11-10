@@ -1,0 +1,7 @@
+# U19: a fixture build opened from the build list (load-build): idle top bar and side bar.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 40 300
+frames 2
