@@ -204,3 +204,30 @@ Final-review open issues, both resolved in the merge commit's follow-up (listed 
    and the replaced outer `Arc`; CCR-0085 §3 carries a dated "revised by PF-B" note and CCR-0095
    §4 cites the row. Owner of any further change: whoever next touches `applyEnemyModifiers`
    (a unit that keys on the outer `EnemyModifier` `Arc` files a CCR).
+
+## PWR
+
+Open items found while porting the power report (port/PWR, 2026-11-10; `crates/pob-oracle/tests/PWR.rs`,
+CCR-0100).
+
+1. **CA.rs still carries its `calcsTab_BuildOutput` scaffold** (owner: CA). `power::BuildOutput`
+   (CalcsTab.lua:441-472) is ported, so `loadBuildFromXML` now runs MAIN, CALCS and the misc
+   calculator. The scaffold catches the CALCS stage on its own, which the real function does not
+   (an error there aborts the call, as in PoB); CA can switch when it no longer needs that.
+2. **Jewel-closure modKeys collide in the port** (owner: CT, `mod_tools.rs` `FUNCTION_TEXT`;
+   information). `ModTools.formatValue` prints a jewel `func` as `function: builtin`; PoB prints
+   the closure address. The power report keys its cache by `node.modKey` (CalcsTab.lua:613), so
+   two nodes whose mods differ only in their jewel closure (same `type`/`radius`) share one cache
+   entry in Rust and not in PoB. Not seen in the PWR builds (PWR.rs normalises the address when it
+   matches PoB's calls; node 50692 is the one such node there); would show as a power difference
+   and a call-count difference in `pwr_l5_replay`.
+3. **End-to-end node power is not at parity** (owners: CS2 and the calc units behind CA's L6
+   floors). `pwr_l6_report`: upstream_OccVortex Offence/Defence, all nodes, real Rust calculator
+   vs PoB 6452/7676 power values exact (Rust defence 0 where PoB has item-dependent defence);
+   PWR itself is exact on PoB's calc results (`pwr_l5_replay`, 108,820/108,820). Gate it once
+   CA's L6 headline is exact.
+4. **U26 drives the report** (owner: U26). `power::BuildPower` is the per-frame resume
+   (PassiveTreeView.lua:785); TreeTab state goes through the CCR-0100 accessors
+   (`set_powerStat`, `set_nodePowerMaxDepth`, `set_powerBuilderCallback`,
+   `set_powerBuilderProgressCallback`, `powerMax`); `set_launch_devMode` and `set_GetTime` come
+   from U16's launch state / the frame clock.
