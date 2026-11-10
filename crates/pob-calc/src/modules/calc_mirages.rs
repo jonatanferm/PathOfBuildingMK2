@@ -658,9 +658,8 @@ pub fn mirages(env: &EnvRef) -> bool {
                     &[],
                 );
                 // L147
-                let itemList = &env.player.itemList;
-                let w1 = itemList.with(|l| l.get(&n!("Weapon 1")).cloned());
-                let w2 = itemList.with(|l| l.get(&n!("Weapon 2")).cloned());
+                let w1 = env.player.item_in(n!("Weapon 1"));
+                let w2 = env.player.item_in(n!("Weapon 2"));
                 if let (Some(w1), Some(w2)) = (w1, w2) {
                     if w1.name.get() == w2.name.get() {
                         // L148

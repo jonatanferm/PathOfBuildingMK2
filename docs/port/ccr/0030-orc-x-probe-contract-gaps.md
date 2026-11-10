@@ -1,6 +1,6 @@
 # CCR-0030: ORC-X — frozen calc types that cannot hold what PoB stores
 
-**Status: escalated by CCR2 2026-11-10 (needs code; frozen type changes, AMENDMENTS A8 E1). See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by RETYPE (AMENDMENTS A8 E1 approved, A10): all seven rows; `Actor.uses` is `Field<Option<NameSet>>` (CCR-0040 §1's type: every PoB value is the data's `minionUses` set). Previously: escalated by CCR2 2026-11-10.**
 
 Filed status: proposed by ORC-X (2026-10-10)
 

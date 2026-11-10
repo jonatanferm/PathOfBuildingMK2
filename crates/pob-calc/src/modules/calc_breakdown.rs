@@ -253,7 +253,7 @@ impl Breakdown {
         row.set(n!("source"), source);
         row.set(n!("sourceName"), sourceName.map_or(Val::Nil, Val::from));
         let item = upvalue_actor(self)
-            .itemList
+            .itemList()
             .with(|l| l.get(&Name::from(source)).cloned());
         row.set(
             n!("item"),

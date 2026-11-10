@@ -33,7 +33,10 @@ pub struct SkillEffect {
     pub globalQuality: Cell<Option<f64>>,
     pub itemQuality: Cell<Option<f64>>,
     pub supportQuality: Cell<Option<f64>>,
-    pub req: Field<Option<Table>>,
+    /// `effect.req = (effect.req or 0) + value.value` (applyGemMods, GemProperty `req`,
+    /// CalcSetup.lua 382-418; read as `gemInstance.reqOverride`, 1705/1776): a number
+    /// (CCR-0074 §6).
+    pub req: Cell<Option<f64>>,
     pub gemPropertyInfo: Field<Option<Table>>,
     /// applyGemMods: `effect[value.key] = effect[value.key] + value.value` (CalcSetup.lua 382-418).
     pub extra: Table,
@@ -58,7 +61,7 @@ impl SkillEffect {
             globalQuality: Cell::new(None),
             itemQuality: Cell::new(None),
             supportQuality: Cell::new(None),
-            req: Field::new(None),
+            req: Cell::new(None),
             gemPropertyInfo: Field::new(None),
             extra: Table::new(),
         })
@@ -108,7 +111,11 @@ pub struct ActiveSkill {
     pub infoMessage2: Field<Option<LStr>>,
     pub infoTrigger: Field<Option<LStr>>,
     pub conversionTable: Field<Option<Table>>,
-    pub triggeredBy: Field<Option<Table>>,
+    /// The trigger support's skill effect (`activeSkill.triggeredBy = skillEffect`,
+    /// CalcActiveSkill.lua:536; the same table is in `supportList`/`effectList`). CalcTriggers
+    /// adds run-time keys to it (`mainSkill`, `activationFreqInc`, …: the effect's `extra`) and
+    /// reassigns its `grantedEffect` (CalcTriggers.lua:1225). CCR-0030 #1.
+    pub triggeredBy: Field<Option<SkillEffectRef>>,
     pub slotName: Cell<Option<Name>>,
     pub skillTotemId: Cell<Option<f64>>,
     pub buffSkill: Cell<bool>,

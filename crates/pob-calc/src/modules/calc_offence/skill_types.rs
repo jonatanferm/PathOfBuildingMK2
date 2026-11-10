@@ -620,8 +620,8 @@ pub(crate) fn seg_skillTypeStats(ctx: &mut OffenceCtx) -> Flow {
             &skillModList,
             skillCfg,
             &activeSkill.skillData.get(),
-            &env,
-            &enemyDB,
+            Some(&env),
+            Some(&enemyDB),
         );
         // L1221
         let cooldownOverride =

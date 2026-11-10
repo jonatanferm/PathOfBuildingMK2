@@ -775,7 +775,7 @@ pub(crate) fn ExplosiveArrow_explosiveArrowFunc(
     let skillData = activeSkill.skillData.get();
     let skillFlags = activeSkill.skillFlags.get();
     // L6711
-    let duration = calcSkillDuration(&skillModList, Some(&*skillCfg), &skillData, env, &enemyDB);
+    let duration = calcSkillDuration(&skillModList, Some(&*skillCfg), &skillData, Some(env), Some(&enemyDB));
     // L6712
     let fuseLimit = skillModList.Sum(
         ModType::BASE,

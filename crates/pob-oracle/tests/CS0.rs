@@ -604,10 +604,8 @@ fn check_nodeList(rec: &J, ctx: &mut BuildCtx) -> Result<(), String> {
     let rex: Vec<String> = explode
         .iter()
         .map(|v| match v {
-            Val::Obj(_) => v
-                .obj::<Node>()
-                .map_or("?".to_owned(), |n| tostring_num(n.id)),
-            other => format!("{other:?}"),
+            pob_calc::env::ExplodeSource::Node(n) => tostring_num(n.id),
+            pob_calc::env::ExplodeSource::Item(_) => "item".to_owned(),
         })
         .collect();
     let lexs: Vec<String> = lex
@@ -753,7 +751,7 @@ fn check_wipeEnv(rec: &J) -> Result<(), String> {
             m.set(k as i64, Some(node(k)));
         }
     });
-    env.player.itemList.with_mut(|m| {
+    env.player.itemList().with_mut(|m| {
         for k in 0..n("itemList") {
             m.insert(
                 Name::from(format!("Slot {k}").as_str()),
@@ -867,7 +865,7 @@ fn check_wipeEnv(rec: &J) -> Result<(), String> {
     );
     ours.insert(
         "itemList".into(),
-        num(env.player.itemList.with(|m| m.len())),
+        num(env.player.itemList().with(|m| m.len())),
     );
     ours.insert(
         "grantedSkillsItems".into(),

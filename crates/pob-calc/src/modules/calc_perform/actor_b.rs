@@ -2305,8 +2305,6 @@ pub fn actionSpeedMod(actor: &ActorRef) -> f64 {
 /// @pob Modules/CalcPerform.lua:1154-1244 h=fd93e0f2
 /// Build the same modifier database for the selected minion and any minion used as a defensive Life pool.
 ///
-/// CCR-0095 §1: the minion fields `type`, `lifeTable`, `itemSet` and `uses` (a table) have no
-/// typed `Actor` field yet; they are read from `minion.extra` until the CCR lands.
 pub(crate) fn initMinionModDB(env: &EnvRef, activeSkill: &ActiveSkillRef, output: Option<&Output>) {
     // L1155
     let modDB = env.modDB.get();
@@ -2591,7 +2589,7 @@ pub(crate) fn initMinionModDB(env: &EnvRef, activeSkill: &ActiveSkillRef, output
     if let Some(aegisModList) = env.aegisModList.get() {
         // L1202
         let aegisItem = env.aegisItem.get();
-        minion.itemList.with_mut(|l| match aegisItem {
+        minion.itemList().with_mut(|l| match aegisItem {
             Some(item) => {
                 l.insert(n!("Weapon 3"), item);
             }
@@ -2665,10 +2663,9 @@ pub(crate) fn initMinionModDB(env: &EnvRef, activeSkill: &ActiveSkillRef, output
         add_list_opt(&minion.modDB.get(), weapon1.slotModList[0].get());
     }
     // L1222
-    // CCR-0095: `minion.itemSet` / `minion.uses` are read from `minion.extra`
-    let itemSet = minion.extra.get(n!("itemSet"));
-    let uses = minion.extra.get(n!("uses"));
-    if itemSet.truthy() || uses.truthy() {
+    let itemSet = minion.itemSet.get();
+    let uses = minion.uses.get();
+    if itemSet.is_some() || uses.is_some() {
         // L1223 (LUA-ORDER: string keys; each slot fills its own itemList key, and the AddList
         // order only orders mods of the same name from different slots)
         let slots: Vec<(Name, Table)> = env
@@ -2679,11 +2676,14 @@ pub(crate) fn initMinionModDB(env: &EnvRef, activeSkill: &ActiveSkillRef, output
         for (slotName, slot) in slots {
             let mut slotName = slotName;
             // L1224
-            if uses.get(slotName).truthy() {
+            let uses = uses
+                .as_ref()
+                .unwrap_or_else(|| lua_error!("attempt to index field 'uses' (a nil value)"));
+            if uses.contains(&slotName) {
                 // L1225
                 let item: Option<ItemRef>;
                 // L1226
-                if itemSet.truthy() {
+                if let Some(itemSet) = &itemSet {
                     // L1227
                     if slot.get(n!("weaponSet")).raw_eq(&Val::Num(1.0))
                         && itemSet.get(n!("useSecondWeaponSet")).truthy()
@@ -2701,7 +2701,7 @@ pub(crate) fn initMinionModDB(env: &EnvRef, activeSkill: &ActiveSkillRef, output
                 // L1234
                 if let Some(item) = item {
                     // L1235
-                    minion.itemList.with_mut(|l| {
+                    minion.itemList().with_mut(|l| {
                         l.insert(slotName, item.clone());
                     });
                     // L1236
@@ -2976,27 +2976,19 @@ fn map_level_life_mult(env: &EnvRef) -> f64 {
     }
 }
 
-/// `minion.type` (CCR-0095 §1: no typed field; the value is in `minion.extra`).
+/// `minion.type`.
 fn minion_type(minion: &ActorRef) -> Option<Name> {
-    // CCR-0095
-    minion.extra.str(n!("type")).map(|s| Name::from(&*s))
+    minion.r#type.get()
 }
 
-/// `minion.lifeTable` (CCR-0095 §1: one of the `data.monster*LifeTable` sequences, kept in
-/// `minion.extra` until a typed field exists). CalcActiveSkill stores it as a
-/// `calc_active_skill::LifeTable` object (CCR-0040); an injected table is used as is.
+/// `minion.lifeTable`: one of the `data.monster*LifeTable` sequences (nil indexes raise).
 fn minion_lifeTable(minion: &ActorRef) -> Val {
-    // CCR-0095
-    let v = minion.extra.get(n!("lifeTable"));
-    match v.obj::<crate::modules::calc_active_skill::LifeTable>() {
-        Some(lt) => data_table(lt.0),
-        None => v,
-    }
+    minion.lifeTable.get().map_or(Val::Nil, data_table)
 }
 
 /// `actor.itemList[slotName]`.
 fn item_in(actor: &ActorRef, slotName: Name) -> Option<ItemRef> {
-    actor.itemList.with(|l| l.get(&slotName).cloned())
+    actor.item_in(slotName)
 }
 
 /// `env.build.itemsTab.items[id]`.

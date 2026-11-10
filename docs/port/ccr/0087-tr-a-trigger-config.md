@@ -1,6 +1,6 @@
 # CCR-0087 (TR-A): `TriggerConfig` cannot hold what the configTable arms return
 
-**Status: escalated by CCR2 2026-11-10 (needs code; frozen `TriggerConfig`, conflicts with in-flight TR-B; AMENDMENTS A8 E2). See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by RETYPE (AMENDMENTS A8 E2 approved, A10): the proposed `TriggerConfig` diff (`sourceWeapon: bool`, `triggeredSkillCond`, `comparer: Option<ComparerFn>`); TR-A's accessors and TR-B's setter calls are replaced by the typed fields. Previously: escalated by CCR2 2026-11-10.**
 
 **Filed status: proposed (TR-A, 2026-11-10).** No frozen file was changed. TR-A works around every item
 inside its own file (`crates/pob-calc/src/modules/calc_triggers/handlers.rs`), marked `CCR-0087`.

@@ -498,7 +498,7 @@ fn assert_live_items(build: &BuildRef, stem: &str, envs: &[&EnvRef]) -> (usize, 
         }
         let list: Vec<_> = env
             .player
-            .itemList
+            .itemList()
             .with(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
         for (slot, it) in list {
             if it.id.get().is_some() {

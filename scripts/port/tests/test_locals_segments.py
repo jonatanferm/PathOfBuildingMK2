@@ -68,7 +68,7 @@ class LocalsAuditPinTest(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             rc = locals_audit.main(["--check", doc])
         self.assertEqual(rc, 0, buf.getvalue())
-        self.assertIn("7 rows, 88 crossing locals identical", buf.getvalue())
+        self.assertIn("7 rows, 88 crossing locals, 6 closure-upvalue lines identical", buf.getvalue())
 
     def test_segments_check(self):
         buf = io.StringIO()

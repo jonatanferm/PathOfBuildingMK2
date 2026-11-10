@@ -6,9 +6,8 @@
 //! Notes:
 //! * `configTable[key] and configTable[key](env)`: a key without an arm and an arm that returns
 //!   nil are both `None` (the caller only tests the result).
-//! * The configs are built per CCR-0087: `triggeredSkillCond` and closure comparers go through
-//!   `TriggerConfig::set_triggeredSkillCond` / `set_comparer` (the typed `comparer` field stays
-//!   `None`), `sourceWeapon = true` is `extra.sourceWeapon`, and the other untyped keys
+//! * The configs are built per CCR-0087: `triggeredSkillCond`, the closure `comparer` and
+//!   `sourceWeapon = true` are typed `TriggerConfig` fields, and the other untyped keys
 //!   (`trigRate`, `uuid`, `triggeredSkills`, `overlaps`, `customTriggerName`, `sourceName`,
 //!   `ignoreSourceRate`) are `extra` entries under their Lua names. A Lua table constructor
 //!   field whose value is nil is not stored.
@@ -37,7 +36,6 @@ use super::handlers::{
     packageSkillDataForSimulation, slotMatch, CWCHandler, ComparerFn, SkillCondFn,
 };
 use super::TriggerConfig;
-use crate::modules::calc_active_skill::triggeredBy;
 use crate::modules::calc_setup::init_env_skills::grantedEffect_fromItem;
 use crate::modules::calc_tools as calcLib;
 use crate::modules::calcs::buildActiveSkill;
@@ -208,7 +206,7 @@ fn slot(skill: &ActiveSkillRef) -> Option<Name> {
 
 /// `skill.triggeredBy` where the Lua indexes it (nil raises).
 fn trig_by(skill: &ActiveSkillRef) -> SkillEffectRef {
-    triggeredBy(skill)
+    skill.triggeredBy.get()
         .unwrap_or_else(|| lua_error!("attempt to index field 'triggeredBy' (a nil value)"))
 }
 
@@ -574,7 +572,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByUnique"))
                     && slot(&pmain(env)) == slot(skill)
                     && has(skill, SkillType::Spell)
@@ -585,7 +583,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
         "maloney's mechanism" => {
             // L1024
             let slotName = pmain(env).skillCfg.get().slotName.get();
-            let item = slotName.and_then(|s| env.player.itemList.with(|l| l.get(&s).cloned()));
+            let item = slotName.and_then(|s| env.player.item_in(s));
             let modSource = match item {
                 Some(item) => item.modSource.get(),
                 None => lua_error!("attempt to index field '?' (a nil value)"),
@@ -614,7 +612,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByUnique"))
                     && slot(&pmain(env)) == slot(skill)
                     && has(skill, SkillType::RangedAttack)
@@ -632,7 +630,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByUnique"))
                     && slot(&pmain(env)) == slot(skill)
                     && has(skill, SkillType::Spell)
@@ -661,7 +659,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 triggerSkillCond: cond(|env, skill| ge_name(skill) == "Queen's Demand"),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByUnique"))
                     && slot(&pmain(env)) == slot(skill)
             }));
@@ -680,7 +678,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 triggerSkillCond: cond(|env, skill| ge_name(skill) == "Queen's Demand"),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByUnique"))
                     && slot(&pmain(env)) == slot(skill)
             }));
@@ -783,7 +781,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_comparer(comparer(move |env, uuid, source, triggerRate| {
+            config.comparer = Some(comparer(move |env, uuid, source, triggerRate| {
                 let cachedSpeed = lor(cache_req(env, uuid).HitSpeed.clone(), || {
                     cache_req(env, uuid).Speed.clone()
                 });
@@ -816,7 +814,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_comparer(comparer(move |env, uuid, source, triggerRate| {
+            config.comparer = Some(comparer(move |env, uuid, source, triggerRate| {
                 let cachedSpeed = lor(cache_req(env, uuid).HitSpeed.clone(), || {
                     cache_req(env, uuid).Speed.clone()
                 });
@@ -838,7 +836,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByMjolner")) && slotMatch(env, skill)
             }));
             Some(config)
@@ -854,7 +852,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByUnique")) && slotMatch(env, skill)
             }));
             Some(config)
@@ -869,7 +867,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByCospris"))
                     && slot(&pmain(env)) == slot(skill)
             }));
@@ -886,7 +884,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill
                     .skillData
                     .get()
@@ -912,7 +910,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                     }),
                     ..cfg()
                 };
-                config.set_triggeredSkillCond(Rc::new(|env, skill| {
+                config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                     skill
                         .skillData
                         .get()
@@ -941,7 +939,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByKineticFlux")) && slotMatch(env, skill)
             }));
             Some(config)
@@ -955,7 +953,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByCoc")) && slotMatch(env, skill)
             }));
             Some(config)
@@ -979,7 +977,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                     }),
                     ..cfg()
                 };
-                config.set_triggeredSkillCond(Rc::new(|env, skill| {
+                config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                     skill.skillData.get().truthy(n!("triggeredByMeleeKill"))
                         && slotMatch(env, skill)
                 }));
@@ -1385,7 +1383,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                     triggerSkillCond: cond(|env, skill| has(skill, SkillType::Melee)),
                     ..cfg()
                 };
-                config.set_comparer(comparer(|env, uuid, source, triggerRate| {
+                config.comparer = Some(comparer(|env, uuid, source, triggerRate| {
                     // Skills with no uptime ratio are not exerted by battlemage so should not be considered.
                     let uptimeRatio = cache_req(env, uuid)
                         .Env
@@ -1395,7 +1393,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                         .get(n!("BattlemageUpTimeRatio"));
                     defaultComparer(env, uuid, source, triggerRate) && uptimeRatio.truthy()
                 }));
-                config.set_triggeredSkillCond(Rc::new(|env, skill| {
+                config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                     skill.skillData.get().truthy(n!("triggeredByBattleMageCry"))
                         && slotMatch(env, skill)
                 }));
@@ -1473,7 +1471,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                     ..cfg()
                 };
                 config.extra.set(n!("trigRate"), trigRate);
-                config.set_triggeredSkillCond(Rc::new(|env, skill| {
+                config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                     skill.skillData.get().truthy(n!("triggeredByBrand")) && slotMatch(env, skill)
                 }));
                 return Some(config);
@@ -1500,7 +1498,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 triggerSkillCond: cond(|env, skill| has(skill, SkillType::Melee)),
                 ..cfg()
             };
-            config.set_comparer(comparer(|env, uuid, source, triggerRate| {
+            config.comparer = Some(comparer(|env, uuid, source, triggerRate| {
                 // Skills with no uptime ratio are not exerted by infernal cry so should not be considered.
                 let uptimeRatio = cache_req(env, uuid)
                     .Env
@@ -1682,7 +1680,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_comparer(comparer(|env, uuid, source, currentTotemLife| {
+            config.comparer = Some(comparer(|env, uuid, source, currentTotemLife| {
                 let totemLife = cache_req(env, uuid)
                     .Env
                     .player
@@ -1713,7 +1711,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 });
                 // L1496
                 let mut config = cfg();
-                config.set_triggeredSkillCond(Rc::new(|env, skill| {
+                config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                     has(skill, SkillType::Spell)
                         && slotMatch(env, skill)
                         && !trig_by(&pmain(env))
@@ -1746,9 +1744,9 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 source: Some(pmain(env)),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 slotMatch(env, skill)
-                    && triggeredBy(skill).is_some_and(|tb| {
+                    && skill.triggeredBy.get().is_some_and(|tb| {
                         calcLib::canGrantedEffectSupportActiveSkill(
                             &tb.grantedEffect.get(),
                             skill,
@@ -1769,9 +1767,9 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 source: Some(pmain(env)),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 slotMatch(env, skill)
-                    && triggeredBy(skill).is_some_and(|tb| {
+                    && skill.triggeredBy.get().is_some_and(|tb| {
                         calcLib::canGrantedEffectSupportActiveSkill(
                             &tb.grantedEffect.get(),
                             skill,
@@ -1793,7 +1791,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill.skillData.get().truthy(n!("triggeredByTrapTrigger")) && slotMatch(env, skill)
             }));
             Some(config)
@@ -1808,7 +1806,7 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
                 }),
                 ..cfg()
             };
-            config.set_triggeredSkillCond(Rc::new(|env, skill| {
+            config.triggeredSkillCond = Some(Rc::new(|env, skill| {
                 skill
                     .skillData
                     .get()
@@ -1823,10 +1821,10 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
             let config = TriggerConfig {
                 triggerOnUse: true,
                 triggerSkillCond: cond(|env, skill| has(skill, SkillType::Attack)),
+                // CCR-0087 §3: `sourceWeapon = true`
+                sourceWeapon: true,
                 ..cfg()
             };
-            // CCR-0087 §3: `sourceWeapon = true`
-            config.extra.set(n!("sourceWeapon"), true);
             Some(config)
         }
         // @pob Modules/CalcTriggers.lua:1544-1550 h=13d083d0
@@ -1938,10 +1936,10 @@ fn configTable_arm(key: Name, env: &EnvRef) -> Option<TriggerConfig> {
             // L1580
             let config = TriggerConfig {
                 triggerSkillCond: melee_or_attack(),
+                // CCR-0087 §3: `sourceWeapon = true`
+                sourceWeapon: true,
                 ..cfg()
             };
-            // CCR-0087 §3: `sourceWeapon = true`
-            config.extra.set(n!("sourceWeapon"), true);
             Some(config)
         }
         // @pob Modules/CalcTriggers.lua:1582-1582 h=c2b7df62
@@ -2290,7 +2288,7 @@ pub fn triggers(env: &EnvRef, actor: Option<&ActorRef>) {
         // L1604
         let skillName = ge_name(&mainSkill(actor));
         // L1605
-        let triggerName = triggeredBy(&mainSkill(actor)).map(|tb| tb.grantedEffect.get().name);
+        let triggerName = mainSkill(actor).triggeredBy.get().map(|tb| tb.grantedEffect.get().name);
         // L1606
         let uniqueName = if isTriggered(&mainSkill(actor)) {
             getUniqueItemTriggerName(&mainSkill(actor))

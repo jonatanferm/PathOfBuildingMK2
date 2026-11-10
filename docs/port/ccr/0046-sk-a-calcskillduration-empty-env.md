@@ -1,6 +1,6 @@
 # CCR-0046: `calcSkillDuration` called with an empty env table and no enemyDB
 
-**Status: escalated by CCR2 2026-11-10 (needs code; frozen OF-A signature, AMENDMENTS A8 E5). See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by RETYPE (AMENDMENTS A8 E5 approved, A10): `calcSkillDuration(…, env: Option<&EnvRef>, enemyDB: Option<&ModDB>)`, every caller updated, SK-A's `calcSkillDuration_noEnv` deleted. Previously: escalated by CCR2 2026-11-10.**
 
 Requested by: SK-A (Data/Skills/act_int.lua hooks)
 Filed status: proposed

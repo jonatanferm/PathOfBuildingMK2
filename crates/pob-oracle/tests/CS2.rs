@@ -41,11 +41,11 @@
 //! **Representation differences** (counted and printed, not gated):
 //! * `round-trip`: a mismatch identical before and after the run (the injected state exported
 //!   before running already differs in the same way), i.e. a property of inject/export, not CS2;
-//! * `explodeSources (CCR-0030 #3)`: PoB's list holds items and nodes; the port keeps the Lua list
-//!   in `env.extra["explodeSources"]` (the typed field exports empty). The extra list is compared
-//!   against PoB's instead (same length and the same item / node identities in order);
-//! * `rust-only plumbing`: `env.$flaskSlotMap` (CCR-0030 #5 side map) and
-//!   `override.$extraJewelFuncsActor` (keeps the actor alive);
+//! * `explodeSources`: PoB's list holds items and nodes (`env.explodeSources`, CCR-0030 #3); the
+//!   node half follows the injected `env.allocNodes` layout (LUA-ORDER), so the list is compared
+//!   as the sorted node half plus the items in order, and its element mismatches are excused when
+//!   that comparison holds;
+//! * `rust-only plumbing`: `override.$extraJewelFuncsActor` (keeps the actor alive);
 //! * `eager struct field`: an `Extra` mismatch of a typed field PoB has not set yet whose Rust
 //!   value is the default (calc doc §5.4 structs; CCR-0082 §3), for the fields in `EAGER_FIELDS`
 //!   only (`Item.corrupted = false`, `specEnv.accelerate = {}`);
@@ -653,26 +653,6 @@ fn jewel_func_srcs(build: &BuildRef) -> JfSrcs {
     out
 }
 
-/// A ring's `slotModList[3]` (IT-C keeps it in `item.extra`, which the exporter does not write for
-/// items the model loaded): same length as PoB's.
-fn slot3_equal(build: &BuildRef, env: &EnvRef, pob_root: &J, m: &Mismatch) -> bool {
-    let Some(prefix) = m.path.strip_suffix(".slotModList[3]") else { return false };
-    // an empty Lua list dumps as `{}`
-    let n = m.pob.as_ref().and_then(|v| v.as_array().map(Vec::len).or_else(|| v.as_object().filter(|o| o.is_empty()).map(|_| 0)));
-    let item = match prefix.strip_prefix("env.player.itemList[\"").and_then(|r| r.strip_suffix("\"]")) {
-        Some(slot) => env.player.itemList.with(|l| l.get(&Name::from(slot)).cloned()),
-        None => {
-            let name = at_path(pob_root, prefix).map(|v| resolve(pob_root, v)).and_then(|v| v.get("$item")).and_then(J::as_str);
-            name.and_then(|name| build.itemsTab.items.with(|l| l.values().find(|i| &*i.name.get() == name).cloned()))
-        }
-    };
-    let ours = item.map(|i| i.slotModList3().map_or(0, |l| l.len()));
-    if std::env::var_os("CS2_DEBUG").is_some() {
-        eprintln!("slot3 {}: pob {n:?} ours {ours:?}", m.path);
-    }
-    n.is_some() && n == ours
-}
-
 /// The upvalues of a build's `ExtraJewelFunc` closures (ModParser.lua:2622-2627 `[dmgType]`,
 /// 2630-2634 `[val, attr]`), by closure source and radius, from the Rust parse of the model's
 /// items (`None`: two mods with the same key and radius but other upvalues).
@@ -931,7 +911,7 @@ fn run_hit(
         .and_then(|p| p.get("itemList"))
         .and_then(J::as_object)
         .map_or(0, |o| o.keys().filter(|k| !k.starts_with('$')).count());
-    let our_items = env.player.itemList.with(indexmap::IndexMap::len);
+    let our_items = env.player.itemList().with(indexmap::IndexMap::len);
     if pob_items == 0 && our_items > 0 {
         return Outcome::PreLoad;
     }
@@ -944,26 +924,18 @@ fn run_hit(
     }
     let mm = testkit::diff_against(dout, Some(&env), &after, &format!("CS2-{stem}"));
     drop(keep_alive);
-    // explodeSources: our Lua list (env.extra) against PoB's
+    // explodeSources: our list against PoB's
     let pob_es = dout.root.get("env").and_then(|e| e.get("explodeSources"));
-    let ours_es = {
-        let t = env.extra.table(n!("explodeSources"));
-        t.map(|t| {
-            t.ipairs()
-                .into_iter()
-                .map(|(_, v)| {
-                    if let Some(n) = v.obj::<Node>() {
-                        format!("node {}", pob_lua::tostring_num(n.id))
-                    } else if let Some(i) = v.obj::<Item>() {
-                        format!("item {}", i.name.get())
-                    } else {
-                        format!("other {v:?}")
-                    }
-                })
-                .collect::<Vec<_>>()
+    let ours_es: Vec<String> = env
+        .explodeSources
+        .get()
+        .snapshot()
+        .into_iter()
+        .map(|v| match v {
+            pob_calc::env::ExplodeSource::Node(n) => format!("node {}", pob_lua::tostring_num(n.id)),
+            pob_calc::env::ExplodeSource::Item(i) => format!("item {}", i.name.get()),
         })
-        .unwrap_or_default()
-    };
+        .collect();
     let pob_es_ids = list_ids(&dout.root, pob_es);
     // LUA-ORDER: the node half follows `env.allocNodes`' layout (injected); the items keep order
     let split = |l: &[String]| {
@@ -982,8 +954,8 @@ fn run_hit(
         let reason: Option<&'static str> = if before.contains(&key(&m)) {
             Some("round-trip")
         } else if p.starts_with("env.explodeSources") && es_equal {
-            Some("explodeSources (CCR-0030 #3)")
-        } else if p.contains("$flaskSlotMap") || p.contains("$extraJewelFuncsActor") {
+            Some("explodeSources (node half in allocNodes layout)")
+        } else if p.contains("$extraJewelFuncsActor") {
             Some("rust-only plumbing")
         } else if p.starts_with("globalCache") {
             Some("globalCache")
@@ -1000,10 +972,6 @@ fn run_hit(
             Some("radiusJewelList.nodes (node-id map exported as userdata; same ids)")
         } else if p.ends_with(".func") && jewel_func_equal(&m, jsrc) {
             Some("jewel func (closure as data, calc doc §6)")
-        } else if p.ends_with(".slotModList[3]") && kind(&m) == "Missing" && slot3_equal(build, &env, &dout.root, &m) {
-            Some("slotModList[3] of model items (CCR-0061 §1 export)")
-        } else if p.ends_with("[\"$slotModList3\"]") || p.ends_with(".$slotModList3") {
-            Some("slotModList[3] of model items (CCR-0061 §1 export)")
         } else if p.ends_with(".mods.JewelFunc") && mods_equal_norm(&dout.root, &ours_tree, p, jsrc) {
             Some("jewel func (closure as data, calc doc §6)")
         } else if kind(&m) == "Value"
@@ -1011,7 +979,7 @@ fn run_hit(
                 ident(&dout.root, a).is_some() && ident(&dout.root, a) == ident(&ours_tree, b)
             })
         {
-            Some("same object, other canonical path (explodeSources CCR-0030 #3)")
+            Some("same object, other canonical path (explodeSources node order)")
         } else if kind(&m) == "Value"
             && m.pob.as_ref().and_then(|v| v.get("$ref")).and_then(J::as_str).is_some_and(|r| {
                 r.starts_with("env.override.extraJewelFuncs.actor") || r.starts_with("locals.override.extraJewelFuncs.actor")
@@ -1035,7 +1003,7 @@ fn run_hit(
     }
     if !es_equal {
         kept.push(Mismatch {
-            path: "env.extra.explodeSources (CCR-0030 #3)".to_owned(),
+            path: "env.explodeSources".to_owned(),
             kind: pob_oracle::diff::MismatchKind::Value,
             pob: Some(J::from(pob_es_ids.join(", "))),
             ours: Some(J::from(ours_es.join(", "))),
@@ -1179,7 +1147,7 @@ fn restart_check(build: &BuildRef, din: &StateDump, ejf: &[ModRef]) -> Result<us
     // Rust-only expectation: this mod was parsed without an item, so its tags keep
     // "{SlotName}" and test `cfg.item` (ModStore.lua:707-711), i.e. the jewel 905 lists for. The
     // PoB-compared restart is corpus/CS2 in `cs2_l4_items_segment`.
-    let want = env2.player.itemList.with(|l| {
+    let want = env2.player.itemList().with(|l| {
         l.iter()
             .filter(|(k, i)| {
                 k.as_str().starts_with("Jewel ")
@@ -1296,7 +1264,7 @@ fn cs2_l4_overrides() {
             match run_with_override(&build, &din, ov) {
                 Ok(e) => {
                     rep_checks += 1;
-                    let got = e.player.itemList.with(|m| m.get(&n!("Ring 2")).cloned());
+                    let got = e.player.itemList().with(|m| m.get(&n!("Ring 2")).cloned());
                     if !got.is_some_and(|g| Rc::ptr_eq(&g, &r1)) {
                         failures.push(format!("{stem}: repItem Ring 2 is not the Ring 1 item"));
                     }
@@ -1335,8 +1303,8 @@ fn cs2_l4_overrides() {
             match run_with_override(&build, &din, ov) {
                 Ok(e) => {
                     staff_checks += 1;
-                    let w1 = e.player.itemList.with(|m| m.get(&n!("Weapon 1")).cloned());
-                    let w2 = e.player.itemList.with(|m| m.contains_key(&n!("Weapon 2")));
+                    let w1 = e.player.itemList().with(|m| m.get(&n!("Weapon 1")).cloned());
+                    let w2 = e.player.itemList().with(|m| m.contains_key(&n!("Weapon 2")));
                     if !w1.is_some_and(|g| Rc::ptr_eq(&g, &staff)) || w2 {
                         failures.push(format!("{stem}: staff repItem: Weapon 1 not the staff or Weapon 2 kept"));
                     }

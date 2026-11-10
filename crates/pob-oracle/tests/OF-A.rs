@@ -1698,7 +1698,7 @@ fn check_duration(n: usize) -> Check {
                 }
                 let env = new_env();
                 env.mode_effective.set(effective);
-                f17(hs::calcSkillDuration(&ml, None, &sd, &env, &edb))
+                f17(hs::calcSkillDuration(&ml, None, &sd, Some(&env), Some(&edb)))
             }),
         );
     }

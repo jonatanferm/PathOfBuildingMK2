@@ -853,6 +853,8 @@ pub struct ModStore {
     pub parent: Field<Option<ModStoreRef>>,       // self.parent (false → None); reassigned at CalcSetup.lua:689-692
     pub actor: Field<ActorWeak>,                  // ModStore.lua:42: parent.actor at construction time, else {} (= dangling Weak)
     pub conditions: Table, pub multipliers: Table,
+    pub notBuff: Cell<bool>,                      // modList.notBuff = true (CalcPerform.lua 2331/2810/2834; read 3346, 3425); nil = false
+                                                  // (CCR-0030 #7, CCR-0076)
 }
 #[derive(Clone, Copy, PartialEq, Eq)] pub enum StoreKind { ModDB, ModList }
 enum StoreMods {
@@ -921,7 +923,9 @@ pub struct Actor {
     pub level: Cell<f64>,
     pub output: Field<Output>,                    // perform reassigns env.player.output = {} (CalcPerform.lua:1305)
     pub breakdown: Field<Option<Breakdown>>,
-    pub itemList: Shared<indexmap::IndexMap<Name, ItemRef>>,   // slot name → item
+    pub itemList: Field<Option<ItemList>>,        // slot name → item; None = Lua nil (the enemy, CalcSetup.lua:519-522;
+                                                  // a minion until CalcActiveSkill.lua:722; CCR-0015 §3). `actor.itemList()` /
+                                                  // `actor.item_in(slot)` raise Lua's index-of-nil error on None
     pub weaponData1: Field<Table>, pub weaponData2: Field<Table>,
     pub weaponRange1: Cell<Option<f64>>, pub weaponRange2: Cell<Option<f64>>,
     pub mainSkill: Field<Option<ActiveSkillRef>>,
@@ -931,11 +935,17 @@ pub struct Actor {
     pub minionData: Field<Option<MinionDataRef>>,
     pub damageShiftTable: Field<Option<Table>>, pub damageOverTimeShiftTable: Field<Option<Table>>,
     pub allyLifeList: Field<Option<Table>>, pub strDmgBonus: Cell<f64>, pub hostile: Cell<bool>,
-    pub appliedEnemyModifiers: Field<Option<Table>>, pub infoTrigger: Field<Option<LStr>>,
-    pub itemSetId: Cell<Option<f64>>, pub uses: Cell<Option<f64>>,
+    pub appliedEnemyModifiers: Field<Option<Shared<ModPtrSet>>>,  // cache[mod] = true by mod identity (CalcPerform.lua:620-630; CCR-0030 #6)
+    pub infoTrigger: Field<Option<LStr>>, pub itemSetId: Cell<Option<f64>>,
+    pub uses: Field<Option<NameSet>>,             // minion.uses = grantedEffect.minionUses, the data's set (CalcActiveSkill.lua:723; CCR-0030 #2, CCR-0040 §1)
+    pub r#type: Field<Option<Name>>,              // minion.type (707)
+    pub lifeTable: Cell<Option<&'static [f64]>>,  // minion.lifeTable: one of data.monster*LifeTable, by identity (724-727)
+    pub itemSet: Field<Option<Table>>,            // minion.itemSet (740/745; CCR-0040 §1)
     pub extra: Table,                             // computed-key fields: actor["reserved_"..name.."Base"], "<X>Efficiency", …
 }
-impl Actor { pub fn new() -> ActorRef; }
+impl Actor { pub fn new() -> ActorRef; pub fn itemList(&self) -> ItemList; pub fn item_in(&self, slot: Name) -> Option<ItemRef>; }
+pub type ItemList = Shared<indexmap::IndexMap<Name, ItemRef>>;
+pub struct ModPtrSet(/* Vec<ModRef>, Arc identity, insertion order */);   // contains / insert / keys / wipe
 
 pub type SkillEffectRef = Rc<SkillEffect>;
 pub struct SkillEffect {                          // activeEffect / supportEffect / skillEffect tables
@@ -947,7 +957,9 @@ pub struct SkillEffect {                          // activeEffect / supportEffec
     pub isSupporting: Field<Option<Shared<PtrSet<GemInstance>>>>,
     pub superseded: Cell<bool>, pub appliesToGrantedSkills: Cell<bool>, pub fromItem: Cell<bool>,
     pub actorLevel: Cell<Option<f64>>, pub globalQuality: Cell<Option<f64>>, pub itemQuality: Cell<Option<f64>>,
-    pub supportQuality: Cell<Option<f64>>, pub req: Field<Option<Table>>, pub gemPropertyInfo: Field<Option<Table>>,
+    pub supportQuality: Cell<Option<f64>>,
+    pub req: Cell<Option<f64>>,                   // GemProperty `req` (applyGemMods; read as gemInstance.reqOverride; CCR-0074 §6)
+    pub gemPropertyInfo: Field<Option<Table>>,
     pub extra: Table,                             // applyGemMods: effect[value.key] = effect[value.key] + value.value (CalcSetup.lua 382-418)
 }
 
@@ -972,7 +984,9 @@ pub struct ActiveSkill {
     pub skillPart: Cell<Option<f64>>, pub skillPartName: Field<Option<LStr>>,
     pub disableReason: Field<Option<LStr>>, pub infoMessage: Field<Option<LStr>>, pub infoMessage2: Field<Option<LStr>>,
     pub infoTrigger: Field<Option<LStr>>, pub conversionTable: Field<Option<Table>>,
-    pub triggeredBy: Field<Option<Table>>, pub slotName: Cell<Option<Name>>, pub skillTotemId: Cell<Option<f64>>,
+    pub triggeredBy: Field<Option<SkillEffectRef>>,   // the trigger support's skill effect (CalcActiveSkill.lua:536; CCR-0030 #1);
+                                                      // CalcTriggers' run-time keys (mainSkill, activationFreqInc, …) go to its extra
+    pub slotName: Cell<Option<Name>>, pub skillTotemId: Cell<Option<f64>>,
     pub buffSkill: Cell<bool>, pub debuffSkill: Cell<bool>, pub totemBuffSkill: Cell<bool>, pub minionBuffSkill: Cell<bool>,
     pub activeMineCount: Cell<Option<f64>>, pub activeStageCount: Cell<Option<f64>>,
     pub extra: Table,
@@ -983,6 +997,7 @@ impl ActiveSkill {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)] pub enum Mode { MAIN, CALCS, CALCULATOR }
+#[derive(Clone)] pub enum ExplodeSource { Node(NodeRef), Item(ItemRef) }   // an env.explodeSources entry (CCR-0030 #3)
 
 pub type EnvRef = Rc<Env>;
 pub struct Env {
@@ -1001,12 +1016,14 @@ pub struct Env {
     pub grantedSkillsItems: Field<Shared<Vec<Table>>>,
     pub radiusJewelList: Field<Shared<Vec<Table>>>, pub extraRadiusNodeList: Field<Shared<LjIntMap<NodeRef>>>,
     pub flasks: Field<Shared<PtrMap<Item, bool>>>, pub tinctures: Field<Shared<PtrMap<Item, bool>>>,
-    pub flaskSlotOccupied: Field<Table>, pub flaskSlotMap: Field<Table>,
+    pub flaskSlotOccupied: Field<Table>,
+    pub flaskSlotMap: Field<Shared<PtrMap<Item, f64>>>,   // flaskSlotMap[item] = flaskNum (CalcSetup.lua:1035; CCR-0030 #5)
     pub itemWarnings: Field<Table>, pub requirementsTable: Field<Table>,
     pub requirementsTableItems: Field<Table>, pub requirementsTableGems: Field<Table>,
     pub auxSkillList: Field<Shared<Vec<ActiveSkillRef>>>, pub limitedSkills: Field<Option<Table>>,
     pub mainSocketGroup: Cell<Option<f64>>, pub crossLinkedSupportGroups: Field<Table>,
-    pub keystonesAdded: Field<Table>, pub explodeSources: Field<Shared<Vec<Table>>>,
+    pub keystonesAdded: Field<Table>,
+    pub explodeSources: Field<Shared<Vec<ExplodeSource>>>,   // nodes (buildModListForNodeList) and items (838); CCR-0030 #3
     pub aegisItem: Field<Option<ItemRef>>,
     pub buffs: Field<Table>, pub minionBuffs: Field<Table>, pub debuffs: Field<Table>, pub curseSlots: Field<Table>,
     // MAIN/CALCS used-tracking (Calcs.lua 437-872)
@@ -1138,7 +1155,10 @@ pub struct SocketGroup { pub label: Field<LStr>, pub enabled: Cell<bool>, pub sl
     pub groupCount: Cell<Option<f64>>, pub gemList: Field<Shared<Vec<GemInstanceRef>>>,
     pub mainActiveSkill: Cell<f64>, pub mainActiveSkillCalcs: Cell<f64>, pub noSupports: Cell<bool>,
     pub displaySkillList: Field<Option<Shared<Vec<ActiveSkillRef>>>>, pub displaySkillListCalcs: Field<Option<Shared<Vec<ActiveSkillRef>>>>,
-    pub displayLabel: Field<Option<LStr>>, pub explodeSources: Field<Option<Table>>, pub extra: Table }
+    pub displayLabel: Field<Option<LStr>>,
+    pub explodeSources: Field<Option<Shared<Vec<ExplodeSource>>>>,   // = env.explodeSources, aliased (CalcSetup.lua:1522; CCR-0030 #3)
+    pub sourceItem: Field<Option<ItemRef>>,                          // grantedSkill.sourceItem (1486; CCR-0040 §2)
+    pub extra: Table }
 pub type GemInstanceRef = Rc<GemInstance>;
 pub struct GemInstance { pub nameSpec: Field<LStr>, pub skillId: Field<Option<Name>>, pub gemId: Field<Option<Name>>,
     pub level: Cell<f64>, pub quality: Cell<f64>, pub enabled: Cell<bool>, pub enableGlobal1: Cell<bool>,
@@ -1176,7 +1196,7 @@ pub struct Item {
     pub explicitModLines: Field<Shared<Vec<Table>>>, pub implicitModLines: Field<Shared<Vec<Table>>>,
     pub enchantModLines: Field<Shared<Vec<Table>>>, pub scourgeModLines: Field<Shared<Vec<Table>>>,
     pub crucibleModLines: Field<Shared<Vec<Table>>>, pub buffModLines: Field<Shared<Vec<Table>>>,
-    pub modList: Field<Option<ModList>>, pub slotModList: [Field<Option<ModList>>; 2],
+    pub modList: Field<Option<ModList>>, pub slotModList: [Field<Option<ModList>>; 3],   // [3]: "Ring 3" (Item.lua:2699; CCR-0030 #4)
     pub weaponData: Field<Option<Table>>,             // Lua weaponData[1], [2]
     pub armourData: Field<Option<Table>>, pub flaskData: Field<Option<Table>>, pub tinctureData: Field<Option<Table>>,
     pub jewelData: Field<Option<Table>>,              // funcList, radiusIndex, conqueredBy, limit, limitDisabled, …
@@ -1226,7 +1246,7 @@ pub mod calcs {
     pub use crate::modules::calcs::{getMiscCalculator, calcFullDPS, buildActiveSkill, buildOutput, MiscCalculator, FullDPS};
     pub use crate::modules::calc_setup::{initEnv, initModDB, buildModListForNode, buildModListForNodeList};
     // CCR-0074: buildModListForNode(env, node, reuse: Option<&ModList>) -> (ModList, Val /* Nil | Obj(NodeRef) */);
-    //           buildModListForNodeList(env, nodeList, finishJewels) -> (ModList, Vec<Val> /* explodeSources: nodes */)
+    //           buildModListForNodeList(env, nodeList, finishJewels) -> (ModList, Vec<ExplodeSource> /* explodeSources: nodes */)
     pub use crate::modules::calc_active_skill::{createActiveSkill, copyActiveSkill, buildActiveSkillModList,
                                                 createMinionSkills, mergeSkillInstanceMods};
     pub use crate::modules::calc_perform::{perform, actionSpeedMod};
@@ -1349,6 +1369,15 @@ These lists come from `scripts/port/locals_audit.py`, a scope-aware analyser tha
 | `calcs.buildDefenceEstimations` 1674-3873 | 1674 · 2153 · 2612 · 3165 | params `env actor`; `modDB`1675 `enemyDB`1676 `output`1678 `breakdown`1680 `damageCategoryConfig`1684 |
 | `calcs.initEnv` 475-1975 | 475 · 800 · 1451 | params `build mode specEnv`; `cachedPlayerDB`478 `cachedEnemyDB`479 `cachedMinionDB`480 `env`481 `accelerate`482 `override`485 `modDB`486 |
 
+**Closure upvalues** (`locals_audit.py --upvalues`, compared by `--check`; CCR-0079 §1). A crossing local function carries the function-body locals its body captures, also through the non-crossing local functions it calls. The captured values that are not ctx fields must cross with it: the ctx field named after the function holds them (`PerformCtx.mergeFlasks: Option<Rc<setup_flasks::FlaskUpvalues>>`, `.mergeTinctures: Option<Rc<setup_flasks::TinctureUpvalues>>`, §7.2), assigned where Lua creates the closure. At the pin:
+
+- `calcs.offence` `calcAreaOfEffect`374: none
+- `calcs.offence` `calcResistForType`494: none
+- `calcs.offence` `runSkillFunc`509: none
+- `calcs.offence` `combineStat`2066: none
+- `calcs.perform` `mergeFlasks`1691: `effectInc`1602 `effectIncMagic`1603 `effectIncMagicNoAdjacent`1604 `effectIncNonPlayer`1605 `effectIncMagicNonPlayer`1606 `flasksApplyToMinion`1607 `quickSilverAppliesToAllies`1608 `flaskTotalRateInc`1610 `flaskDurInc`1611 (through local fns `getFlaskInstantRecovery`1638 `calcFlaskRecovery`1652)
+- `calcs.perform` `mergeTinctures`1862: `effectInc`1851 `effectIncMagic`1852 `tinctureLimit`1853
+
 The only early exits are `return` at CalcOffence.lua:371 (skill disabled), giving `Flow::Return` in OF-A, and the two initEnv restarts at CalcSetup.lua:1433 (in CS2) and 1923 (in CS3), giving `Flow::Restart`. `goto continue` stays inside one segment.
 
 ### 7.2 Context structs and orchestrators ([U0], frozen)
@@ -1413,13 +1442,22 @@ ctx_struct! { pub struct PerformCtx {
     env: EnvRef, skipEHP: bool, modDB: ModDB, enemyDB: ModDB, output: Output, breakdown: Option<Breakdown>,
     partyTabEnableExportBuffs: bool, hasGuaranteedBonechill: bool, guaranteedChillSkills: Table,
     summonedMinionOverride: Option<f64>, nonUniqueFlasksApplyToMinion: bool,
+    mergeFlasks: Option<Rc<setup_flasks::FlaskUpvalues>>,        // the closure at 1691: its upvalues (CCR-0079 §1)
+    mergeTinctures: Option<Rc<setup_flasks::TinctureUpvalues>>,  // the closure at 1862 (tinctureLimit: Cell<f64>, mutated at 1909)
     buffs: Table, guards: Table, minionBuffs: Table, debuffs: Table, curses: Table, minionCurses: Table,
     linkSkills: Table, allyBuffs: Option<Table> /* env.partyMembers["Aura"], 2206: nil when absent */,
     buffExports: Table, appliedCombustion: bool, warcryList: Table,
 }}
+// setup_flasks.rs [PF-C], also ctx_struct! (ProbeState: the locals of the line probes `perform:1691` / `perform:1862`):
+//   pub struct FlaskUpvalues { effectInc: f64, effectIncMagic: f64, effectIncMagicNoAdjacent: f64, effectIncNonPlayer: f64,
+//       effectIncMagicNonPlayer: f64, flasksApplyToMinion: bool, quickSilverAppliesToAllies: bool,
+//       flaskTotalRateInc: f64, flaskDurInc: f64 }                                       // locals declared at 1602-1611
+//   pub struct TinctureUpvalues { effectInc: f64, effectIncMagic: f64, tinctureLimit: Cell<f64> }   // 1851-1853
 // setup_flasks.rs [PF-C]: pub(super) fn mergeFlasks(ctx: &PerformCtx, flasks: &PtrMap<Item,bool>, onlyRecovery: bool,
 //                                                   checkNonRecoveryFlasksForMinions: bool);
 //                         pub(super) fn mergeTinctures(ctx: &PerformCtx, tinctures: &PtrMap<Item,bool>);
+//   both read their upvalues from the ctx field (nil → "attempt to call local 'mergeFlasks' (a nil value)"); the
+//   exporter writes a set field as PoB's `{"$fn": "Modules/CalcPerform.lua:1691-1849"}` / `…:1862-1932` marker.
 /// @pob Modules/CalcPerform.lua:1286-1288
 pub fn perform(env: &EnvRef, skipEHP: bool) {
     let mut ctx = PerformCtx::init(env, skipEHP);                   // L1287-1288
@@ -1525,13 +1563,18 @@ pub enum ModMapApply {
 pub static MODMAP_APPLY: LazyLock<AHashMap<Name, &'static FnRow<ModMapApply>>>;
 
 // calc_triggers/mod.rs
+pub type SkillCondFn = Rc<dyn Fn(&EnvRef, &ActiveSkillRef) -> bool>;
+/// comparer(env, uuid, source, triggerRate): source/rate nil for findTriggerSkill's first candidate (CalcTriggers.lua:83)
+pub type ComparerFn = Rc<dyn Fn(&EnvRef, Name, Option<&ActiveSkillRef>, Option<f64>) -> bool>;
 pub struct TriggerConfig {
-    pub source: Option<ActiveSkillRef>, pub triggerName: Option<Name>, pub triggerOnUse: bool, pub useCastRate: bool,
-    pub triggerChance: Option<f64>, pub assumingEveryHitKills: bool, pub sourceWeapon: Option<Name>,
-    pub triggerSkillCond: Option<Rc<dyn Fn(&EnvRef, &ActiveSkillRef) -> bool>>,
+    pub source: Option<ActiveSkillRef>, pub actor: Option<ActorRef>, pub triggerName: Option<Name>,
+    pub triggerOnUse: bool, pub useCastRate: bool, pub triggerChance: Option<f64>, pub assumingEveryHitKills: bool,
+    pub sourceWeapon: bool,                        // `sourceWeapon = true` (1537, 1580), only tested (CCR-0087 §3)
+    pub triggerSkillCond: Option<SkillCondFn>,
+    pub triggeredSkillCond: Option<SkillCondFn>,   // 408-419, 797-814 (CCR-0087 §1)
     pub customHandler: Option<fn(&EnvRef, &mut TriggerConfig) -> Option<Table>>,
-    pub comparer: Option<fn(&EnvRef, Name, &ActiveSkillRef, f64) -> bool>,
-    pub extra: Table,                              // remaining keys read by defaultTriggerHandler (TR-A census)
+    pub comparer: Option<ComparerFn>,              // closures over the arms' locals (CCR-0087 §2)
+    pub extra: Table,                              // remaining keys read by defaultTriggerHandler (TR-A census, CCR-0087 §4)
 }
 // calc_mirages.rs
 pub struct MirageConfig {
@@ -1546,7 +1589,7 @@ pub fn mirages(env: &EnvRef) -> bool;
 // file-local: calculateMirage(env, config: Option<&MirageConfig>) -> Option<bool>   (CalcMirages.lua:24-27, CCR-0090 §2)
 ```
 
-`TriggerConfig` above is U0's frozen shape. It cannot hold `triggeredSkillCond`, a closure `comparer` with optional arguments, or `sourceWeapon = true` (CCR-0087); TR-A stores them in `extra` through `handlers.rs` accessors (`set_triggeredSkillCond`, `set_comparer`/`comparer_fn`, `sourceWeapon()`), and TR-B MUST set them through those setters until the struct changes (A8, escalated).
+`TriggerConfig` above is U0's frozen shape as retyped by RETYPE (CCR-0087, AMENDMENTS A8 E2): `triggeredSkillCond`, the closure `comparer` and `sourceWeapon` are typed fields that TR-B's arms set and TR-A's handlers read directly; the other untyped keys stay in `extra` under their Lua names (`triggeredSkills`, `trigRate`, `allowTriggered`, `sourceName`, `ignoreSourceRate`, `stagesAreOverlaps`, `overlaps`, `customTriggerName`).
 
 Function ids are the ids of `data/dump/closures.json` (AMENDMENTS A2, `crates/pob-dump/FORMAT.md`), for example `skills.Barrage.preDamageFunc` and `ConfigOptions[<i>].apply` (1-based position in ConfigOptions.lua; not `configOptions.<var>.apply`, CCR-0006 §7), with sha256 body hashes.
 
@@ -1634,7 +1677,7 @@ Function ids are the ids of `data/dump/closures.json` (AMENDMENTS A2, `crates/po
 |---|---|---|
 | L0 | `pob-lua` helpers and `LjIntMap` vs the LuaJIT **interpreter** (`jit.off`; `L0_JIT_ON=1` adds an informational `jit.on` run whose trace-only divergences are counted): random and edge vectors, ≥10k per fn. Includes every `s_format` literal in Calc*.lua, NaN/±0 cases for `m_min`/`m_max`, and `table.sort` permutations with tie-heavy comparators. The port's x64 profile is compared as shipped; on a dual-number host a mismatch is tolerated (and counted) only when `with_luajit_arm64_profile` reproduces the oracle exactly (CCR-0001 table). Run in debug and `--release` (`lpow` folding) | 100% identical (modulo the counted, ARM64-profile-reproduced host differences) |
 | L1 | ModParser: all of ModCache (23,207 lines) with the cache tier **disabled**, plus `parse_oracle.jsonl` | ≥ 99.95%; full-tie lines accepted per §3.4; every entry in a unit's range is hit by ≥ 1 oracle line, or listed |
-| L2 | Model. Item: ParseRaw fields, modList, slotModList[1..2] (and the Ring 3 list, `Item::slotModList3()`, CCR-0061 §1), weaponData, armourData, flaskData, tinctureData, jewelData for every unique (all variants) and corpus item. Tree: node.modList and nodesInRadius for every node of every version. Spec: alloc, conquered and timeless rewrites, cluster subgraphs. Jewel funcs: each func on every node of the 3_26 tree | 100% |
+| L2 | Model. Item: ParseRaw fields, modList, slotModList[1..3] (the Ring 3 list is `slotModList[2]`, CCR-0030 #4), weaponData, armourData, flaskData, tinctureData, jewelData for every unique (all variants) and corpus item. Tree: node.modList and nodesInRadius for every node of every version. Spec: alloc, conquered and timeless rewrites, cluster subgraphs. Jewel funcs: each func on every node of the 3_26 tree | 100% |
 | L3 | ModStore query matrix on dumped DBs at `perform:out`: every mod name × cfg ∈ {nil, skillCfg, weapon1Cfg, weapon2Cfg, dotCfg, bleed/poison/ignite cfgs} × {Sum BASE/INC, More, Flag, Override, List, Max, Min, Tabulate, GetCondition, GetMultiplier, GetStat} | 100% |
 | L4 | Segment: inject at `<seg>:in#n`, run the Rust segment, diff against `<seg>:out#n` | 100% on the unit's curated + unit corpus; ≥ 98% of hits on all57, with the remainder documented in `known_diffs.toml` |
 | L5 | Stage: `initEnv:out`, `perform:out`, `buildOutput` in each mode, every socket group as main skill. Plus the D13 fixed-point test: build → buildOutput → buildOutput gives identical outputs and model state | as L4 |

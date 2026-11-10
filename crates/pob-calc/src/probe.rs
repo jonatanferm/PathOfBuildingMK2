@@ -21,7 +21,7 @@
 //!   cannot hold by itself but a faithful export needs — fields that were nil
 //!   in Lua (`absent`), other envs' objects (`foreign` markers), the dumped
 //!   `$uuid`s and mod `$at`s, object-keyed table entries and mod-store fields
-//!   the frozen types have no slot for (CCR-0030), the upvalue markers of
+//!   the frozen types have no slot for, the upvalue markers of
 //!   function `__index` layers.
 //!
 //! `pob_oracle::inject` fills a Rust graph from a dump through the same
@@ -126,14 +126,15 @@ mod imp {
 
     use super::ProbeState;
     use crate::active_skill::{ActiveSkill, ActiveSkillRef, SkillEffect, SkillEffectRef};
-    use crate::actor::{Actor, ActorRef};
+    use crate::actor::{Actor, ActorRef, ModPtrSet};
     use crate::breakdown::Breakdown;
     use crate::cfg::{Cfg, ModCfg, SkillTypes};
     use crate::classes::{
         Item, ItemRef, ModStore, ModStoreRef, Node, NodeRef, PassiveSpec, PassiveSpecRef,
         StoreKind, StoreMods,
     };
-    use crate::env::{Accelerate, Env, EnvRef, Mode, Override, SpecEnv};
+    use crate::env::{Accelerate, Env, EnvRef, ExplodeSource, Mode, Override, SpecEnv};
+    use crate::modules::calc_perform::setup_flasks::{FlaskUpvalues, TinctureUpvalues};
     use crate::global_cache::{CachedData, GlobalCache};
     use crate::lua_table::{IndexMeta, Key, LStr, Table, Val};
     use crate::model::{Build, BuildRef, GemInstance, GemInstanceRef, SocketGroup, SocketGroupRef};
@@ -172,6 +173,12 @@ mod imp {
         ItemFlags,
         GemSet,
         ItemList,
+        /// `env.explodeSources` / `socketGroup.explodeSources`: nodes and items (CCR-0030 #3).
+        ExplodeList,
+        /// `env.flaskSlotMap`: item → slot number (CCR-0030 #5).
+        FlaskSlots,
+        /// `actor.appliedEnemyModifiers`: mod → true (CCR-0030 #6).
+        ModSet,
         /// `item.modList` / `item.slotModList[i]`: a plain list of mods in Lua
         /// (`{ unpack(modList) }`, Item.lua:2518), a ModList in Rust.
         ItemMods,
@@ -212,6 +219,8 @@ mod imp {
         Level(SkillLevelRef),
         ItemBase(ItemBaseRef),
         Minion(MinionDataRef),
+        /// `data.skills.<id>.minionUses` (`minion.uses`, CCR-0030 #2).
+        NameSet(NameSet),
         Root,
         Other,
     }
@@ -247,17 +256,14 @@ mod imp {
         /// dumped `"$at"` of a mod, per store as state_dump.lua's `modAt[store][mod]`
         /// (store ptr, mod Arc ptr).
         mod_at: HashMap<(usize, usize), String>,
-        /// fields of objects without an `extra` table (mod stores: `notBuff`, CCR-0030).
+        /// fields of objects without an `extra` table (mod-store keys other than the typed ones).
         side_extra: HashMap<usize, Vec<(String, Val)>>,
-        /// object-keyed entries of a dynamic table (`env.flaskSlotMap[item]`,
-        /// `actor.appliedEnemyModifiers[mod]`; CCR-0030).
+        /// object-keyed entries of a dynamic table.
         obj_keys: HashMap<usize, Vec<(Val, Val)>>,
         /// the `$fn` marker of a table's function `__index` layer (upvalues are not dumped).
         meta_fn: HashMap<usize, J>,
         /// `$data` path of a data Arc as the dump spelled it.
         data_path: HashMap<usize, String>,
-        /// `item.slotModList[3]` (CCR-0030: the frozen `Item` has two slots).
-        slot3: HashMap<usize, ModStoreRef>,
         /// counters of injection fallbacks, by "<kind>.<key>: reason".
         pub fallbacks: HashMap<String, u64>,
     }
@@ -321,12 +327,6 @@ mod imp {
         }
         pub fn set_data_path(&mut self, ptr: usize, path: String) {
             self.data_path.insert(ptr, path);
-        }
-        pub fn set_slot3(&mut self, item: &ItemRef, l: ModStoreRef) {
-            self.slot3.insert(rc_ptr(item), l);
-        }
-        pub fn slot3(&self, item: &ItemRef) -> Option<ModStoreRef> {
-            self.slot3.get(&rc_ptr(item)).cloned()
         }
         pub fn obj_keys(&self, t: &Table) -> Vec<(Val, Val)> {
             self.obj_keys
@@ -420,6 +420,11 @@ mod imp {
                                     .entry(arc_ptr(l))
                                     .or_insert_with(|| format!("{base}.levels[{}]", i + 1));
                             }
+                        }
+                        if let Some(u) = &ge.minionUses {
+                            by_ptr
+                                .entry(arc_ptr(u))
+                                .or_insert_with(|| format!("{base}.minionUses"));
                         }
                         by_ptr.entry(arc_ptr(ge)).or_insert(base);
                     }
@@ -629,14 +634,36 @@ mod imp {
         Vec<Name> => NameList, Vec<ModRef> => ModVec, Vec<GemInstanceRef> => GemList,
         LjIntMap<NodeRef> => NodeMap, LjIntMap<bool> => BoolMap, PtrMap<Item, bool> => ItemFlags,
         PtrSet<GemInstance> => GemSet, SkillTypeSet => SkillTypes,
-        indexmap::IndexMap<Name, ItemRef> => ItemList,
+        indexmap::IndexMap<Name, ItemRef> => ItemList, Vec<ExplodeSource> => ExplodeList,
+        PtrMap<Item, f64> => FlaskSlots, ModPtrSet => ModSet,
     );
 
+    /// An `env.explodeSources` entry: the node or item itself.
+    impl ProbeField for ExplodeSource {
+        fn to_val(&self) -> Val {
+            ExplodeSource::to_val(self)
+        }
+        fn from_val(v: &Val) -> Option<Self> {
+            ExplodeSource::from_val(v)
+        }
+    }
+
+    /// A name set: the data's own set (`minion.uses = grantedEffect.minionUses`) exports as its
+    /// `$data` path, any other (`cfg.baseFlags`) as the table of names.
     impl ProbeField for NameSet {
         fn to_val(&self) -> Val {
+            if data_index_path(arc_ptr(self)).is_some() {
+                return data_val(arc_ptr(self), DataTarget::NameSet(self.clone()));
+            }
             Val::Obj(Rc::new(NameSetBox(self.clone())))
         }
         fn from_val(v: &Val) -> Option<Self> {
+            if let Some(d) = v.obj::<DataRef>() {
+                return match &d.target {
+                    DataTarget::NameSet(s) => Some(s.clone()),
+                    _ => None,
+                };
+            }
             v.obj::<NameSetBox>().map(|b| b.0.clone())
         }
         fn kind() -> Kind {
@@ -913,18 +940,89 @@ mod imp {
             <Rc<T> as ProbeField>::kind()
         }
     }
-    /// `actor.itemList` (immutable handle).
-    impl Slot for Shared<indexmap::IndexMap<Name, ItemRef>> {
+    /// `minion.lifeTable`: one of the data's monster life tables, by identity (CCR-0040 §1).
+    impl Slot for Cell<Option<&'static [f64]>> {
         fn get_v(&self) -> Val {
-            self.to_val()
+            let Some(t) = self.get() else { return Val::Nil };
+            let path = life_tables()
+                .into_iter()
+                .find(|(_, x)| std::ptr::eq(*x, t))
+                .map_or_else(|| "data.?".to_owned(), |(p, _)| p.to_owned());
+            Val::Obj(Rc::new(DataRef {
+                path,
+                target: DataTarget::Other,
+            }))
         }
         fn set_v(&self, v: &Val) -> bool {
-            v.obj::<SBox<indexmap::IndexMap<Name, ItemRef>>>()
-                .is_some_and(|b| b.0.ptr_eq(self))
+            if v.is_nil() {
+                self.set(None);
+                return true;
+            }
+            let Some(d) = v.obj::<DataRef>() else { return false };
+            match life_tables().into_iter().find(|(p, _)| *p == d.path) {
+                Some((_, t)) => {
+                    self.set(Some(t));
+                    true
+                }
+                None => false,
+            }
         }
         fn kind() -> Kind {
-            Kind::ItemList
+            Kind::Data
         }
+    }
+
+    /// The `data.monster*LifeTable` sequences `minion.lifeTable` can be (CalcActiveSkill.lua
+    /// 724-727), by their `$data` paths.
+    fn life_tables() -> Vec<(&'static str, &'static [f64])> {
+        if !pob_gamedata::is_initialised() {
+            return Vec::new();
+        }
+        let d = pob_gamedata::data();
+        vec![
+            ("data.monsterLifeTable", &d.monsterLifeTable[..]),
+            ("data.monsterLifeTable2", &d.monsterLifeTable2[..]),
+            ("data.monsterLifeTable3", &d.monsterLifeTable3[..]),
+            ("data.monsterAllyLifeTable", &d.monsterAllyLifeTable[..]),
+        ]
+    }
+
+    /// `tinctureLimit` (a mutable upvalue of `mergeTinctures`).
+    impl ProbeField for Cell<f64> {
+        fn to_val(&self) -> Val {
+            Val::Num(self.get())
+        }
+        fn from_val(v: &Val) -> Option<Self> {
+            v.opt_num().map(Cell::new)
+        }
+    }
+
+    /// The local functions `mergeFlasks` / `mergeTinctures` (CalcPerform.lua 1691 / 1862): the
+    /// value is the closure's upvalue struct (CCR-0079 §1), which the exporter writes as the
+    /// `{"$fn": …}` marker PoB dumps ([`closure_marker`]).
+    macro_rules! closure_field {
+        ($($t:ty),* $(,)?) => {$(
+            impl ProbeField for Rc<$t> {
+                fn to_val(&self) -> Val {
+                    Val::Obj(self.clone())
+                }
+                fn from_val(v: &Val) -> Option<Self> {
+                    v.obj::<$t>()
+                }
+            }
+        )*};
+    }
+    closure_field!(FlaskUpvalues, TinctureUpvalues);
+
+    /// The `$fn` marker of a closure-upvalue struct (`None` for any other object).
+    pub fn closure_marker(o: &dyn Any) -> Option<J> {
+        if o.downcast_ref::<FlaskUpvalues>().is_some() {
+            return Some(serde_json::json!({ "$fn": "Modules/CalcPerform.lua:1691-1849" }));
+        }
+        if o.downcast_ref::<TinctureUpvalues>().is_some() {
+            return Some(serde_json::json!({ "$fn": "Modules/CalcPerform.lua:1862-1932" }));
+        }
+        None
     }
 
     fn kind_of<T, S: Slot>(_: impl Fn(&T) -> &S) -> Kind {
@@ -1012,7 +1110,8 @@ mod imp {
         "damageOverTimeShiftTable" => damageOverTimeShiftTable, "allyLifeList" => allyLifeList,
         "strDmgBonus" => strDmgBonus, "hostile" => hostile,
         "appliedEnemyModifiers" => appliedEnemyModifiers, "infoTrigger" => infoTrigger,
-        "itemSetId" => itemSetId, "uses" => uses,
+        "itemSetId" => itemSetId, "uses" => uses, "type" => r#type, "lifeTable" => lifeTable,
+        "itemSet" => itemSet,
     });
 
     reflect!(ActiveSkill, extra: extra, {
@@ -1080,6 +1179,7 @@ mod imp {
         "mainActiveSkillCalcs" => mainActiveSkillCalcs, "noSupports" => noSupports,
         "displaySkillList" => displaySkillList, "displaySkillListCalcs" => displaySkillListCalcs,
         "displayLabel" => displayLabel, "explodeSources" => explodeSources,
+        "sourceItem" => sourceItem,
     });
 
     reflect!(Override, extra: extra, {
@@ -1183,7 +1283,7 @@ mod imp {
     /// The expected kind of the keys of an object-keyed map kind.
     pub fn key_kind(k: Kind) -> Kind {
         match k {
-            Kind::ItemFlags => Kind::Item,
+            Kind::ItemFlags | Kind::FlaskSlots => Kind::Item,
             Kind::GemSet => Kind::Gem,
             _ => Kind::Any,
         }
@@ -1229,6 +1329,9 @@ mod imp {
         ItemFlags(Shared<PtrMap<Item, bool>>),
         GemSet(Shared<PtrSet<GemInstance>>),
         ItemList(Shared<indexmap::IndexMap<Name, ItemRef>>),
+        ExplodeList(Shared<Vec<ExplodeSource>>),
+        FlaskSlots(Shared<PtrMap<Item, f64>>),
+        ModSet(Shared<ModPtrSet>),
         ItemMods(ModStoreRef),
         SlotMods(ItemRef),
         GlobalCache,
@@ -1280,6 +1383,9 @@ mod imp {
                 PObj::CacheMode(m) => (30, m.index()),
                 PObj::CacheEntry(e) => (31, rc_ptr(e)),
                 PObj::Synth(s) => (32, rc_ptr(s)),
+                PObj::ExplodeList(s) => (33, sptr(s)),
+                PObj::FlaskSlots(s) => (34, sptr(s)),
+                PObj::ModSet(s) => (35, sptr(s)),
             }
         }
 
@@ -1318,7 +1424,9 @@ mod imp {
                         Vec<GemInstanceRef> => GemList, LjIntMap<NodeRef> => NodeMap,
                         LjIntMap<bool> => BoolMap, PtrMap<Item, bool> => ItemFlags,
                         PtrSet<GemInstance> => GemSet, SkillTypeSet => SkillTypes,
-                        indexmap::IndexMap<Name, ItemRef> => ItemList);
+                        indexmap::IndexMap<Name, ItemRef> => ItemList,
+                        Vec<ExplodeSource> => ExplodeList, PtrMap<Item, f64> => FlaskSlots,
+                        ModPtrSet => ModSet);
                     if let Some(b) = o.downcast_ref::<NameSetBox>() {
                         return Some(PObj::NameSet(b.0.clone()));
                     }
@@ -1356,6 +1464,9 @@ mod imp {
                 PObj::ItemFlags(s) => s.to_val(),
                 PObj::GemSet(s) => s.to_val(),
                 PObj::ItemList(s) => s.to_val(),
+                PObj::ExplodeList(s) => s.to_val(),
+                PObj::FlaskSlots(s) => s.to_val(),
+                PObj::ModSet(s) => s.to_val(),
                 PObj::CacheEntry(e) => Val::Obj(e.clone()),
                 PObj::GlobalCache | PObj::CacheData | PObj::CacheMode(_) | PObj::Synth(_) => {
                     Val::Nil
@@ -1501,6 +1612,9 @@ mod imp {
                         PObj::ItemFlags(s) => s.with(PtrMap::is_empty),
                         PObj::GemSet(s) => s.with(PtrSet::is_empty),
                         PObj::ItemList(s) => s.with(indexmap::IndexMap::is_empty),
+                        PObj::ExplodeList(s) => s.is_empty(),
+                        PObj::FlaskSlots(s) => s.with(PtrMap::is_empty),
+                        PObj::ModSet(s) => s.with(ModPtrSet::is_empty),
                         PObj::SkillTypes(s) => s.with(|x| x.iter().next().is_none()),
                         PObj::Store(s) => s.all_mods().is_empty(),
                         // a `ModCfg::default()` an `ActiveSkill::new` put in a
@@ -1563,6 +1677,9 @@ mod imp {
                         None => m.s("parent", Val::Bool(false)),
                     }
                 }
+                if s.notBuff.get() {
+                    m.s("notBuff", Val::Bool(true));
+                }
                 side_extra(&mut m, p);
             }
             PObj::Item(it) => {
@@ -1591,7 +1708,7 @@ mod imp {
                 if let Some(l) = it.modList.get() {
                     m.so("modList", PObj::ItemMods(l));
                 }
-                if it.slotModList[0].get().is_some() || it.slotModList[1].get().is_some() {
+                if it.slotModList.iter().any(|l| l.get().is_some()) {
                     m.so("slotModList", PObj::SlotMods(it.clone()));
                 }
                 m.s("weaponData", it.weaponData.get().to_val());
@@ -1680,6 +1797,19 @@ mod imp {
                     m.s(k.as_str(), v.to_val());
                 }
             }
+            PObj::ExplodeList(s) => list_members(&mut m, &s.snapshot()),
+            PObj::FlaskSlots(s) => {
+                for (k, v) in s.with(PtrMap::pairs) {
+                    m.entries
+                        .push((PKey::O(PV::V(k.to_val())), PV::V(Val::Num(v))));
+                }
+            }
+            PObj::ModSet(s) => {
+                for k in s.with(ModPtrSet::keys) {
+                    m.entries
+                        .push((PKey::O(PV::V(Val::Mod(k))), PV::V(Val::Bool(true))));
+                }
+            }
             PObj::ItemMods(s) => {
                 for (i, x) in s.all_mods().into_iter().enumerate() {
                     m.n((i + 1) as f64, Val::Mod(x));
@@ -1691,9 +1821,6 @@ mod imp {
                         m.entries
                             .push((PKey::N((i + 1) as f64), PV::O(PObj::ItemMods(l))));
                     }
-                }
-                if let Some(l) = REG.with(|r| r.borrow().slot3(it)) {
-                    m.entries.push((PKey::N(3.0), PV::O(PObj::ItemMods(l))));
                 }
             }
             PObj::GlobalCache => m.so("cachedData", PObj::CacheData),
@@ -1838,6 +1965,9 @@ mod imp {
                 }
                 if let Some(m) = o.downcast_ref::<Marker>() {
                     return Some(m.0.clone());
+                }
+                if let Some(m) = closure_marker(&**o) {
+                    return Some(m);
                 }
                 if PObj::from_val(v).is_none() {
                     return Some(serde_json::json!({"$userdata": true}));
@@ -2041,7 +2171,9 @@ mod imp {
                     if let Some(d) = o.downcast_ref::<DataRef>() {
                         return format!("@{}", d.path);
                     }
-                    if o.downcast_ref::<Marker>().is_some_and(|m| m.0.get("$fn").is_some()) {
+                    if o.downcast_ref::<Marker>().is_some_and(|m| m.0.get("$fn").is_some())
+                        || closure_marker(&**o).is_some()
+                    {
                         return "function".into();
                     }
                     return j.to_string();
@@ -2207,8 +2339,8 @@ mod imp {
                     if let Some(d) = o.downcast_ref::<DataRef>() {
                         return format!("2:{}", d.path);
                     }
-                    if let Some(m) = o.downcast_ref::<Marker>() {
-                        if let Some(f) = m.0.get("$fn").and_then(J::as_str) {
+                    if let Some(m) = o.downcast_ref::<Marker>().map(|m| m.0.clone()).or_else(|| closure_marker(&**o)) {
+                        if let Some(f) = m.get("$fn").and_then(J::as_str) {
                             return format!("5:{f}");
                         }
                     }
@@ -2692,10 +2824,18 @@ mod imp {
                         },
                     },
                     PKey::S(k) if k == "conditions" || k == "multipliers" => true,
+                    // `modList.notBuff = true` (CCR-0030 #7, CCR-0076)
+                    PKey::S(k) if k == "notBuff" => match &v {
+                        Val::Bool(b) => {
+                            s.notBuff.set(*b);
+                            true
+                        }
+                        _ => false,
+                    },
                     PKey::S(k) => {
                         with_registry(|r| {
                             r.push_side_extra(p, k.clone(), v);
-                            r.fallback(format!("modStore.{k}: no field (CCR-0030)"));
+                            r.fallback(format!("modStore.{k}: no field"));
                         });
                         false
                     }
@@ -2706,7 +2846,7 @@ mod imp {
         }
     }
 
-    /// `t[k] = v` on a dynamic table (object keys go to the registry, CCR-0030).
+    /// `t[k] = v` on a dynamic table (object keys go to the registry).
     pub fn table_set(t: &Table, key: &PKey, v: Val) -> bool {
         match key {
             PKey::S(s) => {
@@ -2732,7 +2872,7 @@ mod imp {
             PKey::O(PV::V(k)) => {
                 with_registry(|r| {
                     r.push_obj_key(t, k.clone(), v);
-                    r.fallback("table: object key (CCR-0030)".to_owned());
+                    r.fallback("table: object key".to_owned());
                 });
                 false
             }
@@ -2808,6 +2948,9 @@ mod imp {
             PObj::ItemFlags(_) => Kind::ItemFlags,
             PObj::GemSet(_) => Kind::GemSet,
             PObj::ItemList(_) => Kind::ItemList,
+            PObj::ExplodeList(_) => Kind::ExplodeList,
+            PObj::FlaskSlots(_) => Kind::FlaskSlots,
+            PObj::ModSet(_) => Kind::ModSet,
             PObj::ItemMods(_) => Kind::ItemMods,
             PObj::SlotMods(_) => Kind::SlotMods,
             PObj::Table(_)
@@ -2836,6 +2979,7 @@ mod imp {
                 clear_obj_keys(t);
             }
             PObj::Store(s) | PObj::ItemMods(s) => {
+                s.notBuff.set(false);
                 match &mut *s.mods.borrow_mut() {
                     StoreMods::DB(map) => map.clear(),
                     StoreMods::List { list, index } => {
@@ -2867,6 +3011,9 @@ mod imp {
             PObj::ItemFlags(s) => s.with_mut(PtrMap::wipe),
             PObj::GemSet(s) => s.with_mut(PtrSet::wipe),
             PObj::ItemList(s) => s.with_mut(indexmap::IndexMap::clear),
+            PObj::ExplodeList(s) => s.with_mut(Vec::clear),
+            PObj::FlaskSlots(s) => s.with_mut(PtrMap::wipe),
+            PObj::ModSet(s) => s.with_mut(ModPtrSet::wipe),
             _ => {}
         }
     }
@@ -3036,6 +3183,12 @@ mod imp {
 
     fn ctx_out<C: ProbeState>(c: &C, out: &mut Vec<(String, Val)>) {
         for (k, v) in c.probe_locals() {
+            // a local function whose closure the Rust ctx does not hold (`mergeFlasks` /
+            // `mergeTinctures` seeded from a `$fn` marker, CCR-0079 §1) is not exported: the
+            // diff skips PoB's function locals the Rust side does not export
+            if v.is_nil() && matches!(k, "mergeFlasks" | "mergeTinctures") {
+                continue;
+            }
             if let Some(slot) = out.iter_mut().find(|(n, _)| n == k) {
                 slot.1 = v;
             } else {

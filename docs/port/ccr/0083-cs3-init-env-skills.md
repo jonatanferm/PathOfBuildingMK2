@@ -1,6 +1,6 @@
 # CCR-0083 (CS3): CalcSetup.lua 1451-1975 — data write, model nils, oracle model gaps
 
-**Status: applied 2026-11-10 by CCR2 (§4 extra keys, §6, §7; calc doc §4.4, contracts.md); §1, §3, §4 typed fields, §5 need code; §2 = CCR-0030 #3. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by CCR2 (§4 extra keys, §6, §7; calc doc §4.4, contracts.md) and by RETYPE (§2 = CCR-0030 #3: `env.explodeSources`/`socketGroup.explodeSources` typed; AMENDMENTS A10); §1, §3, §4 typed fields, §5 need code. See AMENDMENTS A8.**
 
 **Filed status: proposed (CS3, 2026-11-09).** No frozen file was changed. Every item below is worked
 around inside CS3's own files (`crates/pob-calc/src/modules/calc_setup/init_env_skills.rs`,

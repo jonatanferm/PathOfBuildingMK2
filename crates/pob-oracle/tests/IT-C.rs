@@ -741,12 +741,10 @@ fn check_parse(t: &mut Tally, src: &str, item: &Item, p: &J, can: &Rc<RefCell<Ca
         Some(s) => {
             mods_check(t, "slotModList[1]", src, list_mods(&item.slotModList[0].get()), &s[0]);
             mods_check(t, "slotModList[2]", src, list_mods(&item.slotModList[1].get()), &s[1]);
-            mods_check(t, "slotModList[3]", src, list_mods(&item.slotModList3()), &s[2]);
+            mods_check(t, "slotModList[3]", src, list_mods(&item.slotModList[2].get()), &s[2]);
         }
         None => {
-            let any = item.slotModList[0].get().is_some()
-                || item.slotModList[1].get().is_some()
-                || item.slotModList3().is_some();
+            let any = item.slotModList.iter().any(|l| l.get().is_some());
             t.check("slotModList[1]", !any, || format!("{src}: rust has slot lists, lua none"));
         }
     }

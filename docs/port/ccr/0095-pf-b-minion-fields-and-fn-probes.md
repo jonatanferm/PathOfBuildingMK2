@@ -1,6 +1,6 @@
 # CCR-0095: PF-B — untyped minion fields, `Override`'s zero-value return, crate-private helpers in tests
 
-Status: proposed by PF-B (2026-11-09); §4 applied at merge (2026-11-10). Numbered 0034, then 0091,
+Status: proposed by PF-B (2026-11-09); §4 applied at merge (2026-11-10); §1 applied 2026-11-10 by RETYPE (= CCR-0040 §1, AMENDMENTS A10: typed `Actor` minion fields, the PF-B test adapter removed). Numbered 0034, then 0091,
 renumbered to 0095 at merge (AMENDMENTS A8: 0091 is CT's).
 
 ## 1. Minion actor fields with no typed `Actor` field

@@ -101,7 +101,7 @@ enum Verdict {
 struct Outcome {
     verdict: Verdict,
     mismatches: Vec<Mismatch>,
-    /// mismatches explained by a recorded contract gap (CCR-0030 row 7, `notBuff`)
+    /// mismatches explained by a recorded replay limit
     known: Vec<String>,
     /// stub sites the run hit that no delta replaced
     blockers: Vec<String>,
@@ -256,30 +256,7 @@ fn run_build(xml: &Path) -> Outcome {
         }
     }
     let mut mismatches = diff_with_unit_nondet(dout, &env, &after, &stem);
-    // CCR-0030 row 7: `modList.notBuff` on a ModList object is not readable from the calc (the
-    // frozen ModStore has no such field; the injected value lives in the probe registry), so
-    // each such buff counts once too often in `BuffOnSelf` (CalcPerform.lua:3346-3348).
-    let not_buff = count_not_buff(din);
     let mut known = Vec::new();
-    mismatches.retain(|m| {
-        let explained = not_buff > 0
-            && m.path == "env.modDB.multipliers.BuffOnSelf"
-            && m.kind == MismatchKind::Value
-            && match (
-                m.pob.as_ref().and_then(J::as_f64),
-                m.ours.as_ref().and_then(J::as_f64),
-            ) {
-                (Some(p), Some(o)) => o - p == not_buff as f64,
-                _ => false,
-            };
-        if explained {
-            known.push(format!(
-                "{}: pob={:?} ours={:?} ({not_buff} notBuff buff(s), CCR-0030)",
-                m.path, m.pob, m.ours
-            ));
-        }
-        !explained
-    });
     // Replay limit (pob_oracle::replay module doc): a mod the callee changed in place (e.g.
     // `modLib.setSource` on `value.mod` of an `EnemyModifier` LIST mod inside doActorMisc) is
     // replayed as removed + appended, so its position in the store's list moves. A LUA-ORDER
@@ -454,20 +431,6 @@ fn diff_with_unit_nondet(
         ..DiffOptions::strict()
     };
     diff_trees(&resolve_ids(&pob), &resolve_ids(&ours), &opts)
-}
-
-/// Buffs of the `:in` state whose ModList carries `notBuff = true`
-/// (CalcPerform.lua 2331, 2810, 2834).
-fn count_not_buff(din: &StateDump) -> usize {
-    let root = resolve_ids(&din.root);
-    root.get("env")
-        .and_then(|e| e.get("buffs"))
-        .and_then(J::as_object)
-        .map_or(0, |m| {
-            m.values()
-                .filter(|v| v.get("notBuff").and_then(J::as_bool) == Some(true))
-                .count()
-        })
 }
 
 /// The value at a diff path (`env.modDB.mods.Damage`, `env.buffs["Molten Shell"]`, `a[2]`)

@@ -12,9 +12,6 @@
 //! - 2780-2792 `setSpectreSource` (`modList[i].source = source`): the rebuilt mod replaces
 //!   the entry of the list being re-sourced and every alias of the old mod in `buff.modList`
 //!   and `extraAuraModList` (the lists the minion aura branch reads afterwards).
-//!
-//! `buffs[name].notBuff = true` (2331, 2810, 2834) sets a key on a ModList, which has no field
-//! for it (CCR-0030 #7): [`set_notBuff`].
 #![allow(non_snake_case)]
 // Lua statement shapes are kept (`local x` then assigned, `if a then … elseif …` chains).
 #![allow(
@@ -188,24 +185,12 @@ fn main_skill(env: &EnvRef) -> ActiveSkillRef {
 }
 
 /// `buffs[name].notBuff = true` (CalcPerform.lua 2331, 2810, 2834): `buffs[name]` is the
-/// ModList `mergeBuff` created. CCR-0030 #7 (`ModStore.notBuff`) is not applied, so the key
-/// is kept where the probe export reads it (the registry's side fields of a store, which
-/// injection also fills); without the probe feature it is dropped (CCR-0094 §3).
+/// ModList `mergeBuff` created (`ModStore.notBuff`, CCR-0030 #7 / CCR-0076).
 fn set_notBuff(buffs: &Table, name: Name) {
     let Some(store) = buffs.obj::<ModStore>(name) else {
         lua_error!("attempt to index field '?' (a nil value)")
     };
-    #[cfg(feature = "probe")]
-    crate::probe::with_registry(|r| {
-        r.push_side_extra(
-            crate::probe::rc_ptr(&store),
-            "notBuff".to_owned(),
-            Val::Bool(true),
-        );
-        r.keep(store.clone());
-    });
-    #[cfg(not(feature = "probe"))]
-    let _ = store; // CCR-0030 #7 / CCR-0094 §3
+    store.notBuff.set(true);
 }
 
 /// The merge loop that builds `extraAuraModList` (CalcPerform.lua 2448-2460; the same Lua at
@@ -608,7 +593,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
                             }
                         }
                         // L2385
-                        let full_duration = calcSkillDuration(&modStore, Some(skillCfg), &activeSkill.skillData.get(), &env, &enemyDB);
+                        let full_duration = calcSkillDuration(&modStore, Some(skillCfg), &activeSkill.skillData.get(), Some(&env), Some(&enemyDB));
                         // L2386
                         let cooldownOverride = modStore.Override(Some(skillCfg), nm!["CooldownRecovery"]);
                         // L2387

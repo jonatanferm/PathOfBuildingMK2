@@ -167,7 +167,7 @@ a way that conflicts with other (merged or in-flight) units, left to the orchest
 | 0025 | IT-A ParseRaw notes | applied §2, §4, §5, §6; needs code §1 (`MainOptions`), §3 (shared replay) | calc doc §11.1 IT-A row; contracts#class-census, #mod-mutation |
 | 0026 | U7 host contract notes | applied A, B, D, E, F, G; needs code C (`HttpRequest` proxy/protocol/noSSL) | ui doc §2, §4.6, §5.2, §13 item 11 |
 | 0028 | U8 ui-oracle notes | applied 1, 3 (FileWrite out of T3 until U16), 5-9, 11, 12; needs code 2, 4, 10 (switch-over recipe), 13 | ui doc §8 rule 6, §11.2 |
-| 0030 | ORC-X frozen types that cannot hold PoB values | escalated (needs code) | calc doc §9.2 (absent-mark note); see E1 |
+| 0030 | ORC-X frozen types that cannot hold PoB values | escalated (needs code); **applied by RETYPE (A10)** | calc doc §9.2 (absent-mark note); see E1 |
 | 0031 | HYG1 `#t`, constructors, test inputs | applied | calc doc §3.2, §3.4 (and STYLE.md §3); A5 |
 | 0032 | IT-B Item core stubs, `Item.extra` shape | applied | contracts#class-census (signatures already in `item.rs`/`item_tools.rs`) |
 | 0033 | U5 Lua-helper audit | applied §5, §6 (owners); needs code §1-§4 | ui doc §8 rule 8, §13 item 15 |
@@ -181,7 +181,7 @@ a way that conflicts with other (merged or in-flight) units, left to the orchest
 | 0041 | OF-A helper signatures, hook replay | applied §2, §3; needs code §1, §4, §5 | calc doc §7.2, §9.2 |
 | 0043 | OF-B `calcRadiusBreakpoints` nils | needs code (same change as CCR-0041 §1) | calc doc §7.2 |
 | 0044 | OF-B mid-segment callee replay | needs code | calc doc §9.2 |
-| 0046 | SK-A `calcSkillDuration` with `{}` env | escalated (needs code) | E5 |
+| 0046 | SK-A `calcSkillDuration` with `{}` env | escalated (needs code); **applied by RETYPE (A10)** | E5 |
 | 0049 | OF-H ailment body B integration | needs code (§1 OF-H's private CCR-0035 copies, §2, §3 `isValueInArray`, §4) | calc doc §9.2 |
 | 0052 | PS-A PassiveSpec notes | applied §1, §2, §7, §8 (owner: PS-A's `main_LoadTree`), §10-§12; needs code §3-§6, §9 | contracts#class-census |
 | 0055 | OF-C `combineStat` vararg | applied §1; needs code §2 | calc doc §7.2, §9.2 |
@@ -197,7 +197,7 @@ a way that conflicts with other (merged or in-flight) units, left to the orchest
 | 0073 | U10 Tooltip contract | applied B, C, E; needs code A, D (switch to `crate::wrap::wrap_string`, landed by U14) | ui doc §6.9, §13 item 12 |
 | 0074 | CS0 CalcSetup helper signatures | applied §1-§5, §7, §8; needs code §6 (`SkillEffect.req`, frozen field) | calc doc §5.10; contracts#mod-mutation, #model-census |
 | 0075 | OF-F `globalOutput` in L4 runs | needs code | calc doc §9.2 |
-| 0076 | PF-F `notBuff` on a ModList | escalated with CCR-0030 row 7 (0076's diff is the concrete one) | E1 |
+| 0076 | PF-F `notBuff` on a ModList | escalated with CCR-0030 row 7 (0076's diff is the concrete one); **applied by RETYPE (A10)** | E1 |
 | 0077 | PF-G callee replay, mirages, pools, absent marks | applied §2 (by MI, CCR-0090), §7 (resolved by HYG2's `u0_smoke` rewrite); needs code §1, §3 (confirm with PF-B, in flight), §4-§6 | calc doc §8.1, §9.2 |
 | 0078 | U12 list hooks frozen | applied A, C (A was already in the ui doc); needs code B (`Base.other_drag_source/targeting`) | ui doc §6.8, §13 item 12 |
 | 0079 | PF-C setup/flasks gaps | applied §6 (superseded by CCR-0085 §1), §7 (= CCR-0030 #5); needs code §2-§5, §8; escalated §1 | calc doc §9.2; E4 |
@@ -208,7 +208,7 @@ a way that conflicts with other (merged or in-flight) units, left to the orchest
 | 0084 | U14 popups surface | applied §1, §2, §5, §6; needs code §3, §4 | ui doc §6.10, §13 item 16 |
 | 0085 | PF-A perform helpers | applied §3, §6; needs code §1, §2, §5; §4 = CCR-0030 #6 | contracts#mod-mutation, #model-census |
 | 0086 | U13 dropdown hooks frozen | applied (§6.8 text was already in the ui doc) | ui doc §6.8, §13 item 12 |
-| 0087 | TR-A `TriggerConfig` | escalated (needs code) | calc doc §8.1 note; E2 |
+| 0087 | TR-A `TriggerConfig` | escalated (needs code); **applied by RETYPE (A10)** | calc doc §8.1 note; E2 |
 | 0088 | U15 inject bound to live objects | needs code | — |
 | 0090 | MI mirages signatures and replay | applied §1, §2; needs code §1 follow-up (PF-G call site), §3, §4 | calc doc §8.1 |
 | 0091 | CT calc tools (was 0014) | applied §1-§4, §6 (§3's CS3 reader needs code, item 11; §4's `known_diffs.toml` entry is item 17); needs code §5 (`scope.toml` Common.lua 803-828; one `formatNumSep`) | calc doc §3.4, §4.4, §5.5; contracts#mod-mutation |
@@ -340,6 +340,8 @@ until item 10 leaves one `formatNumSep` marker (two cover it today).
 
 ### Escalated (not decided by CCR2)
 
+All five were approved by the orchestrator and applied by unit RETYPE (2026-11-10, **A10**).
+
 - **E1. CCR-0030 (+ CCR-0076, CCR-0040 §1-§2, CCR-0074 §6, CCR-0083 §2).** Retypes frozen fields
   (`ActiveSkill.triggeredBy`, `Actor.uses`, `Env.explodeSources`, `SocketGroup.explodeSources`,
   `Item.slotModList` to 3, `Env.flaskSlotMap`, `Actor.appliedEnemyModifiers`, `ModStore.notBuff`)
@@ -347,19 +349,21 @@ until item 10 leaves one `formatNumSep` marker (two cover it today).
   CS2/TR-B/PF-B touch. The proposals conflict on `Actor.uses` (`Option<Value>` in CCR-0030 #2,
   `Option<NameSet>` in CCR-0040 §1), and CCR-0040 §1 adds `Actor.type/lifeTable/itemSet`. Without
   `notBuff` the **shipped** calc loses the flag (PoB `BuffOnSelf` 7, Rust 8 on allflame_exp_002).
+  **Applied by RETYPE (A10)**; `Actor.uses` is `Option<NameSet>`.
 - **E2. CCR-0087 (`TriggerConfig`).** `sourceWeapon: bool`, `triggeredSkillCond`, a closure
   `comparer` with optional arguments: TR-B (in flight) builds configs through TR-A's `extra`
   setters, so retyping the struct now conflicts with it. (PF-B's in-flight CCR no longer uses 0087;
-  see the renumbering note above.)
+  see the renumbering note above.) **Applied by RETYPE (A10).**
 - **E3. CCR-0015 §3.** `Actor.itemList: Option` (None for the enemy) and
   `MinionData.monsterTags: Option` (frozen U0 types; CS1/CS2 write `itemList`, inject fills it);
-  MS-B asked the integrator for a decision.
+  MS-B asked the integrator for a decision. **Applied by RETYPE (A10)** (`Field<Option<ItemList>>`).
 - **E4. CCR-0079 §1.** Fields for the `mergeFlasks`/`mergeTinctures` closures' upvalues in the
   frozen `PerformCtx` (calc doc §7.1/§7.2; `locals_audit.py --check` pins 88 crossing locals) plus
   two line probes; PF-D/PF-F L4 seeding depends on it. PF-C's per-env side table works meanwhile.
+  **Applied by RETYPE (A10).**
 - **E5. CCR-0046.** `calcSkillDuration(…, env: Option<&EnvRef>, enemyDB: Option<&ModDB>)` changes a
   frozen OF-A function called by OF-A..OF-I, PF-E and the skill hooks; SK-A's private
-  `calcSkillDuration_noEnv` is the alternative.
+  `calcSkillDuration_noEnv` is the alternative. **Applied by RETYPE (A10)**; the private copy is deleted.
 
 ## A9. A8 needs-code items done by ORC-X2 (2026-11-10)
 
