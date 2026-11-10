@@ -1,0 +1,43 @@
+# Interactions of the "u28_timeless_socket" gallery (U28).
+frames 2
+# hover the closed box: entry 1 is "All" (id -1), no viewer
+move 100 310
+frames 1
+# open it and hover every row: 26725 and 54127 draw the viewer, 999 and the string do not
+click LEFTBUTTON
+frames 1
+move 100 330
+frames 1
+move 100 346
+frames 1
+move 100 362
+frames 1
+move 100 378
+frames 1
+move 100 394
+frames 1
+# select a socket; the closed box hovered shows its viewer
+move 100 346
+click LEFTBUTTON
+frames 1
+move 100 310
+frames 1
+# the bottom control drops up: hover its rows above the box, select one, hover the box
+move 800 670
+click LEFTBUTTON
+frames 1
+move 800 640
+frames 1
+move 800 624
+frames 1
+move 800 608
+frames 1
+click LEFTBUTTON
+frames 1
+move 800 670
+frames 1
+# keyboard on the hovered box (the wheel changes the selection)
+wheel down 1
+frames 1
+wheel up 2
+frames 2
