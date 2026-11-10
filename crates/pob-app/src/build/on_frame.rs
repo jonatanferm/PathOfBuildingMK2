@@ -211,7 +211,9 @@ pub struct ShellHooks {
     // the UI-only savers (Build.lua:629-639: `Notes` U22, `TreeView` U25-U28, `Import` U43)
     /// `saver:Save(node)` of a UI-only saver (`elem` is the section name): `Some(node)` replaces
     /// the section calc:BM-A's SaveDB wrote (the section it loaded, CCR-0080 §8); `None` keeps it
-    pub save_ui_section: Rc<dyn Fn(&Cx, &str) -> Option<model::XmlNode>>,
+    /// (`&mut Cx`: a saver's `Save` may change its tab, e.g. NotesTab:Save's
+    /// `SetShowColorCodes(false)`, NotesTab.lua:85; CCR-0106 §1)
+    pub save_ui_section: Rc<dyn Fn(&mut Cx, &str) -> Option<model::XmlNode>>,
 }
 
 fn not_ported(what: &str, owner: &str) -> ! {
@@ -222,25 +224,53 @@ fn not_ported(what: &str, owner: &str) -> ! {
 /// draws, the flags, the CalcsTab breakdown, the sidebar breakdown and
 /// RefreshSkillSelectControls every frame, so those read as "no tab / nothing pinned" and draw
 /// nothing; the user-triggered ones raise a Lua error naming the owner.
+#[allow(clippy::single_match)] // the tab hooks get one arm per ported tab (CCR-0106 §2)
 pub fn default_shell_hooks() -> ShellHooks {
     ShellHooks {
-        draw_tab: Rc::new(|_, _, _, _| {}),
-        tab_flag: Rc::new(|_, _| false),
-        set_tab_flag: Rc::new(|_, _, _| {}),
+        // one arm per ported tab (U22 Notes); the others draw nothing / read false
+        draw_tab: Rc::new(|cx, tab, vp, ev| match tab {
+            BuildTab::Notes => crate::tabs::notes::draw_tab(cx, vp, ev),
+            _ => {}
+        }),
+        tab_flag: Rc::new(|cx, flag| match flag {
+            TabFlag::Notes => crate::tabs::notes::mod_flag(cx),
+            _ => false,
+        }),
+        set_tab_flag: Rc::new(|cx, flag, v| match flag {
+            TabFlag::Notes => crate::tabs::notes::set_mod_flag(cx, v),
+            _ => {}
+        }),
         import_select_code_in: Rc::new(|_| {}),
         calcs_breakdown: Rc::new(|_| CalcsBreakdown::default()),
         breakdown_pinned: Rc::new(|_, _| false),
         breakdown_set_data: Rc::new(|_, _, _| {}),
         breakdown_set_border_colour: Rc::new(|_, _, _| {}),
-        get_sidebar_breakdown: Rc::new(|_, _| not_ported("buildMode:GetSidebarBreakdown", "U21")),
-        refresh_skill_select_controls: Rc::new(|_, _, _, _| {}),
+        // U21's (CCR-0106 §4: U20 and U21 merged without wiring these two)
+        get_sidebar_breakdown: Rc::new(|cx, line| {
+            let mod_names: Option<Vec<&str>> = line
+                .mod_names
+                .as_ref()
+                .map(|v| v.iter().map(String::as_str).collect());
+            super::stats::get_sidebar_breakdown(
+                cx,
+                line.breakdown.as_deref(),
+                mod_names.as_deref(),
+                line.ignored_sections.as_deref(),
+                line.actor_name.as_deref(),
+            )
+        }),
+        refresh_skill_select_controls: Rc::new(super::skill_select::refresh_skill_select_controls),
         minion_list_control: Rc::new(|_, _, _| not_ported("MinionListControl", "U31")),
         minion_search_list_control: Rc::new(|_, _, _, _| {
             not_ported("MinionSearchListControl", "U31")
         }),
         similar_build_list: Rc::new(|_, _, _| not_ported("ExtBuildListControl", "U52")),
-        // calc:BM-A writes the loaded section back (CCR-0080 §8)
-        save_ui_section: Rc::new(|_, _| None),
+        // one arm per UI-only saver (U22 Notes); calc:BM-A writes the other loaded sections
+        // back (CCR-0080 §8)
+        save_ui_section: Rc::new(|cx, elem| match elem {
+            "Notes" => crate::tabs::notes::save_ui_section(cx),
+            _ => None,
+        }),
     }
 }
 
@@ -569,13 +599,23 @@ pub fn on_frame(cx: &mut Cx, input_events: &mut InputEvents, _vp: &ViewPort) {
             }
         }
     }
-    let st = &cx.w::<BuildMode>(me).on_frame;
+    // CCR-0106 §4: U21's FormatStat writes its own copy of the five fields (`stats::State`);
+    // a value there wins over this unit's (which only tests set)
+    let (st, st21) = {
+        let b = cx.w::<BuildMode>(me);
+        (&b.on_frame, &b.stats)
+    };
     let (l_sep, l_tsep, l_compact, l_dsep, l_title) = (
-        st.last_show_thousands_separators,
-        st.last_show_thousands_separator.clone(),
-        st.last_use_compact_values,
-        st.last_show_decimal_separator.clone(),
-        st.last_show_titlebar_name,
+        st21.lastShowThousandsSeparators
+            .or(st.last_show_thousands_separators),
+        st21.lastShowThousandsSeparator
+            .clone()
+            .or_else(|| st.last_show_thousands_separator.clone()),
+        st21.lastUseCompactValues.or(st.last_use_compact_values),
+        st21.lastShowDecimalSeparator
+            .clone()
+            .or_else(|| st.last_show_decimal_separator.clone()),
+        st21.lastShowTitlebarName.or(st.last_show_titlebar_name),
     );
     // L1274
     if Some(cx.main.show_thousands_separators) != l_sep {
@@ -735,8 +775,21 @@ pub fn set_display_stat(cx: &mut Cx, hovered: Option<HoveredLine>, pin: bool) {
         .line
         .extra
         .as_ref()
-        .and_then(|e| e.downcast_ref::<StatLineInfo>())
-        .cloned()
+        .and_then(|e| {
+            e.downcast_ref::<StatLineInfo>().cloned().or_else(|| {
+                // CCR-0106 §4: U21's rows carry `stats::StatLine` (its own copy of these fields)
+                e.downcast_ref::<super::stats::StatLine>()
+                    .map(|l| StatLineInfo {
+                        breakdown: l.breakdown.clone(),
+                        mod_names: l
+                            .modNames
+                            .map(|v| v.iter().map(|s| (*s).to_owned()).collect()),
+                        ignored_sections: l.ignoredSections.as_ref().map(|v| (**v).clone()),
+                        actor_name: l.actorName.map(str::to_owned),
+                        breakdown_colour: l.breakdownColour,
+                    })
+            })
+        })
         .unwrap_or_default();
     // L1361
     let key = line.breakdown.clone();
