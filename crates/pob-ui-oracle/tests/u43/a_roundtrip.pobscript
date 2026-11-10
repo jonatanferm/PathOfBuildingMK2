@@ -1,0 +1,42 @@
+# U43: export/import round trip. Open allflame_exp_001 from the build list, Ctrl+I (Import tab,
+# importCodeIn selected), tick "Export Support" (partyTab.enableExportBuffs, buildFlag), Generate
+# (SaveDB("code"), Deflate, base64 with -_), Copy (the code to the clipboard, the box cleared),
+# click the import box, Ctrl+V (importCodeHandle: "Code is valid"), RETURN (enterFunc ->
+# importCodeGo -> "Import to this build" -> the confirm popup), RETURN (confirm: Shutdown, Init
+# with the decoded XML, viewMode TREE), and a snapshot of the re-imported build.
+#! u43-expect-copy
+#! u43-expect-label Code is valid
+#! u43-expect-label Warning:^7 Importing to the current build will erase ALL existing data for this build.
+#! u43-expect-import exportParty=true
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press i
+key-up CTRL
+frames 2
+move 955 418
+click LEFTBUTTON
+frames 1
+move 806 418
+click LEFTBUTTON
+frames 2
+move 616 444
+click LEFTBUTTON
+frames 2
+move 492 528
+click LEFTBUTTON
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+press RETURN
+frames 2
+press RETURN
+frames 3
+snapshot roundtrip
+frames 1

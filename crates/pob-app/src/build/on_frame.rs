@@ -230,6 +230,7 @@ pub fn default_shell_hooks() -> ShellHooks {
         // one arm per ported tab (U22 Notes); the others draw nothing / read false
         draw_tab: Rc::new(|cx, tab, vp, ev| match tab {
             BuildTab::Notes => crate::tabs::notes::draw_tab(cx, vp, ev),
+            BuildTab::Import => crate::tabs::import::core::draw_tab(cx, vp, ev),
             _ => {}
         }),
         tab_flag: Rc::new(|cx, flag| match flag {
@@ -240,7 +241,7 @@ pub fn default_shell_hooks() -> ShellHooks {
             TabFlag::Notes => crate::tabs::notes::set_mod_flag(cx, v),
             _ => {}
         }),
-        import_select_code_in: Rc::new(|_| {}),
+        import_select_code_in: Rc::new(crate::tabs::import::core::select_code_in),
         calcs_breakdown: Rc::new(|_| CalcsBreakdown::default()),
         breakdown_pinned: Rc::new(|_, _| false),
         breakdown_set_data: Rc::new(|_, _, _| {}),
@@ -269,6 +270,7 @@ pub fn default_shell_hooks() -> ShellHooks {
         // back (CCR-0080 §8)
         save_ui_section: Rc::new(|cx, elem| match elem {
             "Notes" => crate::tabs::notes::save_ui_section(cx),
+            "Import" => crate::tabs::import::core::save_ui_section(cx),
             _ => None,
         }),
     }

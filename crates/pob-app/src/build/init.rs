@@ -428,16 +428,15 @@ pub fn default_hooks() -> BuildHooks {
             let m = cx.build().model.clone();
             m.configTab.SetActiveConfigSet(&m, Some(id), false);
         }),
-        import_try_fetch_character_list: Rc::new(|_| {
-            not_ported("ImportTab:TryFetchCharacterList", "U43")
-        }),
+        import_try_fetch_character_list: Rc::new(crate::tabs::import::core::try_fetch_character_list_hook),
         // one arm per UI-only saver (U22 Notes; TreeView U25-U28, Import U43); calc:BM-A keeps
         // the other sections and writes them back (CCR-0080 §8)
         load_ui_section: Rc::new(|cx, elem, node, db| match elem {
             "Notes" => crate::tabs::notes::load_ui_section(cx, node, db),
+            "Import" => crate::tabs::import::core::load_ui_section(cx, node, db),
             _ => false,
         }),
-        import_tab: pending_tab(),
+        import_tab: Rc::new(crate::tabs::import::core::ctor_hook),
         notes_tab: Rc::new(crate::tabs::notes::ctor_hook),
         party_tab: pending_tab(),
         config_tab: pending_tab(),

@@ -2887,12 +2887,15 @@ name = "pob-app"
 version = "0.0.1"
 dependencies = [
  "indexmap",
+ "miniz_oxide",
  "pob-calc",
  "pob-gamedata",
  "pob-host",
  "pob-lua",
  "pob-sg",
  "pob-ui-core",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
