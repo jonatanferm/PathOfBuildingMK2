@@ -1,0 +1,10 @@
+# U16: hover the bottom-bar buttons.
+screen 1280 800 dpi 1.0
+fixture userdir=../../fixtures/user1
+frames 2
+move 36 786
+frames 2
+move 106 786
+frames 1
+move 60 762
+frames 2

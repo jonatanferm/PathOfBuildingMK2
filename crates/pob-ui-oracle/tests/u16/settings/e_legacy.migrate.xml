@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Mode mode="LIST">
+		<Arg boolean="false"/>
+		<Arg string=""/>
+	</Mode>
+	<Misc showThousandsCalcs="false" defaultGemQuality="99" defaultCharLevel="abc" defaultItemAffixQuality="7" colorHighlight="0xABCDEF"/>
+</PathOfBuilding>

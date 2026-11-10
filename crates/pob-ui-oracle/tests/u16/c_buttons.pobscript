@@ -1,0 +1,21 @@
+# U16: F1 (main:OnFrame L476-484), the About and Options buttons, Check for Update (stubbed).
+# The popups are U17s; both sides open a message popup naming the argument (u16_main.rs).
+screen 1280 800 dpi 1.0
+fixture userdir=../../fixtures/user1
+frames 2
+press F1
+frames 2
+press RETURN
+frames 2
+move 106 786
+click LEFTBUTTON
+frames 2
+press ESCAPE
+frames 1
+move 36 786
+click LEFTBUTTON
+frames 2
+press RETURN
+move 60 762
+click LEFTBUTTON
+frames 2

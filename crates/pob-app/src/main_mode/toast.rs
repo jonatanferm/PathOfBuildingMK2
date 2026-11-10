@@ -451,3 +451,16 @@ pub fn render(cx: &mut Cx) -> f64 {
 
 // @pob Modules/ToastNotification.lua:254-254 h=8ee79c41
 // (return ToastNotification: the module is this file)
+
+#[cfg(test)]
+mod tests {
+    use super::calculate_height;
+
+    #[test]
+    fn height_counts_newlines() {
+        // L34-36: lineCount * 16 + 20 + 40
+        assert_eq!(calculate_height("One"), 60.0);
+        assert_eq!(calculate_height("Two\nwith a body"), 76.0);
+        assert_eq!(calculate_height("a\nb\nc"), 92.0);
+    }
+}

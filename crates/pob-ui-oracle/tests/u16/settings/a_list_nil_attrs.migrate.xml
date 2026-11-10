@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Mode mode="LIST">
+		<Arg boolean="false"/>
+		<Arg string=""/>
+	</Mode>
+	<Accounts tokenExpiry="nil"/>
+	<SharedItems/>
+	<Misc buildSortMode="NAME" connectionProtocol="0" nodePowerTheme="RED/BLUE" colorPositive="^x33FF77" colorNegative="^xDD0022" colorHighlight="^xFF0000" showThousandsSeparators="true" thousandsSeparator="," useCompactValues="false" decimalSeparator="." showTitlebarName="true" betaTest="nil" edgeSearchHighlight="true" defaultGemQuality="0" defaultCharLevel="1" defaultItemAffixQuality="0.5" showWarnings="true" slotOnlyTooltips="true" migrateEldritchImplicits="true" notSupportedModTooltips="true" invertSliderScrollDirection="nil" disableDevAutoSave="nil" showPublicBuilds="true" showFlavourText="true" showAnimations="true" showAllItemAffixes="true" disableScrollControlInteraction="false" dpiScaleOverridePercent="0"/>
+</PathOfBuilding>

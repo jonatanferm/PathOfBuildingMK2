@@ -380,3 +380,29 @@ pub fn tostring_opt_bool(v: Option<bool>) -> String {
 pub fn tostring_opt_num(v: Option<f64>) -> String {
     v.map_or_else(|| "nil".to_owned(), pob_lua::tostring_num)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mode_arg_tostring() {
+        // Main.lua:747-751 `tostring(val)`
+        assert_eq!(ModeArg::Num(3.0).tostring(), "3");
+        assert_eq!(ModeArg::Num(2.5).tostring(), "2.5");
+        assert_eq!(ModeArg::Bool(false).tostring(), "false");
+        assert_eq!(ModeArg::Nil.tostring(), "nil");
+        assert_eq!(tostring_opt_bool(None), "nil");
+        assert_eq!(tostring_opt_num(Some(1_700_003_600.0)), "1700003600");
+        assert!(!ModeArg::Bool(false).truthy() && ModeArg::Str(String::new()).truthy());
+        assert_eq!(mode_arg(&[ModeArg::Bool(true)], 2), ModeArg::Nil);
+    }
+
+    #[test]
+    fn strerror_text() {
+        let e = std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert_eq!(settings::strerror(&e), "No such file or directory");
+        let e = std::io::Error::from_raw_os_error(13);
+        assert!(!settings::strerror(&e).contains("os error"));
+    }
+}

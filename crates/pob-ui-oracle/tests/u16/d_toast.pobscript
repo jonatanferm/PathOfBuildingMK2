@@ -1,0 +1,9 @@
+# U16: a toast shows (250 ms), its Dismiss button hides it (75 ms).
+#! u16-setup toast
+screen 1280 800 dpi 1.0
+fixture userdir=../../fixtures/user1
+frames 20
+move 40 724
+frames 2
+click LEFTBUTTON
+frames 8

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Mode mode="BUILD">
+		<Arg string="Builds/sub dir/My &amp; build.xml"/>
+		<Arg string="My &amp; build"/>
+	</Mode>
+	<Accounts lastAccountName="Someone#1234" lastRealm="PC" lastLeague="Standard" lastToken="tok" lastRefreshToken="refresh" tokenExpiry="1700003600">
+		<Account accountName="Someone#1234" sessionID="abcdef"/>
+		<Account accountName="Other"/>
+	</Accounts>
+	<SharedItems/>
+	<Misc buildSortMode="EDITED" connectionProtocol="1" proxyURL="http://proxy:8080" buildPath="/tmp/pob-builds/" nodePowerTheme="RED/GREEN" colorPositive="^x00FF00" colorNegative="^xFF00FF" colorHighlight="^x00FFFF" showThousandsSeparators="false" thousandsSeparator="." useCompactValues="true" decimalSeparator="," showTitlebarName="false" betaTest="true" edgeSearchHighlight="false" defaultGemQuality="20" defaultCharLevel="90" defaultItemAffixQuality="0.75" lastExportedWebsite="pobbin" showWarnings="false" slotOnlyTooltips="false" migrateEldritchImplicits="false" notSupportedModTooltips="false" invertSliderScrollDirection="true" disableDevAutoSave="false" showPublicBuilds="false" showFlavourText="false" showAnimations="false" showAllItemAffixes="false" disableScrollControlInteraction="true" dpiScaleOverridePercent="125"/>
+</PathOfBuilding>

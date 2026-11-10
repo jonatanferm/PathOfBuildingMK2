@@ -1,0 +1,5 @@
+# U16: boot to the build list (fixtures/user1) and idle: the bottom bar.
+fixture userdir=../../fixtures/user1
+frames 3
+move 30 300
+frames 2

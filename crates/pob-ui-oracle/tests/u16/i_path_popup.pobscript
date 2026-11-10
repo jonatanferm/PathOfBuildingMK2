@@ -1,0 +1,18 @@
+# U16: main:OpenPathPopup; editing the path enables Save once it has no "?".
+#! u16-setup path_popup
+screen 1280 800 dpi 1.0
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 415
+click LEFTBUTTON
+type "x?"
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+type "/tmp/ok"
+frames 2
+move 400 451
+frames 2
+press ESCAPE
+frames 1
