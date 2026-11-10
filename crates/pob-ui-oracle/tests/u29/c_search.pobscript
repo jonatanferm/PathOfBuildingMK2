@@ -1,0 +1,32 @@
+# U29: typing filters the dropped list (name patterns, then ":tag" / ":-tag" filters), arrow
+# selection, ESCAPE (CancelSelection, which also drops the focus), a click re-focuses (the edit
+# selects all, so typing replaces the text), the "CtF"-style abbreviation search and RETURN on
+# the first match, then a search with no matches ("<No matches>") and RETURN on it.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_007.xml"
+frames 3
+move 300 130
+click LEFTBUTTON
+frames 1
+type "fire"
+frames 2
+press DOWN
+frames 1
+type ":-spell"
+frames 2
+press ESCAPE
+frames 2
+click LEFTBUTTON
+frames 1
+type "ctf"
+frames 2
+press RETURN
+frames 2
+click LEFTBUTTON
+frames 1
+type "zzq"
+frames 2
+press DOWN
+press RETURN
+frames 2

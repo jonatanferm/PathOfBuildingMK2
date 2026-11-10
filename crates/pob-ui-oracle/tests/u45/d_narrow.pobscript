@@ -1,0 +1,17 @@
+# U45 layout, narrow: party_loaded (ShowAdvanceTools="true") at 1100x800@1, where the tab is
+# 788 px wide (<= 880): importCodeIn is self.width / 2 - 100 wide (PartyTab.lua:288-290), and
+# the narrow branches of appendNotReplace, ShowAdvanceTools, rebuild and editAurasLabel hold
+# (L332-337, L349-351, L379-384, L387-389). The notes label wraps at 788 / 2 - 16 - 50.
+screen 1100 800 dpi 1.0
+fixture userdir=user_loaded
+frames 2
+move 550 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 40 122
+click LEFTBUTTON
+frames 3
+snapshot narrow
+frames 1

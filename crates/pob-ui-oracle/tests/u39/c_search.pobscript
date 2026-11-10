@@ -1,0 +1,35 @@
+# U39: search (CalcsTab.lua:41-42, 329-330, 435-438; the highlighted labels of
+# CalcSectionControl.lua:455-456, 498-499): Ctrl+F selects the search box, typing "life"
+# highlights every subsection and row label containing it, BACK edits the pattern ("li"), then
+# a click on the tab releases the box and "dps" is typed after Ctrl+F again.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 1270 790
+key-down CTRL
+press f
+key-up CTRL
+frames 1
+type "life"
+frames 2
+press BACK
+press BACK
+frames 2
+move 700 30
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press f
+key-up CTRL
+key-down CTRL
+press a
+key-up CTRL
+type "dps"
+frames 2
+move 1270 790
+frames 1

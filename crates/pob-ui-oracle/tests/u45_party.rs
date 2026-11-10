@@ -985,7 +985,7 @@ fn u45_scenarios() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// "Disable Party Effects" (PartyTab.lua:352-359) on the Rust side only (see the module notes:
+/// "Disable Party Effects" (PartyTab.lua:353-360) on the Rust side only (see the module notes:
 /// the LuaCalcBridge would re-apply the effects from the text): after the click the party
 /// actor's buff tables and `output` are fresh, `modDB.actor` is the actor and `enemyModList` is
 /// empty, while the model's copy of the edits' `buf` keeps the loaded text.
@@ -1004,9 +1004,27 @@ fn u45_disable_party_effects() {
     let src = std::fs::canonicalize(root.join("src")).unwrap_or_else(|_| root.join("src"));
     let mut rust_side = RustSide::new(PlatformParts { sg, sys }, src);
     let mut d = Driver::new(runner::screen(1280, 800, 1.0), handles, user.path.clone());
-    let (frames, r) = runner::drive(&mut rust_side, &script, &mut d);
+    // the script's last three steps (move, click, frames) are the Disable click: drive up to
+    // it, check the loaded build filled the actor (so a missed click cannot pass), then click
+    let click = script.steps.len().checked_sub(3).expect("the click steps");
+    let mut pre = script.clone();
+    pre.steps.truncate(click);
+    let (frames, r) = runner::drive(&mut rust_side, &pre, &mut d);
     assert!(r.is_ok(), "Rust side: {:?}", r.err());
     assert!(!frames.is_empty());
+    {
+        let cx = &rust_side.app.cx;
+        let pt = &cx.app().build.as_ref().expect("a build").model.partyTab;
+        let n = pt.actorList(pob_lua::n!("Aura")).pairs().count();
+        assert!(n > 0, "actor.Aura before Disable Party Effects is empty");
+        assert!(
+            pt.actor.output.get().pairs().count() > 0,
+            "actor.output before Disable Party Effects is empty"
+        );
+    }
+    for step in &script.steps[click..] {
+        d.step(&mut rust_side, step).expect("the Disable click");
+    }
     let cx = &rust_side.app.cx;
     let m = &cx.app().build.as_ref().expect("a build").model;
     let pt = &m.partyTab;

@@ -1,0 +1,17 @@
+screen 1000 1400 dpi 1.0
+# U39: portrait mode (main.portraitMode: screenH > screenW) forces 3 columns
+# (CalcsTab.lua:236) and moves group 2 with group 3 into columns 1-3 (:290), with
+# allflame_exp_030; hover and wheel.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_030.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 600 600
+frames 2
+move 990 1390
+wheel down 4
+frames 2

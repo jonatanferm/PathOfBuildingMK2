@@ -1,0 +1,46 @@
+# U43: inputs the import box rejects or rewrites. Typed text that is no code ("Invalid input"
+# after every keystroke: Inflate fails), a youtube redirect whose q= parameter is a pobb.in link
+# (UrlDecode, SetText of the nested URL: "URL is valid (pobb.in)"), a pastebin link whose download
+# fails (the recorded 404: "Response code: 404" in NEGATIVE, importCodeValid false), and a
+# snapshot (the build is unchanged).
+#! u43-expect-label Invalid input
+#! u43-expect-label URL is valid (Pastebin.com)
+#! u43-expect-label URL is valid (pobb.in)
+#! u43-expect-label Response code: 404
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press i
+key-up CTRL
+frames 2
+move 492 528
+click LEFTBUTTON
+type "garbage!"
+frames 2
+key-down CTRL
+press a
+key-up CTRL
+paste-clipboard "https://www.youtube.com/redirect?event=video&q=https%3A%2F%2Fpobb.in%2Fabc_D-1&v=x"
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+key-down CTRL
+press a
+key-up CTRL
+paste-clipboard "https://pastebin.com/u43Missing"
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+press RETURN
+frames 1
+frames 3
+snapshot errors
+frames 1

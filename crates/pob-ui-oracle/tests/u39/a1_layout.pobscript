@@ -1,0 +1,26 @@
+# U39: allflame_exp_001 in the Calcs tab (Ctrl+4) at 1280 virtual px (968 px tab: 4 columns,
+# the group-3 sections go to columns 1-4 by CalcsTab.lua:283-308), idle, then the mouse over a
+# few cells (SetDisplayStat without pin: the highlight of the displayed cell) and off the
+# sections, then the wheel scrolls the tab (ScrollBarControl:Scroll on KeyUp).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 700 300
+frames 2
+move 1100 200
+frames 2
+move 400 500
+frames 2
+move 1270 790
+frames 2
+wheel down
+frames 1
+wheel down
+frames 2
+wheel up
+frames 2

@@ -64,7 +64,12 @@ on the Lua side of the UI oracle, where PoB says "Invalid input". The U45 scenar
 paste whole codes only.
 
 Proposed: move `inflate` (and a `deflate` for U43's export) into `pob_sg::Sys` or a small
-`pob-host` helper owned by U7, and make the oracle's `Inflate` return nil on failure.
+`pob-host` helper owned by U7, and make the oracle's `Inflate` return nil on failure. U43
+(CCR-0109 §7) has since landed its own `tabs::import::core::{inflate, deflate}` (miniz_oxide);
+the move should leave one `Inflate` for both tabs.
+
+The inflated bytes become a `String` with `from_utf8_lossy` (DIVERGENCE(bytes), as U43's
+import), so a code whose XML is not UTF-8 reads U+FFFD where PoB keeps the raw bytes.
 
 ## 4. `model.rs` (U15) lacks two re-exports
 
@@ -87,6 +92,13 @@ Proposed:
 +pub use pob_calc::classes::passive_spec::{base64_decode, base64_encode};
 ```
 
+## 5. The hook arms (CCR-0106 §2)
+
+Applied (one line each): `init::default_hooks` `party_tab: Rc::new(crate::tabs::party::ctor_hook)`;
+`on_frame::default_shell_hooks` `BuildTab::Party => party::draw_tab`, `TabFlag::Party =>
+party::mod_flag` / `party::set_mod_flag`. The Party section has no `load_ui_section` /
+`save_ui_section` arm: calc:BM-B's saver owns it.
+
 ## 6. The LuaCalcBridge's `SaveDB` clears the Party tab's `modFlag`
 
 Evidence: `pob-ui-oracle/src/lua_calc.rs:367-371` (U15) serialises the live model with
@@ -98,13 +110,7 @@ reads "unsaved" (`u45_a_import`: 12 divergences in 6 frames before the work-arou
 
 Work-around (U45's test only): `tests/u45_party.rs::KeepPartyLastContent` wraps the bridge and
 restores `partyTab.lastContent` around `build_output`, `misc_calculator` and `MiscCalc::call`.
-Proposed (U15): the bridge does the same for every saver whose `Save` has side effects
-(`partyTab.lastContent`; ConfigTab's and the others' when their UIs land), or serialises through
-a side-effect-free variant of SaveDB.
-
-## 5. The hook arms (CCR-0106 §2)
-
-Applied (one line each): `init::default_hooks` `party_tab: Rc::new(crate::tabs::party::ctor_hook)`;
-`on_frame::default_shell_hooks` `BuildTab::Party => party::draw_tab`, `TabFlag::Party =>
-party::mod_flag` / `party::set_mod_flag`. The Party section has no `load_ui_section` /
-`save_ui_section` arm: calc:BM-B's saver owns it.
+Proposed (a follow-up for U15, which owns `lua_calc.rs`): the bridge does the same for every
+saver whose `Save` has side effects (`partyTab.lastContent`; ConfigTab's and the others' when
+their UIs land), or serialises through a side-effect-free variant of SaveDB. Until then each UI
+unit whose tab reads `lastContent` needs a test-side wrapper like this one.

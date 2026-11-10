@@ -29,12 +29,18 @@
 //!   end), [`inflate`] here (CCR-0114 §3).
 //! * `launch:ShowErrMsg("^1Error loading '%s': %s", fileName, errMsg)` (L198, L201): `fileName`
 //!   is an undeclared global in the ctor (LUA-GLOBAL-NIL), formatted as `nil`.
-//! * `node[1]` of an `<ExportedBuffs>` node that holds an element instead of text would be a
-//!   table in Lua (`..` raises); the port raises the same error.
+//! * `node[1]` of an `<ExportedBuffs>` node that holds an element instead of text is a table
+//!   in Lua: when the edit's `buf` is non-empty `buf.."\n"..node[1]` raises, and so does the
+//!   port; otherwise `SetText(node[1])` stores `tostring(table)`, an address string
+//!   (`table: 0x...`; the port formats the node's address, no two runs agree on it).
 //! * `for id, event in ipairs(inputEvents)` stops at the first hole (`next_ipairs`).
 //!
 //! DIVERGENCE:
-//! * "Disable Party Effects" / "Rebuild All" (L384-399, L406-421): `wipeTable(self.actor)` and
+//! * DIVERGENCE(bytes), as in `tabs::import::core`: `Inflate`'s result is a Lua byte string;
+//!   the port keeps the code's XML as UTF-8 (`from_utf8_lossy`), so a code whose XML is not
+//!   UTF-8 gets U+FFFD for each invalid sequence both in the dev-mode `Copy` and in what
+//!   `ParseXML` reads (PoB's own exports are UTF-8).
+//! * "Disable Party Effects" / "Rebuild All" (L353-360, L363-377): `wipeTable(self.actor)` and
 //!   `self.actor = { … }` replace the actor table; the model's actor is one `Rc` (calc:BM-B), so
 //!   the port resets it in place (`extra` wiped and refilled, a fresh `modDB` whose `actor` is
 //!   the actor, a fresh `output`). An env built earlier sees the new contents where PoB's sees
@@ -47,7 +53,7 @@
 //!
 //! ORDER: no `pairs` loops. The controls are added in the Lua's insertion order (D7).
 //!
-//! Props with side effects (ui doc §7.3): `notesDesc.width` (L70-77) writes
+//! Props with side effects (ui doc §7.3): `notesDesc.width` (L69-76) writes
 //! `notesDesc.lastWidth` and `notesDesc.label`: [`PartyTab::notes_desc_last_width`] and
 //! [`PartyTab::notes_desc_label`] (`Cell`/`RefCell`).
 
@@ -71,7 +77,7 @@ use crate::model::{self, Table, Val};
 // (the `local` aliases; `newClass("PartyTab", "ControlHost", "Control")`: the `Widget` impl
 // below with `.host()` in the constructor)
 
-/// `partyDestinations` (L38).
+/// `partyDestinations` (L39).
 pub const PARTY_DESTINATIONS: [&str; 8] = [
     "All",
     "Party Member Stats",
@@ -83,7 +89,7 @@ pub const PARTY_DESTINATIONS: [&str; 8] = [
     "EnemyMods",
 ];
 
-// `theme` (L40-60)
+// `theme` (L41-61)
 /// `theme.stringHeight`
 const STRING_HEIGHT: f64 = 16.0;
 /// `theme.buttonHeight`
@@ -95,7 +101,7 @@ const BUFFER_HEIGHT_SMALL: f64 = 106.0;
 /// `theme.bufferHeightRight` (4 elements)
 const BUFFER_HEIGHT_RIGHT: f64 = 434.0;
 
-/// `theme.lineCounter(label)` (L43-51): 16 per newline.
+/// `theme.lineCounter(label)` (L44-52): 16 per newline.
 fn line_counter(label: &str) -> f64 {
     let mut line_count = 0.0;
     for c in label.bytes() {
@@ -215,9 +221,9 @@ pub struct PartyTab {
     pub import_code_fetching: bool,
     /// `self.modFlag` (nil until the first Draw: false)
     pub mod_flag: bool,
-    /// `self.controls.notesDesc.lastWidth` (written by the `width` property, L72-73)
+    /// `self.controls.notesDesc.lastWidth` (written by the `width` property, L72)
     pub notes_desc_last_width: Cell<Option<f64>>,
-    /// `self.controls.notesDesc.label` (written by the `width` property, L74)
+    /// `self.controls.notesDesc.label` (written by the `width` property, L73)
     pub notes_desc_label: RefCell<String>,
 }
 
@@ -327,8 +333,8 @@ const MODEL_EDITS: [&str; 7] = [
 ];
 
 /// `wipeTable(self.actor); self.actor = { Aura = {}, Curse = {}, Warcry = { }, Link = {}, modDB =
-/// new("ModDB"):ModDB(), output = { } }; self.actor.modDB.actor = self.actor` (L385-388,
-/// L407-410), in place (see the module notes' DIVERGENCE).
+/// new("ModDB"):ModDB(), output = { } }; self.actor.modDB.actor = self.actor` (L354-357,
+/// L364-367), in place (see the module notes' DIVERGENCE).
 fn reset_actor(m: &model::BuildRef) {
     let actor = &m.partyTab.actor;
     actor.extra.wipe();
@@ -387,12 +393,48 @@ fn parse_enemy(cx: &Cx, buf: &str, buff_type: model::Name, label: Option<&str>) 
         .ParseBuffs(&m, BuffList::Store(&list), buf, buff_type, label.as_ref());
 }
 
-/// `node[1] or ""` of an `<ExportedBuffs>` node (`None`: no first child).
-fn node_text(node: &XmlNode) -> Option<String> {
-    match node.children.first() {
-        None => None,
-        Some(XmlChild::Text(s)) => Some(s.to_string()),
-        Some(XmlChild::Node(_)) => lua_error!("attempt to concatenate a table value"),
+/// `node[1]` of an `<ExportedBuffs>` node in `finishImport` (L213-270): nil, its text, or the
+/// element child (a table in Lua).
+enum Node1<'a> {
+    Nil,
+    Str(String),
+    Table(&'a XmlNode),
+}
+
+impl Node1<'_> {
+    fn of(node: &XmlNode) -> Node1<'_> {
+        match node.children.first() {
+            None => Node1::Nil,
+            Some(XmlChild::Text(s)) => Node1::Str(s.to_string()),
+            Some(XmlChild::Node(n)) => Node1::Table(n),
+        }
+    }
+
+    /// `buf.."\n"..(node[1] or "")` (`..` raises on a table)
+    fn concat_after(self, cur: &str) -> Self {
+        match self {
+            Node1::Nil => Node1::Str(format!("{cur}\n")),
+            Node1::Str(s) => Node1::Str(format!("{cur}\n{s}")),
+            Node1::Table(_) => lua_error!("attempt to concatenate a table value"),
+        }
+    }
+
+    /// `node[1]` in `node[1] == "..."` (a table never equals a string)
+    fn as_str(&self) -> Option<&str> {
+        match self {
+            Node1::Str(s) => Some(s),
+            Node1::Nil | Node1::Table(_) => None,
+        }
+    }
+
+    /// `SetText(node[1] or "")`: `tostring(text)`; a table gives its address string (Lua's
+    /// differs run to run; the port formats the node's address)
+    fn set_text_arg(&self) -> String {
+        match self {
+            Node1::Nil => String::new(),
+            Node1::Str(s) => s.clone(),
+            Node1::Table(n) => format!("table: {:p}", *n),
+        }
     }
 }
 
@@ -423,7 +465,7 @@ impl PartyTab {
         .init(|cx, me| {
             let me = me.id();
             // L22-36 (model part: calc:BM-B)
-            // L38 partyDestinations, L40-60 theme: module constants and functions
+            // L39 partyDestinations, L41-61 theme: module constants and functions
             let label = |text: &str| -> Prop<String> { Prop::Val(text.to_owned()) };
             // L68
             let notes_desc = cx
@@ -550,7 +592,7 @@ impl PartyTab {
             cx.w_mut::<DropDownControl>(dest).tt.tooltip_text = Some(Prop::Val(Some(
                 "Destination for Import/clear\nCurrently Links Skills do not export".to_owned(),
             )));
-            // L302-320
+            // L302-321
             let go = cx
                 .add(
                     me,
@@ -563,20 +605,20 @@ impl PartyTab {
                     ),
                 )
                 .id();
-            // L321-323
+            // L322-324
             cx.base_mut(go).enabled = Prop::f(move |cx, _| {
                 let t = cx.w::<PartyTab>(me);
                 t.import_code_valid && !t.import_code_fetching
             });
-            // L324-328
+            // L325-329
             cx.w_mut::<ButtonControl>(go).enter_func = Some(Rc::new(move |cx: &mut Cx| {
-                // L325
+                // L326
                 if cx.w::<PartyTab>(me).import_code_valid {
-                    // L326
+                    // L327
                     PartyTab::click_import_go(cx, me);
                 }
             }));
-            // L329-330
+            // L330-331
             let append = cx
                 .add(
                     me,
@@ -591,7 +633,7 @@ impl PartyTab {
                     ),
                 )
                 .id();
-            // L331-333
+            // L332-334
             cx.base_mut(append).x = Prop::f(move |cx, _| {
                 if cx.base(me).width.raw() > WIDTH_THRESHOLD1 {
                     60.0
@@ -599,7 +641,7 @@ impl PartyTab {
                     -276.0
                 }
             });
-            // L334-336
+            // L335-337
             cx.base_mut(append).y = Prop::f(move |cx, _| {
                 if cx.base(me).width.raw() > WIDTH_THRESHOLD1 {
                     0.0
@@ -608,7 +650,7 @@ impl PartyTab {
                 }
             });
 
-            // L338-343
+            // L339-344
             let clear = cx
                 .add(
                     me,
@@ -618,22 +660,22 @@ impl PartyTab {
                         rect(8, 0, 160, BUTTON_HEIGHT),
                         "Clear",
                         move |cx| {
-                            // L339
+                            // L340
                             PartyTab::clear_input_text(cx, me);
-                            // L340-341
+                            // L341-342
                             let m = model_of(cx);
                             reset_enemy_mod_list(&m);
-                            // L342
+                            // L343
                             m.buildFlag.set(true);
                         },
                     ),
                 )
                 .id();
-            // L344
+            // L345
             cx.w_mut::<ButtonControl>(clear).tt.tooltip_text =
                 Some(Prop::Val(Some("^7Clears all the party tab imported data".to_owned())));
 
-            // L346-347
+            // L347-348
             let show_adv = cx
                 .add(
                     me,
@@ -648,7 +690,7 @@ impl PartyTab {
                     ),
                 )
                 .id();
-            // L348-350
+            // L349-351
             cx.base_mut(show_adv).y = Prop::f(move |cx, _| {
                 if cx.base(me).width.raw() > WIDTH_THRESHOLD1 {
                     4.0
@@ -657,7 +699,7 @@ impl PartyTab {
                 }
             });
 
-            // L352-359
+            // L353-360
             let remove = cx
                 .add(
                     me,
@@ -668,21 +710,21 @@ impl PartyTab {
                         "Disable Party Effects",
                         move |cx| {
                             let m = model_of(cx);
-                            // L353-357
+                            // L354-358
                             reset_actor(&m);
                             reset_enemy_mod_list(&m);
-                            // L358
+                            // L359
                             m.buildFlag.set(true);
                         },
                     ),
                 )
                 .id();
-            // L360
+            // L361
             cx.w_mut::<ButtonControl>(remove).tt.tooltip_text = Some(Prop::Val(Some(
                 "^7Removes the effects of the supports, without removing the data\nUse \"rebuild all\" to apply the effects again".to_owned(),
             )));
 
-            // L362-376
+            // L363-377
             let rebuild = cx
                 .add(
                     me,
@@ -693,12 +735,12 @@ impl PartyTab {
                         "^7Rebuild All",
                         move |cx| {
                             let m = model_of(cx);
-                            // L363-367
+                            // L364-368
                             reset_actor(&m);
                             reset_enemy_mod_list(&m);
-                            // L368
-                            parse_party_member_stats(cx, &buf(cx, me, "editPartyMemberStats"));
                             // L369
+                            parse_party_member_stats(cx, &buf(cx, me, "editPartyMemberStats"));
+                            // L370
                             parse_actor_list(
                                 cx,
                                 n!("Aura"),
@@ -706,7 +748,7 @@ impl PartyTab {
                                 n!("Aura"),
                                 "simpleAuras",
                             );
-                            // L370
+                            // L371
                             parse_actor_list(
                                 cx,
                                 n!("Curse"),
@@ -714,7 +756,7 @@ impl PartyTab {
                                 n!("Curse"),
                                 "simpleCurses",
                             );
-                            // L371
+                            // L372
                             parse_actor_list(
                                 cx,
                                 n!("Warcry"),
@@ -722,7 +764,7 @@ impl PartyTab {
                                 n!("Warcry"),
                                 "simpleWarcries",
                             );
-                            // L372
+                            // L373
                             parse_actor_list(
                                 cx,
                                 n!("Link"),
@@ -730,26 +772,26 @@ impl PartyTab {
                                 n!("Link"),
                                 "simpleLinks",
                             );
-                            // L373
-                            parse_enemy(cx, &buf(cx, me, "enemyCond"), n!("EnemyConditions"), None);
                             // L374
+                            parse_enemy(cx, &buf(cx, me, "enemyCond"), n!("EnemyConditions"), None);
+                            // L375
                             parse_enemy(
                                 cx,
                                 &buf(cx, me, "enemyMods"),
                                 n!("EnemyMods"),
                                 Some("simpleEnemyMods"),
                             );
-                            // L375
+                            // L376
                             m.buildFlag.set(true);
                         },
                     ),
                 )
                 .id();
-            // L377
+            // L378
             cx.w_mut::<ButtonControl>(rebuild).tt.tooltip_text = Some(Prop::Val(Some(
                 "^7Reparse all the inputs in case they have been disabled or they have changed since loading the build or importing".to_owned(),
             )));
-            // L378-380
+            // L379-381
             cx.base_mut(rebuild).x = Prop::f(move |cx, _| {
                 if cx.base(me).width.raw() > WIDTH_THRESHOLD1 {
                     8.0
@@ -757,7 +799,7 @@ impl PartyTab {
                     -328.0
                 }
             });
-            // L381-383
+            // L382-384
             cx.base_mut(rebuild).y = Prop::f(move |cx, _| {
                 if cx.base(me).width.raw() > WIDTH_THRESHOLD1 {
                     0.0
@@ -1129,7 +1171,7 @@ impl PartyTab {
         let _ = f(cx);
     }
 
-    /// The Import button's `onClick` (L302-320).
+    /// The Import button's `onClick` (L302-321).
     fn import_go_on_click(cx: &mut Cx, me: CtrlId) {
         // L303 local importCodeFetching = false (unused)
         // L304
@@ -1141,7 +1183,7 @@ impl PartyTab {
             // L305
             cx.w_mut::<PartyTab>(me).import_code_fetching = true;
             // L306 local selectedWebsite = buildSites.websiteList[self.importCodeSite]
-            // L307-317
+            // L307-316
             let link = buf(cx, me, "importCodeIn");
             let h = site_hooks();
             (h.download_build)(
@@ -1167,11 +1209,11 @@ impl PartyTab {
                     }
                 }),
             );
-            // L318
+            // L317
             return;
         }
 
-        // L321
+        // L320
         PartyTab::finish_import(cx, me);
     }
 
@@ -1304,6 +1346,7 @@ impl PartyTab {
             // L151-152
             return;
         };
+        // DIVERGENCE(bytes): see the module notes
         let xml_text = String::from_utf8_lossy(&xml_bytes).into_owned();
         // L154
         if cx.app().launch.dev_mode && cx.sys.is_key_down(Key::Shift) {
@@ -1375,6 +1418,7 @@ impl PartyTab {
         }
 
         // L195 Parse the XML
+        // L196
         let xml = cx
             .w::<PartyTab>(me)
             .import_code_xml
@@ -1385,92 +1429,88 @@ impl PartyTab {
         let db_xml = match crate::model::xml::ParseXML_root(&xml) {
             Ok(root) => root,
             Err(err_msg) => {
-                // L197 (`fileName` is an undeclared global: LUA-GLOBAL-NIL)
+                // L198 (`fileName` is an undeclared global: LUA-GLOBAL-NIL)
                 crate::launch::show_err_msg(
                     cx,
                     "^1Error loading '%s': %s",
                     &[FmtArg::Nil, FmtArg::Str(&err_msg)],
                 );
-                // L198
+                // L199
                 return;
             }
         };
-        // L199 `dbXML[1].elem`
+        // L200 `dbXML[1].elem`
         let root = match db_xml.children.first() {
             None => lua_error!("attempt to index field '?' (a nil value)"),
             Some(XmlChild::Node(n)) if &*n.elem == "PathOfBuilding" => n,
             Some(_) => {
-                // L200 (`fileName`: LUA-GLOBAL-NIL)
+                // L201 (`fileName`: LUA-GLOBAL-NIL)
                 crate::launch::show_err_msg(
                     cx,
                     "^1Error parsing '%s': 'PathOfBuilding' root element missing",
                     &[FmtArg::Nil],
                 );
-                // L201
+                // L202
                 return;
             }
         };
 
         // L205 Load data
+        // L206
         for tab_node in &root.children {
-            // L206
+            // L207
             let XmlChild::Node(tab_node) = tab_node else {
                 continue;
             };
             if &*tab_node.elem != "Party" {
                 continue;
             }
-            // L207
+            // L208
             for node in &tab_node.children {
-                // L208 (a text child: `("…").elem` is nil)
+                // L209 (a text child: `("…").elem` is nil)
                 let XmlChild::Node(node) = node else {
                     continue;
                 };
                 if &*node.elem != "ExportedBuffs" {
                     continue;
                 }
-                // L209
+                // L210
                 match node.attrib.get("name").map(|s| &**s) {
                     None => {
-                        // L210
+                        // L211
                         cx.sys.platform.con_print("missing name");
                     }
-                    // L211
+                    // L212
                     Some("PartyMemberStats") => {
-                        // L212
+                        // L213
                         if dest_is(cx, me, "All") || dest_is(cx, me, "Party Member Stats") {
-                            let mut text = node_text(node);
+                            let mut text = Node1::of(node);
                             let cur = buf(cx, me, "editPartyMemberStats");
-                            // L213
+                            // L214
                             if !cur.is_empty() {
-                                // L214
-                                text = Some(format!("{cur}\n{}", text.unwrap_or_default()));
+                                // L215
+                                text = text.concat_after(&cur);
                             }
-                            // L216
-                            set_text(
-                                cx,
-                                me,
-                                "editPartyMemberStats",
-                                text.as_deref().unwrap_or(""),
-                            );
                             // L217
+                            set_text(cx, me, "editPartyMemberStats", &text.set_text_arg());
+                            // L218
                             parse_party_member_stats(cx, &buf(cx, me, "editPartyMemberStats"));
                         }
                     }
-                    // L219
+                    // L220
                     Some("Aura") => {
-                        // L220
+                        // L221
                         if dest_is(cx, me, "All") || dest_is(cx, me, "Aura") {
-                            let mut text = node_text(node);
+                            let mut text = Node1::of(node);
                             let cur = buf(cx, me, "editAuras");
-                            // L221
+                            // L222
                             if !cur.is_empty() {
-                                // L222
-                                text = Some(format!("{cur}\n{}", text.unwrap_or_default()));
+                                // L223
+                                text = text.concat_after(&cur);
                             }
-                            // L224
-                            set_text(cx, me, "editAuras", text.as_deref().unwrap_or(""));
                             // L225
+                            set_text(cx, me, "editAuras", &text.set_text_arg());
+                            // L226
                             parse_actor_list(
                                 cx,
                                 n!("Aura"),
@@ -1480,27 +1520,27 @@ impl PartyTab {
                             );
                         }
                     }
-                    // L227
+                    // L228
                     Some("Curse") => {
-                        // L228
+                        // L229
                         if dest_is(cx, me, "All") || dest_is(cx, me, "Curse") {
-                            let mut text = node_text(node);
+                            let mut text = Node1::of(node);
                             let cur = buf(cx, me, "editCurses");
-                            // L229
+                            // L230
                             if !cur.is_empty() {
-                                // L230
-                                text = Some(format!("{cur}\n{}", text.unwrap_or_default()));
+                                // L231
+                                text = text.concat_after(&cur);
                             }
-                            // L232
+                            // L233
                             if let Some(ccb) = &current_curse_buffer {
-                                if text.as_deref() == Some("--- Curse Limit ---\n1") {
-                                    // L233
-                                    text = Some(ccb.clone());
+                                if text.as_str() == Some("--- Curse Limit ---\n1") {
+                                    // L234
+                                    text = Node1::Str(ccb.clone());
                                 }
                             }
-                            // L235
-                            set_text(cx, me, "editCurses", text.as_deref().unwrap_or(""));
                             // L236
+                            set_text(cx, me, "editCurses", &text.set_text_arg());
+                            // L237
                             parse_actor_list(
                                 cx,
                                 n!("Curse"),
@@ -1510,20 +1550,20 @@ impl PartyTab {
                             );
                         }
                     }
-                    // L238
+                    // L239
                     Some("Warcry Skills") => {
-                        // L239
+                        // L240
                         if dest_is(cx, me, "All") || dest_is(cx, me, "Warcry Skills") {
-                            let mut text = node_text(node);
+                            let mut text = Node1::of(node);
                             let cur = buf(cx, me, "editWarcries");
-                            // L240
+                            // L241
                             if !cur.is_empty() {
-                                // L241
-                                text = Some(format!("{cur}\n{}", text.unwrap_or_default()));
+                                // L242
+                                text = text.concat_after(&cur);
                             }
-                            // L243
-                            set_text(cx, me, "editWarcries", text.as_deref().unwrap_or(""));
                             // L244
+                            set_text(cx, me, "editWarcries", &text.set_text_arg());
+                            // L245
                             parse_actor_list(
                                 cx,
                                 n!("Warcry"),
@@ -1533,27 +1573,27 @@ impl PartyTab {
                             );
                         }
                     }
-                    // L246
+                    // L247
                     Some("Link Skills") => {
-                        // L247
+                        // L248
                         if dest_is(cx, me, "All") || dest_is(cx, me, "Link Skills") {
-                            let mut text = node_text(node);
+                            let mut text = Node1::of(node);
                             let cur = buf(cx, me, "editLinks");
-                            // L248
+                            // L249
                             if !cur.is_empty() {
-                                // L249
-                                text = Some(format!("{cur}\n{}", text.unwrap_or_default()));
+                                // L250
+                                text = text.concat_after(&cur);
                             }
-                            // L251
+                            // L252
                             if let Some(clb) = &current_link_buffer {
-                                if text.as_deref().map_or(true, str::is_empty) {
-                                    // L252
-                                    text = Some(clb.clone());
+                                if matches!(text, Node1::Nil) || text.as_str() == Some("") {
+                                    // L253
+                                    text = Node1::Str(clb.clone());
                                 }
                             }
-                            // L254
-                            set_text(cx, me, "editLinks", text.as_deref().unwrap_or(""));
                             // L255
+                            set_text(cx, me, "editLinks", &text.set_text_arg());
+                            // L256
                             parse_actor_list(
                                 cx,
                                 n!("Link"),
@@ -1563,34 +1603,34 @@ impl PartyTab {
                             );
                         }
                     }
-                    // L257
+                    // L258
                     Some("EnemyConditions") => {
-                        // L258
+                        // L259
                         if dest_is(cx, me, "All") || dest_is(cx, me, "EnemyConditions") {
-                            let mut text = node_text(node);
+                            let mut text = Node1::of(node);
                             let cur = buf(cx, me, "enemyCond");
-                            // L259
+                            // L260
                             if !cur.is_empty() {
-                                // L260
-                                text = Some(format!("{cur}\n{}", text.unwrap_or_default()));
+                                // L261
+                                text = text.concat_after(&cur);
                             }
-                            // L262
-                            set_text(cx, me, "enemyCond", text.as_deref().unwrap_or(""));
+                            // L263
+                            set_text(cx, me, "enemyCond", &text.set_text_arg());
                         }
                     }
-                    // L264
+                    // L265
                     Some("EnemyMods") => {
-                        // L265
+                        // L266
                         if dest_is(cx, me, "All") || dest_is(cx, me, "EnemyMods") {
-                            let mut text = node_text(node);
+                            let mut text = Node1::of(node);
                             let cur = buf(cx, me, "enemyMods");
-                            // L266
+                            // L267
                             if !cur.is_empty() {
-                                // L267
-                                text = Some(format!("{cur}\n{}", text.unwrap_or_default()));
+                                // L268
+                                text = text.concat_after(&cur);
                             }
-                            // L269
-                            set_text(cx, me, "enemyMods", text.as_deref().unwrap_or(""));
+                            // L270
+                            set_text(cx, me, "enemyMods", &text.set_text_arg());
                         }
                     }
                     Some(_) => {}
@@ -1825,30 +1865,17 @@ mod tests {
 
     #[test]
     fn notes_desc_is_the_long_string() {
-        // a missing checkout fails unless POB_ALLOW_SKIP=1 (CCR-0031)
-        let Some(path) = pob_lua_src_path("Classes/PartyTab.lua") else {
-            assert!(
-                std::env::var("POB_ALLOW_SKIP").as_deref() == Ok("1"),
-                "PoB checkout (.PathOfBuilding) not found above the crate"
-            );
+        // a missing checkout fails unless POB_ALLOW_SKIP=1 (CCR-0031); POB_ROOT / POB_SRC
+        // override the search (worktrees do not hold the gitignored checkout)
+        let Some(src) = pob_testpaths::require(
+            pob_testpaths::pob_src(),
+            "PoB checkout (.PathOfBuilding/src)",
+        ) else {
             return;
         };
-        let lua = std::fs::read_to_string(path).expect("PartyTab.lua");
+        let lua = std::fs::read_to_string(src.join("Classes/PartyTab.lua")).expect("PartyTab.lua");
         let a = lua.find("local notesDesc = [[").unwrap() + "local notesDesc = [[".len();
         let b = a + lua[a..].find("]]").unwrap();
         assert_eq!(&lua[a..b], NOTES_DESC);
-    }
-
-    /// The PoB checkout's `src/<rel>` when it is reachable from the crate (dev checkouts).
-    fn pob_lua_src_path(rel: &str) -> Option<std::path::PathBuf> {
-        let mut d = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
-        for _ in 0..6 {
-            let p = d.join(".PathOfBuilding/src").join(rel);
-            if p.exists() {
-                return Some(p);
-            }
-            d = d.parent()?.to_path_buf();
-        }
-        None
     }
 }
