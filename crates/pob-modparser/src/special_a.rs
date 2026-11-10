@@ -89,17 +89,14 @@ fn lua_tonumber(v: Option<&str>) -> Option<f64> {
 /// The `{ radius = …, type = "Other", func = function(node, out, data) … end }` value of an
 /// `ExtraJewelFunc` mod whose closure is defined inline (2622-2627, 2630-2634). The closure is
 /// data (calc doc §6, `Value::JewelFunc`): `key` is its `"<file>:<a>-<b>"` (as the parse oracle
-/// records it), `args` the pattern captures it closes over, as strings in capture order (the
-/// upvalues are a subset of them: `dmgType` = args[1]; `val`, `attr` = args[1], args[2]).
-/// Rust-only plumbing.
-fn extra_jewel_func(key: &str, caps: &Caps, radius: String) -> Value {
-    let mut args: smallvec::SmallVec<[Value; 4]> = smallvec::SmallVec::new();
-    for c in caps.cap.iter() {
-        match c {
-            Some(s) => args.push(Value::from(*s)),
-            None => break,
-        }
-    }
+/// records it), `args` the upvalues it closes over, as the capture strings scan() returned
+/// (CCR-0039 §3: 2622-2627 `[dmgType]`, 2630-2634 `[val, attr]`; `pob_calc::modules::jewel_funcs`
+/// reads them by these positions). Rust-only plumbing.
+fn extra_jewel_func(key: &str, upvalues: &[Option<&str>], radius: String) -> Value {
+    let args: smallvec::SmallVec<[Value; 4]> = upvalues
+        .iter()
+        .map(|s| s.map_or(Value::Nil, Value::from))
+        .collect();
     Value::JewelFunc(Arc::new(JewelFuncSpec {
         key: Name::from(key),
         kind: JewelFuncKind::Other,
@@ -2508,12 +2505,13 @@ fn specialModList_2571(v: &mut Vec<PatternEntry<SpecialVal>>) {
     // its source range; its body runs in pob_calc::modules::jewel_funcs (MP7)
     v.push(PatternEntry { pat: "non%-unique jewels cause increases and reductions to other damage types in a (%a+) radius to be transformed to apply to (%a+) damage", val: SpecialVal::Fn(|caps: &Caps| {
         let radius = ns(caps.cap[0], "index local 'radius'");
+        // upvalue of the 2622-2627 closure (only indexed when the func runs on a node, 2625)
         let dmgType = caps.cap[1];
         // L2622
         Some(vec![r#mod(
             n!("ExtraJewelFunc"),
             LIST,
-            extra_jewel_func("Modules/ModParser.lua:2622-2627", caps, firstToUpper(radius)),
+            extra_jewel_func("Modules/ModParser.lua:2622-2627", &[dmgType], firstToUpper(radius)),
             None,
             0,
             0,
@@ -2527,6 +2525,7 @@ fn specialModList_2571(v: &mut Vec<PatternEntry<SpecialVal>>) {
     // its source range; its body runs in pob_calc::modules::jewel_funcs (MP7)
     v.push(PatternEntry { pat: "non%-unique jewels cause small and notable passive skills in a (%a+) radius to also grant %+(%d+) to (%a+)", val: SpecialVal::Fn(|caps: &Caps| {
         let radius = ns(caps.cap[0], "index local 'radius'");
+        // upvalues of the 2630-2634 closure (only read when the func runs on a node, 2632)
         let val = caps.cap[1];
         let attr = caps.cap[2];
         // L2630
@@ -2535,7 +2534,7 @@ fn specialModList_2571(v: &mut Vec<PatternEntry<SpecialVal>>) {
             LIST,
             extra_jewel_func(
                 "Modules/ModParser.lua:2630-2634",
-                caps,
+                &[val, attr],
                 gsub_fn(radius, "^%l", |c| Some(upper(c[0].as_str())), None).0,
             ),
             None,
