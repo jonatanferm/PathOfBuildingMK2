@@ -49,3 +49,8 @@ harness = false
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# Test inputs (PoB checkout, data/dump) and the skip policy (HYG1); U15's tests.
+pob-testpaths.workspace = true
+pob-gamedata.workspace = true

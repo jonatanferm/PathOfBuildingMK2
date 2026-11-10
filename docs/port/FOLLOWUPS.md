@@ -51,9 +51,14 @@ These assertions were already in the files and fail on 746b103 before any HYG2 b
 Not port gaps, recorded so a reader knows why they are not 0:
 
 - AS `LUA-ORDER` (stat-map mods added in `pairs` order, calc doc §3.4/§9.5) and AltX/AltY
-  sources (CCR-0010); BM-B `LUA-ORDER/expected`; CT `stat_map` PoB-nondeterministic records;
-  PS-A `leap` (order-dependent, asserted as a set under `leapset`). The bounds are the observed
-  maxima plus headroom, stated next to each constant.
+  sources (CCR-0010); CT `stat_map` PoB-nondeterministic records; PS-A `leap`
+  (order-dependent, asserted as a set under `leapset`). The bounds are the observed maxima plus
+  headroom, stated next to each constant.
+- BM-B `LUA-ORDER`: not bounded by an observed count (LuaJIT randomises `pairs` per process,
+  and a count with headroom went red at random: tabs 12 -> 18/19 on the same code). Flipped
+  ambiguous gems are bounded by the ambiguous gems in the oracle's Saves (per build and in
+  total), reordered party labels by the multi-line labels compared; only the deterministic
+  `expected` bucket has a fixed bound.
 
 Not port gaps either, but limits of a test's own rebuilt model:
 
