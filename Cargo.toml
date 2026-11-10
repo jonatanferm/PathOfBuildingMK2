@@ -180,16 +180,16 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 2
 
-# The crates under test run inside every oracle test at -O0 (IT-C: 668 of 807 s in Rust code).
-# opt-level 1 keeps debug assertions and overflow checks (profile settings) and speeds them 3-10x.
+# The smaller crates under test run at opt-level 1 in dev/test (keeps debug assertions and overflow
+# checks, which are profile settings); see the pob-calc note below.
 [profile.dev.package.pob-lua]
 opt-level = 1
 [profile.dev.package.pob-gamedata]
 opt-level = 1
 [profile.dev.package.pob-modparser]
 opt-level = 1
-[profile.dev.package.pob-calc]
-opt-level = 1
+# pob-calc stays at -O0: at opt-level 1 one rustc peaked at 3.3 GB and two concurrent compiles
+# tripped the OOM guard and the 5 GB cargo cap (2026-11-10).
 
 [profile.release]
 lto = "thin"
