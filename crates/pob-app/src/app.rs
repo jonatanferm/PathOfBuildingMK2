@@ -1,20 +1,27 @@
 //! App state and the host entry (ui doc §10.1). Owner: U16. UI-U0: the §10.1 surface; `CxApp`
 //! and the disjoint-borrow helpers are complete, the callbacks are U16's.
+//!
+//! `PobApp` is SimpleGraphic's main object: `SetMainObject(launch)` (Launch.lua:17) makes SG
+//! call `launch:OnInit`, `OnFrame`, `OnKeyDown`, ... which are the `pob_host::App` callbacks here
+//! (crate::launch ports them). `PobApp::new` runs Launch.lua's module-level code (:8-19), which in
+//! SG runs when the script is loaded, before `OnInit`.
 
 use std::any::Any;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use pob_sg::Key;
+use pob_ui_core::arena::Ui;
 use pob_ui_core::cx::Cx;
-use pob_ui_core::ids::Ctrl;
+use pob_ui_core::ids::{Ctrl, CtrlId};
 use pob_ui_core::lua_error;
+use pob_ui_core::main_core::MainCore;
 
 use crate::build::BuildState;
 use crate::build_list::ListMode;
 use crate::calc::CalcFacade;
-use crate::launch::LaunchState;
-use crate::main_mode::MainState;
+use crate::launch::{self, LaunchState};
+use crate::main_mode::{self, MainState, ModeArg};
 use crate::model;
 use crate::tree_view::assets::TreeAssets;
 
@@ -25,10 +32,62 @@ pub struct PobApp {
 
 impl PobApp {
     /// What `pob_host::run_desktop(cfg, pob_app::PobApp::new)` calls: builds `Cx` (MainCore,
-    /// AppState) around the host's `Sg`/`Sys`.
+    /// AppState) around the host's `Sg`/`Sys`, then runs Launch.lua's module-level code.
     pub fn new(parts: pob_host::PlatformParts) -> PobApp {
-        let _ = parts;
-        todo!("U16: PobApp::new (Launch.lua:21-108 before OnInit)")
+        Self::with_calc(parts, Rc::new(|| Box::new(crate::calc::RustCalc)))
+    }
+
+    /// [`PobApp::new`] with another calc (`LuaCalcBridge` in dev builds, ui doc §10.4).
+    pub fn with_calc(
+        parts: pob_host::PlatformParts,
+        calc_factory: Rc<dyn Fn() -> Box<dyn CalcFacade>>,
+    ) -> PobApp {
+        let state = AppState {
+            launch: LaunchState::default(),
+            main: MainState::default(),
+            trees: TreeCache::default(),
+            list_mode: None,
+            build: None,
+            calc_factory,
+        };
+        let mut cx = Cx {
+            ui: Ui::default(),
+            sg: parts.sg,
+            sys: parts.sys,
+            main: MainCore::new(CtrlId::default()),
+            ext: Box::new(state),
+        };
+        launch::load_module(&mut cx);
+        PobApp { cx }
+    }
+
+    /// `main:SetMode("BUILD", false, name, xml)`: the `.pobscript` step `load-build` (ui doc §5.2).
+    pub fn load_build(&mut self, name: &str, xml: &str) {
+        main_mode::on_frame::set_mode(
+            &mut self.cx,
+            "BUILD",
+            vec![
+                ModeArg::Bool(false),
+                ModeArg::Str(name.to_owned()),
+                ModeArg::Str(xml.to_owned()),
+            ],
+        );
+    }
+
+    /// The `.pobscript` step `snapshot` (T4): `main.modes.BUILD:SaveDB("snapshot")` while in
+    /// BUILD mode. CCR-0091: the build's SaveDB is U20's (build/io.rs); until it lands there is
+    /// nothing to save.
+    pub fn snapshot(&mut self) -> Option<String> {
+        None
+    }
+
+    /// The Settings.xml text `main:SaveSettings` would write now (T4), or `None` where it
+    /// refuses (an invalid mode element, or `errorReadingSettings`).
+    pub fn settings_xml(&mut self) -> Option<String> {
+        if self.cx.app().main.error_reading_settings {
+            return None;
+        }
+        main_mode::settings::compose_settings(&mut self.cx).map(|x| model::xml::ComposeXML(&x))
     }
 }
 
@@ -41,27 +100,66 @@ impl pob_host::App for PobApp {
     }
     /// launch:OnInit
     fn on_init(&mut self) {
-        todo!("U16: launch:OnInit")
+        launch::on_init(&mut self.cx);
     }
     /// launch:OnFrame
     fn on_frame(&mut self) {
-        todo!("U16: launch:OnFrame")
+        launch::on_frame(&mut self.cx);
     }
     fn on_key_down(&mut self, key: Key, double_click: bool) {
-        let _ = (key, double_click);
-        todo!("U16: launch:OnKeyDown")
+        launch::on_key_down(&mut self.cx, key, double_click);
     }
     fn on_key_up(&mut self, key: Key) {
-        let _ = key;
-        todo!("U16: launch:OnKeyUp")
+        launch::on_key_up(&mut self.cx, key);
     }
     fn on_char(&mut self, ch: Key) {
-        let _ = ch;
-        todo!("U16: launch:OnChar")
+        launch::on_char(&mut self.cx, ch);
     }
+    /// launch:CanExit
+    fn can_exit(&mut self) -> bool {
+        launch::can_exit(&mut self.cx)
+    }
+    /// launch:OnExit
+    fn on_exit(&mut self) {
+        launch::on_exit(&mut self.cx);
+    }
+    /// hasActiveCoroutine (`coroutine._list()`, Common.lua:55-57; the item DB loader of
+    /// main:Init and the others). `sys.net.busy()` is added by the host (hasSubscript).
+    fn wants_frames(&self) -> bool {
+        pob_ui_core::coroutine::co::any_alive()
+    }
+    /// A callback panicked outside launch's own `PCall`s: Launch's error prompt
+    /// (Launch.lua:381 ShowErrMsg).
     fn on_lua_error(&mut self, msg: String) {
-        let _ = msg;
-        todo!("U16: launch:ShowErrMsg (Launch.lua:381)")
+        launch::show_err_msg(&mut self.cx, "%s", &[pob_lua::FmtArg::from(msg.as_str())]);
+    }
+    /// launch:OnSubFinished / OnSubError (CCR-0026 A).
+    fn on_net(&mut self, id: u64, resp: pob_sg::HttpResponse) {
+        launch::on_net(&mut self.cx, id, resp);
+    }
+    /// `load-build` and `snapshot` (CCR-0026 E).
+    fn on_script_step(&mut self, step: &pob_host::script::Step) {
+        match step {
+            pob_host::script::Step::LoadBuild(path) => {
+                // relative to `<userdir>/Path of Building/` (U7's rule); the app's user path is
+                // that directory
+                let user_path = self.cx.app().main.user_path.clone().unwrap_or_default();
+                let file = format!("{user_path}{path}");
+                let xml = match self.cx.sys.fs.read(&file) {
+                    Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+                    Err(e) => lua_error!("load-build {file}: {e}"),
+                };
+                let name = std::path::Path::new(path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.load_build(&name, &xml);
+            }
+            pob_host::script::Step::Snapshot(_) => {
+                let _ = self.snapshot();
+            }
+            _ => {}
+        }
     }
 }
 

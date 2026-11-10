@@ -2886,6 +2886,7 @@ dependencies = [
 name = "pob-app"
 version = "0.0.1"
 dependencies = [
+ "indexmap",
  "pob-calc",
  "pob-gamedata",
  "pob-host",
