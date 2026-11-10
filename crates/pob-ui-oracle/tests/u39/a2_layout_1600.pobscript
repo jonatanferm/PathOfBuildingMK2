@@ -1,0 +1,19 @@
+screen 1600 900 dpi 1.0
+# U39: column packing at 1600 px (1288 px tab: maxCol 5, group 3 gets its own 5th column,
+# CalcsTab.lua:266-271) with a dual-wield attack build (the MH/OH rows, weapon flags), hover,
+# and the wheel.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 800 400
+frames 2
+move 1500 300
+frames 2
+move 1590 890
+wheel down 3
+frames 2
