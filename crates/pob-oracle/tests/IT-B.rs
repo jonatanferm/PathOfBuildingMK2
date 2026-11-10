@@ -35,6 +35,9 @@
 //! inputs are gitignored, so from a worktree point `POB_SRC`, `POB_PARITY_DIR` and
 //! `POB_DUMP_DIR` at the main checkout's `.PathOfBuilding/src`, `.parity` and `data/dump`.
 //! `IT_B_LIMIT=<n>` limits the uniques (quick runs); `IT_B_DUMP=<file>` keeps the oracle JSON.
+//! PoB's document is cached in the shared probe cache (HYG3: keyed by the PoB source fingerprint
+//! and oracle runtime, the oracle input and the script; `POB_QUERY_CACHE=refresh|off`), so a warm
+//! run boots no PoB; a cold run holds the machine-wide oracle lock while PoB runs.
 
 #![allow(clippy::pedantic, clippy::explicit_auto_deref, clippy::op_ref)]
 
@@ -50,6 +53,7 @@ use pob_calc::{Key, LStr, Table, Val};
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up};
+use pob_oracle::runner::OracleLock;
 use serde_json::Value as J;
 
 fn init_data() -> bool {
@@ -889,7 +893,9 @@ fn item_core_vs_pob() {
         str_vals.push(v);
     }
     prologue.push_str("}\n");
-    let tmp = std::env::temp_dir().join(format!("itb_save_{}.lua", std::process::id()));
+    // HYG3: a stable path (it is part of PoB's output: saveErr quotes it, so it is part of the
+    // cache key); not std::env::temp_dir(), /tmp is a RAM-backed tmpfs on the port machines
+    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("itb_save.lua");
     prologue.push_str(&format!(
         "__itb_tmp = {}\n",
         lua_long(&tmp.to_string_lossy())
@@ -899,26 +905,40 @@ fn item_core_vs_pob() {
     }
     let script = include_str!("../corpus/IT-B/item_oracle.lua");
 
+    // HYG3 (test audit S3): PoB's document is a function of the PoB source, the input above and
+    // the script, so it is cached in the shared probe cache
+    // (`.parity/probe-cache/<source-key>/<input-key>/query-<script-key>/`; `POB_QUERY_CACHE`);
+    // a miss boots PoB under the machine-wide oracle lock.
     let t0 = std::time::Instant::now();
-    let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
-    let out = pob
-        .run(&format!("{prologue}\n{script}"))
-        .unwrap_or_else(|e| panic!("oracle script: {e}"));
-    let Some(Ret::Str(json)) = out.first() else {
-        panic!("oracle returned {out:?}")
-    };
+    let (hits0, _) = pob_oracle::runner::query_cache_stats();
+    let json = pob_oracle::runner::cached_query(&src, prologue.as_bytes(), &[script], || {
+        let _lock = OracleLock::acquire().expect("oracle lock");
+        let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
+        let out = pob
+            .run(&format!("{prologue}\n{script}"))
+            .unwrap_or_else(|e| panic!("oracle script: {e}"));
+        let Some(Ret::Str(json)) = out.first() else {
+            panic!("oracle returned {out:?}")
+        };
+        json.clone()
+    });
+    let json = &json;
     eprintln!(
-        "oracle: {} corpus items, {:.1} MB JSON in {:?}",
+        "oracle: {} corpus items, {:.1} MB JSON in {:?}{}",
         corpus.len(),
         json.len() as f64 / 1e6,
-        t0.elapsed()
+        t0.elapsed(),
+        if pob_oracle::runner::query_cache_stats().0 > hits0 {
+            " (cached, HYG3)"
+        } else {
+            ""
+        }
     );
     if let Some(p) = std::env::var_os("IT_B_DUMP") {
         // debugging aid: keep the oracle document
         std::fs::write(p, json).expect("IT_B_DUMP");
     }
     let doc: J = serde_json::from_str(json).expect("oracle JSON");
-    drop(pob);
 
     let mut t = Tally::default();
     let find_subs: Vec<String> = match jval(&doc["findSubstrings"]) {

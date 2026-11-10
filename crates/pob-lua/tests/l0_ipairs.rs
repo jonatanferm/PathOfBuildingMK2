@@ -9,7 +9,7 @@ mod common;
 use common::*;
 use pob_lua::field::Shared;
 use pob_lua::ipairs::ipairs_live;
-use pob_oracle::mlua::Table;
+use mlua::Table;
 
 #[test]
 fn ipairs_live_semantics() {

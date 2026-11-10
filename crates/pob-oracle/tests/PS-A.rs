@@ -55,6 +55,7 @@ use pob_lua::{tostring_num, Field, Shared};
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up};
+use pob_oracle::runner::OracleLock;
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -1139,6 +1140,9 @@ fn passive_spec_acceptance() {
         return; // POB_ALLOW_SKIP=1
     }
 
+    // HYG3 (test audit): LuaJIT PoB (~400 MB) runs under the machine-wide oracle lock, held
+    // while `pob` lives (it is declared after the lock, so it is dropped first)
+    let _oracle_lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
     let t0 = std::time::Instant::now();
     let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
     pob.run(LIB).unwrap_or_else(|e| panic!("{e}"));

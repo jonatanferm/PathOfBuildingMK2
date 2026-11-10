@@ -1,9 +1,9 @@
 //! Shared L0 harness: a LuaJIT state (the vendored LuaJIT of the oracle,
-//! through `pob_oracle::mlua`), deterministic random vectors, comparison and
+//! through `mlua`), deterministic random vectors, comparison and
 //! reporting helpers.
 #![allow(dead_code)]
 
-use pob_oracle::mlua::{self, Function, Lua, Table, Value};
+use mlua::{self, Function, Lua, Table, Value};
 
 /// JIT modes the L0 comparisons run in. The reference is the LuaJIT
 /// interpreter (`jit.off`, CCR-0001; every oracle parity run uses it too).

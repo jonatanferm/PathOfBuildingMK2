@@ -491,6 +491,507 @@ mod tests {
     }
 }
 
+// ---- the shared caches of the oracle tests (HYG3, test audit S1/S3/S4) ---------------------------
+//
+// Every entry lives in the probe cache, `<parity>/probe-cache/<sha>/<input-key>/…`, keyed like the
+// dumps above: `<sha>` is the PoB source the run boots (a patched copy's manifest sha, or
+// [`source_key`] for the unpatched checkout), `<input-key>` the first 16 hex digits of the BLAKE3 of
+// the run's input (a build's XML bytes: [`build_key`]), and the last component hashes whatever else
+// decides the result (the query scripts, the probe selection). An entry is written to a private
+// temp name and renamed into place, so a reader sees it whole or not at all, and concurrent writers
+// of one key (other tests, other worktrees) each publish a valid copy.
+//
+// `$POB_QUERY_CACHE`: unset / `on` reads and writes; `refresh` runs PoB again and overwrites;
+// `off` neither reads nor writes (every query and probe runs, as before HYG3).
+
+/// What `$POB_QUERY_CACHE` allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheMode {
+    On,
+    Refresh,
+    Off,
+}
+
+#[must_use]
+pub fn cache_mode() -> CacheMode {
+    match std::env::var("POB_QUERY_CACHE").as_deref() {
+        Ok("off" | "0") => CacheMode::Off,
+        Ok("refresh") => CacheMode::Refresh,
+        _ => CacheMode::On,
+    }
+}
+
+/// The first 16 hex digits of the BLAKE3 of `parts` (each length-prefixed, so part boundaries
+/// count).
+#[must_use]
+pub fn content_key(domain: &str, parts: &[&[u8]]) -> String {
+    let mut h = blake3::Hasher::new();
+    h.update(domain.as_bytes());
+    h.update(&[0]);
+    for p in parts {
+        h.update(&(p.len() as u64).to_le_bytes());
+        h.update(p);
+    }
+    h.finalize().to_hex()[..16].to_owned()
+}
+
+/// The Rust and Lua code an in-process oracle run boots PoB with (`JitPob::boot_oracle`, the
+/// headless loader, `oracle.lua`): part of every [`source_key`], so a change to any of it
+/// invalidates the cached query results.
+const ORACLE_RUNTIME: &[&str] = &[
+    include_str!("jit.rs"),
+    include_str!("headless.rs"),
+    include_str!("oracle.rs"),
+    include_str!("oracle.lua"),
+];
+
+/// The `<sha>` of an unpatched PoB source tree booted in-process: BLAKE3 of the oracle runtime,
+/// the JIT mode (`POB_ORACLE_JIT`), the canonical path and the stat fingerprint (relative path,
+/// size, mtime) of every file, the fingerprint the patcher's sha takes of the tree it copies
+/// (`patcher::plan_sha`). Memoised per process.
+pub fn source_key(src: &Path) -> Result<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static KEYS: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+    let canon = std::fs::canonicalize(src).unwrap_or_else(|_| src.to_path_buf());
+    let keys = KEYS.get_or_init(Mutex::default);
+    if let Some(k) = keys
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&canon)
+    {
+        return Ok(k.clone());
+    }
+    fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
+        let mut entries: Vec<_> = std::fs::read_dir(dir)?
+            .filter_map(std::result::Result::ok)
+            .collect();
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for e in entries {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let r = if rel.is_empty() {
+                name
+            } else {
+                format!("{rel}/{name}")
+            };
+            if e.file_type()?.is_dir() {
+                walk(&e.path(), &r, out)?;
+            } else {
+                out.push((r, e.path()));
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    walk(&canon, "", &mut files).map_err(|e| OracleError(format!("{}: {e}", canon.display())))?;
+    let mut h = blake3::Hasher::new();
+    h.update(b"pob-oracle unpatched source 1\n");
+    for code in ORACLE_RUNTIME {
+        h.update(code.as_bytes());
+        h.update(&[0]);
+    }
+    #[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+    h.update(if crate::jit::oracle_jit_off() {
+        b"jit.off"
+    } else {
+        b"jit.on"
+    });
+    h.update(canon.to_string_lossy().as_bytes());
+    for (rel, path) in &files {
+        let meta =
+            std::fs::metadata(path).map_err(|e| OracleError(format!("{}: {e}", path.display())))?;
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos());
+        h.update(rel.as_bytes());
+        h.update(&meta.len().to_le_bytes());
+        h.update(&mtime.to_le_bytes());
+    }
+    let key = h.finalize().to_hex()[..16].to_owned();
+    keys.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(canon, key.clone());
+    Ok(key)
+}
+
+/// A temp path next to `dst` that no other writer (thread or process) uses.
+fn private_tmp(dst: &Path) -> PathBuf {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let name = dst
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    dst.with_file_name(format!(
+        ".{name}.tmp.{}.{}",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ))
+}
+
+/// zstd level of the cache entries (fast; the entries are read far more often than written).
+const CACHE_ZSTD_LEVEL: i32 = 3;
+
+/// The cached results of one in-process oracle query:
+/// `<parity>/probe-cache/<source-key>/<input-key>/query-<script-key>/<name>.zst`.
+#[derive(Debug, Clone)]
+pub struct QueryCache {
+    pub dir: PathBuf,
+}
+
+/// Hits and misses of [`QueryCache::get`] in this process (for the tests' summaries).
+static QUERY_HITS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static QUERY_MISSES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// `(hits, misses)` of the query cache in this process.
+#[must_use]
+pub fn query_cache_stats() -> (usize, usize) {
+    (
+        QUERY_HITS.load(std::sync::atomic::Ordering::Relaxed),
+        QUERY_MISSES.load(std::sync::atomic::Ordering::Relaxed),
+    )
+}
+
+impl QueryCache {
+    /// The entry of the query `script` (every text that decides the result besides PoB and the
+    /// input: the scripts run, in order) over `input` (a build's XML bytes, or the input a test
+    /// generates) on the PoB checkout `src`. `None` when there is no `.parity` directory or the
+    /// cache is off.
+    pub fn new(src: &Path, input: &[u8], script: &[&str]) -> Result<Option<Self>> {
+        if cache_mode() == CacheMode::Off {
+            return Ok(None);
+        }
+        let Some(parity) = crate::oracle::find_parity_dir() else {
+            return Ok(None);
+        };
+        let parts: Vec<&[u8]> = script.iter().map(|s| s.as_bytes()).collect();
+        Ok(Some(Self {
+            dir: parity
+                .join("probe-cache")
+                .join(source_key(src)?)
+                .join(&blake3::hash(input).to_hex()[..16])
+                .join(format!(
+                    "query-{}",
+                    content_key("pob-oracle query 1", &parts)
+                )),
+        }))
+    }
+
+    #[must_use]
+    pub fn path(&self, name: &str) -> PathBuf {
+        self.dir.join(format!("{name}.zst"))
+    }
+
+    /// Is `name` present (and readable under the cache mode)?
+    #[must_use]
+    pub fn has(&self, name: &str) -> bool {
+        cache_mode() == CacheMode::On && self.path(name).is_file()
+    }
+
+    /// The cached text `name` (counted as a hit or a miss).
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<String> {
+        let got = if self.has(name) {
+            read_text(&self.path(name)).ok()
+        } else {
+            None
+        };
+        let c = if got.is_some() {
+            &QUERY_HITS
+        } else {
+            &QUERY_MISSES
+        };
+        c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        got
+    }
+
+    /// Store `text` as `name`.
+    pub fn put(&self, name: &str, text: &str) -> Result<()> {
+        let dst = self.path(name);
+        std::fs::create_dir_all(&self.dir)
+            .map_err(|e| OracleError(format!("{}: {e}", self.dir.display())))?;
+        let tmp = private_tmp(&dst);
+        let z = zstd::encode_all(text.as_bytes(), CACHE_ZSTD_LEVEL)
+            .map_err(|e| OracleError(e.to_string()))?;
+        std::fs::write(&tmp, z).map_err(|e| OracleError(format!("{}: {e}", tmp.display())))?;
+        std::fs::rename(&tmp, &dst).map_err(|e| OracleError(format!("{}: {e}", dst.display())))
+    }
+
+    /// Store the file `src` as `name`, compressed as a stream (large JSONL outputs).
+    pub fn put_file(&self, name: &str, src: &Path) -> Result<()> {
+        let dst = self.path(name);
+        std::fs::create_dir_all(&self.dir)
+            .map_err(|e| OracleError(format!("{}: {e}", self.dir.display())))?;
+        let tmp = private_tmp(&dst);
+        let io = |e: std::io::Error, p: &Path| OracleError(format!("{}: {e}", p.display()));
+        let mut from = std::fs::File::open(src).map_err(|e| io(e, src))?;
+        let to = std::fs::File::create(&tmp).map_err(|e| io(e, &tmp))?;
+        let mut enc =
+            zstd::stream::write::Encoder::new(to, CACHE_ZSTD_LEVEL).map_err(|e| io(e, &tmp))?;
+        std::io::copy(&mut from, &mut enc).map_err(|e| io(e, &tmp))?;
+        enc.finish().map_err(|e| io(e, &tmp))?;
+        std::fs::rename(&tmp, &dst).map_err(|e| io(e, &dst))
+    }
+
+    /// The cached file `name` as a decompressing line reader.
+    pub fn open(&self, name: &str) -> Result<Box<dyn std::io::BufRead>> {
+        let p = self.path(name);
+        let f =
+            std::fs::File::open(&p).map_err(|e| OracleError(format!("{}: {e}", p.display())))?;
+        let dec = zstd::stream::read::Decoder::new(f)
+            .map_err(|e| OracleError(format!("{}: {e}", p.display())))?;
+        Ok(Box::new(std::io::BufReader::new(dec)))
+    }
+}
+
+/// The text a query returns, from the cache when present; otherwise `run` computes it (the
+/// caller boots PoB under the [`OracleLock`] inside `run`) and it is stored.
+pub fn cached_query(
+    src: &Path,
+    input: &[u8],
+    script: &[&str],
+    run: impl FnOnce() -> String,
+) -> String {
+    let cache = QueryCache::new(src, input, script).unwrap_or_else(|e| panic!("query cache: {e}"));
+    if let Some(text) = cache.as_ref().and_then(|c| c.get("result")) {
+        return text;
+    }
+    let text = run();
+    if let Some(c) = &cache {
+        if let Err(e) = c.put("result", &text) {
+            eprintln!("query cache: not stored: {e}");
+        }
+    }
+    text
+}
+
+/// Where the oracle tests publish patched copies: `$POB_ORACLE_SRC_ROOT`, else
+/// `target/oracle-src` of the checkout that holds the PoB source (`<checkout>/.PathOfBuilding/src`;
+/// from a git worktree that is the main checkout, so every worktree shares one copy per sha),
+/// else [`crate::patcher::default_root`].
+#[must_use]
+pub fn shared_patch_root(pob_src: &Path) -> PathBuf {
+    if let Some(p) = std::env::var_os("POB_ORACLE_SRC_ROOT") {
+        return PathBuf::from(p);
+    }
+    let canon = std::fs::canonicalize(pob_src).unwrap_or_else(|_| pob_src.to_path_buf());
+    if let Some(checkout) = canon.parent().and_then(Path::parent) {
+        if checkout.join("Cargo.toml").is_file() {
+            return checkout.join("target").join("oracle-src");
+        }
+    }
+    crate::patcher::default_root()
+}
+
+/// One probe run of a selection, content-keyed:
+/// `<parity>/probe-cache/<sha>/<build-key>/sel-<options-key>/` with `hits.json.zst`,
+/// `outputs.json.zst` (and `provenance.json.zst`) and `state/<hit>.json.zst`.
+#[derive(Debug, Clone)]
+pub struct SelectionCache {
+    pub dir: PathBuf,
+}
+
+impl SelectionCache {
+    pub fn new(parity: &Path, sha: &str, build: &Path, opts: &ProbeOptions) -> Result<Self> {
+        let sel = opts.select.join(",");
+        let max = opts.max_dumps.to_string();
+        let key = content_key(
+            "pob-oracle selection 1",
+            &[
+                sel.as_bytes(),
+                max.as_bytes(),
+                if opts.provenance { b"prov" } else { b"noprov" },
+            ],
+        );
+        Ok(Self {
+            dir: ProbeCache::new(parity, sha, build)?
+                .dir
+                .join(format!("sel-{key}")),
+        })
+    }
+
+    /// The dumps (`<hit>.json.zst`).
+    #[must_use]
+    pub fn state_dir(&self) -> PathBuf {
+        self.dir.join("state")
+    }
+
+    /// Has the selection been probed (and may it be read under the cache mode)?
+    #[must_use]
+    pub fn is_filled(&self) -> bool {
+        cache_mode() == CacheMode::On && self.dir.join("hits.json.zst").is_file()
+    }
+
+    /// Probe `build` with `opts` in a fresh `bin probe` process (which takes the [`OracleLock`]
+    /// itself) and publish the run as this entry.
+    pub fn fill(
+        &self,
+        bin: &Path,
+        build: &Path,
+        patched_src: &Path,
+        opts: &ProbeOptions,
+    ) -> Result<()> {
+        let tmp = private_tmp(&self.dir);
+        let _ = std::fs::remove_dir_all(&tmp);
+        let res = (|| {
+            let run = tmp.join("run");
+            run_probe_process(bin, build, &run, patched_src, opts)?;
+            let out = tmp.join("out");
+            let state = out.join("state");
+            std::fs::create_dir_all(&state)
+                .map_err(|e| OracleError(format!("{}: {e}", state.display())))?;
+            // the run is compressed into `out`, which is then renamed into place as a whole
+            if let Ok(rd) = std::fs::read_dir(run.join("state")) {
+                for e in rd.filter_map(std::result::Result::ok) {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    if name.ends_with(".json") {
+                        compress_into(&e.path(), &state.join(format!("{name}.zst")))?;
+                    }
+                }
+            }
+            for f in ["outputs.json", "provenance.json", "hits.json"] {
+                let p = run.join(f);
+                if p.is_file() {
+                    compress_into(&p, &out.join(format!("{f}.zst")))?;
+                }
+            }
+            if let Some(d) = self.dir.parent() {
+                std::fs::create_dir_all(d)
+                    .map_err(|e| OracleError(format!("{}: {e}", d.display())))?;
+            }
+            if cache_mode() == CacheMode::Refresh {
+                let _ = std::fs::remove_dir_all(&self.dir);
+            }
+            match std::fs::rename(&out, &self.dir) {
+                Ok(()) => Ok(()),
+                // another test or worktree published the same entry first
+                Err(_) if self.dir.join("hits.json.zst").is_file() => Ok(()),
+                Err(e) => Err(OracleError(format!("{}: {e}", self.dir.display()))),
+            }
+        })();
+        let _ = std::fs::remove_dir_all(&tmp);
+        res
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use std::io::BufRead;
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/tmp")
+            .join(format!("hyg3-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// Part boundaries and the domain are part of a content key.
+    #[test]
+    fn content_keys_separate_parts() {
+        let k = |d: &str, p: &[&[u8]]| content_key(d, p);
+        assert_eq!(k("a", &[b"xy"]), k("a", &[b"xy"]));
+        assert_ne!(k("a", &[b"xy"]), k("a", &[b"x", b"y"]));
+        assert_ne!(k("a", &[b"xy"]), k("b", &[b"xy"]));
+        assert_eq!(k("a", &[]).len(), 16);
+    }
+
+    /// Texts and streamed files come back byte for byte; writes leave no temp files.
+    #[test]
+    fn query_cache_round_trips() {
+        let d = scratch("query");
+        let c = QueryCache { dir: d.join("q") };
+        assert!(c.get("result").is_none());
+        let text = "{\"a\": \"\u{e9}\\n\"}\n".repeat(1000);
+        c.put("result", &text).unwrap();
+        let src = d.join("records.jsonl");
+        std::fs::write(&src, "{\"t\":1}\n{\"t\":2}\n").unwrap();
+        c.put_file("records", &src).unwrap();
+        if cache_mode() == CacheMode::On {
+            assert_eq!(c.get("result").as_deref(), Some(text.as_str()));
+        }
+        let lines = c
+            .open("records")
+            .unwrap()
+            .lines()
+            .collect::<std::io::Result<Vec<String>>>()
+            .unwrap();
+        assert_eq!(lines, ["{\"t\":1}", "{\"t\":2}"]);
+        let names: Vec<String> = std::fs::read_dir(&c.dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.iter().all(|n| !n.starts_with('.')), "{names:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A selection key covers the selection, the dump cap and provenance.
+    #[test]
+    fn selection_keys_cover_the_options() {
+        let d = scratch("sel");
+        let xml = d.join("b.xml");
+        std::fs::write(&xml, "<PathOfBuilding/>").unwrap();
+        let o = ProbeOptions {
+            select: vec!["offence:in@main".to_owned()],
+            max_dumps: 200,
+            provenance: false,
+        };
+        let dir = |o: &ProbeOptions| SelectionCache::new(&d, "sha", &xml, o).unwrap().dir;
+        let base = dir(&o);
+        assert!(base.starts_with(
+            d.join("probe-cache")
+                .join("sha")
+                .join(build_key(&xml).unwrap())
+        ));
+        assert_ne!(
+            base,
+            dir(&ProbeOptions {
+                provenance: true,
+                ..o.clone()
+            })
+        );
+        assert_ne!(
+            base,
+            dir(&ProbeOptions {
+                max_dumps: 1,
+                ..o.clone()
+            })
+        );
+        assert_ne!(
+            base,
+            dir(&ProbeOptions {
+                select: vec!["offence:out@main".to_owned()],
+                ..o.clone()
+            })
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Different trees get different source keys; a tree's key is stable (memoised).
+    #[test]
+    fn source_key_tracks_the_tree() {
+        let d = scratch("src");
+        std::fs::write(d.join("a.lua"), "return 1").unwrap();
+        let k1 = source_key(&d).unwrap();
+        assert_eq!(k1, source_key(&d).unwrap());
+        let d2 = scratch("src2");
+        std::fs::write(d2.join("a.lua"), "return 1").unwrap();
+        std::fs::write(d2.join("b.lua"), "return 2").unwrap();
+        assert_ne!(k1, source_key(&d2).unwrap());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&d2);
+    }
+}
+
+/// `src` zstd-compressed into `dst`.
+fn compress_into(src: &Path, dst: &Path) -> Result<()> {
+    let raw = std::fs::read(src).map_err(|e| OracleError(format!("{}: {e}", src.display())))?;
+    let z = zstd::encode_all(&raw[..], CACHE_ZSTD_LEVEL).map_err(|e| OracleError(e.to_string()))?;
+    std::fs::write(dst, z).map_err(|e| OracleError(format!("{}: {e}", dst.display())))
+}
+
 /// The command that fills a missing cache entry (printed by tests that
 /// skip on a cache miss).
 #[must_use]

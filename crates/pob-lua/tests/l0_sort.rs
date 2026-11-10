@@ -9,8 +9,8 @@
 mod common;
 
 use common::*;
+use mlua::Table;
 use pob_lua::sort::{sort, sort_default};
-use pob_oracle::mlua::Table;
 
 const PER_COMPARATOR: usize = 10_500;
 
@@ -143,7 +143,7 @@ fn table_sort_comparators() {
         for (i, a) in arrays.iter().enumerate() {
             let mut v = a.clone();
             let res = rs_catch(|| sort_default(&mut v));
-            let lua_ok = matches!(get(&oks, i + 1), pob_oracle::mlua::Value::Boolean(true));
+            let lua_ok = matches!(get(&oks, i + 1), mlua::Value::Boolean(true));
             let mut same = res.is_ok() == lua_ok;
             for x in &v {
                 k += 1;

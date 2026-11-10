@@ -32,6 +32,14 @@ pub fn try_init_data(dump_dir: &Path) -> Result<bool, String> {
     if pob_gamedata::is_initialised() {
         return Ok(true);
     }
+    // HYG3 (test audit S5): parallel `#[test]`s of one binary decode the dump once
+    static INIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _once = INIT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if pob_gamedata::is_initialised() {
+        return Ok(true);
+    }
     let dir = if dump_dir.join("manifest.json").is_file() {
         dump_dir.to_path_buf()
     } else if let Some(d) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -151,6 +159,64 @@ pub fn find_dump(dirs: &[PathBuf], hit: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+// ---- probing a selection into the shared cache (HYG3, test audit S4) ---------------------------
+
+/// The patched copy of the PoB checkout for `stages` (`None`: no stages file), published under
+/// [`crate::runner::shared_patch_root`] and memoised per process (planning reads every patched
+/// file).
+#[cfg(feature = "luajit")]
+pub fn shared_patch(stages: Option<&Path>) -> Result<crate::patcher::Patched, String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    type Memo = Mutex<HashMap<Option<PathBuf>, crate::patcher::Patched>>;
+    static PATCHED: OnceLock<Memo> = OnceLock::new();
+    let memo = PATCHED.get_or_init(Mutex::default);
+    let mut memo = memo
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let key = stages.map(Path::to_path_buf);
+    if let Some(p) = memo.get(&key) {
+        return Ok(p.clone());
+    }
+    let src = crate::oracle::find_pob_src().ok_or("no PoB checkout (.PathOfBuilding/src)")?;
+    let root = crate::runner::shared_patch_root(&src);
+    let p = crate::patcher::patch(&src, stages, &root).map_err(|e| e.0)?;
+    memo.insert(key, p.clone());
+    Ok(p)
+}
+
+/// The cache entry of probing `xml` with `opts` under the patched copy for `stages`
+/// ([`crate::runner::SelectionCache`] in `.parity/probe-cache`), whether filled or not.
+#[cfg(feature = "luajit")]
+pub fn selection_cache(
+    xml: &Path,
+    stages: Option<&Path>,
+    opts: &crate::runner::ProbeOptions,
+) -> Result<crate::runner::SelectionCache, String> {
+    let parity = find_parity_dir().ok_or("no .parity directory")?;
+    let patched = shared_patch(stages)?;
+    crate::runner::SelectionCache::new(&parity, &patched.sha, xml, opts).map_err(|e| e.0)
+}
+
+/// The `state/` directory of probing `xml` with `opts`: from the shared probe cache, or probed now
+/// with `bin probe` (a fresh process per build; it takes the machine-wide oracle lock) and stored
+/// there. The key is the patched source's sha, the build's BLAKE3 and the selection, so a cache
+/// entry is never stale and every worktree shares it.
+#[cfg(feature = "luajit")]
+pub fn probe_selection(
+    bin: &Path,
+    xml: &Path,
+    stages: Option<&Path>,
+    opts: &crate::runner::ProbeOptions,
+) -> Result<PathBuf, String> {
+    let cache = selection_cache(xml, stages, opts)?;
+    if !cache.is_filled() {
+        let patched = shared_patch(stages)?;
+        cache.fill(bin, xml, &patched.src, opts).map_err(|e| e.0)?;
+    }
+    Ok(cache.state_dir())
 }
 
 /// Load the dump of `hit` for a build.

@@ -31,6 +31,9 @@
 //! are gitignored, so from a worktree point `POB_SRC`, `POB_PARITY_DIR` and `POB_DUMP_DIR` at the
 //! main checkout's `.PathOfBuilding/src`, `.parity` and `data/dump`. `IT_A_LIMIT=<n>` limits the
 //! uniques; `IT_A_KEEP=<file>` keeps the oracle's JSONL;
+//! PoB's output is cached in the shared probe cache (HYG3: keyed by the PoB source fingerprint and
+//! oracle runtime, the oracle input and the script; `POB_QUERY_CACHE=refresh|off`), so a warm run
+//! boots no PoB; a cold run holds the machine-wide oracle lock while PoB runs;
 //! `IT_A_ONLY=<substring>` checks only the items whose source contains it (debugging; the
 //! completeness asserts are skipped); `IT_A_VERBOSE=1` prints both call sequences of a mismatch.
 
@@ -52,6 +55,7 @@ use pob_gamedata::schema::affixes::AffixTable;
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up};
+use pob_oracle::runner::{OracleLock, QueryCache};
 use serde_json::Value as J;
 
 fn init_data() -> bool {
@@ -997,11 +1001,11 @@ fn parse_raw_vs_pob() {
     let corpus = corpus_items();
     let corpus_n = corpus.len();
     eprintln!("corpus: {corpus_n} <Item>s in .parity/builds");
-    let out = std::env::temp_dir().join(format!("ita_oracle_{}.jsonl", std::process::id()));
-    let mut prologue = format!(
-        "__ita_out = {}\n__ita_corpus = {{\n",
-        lua_long(&out.to_string_lossy())
-    );
+    // not std::env::temp_dir(): /tmp is a RAM-backed tmpfs on the port machines
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("ita_oracle_{}.jsonl", std::process::id()));
+    // the oracle's input (everything but the output path, which is not part of the cache key)
+    let mut prologue = String::from("__ita_corpus = {\n");
     for c in &corpus {
         prologue.push_str(&format!(
             "{{ src = {}, raw = {}",
@@ -1024,17 +1028,43 @@ fn parse_raw_vs_pob() {
     }
     let script = include_str!("../corpus/IT-A/parse_raw_oracle.lua");
 
+    // HYG3 (test audit S3): PoB's output (the header and the JSONL records) is a function of the
+    // PoB source, the input above and the script, so it is cached in the shared probe cache
+    // (`.parity/probe-cache/<source-key>/<input-key>/query-<script-key>/`; `POB_QUERY_CACHE`);
+    // a miss boots PoB under the machine-wide oracle lock.
     let t0 = std::time::Instant::now();
-    let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
-    let ret = pob
-        .run(&format!("{prologue}\n{script}"))
-        .unwrap_or_else(|e| panic!("oracle script: {e}"));
-    let Some(Ret::Str(header)) = ret.first() else {
-        panic!("oracle returned {ret:?}")
-    };
+    let cache = QueryCache::new(&src, prologue.as_bytes(), &[script])
+        .unwrap_or_else(|e| panic!("query cache: {e}"));
+    let cached = cache.as_ref().and_then(|c| c.get("result"));
+    let from_cache = cached.is_some();
+    let header = cached.unwrap_or_else(|| {
+        let _lock = OracleLock::acquire().expect("oracle lock");
+        let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
+        let ret = pob
+            .run(&format!(
+                "__ita_out = {}\n{prologue}\n{script}",
+                lua_long(&out.to_string_lossy())
+            ))
+            .unwrap_or_else(|e| panic!("oracle script: {e}"));
+        let Some(Ret::Str(header)) = ret.first() else {
+            panic!("oracle returned {ret:?}")
+        };
+        let header = header.clone();
+        drop(pob);
+        if let Some(c) = &cache {
+            // the records first: a present header marks the entry complete
+            if let Err(e) = c.put_file("records", &out).and_then(|()| c.put("result", &header)) {
+                eprintln!("query cache: not stored: {e}");
+            }
+        }
+        header
+    });
     let header: J = serde_json::from_str(header.as_str()).expect("header JSON");
-    drop(pob);
-    eprintln!("oracle: {header} in {:?}", t0.elapsed());
+    eprintln!(
+        "oracle: {header} in {:?}{}",
+        t0.elapsed(),
+        if from_cache { " (cached, HYG3)" } else { "" }
+    );
 
     let mut t = Tally::default();
     // the oracle's data.jewelRadius / main.defaultItemAffixQuality are the ones the port uses
@@ -1061,11 +1091,18 @@ fn parse_raw_vs_pob() {
 
     // items
     let t1 = std::time::Instant::now();
-    let f = std::fs::File::open(&out).expect("oracle output");
+    let records: Box<dyn BufRead> = match (&cache, from_cache) {
+        (Some(c), true) => c
+            .open("records")
+            .unwrap_or_else(|e| panic!("cached oracle output: {e}")),
+        _ => Box::new(std::io::BufReader::new(
+            std::fs::File::open(&out).expect("oracle output"),
+        )),
+    };
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     let mut native = NativeStats::default();
     let mut nparses = 0usize;
-    for line in std::io::BufReader::new(f).lines() {
+    for line in records.lines() {
         let line = line.expect("read");
         let mut rec: J = serde_json::from_str(&line).expect("record JSON");
         fix_json(&mut rec);
@@ -1082,11 +1119,16 @@ fn parse_raw_vs_pob() {
             nparses += 1;
         }
     }
-    match std::env::var_os("IT_A_KEEP") {
-        Some(p) => {
+    match (std::env::var_os("IT_A_KEEP"), &cache, from_cache) {
+        (Some(p), Some(c), true) => {
+            let mut r = c.open("records").expect("IT_A_KEEP");
+            std::io::copy(&mut r, &mut std::fs::File::create(p).expect("IT_A_KEEP"))
+                .expect("IT_A_KEEP");
+        }
+        (Some(p), _, _) => {
             std::fs::rename(&out, p).expect("IT_A_KEEP");
         }
-        None => {
+        (None, _, _) => {
             let _ = std::fs::remove_file(&out);
         }
     }

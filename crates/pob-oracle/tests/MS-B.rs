@@ -16,6 +16,11 @@
 //! 2. `tag_div_no_reader`: the proof that no later reader observes Lua's `tag.div` write
 //!    (ModStore.lua:401/499), which the port computes into a local (§5.3; CCR-0015 §1).
 //!
+//! PoB's per-build results (the matrix script's JSON, the stock and restored observations) are
+//! cached in the shared probe cache, `.parity/probe-cache/<source-key>/<build-key>/query-<key>/`
+//! (HYG3: keyed by the PoB source fingerprint and oracle runtime, the build text's BLAKE3 and the
+//! scripts), so a warm run boots no PoB; `POB_QUERY_CACHE=refresh` re-runs PoB, `off` bypasses it.
+//!
 //! Knobs: `MS_B_BUILDS=stem1,stem2` or `MS_B_LIMIT=n` restrict the corpus; `MS_B_VERBOSE=1`
 //! prints every mismatch. A missing input (data/dump, PoB checkout, .parity/builds) fails
 //! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
@@ -482,20 +487,25 @@ fn l3_full_matrix_all57() {
     for xml in &builds {
         let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
         let text = std::fs::read_to_string(xml).unwrap();
-        let json = {
-            let _lock = OracleLock::acquire().expect("oracle lock");
-            let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
-            pob.load_build_xml(&text, &stem)
-                .unwrap_or_else(|e| panic!("{stem}: load: {e}"));
-            match pob
-                .run(&format!("__msb_synthetic = true\n{}", rebuild::SCRIPT))
-                .unwrap_or_else(|e| panic!("{stem}: script: {e}"))
-                .first()
-            {
-                Some(Ret::Str(s)) => s.clone(),
-                other => panic!("{stem}: script returned {other:?}"),
-            }
-        };
+        // HYG3 (test audit S1): cached per (PoB source, build, script) in the shared probe cache;
+        // a miss boots a fresh PoB under the oracle lock.
+        let script = format!("__msb_synthetic = true\n{}", rebuild::SCRIPT);
+        let json =
+            pob_oracle::runner::cached_query(&src, text.as_bytes(), &[&stem, &script], || {
+                let _lock = OracleLock::acquire().expect("oracle lock");
+                let mut pob =
+                    JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
+                pob.load_build_xml(&text, &stem)
+                    .unwrap_or_else(|e| panic!("{stem}: load: {e}"));
+                match pob
+                    .run(&script)
+                    .unwrap_or_else(|e| panic!("{stem}: script: {e}"))
+                    .first()
+                {
+                    Some(Ret::Str(s)) => s.clone(),
+                    other => panic!("{stem}: script returned {other:?}"),
+                }
+            });
         let doc: J = serde_json::from_str(&json).unwrap_or_else(|e| panic!("{stem}: json: {e}"));
         let b = load(&doc);
         let mut t = Tally::default();
@@ -590,6 +600,8 @@ fn l3_full_matrix_all57() {
         total.pending_itb,
         total.undecodable
     );
+    let (hits, misses) = pob_oracle::runner::query_cache_stats();
+    eprintln!("  PoB query cache (HYG3): {hits} builds cached, {misses} run in PoB");
     eprintln!("  per query (identical/total):");
     for (k, (n, ok)) in &total.by_query {
         eprintln!("    {k:<20} {ok}/{n}");
@@ -865,22 +877,27 @@ fn assert_same(stock: &J, restored: &J, what: &str, name: &str) {
 }
 
 fn observe(src: &Path, xml: &str, name: &str, restore: bool) -> J {
-    let _lock = OracleLock::acquire().expect("oracle lock");
-    let mut pob = JitPob::boot_oracle(src, None).unwrap_or_else(|e| panic!("boot: {e}"));
-    if restore {
-        pob.run(RESTORE_DIV_LUA)
-            .unwrap_or_else(|e| panic!("patch: {e}"));
-    }
-    pob.load_build_xml(xml, name)
-        .unwrap_or_else(|e| panic!("{name}: load: {e}"));
-    let out = match pob
-        .run(OBSERVE_LUA)
-        .unwrap_or_else(|e| panic!("{name}: observe: {e}"))
-        .first()
-    {
-        Some(Ret::Str(s)) => s.clone(),
-        other => panic!("{name}: observe returned {other:?}"),
-    };
+    // HYG3 (test audit S1): cached per (PoB source, build text, scripts) like the matrix
+    let pre = if restore { RESTORE_DIV_LUA } else { "" };
+    let out =
+        pob_oracle::runner::cached_query(src, xml.as_bytes(), &[name, pre, OBSERVE_LUA], || {
+            let _lock = OracleLock::acquire().expect("oracle lock");
+            let mut pob = JitPob::boot_oracle(src, None).unwrap_or_else(|e| panic!("boot: {e}"));
+            if restore {
+                pob.run(RESTORE_DIV_LUA)
+                    .unwrap_or_else(|e| panic!("patch: {e}"));
+            }
+            pob.load_build_xml(xml, name)
+                .unwrap_or_else(|e| panic!("{name}: load: {e}"));
+            match pob
+                .run(OBSERVE_LUA)
+                .unwrap_or_else(|e| panic!("{name}: observe: {e}"))
+                .first()
+            {
+                Some(Ret::Str(s)) => s.clone(),
+                other => panic!("{name}: observe returned {other:?}"),
+            }
+        });
     serde_json::from_str(&out).unwrap_or_else(|e| panic!("{name}: json: {e}"))
 }
 
