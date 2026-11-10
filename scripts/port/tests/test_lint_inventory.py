@@ -168,7 +168,11 @@ class PairsInventoryPinTest(unittest.TestCase):
 
     def test_known_node_maps(self):
         pairs_inventory._register_overrides() if not pairs_inventory.OVERRIDES else None
-        scope = calcscope.load_scope(None, calcscope.default_closures_json(_util.pobpaths.main_checkout()))
+        # docs/port/scope.toml is authoritative (calcscope.py docstring); DEFAULT_SCOPE is only the
+        # P4 seed, so overrides for ranges added later (U0 corrections, CCR2) would read as stale.
+        scope = calcscope.load_scope(os.path.join(_util.pobpaths.docs_port(), "scope.toml"),
+                                     calcscope.default_closures_json(_util.pobpaths.main_checkout()),
+                                     required=True)
         sites, _, stale = pairs_inventory.inventory(_util.real_pob(), scope)
         self.assertEqual(stale, [])
         by = {(s.path, s.line): s for s in sites}
@@ -177,6 +181,16 @@ class PairsInventoryPinTest(unittest.TestCase):
                     ("Modules/CalcSetup.lua", 273), ("Modules/CalcSetup.lua", 898)]:
             self.assertEqual(by[key].cls, "int", key)
         self.assertEqual(by[("Modules/CalcPerform.lua", 3464)].cls, "identity")  # pairs(affectedByAura)
+
+    def test_scope_label_is_checkout_independent(self):
+        # The committed inventory must not name the checkout that generated it, or --check fails
+        # in every other worktree (CCR2 review round 2).
+        repo_scope = os.path.join(_util.pobpaths.docs_port(), "scope.toml")
+        self.assertEqual(pairs_inventory.scope_label(repo_scope), "docs/port/scope.toml")
+        default = "default (calc doc §11.1 + closures.json)"
+        self.assertEqual(pairs_inventory.scope_label(default), default)
+        with open(os.path.join(_util.pobpaths.docs_port(), "pairs_inventory.md")) as fh:
+            self.assertNotIn(_util.pobpaths.repo_root(), fh.read())
 
 
 if __name__ == "__main__":

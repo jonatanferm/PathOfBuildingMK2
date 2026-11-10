@@ -1,5 +1,7 @@
 # CCR-0022: ui doc §2/§4.4 font notes from U2's verification at SimpleGraphic `3b1a346`
 
+**Status: applied 2026-11-10 by CCR2 (ui doc §2 Glyph advance, §4.4). See AMENDMENTS A8.**
+
 - **Unit:** U2 (sg-font)
 - **Affects:** `docs/port/ui-architecture.md` §2 (rows Glyph advance, Escape leak), §4.4 (the
   `draw` bullet list and the surface listing). Consumers: U1 (`Sg::draw_string*` callers, no

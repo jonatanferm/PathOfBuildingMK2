@@ -1,6 +1,8 @@
 # CCR-0077: PF-G — callee replay seam, `calcs.mirages` return value, ally Life pool shape, exporter absent marks
 
-Status: proposed by PF-G (2026-11-09)
+**Status: applied 2026-11-10 by CCR2 (§2 by MI as CCR-0090 §1, §7 resolved by HYG2's u0_smoke rewrite); §1, §3-§6 need code. See AMENDMENTS A8.**
+
+Filed status: proposed by PF-G (2026-11-09)
 
 PF-G (`calc_perform/ailments_dispatch.rs`, CalcPerform.lua 3497-3990) is the first calc segment
 whose L4 test replays callees (calc doc §9.2 "Replay": "PF-G calling `offence`"). Porting it

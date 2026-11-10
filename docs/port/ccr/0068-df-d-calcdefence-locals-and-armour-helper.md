@@ -1,6 +1,8 @@
 # CCR-0068: DF-D — CalcDefence module locals; `calcs.armourReduction` (withdrawn)
 
-Status: withdrawn by DF-D (2026-11-09): superseded, DF-A landed on rust-port in edd8169
+**Status: withdrawn (by DF-D, 2026-11-09; recorded by CCR2 in AMENDMENTS A8). See AMENDMENTS A8.**
+
+Filed status: withdrawn by DF-D (2026-11-09): superseded, DF-A landed on rust-port in edd8169
 ("Merge port/DF-A"). No contract change remains.
 
 This CCR was raised while DF-A (`calc_defence/helpers.rs`, CalcDefence.lua 1-650) had not

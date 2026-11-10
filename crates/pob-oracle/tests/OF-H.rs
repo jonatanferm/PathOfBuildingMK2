@@ -18,9 +18,9 @@
 //! to refresh). Selection: the main env's first hit of each of the three probes plus `#1..#12`.
 //!
 //! **Workarounds** (all in this file, until the owners apply them):
-//! * CCR-0036 / CCR-0034: injection hands `passList` over as a plain table; it is rebuilt as the
+//! * CCR-0036: injection hands `passList` over as a plain table; it is rebuilt as the
 //!   ctx field's `Shared<Vec<Table>>` from the same pass tables.
-//! * CCR-0039: `globalOutput`/`globalBreakdown` (CalcOffence.lua:65/67) are not part of a dump; at
+//! * CCR-0075: `globalOutput`/`globalBreakdown` (CalcOffence.lua:65/67) are not part of a dump; at
 //!   4990 they are the function's `output`/`breakdown` (assigned at 4165), i.e. `actor.output` /
 //!   `actor.breakdown`, so the test sets `OFFENCE_STATE` from the injected actor.
 //!
@@ -239,7 +239,7 @@ fn run_hit(xml: &Path, din: &StateDump, dout: &StateDump, stem: &str) -> Outcome
     {
         return Outcome::NoNext;
     }
-    // CCR-0039: globalOutput, globalBreakdown = output, breakdown (CalcOffence.lua:4165): the actor's.
+    // CCR-0075: globalOutput, globalBreakdown = output, breakdown (CalcOffence.lua:4165): the actor's.
     let actor = locals
         .iter()
         .find(|(k, _)| k == "actor")

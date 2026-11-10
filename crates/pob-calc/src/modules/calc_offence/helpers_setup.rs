@@ -7,7 +7,7 @@
 //!
 //! Contract notes (CCR-0041): `calcRadiusBreakpoints` keeps its frozen `f64` signature (NaN for
 //! each Lua nil) and `calcRadiusBreakpointsOpt` returns the `Option`s (Lua returns four nils
-//! when the radius is 0; `breakdown.area` takes them as such, CCR-0014);
+//! when the radius is 0; `breakdown.area` takes them as such, CCR-0091);
 //! `setMoltenStrikeTertiaryRadiusBreakdown` takes `label: Option<&str>`; `runSkillFunc` offers
 //! each call to the probe build's skill-hook handler first (`pob_calc::probe`, feature `probe`),
 //! which the L4 tests use to replay the recorded hook deltas.

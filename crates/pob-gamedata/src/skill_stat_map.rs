@@ -8,7 +8,7 @@
 //! into `grantedEffect.statMap[stat]` (a memo), and `processMod` sets
 //! `grantedEffect.hasGlobalEffect = true` when a fallback mod carries a
 //! `GlobalEffect` tag. Both live in thread-local state: the memo in
-//! [`statMapLookup`], the flag behind [`hasGlobalEffect`] (CCR-0014: readers of
+//! [`statMapLookup`], the flag behind [`hasGlobalEffect`] (CCR-0091: readers of
 //! `grantedEffect.hasGlobalEffect` must call it instead of reading the field).
 #![allow(non_snake_case)]
 
@@ -151,7 +151,7 @@ thread_local! {
 
 /// `grantedEffect.hasGlobalEffect` as PoB sees it now: the loaded value, or
 /// `true` once a [`statMapLookup`] fallback processed a `GlobalEffect` mod for
-/// this granted effect (Data.lua:76 mutates the shared data table; CCR-0014).
+/// this granted effect (Data.lua:76 mutates the shared data table; CCR-0091).
 pub fn hasGlobalEffect(ge: &GrantedEffect) -> bool {
     ge.hasGlobalEffect || GLOBAL_EFFECT_SET.with(|s| s.borrow().contains(&ge.id))
 }

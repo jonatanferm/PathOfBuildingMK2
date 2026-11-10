@@ -1,6 +1,8 @@
 # CCR-0072 (PS-C): cluster subgraph representation and three frozen-signature gaps
 
-**Status: proposed (PS-C, 2026-11-09).** §3-§6 are conventions PS-C follows inside its own
+**Status: applied 2026-11-10 by CCR2 (§3, §5, §7, §8: contracts.md#class-census); §1, §2, §4, §6 need code. See AMENDMENTS A8.**
+
+**Filed status: proposed (PS-C, 2026-11-09).** §3-§6 are conventions PS-C follows inside its own
 file `crates/pob-calc/src/classes/passive_spec_cluster.rs` (no frozen file changed). §1-§2 ask
 for signature changes of PS-C's frozen stubs; PS-C works around each locally (marked
 `CCR-0072`). §6 asks for two model fields.

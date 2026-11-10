@@ -1,6 +1,8 @@
 # CCR-0025 (IT-A): Item:ParseRaw contract notes
 
-**Status: proposed (IT-A, 2026-10-10).** Every item is already worked around inside the IT-A file
+**Status: applied 2026-11-10 by CCR2 (§2, §4, §5, §6); §1 and §3 need code. See AMENDMENTS A8.**
+
+**Filed status: proposed (IT-A, 2026-10-10).** Every item is already worked around inside the IT-A file
 `crates/pob-calc/src/classes/item_parse.rs` (marked `CCR-0025`); no frozen file was edited.
 
 - **Raised by:** IT-A

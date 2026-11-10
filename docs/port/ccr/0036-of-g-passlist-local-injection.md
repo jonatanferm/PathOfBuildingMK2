@@ -1,6 +1,8 @@
 # CCR-0036: OF-G — `passList` cannot be injected into `OffenceCtx` (every offence stage after 1998)
 
-Status: proposed by OF-G (2026-11-09); worked around in `crates/pob-oracle/tests/OF-G.rs`
+**Status: needs code (CCR2, 2026-11-10; ORC-X2). CCR-0065 (OF-D) is superseded by this one. See AMENDMENTS A8.**
+
+Filed status: proposed by OF-G (2026-11-09); worked around in `crates/pob-oracle/tests/OF-G.rs`
 (marked `CCR-0036`). The fix belongs to ORC-X (`crates/pob-calc/src/probe.rs` or
 `crates/pob-oracle/src/inject.rs`), which OF-G does not own.
 
@@ -47,4 +49,4 @@ runs `offence:362`, before `passList` exists, so it does not see this.)
 segments run and diff normally. Remove it once ORC-X applies (1) or (2).
 
 Note: OF-D filed the same problem concurrently (`0034-of-d-passlist-local-injection.md` on
-`port/OF-D`); whichever is applied resolves both.
+`port/OF-D`); whichever is applied resolves both. (It was merged as CCR-0065, which CCR2 marked superseded by this CCR.)

@@ -5,7 +5,7 @@
 //! `doActorLifeMana`, `doActorLifeManaReservation`, `getCachedOutputValue` (PF-A),
 //! `addMinionModifiers`, `doActorCharges` (PF-B), `mergeTinctures` (PF-C)) are called through
 //! [`callee`] / [`cached_output`], which let the oracle's L4 test (feature `probe`) replay each
-//! call's recorded state delta instead (CCR-0034); without an installed hook they are plain calls.
+//! call's recorded state delta instead (CCR-0093); without an installed hook they are plain calls.
 #![allow(non_snake_case)]
 // `x = x * y` keeps the Lua statement form (STYLE §3.1 rule 3).
 #![allow(clippy::assign_op_pattern)]
@@ -17,7 +17,7 @@ use super::{actor_a, actor_b, setup_flasks};
 use crate::modules::{calc_tools as calcLib, common::cacheSkillUUID};
 use crate::prelude::*;
 
-/// Callee replay for the L4 test (calc doc §9.2 "Replay"; CCR-0034). Rust-only plumbing,
+/// Callee replay for the L4 test (calc doc §9.2 "Replay"; CCR-0093). Rust-only plumbing,
 /// compiled only with the oracle's `probe` feature.
 #[cfg(feature = "probe")]
 pub mod callee_replay {
@@ -53,7 +53,7 @@ pub mod callee_replay {
     }
 }
 
-/// Rust-only plumbing (CCR-0034): a call of a callee another unit ports.
+/// Rust-only plumbing (CCR-0093): a call of a callee another unit ports.
 #[inline]
 fn callee(site: &'static str, f: impl FnOnce()) {
     #[cfg(feature = "probe")]
@@ -64,7 +64,7 @@ fn callee(site: &'static str, f: impl FnOnce()) {
     f();
 }
 
-/// Rust-only plumbing (CCR-0034): `getCachedOutputValue(env, activeSkill, ...)`.
+/// Rust-only plumbing (CCR-0093): `getCachedOutputValue(env, activeSkill, ...)`.
 fn cached_output(env: &EnvRef, activeSkill: &ActiveSkillRef, names: &[Name]) -> Vec<Val> {
     #[cfg(feature = "probe")]
     if let Some(ret) = callee_replay::replay("getCachedOutputValue") {
@@ -116,7 +116,7 @@ fn data_or_level(skillData: &Table, activeSkill: &ActiveSkill, k: Name) -> f64 {
     0.0
 }
 
-/// `grantedEffectLevel.cost` is truthy. CCR-0034: the typed `SkillLevel.cost` cannot tell a
+/// `grantedEffectLevel.cost` is truthy. CCR-0093: the typed `SkillLevel.cost` cannot tell a
 /// missing `cost` from `cost = { }` (minion/spectre levels only); both read as absent here.
 fn has_cost(level: &pob_gamedata::SkillLevel) -> bool {
     !level.cost.is_empty()
@@ -1202,7 +1202,7 @@ fn spectre_copy(modValue: &Value, spectreName: &Name) -> ModRef {
 
 /// `function(tooltip) env.build.itemsTab:AddItemTooltip(tooltip, item, reqSource.sourceSlot) end`
 /// (CalcPerform.lua:2139-2141): a UI closure stored in a requirements breakdown row, kept as the
-/// values it captures; the UI calls `itemsTab:AddItemTooltip` with them (CCR-0034).
+/// values it captures; the UI calls `itemsTab:AddItemTooltip` with them (CCR-0093).
 pub struct SourceNameTooltip {
     /// `env.build` (weak: the build owns the env that owns this breakdown, §3.3 rule 4).
     pub build: Weak<Build>,

@@ -1,6 +1,8 @@
 # CCR-0040: AS — contract gaps met porting CalcActiveSkill.lua
 
-Status: proposed by AS (2026-11-09)
+**Status: applied 2026-11-10 by CCR2 (§5, §6); §3, §4, §7, §8 need code; §1, §2 escalated with CCR-0030. See AMENDMENTS A8.**
+
+Filed status: proposed by AS (2026-11-09)
 
 AS ported `Modules/CalcActiveSkill.lua` 1-934 into
 `crates/pob-calc/src/modules/calc_active_skill.rs`. The frozen types below cannot hold what the

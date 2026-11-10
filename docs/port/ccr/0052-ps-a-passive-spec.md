@@ -1,6 +1,8 @@
 # CCR-0052 (PS-A): PassiveSpec representation notes and four frozen-signature gaps
 
-**Status: proposed (PS-A, 2026-11-09).** §1-§2, §7-§12 are conventions PS-A follows inside its own
+**Status: applied 2026-11-10 by CCR2 (§1, §2, §7, §8, §10-§12: contracts.md#class-census); §3-§6, §9 need code. See AMENDMENTS A8.**
+
+**Filed status: proposed (PS-A, 2026-11-09).** §1-§2, §7-§12 are conventions PS-A follows inside its own
 file `crates/pob-calc/src/classes/passive_spec.rs` (no frozen file changed). §3-§6 ask for
 signature changes of PS-A's frozen stubs; PS-A works around each locally (marked `CCR-0052`).
 

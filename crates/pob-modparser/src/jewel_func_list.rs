@@ -22,7 +22,7 @@
 //!   `Value::JewelFunc`.
 //!
 //! `jewelFuncList` holds, per lowercased key, the spec the driver emits (`key` = the lowercased
-//! key, `r#type` = its type; CCR-0014 §3). [`jewelFuncListSource`] maps that key back to the table
+//! key, `r#type` = its type; CCR-0092 §3). [`jewelFuncListSource`] maps that key back to the table
 //! value `v` the jewelFuncList wrapper closes over (6554-6592), which `callJewelFunc` runs.
 #![allow(non_snake_case, clippy::all, clippy::pedantic)]
 
@@ -816,7 +816,7 @@ pub static jewelFuncListSource: LazyLock<ahash::AHashMap<&'static str, &'static 
     LazyLock::new(|| JEWEL_FUNC_LIST.iter().map(|(k, _, v)| (*k, *v)).collect());
 
 /// @pob Modules/ModParser.lua:6595-6607 h=6b94a241
-/// `clusterJewelSkills` (6595-6607): lowercased enchant / notable / keystone line → mods (CCR-0014 §2).
+/// `clusterJewelSkills` (6595-6607): lowercased enchant / notable / keystone line → mods (CCR-0092 §2).
 pub static clusterJewelSkills: LazyLock<ahash::AHashMap<String, Vec<Mod>>> = LazyLock::new(|| {
     // -- Generate list of cluster jewel skills
     // L6596

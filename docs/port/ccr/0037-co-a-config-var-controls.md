@@ -1,6 +1,8 @@
 # CCR-0037: CO-A — `ConfigTab.varControls` is never populated
 
-**Status: proposed (unit CO-A).** No frozen signature changes. CO-A's applies read and write
+**Status: applied 2026-11-10 by CCR2 (resolved by `ConfigTab::ctor_controls_model`; contracts.md#model-census). See AMENDMENTS A8.**
+
+**Filed status: proposed (unit CO-A).** No frozen signature changes. CO-A's applies read and write
 the model's control-state tables as Lua does; the gap is who creates those tables.
 
 ## Evidence

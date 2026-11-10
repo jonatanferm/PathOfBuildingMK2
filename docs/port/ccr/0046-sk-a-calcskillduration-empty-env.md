@@ -1,7 +1,9 @@
 # CCR-0046: `calcSkillDuration` called with an empty env table and no enemyDB
 
+**Status: escalated by CCR2 2026-11-10 (needs code; frozen OF-A signature, AMENDMENTS A8 E5). See AMENDMENTS A8.**
+
 Requested by: SK-A (Data/Skills/act_int.lua hooks)
-Status: proposed
+Filed status: proposed
 
 ## Problem
 

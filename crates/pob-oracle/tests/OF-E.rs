@@ -89,7 +89,7 @@ fn stub_counts() -> BTreeMap<&'static str, u64> {
     pob_calc::stub::stub_report().into_iter().collect()
 }
 
-/// CCR-0034 (filed by OF-D): `inject` decodes every local as `Kind::Any`, so the
+/// CCR-0036 (filed by OF-G; OF-D's duplicate CCR-0065 is superseded by it): `inject` decodes every local as `Kind::Any`, so the
 /// `passList` array arrives as a plain table, which the `Shared<Vec<Table>>` ctx
 /// field rejects. Rebuild it from the same pass tables (identity kept).
 fn pass_list((k, v): (String, Val)) -> (String, Val) {

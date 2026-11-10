@@ -10,7 +10,7 @@
 //! Notes on the port:
 //! * `isElemental` (31) and `dmgTypeList` (34) are OF-A's module-level locals (immutable); this
 //!   file reads them through the private copies below, as OF-C and OF-G do.
-//! * `combineStat`'s vararg is a stat name (CCR-0038, OF-C).
+//! * `combineStat`'s vararg is a stat name (CCR-0055, OF-C).
 //! * `activeSkill["dot"..damageType.."Cfg"]` (5812) is not a typed `ActiveSkill` field, so the cfg
 //!   handle is stored in `activeSkill.extra` as an `Obj` (exported as a cfg by the probe).
 //! * The self-hit handlers (5962-6071) are Lua closures in a string-keyed table iterated with

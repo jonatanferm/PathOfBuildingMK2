@@ -50,7 +50,7 @@ pub fn val(modStore: &ModStore, name: Name, cfg: Option<&ModCfg>) -> f64 {
 
 /// What `validateGemLevel` reads and writes: a gem instance of the build model
 /// (SkillsTab.lua:1225) or a skill effect table (CalcActiveSkill.lua:54/513,
-/// CalcSetup.lua:1460/1716). CCR-0014: the frozen signature took only
+/// CalcSetup.lua:1460/1716). CCR-0091: the frozen signature took only
 /// `&GemInstance`; the calc callers pass skill effects.
 pub trait GemLevelTarget {
     /// `gemInstance.grantedEffect`.

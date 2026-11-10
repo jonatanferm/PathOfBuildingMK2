@@ -52,7 +52,7 @@ thread_local! {
     static DEFAULT_STATE: RefCell<Option<(usize, Table)>> = const { RefCell::new(None) };
 }
 
-/// @pob Classes/ConfigTab.lua:683-692 h=6a0e1445
+/// @pob Classes/ConfigTab.lua:682-692 h=0703c005
 /// `self.defaultState` as the constructor fills it from `varList` (every non-section
 /// option with a `var`; later options with the same var overwrite earlier ones).
 pub fn defaultState(data: &'static Data) -> Table {
@@ -75,22 +75,22 @@ pub fn defaultState(data: &'static Data) -> Table {
             .as_ref()
             .map_or(Val::Nil, Val::from_value);
         let ty = varData.r#type.map(|t| t.as_str());
-        // L683
+        // L682
         let v = if ty == Some("check") {
-            // L684
+            // L683
             lor(ds, || Val::Bool(false))
         } else if matches!(ty, Some("count" | "integer" | "countAllowZero" | "float")) {
-            // L686
+            // L685
             lor(ds, || Val::Num(0.0))
         } else if ty == Some("list") {
-            // L688
+            // L687
             let idx = varData.defaultIndex.unwrap_or(1.0);
             list_val(varData, idx)
         } else if ty == Some("text") {
-            // L690
+            // L689
             lor(ds, || Val::from(""))
         } else {
-            // L692
+            // L691
             ds
         };
         t.set(var, v);

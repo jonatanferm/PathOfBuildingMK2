@@ -1,6 +1,8 @@
 # CCR-0014: MS-A ModStore contract notes
 
-Status: proposed by MS-A (2026-10-09). Numbering: first free number at the time of writing;
+**Status: applied 2026-11-10 by CCR2 (§2 accepted divergence, its `known_diffs.toml` entry is A8 item 17; §3 mutation site, §4 MS-A row, §5 MergeMod doc line); §1 and §3's typed `Tag.warcryPowerBonus` need code. See AMENDMENTS A8.**
+
+Filed status: proposed by MS-A (2026-10-09). Numbering: first free number at the time of writing;
 the integrator may renumber (the workaround markers in MS-A's files say `CCR-0014`).
 
 Found while porting Classes/ModStore.lua 1-362, ModDB.lua, ModList.lua and running the MS-A

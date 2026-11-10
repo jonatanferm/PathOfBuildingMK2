@@ -1,6 +1,8 @@
 # CCR-0035: OF-G — the ailment loop closures' frozen signatures differ from the Lua
 
-Status: proposed by OF-G (2026-11-09); applied locally in `calc_offence/ailments_a.rs`
+**Status: applied 2026-11-10 by CCR2 (calc doc §7.2). See AMENDMENTS A8.**
+
+Filed status: proposed by OF-G (2026-11-09); applied locally in `calc_offence/ailments_a.rs`
 (OF-G owns the file and the three functions). OF-H is the only other caller and has not
 been ported yet, so nothing else changes.
 
