@@ -21,10 +21,9 @@
 //! ones) for the units not ported yet:
 //! * the other tabs' `Draw` draw nothing (the Lua tabs' `Draw` are replaced after Init; the
 //!   Rust side's `draw_tab` has no arm for them);
-//! * `calcsTab.controls.breakdown` (CalcBreakdownControl, U40) is the Rust default stand-in
-//!   (`tabs::calcs::core::BreakdownStandIn`: never shown, draws nothing, ignores keys,
-//!   `SetBreakdownData` keeps `pinned`/`sourceData`); the Lua side replaces the same methods on
-//!   the real control (`LUA_STUBS`);
+//! * both CalcBreakdownControls are real (U40, CCR-0116 §6); `ItemsTab:AddItemTooltip` (U38) adds
+//!   one line with the item name and the breakdowns' `nodeViewer` (U23) is
+//!   `{ Draw = function() end }`, as in u40;
 //! * `SkillsTab:AddSocketGroupTooltip` (U30, the socket group dropdown's tooltip) adds one line
 //!   with the group's label on both sides;
 //! * `utf8.next`, `spec.modFlag` and `TreeTab:GetSpecList` as in u22.
@@ -122,20 +121,14 @@ function b:Init(...)
 			tooltip:AddLine(16, "^7" .. tostring(socketGroup.label))
 		end
 	end
-	local bd = self.calcsTab and self.calcsTab.controls.breakdown
-	if bd then
-		bd.Draw = function() end
-		bd.IsMouseOver = function() end
-		bd.OnKeyDown = function() end
-		bd.OnKeyUp = function() end
-		bd.SetBreakdownData = function(self, displayData, pinned)
-			self.pinned = pinned
-			if displayData == self.sourceData then
-				return
-			end
-			self.sourceData = displayData
-			self.shown = false
+	-- U40: the real CalcBreakdownControls; U38/U23 stand-ins as in u40 (CCR-0116 §6)
+	if self.itemsTab then
+		self.itemsTab.AddItemTooltip = function(_, tooltip, item, slot)
+			tooltip:AddLine(16, "^7" .. tostring(item.name))
 		end
+	end
+	for _, bd in ipairs({ self.calcsTab and self.calcsTab.controls.breakdown, self.controls.breakdown }) do
+		bd.nodeViewer = { Draw = function() end }
 	end
 end
 "#;
@@ -200,6 +193,13 @@ fn rust_stubs() {
     });
     pob_app::tabs::calcs::core::set_calcs_hooks(|h| {
         *h = pob_app::tabs::calcs::core::default_calcs_hooks();
+    });
+    // U38 stand-in (CCR-0116 §6, as in u40)
+    pob_app::tabs::calcs::breakdown::set_breakdown_hooks(|h| {
+        *h = pob_app::tabs::calcs::breakdown::default_breakdown_hooks();
+        h.add_item_tooltip = Rc::new(|cx, tooltip, item, _slot| {
+            tooltip.add_line(cx, 16.0, &format!("^7{}", item.name.get()));
+        });
     });
 }
 
