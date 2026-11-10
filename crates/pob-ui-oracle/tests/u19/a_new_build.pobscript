@@ -1,0 +1,6 @@
+# U19: a new build (main:SetMode("BUILD", false, "Unnamed build")): the top bar and the side bar.
+#! u19-setup newbuild
+fixture userdir=../../fixtures/user1
+frames 3
+move 40 300
+frames 2

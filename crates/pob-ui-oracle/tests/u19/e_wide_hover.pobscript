@@ -1,0 +1,21 @@
+screen 1920 1080 dpi 1.0
+# U19: at 1920 the build name sits in the top bar (anchorTopBarRight x >= 800, Build.lua:144-186):
+# hover it, the save buttons and a sweep of the top bar's right half.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
+frames 2
+move 260 14
+frames 2
+move 100 14
+frames 2
+move 160 14
+frames 2
+move 760 14
+frames 2
+move 800 14
+frames 2
+move 850 14
+frames 2
+move 900 14
+frames 2
