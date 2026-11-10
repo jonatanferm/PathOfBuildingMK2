@@ -13,3 +13,6 @@ app/pob-web/dist/
 .claude/worktrees/
 /.parity
 /.parity-quick
+# Python bytecode (build artifacts; never tracked).
+__pycache__/
+*.pyc
