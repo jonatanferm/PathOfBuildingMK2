@@ -1,6 +1,8 @@
 # CCR-0081 (U11): EditControl surface amendments, and two oracle gaps the U11 galleries work around
 
-Unit: U11 (Edit family). Status: proposed. Number: next free at the time of writing (0076 and
+**Status: applied 2026-11-10 by CCR2 (§1, §2: ui doc §6.8, §13 item 12); §3, §4 need code. See AMENDMENTS A8.**
+
+Unit: U11 (Edit family). Filed status: proposed. Number: next free at the time of writing (0076 and
 0077 are taken by unmerged branches; renumber on collision, the code comments say `CCR-0081`; renumbered from 0078 at merge, 0078 is U12).
 
 ## 1. `changeFunc` has a second argument (ui doc §6.8 `EditArgs`, frozen)

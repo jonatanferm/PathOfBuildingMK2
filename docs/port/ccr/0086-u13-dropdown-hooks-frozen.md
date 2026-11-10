@@ -1,6 +1,8 @@
 # CCR-0086 (U13): DropDownHooks frozen (empty); DropItem/selFunc/SearchHost surface amendments
 
-Unit: U13 (dropdown and search). Status: proposed. Number: next free at the time of writing
+**Status: applied 2026-11-10 by CCR2 (ui doc §6.8, §13 item 12). See AMENDMENTS A8.**
+
+Unit: U13 (dropdown and search). Filed status: proposed. Number: next free at the time of writing
 (0080 is taken twice on other branches, 0081 by U11; renumber on collision). Renumbered 0082 -> 0086 at merge: 0082 is CS-1, 0084 U14, 0085 PF-A.
 
 Applies to: ui doc §6.8 (the DropDownControl bullets), §13 item 12 (`DropTipMode`, `DropTipArgs`,

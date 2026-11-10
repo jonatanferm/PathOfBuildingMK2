@@ -1,6 +1,8 @@
 # CCR-0082 (CS1): initEnv segment CS1 — u0_smoke expectation, Override node sets, export notes
 
-**Status: proposed (CS1, 2026-11-09).** No frozen signature changes. §1 asks for an edit of a
+**Status: applied 2026-11-10 by CCR2 (§1 resolved by HYG2's u0_smoke rewrite, §2 calc doc §5.4, §4); §3 needs code. See AMENDMENTS A8.**
+
+**Filed status: proposed (CS1, 2026-11-09).** No frozen signature changes. §1 asks for an edit of a
 U0-owned test that CS1's port breaks; §2-§4 record how CS1 reads the frozen types and what the
 CS1 L4 test (`crates/pob-oracle/tests/CS1.rs`) had to work around in ORC-X's export.
 

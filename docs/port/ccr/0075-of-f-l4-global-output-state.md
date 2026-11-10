@@ -1,6 +1,8 @@
 # CCR-0075: OF-F — L4 runs leave `globalOutput`/`globalBreakdown` unset
 
-Status: proposed by OF-F (2026-11-09)
+**Status: needs code (CCR2, 2026-11-10; ORC-X2 `run_segment`). See AMENDMENTS A8.**
+
+Filed status: proposed by OF-F (2026-11-09)
 
 ## Problem
 

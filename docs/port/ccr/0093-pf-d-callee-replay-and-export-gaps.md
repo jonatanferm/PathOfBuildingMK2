@@ -1,6 +1,8 @@
-# CCR-0034: PF-D — replaying callees inside a segment, and three export/schema gaps
+# CCR-0093: PF-D — replaying callees inside a segment, and three export/schema gaps
 
-Status: proposed by PF-D (2026-11-09)
+**Status: applied 2026-11-10 by CCR2 (§4 contracts.md#mod-mutation, §5 resolved by HYG2's u0_smoke rewrite); §1-§3 need code. Renumbered from 0034 by CCR2 (0034 stays U4's). See AMENDMENTS A8.**
+
+Filed status: proposed by PF-D (2026-11-09)
 
 (Number chosen as the next free one in `docs/port/ccr/` on the PF-D branch; renumber on merge if
 another unit took 0034.)
@@ -19,7 +21,7 @@ replay the L4 diff is dominated by their missing writes (e.g. every `output.Str/
 Also, line probes exist only at segment boundaries, so there are no `:in`/`:out` dumps around these
 calls (only `getCachedOutputValue` is a function probe).
 
-**Workaround (PF-D, marked `CCR-0034`):**
+**Workaround (PF-D, marked `CCR-0093`):**
 
 * `crates/pob-calc/src/modules/calc_perform/pools_charges.rs`: every such call goes through
   `callee(site, || …)` / `cached_output(…)`; with feature `probe` a thread-local hook
@@ -88,7 +90,7 @@ c. **Build model fields.** `env.spec.build.spectreList` (CalcPerform.lua:2222) l
 
 CalcPerform.lua:1951-1952 `modLib.setSource(copyTable(mod, true), …)` re-sources `mod.value.mod`
 through the shallow copy, i.e. the original EnemyModifier payload's nested mod (a shared-mutation
-site not in contracts.md#mod-mutation, like CCR-0014's `mergeKeystones`). The port re-sources a
+site not in contracts.md#mod-mutation, like CCR-0091's `mergeKeystones`). The port re-sources a
 copy and leaves the stored mod alone; this differs only when an EnemyModifier wraps a mod whose
 value itself carries a `{ mod = … }` with another source.
 

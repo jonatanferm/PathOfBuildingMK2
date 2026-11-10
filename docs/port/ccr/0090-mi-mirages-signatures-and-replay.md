@@ -1,6 +1,8 @@
 # CCR-0090: MI — `calcs.mirages` return value, `calculateMirage(config = nil)`, MI's callee replay seam
 
-Status: proposed by MI (2026-11-10). §1 and §2 are applied in MI's own file
+**Status: applied 2026-11-10 by CCR2 (§1, §2: calc doc §8.1); the §1 PF-G call-site follow-up, §3 and §4 need code. See AMENDMENTS A8.**
+
+Filed status: proposed by MI (2026-11-10). §1 and §2 are applied in MI's own file
 (`crates/pob-calc/src/modules/calc_mirages.rs`); §1 needs a one-line follow-up in PF-G's file,
 which MI does not own. §3 and §4 are notes for ORC-X / the L4 harness.
 

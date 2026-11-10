@@ -12,7 +12,7 @@
 //! The module upvalues `globalOutput`/`globalBreakdown` (CalcOffence.lua:65/67) are not part of a
 //! dump; at both stages they are the function's `output`/`breakdown` (assigned at 2607), i.e.
 //! `actor.output` / `actor.breakdown`, so the test sets `OFFENCE_STATE` from the injected actor
-//! (CCR-0075). `passList` is rebuilt as `Shared<Vec<Table>>` (CCR-0034, OF-D).
+//! (CCR-0075). `passList` is rebuilt as `Shared<Vec<Table>>` (CCR-0036; OF-D filed it as CCR-0065, superseded).
 //!
 //! Callees owned by other units may still be `unported!` (OF-A `calcDamage`/`calcResistForType`,
 //! OF-C `combineStat`, DF-A `armourReductionF`): a hit whose run reaches such a stub is reported
@@ -211,7 +211,7 @@ fn run_hit(din: &StateDump, dout: &StateDump, stem: &str) -> Outcome {
         Err(e) => return Outcome::Error(format!("inject {}: {e}", din.hit)),
     };
     let mut locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
-    // CCR-0034 (OF-D): `passList` is injected as a plain table; the ctx field is a
+    // CCR-0036 (OF-D's CCR-0065 is superseded by it): `passList` is injected as a plain table; the ctx field is a
     // `Shared<Vec<Table>>`. Rebuild it from the same pass tables (identity kept).
     for (k, v) in locals.iter_mut() {
         if k == "passList" {

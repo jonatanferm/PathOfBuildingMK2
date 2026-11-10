@@ -1,6 +1,8 @@
 # CCR-0080 (BM-A): build XML load/save — ranges outside the row, side tables, frozen-signature gaps
 
-**Status: proposed (BM-A, 2026-11-09).** No frozen file was changed: every item below is worked
+**Status: applied 2026-11-10 by CCR2 (§1, §5-§8, §10: calc doc §11.1, ui doc §10.2, contracts.md#model-census); §2-§4, §9 need code. See AMENDMENTS A8.**
+
+**Filed status: proposed (BM-A, 2026-11-09).** No frozen file was changed: every item below is worked
 around inside BM-A's own files (`crates/pob-calc/src/model/{build_xml,items_tab,tree_tab,calcs_tab,xml}.rs`),
 marked `CCR-0080`.
 

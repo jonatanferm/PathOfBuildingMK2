@@ -1,6 +1,8 @@
 # CCR-0085: PF-A — `mergeBuff` source type, ModList index store, `setSource` on a shared mod
 
-Status: proposed by PF-A (2026-11-09)
+**Status: applied 2026-11-10 by CCR2 (§3 contracts.md#mod-mutation, §6); §1, §2, §5 need code; §4 = CCR-0030 #6. See AMENDMENTS A8.**
+
+Filed status: proposed by PF-A (2026-11-09)
 
 Unit PF-A ports CalcPerform.lua 1-635 into
 `crates/pob-calc/src/modules/calc_perform/actor_a.rs`. Three contract gaps, each worked around

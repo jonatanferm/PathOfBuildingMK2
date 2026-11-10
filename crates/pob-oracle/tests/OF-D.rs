@@ -208,7 +208,7 @@ fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "panic".to_owned())
 }
 
-/// CCR-0065: `inject` decodes locals untyped, so `passList` (a Lua array of
+/// CCR-0036 (filed by OF-D as CCR-0065, superseded by CCR-0036): `inject` decodes locals untyped, so `passList` (a Lua array of
 /// pass tables) arrives as a plain table, while `OffenceCtx.passList` is a
 /// `Shared<Vec<Table>>`: rebuild it as one (same pass tables, so their
 /// identity is kept).

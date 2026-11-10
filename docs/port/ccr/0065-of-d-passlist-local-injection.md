@@ -1,6 +1,8 @@
 # CCR-0065: OF-D — `passList` cannot be injected into `OffenceCtx`
 
-Status: proposed by OF-D (2026-11-09)
+**Status: superseded by CCR-0036 (CCR2, 2026-11-10); the test comments cite CCR-0036. See AMENDMENTS A8.**
+
+Filed status: proposed by OF-D (2026-11-09)
 
 ## Problem
 

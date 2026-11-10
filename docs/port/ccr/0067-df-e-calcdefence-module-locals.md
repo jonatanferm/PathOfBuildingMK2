@@ -1,6 +1,8 @@
 # CCR-0067: DF-E — CalcDefence module locals have no Rust items; probe-cache dump mixing
 
-Status: proposed by DF-E (2026-11-09)
+**Status: needs code (CCR2, 2026-11-10): DF-A landed, but DF-E's private copies (§1-§2) remain; §3 is ORC-X2's. See AMENDMENTS A8.**
+
+Filed status: proposed by DF-E (2026-11-09)
 
 DF-E (`calc_defence/est_pools.rs`, CalcDefence.lua 2153-2611) reads three module-level locals of
 CalcDefence.lua and calls one module-local function, all owned by DF-A (`calc_defence/helpers.rs`,

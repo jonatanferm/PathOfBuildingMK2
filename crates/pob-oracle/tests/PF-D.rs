@@ -6,7 +6,7 @@
 //! The callees other units port (`doActorAttribsConditions`, `doActorLifeMana`,
 //! `doActorLifeManaReservation`, `getCachedOutputValue` (PF-A), `addMinionModifiers`,
 //! `doActorCharges` (PF-B), `mergeTinctures` (PF-C)) are replayed (calc doc §9.2 "Replay"): the
-//! segment calls them through `pools_charges::callee_replay` (CCR-0034), and this test answers each
+//! segment calls them through `pools_charges::callee_replay` (CCR-0093), and this test answers each
 //! call by applying the state delta PoB recorded around that call site (`pob_oracle::replay`).
 //! The extra line probes around the call sites are in `corpus/PF-D/stages.toml` (`pfd:<line>`
 //! fires before `<line>`); fill them with
@@ -307,7 +307,7 @@ fn fill_spectre_list(model: &pob_calc::BuildRef, xml: &Path) {
     }
 }
 
-/// Two things the ORC-X exporter cannot see by itself (CCR-0034 §3):
+/// Two things the ORC-X exporter cannot see by itself (CCR-0093 §3):
 ///
 /// * `env.buffs` / `env.minionBuffs` / `env.debuffs` were nil at `perform:1943`, so injection marks
 ///   them absent, and the exporter drops an absent typed field that holds a default value (an empty

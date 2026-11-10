@@ -1,6 +1,8 @@
 # CCR-0015: MS-B EvalMod contract notes
 
-Status: proposed by MS-B (2026-10-10). Numbering: first free number at the time of writing; the
+**Status: applied 2026-11-10 by CCR2 (§1 ui doc §13 item 14, §2 retracted, §4 getActor doc line, §5 record); §6 needs code (G1a dhat half fails); §3 escalated. See AMENDMENTS A8.**
+
+Filed status: proposed by MS-B (2026-10-10). Numbering: first free number at the time of writing; the
 integrator may renumber (the markers in MS-B's files and tests say `CCR-0015`).
 
 Found while porting Classes/ModStore.lua 48-54 and 363-971 (`crates/pob-calc/src/classes/eval_mod.rs`)

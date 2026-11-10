@@ -192,7 +192,7 @@ No file has two owners. A unit edits only its own files, its `crates/pob-oracle/
 | `s_format("%.2f", x)` / `tostring(n)` / `a..n` | `lfmt!("%.2f", x)` / `tostring_num(n)` / `cat!(a, n)` (`%.14g`) |
 | `x % y` | `lmod(x, y)` (floored) |
 | `x ^ y` | `lpow(x, y)` (LuaJIT `^`) |
-| `#t` | `t.len()` (border; hole-free contract) |
+| `#t` | `t.len()`: LuaJIT's border. Every `Table` keeps a model of its LuaJIT layout (`pob_lua::ljtab::LjTab`), so `#t`, `t_insert` and `t_remove` agree with LuaJIT after holes too (CCR-0031 A). `tbl!` builds through `Table::from_ctor`: a literal value or `[k]` key (`1.0`, `-2`, `"s"`, `n!("s")`, `true`, `false`, `Val::Nil`) is a template constant, any other expression a run-time store; write folded literals (LuaJIT folds `{1+2}`). A positional nil item keeps its position (`tbl![a, Val::Nil, c]` is `{[1]=a, [3]=c}`) |
 | `for i, v in ipairs(t)` | `for_ipairs!((i, v) in t => { ... })`. It reads `t[i]` live on every step and stops at the first nil, exactly like Lua. |
 | `for k, v in pairs(t)` | `for (k, v) in t.pairs() { ... }`. Keys are a snapshot; values are read live; keys whose live value is nil are skipped. Add `// LUA-ORDER` when the result can depend on order (§3.4). |
 | `t_insert(t, v)` / `t_insert(t, i, v)` / `t_remove(t, i)` | `t.push(v)` / `t.insert(i, v)` / `t.remove(Some(i))`. Positions are `i64` and follow LuaJIT 2.1 `lib_table.c`: no bounds error; `remove` acts only for `1 <= i <= #t` (CCR-0011 §10). |
@@ -216,6 +216,7 @@ No file has two owners. A unit edits only its own files, its `crates/pob-oracle/
 - **Integer-keyed tables iterated with `pairs` whose order is observable** (`env.allocNodes`, `env.grantedPassives`, `spec.allocNodes`, `extraRadiusNodeList`, `nodesInRadius`, and other node-id maps; the full list is in `docs/port/pairs_inventory.md`, produced by P4 and frozen by U0) use `pob_lua::ljtab::LjIntMap<V>`. It reproduces LuaJIT 2.1 `lj_tab.c` exactly: array part, hash part, `hashnum` main position, free-pointer collision chaining, rehash sizing, and `next()` order. Measured on the vendored LuaJIT: keys `{52031,1031,26725,55485,33545,6,7,1,2,3,99999,4184}` iterate as `1,2,3,6,7,26725,4184,55485,99999,1031,52031,33545` in every run.
 - **String-keyed tables** use insertion order. PoB's own order is random per process (seeded hash, D8), so any output that depends on it is nondeterministic in PoB. The oracle detects such outputs (§9.5) and the diff compares them as sets of the values PoB produced.
 - **Table-identity keys** (`pairs(affectedByAura)`, `isSupporting[srcInstance]`) also follow a random order in PoB (address hashing). Use insertion order (`PtrSet`/`PtrMap`).
+- **`LjIntMap` needs Lua's insertion order** (CCR-0024 §5, CCR-0028 §9, CCR-0031). It reproduces LuaJIT for a given sequence of stores. Where that sequence itself comes from a `pairs` over a table that ever held a string key, PoB's order is per-process random: LuaJIT hashes strings by a per-state seeded id, which moves the integer keys' hash slots. Example: `tree.nodes` of the 3.10+ trees holds the string key `root` until PassiveTree.lua:510, so `pairs(tree.nodes)`, the fill order of `spec.nodes` and `pairs(spec.nodes)` differ between PoB processes; such sites compare as multisets (§9.5; ui doc §8 rule 6 (b)). `Table::len` uses a fixed string-hash stand-in, so `#t` of a table that mixes string keys with *holed* integer keys is a valid border but not always LuaJIT's (LuaJIT itself differs between processes there). Data tables written as `[n] = { … }` constructors (`grantedEffect.levels`) live entirely in the hash part: use `calc_tools::levels_next_key` / `levels_len` for `next(levels)` / `#levels`, never `LevelTable::len()` (CCR-0091 §2).
 - **ModParser `scan()`** iterates its pattern tables with `pairs` (ModParser.lua:6621), so full ties (same start, same end, same pattern length) are resolved randomly in PoB. Rust picks the lowest Lua source line. The L1 test enumerates full ties and accepts any of the candidates' outputs.
 
 ### 3.5 Numbers and strings
@@ -477,7 +478,7 @@ impl Value {
 /// A ModParser jewel closure as data: which jewelFuncList entry it is, plus the captured upvalues.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JewelFuncSpec {
-    pub key: Name,                               // lowercased jewelFuncList key, or "$default" (ModParser.lua 6552-6595)
+    pub key: Name,                               // lowercased jewelFuncList key, or "$default" (CalcSetup.lua 877-884, CCR-0039 §4)
     pub kind: JewelFuncKind,
     pub args: smallvec::SmallVec<[Value; 4]>,    // captures, as passed by the defining entry
     pub r#type: Option<Name>,                    // { type = "Self"/"SelfUnalloc"/"Threshold"/"Other" }
@@ -695,7 +696,22 @@ pub fn jewelRadius() -> std::rc::Rc<DataSel>;                 // read as data.je
 /// The fallback copies the global entry and calls processMod on each top-level element (`for _, mod in ipairs(map)`).
 /// A group element is passed to processMod as if it were a mod, exactly as Lua does; CT ports this literally. [CT]
 pub fn statMapLookup(ge: &GrantedEffect, stat: Name) -> Option<Arc<StatMapEntry>>;
+/// `grantedEffect.hasGlobalEffect` as PoB sees it now: the loaded value, or true once a fallback lookup
+/// processed a GlobalEffect mod for this skill (Data.lua:74-79 writes into the shared data table). [CT, CCR-0091 §3]
+pub fn hasGlobalEffect(ge: &GrantedEffect) -> bool;
+pub fn reset_stat_map_state();   // a freshly booted PoB process (tests)
 ```
+
+**PoB writes into `data` at run time; `Data` is immutable** (CCR-0091 §3, CCR-0019 §8, CCR-0083 §1, CCR-0020). The port keeps each such write in thread-local state (one Lua VM = one thread) next to the owner's code, and every reader MUST go through the accessor, never the data field:
+
+| Lua write | Accessor (owner) | Readers |
+|---|---|---|
+| `grantedEffect.hasGlobalEffect = true` (Data.lua:74-79, via the statMap fallback) | `pob_gamedata::skill_stat_map::hasGlobalEffect(ge)` (CT) | CalcSetup.lua:1755 (CS3), SkillsTab.lua:1015 (BM-B) |
+| `grantedEffect.levels[level].cost = {}` (SkillsTab.lua:1188-1190) | `pob_calc::model::skills_tab::levelCostCleared(id, level)` (BM-B) | every `grantedEffectLevel.cost` reader (CalcActiveSkill/CalcOffence costs, OF-C, CS3) |
+| `grantedEffect.fromItem = true` (CalcSetup.lua:1636-1638) | `calc_setup::init_env_skills::grantedEffect_fromItem(ge)` (CS3; to move to CT, A8 needs-code) | CalcTools.lua:95 (CT), CalcTriggers.lua:34, 37, 448, 1068, 1590 (TR-A/B) |
+| `data.timelessJewelLUTs[type] = …`, `jewelLUT.seedOffsets[…]` (DataAbyssJewelLookUpTableHelper.lua:165-200) | the process-global LUT cache in `timeless_lut.rs` (`loadAbyssJewel`, `clear_timeless_jewel_luts`); file access through `timeless_lut::set_jewel_fs(Arc<dyn JewelFs>)` (`StdJewelFs` on desktop, `NoJewelFs` on wasm) and `set_con_printf` (LUT) | PS-B (`readAbyssJewelLUT` returns an `LjIntMap<Value>`; `parseAbyssJewel` returns an `AbyssJewelLUT`, `repairLUTs` the rebuilt `NodeIdList`) |
+| `data.jewelRadii[…].outerSquared/innerSquared` (Data.lua:593-594) | the thread-local `DataSel` copy (`data.jewelRadius`), PT (CCR-0024 §8) | PT, PS-*, CS0 |
+| `require("Data.TimelessJewelData.LegionPassives")` / `TattooPassives` processed per tree (PassiveTree.lua:727-786) | one thread-local copy (`passive_tree::require_legion_tattoo`, PT, CCR-0024 §9) | PT, PS-B |
 
 ---
 ## 5. `pob-calc` core types (all [U0], frozen)
@@ -876,7 +892,7 @@ impl ModStore {
     pub fn AddMod(&self, m: ModRef);
     pub fn AddList(&self, modList: &[ModRef]);
     pub fn AddDB(&self, modDB: &ModStore);
-    pub fn MergeMod(&self, m: ModRef);            // ModList only (ModList.lua:73)
+    pub fn MergeMod(&self, m: ModRef, skipNonAdditive: bool);   // ModList only (ModList.lua:73; CCR-0014 §5)
     pub fn MergeNewMod(&self, m: Mod);            // ModList only (ModList.lua:96)
     pub fn len(&self) -> usize;                   // #modList (ModList)
     pub fn ipairs(&self) -> Vec<ModRef>;          // `for _, mod in ipairs(modList)` (ModList); Arc clones
@@ -888,7 +904,7 @@ impl ModStore {
 impl ModStore {
     /// `context` is the store the query started on (passed down the parent chain exactly as Lua does).
     pub fn EvalMod(&self, m: &Mod, cfg: Option<&ModCfg>, globalLimits: Option<&mut GlobalLimits>) -> Value;
-    pub(crate) fn getActor(&self, actorType: Name) -> Option<ActorRef>;   // ModStore.lua:48-54
+    pub(crate) fn getActor(&self, actorType: Option<Name>) -> Option<ActorRef>;   // ModStore.lua:48-54; nil from PerStat/PercentStat; only the actor links (enemy, parent, player, minion, partyMembers), other keys nil (LUA-QUIRK, CCR-0015 §4)
 }
 ```
 
@@ -1005,6 +1021,9 @@ pub struct Env {
 #[derive(Default)]
 pub struct Override {
     pub spec: Field<Option<PassiveSpecRef>>,
+    // addNodes/removeNodes: Lua sets keyed by the node (`{ [node] = true }`). The port keys them by id and CS1
+    // tests membership by node identity (`Rc::ptr_eq`), so callers (PWR, CalcsTab power, CompareTab) MUST put
+    // the spec's own node objects in them (CCR-0082 §2); iteration is LUA-ORDER (PoB: address order).
     pub addNodes: Field<Option<Shared<LjIntMap<NodeRef>>>>, pub removeNodes: Field<Option<Shared<LjIntMap<NodeRef>>>>,
     pub repSlotName: Field<Option<Name>>, pub repItem: Field<Option<ItemRef>>,
     pub toggleFlask: Field<Option<ItemRef>>, pub toggleTincture: Field<Option<ItemRef>>,
@@ -1035,19 +1054,19 @@ impl Breakdown {
     pub fn simple(&self, extraBase: Option<f64>, cfg: Option<&ModCfg>, total: f64, names: &[Name]) -> Option<Table>;
     pub fn r#mod(&self, modList: &ModStore, cfg: Option<&ModCfg>, names: &[Name]) -> Option<Table>;
     pub fn slot(&self, source: &str, sourceName: Option<&str>, cfg: Option<&ModCfg>, base: f64, total: Option<f64>, names: &[Name]);
-    pub fn area(&self, base: f64, areaMod: f64, total: f64, incBreakpoint: f64, moreBreakpoint: f64,
-                redBreakpoint: f64, lessBreakpoint: f64, label: &str, radiusMod: Option<f64>) -> Table;
+    pub fn area(&self, base: f64, areaMod: f64, total: f64, incBreakpoint: Option<f64>, moreBreakpoint: Option<f64>,
+                redBreakpoint: Option<f64>, lessBreakpoint: Option<f64>, label: Option<&str>, radiusMod: Option<f64>) -> Table;
     pub fn effMult(&self, damageType: Name, resist: f64, pen: f64, taken: f64, mult: f64, takenMore: f64,
-                   sourceRes: Option<Name>, useRes: bool, invertChance: f64, effectiveResist: f64) -> Table;
+                   sourceRes: Option<Name>, useRes: bool, invertChance: Option<f64>, effectiveResist: Option<f64>) -> Table;
     pub fn dot(&self, out: &Table, baseVal: f64, inc: f64, more: f64, mult: Option<f64>, rate: Option<f64>,
                aura: Option<f64>, effMult: Option<f64>, total: f64);
     pub fn critDot(&self, dotMulti: f64, critMulti: f64, dotChance: f64, critChance: f64) -> Table;
-    pub fn leech(&self, instant: f64, instantRate: f64, instances: f64, pool: f64, rate: f64, max: f64,
+    pub fn leech(&self, instant: f64, instantRate: f64, instances: f64, pool: f64, rate: Name, max: f64,
                  dur: f64, instantLeechProportion: f64, hitRate: f64) -> Table;
 }
 ```
 
-The parameter lists above are U0's reading of CalcBreakdown.lua. CT MUST correct any that differ from the Lua, and record the change in the same PR as a CCR.
+The parameter lists above are CT's corrections of U0's reading (CCR-0091 §1): `calcRadiusBreakpoints` returns four nils for a zero radius (CalcOffence.lua:198-223) and several callers pass no `label`/`radiusMod`, `invertChance`/`effectiveResist`, so those are `Option`; `leech`'s `rate` is a mod name (`"LifeLeechRate"`).
 
 ### 5.6 `global_cache.rs`, `module_state.rs`
 
@@ -1205,6 +1224,8 @@ The fields above are what the calc and the oracle read and write. U0 MUST comple
 pub mod calcs {
     pub use crate::modules::calcs::{getMiscCalculator, calcFullDPS, buildActiveSkill, buildOutput, MiscCalculator, FullDPS};
     pub use crate::modules::calc_setup::{initEnv, initModDB, buildModListForNode, buildModListForNodeList};
+    // CCR-0074: buildModListForNode(env, node, reuse: Option<&ModList>) -> (ModList, Val /* Nil | Obj(NodeRef) */);
+    //           buildModListForNodeList(env, nodeList, finishJewels) -> (ModList, Vec<Val> /* explodeSources: nodes */)
     pub use crate::modules::calc_active_skill::{createActiveSkill, copyActiveSkill, buildActiveSkillModList,
                                                 createMinionSkills, mergeSkillInstanceMods};
     pub use crate::modules::calc_perform::{perform, actionSpeedMod};
@@ -1278,7 +1299,12 @@ pub struct PatternEntry<T> { pub pat: &'static str, pub val: T, pub lua_line: u3
 /// Built once (LazyLock) in source order. Generated entries (keystones 5943-5955, skill-name loops) use `Dyn`.
 pub struct PatternList<T>(pub Vec<PatternEntry<T>>);
 /// ModParser.lua:6616 scan(): lowest start, then longest end, then longest pattern; full ties → lowest lua_line (§3.4).
-pub fn scan<'l, T>(line: &'l str, list: &PatternList<T>, plain: bool) -> Option<(&'static T, String, Caps<'l>)>;
+/// The captures are substrings of `line:lower()`, which scan creates, so they are owned (CCR-0092 §1).
+pub fn scan<T: Sync + Send + 'static>(line: &str, list: &'static PatternList<T>, plain: bool)
+    -> Option<(&'static T, String, ScanCaps)>;
+/// `cap[i]` = Lua `cap[i+1]`; `num` is set per call shape (CCR-0006 §5) before the driver lends `caps()`.
+pub struct ScanCaps { pub num: Option<f64>, pub cap: [Option<String>; 5] }
+impl ScanCaps { pub fn caps(&self) -> Caps<'_>; pub fn get(&self, i1: usize) -> Option<&str>; }   // re-exported as pob_modparser::ScanCaps
 /// modLib.parseMod (ModParser.lua 6994-7021): the two-order pass + memo cache, seeded from data().modCache.
 /// Returns fresh copies on each call (Lua: unpack(copyTable(cache[line]))).
 pub fn parseMod(line: &str, isComb: bool) -> (Option<Vec<Mod>>, Option<String>);
@@ -1296,6 +1322,13 @@ Jewel funcs: the parser emits `Value::JewelFunc(JewelFuncSpec)`. The bodies run 
 /// func(node, out, data) from ModParser.lua 6151-6615; node None = "finish" call (CalcSetup.lua 259-305).
 pub fn callJewelFunc(spec: &JewelFuncSpec, node: Option<&NodeRef>, out: &ModList, data: &Table);
 ```
+
+As built (CCR-0092 §2-§3, CCR-0039):
+
+- The driver emits `mod("JewelFunc", "LIST", { func = Value::JewelFunc(spec), type = "<type>" })` (ModParser.lua:6643-6652). `spec.args` holds the pattern captures as `Value::Str` when the line matched a capture key (6644-6646), and is empty when the line equals a key (6649-6651); `callJewelFunc` tells the two apart by `args.is_empty()`. Helper closures are keyed `"$getSimpleConv"`, `"$getPerStat"`, `"$getThreshold"`, inline closures `"Modules/ModParser.lua:<a>-<b>"` (the parse oracle's `src`), the 6544-6547 table `"$list"`; `"$default"` is CalcSetup.lua:877-884 (CS2 emits it). The two `ExtraJewelFunc` closures (ModParser.lua:2622-2627, 2630-2634) are keyed by their source range with their upvalues in `args`.
+- `jewel_func_list.rs` (MP7) exports `jewelOtherFuncs`, `jewelSelfFuncs`, `jewelSelfUnallocFuncs`, `jewelThresholdFuncs`, `jewelFuncList`, `jewelFuncListSource` (lowercased key → the table value each wrapper closes over), `callCaptureClosure` and `clusterJewelSkills: LazyLock<AHashMap<String, Vec<Mod>>>` (ModParser.lua 6596-6607; the driver reads it at 6653).
+- `getThreshold(attrib: Value /* Str or array Table */, name: &str, modType: ModType, value: Value, flags: u32, keywordFlags: u32, tags: &[Tag]) -> JewelFuncSpec` (the Lua `...` carries flags/keywordFlags, ModParser.lua:6455-6456, 6481-6520).
+- `formList` is `PatternList<Name>` (MP1 converts lua2rs's `&'static str`).
 
 ---
 
@@ -1343,8 +1376,14 @@ ctx_struct! { pub struct AilmentPassLocals { pass: Table, output: Output, cfg: C
 //                                  skillFlags: &Table, output: &Output, breakdown: Option<&Breakdown>);
 //   pub(super) fn calcResistForType(ctx: &OffenceCtx, damageType: Name, cfg: Option<&ModCfg>) -> f64;
 //   pub(super) fn runSkillFunc(ctx: &OffenceCtx, name: SkillHook);
-// costs_passes.rs [OF-C]: pub(super) fn combineStat(ctx: &OffenceCtx, stat: Name, mode: Name, extra: Option<&Table>);
-// ailments_a.rs [OF-G]: checkWeapon1HFlags(ctx, al, cfg) / calcAverageSourceDamage(ctx, al, …) / calcAilmentDamage(ctx, al, …)
+//   pub fn calcRadiusBreakpoints(baseRadius, incArea, moreArea, radiusMod: Option<f64>) -> (f64, f64, f64, f64);  // NaN = nil until
+//       CCR-0041 §1 / CCR-0043 (A8 needs-code) makes it (Option<f64>, …); OF-A's callers use calcRadiusBreakpointsOpt
+// costs_passes.rs [OF-C]: pub fn combineStat(ctx: &OffenceCtx, stat: Name, mode: Name, extra: Option<Name>);  // the vararg is a chance stat name (CCR-0055)
+// ailments_a.rs [OF-G] (loop-local functions, CCR-0035):
+//   pub(crate) fn checkWeapon1HFlags(ctx: &OffenceCtx, al: &AilmentPassLocals, targetCfg: &ModCfg);                 // sets targetCfg.flags
+//   pub(crate) fn calcAverageSourceDamage(ctx, al, ailment: Name) -> (f64, f64);                                    // (sourceHitDmg, sourceCritDmg)
+//   pub(crate) fn calcAilmentDamage(ctx, al, r#type: Name, sourceCritChance: f64, sourceHitDmg: f64, sourceCritDmg: f64,
+//                                   hideFromBreakdown: bool) -> f64                                                 // baseVal
 
 /// @pob Modules/CalcOffence.lua:348-361 (header + ctx init)
 pub fn offence(env: &EnvRef, actor: &ActorRef, activeSkill: &ActiveSkillRef) {
@@ -1501,7 +1540,12 @@ pub struct MirageConfig {
     pub postCalcFunc: Box<dyn Fn(&EnvRef, &ActiveSkillRef, &EnvRef)>,
     pub mirageSkillNotFoundFunc: Box<dyn Fn(&EnvRef, &MirageConfig)>,
 }
+/// The Lua result's truthiness (`nil` → false); CalcPerform.lua:3798 skips the main offence when true (CCR-0090 §1).
+pub fn mirages(env: &EnvRef) -> bool;
+// file-local: calculateMirage(env, config: Option<&MirageConfig>) -> Option<bool>   (CalcMirages.lua:24-27, CCR-0090 §2)
 ```
+
+`TriggerConfig` above is U0's frozen shape. It cannot hold `triggeredSkillCond`, a closure `comparer` with optional arguments, or `sourceWeapon = true` (CCR-0087); TR-A stores them in `extra` through `handlers.rs` accessors (`set_triggeredSkillCond`, `set_comparer`/`comparer_fn`, `sourceWeapon()`), and TR-B MUST set them through those setters until the struct changes (A8, escalated).
 
 Function ids are the ids of `data/dump/closures.json` (AMENDMENTS A2, `crates/pob-dump/FORMAT.md`), for example `skills.Barrage.preDamageFunc` and `ConfigOptions[<i>].apply` (1-based position in ConfigOptions.lua; not `configOptions.<var>.apply`, CCR-0006 §7), with sha256 body hashes.
 
@@ -1564,7 +1608,7 @@ Function ids are the ids of `data/dump/closures.json` (AMENDMENTS A2, `crates/po
 - `pob_oracle::inject::state(&dump, &BuildRef) -> (EnvRef, Locals)` rebuilds the Rust graph with sharing intact. `ctx_struct!`'s `ProbeState` maps locals to ctx fields by name.
 - `pob_calc::probe` (feature `probe`) exports the same schema from Rust via `probe!(ctx, "<id>")`.
 
-**Replay.** `pob_oracle::replay` swaps a not-yet-ported callee for its recorded `in→out` state delta, keyed by hit id. Examples: PF-G calling `offence`, OF-A calling skill hooks, triggers calling `buildActiveSkill`.
+**Replay.** `pob_oracle::replay` swaps a not-yet-ported callee for its recorded `in→out` state delta, keyed by hit id. Examples: PF-G calling `offence`, OF-A calling skill hooks, triggers calling `buildActiveSkill`. As built, `Replay::apply`/`apply_report` applies a delta to a live state **between** Rust calls; a segment that calls a callee in its middle needs a seam the test can answer. Shared today: `pob_calc::probe::set_skill_hook_handler` (feature `probe`; `runSkillFunc` offers each call to it, CCR-0041 §3). Per-unit seams (feature `probe` only, never in the shipped calc): `pools_charges::callee_replay` (PF-D, CCR-0093 §1), `setup_flasks::callee_replay` (PF-C, CCR-0079 §2), `ailments_dispatch::replay_hook` (PF-G, CCR-0077 §1), `calc_mirages::replay_hook` (MI, CCR-0090 §3), `item_parse::replay` (IT-A, CCR-0025 §3), `item_tools::replay` (IT-C, CCR-0061 §6). One shared `callee!` seam in `probe.rs` plus `testkit::segment_diff_with_replay` (CCR-0044, CCR-0077 §1) is A8 needs-code. Other harness rules learnt by the units (A8 needs-code where not yet shared): pair a stage's `:in` and `:out` dumps from the same PoB run (CCR-0041 §4, CCR-0067 §3); a `{"$foreign": …}` parent or output of another env is not resolved by injection (CCR-0041 §5, CCR-0044, CCR-0049 §4, CCR-0064 §1, CCR-0075); the exporter drops a typed field marked absent at injection while it holds a default (CCR-0040 §8, CCR-0055 §2, CCR-0077 §4, CCR-0079 §5, CCR-0082 §3, CCR-0093 §3a).
 
 **Diff.**
 - Numbers must agree within `|a-b| ≤ 1e-9·max(1,|a|)`, so a `±0` sign mismatch passes (a dual-number host artefact, CCR-0002); bools and strings must be identical.
@@ -1589,7 +1633,7 @@ Function ids are the ids of `data/dump/closures.json` (AMENDMENTS A2, `crates/po
 |---|---|---|
 | L0 | `pob-lua` helpers and `LjIntMap` vs the LuaJIT **interpreter** (`jit.off`; `L0_JIT_ON=1` adds an informational `jit.on` run whose trace-only divergences are counted): random and edge vectors, ≥10k per fn. Includes every `s_format` literal in Calc*.lua, NaN/±0 cases for `m_min`/`m_max`, and `table.sort` permutations with tie-heavy comparators. The port's x64 profile is compared as shipped; on a dual-number host a mismatch is tolerated (and counted) only when `with_luajit_arm64_profile` reproduces the oracle exactly (CCR-0001 table). Run in debug and `--release` (`lpow` folding) | 100% identical (modulo the counted, ARM64-profile-reproduced host differences) |
 | L1 | ModParser: all of ModCache (23,207 lines) with the cache tier **disabled**, plus `parse_oracle.jsonl` | ≥ 99.95%; full-tie lines accepted per §3.4; every entry in a unit's range is hit by ≥ 1 oracle line, or listed |
-| L2 | Model. Item: ParseRaw fields, modList, slotModList[1..2], weaponData, armourData, flaskData, tinctureData, jewelData for every unique (all variants) and corpus item. Tree: node.modList and nodesInRadius for every node of every version. Spec: alloc, conquered and timeless rewrites, cluster subgraphs. Jewel funcs: each func on every node of the 3_26 tree | 100% |
+| L2 | Model. Item: ParseRaw fields, modList, slotModList[1..2] (and the Ring 3 list, `Item::slotModList3()`, CCR-0061 §1), weaponData, armourData, flaskData, tinctureData, jewelData for every unique (all variants) and corpus item. Tree: node.modList and nodesInRadius for every node of every version. Spec: alloc, conquered and timeless rewrites, cluster subgraphs. Jewel funcs: each func on every node of the 3_26 tree | 100% |
 | L3 | ModStore query matrix on dumped DBs at `perform:out`: every mod name × cfg ∈ {nil, skillCfg, weapon1Cfg, weapon2Cfg, dotCfg, bleed/poison/ignite cfgs} × {Sum BASE/INC, More, Flag, Override, List, Max, Min, Tabulate, GetCondition, GetMultiplier, GetStat} | 100% |
 | L4 | Segment: inject at `<seg>:in#n`, run the Rust segment, diff against `<seg>:out#n` | 100% on the unit's curated + unit corpus; ≥ 98% of hits on all57, with the remainder documented in `known_diffs.toml` |
 | L5 | Stage: `initEnv:out`, `perform:out`, `buildOutput` in each mode, every socket group as main skill. Plus the D13 fixed-point test: build → buildOutput → buildOutput gives identical outputs and model state | as L4 |
@@ -1670,7 +1714,7 @@ A **wave** is a dependency level: it lists what *may* run in parallel. It does n
 | **P4** port scripts | all in-scope Lua (analysis only) | `scripts/port/{locals_audit,segments,provenance,globals_lint,pairs_inventory}.py`, `scripts/port/cargo.sh` | — | `locals_audit` reproduces §7.1 exactly; `globals_lint --check` reports exactly the §7.3 sites (parsed from the doc text); `pairs_inventory` lists every `pairs()` site in scope with its key class (int/string/identity); provenance check/coverage/bump pass on fixtures | 0 |
 | **U0** skeleton | everything (signatures, census) | every `[U0]` file in §2.1; `pob-extract/src/compile.rs`; `docs/port/{stages.toml,scope.toml,STYLE.md,contracts.md,known_diffs.toml,pairs_inventory.md}`; one stub per unit-owned file with final signatures, `@pob` markers and `unported!` bodies | P1-P4 | `cargo.sh check -p pob-lua -p pob-gamedata -p pob-modparser -p pob-calc` green; wasm32 check green; `compile` reports zero unknown keys and `data.bin` loads in < 1 s; `registry_complete` lists every manifest id; `provenance coverage` = 100%; the patched oracle with every stage loads; `buildOutput` on slice5 runs end to end on stubs without panicking (`tests/u0_smoke.rs`) | 1 |
 | **T1** transpiler | ModParser table syntax; `apply = function(val, modList, enemyModList)` forms | `scripts/port/lua2rs/**` | P4 | formList, modNameList and modFlagList translate to compiling Rust; ≥ 80% of ConfigOptions applies and ≥ 95% of static plus one-line specialModList entries translate; golden tests | 1 |
-| **MS-A** ModStore/DB/List | ModStore.lua 1-362; ModDB.lua 1-370; ModList.lua 1-249 | `pob-calc/src/classes/{mod_store,mod_db,mod_list}.rs` | U0 | L3 for all non-tag paths; ScaleAddMod/ScaleAddList aura scaling on all57; Replace/Convert parent recursion; no ModList globalLimits; `HasMod` on a ModList raises LuaError; Max returns nil for all values ≤ 0 | 2 |
+| **MS-A** ModStore/DB/List | ModStore.lua 1-362; ModDB.lua 1-370; ModList.lua 1-249 | `pob-calc/src/classes/{mod_store,mod_db,mod_list}.rs` | U0 | L3 for all non-tag paths; ScaleAddMod/ScaleAddList aura scaling on all57; Replace/Convert parent recursion; no ModList globalLimits; `HasMod` on a ModList raises LuaError; Max returns nil for all values ≤ 0 (gated once MS-B's EvalMod lands, CCR-0014 §4) | 2 |
 | **MS-B** EvalMod | ModStore.lua 363-971 | `pob-calc/src/classes/eval_mod.rs` | MS-A (signatures) | L3 full matrix 100% on all57; `tag.div` no-reader proof; **gate G1a** | 2 |
 | **CT** calc tools | CalcTools.lua 1-303; CalcBreakdown.lua 1-255; CalcBase.lua 1-93; CalcFormat.lua 1-74; ModTools.lua 1-258; Common.lua 477-560, 897-962; Data.lua 52-93, 1033-1046 | `pob-calc/src/modules/{common,calc_tools,calc_breakdown,calc_base,calc_format,mod_tools_env}.rs`, `pob-gamedata/src/{mod_tools,skill_stat_map}.rs` | U0 | canGrantedEffectSupportActiveSkill over all (support, skill) pairs; doesTypeExpressionMatch fuzz; buildSkillInstanceStats for every gem at levels {1, 20, 21} × quality {0, 20}; formatMod identical on ModCache; statMapLookup = Lua `statMap[stat]` for all skills × stats; cacheSkillUUID on the corpus; breakdown helpers byte-equal on dumped inputs | 2 |
 | **MP0** parser core | ModParser.lua 1-71, 2011-2129, 5943-6150, 6616-7021 | `pob-modparser/src/{helpers,scan,mod_cache,generated_lists}.rs` | U0 | ModCache tier serves 100% of cached lines; scan tie-break matches every non-full-tie in `parse_oracle`; whole-parser L1 once MP1-6 land | 2 |
@@ -1678,9 +1722,9 @@ A **wave** is a dependency level: it lists what *may* run in parallel. It does n
 | **MP2** flags + tags | ModParser.lua 913-2010 | `pob-modparser/src/{mod_flag_list,pre_flag_list,mod_tag_list}.rs` | U0, T1 | as MP1; each of the 143 closures checked against LuaJIT on sample captures | 2 |
 | **LUT** timeless/abyss | DataLegionLookUpTableHelper.lua 1-262; DataAbyssJewelLookUpTableHelper.lua 1-275; DataJewelFileLoader.lua 1-95 | `pob-gamedata/src/timeless_lut.rs` | U0 | `readLUT`/abyss component results identical for every jewel type × 200 seeds × all affected nodes | 2 |
 | **PT** PassiveTree | PassiveTree.lua 1-908, 1041-1062; Data.lua 583-600 (setJewelRadiiGlobally) | `pob-calc/src/classes/passive_tree.rs` | U0, MP0 | L2: every node's fields, modList, modKey, positions (1e-9), nodesInRadius for all 41 versions | 2 |
-| **IT-A** Item ParseRaw | Item.lua 424-1645 | `pob-calc/src/classes/item_parse.rs` | U0, MP0 | L2 ParseRaw fields for every unique (all variants) and corpus item | 2 |
+| **IT-A** Item ParseRaw | Item.lua 424-1645; Common.lua 1110-1116 (`escapeGGGString`, CCR-0025 §6) | `pob-calc/src/classes/item_parse.rs` | U0, MP0, IT-B (CCR-0025 §5) | L2 ParseRaw fields for every unique (all variants) and corpus item | 2 |
 | **IT-B** Item core | Item.lua 1-423, 1646-2191; ItemSlotHelper.lua 1-40; Utils.lua 1-125 | `pob-calc/src/classes/item.rs` | U0 | `BuildRaw(ParseRaw(x))` text equals Lua; NormaliseQuality, variants, GetPrimarySlot, FindModifierSubstring | 2 |
-| **BM-B** skills/party/config model | SkillsTab.lua 441-630, 1129-1274, 1478-1502; PartyTab.lua 516-669, 718-1042; ConfigTab.lua 839-1129 | `pob-calc/src/model/{skills_tab,party_tab,config_tab}.rs` | U0 | socketGroupList after UpdateSocketGroups equals the oracle on the corpus; ParseBuffs mod lists equal; config Load/Save round trip | 2 |
+| **BM-B** skills/party/config model | SkillsTab.lua 441-630, 1129-1274, 1478-1502; PartyTab.lua 516-669, 718-1042; ConfigTab.lua 839-1129; model halves (CCR-0019 §1): SkillsTab.lua 323-349, 1103-1127, 1275-1278, 1452-1475; ConfigTab.lua 672-692 (`defaultState`, `varControls`: `ConfigTab::ctor_controls_model`, CCR-0037/CCR-0080 §1), 1280-1300, 1337-1362; PartyTab.lua 22-36 | `pob-calc/src/model/{skills_tab,party_tab,config_tab}.rs` | U0 | socketGroupList after UpdateSocketGroups equals the oracle on the corpus; ParseBuffs mod lists equal; config Load/Save round trip | 2 |
 | **ORC-X** inject/replay | — | `pob-oracle/src/{inject,replay,testkit}.rs`, `pob-calc/src/probe.rs`; the legacy `Mod` → `pob_gamedata::Mod` conversion, then deletion of `pob-oracle/src/{legacy_modifier,legacy_modifier_serde}.rs` and `pob-oracle/src/lua/lua_pattern.rs` (AMENDMENTS A1, CCR-0011 §11) | U0, P3, MS-A (AddMod) | identity round trip (Lua dump → inject → Rust export = dump) at `initEnv:out`, `perform:in` and `offence:in` for all57; replay of `offence`/`runSkillFunc` deltas; the legacy copies are gone and nothing outside pob-oracle used them | 2 |
 | **MP3-MP6** specialModList | ModParser.lua 2130-3083 / 3084-4036 / 4037-4988 / 4989-5942 | `pob-modparser/src/special_{a,b,c,d}.rs` | U0, T1, MP2 (ModSpec helpers) | L1: every entry in range hit and matching; after MP6, whole-parser L1 ≥ 99.95% with the cache disabled | 3 |
 | **MP7** jewel funcs | ModParser.lua 6151-6615 | `pob-modparser/src/jewel_func_list.rs`, `pob-calc/src/modules/jewel_funcs.rs` | MP0, MS-A | per func: PoB vs Rust on every node of the 3_26 tree → identical `out` ModList and `data` table | 3 |
@@ -1688,7 +1732,7 @@ A **wave** is a dependency level: it lists what *may* run in parallel. It does n
 | **PS-A** PassiveSpec core | PassiveSpec.lua 1-1091 | `pob-calc/src/classes/passive_spec.rs` | PT | Load/Save, URL decode/encode, alloc and paths equal the oracle on the corpus | 3 |
 | **PS-B** depends/paths | PassiveSpec.lua 1092-1696 | `pob-calc/src/classes/passive_spec_paths.rs` | PS-A, LUT | L2 BuildAllDependsAndPaths: conquered/timeless/abyss rewrites on the corpus + 60 synthetic timeless builds | 3 |
 | **PS-C** clusters | PassiveSpec.lua 1697-2494 | `pob-calc/src/classes/passive_spec_cluster.rs` | PS-A | L2 subgraph ids, mods and legacy remap on cluster builds | 3 |
-| **BM-A** build XML + items/tree tabs | Build.lua 976-1099, 2222-2335; ItemsTab.lua 1216-1727, 2998-3010; TreeTab.lua 500-560; CalcsTab.lua 163-225; runtime/lua/xml.lua 1-186 | `pob-calc/src/model/{build_xml,items_tab,tree_tab,calcs_tab,xml}.rs` | IT-A, IT-B, PS-A, BM-B | all57 load; save→load round trip; a Rust-saved XML loaded in LuaJIT PoB gives identical outputs | 3 |
+| **BM-A** build XML + items/tree tabs | Build.lua 976-1099, 2222-2335; ItemsTab.lua 1216-1727, 2998-3010; TreeTab.lua 500-560; CalcsTab.lua 163-225; runtime/lua/xml.lua 1-186; model halves (CCR-0080 §1): Build.lua 64-110, 603-698 (`build_xml::Init_model`); ItemsTab.lua 37, 70-74, 101-108, 140-235, 1196-1215, 2560-2605, 2978-2993; ItemSlotControl.lua 21-123; TreeTab.lua 26-38; CalcsTab.lua 24-45, 147-150, 370-375; CalcSectionControl.lua 20-49; SkillsTab.lua 89, 95-96, 423-426; ConfigTab.lua 1205-1240 (`ImportCalcSettings`, CCR-0080 §6) | `pob-calc/src/model/{build_xml,items_tab,tree_tab,calcs_tab,xml}.rs` | IT-A, IT-B, PS-A, BM-B | all57 load; save→load round trip; a Rust-saved XML loaded in LuaJIT PoB gives identical outputs | 3 |
 | **CO-A** config apply A | ConfigOptions.lua 1-1188 | `pob-calc/src/modules/config_options/apply_a.rs` | MS-A, MP0, T1 | every option in range × {default, 3 non-defaults} → identical modList/enemyModList (apply probe) | 3 |
 | **CO-B** config apply B | ConfigOptions.lua 1189-2380 | `pob-calc/src/modules/config_options/apply_b.rs` | as CO-A | as CO-A | 3 |
 | **CO-C** BuildModList + ModMap | ConfigTab.lua 1130-1204; Data/ModMap.lua 1-441 | `pob-calc/src/model/config_build_mod_list.rs`, `pob-calc/src/modules/mod_map.rs` | BM-B, CO-A/B (registry only) | `configTab.modList`/`enemyModList` equal (order included) on the corpus + all-vars synthetic builds | 3 |
@@ -1712,7 +1756,7 @@ A **wave** is a dependency level: it lists what *may* run in parallel. It does n
 | **OF-F** | CalcOffence.lua 3346-3955 (pass body B), 3956-4154 | `calc_offence/hit_dps.rs` | OF-C (combineStat sig) | L4 `3346#p`→ next pass / `4155` | 3 |
 | **OF-G** | CalcOffence.lua 4155-4989 | `calc_offence/ailments_a.rs` | OF-A (sigs) | L4 `4155`→`4990#p` | 3 |
 | **OF-H** | CalcOffence.lua 4990-5648 | `calc_offence/ailments_b.rs` | OF-G (closure sigs) | L4 `4990#p`→ next pass / `5649` | 3 |
-| **OF-I** | CalcOffence.lua 5649-6263 | `calc_offence/dot_combined.rs` | OF-C (sigs) | L4 `5649`→`offence:out`; CombinedDPS/TotalDot strict on dps30 | 3 |
+| **OF-I** | CalcOffence.lua 5649-6263 | `calc_offence/dot_combined.rs` | OF-C (sigs); OF-A, DF-A (callees `calcResistForType`, `applyDmgTakenConversion`, for the full L4 gate; CCR-0064 §2) | L4 `5649`→`offence:out`; CombinedDPS/TotalDot strict on dps30 | 3 |
 | **CS0** | CalcSetup.lua 1-474 | `calc_setup/{init_mod_db,node_mods,support}.rs` | MP7, PT, CT | function probes: initModDB, buildModListForNode(List), wipeEnv, applyGemMods, applySocketMods, addBestSupport | 4 |
 | **CS1** | CalcSetup.lua 488-799; PantheonTools.lua 1-18 | `calc_setup/init_env_base.rs` | CS0, CO-C, BM-B | L4 `488`→`800` | 4 |
 | **CS2** | CalcSetup.lua 800-1450 | `calc_setup/init_env_items.rs` | CS0, IT-C, PS-B, PS-C | L4 `800`→`1451`, incl. the Restart path (extraJewelFuncs) and toggleFlask/repItem overrides | 4 |

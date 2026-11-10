@@ -697,7 +697,7 @@ pub fn formatSourceMod(m: &Mod) -> String {
 /// @pob Modules/ModTools.lua:239-245 h=4822ac80
 /// Returns the re-sourced copy (ModTools.lua:239-246 mutates; §3.6: callers
 /// pass a fresh copy or a mod under construction, except `mergeKeystones`,
-/// CCR-0014).
+/// CCR-0091).
 pub fn setSource(m: &Mod, source: &str) -> Mod {
     let mut r#mod = m.clone();
     // L240

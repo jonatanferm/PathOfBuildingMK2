@@ -1,6 +1,8 @@
 # CCR-0088: U15 — inject bound to the live build model (socket groups, gem instances, items), several documents per registry
 
-Status: proposed by U15 (2026-11-10). Not blocking: U15 works around both items locally
+**Status: needs code (CCR2, 2026-11-10; ORC-X2). See AMENDMENTS A8.**
+
+Filed status: proposed by U15 (2026-11-10). Not blocking: U15 works around both items locally
 (`crates/pob-ui-oracle/src/lua_calc.rs`, marked `// CCR-0088`).
 
 ## 1. Socket groups, gem instances and items are injected as copies

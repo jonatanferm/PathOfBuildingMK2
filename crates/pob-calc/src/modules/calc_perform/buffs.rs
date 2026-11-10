@@ -5,7 +5,7 @@
 //!
 //! Owner: PF-E.
 //!
-//! Shared-mod writes (CCR-0034): Lua writes into mods it does not own at two sites. The port
+//! Shared-mod writes (CCR-0094): Lua writes into mods it does not own at two sites. The port
 //! builds a new mod and puts it where Lua's write is visible to the code that follows:
 //! - 2380-2384 `warcryBuff[1].warcryPowerBonus = …` (CCR-0014 §3): the rebuilt mod replaces
 //!   the entry of `buff.modList` (every later read in the segment goes through that list).
@@ -204,7 +204,7 @@ fn main_skill(env: &EnvRef) -> ActiveSkillRef {
 /// `buffs[name].notBuff = true` (CalcPerform.lua 2331, 2810, 2834): `buffs[name]` is the
 /// ModList `mergeBuff` created. CCR-0030 #7 (`ModStore.notBuff`) is not applied, so the key
 /// is kept where the probe export reads it (the registry's side fields of a store, which
-/// injection also fills); without the probe feature it is dropped (CCR-0034 §3).
+/// injection also fills); without the probe feature it is dropped (CCR-0094 §3).
 fn set_notBuff(buffs: &Table, name: Name) {
     let Some(store) = buffs.obj::<ModStore>(name) else {
         lua_error!("attempt to index field '?' (a nil value)")
@@ -219,7 +219,7 @@ fn set_notBuff(buffs: &Table, name: Name) {
         r.keep(store.clone());
     });
     #[cfg(not(feature = "probe"))]
-    let _ = store; // CCR-0030 #7 / CCR-0034 §3
+    let _ = store; // CCR-0030 #7 / CCR-0094 §3
 }
 
 /// The merge loop that builds `extraAuraModList` (CalcPerform.lua 2448-2460; the same Lua at
@@ -337,7 +337,7 @@ fn warcry_power_bonus(m: &Mod) -> Option<f64> {
 /// `setSpectreSource(modList, sourceSkill)` (CalcPerform.lua 2780-2792, a closure over
 /// `activeSkill` and `castingMinion`): `modList[i].source = source` for every mod of the list.
 /// The rebuilt mods replace their originals in `modList` and in the lists that alias them
-/// (`buff.modList`, `extraAuraModList`; CCR-0034 §2).
+/// (`buff.modList`, `extraAuraModList`; CCR-0094 §2).
 fn setSpectreSource(
     activeSkill: &ActiveSkillRef,
     castingMinion: &ActorRef,
@@ -608,7 +608,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
                             // L2381
                             let Some(tag1) = warcryBuff.tags.first() else { continue };
                             if tag1.effectType.is_some_and(|e| e.as_str() == "Warcry") && tag1.div.is_some() {
-                                // L2382 (a write into the mod's first tag: CCR-0014 §3, CCR-0034 §1)
+                                // L2382 (a write into the mod's first tag: CCR-0014 §3, CCR-0094 §1)
                                 let div = tag1.div.unwrap_or_default();
                                 let bonus = m_floor(
                                     (match tag1.limit {

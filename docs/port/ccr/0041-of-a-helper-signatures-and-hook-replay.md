@@ -1,6 +1,8 @@
 # CCR-0041: OF-A — helper signatures that cannot say nil, and skill-hook replay for L4
 
-Status: proposed by OF-A (2026-11-09). §1 is worked around locally (frozen signature kept),
+**Status: applied 2026-11-10 by CCR2 (§2, §3: calc doc §7.2, §9.2); §1, §4, §5 need code. See AMENDMENTS A8.**
+
+Filed status: proposed by OF-A (2026-11-09). §1 is worked around locally (frozen signature kept),
 §2 is applied in OF-A's own file (no other caller), §3 adds a small probe hook to
 `crates/pob-calc/src/probe.rs` (cannot live in a test), §4 lives locally in
 `crates/pob-oracle/tests/OF-A.rs` (`mod l4kit`) and is proposed for `pob_oracle::testkit`.
@@ -14,7 +16,7 @@ Lua (CalcOffence.lua:198-224): the four locals are declared without a value (200
 assigned inside `if radius > 0 then` (201-222), so a radius of 0 returns `nil, nil, nil, nil`.
 The callers pass them straight to `breakdown.area` (395, 408, 476; OF-B: 1316, 1400, 1408),
 which prints the breakpoint lines only when they are non-nil (CalcBreakdown.lua:106; CT already
-made `area`'s breakpoints `Option<f64>`, CCR-0014). The `radiusTertiaryBaseMargin` path
+made `area`'s breakpoints `Option<f64>`, CCR-0091). The `radiusTertiaryBaseMargin` path
 (461-465) feeds them to `m_min`, which raises on nil. A plain `f64` cannot carry that.
 
 ```diff

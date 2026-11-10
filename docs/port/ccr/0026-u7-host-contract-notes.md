@@ -1,6 +1,8 @@
 # CCR-0026: U7 host contract notes (Net completions decision, OAuth/HttpRequest gaps, `.pobscript` placeholders, pacing)
 
-Unit: **U7** (host). Status: **pending** (code on `port/U7` already follows it; the ui doc does not yet).
+**Status: applied 2026-11-10 by CCR2 (A, B, D, E, F, G: ui doc §2, §4.6, §5.2, §13 item 11); C needs code. See AMENDMENTS A8.**
+
+Unit: **U7** (host). Filed status: **pending** (code on `port/U7` already follows it; the ui doc does not yet).
 Sources checked: SimpleGraphic `3b1a346` (`ui_main.cpp`, `sys_video.cpp`, `sys_main.cpp`, `ui_console.cpp`),
 PoB v2.67.2 `Launch.lua`, `LaunchServer.lua`, `Classes/PoEAPI.lua`.
 

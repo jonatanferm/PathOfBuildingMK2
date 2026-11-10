@@ -1,6 +1,8 @@
 # CCR-0073 (U10): Tooltip contract notes (ui doc §6.9)
 
-Unit: U10 (Tooltip, TooltipHost). Status: proposed. Number: next free at the time of writing
+**Status: applied 2026-11-10 by CCR2 (B, C, E: ui doc §6.9, §13 item 12); A and D need code. See AMENDMENTS A8.**
+
+Unit: U10 (Tooltip, TooltipHost). Filed status: proposed. Number: next free at the time of writing
 (0070/0071 may be taken by unmerged branches; renumber on collision). Every item is worked
 around inside U10's own files (`crates/pob-ui-core/src/tooltip/{tooltip,host}.rs`), marked
 `// CCR-0073`.

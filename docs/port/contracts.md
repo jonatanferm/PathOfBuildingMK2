@@ -2,7 +2,7 @@
 
 Owned by U0. This is the reference for the contract files U0 froze (calc doc §2.1 `[U0]`) and the
 censuses the doc asks U0 to record. Where this file and calc-architecture.md disagree, this file
-and the CCRs it cites win (CCR-0011 lists every deviation from the doc text, with evidence).
+and the CCRs it cites win (CCR-0011 lists every deviation from the doc text, with evidence; AMENDMENTS A8 lists the CCRs CCR2 applied and the ones that still need code).
 Changes go through a CCR (§10.3). Pin: PathOfBuilding 16de4b82d.
 
 ## Where the contracts live
@@ -145,7 +145,22 @@ mod table (U0 grep of `mod.value/source/name/type/flags/sourceSlot =`, `mod[i] =
 | PartyTab.lua 737, 869-884 | `parseFormattedSourceMod` creates them |
 | PantheonTools.lua 13 | `modParser(line)` returns copies (`unpack(copyTable(cache[line]))`) |
 
-No site mutates a shared mod. A unit that finds another site files a CCR before porting.
+The U0 audit missed the sites below, where Lua **does** write into a mod (or tag) that other holders share. Each is ported as "rebuild the mod and replace it where the branch reads it afterwards" or "add a re-sourced copy"; other holders of the Lua table keep the old value, which is a recorded difference (no calc output depends on it unless noted):
+
+| Site | Shared target | Port |
+|---|---|---|
+| ModTools.lua 254-255 (`mergeKeystones`: `modLib.setSource(mod, …)` on `tree.keystoneMap[k].modList` mods) | the keystone node's own mod, shared by every spec on that tree | a re-sourced copy is added; the node's mod keeps its source (CT, CCR-0091 §4). Observable: a later tree allocation of an item-granted keystone shows the item's source in PoB (Calcs source columns, `source`-filtered queries) |
+| CalcPerform.lua 629 (`applyEnemyModifiers`: `setSource(value.value.mod, …)`) | the inner mod of the actor's `EnemyModifier` LIST mod | the very `Arc` when the source is unchanged, else a re-sourced copy; the identity cache keys on the original `Arc` (PF-A, CCR-0085 §3) |
+| CalcPerform.lua 1951-1952 (`setSource(copyTable(mod, true), …)`: shallow copy) | `mod.value.mod` of the EnemyModifier payload | a re-sourced copy (PF-D, CCR-0093 §4) |
+| CalcPerform.lua 2380-2384 (`warcryBuff[1].warcryPowerBonus = …`) | the first tag of a warcry buff mod inserted without a copy (CalcActiveSkill.lua:862), shared with the stat map and PoB's parser cache | the mod is rebuilt with `tags[0].extra.warcryPowerBonus` and replaces the entry of `buff.modList`; readers (2398, 2411; PF-F 3090, 3099) use `tag.extra_get("warcryPowerBonus")` (PF-E, CCR-0094 §1, CCR-0014 §3; the cross-env leak through `mergeLevelCache` is PoB behaviour a fresh Rust env does not reproduce, CCR-0083 §7) |
+| CalcPerform.lua 2788-2790 (`setSpectreSource`: `modList[i].source = source`) | the mods `AddList`/`ScaleAddList(…, 1)` share with `buff.modList` and `extraAuraModList` | each mod is rebuilt and replaced in the list it was given and in the aliases the branch reads afterwards (PF-E, CCR-0094 §2) |
+| CalcPerform.lua 3879-3897 (mine aura pre-stacking) | a deep copy of the aura entry whose `modList` becomes a plain table | PF-G rebuilds the changed mods and gives the copy a fresh list (CCR-0077 notes) |
+| CalcSetup.lua 424 (`applySocketMods`: `setSource(value.value, …)`) | the mod held by the stored `SocketProperty` value, also added to `env.player.modDB` | a re-sourced copy per call; each instance keeps its own call's source, PoB's all end with the last one (breakdown labels only; CS0, CCR-0074 §4) |
+| Item.lua 2556-2560 (`mod.source = …` on a mod line's `modList`) | fresh `parseMod` copies held by the mod line | IT-C replaces the entry with a new `Mod` (CCR-0025 §2) |
+| ModParser.lua 6473-6474 (`getThreshold`: `value.mod.source = data.modSource` into its upvalue after `copyTable(baseMod)`) | the closure's shared `baseMod` | reproduced (`LUA-ALIAS`): a thread-local keyed by the closure's baseMod, so each finish call's copy carries the previous call's source (MP7, CCR-0039 §5) |
+| ModParser.lua 6860 (DOUBLED form writes `modName[2]` into a shared modNameList table) | the modNameList entry | reproduced (`LUA-ALIAS`): a thread-local override per entry (MP0, CCR-0092 §4) |
+
+A unit that finds another site files a CCR before porting.
 
 ## modstore
 
@@ -155,6 +170,15 @@ table) and `specCopy` on freshly created stores (Common.lua:527-540), which port
 fresh, unaliased tables. The struct's `mods` storage is private to the MS-A files. The method
 signatures are in `classes/mod_store.rs` (shared), `mod_db.rs` (`*_DB`), `mod_list.rs` (`*_List`)
 and `eval_mod.rs`.
+
+As built (CCR-0014, CCR-0015, CCR-0063, CCR-0040 §4, CCR-0061 §2, CCR-0085 §2; the open items are AMENDMENTS A8 needs-code):
+
+- `StoreMods::DB` is still an `AHashMap`, so the Rust-only accessors `all_mods`/`mod_names` return ModDB names sorted bytewise (no Lua query observes the order; CCR-0014 §1 proposes an `IndexMap`).
+- The enemy actor (`{ modDB = env.enemyDB, level = env.enemyLevel }`, CalcSetup.lua:519-522) has no `activeSkillList` and no `itemList` in Lua; the Rust `Actor` always has both. Accepted divergences: `GetStat("ManaReservedPercent" | "LifeReservedPercent")` on the enemy raises in PoB and returns 0 in Rust; an `allSlots` ItemCondition on the enemy raises in PoB (CCR-0014 §2, CCR-0015 §3; counted by the MS-A/MS-B tests). A non-`allSlots` ItemCondition on the enemy with a cfg carrying `item` is a real value difference no corpus mod reaches; the type change (`Actor.itemList: Option`, `MinionData.monsterTags: Option`) is escalated in A8.
+- `GetStat`'s final branch is guarded (ModStore.lua:355): an actor-less store returns the cfg value or 0; only `ManaReservedPercent`, `LifeReservedPercent`, `ManaUnreserved` raise (CCR-0015 §2, retracted).
+- `NewMod`/`ReplaceMod` take `source: &str`; a Lua call without a source (nil `mod.source`) is ported as `AddMod(Arc::new(createMod(…, None, …)))` (units' `NewMod_nosource`/`new_mod_no_source` helpers; CCR-0063, CCR-0094 §5).
+- ModList has no public `self[i]`, `self[i] = mod` or `t_remove(self, i)`; AS, IT-C and PF-A use crate-visible storage or rebuild the list (CCR-0040 §4, CCR-0061 §2, CCR-0085 §2).
+- `GlobalLimits` (`AHashMap`) and `GetStat`'s `snapshot()` loops allocate; gate G1a's dhat half fails until CCR-0015 §6's two diffs land (A8).
 
 ## modcfg
 
@@ -217,6 +241,13 @@ and the oracle read/write; the rest are in each struct's `extra: Table`:
   masterySprites, overlay, power, reminderText, rsq, size, sprites, startArt, unknown, visited
   (`__index` is the overlay parent: `Node::tree`).
 
+**Representation conventions as built** (binding for every reader; CCR-0019, CCR-0024, CCR-0025, CCR-0032, CCR-0052, CCR-0061, CCR-0070, CCR-0072):
+
+- **Untyped fields** (`extra`) are stored under their Lua name with their Lua shape (`Val::Str/Num/Bool`, nil = absent, Lua tables as calc `Table`s with the Lua keys; CCR-0032 §2). Lua `nil` in a typed `Cell<f64>` is `NaN` (node positions `x/y/o/oidx/angle`, `curClassId`/`curAscendClassId`/`curSecondaryAscendClassId`, `gemInstance.level/quality`, `mainActiveSkill(Calcs)`, `build.mainSocketGroup`); arithmetic on such a nil raises (`lua_error!`), never computes with NaN (CCR-0024 §2, CCR-0052 §2, CCR-0019 §6, CCR-0083 §3). Nil in a typed `Option`-less string/bool keeps a `$<field>Nil` marker in `extra` where Save distinguishes it (`$labelNil`, `$includeInFullDPSNil`; CCR-0019 §6).
+- **Item** (IT-A/IT-B/IT-C): `affixes` = `Val::Obj(Rc<item::ItemAffixes>)` (`Item::affixes_table()`); `rareLikeUnique`, `enchantments`, `mutatedLines` = `Val::Obj` of the data `Arc` (`Item::rareLikeUnique_ref()`, `enchantments_ref()`, `mutatedLines_ref()`); `clusterJewel` = a `Table` copy with the Lua keys (`item_parse::clusterJewel_table`); a mod line's `modList` = a list `Table` of `Val::Mod`; `pendingAffixList[i].table` aliases `prefixes`/`suffixes`; `baseLines` insertion order = BuildRaw's `{base:…}` order; `prefixes`/`suffixes` entries `{ modId, range, fractured }` with `range` a number or a list (so `itemLib.applyRange`/`isModLineScalable` take `range: &Val`, CCR-0032 §4); the influence flags are in `Item.influences`; `item.corrupted` is `Cell<bool>` (false = nil), `shaper`/`elder` are read from `influences` (CCR-0015 §4); the Ring 3 slot list is `extra["$slotModList3"]` (`Item::slotModList3()`, CCR-0061 §1, until CCR-0030 #4); `sockets.colourAlwaysMatches` is `extra.colourAlwaysMatches`, cleared where Lua replaces or wipes `sockets` (CCR-0019 §7, CCR-0061 §3); `Item.name` is `""` where Lua has nil (`LUA-QUIRK`, CCR-0025 §4). `main.defaultItemAffixQuality` lives only in `item_parse::main_defaultItemAffixQuality()` (default 0.5; ItemTools' `formatModLine` and ItemsTab read it there, never a copy), `main.notSupportedModTooltips` / `launch.devModeAlt` in `item_tools` thread-locals (CCR-0025 §1, CCR-0061 §4).
+- **Tree nodes** (PT): a legion/tattoo node with a string id has `Node.id = NaN` and the string in `extra.id`; read ids with `passive_tree::node_id_val` (CCR-0024 §1). `nodesInRadius[i]` is `Val::Obj(Rc<LjIntMap<NodeRef>>)` built in Lua insertion order (`passive_tree::nodesInRadiusAt`); `attributesInRadius[i]` stays an empty `Table`. A node inside a dynamic table (`keystoneMap`, `notableMap`, `ascendancyMap`, `clusterNodeMap`, `masteryEffects`, `legion.nodes`, `tattoo.nodes`) is `Val::Obj(NodeRef)` (`passive_tree::node_val`, identity kept). Untyped raw tree keys stay in `node.extra`/`tree.extra` under their Lua names (`node.extra.extra` is Lua's `node.extra`). `node.sd` is a copy of the split `stats` (`node.extra.stats` keeps the raw list). The source order of `tree.nodes` is not in the dump yet: `new_PassiveTree` inserts ascending ids, so the old trees' `nodesInRadius` orders are not PoB's until CCR-0024 §5 lands (A8).
+- **Spec nodes** (PS-A): a shallow copy of the tree node (`passive_spec::new_spec_node`/`copy_node`): `Field` handles alias the tree node's tables, `linked` and `depends` are fresh, `extra` is a shallow copy plus `power = {}`, `Node::tree = Some(treeNode)`. A later write to the tree node is not seen through the spec node (only `masteryCache`, read through the tree node). `impl Drop for PassiveSpec` (and PS-C after removing subgraph nodes) replaces `linked`/`depends`/`path` with fresh values to break `Rc` cycles (CCR-0052 §1, §10; CCR-0072 §8). Untyped spec fields: `curClass`, `curAscendClass`, `curSecondaryAscendClass`, `clusterHashFormatVersion`, `ignoreAllocatingSubgraph`, `checkNodeLinks`, `legacyClusterNodeMapReverse` (`Table`), `legacyClusterNodeMap` (`Val::Obj(RefCell<LjIntMap<f64>>)`), `jewel_data`, `extended_hashes`, `__subGraphs_keys` (PS-C's `LjIntMap<()>` mirror of `subGraphs`' keys for `pairs` order) (CCR-0052 §7, CCR-0072 §4, §7). `subGraph.connectors` holds `{ node1, node2 }` link pairs; the tree view builds the connector objects from them (CCR-0072 §3). `node.conqueredBy` is a shallow `Table` copy of `jewelData.conqueredBy` per jewel and call (`conqueror` may be `Val::Data`; read by field; CCR-0070 §1). `main:LoadTree` is `passive_spec::main_LoadTree` (one thread-local `main.tree` cache; BM-A and the UI use it, CCR-0052 §8). `passive_spec::SpecStubs` is test plumbing only (CCR-0052 §12).
+
 ## model-census
 
 `build.<x>` reads in Calc*.lua / ConfigOptions / ConfigTab / ModMap: configTab (126), calcsTab
@@ -227,7 +258,16 @@ outputRevision, mainSocketGroup, latestTree, viewMode, data: all typed in `Build
 modList, enemyModList; `skillsTab.socketGroupList`, `imbuedSupportBySlot`, `displayGroup`;
 `itemsTab.items`, `orderedSlots`, `itemSets`, `activeItemSet`, `slots`, `itemSetOrderList`;
 `calcsTab.mainEnv`, `input`, `mainOutput`; `partyTab.actor`, `enableExportBuffs`,
-`enemyModList`. Build load from XML: `model::build_xml::loadBuildFromXML` (BM-A).
+`enemyModList`. Build load from XML: `model::build_xml::loadBuildFromXML` (BM-A, runs `Build:Init` completely incl. the first `calcsTab:BuildOutput`); `loadBuildModelFromXML -> Result` stops before it (CCR-0080 §9).
+
+As built (CCR-0019, CCR-0037, CCR-0080, CCR-0083, CCR-0040 §2, §6; the frozen-field additions they propose are A8 needs-code):
+
+- `configTab.varControls` is populated by `ConfigTab::ctor_controls_model(data)` (ConfigTab.lua 672-681; `Init_model` calls it after `ctor_model()`): one control-state table per option with a `var` (`_className`, `enabled`, `buf`, `state`, `placeholder`, `list`, `selIndex`). `SetPlaceholder(text, notify)` / `SelByValue` are CO-B's local helpers in `apply_b.rs` (CCR-0037, CCR-0038).
+- `configTab.input`/`placeholder` *are* the active set's tables (`ConfigTab::bind_active_set`); `configTab.defaultState` is `config_tab::defaultState(data)` (CCR-0019 §4-§5). `configSets[id] = { id, title, input, placeholder, customModsList }`.
+- `skillsTab.skillSets[id] = { id, title, socketGroupList }`, `socketGroupList` a `Val::Obj(Rc<Shared<Vec<SocketGroupRef>>>)`; `imbuedSupportBySlot[slot]` a `Val::Obj(Rc<GrantedEffectRef>)`; SkillsTab's saved UI settings live in `SkillsTab::ui_state()` (CCR-0019 §2, §9).
+- Socket group `extra`: `imbuedSupport`, `sourceItem`, `sourceNode`, `displayGemList` (a `Table` of `Val::Obj(GemInstanceRef)`); gem instance `extra`: `color`, `errMsg`, `new`, `naturalMaxLevel`, `reqStr/Dex/Int`, `matchesSocket`, `reqOverride`, `triggerChance`, `explodeSource`; skill effects' `socketQuality`, `enabled`, `req` (a number, CCR-0074 §6); `groupCfg.propertyModList` (the Tabulate rows as a Lua list). `effect.gemPropertyInfo` rows are `{ value = Val::from_value(row.value), mod = Val::Mod(row.mod) }` tables (CCR-0040 §6, CCR-0083 §4). `env.explodeSources` items/nodes go in `env.extra["explodeSources"]` until CCR-0030 #3 (CS2 writes, CS3 reads; CCR-0083 §2).
+- Party: `partyTab.actor.extra.{Aura, Curse, Warcry, Link}` (`{ [type] = { [name] = entry, Vaal = {…} }, limit = n }`), an entry `{ modList = Val::Obj(Rc<ModStore>), effectMult, isMark }`; `partyTab.extra.{controls, lastContent}`; `PartyTab::ParseBuffs(build, list: BuffList::{Store, Table}, buf, buffType, label: Option<&Table>)` (CCR-0019 §3, §9). `mergeBuff`'s `destTable[destKey]` is a `Val::Obj` ModList (CCR-0085 §1).
+- Build/ItemsTab/TreeTab/CalcsTab fields the frozen structs lack (`characterLevelAutoMode`, `timelessData`, `importLink`, `xmlSectionList`, `dbFileName`, `buildName`, `showStatDifferences`, `statSortSelectionList`, `showConvert`, `calcsTab.sectionList`) live in `build_xml::build_extra(build)` and per-tab side tables with public accessors (CCR-0080 §2-§3). A slot is a `Table` with the `ItemSlotControl` fields the model reads (`slotName`, `slotNum`, `label`, `nodeId`, `weaponSet`, `selItemId`, `active`, `inactive`, `parentSlot`, `abyssalSocketList`, `items`, `controls.activate.state`, the Rust-only `$shown`; CCR-0080 §1). `xml::ParseXML_root` keeps text runs; `xml.empty` reads as `children.is_empty()` (CCR-0080 §7). Item/item-set ids are `u32`: a non-integral or negative id raises naming CCR-0080 (§5).
 
 ## modspec
 

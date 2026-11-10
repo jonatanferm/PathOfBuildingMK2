@@ -1,6 +1,8 @@
 # CCR-0031: HYG1 — LuaJIT `#t` for `Table`, table constructors, test-input policy
 
-**Status: proposed (unit HYG1).** Everything below is already implemented on `port/HYG1`;
+**Status: applied 2026-11-10 by CCR2 (calc doc §3.2, §3.4, STYLE.md; AMENDMENTS A5). See AMENDMENTS A8.**
+
+**Filed status: proposed (unit HYG1).** Everything below is already implemented on `port/HYG1`;
 the orchestrator only needs to amend the doc text. No frozen signature changed: every item
 is an addition, and `LjIntMap<V>` keeps its exact API.
 

@@ -1,6 +1,8 @@
 # CCR-0020 (LUT): timeless/abyss LUT signatures, the LUT cache, file access and the `path` table
 
-**Status: proposed** (worked around in `crates/pob-gamedata/src/timeless_lut.rs`, marked `CCR-0020`).
+**Status: applied 2026-11-10 by CCR2 (calc doc §4.4); §7 superseded by CCR-0052 §4; §8 done by PS-B (CCR-0070 §4). See AMENDMENTS A8.**
+
+**Filed status: proposed** (worked around in `crates/pob-gamedata/src/timeless_lut.rs`, marked `CCR-0020`).
 
 - **Raised by:** LUT
 - **Affects:** `crates/pob-gamedata/src/timeless_lut.rs` (U0 stub signatures), `crates/pob-gamedata/Cargo.toml`

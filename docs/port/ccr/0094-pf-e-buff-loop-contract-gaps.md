@@ -1,10 +1,12 @@
-# CCR-0034: PF-E — shared-mod writes in the buff loop, `notBuff`, and two frozen signatures
+# CCR-0094: PF-E — shared-mod writes in the buff loop, `notBuff`, and two frozen signatures
 
-Status: proposed by PF-E (2026-11-09)
+**Status: applied 2026-11-10 by CCR2 (§1, §2 contracts.md#mod-mutation; §3 = CCR-0030 #7, §4 superseded by CCR-0085 §1); §1's Tag field and §5 (= CCR-0063) need code. Renumbered from 0034 by CCR2 (0034 stays U4's). See AMENDMENTS A8.**
+
+Filed status: proposed by PF-E (2026-11-09)
 
 Unit PF-E ports CalcPerform.lua 2308-2996 (`crates/pob-calc/src/modules/calc_perform/buffs.rs`).
 Five places where the Lua does something the frozen contracts cannot say directly. Each is
-worked around inside `buffs.rs` (marked `CCR-0034 §n`); nothing outside PF-E's files is edited.
+worked around inside `buffs.rs` (marked `CCR-0094 §n`); nothing outside PF-E's files is edited.
 
 ## §1 `warcryPowerBonus`: a tag write into a mod PF-E does not own (CCR-0014 §3)
 

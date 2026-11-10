@@ -1,6 +1,8 @@
 # CCR-0079: PF-C — mergeFlasks/mergeTinctures upvalues, callee replay, L4 test-environment gaps
 
-Status: proposed by PF-C (2026-11-09)
+**Status: applied 2026-11-10 by CCR2 (§6 superseded by CCR-0085 §1, §7 = CCR-0030 #5); §2-§5, §8 need code; §1 escalated (AMENDMENTS A8 E4). See AMENDMENTS A8.**
+
+Filed status: proposed by PF-C (2026-11-09)
 
 Unit PF-C ports `calcs.perform` segment 1289-1942 (`calc_perform/setup_flasks.rs`). Items §1 and
 §6 are gaps in U0's frozen contracts that the port works around locally (`// CCR-0079`); §2-§5

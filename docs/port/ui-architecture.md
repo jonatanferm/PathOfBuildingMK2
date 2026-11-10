@@ -55,7 +55,7 @@ The calc port (ModParser, CalcSetup/Perform/Offence/Defence, the model classes) 
 
 ## 2. SimpleGraphic semantics (verified; binding on `pob-sg`)
 
-Sources: PoB-SimpleGraphic, mainly `ui_api.cpp`, `engine/render/r_main.cpp`, `r_font.cpp`, `r_texture.cpp`, `ui_main.cpp`, `engine/system/win/sys_video.cpp`, `sys_main.cpp` and `engine/common/common.cpp`. Line numbers refer to the research copy, which is master. U1 pins commit `3b1a346`, re-verifies every row there, and records any difference in `docs/port/ui/sg-semantics.md`. An older copy (`old/`, which still has `SetBlendMode` and the stack-mask arguments that the DLL's strings also show) was spot-checked and agrees on SetDrawLayer, SetViewport, DrawString height and colour handling, and GetCursorPos.
+Sources: PoB-SimpleGraphic, mainly `ui_api.cpp`, `engine/render/r_main.cpp`, `r_font.cpp`, `r_texture.cpp`, `ui_main.cpp`, `engine/system/win/sys_video.cpp`, `sys_main.cpp` and `engine/common/common.cpp`. Line numbers refer to the research copy (master @ 8694a07) unless a row says `@3b1a346`. U1 re-verified every row at the pinned commit `3b1a346`; `docs/port/ui/sg-semantics.md` gives the pinned line numbers and the differences (CCR-0021). Where that file and this table disagree, the file wins. An older copy (`old/`, which still has `SetBlendMode` and the stack-mask arguments that the DLL's strings also show) was spot-checked and agrees on SetDrawLayer, SetViewport, DrawString height and colour handling, and GetCursorPos.
 
 | Topic | Exact behaviour | Source |
 |---|---|---|
@@ -63,32 +63,32 @@ Sources: PoB-SimpleGraphic, mainly `ui_api.cpp`, `engine/render/r_main.cpp`, `r_
 | `GetDrawLayer` | Returns **only the subLayer** (PoB uses it only in commented code, `Tooltip.lua:474`). | `r_main.cpp:1486` |
 | Frame start | `curLayer = layerList[0]` (0,0), then `SetViewport()` (full screen, recorded into layer 0), then `DrawColor()` = white. | `r_main.cpp:1020-1023` |
 | Ordering | `qsort` by `(layer, subLayer)`. Keys are unique, so the order is deterministic. A queue replays in submission order. | `r_main.cpp:1028-1042, 1122` |
-| Viewport | `x, y = lround(v*dpi)`, `w, h = ceil(v*dpi)`; `v` is a double and `dpi` a float, so the product is a double. If the resulting `height == 0`, width and height become full screen while x and y are kept. The command goes into the current layer only. At batch time quads are translated by `vp.lo` and scissored to the viewport. | `ui_api.cpp:793-815`, `r_main.cpp:1491-1501`, `:438-447`, `:500-505` |
+| Viewport | `x, y = lround(v*dpi)`, `w, h = ceil(v*dpi)`; `v` is a double and `dpi` a float, so the product is a double. If the resulting `height == 0`, width and height become full screen while x and y are kept. The command goes into the current layer only. At batch time each vertex carries the viewport; the shader translates by `vp.xy` and discards fragments outside `[x, x+w) × [y, y+h)` (no `glScissor`; a negative size discards everything). Culling is inclusive, in screen space (CCR-0021). | `ui_api.cpp:790-812`, `r_main.cpp:1711-1723`, `:282-319`, `:501-553`, `:805-838` @3b1a346 |
 | Consequence | Every quad's effective viewport is the `curViewport` current when it was submitted, because a layer switch re-emits it. A snapshot model of the trace is therefore exact. | derived |
-| DrawImage | Argument count must be 5, 6, 9 or 10. A nil image binds `@white`, an 8×8 grey 0xFF texture. A handle with nothing loaded is a Lua error. Position is `(float)val * dpi`, computed in float. The quad corners are TL, TR, BR, BL with UVs `(l,t),(r,t),(r,b),(l,b)`. **Every** call appends BIND + COLOR(drawColor) + QUAD, with no deduplication. | `ui_api.cpp:880-977`, `r_main.cpp:1532-1563` |
-| DrawImageQuad | Argument count 9, 10, 17 or 18. Default UVs are `(0,0),(1,0),(1,1),(0,1)`. Otherwise the same as DrawImage. | `ui_api.cpp:979-1077` |
+| DrawImage | Argument count must be 5, 6, 7, 9, 10 or 11 (stack index at 6/10, mask at 7/11; PoB uses neither; CCR-0021). A nil image binds `@white`, an 8×8 grey 0xFF texture. A handle with nothing loaded is a Lua error. Position is `(float)val * dpi`, computed in float. The quad corners are TL, TR, BR, BL with UVs `(l,t),(r,t),(r,b),(l,b)`. **Every** call appends BIND + COLOR(drawColor) + QUAD, with no deduplication. | `ui_api.cpp:880-977`, `r_main.cpp:1532-1563` |
+| DrawImageQuad | Argument count 9, 10, 11, 17, 18 or 19 (CCR-0021). Default UVs are `(0,0),(1,0),(1,1),(0,1)`. Otherwise the same as DrawImage. | `ui_api.cpp:979-1077` |
 | SetDrawColor | `(r,g,b[,a])`, where a nil or missing alpha means 1. With a string argument `"^N"`/`"^xRRGGBB"` (the `x` may be upper or lower case), alpha is forced to 1. Updates `lastColor`. | `ui_api.cpp:817-865`, `common.cpp:201-245` |
 | GetDrawColor | Returns `lastColor`. That is updated by SetDrawColor **and after every DrawString** (from the renderer colour after escapes). | `ui_api.cpp:867-878, 1115-1121` |
 | **Escape leak** | DrawString passes `col = NULL`, so the font draws with the renderer's own `drawColor` array. Each `^N`/`^xRRGGBB` overwrites the **persistent** draw colour with alpha forced to 1, and emits COLOR. Later DrawImage calls use the last escape colour. Lines that are off screen still process their escapes. An empty string emits nothing. | `r_main.cpp:1565-1581`, `r_font.cpp:326-336, 409-416, 436-439` |
 | Text height | `scaled = lround(h*dpi)`; `≤ 1` becomes 1, otherwise it rounds **up to even**, `(scaled+1) & ~1`. The same rule applies to DrawString, DrawStringWidth and DrawStringCursorIndex. | `ui_api.cpp:1095-1104, 1137-1146, 1166-1176` |
 | Atlas choice | `fontHeightMap[h]` picks the atlas whose height is `≥ h`, except that the upper `(gh-below-1)/2` heights of each gap map **up**. The effect is "nearest, ties to the lower", so 11→10, 29→28, 30→28, 31→32. Heights below 10 use 10; heights above 64 use 64. `scale = h / atlasH`. All 7 faces have 16 heights `{10,…,28,32,36,40,48,56,64}` × 128 glyphs. | `r_font.cpp:57-117, 288-319`; `.tgf` files |
-| Glyph advance | Draw: `x += spL*scale`; if `width > 0`, emit a quad `w = width*scale` (culled if `x+w < 0` or `x ≥ VSW`) and `x += w`; `x += spR*scale`; `x = ceil(x)`. Tab: `x += 4*(width+spL+spR of ' ')*scale`, **no ceil**. Width measurement: `w += (width+spL+spR)*scale; w = ceil(w)`, tab ×4 then ceil. The result is the max over lines (`\n`) as an int. | `r_font.cpp:143-203, 371-432` |
+| Glyph advance | Draw: BIND the glyph's atlas if it differs from the line's current one (before the glyph lookup and the cull; the current atlas resets for every line, so each drawn line starts with a BIND; tabs and escapes do not bind; CCR-0022), `x += spL*scale`; if `width > 0`, emit a quad `w = width*scale` (culled if `x+w < 0` or `x ≥ VSW`) and `x += w`; `x += spR*scale`; `x = ceil(x)`. Tab: `x += 4*(width+spL+spR of ' ')*scale`, **no ceil**. Width measurement: `w += (width+spL+spR)*scale; w = ceil(w)`, tab ×4 then ceil. The result is the max over lines (`\n`) as an int. | `r_font.cpp:143-203, 371-432` |
 | Alignment | `CENTER`: `floor((VSW - w)/2 + x)`. `RIGHT`: `floor(VSW - w - x)`. Here VSW is the **virtual screen width in physical px, not the viewport width**. `CENTER_X`: `floor(x - w/2)`. `RIGHT_X`: `floor(x - w)`. Then `x = round(x)` and `y = floor(y)`. A nil align means LEFT. A font index out of range means FIXED. | `r_font.cpp:339-369`, `ui_api.cpp:1092-1110` |
 | Line visibility | A line is skipped, but its escapes are still processed, if `y ≥ vid.size[1]` (the **window** height) or `y ≤ -height`. | `r_font.cpp:321-338` |
 | Non-ASCII | Text is decoded from UTF-8. A codepoint `≥ numGlyph` (128) is drawn as `"[U+XXXX]"` with the largest atlas at least 3 px smaller, scale 1, a y-pad of `ceil(diff/2)`. The tofu test comes **before** the escape test while drawing and after it while measuring. `DrawStringCursorIndex` returns a **byte** offset + 1. | `r_font.cpp:130-161, 288-302, 396-405`, `r_main.cpp:1617-1636` |
 | Lines | `\n` steps y by `height`. A multi-line cursor index walks lines while `curY > lineY`. | `r_font.cpp:263-286, 434-455` |
 | Screen / DPI | PoB always calls `RenderInit("DPI_AWARE")`. `GetScreenSize` returns the **framebuffer** size. `GetScreenScale` returns the override % / 100 if set, else the OS content scale. Lua `GetVirtualScreenSize` is `floor(fb/scale)` when `scale ~= 1` (`Common.lua:1118-1126`). `GetCursorPos` is `lround(cursorPhys / scale)`, int over float. `DrawStringWidth` returns `physW / scale`. | `ui_api.cpp:725-737, 1126-1205, 1481-1488`, `r_main.cpp:1638-1678` |
-| Textures | All UNORM. Load flags: `ASYNC`, `CLAMP`, `MIPMAP` (clears the default `TF_NOMIPMAP`) and `NEAREST`; any other flag is a Lua error. Min filter is LINEAR, or LINEAR_MIPMAP_LINEAR when there are mips. Mag filter is LINEAR, or NEAREST with `NEAREST`. Wrap is REPEAT unless `CLAMP`. Anisotropy up to 16. Font atlases use `TF_NOMIPMAP` and REPEAT. Images larger than the max texture size are downscaled. | `ui_api.cpp:395-436`, `r_texture.cpp:636-673` |
-| Missing file | Gets the 8×8 grey "default" texture, `fileWidth` stays 0, so `ImageSize()` is `(0,0)` and `IsLoading()` is `true` forever. | `r_texture.cpp:552-608` |
-| **ImageSize** | **Blocks** (sleeping 1 ms) until the header is parsed (`SIZE_KNOWN`), **for ASYNC loads too**. Lua therefore never sees `(0,0)` for an existing file. `IsLoading()` is `width == 0`. | `r_main.cpp:1419-1433`, `ui_api.cpp:455-485` |
+| Textures | All UNORM. Load flags: `ASYNC`, `CLAMP`, `MIPMAP` (clears the default `TF_NOMIPMAP`) and `NEAREST`; any other flag is a Lua error. Min filter is LINEAR, or LINEAR_MIPMAP_LINEAR when there are mips. Mag filter is LINEAR, or NEAREST with `NEAREST`. Wrap is REPEAT unless `CLAMP`. Anisotropy up to 16. Font atlases use `TF_NOMIPMAP` and REPEAT. A failed load's default texture is uploaded with `TF_NOMIPMAP` only (REPEAT, LINEAR, whatever was asked). Oversize images are not downscaled by SG (`BuildMipSet` only drops existing levels, `r_texture.cpp:398-431`); the wgpu backend's downscale is a harmless port addition (CCR-0023 E). | `ui_api.cpp:394-433`, `r_texture.cpp:620-707` @3b1a346 |
+| Missing file | Gets the 8×8 grey "default" texture, `fileWidth` stays 0, so `ImageSize()` is `(0,0)` and `IsLoading()` is `true` (a later `Load` of the same path and flags retries it, `ForceLoad`; CCR-0023 C). | `r_texture.cpp:553-608`, `:376-384` @3b1a346 |
+| **ImageSize** | **Blocks** (sleeping 1 ms) until the header is parsed (`SIZE_KNOWN`), **for ASYNC loads too**. Lua therefore never sees `(0,0)` for an existing file. `IsLoading()` is `width == 0`. | `r_main.cpp:1638-1652`, `ui_api.cpp:452-482` @3b1a346 |
 | Unuploaded texture | A texture that is not `DONE` (an ASYNC upload still pending) binds `@black`, an 8×8 RGBA all-zero (transparent) texture. Quads are still recorded; nothing is visible. | `r_texture.cpp:340-347` |
-| Shader / blend | `color = texture(uv) * tint`. Blend is `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`. The scene goes into an RGB render target at framebuffer size, then a full-screen blit. | `assets/gles/tinted_texture.*`, `r_main.cpp:483, 729, 982-1020` |
+| Shader / blend | `color = texture(uv) * tint`, fragments outside the viewport discarded. Blend is `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` (`RB_ALPHA`; `SetDrawLayer` and `BeginFrame` queue a BLEND command, PoB never changes the mode, so `Cmd` has no `Blend` variant and `Sg` only counts its bytes). The scene goes into an RGB render target at framebuffer size, then a full-screen blit (NEAREST for integer DPI scales, else LINEAR). The shaders are inline strings in `r_main.cpp` (CCR-0021). | `r_main.cpp:602-617, 784-843, 1166-1203` @3b1a346 |
 | Wheel | One OS scroll event gives `KeyDown` **and** `KeyUp` of `WHEELUP`/`WHEELDOWN`. | `sys_video.cpp:608-620` |
 | Double click | Same button within 500 ms and ±5 px. A detected double click resets the click memory, so a triple click yields dbl, single. Delivered as `OnKeyDown(key, true)`. | `sys_video.cpp:568-604`, `ui_main.cpp:526-528` |
 | Extra OnChar | Pressing **or repeating** Backspace, Tab, Enter or Escape also sends `OnChar` `"\b"`, `"\t"`, `"\r"`, `"\x1b"`, after the KeyDown. Key repeat re-sends `KeyDown`. | `sys_video.cpp:529-541`, `sys_main.cpp:343-357` |
-| Key names | `key < 128` → `"%c"` (letters arrive lowercase). Otherwise the `ui_keyNameMap` name: `LEFTBUTTON MIDDLEBUTTON RIGHTBUTTON MOUSE4 MOUSE5 WHEELUP WHEELDOWN BACK TAB RETURN ESCAPE SHIFT CTRL ALT PAUSE PAGEUP PAGEDOWN END HOME PRINTSCREEN INSERT DELETE UP DOWN LEFT RIGHT F1..F15 NUMLOCK SCROLLLOCK`. Anything else is `"?"`, so a non-ASCII OnChar delivers `"?"`. | `ui_main.cpp:16-61, 547-572` |
-| Swallowed keys | `KeyUp(F10)` (debug UI toggle) and `KeyUp(PAUSE)` with Shift held are **not** delivered to Lua. | `ui_main.cpp:530-541` |
-| Frame loop | 1) If not active, cursor not over the window, and no coroutine or subscript active: sleep 100 ms and skip the frame (frames always run for 10 frames after boot). 2) BeginFrame, then snapshot the cursor. 3) Run subscript completions (`OnSubFinished` etc.). 4) `OnFrame`. 5) EndFrame. 6) If inactive and idle, sleep 100 ms. Identical frames are skipped by an XXH3 command digest; this changes no pixels. | `ui_main.cpp:380-445`, `r_main.cpp:1202-1243` |
+| Key names | `key < 128` → `"%c"` (letters arrive lowercase). Otherwise the `ui_keyNameMap` name: `LEFTBUTTON MIDDLEBUTTON RIGHTBUTTON MOUSE4 MOUSE5 WHEELUP WHEELDOWN BACK TAB RETURN ESCAPE SHIFT CTRL ALT PAUSE PAGEUP PAGEDOWN END HOME PRINTSCREEN INSERT DELETE UP DOWN LEFT RIGHT F1..F15 NUMLOCK SCROLLLOCK`. `NameForKey` looks the number up by value and OnChar passes the codepoint, so OnChar of U+0080..U+00AA delivers a key name (`£` → `"F10"`, `§` → `"F14"`, NBSP → `"F7"`); codepoints `>= 171` deliver `"?"` (`pob_sg::Key::from_sg_code`; CCR-0021). | `ui_main.cpp:16-61, 523-525, 548-572`, `keylist.h:7-51` |
+| Swallowed keys | `KeyUp(F10)` (debug UI toggle) and `KeyUp(PAUSE)` with Shift held are **not** delivered to Lua. `KeyDown` of `` ` `` or `F1` with Ctrl held toggles SG's console and is not delivered; while the console is open it consumes all input. The port has no console and swallows the toggle KeyDown (CCR-0021, CCR-0026 F). | `ui_main.cpp:516-546`, `ui_console.cpp:99-111` |
+| Frame loop | 1) If not active, cursor not over the window, and no coroutine or subscript active: sleep 100 ms and skip the frame (frames always run for 11 frames after boot: `framesSinceWindowHidden <= 10` is tested before the increment, CCR-0026 F; an unfocused window sleeps 100 ms after every frame even while hovered). 2) BeginFrame, then snapshot the cursor. 3) Run subscript completions (`OnSubFinished` etc.). 4) `OnFrame`. 5) EndFrame. 6) If inactive and idle, sleep 100 ms. Identical frames are skipped by a command digest (MurmurHash64A of the raw command bytes, `r_main.cpp:1385-1403` @3b1a346); this changes no pixels. Each layer holds at most `1 << 23` bytes of commands per frame (about 74,900 draws); further commands are silently dropped, and `Sg` reproduces this (`r_main.cpp:172, 218-228`). SG reads every string argument up to its first NUL (`const char*`; CCR-0021). | `ui_main.cpp:380-445`, `r_main.cpp:1202-1243` |
 | Unused by PoB | `NewArtHandle`, `LoadArt*`, `Texture.*`, stack index and mask, `SetBlendMode`, `SetClearColor`, `ShowCursor`, `SetCursorPos`, `GetAsyncCount`. Not ported. `GetDrawColor` has one use (`Tooltip.lua:613`); `TakeScreenshot` has one (`Launch.lua:164`). | grep of `src` |
 
 Intentional deviations, documented: line visibility uses the framebuffer height in place of `vid.size[1]`. The two are equal on Windows with DPI awareness, and the framebuffer height is the only sane value on other platforms. Frame elision is optional, because it is invisible.
@@ -460,12 +460,14 @@ impl FontFace {
 - an empty `text` returns with nothing emitted;
 - one `out.color(*col)` up front;
 - per line: the visibility test (`y >= win_h || y <= -h`; when it fails, only the escapes are processed, each with `col[3] = 1` and `out.color`), alignment against `screen_w`, then `x = round(x)` and `y = floor(y)`;
-- `bind` whenever the atlas changes;
+- `bind` at the start of every glyph (tofu glyphs included) whose atlas differs from the line's current atlas, before the glyph lookup and the x cull; the current atlas is per line, so each drawn line begins with a BIND (`r_font.cpp:371-378`; CCR-0022);
 - tofu substitution;
 - tabs;
 - `ceil` after each glyph.
 
 The height-map construction is copied verbatim from the constructor. Text is decoded as UTF-8 to codepoints with a source-byte offset table, so `cursor_index` can map back to bytes (`IndexUTF8ToUTF32`).
+
+As built (CCR-0022): byte-string twins `string_width_bytes`, `cursor_index_bytes`, `draw_bytes` take Lua strings as SG does (cut at the first NUL; `IndexUTF8ToUTF32` turns every byte that does not start a complete sequence into U+FFFD, advancing one byte), and the `&str` methods delegate to them; `string_width_u32`, `string_cursor_index_u32`, `draw_u32` are `r_font_c`'s codepoint level; `font::index_utf8_to_utf32(&[u8])`, `font::layout::{is_color_escape_u32, read_color_escape_u32}`. After a trailing `'\n'`, `StringCursorIndex` returns `len + lastIndex` of the previous line, and `DrawStringCursorIndex` maps any index `>= offsets.size()` to the byte length. Heights `<= 0` use atlas 0 with scale 0 (or a negative scale). `.tgf` lines parse with `sscanf` rules (`"HEIGHT %u;"`, `"GLYPH %u %u %u %d %d;"`).
 
 ### 4.5 Images
 
@@ -525,8 +527,8 @@ pub fn build_mips(w: u32, h: u32, base: Vec<u8>) -> Vec<Vec<u8>>; pub fn default
 pub struct ImageHandle(std::rc::Rc<std::cell::Cell<Option<TexId>>>);
 impl ImageHandle {
     pub fn load(&self, sg: &mut Sg, path: &str, flags: ImageFlags); // relative paths resolve against the script dir (src/)
-    /// UI-U0: clears the shared slot only; `Frame::releases` stays empty (textures live until exit). Open (U3 decides,
-    /// §13 item 10): `unload(&self, sg: &mut Sg)` dropping one registry reference, 0 => `Frame::releases` (CCR-0013 A2).
+    /// Clears the shared slot (`delete hnd; hnd = NULL`). Textures live until exit, so `Frame::releases` stays empty:
+    /// SG frees a texture when the Lua GC collects its last handle, which has no deterministic equivalent (CCR-0023 A).
     pub fn unload(&self);
     pub fn is_valid(&self) -> bool;                     // hnd != NULL
     pub fn is_loading(&self, sg: &mut Sg) -> bool;      // image_size().0 == 0
@@ -540,9 +542,11 @@ impl ImageHandle {
 
 Image rules:
 
-- Registration is deduplicated by `(path, flags)`. U3 verifies this against `RegisterShader` at `r_main.cpp:1366`.
+- Registration is deduplicated by `(path, flags)` with `\` read as `/`, compared exactly (SG: case-sensitive 16-bit `StringHash` + `_stricmp` + flags, `r_main.cpp:1585-1614` @3b1a346; hash collisions between case variants are not emulated). Re-registering a texture whose size is still unknown loads it again synchronously (`ForceLoad`), so a failed load is retried on every `Load`. `Load("")` names the script directory: a valid handle on a failed texture (CCR-0023 C).
+- `IsLoading`, `ImageSize` and `SetLoadingPriority` on an unloaded handle raise `imgHandle:<Method>(): image handle has no image loaded`; `Unload` and `IsValid` accept one. A failed load keeps the size the format's header callback set. Formats are chosen as `LoaderForFile` does (`.dds`, `.dds.zst`, `.webp` by case-sensitive extension, then magic bytes, TGA by header). `take_uploads` polls the loader first (SG's `PumpShaders` in `EndFrame`). An unknown flag: SG deletes the old handle before it validates the flags; the U8 bridge reproduces that order (CCR-0023 D). `read_image_size_from(reader, name)` reads only the header (native loader).
+- PNG, JPEG and WebP decode through the `image` crate (not stb_image v2.26 / libwebp): all 99 PNGs and both WebPs of `src/Assets` + `TreeData/3_27` are byte-identical to SG's decoders, JPEGs differ by at most 4 levels on at most 0.1 % of a file's pixels (inside T6's budget). GIF and DDS are detected but not decoded (PoB ships none). DIVERGENCE, measured (CCR-0023 F).
 - A missing file falls back to `TexId::DEFAULT`'s pixels, and its size reads as `(0,0)`.
-- MIPMAP levels use a 2×2 box filter on raw (gamma) values. (UI-U0 still uses the moved sRGB-correct filter; U3 switches it, CCR-0013 D.)
+- MIPMAP levels are `BuildMipSet`'s (`r_texture.cpp:433-461` @3b1a346): each level is `stbir_resize_uint8_srgb_edgemode` (stb_image_resize v0.97: Mitchell, sRGB-linear, alpha-premultiplied when the image has 4 channels, clamped edges) of the previous one, `floor(log2(max(w,h)))+1` levels. Ported bit-exactly in `pob-sg/src/image.rs` (goldens from SG's own header; CCR-0023 B). PoB itself never passes `"MIPMAP"`.
 - **Deterministic mode** (oracle, headless, tests): every load completes synchronously, pixels included.
 - **Web.** `image_size` cannot block. The host prefetches all synchronously loaded assets (fonts, `Assets/*`, the active tree version's sprite sheets) into a VFS before `on_init` and before a tree version switch. Only ASYNC images are fetched lazily.
 
@@ -575,12 +579,15 @@ pub trait Fs {                                                  // io.open / New
     fn remove(&mut self, path: &str) -> std::io::Result<()>;
 }
 pub struct HttpRequest { pub url: String, pub headers: Vec<String>, pub body: Option<Vec<u8>>, pub user_agent: Option<String> }
+// PoB's connectionProtocol / proxyURL / noSSL (Launch.lua:283-315) have no field yet: the native Net ignores them (CCR-0026 C, A8 needs-code).
 pub struct HttpResponse { pub body: Option<Vec<u8>>, pub error: Option<String>, pub headers: String }
 pub trait Net {                                                 // launch:DownloadPage (LaunchSubScript+curl)
     fn download_page(&mut self, req: HttpRequest) -> u64;
     /// Completions are delivered by the host BEFORE on_frame (ui_main.cpp subscript order).
     fn poll(&mut self) -> Vec<(u64, HttpResponse)>;
     fn oauth_listen(&mut self, url: &str) -> Option<u64> { let _ = url; None } // desktop only
+    // Its completion arrives through poll() as pob_host::OAuthResult { code, err, state, port }::into_response()
+    // (body = code, error = errMsg, headers = JSON {state, port}); U43 decodes with OAuthResult::from_response (CCR-0026 B).
     fn busy(&self) -> bool;                                     // "hasSubscript" for frame pacing
 }
 
@@ -729,6 +736,12 @@ pub trait App: 'static {
     fn wants_frames(&self) -> bool { false }
     /// A callback panicked with a LuaError (D17): show Launch's error prompt (Launch.lua:381 ShowErrMsg).
     fn on_lua_error(&mut self, msg: String);
+    /// A `Net` request finished (`launch:OnSubFinished(id, ...)` / `OnSubError`): called inside the frame, after
+    /// `sg.begin_frame`/`sys.begin_frame` and before `on_frame`, once per completion in `Net::poll` order. Default: drop (CCR-0026 A).
+    fn on_net(&mut self, id: u64, resp: pob_sg::HttpResponse) { let _ = (id, resp); }
+    /// A `.pobscript` step only the app can perform (`load-build`, `snapshot`, app `fixture` keys), called by
+    /// `run_headless` between frames. Default: no-op (CCR-0026 E).
+    fn on_script_step(&mut self, step: &script::Step) { let _ = step; }
 }
 pub struct PlatformParts { pub sg: pob_sg::Sg, pub sys: pob_sg::Sys }  // built by the host (fonts loaded, loader installed)
 pub struct HostConfig { pub title: String, pub size: (u32, u32), pub min_size: (u32, u32), pub pob_src: String, pub sg_runtime: String }
@@ -753,8 +766,9 @@ Desktop host rules (SG parity, §2):
 - **Window.**
   - `Resized`/`ScaleFactorChanged` reconfigure: `ScreenInfo { fb = inner_size, win_h = inner_size.h, dpi = scale_factor }`.
   - `CloseRequested` calls `can_exit`, then `on_exit` and exits.
-- **Frame order.** Poll `Net` and deliver completions, then `sys.begin_frame`, `sg.begin_frame`, `on_frame`, `sg.end_frame`, prepare/render, present. `App` has no completion entry point yet and UI-U0's desktop host does not poll `Net`: U7 (with U16) picks either `fn on_net(&mut self, id: u64, resp: pob_sg::HttpResponse)` on `App` or "the port of `launch:OnFrame` polls `sys.net` first" (CCR-0013 A6, §13 item 11).
-- **Pacing.** Use `ControlFlow::Poll` while focused, hovered, or `wants_frames()` is true; otherwise wait 100 ms between frames. Always run 10 frames after boot.
+- **Frame order** (`pob_host::run_frame`, shared by the desktop, web and headless hosts; `ui_main.cpp:393-433`). `sg.begin_frame`, `sys.begin_frame` (cursor snapshot), then each `Net::poll` completion to `App::on_net(id, resp)` (one guarded callback each; U16's port of `launch:OnSubFinished`/`OnSubError`), then `on_frame`, `sg.end_frame`, prepare/render, present (CCR-0026 A). `wants_frames` is `App::wants_frames() || sys.net.busy()`.
+- **Pacing.** Run frames while focused, hovered, or `wants_frames()` is true; otherwise wait 100 ms between frames. Always run 11 frames after boot (CCR-0026 F). The desktop host requests a redraw when the next frame is due and waits otherwise (`WaitUntil` the 100 ms idle sleep), presenting with `AutoVsync`: SG's cadence without busy-polling winit (CCR-0026 G). `Restart()` runs `OnExit` and re-executes the binary.
+- **Scripts** (`pob_host::script`, U7; CCR-0026 E). `Script { steps, base_dir: Option<PathBuf> }` (fixture paths resolve against the script's directory; `Script::load(path)`), `Step::Exit` (`CanExit`, then `OnExit`), `script::Action` + `Script::expand()`: the primitive actions every runner replays (the oracle drives its LuaJIT side from `expand()` too). `click K` = frame, KeyDown, frame, KeyUp, frame; `type` sends one OnChar per codepoint as SG would (`\b \t \r \x1b` as KeyDown+Char+KeyUp; other control characters dropped; U+00A0..U+00AA as key names; other non-ASCII `?`); `move X Y` is in virtual px (physical = `lround(v * scale)`), without a frame; mouse KeyDowns get SG's double-click detection on the virtual clock (off until the first `move`). Headless fixtures: `userdir=DIR` (PoB reads `DIR/Path of Building/`; copy-on-write overlay, writes recorded as `SideEffect::FileWrite`), `net=FILE.json` (a JSON array `[{url, body | null, body_file, error, headers}]`; a request takes the first unused fixture for its URL, else the last; an unknown URL gets an empty body with `error = "No net fixture for <url>"`; `body: null` is a sub-script error), delivered at the next frame's poll.
 - **Panics.** Each callback runs inside `catch_unwind(AssertUnwindSafe(..))`. On panic, call `App::on_lua_error(msg)` (Launch's `ShowErrMsg`).
 - **Clipboard and network.**
   - Clipboard: `arboard`.
@@ -1273,6 +1287,8 @@ impl Cx {
 }
 ```
 
+**Arena policies as built** (U4, CCR-0034 C). `add` creates the node (creation seq), runs `inits` then `mixins`, and only then stores it under `key` (Lua evaluates `new(..):X(..){..}` before the table store). A control replaced under a key (`add`/`put`) is buried only when the host owns it and it is not still stored under another key of the host; otherwise it is only unlinked. `put` of a buried node revives it. `clear_children` (`wipeTable(self.controls)`) buries the children the host owns. `end_frame_gc` frees every buried node and, transitively, what it owns, unlinks them from surviving hosts and owners and drops tab groups with no live member. DIVERGENCE(gc): an id still held by a `selControl`, a tab group or a widget field after its node was freed panics on use ("attempt to index a dead control (expected <Class>)"), where Lua's GC would keep the object alive. Typed access to a node of another class panics with both class names; `child_as` on a missing key panics like a nil index. `trace_push(host, id)` pushes `"<HostClass>.<key>"` only while `sg.trace` is set. The T0 suites (`pob-ui-core/tests/lua/shim.lua`) load the real `Control.lua`, `ControlHost.lua` (oracle patch 6 applied by text substitution), `UndoHandler.lua` and Common.lua's `wipeTable`/`isValueInArray`/`isMouseInRegion` under LuaJIT `jit.off()`.
+
 ### 6.6 ControlHost: input dispatch and focus (1:1 with `ControlHost.lua`)
 
 ```rust
@@ -1411,7 +1427,7 @@ A super call that compares with the proxy, such as `newSel == self.EditControl a
 
 /// main.inputEvents: a Lua array that gets holes when events are consumed.
 #[derive(Default)]
-pub struct InputEvents { slots: Vec<Option<InputEvent>>, asize: usize /* modelled LuaJIT array-part size */ }
+pub struct InputEvents(pob_lua::ljtab::LjIntMap<InputEvent>);   // the exact LuaJIT 2.1 table model (CCR-0034 A2)
 impl InputEvents {
     pub fn push(&mut self, e: InputEvent);                 // t_insert(t, e) (appends at #t + 1)
     pub fn get(&self, i: usize) -> Option<InputEvent>;     // t[i], 1-based
@@ -1419,8 +1435,9 @@ impl InputEvents {
     /// `for i, e in ipairs(t)`: i += 1, then t[i]; stops at the first nil. Lazy, so consuming t[i]
     /// does not stop the current loop, but a LATER loop stops at that hole.
     pub fn next_ipairs(&self, i: &mut usize) -> Option<InputEvent> { *i += 1; self.get(*i) }
-    /// `#t` with LuaJIT lj_tab_len border semantics over the modelled array part (asize never shrinks across
-    /// wipe). Property-tested against LuaJIT (U4).
+    /// `#t` with LuaJIT lj_tab_len border semantics (wipe keeps sizes and dead keys, as wipeTable does).
+    /// `consume(i)` of a key that is not present inserts a dead key, as `t[k] = nil` does in LuaJIT.
+    /// Tested against LuaJIT jit.off: 2000 random sequences + 300 PoB-style frames, 0 divergences (U4).
     pub fn lua_len(&self) -> usize;
     pub fn wipe(&mut self);                                // wipeTable
 }
@@ -1555,6 +1572,9 @@ pub struct EditArgs {
     pub filter: Option<String>,                  // nil => main.unicode and "%c" or "^%w%p "
     pub limit: Option<usize>,
     pub change_func: Option<std::rc::Rc<dyn Fn(&mut Cx, &str)>>,
+    /// The `placeholder == true` call of a two-argument changeFunc (`SetPlaceholder(text, true)`, EditControl.lua:114;
+    /// ConfigTab.lua:305/323/334). When unset, that call goes to `change_func` (CCR-0081 §1).
+    pub placeholder_change_func: Option<std::rc::Rc<dyn Fn(&mut Cx, &str)>>,
     pub line_height: Option<f64>, pub allow_zoom: bool, pub clearable: bool,
 }
 ```
@@ -1599,8 +1619,11 @@ pub enum TtKey { Nil, Bool(bool), Num(f64), Str(std::rc::Rc<str>), Obj(TtObj) } 
 impl PartialEq for TtObj { fn eq(&self, o: &Self) -> bool { std::rc::Rc::ptr_eq(&self.0, &o.0) } }
 impl std::fmt::Debug for TtObj { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "TtObj({:p})", std::rc::Rc::as_ptr(&self.0)) } }
 #[derive(Clone)] pub enum TtColor { Rgb([f64; 3]), Esc(String) }               // self.color = {r,g,b} | "^x.."
-#[derive(Clone)] pub enum TtBackground { Image(String), Color(String) }          // AddLine background arg
-pub type ModLineRef = std::rc::Rc<dyn std::any::Any>;                             // modLine (reads .disabled etc. via downcast)
+#[derive(Clone)] pub enum TtBackground { Image(String), Color(String) }          // AddLine background arg; both are image paths (Tooltip.lua:615-625; CCR-0073 C)
+/// modLine: an `Rc<TtModLine>` coerced to `Rc<dyn Any>`; `disabled` reads the model field live, `line` is the
+/// model object (U38 downcasts it). Any other value reads as not disabled (CCR-0073 B).
+pub type ModLineRef = std::rc::Rc<dyn std::any::Any>;
+pub struct TtModLine { pub disabled: std::rc::Rc<dyn Fn() -> bool>, pub line: std::rc::Rc<dyn std::any::Any> }
 pub type TooltipDrawFn = std::rc::Rc<dyn Fn(&mut Cx, &mut Tooltip, f64, f64, Option<f64>, Option<f64>, &ViewPort)>;
 
 #[derive(Default)]
@@ -1619,7 +1642,8 @@ impl Tooltip {
     pub fn add_line_ex(&mut self, cx: &Cx, size: f64, text: &str, font: Option<Font>,
                        mod_line: Option<ModLineRef>, background: Option<TtBackground>);
     pub fn set_recipe(&mut self, recipe: Option<Vec<String>>);                           // :116
-    pub fn add_separator(&mut self, cx: &Cx, size: Option<f64>);                          // :120
+    pub fn add_separator(&mut self, cx: &Cx, size: Option<f64>);                          // :120; the Load is queued in a shared FIFO that
+    //   every real_draw flushes (`tooltip::flush_pending_loads`) until it takes `&mut Cx` (CCR-0073 A, A8 needs-code)
     pub fn get_size(&self, cx: &Cx) -> (f64, f64);                                        // :163
     pub fn get_dynamic_size(&self, cx: &Cx, vp: &ViewPort) -> (f64, f64);                 // :194
     /// tooltip:Draw: calls draw_override if set, else real_draw.
@@ -1658,7 +1682,12 @@ pub fn open_confirm_popup(cx: &mut Cx, title: &str, msg: &str, confirm_label: &s
                           on_confirm: impl Fn(&mut Cx) + 'static,
                           extra: Option<(&str, std::rc::Rc<dyn Fn(&mut Cx)>)>) -> Ctrl<PopupDialog>;
 pub fn open_new_folder_popup(cx: &mut Cx, path: &str, on_close: Option<std::rc::Rc<dyn Fn(&mut Cx, Option<String>)>>);
-pub fn open_cloud_error_popup(cx: &mut Cx, file_name: &str);
+/// The `launch` fields and `APP_NAME` that main:OpenCloudErrorPopup reads (Main.lua:1764-1768; CCR-0084 §1).
+#[derive(Clone, Debug)]
+pub struct LaunchInfo { pub app_name: String, pub version_number: String, pub version_branch: Option<String>, pub dev_mode: bool }
+pub fn open_cloud_error_popup(cx: &mut Cx, file_name: &str, launch: &LaunchInfo) -> Ctrl<PopupDialog>;
+/// Main.lua:437-443 (the popup layer and dim inside main:OnFrame); U16's OnFrame calls it (CCR-0084 §2).
+pub fn draw_popup_layer(cx: &mut Cx, vp: &ViewPort);
 /// PopupDialog:ProcessInput (ESCAPE => escape:Click() or ClosePopup; RETURN => enter:Click()).
 pub fn popup_process_input(cx: &mut Cx, popup: CtrlId, ev: &mut InputEvents, vp: &ViewPort);
 ```
@@ -1680,6 +1709,8 @@ pub struct MainCore {
     pub cc: ColorCodes,                            // Data/Global.lua colorCodes (mutable; updateColorCode)
     pub show_flavour_text: bool, pub not_supported_mod_tooltips: bool, pub unicode: bool,
     pub disable_scroll_control_interaction: bool,
+    // main.invertSliderScrollDirection (SliderControl.lua:168/176) has no field yet: U9's thread-local
+    // `controls::slider::INVERT_SLIDER_SCROLL_DIRECTION` stands in (CCR-0069 A, A8 needs-code).
     pub thousands_separator: String, pub decimal_separator: String, pub show_thousands_separators: bool,
     pub on_frame_funcs: Vec<(String, std::rc::Rc<dyn Fn(&mut Cx)>)>, // main.onFrameFuncs (insertion order; ORDER noted)
 }
@@ -1711,9 +1742,10 @@ pub struct UndoOps<S: 'static> {
 }
 impl<S: 'static> UndoOps<S> {
     /// :25-29
-    pub fn reset_undo(&self, cx: &mut Cx, me: CtrlId) {
+    pub fn reset_undo(&self, cx: &mut Cx, me: CtrlId) {            // the wipes come first (CCR-0034 A1)
+        { let st = (self.stack)(cx, me); st.undo.clear(); st.redo.clear(); }
         let s = (self.create)(cx, me);
-        let st = (self.stack)(cx, me); st.undo.clear(); st.redo.clear(); st.undo.push_front(s);
+        (self.stack)(cx, me).undo.push_front(s);
     }
     /// :34-41
     pub fn add_undo_state(&self, cx: &mut Cx, me: CtrlId, no_clear_redo: bool) {
@@ -1750,14 +1782,21 @@ impl Default for Coroutine { fn default() -> Self { Coroutine { fut: None } } }
 impl Coroutine {
     pub fn create(f: impl std::future::Future<Output = ()> + 'static) -> Self;
     /// coroutine.resume: one poll with Waker::noop(), with `cx` installed in the scoped TLS for the poll.
-    /// Returns false once dead. A panic inside propagates (Lua: resume returns false, errMsg; the
-    /// callers in PoB rethrow/print it; U4 maps this to lua_error with the message).
+    /// Lua's `res`: true when the body ran (to its next yield or to its end; the call that finishes the body
+    /// returns true and `is_dead()` is then true), false when it was already dead. A panic inside leaves the
+    /// coroutine dead and keeps unwinding (CCR-0034 A3).
     pub fn resume(&mut self, cx: &mut Cx) -> bool;
+    /// `local res, errMsg = coroutine.resume(co)`: a Lua error inside the body is returned, not raised (not on wasm32).
+    pub fn try_resume(&mut self, cx: &mut Cx) -> (bool, Option<String>);
     pub fn is_dead(&self) -> bool;
 }
 pub mod co {
     /// Access Cx inside a coroutine body, between yields. Nested use panics (re-entrancy guard).
     pub fn with_cx<R>(f: impl FnOnce(&mut super::Cx) -> R) -> R;
+    /// `coroutine.running()` as a condition: true while any `resume` is on the stack, also inside `with_cx` (CCR-0034 B).
+    pub fn running() -> bool;
+    /// `coroutine._list()` (Common.lua:46-57): coroutines created and not dead, for frame pacing (CCR-0034 B).
+    pub fn any_alive() -> bool;
     /// coroutine.yield(): Pending exactly once.
     pub async fn yield_now();
 }
@@ -1852,9 +1891,9 @@ A Lua property closure that assigns fields must have those fields declared as `C
    - (b) a multiset bucket in `DiffConfig`;
    - (c) a written argument that order does not matter.
 
-   Controls tables always use (a) (D7). `main.onFrameFuncs` uses insertion order, plus a patch if U16 finds an observable effect. Integer-keyed model maps are `LjIntMap` (calc doc D8), which iterates **exactly** like LuaJIT, so `pairs(spec.nodes)` / `allocNodes` draw order matches with no multiset. Native string-key order is randomised per LuaJIT process (calc doc D8), so for string-keyed tables only (a) or (b) are possible.
+   Controls tables always use (a) (D7). `main.onFrameFuncs` uses insertion order, plus a patch if U16 finds an observable effect. Integer-keyed model maps are `LjIntMap` (calc doc D8), which matches LuaJIT's order for a given insertion order. Where the insertion order comes from a `pairs` over a table that ever held a string key, the order is per-process random and the sites use (b), a multiset bucket: `spec.nodes` is filled from `tree.nodes`, which holds the string key `root` until PassiveTree.lua:510, so PassiveTreeView.lua:828, 881, 958, 963, 965 (inside `pairs(spec.nodes)`) need (b), and every other loop over `spec.nodes`, `tree.nodes` or `allocNodes` must be audited (CCR-0028 §9; calc doc §3.4). Native string-key order is randomised per LuaJIT process (calc doc D8), so for string-keyed tables only (a) or (b) are possible.
 7. **`table.sort`** uses `pob_lua::sort`, an exact port of Lua 5.1 `auxsort`. It is not stable, so ties must order the same way as in PoB.
-8. **Errors** become `lua_error!` panics (D17). Do not "fix" Lua bugs. If PoB would error, the port panics with the same message.
+8. **Errors** become `lua_error!` panics (D17). Do not "fix" Lua bugs. If PoB would error, the port panics with the same message. Messages are compared without the `<chunk>:<line>: ` prefix that LuaJIT adds for errors raised from Lua code (a C function's error carries its Lua caller's position; CCR-0033 §5).
 9. **Globals**: `main` maps to `cx.main` (MainCore) plus `CxApp::app().main` (MainState); `launch` to `app().launch`; `build` to `cx.build()` plus the `BuildMode` node; `data` to `cx.data()`; `colorCodes` to `cx.main.cc`.
 10. **Time.** `GetTime()` is an integer number of ms from `cx.sys.time_ms()`. Never read a wall clock directly; the oracle clock is virtual.
 11. **Pattern filters** (EditControl `"[" .. filter .. "]"`, SearchHost, CalcFormat, WrapString) use `pob_lua::pattern`, which is the existing `lua_pattern.rs` and already parity-tested.
@@ -2292,6 +2331,8 @@ All of this is synchronous on desktop (D14).
 | `PartyTab.lua:516-669`, `:718-1042` (Load/Save, ParseBuffs, exports) | calc:BM-B | U45 ports the controls and display. |
 | `Item.lua`, `ItemTools.lua`, `PassiveTree.lua:1-908, 1041-1062`, `PassiveSpec.lua`, `runtime/lua/xml.lua` | calc:IT-A/B/C, PT, PS-A/B/C, BM-A | U23 ports only the image/sprite/connector parts of `PassiveTree.lua` (`:909-1040`, and the `NewImageHandle` blocks inside 75-794) into `tree_view/assets.rs`. |
 
+**Model halves ported by the calc units** (CCR-0019 §1, CCR-0080 §1). BM-B and BM-A also ported the model halves of functions the table above leaves to the UI, each with its own `@pob` marker; the UI units keep the UI statements of those functions and call the model halves: SkillsTab.lua 323-349 (`imbuedSupport_gemChangeFunc`), 1103-1127 (`FindSkillGem`), 1275-1278 (`SetDisplayGroup`), 1452-1475 (`NewSkillSet`, `RebuildImbuedSupportBySlot`), 89/95-96/423-426 (constructor); ConfigTab.lua 672-692 (`defaultState`, `ConfigTab::ctor_controls_model`: one control-state table per option with a `var`), 1205-1240 (`ImportCalcSettings`), 1280-1300 (`NewConfigSet`), 1337-1362 (`SetActiveConfigSet`); PartyTab.lua 22-36 (`ctor_model`) [U30/U41/U42/U45]; Build.lua 64-110, 603-698 (`build_xml::Init_model`) [U20]; ItemsTab.lua 37, 70-74, 101-108, 140-235, 1196-1215, 2560-2605, 2978-2993 and ItemSlotControl.lua 21-123 (`ItemsTab::ctor_model`, the slot tables with the `ItemSlotControl` fields the model reads; U33/U34 wrap them in their controls) [U33/U34]; TreeTab.lua 26-38 [U25]; CalcsTab.lua 24-45, 147-150, 370-375 and CalcSectionControl.lua 20-49 (`CalcsTab::ctor_model`, `sectionList`) [U26]. `Build:Save`'s display stats come from a hook the UI registers (`build_xml::set_save_stats_hook`, U21); the UI-only savers (Notes, TreeView, Import) are kept and written back unchanged until U20 provides them (CCR-0080 §8).
+
 Name clash: the calc doc's model structs (`model::ItemsTab`, `model::SkillsTab`, `model::ConfigTab`, …) share names with the UI tab widgets (`tabs::items::ItemsTab`, …), so model types are always path-qualified as `model::X` in UI code.
 
 Any additional model or calc API a UI unit needs is requested through the calc doc's change process (calc doc §10.3, "CCR"). No UI unit invents model types.
@@ -2368,7 +2409,7 @@ T3 covers all UI logic and layout. Both sides go through the same `pob-sg`, so T
 Boot sequence:
 
 1. Create the mlua LuaJIT VM.
-2. Install `pob-luahost`'s natives (today's `pob-calc/src/jit.rs`, renamed by calc:REN; it gets a `pub fn install_natives` and a `pub` prelude, coordinated as a CCR).
+2. Install `pob-oracle`'s natives: `pob_oracle::jit::{PRELUDE, install_natives}` are `pub` (CCR-0028 §1). `pob-ui-oracle/src/boot.rs` inserts its source-patch hook into the prelude's `loadfile` and asserts its anchor exists exactly once.
 3. Load the HeadlessWrapper prefix, as `JitPob::boot` does.
 4. **Override every SG global** with Rust functions bound to an `Rc<RefCell<Sg>>` and `Rc<RefCell<Sys>>` with tracing on. Covered: `SetDrawLayer`, `GetDrawLayer`, `SetViewport`, `SetDrawColor`, `GetDrawColor`, `DrawImage`/`DrawImageQuad` (with `ui_api.cpp`'s exact argument-count dispatch), `DrawString`, `DrawStringWidth`, `DrawStringCursorIndex`, `StripEscapes`, `NewImageHandle` (userdata with `Load`/`Unload`/`IsValid`/`IsLoading`/`ImageSize`/`SetLoadingPriority`), `GetScreenSize`, `GetScreenScale`, `Get/SetDPIScaleOverridePercent`, `GetCursorPos`, `IsKeyDown`, `GetTime`, `Copy`, `Paste`, `SetWindowTitle`, `OpenURL`, `TakeScreenshot`, `ConPrintf`.
 5. Before each draw call, `debug.getinfo(2, "Sl")` sets the trace `src`, for example `"Classes/ButtonControl.lua:54"`.
@@ -2376,12 +2417,12 @@ Boot sequence:
 
 **Determinism and order patches** (`patches.rs`). Each patch is a text substitution applied when the module loads, asserts that the original text is present (so upstream drift fails loudly), and states its reason.
 
-1. `GetTime`, `os.time`, `os.clock` and `os.date` use a virtual clock that advances 16 ms per frame.
+1. `GetTime`, `os.time`, `os.clock` and `os.date` use a virtual clock that advances 16 ms per frame; `os.time(t)` interprets `t` as UTC (LuaJIT's field rules), and `io.open` for writing notes the file so `GetFileModifiedTime` follows the headless `Fs` (0 for files not written during the run, else MSVC `file_clock` ticks of Unix 1 600 000 000 plus the virtual clock; CCR-0028 §5, §12).
 2. `math.randomseed(0)`, and `math.random` is wrapped.
 3. `launch.CheckForUpdate` and the update UI are no-ops.
 4. `GetUserPath` points at the fixture directory.
 5. Image loads are synchronous, on both sides.
-6. **Creation order.** `Common.lua:158 new()` stamps `object.__seq`. `pairs(self.controls)` becomes `__canonPairs(self.controls)` at `ControlHost.lua:32` and `:110` and `Main.lua:1298` and `:1308`. `__canonPairs` yields integer keys ascending, then the other keys by `__seq`. `PopupDialog.lua:25` and `TradeQuery.lua:630` are order-independent (anchor resolution, deletion) and are not patched.
+6. **Creation order.** `Common.lua:158 new()` records the object's creation sequence number in a weak-keyed oracle side table (no field on the object, so `pairs(object)` and copies are unchanged; CCR-0028 §11). `pairs(self.controls)` becomes `__canonPairs(self.controls)` at `ControlHost.lua:32` and `:110` and `Main.lua:1298` and `:1308`. `__canonPairs` yields integer keys ascending, then the other keys by `__seq`. `PopupDialog.lua:25` and `TradeQuery.lua:630` are order-independent (anchor resolution, deletion) and are not patched.
 7. **Control markers.** Inside the patched `DrawControls` loop, `__tracePush(<HostClass>.<key>)` runs before `control:Draw` and `__tracePop()` after. Rust emits the same path from `Cx::draw_controls`.
 8. `Net`/`LaunchSubScript`: scripted fixtures, delivered at the start of the next frame on both sides.
 
@@ -2393,6 +2434,8 @@ The **gallery harness** (for widget units before the app shell exists) works lik
 - It then runs `lua/gallery/<name>.lua`, which builds a `ControlHost` from PoB classes and runs `ProcessControlsInput` + `DrawControls` per frame.
 - The Rust counterpart `src/gallery/<name>.rs` builds the same controls through `pob-ui-core`.
 - `tests/parity.rs` discovers galleries and scenario directories automatically, so units never edit shared files.
+- As built (CCR-0028 §6, §8): `lua/gallery/<name>.lua` returns a table `G` with optional `G:Init()` and required `G:OnFrame(inputEvents, viewPort)`, run after `lua/gallery_launch.lua`; `src/gallery/<name>.rs` exports `pub fn app(parts: pob_host::PlatformParts) -> Box<dyn pob_host::App>` (build.rs generates `GALLERIES`; `_<x>.rs` is a shared support module); an optional `lua/gallery/<name>.pobscript` drives it (default `frames 3`). `#! expect-text TEXT` / `#! expect-snapshot NAME` lines are expectations for `tests/parity.rs`, a custom harness (`harness = false`): `cargo test -p pob-ui-oracle -- <unit>` selects cases by name; scenario directories named `_…` are Lua-only runs. A run fails when PoB shows its error prompt (`launch.promptMsg` starting with `^1Error`). `ui-parity` adds `--screen WxH`, `--audit` (two child processes; union written to `audit.txt`), `--lua-only`, `--out DIR`, `--name NAME`. `NewFileSearch` follows SG (dirOnly filter, `.`/`..` skipped, case-insensitive glob, upper-cased-name order). `FileWrite` effects are recorded on neither side yet and are left out of T3 until U16 needs them (CCR-0028 §3).
+- Until U8's switch-over (CCR-0028 §10, A8 needs-code) the oracle drives both sides with its own `runner::drive`, pinned to U7's expansion by `runner::tests::drive_follows_u7_expansion` and `drive_matches_run_headless`.
 
 **CLI.**
 
@@ -2547,7 +2590,7 @@ Critical path: U0 → U4 → U9 → U11/U12/U13 → U16 → U19 → U20 → U22 
 
 ## 13. Risks and open items
 
-1. **SG master vs the shipped DLL.** Research used master. The DLL is `v2.5-3b1a346`. U1 re-verifies every §2 row at `3b1a346`; T6 (Wine) confirms metrics and pixels once Wine is installed.
+1. **SG master vs the shipped DLL.** Done by U1 (CCR-0021, `docs/port/ui/sg-semantics.md`; `r_font.cpp`, `common.cpp`, `common.h` are identical, `r_main.cpp` differs in about 760 diff lines). T6 (Wine) still confirms metrics and pixels once Wine is installed.
 2. **Canonical vs real hash order.** The order differs only where controls overlap within one host and layer. The audit mode (U8) finds those hosts. The fix is a per-host order override plus a patch, recorded in `patches.rs`.
 3. **Calc-plan timing.** Wave 4 needs model ranges from calc:BM-A/BM-B/PT/PS/IT. Against stubs (`unported!` defaults) UI units compile and run early, but they are *accepted* only after their `ext:` units merge (§12.1). Split functions (§10.2) need both plans to keep the comment cross-references in sync. A drift is a CCR.
 4. **Lending hazards** (§7.2 rule 4). Lending an object that is re-read during the call silently sees `Default`. Mitigation: lending is restricted to Tooltip, PassiveTreeView, Coroutine and objects listed in the unit header. Reviewers grep `lend(` against that list.
@@ -2556,10 +2599,13 @@ Critical path: U0 → U4 → U9 → U11/U12/U13 → U16 → U19 → U20 → U22 
 7. **Performance.** Prop closures and recursive `GetPos` cost about what they cost in Lua. The tree view is the hot spot; U23 and U53 profile it.
 8. **Borrow ergonomics.** Associated-function widgets are verbose (`cx.w::<Self>(me)` per access). This is accepted in exchange for compile-time aliasing safety. Helpers (`cx.prop`, `cx.child_as`, `cx.lend`, the disjoint `cx.ui`/`cx.sg` borrows) keep ports close to the Lua.
 9. **Licensing of redistributed fonts and assets** (critic): must be checked before any web deploy. This is not a UI architecture blocker.
-10. **`ImageHandle::unload` cannot release a texture** (CCR-0013 A2). The frozen `unload(&self)` has no `Sg`/registry access while SG refcounts shared textures (`RegisterShader`, r_main.cpp:1366). U3 decides between keeping it (textures live until exit) and `unload(&self, sg: &mut Sg)`.
-11. **Net completions** (CCR-0013 A6): U7 (with U16) decides how completions reach the app (§5.2 Frame order).
-12. **Placeholder types** (CCR-0013 C). UI-U0 defined these minimally so the stubs compile; each owner may amend them before its wave gate: `ListColumn`, `ColumnProp`, `ScrollDir`, `TextListColumn`, `TextListRow` and the non-§6 constructor signatures of the generic controls (U9/U12); `DropTipMode`, `DropTipArgs`, `DropDownHooks` fields, `SearchHost` fields (U13); `TooltipLine`, `TooltipBlock` (U10); `ArrowDir`, `world_to_screen` (U9); `EditUndoState` (U11); `script::{Script, Step}` (U7); `TreeCache`, `TreeAssets`, `ListMode`, `LaunchState`, `MainState` (U16/U18/U23); the split-struct parts (`State`, §12.1).
+10. **`ImageHandle::unload`**: **closed** (CCR-0023 A). `unload(&self)` is kept; textures are never released (`Frame::releases` stays empty; U6 samples `@black` for a `TexId` bound before its upload).
+11. **Net completions**: decided, `App::on_net` (CCR-0026 A; §5.2 Frame order).
+12. **Placeholder types** (CCR-0013 C). UI-U0 defined these minimally so the stubs compile; each owner may amend them before its wave gate: `ListColumn`, `ColumnProp`, `ScrollDir`, `TextListColumn`, `TextListRow` and the non-§6 constructor signatures of the generic controls (U9/U12); `DropTipMode`, `DropTipArgs`, `DropDownHooks` fields, `SearchHost` fields (U13); `TooltipLine`, `TooltipBlock` (U10); `ArrowDir`, `world_to_screen` (U9); `EditUndoState` (U11); `script::{Script, Step}` (U7). **Amended by their owners** (the tables are in the CCRs, the code is the reference): U9 CheckBox/ScrollBar/Slider/Dragger/RectangleOutline stubs, `ArrowDir::from_lua`, `lua_for_num` (CCR-0069 B); U10 `TooltipLine.separator_image: Option<ImageHandle>`, `handled`, `bounds`, the remaining Tooltip fields, `calculate_columns`, `module_load`/`RECIPE_NAMES` (CCR-0073 E); U11 `EditUndoState.caret: Rc<Cell<usize>>`, `edit::UNDO`, `filter`/`filter_pattern`, the remaining EditControl fields and methods, `ResizableEditControl::new(.., Option<f64> ×4)` (CCR-0081 §2); U12 `PathControl.sub_path: Option<String>`, `TextListRow` fields, `Rc<TextListRow>`, `TextListControl::new(.., Option<columns>, ..)` (CCR-0078 C); U13 `DropItem.detail`, `SelFunc` with `Option<&DropItem>`, `set_sel_num`, the `DropDownControl` fields and super-call methods, `SearchHost.search_infos` (CCR-0086 B, C); U4 `Coroutine::try_resume`, `co::running`, `co::any_alive`, `MainCore::new`, `Cx::headless` (CCR-0034 B); `TreeCache`, `TreeAssets`, `ListMode`, `LaunchState`, `MainState` (U16/U18/U23); the split-struct parts (`State`, §12.1).
 13. **Small frozen additions** (CCR-0013 A5): `Sg::viewport()`, `Sg::current_draw_color()` (inspection), `FontSet::empty()` (no PoB assets: measuring returns 0, drawing applies escapes only), `FontFace::heights()`, `Align::from_lua`/`lua_name`, `Font::index`, `Quad::is_culled` (moved from `DrawCmd::is_culled`), `frame::LayerSink`, `frame::digest`. `Sg::set_draw_color*` check `renderEnable` like `ui_api.cpp:821`.
+14. **Calc tag text with `divVar`** (U40 CalcBreakdownControl, CalcBreakdownControl.lua 481/485). For a Multiplier/PerStat tag with `divVar`, Lua prints the `div` EvalMod last wrote into the shared tag (calc doc §5.3 forbids that write). Port: print `tag.div` or, when `tag.divVar` is set, `actor.modDB:GetMultiplier(tag.divVar, cfg)` of the breakdown's actor/cfg, and record the difference in `known_diffs.toml` (CCR-0015 §1).
+15. **Unowned helpers** (CCR-0033 §2, §6). `lua-utf8` (U5's `luastr::utf8`, a port of luautf8 bdd3d7f) and `formatNumSep` exist twice (U5's `luastr::format_num_sep`, CT's `calc_format`; the calc reads `main.*` separators through CT's `set_num_sep_settings`); A8 lists the merge into pob-lua. Common.lua's `naturalSortCompare` 673-704, `getFormatNumSep` 830-834, `formatRound`/`formatPercent`/`formatSec` 837-871, `urlEncode`/`urlDecode` 1024-1036 and `string:matchOrPattern` 1038-1079 go to the first consuming unit in wave order (U12 for `naturalSortCompare`/`matchOrPattern`, the CalcBreakdownControl unit for the `format*` family, U43 for `url*`) unless U5 takes them first; `math.random`/`randomseed` (LuaJIT `lib_math.c`) are A8 needs-code for U28/U43.
+16. **SG functions `Sys` lacks** (CCR-0084 §3-§4): `GetCloudProvider` (U14 returns `(nil, nil, nil)`, the value on every target) and Lua `MakeDir`'s results (not recursive; an existing directory gives `nil, "Success"`); A8 needs-code for U1/U7/U8.
 
 ---
 

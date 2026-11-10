@@ -1,6 +1,8 @@
 # CCR-0028: U8 (ui-oracle) contract notes
 
-**Status: proposed** (unit U8, ui doc §11.2, §12.3). Items 1-2 change code outside U8's files only
+**Status: applied 2026-11-10 by CCR2 (items 1, 3, 5-9, 11, 12: ui doc §8, §11.2); items 2, 4, 10 (switch-over), 13 need code. See AMENDMENTS A8.**
+
+**Filed status: proposed** (unit U8, ui doc §11.2, §12.3). Items 1-2 change code outside U8's files only
 through the change the unit table already grants U8 (item 1); everything else is worked around
 inside `crates/pob-ui-oracle` and marked `CCR-0028` there. The orchestrator decides items 2-5 and
 10 (with U7: the open points of 10 are U7's to accept or reject) and amends the doc text for items

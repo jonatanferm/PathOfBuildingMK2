@@ -1,8 +1,10 @@
 # CCR-0034: U4 (ui-core framework) contract notes (ui doc §6.5-§6.7, §6.11-§6.13)
 
+**Status: applied 2026-11-10 by CCR2 (ui doc §6.5, §6.7, §6.12, §6.13, §13 item 12). See AMENDMENTS A8.**
+
 (Renumbered from 0023 at merge: 0023 is U3's images CCR.)
 
-**Status: proposed.** Unit: U4 (ui doc §12.3). Every item is already implemented in U4's own files
+**Filed status: proposed.** Unit: U4 (ui doc §12.3). Every item is already implemented in U4's own files
 (`crates/pob-ui-core/src/{cx,arena,input,coroutine,undo,main_core,focus}.rs`); the orchestrator only
 needs to amend the doc text. All items are additive or clarify behaviour the doc leaves open; no
 frozen signature changes, no other unit's file is touched, nothing in the calc-plan crates changes.

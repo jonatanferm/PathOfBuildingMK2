@@ -9,7 +9,7 @@
 //!
 //! * a lowercased `jewelFuncList` key: the wrapper of 6554-6592 around the table value `v`
 //!   ([`jewelFuncListSource`]); `args` = the pattern captures when the line matched a pattern key
-//!   (6644-6646), empty for an exact key (6649-6651) (CCR-0014 §3);
+//!   (6644-6646), empty for an exact key (6649-6651) (CCR-0092 §3);
 //! * `"$getSimpleConv"` (ModParser.lua:19-38), `"$getPerStat"` (6370-6376), `"$getThreshold"`
 //!   (6457-6478): the helpers' closures, upvalues in `args`;
 //! * `"Modules/ModParser.lua:<a>-<b>"`: an inline closure of the jewel tables (6202-6230,

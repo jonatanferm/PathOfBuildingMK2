@@ -1,7 +1,9 @@
 # CCR-0063: `ModStore::NewMod` / `ReplaceMod` cannot pass a nil source (DF-C)
 
+**Status: needs code (CCR2, 2026-11-10; ORC-X2). See AMENDMENTS A8.**
+
 Requested by: DF-C (CalcDefence.lua 1211-1673, `calc_defence/recovery.rs`).
-Status: proposed (optional; the unit works around it locally).
+Filed status: proposed (optional; the unit works around it locally).
 
 ## Problem
 

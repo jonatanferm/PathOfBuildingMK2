@@ -15,7 +15,7 @@ fn keystone_node(v: &Val) -> NodeRef {
 /// @pob Modules/ModTools.lua:246-259 h=d4e85c65
 /// Merge keystone modifiers
 ///
-/// CCR-0014: Lua's `modLib.setSource(mod, …)` (L255) re-sources the keystone node's own mod in
+/// CCR-0091: Lua's `modLib.setSource(mod, …)` (L255) re-sources the keystone node's own mod in
 /// place, so the tree's keystone mod keeps the item source for the rest of the PoB process.
 /// `ModRef` is immutable (§3.6): the port adds a re-sourced copy and leaves the node's mod alone.
 pub fn mergeKeystones(env: &EnvRef, modDB: &ModDB) {
