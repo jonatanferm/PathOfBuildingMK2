@@ -218,8 +218,10 @@ fn patcher_round_trips_dummy_stages() {
     );
 }
 
-/// Concurrent `patch` calls of one process (the tests' threads) publishing
-/// the same sha into an empty root all succeed with the same copy.
+/// Concurrent `patch_into` calls of one process (the tests' threads) publishing
+/// the same sha into an empty root all succeed with the same copy. (`patch_into`,
+/// not `patch`: since FUP1 `patch` publishes into the machine-wide shared root,
+/// where the copy usually exists already and the publish race is never run.)
 #[test]
 fn patch_publishes_concurrently() {
     let Some(src) = pob_src() else {
@@ -245,7 +247,7 @@ fn patch_publishes_concurrently() {
         let hs: Vec<_> = (0..4)
             .map(|_| {
                 s.spawn(|| {
-                    patcher::patch(&src, Some(&stages_path()), &root)
+                    patcher::patch_into(&src, Some(&stages_path()), &root)
                         .unwrap_or_else(|e| panic!("{e}"))
                         .sha
                 })
@@ -258,6 +260,7 @@ fn patch_publishes_concurrently() {
         .join(&shas[0])
         .join("src/Modules/CalcPerform.lua")
         .is_file());
+    assert!(root.join(&shas[0]).join(".last-used").is_file());
     let leftovers: Vec<_> = std::fs::read_dir(&root)
         .unwrap()
         .filter_map(Result::ok)

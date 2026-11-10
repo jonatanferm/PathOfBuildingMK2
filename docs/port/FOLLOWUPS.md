@@ -172,6 +172,24 @@ Found while running the touched units' acceptance tests on port/FUP1 (rust-port 
    `guard_item`). Its one known case, `rare#195`'s Craft raising "non-integral number keys are
    not supported by Table (929.1)", is fixed: `Table` takes float keys (CCR-0102 §1) and IT-B's
    Craft is 207/207. Remove the guard (and the console line) once nothing else needs it.
+4. **Patched-src prune can pull a copy from under a long run** (owner: whoever next touches
+   `crates/pob-oracle/src/patcher.rs` `prune`). A `<.parity>/patched-src/<sha>` copy whose
+   `.last-used` is older than 24 h (`POB_PATCHED_SRC_MAX_AGE_HOURS`) is renamed away even while
+   another process that took it more than 24 h earlier still loads Lua files from it; `keep`
+   protects only the pruning process's own sha. Marker-less legacy copies in `target/oracle-src`
+   go after 72 h the same way, under an older branch still using them. Unlikely at current run
+   lengths; closing it means holding the marker for a run (re-touch it while a process holds the
+   copy, or a per-process lock file the prune checks).
+5. **`runner::shared_patch_root` doc is stale** (owner: the next change to
+   `crates/pob-oracle/src/runner.rs` for another reason). It still says "every worktree shares
+   one copy per sha" of `target/oracle-src`; since FUP1 `patcher::patch` publishes into
+   `patcher::shared_root()` whatever root it is given. Left alone in FUP1 because `runner.rs` is
+   `include_str!`'d into `PROBE_RUNTIME`, so any edit retires every cached probe selection.
+6. **NaN `f64` keys still raise on reads outside item.rs / item_parse.rs** (owner: the units of
+   each file; predates FUP1). Helpers such as `val_key` in `calc_active_skill.rs`,
+   `init_env_skills.rs`, `item_mods.rs` and `passive_tree.rs` build the read key with
+   `Key::from(f64)`, which raises on NaN, where Lua's `t[0/0]` reads nil. FUP1 switched only
+   item.rs / item_parse.rs to `try_num`; the others should read through it too.
 
 ## PF-B
 

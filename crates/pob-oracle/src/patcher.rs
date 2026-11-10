@@ -1766,7 +1766,8 @@ fn build_patched_tree(
 /// whatever `root` the caller passes; `root` is only used when there is no shared root. Every
 /// call marks the copy as used (`.last-used`) and, once per process, [`prune`]s the stale copies
 /// of the shared root and of the places copies were published before (`root`, [`default_root`],
-/// the checkout's `target/oracle-src`).
+/// the checkout's `target/oracle-src`). [`patch_into`] publishes into exactly the `root` it is
+/// given instead.
 #[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
 pub fn patch(pob_src: &Path, stages_path: Option<&Path>, root: &Path) -> Result<Patched> {
     let shared = shared_root();
@@ -1776,7 +1777,26 @@ pub fn patch(pob_src: &Path, stages_path: Option<&Path>, root: &Path) -> Result<
             prune_roots.push(r);
         }
     }
-    let root: &Path = shared.as_deref().unwrap_or(root);
+    publish(pob_src, stages_path, shared.as_deref().unwrap_or(root), &prune_roots)
+}
+
+/// [`patch`] into exactly `root/<sha>`, bypassing the [`shared_root`]: for callers that need a
+/// root of their own, e.g. P3's test of concurrent publishes into an empty root. Marks the copy
+/// as used and prunes (once per process) the stale copies of `root` alone.
+#[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+pub fn patch_into(pob_src: &Path, stages_path: Option<&Path>, root: &Path) -> Result<Patched> {
+    publish(pob_src, stages_path, root, &[root.to_path_buf()])
+}
+
+/// Plan, validate and publish the patched copy of `pob_src` into `root/<sha>` (reused when it
+/// exists), marking it used and pruning `prune_roots` once per process.
+#[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+fn publish(
+    pob_src: &Path,
+    stages_path: Option<&Path>,
+    root: &Path,
+    prune_roots: &[PathBuf],
+) -> Result<Patched> {
     let prune_now = |sha: &str| {
         let roots: Vec<&Path> = prune_roots.iter().map(PathBuf::as_path).collect();
         prune_once(&roots, sha);
