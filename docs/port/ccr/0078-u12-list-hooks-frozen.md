@@ -1,6 +1,8 @@
 # CCR-0078 (U12): ListControl hook set frozen; drag-target fields; U12 stub amendments
 
-Unit: U12 (lists). Status: proposed. Number: next free at the time of writing (0076 and 0077 are
+**Status: applied 2026-11-10 by CCR2 (A, C: ui doc §6.8, §13 item 12); B needs code. See AMENDMENTS A8.**
+
+Unit: U12 (lists). Filed status: proposed. Number: next free at the time of writing (0076 and 0077 are
 taken on other branches; renumber on collision).
 
 Applies to: ui doc §6.8 (the ListControl surface), §6.3 (`Base`, owner U4), §13 item 12.

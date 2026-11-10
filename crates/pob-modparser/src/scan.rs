@@ -3,7 +3,7 @@
 //!
 //! Owner: MP0.
 //!
-//! CCR-0014: `scan` takes a `&'static PatternList<T>` (it returns `&'static T`) and returns its
+//! CCR-0092: `scan` takes a `&'static PatternList<T>` (it returns `&'static T`) and returns its
 //! captures as an owned [`ScanCaps`]: Lua captures come from `line:lower()`, a string `scan`
 //! creates, so they cannot borrow from the caller's `line` (the frozen `Caps<'l>` return type).
 //! [`ScanCaps::caps`] lends the frozen [`Caps`] the pattern closures take.
@@ -27,7 +27,7 @@ use std::sync::{Arc, LazyLock};
 
 /// The captures of a [`scan`] match: `cap1`..`cap5` of `lineLower:find(pattern)` (Lua strings
 /// from the lowercased line) and `num = tonumber(cap1)` (the specialModList call shape,
-/// ModParser.lua:6663). CCR-0014.
+/// ModParser.lua:6663). CCR-0092.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ScanCaps {
     pub num: Option<f64>,
@@ -66,7 +66,7 @@ fn cap_string(c: &Capture<'_>) -> String {
 /// ModParser.lua:6616 `scan()`: lowest start, then longest end, then longest pattern; full ties →
 /// lowest `lua_line`, then the bytewise-smallest pattern (§3.4; PoB's choice depends on `pairs()`
 /// order). Returns (value, the line with the match removed, captures); `None` is Lua's
-/// `nil, line` (the caller keeps its line). CCR-0014 signature.
+/// `nil, line` (the caller keeps its line). CCR-0092 signature.
 pub fn scan<T>(
     line: &str,
     list: &'static PatternList<T>,
@@ -498,7 +498,7 @@ pub fn parseModPassWith(
             None,
         );
     }
-    // L6653: clusterJewelSkills (MP7's table, CCR-0014 §2)
+    // L6653: clusterJewelSkills (MP7's table, CCR-0092 §2)
     let clusterJewelSkill = crate::jewel_func_list::clusterJewelSkills.get(lineLower.as_str());
     // L6654
     if let Some(clusterJewelSkill) = clusterJewelSkill {

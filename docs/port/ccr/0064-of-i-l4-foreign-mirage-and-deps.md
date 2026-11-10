@@ -1,6 +1,8 @@
 # CCR-0064: OF-I L4 — foreign mirage output in dumps, and OF-I's real callee dependencies
 
-Status: proposed by OF-I (2026-11-09). Informational for ORC-X and the unit table; no frozen
+**Status: applied 2026-11-10 by CCR2 (§2 calc doc §11.1 OF-I row); §1 needs code. See AMENDMENTS A8.**
+
+Filed status: proposed by OF-I (2026-11-09). Informational for ORC-X and the unit table; no frozen
 signature changes. OF-I's own files need no workaround code beyond the test classification below.
 
 ## 1. `activeSkill.mirage.output` is dumped as `{"$foreign": …}` (ORC-X, pob-state/1)

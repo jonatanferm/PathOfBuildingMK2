@@ -1,6 +1,8 @@
 # CCR-0049: OF-H — ailment loop body B: closure calls, shadowed loop locals, `isValueInArray`
 
-Status: proposed by OF-H (2026-11-09). Nothing frozen is edited; the workarounds live in OF-H's
+**Status: needs code (CCR2, 2026-11-10; ORC-X2: §1-§4). See AMENDMENTS A8.**
+
+Filed status: proposed by OF-H (2026-11-09). Nothing frozen is edited; the workarounds live in OF-H's
 own files (`crates/pob-calc/src/modules/calc_offence/ailments_b.rs`,
 `crates/pob-oracle/tests/OF-H.rs`).
 

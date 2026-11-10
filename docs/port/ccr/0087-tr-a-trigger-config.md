@@ -1,6 +1,8 @@
 # CCR-0087 (TR-A): `TriggerConfig` cannot hold what the configTable arms return
 
-**Status: proposed (TR-A, 2026-11-10).** No frozen file was changed. TR-A works around every item
+**Status: escalated by CCR2 2026-11-10 (needs code; frozen `TriggerConfig`, conflicts with in-flight TR-B; AMENDMENTS A8 E2). See AMENDMENTS A8.**
+
+**Filed status: proposed (TR-A, 2026-11-10).** No frozen file was changed. TR-A works around every item
 inside its own file (`crates/pob-calc/src/modules/calc_triggers/handlers.rs`), marked `CCR-0087`.
 
 - **Raised by:** TR-A

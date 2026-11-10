@@ -54,9 +54,14 @@ These assertions were already in the files and fail on 746b103 before any HYG2 b
 Not port gaps, recorded so a reader knows why they are not 0:
 
 - AS `LUA-ORDER` (stat-map mods added in `pairs` order, calc doc §3.4/§9.5) and AltX/AltY
-  sources (CCR-0010); BM-B `LUA-ORDER/expected`; CT `stat_map` PoB-nondeterministic records;
-  PS-A `leap` (order-dependent, asserted as a set under `leapset`). The bounds are the observed
-  maxima plus headroom, stated next to each constant.
+  sources (CCR-0010); CT `stat_map` PoB-nondeterministic records; PS-A `leap`
+  (order-dependent, asserted as a set under `leapset`). The bounds are the observed maxima plus
+  headroom, stated next to each constant.
+- BM-B `LUA-ORDER`: not bounded by an observed count (LuaJIT randomises `pairs` per process,
+  and a count with headroom went red at random: tabs 12 -> 18/19 on the same code). Flipped
+  ambiguous gems are bounded by the ambiguous gems in the oracle's Saves (per build and in
+  total), reordered party labels by the multi-line labels compared; only the deterministic
+  `expected` bucket has a fixed bound.
 
 Not port gaps either, but limits of a test's own rebuilt model:
 
@@ -108,3 +113,20 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    not investigated (candidates: `buildActiveSkill`'s "Failed to process skill" path, or a uuid
    whose env caches under another key). These 3 builds are harness-limited in `ca_l5_post`
    (cost-warning block only) and are covered only end to end.
+
+## CCR2
+
+Open issues from the CCR2 final review (owner: whoever next touches scripts/port tooling).
+
+1. Commit a7f2683 added 13 Python bytecode files to git:
+   `scripts/port/__pycache__/{calcscope,globals_lint,locals_audit,luaast,pairs_inventory,pobpaths,provenance,segments}.cpython-314.pyc`
+   and `scripts/port/tests/__pycache__/{_util,test_lint_inventory,test_locals_segments,test_luaast,test_provenance}.cpython-314.pyc`.
+   rust-port tracked no `__pycache__` files before. They are build artifacts tied to one Python
+   version that record the worktree path of the run that made them, so running the scripts in any
+   other checkout dirties the tree (confirmed in a fresh port/CCR2 worktree after running
+   pairs_inventory/provenance/segments: ` M scripts/port/__pycache__/{calcscope,luaast,pobpaths,segments}.cpython-314.pyc`).
+   Fix: `git rm -r --cached scripts/port/__pycache__ scripts/port/tests/__pycache__` and ignore
+   `__pycache__/` / `*.pyc`.
+   **Resolved at integration** in c477ed9 (files untracked, `.gitignore` now ignores `__pycache__/`
+   and `*.pyc`). Units branched from port/CCR2 before c477ed9 still carry the tracked files and
+   pick up the removal on merge; do not re-add them.

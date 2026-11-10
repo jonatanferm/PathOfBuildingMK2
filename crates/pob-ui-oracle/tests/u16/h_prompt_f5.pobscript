@@ -1,0 +1,6 @@
+# U16: the prompt F5 path (doRestart overlay and Restart()).
+#! u16-setup prompt
+fixture userdir=../../fixtures/user1
+frames 1
+press F5
+frames 2

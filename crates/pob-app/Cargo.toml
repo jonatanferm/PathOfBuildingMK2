@@ -15,6 +15,7 @@ pob-lua.workspace = true
 # The calc plan's crates (calc doc §2): the model and the calc, as U0 stubs until their units land.
 pob-calc.workspace = true
 pob-gamedata.workspace = true
+indexmap.workspace = true
 
 [lints]
 workspace = true

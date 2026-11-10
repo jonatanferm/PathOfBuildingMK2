@@ -1,0 +1,7 @@
+# U16: the prompt F4 path (popups and input cleared, main:SetMode("LIST")).
+#! u16-setup prompt
+#! u16-setup toast
+fixture userdir=../../fixtures/user1
+frames 1
+press F4
+frames 3

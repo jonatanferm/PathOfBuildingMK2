@@ -52,7 +52,7 @@ thread_local! {
     static DEFAULT_STATE: RefCell<Option<(usize, Table)>> = const { RefCell::new(None) };
 }
 
-/// @pob Classes/ConfigTab.lua:683-692 h=6a0e1445
+/// @pob Classes/ConfigTab.lua:682-692 h=0703c005
 /// `self.defaultState` as the constructor fills it from `varList` (every non-section
 /// option with a `var`; later options with the same var overwrite earlier ones).
 pub fn defaultState(data: &'static Data) -> Table {
@@ -75,22 +75,22 @@ pub fn defaultState(data: &'static Data) -> Table {
             .as_ref()
             .map_or(Val::Nil, Val::from_value);
         let ty = varData.r#type.map(|t| t.as_str());
-        // L683
+        // L682
         let v = if ty == Some("check") {
-            // L684
+            // L683
             lor(ds, || Val::Bool(false))
         } else if matches!(ty, Some("count" | "integer" | "countAllowZero" | "float")) {
-            // L686
+            // L685
             lor(ds, || Val::Num(0.0))
         } else if ty == Some("list") {
-            // L688
+            // L687
             let idx = varData.defaultIndex.unwrap_or(1.0);
             list_val(varData, idx)
         } else if ty == Some("text") {
-            // L690
+            // L689
             lor(ds, || Val::from(""))
         } else {
-            // L692
+            // L691
             ds
         };
         t.set(var, v);
@@ -178,6 +178,86 @@ impl ConfigTab {
                 live.set(k, v);
             }
             configSet.set(field, live.clone());
+        }
+    }
+}
+
+/// @pob Classes/ConfigTab.lua:672-681 h=c9190b17
+/// The ConfigTab constructor's control half (CCR-0080 §1; the proposal of CCR-0037/CCR-0038):
+/// one control-state table per option with a `var` in `self.varControls`, with the fields the
+/// model reads (`_className`, `enabled`, `buf`, `state`, `placeholder`, `list`, `selIndex`).
+/// Owner BM-B (CCR-0037); moved here from BM-A's `build_xml` as CCR-0080 §10 anticipates, so
+/// a model built with `Build::new` can run the constructor too (BuildModList's applies index
+/// these controls, e.g. ConfigOptions.lua:789 `varControls['enemyRadius']:SetPlaceholder`).
+/// The control classes' constructors contribute `enabled = true` (Control.lua:60),
+/// `buf = ""` (EditControl.lua:48 `SetText(init or "")`, init is `""`), `list = varData.list`
+/// and `selIndex = 1` (DropDownControl.lua:45-46). The input/placeholder defaults of L673/L676/L679
+/// are `NewConfigSet`'s (ConfigTab.lua:1289-1296, already applied by `ctor_model`), and
+/// `defaultState` (L683-692) is `config_tab::defaultState`.
+/// Idempotent, like `ctor_model`: PoB runs the constructor once, so a non-empty `varControls`
+/// means it has run, and a second call keeps the controls (and the `SetPlaceholder` /
+/// `selIndex` state written into them since) instead of replacing them.
+impl ConfigTab {
+    pub fn ctor_controls_model(&self, data: &'static Data) {
+        let varControls = &self.varControls;
+        if !varControls.is_empty() {
+            return;
+        }
+        // L261 for _, varData in ipairs(varList) do (section headers carry no var)
+        for varData in &data.configOptions {
+            if varData.section.is_some() {
+                continue;
+            }
+            let control = Table::new();
+            // ConfigTab.lua:280-347: the control class the option's type selects
+            let className = match varData.r#type.as_ref().map(|t| t.as_str()) {
+                Some("check") => "CheckBoxControl",
+                Some("count" | "integer" | "countAllowZero" | "float") => "EditControl",
+                Some("list") => "DropDownControl",
+                // `varData.resizable` is never set in ConfigOptions (the schema has no such field)
+                Some("text") => "EditControl",
+                _ => "Control",
+            };
+            control.set(n!("_className"), className);
+            control.set(n!("enabled"), true);
+            if className == "EditControl" {
+                control.set(n!("buf"), "");
+            } else if className == "DropDownControl" {
+                let list = Table::new();
+                for item in varData.list.iter().flatten() {
+                    let e = Table::new();
+                    e.set(n!("label"), &*item.label);
+                    e.set(n!("val"), Val::from_value(&item.val));
+                    list.push(e);
+                }
+                control.set(n!("list"), list);
+                control.set(n!("selIndex"), 1.0);
+            }
+            // L672
+            let Some(var) = varData.var else { continue };
+            // L674
+            control.set(
+                n!("state"),
+                varData
+                    .defaultState
+                    .as_ref()
+                    .map_or(Val::Nil, Val::from_value),
+            );
+            // L677
+            control.set(
+                n!("placeholder"),
+                varData
+                    .defaultPlaceholderState
+                    .as_ref()
+                    .map_or(Val::Nil, Val::from_value),
+            );
+            // L678
+            if let Some(defaultIndex) = varData.defaultIndex {
+                // L680
+                control.set(n!("selIndex"), defaultIndex);
+            }
+            // L675
+            varControls.set(var, control);
         }
     }
 }

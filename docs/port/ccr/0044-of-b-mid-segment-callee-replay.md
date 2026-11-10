@@ -1,6 +1,8 @@
 # CCR-0044: L4 cannot replay a callee in the middle of a segment (OF-B)
 
-Status: proposed. Unit: OF-B (test side only; nothing in the frozen calc API changes for
+**Status: needs code (CCR2, 2026-11-10; ORC-X2 shared callee seam). See AMENDMENTS A8.**
+
+Filed status: proposed. Unit: OF-B (test side only; nothing in the frozen calc API changes for
 shipping code). Affects: ORC-X (`pob_oracle::replay`, `testkit`), U0 (`pob_calc::stub`), every
 segment unit whose callees are not yet ported (calc doc §9.2 "Replay", §11 OF-A..I rows).
 

@@ -1,5 +1,7 @@
 # CCR-0021: ui doc §2 corrections from U1's re-verification at SimpleGraphic `3b1a346`
 
+**Status: applied 2026-11-10 by CCR2 (ui doc §2, §13 item 1). See AMENDMENTS A8.**
+
 - **Unit:** U1 (sg-core)
 - **Affects:** `docs/port/ui-architecture.md` §2 (rows Viewport, DrawImage, DrawImageQuad, Key
   names, Swallowed keys, Shader / blend, Frame loop, and the source paragraph), §13 item 1; the

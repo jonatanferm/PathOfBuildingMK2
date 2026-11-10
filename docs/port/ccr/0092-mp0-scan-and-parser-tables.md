@@ -1,11 +1,13 @@
-# CCR-0014: `scan` signature, `clusterJewelSkills` export, jewel-func call shape (MP0)
+# CCR-0092: `scan` signature, `clusterJewelSkills` export, jewel-func call shape (MP0)
+
+**Status: applied 2026-11-10 by CCR2 (calc doc §6, contracts.md#mod-mutation). Renumbered from 0014 by CCR2 (0014 stays MS-A's). See AMENDMENTS A8.**
 
 - **Raised by:** MP0 (`crates/pob-modparser/src/{scan,generated_lists,helpers,mod_cache}.rs`)
 - **Affects:** calc-architecture.md §6 (`scan` signature); `crates/pob-modparser/src/scan.rs`
   (MP0, frozen signature), `crates/pob-modparser/src/jewel_func_list.rs` (MP7),
   `crates/pob-modparser/src/lib.rs` (U0, re-exports). Consumers: MP1-MP7.
 - **Pin:** 16de4b82d
-- **Status:** open. MP0 works around 1 and 2 locally (marked `CCR-0014`).
+- **Filed status:** open. MP0 works around 1 and 2 locally (marked `CCR-0092`).
 
 ## 1. `scan` cannot return `Caps<'l>` borrowed from `line`, nor `&'static T` from a non-static list
 
@@ -53,7 +55,7 @@ is a different table (line → mods). Proposed addition to MP7's file:
 pub static clusterJewelSkills: LazyLock<ahash::AHashMap<String, Vec<Mod>>>;
 ```
 
-Workaround: `scan.rs` builds the same table (`CLUSTER_JEWEL_SKILLS_CCR0014`, no `@pob` marker; the
+Workaround: `scan.rs` builds the same table (`CLUSTER_JEWEL_SKILLS_CCR0092`, no `@pob` marker; the
 range stays MP7's). When MP7 exports the table, MP0 (or MP7) deletes the copy and reads MP7's.
 
 ## 3. The jewel-func value the driver emits (no type change; for MP7)

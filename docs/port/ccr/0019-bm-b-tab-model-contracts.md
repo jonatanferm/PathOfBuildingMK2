@@ -1,6 +1,8 @@
 # CCR-0019: BM-B tab model contracts (skills, config, party)
 
-**Unit:** BM-B (calc doc §11.1). **Status:** proposed; worked around locally in the BM-B files
+**Status: applied 2026-11-10 by CCR2 (§1, §3, §8, §9, §11, §12; §10 superseded by CCR-0080); §2, §4-§7 need code. See AMENDMENTS A8.**
+
+**Unit:** BM-B (calc doc §11.1). **Filed status:** proposed; worked around locally in the BM-B files
 (`crates/pob-calc/src/model/{skills_tab,party_tab,config_tab}.rs`, marked `CCR-0019`).
 **Number:** 0014 was taken by several in-flight units (CT, MS-A, MP0, HYG1); the integrator may
 renumber.

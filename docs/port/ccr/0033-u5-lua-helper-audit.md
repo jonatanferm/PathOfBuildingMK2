@@ -1,6 +1,8 @@
 # CCR-0033: U5 Lua-helper audit: gaps, `lua-utf8`, and oracle shims
 
-**Status: proposed** (U5, ui doc §12.3). Nothing here edits `pob-lua` or the oracle crates: U5
+**Status: applied 2026-11-10 by CCR2 (§5 ui doc §8 rule 8, §6 ui doc §13 item 15); §1-§4 need code. See AMENDMENTS A8.**
+
+**Filed status: proposed** (U5, ui doc §12.3). Nothing here edits `pob-lua` or the oracle crates: U5
 worked around every item locally (marked `CCR-0033` in `crates/pob-ui-core/src/luastr.rs`).
 The §8 resolution table itself lives in the module docs of `crates/pob-ui-core/src/luastr.rs`
 and is compile-checked by `crates/pob-ui-core/tests/luastr.rs::audit_resolves`.

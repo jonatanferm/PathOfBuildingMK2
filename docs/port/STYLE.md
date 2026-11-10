@@ -35,7 +35,7 @@ listed here; then the verbatim text.
 | `s_format("%.2f", x)` / `tostring(n)` / `a..n` | `lfmt!("%.2f", x)` / `tostring_num(n)` / `cat!(a, n)` (`%.14g`) |
 | `x % y` | `lmod(x, y)` (floored) |
 | `x ^ y` | `lpow(x, y)` (LuaJIT `^`) |
-| `#t` | `t.len()` (border; hole-free contract) |
+| `#t` | `t.len()`: LuaJIT's border. Every `Table` keeps a model of its LuaJIT layout (`pob_lua::ljtab::LjTab`), so `#t`, `t_insert` and `t_remove` agree with LuaJIT after holes too (CCR-0031 A). `tbl!` builds through `Table::from_ctor`: a literal value or `[k]` key (`1.0`, `-2`, `"s"`, `n!("s")`, `true`, `false`, `Val::Nil`) is a template constant, any other expression a run-time store; write folded literals (LuaJIT folds `{1+2}`). A positional nil item keeps its position (`tbl![a, Val::Nil, c]` is `{[1]=a, [3]=c}`) |
 | `for i, v in ipairs(t)` | `for_ipairs!((i, v) in t => { ... })`. It reads `t[i]` live on every step and stops at the first nil, exactly like Lua. |
 | `for k, v in pairs(t)` | `for (k, v) in t.pairs() { ... }`. Keys are a snapshot; values are read live; keys whose live value is nil are skipped. Add `// LUA-ORDER` when the result can depend on order (§3.4). |
 | `t_insert(t, v)` / `t_insert(t, i, v)` / `t_remove(t, i)` | `t.push(v)` / `t.insert(i, v)` / `t.remove(Some(i))`. Positions are `i64` and follow LuaJIT 2.1 `lib_table.c`: no bounds error; `remove` acts only for `1 <= i <= #t` (CCR-0011 §10). |
@@ -59,6 +59,7 @@ listed here; then the verbatim text.
 - **Integer-keyed tables iterated with `pairs` whose order is observable** (`env.allocNodes`, `env.grantedPassives`, `spec.allocNodes`, `extraRadiusNodeList`, `nodesInRadius`, and other node-id maps; the full list is in `docs/port/pairs_inventory.md`, produced by P4 and frozen by U0) use `pob_lua::ljtab::LjIntMap<V>`. It reproduces LuaJIT 2.1 `lj_tab.c` exactly: array part, hash part, `hashnum` main position, free-pointer collision chaining, rehash sizing, and `next()` order. Measured on the vendored LuaJIT: keys `{52031,1031,26725,55485,33545,6,7,1,2,3,99999,4184}` iterate as `1,2,3,6,7,26725,4184,55485,99999,1031,52031,33545` in every run.
 - **String-keyed tables** use insertion order. PoB's own order is random per process (seeded hash, D8), so any output that depends on it is nondeterministic in PoB. The oracle detects such outputs (§9.5) and the diff compares them as sets of the values PoB produced.
 - **Table-identity keys** (`pairs(affectedByAura)`, `isSupporting[srcInstance]`) also follow a random order in PoB (address hashing). Use insertion order (`PtrSet`/`PtrMap`).
+- **`LjIntMap` needs Lua's insertion order** (CCR-0024 §5, CCR-0028 §9, CCR-0031). It reproduces LuaJIT for a given sequence of stores. Where that sequence itself comes from a `pairs` over a table that ever held a string key, PoB's order is per-process random: LuaJIT hashes strings by a per-state seeded id, which moves the integer keys' hash slots. Example: `tree.nodes` of the 3.10+ trees holds the string key `root` until PassiveTree.lua:510, so `pairs(tree.nodes)`, the fill order of `spec.nodes` and `pairs(spec.nodes)` differ between PoB processes; such sites compare as multisets (§9.5; ui doc §8 rule 6 (b)). `Table::len` uses a fixed string-hash stand-in, so `#t` of a table that mixes string keys with *holed* integer keys is a valid border but not always LuaJIT's (LuaJIT itself differs between processes there). Data tables written as `[n] = { … }` constructors (`grantedEffect.levels`) live entirely in the hash part: use `calc_tools::levels_next_key` / `levels_len` for `next(levels)` / `#levels`, never `LevelTable::len()` (CCR-0091 §2).
 - **ModParser `scan()`** iterates its pattern tables with `pairs` (ModParser.lua:6621), so full ties (same start, same end, same pattern length) are resolved randomly in PoB. Rust picks the lowest Lua source line. The L1 test enumerates full ties and accepts any of the candidates' outputs.
 
 ### 3.5 Numbers and strings
@@ -75,7 +76,7 @@ listed here; then the verbatim text.
 
 ### 3.6 Mutation of mod tables
 
-`ModRef = Arc<Mod>` is immutable once a store holds it. U0's audit (`docs/port/contracts.md#mod-mutation`) lists every Lua site that mutates a mod in place: ModStore.lua 425-430/514-516/564-566, CalcPerform.lua 2452/2539/2564/2610/2718/2846/2921/3881/3897, CalcActiveSkill.lua:38, Item.lua 2336/2558, ModTools.lua 240-242. Each site has been verified to mutate a **fresh copy**: `copyTable` immediately before the mutation, a `copyTable(buffExports.Aura[...])` (CalcPerform.lua:3870), or a mod under construction. Rust ports these as "build a new `Mod`, then insert". A newly found site whose target is shared MUST be filed as a CCR before porting.
+`ModRef = Arc<Mod>` is immutable once a store holds it. `docs/port/contracts.md#mod-mutation` lists the Lua sites that mutate a mod (or a tag) in place, in two tables. **Fresh-copy sites** (U0's audit, e.g. ModStore.lua 425-430/514-516/564-566, CalcPerform.lua 2452/2539/2564/2610/2718/2846/2921, CalcActiveSkill.lua:38, Item.lua 2336, ModTools.lua 115) mutate a copy nobody else holds: `copyTable` immediately before the mutation, a `copyTable(buffExports.Aura[...])` (CalcPerform.lua:3870), or a mod under construction. Rust ports these as "build a new `Mod`, then insert". **Shared-target sites** (found after U0 and accepted through CCRs: ModTools.lua 254-255 `mergeKeystones`, CalcPerform.lua 629, 1951-1952, 2380-2384, 2788-2790, 3879-3897, CalcSetup.lua 424, Item.lua 2556-2560, ModParser.lua 6473-6474 and 6860) write into a mod, tag or table that other holders share. Each row of that table names its port (a rebuilt or re-sourced copy replacing the entry where the branch reads it afterwards, or a `LUA-ALIAS` reproduction) and the PoB-visible difference, if any, which goes to `known_diffs.toml`. `modLib.setSource` (ModTools.lua 238-244) also writes `mod.value.mod.source`, so a shallow `copyTable(mod, true)` before it is not a fresh copy of the inner mod; whether a `setSource` call is fresh depends on its caller. A site listed in both tables (CalcPerform.lua 3879-3897, Item.lua 2558) follows its shared-target row. A newly found site whose target is shared MUST be filed as a CCR before porting, and the CCR adds it to the shared-target table.
 
 
 
@@ -108,6 +109,28 @@ contains them; this list says where each one bites.
   CCR-0011 lists the type-level deviations from the calc doc text (`ModStore.parent` is a
   `Field`, `initEnv` returns `Option` cached DBs, the `InitEnvCtx.env/modDB` are `Option`,
   `ModCfg::STRING_CFG()` is a function, …); `docs/port/contracts.md` is the reference.
+
+CCRs 0014-0094 were decided by unit CCR2 (2026-11-10; AMENDMENTS A8 has the table). The rules
+that bite every porting unit:
+
+- **CCR-0031 (`#t`, constructors, test inputs).** `Table::len` is LuaJIT's border (§3.2); write
+  `tbl!` constants as literals and fold arithmetic yourself. Tests locate the PoB checkout, `data/`,
+  `data/dump` and `.parity` only through the dev-dependency `pob-testpaths`
+  (`pob_testpaths::require`): a missing input **fails** unless `POB_ALLOW_SKIP=1`.
+- **Runtime writes into `data`** (calc doc §4.4 table: `hasGlobalEffect`, `levelCostCleared`,
+  `grantedEffect_fromItem`, the LUT cache, `DataSel`). Read such a field through its accessor,
+  never from the immutable data.
+- **Shared-mod writes.** contracts.md#mod-mutation lists the sites where Lua writes into a shared
+  mod or tag and how each is ported (rebuild and replace where the branch reads it, or a re-sourced
+  copy). A new site needs a CCR before porting.
+- **Nil in typed fields.** `NaN` for a nil `Cell<f64>`, `$<field>Nil` markers where Save tells nil
+  apart, `Val::Obj` for objects inside dynamic tables (contracts.md#class-census conventions).
+- **Insertion order.** `LjIntMap` matches LuaJIT only for Lua's insertion sequence; a sequence that
+  comes from a `pairs` over a table that held a string key is per-process random (§3.4). Use
+  `calc_tools::levels_next_key`/`levels_len` for `next(levels)`/`#levels`.
+- **Test seams.** A seam that lets a test answer a callee or a hook (`*::replay`, `callee_replay`,
+  `replay_hook`, `set_skill_hook_handler`, `SpecStubs`, `PscCalls`) compiles only under the `probe`
+  feature (or is never set by the product) and changes nothing when unset.
 
 ### Conventions of the skeleton
 

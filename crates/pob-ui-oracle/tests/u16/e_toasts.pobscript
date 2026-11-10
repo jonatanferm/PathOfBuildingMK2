@@ -1,0 +1,4 @@
+# U16: two toasts stacked above the bottom bar.
+#! u16-setup toast2
+fixture userdir=../../fixtures/user1
+frames 25

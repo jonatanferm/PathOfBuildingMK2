@@ -1,6 +1,8 @@
 # CCR-0070 (PS-B): BuildAllDependsAndPaths representation notes and a PS-C call seam
 
-**Status: proposed (PS-B, 2026-11-09).** No frozen signature changes. §1 is a type mismatch
+**Status: applied 2026-11-10 by CCR2 (contracts.md#class-census). See AMENDMENTS A8.**
+
+**Filed status: proposed (PS-B, 2026-11-09).** No frozen signature changes. §1 is a type mismatch
 between two frozen contracts, worked around inside `passive_spec_paths.rs` (marked `CCR-0070`);
 §2 adds port plumbing to PS-B's own file; §3-§4 are notes for PS-C and the integrator.
 

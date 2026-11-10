@@ -1,11 +1,13 @@
 # CCR-0039: jewel func contract (MP7)
 
+**Status: applied 2026-11-10 by CCR2 (calc doc §4.3, §6; contracts.md#mod-mutation); the `JewelFuncSpec.key` doc comment fix needs code. See AMENDMENTS A8.**
+
 - **Raised by:** MP7 (`crates/pob-modparser/src/jewel_func_list.rs`, `crates/pob-calc/src/modules/jewel_funcs.rs`)
 - **Affects:** calc-architecture.md §6 (jewel funcs), §8 (closure families row "Jewel funcs");
   `pob_gamedata::JewelFuncSpec` doc comment; consumers MP3-MP6 (the two `ExtraJewelFunc`
   specialModList entries) and CS0/CS2 (CalcSetup radius jewels).
 - **Pin:** 16de4b82d
-- **Status:** open. MP7 implements everything below (no frozen type changes; one frozen fn
+- **Filed status:** open. MP7 implements everything below (no frozen type changes; one frozen fn
   signature changes, §1).
 
 ## 1. `getThreshold` cannot express its Lua arguments
@@ -29,12 +31,12 @@ three entries (6481-6482 `ModFlag.Melee`, 6519 `ModFlag.Attack`, 6520 `0, bor(Ke
   and none for 6480-6549); same shape as `jewelOtherFuncs`.
 - `jewelFuncListSource: LazyLock<AHashMap<&'static str, &'static JewelFuncSpec>>`: the table value
   `v` each jewelFuncList wrapper closes over (6554-6592), by lowercased key. `callJewelFunc` needs
-  it because the emitted spec (CCR-0014 §3) names only the key.
+  it because the emitted spec (CCR-0092 §3) names only the key.
 - `callCaptureClosure(v, caps) -> Option<JewelFuncSpec>`: Lua `v(cap1, …, cap5)` for the
   capture closures (`function(num) return … end`), returning the node func they build.
-- `clusterJewelSkills: LazyLock<AHashMap<String, Vec<Mod>>>` (CCR-0014 §2, as proposed there).
+- `clusterJewelSkills: LazyLock<AHashMap<String, Vec<Mod>>>` (CCR-0092 §2, as proposed there).
   `scan.rs`'s stand-in copy `CLUSTER_JEWEL_SKILLS_CCR0014` is deleted and the driver reads MP7's
-  table (CCR-0014 §2 allowed MP7 to do this).
+  table (CCR-0092 §2 allowed MP7 to do this).
 
 Value encoding (module docs of `jewel_func_list.rs`): helper closures `"$getSimpleConv"`,
 `"$getPerStat"` (`args = [dst, modType, flags, stat, factor]`), `"$getThreshold"`

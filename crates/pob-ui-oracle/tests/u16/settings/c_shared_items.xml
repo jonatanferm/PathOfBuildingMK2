@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Mode mode="LIST">
+		<Arg string="allflame_exp_048"/>
+		<Arg string="sub/"/>
+	</Mode>
+	<Accounts tokenExpiry="nil"/>
+	<SharedItems>
+		<Item>
+			Rarity: RARE
+Beast Grip
+Ruby Ring
+--------
+Item Level: 80
+--------
++16% to Fire Resistance (implicit)
+--------
++30 to maximum Life
+		</Item>
+		<ItemSet title="Two rings">
+			<Item slotName="Ring 1">
+				Rarity: UNIQUE
+Le Heup of All
+Iron Ring
+			</Item>
+			<Item slotName="Ring 2">
+				Rarity: MAGIC
+Ruby Ring of the Whelpling
+			</Item>
+		</ItemSet>
+		<ItemSet>
+			<Item slotName="Amulet">
+				Rarity: NORMAL
+Onyx Amulet
+			</Item>
+		</ItemSet>
+	</SharedItems>
+	<Misc buildSortMode="NAME" connectionProtocol="0" nodePowerTheme="RED/BLUE" colorPositive="^x33FF77" colorNegative="^xDD0022" colorHighlight="^xFF0000" showThousandsSeparators="true" thousandsSeparator="," useCompactValues="false" decimalSeparator="." showTitlebarName="true" betaTest="false" edgeSearchHighlight="true" defaultGemQuality="0" defaultCharLevel="1" defaultItemAffixQuality="0.5" showWarnings="true" slotOnlyTooltips="true" migrateEldritchImplicits="true" notSupportedModTooltips="true" invertSliderScrollDirection="false" disableDevAutoSave="true" showPublicBuilds="true" showFlavourText="true" showAnimations="true" showAllItemAffixes="true" disableScrollControlInteraction="false" dpiScaleOverridePercent="0"/>
+</PathOfBuilding>

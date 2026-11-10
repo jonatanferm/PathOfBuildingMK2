@@ -1,7 +1,9 @@
-# CCR-0014: CT (calc tools) contract corrections and findings
+# CCR-0091: CT (calc tools) contract corrections and findings
 
-Unit: CT (calc doc §11.1 row CT). Status: proposed. Every item is applied locally in CT's own
-files (marked `CCR-0014` where it touches code); the integrator only needs to amend the doc text
+**Status: applied 2026-11-10 by CCR2 (§1-§4, §6: calc doc §3.4, §3.6, §4.4, §5.5, contracts.md#mod-mutation); §5 and §4's `known_diffs.toml` entry (A8 item 17) need code. Renumbered from 0014 by CCR2 (0014 stays MS-A's). See AMENDMENTS A8.**
+
+Unit: CT (calc doc §11.1 row CT). Filed status: proposed. Every item is applied locally in CT's own
+files (marked `CCR-0091` where it touches code); the integrator only needs to amend the doc text
 (and, for items 3 and 4, tell the owning units).
 
 ## 1. `Breakdown` helper signatures (calc doc §5.5) — CT corrects U0's reading, as §5.5 asks

@@ -1,6 +1,8 @@
 # CCR-0055: `combineStat`'s vararg is a stat name (OF-C)
 
-Status: proposed (applied locally in `calc_offence/costs_passes.rs`, marked `CCR-0055`).
+**Status: applied 2026-11-10 by CCR2 (§1 calc doc §7.2); §2 needs code. See AMENDMENTS A8.**
+
+Filed status: proposed (applied locally in `calc_offence/costs_passes.rs`, marked `CCR-0055`).
 Unit: OF-C. Affects: calc-architecture.md §7.2 (frozen stub signature), callers OF-D, OF-F, OF-I.
 
 ## Problem

@@ -3,7 +3,7 @@
 //! `modDB`, `output` and `actor` are the module function's arguments (the
 //! closures' upvalues), kept on the [`Breakdown`] value. Owner: CT.
 //!
-//! Parameter corrections against U0's reading (CCR-0014): `area` takes optional
+//! Parameter corrections against U0's reading (CCR-0091): `area` takes optional
 //! breakpoints, label and radius modifier (CalcOffence.lua:198-223 returns nil
 //! breakpoints for a zero radius; 1317/1401/1409 pass no label);
 //! `effMult` takes optional `invertChance` / `effectiveResist` (CalcOffence.lua

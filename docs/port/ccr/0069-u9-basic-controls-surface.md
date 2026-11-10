@@ -1,6 +1,8 @@
 # CCR-0069 (U9): `MainCore.invert_slider_scroll_direction`, and the U9 control surface amendments
 
-Unit: U9 (basic controls and draw helpers). Status: proposed. Number: next free at the time of
+**Status: applied 2026-11-10 by CCR2 (B: ui doc §13 item 12); A needs code. See AMENDMENTS A8.**
+
+Unit: U9 (basic controls and draw helpers). Filed status: proposed. Number: next free at the time of
 writing (0056-0060, 0062, 0066 may be taken by unmerged branches; renumber on collision).
 
 ## A. Missing `MainCore` field (needs U4 / the ui doc §6.11 owner)

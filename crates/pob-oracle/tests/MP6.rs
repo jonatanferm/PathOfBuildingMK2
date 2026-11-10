@@ -1107,7 +1107,7 @@ fn list_func_src(o: &JewelFuncSpec) -> Option<String> {
 /// PoB's jewel closures reach the parse oracle as their source range only (the walker does not
 /// dump upvalues), and the dump decoder folds `{ func = <closure>, type = …[, radius = …] }` into
 /// one `Value::JewelFunc` keyed by that range (pob_gamedata `gen_to_jewel_func`). Ours carries
-/// the closure as data (CCR-0014 §3, CCR-0039 §3). This checks what L1 can see against the
+/// the closure as data (CCR-0092 §3, CCR-0039 §3). This checks what L1 can see against the
 /// record's own winning step, then rewrites our value into the oracle's shape:
 /// * a jewelFuncList value `{ func = spec, type }`: `spec.key` is the step's pattern (the
 ///   lowercased key); an exact step gives no `args`, a pattern step `args` = its captures;

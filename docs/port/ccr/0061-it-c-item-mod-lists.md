@@ -1,6 +1,8 @@
 # CCR-0061 (IT-C): Item mod lists / itemLib contract notes
 
-**Status: proposed (IT-C, 2026-11-09).** Every item is worked around inside the IT-C files
+**Status: applied 2026-11-10 by CCR2 (§5, §7; calc doc §9.4, contracts.md#class-census); §1-§4, §6, §8 need code. See AMENDMENTS A8.**
+
+**Filed status: proposed (IT-C, 2026-11-09).** Every item is worked around inside the IT-C files
 `crates/pob-calc/src/classes/{item_mods,item_tools}.rs` (marked `CCR-0061`); no frozen file was
 edited.
 

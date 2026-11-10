@@ -28,7 +28,7 @@ A feature-complete **Rust** port of Path of Building v2.67.2 (`.PathOfBuilding/`
 | Calc Wave 0 | P1 (dump + parse oracle + codegen), P2 (pob-lua), P3 (probe oracle), P4 (port scripts), T1 (lua2rs transpiler) |
 | Calc Wave 1 | U0 (calc skeleton + frozen contracts) |
 | UI Wave 0 | UI-U0 (UI skeleton: pob-sg / pob-sg-wgpu / pob-host / pob-ui-core / pob-app / pob-ui-oracle / app/pob-port-*) |
-| Contracts | CCR1 (applied CCRs 0001–0013) |
+| Contracts | CCR1 (applied CCRs 0001–0013); CCR2 (decided CCRs 0014–0094, AMENDMENTS A8) |
 | Calc Wave 2 | MS-A (ModStore/ModDB/ModList), CT (calc tools), MP0 (ModParser core), LUT (timeless/abyss LUTs) |
 | UI Wave 1 | U1 (sg core), U2 (fonts), U3 (images/loaders) |
 

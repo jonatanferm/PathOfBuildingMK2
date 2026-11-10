@@ -1,6 +1,8 @@
 # CCR-0084 (U14): popup surface amendments, and two SimpleGraphic functions `Sys` lacks
 
-Unit: U14 (Popups). Status: proposed. Number: next free at the time of writing (0080 and 0081
+**Status: applied 2026-11-10 by CCR2 (§1, §2, §5, §6: ui doc §6.10, §13 item 16); §3, §4 need code. See AMENDMENTS A8.**
+
+Unit: U14 (Popups). Filed status: proposed. Number: next free at the time of writing (0080 and 0081
 are taken; renumber on collision, the code comments say `CCR-0084`). Every item is worked around
 inside U14's own files (`crates/pob-ui-core/src/popups.rs`), marked `// CCR-0084` where the code
 stands in for a missing contract.

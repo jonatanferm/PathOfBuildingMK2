@@ -332,7 +332,7 @@ pub fn Init_model(
     build.partyTab.ctor_model();
     // L611
     build.configTab.ctor_model();
-    configTab_varControls_model(build);
+    build.configTab.ctor_controls_model(build.data);
     // L612
     build.itemsTab.ctor_model(build);
     // L613
@@ -461,6 +461,9 @@ fn dbFileName_str(build: &Build) -> String {
     dbFileName(build).map_or_else(String::new, |s| s.to_string())
 }
 
+/// @pob Classes/SkillsTab.lua:89-89 h=70a2f0d6
+/// @pob Classes/SkillsTab.lua:95-96 h=4ba58857
+/// @pob Classes/SkillsTab.lua:423-426 h=4aab9e73
 /// The SkillsTab constructor's model half (SkillsTab.lua:89, 95-96, 423-426; CCR-0019 §10).
 fn skillsTab_ctor_model(build: &BuildRef) {
     let st = &build.skillsTab;
@@ -479,75 +482,6 @@ fn skillsTab_ctor_model(build: &BuildRef) {
     st.NewSkillSet(Some(1.0));
     // L426
     st.SetActiveSkillSet(build, 1.0);
-}
-
-/// @pob Classes/ConfigTab.lua:672-681 h=c9190b17
-/// The ConfigTab constructor's control half (CCR-0080 §1; the proposal of CCR-0037/CCR-0038):
-/// one control-state table per option with a `var` in `self.varControls`, with the fields the
-/// model reads (`_className`, `enabled`, `buf`, `state`, `placeholder`, `list`, `selIndex`).
-/// The control classes' constructors contribute `enabled = true` (Control.lua:60),
-/// `buf = ""` (EditControl.lua:48 `SetText(init or "")`, init is `""`), `list = varData.list`
-/// and `selIndex = 1` (DropDownControl.lua:45-46). The input/placeholder defaults of L673/L676/L679
-/// are `NewConfigSet`'s (ConfigTab.lua:1289-1296, already applied by `ctor_model`), and
-/// `defaultState` (L683-692) is `config_tab::defaultState`.
-fn configTab_varControls_model(build: &BuildRef) {
-    let varControls = &build.configTab.varControls;
-    // L261 for _, varData in ipairs(varList) do (section headers carry no var)
-    for varData in &build.data.configOptions {
-        if varData.section.is_some() {
-            continue;
-        }
-        let control = Table::new();
-        // ConfigTab.lua:280-347: the control class the option's type selects
-        let className = match varData.r#type.as_ref().map(|t| t.as_str()) {
-            Some("check") => "CheckBoxControl",
-            Some("count" | "integer" | "countAllowZero" | "float") => "EditControl",
-            Some("list") => "DropDownControl",
-            // `varData.resizable` is never set in ConfigOptions (the schema has no such field)
-            Some("text") => "EditControl",
-            _ => "Control",
-        };
-        control.set(n!("_className"), className);
-        control.set(n!("enabled"), true);
-        if className == "EditControl" {
-            control.set(n!("buf"), "");
-        } else if className == "DropDownControl" {
-            let list = Table::new();
-            for item in varData.list.iter().flatten() {
-                let e = Table::new();
-                e.set(n!("label"), &*item.label);
-                e.set(n!("val"), Val::from_value(&item.val));
-                list.push(e);
-            }
-            control.set(n!("list"), list);
-            control.set(n!("selIndex"), 1.0);
-        }
-        // L672
-        let Some(var) = varData.var else { continue };
-        // L674
-        control.set(
-            n!("state"),
-            varData
-                .defaultState
-                .as_ref()
-                .map_or(Val::Nil, Val::from_value),
-        );
-        // L677
-        control.set(
-            n!("placeholder"),
-            varData
-                .defaultPlaceholderState
-                .as_ref()
-                .map_or(Val::Nil, Val::from_value),
-        );
-        // L678
-        if let Some(defaultIndex) = varData.defaultIndex {
-            // L680
-            control.set(n!("selIndex"), defaultIndex);
-        }
-        // L675
-        varControls.set(var, control);
-    }
 }
 
 /// @pob Classes/ConfigTab.lua:1205-1240 h=66e7f9af

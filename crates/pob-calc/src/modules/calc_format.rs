@@ -7,7 +7,7 @@
 //! `main.thousandsSeparator` and `main.decimalSeparator`. It is ported here
 //! ([`formatNumSep`]) with those settings in a thread-local
 //! ([`NumSepSettings`], PoB's defaults from Main.lua:108-112) that the UI sets
-//! (CCR-0014).
+//! (CCR-0091).
 #![allow(non_snake_case)]
 // literal Lua statement shapes (`x = x * y`, `a and b` checks)
 #![allow(
@@ -70,7 +70,7 @@ fn byte_gsub(s: &str, p: &str, repl: &str) -> String {
 }
 
 /// @pob Modules/Common.lua:803-828 h=6dee6380
-/// Formats "1234.56" -> "1,234.5" (outside every unit's scope range; CCR-0014)
+/// Formats "1234.56" -> "1,234.5" (outside every unit's scope range; CCR-0091)
 pub fn formatNumSep(str: &str) -> String {
     let main = num_sep_settings();
     // Common.lua:804

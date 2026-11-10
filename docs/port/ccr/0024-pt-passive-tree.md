@@ -1,6 +1,8 @@
 # CCR-0024 (PT): PassiveTree representation notes, the `tree.nodes` order and the tree-dependent uniques
 
-**Status: proposed (PT, 2026-10-10).** §1-§4, §6, §8 and §9 are conventions PT already follows
+**Status: applied 2026-11-10 by CCR2 (§1-§4, §6, §8, §9: contracts.md#class-census, calc doc §3.4/§4.4); §5 and §7 need code (pob-dump). See AMENDMENTS A8.**
+
+**Filed status: proposed (PT, 2026-10-10).** §1-§4, §6, §8 and §9 are conventions PT already follows
 inside its own file `crates/pob-calc/src/classes/passive_tree.rs` (no frozen file changed; the
 consumers PS-A/PS-B/PS-C, CS0, MP7 and U23 read the tree through them). §5 and §7 ask P1
 (`crates/pob-dump`) for two dump additions; PT works around both locally (marked `CCR-0024`).

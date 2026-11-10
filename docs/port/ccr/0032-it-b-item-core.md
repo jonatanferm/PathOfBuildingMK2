@@ -1,6 +1,8 @@
 # CCR-0032 (IT-B): Item core stub signatures and the shape of `Item.extra`
 
-**Status: proposed (IT-B, 2026-10-09; §4 added 2026-10-10).** The changes in §1 are already
+**Status: applied 2026-11-10 by CCR2 (contracts.md#class-census). See AMENDMENTS A8.**
+
+**Filed status: proposed (IT-B, 2026-10-09; §4 added 2026-10-10).** The changes in §1 are already
 made in the IT-B-owned file `crates/pob-calc/src/classes/item.rs` (marked `CCR-0032`); nothing
 outside it calls the changed functions (`cargo check -p pob-calc` and the wasm32 check are
 green). §2 records a convention that IT-A and IT-C must follow; §3 is one documented deviation;

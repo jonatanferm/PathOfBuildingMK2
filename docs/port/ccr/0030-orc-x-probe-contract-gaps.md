@@ -1,6 +1,8 @@
 # CCR-0030: ORC-X — frozen calc types that cannot hold what PoB stores
 
-Status: proposed by ORC-X (2026-10-10)
+**Status: escalated by CCR2 2026-11-10 (needs code; frozen type changes, AMENDMENTS A8 E1). See AMENDMENTS A8.**
+
+Filed status: proposed by ORC-X (2026-10-10)
 
 ## Problem
 

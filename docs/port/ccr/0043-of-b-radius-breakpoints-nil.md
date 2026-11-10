@@ -1,6 +1,8 @@
 # CCR-0043: `calcRadiusBreakpoints` returns four nils for a zero radius (OF-B)
 
-Status: proposed (worked around locally in `calc_offence/skill_types.rs`, marked `CCR-0043`).
+**Status: needs code (CCR2, 2026-11-10; same change as CCR-0041 §1). See AMENDMENTS A8.**
+
+Filed status: proposed (worked around locally in `calc_offence/skill_types.rs`, marked `CCR-0043`).
 Unit: OF-B. Affects: the OF-A stub signature in `calc_offence/helpers_setup.rs` (frozen by U0),
 callers OF-A (`calcAreaOfEffect`) and OF-B.
 
@@ -24,7 +26,7 @@ nils:
 The nils are observable: `breakdown.area` prints the two breakpoint lines only
 `if incBreakpoint and moreBreakpoint and redBreakpoint and lessBreakpoint`
 (`Modules/CalcBreakdown.lua:106`). CT already took `Option<f64>` breakpoints in
-`Breakdown::area` for exactly this reason (CCR-0014). With the frozen `f64` return, a caller
+`Breakdown::area` for exactly this reason (CCR-0091). With the frozen `f64` return, a caller
 cannot tell "0% needed" from nil. Callers: CalcOffence.lua 394, 406, 461, 475 (OF-A,
 `calcAreaOfEffect`), 1316, 1400, 1408 (OF-B: trap trigger, mine detonation, mine aura radius
 breakdowns).
