@@ -281,6 +281,11 @@ fn rust_stubs(cx: &mut Cx) {
     });
     of::set_shell_hooks(|h| {
         *h = of::default_shell_hooks();
+        // the Lua side replaces every tab's Draw (lua_stubs), Notes included (U22's arm of the
+        // default draws it; CCR-0106 §3)
+        h.draw_tab = Rc::new(|_, _, _, _| {});
+        // U21 stand-in, as lua_stubs (U21's is the default now, CCR-0106 §4)
+        h.refresh_skill_select_controls = Rc::new(|_, _, _, _| {});
         h.tab_flag =
             Rc::new(|_, flag| flag == TabFlag::Spec && SPEC_MOD_FLAG.with(std::cell::Cell::get));
         h.set_tab_flag = Rc::new(|_, flag, v| {

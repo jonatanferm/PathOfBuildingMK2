@@ -15,6 +15,7 @@ lua-calc = ["dep:pob-ui-oracle"]
 [dependencies]
 pob-host.workspace = true
 pob-app.workspace = true
+pob-gamedata.workspace = true
 pob-sg.workspace = true
 pob-sg-wgpu.workspace = true
 pob-ui-core.workspace = true

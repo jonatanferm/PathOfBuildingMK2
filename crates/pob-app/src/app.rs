@@ -77,7 +77,7 @@ impl PobApp {
     /// The `.pobscript` step `snapshot` (T4): `main.modes.BUILD:SaveDB("snapshot")` while in
     /// BUILD mode (CCR-0096; U20's `build::io::snapshot`).
     pub fn snapshot(&mut self) -> Option<String> {
-        crate::build::io::snapshot(&self.cx)
+        crate::build::io::snapshot(&mut self.cx)
     }
 
     /// The Settings.xml text `main:SaveSettings` would write now (T4), or `None` where it

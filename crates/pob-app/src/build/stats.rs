@@ -32,7 +32,8 @@
 //! multiset in comparisons).
 //!
 //! `EstimatePlayerProgress` (L2118) is U20's: it is called through [`set_estimate_player_progress`]
-//! (CCR-0103 §2), a no-op until U20 registers it.
+//! (CCR-0103 §2); with nothing registered it is U20's `loadouts::estimate_player_progress`
+//! (CCR-0106 §4).
 
 #![allow(non_snake_case)]
 
@@ -1329,9 +1330,12 @@ pub fn refresh_stat_list(cx: &mut Cx) {
     // L2116
     insert_item_warnings(cx);
     // L2117
+    // CCR-0106 §4: nothing registered means U20's own (it landed; the seam stays for tests)
     let f = ESTIMATE_PLAYER_PROGRESS.with(|h| h.borrow().clone());
     if let Some(f) = f {
         f(cx);
+    } else {
+        super::loadouts::estimate_player_progress(cx);
     }
 }
 
