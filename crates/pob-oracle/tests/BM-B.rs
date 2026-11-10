@@ -1491,7 +1491,7 @@ fn corpus_tabs_match_oracle() {
     let filtered = std::env::var("BMB_BUILDS").ok();
     if let Some(f) = &filtered {
         builds.retain(|p| p.to_string_lossy().contains(f.as_str()));
-    } else {
+    } else if !pob_testpaths::quick_corpus() {
         assert_eq!(builds.len(), CORPUS_BUILDS, ".parity/builds/*.xml count");
     }
     builds.sort();
@@ -1550,7 +1550,7 @@ fn corpus_tabs_match_oracle() {
         r.mismatches.is_empty() && rx.mismatches.is_empty(),
         "BM-B corpus mismatches"
     );
-    if filtered.is_none() {
+    if filtered.is_none() && !pob_testpaths::quick_corpus() {
         assert_bounds("tabs", &r, TABS_BOUNDS);
         assert_bounds("ParseBuffs/exportBuffs", &rx, BUFFS_BOUNDS);
     } else {

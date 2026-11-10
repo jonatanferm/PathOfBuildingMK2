@@ -957,7 +957,9 @@ fn l3_query_matrix_and_scaling_all57() {
         "EvalMod / createMod are stubs again"
     );
     let filtered =
-        std::env::var_os("MS_A_BUILDS").is_some() || std::env::var_os("MS_A_LIMIT").is_some();
+        std::env::var_os("MS_A_BUILDS").is_some()
+            || std::env::var_os("MS_A_LIMIT").is_some()
+            || pob_testpaths::quick_corpus();
     if !filtered {
         assert_eq!(nbuilds, CORPUS_BUILDS, "builds compared");
         let b = MS_A_BOUNDS;

@@ -1432,7 +1432,7 @@ fn dfa_resistances_probe() {
         let _ = pob_testpaths::require(None::<()>, "no .parity/builds/*.xml");
         return; // POB_ALLOW_SKIP=1
     }
-    let filtered = std::env::var_os("DFA_BUILDS").is_some();
+    let filtered = std::env::var_os("DFA_BUILDS").is_some() || pob_testpaths::quick_corpus();
     if !filtered {
         assert_eq!(builds.len(), CORPUS_BUILDS, ".parity/builds/*.xml count");
     }

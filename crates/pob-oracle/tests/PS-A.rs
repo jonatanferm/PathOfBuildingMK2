@@ -1308,7 +1308,7 @@ fn passive_spec_acceptance() {
     assert_eq!(bad, 0, "{bad} mismatching records (see above)");
     // coverage and the report-only bucket (HYG2/V2): every build's specs were compared, and the
     // records excused as order-dependent may not differ more than measured
-    if only.is_none() {
+    if only.is_none() && !pob_testpaths::quick_corpus() {
         assert_eq!(
             (files.len(), specs),
             PSA_COVERAGE,
