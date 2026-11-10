@@ -153,7 +153,7 @@ if [ -d "$worktree/.git" ] && [ -z "${POB_PARITY_DIR:-}" ] && [ "${POB_FULL_SUIT
     case "${sub:-}" in
         test|t)
             if [ -d "$worktree/.parity-quick/builds" ]; then
-                export POB_PARITY_DIR="$worktree/.parity-quick"
+                export POB_PARITY_DIR="$worktree/.parity-quick" POB_QUICK_CORPUS=1
                 echo "cargo.sh: main checkout -> quick corpus ($(ls "$POB_PARITY_DIR/builds" | wc -l) builds, POB_PARITY_DIR=$POB_PARITY_DIR); POB_FULL_SUITE=1 for all builds" >&2
             fi ;;
     esac

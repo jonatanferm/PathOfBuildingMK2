@@ -649,7 +649,9 @@ fn l3_full_matrix_all57() {
         "pending IT-B (Item:FindModifierSubstring stub reached)"
     );
     let filtered =
-        std::env::var_os("MS_B_BUILDS").is_some() || std::env::var_os("MS_B_LIMIT").is_some();
+        std::env::var_os("MS_B_BUILDS").is_some()
+            || std::env::var_os("MS_B_LIMIT").is_some()
+            || pob_testpaths::quick_corpus();
     if !filtered {
         assert_eq!(nbuilds, CORPUS_BUILDS, "builds compared");
         let b = MS_B_BOUNDS;
@@ -693,7 +695,8 @@ struct MsBBounds {
     max_known_undecodable: usize,
 }
 
-/// Measured by HYG2 on rust-port 746b103.
+/// Measured by HYG2 on rust-port 746b103; re-measured unchanged (2026-11-10) after the items gained
+/// their mod lines (all queries identical, the excused buckets at exactly these values).
 const MS_B_BOUNDS: MsBBounds = MsBBounds {
     min_queries: (6_948_606, 5_668_313),
     max_ccr0014: 10_360,

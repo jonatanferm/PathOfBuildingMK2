@@ -322,7 +322,9 @@ const ORCX_OFFENCE_MISSING: &[&str] = &["upstream_Dual_Savior"];
 
 /// `ORCX_BUILDS` / `ORCX_LIMIT` restrict the corpus.
 fn filtered() -> bool {
-    std::env::var_os("ORCX_BUILDS").is_some() || std::env::var_os("ORCX_LIMIT").is_some()
+    std::env::var_os("ORCX_BUILDS").is_some()
+        || std::env::var_os("ORCX_LIMIT").is_some()
+        || pob_testpaths::quick_corpus()
 }
 
 /// `missing` (`"<stem> <what>"`) names exactly the builds of `allowed`.
