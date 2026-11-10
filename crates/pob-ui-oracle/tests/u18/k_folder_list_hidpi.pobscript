@@ -1,0 +1,15 @@
+# U18: j_folder_list at 1920x1080 @1.5 (virtual 1280x720: the popup sits 40 px higher), starting
+# in "Leagues/" sorted by last edited (Build.lua:1484-1485).
+#! u18-setup folders_edited
+screen 1920 1080 dpi 1.5
+fixture userdir=user1
+frames 2
+#! expect-text Settlers
+move 500 220
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+move 440 196
+click LEFTBUTTON
+frames 2
+#! expect-text Leagues

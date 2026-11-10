@@ -1,0 +1,92 @@
+# U18: Ctrl+C / Ctrl+X on the list and Ctrl+V in BuildList's OnFrame: copy a build into a folder,
+# cut a build (greyed label) and paste it into another folder, paste in the same folder (the
+# Copy popup), a folder pasted into itself (the error popup), and a cut folder moved up.
+# Folders are entered with the Open button.
+fixture userdir=user1
+frames 2
+# copy "Alpha 2" into Leagues/
+move 400 111
+click LEFTBUTTON
+key-down CTRL
+press c
+key-up CTRL
+frames 1
+move 400 91
+click LEFTBUTTON
+frames 1
+move 547 14
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+#! expect-text Alpha 2
+# cut "League Witch" (row 3: Settlers, Alpha 2, League Witch), back to Builds, paste
+move 400 131
+click LEFTBUTTON
+key-down CTRL
+press x
+key-up CTRL
+frames 2
+#! expect-text ^xC0B0B0League Witch
+move 212 65
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+#! expect-text League Witch
+# copy "Beta" (row 4) and paste in the same folder: the Copy Build popup
+move 400 151
+click LEFTBUTTON
+key-down CTRL
+press c
+key-up CTRL
+frames 1
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+#! expect-text Copy Build
+press END
+type " again"
+frames 1
+# the edit box keeps RETURN while focused (EditControl.lua:513-520): ESCAPE leaves it, RETURN = Save
+press ESCAPE
+press RETURN
+frames 2
+#! expect-text Beta again
+# the folder Leagues copied into itself
+move 400 91
+click LEFTBUTTON
+key-down CTRL
+press c
+key-up CTRL
+frames 1
+move 547 14
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+#! expect-text A folder cannot be copied into itself.
+press RETURN
+frames 1
+# cut the folder Settlers (row 1 of Leagues/), go up and paste: MoveFolder
+move 400 91
+click LEFTBUTTON
+key-down CTRL
+press x
+key-up CTRL
+frames 1
+move 212 65
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+#! expect-text >> Settlers

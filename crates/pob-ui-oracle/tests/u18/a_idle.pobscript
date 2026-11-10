@@ -1,0 +1,11 @@
+# U18: the build list idles over the fixture user dir (folders first, natural name order, the
+# class and level column, NoHeader shows "Level 1 ?"), then the mouse hovers a row.
+fixture userdir=user1
+frames 3
+move 400 131
+frames 2
+#! expect-text >> Leagues
+#! expect-text alpha 10
+#! expect-text Level 90 Necromancer
+#! expect-text Level 12 Marauder
+#! expect-text Level 1 ?

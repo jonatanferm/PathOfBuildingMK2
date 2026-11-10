@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Build level="92" className="Witch" ascendClassName="Elementalist" targetVersion="3_0" mainSocketGroup="1" viewMode="TREE">
+	</Build>
+	<Tree activeSpec="1"/>
+</PathOfBuilding>

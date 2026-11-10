@@ -1,0 +1,99 @@
+# U18: the Rename/Copy popups (F2, the Rename and Copy buttons) for builds and folders: the Save
+# button's enable rules (unchanged name, case-only change, existing file), Save, Cancel, ESCAPE
+# (the first ESCAPE leaves the edit box, the second closes the popup).
+fixture userdir=user1
+frames 2
+# select "Beta", F2
+move 400 151
+click LEFTBUTTON
+frames 1
+press F2
+frames 2
+#! expect-text Enter the new name for this build:
+# a case-only change enables Save; an existing name ("Gamma") disables it
+key-down CTRL
+press a
+key-up CTRL
+type "beta"
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+type "Gamma"
+frames 1
+press ESCAPE
+press ESCAPE
+frames 1
+# Rename button: Beta -> Beta Renamed (RETURN = Save)
+move 683 14
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+type "Beta Renamed"
+frames 1
+# the edit box keeps RETURN while focused (EditControl.lua:513-520): ESCAPE leaves it, RETURN = Save
+press ESCAPE
+press RETURN
+frames 2
+#! expect-text Beta Renamed
+# Copy button: "Beta Renamed" -> "Beta Renamed copy"
+move 615 14
+click LEFTBUTTON
+frames 1
+press END
+type " copy"
+frames 1
+# the edit box keeps RETURN while focused (EditControl.lua:513-520): ESCAPE leaves it, RETURN = Save
+press ESCAPE
+press RETURN
+frames 2
+#! expect-text Beta Renamed copy
+# Copy, then the Cancel button
+move 615 14
+click LEFTBUTTON
+frames 1
+press END
+type "x"
+frames 1
+move 685 420
+click LEFTBUTTON
+frames 1
+move 685 380
+click LEFTBUTTON
+frames 1
+press ESCAPE
+press ESCAPE
+frames 1
+# rename the folder "Leagues" -> "Seasons", then copy it to "Seasons 2"
+move 400 91
+click LEFTBUTTON
+frames 1
+move 683 14
+click LEFTBUTTON
+frames 1
+#! expect-text Enter the new name for this folder:
+key-down CTRL
+press a
+key-up CTRL
+type "Seasons"
+frames 1
+# the edit box keeps RETURN while focused (EditControl.lua:513-520): ESCAPE leaves it, RETURN = Save
+press ESCAPE
+press RETURN
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+move 615 14
+click LEFTBUTTON
+frames 1
+press END
+type " 2"
+frames 1
+# the edit box keeps RETURN while focused (EditControl.lua:513-520): ESCAPE leaves it, RETURN = Save
+press ESCAPE
+press RETURN
+frames 2
+#! expect-text >> Seasons 2

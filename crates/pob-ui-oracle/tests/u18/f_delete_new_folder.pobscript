@@ -1,0 +1,51 @@
+# U18: Delete (the DELETE key and the Delete button) for a build, an empty folder and a non-empty
+# folder (the confirm popups), and the New Folder popup.
+fixture userdir=user1
+frames 2
+# "Gamma": DELETE, confirm with RETURN
+move 400 171
+click LEFTBUTTON
+frames 1
+press DELETE
+frames 2
+#! expect-text Are you sure you want to delete build:
+press RETURN
+frames 2
+# New Folder "Fresh"
+move 464 14
+click LEFTBUTTON
+frames 2
+type "Fresh"
+frames 1
+# the edit box keeps RETURN while focused (EditControl.lua:513-520): ESCAPE leaves it, RETURN = Save
+press ESCAPE
+press RETURN
+frames 2
+#! expect-text >> Fresh
+# delete the empty folder "Fresh" (row 1: folders sort first, "Fresh" < "Leagues")
+move 400 91
+click LEFTBUTTON
+frames 1
+move 751 14
+click LEFTBUTTON
+frames 2
+# "Leagues" is not empty: confirm popup, cancel it with ESCAPE, then delete it
+move 400 91
+click LEFTBUTTON
+frames 1
+move 751 14
+click LEFTBUTTON
+frames 2
+#! expect-text The folder is not empty.
+press ESCAPE
+frames 1
+move 751 14
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 2
+# Ctrl+N: a new build (BUILD mode stub)
+key-down CTRL
+press n
+key-up CTRL
+frames 2
