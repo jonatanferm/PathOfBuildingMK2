@@ -489,8 +489,9 @@ fn ca_d13_fixed_point() {
     );
 }
 
-/// Measured on port/CA (rust-port f275edb + CA): see docs/port/FOLLOWUPS.md "CA".
-const D13_MAX_ERRORS: usize = 0;
+/// Measured on port/CA (rust-port f275edb + CA): see docs/port/FOLLOWUPS.md "CA". With CS2:
+/// 1 (upstream_Dual_Savior, the mirage-skill `Weak` actor of the L6 floors' note).
+const D13_MAX_ERRORS: usize = 1;
 
 #[cfg(feature = "luajit")]
 mod oracle_side {
@@ -1456,15 +1457,23 @@ mod oracle_side {
         }
     }
 
-    /// Floors re-measured at the CA merge (rust-port 8ecb963 + CA, i.e. with PF-B, 2026-11-10;
-    /// docs/port/FOLLOWUPS.md "CA"): headline 194/741 exact, all keys 24,381/48,958 exact, no
-    /// Rust errors. On port/CA alone (PF-B stubs) it was 195/741 and 21,822/47,610 with 57
-    /// CALCS-stage errors; the one headline key lost is allflame_exp_002 `TotalDPS` (PoB 0,
-    /// formerly 0 by the stubs, now 0.598752). Raise the floors as CS2 and PF-B's rest land.
-    const L6_MIN_HEADLINE_EXACT: usize = 194;
-    const L6_MIN_KEYS_EXACT: usize = 24_381;
-    const L6_MAX_RUST_ERRORS: usize = 0;
+    /// Floors re-measured with CS2 (CalcSetup.lua 800-1450, rust-port c4628cb + CS2, 2026-11-10,
+    /// full corpus): headline 728/741 exact (56 of 57 builds with every headline key exact), all
+    /// keys 44,908/45,954 exact, CALCS lists 168/171, used-tracking 504/504, misc calculator
+    /// 1226/1226. Before CS2: headline 194/741, keys 24,381/48,958, no Rust errors. The four
+    /// Rust errors are all upstream_Dual_Savior (The Saviour's Reflection mirage, now reachable
+    /// with items): `attempt to index field 'actor'` at calc_active_skill.rs:723, the mirage skill
+    /// kept by `env.player.mainSkill = newSkill` (CalcMirages.lua:155) outlives its env, whose
+    /// actor is a `Weak` back-pointer (MI/AS follow-up), and CALCS then has no `mainEnv`.
+    const L6_MIN_HEADLINE_EXACT: usize = 728;
+    const L6_MIN_KEYS_EXACT: usize = 44_908;
+    const L6_MAX_RUST_ERRORS: usize = 4;
     /// The per-stage split of [`L6_MAX_RUST_ERRORS`] (measured the same way); a stage not
-    /// listed (MAIN, getMiscCalculator, misc call, load …) is bounded by 0.
-    const L6_MAX_STAGE_ERRORS: &[(&str, usize)] = &[];
+    /// listed (misc call, load …) is bounded by 0.
+    const L6_MAX_STAGE_ERRORS: &[(&str, usize)] = &[
+        ("MAIN", 1),
+        ("CALCS", 1),
+        ("getMiscCalculator", 1),
+        ("configTab GetMiscCalculator", 1),
+    ];
 }

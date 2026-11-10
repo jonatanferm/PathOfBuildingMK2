@@ -1,0 +1,15 @@
+# CS2 L4 probes (tests/CS2.rs): the `initEnv:800` / `initEnv:1451` stages of docs/port/stages.toml,
+# i.e. the `:in` and `:out` boundaries of CalcSetup.lua 800-1450.
+[[stage]]
+id = "initEnv:800"
+file = "Modules/CalcSetup.lua"
+line = 800
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "if not accelerate.requirementsItems then"
+
+[[stage]]
+id = "initEnv:1451"
+file = "Modules/CalcSetup.lua"
+line = 1451
+locals = ["build", "mode", "specEnv", "cachedPlayerDB", "cachedEnemyDB", "cachedMinionDB", "env", "accelerate", "override", "modDB"]
+expect = "if not accelerate.skills then"
