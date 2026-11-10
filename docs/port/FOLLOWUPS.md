@@ -108,6 +108,11 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    `LifeTable` object (CCR-0040), so every build with a minion raised "attempt to index a userdata
    value" (CalcPerform.lua:1160); `minion_lifeTable` (calc_perform/actor_b.rs) now converts it.
    PF-B's own test injects tables and did not see it.
+   **Changed by CS2 in `CA.rs` (port/CS2, 2026-11-10; for the CA owner to review):** L6 floors
+   raised to the values measured with CS2's items in the env (`L6_MIN_HEADLINE_EXACT = 728`,
+   `L6_MIN_KEYS_EXACT = 44_908`, `L6_MAX_RUST_ERRORS = 4`, `L6_MAX_STAGE_ERRORS` MAIN / CALCS /
+   getMiscCalculator / configTab GetMiscCalculator 1 each: the upstream_Dual_Savior mirage raise of item 6),
+   `D13_MAX_ERRORS = 1` (the same raise), and `D13_POB_WARM_CACHE` (item 5, measured in PoB).
 2. **`CalcsTab:BuildOutput` scaffold in CA.rs** (owner: PWR). `power::BuildOutput`
    (CalcsTab.lua:441-472) is still a stub, so `loadBuildFromXML` computes nothing; CA.rs carries
    a scaffold copy (`calcsTab_BuildOutput`, `rust_load`: Init's pass plus PoB's `OnFrame`
@@ -133,6 +138,60 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    group list missed their groups. `fill_socket_groups` now takes their uuids from PoB's final
    cache keys (unique `name_SLOT_slotIndx_` prefix match), and both builds' cost warnings are
    compared clean.
+5. **D13 does not hold in PoB on a warm GlobalCache for allflame_exp_050** (owner: CA;
+   information, found at the CS2 merge, 2026-11-10). With CS2's items in the env,
+   `ca_d13_fixed_point`'s second `buildOutput` on allflame_exp_050 differs from the first
+   (BleedStacks 0.5875 → 1.25, CombinedDPS 7,411,955.92 → 15,755,502.09). PoB does the same:
+   `pob_headless` (POB_ENGINE=jit) on rust-port d8a4407, `wipeGlobalCache()`, then
+   `calcs.buildOutput(build, "MAIN")` twice, gives 26 differing output keys out of 261,774, with
+   the same values (BleedStacks 1.25, CombinedDPS 15,755,502.093183, LifeLeechInstances 2.35 → 5,
+   MainHand.BleedDotMulti 1.35 → 1.36085…). With a `wipeGlobalCache()` between the runs, 0 keys
+   differ in PoB and in Rust, and the first run equals PoB's L6 output. So this is PoB behavior
+   (a GlobalCache entry the first run leaves feeds the second run's bleed and leech stacks), and
+   the Rust port reproduces it. `CA.rs` records it as `D13_POB_WARM_CACHE`: for that build the
+   warm run is checked against PoB's warm values and the fixed point is checked after a wipe.
+   A new build that differs on a warm cache must first be measured in PoB the same way.
+6. **The Saviour's Reflection mirage skill outlives its env's actor** (owners: MI and AS;
+   found at the CS2 merge, CCR-0105 §6). upstream_Dual_Savior raises `attempt to index field
+   'actor' (a nil value)` (calc_active_skill.rs:713) in MAIN, CALCS, `getMiscCalculator` and
+   `configTab GetMiscCalculator`. The mirage's `postCalcFunc` sets `env.player.mainSkill =
+   newSkill` (CalcMirages.lua:155). `newSkill` belongs to the mirage env, which is then dropped,
+   and `ActiveSkill.actor` is a `Weak` back-pointer (calc doc §3.3 rule 4), so the skill's actor
+   is gone. Lua keeps the actor alive through the skill. CALCS then has no `mainEnv`. The four
+   errors are what `L6_MAX_RUST_ERRORS = 4` / `L6_MAX_STAGE_ERRORS` (one per stage) and
+   `D13_MAX_ERRORS = 1` in `CA.rs` allow. Closed when MI keeps the mirage env (or its player)
+   alive for as long as `env.player.mainSkill` points into it, e.g. a strong reference held by
+   the outer env, as CCR-0105 §4 does for `override.extraJewelFuncs.actor`. After that, lower
+   the bounds to 0.
+
+## CS2
+
+Open items found while porting initEnv's item segment (port/CS2, 2026-11-10;
+`crates/pob-oracle/tests/CS2.rs`, CCR-0105).
+
+1. **Nothing writes the node-id half of `override.removeNodes` yet** (owner: U24, information
+   for PWR). CalcSetup.lua 1393/1408 test `override.removeNodes[node.id]`. In PoB only the
+   anointed-node tooltip path (PassiveTreeView.lua:1706, U24's AddNodeTooltip) builds that
+   id-keyed set. The typed `Override.removeNodes` is node-keyed (CS1, CCR-0082 §2), so CS2
+   reads the id keys from `override.extra["$removeNodeIds"]` (a table id → true; CCR-0105 §1).
+   The unit that ports PassiveTreeView.lua:1706 must fill that table, not `removeNodes`. PWR's
+   own calls (CalcsTab.lua 626/638) are node-keyed and need no change.
+2. **Dumped jewel closures lose their upvalues on injection** (owner: ORC-X; information).
+   `{"$fn": src}` decodes to a `JewelFuncSpec` with empty `args` (mod_json.rs, `lua/state_dump.lua`
+   cannot read upvalue values). An injected `ExtraJewelFunc` mod whose closure reads them
+   (ModParser.lua:2630-2634 `firstToUpper(attr)`) raises when it runs. `CS2.rs` restores them
+   from a second, never-injected load of the same build (`restore_jewel_func_args`). Any other
+   test that runs an injected ExtraJewelFunc or `jewelData.funcList` closure with captures needs
+   the same workaround, or a dump that carries the captures.
+3. **Two explained buckets of `cs2_l4_items_segment` rest on exporter gaps** (owner: ORC-X2).
+   `override.extraJewelFuncs (second pass, $foreign actor)`: on a restart's recursive call the
+   Rust store is pass 1's (CalcSetup.lua:1425 leaves an existing store untouched), whose actor
+   the exporter writes as a `$foreign` object, so its paths cannot be compared with PoB's
+   dump. `radiusJewelList.nodes`: the node-id map is exported as userdata, so the test compares
+   the id sets itself (`radius_nodes_equal`). Both are bounded in `CS2.rs`
+   (`EXPLAINED_MAX`, the measured counts) so a regression cannot move more hits into them
+   silently; close the gaps in the exporter and drop the buckets. The `pre-load` skip count is
+   bounded the same way (`PRELOAD_MAX`).
 
 ## CCR2
 
