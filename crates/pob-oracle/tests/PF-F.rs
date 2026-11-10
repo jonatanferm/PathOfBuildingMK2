@@ -30,7 +30,9 @@
 //! Inputs: `data/dump`; `.parity/builds/*.xml` (all57) and `corpus/PF-F/*.xml` (party micro
 //! builds); dumps from
 //! `scripts/port/oracle.sh run --build X.xml --stages crates/pob-oracle/corpus/PF-F/stages.toml
-//!  --stage perform:2997@main,perform:3118@main,perform:3125@main,perform:3484@main,perform:3497@main`.
+//!  --stage perform:1691@main,perform:1862@main,perform:2997@main,perform:3118@main,perform:3125@main,perform:3484@main,perform:3497@main`
+//! (`perform:1691` / `perform:1862` seed the `mergeFlasks` / `mergeTinctures` closures' upvalues,
+//! `testkit::seed_merge_closures`, CCR-0079 §1; without them the segment raises at L3121).
 //! Knobs: `PFF_BUILDS=stem1,stem2`, `PFF_VERBOSE=1` (print mismatches). A missing input skips
 //! with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
 
@@ -179,7 +181,11 @@ fn run_build(xml: &Path) -> Outcome {
         }
     };
     let env = inj.env.clone().expect("perform:2997 dump has an env");
-    let locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
+    let mut locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
+    // CCR-0079 §1: the closures' upvalues from the same perform run's line dumps (when probed)
+    let same_env = |h: &str| load(&dirs, h).filter(|x| x.env_id == din.env_id && testkit::same_run(din, x).is_ok());
+    let (up1691, up1862) = (same_env("perform:1691"), same_env("perform:1862"));
+    let seeded = testkit::seed_merge_closures(&mut locals, up1691.as_ref(), up1862.as_ref());
     pob_calc::stub::stub_reset();
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::probe::run_segment("perform:2997", &locals)
@@ -225,6 +231,9 @@ fn run_build(xml: &Path) -> Outcome {
     let mut blockers: Vec<String> = stubs.clone();
     let mut replayed = Vec::new();
     let mut notes = Vec::new();
+    if !seeded.is_empty() {
+        notes.push(format!("seeded {seeded:?}"));
+    }
     for (name, group, a, b) in [
         ("mergeFlasks", FLASK_GROUP, d3118, d3125),
         ("defenceForConditionals+doActorCharges+doActorMisc", TAIL_GROUP, d3484, dout),

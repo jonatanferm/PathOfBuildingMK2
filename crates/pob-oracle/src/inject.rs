@@ -1189,7 +1189,9 @@ impl<'a> Inj<'a> {
                     }
                     if present.contains(k) {
                         probe::unmark_absent(ptr, k);
-                    } else if seeded {
+                    } else if seeded || (kind == Kind::Actor && *k == "itemList") {
+                        // an actor without `itemList` (the enemy; a minion before
+                        // CalcActiveSkill.lua:722) holds `None`, not `Actor::new`'s empty list
                         probe::unset_typed(o, k);
                     } else {
                         mark_absent(ptr, k);
@@ -1405,26 +1407,49 @@ impl<'a> Inj<'a> {
                 }
                 cur = s.parent.get();
             }
+            // The payloads the actor's `Tabulate(nil, nil, "EnemyModifier")` returns now (L625):
+            // the ones the next `applyEnemyModifiers` looks up. The dump writes mods as values,
+            // so a key equal to several payloads (Yoke of Suffering: nine EnemyModifier mods,
+            // one per ailment, with equal payloads; the keys are the ones whose ailment held at
+            // L1350) does not say which of them it is. Binding keys to the payloads that are
+            // live now first makes `cache[mod]` hit for every live payload a key accounts for,
+            // as it does in Lua whenever the same mods qualify at both calls.
+            let live: Vec<ModRef> = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                a.modDB
+                    .get()
+                    .Tabulate(None, None, &[name])
+                    .into_iter()
+                    .filter_map(|v| v.value.inner_mod().cloned())
+                    .collect()
+            }))
+            .unwrap_or_default();
+            let is_live = |p: &ModRef| live.iter().any(|l| Arc::ptr_eq(l, p));
             // one-to-one, in the dump's key order: two equal payloads are two Lua tables (two
-            // keys), so each payload is claimed by one key at most
+            // keys), so each payload is claimed by one key at most; first pass live payloads,
+            // second pass the rest
             let keys = set.with(ModPtrSet::keys);
             let mut used = vec![false; payloads.len()];
-            let rebound: Vec<ModRef> = keys
-                .into_iter()
-                .map(|k| {
+            let mut bound: Vec<Option<ModRef>> = vec![None; keys.len()];
+            for want_live in [true, false] {
+                for (ki, k) in keys.iter().enumerate() {
+                    if bound[ki].is_some() {
+                        continue;
+                    }
                     let hit = payloads
                         .iter()
                         .enumerate()
-                        .find(|(i, p)| !used[*i] && ***p == *k)
+                        .find(|(i, p)| !used[*i] && is_live(p) == want_live && ***p == **k)
                         .map(|(i, _)| i);
-                    match hit {
-                        Some(i) => {
-                            used[i] = true;
-                            payloads[i].clone()
-                        }
-                        None => k,
+                    if let Some(i) = hit {
+                        used[i] = true;
+                        bound[ki] = Some(payloads[i].clone());
                     }
-                })
+                }
+            }
+            let rebound: Vec<ModRef> = keys
+                .into_iter()
+                .zip(bound)
+                .map(|(k, b)| b.unwrap_or(k))
                 .collect();
             set.with_mut(|s| {
                 s.wipe();

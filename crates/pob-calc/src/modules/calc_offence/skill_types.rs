@@ -1511,7 +1511,8 @@ pub(crate) fn seg_skillTypeStats(ctx: &mut OffenceCtx) -> Flow {
                 Some(minion) => skillModList.Flag(
                     skillCfg,
                     &[cat!(
-                        concat_val(&minion.extra.get(n!("type"))),
+                        // `minion.type` (nil concatenation raises, as in the Lua)
+                        concat_val(&minion.r#type.get().map_or(Val::Nil, Val::from)),
                         "PermanentDuration"
                     )],
                 ),

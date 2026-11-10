@@ -317,8 +317,10 @@ Each item names the CCRs, the files to change, and the local workarounds to dele
     diff tool prints, `docs/port/known_diffs.toml` format): CCR-0014 §2 (MS-A: `GetStat`
     `ManaReservedPercent`/`LifeReservedPercent` on the enemy store, PoB raises at
     ModStore.lua:322/336 on the nil `activeSkillList`, Rust returns 0; MS-A's test counts them);
-    CCR-0015 §3 (MS-B: the enemy `itemList` and `GuardianRelicAll.monsterTags` rows while E3 is
-    open; the `activeSkillList` row is CCR-0014 §2's); CCR-0015 §1 (U40: the `divVar` tag text of
+    CCR-0015 §3 needs no entry for the enemy `itemList` and `GuardianRelicAll.monsterTags` rows
+    any more: E3 is applied (A10), both are `Option`s that are `None` where Lua has nil, and MS-B
+    compares those queries exactly (its CCR-0015 bucket keeps only the actor-without-`output`
+    rows; the `activeSkillList` row is CCR-0014 §2's); CCR-0015 §1 (U40: the `divVar` tag text of
     CalcBreakdownControl.lua 481/485, ui doc §13 item 14, entry added with U40); CCR-0091 §4 (CT:
     `mergeKeystones` leaves the tree node's keystone mod with its own `source`, PoB re-sources the
     shared mod, ModTools.lua:254-255; observable in Calcs source columns and `source`-filtered
@@ -402,3 +404,55 @@ all57 leg fails its 98% gate before and after alike (171/363 on the probe cache'
 dumps), an input problem the run ids now report for new dumps.
 After rebasing onto rust-port 85604a9 (PF-B merged): OF-G 105/105, OF-H 252 pass / 0
 stub-blocked, OF-D 1107/1107 + 344/344, DF-C 3/14/57, CO-B 2407/2407, ORC-X unchanged.
+
+## A10. A8 escalations E1-E5 applied by RETYPE (2026-11-10)
+
+The orchestrator approved the five escalations of A8; unit RETYPE retyped the frozen fields
+once and deleted the per-unit workarounds that stood in for them. The applied CCRs' status
+lines (0015, 0030, 0040, 0046, 0074, 0076, 0079, 0083, 0087, 0095) point here.
+
+| A8 item (CCRs) | What was retyped | Workarounds deleted |
+|---|---|---|
+| E1 (CCR-0030 #1) | `ActiveSkill.triggeredBy: Field<Option<SkillEffectRef>>` (the trigger support's effect, CalcActiveSkill.lua:536; CalcTriggers' run-time keys go in the effect's `extra`) | `calc_active_skill::triggeredBy()` (the `extra` table read) and its uses in AS, TR-A, TR-B |
+| E1 (CCR-0030 #2, CCR-0040 §1, CCR-0095 §1) | `Actor.uses: Field<Option<NameSet>>` (the data set, by identity), `Actor.type: Field<Option<Name>>`, `Actor.lifeTable: Cell<Option<&'static [f64]>>`, `Actor.itemSet: Field<Option<Table>>`; inject resolves the `$data` markers to them | `calc_active_skill::LifeTable` and `minion.extra["uses"/"type"/"lifeTable"/"itemSet"]`; the `minion.uses`/`lifeTable` representation allowances in `tests/AS.rs`; `tests/PF-B.rs` `adapt_minion`/`minions_of` (marker ↔ table conversion) |
+| E1 (CCR-0030 #3, CCR-0083 §2) | `Env.explodeSources` / `SocketGroup.explodeSources: Shared<Vec<ExplodeSource>>` (one list; `ExplodeSource::{Node, Item}`) | CS2's and CS3's `env_explodeSources` (`env.extra["explodeSources"]`) |
+| E1 (CCR-0030 #4) | `Item.slotModList: [Field<Option<ModList>>; 3]` (Ring 3) | `item_mods::SLOT_MOD_LIST_3` and `Item::slotModList3`/`set_slotModList3` (`Item.extra`); the probe registry's `slot3`/`set_slot3`; `tests/CS2.rs` `slot3_equal` |
+| E1 (CCR-0030 #5, CCR-0079 §7) | `Env.flaskSlotMap: Field<Shared<PtrMap<Item, f64>>>` | CS2's `$flaskSlotMap` side table (`FLASK_SLOT_MAP`, `flaskSlotMap_get`, `new_flaskSlotMap`, `set_flaskSlotMap`) |
+| E1 (CCR-0030 #6, CCR-0085 §4) | `Actor.appliedEnemyModifiers: Field<Option<Shared<ModPtrSet>>>` (mod identity, insertion order) | `calc_perform::actor_a::enemy_cache` (a thread-local per-actor key list beside the frozen `Table`, which also matched injected keys by value); in its place `inject` rebinds the dumped keys to the actor's payload mods (`patch_enemy_modifier_keys`, below) |
+| E1 (CCR-0030 #7, CCR-0076) | `ModStore.notBuff: Cell<bool>` (PF-E writes it at CalcPerform.lua 2331/2810/2834, PF-F reads it at 3346/3425; inject and the exporter carry it) | `tests/PF-F.rs` `count_not_buff` (the `BuffOnSelf` allowance) and the probe registry's `side_extra` for `notBuff` |
+| E1 (CCR-0040 §2, CCR-0074 §6) | `SocketGroup.sourceItem: Field<Option<ItemRef>>`, `SkillEffect.req: Cell<Option<f64>>` | the `extra` reads/writes of both keys |
+| E2 (CCR-0087) | `TriggerConfig.sourceWeapon: bool`, `triggerSkillCond: Option<SkillCondFn>`, `comparer: Option<ComparerFn>` (TR-B's arms set them, TR-A's handlers read them) | `CondBox`/`ComparerBox` in `extra` and the `set_triggeredSkillCond`/`triggeredSkillCond`/`set_comparer`/`comparer_fn`/`sourceWeapon` accessors |
+| E3 (CCR-0015 §3) | `Actor.itemList: Field<Option<ItemList>>` (CS1 sets the enemy's and the player's pre-L536 to `None`, AS a minion's until CalcActiveSkill.lua:722, inject a dumped actor without the key); `MinionData.monsterTags: Option<Vec<Name>>` | — (the MS-B known-difference rows for these two, A8 item 17, no longer occur) |
+| E4 (CCR-0079 §1) | `PerformCtx.mergeFlasks: Option<Rc<FlaskUpvalues>>`, `mergeTinctures: Option<Rc<TinctureUpvalues>>` (the closures' upvalues; `None` = nil before 1691 / 1862); line probes `perform:1691` / `perform:1862` in `corpus/PF-C/stages.toml` and `corpus/PF-F/stages.toml`; `testkit::seed_merge_closures` replaces the `$fn` markers of an injected perform dump with the upvalues from those line dumps | PF-C's per-env `MERGE_UPVALUES` side table (`MergeUpvalues`, `record_upvalues`, `flask_upvalues`, `tincture_upvalues`) |
+| E5 (CCR-0046) | `calcSkillDuration(…, env: Option<&EnvRef>, enemyDB: Option<&ModDB>)`; `env = None` stands for Lua's `{}` (no `mode_effective`; Data/Skills/act_int.lua), not for a nil `env` | SK-A's `calcSkillDuration_noEnv` copy in `data_fns/skills_act_int.rs` |
+
+`patch_enemy_modifier_keys` (`crates/pob-oracle/src/inject.rs`): the dump writes mods as
+values, so an `appliedEnemyModifiers` key is decoded as a copy. Each key is rebound one-to-one
+(dump key order) to an equal payload mod of the actor's store chain, first among the payloads
+the actor's `Tabulate(nil, nil, "EnemyModifier")` returns at injection time, then among the
+rest. Several equal payloads are common (Yoke of Suffering: nine `EnemyModifier` mods, one per
+ailment, with equal `DamageTaken` payloads; the keys are those whose ailment held at
+CalcPerform.lua:1350), and only the live ones are looked up again (976). The shipped calc never
+injects: there the set holds the very `Arc`s it inserted.
+
+Fix round 1 (after review): the two remaining `extra` reads of a moved key, `minion.type` in
+OF-B (`skill_types.rs`, CalcOffence.lua:1505, raised "attempt to concatenate a nil value" for
+every minion skill with a duration) and in `activeSpectreList` (`pools_charges.rs`,
+CalcPerform.lua:2215-2216, left the list empty), read `minion.r#type`; a grep over every
+retyped key (`type`, `uses`, `lifeTable`, `itemSet`, `sourceItem`, `triggeredBy`, `req`,
+`explodeSources`, `notBuff`, `appliedEnemyModifiers`, `flaskSlotMap`, `itemList`,
+`sourceWeapon`) finds no other. The live-first rebind above replaced a rebind by first equal
+payload, which bound Yoke keys to payloads of ailments that did not hold and re-applied a
+`DamageTaken` at doActorMisc.
+
+Verification (one test binary at a time, fresh probes in each test's own target dir unless
+noted): PF-B all57 1238/1238 gated cases clean (1 `initMinionModDB` case is the documented
+not-gated itemsTab-slots case), was 1210/1238 (28 `doActorMisc:in#7/9/11/13` failures on
+allflame_exp_013/015/018/035/040/044/045); OF-B L4 on allflame_exp_001,007,013: 66 exact, 3
+`$foreign` inputs, 0 raised (rust-port: 66 exact; the pre-fix branch: 64 exact and 2 raised).
+PF-F L4 `perform:2997` → `perform:3497` with the closures seeded, on fresh dumps of
+allflame_exp_002 and allflame_exp_004 (all seven PF-F stages, one probe run each): 2/2 pass,
+0 mismatches, so `env.modDB.multipliers.BuffOnSelf` is PoB's 7 and 6 (CCR-0076: the port had 8
+and 7 without `notBuff`). Without the 1691/1862 dumps (the shared probe cache today) PF-F still
+raises "attempt to call local 'mergeFlasks' (a nil value)" at L3121; refilling the PF-F dumps
+with the fill command in its stage file enables the seeding.

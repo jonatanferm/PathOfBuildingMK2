@@ -1888,6 +1888,8 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
         if let Some(minionType) = minionType {
             // L704
             let minion = Actor::new();
+            // `{ }`: no `itemList` until L722 (`Actor::new` gives one)
+            minion.itemList.set(None);
             // L705
             activeSkill.minion.set(Some(minion.clone()));
             // L706
