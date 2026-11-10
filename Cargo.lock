@@ -2892,6 +2892,7 @@ dependencies = [
  "pob-gamedata",
  "pob-host",
  "pob-lua",
+ "pob-modparser",
  "pob-sg",
  "pob-ui-core",
  "serde_json",
