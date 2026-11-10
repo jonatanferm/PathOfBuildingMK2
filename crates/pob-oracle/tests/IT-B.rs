@@ -185,6 +185,10 @@ fn corpus_items() -> Vec<(String, String)> {
     out
 }
 
+/// The open-error probe's file (HYG3): in a directory that does not exist, and the same path in
+/// every worktree, since PoB's message quotes it and the message is cached.
+const ITB_MISSING: &str = "/nonexistent/pob-oracle-it-b/x.lua";
+
 /// A Lua long-string literal for `s`.
 fn lua_long(s: &str) -> String {
     let mut eq = String::new();
@@ -893,13 +897,14 @@ fn item_core_vs_pob() {
         str_vals.push(v);
     }
     prologue.push_str("}\n");
-    // HYG3: a stable path (it is part of PoB's output: saveErr quotes it, so it is part of the
-    // cache key); not std::env::temp_dir(), /tmp is a RAM-backed tmpfs on the port machines
-    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("itb_save.lua");
-    prologue.push_str(&format!(
-        "__itb_tmp = {}\n",
-        lua_long(&tmp.to_string_lossy())
-    ));
+    // HYG3: the open-error probe's path is part of PoB's output (saveErr quotes it), so it is in
+    // the cache key and must be the same in every worktree: a fixed path in a directory that does
+    // not exist. The scratch file of the save probe is not in the output, so it is private to
+    // this process and set outside the key (like IT-A/IT-C's output paths); not
+    // std::env::temp_dir(), /tmp is a RAM-backed tmpfs on the port machines.
+    prologue.push_str(&format!("__itb_missing = {}\n", lua_long(ITB_MISSING)));
+    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("itb_save_{}.lua", std::process::id()));
     if let Ok(l) = std::env::var("IT_B_LIMIT") {
         prologue.push_str(&format!("__itb_limit = {l}\n"));
     }
@@ -915,7 +920,10 @@ fn item_core_vs_pob() {
         let _lock = OracleLock::acquire().expect("oracle lock");
         let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
         let out = pob
-            .run(&format!("{prologue}\n{script}"))
+            .run(&format!(
+                "__itb_tmp = {}\n{prologue}\n{script}",
+                lua_long(&tmp.to_string_lossy())
+            ))
             .unwrap_or_else(|e| panic!("oracle script: {e}"));
         let Some(Ret::Str(json)) = out.first() else {
             panic!("oracle returned {out:?}")
@@ -1076,9 +1084,9 @@ fn item_core_vs_pob() {
     }
     if let Some(lua) = doc["saveErr"].as_str().filter(|s| *s != "$skip") {
         // Lua's message carries the `Modules/Utils.lua:93: ` position prefix
-        let missing = format!("{}.missing/x.lua", tmp.to_string_lossy());
-        let r =
-            catch(|| item_mod::saveTableToFile(&missing, &Val::Table(Table::new()), None, false));
+        let r = catch(|| {
+            item_mod::saveTableToFile(ITB_MISSING, &Val::Table(Table::new()), None, false)
+        });
         let ok = matches!(&r, Err(e) if !e.is_empty() && lua.ends_with(e.as_str()));
         t.check("saveTableToFile (open error)", ok, || {
             format!("rust={r:?}\n   lua={lua:?}")

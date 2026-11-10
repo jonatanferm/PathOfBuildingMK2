@@ -683,6 +683,7 @@ pub fn data() -> &'static Data { DATA.get().expect("pob_gamedata::init not calle
 /// `data.bin` is postcard of the dump tree (roots + ref targets); `Data` is deserialised from it at load
 /// (≈0.27 s release). Typed `Data` is not serialised. Every root is in TYPED_ROOTS, a stat-description scope, or
 /// DYNAMIC_ROOTS; anything else fails the compile.
+/// `init` / `init_from_dir` are thread-safe: concurrent first calls decode `data.bin` once (CCR-0089).
 pub fn init(bytes: &[u8]) -> Result<(), LoadError>;          // desktop reads the file, wasm fetches it
 pub fn tree_bytes(version: &str) -> Option<std::borrow::Cow<'static, [u8]>>;   // lazy per tree version
 

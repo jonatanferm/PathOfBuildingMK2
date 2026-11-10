@@ -1,6 +1,8 @@
-# CCR-0080: HYG3 — `pob_gamedata::init` decodes `data.bin` once per process
+# CCR-0089: HYG3 — `pob_gamedata::init` decodes `data.bin` once per process
 
-Status: applied by HYG3 (2026-11-09); behaviour-only change to a U0-frozen file, no signature change
+Status: applied by HYG3 (2026-11-09); behaviour-only change to a U0-frozen file, no signature change.
+Numbered 0089 in HYG3's fix round (it was first filed as 0080, which BM-A's build-model CCR holds; 0087
+and 0088 are claimed by in-flight branches).
 
 ## Problem
 
@@ -73,5 +75,5 @@ decode instead of each doing their own. The test-side JSON-dump path
 
 ## Contract text
 
-calc doc §4.4 ("the process-global `data`") gains one sentence: "`init` / `init_from_dir` are
+calc doc §4.4 ("the process-global `data`") gains one sentence (applied, as a doc comment on `init`): "`init` / `init_from_dir` are
 thread-safe: concurrent first calls decode `data.bin` once."

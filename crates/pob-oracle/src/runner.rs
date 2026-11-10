@@ -545,9 +545,42 @@ const ORACLE_RUNTIME: &[&str] = &[
     include_str!("oracle.lua"),
 ];
 
+/// Bumped to retire every cached oracle result (query and selection entries) when something the
+/// keys do not see changes what PoB returns.
+pub const ORACLE_CACHE_EPOCH: u32 = 1;
+
+/// The Lua runtime the oracle runs PoB on, as `Cargo.lock` pins it (`mlua`, `mlua-sys`,
+/// `luajit-src` versions) plus [`ORACLE_CACHE_EPOCH`]: part of [`source_key`] and
+/// `patcher::plan_sha`, so a LuaJIT or binding bump invalidates the cached results.
+#[must_use]
+pub fn lua_runtime_versions() -> &'static str {
+    static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        const LOCK: &str = include_str!("../../../Cargo.lock");
+        let mut out = format!("epoch {ORACLE_CACHE_EPOCH}");
+        let mut name: Option<&str> = None;
+        for line in LOCK.lines() {
+            if line == "[[package]]" {
+                name = None;
+            } else if let Some(n) = line.strip_prefix("name = \"") {
+                name = n.strip_suffix('"');
+            } else if let Some(v) = line.strip_prefix("version = \"") {
+                if let Some(n @ ("mlua" | "mlua-sys" | "luajit-src")) = name {
+                    out.push(' ');
+                    out.push_str(n);
+                    out.push('@');
+                    out.push_str(v.trim_end_matches('"'));
+                }
+            }
+        }
+        out
+    })
+}
+
 /// The `<sha>` of an unpatched PoB source tree booted in-process: BLAKE3 of the oracle runtime,
-/// the JIT mode (`POB_ORACLE_JIT`), the canonical path and the stat fingerprint (relative path,
-/// size, mtime) of every file, the fingerprint the patcher's sha takes of the tree it copies
+/// the Lua runtime versions, the JIT mode (`POB_ORACLE_JIT`), the canonical path and the stat
+/// fingerprint (relative path, size, mtime) of every file but PoB's derived caches
+/// (`patcher::is_derived_cache`), the fingerprint the patcher's sha takes of the tree it copies
 /// (`patcher::plan_sha`). Memoised per process.
 pub fn source_key(src: &Path) -> Result<String> {
     use std::collections::HashMap;
@@ -562,34 +595,47 @@ pub fn source_key(src: &Path) -> Result<String> {
     {
         return Ok(k.clone());
     }
-    fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
-        let mut entries: Vec<_> = std::fs::read_dir(dir)?
-            .filter_map(std::result::Result::ok)
-            .collect();
-        entries.sort_by_key(std::fs::DirEntry::file_name);
-        for e in entries {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let r = if rel.is_empty() {
-                name
-            } else {
-                format!("{rel}/{name}")
-            };
-            if e.file_type()?.is_dir() {
-                walk(&e.path(), &r, out)?;
-            } else {
-                out.push((r, e.path()));
-            }
-        }
-        Ok(())
-    }
     let mut files = Vec::new();
     walk(&canon, "", &mut files).map_err(|e| OracleError(format!("{}: {e}", canon.display())))?;
+    let key = source_fingerprint(&canon, &files)?;
+    keys.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(canon, key.clone());
+    Ok(key)
+}
+
+/// Every file under `dir` as `(path relative to the walk root, path)`, sorted by name.
+fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?
+        .filter_map(std::result::Result::ok)
+        .collect();
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for e in entries {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let r = if rel.is_empty() {
+            name
+        } else {
+            format!("{rel}/{name}")
+        };
+        if e.file_type()?.is_dir() {
+            walk(&e.path(), &r, out)?;
+        } else {
+            out.push((r, e.path()));
+        }
+    }
+    Ok(())
+}
+
+/// [`source_key`] of the canonical tree `canon` with the files `files`, not memoised.
+fn source_fingerprint(canon: &Path, files: &[(String, PathBuf)]) -> Result<String> {
     let mut h = blake3::Hasher::new();
-    h.update(b"pob-oracle unpatched source 1\n");
+    h.update(b"pob-oracle unpatched source 2\n");
     for code in ORACLE_RUNTIME {
         h.update(code.as_bytes());
         h.update(&[0]);
     }
+    h.update(lua_runtime_versions().as_bytes());
+    h.update(&[0]);
     #[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
     h.update(if crate::jit::oracle_jit_off() {
         b"jit.off"
@@ -597,23 +643,9 @@ pub fn source_key(src: &Path) -> Result<String> {
         b"jit.on"
     });
     h.update(canon.to_string_lossy().as_bytes());
-    for (rel, path) in &files {
-        let meta =
-            std::fs::metadata(path).map_err(|e| OracleError(format!("{}: {e}", path.display())))?;
-        let mtime = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |d| d.as_nanos());
-        h.update(rel.as_bytes());
-        h.update(&meta.len().to_le_bytes());
-        h.update(&mtime.to_le_bytes());
-    }
-    let key = h.finalize().to_hex()[..16].to_owned();
-    keys.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(canon, key.clone());
-    Ok(key)
+    crate::patcher::hash_stat_fingerprint(&mut h, files)
+        .map_err(|(p, e)| OracleError(format!("{}: {e}", p.display())))?;
+    Ok(h.finalize().to_hex()[..16].to_owned())
 }
 
 /// A temp path next to `dst` that no other writer (thread or process) uses.
@@ -795,14 +827,15 @@ impl SelectionCache {
     pub fn new(parity: &Path, sha: &str, build: &Path, opts: &ProbeOptions) -> Result<Self> {
         let sel = opts.select.join(",");
         let max = opts.max_dumps.to_string();
-        let key = content_key(
-            "pob-oracle selection 1",
-            &[
-                sel.as_bytes(),
-                max.as_bytes(),
-                if opts.provenance { b"prov" } else { b"noprov" },
-            ],
-        );
+        // the Rust/Lua runtime the `bin probe` process boots PoB with (the `<sha>` covers the
+        // patched tree, the probe's Lua and the Lua runtime versions)
+        let mut parts: Vec<&[u8]> = vec![
+            sel.as_bytes(),
+            max.as_bytes(),
+            if opts.provenance { b"prov" } else { b"noprov" },
+        ];
+        parts.extend(ORACLE_RUNTIME.iter().map(|s| s.as_bytes()));
+        let key = content_key("pob-oracle selection 2", &parts);
         Ok(Self {
             dir: ProbeCache::new(parity, sha, build)?
                 .dir
@@ -982,6 +1015,50 @@ mod cache_tests {
         assert_ne!(k1, source_key(&d2).unwrap());
         let _ = std::fs::remove_dir_all(&d);
         let _ = std::fs::remove_dir_all(&d2);
+    }
+
+    /// Rewriting (or deleting) a jewel `.bin`, as PoB's DataJewelFileLoader does on any run,
+    /// leaves the source key unchanged; the zips and every other file stay fingerprinted.
+    #[test]
+    fn source_key_ignores_jewel_bins() {
+        let d = scratch("src-bin");
+        let jd = d.join("Data/TimelessJewelData");
+        std::fs::create_dir_all(&jd).unwrap();
+        std::fs::write(d.join("a.lua"), "return 1").unwrap();
+        std::fs::write(jd.join("LethalPride.zip"), "zip").unwrap();
+        std::fs::write(jd.join("LethalPride.bin"), "inflated").unwrap();
+        let canon = std::fs::canonicalize(&d).unwrap();
+        // the unmemoised key: the walk and the fingerprint `source_key` memoises
+        let key = || {
+            let k = source_key(&d).unwrap();
+            let mut files = Vec::new();
+            walk(&canon, "", &mut files).unwrap();
+            assert_eq!(k.len(), 16);
+            source_fingerprint(&canon, &files).unwrap()
+        };
+        let k1 = key();
+        assert_eq!(k1, source_key(&d).unwrap());
+        std::fs::write(jd.join("LethalPride.bin"), "inflated, written again").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(jd.join("LethalPride.bin"))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3600))
+            .unwrap();
+        assert_eq!(k1, key(), "a .bin rewrite changed the source key");
+        std::fs::remove_file(jd.join("LethalPride.bin")).unwrap();
+        assert_eq!(k1, key(), "a missing .bin changed the source key");
+        std::fs::write(jd.join("LethalPride.zip"), "zip v2").unwrap();
+        assert_ne!(k1, key(), "the zip is not fingerprinted");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The Lua runtime versions come from Cargo.lock.
+    #[test]
+    fn lua_runtime_versions_name_luajit() {
+        let v = lua_runtime_versions();
+        assert!(v.starts_with(&format!("epoch {ORACLE_CACHE_EPOCH}")), "{v}");
+        assert!(v.contains(" mlua@") && v.contains(" luajit-src@"), "{v}");
     }
 }
 

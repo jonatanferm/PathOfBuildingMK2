@@ -630,14 +630,14 @@ pub fn is_initialised() -> bool {
     DATA.get().is_some()
 }
 
-/// Serialises the decode in [`init`] / [`init_from_dir`] (CCR-0080): `OnceLock::get_or_try_init`
+/// Serialises the decode in [`init`] / [`init_from_dir`] (CCR-0089): `OnceLock::get_or_try_init`
 /// is unstable, so concurrent first calls (parallel `#[test]`s of one binary) wait here instead
 /// of each decoding the ~40 MB `data.bin`.
 static INIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Initialise from `data.bin` bytes (postcard; desktop reads the file, wasm
 /// fetches it). A second call is a no-op returning `Ok`. Thread-safe: concurrent
-/// first calls decode once (CCR-0080).
+/// first calls decode once (CCR-0089).
 pub fn init(bytes: &[u8]) -> Result<(), LoadError> {
     if DATA.get().is_some() {
         return Ok(());
@@ -781,7 +781,7 @@ pub fn init_from_dir(dir: &std::path::Path) -> Result<(), LoadError> {
     if DATA.get().is_some() {
         return Ok(());
     }
-    // CCR-0080: one read and one decode per process, however many threads get here first
+    // CCR-0089: one read and one decode per process, however many threads get here first
     let _once = INIT
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
