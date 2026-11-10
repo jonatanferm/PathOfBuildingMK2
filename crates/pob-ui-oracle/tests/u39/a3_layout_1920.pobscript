@@ -1,0 +1,17 @@
+screen 1920 1080 dpi 1.0
+# U39: column packing at 1920 px (1608 px tab: maxCol 6) with an attack build, hover, wheel.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 900 500
+frames 2
+move 1700 300
+frames 2
+move 1910 1070
+wheel down 2
+frames 2

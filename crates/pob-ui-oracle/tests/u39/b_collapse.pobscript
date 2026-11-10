@@ -1,0 +1,38 @@
+# U39: section collapse (CalcSectionControl.lua:50-64, the toggle buttons; UpdateSize with
+# collapsed subsections; the column packing after a section shrinks to its header): collapse
+# "View Skill Details" (the sections below move up), then "Skill Hit Damage" and "Life", then
+# expand "View Skill Details" again. The collapsed states are the model's subsection tables, so
+# the Calcs section of each snapshot (T4) carries them.
+#! u39-expect-calcs collapsed="true" id="HitDamage"
+#! u39-expect-calcs collapsed="true" id="SkillSelect"
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+# View Skill Details "-"
+move 1010 72
+frames 1
+click LEFTBUTTON
+frames 3
+snapshot skill_select
+# Skill Hit Damage moved up to y = 62 + 22 + 8 = 92: its toggle is at y 95
+move 1010 102
+frames 1
+click LEFTBUTTON
+frames 2
+# Life (column 4)
+move 1248 212
+click LEFTBUTTON
+frames 3
+snapshot three
+# expand View Skill Details again
+move 1010 72
+click LEFTBUTTON
+frames 2
+move 1270 790
+frames 2
+snapshot expanded
