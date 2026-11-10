@@ -97,3 +97,28 @@ Process changes made in this session (see memory + commits):
 - `scripts/port/oomguard.sh` (transient unit pob-port-oomguard), `scripts/port/full_suite.sh` (transient timer pob-port-fullsuite, every 3 h; results .parity/fullsuite/latest/summary.txt), `scripts/port/quick_parity.sh`, `scripts/port/with_merge_lock.sh` (orchestrator commits).
 - Cross-workflow merge lock /tmp/pob-port-merge.lock. Open review issues land in docs/port/FOLLOWUPS.md.
 - Resuming a killed run: do NOT use Workflow resumeFromRunId for these concurrent DAGs (it re-runs finished units). Derive per-unit state from the run journals, commit WIP in killed worktrees, and relaunch v5 with explicit `start` (impl | resume | review | fix | merge) per unit.
+
+## Paused 2026-11-10 ~14:50 (user: weekly usage nearly spent)
+
+90 units merged since the 2026-11-09 resume. Calc: every plan unit merged except INT-1..4; parity after CS2
+(full 57-build corpus) L6 headline 728/741, keys 44,908/45,954; INT-1A (docs/port/parity/INT-1-triage.md)
+showed fixes A+B+C give 741/741 and 45,954/45,954 with 0 Rust errors. INT-1-C is merged. UI: U1-U22, U28,
+U29, U32, U39, U43 merged.
+
+Resume with `port-unit-dag-v5` (session 8879d008: workflows/scripts/port-unit-dag-v5-wf_51a98136-ac5.js)
+and explicit starts. Do NOT use resumeFromRunId. All workflows were stopped; in-flight work is committed on
+the port/* branches (commits titled '<id>: WIP (paused 2026-11-10; unverified)'):
+
+| Unit | Start stage |
+|---|---|
+| RETYPE (A8 E1-E5, orchestrator-approved) | review (WIP on branch; was in review) |
+| INT-1-A (triage fix A, AS) | review |
+| INT-1-B (triage fix B + exact L6 gates) | impl, deps INT-1-A |
+| U23 | review |
+| U41 | review (fix round 1 committed) |
+| U30, U40, U44, U45 | resume (WIP) |
+| U24, U25, U26, U27, U31, U33-U38, U42 | impl (deps per ui doc §12.6) |
+| INT-1 fresh-100 poe.ninja corpus, INT-2, INT-3, INT-4, UI Wave 5 (U46-U50, U53; U51/U52/U54 optional) | not started |
+
+Machine services (transient systemd user units, recreate after a reboot): pob-port-oomguard (running),
+pob-port-push (hourly push of rust-port to GitHub, running), pob-port-fullsuite (stopped for the pause).
