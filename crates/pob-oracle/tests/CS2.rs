@@ -481,40 +481,51 @@ fn ident(root: &J, v: &J) -> Option<String> {
 
 /// Strip the representation of jewel funcs: PoB's closure `{"$fn": src}` and the port's
 /// `Value::JewelFunc` (exported as `{ func = {"$fn": key}, type = … }`, a value table wrapping it
-/// once more) become `"fn"`; `$at` / `$id` are dropped.
-fn norm_fn(v: &J) -> J {
+/// once more) become `"fn <closure source>"` (ours: the source its key stands for, [`JfSrcs`];
+/// `srcs` is `None` on PoB's side); `$at` / `$id` are dropped.
+fn norm_fn(v: &J, srcs: Option<&JfSrcs>) -> J {
     match v {
         J::Object(o) => {
-            if o.contains_key("$fn") {
-                return J::from("fn");
+            if let Some(f) = o.get("$fn") {
+                let f = f.as_str().unwrap_or("?");
+                let src = match srcs {
+                    None => f.to_owned(),
+                    Some(_) if f == "$default" => "Modules/CalcSetup.lua:877-884".to_owned(),
+                    Some(_) if f.starts_with("Modules/") => f.to_owned(),
+                    Some(s) => match s.get(&Name::from(f)) {
+                        Some(set) if set.len() == 1 => set.iter().next().cloned().unwrap_or_default(),
+                        _ => format!("? {f}"),
+                    },
+                };
+                return J::from(format!("fn {src}"));
             }
             if let (Some(f), Some(_)) = (o.get("func"), o.get("type")) {
                 if f.get("func").is_some() && f.get("type").is_some() {
-                    return norm_fn(f);
+                    return norm_fn(f, srcs);
                 }
             }
             J::Object(
                 o.iter()
                     .filter(|(k, _)| *k != "$at" && *k != "$id")
-                    .map(|(k, x)| (k.clone(), norm_fn(x)))
+                    .map(|(k, x)| (k.clone(), norm_fn(x, srcs)))
                     .collect(),
             )
         }
-        J::Array(a) => J::Array(a.iter().map(norm_fn).collect()),
+        J::Array(a) => J::Array(a.iter().map(|x| norm_fn(x, srcs)).collect()),
         x => x.clone(),
     }
 }
 
 /// The mod list at `path` on both sides is the same multiset once jewel funcs are normalised.
-fn mods_equal_norm(pob: &J, ours: &J, path: &str) -> bool {
-    let list = |t: &J| -> Option<Vec<String>> {
+fn mods_equal_norm(pob: &J, ours: &J, path: &str, srcs: &JfSrcs) -> bool {
+    let list = |t: &J, s: Option<&JfSrcs>| -> Option<Vec<String>> {
         let v = at_path(t, path)?;
         let a = v.as_array().cloned().or_else(|| v.get("$seq").and_then(J::as_array).cloned())?;
-        let mut l: Vec<String> = a.iter().map(|m| norm_fn(m).to_string()).collect();
+        let mut l: Vec<String> = a.iter().map(|m| norm_fn(m, s).to_string()).collect();
         l.sort();
         Some(l)
     };
-    matches!((list(pob), list(ours)), (Some(a), Some(b)) if a == b)
+    matches!((list(pob, None), list(ours, Some(srcs))), (Some(a), Some(b)) if a == b)
 }
 
 /// Every `env.radiusJewelList[i].nodes` holds the same node ids as PoB's.
@@ -556,16 +567,90 @@ fn radius_nodes_equal(env: &EnvRef, dout: &StateDump) -> bool {
 }
 
 /// PoB's closure `{"$fn": src}` against the port's `Value::JewelFunc` (exported as
-/// `{ func = {"$fn": key}, … }`): the CalcSetup.lua:877-884 default is key `$default`, the
-/// ModParser closures any other key.
-fn jewel_func_equal(m: &Mismatch) -> bool {
+/// `{ func = {"$fn": key}, … }`): the CalcSetup.lua:877-884 default is key `$default`; any other
+/// key must stand for PoB's closure source exactly ([`JfSrcs`]: the source ranges the model's
+/// specs with that key map to), so a wrong funcList choice is not excused.
+fn jewel_func_equal(m: &Mismatch, srcs: &JfSrcs) -> bool {
     let pob = m.pob.as_ref().and_then(|p| p.get("$fn")).and_then(J::as_str);
     let ours = m.ours.as_ref().and_then(|o| o.get("func")).and_then(|f| f.get("$fn").or_else(|| f.get("func").and_then(|g| g.get("$fn")))).and_then(J::as_str);
     match (pob, ours) {
         (Some("Modules/CalcSetup.lua:877-884"), Some(k)) => k == "$default",
-        (Some(p), Some(k)) => p.starts_with("Modules/ModParser.lua:") && k != "$default",
+        (Some(p), Some(k)) if p.starts_with("Modules/ModParser.lua:") => {
+            k == p || srcs.get(&Name::from(k)).is_some_and(|s| s.contains(p))
+        }
         _ => false,
     }
+}
+
+/// Per `JewelFuncSpec.key` of the model's items, the `debug.getinfo` source ranges of the Lua
+/// closures its specs stand for (what PoB's dump shows as `{"$fn": src}`).
+type JfSrcs = HashMap<Name, std::collections::BTreeSet<String>>;
+
+/// The closures the jewel func helpers return and the jewelFuncList wrappers (as MP6.rs, which
+/// checks each range against ModParser.lua): getSimpleConv 19-38, getPerStat 6370-6376,
+/// getThreshold 6457-6478, the "Other" wrapper 6555-6570 and the closure it returns 6564-6569,
+/// the threshold-table wrapper 6582-6589.
+fn jf_src_key((a, b): (usize, usize)) -> String {
+    format!("Modules/ModParser.lua:{a}-{b}")
+}
+
+fn jf_closure_src(spec: &pob_gamedata::JewelFuncSpec) -> Option<String> {
+    match spec.key.as_str() {
+        "$getSimpleConv" => Some(jf_src_key((19, 38))),
+        "$getPerStat" => Some(jf_src_key((6370, 6376))),
+        "$getThreshold" => Some(jf_src_key((6457, 6478))),
+        k if k.starts_with("Modules/ModParser.lua:") => Some(k.to_owned()),
+        _ => None,
+    }
+}
+
+/// The source of the closure `jewelFuncList[lineLower].func` (an exact line, `args` empty,
+/// ModParser.lua:6649-6651) or `patternVal.func(cap1, …, cap5)` (a pattern match, 6644-6646) is
+/// (MP6.rs `list_func_src`); a key that is not a jewelFuncList key is its own closure source.
+fn jf_list_func_src(o: &pob_gamedata::JewelFuncSpec) -> Option<String> {
+    use pob_modparser::jewel_func_list::{callCaptureClosure, jewelFuncListSource};
+    let Some(v) = jewelFuncListSource.get(o.key.as_str()) else {
+        return jf_closure_src(o);
+    };
+    if o.r#type.as_deref() == Some("Other") {
+        return Some(jf_src_key(if o.args.is_empty() { (6555, 6570) } else { (6564, 6569) }));
+    }
+    if v.key.as_str() == "$list" {
+        return o.args.is_empty().then(|| jf_src_key((6582, 6589)));
+    }
+    if o.args.is_empty() {
+        jf_closure_src(v)
+    } else {
+        jf_closure_src(&callCaptureClosure(v, &o.args)?)
+    }
+}
+
+/// [`JfSrcs`] of a freshly loaded (not injected) model: every `JewelFunc` / `ExtraJewelFunc` mod
+/// of its items.
+fn jewel_func_srcs(build: &BuildRef) -> JfSrcs {
+    let mut out: JfSrcs = HashMap::new();
+    let items: Vec<ItemRef> = build.itemsTab.items.with(|m| m.values().cloned().collect());
+    for item in &items {
+        for (_, l) in item_mod_lists(item) {
+            for m in l.mods_named(n!("JewelFunc")).into_iter().chain(l.mods_named(n!("ExtraJewelFunc"))) {
+                // a jewelFuncList value is `{ func = spec, type = … }`; an inline closure the spec
+                let j = match &m.value {
+                    Value::Table(t) => match t.get(n!("func")) {
+                        Value::JewelFunc(j) => Some(j.clone()),
+                        _ => None,
+                    },
+                    Value::JewelFunc(j) => Some(j.clone()),
+                    _ => None,
+                };
+                if let Some(j) = j {
+                    if let Some(s) = catch(|| jf_list_func_src(&j)).ok().flatten() {
+                        out.entry(j.key).or_default().insert(s);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A ring's `slotModList[3]` (IT-C keeps it in `item.extra`, which the exporter does not write for
@@ -734,6 +819,7 @@ fn extra_func_entries(env: &Env) -> usize {
 fn run_hit(
     build: &BuildRef,
     jf: &JfArgs,
+    jsrc: &JfSrcs,
     din: &StateDump,
     dout: Option<&StateDump>,
     inner_ejf: Option<usize>,
@@ -912,13 +998,13 @@ fn run_hit(
             Some("LUA-ORDER (tree-node mods: injected allocNodes layout)")
         } else if p.starts_with("env.radiusJewelList[") && p.contains("].nodes") && radius_ok {
             Some("radiusJewelList.nodes (node-id map exported as userdata; same ids)")
-        } else if p.ends_with(".func") && jewel_func_equal(&m) {
+        } else if p.ends_with(".func") && jewel_func_equal(&m, jsrc) {
             Some("jewel func (closure as data, calc doc §6)")
         } else if p.ends_with(".slotModList[3]") && kind(&m) == "Missing" && slot3_equal(build, &env, &dout.root, &m) {
             Some("slotModList[3] of model items (CCR-0061 §1 export)")
         } else if p.ends_with("[\"$slotModList3\"]") || p.ends_with(".$slotModList3") {
             Some("slotModList[3] of model items (CCR-0061 §1 export)")
-        } else if p.ends_with(".mods.JewelFunc") && mods_equal_norm(&dout.root, &ours_tree, p) {
+        } else if p.ends_with(".mods.JewelFunc") && mods_equal_norm(&dout.root, &ours_tree, p, jsrc) {
             Some("jewel func (closure as data, calc doc §6)")
         } else if kind(&m) == "Value"
             && m.pob.as_ref().zip(m.ours.as_ref()).is_some_and(|(a, b)| {
@@ -1129,6 +1215,7 @@ fn cs2_l4_overrides() {
     setup_luts(&pob_src);
     let (mut flask_checks, mut rep_checks, mut staff_checks, mut restart_checks) = (0, 0, 0, 0);
     let mut restart_entries = 0;
+    let mut remove_checks = 0;
     // an ExtraJewelFunc mod (ModParser.lua:2629-2634): the corpus has no build with one, so the
     // restart (1425-1433) is driven by adding it to `env.modDB` before the segment runs
     let (ejf, _) = pob_modparser::parseMod(
@@ -1217,6 +1304,28 @@ fn cs2_l4_overrides() {
                 Err(e) => failures.push(format!("{stem}: repItem Ring 2: {e}")),
             }
         }
+        // override.removeNodes[node.id] (1393/1408, CCR-0105 §1): a caller that fills only the
+        // id-keyed half (`override.extra["$removeNodeIds"]`, typed `removeNodes` left None, as
+        // PassiveTreeView.lua:1706 `{ [node.id] = true }`) keeps every granted node out
+        let granted = base.grantedPassives.get().with(|m| m.keys());
+        if !granted.is_empty() {
+            let ov = Override::default();
+            let ids = Table::new();
+            for &id in &granted {
+                ids.set(id as f64, true);
+            }
+            ov.extra.set("$removeNodeIds", ids);
+            match run_with_override(&build, &din, ov) {
+                Ok(e) => {
+                    remove_checks += 1;
+                    let left: Vec<i64> = granted.iter().copied().filter(|&id| e.grantedPassives.get().with(|m| m.contains_key(id))).collect();
+                    if !left.is_empty() {
+                        failures.push(format!("{stem}: $removeNodeIds {granted:?}: still granted {left:?}"));
+                    }
+                }
+                Err(e) => failures.push(format!("{stem}: $removeNodeIds: {e}")),
+            }
+        }
         // a two-handed repItem in Weapon 1 skips Weapon 2 (817-820)
         let staff = catch(|| pob_calc::classes::item::new_Item(Some("Rarity: NORMAL\nLong Staff\nLong Staff"), None, false));
         if let Some(staff) = staff.ok().filter(|s| s.base.get().is_some_and(|b| b.r#type == n!("Staff"))) {
@@ -1252,12 +1361,23 @@ fn cs2_l4_overrides() {
         eprintln!("  {f}");
     }
     eprintln!(
-        "CS2 overrides: toggleFlask {flask_checks} runs, repItem {rep_checks} runs, two-handed repItem {staff_checks} runs, restart {restart_checks} builds ({restart_entries} extra-func radius entries in pass 2); {} failures",
+        "CS2 overrides: toggleFlask {flask_checks} runs, repItem {rep_checks} runs, two-handed repItem {staff_checks} runs, $removeNodeIds {remove_checks} runs, restart {restart_checks} builds ({restart_entries} extra-func radius entries in pass 2); {} failures",
         failures.len()
     );
     assert!(flask_checks + rep_checks + staff_checks > 0, "nothing checked");
+    // all57 builds with a granted (anointed / Forbidden) node: 51 measured 2026-11-10
+    assert!(remove_checks >= 51, "CS2: $removeNodeIds checked on {remove_checks} builds < 51");
     assert!(failures.is_empty(), "CS2 override checks failed");
 }
+
+/// `pre-load` hits of `cs2_l4_items_segment` (all57 + corpus/CS2, measured 2026-11-10: 354 of
+/// 1458 hits).
+const PRELOAD_MAX: usize = 354;
+/// Explained buckets that rest on exporter gaps (FOLLOWUPS "CS2" 3), at their measured counts.
+const EXPLAINED_MAX: &[(&str, usize)] = &[
+    ("override.extraJewelFuncs (second pass, $foreign actor)", 17_414),
+    ("radiusJewelList.nodes (node-id map exported as userdata; same ids)", 129_887),
+];
 
 #[derive(Default)]
 struct Tally {
@@ -1321,7 +1441,8 @@ fn cs2_l4_items_segment() {
             }
         };
         // a second, never injected copy: the upvalues of its ExtraJewelFunc closures
-        let jf = load_model(xml).map(|b| jewel_func_args(&b)).unwrap_or_default();
+        // and the closure sources of its jewel funcs (`jewel_func_equal`)
+        let (jf, jsrc) = load_model(xml).map(|b| (jewel_func_args(&b), jewel_func_srcs(&b))).unwrap_or_default();
         let state = dir.join("state");
         let ins = hit_files(&state, "initEnv:800");
         let outs = hit_files(&state, "initEnv:1451");
@@ -1372,7 +1493,7 @@ fn cs2_l4_items_segment() {
                 .to_owned();
             let tag = format!("{stem} initEnv:800#{n} ({mode})");
             let (mut next, mut entries) = (None, 0);
-            let outcome = run_hit(&build, &jf, &din, dout.as_ref(), inner_ejf, &stem, this_carry.as_ref(), &mut next, &mut entries);
+            let outcome = run_hit(&build, &jf, &jsrc, &din, dout.as_ref(), inner_ejf, &stem, this_carry.as_ref(), &mut next, &mut entries);
             drop(this_carry);
             carry = next;
             if second && matches!(outcome, Outcome::Pass(_) | Outcome::Fail(..)) {
@@ -1463,6 +1584,13 @@ fn cs2_l4_items_segment() {
     assert_eq!(t.restart_wrong, 0, "CS2 L4: {} restart mismatches", t.restart_wrong);
     assert!(compared > 0, "CS2 L4: nothing compared");
     assert!(pct >= min_pct, "CS2 L4: {pct:.1}% of compared hits identical < {min_pct}%");
+    // skipped and excused hits stay at their measured counts (a regression must not move more
+    // hits into them silently; FOLLOWUPS "CS2" 3)
+    assert!(t.preload <= PRELOAD_MAX, "CS2 L4: {} pre-load hits skipped > {PRELOAD_MAX}", t.preload);
+    for (bucket, max) in EXPLAINED_MAX {
+        let n = t.explained.get(bucket).copied().unwrap_or(0);
+        assert!(n <= *max, "CS2 L4: {n} mismatches explained as {bucket:?} > {max}");
+    }
     // the restart path (1425-1433 and the 905-931 pass) against PoB: every second pass identical,
     // and each synthetic build that expects a restart (see SYNTHETIC) restarted with one
     assert_eq!(t.second_pass, t.second_pass_ok, "CS2 L4: restart second passes differ from PoB");

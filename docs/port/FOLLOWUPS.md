@@ -108,6 +108,11 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    `LifeTable` object (CCR-0040), so every build with a minion raised "attempt to index a userdata
    value" (CalcPerform.lua:1160); `minion_lifeTable` (calc_perform/actor_b.rs) now converts it.
    PF-B's own test injects tables and did not see it.
+   **Changed by CS2 in `CA.rs` (port/CS2, 2026-11-10; for the CA owner to review):** L6 floors
+   raised to the values measured with CS2's items in the env (`L6_MIN_HEADLINE_EXACT = 728`,
+   `L6_MIN_KEYS_EXACT = 44_908`, `L6_MAX_RUST_ERRORS = 4`, `L6_MAX_STAGE_ERRORS` MAIN / CALCS /
+   getMiscCalculator / configTab GetMiscCalculator 1 each: the upstream_Dual_Savior mirage raise of item 6),
+   `D13_MAX_ERRORS = 1` (the same raise), and `D13_POB_WARM_CACHE` (item 5, measured in PoB).
 2. **`CalcsTab:BuildOutput` scaffold in CA.rs** (owner: PWR). `power::BuildOutput`
    (CalcsTab.lua:441-472) is still a stub, so `loadBuildFromXML` computes nothing; CA.rs carries
    a scaffold copy (`calcsTab_BuildOutput`, `rust_load`: Init's pass plus PoB's `OnFrame`
@@ -178,6 +183,15 @@ Open items found while porting initEnv's item segment (port/CS2, 2026-11-10;
    from a second, never-injected load of the same build (`restore_jewel_func_args`). Any other
    test that runs an injected ExtraJewelFunc or `jewelData.funcList` closure with captures needs
    the same workaround, or a dump that carries the captures.
+3. **Two explained buckets of `cs2_l4_items_segment` rest on exporter gaps** (owner: ORC-X2).
+   `override.extraJewelFuncs (second pass, $foreign actor)`: on a restart's recursive call the
+   Rust store is pass 1's (CalcSetup.lua:1425 leaves an existing store untouched), whose actor
+   the exporter writes as a `$foreign` object, so its paths cannot be compared with PoB's
+   dump. `radiusJewelList.nodes`: the node-id map is exported as userdata, so the test compares
+   the id sets itself (`radius_nodes_equal`). Both are bounded in `CS2.rs`
+   (`EXPLAINED_MAX`, the measured counts) so a regression cannot move more hits into them
+   silently; close the gaps in the exporter and drop the buckets. The `pre-load` skip count is
+   bounded the same way (`PRELOAD_MAX`).
 
 ## CCR2
 

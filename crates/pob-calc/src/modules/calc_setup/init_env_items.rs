@@ -234,7 +234,10 @@ fn set_flaskSlotMap(env: &Env, side: &FlaskSlotMap, item: &ItemRef, flaskNum: f6
 /// `override.removeNodes[node.id]` (1393, 1408; CCR-0105): the node-id keys of PoB's mixed set
 /// (PassiveTreeView.lua:1706 `{ [node.id] = true }`), kept in `override.extra["$removeNodeIds"]`
 /// (a table of id → true). The frozen `removeNodes` map is the node-keyed half (CCR-0082 §2),
-/// which a number key never hits in PoB.
+/// which a number key never hits in PoB. So `not override.removeNodes or not
+/// override.removeNodes[node.id]` is `!removeNodes_byId(..)` alone: with neither half set it is
+/// Lua's `not override.removeNodes`, and the typed map's presence must not short-circuit it (an
+/// id-only caller leaves `removeNodes` as None).
 fn removeNodes_byId(r#override: &Override, id: f64) -> bool {
     match r#override.extra.table(Name::from("$removeNodeIds")) {
         Some(t) => t.truthy(id),
@@ -959,7 +962,9 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                 // L1055
                 match parentItem {
                     Some(p) if !(p.abyssalSocketCount.get() < slot.get(n!("slotNum")).num()) => {
-                        // L1058
+                        // L1058. Item.lua:2691 (IT-C, item_mods.rs:1453) always sets the field to a number;
+                        // a nil would reach Lua's ScaleAddMod arithmetic and raise there (only an
+                        // empty or all-`unscalable` list would get through), so it raises here.
                         scale = match p.extra.get(n!("socketedJewelEffectModifier")) {
                             Val::Num(x) => x,
                             other => lua_error!("parentItem.socketedJewelEffectModifier is a {} value", other.lua_type()),
@@ -1545,8 +1550,9 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                     None => lua_error!("attempt to index field 'latestTree' (a nil value)"),
                 };
             }
-            // L1393 (CCR-0105: the node-id keys of `override.removeNodes`)
-            if let Some(node) = node.filter(|n| r#override.removeNodes.get().is_none() || !removeNodes_byId(&r#override, n.id)) {
+            // L1393 (CCR-0105: the node-id keys of `override.removeNodes`; the node-keyed half never
+            // matches a number key, so `not override.removeNodes or not …[node.id]` is this alone)
+            if let Some(node) = node.filter(|n| !removeNodes_byId(&r#override, n.id)) {
                 let k = node_key(node.id, "env.allocNodes");
                 // L1394
                 let v = specNode.unwrap_or_else(|| node.clone());
@@ -1580,8 +1586,8 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                 Some(t) => t.ascendancyMap.obj::<Node>(&*name),
                 None => lua_error!("attempt to index field 'latestTree' (a nil value)"),
             });
-            // L1408 (CCR-0105)
-            if let Some(node) = node.filter(|n| r#override.removeNodes.get().is_none() || !removeNodes_byId(&r#override, n.id)) {
+            // L1408 (CCR-0105; as L1393)
+            if let Some(node) = node.filter(|n| !removeNodes_byId(&r#override, n.id)) {
                 let curClassName = env.spec.get().curClassName.get().map_or(Val::Nil, Val::from);
                 let conditions = env.itemModDB.get().conditions.clone();
                 // L1409

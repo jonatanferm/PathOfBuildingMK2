@@ -31,7 +31,10 @@ power calc removes.
 
 **Workaround (CS2):** 1393/1408 read the id keys from `override.extra["$removeNodeIds"]` (a table
 id → true); the typed map is only the node-keyed half. A caller that ports PassiveTreeView.lua:1706
-must fill that table.
+must fill that table. Since the node-keyed half never matches a number key, the Lua test
+`not override.removeNodes or not override.removeNodes[node.id]` is ported as
+`!removeNodes_byId(..)` alone (a caller that fills only the id table leaves the typed map None, so
+the typed map's presence must not short-circuit the test).
 
 **Proposed diff** (calc doc §5.4, `env.rs`):
 
