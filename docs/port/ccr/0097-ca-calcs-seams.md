@@ -1,4 +1,4 @@
-# CCR-0091: CA (Calcs.lua) test seams and contract notes
+# CCR-0097: CA (Calcs.lua) test seams and contract notes
 
 Status: proposed by CA (port/CA, 2026-11-10)
 

@@ -185,7 +185,7 @@ Final-review open issues, both resolved in the merge commit's follow-up (listed 
    (2) now reads `CCR-0095`. **Still open (U16 / CA / CCR3):** U16 merged with
    `docs/port/ccr/0091-u16-main-mode-seams.md` without renumbering, so 0091 is still held twice on
    rust-port (CT and U16). Per A8, U16 must take the next free number (0096 now that PF-B holds
-   0095) and update its markers; CA's in-flight `0091-ca-calcs-seams.md` takes the one after.
+   0095) and update its markers; CA's in-flight `0091-ca-calcs-seams.md` takes the one after (renamed to `0097-ca-calcs-seams.md` at the CA merge, leaving 0096 for U16).
 2. **Binding doc out of date with the code (resolved).** PF-B's fix rounds changed the
    `applyEnemyModifiers` port in `calc_perform/actor_a.rs` (`resource_payload` rebuilds the
    actor's `EnemyModifier` mods with the re-sourced payload; `enemy_cache::set` keys both the
