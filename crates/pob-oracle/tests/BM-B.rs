@@ -527,8 +527,23 @@ fn canon(n: &XmlNode, unordered_below: bool, depth: usize) -> String {
 struct Report {
     compared: usize,
     pending: usize,
-    /// PoB's own nondeterminism (LUA-ORDER, calc doc §3.4/§9.5): a value PoB picks by `pairs`.
+    /// Every tolerated value (reported; not bounded as a whole: its size follows PoB's
+    /// per-process `pairs` order). The buckets below are what the bounds check.
     tolerated: usize,
+    /// LUA-ORDER (calc doc §3.4/§9.5): distinct `<capture>:<gem>` (`canonical_gem`) whose record PoB picked
+    /// among ambiguous variants differently from Rust (SkillsTab.lua:474-479); every field of
+    /// such a gem is tolerated, so the field count jumps by 6-7 per flipped gem.
+    orderGems: BTreeSet<String>,
+    /// Ambiguous gems in the oracle's Saves (`mask_ambiguous`): independent of `pairs` order,
+    /// the worst case for `orderGems` (every ambiguous gem flipped).
+    ambiguousGems: usize,
+    /// LUA-ORDER: party labels whose lines PoB built in `pairs` order (`lua_order_label`).
+    orderLabels: usize,
+    /// Multi-line party labels compared: independent of `pairs` order, the worst case for
+    /// `orderLabels`.
+    labelCandidates: usize,
+    /// Deterministic expected differences (a round-trip input dropped as equal to its default).
+    expected: usize,
     mismatches: Vec<String>,
     pending_examples: Vec<String>,
     notes: BTreeSet<String>,
@@ -563,7 +578,17 @@ fn compare(
     pending: &dyn Fn(&str) -> bool,
     r: &mut Report,
 ) {
-    compare_t(what, lua, rust, prefixes, pending, &|_| false, r);
+    compare_t(what, lua, rust, prefixes, pending, &|_| None, r);
+}
+
+/// Why a differing value is tolerated.
+enum Tol {
+    /// LUA-ORDER: a field of the gem at this prefix (`lua_order_gem`).
+    Gem(String),
+    /// LUA-ORDER: a party label (`lua_order_label`).
+    Label,
+    /// A deterministic expected difference.
+    Expected,
 }
 
 fn compare_t(
@@ -572,7 +597,7 @@ fn compare_t(
     rust: &Lines,
     prefixes: &[&str],
     pending: &dyn Fn(&str) -> bool,
-    tolerate: &dyn Fn(&str) -> bool,
+    tolerate: &dyn Fn(&str) -> Option<Tol>,
     r: &mut Report,
 ) {
     let keys: BTreeSet<&String> = lua
@@ -587,8 +612,15 @@ fn compare_t(
             continue;
         }
         let msg = format!("{what}: {k}: lua={a:?} rust={b:?}");
-        if tolerate(k) {
+        if let Some(t) = tolerate(k) {
             r.tolerated += 1;
+            match t {
+                Tol::Gem(p) => {
+                    r.orderGems.insert(format!("{what}:{p}"));
+                }
+                Tol::Label => r.orderLabels += 1,
+                Tol::Expected => r.expected += 1,
+            }
         } else if pending(k) {
             r.pending += 1;
             if r.pending_examples.len() < 8 {
@@ -602,19 +634,31 @@ fn compare_t(
 
 /// LUA-ORDER: a party label PoB builds with `pairs` (ParseBuffs `enemyModList`, PartyTab.lua:748;
 /// `otherEffects`, 939): the same lines in another order.
-fn lua_order_label(k: &str, lua: &Lines, rust: &Lines) -> bool {
+fn lua_order_label(k: &str, lua: &Lines, rust: &Lines) -> Option<Tol> {
     if !k.starts_with("party.label.") {
-        return false;
+        return None;
     }
-    let lines = |v: Option<&String>| -> Option<Vec<String>> {
-        let mut l: Vec<String> = v?.split("\\010").map(str::to_owned).collect();
-        l.sort();
-        Some(l)
-    };
-    match (lines(lua.get(k)), lines(rust.get(k))) {
-        (Some(a), Some(b)) => a == b,
-        _ => false,
+    match (label_lines(lua.get(k)), label_lines(rust.get(k))) {
+        (Some(a), Some(b)) if a == b => Some(Tol::Label),
+        _ => None,
     }
+}
+
+/// A party label's lines, sorted.
+fn label_lines(v: Option<&String>) -> Option<Vec<String>> {
+    let mut l: Vec<String> = v?.split("\\010").map(str::to_owned).collect();
+    l.sort();
+    Some(l)
+}
+
+/// The oracle's multi-line party labels: the only ones `lua_order_label` can tolerate, however
+/// PoB ordered their lines.
+fn label_candidates(lua: &Lines) -> usize {
+    lua.iter()
+        .filter(|(k, v)| {
+            k.starts_with("party.label.") && label_lines(Some(v)).is_some_and(|l| l.len() > 1)
+        })
+        .count()
 }
 
 /// `<prefix>.gems[n]` of a gem field path.
@@ -637,15 +681,33 @@ fn ambiguous_variants(data: &'static Data, a: &str, b: &str) -> bool {
 
 /// LUA-ORDER: a gem whose record PoB picked among ambiguous variants (every field of that gem
 /// follows from the record).
-fn lua_order_gem(data: &'static Data, k: &str, lua: &Lines, rust: &Lines) -> bool {
-    let Some(p) = gem_prefix(k) else { return false };
+fn lua_order_gem(data: &'static Data, k: &str, lua: &Lines, rust: &Lines) -> Option<Tol> {
+    let p = gem_prefix(k)?;
     let key = format!("{p}.gemData");
     match (lua.get(&key), rust.get(&key)) {
         (Some(a), Some(b)) if a != b => match (a.strip_prefix("s:"), b.strip_prefix("s:")) {
-            (Some(a), Some(b)) => ambiguous_variants(data, a, b),
-            _ => false,
+            (Some(a), Some(b)) if ambiguous_variants(data, a, b) => {
+                Some(Tol::Gem(canonical_gem(p, lua)))
+            }
+            _ => None,
         },
-        _ => false,
+        _ => None,
+    }
+}
+
+/// One name per gem: the capture dumps the active set's groups twice (`skills.groups` and
+/// `skills.sets[id].groups`, bmb.lua dumpSkills) when they are the same list.
+fn canonical_gem(p: &str, lua: &Lines) -> String {
+    let active = lua
+        .get("skills.activeSkillSetId")
+        .and_then(|v| v.strip_prefix("n:"));
+    match (p.strip_prefix("skills.groups["), active) {
+        (Some(rest), Some(id))
+            if lua.get("skills.activeIsSet").map(String::as_str) == Some("b:true") =>
+        {
+            format!("skills.sets[{id}].groups[{rest}")
+        }
+        _ => p.to_owned(),
     }
 }
 
@@ -736,6 +798,12 @@ impl Pending {
 /// Items and slots from the oracle's `inj.*` lines (what BM-A/IT-* would load).
 fn new_build(data: &'static Data, lua: &Lines) -> BuildRef {
     let build = Build::new(data);
+    // The ConfigTab constructor ran in PoB's Build:Init before Load (Build.lua:611): config set
+    // 1 (ConfigTab.lua:145-148) and one control per option (ConfigTab.lua:672-681). Load's
+    // SetActiveConfigSet runs BuildModList (ConfigTab.lua:1358), whose applies index those
+    // controls (ConfigOptions.lua:789 `varControls['enemyRadius']:SetPlaceholder`).
+    build.configTab.ctor_model();
+    build.configTab.ctor_controls_model(data);
     if let Some(cl) = lua.get("inj.characterLevel").and_then(|v| num_of(v)) {
         build.characterLevel.set(cl);
     }
@@ -1166,6 +1234,7 @@ fn rust_export_stage(data: &'static Data, lua: &LuaDump, r: &mut Report) -> Pend
              pob_gamedata::Tag does not model (MS-A CCR-0014); counted as pending"
         ));
     }
+    r.labelCandidates += label_candidates(&lua_lines);
     compare_t(
         "export",
         &lua_lines,
@@ -1218,6 +1287,7 @@ fn check_capture(
     r: &mut Report,
 ) -> Result<Pending, String> {
     let before = pob_calc::stub::stub_report();
+    let ambiguousBefore = r.ambiguousGems;
     let xml = sections(lua);
     let build = new_build(data, &lua.lines);
     let loaded = rust_load(&build, &xml);
@@ -1265,6 +1335,9 @@ fn check_capture(
         }
         lua_lines.insert(k.clone(), v.clone());
     }
+    if prefixes.contains(&"party.") {
+        r.labelCandidates += label_candidates(&lua_lines);
+    }
     compare_t(
         what,
         &lua_lines,
@@ -1272,7 +1345,8 @@ fn check_capture(
         &prefixes,
         &|k| pending.key(k),
         &|k| {
-            lua_order_gem(data, k, &lua_lines, &d.lines) || lua_order_label(k, &lua_lines, &d.lines)
+            lua_order_gem(data, k, &lua_lines, &d.lines)
+                .or_else(|| lua_order_label(k, &lua_lines, &d.lines))
         },
         r,
     );
@@ -1310,7 +1384,8 @@ fn check_capture(
         };
         let mut wantNode = xml_from_json(want);
         let mut gotNode = rust_save(&build, sec)?;
-        r.tolerated += mask_ambiguous(data, &mut wantNode);
+        // the masked gems are not tolerated values: they are the worst case for `orderGems`
+        r.ambiguousGems += mask_ambiguous(data, &mut wantNode);
         mask_ambiguous(data, &mut gotNode);
         let want = canon(&wantNode, unordered, 0);
         let got = canon(&gotNode, unordered, 0);
@@ -1350,28 +1425,25 @@ fn check_capture(
         }
     }
     // Save leaves out an input equal to its default state (ConfigTab.lua:971), so it does not come back
-    let droppedDefault = |k: &str| -> bool {
-        let Some(rest) = k.strip_prefix("cfg.sets[") else {
-            return false;
-        };
-        let Some((_, var)) = rest.split_once("].input.") else {
-            return false;
-        };
+    let droppedDefault = |k: &str| -> Option<Tol> {
+        let rest = k.strip_prefix("cfg.sets[")?;
+        let (_, var) = rest.split_once("].input.")?;
         if d2.lines.contains_key(k) {
-            return false;
+            return None;
         }
-        let Some(v) = first.get(k) else { return false };
+        let v = first.get(k)?;
         let ty = match v.split_once(':').map(|(t, _)| t) {
             Some("n") => "number",
             Some("b") => "boolean",
             Some("s") => "string",
-            _ => return false,
+            _ => return None,
         };
-        enc(&build
+        (enc(&build
             .configTab
             .GetDefaultState(Name::from(var), Name::from(ty)))
         .as_ref()
-            == Some(v)
+            == Some(v))
+        .then_some(Tol::Expected)
     };
     compare_t(
         &format!("{what} round trip"),
@@ -1382,6 +1454,18 @@ fn check_capture(
         &droppedDefault,
         r,
     );
+    // LUA-ORDER gems of this capture: at most the ambiguous gems in its own Save
+    let flipped = r
+        .orderGems
+        .iter()
+        .filter(|g| g.strip_prefix(what).is_some_and(|g| g.starts_with(':')))
+        .count();
+    let ambiguous = r.ambiguousGems - ambiguousBefore;
+    if flipped > ambiguous {
+        r.mismatches.push(format!(
+            "{what}: {flipped} LUA-ORDER gems, more than the {ambiguous} ambiguous gems saved"
+        ));
+    }
     Ok(pending)
 }
 
@@ -1401,6 +1485,16 @@ fn report(name: &str, r: &Report, pending_units: &BTreeSet<&str>) {
             )
         }
     );
+    eprintln!(
+        "  LUA-ORDER/expected: {} gems flipped ({} fields) of {} ambiguous, {} of {} multi-line \
+         party labels reordered, {} expected",
+        r.orderGems.len(),
+        r.tolerated - r.orderLabels - r.expected,
+        r.ambiguousGems,
+        r.orderLabels,
+        r.labelCandidates,
+        r.expected
+    );
     for n in &r.notes {
         eprintln!("  note: {n}");
     }
@@ -1414,25 +1508,29 @@ fn report(name: &str, r: &Report, pending_units: &BTreeSet<&str>) {
 
 /// The corpus size (`.parity/builds/*.xml`).
 const CORPUS_BUILDS: usize = 57;
-/// Coverage floors and bucket bounds (HYG2/V2): `(min compared, max pending, max
-/// LUA-ORDER/expected)` per report. The floors and pending counts are the last green runs on
-/// rust-port (148,776 / 3310 / 1302 values, 0 / 5 / 0 pending; on 746b103 this test is red
-/// before reaching them, see docs/port/FOLLOWUPS.md "HYG2 exposed"). The LUA-ORDER counts are
-/// PoB's own `pairs` order, which varies between processes: observed 12-13 (tabs), 26-28
-/// (buffs) and 1 (synthetic) over two runs; the bounds leave about 25 % headroom for that.
-const TABS_BOUNDS: (usize, usize, usize) = (148_776, 0, 16);
+/// Coverage floors and bucket bounds (HYG2/V2): `(min compared, max pending, max expected)`
+/// per report. The floors and pending counts are the last green runs on rust-port (148,776 /
+/// 3310 / 1302 values, 0 / 5 / 0 pending; on 746b103 this test is red before reaching them,
+/// see docs/port/FOLLOWUPS.md "HYG2 exposed"). The expected values are deterministic (a
+/// round-trip input dropped as equal to its default: 1 / 0 / 1). The LUA-ORDER values are not
+/// bounded by a count: they follow PoB's `pairs` order, which LuaJIT randomises per process
+/// (the tabs count went 12 -> 18/19 between runs of the same code, each flipped gem adding all
+/// its fields), so `assert_bounds` bounds them by their order-independent worst case instead:
+/// flipped gems by the ambiguous gems in the oracle's Saves (10 in the corpus; per build in
+/// `check_capture`), reordered labels by the multi-line labels compared.
+const TABS_BOUNDS: (usize, usize, usize) = (148_776, 0, 1);
 /// ParseBuffs/exportBuffs: the 5 pending values are `str.Warcry` exports whose injected mods
 /// lose the tag key `warcryPowerBonus` (pob_gamedata::Tag does not model it, MS-A CCR-0014).
-const BUFFS_BOUNDS: (usize, usize, usize) = (3310, 5, 34);
-const SYNTHETIC_BOUNDS: (usize, usize, usize) = (1302, 0, 2);
+const BUFFS_BOUNDS: (usize, usize, usize) = (3310, 5, 0);
+const SYNTHETIC_BOUNDS: (usize, usize, usize) = (1302, 0, 1);
 
-/// A report's coverage and its pending / tolerated buckets stay within `(min compared,
-/// max pending, max tolerated)`.
+/// A report's coverage and its pending / expected buckets stay within `(min compared, max
+/// pending, max expected)`; its LUA-ORDER values stay within their worst case.
 #[track_caller]
 fn assert_bounds(
     name: &str,
     r: &Report,
-    (min_compared, max_pending, max_tolerated): (usize, usize, usize),
+    (min_compared, max_pending, max_expected): (usize, usize, usize),
 ) {
     assert!(
         r.compared >= min_compared,
@@ -1445,9 +1543,21 @@ fn assert_bounds(
         r.pending
     );
     assert!(
-        r.tolerated <= max_tolerated,
-        "{name}: {} LUA-ORDER/expected values, bound {max_tolerated}",
-        r.tolerated
+        r.expected <= max_expected,
+        "{name}: {} expected values, bound {max_expected}",
+        r.expected
+    );
+    assert!(
+        r.orderGems.len() <= r.ambiguousGems,
+        "{name}: {} LUA-ORDER gems, more than the {} ambiguous gems saved",
+        r.orderGems.len(),
+        r.ambiguousGems
+    );
+    assert!(
+        r.orderLabels <= r.labelCandidates,
+        "{name}: {} LUA-ORDER labels, more than the {} multi-line labels compared",
+        r.orderLabels,
+        r.labelCandidates
     );
 }
 

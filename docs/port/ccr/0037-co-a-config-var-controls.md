@@ -47,3 +47,9 @@ every `data.configOptions` entry with a `var`: insert a control-state table
 so that `UpdateControls` (config_tab.rs:586) and the CO-A applies find the same tables PoB has.
 The CO-A acceptance test (`crates/pob-oracle/tests/CO-A.rs`) creates the two controls it needs
 itself (`multiplierMapModTier.selIndex = 2`, `enemyRadius`), matching the probe's PoB state.
+
+## Resolution
+
+Implemented as `ConfigTab::ctor_controls_model(data)` (`crates/pob-calc/src/model/config_tab.rs`,
+BM-B; first written by BM-A as `build_xml::configTab_varControls_model`, CCR-0080 §1/§10).
+`Init_model` calls it right after `ConfigTab::ctor_model()`.

@@ -83,3 +83,17 @@ At most 3 heavy agents run at once. Script (session-local copy):
 - **Host architecture:** this machine is **aarch64**. LuaJIT is dual-number here. Decision: the product follows x64 PoB semantics; the oracle runs with `jit.off()`; ±0 differences are tolerated.
 - **Legacy app:** the old egui app (`app/pob-desktop`, PoB Lua at runtime) still builds and runs. It is replaced at cut-over (UI U53, calc INT-4).
 - **Wine:** not installed. The real-SimpleGraphic pixel checks (ui doc T6) stay pending until it is.
+
+## Update 2026-11-10 03:30 (resumed 2026-11-09 via /goal "complete the full Rust port")
+
+Merged since the resume (unique units): AS BM-A BM-B CO-A CO-B CO-C CS0 CS1 CS3 DF-A DF-B DF-C DF-D DF-E DF-F DF-G HYG1 HYG2 IT-A IT-B IT-C MI MP1 MP2 MP3 MP4 MP5 MP6 MP7 MPFIX MS-B OF-A OF-B OF-C OF-D OF-E OF-F OF-G OF-H OF-I ORC-X PF-A PF-C PF-D PF-E PF-F PF-G PS-A PS-B PS-C PT SK-A SK-B TR-A TR-B U10 U11 U12 U13 U14 U4 U5 U6 U7 U8 U9 
+
+Still in flight at this point (workflows of session 8879d008, driver `port-unit-dag-v5`):
+CS2, U15-U22 (UI Wave 3 → NotesTab gate), TR-A, OF-B/DF-B leftovers if any, HYG3, MPFIX (parser L1 99.775% → 99.95%), BM-B integration fix (CO-A `enemyRadius` control).
+Not started: calc CA, PWR, INT-1..4; UI Wave 4 (U23-U45) and Wave 5 (U46-U54).
+
+Process changes made in this session (see memory + commits):
+- `scripts/port/cargo.sh`: 2 compile slots, 3 run slots (tests no longer hold a compile slot), each run in a 5 GB systemd scope, rust-lld, /tmp worktrees build in ~/.cache/pob-port-targets, quick corpus (+POB_QUICK_CORPUS=1) for tests run in the main checkout.
+- `scripts/port/oomguard.sh` (transient unit pob-port-oomguard), `scripts/port/full_suite.sh` (transient timer pob-port-fullsuite, every 3 h; results .parity/fullsuite/latest/summary.txt), `scripts/port/quick_parity.sh`, `scripts/port/with_merge_lock.sh` (orchestrator commits).
+- Cross-workflow merge lock /tmp/pob-port-merge.lock. Open review issues land in docs/port/FOLLOWUPS.md.
+- Resuming a killed run: do NOT use Workflow resumeFromRunId for these concurrent DAGs (it re-runs finished units). Derive per-unit state from the run journals, commit WIP in killed worktrees, and relaunch v5 with explicit `start` (impl | resume | review | fix | merge) per unit.
