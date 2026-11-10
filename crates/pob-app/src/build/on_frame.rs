@@ -231,17 +231,20 @@ pub fn default_shell_hooks() -> ShellHooks {
         draw_tab: Rc::new(|cx, tab, vp, ev| match tab {
             BuildTab::Notes => crate::tabs::notes::draw_tab(cx, vp, ev),
             BuildTab::Calcs => crate::tabs::calcs::core::draw_tab(cx, vp, ev),
+            BuildTab::Skills => crate::tabs::skills::core::draw_tab(cx, vp, ev),
             BuildTab::Import => crate::tabs::import::core::draw_tab(cx, vp, ev),
             _ => {}
         }),
         tab_flag: Rc::new(|cx, flag| match flag {
             TabFlag::Notes => crate::tabs::notes::mod_flag(cx),
             TabFlag::Calcs => crate::tabs::calcs::core::mod_flag(cx),
+            TabFlag::Skills => crate::tabs::skills::core::mod_flag(cx),
             _ => false,
         }),
         set_tab_flag: Rc::new(|cx, flag, v| match flag {
             TabFlag::Notes => crate::tabs::notes::set_mod_flag(cx, v),
             TabFlag::Calcs => crate::tabs::calcs::core::set_mod_flag(cx, v),
+            TabFlag::Skills => crate::tabs::skills::core::set_mod_flag(cx, v),
             _ => {}
         }),
         import_select_code_in: Rc::new(crate::tabs::import::core::select_code_in),
