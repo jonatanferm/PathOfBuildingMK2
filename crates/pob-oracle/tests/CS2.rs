@@ -17,16 +17,26 @@
 //! on the injected locals (`probe::run_segment`), and `testkit::diff_against` compares env and
 //! locals with `initEnv:1451#k` (strict; both dumps come from one process). A restart hit must
 //! return `Flow::Restart` with `override.extraJewelFuncs` holding as many mods as PoB's recursive
-//! call received. Hits PoB made before its build had loaded (its `env.player.itemList` at 1451 is
-//! empty while the model has equipped items: `Build:Init`'s calls before the item set loads)
-//! are skipped and counted (`pre-load`).
+//! call received. The recursive call (the next hit) then runs on that Rust pass 1's store and
+//! live player instead of the dumped ones (`Carry`) and is compared with its 1451 dump like any
+//! hit, which covers 875's admission of every jewel, 905-931 (`funcData.radius` lookup, radius
+//! entries, extra radius nodes) and the restart end to end. Hits PoB made before its build had
+//! loaded (its `env.player.itemList` at 1451 is empty while the model has equipped items:
+//! `Build:Init`'s calls before the item set loads) are skipped and counted (`pre-load`).
+//!
+//! **Corpus.** all57 (`.parity/builds`) has no `ExtraJewelFunc` mod, so the L4 run adds the
+//! synthetic builds of `corpus/CS2/*.xml` (see `SYNTHETIC`): one where PoB restarts and one where
+//! the mod's tags block the restart. Injected closures have no upvalues; the test puts them back
+//! from a second, never-injected load (`restore_jewel_func_args`).
 //!
 //! **Driven overrides.** After the build load the oracle side runs no extra calls; the
 //! calculator envs PoB makes during the load (`getMiscCalculator`, power) carry `override.repItem`
 //! / `toggleFlask` only when the build exercises them. `cs2_l4_overrides` therefore runs the Rust
 //! segment with a `repSlotName`/`repItem` override and with a `toggleFlask` override on each
 //! build's main env hit and checks the effect against the Lua semantics (item swapped in, flask
-//! toggled) directly.
+//! toggled) directly. It also drives the restart on all57 with an `ExtraJewelFunc` mod added to
+//! `env.modDB` (`restart_check`, Rust only: the mod has no `{SlotName}` slot, so its tags test
+//! the jewel itself); the PoB-compared restart is the corpus/CS2 part of `cs2_l4_items_segment`.
 //!
 //! **Representation differences** (counted and printed, not gated):
 //! * `round-trip`: a mismatch identical before and after the run (the injected state exported
@@ -37,15 +47,20 @@
 //! * `rust-only plumbing`: `env.$flaskSlotMap` (CCR-0030 #5 side map) and
 //!   `override.$extraJewelFuncsActor` (keeps the actor alive);
 //! * `eager struct field`: an `Extra` mismatch of a typed field PoB has not set yet whose Rust
-//!   value is the default (calc doc §5.4 structs; CCR-0082 §3);
+//!   value is the default (calc doc §5.4 structs; CCR-0082 §3), for the fields in `EAGER_FIELDS`
+//!   only (`Item.corrupted = false`, `specEnv.accelerate = {}`);
 //! * `globalCache`, `override.extraJewelFuncs` of a second pass (the dumped store's actor is
-//!   another env's player, `$foreign`).
+//!   another env's player, `$foreign`; on a `Carry` only the `.actor` paths are excused, the mods
+//!   are compared).
 //!
-//! Gate: no hit raises, every restart hit restarts, and the share of compared hits with zero
-//! unexplained mismatches is at least `CS2_MIN_PASS_PCT` (default 98, calc doc §9.4 L4 all57).
+//! Gate: no hit raises, every restart hit restarts with PoB's mod count, every second pass run on
+//! a `Carry` is identical, each corpus/CS2 build restarts (or not) as `SYNTHETIC` says, and the
+//! share of compared hits with zero unexplained mismatches is at least `CS2_MIN_PASS_PCT`
+//! (default 98, calc doc §9.4 L4 all57).
 //!
-//! Inputs: `data/dump`, the PoB checkout, `.parity/builds`. Knobs: `CS2_BUILDS=stem1,stem2`,
-//! `CS2_VERBOSE=1`, `CS2_MAX_HITS=n` (per build), `CS2_MIN_PASS_PCT`.
+//! Inputs: `data/dump`, the PoB checkout, `.parity/builds`, `corpus/CS2`. Knobs:
+//! `CS2_BUILDS=stem1,stem2`, `CS2_VERBOSE=1`, `CS2_MAX_HITS=n` (per build), `CS2_MIN_PASS_PCT`,
+//! `CS2_EAGER_LOG=1` (print each `eager struct field` mismatch).
 #![allow(non_snake_case, clippy::too_many_lines)]
 
 use std::collections::{BTreeMap, HashMap};
@@ -119,9 +134,8 @@ fn setup_luts(src: &Path) {
     lut::set_con_printf(|_| {});
 }
 
-/// all57 (`.parity/builds/*.xml`), filtered by `CS2_BUILDS`.
-fn builds(parity: &Path) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(parity.join("builds"))
+fn xmls_in(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|r| {
             r.filter_map(Result::ok)
                 .map(|e| e.path())
@@ -130,6 +144,30 @@ fn builds(parity: &Path) -> Vec<PathBuf> {
         })
         .unwrap_or_default();
     v.sort();
+    v
+}
+
+/// all57 (`.parity/builds/*.xml`), then (with `synthetic`) the CS2 corpus builds
+/// (`corpus/CS2/*.xml`, see [`SYNTHETIC`]), filtered by `CS2_BUILDS`.
+/// The synthetic builds of `corpus/CS2/` and whether PoB restarts on them. Both are
+/// `upstream_Dual_Wield_Cospris_CoC` (13 socketed jewels: rare, cluster, Watcher's Eye, Thread of
+/// Hope, Energy From Within) with "Non-Unique Jewels cause Small and Notable Passive Skills in a
+/// Large Radius to also grant +4 to Strength" (ModParser.lua:2629-2634) added to one item:
+/// * `cs2_ejf_rare_jewel`: on the rare Cobalt Jewel in socket 61834. `{SlotName}` becomes
+///   "Jewel" (Item.lua:2240, the jewel's primary slot), which no `itemList` key matches, so the
+///   `ItemCondition` tags test `cfg.item` (ModStore.lua:707-711): at 1429 (no cfg) nothing blocks
+///   the mod and PoB restarts at 1433; in the second pass 875 admits every socketed jewel
+///   (`#override.extraJewelFuncs > 0`) and 905's `List({ item = item })` adds the extra radius
+///   entry for the non-unique ones only;
+/// * `cs2_ejf_unique_amulet`: on the unique amulet. Its tags test `itemList["Amulet"]`, which is
+///   UNIQUE, so `Tabulate` at 1429 lists nothing and PoB does not restart.
+const SYNTHETIC: &[(&str, bool)] = &[("cs2_ejf_rare_jewel", true), ("cs2_ejf_unique_amulet", false)];
+
+fn builds(parity: &Path, synthetic: bool) -> Vec<PathBuf> {
+    let mut v = xmls_in(&parity.join("builds"));
+    if synthetic {
+        v.extend(xmls_in(&corpus_dir()));
+    }
     if let Ok(list) = std::env::var("CS2_BUILDS") {
         let want: Vec<&str> = list.split(',').map(str::trim).collect();
         v.retain(|p| want.contains(&stem(p).as_str()));
@@ -170,7 +208,15 @@ fn patched_src(pob_src: &Path) -> Result<PathBuf, String> {
 }
 
 fn ensure_dumps(pob_src: &Path, xml: &Path, stem: &str) -> Result<PathBuf, String> {
-    let dir = tmp_dir().join("dumps").join(stem);
+    // a corpus/CS2 build is keyed by its content too (it is edited in the repo; all57 is fixed)
+    let dir = if xml.starts_with(corpus_dir()) {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::fs::read_to_string(xml).unwrap_or_default().hash(&mut h);
+        tmp_dir().join("dumps").join(format!("{stem}-{:016x}", h.finish()))
+    } else {
+        tmp_dir().join("dumps").join(stem)
+    };
     let done = dir.join("complete");
     if done.is_file() {
         return Ok(dir);
@@ -275,16 +321,28 @@ fn kind(m: &Mismatch) -> String {
     format!("{:?}", m.kind)
 }
 
-/// `Extra` mismatches of typed struct fields PoB has not set yet, with a default Rust value.
+/// The typed struct fields the export writes while PoB has not set them (calc doc §5.4 structs;
+/// CCR-0082 §3), by path suffix, with the default value the export writes. Measured on all57 +
+/// corpus/CS2 (`CS2_EAGER_LOG=1`, fix round 1): these two are every `eager struct field` hit.
+/// A field CS2 writes and PoB does not is not on this list, so it fails the hit.
+const EAGER_FIELDS: &[(&str, fn(&J) -> bool)] = &[
+    // `Item.corrupted: bool`; Lua's `item.corrupted` is nil unless the item is corrupted
+    (".corrupted", |v| v == &J::Bool(false)),
+    // `SpecEnv.accelerate`: calcFullDPS's `specEnv` table (Calcs.lua:392) has no `accelerate`;
+    // the probe seam hands the `specEnv` local back as the typed `SpecEnv` (probe.rs), which
+    // always has one (no CS2 write)
+    ("specEnv.accelerate", |v| v.as_object().is_some_and(serde_json::Map::is_empty)),
+];
+
+/// `Extra` mismatches of the typed struct fields in [`EAGER_FIELDS`] with their default value.
 fn eager_field(m: &Mismatch) -> bool {
-    let default = match m.ours.as_ref() {
-        Some(J::Object(o)) => o.is_empty() || o.get("$seq").is_some_and(|s| s.as_array().is_some_and(Vec::is_empty)),
-        Some(J::Array(a)) => a.is_empty(),
-        Some(J::Bool(b)) => !b,
-        Some(J::Number(n)) => n.as_f64() == Some(0.0),
-        _ => false,
-    };
-    kind(m) == "Extra" && m.pob.is_none() && default
+    kind(m) == "Extra"
+        && m.pob.is_none()
+        && m.ours.as_ref().is_some_and(|v| {
+            EAGER_FIELDS
+                .iter()
+                .any(|(suffix, default)| m.path.ends_with(suffix) && default(v))
+        })
 }
 
 /// The ids of the items / nodes of a dumped list (`{"$ref": id}` / `{"$node": id}` / `$id`), in
@@ -530,12 +588,159 @@ fn slot3_equal(build: &BuildRef, env: &EnvRef, pob_root: &J, m: &Mismatch) -> bo
     n.is_some() && n == ours
 }
 
+/// The upvalues of a build's `ExtraJewelFunc` closures (ModParser.lua:2622-2627 `[dmgType]`,
+/// 2630-2634 `[val, attr]`), by closure source and radius, from the Rust parse of the model's
+/// items (`None`: two mods with the same key and radius but other upvalues).
+type JfArgs = HashMap<(Name, Option<Name>), Option<Arc<pob_gamedata::JewelFuncSpec>>>;
+
+fn item_mod_lists(item: &ItemRef) -> Vec<(usize, ModList)> {
+    let mut v = Vec::new();
+    if let Some(l) = item.modList.get() {
+        v.push((0, l));
+    }
+    for (i, f) in item.slotModList.iter().enumerate() {
+        if let Some(l) = f.get() {
+            v.push((i + 1, l));
+        }
+    }
+    v
+}
+
+/// [`JfArgs`] of a freshly loaded (not injected) model.
+fn jewel_func_args(build: &BuildRef) -> JfArgs {
+    let mut out: JfArgs = HashMap::new();
+    let items: Vec<ItemRef> = build.itemsTab.items.with(|m| m.values().cloned().collect());
+    for item in &items {
+        for (_, l) in item_mod_lists(item) {
+            for m in l.mods_named(n!("ExtraJewelFunc")) {
+                if let Value::JewelFunc(j) = &m.value {
+                    if j.args.is_empty() {
+                        continue;
+                    }
+                    let e = out.entry((j.key, j.radius)).or_insert_with(|| Some(j.clone()));
+                    if e.as_ref().is_some_and(|x| x.args != j.args) {
+                        *e = None;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A copy of `l` whose `ExtraJewelFunc` closures lost their upvalues get them back from `args`
+/// (`None` when nothing needs restoring).
+fn restore_list(l: &ModList, args: &JfArgs) -> Option<ModList> {
+    let mods = l.all_mods();
+    let mut changed = false;
+    let fixed: Vec<ModRef> = mods
+        .iter()
+        .map(|m| match &m.value {
+            Value::JewelFunc(j) if m.name == n!("ExtraJewelFunc") && j.args.is_empty() => {
+                match args.get(&(j.key, j.radius)) {
+                    Some(Some(p)) if p.key == j.key && p.r#type == j.r#type => {
+                        changed = true;
+                        let mut c = (**m).clone();
+                        c.value = Value::JewelFunc(p.clone());
+                        Arc::new(c)
+                    }
+                    _ => m.clone(),
+                }
+            }
+            _ => m.clone(),
+        })
+        .collect();
+    if !changed {
+        return None;
+    }
+    let n = ModStore::ModList(None);
+    n.actor.set(l.actor.get());
+    n.AddList(&fixed);
+    Some(n)
+}
+
+/// Injection decodes a dumped closure (`{"$fn": src}`) without its upvalues (the dump cannot see
+/// them: `lua/state_dump.lua`), so an injected `ExtraJewelFunc` mod whose closure reads them
+/// (2630-2634: `firstToUpper(attr)`) raises when it runs. Put back the upvalues the Rust parse of
+/// the same build gave, on the injected items' mod lists and the `override.extraJewelFuncs`
+/// local. (The closure is the same source range with the same upvalues in PoB: the parse is L3,
+/// MP3; the restored mod exports exactly as the injected one.)
+fn restore_jewel_func_args(build: &BuildRef, locals: &[(String, Val)], args: &JfArgs) {
+    if args.is_empty() {
+        return;
+    }
+    let items: Vec<ItemRef> = build.itemsTab.items.with(|m| m.values().cloned().collect());
+    for item in &items {
+        for (i, l) in item_mod_lists(item) {
+            if let Some(n) = restore_list(&l, args) {
+                if i == 0 {
+                    item.modList.set(Some(n));
+                } else {
+                    item.slotModList[i - 1].set(Some(n));
+                }
+            }
+        }
+    }
+    for (name, v) in locals {
+        if name == "override" {
+            if let Some(o) = v.obj::<Override>() {
+                if let Some(n) = o.extraJewelFuncs.get().and_then(|l| restore_list(&l, args)) {
+                    o.extraJewelFuncs.set(Some(n));
+                }
+            }
+        }
+    }
+}
+
+/// What a Rust restart (pass 1) hands its recursive call: the `override.extraJewelFuncs` store
+/// it built (CalcSetup.lua 1427-1431) and the strong reference to pass 1's player
+/// (`override.extra["$extraJewelFuncsActor"]`, CCR-0105 §4) that keeps the store's actor alive.
+struct Carry {
+    store: ModList,
+    actor: Val,
+}
+
+const EXTRA_JEWEL_FUNCS_ACTOR: &str = "$extraJewelFuncsActor";
+
+/// The number of mods in a dump's `override.extraJewelFuncs` local (a recursive call's 800 hit).
+/// The store is a ModList, dumped as `"mods": [ … ]` (a ModDB would be `"mods": { name: [ … ] }`).
+fn dumped_ejf(d: &StateDump) -> Option<usize> {
+    let r = &d.root;
+    let ov = resolve(r, r.get("locals")?.get("override")?);
+    let store = resolve(r, ov.get("extraJewelFuncs")?);
+    match resolve(r, store.get("mods")?) {
+        J::Array(a) => Some(a.len()),
+        J::Object(m) => Some(m.values().filter_map(J::as_array).map(Vec::len).sum()),
+        _ => None,
+    }
+}
+
+/// The radius entries an `ExtraJewelFunc` mod added (905-931: their `func` is the mod's closure).
+fn extra_func_entries(env: &Env) -> usize {
+    env.radiusJewelList
+        .get()
+        .snapshot()
+        .iter()
+        .filter(|r| matches!(r.get(n!("func")), Val::Data(Value::JewelFunc(j)) if j.key.as_str() == "Modules/ModParser.lua:2630-2634"))
+        .count()
+}
+
+/// One hit. `carry` is the Rust pass 1 of the restart this hit is the recursive call of: its
+/// store replaces the injected `override.extraJewelFuncs` (whose actor is PoB's pass-1 player,
+/// `$foreign` at injection), so the second pass runs on what the Rust restart built, with pass
+/// 1's live player as the store's actor, as in PoB. A restart puts its own carry in `carry_out`;
+/// a second pass puts its count of extra-func radius entries in `extra_entries`.
+#[allow(clippy::too_many_arguments)]
 fn run_hit(
     build: &BuildRef,
+    jf: &JfArgs,
     din: &StateDump,
     dout: Option<&StateDump>,
     inner_ejf: Option<usize>,
     stem: &str,
+    carry: Option<&Carry>,
+    carry_out: &mut Option<Carry>,
+    extra_entries: &mut usize,
 ) -> Outcome {
     pob_calc::global_cache::clear_all();
     let inj = match catch(|| pob_oracle::inject::inject(din, build)) {
@@ -568,11 +773,29 @@ fn run_hit(
             }
         }
     }
+    restore_jewel_func_args(build, &locals, jf);
     let before: std::collections::HashSet<String> =
         testkit::diff_against(din, inj.env.as_ref(), &locals, &format!("CS2-{stem}"))
             .iter()
             .map(key)
             .collect();
+    // the recursive call of a Rust restart: run on Rust's pass-1 store (after `before`, so what
+    // the swap changes is not taken for an inject/export round trip)
+    if let Some(c) = carry {
+        if c.store.actor.get().upgrade().is_none() {
+            return Outcome::RestartWrong("override.extraJewelFuncs.actor died with pass 1's env".to_owned());
+        }
+        for (name, v) in &locals {
+            if name == "override" {
+                if let Some(o) = v.obj::<Override>() {
+                    if o.extraJewelFuncs.get().is_some() {
+                        o.extraJewelFuncs.set(Some(c.store.clone()));
+                        o.extra.set(Name::from(EXTRA_JEWEL_FUNCS_ACTOR), c.actor.clone());
+                    }
+                }
+            }
+        }
+    }
     let run = catch(|| pob_calc::probe::run_segment(&din.probe, &locals));
     let (flow, after) = match run {
         Ok(Ok(x)) => x,
@@ -587,6 +810,12 @@ fn run_hit(
         // PoB restarted at 1433
         if flow != Flow::Restart {
             return Outcome::RestartWrong(format!("PoB restarts, Rust returned {flow:?}"));
+        }
+        if let Some(o) = ov.as_ref() {
+            if let Some(store) = o.extraJewelFuncs.get() {
+                let actor = o.extra.get(Name::from(EXTRA_JEWEL_FUNCS_ACTOR));
+                *carry_out = Some(Carry { store, actor });
+            }
         }
         let ours = ov.and_then(|o| o.extraJewelFuncs.get()).map_or(0, |l| l.len());
         return match inner_ejf {
@@ -607,6 +836,7 @@ fn run_hit(
     let Some(env) = env else {
         return Outcome::Error("no env after the run".to_owned());
     };
+    *extra_entries = extra_func_entries(&env);
     // pre-load: PoB's model had no items yet
     let pob_items = dout
         .root
@@ -672,12 +902,10 @@ fn run_hit(
         } else if p.starts_with("globalCache") {
             Some("globalCache")
         } else if (p.starts_with("env.override.extraJewelFuncs") || p.starts_with("locals.override.extraJewelFuncs"))
-            && din
-                .root
-                .get("locals")
-                .and_then(|l| l.get("override"))
-                .and_then(|o| o.get("extraJewelFuncs"))
-                .is_some()
+            && dumped_ejf(din).is_some()
+            // on Rust's pass-1 store only the actor (pass 1's player) is another object; the mods
+            // are compared
+            && (carry.is_none() || p.contains("extraJewelFuncs.actor"))
         {
             Some("override.extraJewelFuncs (second pass, $foreign actor)")
         } else if kind(&m) == "LuaOrder" && p.contains(".mods") && order_outside_tree_equal(&dout.root, &ours_tree, p) {
@@ -707,6 +935,9 @@ fn run_hit(
             // (`$foreign` at injection): PoB's canonical path for that player's tables goes through it
             Some("override.extraJewelFuncs (second pass, $foreign actor)")
         } else if eager_field(&m) {
+            if std::env::var_os("CS2_EAGER_LOG").is_some() {
+                eprintln!("EAGER {} {}", m.path, short(&m.ours));
+            }
             Some("eager struct field")
         } else {
             None
@@ -859,6 +1090,9 @@ fn restart_check(build: &BuildRef, din: &StateDump, ejf: &[ModRef]) -> Result<us
         .iter()
         .filter(|r| matches!(r.get(n!("func")), Val::Data(Value::JewelFunc(j)) if j.key.as_str() == "Modules/ModParser.lua:2630-2634"))
         .count();
+    // Rust-only expectation: this mod was parsed without an item, so its tags keep
+    // "{SlotName}" and test `cfg.item` (ModStore.lua:707-711), i.e. the jewel 905 lists for. The
+    // PoB-compared restart is corpus/CS2 in `cs2_l4_items_segment`.
     let want = env2.player.itemList.with(|l| {
         l.iter()
             .filter(|(k, i)| {
@@ -907,7 +1141,7 @@ fn cs2_l4_overrides() {
         "the ExtraJewelFunc line does not parse to an ExtraJewelFunc mod"
     );
     let mut failures = Vec::new();
-    for xml in &builds(&parity) {
+    for xml in &builds(&parity, false) {
         let stem = stem(xml);
         let Ok(dir) = ensure_dumps(&pob_src, xml, &stem) else { continue };
         let Ok(build) = load_model(xml) else { continue };
@@ -1033,6 +1267,13 @@ struct Tally {
     restart_wrong: usize,
     preload: usize,
     errors: usize,
+    /// recursive calls of a restart run on Rust's pass-1 store: compared, identical, and the
+    /// ExtraJewelFunc radius entries (905-931) they made
+    second_pass: usize,
+    second_pass_ok: usize,
+    second_pass_entries: usize,
+    /// per synthetic build: restarts and identical second passes
+    synthetic: BTreeMap<String, (usize, usize)>,
     explained: BTreeMap<&'static str, usize>,
     fail_paths: BTreeMap<String, usize>,
 }
@@ -1050,7 +1291,7 @@ fn cs2_l4_items_segment() {
     let Some(parity) = pob_testpaths::require(pob_testpaths::parity_dir(), ".parity") else {
         return;
     };
-    let corpus = builds(&parity);
+    let corpus = builds(&parity, true);
     if pob_testpaths::require((!corpus.is_empty()).then_some(()), ".parity/builds/*.xml").is_none() {
         return;
     }
@@ -1079,6 +1320,8 @@ fn cs2_l4_items_segment() {
                 continue;
             }
         };
+        // a second, never injected copy: the upvalues of its ExtraJewelFunc closures
+        let jf = load_model(xml).map(|b| jewel_func_args(&b)).unwrap_or_default();
         let state = dir.join("state");
         let ins = hit_files(&state, "initEnv:800");
         let outs = hit_files(&state, "initEnv:1451");
@@ -1089,6 +1332,11 @@ fn cs2_l4_items_segment() {
             }
         }
         let calls: Vec<(u64, Option<String>)> = ins.iter().map(|(n, p)| (*n, call_of(p))).collect();
+        let synthetic = xml.starts_with(corpus_dir());
+        if synthetic {
+            t.synthetic.entry(stem.clone()).or_default();
+        }
+        let mut carry: Option<Carry> = None;
         for (i, (n, call)) in calls.iter().enumerate().take(max_hits) {
             let Ok(din) = StateDump::load(&ins[n]) else {
                 t.errors += 1;
@@ -1101,18 +1349,20 @@ fn cs2_l4_items_segment() {
                 .and_then(|p| StateDump::load(p).ok());
             // a restart: the recursive call's own 800 hit carries the override PoB built
             let inner_ejf = if dout.is_none() {
-                calls.get(i + 1).and_then(|(m, _)| StateDump::load(&ins[m]).ok()).and_then(|d| {
-                    d.root
-                        .get("locals")
-                        .and_then(|l| l.get("override"))
-                        .and_then(|o| o.get("extraJewelFuncs"))
-                        .and_then(|s| s.get("mods"))
-                        .and_then(J::as_object)
-                        .map(|m| m.values().filter_map(J::as_array).map(Vec::len).sum())
-                })
+                match calls.get(i + 1).and_then(|(m, _)| StateDump::load(&ins[m]).ok()).and_then(|d| dumped_ejf(&d)) {
+                    Some(k) => Some(k),
+                    None => {
+                        t.restart_wrong += 1;
+                        lines.push(format!("RESTART {stem} initEnv:800#{n}: the next hit carries no override.extraJewelFuncs"));
+                        None
+                    }
+                }
             } else {
                 None
             };
+            // the recursive call of the previous hit's restart (its override holds PoB's store)
+            let this_carry = carry.take().filter(|_| dumped_ejf(&din).is_some_and(|k| k > 0));
+            let second = this_carry.is_some();
             let mode = din
                 .root
                 .get("locals")
@@ -1121,7 +1371,25 @@ fn cs2_l4_items_segment() {
                 .unwrap_or("?")
                 .to_owned();
             let tag = format!("{stem} initEnv:800#{n} ({mode})");
-            match run_hit(&build, &din, dout.as_ref(), inner_ejf, &stem) {
+            let (mut next, mut entries) = (None, 0);
+            let outcome = run_hit(&build, &jf, &din, dout.as_ref(), inner_ejf, &stem, this_carry.as_ref(), &mut next, &mut entries);
+            drop(this_carry);
+            carry = next;
+            if second && matches!(outcome, Outcome::Pass(_) | Outcome::Fail(..)) {
+                t.second_pass += 1;
+                t.second_pass_entries += entries;
+                if matches!(outcome, Outcome::Pass(_)) {
+                    t.second_pass_ok += 1;
+                    if synthetic {
+                        t.synthetic.entry(stem.clone()).or_default().1 += 1;
+                    }
+                }
+                lines.push(format!("second  {tag}: {entries} ExtraJewelFunc radius entries"));
+            }
+            if synthetic && matches!(outcome, Outcome::Restart) {
+                t.synthetic.entry(stem.clone()).or_default().0 += 1;
+            }
+            match outcome {
                 Outcome::Pass(why) => {
                     t.pass += 1;
                     for (k, v) in &why {
@@ -1174,6 +1442,10 @@ fn cs2_l4_items_segment() {
         "CS2 L4 initEnv:800 -> initEnv:1451: pass {} / fail {} ({pct:.1}% of {compared} compared) / restart {} (wrong {}) / pre-load {} / errors {}; {} builds without dumps; {:.0}s",
         t.pass, t.fail, t.restart, t.restart_wrong, t.preload, t.errors, missing.len(), t0.elapsed().as_secs_f64()
     );
+    eprintln!(
+        "  restart second passes (on Rust's pass-1 store): {} compared, {} identical, {} ExtraJewelFunc radius entries; synthetic builds (restarts, identical second passes): {:?}",
+        t.second_pass, t.second_pass_ok, t.second_pass_entries, t.synthetic
+    );
     eprintln!("  explained representation differences: {:?}", t.explained);
     let mut fp: Vec<(&String, &usize)> = t.fail_paths.iter().collect();
     fp.sort_by(|a, b| b.1.cmp(a.1));
@@ -1191,4 +1463,17 @@ fn cs2_l4_items_segment() {
     assert_eq!(t.restart_wrong, 0, "CS2 L4: {} restart mismatches", t.restart_wrong);
     assert!(compared > 0, "CS2 L4: nothing compared");
     assert!(pct >= min_pct, "CS2 L4: {pct:.1}% of compared hits identical < {min_pct}%");
+    // the restart path (1425-1433 and the 905-931 pass) against PoB: every second pass identical,
+    // and each synthetic build that expects a restart (see SYNTHETIC) restarted with one
+    assert_eq!(t.second_pass, t.second_pass_ok, "CS2 L4: restart second passes differ from PoB");
+    for (stem, (restarts, ok)) in &t.synthetic {
+        match SYNTHETIC.iter().find(|(s, _)| s == stem) {
+            Some((_, true)) => assert!(
+                *restarts > 0 && *ok > 0,
+                "CS2 L4 {stem}: {restarts} restarts, {ok} identical second passes (expected a restart)"
+            ),
+            Some((_, false)) => assert_eq!(*restarts, 0, "CS2 L4 {stem}: restarted (the mod's ItemCondition fails)"),
+            None => panic!("corpus/CS2/{stem}.xml is not listed in SYNTHETIC"),
+        }
+    }
 }

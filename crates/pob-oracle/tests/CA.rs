@@ -22,7 +22,9 @@
 //!   gated by floors at the measured values while CS2 (initEnv items, CalcSetup.lua 800-1450) and
 //!   PF-B (CalcPerform.lua 636-1272) are stubs (docs/port/FOLLOWUPS.md "CA").
 //! * `ca_d13_fixed_point` (L5 D13, Rust only): build → buildOutput → buildOutput gives identical
-//!   outputs and model state (`Build:SaveDB`), on slice5 and the corpus.
+//!   outputs and model state (`Build:SaveDB`), on slice5 and the corpus. A build PoB itself does
+//!   not reproduce on a warm GlobalCache (`D13_POB_WARM_CACHE`) gets its warm run checked against
+//!   PoB's warm values and its fixed point checked after a `wipeGlobalCache()`.
 //!
 //! PoB runs (probe dumps + `ca.lua`) are cached in `target/tmp/ca-probe/<stem>/`. Knobs:
 //! `CA_BUILDS=stem1,stem2`, `CA_LIMIT=n`, `CA_VERBOSE=1`. A missing input skips with a message;
@@ -430,7 +432,9 @@ fn ca_d13_fixed_point() {
     }
     let (mut ran, mut equal, mut errored) = (0, 0, Vec::new());
     let mut failures = Vec::new();
+    let mut warm_checked = 0;
     for (name, xml) in &builds {
+        let warm = D13_POB_WARM_CACHE.iter().find(|(b, _)| b == name).map(|(_, v)| *v);
         let run = catch(|| {
             let build = pob_calc::model::build_xml::loadBuildModelFromXML(xml, pob_gamedata::data())
                 .unwrap_or_else(|e| lua_error!("load: {e}"));
@@ -438,13 +442,21 @@ fn ca_d13_fixed_point() {
             let e1 = buildOutput(&build, Mode::MAIN);
             let o1 = flat_table(&e1.player.output.get());
             let s1 = build.SaveDB("ca-d13");
+            // a build PoB itself does not reproduce on a warm GlobalCache: the warm run is
+            // checked against PoB's warm values, the fixed point after a wipe
+            let ow = warm.map(|_| {
+                let ew = buildOutput(&build, Mode::MAIN);
+                let o = flat_table(&ew.player.output.get());
+                wipeGlobalCache();
+                o
+            });
             let e2 = buildOutput(&build, Mode::MAIN);
             let o2 = flat_table(&e2.player.output.get());
             let s2 = build.SaveDB("ca-d13");
-            (o1, o2, s1, s2)
+            (o1, o2, s1, s2, ow)
         });
         lut::clear_timeless_jewel_luts(None);
-        let (o1, o2, s1, s2) = match run {
+        let (o1, o2, s1, s2, ow) = match run {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("D13 {name}: {e}");
@@ -454,6 +466,15 @@ fn ca_d13_fixed_point() {
         };
         ran += 1;
         let mut d = Vec::new();
+        if let (Some(want), Some(ow)) = (warm, ow.as_ref()) {
+            warm_checked += 1;
+            for (k, v) in want {
+                match ow.get(*k) {
+                    Some(Leaf::Num(x)) if num_eq(*x, *v) => {}
+                    other => d.push(format!("warm-cache run {k}: Rust {other:?} vs PoB {v}")),
+                }
+            }
+        }
         leaves_diff("output", &o2, &o1, &mut d);
         if s1 != s2 {
             d.push("model: SaveDB differs after the second buildOutput".to_owned());
@@ -473,7 +494,7 @@ fn ca_d13_fixed_point() {
         }
     }
     eprintln!(
-        "CA D13: {} builds, {ran} ran, {equal} fixed points, {} differ, {} Lua errors",
+        "CA D13: {} builds, {ran} ran, {equal} fixed points, {} differ, {} Lua errors; {warm_checked} warm-cache runs checked against PoB's",
         builds.len(),
         failures.len(),
         errored.len()
@@ -490,8 +511,27 @@ fn ca_d13_fixed_point() {
 }
 
 /// Measured on port/CA (rust-port f275edb + CA): see docs/port/FOLLOWUPS.md "CA". With CS2:
-/// 1 (upstream_Dual_Savior, the mirage-skill `Weak` actor of the L6 floors' note).
+/// 1 (upstream_Dual_Savior, the mirage-skill `Weak` actor of the L6 floors' note; FOLLOWUPS.md
+/// "CA" 6).
 const D13_MAX_ERRORS: usize = 1;
+
+/// Builds whose second `buildOutput` on a warm GlobalCache differs from the first in PoB itself
+/// (D13 is then not a property of the Lua; docs/port/FOLLOWUPS.md "CA" 5), with values of PoB's
+/// warm run. Measured with `pob_headless` (POB_ENGINE=jit, rust-port d8a4407): wipe,
+/// `calcs.buildOutput(build, "MAIN")` twice: allflame_exp_050 differs in 26 output keys
+/// (BleedStacks 0.5875 -> 1.25, CombinedDPS 7,411,955.92 -> 15,755,502.09, ...); with
+/// `wipeGlobalCache()` between the runs, 0 of 261,774 keys differ. For these builds the test
+/// checks the warm run against these values and the fixed point after a wipe.
+const D13_POB_WARM_CACHE: &[(&str, &[(&str, f64)])] = &[(
+    "allflame_exp_050",
+    &[
+        ("BleedStacks", 1.25),
+        ("BleedDPS", 80_571.900_725_94),
+        ("LifeLeechInstances", 5.0),
+        ("TotalDPS", 10_934_096.884_62),
+        ("CombinedDPS", 15_755_502.093_183),
+    ],
+)];
 
 #[cfg(feature = "luajit")]
 mod oracle_side {
@@ -1462,9 +1502,10 @@ mod oracle_side {
     /// keys 44,908/45,954 exact, CALCS lists 168/171, used-tracking 504/504, misc calculator
     /// 1226/1226. Before CS2: headline 194/741, keys 24,381/48,958, no Rust errors. The four
     /// Rust errors are all upstream_Dual_Savior (The Saviour's Reflection mirage, now reachable
-    /// with items): `attempt to index field 'actor'` at calc_active_skill.rs:723, the mirage skill
+    /// with items): `attempt to index field 'actor'` at calc_active_skill.rs:713, the mirage skill
     /// kept by `env.player.mainSkill = newSkill` (CalcMirages.lua:155) outlives its env, whose
-    /// actor is a `Weak` back-pointer (MI/AS follow-up), and CALCS then has no `mainEnv`.
+    /// actor is a `Weak` back-pointer, and CALCS then has no `mainEnv` (docs/port/FOLLOWUPS.md
+    /// "CA" 6, owners MI/AS).
     const L6_MIN_HEADLINE_EXACT: usize = 728;
     const L6_MIN_KEYS_EXACT: usize = 44_908;
     const L6_MAX_RUST_ERRORS: usize = 4;

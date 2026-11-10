@@ -1,12 +1,13 @@
-# CCR-0101 (CS2): CalcSetup.lua 800-1450 — removeNodes id keys, flaskSlotMap, explodeSources, restart actor
+# CCR-0105 (CS2): CalcSetup.lua 800-1450 — removeNodes id keys, flaskSlotMap, explodeSources, restart actor
 
 **Filed status: proposed (CS2, 2026-11-10).** No frozen file was changed. Every item is worked
 around inside CS2's own file (`crates/pob-calc/src/modules/calc_setup/init_env_items.rs`) and
 marked there; the test notes are in `crates/pob-oracle/tests/CS2.rs`.
 
-`scripts/port/next_ccr.sh` (named by the CS2 task) does not exist on rust-port c4628cb or in the
-main checkout; 0101 is the next number after the highest CCR file on rust-port and in every
-worktree (0100), so it was taken by hand. Renumber on merge if another unit took it first.
+Number reserved with `scripts/port/next_ccr.sh` (rust-port 85604a9) in CS2 fix round 1. The
+first filing took 0101 by hand, before that script was on rust-port; 0101 is PWR's
+(`0101-pwr-power-seams.md`), so this CCR was renumbered and every `CCR-0101` reference in
+`init_env_items.rs` now reads `CCR-0105`.
 
 - **Raised by:** CS2
 - **Affects:** `pob_calc::env::Override` (U0, frozen), `Env.flaskSlotMap` / `Env.explodeSources`
@@ -75,8 +76,18 @@ needed.
 ## 5. Exporter / L4 notes (for ORC-X2)
 
 * A second pass's injected `override.extraJewelFuncs` store has a `$foreign` placeholder actor
-  (another env's player), which upgrades to nothing; the CS2 test points it at the injected env's
-  player (any live actor satisfies `{SlotName}` tags).
+  (another env's player), which upgrades to nothing. When the hit is the recursive call of a
+  restart the test ran itself (the previous hit), the test swaps in the store and actor of that
+  Rust pass 1, as PoB's own pass 1 hands them on. Otherwise (PoB reused a caller's override that
+  already holds a store) it points the actor at the injected env's player. Either way the
+  `ItemCondition` tags see a live `actor.itemList`.
+* The restart path is compared against PoB on the synthetic builds `corpus/CS2/*.xml` (fix
+  round 1; all57 has no `ExtraJewelFunc` mod). `cs2_ejf_rare_jewel` restarts 6 times. All 6
+  second passes are identical to PoB's 1451 dump, with 9 extra-func radius entries each (905-931).
+  `cs2_ejf_unique_amulet` does not restart, in PoB or in Rust.
+* A dumped closure (`{"$fn": src}`) has no upvalues, so an injected `ExtraJewelFunc` mod from
+  2630-2634 raises in `firstToUpper(attr)`. The test puts back the upvalues from a second,
+  never-injected load of the build (docs/port/FOLLOWUPS.md "CS2" 2).
 * Hits PoB made during `Build:Init` before its item set loaded (empty `env.player.itemList` at 1451)
   cannot be injected onto the loaded model; the test skips them as `pre-load`.
 * The exporter cannot write several values CS2 stores as the contracts prescribe; the CS2 L4 test
@@ -93,14 +104,17 @@ needed.
 ## 6. Found downstream once items reach the env (for the owners; not CS2 code)
 
 * **MI / AS:** upstream_Dual_Savior raises `attempt to index field 'actor' (a nil value)`
-  (calc_active_skill.rs:723) in MAIN and in both misc calculators: The Saviour's Reflection mirage
-  sets `env.player.mainSkill = newSkill` (CalcMirages.lua:155), and the mirage env that owns the
+  (calc_active_skill.rs:713 after the rust-port merge) in MAIN and in both misc calculators:
+  The Saviour's Reflection mirage sets `env.player.mainSkill = newSkill` (CalcMirages.lua:155), and the mirage env that owns the
   skill's actor is dropped (`ActiveSkill.actor` is `Weak`, calc doc §3.3 rule 4); Lua keeps it
   alive through the skill. CALCS then has no `mainEnv`. CA's L6 floors bound these four errors.
-* **CA / PF (D13):** allflame_exp_050's second `buildOutput` on a warm GlobalCache differs from the
+  Tracked as docs/port/FOLLOWUPS.md "CA" 6.
+* **CA (D13):** allflame_exp_050's second `buildOutput` on a warm GlobalCache differs from the
   first (BleedStacks 0.5875 → 1.25, CombinedDPS 7.41M → 15.76M); with `wipeGlobalCache()` between
-  the runs both agree, and the first run equals PoB's L6 output. `ca_d13_fixed_point` reports it
-  (left failing: whether PoB differs the same way on a warm cache is not established).
+  the runs both agree, and the first run equals PoB's L6 output. Fix round 1 measured PoB: it
+  differs the same way (26 keys, the same values; `pob_headless` under LuaJIT), so this is PoB
+  behavior that the port reproduces. `ca_d13_fixed_point` records it as `D13_POB_WARM_CACHE`
+  (warm run against PoB's values, fixed point after a wipe); docs/port/FOLLOWUPS.md "CA" 5.
 * **CS3 / ORC-X testkit:** `cs3_l5_init_env` still raises on all 171 runs (`attempt to index a nil
   value`), before and after CS2: `testkit::load_build` runs only `Build:LoadDB`, without BM-A's
   `Init_model`; the same builds through `build_xml::loadBuildModelFromXML` run `initEnv` without

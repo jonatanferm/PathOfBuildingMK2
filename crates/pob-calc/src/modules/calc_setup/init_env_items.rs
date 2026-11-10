@@ -25,7 +25,7 @@
 //! * `override.removeNodes[node.id]` (1393, 1408): PoB's set mixes node keys (power calcs) and
 //!   node-id keys (anointed nodes, PassiveTreeView.lua:1706); the frozen id → node map is the
 //!   node-keyed set (CS1, CCR-0082 §2), so id-keyed entries are read from
-//!   `override.extra["$removeNodeIds"]` (CCR-0101).
+//!   `override.extra["$removeNodeIds"]` (CCR-0105).
 #![allow(non_snake_case)]
 // Lua statement shapes are kept (locals assigned per branch, `if … then … else … end`).
 #![allow(
@@ -231,7 +231,7 @@ fn set_flaskSlotMap(env: &Env, side: &FlaskSlotMap, item: &ItemRef, flaskNum: f6
     let _ = env;
 }
 
-/// `override.removeNodes[node.id]` (1393, 1408; CCR-0101): the node-id keys of PoB's mixed set
+/// `override.removeNodes[node.id]` (1393, 1408; CCR-0105): the node-id keys of PoB's mixed set
 /// (PassiveTreeView.lua:1706 `{ [node.id] = true }`), kept in `override.extra["$removeNodeIds"]`
 /// (a table of id → true). The frozen `removeNodes` map is the node-keyed half (CCR-0082 §2),
 /// which a number key never hits in PoB.
@@ -437,6 +437,22 @@ fn get_kv(t: &IndexMap<LStr, Val>, k: &Val) -> Val {
         Val::Str(s) => t.get(s).cloned().unwrap_or(Val::Nil),
         _ => Val::Nil,
     }
+}
+
+/// `modLib.setSource(copyTable(mod), nil)` (ModTools.lua:239-245 with a nil `source`, CalcSetup.lua
+/// 1200-1201 when `item.modSource` is nil): clears `mod.source` and, for a `{ mod = … }` value,
+/// the inner mod's `source` too (`mod_tools::setSource` takes a string).
+fn setSource_nil(m: &Mod) -> Mod {
+    let mut r#mod = m.clone();
+    r#mod.source = None;
+    if let Some(inner) = r#mod.value.inner_mod() {
+        let mut inner = (**inner).clone();
+        inner.source = None;
+        if let Value::Table(t) = &r#mod.value {
+            r#mod.value = Value::Table(Arc::new(t.with(n!("mod"), Value::Mod(Arc::new(inner)))));
+        }
+    }
+    r#mod
 }
 
 /// `override.extra` key that keeps the env player alive which `override.extraJewelFuncs.actor`
@@ -1178,11 +1194,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                             // L1200-L1201 (`copyTable(mod)` then `setSource`: a fresh mod)
                             let modCopy: Mod = match item.modSource.get() {
                                 Some(src) => modLib::setSource(&r#mod, &src),
-                                None => {
-                                    let mut m = (*r#mod).clone();
-                                    m.source = None;
-                                    m
-                                }
+                                None => setSource_nil(&r#mod),
                             };
                             // L1202
                             env.itemModDB.get().ScaleAddMod(&Arc::new(modCopy), scale, false);
@@ -1533,7 +1545,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                     None => lua_error!("attempt to index field 'latestTree' (a nil value)"),
                 };
             }
-            // L1393 (CCR-0101: the node-id keys of `override.removeNodes`)
+            // L1393 (CCR-0105: the node-id keys of `override.removeNodes`)
             if let Some(node) = node.filter(|n| r#override.removeNodes.get().is_none() || !removeNodes_byId(&r#override, n.id)) {
                 let k = node_key(node.id, "env.allocNodes");
                 // L1394
@@ -1568,7 +1580,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                 Some(t) => t.ascendancyMap.obj::<Node>(&*name),
                 None => lua_error!("attempt to index field 'latestTree' (a nil value)"),
             });
-            // L1408 (CCR-0101)
+            // L1408 (CCR-0105)
             if let Some(node) = node.filter(|n| r#override.removeNodes.get().is_none() || !removeNodes_byId(&r#override, n.id)) {
                 let curClassName = env.spec.get().curClassName.get().map_or(Val::Nil, Val::from);
                 let conditions = env.itemModDB.get().conditions.clone();
