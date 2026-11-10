@@ -248,9 +248,10 @@ pub(crate) fn at(s: &[u8], i: usize) -> u8 {
 // only) saturates and maps NaN to 0 (which is Rust's `as`).
 // ---------------------------------------------------------------------------
 
-/// `(int64_t)n`.
+/// `(int64_t)n`: `(lua_Integer)n`, i.e. `lua_tointeger` on 64-bit LuaJIT (what a C module such
+/// as `lua-utf8` sees through `luaL_checkinteger`). Public for the UI (CCR-0033 §1).
 #[inline]
-pub(crate) fn cvtt_i64(n: f64) -> i64 {
+pub fn cvtt_i64(n: f64) -> i64 {
     if crate::profile::x64_casts()
         && (n.is_nan() || n >= 9_223_372_036_854_775_808.0 || n < -9_223_372_036_854_775_808.0)
     {
@@ -260,9 +261,10 @@ pub(crate) fn cvtt_i64(n: f64) -> i64 {
     }
 }
 
-/// `(int32_t)n` (`lj_num2int`).
+/// `(int32_t)n` (`lj_num2int`): the conversion of a number argument by `lj_lib_checkint` /
+/// `lj_lib_optint` (the `string.sub` fast path's `cvttsd2si r32`). Public for the UI (CCR-0033 §1).
 #[inline]
-pub(crate) fn cvtt_i32(n: f64) -> i32 {
+pub fn cvtt_i32(n: f64) -> i32 {
     if crate::profile::x64_casts() && (n.is_nan() || n >= 2_147_483_648.0 || n <= -2_147_483_649.0) {
         i32::MIN
     } else {

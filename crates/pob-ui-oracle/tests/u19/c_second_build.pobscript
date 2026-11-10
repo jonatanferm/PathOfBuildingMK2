@@ -1,0 +1,7 @@
+# U19: a second fixture build replaces the first (Init on a used buildMode object).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_030.xml"
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 3

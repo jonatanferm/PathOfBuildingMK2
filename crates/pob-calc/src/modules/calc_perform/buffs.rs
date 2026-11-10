@@ -156,20 +156,6 @@ fn to_value(v: &Val) -> Value {
     }
 }
 
-/// `store:NewMod(name, type, value)` with no source: `modLib.createMod(…)` leaves `source`
-/// nil (ModStore.lua:110 → ModTools.lua:38-41), which the `&str` source of `NewMod` cannot say.
-fn new_mod_no_source(store: &ModStore, name: Name, ty: ModType, value: impl Into<Value>) {
-    store.AddMod(Arc::new(modLib::createMod(
-        name,
-        ty,
-        value,
-        None,
-        0,
-        0,
-        &[],
-    )));
-}
-
 /// The Lua `true`/nil of `modDB:Flag(…)` as a table value.
 fn flag_val(b: bool) -> Val {
     if b {
@@ -564,12 +550,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
                         // L2371
                         let exertMultiplier = modStore.More(None, nm!["ExtraExertedAttacks"]);
                         // L2372
-                        new_mod_no_source(
-                            &env.player.modDB.get(),
-                            cat!("Num", warcryName, "Exerts"),
-                            ModType::BASE,
-                            m_floor((baseExerts + extraExertions) * exertMultiplier),
-                        );
+                        env.player.modDB.get().NewMod(cat!("Num", warcryName, "Exerts"), ModType::BASE, m_floor((baseExerts + extraExertions) * exertMultiplier), None, 0, 0, &[]);
                         // L2373
                         if !ctx.warcryList.truthy(buffName) {
                             // L2374
@@ -1348,7 +1329,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
             // L2761
             let effect = m_floor(6.0 * (1.0 + witherEffect / 100.0));
             // L2762
-            new_mod_no_source(&modDB, n!("WitherEffectStack"), ModType::MAX, effect);
+            modDB.NewMod(n!("WitherEffectStack"), ModType::MAX, effect, None, 0, 0, &[]);
         }
         // L2764 Handle combustion
         // L2765

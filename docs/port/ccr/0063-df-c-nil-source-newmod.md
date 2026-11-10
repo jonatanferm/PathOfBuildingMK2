@@ -1,6 +1,6 @@
 # CCR-0063: `ModStore::NewMod` / `ReplaceMod` cannot pass a nil source (DF-C)
 
-**Status: needs code (CCR2, 2026-11-10; ORC-X2). See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by ORC-X2 (`NewMod`/`ReplaceMod` take `source: impl ModSourceArg` = any `&T: AsRef<str>` or `Option<&str>`; the local helpers in `calc_defence/recovery.rs`, `calc_perform/buffs.rs`, `calc_setup/init_env_base.rs`, `calc_triggers/{config_table,handlers}.rs` are deleted). See AMENDMENTS A9.**
 
 Requested by: DF-C (CalcDefence.lua 1211-1673, `calc_defence/recovery.rs`).
 Filed status: proposed (optional; the unit works around it locally).

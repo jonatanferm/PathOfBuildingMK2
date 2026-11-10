@@ -1,6 +1,6 @@
 # CCR-0073 (U10): Tooltip contract notes (ui doc §6.9)
 
-**Status: applied 2026-11-10 by CCR2 (B, C, E: ui doc §6.9, §13 item 12); A and D need code. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by CCR2 (B, C, E: ui doc §6.9, §13 item 12); A and D need code. See AMENDMENTS A8. ORC-X2 (2026-11-10) applied D (`tooltip::wrap_string` re-exports `crate::wrap::wrap_string`); A still needs code.**
 
 Unit: U10 (Tooltip, TooltipHost). Filed status: proposed. Number: next free at the time of writing
 (0070/0071 may be taken by unmerged branches; renumber on collision). Every item is worked

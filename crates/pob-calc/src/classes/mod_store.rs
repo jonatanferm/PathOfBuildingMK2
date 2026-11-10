@@ -592,14 +592,36 @@ impl ModStore {
     }
 }
 
+/// The `source` argument of [`ModStore::NewMod`] / [`ModStore::ReplaceMod`]: a string (any
+/// `&T: AsRef<str>`) or a possibly-nil `Option<&str>` (a mod's own `source` field, or no source
+/// argument at all; ModTools.lua:36-51). CCR-0063.
+pub trait ModSourceArg<'s> {
+    fn mod_source(self) -> Option<&'s str>;
+}
+
+impl<'s, T: AsRef<str> + ?Sized> ModSourceArg<'s> for &'s T {
+    fn mod_source(self) -> Option<&'s str> {
+        Some(self.as_ref())
+    }
+}
+
+impl<'s> ModSourceArg<'s> for Option<&'s str> {
+    fn mod_source(self) -> Option<&'s str> {
+        self
+    }
+}
+
 /// @pob Classes/ModStore.lua:109-111 h=04a2b779
 impl ModStore {
-    pub fn NewMod(
+    /// `source` may be nil (`None`): `createMod` then leaves `mod.source` nil
+    /// (ModTools.lua:36-51). Any string-like argument (`&str`, `&String`, `&AStr`, …) is
+    /// `Some`. CCR-0063.
+    pub fn NewMod<'s>(
         &self,
         name: Name,
         ty: ModType,
         value: impl Into<Value>,
-        source: &str,
+        source: impl ModSourceArg<'s>,
         flags: u32,
         keywordFlags: u32,
         tags: &[Tag],
@@ -609,7 +631,7 @@ impl ModStore {
             name,
             ty,
             value,
-            Some(source),
+            source.mod_source(),
             flags,
             keywordFlags,
             tags,
@@ -622,12 +644,14 @@ impl ModStore {
     /// Replaces an existing matching mod with a new mod. A mod is considered the same if the
     /// name, type, flags, keywordFlags, and source exactly match. If no matching mod exists,
     /// the mod is added instead.
-    pub fn ReplaceMod(
+    ///
+    /// `source` may be nil (`None`), as for [`ModStore::NewMod`]. CCR-0063.
+    pub fn ReplaceMod<'s>(
         &self,
         name: Name,
         ty: ModType,
         value: impl Into<Value>,
-        source: &str,
+        source: impl ModSourceArg<'s>,
         flags: u32,
         keywordFlags: u32,
         tags: &[Tag],
@@ -637,7 +661,7 @@ impl ModStore {
             name,
             ty,
             value,
-            Some(source),
+            source.mod_source(),
             flags,
             keywordFlags,
             tags,

@@ -8,67 +8,10 @@
 // Lua statement shapes kept verbatim (`x = x * y`, `s = s .. t`; STYLE §3.1 rule 3).
 #![allow(clippy::assign_op_pattern, clippy::string_add_assign)]
 
+use super::helpers::{allyLifePoolList, calcLifeHitPoolWithLossPrevention, dmgTypeList, isElemental};
 use super::DefEstCtx;
 use crate::modules::calc_tools as calcLib;
 use crate::prelude::*;
-
-// ---- CCR-0067: mirrors of DF-A-owned module locals --------------------------------------------
-//
-// CalcDefence.lua 24, 28, 33-43 (`isElemental`, `dmgTypeList`, `allyLifePoolList`) and the local
-// function `calcLifeHitPoolWithLossPrevention` (179-183) belong to DF-A (`helpers.rs`). The
-// module tables have no Rust item yet and the helper is still a stub, so this segment uses
-// private copies (no `@pob` markers: helpers.rs covers those lines). Replace them with
-// `super::helpers::*` once CCR-0067 is applied and DF-A lands.
-
-/// `dmgTypeList` (CalcDefence.lua:28). CCR-0067.
-const dmgTypeList: [&str; 5] = ["Physical", "Lightning", "Cold", "Fire", "Chaos"];
-
-/// `isElemental[damageType]` (CalcDefence.lua:24). CCR-0067.
-fn isElemental(damageType: Name) -> bool {
-    damageType == n!("Fire") || damageType == n!("Cold") || damageType == n!("Lightning")
-}
-
-/// One row of `allyLifePoolList` (CalcDefence.lua:33-43; `nil` fields are `None`/`false`). CCR-0067.
-struct AllyLifePool {
-    #[allow(dead_code)]
-    key: &'static str,
-    life: &'static str,
-    mitigation: &'static str,
-    redirect: Option<&'static str>,
-    fallback: Option<&'static str>,
-    meleeOnly: bool,
-    #[allow(dead_code)]
-    label: &'static str,
-}
-
-/// `allyLifePoolList` (CalcDefence.lua:33-43), in source order. CCR-0067.
-const allyLifePoolList: [AllyLifePool; 9] = [
-    AllyLifePool { key: "minion", life: "TotalMinionLife", mitigation: "MinionAllyDamageMitigation", redirect: Some("takenFromMinionBeforeYou"), fallback: Some("Multiplier:MinionLife"), meleeOnly: false, label: "Minion Life" },
-    AllyLifePool { key: "radianceSentinel", life: "TotalRadianceSentinelLife", mitigation: "RadianceSentinelAllyDamageMitigation", redirect: Some("takenFromRadianceSentinelBeforeYou"), fallback: None, meleeOnly: false, label: "Total Sentinel of Radiance Life" },
-    AllyLifePool { key: "spectres", life: "TotalSpectreLife", mitigation: "SpectreAllyDamageMitigation", redirect: Some("takenFromSpectresBeforeYou"), fallback: None, meleeOnly: false, label: "Total Spectre Life" },
-    AllyLifePool { key: "totems", life: "TotalTotemLife", mitigation: "TotemAllyDamageMitigation", redirect: Some("takenFromTotemsBeforeYou"), fallback: None, meleeOnly: false, label: "Nearest Totem Life" },
-    AllyLifePool { key: "vaalRejuvenationTotems", life: "TotalVaalRejuvenationTotemLife", mitigation: "VaalRejuvenationTotemAllyDamageMitigation", redirect: Some("takenFromVaalRejuvenationTotemsBeforeYou"), fallback: None, meleeOnly: false, label: "Total Vaal Rejuvenation Totem Life" },
-    AllyLifePool { key: "voidSpawn", life: "TotalVoidSpawnLife", mitigation: "VoidSpawnAllyDamageMitigation", redirect: Some("takenFromVoidSpawnBeforeYou"), fallback: None, meleeOnly: false, label: "Total Void Spawn Life" },
-    AllyLifePool { key: "stoneGolem", life: "TotalStoneGolemLife", mitigation: "StoneGolemAllyDamageMitigation", redirect: Some("takenFromStoneGolemBeforeYou"), fallback: None, meleeOnly: true, label: "Total Stone Golem Life" },
-    AllyLifePool { key: "soulLink", life: "AlliedEnergyShield", mitigation: "SoulLinkMitigation", redirect: None, fallback: None, meleeOnly: false, label: "Total Allied Energy shield" },
-    AllyLifePool { key: "frostShield", life: "FrostShieldLife", mitigation: "FrostShieldDamageMitigation", redirect: None, fallback: None, meleeOnly: false, label: "Frost Shield Life" },
-];
-
-/// `calcLifeHitPoolWithLossPrevention` (CalcDefence.lua:179-183, DF-A's
-/// `helpers::calcLifeHitPoolWithLossPrevention`, still `unported!`). CCR-0067.
-fn calcLifeHitPoolWithLossPrevention(
-    life: f64,
-    maxLife: f64,
-    lifeLossPrevented: f64,
-    lifeLossBelowHalfPrevented: f64,
-) -> f64 {
-    let halfLife = maxLife * 0.5;
-    let aboveLow = m_max(life - halfLife, 0.0);
-    aboveLow / (1.0 - lifeLossPrevented / 100.0)
-        + m_min(life, halfLife)
-            / (1.0 - lifeLossBelowHalfPrevented / 100.0)
-            / (1.0 - lifeLossPrevented / 100.0)
-}
 
 // ---- the segment --------------------------------------------------------------------------------
 
@@ -844,7 +787,7 @@ pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
             output.set(kAegis, 0.0);
         }
         // L2480
-        if isElemental(damageType) {
+        if isElemental(damageType.as_str()) {
             // L2481
             output.set(
                 cat!(damageType, "AegisDisplay"),

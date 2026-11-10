@@ -17,12 +17,11 @@
 //! `$CARGO_TARGET_TMPDIR/OF-H/<stem>/` and reuses that directory while it is complete (delete it
 //! to refresh). Selection: the main env's first hit of each of the three probes plus `#1..#12`.
 //!
-//! **Workarounds** (all in this file, until the owners apply them):
-//! * CCR-0036: injection hands `passList` over as a plain table; it is rebuilt as the
-//!   ctx field's `Shared<Vec<Table>>` from the same pass tables.
-//! * CCR-0075: `globalOutput`/`globalBreakdown` (CalcOffence.lua:65/67) are not part of a dump; at
-//!   4990 they are the function's `output`/`breakdown` (assigned at 4165), i.e. `actor.output` /
-//!   `actor.breakdown`, so the test sets `OFFENCE_STATE` from the injected actor.
+//! **State a dump does not carry** is set by `probe::run_segment` (ORC-X2): the plain `passList`
+//! table is accepted as the ctx field (CCR-0036), `globalOutput`/`globalBreakdown`
+//! (CalcOffence.lua:65/67) are the injected actor's `output`/`breakdown` (CCR-0075), and the
+//! function-level `output`/`breakdown` of the ctx are the actor's while the loop locals fill the
+//! pass locals (CCR-0049 §2).
 //!
 //! **Stubs.** Callees of other units may still be `unported!` (OF-A `calcAilmentSourceDamage` /
 //! `calcResistForType` (ignite), DF-A `armourReductionF` (impale), PF-B `actionSpeedMod` (the
@@ -214,32 +213,25 @@ fn run_hit(xml: &Path, din: &StateDump, dout: &StateDump, stem: &str) -> Outcome
         Ok(i) => i,
         Err(e) => return Outcome::Error(format!("inject {}: {e}", din.hit)),
     };
-    let mut locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
+    let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
     let this_pass: Option<pob_calc::Table> = locals
         .iter()
         .find(|(k, _)| k == "pass")
         .and_then(|(_, v)| v.table());
-    let mut passes: Vec<pob_calc::Table> = Vec::new();
-    // CCR-0036: `passList` arrives as a plain table; the ctx field is a `Shared<Vec<Table>>`.
-    // Rebuild it from the same pass tables (identity kept).
-    for (k, v) in locals.iter_mut() {
-        if k == "passList" {
-            if let Some(t) = v.table() {
-                let list: Vec<pob_calc::Table> =
-                    t.ipairs().into_iter().filter_map(|(_, p)| p.table()).collect();
-                passes = list.clone();
-                *v = Val::Obj(std::rc::Rc::new(pob_calc::probe::SBox(pob_lua::Shared::new(
-                    list,
-                ))));
-            }
-        }
-    }
+    // `passList` is injected as the plain Lua sequence (`run_segment` accepts it, CCR-0036).
+    let passes: Vec<pob_calc::Table> = locals
+        .iter()
+        .find(|(k, _)| k == "passList")
+        .and_then(|(_, v)| v.table())
+        .map(|t| t.ipairs().into_iter().filter_map(|(_, p)| p.table()).collect())
+        .unwrap_or_default();
     if dout.probe == "offence:5650"
         && passes.last().is_some_and(|l| !this_pass.as_ref().is_some_and(|t| t.ptr_eq(l)))
     {
         return Outcome::NoNext;
     }
-    // CCR-0075: globalOutput, globalBreakdown = output, breakdown (CalcOffence.lua:4165): the actor's.
+    // `run_segment` sets `globalOutput, globalBreakdown = output, breakdown` (CalcOffence.lua:4165)
+    // from the injected actor (CCR-0075).
     let actor = locals
         .iter()
         .find(|(k, _)| k == "actor")
@@ -247,10 +239,6 @@ fn run_hit(xml: &Path, din: &StateDump, dout: &StateDump, stem: &str) -> Outcome
     let Some(actor) = actor else {
         return Outcome::Error(format!("{}: local actor is not an actor", din.hit));
     };
-    pob_calc::module_state::OFFENCE_STATE.with(|s| {
-        s.globalOutput.set(Some(actor.output.get()));
-        s.globalBreakdown.set(actor.breakdown.get());
-    });
     pob_calc::stub::stub_reset();
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::probe::run_segment(&din.probe, &locals)

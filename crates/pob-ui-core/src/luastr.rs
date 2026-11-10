@@ -105,31 +105,13 @@ pub fn lmatch(s: &str, p: &str) -> Option<String> {
 /// `lj_num2int(n)`, the conversion LuaJIT's string library applies to a number argument
 /// (`lj_lib_checkint`/`lj_lib_optint`; the `string.sub` fast path's `cvttsd2si r32`): truncate
 /// toward zero; NaN and values outside int32 give `i32::MIN` (x64 "integer indefinite", the
-/// shipped profile, CCR-0001).
-// CCR-0033 (item 1): a copy of `pob_lua::format::cvtt_i32`, which is `pub(crate)`.
-#[inline]
-#[must_use]
-pub fn lua_int(n: f64) -> i32 {
-    if n.is_nan() || n >= 2_147_483_648.0 || n <= -2_147_483_649.0 {
-        i32::MIN
-    } else {
-        n as i32
-    }
-}
+/// shipped profile, CCR-0001). `pob_lua::lj_num2int` (CCR-0033 §1).
+pub use pob_lua::lj_num2int as lua_int;
 
 /// `lua_tointeger(L, i)` on 64-bit LuaJIT, i.e. `(lua_Integer)n` (x64 `cvttsd2si r64`): what a C
 /// module (`lua-utf8`) sees through `luaL_checkinteger`/`luaL_optinteger`. NaN and values
-/// outside int64 give `i64::MIN`.
-// CCR-0033 (item 1): a copy of `pob_lua::format::cvtt_i64`, which is `pub(crate)`.
-#[inline]
-#[must_use]
-pub fn lua_integer(n: f64) -> i64 {
-    if n.is_nan() || n >= 9_223_372_036_854_775_808.0 || n < -9_223_372_036_854_775_808.0 {
-        i64::MIN
-    } else {
-        n as i64
-    }
-}
+/// outside int64 give `i64::MIN`. `pob_lua::lua_tointeger` (CCR-0033 §1).
+pub use pob_lua::lua_tointeger as lua_integer;
 
 // ---------------------------------------------------------------------------------------------
 // Byte-exact sub and concatenation (EditControl buffers)

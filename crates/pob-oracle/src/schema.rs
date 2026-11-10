@@ -334,6 +334,9 @@ pub struct StateDump {
     pub n: u64,
     /// Probe id (`perform:in`, a stages.toml id, …).
     pub probe: String,
+    /// The id of the probe process that wrote the dump (absent in dumps made before ORC-X2).
+    #[serde(default)]
+    pub run: Option<String>,
     /// `{ "env", "locals", "globalCache" }` as one identity graph.
     pub root: J,
     /// Hit ids of the function probes enclosing this one, outermost first.

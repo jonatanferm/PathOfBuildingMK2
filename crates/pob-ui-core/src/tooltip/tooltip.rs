@@ -30,8 +30,7 @@
 //!   downcast to [`TtModLine`]; any other `ModLineRef` reads as not disabled (CCR-0073 B).
 //! - `TtBackground::{Image, Color}` are both Lua strings: Tooltip.lua treats every string
 //!   background as an image path (Tooltip.lua:615-625), so both variants do (CCR-0073 C).
-//! - `main:WrapString` (Main.lua:1795-1822) is U14's `crate::wrap::wrap_string`, still a
-//!   `todo!()`; [`wrap_string`] is a local copy until it lands (CCR-0073 D, marked `// CCR-0073`).
+//! - `main:WrapString` (Main.lua:1795-1820) is U14's `crate::wrap::wrap_string` (CCR-0073 D).
 //! - Image loads record the `ImageLoad` side effect unless `Sg` already did (CCR-0028 item 2), as
 //!   the oracle's bridge does for the Lua side.
 //!
@@ -402,59 +401,8 @@ fn trim_oil(r: &str) -> String {
     rn
 }
 
-/// `main:WrapString(str, height, width)`: a local copy of U14's `crate::wrap::wrap_string`, which
-/// is still a `todo!()` (CCR-0073 D). Delete it and call `crate::wrap::wrap_string` once U14 lands.
-/// @pob Modules/Main.lua:1795-1822 h=8a999b46
-pub fn wrap_string(cx: &Cx, s: &str, height: f64, width: f64) -> Vec<String> {
-    use pob_lua::string::sub;
-    // L1798 wipeTable(wrapTable)
-    let mut wrap_table: Vec<String> = Vec::new();
-    let len = s.len() as i64;
-    // L1799
-    let mut line_start: i64 = 1;
-    // L1800
-    let mut last_space: Option<i64> = None;
-    // L1801
-    loop {
-        // L1802
-        let (mut st, mut e) = match pob_lua::find(s, "%s+", last_space, false) {
-            Some((a, b, _)) => (a as i64, b as i64),
-            None => (0, 0),
-        };
-        let found = st != 0;
-        // L1803
-        if !found {
-            // L1804
-            st = len + 1;
-            // L1805
-            e = len + 1;
-        }
-        // L1807
-        if st > len {
-            // L1808
-            wrap_table.push(sub(s, line_start, Some(-1)).into_owned());
-            // L1809
-            break;
-        }
-        // L1811
-        let last_break = st - 1;
-        // L1812
-        last_space = Some(e + 1);
-        // L1813
-        if cx
-            .sg
-            .draw_string_width(height, Font::Var, &sub(s, line_start, Some(st - 1)))
-            > width
-        {
-            // L1814
-            wrap_table.push(sub(s, line_start, Some(last_break)).into_owned());
-            // L1815
-            line_start = e + 1;
-        }
-    }
-    // L1819
-    wrap_table
-}
+/// `main:WrapString(str, height, width)` (U14; CCR-0073 D).
+pub use crate::wrap::wrap_string;
 
 pub struct Tooltip {
     pub lines: Vec<TooltipLine>,
