@@ -168,7 +168,11 @@ class PairsInventoryPinTest(unittest.TestCase):
 
     def test_known_node_maps(self):
         pairs_inventory._register_overrides() if not pairs_inventory.OVERRIDES else None
-        scope = calcscope.load_scope(None, calcscope.default_closures_json(_util.pobpaths.main_checkout()))
+        # docs/port/scope.toml is authoritative (calcscope.py docstring); DEFAULT_SCOPE is only the
+        # P4 seed, so overrides for ranges added later (U0 corrections, CCR2) would read as stale.
+        scope = calcscope.load_scope(os.path.join(_util.pobpaths.docs_port(), "scope.toml"),
+                                     calcscope.default_closures_json(_util.pobpaths.main_checkout()),
+                                     required=True)
         sites, _, stale = pairs_inventory.inventory(_util.real_pob(), scope)
         self.assertEqual(stale, [])
         by = {(s.path, s.line): s for s in sites}

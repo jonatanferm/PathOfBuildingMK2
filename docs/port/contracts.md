@@ -124,7 +124,9 @@ the key is the closure's `<file>:<a>-<b>`, MP7 maps it).
 
 `ModRef = Arc<Mod>` is immutable once stored (§3.6). Every in-scope Lua site that assigns into a
 mod table (U0 grep of `mod.value/source/name/type/flags/sourceSlot =`, `mod[i] =`,
-`t_insert(mod, …)` over the calc scope) mutates a fresh copy or a mod under construction:
+`t_insert(mod, …)` over the calc scope) that mutates a fresh copy or a mod under construction is
+listed first. The second table lists the shared-target sites found later; a site in both
+(CalcPerform.lua 3879-3897, Item.lua 2558) follows its row in the second table:
 
 | Site | Fresh because |
 |---|---|
@@ -141,7 +143,7 @@ mod table (U0 grep of `mod.value/source/name/type/flags/sourceSlot =`, `mod[i] =
 | Item.lua 2247 (`mod.sourceSlot`), 2238-2243 (tag gsubs) | `mod = copyTable(baseMod)` (2229) |
 | Item.lua 2336-2338 (`mod[1] =`, `t_insert(mod, …)`) | the slot's own ModList of those copies; **IT-C**: port as "replace the mod at its index in that (unaliased) list" |
 | Item.lua 2558 (`mod.source`) | modLine.modList mods from `parseMod` (fresh copies) |
-| ModTools.lua 115, 240-242 | under construction / `setSource` on fresh copies (§3.6) |
+| ModTools.lua 115, 240-242 | under construction / the `setSource` body (it also writes `mod.value.mod.source`); a caller is fresh only if it passes a copy nobody shares, see ModTools.lua 254-255, CalcPerform.lua 629/1951-1952, CalcSetup.lua 424 below (§3.6) |
 | PartyTab.lua 737, 869-884 | `parseFormattedSourceMod` creates them |
 | PantheonTools.lua 13 | `modParser(line)` returns copies (`unpack(copyTable(cache[line]))`) |
 

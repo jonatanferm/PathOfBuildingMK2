@@ -8,7 +8,8 @@ pin = "16de4b82d57f1c0de6eb40f37143c32d4da36a02"
 [[file]]
 path = "Modules/Common.lua"
 # U0: isValueInTable ends at 566; 959-962 is the comment and header of `stringify` (not calc) (P4 draft: ["306-306", "477-560", "709-800", "897-962", "1013-1023"])
-ranges = ["306-306", "477-566", "709-800", "897-958", "1013-1023"]
+# CCR2: + 1110-1116 `escapeGGGString` (IT-A, CCR-0025 §6)
+ranges = ["306-306", "477-566", "709-800", "897-958", "1013-1023", "1110-1116"]
 owner = "P2, CT"
 
 [[file]]
@@ -91,18 +92,21 @@ owner = "IT-C"
 
 [[file]]
 path = "Classes/SkillsTab.lua"
-ranges = ["441-630", "1129-1274", "1478-1502"]
+# CCR2: + the model halves of the §11.1 BM-B row (CCR-0019 §1: 323-349, 1103-1127, 1275-1278, 1452-1475) and BM-A row (CCR-0080 §1: 89, 95-96, 423-426)
+ranges = ["89-89", "95-96", "323-349", "423-426", "441-630", "1103-1127", "1129-1274", "1275-1278", "1452-1475", "1478-1502"]
 owner = "BM-B"
 
 [[file]]
 path = "Classes/PartyTab.lua"
 # U0: exportBuffs ends at 1043 (P4 draft: ["516-669", "718-1042"])
-ranges = ["516-669", "718-1043"]
+# CCR2: + 22-36, the model half of the §11.1 BM-B row (CCR-0019 §1)
+ranges = ["22-36", "516-669", "718-1043"]
 owner = "BM-B"
 
 [[file]]
 path = "Classes/ConfigTab.lua"
-ranges = ["839-1129", "1130-1204"]
+# CCR2: + the model halves of the §11.1 BM-B row (CCR-0019 §1, CCR-0037/CCR-0080 §1: 672-692, 1280-1300, 1337-1362) and BM-A's `ImportCalcSettings` 1205-1240 (CCR-0080 §6)
+ranges = ["672-692", "839-1129", "1130-1204", "1205-1240", "1280-1300", "1337-1362"]
 owner = "BM-B, CO-C"
 
 [[file]]
@@ -127,23 +131,27 @@ owner = "PS-A, PS-B, PS-C"
 
 [[file]]
 path = "Modules/Build.lua"
-ranges = ["976-1099", "2222-2335"]
+# CCR2: + 64-110, 603-698 (`build_xml::Init_model`, CCR-0080 §1)
+ranges = ["64-110", "603-698", "976-1099", "2222-2335"]
 owner = "BM-A"
 
 [[file]]
 path = "Classes/ItemsTab.lua"
-ranges = ["1216-1727", "2998-3010"]
+# CCR2: + the model halves of the §11.1 BM-A row (CCR-0080 §1)
+ranges = ["37-37", "70-74", "101-108", "140-235", "1196-1215", "1216-1727", "2560-2605", "2978-2993", "2998-3010"]
 owner = "BM-A"
 
 [[file]]
 path = "Classes/TreeTab.lua"
 # U0: SetActiveSpec spans 549-585 (P4 draft: ["500-560"])
-ranges = ["500-585"]
+# CCR2: + 26-38 (CCR-0080 §1)
+ranges = ["26-38", "500-585"]
 owner = "BM-A"
 
 [[file]]
 path = "Classes/CalcsTab.lua"
-ranges = ["163-225", "441-773"]
+# CCR2: + 24-45, 151-154, 370-375 (CCR-0080 §1; the §11.1 row said 147-150 until CCR2 fix round 1)
+ranges = ["24-45", "151-154", "163-225", "370-375", "441-773"]
 owner = "BM-A, PWR"
 
 [[file]]
@@ -242,3 +250,15 @@ owner = "SK-B"
 path = "Data/Skills/sup_str.lua"
 ranges = ["2540-2548"]
 owner = "SK-B"
+
+[[file]]
+path = "Classes/ItemSlotControl.lua"
+# CCR2: the model half of the §11.1 BM-A row (CCR-0080 §1)
+ranges = ["21-123"]
+owner = "BM-A"
+
+[[file]]
+path = "Classes/CalcSectionControl.lua"
+# CCR2: the model half of the §11.1 BM-A row (CCR-0080 §1)
+ranges = ["20-49"]
+owner = "BM-A"

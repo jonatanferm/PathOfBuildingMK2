@@ -34,6 +34,7 @@ fn subsection_id(label: &str) -> String {
     pob_lua::pattern::gsub(label, "%W", "", None).0
 }
 
+/// @pob Classes/CalcSectionControl.lua:20-49 h=cfdd67db
 /// One `CalcSectionControl` model: `{ id = …, subSection = { { id = …, collapsed = … }, … } }`.
 fn new_section(id: &str, subSections: &[(String, Val)]) -> Table {
     let section = Table::new();
@@ -51,10 +52,14 @@ fn new_section(id: &str, subSections: &[(String, Val)]) -> Table {
 }
 
 /// @pob Classes/CalcsTab.lua:24-40 h=79e5157a
+// @pob-skip Classes/CalcsTab.lua:41-42 reason="the search EditControl (UI, ui doc CalcsTab unit)"
+/// @pob Classes/CalcsTab.lua:45-45 h=6c3c4839
+/// @pob Classes/CalcsTab.lua:151-154 h=f22e4c5a
+/// @pob Classes/CalcsTab.lua:370-375 h=d92da281
 impl CalcsTab {
     /// The constructor's model half (idempotent): `input.skill_number = 1`,
     /// `input.misc_buffMode = "EFFECTIVE"` and the section list (the "SkillSelect" section,
-    /// CalcsTab.lua:45, then every `Modules/CalcSections` entry, 147-150, through
+    /// CalcsTab.lua:45, then every `Modules/CalcSections` entry, 151-154, through
     /// `NewSection` 370-375 and `CalcSectionControl` 20-49). Controls are the UI's.
     pub fn ctor_model(&self) {
         let key = self as *const CalcsTab as usize;
@@ -78,14 +83,14 @@ impl CalcsTab {
             "SkillSelect",
             &[(subsection_id("View Skill Details"), Val::Bool(false))],
         ));
-        // L148 Add sections from the CalcSections module
+        // L150 Add sections from the CalcSections module
         let sectionData = &data().calcSections.0;
         let Some(sectionData) = sectionData.table() else {
             lua_error!("CalcSections: not a table")
         };
-        // L149
+        // L152
         for section in &sectionData.seq {
-            // L150 self:NewSection(unpack(section)): width, id, group, colour, subSection
+            // L153 self:NewSection(unpack(section)): width, id, group, colour, subSection
             let Some(section) = section.table() else {
                 lua_error!("CalcSections: a section is not a table")
             };

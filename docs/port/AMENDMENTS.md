@@ -93,7 +93,7 @@ gamma box filter §4.5 used to ask for was wrong).
   through the dev-dependency `pob-testpaths` and call `pob_testpaths::require`: a missing input fails
   the test unless `POB_ALLOW_SKIP=1` (search order: `POB_SRC`/`POB_ROOT`/`POB_DATA_DIR`/`POB_DUMP_DIR`/
   `POB_PARITY_DIR`, this workspace and its ancestors, the linked worktree's main checkout, then
-  `/home/ferm/Work/projects/PathOfBuildingMK2`). `POB_ORACLE_REQUIRE` is retired (20 oracle tests still read it and skip without it: A8 needs-code 16). Opt-in tests
+  `/home/ferm/Work/projects/PathOfBuildingMK2`). `POB_ORACLE_REQUIRE` is retired (21 oracle tests still read it, 20 to skip a missing input and DF-F as a strictness flag: A8 needs-code 16). Opt-in tests
   (`POB_ORACLE_PROBE=1`) and hardware checks (no GPU adapter) are not input skips.
 
 ## A6. LuaJIT build profile and oracle mode (CCR-0001, CCR-0002; orchestrator decision)
@@ -143,8 +143,11 @@ PF-D to **0093** and PF-E to **0094** (by merge order on rust-port). 0036 (OF-G)
 describe the same `passList` injection gap: 0065 is superseded by 0036, and the tests' comments now
 cite 0036. Stale references left by earlier renumbers were fixed too (`CCR-0038` → 0055 in
 `dot_combined.rs`, `CCR-0039` → 0075 in `tests/OF-H.rs`). 0089 is used by HYG3's in-flight branch
-and was left free; PF-B's in-flight branch renumbered its CCR to 0087, which TR-A already holds on
-rust-port, so PF-B's must take the next free number (0095 or later) when it merges.
+and was left free. Three in-flight units hold CCR files numbered **0091**, which CT's CCR now
+holds on rust-port: PF-B (`0091-pf-b-minion-fields-and-fn-probes.md` on `port/PF-B`; it was 0034
+earlier), U16 (`0091-u16-main-mode-seams.md`, `port/U16` worktree) and CA (`0091-ca-calcs-seams.md`,
+`port/CA` worktree). Each must take the next free number (0095 or later, one per unit in merge
+order) when it merges, and update its markers to match.
 
 Decisions: **applied** = the binding text (calc doc, ui doc, contracts.md, STYLE.md, this file)
 now follows what was built and merged; **needs code** = a shared change that units worked around
@@ -153,8 +156,8 @@ a way that conflicts with other (merged or in-flight) units, left to the orchest
 
 | CCR | Title | Decision | Applied to / notes |
 |---|---|---|---|
-| 0014 | MS-A ModStore contract notes | applied §2, §4, §5, §3 (mutation site); needs code §1, §3 (typed `Tag.warcryPowerBonus`, optional: `Tag.extra` round-trips it) | calc doc §5.3 (`MergeMod`), §11.1 MS-A row; contracts#modstore, #mod-mutation |
-| 0015 | MS-B EvalMod notes | applied §1, §2 (retracted), §4, §5; needs code §6 (G1a fails); escalated §3 | calc doc §5.3 (`getActor`); ui doc §13 item 14; contracts#modstore |
+| 0014 | MS-A ModStore contract notes | applied §2 (divergence accepted; its `known_diffs.toml` entry is item 17), §4, §5, §3 (mutation site); needs code §1, §3 (typed `Tag.warcryPowerBonus`, optional: `Tag.extra` round-trips it) | calc doc §5.3 (`MergeMod`), §11.1 MS-A row; contracts#modstore, #mod-mutation |
+| 0015 | MS-B EvalMod notes | applied §1, §2 (retracted), §4, §5; needs code §6 (G1a fails), `known_diffs.toml` entries for §1 and §3 (item 17); escalated §3 | calc doc §5.3 (`getActor`); ui doc §13 item 14; contracts#modstore |
 | 0019 | BM-B tab model contracts | applied §1, §3, §8 (rule; its readers need code, item 11), §9, §11, §12; §10 superseded by CCR-0080 (`Init_model`); needs code §2, §4-§7 (model fields) | calc doc §4.4 table, §11.1 BM-B row; ui doc §10.2; contracts#model-census, #class-census |
 | 0020 | LUT signatures, cache, file access | applied; §7 superseded by CCR-0052 §4; §8 done by PS-B (CCR-0070 §4) | calc doc §4.4 table |
 | 0021 | U1 SG semantics at 3b1a346 | applied | ui doc §2 (source, Viewport, DrawImage(Quad), Key names, Swallowed keys, Shader, Frame loop), §13 item 1 |
@@ -208,7 +211,7 @@ a way that conflicts with other (merged or in-flight) units, left to the orchest
 | 0087 | TR-A `TriggerConfig` | escalated (needs code) | calc doc §8.1 note; E2 |
 | 0088 | U15 inject bound to live objects | needs code | — |
 | 0090 | MI mirages signatures and replay | applied §1, §2; needs code §1 follow-up (PF-G call site), §3, §4 | calc doc §8.1 |
-| 0091 | CT calc tools (was 0014) | applied §1-§4, §6 (§3's CS3 reader needs code, item 11); needs code §5 (`scope.toml` Common.lua 803-828; one `formatNumSep`) | calc doc §3.4, §4.4, §5.5; contracts#mod-mutation |
+| 0091 | CT calc tools (was 0014) | applied §1-§4, §6 (§3's CS3 reader needs code, item 11; §4's `known_diffs.toml` entry is item 17); needs code §5 (`scope.toml` Common.lua 803-828; one `formatNumSep`) | calc doc §3.4, §4.4, §5.5; contracts#mod-mutation |
 | 0092 | MP0 scan and parser tables (was 0014) | applied | calc doc §6; contracts#mod-mutation |
 | 0093 | PF-D callee replay and export gaps (was 0034) | applied §4, §5 (resolved by HYG2); needs code §1-§3 | calc doc §9.2; contracts#mod-mutation |
 | 0094 | PF-E buff loop gaps (was 0034) | applied §1, §2 (mutation sites); §3 = CCR-0030 #7; §4 superseded by CCR-0085 §1; needs code §1 (Tag field, with CCR-0014 §3), §5 (= CCR-0063) | contracts#mod-mutation, #modstore |
@@ -266,7 +269,7 @@ Each item names the CCRs, the files to change, and the local workarounds to dele
     (CCR-0091 §5, 0033 §2); `pob_lua` `cvtt_i64`/`cvtt_i32` public (CCR-0033 §1); LuaJIT
     `math.random`/`randomseed` (CCR-0033 §3); U10's `wrap_string` copy → `crate::wrap::wrap_string`
     (CCR-0073 D, 0084 §5); U8's local `normalize`/`diff` copy → `pob_sg::trace` (CCR-0028 §13).
-11. **Correctness follow-ups found by CCR2** (each a wrong value today, not only a test gap):
+11. **Correctness follow-ups found by CCR2** (**priority**: each a wrong value in the shipped calc today, not only a test gap; the fix round's review confirmed the first, second, fifth and sixth):
     `calc_perform/ailments_dispatch.rs:1187-1190` still discards `calcs::mirages`'s result, so
     `offence` runs after a Reflection / Tawhoa mirage where PoB skips it (CCR-0090 §1);
     `calc_tools.rs:295-303` reads `grantedEffect.fromItem` from data, not through
@@ -307,6 +310,33 @@ Each item names the CCRs, the files to change, and the local workarounds to dele
 
 16. **Test-input policy** (CCR-0031 B): `crates/pob-oracle/tests/{BM-A,CO-C,DF-C,DF-D,DF-E,DF-G,MI,OF-D,PF-A,PF-C,PF-D,PF-E,PF-F,PF-G,PS-B,PS-C,SK-A,SK-B,TR-A,TR-B}.rs`
     still skip a missing input unless `POB_ORACLE_REQUIRE=1`; switch them to `pob_testpaths::require`.
+    Two more name the variable: `tests/DF-F.rs:53` reads it as a strictness flag (pending hits count
+    as failures; keep `DFF_STRICT`/`CI` and drop the retired name) and `tests/CS1.rs:33` mentions it in
+    its module doc.
+17. **`known_diffs.toml` entries for accepted divergences** (owners add them with the keys their
+    diff tool prints, `docs/port/known_diffs.toml` format): CCR-0014 §2 (MS-A: `GetStat`
+    `ManaReservedPercent`/`LifeReservedPercent` on the enemy store, PoB raises at
+    ModStore.lua:322/336 on the nil `activeSkillList`, Rust returns 0; MS-A's test counts them);
+    CCR-0015 §3 (MS-B: the enemy `itemList` and `GuardianRelicAll.monsterTags` rows while E3 is
+    open; the `activeSkillList` row is CCR-0014 §2's); CCR-0015 §1 (U40: the `divVar` tag text of
+    CalcBreakdownControl.lua 481/485, ui doc §13 item 14, entry added with U40); CCR-0091 §4 (CT:
+    `mergeKeystones` leaves the tree node's keystone mod with its own `source`, PoB re-sources the
+    shared mod, ModTools.lua:254-255; observable in Calcs source columns and `source`-filtered
+    queries after an item-granted keystone; entry until PT/MS-A provide a node `modList` replace).
+
+`docs/port/scope.toml` follows the §11.1 rows CCR2 extended (fix round 1): Common.lua 1110-1116
+(IT-A), the BM-B model halves (SkillsTab.lua 323-349, 1103-1127, 1275-1278, 1452-1475; ConfigTab.lua
+672-692, 1280-1300, 1337-1362; PartyTab.lua 22-36) and the BM-A model halves (Build.lua 64-110,
+603-698; ItemsTab.lua 37, 70-74, 101-108, 140-235, 1196-1215, 2560-2605, 2978-2993;
+ItemSlotControl.lua 21-123; TreeTab.lua 26-38; CalcsTab.lua 24-45, 151-154, 370-375;
+CalcSectionControl.lua 20-49; SkillsTab.lua 89, 95-96, 423-426; ConfigTab.lua 1205-1240).
+`provenance.py coverage` is 100% over them: CCR2 added the missing markers (`build_xml.rs`
+SkillsTab 89/95-96/423-426, `calcs_tab.rs` CalcsTab 45/151-154/370-375 and CalcSectionControl
+20-49, a `@pob-skip` for the search control 41-42, `config_tab.rs` 683-692 → 682-692) and
+corrected the CalcsTab range, which the BM-A row and CCR-0080 gave as 147-150 (the CalcSections
+loop is 151-154). `pairs_inventory.py` classifies the three `pairs` sites the wider scope reaches
+(Common.lua:561, Build.lua:679, ItemSlotControl.lua:96). Common.lua 803-828 stays out of scope
+until item 10 leaves one `formatNumSep` marker (two cover it today).
 
 ### Escalated (not decided by CCR2)
 
@@ -319,8 +349,8 @@ Each item names the CCRs, the files to change, and the local workarounds to dele
   `notBuff` the **shipped** calc loses the flag (PoB `BuffOnSelf` 7, Rust 8 on allflame_exp_002).
 - **E2. CCR-0087 (`TriggerConfig`).** `sourceWeapon: bool`, `triggeredSkillCond`, a closure
   `comparer` with optional arguments: TR-B (in flight) builds configs through TR-A's `extra`
-  setters, so retyping the struct now conflicts with it. Separately, PF-B's in-flight CCR also
-  carries the number 0087.
+  setters, so retyping the struct now conflicts with it. (PF-B's in-flight CCR no longer uses 0087;
+  see the renumbering note above.)
 - **E3. CCR-0015 §3.** `Actor.itemList: Option` (None for the enemy) and
   `MinionData.monsterTags: Option` (frozen U0 types; CS1/CS2 write `itemList`, inject fills it);
   MS-B asked the integrator for a decision.

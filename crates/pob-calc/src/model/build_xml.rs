@@ -461,6 +461,9 @@ fn dbFileName_str(build: &Build) -> String {
     dbFileName(build).map_or_else(String::new, |s| s.to_string())
 }
 
+/// @pob Classes/SkillsTab.lua:89-89 h=70a2f0d6
+/// @pob Classes/SkillsTab.lua:95-96 h=4ba58857
+/// @pob Classes/SkillsTab.lua:423-426 h=4aab9e73
 /// The SkillsTab constructor's model half (SkillsTab.lua:89, 95-96, 423-426; CCR-0019 §10).
 fn skillsTab_ctor_model(build: &BuildRef) {
     let st = &build.skillsTab;

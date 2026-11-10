@@ -678,12 +678,14 @@ _OVERRIDE_ROWS = [
     # Classes/SkillsTab.lua, TreeTab.lua
     ("Classes/SkillsTab.lua", 474, "possibleVariants", "string", "map", "gemsByGameId[gemId] keyed by variantId (SkillsTab.lua:471)"),
     ("Classes/TreeTab.lua", 510, "xml", "mixed", "", "an XML node: children at 1..n plus elem/attrib"),
+    ("Classes/ItemSlotControl.lua", 96, "self.itemsTab.items", "int", "map", "item ids (ItemsTab.lua:1267/1714); the order is the slot dropdown's list order"),
     # Data/Skills
     ("Data/Skills/act_dex.lua", 7173, "output.AreaOfEffectRadiusTertiaryOccurrences", "int", "map",
      "numeric radius keys (CalcOffence.lua:442)"),
     ("Data/Skills/act_dex.lua", 7187, "output.AreaOfEffectRadiusTertiaryOccurrences", "int", "map",
      "numeric radius keys (CalcOffence.lua:442); sorted after"),
     # Modules/Build.lua
+    ("Modules/Build.lua", 679, "self.savers", "string", "map", "XML section names; only TreeTab has a PostLoad, so the order is not observable"),
     ("Modules/Build.lua", 2288, "self.savers", "string", "map", "XML section names; order decides the saved XML section order"),
     # Modules/CalcActiveSkill.lua
     ("Modules/CalcActiveSkill.lua", 58, "extraStats", "int", "list", "positional list (extraStats[1] test at 57)"),
@@ -741,6 +743,7 @@ _OVERRIDE_ROWS = [
     ("Modules/Common.lua", 479, "tbl", "generic", "", "copyTable"),
     ("Modules/Common.lua", 498, "tbl", "generic", "", "copyTableSafe"),
     ("Modules/Common.lua", 553, "tbl", "generic", "", "wipeTable"),
+    ("Modules/Common.lua", 561, "tbl", "generic", "", "isValueInTable: the first matching key in the argument's order"),
     # Modules/ConfigOptions.lua, Data.lua
     ("Modules/ConfigOptions.lua", 2335, "additionalStats", "string", "map", "boss additionalStats: mod names"),
     ("Modules/Data.lua", 1055, "list", "int", "list", "grantedEffect baseMods/qualityMods/levelMods are positional"),
