@@ -1,4 +1,4 @@
-# CCR-0034: PF-B — untyped minion fields, `Override`'s zero-value return, crate-private helpers in tests
+# CCR-0091: PF-B — untyped minion fields, `Override`'s zero-value return, crate-private helpers in tests
 
 Status: proposed by PF-B (2026-11-09)
 
@@ -17,7 +17,7 @@ hold as a typed field:
 
 Inject puts all four in `Actor.extra` (`uses` after marking the typed field absent).
 
-**Workaround (`// CCR-0034` in `calc_perform/actor_b.rs`):** PF-B reads them from `minion.extra`:
+**Workaround (`// CCR-0091` in `calc_perform/actor_b.rs`):** PF-B reads them from `minion.extra`:
 `type` as a string, `lifeTable` / `uses` / `itemSet` as indexable values (`Val::get`). The PF-B
 test converts the dumped `$data` markers of `lifeTable` and `uses` (inject keeps them as opaque
 `pob_calc::probe::DataRef`s) to the Lua tables they stand for before the run and restores them

@@ -24,7 +24,7 @@
 //! which only set `minion.output` and `multipliers.Level`). A callee that is already ported
 //! runs for real and is not replayed.
 //!
-//! Test-side adapter (CCR-0034 §1): `minion.lifeTable` / `minion.uses` are `$data` markers in
+//! Test-side adapter (CCR-0091 §1): `minion.lifeTable` / `minion.uses` are `$data` markers in
 //! the dump, which inject keeps as opaque `DataRef`s; the case converts them to the Lua tables
 //! they stand for before the run and puts the markers back before the export.
 //!
@@ -352,7 +352,7 @@ fn callee_call<'a>(
     })
 }
 
-/// `minion.lifeTable` / `minion.uses` `$data` markers → the Lua tables (CCR-0034 §1).
+/// `minion.lifeTable` / `minion.uses` `$data` markers → the Lua tables (CCR-0091 §1).
 /// Returns the originals to restore.
 fn adapt_minion(minion: &Actor, saved: &mut Vec<(Table, &'static str, Val)>) {
     for key in ["lifeTable", "uses"] {

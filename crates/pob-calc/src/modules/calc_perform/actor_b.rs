@@ -6,7 +6,7 @@
 //! Rust-only plumbing (snake_case): the `lua_*` helpers at the bottom reproduce the Lua
 //! value semantics the bodies need (`x or d` on a query result, `math.max`'s argument
 //! check, `t[i]` on a level table) and the `probe_fns` module (feature `probe`) exposes the
-//! crate-private helpers to the oracle tests (CCR-0034 §3).
+//! crate-private helpers to the oracle tests (CCR-0091 §3).
 #![allow(non_snake_case, clippy::all, clippy::pedantic)]
 
 use crate::modules::calc_perform::actor_a::applyEnemyModifiers;
@@ -2305,7 +2305,7 @@ pub fn actionSpeedMod(actor: &ActorRef) -> f64 {
 /// @pob Modules/CalcPerform.lua:1154-1244 h=fd93e0f2
 /// Build the same modifier database for the selected minion and any minion used as a defensive Life pool.
 ///
-/// CCR-0034 §1: the minion fields `type`, `lifeTable`, `itemSet` and `uses` (a table) have no
+/// CCR-0091 §1: the minion fields `type`, `lifeTable`, `itemSet` and `uses` (a table) have no
 /// typed `Actor` field yet; they are read from `minion.extra` until the CCR lands.
 pub(crate) fn initMinionModDB(env: &EnvRef, activeSkill: &ActiveSkillRef, output: Option<&Output>) {
     // L1155
@@ -2665,7 +2665,7 @@ pub(crate) fn initMinionModDB(env: &EnvRef, activeSkill: &ActiveSkillRef, output
         add_list_opt(&minion.modDB.get(), weapon1.slotModList[0].get());
     }
     // L1222
-    // CCR-0034: `minion.itemSet` / `minion.uses` are read from `minion.extra`
+    // CCR-0091: `minion.itemSet` / `minion.uses` are read from `minion.extra`
     let itemSet = minion.extra.get(n!("itemSet"));
     let uses = minion.extra.get(n!("uses"));
     if itemSet.truthy() || uses.truthy() {
@@ -2976,16 +2976,16 @@ fn map_level_life_mult(env: &EnvRef) -> f64 {
     }
 }
 
-/// `minion.type` (CCR-0034 §1: no typed field; the value is in `minion.extra`).
+/// `minion.type` (CCR-0091 §1: no typed field; the value is in `minion.extra`).
 fn minion_type(minion: &ActorRef) -> Option<Name> {
-    // CCR-0034
+    // CCR-0091
     minion.extra.str(n!("type")).map(|s| Name::from(&*s))
 }
 
-/// `minion.lifeTable` (CCR-0034 §1: one of the `data.monster*LifeTable` sequences, kept in
+/// `minion.lifeTable` (CCR-0091 §1: one of the `data.monster*LifeTable` sequences, kept in
 /// `minion.extra` until a typed field exists).
 fn minion_lifeTable(minion: &ActorRef) -> Val {
-    // CCR-0034
+    // CCR-0091
     minion.extra.get(n!("lifeTable"))
 }
 
@@ -3017,7 +3017,7 @@ fn add_list_opt(modDB: &ModDB, list: Option<ModList>) {
 }
 
 /// The crate-private helpers of this file, for the oracle tests (`crates/pob-oracle/tests/PF-B.rs`;
-/// CCR-0034 §3). Same signatures, no logic of their own.
+/// CCR-0091 §3). Same signatures, no logic of their own.
 #[cfg(feature = "probe")]
 pub mod probe_fns {
     use super::*;
