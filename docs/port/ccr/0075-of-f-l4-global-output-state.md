@@ -1,6 +1,6 @@
 # CCR-0075: OF-F — L4 runs leave `globalOutput`/`globalBreakdown` unset
 
-**Status: needs code (CCR2, 2026-11-10; ORC-X2 `run_segment`). See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by ORC-X2 (`probe::run_segment` sets `OFFENCE_STATE.globalOutput/globalBreakdown` from the injected actor for every offence stage from 2174 on; the seeding in `tests/OF-F.rs`/`OF-H.rs` is deleted). The related `$foreign` parent: see CCR-0049 §4 / AMENDMENTS A9. See AMENDMENTS A9.**
 
 Filed status: proposed by OF-F (2026-11-09)
 

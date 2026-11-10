@@ -281,7 +281,8 @@ reached breadth-first, so the shortest path wins), with `"$id": n` when it is
 referenced again, and as `{"$ref": n}` elsewhere (`schema::resolve_ids`
 turns these into path references). Markers: `{"$data": "data.skills.X"}`
 for PoB's data tables, `{"$node": id}` / `{"$treeNode": id}`,
-`{"$object": class}`, `{"$foreign": {env, path}}` for other envs' objects,
+`{"$object": class}`, `{"$foreign": {env, path}}` for other envs' envs, actors,
+active skills and breakdowns (their mod stores and actor outputs are written in full),
 `{"$fn": "file:a-b"}`. Mod stores are `{"$store": "ModDB"|"ModList",
 "mods": ...}` (ModDB grouped by name, names sorted) with each mod in
 the mod shape (`pob_oracle::mod_json`) plus `"$at": "<file>:<line>"`; items are

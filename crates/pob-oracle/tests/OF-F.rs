@@ -11,8 +11,8 @@
 //!
 //! The module upvalues `globalOutput`/`globalBreakdown` (CalcOffence.lua:65/67) are not part of a
 //! dump; at both stages they are the function's `output`/`breakdown` (assigned at 2607), i.e.
-//! `actor.output` / `actor.breakdown`, so the test sets `OFFENCE_STATE` from the injected actor
-//! (CCR-0075). `passList` is rebuilt as `Shared<Vec<Table>>` (CCR-0036; OF-D filed it as CCR-0065, superseded).
+//! `actor.output` / `actor.breakdown`, which `probe::run_segment` sets from the injected actor
+//! (CCR-0075); it also accepts the dumped `passList` table as the ctx field (CCR-0036).
 //!
 //! Callees owned by other units may still be `unported!` (OF-A `calcDamage`/`calcResistForType`,
 //! OF-C `combineStat`, DF-A `armourReductionF`): a hit whose run reaches such a stub is reported
@@ -210,19 +210,9 @@ fn run_hit(din: &StateDump, dout: &StateDump, stem: &str) -> Outcome {
         Ok(i) => i,
         Err(e) => return Outcome::Error(format!("inject {}: {e}", din.hit)),
     };
-    let mut locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
-    // CCR-0036 (OF-D's CCR-0065 is superseded by it): `passList` is injected as a plain table; the ctx field is a
-    // `Shared<Vec<Table>>`. Rebuild it from the same pass tables (identity kept).
-    for (k, v) in locals.iter_mut() {
-        if k == "passList" {
-            if let Some(t) = v.table() {
-                let list: Vec<pob_calc::lua_table::Table> =
-                    t.ipairs().into_iter().filter_map(|(_, p)| p.table()).collect();
-                *v = Val::Obj(std::rc::Rc::new(pob_calc::probe::SBox(pob_lua::Shared::new(list))));
-            }
-        }
-    }
-    // globalOutput, globalBreakdown = output, breakdown (CalcOffence.lua:2607): the actor's.
+    let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
+    // `run_segment` sets `globalOutput`/`globalBreakdown` (CalcOffence.lua:2607) from the
+    // injected actor (CCR-0075) and accepts the plain `passList` table (CCR-0036).
     let actor = locals
         .iter()
         .find(|(k, _)| k == "actor")
@@ -230,10 +220,6 @@ fn run_hit(din: &StateDump, dout: &StateDump, stem: &str) -> Outcome {
     let Some(actor) = actor else {
         return Outcome::Error(format!("{}: local actor is not an actor", din.hit));
     };
-    pob_calc::module_state::OFFENCE_STATE.with(|s| {
-        s.globalOutput.set(Some(actor.output.get()));
-        s.globalBreakdown.set(actor.breakdown.get());
-    });
     pob_calc::stub::stub_reset();
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::probe::run_segment(&din.probe, &locals)
@@ -271,8 +257,8 @@ fn run_hit(din: &StateDump, dout: &StateDump, stem: &str) -> Outcome {
         let pass_list: Option<Vec<Table>> = locals
             .iter()
             .find(|(k, _)| k == "passList")
-            .and_then(|(_, v)| v.obj::<pob_calc::probe::SBox<Vec<Table>>>())
-            .map(|b| b.0.with(|x| x.clone()));
+            .and_then(|(_, v)| v.table())
+            .map(|t| t.ipairs().into_iter().filter_map(|(_, p)| p.table()).collect());
         let pass = locals
             .iter()
             .find(|(k, _)| k == "pass")

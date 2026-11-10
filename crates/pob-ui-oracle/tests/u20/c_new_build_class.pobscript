@@ -1,0 +1,22 @@
+screen 1280 800 dpi 1.0
+# U20: a new build (auto level), then a class change through the class dropdown (no allocated
+# nodes, so no confirmation): SelectClass, buildFlag -> recalc, the ascendancy list follows
+# (OnFrame L1252-1256), then an ascendancy.
+#! u20-setup newbuild
+fixture userdir=../../fixtures/user1
+frames 3
+snapshot new
+move 687 14
+click LEFTBUTTON
+frames 2
+move 687 56
+click LEFTBUTTON
+frames 3
+snapshot class
+move 780 14
+click LEFTBUTTON
+frames 2
+move 780 56
+click LEFTBUTTON
+frames 3
+snapshot ascendancy

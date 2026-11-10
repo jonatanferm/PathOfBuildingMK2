@@ -329,6 +329,12 @@ impl App for RustSide {
     }
     fn on_init(&mut self) {
         self.app.on_init();
+        // CCR-0098 §5: main.modes.BUILD is Build.lua's object now (U20); these scenarios stub it
+        // on both sides (LUA_STUBS).
+        self.app.cx.app_mut().main.modes.insert(
+            "BUILD".to_owned(),
+            Rc::new(pob_app::main_mode::PendingMode::new("BUILD")),
+        );
         for s in self.setups.clone() {
             rust_setup(&mut self.app.cx, &s);
         }

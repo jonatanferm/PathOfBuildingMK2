@@ -20,8 +20,6 @@
 
 use std::path::{Path, PathBuf};
 
-use pob_calc::probe::ProbeField;
-use pob_calc::Val;
 use pob_oracle::schema::StateDump;
 use pob_oracle::testkit;
 
@@ -127,10 +125,7 @@ fn hits_of(dir: &Path, probe: &str) -> Vec<u64> {
     out
 }
 
-/// `testkit::segment_diff` on explicit dump files, except that the `passList` local is handed to
-/// the ctx as the `Shared<Vec<Table>>` its field is: injection decodes locals with `Kind::Any`,
-/// so a dumped `passList` arrives as a plain table and `ctx_fill` rejects it ("injected locals of
-/// the wrong type: passList = table"). CCR-0036.
+/// `testkit::segment_diff` on explicit dump files (both from this test's own probe run).
 fn segment_diff(build: &Path, stem: &str, pin: &Path, pout: &Path) -> Vec<String> {
     let (Ok(din), Ok(dout)) = (StateDump::load(pin), StateDump::load(pout)) else {
         return vec![format!(
@@ -139,50 +134,7 @@ fn segment_diff(build: &Path, stem: &str, pin: &Path, pout: &Path) -> Vec<String
             pout.display()
         )];
     };
-    let model = testkit::load_build(build).unwrap_or_else(testkit::empty_build);
-    let inj = match pob_oracle::inject::inject(&din, &model) {
-        Ok(i) => i,
-        Err(e) => return vec![format!("inject {}: {e}", din.hit)],
-    };
-    let mut locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
-    // CCR-0036: passList as the ctx field type
-    for (k, v) in &mut locals {
-        if k == "passList" {
-            if let Some(t) = v.table() {
-                let list: Vec<pob_calc::Table> = t
-                    .ipairs()
-                    .into_iter()
-                    .filter_map(|(_, p)| p.table())
-                    .collect();
-                *v = pob_lua::Shared::new(list).to_val();
-            }
-        }
-    }
-    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        pob_calc::probe::run_segment(&din.probe, &locals)
-    }));
-    let after = match run {
-        Ok(Ok((_flow, after))) => after,
-        Ok(Err(e)) => return vec![format!("run {}: {e}", din.hit)],
-        Err(p) => {
-            let msg = p
-                .downcast_ref::<pob_lua::LuaError>()
-                .map(|e| e.0.clone())
-                .or_else(|| p.downcast_ref::<String>().cloned())
-                .or_else(|| p.downcast_ref::<&str>().map(|s| (*s).to_owned()))
-                .unwrap_or_else(|| "panic".to_owned());
-            return vec![format!("run {}: {msg}", din.hit)];
-        }
-    };
-    let env = after
-        .iter()
-        .find(|(k, _)| k == "env")
-        .and_then(|(_, v)| v.obj::<pob_calc::env::Env>())
-        .or(inj.env);
-    testkit::diff_against(&dout, env.as_ref(), &after, stem)
-        .into_iter()
-        .map(|m| format!("{} {:?}: pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours))
-        .collect()
+    testkit::segment_diff_dumps(build, stem, &din, &dout)
 }
 
 /// Whether `locals.skillModList`'s parent chain reaches a store of another env

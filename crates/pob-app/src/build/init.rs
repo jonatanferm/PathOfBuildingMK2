@@ -379,20 +379,26 @@ fn pending_tab() -> TabCtor {
 /// the user-triggered ones raise a Lua error that names the owner (PoB's error prompt shows it).
 pub fn default_hooks() -> BuildHooks {
     BuildHooks {
-        on_frame: Rc::new(pending_on_frame),
-        shutdown: Rc::new(|_| {}),
-        can_exit: Rc::new(|_, _| None),
-        close_build: Rc::new(|_| not_ported("buildMode:CloseBuild", "U20")),
-        open_save_popup: Rc::new(|_, _| not_ported("buildMode:OpenSavePopup", "U20")),
-        save_db_file: Rc::new(|_| not_ported("buildMode:SaveDBFile", "U20")),
-        open_save_as_popup: Rc::new(|_| not_ported("buildMode:OpenSaveAsPopup", "U20")),
-        open_conversion_popup: Rc::new(|_| not_ported("buildMode:OpenConversionPopup", "U20")),
-        sync_loadouts: Rc::new(|_| {}),
-        update_class_dropdowns: Rc::new(|_, _| {}),
-        open_spectre_library: Rc::new(|_| not_ported("buildMode:OpenSpectreLibrary", "U20")),
-        refresh_stat_list: Rc::new(|_| {}),
-        set_display_stat: Rc::new(|_, _, _| not_ported("buildMode:SetDisplayStat", "U21")),
-        clear_display_stat: Rc::new(|_| not_ported("buildMode:ClearDisplayStat", "U21")),
+        on_frame: Rc::new(super::on_frame::on_frame),
+        shutdown: Rc::new(super::io::shutdown),
+        can_exit: Rc::new(super::io::can_exit),
+        close_build: Rc::new(super::io::close_build),
+        open_save_popup: Rc::new(super::popups::open_save_popup),
+        save_db_file: Rc::new(|cx| {
+            super::io::save_db_file(cx);
+        }),
+        open_save_as_popup: Rc::new(super::popups::open_save_as_popup),
+        open_conversion_popup: Rc::new(super::popups::open_conversion_popup),
+        sync_loadouts: Rc::new(|cx| {
+            super::loadouts::sync_loadouts(cx);
+        }),
+        update_class_dropdowns: Rc::new(super::class_drop::update_class_dropdowns),
+        open_spectre_library: Rc::new(super::popups::open_spectre_library),
+        // U21 (CCR-0098 §3)
+        refresh_stat_list: Rc::new(super::stats::refresh_stat_list),
+        // U20 (Build.lua:1353-1391 are U20's range)
+        set_display_stat: Rc::new(super::on_frame::set_display_stat),
+        clear_display_stat: Rc::new(super::on_frame::clear_display_stat),
         list_sub_path: Rc::new(|_| None),
         spec_add_undo_state: Rc::new(|_| {}),
         tree_get_spec_list: Rc::new(|_| not_ported("TreeTab:GetSpecList", "U25")),
@@ -792,6 +798,8 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
         unsaved: false,
     });
     install_title_hook();
+    // U21: Build:Save's display stats (CCR-0080 §8)
+    super::stats::install_save_stats_hook();
 
     // L65
     cx.build_mut().db_file_name = db_file_name.clone();

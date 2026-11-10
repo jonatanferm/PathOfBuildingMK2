@@ -208,22 +208,6 @@ fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "panic".to_owned())
 }
 
-/// CCR-0036 (filed by OF-D as CCR-0065, superseded by CCR-0036): `inject` decodes locals untyped, so `passList` (a Lua array of
-/// pass tables) arrives as a plain table, while `OffenceCtx.passList` is a
-/// `Shared<Vec<Table>>`: rebuild it as one (same pass tables, so their
-/// identity is kept).
-fn pass_list(v: Val) -> Val {
-    let Some(t) = v.table() else { return v };
-    let mut list = Vec::new();
-    for (_, p) in t.ipairs() {
-        match p.table() {
-            Some(p) => list.push(p),
-            None => return v,
-        }
-    }
-    pob_calc::probe::ProbeField::to_val(&pob_lua::Shared::new(list))
-}
-
 /// Whether the skill's mod-store chain (`locals.skillModList` and its
 /// `parent`s: `skillModList` → `activeSkill.baseSkillModList` → the copied-
 /// from env's `modDB`) reaches a `{"$foreign": …}` placeholder. Only then are
@@ -274,14 +258,7 @@ fn run_one(stem: &str, pin: &Path, pout: &Path) -> Outcome {
         Ok(i) => i,
         Err(e) => return Outcome::Failed(format!("inject {}: {e}", din.hit)),
     };
-    let locals: Vec<(String, Val)> = inj
-        .locals
-        .into_iter()
-        .map(|(k, v)| {
-            let v = if k == "passList" { pass_list(v) } else { v };
-            (k, v)
-        })
-        .collect();
+    let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
     pob_calc::stub::stub_reset();
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::probe::run_segment(&din.probe, &locals)

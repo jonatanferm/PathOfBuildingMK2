@@ -79,53 +79,15 @@ fn val_value(v: &Val) -> Value {
 // ---------------------------------------------------------------------------
 // The UI controls `enemyIsBoss` / `presetBossSkills` drive (hand-port support).
 //
-// `build.configTab.varControls[var]` is the model's control-state table (calc doc model-census;
-// CCR-0037: the ConfigTab constructor, ConfigTab.lua:672-680, is what creates one per option,
-// and the model does not populate them yet). These helpers do on that table what the Lua
-// control methods do (CCR-0038 proposes them as model methods). Indexing a missing control
-// raises Lua's error, as in PoB.
+// `build.configTab.varControls[var]` is the model's control-state table (CCR-0037: built by
+// `ConfigTab::ctor_controls_model`); the control methods are model methods (CCR-0038:
+// `ConfigTab::{varControl, SetPlaceholder, SelByValue}`). Indexing a missing control raises
+// Lua's error, as in PoB.
 // ---------------------------------------------------------------------------
 
 /// `build.configTab.varControls[var]` (a missing control raises, as indexing nil does in Lua).
 fn varControl(build: &BuildRef, var: Name) -> Table {
-    match build.configTab.varControls.get(var) {
-        Val::Table(t) => t,
-        other => lua_error!(
-            "attempt to index field '{}' (a {} value)",
-            var,
-            other.lua_type()
-        ),
-    }
-}
-
-/// The `type` of the option whose control is `varControls[var]` (the constructor's loop stores the
-/// last option with that `var`, ConfigTab.lua:675).
-fn config_type(var: Name) -> Option<Name> {
-    data()
-        .configOptions
-        .iter()
-        .rev()
-        .find(|o| o.var == Some(var))
-        .and_then(|o| o.r#type)
-}
-
-/// Lua `tostring(v)` of a scalar value.
-fn tostring_val(v: &Val) -> String {
-    match v {
-        Val::Nil => "nil".to_owned(),
-        Val::Bool(b) => {
-            if *b {
-                "true".to_owned()
-            } else {
-                "false".to_owned()
-            }
-        }
-        Val::Num(x) => tostring_num(*x),
-        Val::Str(s) => s.to_string(),
-        Val::Table(t) => format!("table: {:p}", t.as_ptr()),
-        Val::Data(_) | Val::Mod(_) => "table".to_owned(),
-        Val::Obj(_) => "userdata".to_owned(),
-    }
+    build.configTab.varControl(var)
 }
 
 /// Lua `tostring(v)` of a data value.
@@ -145,61 +107,9 @@ fn tostring_value(v: &Value) -> String {
     }
 }
 
-/// `control:SetPlaceholder(text, notify)` on `build.configTab.varControls[var]`.
-///
-/// Classes/EditControl.lua:111-116 (`self.placeholder = tostring(text)`; with `notify`,
-/// `self.changeFunc(self.placeholder, true)`), with the `changeFunc` the ConfigTab constructor
-/// gives an option's EditControl: ConfigTab.lua:305-314 for count/integer/countAllowZero/float
-/// (`placeholder[var] = tonumber(buf)`) and 323-343 for text (`placeholder[var] = tostring(buf)`),
-/// both followed by `self.build.buildFlag = true`. Other option types have no EditControl, so the
-/// method is nil there.
+/// `build.configTab.varControls[var]:SetPlaceholder(text, notify)` (`ConfigTab::SetPlaceholder`).
 fn SetPlaceholder(build: &BuildRef, var: Name, text: Val, notify: bool) {
-    let control = varControl(build, var);
-    let numeric = match config_type(var).as_ref().map(|t| t.as_str()) {
-        Some("count" | "integer" | "countAllowZero" | "float") => true,
-        Some("text") => false,
-        _ => lua_error!("attempt to call method 'SetPlaceholder' (a nil value)"),
-    };
-    // EditControl.lua:112
-    let placeholder = tostring_val(&text);
-    control.set(n!("placeholder"), placeholder.as_str());
-    // EditControl.lua:113
-    if notify {
-        // EditControl.lua:114 → ConfigTab.lua:306-307 / 324-325
-        let set = build.configTab.activeConfigSet();
-        let Some(ph) = set.table(n!("placeholder")) else {
-            lua_error!("attempt to index field 'placeholder' (a nil value)")
-        };
-        if numeric {
-            ph.set(var, Val::from(tonumber(&placeholder)));
-        } else {
-            ph.set(var, placeholder.as_str());
-        }
-        // ConfigTab.lua:313 / 331
-        build.buildFlag.set(true);
-    }
-}
-
-/// `control:SelByValue(value, key)` (Classes/DropDownControl.lua:136-150) on a control-state table.
-fn SelByValue(control: &Table, value: &Val, key: &str) {
-    let list = control.get(n!("list"));
-    let mut index: i64 = 1;
-    loop {
-        let listVal = list.get(index);
-        if listVal.is_nil() {
-            break;
-        }
-        if listVal.lua_type() == "table" {
-            if listVal.get(key).raw_eq(value) {
-                control.set(n!("selIndex"), index as f64);
-                return;
-            }
-        } else if listVal.raw_eq(value) {
-            control.set(n!("selIndex"), index as f64);
-            return;
-        }
-        index += 1;
-    }
+    build.configTab.SetPlaceholder(build, var, &text, notify);
 }
 
 /// `t[k]` for a dynamic key (a non-integral number or nil key reads nil).
@@ -8933,11 +8843,9 @@ pub(crate) fn opt_670_apply(
         // L2311 (`DamageType` is a required field of the schema: always truthy)
         {
             // L2312
-            SelByValue(
-                &varControl(build, n!("enemyDamageType")),
-                &Val::from(bossData.DamageType),
-                "val",
-            );
+            build
+                .configTab
+                .SelByValue(n!("enemyDamageType"), &Val::from(bossData.DamageType), n!("val"));
             // L2313
             build
                 .configTab
@@ -9016,11 +8924,9 @@ pub(crate) fn opt_670_apply(
             // L2346
             build.configTab.input.set(n!("enemyDamageType"), "Average");
             // L2347
-            SelByValue(
-                &varControl(build, n!("enemyDamageType")),
-                &Val::from("Average"),
-                "val",
-            );
+            build
+                .configTab
+                .SelByValue(n!("enemyDamageType"), &Val::from("Average"), n!("val"));
         }
         // L2349
         varControl(build, n!("enemyDamageType")).set(n!("enabled"), true);

@@ -221,6 +221,18 @@ pub fn probe_selection(
     cache.fill(bin, xml, &patched.src, opts).map_err(|e| e.0)
 }
 
+/// The dump files of `stage_in` and `stage_out` from the first directory of `dirs` that holds
+/// both, so the pair comes from one PoB process. PoB's string-keyed `pairs` order differs per
+/// process (calc doc §3.4), and the shared probe cache can hold an `:in` of one run next to an
+/// `:out` of another when a unit re-probes a build with a selection naming only one of the two
+/// stages; such a mixed pair differs on state the segment never touches. CCR-0067 §3.
+pub fn find_pair(dirs: &[PathBuf], stage_in: &str, stage_out: &str) -> Option<(PathBuf, PathBuf)> {
+    dirs.iter().find_map(|d| {
+        let one = std::slice::from_ref(d);
+        Some((find_dump(one, stage_in)?, find_dump(one, stage_out)?))
+    })
+}
+
 /// Load the dump of `hit` for a build.
 pub fn load_dump(stem: &str, xml: Option<&Path>, hit: &str) -> Option<StateDump> {
     let p = find_dump(&dump_dirs(stem, xml), hit)?;
@@ -272,7 +284,8 @@ pub fn export_after(env: Option<&EnvRef>, locals: &[(String, Val)]) -> J {
 
 /// L4: inject `<stage_in>`, run the Rust segment, diff against `<stage_out>`'s
 /// dump. Returns the mismatches as text (empty = pass). A missing dump or a
-/// stage without a segment is reported as one mismatch line.
+/// stage without a segment is reported as one mismatch line. Both dumps come from
+/// one directory ([`find_pair`]).
 pub fn segment_diff(build: &Path, stage_in: &str, stage_out: &str) -> Vec<String> {
     if !init_default_data() {
         return vec!["no data dump (data/dump)".to_owned()];
@@ -283,46 +296,103 @@ pub fn segment_diff(build: &Path, stage_in: &str, stage_out: &str) -> Vec<String
         .unwrap_or_default()
         .to_owned();
     let dirs = dump_dirs(&stem, Some(build));
-    let (Some(pin), Some(pout)) = (find_dump(&dirs, stage_in), find_dump(&dirs, stage_out)) else {
+    let Some((pin, pout)) = find_pair(&dirs, stage_in, stage_out) else {
         return vec![format!(
-            "missing dump {stage_in} or {stage_out} for {stem} (fill with: scripts/port/oracle.sh run --build {} --stage {stage_in},{stage_out})",
+            "missing dumps {stage_in} + {stage_out} in one directory for {stem} (fill with: scripts/port/oracle.sh run --build {} --stage {stage_in},{stage_out})",
             build.display()
         )];
     };
     let (Ok(din), Ok(dout)) = (StateDump::load(&pin), StateDump::load(&pout)) else {
         return vec![format!("unreadable dump {} / {}", pin.display(), pout.display())];
     };
-    let model = load_build(build).unwrap_or_else(empty_build);
-    let inj = match crate::inject::inject(&din, &model) {
-        Ok(i) => i,
-        Err(e) => return vec![format!("inject {stage_in}: {e}")],
-    };
+    segment_diff_dumps(build, &stem, &din, &dout)
+}
+
+/// [`segment_diff`] on loaded dumps: the mismatches as text, or the injection / run error as
+/// one line.
+pub fn segment_diff_dumps(build: &Path, stem: &str, din: &StateDump, dout: &StateDump) -> Vec<String> {
+    match segment_mismatches(build, stem, din, dout) {
+        Ok(mm) => mm
+            .into_iter()
+            .map(|m| format!("{} {:?}: pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours))
+            .collect(),
+        Err(e) => vec![e],
+    }
+}
+
+/// The state after one L4 run of a segment.
+pub struct SegmentRun {
+    pub flow: pob_calc::flow::Flow,
+    /// The env after the run (the `env` local, else the injected env).
+    pub env: Option<EnvRef>,
+    /// The ctx locals after the run (pass locals included), as `run_segment` returns them.
+    pub after: Vec<(String, Val)>,
+    /// The injected locals the segment ran on.
+    pub locals: Vec<(String, Val)>,
+}
+
+/// The message of a caught panic (a raised `LuaError`, or a panic string).
+pub fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
+    p.downcast_ref::<pob_lua::LuaError>()
+        .map(|e| e.0.clone())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .or_else(|| p.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+        .unwrap_or_else(|| "panic".to_owned())
+}
+
+/// Inject `din` into `model` and run the Rust segment of its probe (`run_segment`, which also
+/// sets the state a dump does not carry: CCR-0036, CCR-0049 §2, CCR-0075). A raised Lua error
+/// is caught and returned as `Err("run <hit>: <msg>")`.
+pub fn run_dump(model: &BuildRef, din: &StateDump) -> Result<SegmentRun, String> {
+    let inj = crate::inject::inject(din, model).map_err(|e| format!("inject {}: {e}", din.hit))?;
     let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::probe::run_segment(&din.probe, &locals)
     }));
-    let after = match run {
-        Ok(Ok((_flow, after))) => after,
-        Ok(Err(e)) => return vec![format!("run {stage_in}: {e}")],
-        Err(p) => {
-            let msg = p
-                .downcast_ref::<pob_lua::LuaError>()
-                .map(|e| e.0.clone())
-                .or_else(|| p.downcast_ref::<String>().cloned())
-                .or_else(|| p.downcast_ref::<&str>().map(|s| (*s).to_owned()))
-                .unwrap_or_else(|| "panic".to_owned());
-            return vec![format!("run {stage_in}: {msg}")];
-        }
+    let (flow, after) = match run {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return Err(format!("run {}: {e}", din.hit)),
+        Err(p) => return Err(format!("run {}: {}", din.hit, panic_text(&*p))),
     };
     let env = after
         .iter()
         .find(|(k, _)| k == "env")
         .and_then(|(_, v)| v.obj::<pob_calc::env::Env>())
         .or(inj.env);
-    diff_against(&dout, env.as_ref(), &after, &stem)
-        .into_iter()
-        .map(|m| format!("{} {:?}: pob={:?} ours={:?}", m.path, m.kind, m.pob, m.ours))
-        .collect()
+    Ok(SegmentRun {
+        flow,
+        env,
+        after,
+        locals,
+    })
+}
+
+/// `Err` when both dumps carry a run id (`"run"`, written by every probe process since ORC-X2)
+/// and the ids differ: the pair comes from two PoB processes and differs on per-process `pairs`
+/// order the segment never touches (CCR-0067 §3). Dumps without an id pass.
+pub fn same_run(din: &StateDump, dout: &StateDump) -> Result<(), String> {
+    match (&din.run, &dout.run) {
+        (Some(a), Some(b)) if a != b => Err(format!(
+            "mixed runs: {} is from probe run {a}, {} from {b} (re-probe both stages together)",
+            din.hit, dout.hit
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// One L4 run with the mismatches kept as values: inject `din` into the build's model
+/// ([`load_build`], else the empty model), run the segment, diff against `dout`. A pair from
+/// two probe runs is an `Err` ([`same_run`]).
+pub fn segment_mismatches(
+    build: &Path,
+    stem: &str,
+    din: &StateDump,
+    dout: &StateDump,
+) -> Result<Vec<Mismatch>, String> {
+    same_run(din, dout)?;
+    let model = load_build(build).unwrap_or_else(empty_build);
+    let r = run_dump(&model, din)?;
+    Ok(diff_against(dout, r.env.as_ref(), &r.after, stem))
 }
 
 /// Diff an exported state against a dump: the env, the GlobalCache and the

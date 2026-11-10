@@ -522,6 +522,93 @@ impl ConfigTab {
     }
 }
 
+// ---- control methods on the control-state tables (CCR-0038) ----------------------------------
+//
+// The `apply` closures of ConfigOptions (CO-A, CO-B) drive UI controls through
+// `build.configTab.varControls[var]`. The model's controls are the state tables
+// `ctor_controls_model` builds (CCR-0037), so the control methods the closures call are model
+// methods here. Their Lua lines are UI code (Classes/EditControl.lua, DropDownControl.lua and the
+// ConfigTab constructor's `changeFunc`s), ported by the UI units; no `@pob` marker here.
+
+impl ConfigTab {
+    /// `self.varControls[var]` (a missing control raises, as indexing nil does in Lua).
+    pub fn varControl(&self, var: Name) -> Table {
+        match self.varControls.get(var) {
+            Val::Table(t) => t,
+            other => lua_error!(
+                "attempt to index field '{}' (a {} value)",
+                var,
+                other.lua_type()
+            ),
+        }
+    }
+
+    /// `self.varControls[var]:SetPlaceholder(text, notify)`.
+    ///
+    /// Classes/EditControl.lua:111-116 (`self.placeholder = tostring(text)`; with `notify`,
+    /// `self.changeFunc(self.placeholder, true)`), with the `changeFunc` the constructor gives an
+    /// option's EditControl: ConfigTab.lua:305-314 for count/integer/countAllowZero/float
+    /// (`placeholder[var] = tonumber(buf)`) and 323-343 for text (`placeholder[var] =
+    /// tostring(buf)`), both followed by `self.build.buildFlag = true`. Other option types have
+    /// no EditControl, so the method is nil there. The option type is the last option with that
+    /// `var` (the constructor's loop stores the last one, ConfigTab.lua:675).
+    pub fn SetPlaceholder(&self, build: &BuildRef, var: Name, text: &Val, notify: bool) {
+        let control = self.varControl(var);
+        let varType = pob_gamedata::data()
+            .configOptions
+            .iter()
+            .rev()
+            .find(|o| o.var == Some(var))
+            .and_then(|o| o.r#type);
+        let numeric = match varType.as_ref().map(|t| t.as_str()) {
+            Some("count" | "integer" | "countAllowZero" | "float") => true,
+            Some("text") => false,
+            _ => lua_error!("attempt to call method 'SetPlaceholder' (a nil value)"),
+        };
+        // EditControl.lua:112
+        let placeholder = tostring_val(text);
+        control.set(n!("placeholder"), placeholder.as_str());
+        // EditControl.lua:113
+        if notify {
+            // EditControl.lua:114 → ConfigTab.lua:306-307 / 324-325
+            let Some(ph) = self.activeConfigSet().table(n!("placeholder")) else {
+                lua_error!("attempt to index field 'placeholder' (a nil value)")
+            };
+            if numeric {
+                ph.set(var, Val::from(pob_lua::tonumber(&placeholder)));
+            } else {
+                ph.set(var, placeholder.as_str());
+            }
+            // ConfigTab.lua:313 / 331
+            build.buildFlag.set(true);
+        }
+    }
+
+    /// `self.varControls[var]:SelByValue(value, key)` (Classes/DropDownControl.lua:136-150).
+    pub fn SelByValue(&self, var: Name, value: &Val, key: Name) {
+        let control = self.varControl(var);
+        let list = control.get(n!("list"));
+        // DropDownControl.lua:137
+        let mut index: i64 = 1;
+        loop {
+            let listVal = list.get(index);
+            if listVal.is_nil() {
+                break;
+            }
+            if listVal.lua_type() == "table" {
+                if listVal.get(key).raw_eq(value) {
+                    control.set(n!("selIndex"), index as f64);
+                    return;
+                }
+            } else if listVal.raw_eq(value) {
+                control.set(n!("selIndex"), index as f64);
+                return;
+            }
+            index += 1;
+        }
+    }
+}
+
 /// @pob Classes/ConfigTab.lua:941-959 h=e4aec419
 impl ConfigTab {
     /// `varType` is Lua's `type(v)` string; a nil `varType` (UpdateControls) is `"nil"`.

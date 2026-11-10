@@ -1,0 +1,16 @@
+# U21: allflame_exp_001: the side bar after Init's RefreshStatList (stat box, skill selectors, warnings),
+# then hovering stat lines (TextListControl hover) down the stat box.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 100 220
+frames 2
+move 100 300
+frames 2
+move 200 420
+frames 2
+move 100 560
+frames 2
+move 60 700
+frames 2

@@ -1,6 +1,6 @@
 # CCR-0036: OF-G — `passList` cannot be injected into `OffenceCtx` (every offence stage after 1998)
 
-**Status: needs code (CCR2, 2026-11-10; ORC-X2). CCR-0065 (OF-D) is superseded by this one. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by ORC-X2 (option 1, for locals only: `probe::ctx_fill` hands a plain Lua sequence of tables to a `Shared<Vec<Table>>` ctx field as a fresh `Shared` of the same tables, `crates/pob-calc/src/probe.rs` `table_list_set`; `ProbeField::from_val` stays strict, because a lenient one also changed how `inject` fills aliased typed fields such as `socketGroup.explodeSources`; the rebuilds in `tests/OF-{D,E,F,G,H,I}.rs` are deleted). CCR-0065 (OF-D) is superseded by this one. See AMENDMENTS A9.**
 
 Filed status: proposed by OF-G (2026-11-09); worked around in `crates/pob-oracle/tests/OF-G.rs`
 (marked `CCR-0036`). The fix belongs to ORC-X (`crates/pob-calc/src/probe.rs` or

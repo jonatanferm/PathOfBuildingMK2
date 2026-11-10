@@ -45,7 +45,6 @@ use crate::modules::calc_tools as calcLib;
 use crate::modules::calcs::buildActiveSkill;
 use crate::modules::common::cacheSkillUUID;
 use crate::prelude::*;
-use pob_gamedata::mod_tools::createMod;
 use pob_lua::format::FmtArg;
 
 // @pob Modules/CalcTriggers.lua:8-21 h=5c4fa880
@@ -264,20 +263,6 @@ fn ins2(t: &Table, k1: Name, k2: Name, v: impl Into<Val>) {
 
 // ---- CalcTriggers.lua 24-134 ----------------------------------------------------------------------
 
-/// `NewMod(name, type, value.mod.value, value.mod.source, value.mod.flags,
-/// value.mod.keywordFlags, unpack(value.mod))`: the source may be nil (CCR-0063).
-fn new_mod_copy(store: &ModStore, name: Name, ty: ModType, m: &Mod) {
-    store.AddMod(Arc::new(createMod(
-        name,
-        ty,
-        m.value.clone(),
-        m.source.as_deref(),
-        m.flags,
-        m.keywordFlags,
-        &m.tags,
-    )));
-}
-
 /// @pob Modules/CalcTriggers.lua:24-31 h=8cdaa24e
 /// Add trigger-based damage modifiers
 pub fn addTriggerIncMoreMods(activeSkill: &ActiveSkillRef, sourceSkill: &ActiveSkillRef) {
@@ -288,11 +273,14 @@ pub fn addTriggerIncMoreMods(activeSkill: &ActiveSkillRef, sourceSkill: &ActiveS
         &[n!("TriggeredDamage")],
     ) {
         // L26
-        new_mod_copy(
-            &activeSkill.skillModList.get(),
+        activeSkill.skillModList.get().NewMod(
             n!("Damage"),
             ModType::INC,
-            &value.r#mod,
+            value.r#mod.value.clone(),
+            value.r#mod.source.as_deref(),
+            value.r#mod.flags,
+            value.r#mod.keywordFlags,
+            &value.r#mod.tags,
         );
     }
     // L28
@@ -302,11 +290,14 @@ pub fn addTriggerIncMoreMods(activeSkill: &ActiveSkillRef, sourceSkill: &ActiveS
         &[n!("TriggeredDamage")],
     ) {
         // L29
-        new_mod_copy(
-            &activeSkill.skillModList.get(),
+        activeSkill.skillModList.get().NewMod(
             n!("Damage"),
             ModType::MORE,
-            &value.r#mod,
+            value.r#mod.value.clone(),
+            value.r#mod.source.as_deref(),
+            value.r#mod.flags,
+            value.r#mod.keywordFlags,
+            &value.r#mod.tags,
         );
     }
 }

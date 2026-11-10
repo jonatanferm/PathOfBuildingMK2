@@ -1,0 +1,16 @@
+# U21: upstream_Generals_Perforate_Zerker: hover the main socket group selector (its tooltip is the U30 stand-in), switch to
+# the next group with the wheel (selFunc sets buildFlag: recalc, RefreshStatList and
+# RefreshSkillSelectControls), then back.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 2
+move 150 167
+frames 2
+wheel down 1
+frames 3
+move 100 400
+frames 2
+move 150 167
+wheel up 1
+frames 3

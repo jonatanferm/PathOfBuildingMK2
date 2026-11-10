@@ -32,7 +32,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use pob_calc::lua_table::Val;
 use pob_oracle::diff::{Mismatch, MismatchKind};
 use pob_oracle::oracle::find_parity_dir;
 use pob_oracle::schema::StateDump;
@@ -107,6 +106,12 @@ fn build_dumps(build: &Path) -> Result<Dumps, String> {
     });
     let private = root.join(stem(build)).join("state");
     if private.is_dir() {
+        // a stale private dir silently brings back the mixed-run failure (FOLLOWUPS FUP1 2)
+        eprintln!(
+            "DF-E: {}: using the private dumps in {} instead of the shared probe cache (delete it if it was not probed in one run)",
+            stem(build),
+            private.display()
+        );
         return Ok(Dumps::Private(private));
     }
     probe(build).map(Dumps::Probed)
@@ -152,44 +157,21 @@ fn hits(dir: &Path) -> BTreeSet<u64> {
     out
 }
 
-/// One L4 run: `testkit::segment_diff` with the mismatches kept as values.
+/// One L4 run: `testkit::segment_diff` with the mismatches kept as values. Both dumps come
+/// from one directory of one PoB process (`build_dumps`; `testkit::same_run`, CCR-0067 §3).
 fn seg_mismatches(build: &Path, dir: &Path, n: u64) -> Result<(Vec<Mismatch>, StateDump), String> {
     let s = stem(build);
     let (hin, hout) = (format!("{STAGE_IN}#{n}"), format!("{STAGE_OUT}#{n}"));
-    // Both dumps from one directory of one PoB process (`build_dumps`).
-    let one = [dir.to_path_buf()];
-    let (pin, pout) = testkit::find_dump(&one, &hin)
-        .zip(testkit::find_dump(&one, &hout))
+    let (pin, pout) = testkit::find_pair(&[dir.to_path_buf()], &hin, &hout)
         .ok_or_else(|| format!("missing dumps {hin} + {hout} in {}", dir.display()))?;
     let din = StateDump::load(&pin).map_err(|e| format!("{}: {e}", pin.display()))?;
     let dout = StateDump::load(&pout).map_err(|e| format!("{}: {e}", pout.display()))?;
+    testkit::same_run(&din, &dout)?;
     let model = testkit::load_build(build).unwrap_or_else(testkit::empty_build);
-    let inj = pob_oracle::inject::inject(&din, &model).map_err(|e| format!("inject {hin}: {e}"))?;
-    let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
-    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        pob_calc::probe::run_segment(&din.probe, &locals)
-    }));
-    let after = match run {
-        Ok(Ok((_flow, after))) => after,
-        Ok(Err(e)) => return Err(format!("run {hin}: {e}")),
-        Err(p) => {
-            let msg = p
-                .downcast_ref::<pob_lua::LuaError>()
-                .map(|e| e.0.clone())
-                .or_else(|| p.downcast_ref::<String>().cloned())
-                .or_else(|| p.downcast_ref::<&str>().map(|s| (*s).to_owned()))
-                .unwrap_or_else(|| "panic".to_owned());
-            return Err(format!("run {hin}: {msg}"));
-        }
-    };
-    let env = after
-        .iter()
-        .find(|(k, _)| k == "env")
-        .and_then(|(_, v)| v.obj::<pob_calc::env::Env>())
-        .or(inj.env);
+    let r = testkit::run_dump(&model, &din)?;
     // FUP1: with the shared LUA-ORDER normalisation (order-only buff mod lists, see
     // `is_buff_list_order`)
-    Ok((testkit::diff_against_normalised(&dout, env.as_ref(), &after, s), din))
+    Ok((testkit::diff_against_normalised(&dout, r.env.as_ref(), &r.after, s), din))
 }
 
 /// LUA-ORDER (calc doc §3.4/§9.5), FUP1: a `…buffList[i].modList` whose mods are PoB's in
