@@ -133,6 +133,8 @@ fn rust_stubs(cx: &mut Cx) {
     init::set_hooks(|h| {
         *h = init::default_hooks();
         h.on_frame = Rc::new(rust_on_frame);
+        // U20's SyncLoadouts is the default now; the Lua side stubs it (lua_stubs)
+        h.sync_loadouts = Rc::new(|_| {});
         h.update_class_dropdowns = Rc::new(|cx, tv| {
             let tv = tv.as_deref().unwrap_or("nil");
             cx.sys.platform.set_window_title(&format!("UCD {tv}"));

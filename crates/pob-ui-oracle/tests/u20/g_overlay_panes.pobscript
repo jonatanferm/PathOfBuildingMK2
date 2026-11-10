@@ -1,0 +1,21 @@
+screen 1280 800 dpi 1.0
+# U20: the overlay-pane input loop (Build.lua:1216-1248): a click where panes A and B overlap
+# goes to the topmost (last) pane only and is consumed; a release goes to every pane in order;
+# panes draw after the tab (L1321-1325).
+#! u20-panes
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_007.xml"
+frames 2
+move 600 400
+click LEFTBUTTON
+frames 1
+move 450 250
+click LEFTBUTTON
+frames 1
+move 800 600
+click RIGHTBUTTON
+frames 1
+move 1000 750
+click LEFTBUTTON
+frames 2

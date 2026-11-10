@@ -1,0 +1,17 @@
+screen 1280 800 dpi 1.0
+# U20: the Ctrl+1..7 / Ctrl+I view-mode keys of OnFrame (the side bar's mode buttons follow).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
+frames 2
+key-down CTRL
+press 2
+press 3
+press 4
+press 5
+press 6
+press 7
+press i
+press 1
+key-up CTRL
+frames 2
