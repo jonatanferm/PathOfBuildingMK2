@@ -32,7 +32,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use pob_calc::probe::ProbeField;
 use pob_oracle::schema::StateDump;
 use pob_oracle::testkit;
 
@@ -247,21 +246,8 @@ fn l4_one(stem: &str, dumps: &BTreeMap<String, StateDump>) -> Result<Outcome, St
         .ok_or_else(|| format!("no offence:end dump in {call}"))?;
     let build = testkit::empty_build();
     let inj = pob_oracle::inject::inject(din, &build).map_err(|e| format!("inject: {e}"))?;
-    let mut locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
-    // CCR-0036 (OF-G): injection decodes locals with `Kind::Any`, so the dumped `passList`
-    // arrives as a plain table; hand it to the ctx as the `Shared<Vec<Table>>` its field is.
-    for (k, v) in &mut locals {
-        if k == "passList" {
-            if let Some(t) = v.table() {
-                let list: Vec<pob_calc::Table> = t
-                    .ipairs()
-                    .into_iter()
-                    .filter_map(|(_, p)| p.table())
-                    .collect();
-                *v = pob_lua::Shared::new(list).to_val();
-            }
-        }
-    }
+    // `run_segment` accepts the plain `passList` table (CCR-0036).
+    let locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
     let before = dep_hits();
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::probe::run_segment("offence:5650", &locals)

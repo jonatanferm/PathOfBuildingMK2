@@ -1,6 +1,6 @@
 # CCR-0067: DF-E — CalcDefence module locals have no Rust items; probe-cache dump mixing
 
-**Status: needs code (CCR2, 2026-11-10): DF-A landed, but DF-E's private copies (§1-§2) remain; §3 is ORC-X2's. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by ORC-X2 (§1-§2: `est_pools.rs` imports DF-A's `isElemental`/`dmgTypeList`/`allyLifePoolList`/`calcLifeHitPoolWithLossPrevention`, the copies are deleted; §3: `testkit::find_pair`, used by `segment_diff` and `tests/DF-E.rs`). See AMENDMENTS A9.**
 
 Filed status: proposed by DF-E (2026-11-09)
 

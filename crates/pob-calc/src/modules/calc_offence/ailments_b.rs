@@ -14,25 +14,22 @@
 //!   `skillCfg.skillCond` / `cfg.skillCond` handles (contracts.md#index-meta), as OF-G does for
 //!   bleed/poison.
 //! * The loop-local functions `checkWeapon1HFlags`, `calcAverageSourceDamage` and
-//!   `calcAilmentDamage` (4308-4410) belong to OF-G. Their U0 stubs have signatures the Lua does
-//!   not have (CCR-0035, filed by OF-G); until OF-G's port with the CCR-0035 signatures merges,
-//!   this file calls the private copies in [`ccr0035`] through the alias `closures`.
-//!   **Integration (CCR-0049 §1):** replace `use self::ccr0035 as closures;` by
-//!   `use super::ailments_a as closures;` and delete the `ccr0035` module.
-//! * `isValueInArray` (Common.lua:569-575) has no crate port yet: private helper below
-//!   (CCR-0049 §3).
+//!   `calcAilmentDamage` (4308-4410) belong to OF-G (`ailments_a.rs`, CCR-0035 signatures);
+//!   this file calls them through the alias `closures` (CCR-0049 §1).
+//! * `isValueInArray` (Common.lua:569-575) is CT's `common::isValueInArray` (CCR-0049 §3).
 //! * The `ailments` dictionary (5345-5376) is iterated with `pairs` (5416); Rust keeps the
 //!   constructor order Chill, Shock, Scorch, Brittle, Sap (string keys, PoB's own order is random
 //!   per process, calc doc §3.4). Every iteration writes only its own ailment's keys, so the
 //!   order is not observable in values (`// LUA-ORDER`).
 #![allow(non_snake_case, clippy::all, clippy::pedantic)]
 
-use self::ccr0035 as closures; // CCR-0035
+use super::ailments_a as closures; // OF-G's loop-local functions (4308-4410)
 use super::helpers_setup::{calcAilmentSourceDamage, calcResistForType};
 use super::{AilmentPassLocals, OffenceCtx};
 use crate::modules::calc_defence::helpers::armourReductionF;
 use crate::modules::calc_perform::actor_b::actionSpeedMod;
 use crate::modules::calc_tools as calcLib;
+use crate::modules::common::isValueInArray;
 use crate::prelude::*;
 
 /// `dmgTypeFlags.flags.Fire` (CalcOffence.lua:41; OF-A's module-level local, immutable).
@@ -153,12 +150,6 @@ fn seqIndex(v: &[f64], k: f64) -> Option<f64> {
     } else {
         None
     }
-}
-
-/// `isValueInArray(tbl, val)` (Common.lua:569-575: the index of the first `v == val` in
-/// `ipairs(tbl)`, else nil), used here only as a truth value.
-fn isValueInArray(tbl: &[f64], val: f64) -> bool {
-    tbl.iter().any(|v| val == *v)
 }
 
 /// `1 + (skillModList:Override(dotCfg, "DotMultiplier") or skillModList:Sum("BASE", dotCfg,
@@ -1686,17 +1677,17 @@ pub(crate) fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassL
                         val.effList.push(e);
                     }
                     // L5449
-                    if !isValueInArray(&val.effList, maximum) {
+                    if isValueInArray(&val.effList, &maximum).is_none() {
                         // L5450
                         val.effList.push(maximum);
                     }
                     // L5452
-                    if current > 0.0 && !isValueInArray(&val.effList, current) {
+                    if current > 0.0 && isValueInArray(&val.effList, &current).is_none() {
                         // L5453
                         val.effList.push(current);
                     }
                     // L5455
-                    if desired > 0.0 && !isValueInArray(&val.effList, desired) && current == 0.0 {
+                    if desired > 0.0 && isValueInArray(&val.effList, &desired).is_none() && current == 0.0 {
                         // L5456
                         val.effList.push(desired);
                     }
@@ -2227,246 +2218,4 @@ fn partyModDBFlag(env: &EnvRef, name: Name) -> bool {
         .get()
         .unwrap_or_else(|| lua_error!("attempt to index field 'partyMembers' (a nil value)"));
     pm.modDB.get().Flag(None, &[name])
-}
-
-/// CCR-0035: private copies of OF-G's loop-local functions with the Lua signatures (4308-4410).
-/// OF-G owns these lines (its `ailments_a.rs` carries their provenance); the U0 stubs there have
-/// signatures the Lua does not have. Delete this module when OF-G's port merges and switch the
-/// `closures` alias at the top of the file to `super::ailments_a`.
-mod ccr0035 {
-    use super::super::{AilmentPassLocals, OffenceCtx};
-    use super::passLabel;
-    use crate::prelude::*;
-
-    /// `dmgTypeList` (CalcOffence.lua:35; OF-A's module-level local, immutable).
-    const dmgTypeList: [&str; 5] = ["Physical", "Lightning", "Cold", "Fire", "Chaos"];
-
-    /// `checkWeapon1HFlags(targetCfg)` (CalcOffence.lua:4308-4310): `targetCfg.flags =
-    /// bor(targetCfg.flags, band(cfg.flags, ModFlag.Weapon1H))`, `cfg` being the pass cfg.
-    pub(super) fn checkWeapon1HFlags(_ctx: &OffenceCtx, al: &AilmentPassLocals, targetCfg: &ModCfg) {
-        // L4309
-        targetCfg
-            .flags
-            .set(targetCfg.flags.get() | (al.cfg.flags.get() & ModFlag::Weapon1H));
-    }
-
-    /// `calcAverageSourceDamage(ailment)` (CalcOffence.lua:4315-4331) → (sourceHitDmg,
-    /// sourceCritDmg).
-    pub(super) fn calcAverageSourceDamage(
-        ctx: &OffenceCtx,
-        al: &AilmentPassLocals,
-        ailment: Name,
-    ) -> (f64, f64) {
-        let output = &al.output;
-        let c: Option<&ModCfg> = Some(&al.cfg);
-        // L4316
-        let mut sourceHitDmg = 0.0;
-        let mut sourceCritDmg = 0.0;
-        // L4317
-        for ty in dmgTypeList {
-            let r#type = Name::from(ty);
-            // L4318
-            let can = ctx.canDeal.truthy(r#type) && {
-                let a = super::ailmentDataOf(ctx, ailment);
-                // L4319
-                if r#type == a.associatedType {
-                    // L4320
-                    !ctx.skillModList.Flag(c, &[cat!(r#type, "Cannot", ailment)])
-                } else {
-                    // L4322
-                    ctx.skillModList.Flag(c, &[cat!(r#type, "Can", ailment)])
-                }
-            };
-            if can {
-                // L4325
-                sourceHitDmg = sourceHitDmg + output.num(cat!(r#type, "HitAverage"));
-                // L4326
-                sourceCritDmg = sourceCritDmg + output.num(cat!(r#type, "CritAverage"));
-            }
-        }
-        // L4329
-        (sourceHitDmg, sourceCritDmg)
-    }
-
-    /// `calcAilmentDamage(type, sourceCritChance, sourceHitDmg, sourceCritDmg, hideFromBreakdown)`
-    /// (CalcOffence.lua:4333-4410) → `baseVal`.
-    pub(super) fn calcAilmentDamage(
-        ctx: &OffenceCtx,
-        al: &AilmentPassLocals,
-        r#type: Name,
-        sourceCritChance: f64,
-        sourceHitDmg: f64,
-        sourceCritDmg: f64,
-        hideFromBreakdown: bool,
-    ) -> f64 {
-        let output = &al.output;
-        let breakdown = &al.breakdown;
-        // L4334
-        let chanceOnHit = output.num(cat!(r#type, "ChanceOnHit"));
-        let chanceOnCrit = output.num(cat!(r#type, "ChanceOnCrit"));
-        // -- Use sourceCritChance to factor in chance a critical ailment is present
-        // L4336
-        let chanceFromHit = chanceOnHit * (1.0 - sourceCritChance / 100.0);
-        // L4337
-        let chanceFromCrit = chanceOnCrit * sourceCritChance / 100.0;
-        // L4338
-        let chance = chanceFromHit + chanceFromCrit;
-        // L4339
-        output.set(cat!(r#type, "Chance"), chance);
-        // L4340
-        let baseFromHit = sourceHitDmg * chanceFromHit / (chanceFromHit + chanceFromCrit);
-        // L4341
-        let baseFromCrit = sourceCritDmg * chanceFromCrit / (chanceFromHit + chanceFromCrit);
-        // L4342
-        let baseVal = baseFromHit + baseFromCrit;
-        // L4343
-        let sourceMult = ctx
-            .skillModList
-            .More(Some(&al.cfg), &[cat!(r#type, "AsThoughDealing")]);
-        // L4344
-        if let Some(b) = breakdown
-            .as_ref()
-            .filter(|_| chance != 0.0 && !hideFromBreakdown)
-        {
-            // L4345
-            let key = cat!(r#type, "Chance");
-            let breakdownChance = b.table(key).unwrap_or_else(Table::new);
-            // L4346
-            b.set(key, breakdownChance.clone());
-            // L4347
-            if breakdownChance.get(1_i64).truthy() {
-                // L4348
-                breakdownChance.push("");
-            }
-            // L4350
-            if ctx.isAttack {
-                // L4351
-                breakdownChance.push(format!("{}:", passLabel(&al.pass)));
-            }
-            // L4353
-            breakdownChance.push(lfmt!("Chance on Non-crit: %d%%", chanceOnHit));
-            // L4354
-            breakdownChance.push(lfmt!("Chance on Crit: %d%%", chanceOnCrit));
-            // L4355
-            if chanceOnHit != chanceOnCrit {
-                // L4356
-                breakdownChance.push("Combined chance:");
-                // L4357
-                breakdownChance.push(lfmt!(
-                    "%d x (1 - %.4f) ^8(chance from non-crits)",
-                    chanceOnHit,
-                    sourceCritChance / 100.0
-                ));
-                // L4358
-                breakdownChance.push(lfmt!(
-                    "+ %d x %.4f ^8(chance from crits)",
-                    chanceOnCrit,
-                    sourceCritChance / 100.0
-                ));
-                // L4359
-                let chancePerHit = chanceOnHit * (1.0 - sourceCritChance / 100.0)
-                    + chanceOnCrit * sourceCritChance / 100.0;
-                // L4360
-                breakdownChance.push(lfmt!("= %.2f", chancePerHit));
-            }
-        }
-        // L4363
-        if let Some(b) = breakdown
-            .as_ref()
-            .filter(|_| baseVal > 0.0 && !hideFromBreakdown)
-        {
-            // L4364
-            let key = cat!(r#type, "DPS");
-            let breakdownDPS = b.table(key).unwrap_or_else(Table::new);
-            // L4365
-            b.set(key, breakdownDPS.clone());
-            // L4366
-            if breakdownDPS.get(1_i64).truthy() {
-                // L4367
-                breakdownDPS.push("");
-            }
-            // L4369
-            if ctx.isAttack {
-                // L4370
-                breakdownDPS.push(format!("{}:", passLabel(&al.pass)));
-            }
-            // L4372
-            if sourceHitDmg == sourceCritDmg || output.num(n!("CritChance")) == 0.0 {
-                // L4373
-                breakdownDPS.push("Total damage:");
-                // L4374
-                breakdownDPS.push(lfmt!("%.1f ^8(source damage)", sourceHitDmg));
-                // L4375
-                if sourceMult > 1.0 {
-                    // L4376
-                    breakdownDPS.push(lfmt!(
-                        "x %.2f ^8(inflicting as though dealing more damage)",
-                        sourceMult
-                    ));
-                    // L4377
-                    breakdownDPS.push(lfmt!("= %.1f", baseVal * sourceMult));
-                }
-            } else {
-                // L4380
-                if baseFromHit > 0.0 {
-                    // L4381
-                    breakdownDPS.push("Damage from Non-crits:");
-                    // L4382
-                    breakdownDPS
-                        .push(lfmt!("%.1f ^8(source damage from non-crits)", sourceHitDmg));
-                    // L4383
-                    breakdownDPS.push(lfmt!(
-                        "x %.3f ^8(portion of instances created by non-crits)",
-                        chanceFromHit / (chanceFromHit + chanceFromCrit)
-                    ));
-                    // L4384
-                    if sourceMult == 1.0 || baseFromCrit != 0.0 {
-                        // L4385
-                        breakdownDPS.push(lfmt!("= %.1f", baseFromHit));
-                    }
-                }
-                // L4388
-                if baseFromCrit > 0.0 {
-                    // L4389
-                    breakdownDPS.push("Damage from Crits:");
-                    // L4390
-                    breakdownDPS.push(lfmt!("%.1f ^8(source damage from crits)", sourceCritDmg));
-                    // L4391
-                    breakdownDPS.push(lfmt!(
-                        "x %.3f ^8(portion of instances created by crits)",
-                        chanceFromCrit / (chanceFromHit + chanceFromCrit)
-                    ));
-                    // L4392
-                    if sourceMult == 1.0 || baseFromHit != 0.0 {
-                        // L4393
-                        breakdownDPS.push(lfmt!("= %.1f", baseFromCrit));
-                    }
-                }
-                // L4396
-                if baseFromHit > 0.0 && baseFromCrit > 0.0 {
-                    // L4397
-                    breakdownDPS.push("Total damage:");
-                    // L4398
-                    breakdownDPS.push(lfmt!("%.1f + %.1f", baseFromHit, baseFromCrit));
-                    // L4399
-                    if sourceMult == 1.0 {
-                        // L4400
-                        breakdownDPS.push(lfmt!("= %.1f", baseVal));
-                    }
-                }
-                // L4403
-                if sourceMult > 1.0 {
-                    // L4404
-                    breakdownDPS.push(lfmt!(
-                        "x %.2f ^8(inflicting as though dealing more damage)",
-                        sourceMult
-                    ));
-                    // L4405
-                    breakdownDPS.push(lfmt!("= %.1f", baseVal * sourceMult));
-                }
-            }
-        }
-        // L4409
-        baseVal
-    }
 }

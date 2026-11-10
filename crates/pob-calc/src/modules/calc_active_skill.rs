@@ -36,6 +36,7 @@ use crate::model::GemInstanceRef;
 use crate::modules::calc_tools::{
     buildSkillInstanceStats, canGrantedEffectSupportActiveSkill, levels_len, validateGemLevel,
 };
+use crate::modules::common::isValueInArray;
 use crate::prelude::*;
 use pob_gamedata::mod_tools::{compareModParams, createMod};
 use pob_gamedata::{statMapLookup, NameSet, StatMapItem, WeaponTypeInfo};
@@ -159,17 +160,6 @@ fn val_key(v: &Val) -> Key {
 
 fn value_key(v: &Value) -> Key {
     val_key(&Val::from_value(v))
-}
-
-/// `isValueInArray(tbl, val)` (Common.lua:569-575) over a list of names.
-fn isValueInArray(tbl: &[Name], val: Option<Name>) -> Option<usize> {
-    let val = val?;
-    for (i, v) in tbl.iter().enumerate() {
-        if *v == val {
-            return Some(i + 1);
-        }
-    }
-    None
 }
 
 fn src_or_err(activeEffect: &SkillEffect) -> GemInstanceRef {
@@ -1867,7 +1857,7 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
             // L683 (`addMinionList` nil and `{ }` both skip the loop)
             for minionType in &sge.addMinionList {
                 // L684
-                if isValueInArray(&minionList, Some(*minionType)).is_none() {
+                if isValueInArray(&minionList, minionType).is_none() {
                     // L685
                     let lr = sge
                         .levels
@@ -1893,7 +1883,11 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
         if env.mode == Mode::CALCS && isMainSkill() {
             let src = src_or_err(&activeEffect);
             // L695
-            let index = isValueInArray(&minionList, src.skillMinionCalcs.get()).unwrap_or(1);
+            let index = src
+                .skillMinionCalcs
+                .get()
+                .and_then(|v| isValueInArray(&minionList, &v))
+                .unwrap_or(1);
             // L696
             minionType = minionList.get(index - 1).copied();
             // L697
@@ -1901,7 +1895,11 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
         } else {
             let src = src_or_err(&activeEffect);
             // L699
-            let index = isValueInArray(&minionList, src.skillMinion.get()).unwrap_or(1);
+            let index = src
+                .skillMinion
+                .get()
+                .and_then(|v| isValueInArray(&minionList, &v))
+                .unwrap_or(1);
             // L700
             minionType = minionList.get(index - 1).copied();
             // L701
@@ -2404,7 +2402,7 @@ pub fn createMinionSkills(env: &EnvRef, activeSkill: &ActiveSkillRef) {
                     .iter()
                     .filter_map(|v| v.as_str().map(Name::from))
                     .collect();
-                isValueInArray(&names, minionType).is_some()
+                minionType.is_some_and(|v| isValueInArray(&names, &v).is_some())
             }
             other => lua_error!(
                 "bad argument #1 to 'ipairs' (table expected, got {})",

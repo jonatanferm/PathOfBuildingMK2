@@ -13,7 +13,7 @@
 use super::DefenceCtx;
 use crate::modules::calc_tools as calcLib;
 use crate::prelude::*;
-use pob_gamedata::{mod_tools, tag};
+use pob_gamedata::tag;
 
 /// `local dmgTypeList` (CalcDefence.lua:28; module-level, DF-A's `helpers.rs` owns the marker).
 const dmgTypeList: [&str; 5] = ["Physical", "Lightning", "Cold", "Fire", "Chaos"];
@@ -30,45 +30,6 @@ fn or_num(v: Value, d: f64) -> Val {
         Val::from(v)
     } else {
         Val::Num(d)
-    }
-}
-
-/// `modDB:NewMod(name, type, value)` with no source argument: `createMod` leaves `source`
-/// nil (ModTools.lua:38-41), which `ModStore::NewMod(…, source: &str, …)` cannot express.
-/// This is ModStore.lua:110's body, `self:AddMod(mod_createMod(...))`, with a nil source.
-// CCR-0063
-fn NewMod_nosource(modDB: &ModDB, name: Name, ty: ModType, value: impl Into<Value>) {
-    modDB.AddMod(Arc::new(mod_tools::createMod(
-        name,
-        ty,
-        value,
-        None,
-        0,
-        0,
-        &[],
-    )));
-}
-
-/// `modDB:NewMod(name, type, value, flagMod.source)` / `ReplaceMod(…)` where the source is a
-/// mod's `source` field, which may be nil (ModStore.lua:110, 126-129).
-// CCR-0063
-fn NewMod_src(
-    modDB: &ModDB,
-    name: Name,
-    ty: ModType,
-    value: f64,
-    source: Option<&str>,
-    replace: bool,
-) {
-    let m: ModRef = Arc::new(mod_tools::createMod(name, ty, value, source, 0, 0, &[]));
-    if replace {
-        // ModStore.lua:127-128
-        if !modDB.ReplaceModInternal(m.clone()) {
-            modDB.AddMod(m);
-        }
-    } else {
-        // ModStore.lua:110
-        modDB.AddMod(m);
     }
 }
 
@@ -661,13 +622,14 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
                         // L1416
                         let flagMod_source = first_flag_source(&modDB, addFlag);
                         // L1417
-                        NewMod_src(
-                            &modDB,
+                        modDB.NewMod(
                             cat!(recoupType2, "Recoup"),
                             ModType::BASE,
                             baseRecoup,
                             flagMod_source.as_deref(),
-                            false,
+                            0,
+                            0,
+                            &[],
                         );
                     }
                 }
@@ -875,13 +837,14 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
                             // L1484
                             let flagMod_source = first_flag_source(&modDB, addFlag);
                             // L1485
-                            NewMod_src(
-                                &modDB,
+                            modDB.ReplaceMod(
                                 cat!(damageType, recoupType2, "Recoup"),
                                 ModType::BASE,
                                 recoup,
                                 flagMod_source.as_deref(),
-                                true,
+                                0,
+                                0,
+                                &[],
                             );
                         }
                     }
@@ -1004,11 +967,14 @@ pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
     );
     output.set(n!("DamageReductionMax"), v);
     // L1536
-    NewMod_nosource(
-        &modDB,
+    modDB.NewMod(
         n!("ArmourAppliesToPhysicalDamageTaken"),
         ModType::BASE,
         100.0,
+        None,
+        0,
+        0,
+        &[],
     );
     // L1537
     for damageType in dmgTypeList {

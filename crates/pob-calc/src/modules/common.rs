@@ -146,6 +146,24 @@ pub fn isValueInTable(tbl: &Table, val: &Val) -> Option<Key> {
     None
 }
 
+/// @pob Modules/Common.lua:569-575 h=b0314d73
+/// Search an array for a value, and return the corresponding array index
+/// (`ipairs(tbl)`: the 1-based index of the first `v` with `val == v`, else nil).
+pub fn isValueInArray<T: PartialEq + ?Sized, E: std::borrow::Borrow<T>>(
+    tbl: &[E],
+    val: &T,
+) -> Option<usize> {
+    // L570
+    for (i, v) in tbl.iter().enumerate() {
+        // L571
+        if val == v.borrow() {
+            // L572
+            return Some(i + 1);
+        }
+    }
+    None
+}
+
 /// @pob Modules/Common.lua:897-921 h=e90b67af
 /// Generate a UUID for a skill
 pub fn cacheSkillUUID(skill: &ActiveSkillRef, env: &EnvRef) -> Name {

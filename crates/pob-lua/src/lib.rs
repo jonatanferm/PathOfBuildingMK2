@@ -48,6 +48,8 @@ pub use profile::{LJ_DUALNUM, LJ_TARGET_X86ORX64};
 pub use error::LuaError;
 pub use field::{CheapClone, Field, PtrMap, PtrSet, Shared};
 pub use format::{lua_format, tonumber, tonumber_base, tostring_num, FmtArg, LuaConcat};
+/// The Lua-number → integer casts of LuaJIT on x64 (CCR-0033 §1).
+pub use format::{cvtt_i32 as lj_num2int, cvtt_i64 as lua_tointeger};
 pub use ljtab::LjIntMap;
 pub use name::{conditionName, multiplierName, names, CatBuf, Name};
 
