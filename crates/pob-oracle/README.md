@@ -288,6 +288,12 @@ flask / tincture / jewel data; active skills carry `"$uuid"`.
 Dumps are cached zstd-compressed at
 `.parity/probe-cache/<sha>/<build-blake3>/<hit>.json.zst`
 (`runner::cached_state` prints the `oracle.sh` command on a miss).
+`<sha>` (`patcher::plan_sha`) and the in-process `runner::source_key` take the
+stat fingerprint (path, size, mtime) of every file of PoB's `src/` except
+`Data/TimelessJewelData/*.bin` (`patcher::is_derived_cache`: PoB inflates the
+zips into these and rewrites them on any run that finds them stale), plus the
+`mlua` / `mlua-sys` / `luajit-src` versions of `Cargo.lock` and
+`runner::ORACLE_CACHE_EPOCH`.
 
 ### Nondeterminism
 
