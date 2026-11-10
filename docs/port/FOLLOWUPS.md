@@ -77,3 +77,20 @@ Port review follow-ups: open issues the final review left on merged units.
 
 1. Integration with rust-port broke the BM-A acceptance test. PS-B (`BuildAllDependsAndPaths`, 17bdabd) was merged on rust-port as 4733437, and port/BM-A did not contain it. After merging rust-port into port/BM-A, `POB_ORACLE_REQUIRE=1 scripts/port/cargo.sh test -p pob-oracle --test BM-A -- bm_a_corpus` loaded only 23 of 57 builds in Rust. The other 34 raised `Rust Error occurred loading Timeless Jewel data` or `... Glorious Vanity data` (pob-gamedata/src/timeless_lut.rs:1012/1022), because `bm_a_corpus` in crates/pob-oracle/tests/BM-A.rs never registered a timeless-jewel file system. The default `StdJewelFs::new("")` probes `./` and `./src` from the crate directory and finds no data.
    - Integrator note: fixed before this merge. port/BM-A now merges rust-port (5997856) and has ba622fa, which registers `timeless_lut::set_jewel_fs(StdJewelFs { script_path: canonicalize(src), writable: false })` and `set_con_printf(|_| {})` in `bm_a_corpus` (the same as PS-B.rs), and calls `clear_timeless_jewel_luts(None)` after each `run_build`. The acceptance test was re-run on the merged rust-port tree; the result is recorded in the merge report.
+
+## CCR2
+
+Open issues from the CCR2 final review (owner: whoever next touches scripts/port tooling).
+
+1. Commit a7f2683 added 13 Python bytecode files to git:
+   `scripts/port/__pycache__/{calcscope,globals_lint,locals_audit,luaast,pairs_inventory,pobpaths,provenance,segments}.cpython-314.pyc`
+   and `scripts/port/tests/__pycache__/{_util,test_lint_inventory,test_locals_segments,test_luaast,test_provenance}.cpython-314.pyc`.
+   rust-port tracked no `__pycache__` files before. They are build artifacts tied to one Python
+   version that record the worktree path of the run that made them, so running the scripts in any
+   other checkout dirties the tree (confirmed in a fresh port/CCR2 worktree after running
+   pairs_inventory/provenance/segments: ` M scripts/port/__pycache__/{calcscope,luaast,pobpaths,segments}.cpython-314.pyc`).
+   Fix: `git rm -r --cached scripts/port/__pycache__ scripts/port/tests/__pycache__` and ignore
+   `__pycache__/` / `*.pyc`.
+   **Resolved at integration** in c477ed9 (files untracked, `.gitignore` now ignores `__pycache__/`
+   and `*.pyc`). Units branched from port/CCR2 before c477ed9 still carry the tracked files and
+   pick up the removal on merge; do not re-add them.
