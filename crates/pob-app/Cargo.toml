@@ -17,5 +17,9 @@ pob-calc.workspace = true
 pob-gamedata.workspace = true
 indexmap.workspace = true
 
+[dev-dependencies]
+# U28's unit tests: a small `data.powerStatList` and an item base from JSON.
+serde_json.workspace = true
+
 [lints]
 workspace = true
