@@ -1,0 +1,99 @@
+# Interactions of the "u13_drop" gallery (U13).
+frames 2
+# hover the body (BODY tooltip), open it with a click
+move 100 50
+frames 1
+click LEFTBUTTON
+frames 1
+# hover a row (HOVER tooltip, row highlight); the wheel scrolls the dropped list (30 rows)
+move 100 100
+frames 1
+wheel down 2
+frames 1
+# the scroll bar's down arrow (the dropdown's selControl becomes the scroll bar)
+move 210 375
+click LEFTBUTTON
+frames 1
+# select a row: selFunc on the KeyUp, the list closes
+move 100 150
+click LEFTBUTTON
+frames 1
+# reopen with RIGHTBUTTON and move off the list (OUT tooltip)
+move 100 50
+click RIGHTBUTTON
+move 400 300
+frames 2
+# keys while dropped: DOWN, DOWN, UP (ScrollSelIntoView), ESCAPE closes
+press DOWN
+press DOWN
+press UP
+frames 1
+press ESCAPE
+frames 1
+# closed and hovered: the wheel and UP/DOWN reach OnKeyUp through the hover path
+move 100 50
+wheel down 1
+frames 1
+wheel up 2
+frames 1
+press DOWN
+frames 1
+press UP
+frames 1
+# open, then a click outside closes; open, a click on the body closes
+click LEFTBUTTON
+move 600 400
+click LEFTBUTTON
+frames 1
+move 100 50
+click LEFTBUTTON
+click LEFTBUTTON
+frames 1
+# the plain tooltipText path (BODY and HOVER), select row 2
+move 340 50
+frames 1
+click LEFTBUTTON
+move 340 82
+frames 1
+click LEFTBUTTON
+frames 1
+# disabled: no tooltip, no opening
+move 560 50
+frames 1
+click LEFTBUTTON
+frames 1
+# borderFunc: the border colour when not hovered
+move 760 50
+frames 1
+move 760 200
+frames 1
+# dropUp at the bottom of the screen
+move 100 690
+click LEFTBUTTON
+move 100 530
+frames 1
+move 100 600
+click LEFTBUTTON
+frames 1
+# sub-viewport: clipped below (scroll bar, wheel), select
+move 1000 440
+click LEFTBUTTON
+move 1000 500
+frames 1
+wheel down 3
+frames 1
+click LEFTBUTTON
+frames 1
+# sub-viewport: drops up and clipped above; DOWN while dropped, select
+move 1000 600
+frames 1
+click LEFTBUTTON
+move 1000 450
+frames 1
+wheel down 2
+frames 1
+press DOWN
+frames 1
+move 1000 520
+click LEFTBUTTON
+frames 2

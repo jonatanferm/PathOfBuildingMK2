@@ -1,0 +1,40 @@
+# PF-A acceptance (calc doc §11.1 row PF-A): function probes on the CalcPerform.lua 1-635
+# helpers. Used as the patcher's stages file by crates/pob-oracle/tests/PF-A.rs (it replaces
+# docs/port/stages.toml for that run, so only these probes and the built-in function probes,
+# getCachedOutputValue among them, are patched in).
+
+[[function]]
+id = "mergeBuff"
+file = "Modules/CalcPerform.lua"
+line = 45
+expect = "local function mergeBuff(src, destTable, destKey)"
+
+[[function]]
+id = "doActorLifeMana"
+file = "Modules/CalcPerform.lua"
+line = 69
+expect = "function doActorLifeMana(actor)"
+
+[[function]]
+id = "doActorAttribsConditions"
+file = "Modules/CalcPerform.lua"
+line = 138
+expect = "local function doActorAttribsConditions(env, actor)"
+
+[[function]]
+id = "doActorLifeManaReservation"
+file = "Modules/CalcPerform.lua"
+line = 551
+expect = "function doActorLifeManaReservation(actor, addAura)"
+
+[[function]]
+id = "determineCursePriority"
+file = "Modules/CalcPerform.lua"
+line = 587
+expect = "local function determineCursePriority(curseName, activeSkill)"
+
+[[function]]
+id = "applyEnemyModifiers"
+file = "Modules/CalcPerform.lua"
+line = 619
+expect = "local function applyEnemyModifiers(actor, clearCache)"

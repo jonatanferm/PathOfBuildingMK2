@@ -1538,11 +1538,11 @@ method ListControl.lua calls on `self` (`OnSelCut` included, though the class he
 `Caps::CAN_RECEIVE_DRAG`). `otherDragSource`/`otherDragTargeting` belong on `Base` (CCR-0078 B);
 until then read them with `controls::list::other_drag_source(cx, id)`.
 
-`DropDownControl` (U13) follows the same pattern:
+`DropDownControl` (U13) follows the same pattern, with an empty class-hook table (CCR-0086):
 
-- `DropItem { label: String, search_filter: Option<String>, value: Rc<dyn Any> }`; a Lua string entry is a `DropItem` whose `value` is the `String`.
-- `DropDownHooks` holds the overridable methods ItemSlot and TimelessJewelSocket use.
-- `sel_func: Option<Rc<dyn Fn(&mut Cx, usize, &DropItem)>>`.
+- `DropItem { label: String, search_filter: Option<String>, detail: Option<String>, value: Rc<dyn Any> }`; a Lua string entry is a `DropItem` whose `value` is the `String` (`DropItem::str`).
+- No `DropDownHooks`: no subclass or instance overrides a method DropDownControl.lua calls on `self`; ItemSlot and TimelessJewelSocket override framework methods (their own `Widget` impl, super calls to `DropDownControl::{draw, on_key_down, get_hover_index, ..}`), Build.lua's `mainSkillMinion` uses `Overrides`.
+- `sel_func: Option<Rc<dyn Fn(&mut Cx, usize, Option<&DropItem>)>>`.
 - The tooltip argument is `(DropTipMode /* BODY|OUT|HOVER */, Option<usize>, Option<DropItem>)`.
 
 `EditControl` (U11) exposes `new(anchor, rect, EditArgs) -> New<EditControl>`, `state(EditArgs)`, `init`, and the methods `set_text`, `insert`, `replace_sel`, `get_sel_text`, `select_all`, `undo`, `redo`, `set_placeholder`, `set_protected`, plus `pub buf: String`, `pub caret: usize`, `pub sel: Option<usize>` (1-based byte positions, as in Lua) and `change_func: Option<Rc<dyn Fn(&mut Cx, &str)>>`.
