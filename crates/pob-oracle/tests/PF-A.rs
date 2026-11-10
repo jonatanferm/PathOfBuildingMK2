@@ -418,9 +418,19 @@ fn run_pair(
             }
         }
     }
+    // CA ported `calcs.buildActiveSkill`, which CalcPerform.lua:33-35 calls in CALCULATOR
+    // mode even when the entry is cached; the replayed delta above stands in for that
+    // callee, so the call is a no-op here (it would run `initEnv` on the placeholder build)
+    let hook = f == "getCachedOutputValue";
+    if hook {
+        pob_calc::modules::calcs::replay_hook::set(Some(Box::new(|_| true)));
+    }
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::modules::calc_perform::actor_a::probe_call(f, &locals)
     }));
+    if hook {
+        pob_calc::modules::calcs::replay_hook::set(None);
+    }
     let after = match run {
         Ok(Ok(after)) => after,
         Ok(Err(e)) => return Err(e),
@@ -516,7 +526,7 @@ fn seed_socket_group_list(env: &pob_calc::env::EnvRef, xml: &Path) {
     env.build.skillsTab.socketGroupList.set(groups);
 }
 
-/// `getCachedOutputValue` calls `calcs.buildActiveSkill` (CA, still a stub) when the
+/// `getCachedOutputValue` calls `calcs.buildActiveSkill` (CA; hooked to a no-op here) when the
 /// skill's GlobalCache entry is absent (CalcPerform.lua:33-35). The replay of that callee:
 /// its effect is the `:in → :out` delta of the call (getCachedOutputValue writes nothing
 /// else), applied with `pob_oracle::replay`, i.e. the new `GlobalCache.cachedData[mode][uuid]`
