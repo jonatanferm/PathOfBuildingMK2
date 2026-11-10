@@ -43,18 +43,13 @@ pub fn default_modes() -> IndexMap<String, Rc<dyn Mode>> {
     modes
 }
 
-/// CCR-0091: U17's popups and U23's `main:LoadTree`, until their owners install them.
+/// CCR-0091: U17's popups (installed by U17) and U23's `main:LoadTree` (until U23 installs it).
 pub fn default_hooks() -> MainHooks {
     MainHooks {
-        open_options_popup: Rc::new(|_cx| {
-            lua_error!("main:OpenOptionsPopup is not ported yet (U17, Main.lua:865-1316)")
-        }),
-        open_about_popup: Rc::new(|_cx, _section| {
-            lua_error!("main:OpenAboutPopup is not ported yet (U17, Main.lua:1373-1485)")
-        }),
-        open_update_popup: Rc::new(|_cx| {
-            lua_error!("main:OpenUpdatePopup is not ported yet (U17, Main.lua:1317-1372)")
-        }),
+        // U17 (Main.lua:865-1485)
+        open_options_popup: Rc::new(super::options_popup::open_options_popup_hook),
+        open_about_popup: Rc::new(super::about_popup::open_about_popup),
+        open_update_popup: Rc::new(super::update_popup::open_update_popup),
         // main:LoadTree (U23, tree_view/assets.rs): builds main.tree[treeVersion]
         load_tree: Rc::new(|_cx, _tree_version| {}),
     }

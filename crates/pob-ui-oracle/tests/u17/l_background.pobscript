@@ -1,0 +1,3 @@
+# U17: the background alone (main:DrawBackground at sublayer -100) at both acceptance screens.
+fixture userdir=../../fixtures/user1
+frames 3

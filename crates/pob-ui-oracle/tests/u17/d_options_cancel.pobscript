@@ -1,0 +1,39 @@
+# U17: Options edits (checkbox, colour edit, dropdown, slider, numeric edit) and Cancel, which
+# restores savedState; reopening from the bottom bar shows the restored values.
+screen 1280 800 dpi 1.0
+#! u17-setup dev
+#! u17-setup options
+fixture userdir=../../fixtures/user1
+frames 2
+move 320 420
+click LEFTBUTTON
+move 360 341
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "0x123456"
+frames 2
+move 360 315
+click LEFTBUTTON
+frames 2
+move 360 335
+click LEFTBUTTON
+frames 2
+move 1000 394
+key-down LEFTBUTTON
+frames 1
+move 1060 394
+frames 2
+key-up LEFTBUTTON
+frames 1
+move 940 342
+click LEFTBUTTON
+type "21"
+frames 2
+move 685 641
+click LEFTBUTTON
+frames 2
+move 36 786
+click LEFTBUTTON
+frames 3

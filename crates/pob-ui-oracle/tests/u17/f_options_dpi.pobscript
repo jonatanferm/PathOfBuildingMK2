@@ -1,0 +1,13 @@
+# U17: the UI scaling dropdown reopens the popup at the new virtual size (L975-979): 100%, then
+# 125% (one column with a scroll bar); Escape cancels and restores the DPI override.
+screen 1280 800 dpi 1.0
+#! u17-setup options
+fixture userdir=../../fixtures/user1
+frames 2
+move 380 263
+wheel down 1
+frames 2
+wheel down 1
+frames 3
+press ESCAPE
+frames 3

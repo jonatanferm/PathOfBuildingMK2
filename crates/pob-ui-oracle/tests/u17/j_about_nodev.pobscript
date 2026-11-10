@@ -1,0 +1,14 @@
+# U17: the About of the bottom bar (no section) outside dev mode: changelog.txt/help.txt are not
+# in the script directory, so both lists are empty; the GitHub button opens the URL (it is at
+# y 108-126 at 1920x1080@1.5 and at y 148-166 at 1280x800).
+#! u17-setup about
+fixture userdir=../../fixtures/user1
+frames 2
+move 640 117
+frames 2
+click LEFTBUTTON
+frames 1
+move 640 157
+frames 2
+click LEFTBUTTON
+frames 2

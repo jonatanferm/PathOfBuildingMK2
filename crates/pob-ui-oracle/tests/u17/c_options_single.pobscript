@@ -1,0 +1,8 @@
+# U17: Options in one column (the screen is tall enough), dev mode (the Disable Dev AutoSave box).
+screen 1280 1000 dpi 1.0
+#! u17-setup dev
+#! u17-setup options
+fixture userdir=../../fixtures/user1
+frames 3
+move 460 160
+frames 2

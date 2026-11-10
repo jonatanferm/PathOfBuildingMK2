@@ -1,0 +1,30 @@
+# U17: Options with the scroll bar (too small for two columns): the scrolled clip of the instance
+# DrawControls/GetMouseOverControl overrides (Main.lua:1293-1313), wheel and knob drag.
+screen 1000 700 dpi 1.0
+#! u17-setup options
+fixture userdir=../../fixtures/user1
+frames 2
+move 789 300
+wheel down 3
+frames 2
+move 400 60
+frames 2
+move 520 120
+frames 2
+move 789 200
+wheel down 20
+frames 2
+move 789 300
+key-down LEFTBUTTON
+frames 1
+move 789 150
+frames 2
+key-up LEFTBUTTON
+frames 2
+move 520 40
+frames 2
+move 520 650
+frames 1
+move 789 300
+wheel up 40
+frames 2

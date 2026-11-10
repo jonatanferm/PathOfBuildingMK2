@@ -1,0 +1,23 @@
+# U17: F1 opens About on the help list ("build list tab" names no section: section 1); the
+# Version history and Help buttons swap the list; scrolling; Close.
+screen 1280 800 dpi 1.0
+#! u17-setup dev
+fixture userdir=../../fixtures/user1
+frames 2
+press F1
+frames 2
+move 640 400
+wheel down 5
+frames 2
+move 295 180
+click LEFTBUTTON
+frames 2
+move 640 400
+wheel down 10
+frames 2
+move 1005 180
+click LEFTBUTTON
+frames 2
+move 1010 106
+click LEFTBUTTON
+frames 2

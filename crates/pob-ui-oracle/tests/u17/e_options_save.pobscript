@@ -1,0 +1,56 @@
+# U17: Options edits, then Save (clicks Options Save): the connection protocol dropdown, the
+# proxy and build path edits, the separators, a highlight colour (updateColorCode + rgbColor),
+# checkboxes; Save sets launch.connectionProtocol/proxyURL and buildPath and runs SaveSettings.
+screen 1280 800 dpi 1.0
+#! u17-setup dev
+#! u17-setup custom
+#! u17-setup options
+#! u17-settings
+fixture userdir=../../fixtures/user1
+frames 2
+move 360 211
+click LEFTBUTTON
+frames 1
+move 360 241
+click LEFTBUTTON
+frames 1
+move 450 237
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "localhost:8080"
+move 400 289
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "/tmp/u17builds"
+move 360 393
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "0xFF0000"
+move 920 264
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "."
+move 920 290
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type ","
+move 320 446
+click LEFTBUTTON
+move 320 523
+click LEFTBUTTON
+move 920 471
+click LEFTBUTTON
+frames 1
+move 595 641
+click LEFTBUTTON
+frames 3
