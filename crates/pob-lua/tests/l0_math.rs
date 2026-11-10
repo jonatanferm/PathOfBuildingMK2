@@ -30,7 +30,7 @@ fn unary(name: &str, expr: &str, rs: impl Fn(f64) -> f64, seed: u64) {
         let lua = lua(mode);
         let xs = numbers(seed, N);
         let f = func(&lua, &format!("{ENC} return function(xs) local out = {{}} for i = 1, #xs do local x = xs[i] E(out, i, {expr}) end return out end"));
-        let out: pob_oracle::mlua::Table = f.call(seq_f64(&lua, &xs)).unwrap();
+        let out: mlua::Table = f.call(seq_f64(&lua, &xs)).unwrap();
         let mut c = Check::new(format!("{name} [{mode}]"));
         for (i, &x) in xs.iter().enumerate() {
             let want = num_at(&out, i + 1);
@@ -92,8 +92,7 @@ fn binary_alt(
             }
         }
         let f = func(&lua, &format!("{ENC} return function(xs, ys) local out = {{}} for i = 1, #xs do local x, y = xs[i], ys[i] E(out, i, {expr}) end return out end"));
-        let out: pob_oracle::mlua::Table =
-            f.call((seq_f64(&lua, &xs2), seq_f64(&lua, &ys))).unwrap();
+        let out: mlua::Table = f.call((seq_f64(&lua, &xs2), seq_f64(&lua, &ys))).unwrap();
         let mut c = Check::new(format!("{name} [{mode}]"));
         for i in 0..xs2.len() {
             let (x, y) = (xs2[i], ys[i]);
@@ -189,7 +188,7 @@ fn common_lua_rounding() {
     }
     for mode in modes() {
         let lua = lua(mode);
-        let fns: pob_oracle::mlua::Table = lua
+        let fns: mlua::Table = lua
             .load(common_lua_chunk())
             .eval()
             .expect("Common.lua chunk");
@@ -224,8 +223,8 @@ fn common_lua_rounding() {
             ("ceilSymmetric", ceilSymmetric),
         ];
         for (name, rs) in cases {
-            let f: pob_oracle::mlua::Function = fns.get(name).unwrap();
-            let out: pob_oracle::mlua::Table = runner
+            let f: mlua::Function = fns.get(name).unwrap();
+            let out: mlua::Table = runner
                 .call((f, seq_f64(&lua, &xs), decs_lua.clone(), xs.len()))
                 .unwrap();
             let mut c = Check::new(format!("Common.lua {name} [{mode}]"));
@@ -246,8 +245,8 @@ fn common_lua_rounding() {
             .map(|i| [1.0, 5.0, 0.5, 3.0, 0.1, 100.0][i % 6])
             .collect();
         for (name, rs) in [("triangular", 0usize), ("ceil_b", 1), ("floor_b", 2)] {
-            let f: pob_oracle::mlua::Function = fns.get(name).unwrap();
-            let out: pob_oracle::mlua::Table = runner
+            let f: mlua::Function = fns.get(name).unwrap();
+            let out: mlua::Table = runner
                 .call((f, seq_f64(&lua, &xs), seq_f64(&lua, &bases), xs.len()))
                 .unwrap();
             let mut c = Check::new(format!("Common.lua {name} [{mode}]"));
@@ -301,8 +300,7 @@ fn lj_bit() {
              E(o, k+5, b.bnot(x)) E(o, k+6, b.lshift(x, y)) E(o, k+7, b.rshift(x, y)) E(o, k+8, b.arshift(x, y)) \
              E(o, k+9, b.rol(x, y)) E(o, k+10, b.ror(x, y)) E(o, k+11, b.bswap(x)) end return o end"),
         );
-        let out: pob_oracle::mlua::Table =
-            f.call((seq_f64(&lua, &xs), seq_f64(&lua, &ys))).unwrap();
+        let out: mlua::Table = f.call((seq_f64(&lua, &xs), seq_f64(&lua, &ys))).unwrap();
         let names = [
             "tobit", "band", "bor", "bxor", "bnot", "lshift", "rshift", "arshift", "rol", "ror",
             "bswap",

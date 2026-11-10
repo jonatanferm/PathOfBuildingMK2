@@ -30,6 +30,7 @@ use pob_gamedata::{DataValue, Name, Value, ValueTable};
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_pob_src, find_up};
+use pob_oracle::runner::OracleLock;
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -282,6 +283,9 @@ fn lut_acceptance() {
         .unwrap_or_else(|| (1..=11).collect());
 
     let t0 = std::time::Instant::now();
+    // HYG3 (test audit): LuaJIT PoB (~400 MB) runs under the machine-wide oracle lock, held
+    // while `pob` lives (it is declared after the lock, so it is dropped first)
+    let _oracle_lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
     let mut pob = JitPob::boot_oracle(&src, Some(PRE)).unwrap_or_else(|e| panic!("boot: {e}"));
     pob.run(LIB).unwrap_or_else(|e| panic!("{e}"));
     eprintln!("oracle boot: {:?}", t0.elapsed());

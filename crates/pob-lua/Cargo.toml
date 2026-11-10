@@ -12,8 +12,10 @@ ustr.workspace = true
 smallvec.workspace = true
 
 [dev-dependencies]
-# L0 oracle: real LuaJIT (mlua) via pob-oracle. Dev-only: `cargo tree -p pob-lua -e normal` has no mlua.
-pob-oracle = { workspace = true }
+# L0 oracle: real LuaJIT through mlua directly (the workspace mlua: the vendored LuaJIT pob-oracle
+# runs; HYG3 / test audit L3: not via pob-oracle, so an L0 run does not build pob-calc and the
+# oracle). Dev-only: `cargo tree -p pob-lua -e normal` has no mlua.
+mlua.workspace = true
 # The tests (and only the tests) get the ARM64 dual-number profile switch, so L0 can
 # explain shipped-x64-profile vs ARM64-oracle differences (CCR-0001/0002, src/profile.rs).
 pob-lua = { path = ".", features = ["oracle-dualnum"] }

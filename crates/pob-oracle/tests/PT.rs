@@ -42,6 +42,7 @@ use pob_lua::{lfmt, tostring_num};
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_pob_src, find_up};
+use pob_oracle::runner::OracleLock;
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -880,6 +881,9 @@ fn passive_tree_acceptance() {
         .filter(|v| only.as_ref().is_none_or(|o| o.contains(v)))
         .collect();
 
+    // HYG3 (test audit): LuaJIT PoB (~400 MB) runs under the machine-wide oracle lock, held
+    // while `pob` lives (it is declared after the lock, so it is dropped first)
+    let _oracle_lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
     let t0 = std::time::Instant::now();
     let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
     pob.run(LIB).unwrap_or_else(|e| panic!("{e}"));
@@ -1074,6 +1078,7 @@ fn tree_nodes_order_varies_between_lua_states() {
         .unwrap_or(4);
     let mut orders = BTreeSet::new();
     for _ in 0..runs {
+        let _oracle_lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
         let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
         let r = pob
             .run("local t = main:LoadTree(latestTreeVersion) local p = {} for id in pairs(t.nodes) do p[#p + 1] = tostring(id) end return table.concat(p, ',')")

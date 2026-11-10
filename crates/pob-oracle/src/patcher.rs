@@ -1466,6 +1466,50 @@ fn walk_files(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> std::i
     Ok(())
 }
 
+/// Is `rel` (a path relative to PoB's `src/`) a cache PoB derives from its own sources and writes
+/// back into the tree at run time? Such a file is left out of every source fingerprint
+/// ([`plan_sha`], [`crate::runner::source_key`]): rewriting it does not change what PoB computes,
+/// and any PoB run may rewrite it.
+///
+/// `Data/TimelessJewelData/<name>.bin` is the inflated `<name>.zip` / `<name>.zip.part*`
+/// (Modules/DataJewelFileLoader.lua:44-90: when the `.bin` is missing or older than the zip, PoB
+/// inflates the zip and rewrites the `.bin` with `io.open(..., "wb+")`); the zips stay
+/// fingerprinted, so a changed source still changes the key.
+#[must_use]
+pub fn is_derived_cache(rel: &str) -> bool {
+    rel.strip_prefix("Data/TimelessJewelData/")
+        .map(Path::new)
+        .is_some_and(|name| {
+            name.parent() == Some(Path::new(""))
+                && name
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("bin"))
+        })
+}
+
+/// Hash the stat fingerprint (relative path, size, mtime) of every file of `files` except PoB's
+/// derived caches ([`is_derived_cache`]) into `h`.
+pub(crate) fn hash_stat_fingerprint(
+    h: &mut blake3::Hasher,
+    files: &[(String, PathBuf)],
+) -> std::result::Result<(), (PathBuf, std::io::Error)> {
+    for (rel, path) in files {
+        if is_derived_cache(rel) {
+            continue;
+        }
+        let meta = std::fs::metadata(path).map_err(|e| (path.clone(), e))?;
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos());
+        h.update(rel.as_bytes());
+        h.update(&meta.len().to_le_bytes());
+        h.update(&mtime.to_le_bytes());
+    }
+    Ok(())
+}
+
 /// The `<sha>` of a plan over a source tree.
 pub fn plan_sha(pob_src: &Path, plan: &Plan, files: &[(String, PathBuf)]) -> Result<String> {
     let mut h = blake3::Hasher::new();
@@ -1491,18 +1535,11 @@ pub fn plan_sha(pob_src: &Path, plan: &Plan, files: &[(String, PathBuf)]) -> Res
         h.update(&[0]);
     }
     let canon = std::fs::canonicalize(pob_src).unwrap_or_else(|_| pob_src.to_path_buf());
+    // the Lua runtime the probe binary boots the copy with (HYG3)
+    h.update(crate::runner::lua_runtime_versions().as_bytes());
+    h.update(&[0]);
     h.update(canon.to_string_lossy().as_bytes());
-    for (rel, path) in files {
-        let meta = std::fs::metadata(path).map_err(|e| err(format!("{}: {e}", path.display())))?;
-        let mtime = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |d| d.as_nanos());
-        h.update(rel.as_bytes());
-        h.update(&meta.len().to_le_bytes());
-        h.update(&mtime.to_le_bytes());
-    }
+    hash_stat_fingerprint(&mut h, files).map_err(|(p, e)| err(format!("{}: {e}", p.display())))?;
     Ok(h.finalize().to_hex()[..16].to_owned())
 }
 
@@ -1674,6 +1711,60 @@ pub fn manifest_of(src: &Path) -> Option<Manifest> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn derived_caches_are_the_jewel_bins() {
+        assert!(is_derived_cache("Data/TimelessJewelData/LethalPride.bin"));
+        assert!(!is_derived_cache("Data/TimelessJewelData/LethalPride.zip"));
+        assert!(!is_derived_cache(
+            "Data/TimelessJewelData/AbyssKurgal.zip.part0"
+        ));
+        assert!(!is_derived_cache(
+            "Data/TimelessJewelData/LegionPassives.lua"
+        ));
+        assert!(!is_derived_cache("Data/TimelessJewelData/sub/x.bin"));
+        assert!(!is_derived_cache("Data/Other/x.bin"));
+    }
+
+    /// Rewriting a jewel `.bin` (as any PoB run may) leaves the `<sha>` unchanged; changing the
+    /// zip it is inflated from does not.
+    #[test]
+    fn plan_sha_ignores_derived_caches() {
+        // not std::env::temp_dir(): /tmp is a RAM-backed tmpfs on the port machines
+        let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/tmp")
+            .join(format!("hyg3-plan-sha-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let jd = d.join("Data/TimelessJewelData");
+        std::fs::create_dir_all(&jd).unwrap();
+        std::fs::write(d.join("a.lua"), "return 1").unwrap();
+        std::fs::write(jd.join("X.zip"), "zip").unwrap();
+        std::fs::write(jd.join("X.bin"), "inflated").unwrap();
+        let plan = Plan {
+            stages: StagesFile::default(),
+            sites: Vec::new(),
+            files: Vec::new(),
+        };
+        let sha = || {
+            let mut tree = Vec::new();
+            walk_files(&d, "", &mut tree).unwrap();
+            plan_sha(&d, &plan, &tree).unwrap()
+        };
+        let k1 = sha();
+        std::fs::write(jd.join("X.bin"), "inflated, written again").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(jd.join("X.bin"))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3600))
+            .unwrap();
+        assert_eq!(k1, sha(), "a .bin rewrite changed the sha");
+        std::fs::remove_file(jd.join("X.bin")).unwrap();
+        assert_eq!(k1, sha(), "a missing .bin changed the sha");
+        std::fs::write(jd.join("X.zip"), "zip v2").unwrap();
+        assert_ne!(k1, sha(), "the zip is not fingerprinted");
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn compound_rewrite_matches_the_loader() {

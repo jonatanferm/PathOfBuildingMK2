@@ -94,3 +94,35 @@ Open issues from the CCR2 final review (owner: whoever next touches scripts/port
    **Resolved at integration** in c477ed9 (files untracked, `.gitignore` now ignores `__pycache__/`
    and `*.pyc`). Units branched from port/CCR2 before c477ed9 still carry the tracked files and
    pick up the removal on merge; do not re-add them.
+
+## HYG3 exposed
+
+Found while fixing HYG3 (shared oracle caches) on port/HYG3 merged with rust-port ef928ff
+(2026-11-10).
+
+1. **OF-C `ofc_l4_costs_passes` fails on allflame_exp_029, allflame_exp_046 and allflame_exp_049**
+   (owner: OF-C, the test; the calc is right). `3 of 53 all57 hits differ (> 2 %)`. Each build
+   has two `ModExtra` entries in `locals.skillModList.mods`: Rust's state has
+   `ChaosMin` / `ChaosMax` BASE 0 from source `Life Flask charges consumed` (the
+   PoisonousConcoction `preDamageFunc`, Data/Skills/act_dex.lua:17423-17428) one time more than
+   PoB's `offence:2174` dump. Cause: the test still replays PoB's recorded
+   `skill:<id>:preDamageFunc` delta onto the state after the segment
+   (tests/OF-C.rs, `if let Some(h) = hook`), as its module doc says, because
+   `runSkillFunc("preDamageFunc")` (CalcOffence.lua:1908) "is OF-A's still unported local
+   function". OF-A has since ported it (`calc_offence/costs_passes.rs:925`
+   `runSkillFunc(ctx, SkillHook::preDamageFunc)`), so the segment runs the hook itself and the
+   replay applies it a second time. Its `NewMod` calls append, so the mods are doubled. Hooks that
+   only assign fields are idempotent, which is why only these three builds differ. Evidence:
+   with the replay disabled locally, the test reports `62 builds, 58 hits, 58 clean, 0 with
+   mismatches` (and the three builds alone are 3/3 clean). Fix: drop the replay (and the
+   `skill:*:preDamageFunc:*@main` part of the selection, with "preDamageFunc replayed in N")
+   and update the module doc.
+2. **Patched PoB copies accumulate in `target/oracle-src`** (owner: HYG3 / the test tooling).
+   Each copy is about 839 MB, one per patch sha (`runner::shared_patch_root`; the main
+   checkout's `target/oracle-src` held 5 on 2026-11-10). Any change to the PoB tree,
+   `docs/port/stages.toml`, the probe Lua or the Lua runtime versions adds one, and nothing
+   removes the old ones. They cannot be pruned automatically while running: another worktree
+   on another branch (another `stages.toml`) may be booting PoB from an older copy. For now,
+   delete `target/oracle-src/<sha>` dirs by hand when no oracle test is running (they are
+   rebuilt on demand). A safe prune would need a use marker (e.g. an mtime touched by
+   `patcher::patch` on every reuse) and an age threshold.

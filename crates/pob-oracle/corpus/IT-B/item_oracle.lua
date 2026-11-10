@@ -3,6 +3,7 @@
 --   __itb_corpus   = { { src = "<build>#<n>", raw = "<item text>" }, ... }  (items of the build corpus)
 --   __itb_stringify = { <table>, ... }                                       (Utils.stringify vectors)
 --   __itb_tmp      = path of a scratch file for Utils.saveTableToFile
+--   __itb_missing  = path in a missing directory for the open-error probe (default: under __itb_tmp)
 --   __itb_limit    = max uniques (nil = all)
 -- Returns one JSON document (see the test for its shape).
 
@@ -467,8 +468,9 @@ if __itb_tmp and __itb_stringify and __itb_stringify[1] then
 end
 -- the open-error message (io.open's "<name>: <strerror>"), on a path in a missing directory
 local saveErr = '"$skip"'
-if __itb_tmp then
-	local ok, err = pcall(utils.saveTableToFile, __itb_tmp .. ".missing/x.lua", { 1 }, nil, false)
+local missing = __itb_missing or (__itb_tmp and __itb_tmp .. ".missing/x.lua")
+if missing then
+	local ok, err = pcall(utils.saveTableToFile, missing, { 1 }, nil, false)
 	saveErr = ok and '"$noerr"' or encstr(tostring(err))
 end
 
