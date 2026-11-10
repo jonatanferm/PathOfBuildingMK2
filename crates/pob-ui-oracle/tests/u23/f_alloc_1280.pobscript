@@ -1,0 +1,54 @@
+# U23: allocate a path on a 3_27 Witch (1280x800 coordinates): drag the tree down, zoom in at the class
+# start, hover Cast Speed (the path highlight and the tooltip stand-in), Ctrl+C (Copy), click (AllocNode
+# along the path, recalc through the bridge), trace a path with SHIFT through three nodes and click
+# (AllocNode with the trace path), click an allocated node (DeallocNode), Ctrl+D, a Ctrl-click zoom, and
+# the build XML with the viewer's TreeView section.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/tree_3_27.xml"
+frames 2
+move 796 400
+key-down LEFTBUTTON
+frames 1
+move 796 650
+frames 1
+key-up LEFTBUTTON
+frames 1
+move 796 472
+wheel up 6
+frames 1
+move 717 331
+frames 2
+key-down CTRL
+press c
+key-up CTRL
+frames 1
+click LEFTBUTTON
+frames 3
+key-down SHIFT
+move 823 425
+frames 1
+move 866 375
+frames 1
+move 873 331
+frames 1
+click LEFTBUTTON
+frames 2
+key-up SHIFT
+frames 1
+move 717 331
+frames 1
+click LEFTBUTTON
+frames 3
+key-down CTRL
+press d
+key-up CTRL
+frames 1
+move 900 500
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 2
+snapshot alloc
+frames 1

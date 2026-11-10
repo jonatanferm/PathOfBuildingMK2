@@ -1,0 +1,12 @@
+# U23: the heat map (P toggles showHeatMap; the BuildPower stand-in gives every node a power from its id).
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+move 800 400
+press p
+frames 2
+move 700 300
+frames 1
+press p
+frames 2
