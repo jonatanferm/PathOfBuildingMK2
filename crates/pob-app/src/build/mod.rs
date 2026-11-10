@@ -111,8 +111,9 @@ pub struct BuildState {
     pub db_file_name_is_false: bool,
     /// `self.dbFileSubPath` (nil → `None`)
     pub db_file_sub_path: Option<String>,
-    /// `self.buildName` (nil → `None` is impossible past Init's L74; "" never occurs)
-    pub build_name: String,
+    /// `self.buildName` (nil → `None`: Init goes on with a nil name after L74, whose
+    /// `SetMode("LIST")` takes effect on the next frame)
+    pub build_name: Option<String>,
     /// `self.importLink`
     pub import_link: Option<String>,
     /// `self.saveAsSortMode`
@@ -160,7 +161,8 @@ impl Mode for BuildModeObj {
             None if b.db_file_name_is_false => ModeArg::Bool(false),
             None => ModeArg::Nil,
         };
-        Some(vec![db, ModeArg::Str(b.build_name.clone())])
+        let name = b.build_name.clone().map_or(ModeArg::Nil, ModeArg::Str);
+        Some(vec![db, name])
     }
     /// `buildMode:CanExit(mode)` (Build.lua:943-949, U20).
     fn can_exit(&self, cx: &mut Cx, reason: &str) -> Option<bool> {

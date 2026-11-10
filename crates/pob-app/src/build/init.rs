@@ -10,9 +10,10 @@
 //! 1. L65-76 (dbFileSubPath, `main:SetMode("LIST")`, saveAsSortMode);
 //! 2. `Init_model` (L77-110, then L603-698 model part: LoadDB, tab models, section loaders,
 //!    PostLoad, UpdateSocketGroups, outputRevision; the first BuildOutput is left to the facade);
-//! 3. L111-602 (the controls), then the UI parts of 603-698 (tab UI constructors, the breakdown
-//!    control, the UI-only section loaders, UpdateClassDropdowns, BuildOutput, RefreshStatList),
-//!    then 699-726.
+//! 3. L111-602 (the controls), then the UI parts of 603-698 in PoB's order (tab UI constructors
+//!    with the TreeTab constructor's `SetActiveSpec` UI lines, the breakdown control, L646
+//!    UpdateClassDropdowns, the UI-only section loaders, each deferred Tree load's
+//!    `SetActiveSpec` UI lines (CCR-0098 §6), BuildOutput, RefreshStatList), then 699-727.
 //!
 //! DIVERGENCE(init-order): the controls are created after the tab models and the section loads
 //! instead of before them. Nothing is drawn during Init and the controls read only fields the
@@ -505,8 +506,9 @@ pub fn flush_window_titles(cx: &mut Cx) {
             .app()
             .build
             .as_ref()
-            .map(|b| b.build_name.clone())
-            .unwrap_or_default();
+            .and_then(|b| b.build_name.clone())
+            // LuaJIT's `%s` formats nil as "nil"
+            .unwrap_or_else(|| "nil".to_owned());
         main_mode::folders::set_window_title_subtext(
             cx,
             Some(&format!("{name} ({class_text})")),
@@ -522,6 +524,15 @@ fn install_title_hook() {
 }
 
 // ---- small accessors -------------------------------------------------------------------------
+
+/// `self.buildName` as an operand of `..` (nil raises).
+#[track_caller]
+fn build_name_concat(cx: &Cx) -> String {
+    cx.build()
+        .build_name
+        .clone()
+        .unwrap_or_else(|| lua_error!("attempt to concatenate field 'buildName' (a nil value)"))
+}
 
 /// `self.controls[key]` (a missing control is a Lua nil index).
 #[track_caller]
@@ -618,7 +629,7 @@ fn drop_str(v: Option<&DropItem>) -> Option<String> {
 #[allow(clippy::redundant_else)] // the Lua if/else
 fn find_set_id(
     set_order_list: &[u32],
-    value: &str,
+    value: Option<&str>,
     sets: &indexmap::IndexMap<u32, model::Table>,
     set_special_links: &SpecialLinks,
 ) -> Option<f64> {
@@ -631,12 +642,12 @@ fn find_set_id(
         let title = set
             .str(n!("title"))
             .map_or_else(|| "Default".to_owned(), |s| s.to_string());
-        if value == title {
+        if value == Some(title.as_str()) {
             // L367
             return Some(f64::from(*set_order));
         } else {
             // L363
-            let link_match = link_match(value);
+            let link_match = link_match_value(value);
             // L364
             if let Some(link_match) = link_match {
                 // L368
@@ -651,16 +662,20 @@ fn find_set_id(
 /// L377-389 `findNamedSetId(treeList, value, setSpecialLinks)`: trees have a different structure
 /// with id/name pairs; return id as soon as it's found.
 #[allow(clippy::redundant_else)] // the Lua if/else
-fn find_named_set_id(tree_list: &[String], value: &str, set_special_links: &SpecialLinks) -> Option<f64> {
+fn find_named_set_id(
+    tree_list: &[String],
+    value: Option<&str>,
+    set_special_links: &SpecialLinks,
+) -> Option<f64> {
     // L380
     for (id, spec) in tree_list.iter().enumerate() {
         // L378
-        if value == spec {
+        if value == Some(spec.as_str()) {
             // L379
             return Some((id + 1) as f64);
         } else {
             // L384
-            let link_match = link_match(value);
+            let link_match = link_match_value(value);
             // L382
             if let Some(link_match) = link_match {
                 // L383
@@ -670,6 +685,15 @@ fn find_named_set_id(tree_list: &[String], value: &str, set_special_links: &Spec
     }
     // L388
     None
+}
+
+/// `string.match(value, "%{(%w+)%}")` with the selFunc's `value` (nil raises, as
+/// `string.match` does; it is only reached inside the find loops, L363/L384).
+#[track_caller]
+fn link_match_value(value: Option<&str>) -> Option<String> {
+    link_match(
+        value.unwrap_or_else(|| lua_error!("bad argument #1 to 'match' (string expected, got nil)")),
+    )
 }
 
 /// `string.match(value, "%{(%w+)%}")`
@@ -761,7 +785,7 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
         db_file_name: None,
         db_file_name_is_false: false,
         db_file_sub_path: None,
-        build_name: String::new(),
+        build_name: None,
         import_link: None,
         save_as_sort_mode: String::new(),
         abort_save: None,
@@ -773,7 +797,7 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
     cx.build_mut().db_file_name = db_file_name.clone();
     cx.build_mut().db_file_name_is_false = matches!(a_db_file_name, ModeArg::Bool(false));
     // L66
-    cx.build_mut().build_name = build_name.clone().unwrap_or_default();
+    cx.build_mut().build_name = build_name.clone();
     // L67
     cx.build_mut().import_link = import_link.clone();
     // L68
@@ -851,11 +875,6 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
     }
 
     init_controls(cx, me, &h, build_name.as_deref(), prev_secondary);
-    // CCR-0098 §6: the UI lines of the `TreeTab:SetActiveSpec` calls Init_model made
-    // (TreeTab.lua:556-557, `self.build.spec:SetWindowTitleWithBuildClass()` and
-    // `self.build:UpdateClassDropdowns(..)`; calc:BM-A's port leaves them to the UI and has no
-    // hook). They run after the ~~temp~~ rename, as in PoB (L421-428 precede L613).
-    tree_tab_set_active_spec_ui_tails(cx, &h, &model_ref);
 
     // Initialise build components (UI parts of L603-698)
     // L605-607 (model part: calc:BM-A)
@@ -869,7 +888,10 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
     let config = (h.config_tab)(cx, me);
     // L612 (model part: calc:BM-A)
     let items = (h.items_tab)(cx, me);
-    // L613 (model part: calc:BM-A)
+    // L613 (model part: calc:BM-A). CCR-0098 §6: the UI lines of the constructor's
+    // `SetActiveSpec(1)` (TreeTab.lua:37 -> :556-557), which Init_model ran; they come after
+    // the ~~temp~~ rename (L421-428), as in PoB.
+    tree_tab_ctor_set_active_spec_ui_tail(cx, &h, &model_ref);
     let tree = (h.tree_tab)(cx, me);
     // L614 (model part: calc:BM-A)
     let skills = (h.skills_tab)(cx, me);
@@ -907,8 +929,15 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
     };
 
     // Load sections from the build file
-    // L629-642 self.savers / self.legacyLoaders (calc:BM-A's SAVERS); L657-670 the UI-only
-    // savers' Load, in document order
+    // L629-642 self.savers / self.legacyLoaders (calc:BM-A's SAVERS)
+
+    // special rebuild to properly initialise boss placeholders
+    // L645 (model part: calc:BM-A)
+    // L646
+    let f = h.update_class_dropdowns.clone();
+    f(cx, None);
+    // L648-656 (model part: calc:BM-A)
+    // L657-670 the UI-only savers' Load, in document order
     let db = cx.build().db_file_name.clone();
     for node in build_xml::xmlSectionList(&model_ref) {
         let elem = node.elem.to_string();
@@ -924,12 +953,10 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
         }
     }
 
-    // special rebuild to properly initialise boss placeholders
-    // L645 (model part: calc:BM-A)
-    // L646
-    let f = h.update_class_dropdowns.clone();
-    f(cx, None);
-    // L648-698 (model part: calc:BM-A) up to the first BuildOutput
+    // L671-676 (model part: calc:BM-A). CCR-0098 §6: the UI lines of the `SetActiveSpec` at
+    // the end of each deferred `Tree` section's `TreeTab:Load` (TreeTab.lua:525 -> :556-557)
+    tree_tab_load_set_active_spec_ui_tails(cx, &h, &model_ref);
+    // L677-694 (model part: calc:BM-A) up to the first BuildOutput
     // L695
     let calc_model = model_ref.clone();
     let _ = cx.build_mut().calc.build_output(&calc_model);
@@ -939,10 +966,13 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
     // L697
     model_ref.buildFlag.set(false);
 
+    // Init's UI tail (L699, L725-727; L603-698 is `Init_model`'s segment)
+    // @pob Modules/Build.lua:699-699 h=ee9e4c06
     // L699
     set_window_title_with_build_class(cx);
 
     // @pob-skip Modules/Build.lua:701-723 reason="commented-out test and profiling code"
+    // @pob Modules/Build.lua:724-727 h=1fab6893
     // L725
     cx.build_mut().abort_save = Some(false);
     // L726
@@ -951,15 +981,15 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
 }
 
 /// CCR-0098 §6 workaround (delete once calc:BM-A's `TreeTab:SetActiveSpec` calls a UI hook for
-/// TreeTab.lua:556-557): replays those two lines for each `SetActiveSpec` call of
-/// `Init_model`, in order:
-/// * the constructor's `SetActiveSpec(1)` (TreeTab.lua:37), whose spec is a fresh
-///   `PassiveSpec` of class 0 with no ascendancy (PassiveSpec.lua:2391: the class name);
-/// * the one at the end of each `Tree` section's `TreeTab:Load` (TreeTab.lua:525; a legacy
-///   `Spec` section sets the spec without it, :502-508), whose spec is the build's spec now
-///   (PostLoad and UpdateSocketGroups do not change its class).
-fn tree_tab_set_active_spec_ui_tails(cx: &mut Cx, h: &BuildHooks, model_ref: &model::BuildRef) {
-    // TreeTab.lua:37 (the constructor's spec)
+/// TreeTab.lua:556-557): replays those two lines for the constructor's `SetActiveSpec(1)`
+/// (TreeTab.lua:37, at L613), whose spec is a fresh `PassiveSpec` of class 0 with no
+/// ascendancy (PassiveSpec.lua:2391: the class name). Called before the TreeTab UI ctor hook:
+/// in PoB it runs inside the ctor, after the viewer and before `SetCompareSpec` (:35-38).
+fn tree_tab_ctor_set_active_spec_ui_tail(
+    cx: &mut Cx,
+    h: &BuildHooks,
+    model_ref: &model::BuildRef,
+) {
     let class0 = model_ref.latestTree.get().and_then(|tree| {
         tree.classes
             .get(0.0)
@@ -973,7 +1003,19 @@ fn tree_tab_set_active_spec_ui_tails(cx: &mut Cx, h: &BuildHooks, model_ref: &mo
     });
     flush_window_titles(cx);
     (h.update_class_dropdowns)(cx, Some(model_ref.data.gameVersions.latestTreeVersion));
-    // TreeTab.lua:525 (each Tree section)
+}
+
+/// CCR-0098 §6 workaround (delete with the hook): replays TreeTab.lua:556-557 for the
+/// `SetActiveSpec` at the end of each deferred `Tree` section's `TreeTab:Load` (L671-676 ->
+/// TreeTab.lua:525; a legacy `Spec` section sets the spec without it, :502-508). Approximation
+/// (CCR-0098 §6): every replay uses the build's final spec, where PoB uses that load's own
+/// active spec; the two differ only for a build file with more than one `Tree` section.
+/// PostLoad and UpdateSocketGroups (L678-693) do not change the final spec's class.
+fn tree_tab_load_set_active_spec_ui_tails(
+    cx: &mut Cx,
+    h: &BuildHooks,
+    model_ref: &model::BuildRef,
+) {
     let tree_loads = build_xml::xmlSectionList(model_ref)
         .iter()
         .filter(|n| &*n.elem == "Tree")
@@ -1103,7 +1145,13 @@ fn init_controls(
         // L153
         let bnw = cx
             .sg
-            .draw_string_width(16.0, Font::Var, &cx.build().build_name);
+            .draw_string_width(
+                16.0,
+                Font::Var,
+                cx.build().build_name.as_deref().unwrap_or_else(|| {
+                    lua_error!("DrawStringWidth() argument 3: expected string, got nil")
+                }),
+            );
         let s = st(cx, me);
         // L154
         s.str_width.set(m_min(bnw, limit));
@@ -1133,7 +1181,7 @@ fn init_controls(
             // L166
             cx.sg.set_viewport(x, y + 2.0, str_width + 94.0, 16.0);
             // L167
-            let text = format!("Current build:  {}", cx.build().build_name);
+            let text = format!("Current build:  {}", build_name_concat(cx));
             cx.sg.draw_string(0.0, 0.0, Align::Left, 16.0, Font::Var, &text);
             // L168
             cx.sg.reset_viewport();
@@ -1150,10 +1198,11 @@ fn init_controls(
                 // L172
                 if let Some(sub) = sub.filter(|s| !s.is_empty()) {
                     // L173
+                    let name = build_name_concat(cx);
                     tt.add_line(cx, 16.0, &format!("{sub}{name}"));
                 } else if st(cx, me).str_limited.get() {
-                    // L174-175
-                    tt.add_line(cx, 16.0, &name);
+                    // L174-175 (unreachable with a nil name: L153 raised first)
+                    tt.add_line(cx, 16.0, name.as_deref().unwrap_or_default());
                 }
                 // L177
                 let vp = cx.main.view_port;
@@ -1566,8 +1615,8 @@ fn init_controls(
             // L356
             return;
         }
-        let value = value_s
-            .unwrap_or_else(|| lua_error!("bad argument #1 to 'match' (string expected, got nil)"));
+        // a nil `value` raises only inside the find loops (L363/L384), not here
+        let value = value_s;
 
         // L361-373 findSetId, L377-389 findNamedSetId: see find_set_id / find_named_set_id
         let model = cx.build().model.clone();
@@ -1581,14 +1630,15 @@ fn init_controls(
         // L395
         let spec_list = (hk.tree_get_spec_list)(cx);
         let s = st(cx, me);
-        let new_spec_id = find_named_set_id(&spec_list, &value, &s.tree_list_special_links);
+        let new_spec_id =
+            find_named_set_id(&spec_list, value.as_deref(), &s.tree_list_special_links);
         // L396
         let new_item_id = if one_item {
             Some(1.0)
         } else {
             let order = model.itemsTab.itemSetOrderList.with(Clone::clone);
             model.itemsTab.itemSets.with(|sets| {
-                find_set_id(&order, &value, sets, &s.item_list_special_links)
+                find_set_id(&order, value.as_deref(), sets, &s.item_list_special_links)
             })
         };
         // L397
@@ -1597,7 +1647,7 @@ fn init_controls(
         } else {
             let order = model.skillsTab.skillSetOrderList.with(Clone::clone);
             model.skillsTab.skillSets.with(|sets| {
-                find_set_id(&order, &value, sets, &s.skill_list_special_links)
+                find_set_id(&order, value.as_deref(), sets, &s.skill_list_special_links)
             })
         };
         // L398
@@ -1606,7 +1656,7 @@ fn init_controls(
         } else {
             let order = model.configTab.configSetOrderList.with(Clone::clone);
             model.configTab.configSets.with(|sets| {
-                find_set_id(&order, &value, sets, &s.config_list_special_links)
+                find_set_id(&order, value.as_deref(), sets, &s.config_list_special_links)
             })
         };
 
@@ -1644,7 +1694,7 @@ fn init_controls(
         // L418
         let loadouts = ctl(cx, me, "buildLoadouts");
         DropDownControl::sel_by_value(cx, loadouts, &|it: &DropItem| {
-            it.as_str() == Some(value.as_str())
+            it.as_str() == value.as_deref()
         });
     });
     cx.add(
@@ -1668,7 +1718,7 @@ fn init_controls(
             let _ = cx.sys.fs.remove(&db);
         }
         // L424
-        cx.build_mut().build_name = "Unnamed build".to_owned();
+        cx.build_mut().build_name = Some("Unnamed build".to_owned());
         // L425
         cx.build_mut().db_file_name = None;
         cx.build_mut().db_file_name_is_false = true;
@@ -2464,9 +2514,11 @@ mod tests {
         assert_eq!(link_match("x {abc} y").as_deref(), Some("abc"));
         assert_eq!(link_match("plain"), None);
         let list = vec!["Default".to_owned(), "Second".to_owned()];
-        assert_eq!(find_named_set_id(&list, "Second", &links), Some(2.0));
-        assert_eq!(find_named_set_id(&list, "Nope", &links), None);
-        assert_eq!(find_named_set_id(&list, "{abc}", &links), Some(4.0));
+        assert_eq!(find_named_set_id(&list, Some("Second"), &links), Some(2.0));
+        assert_eq!(find_named_set_id(&list, Some("Nope"), &links), None);
+        assert_eq!(find_named_set_id(&list, Some("{abc}"), &links), Some(4.0));
+        // a nil value only raises inside the loop (Build.lua:384)
+        assert_eq!(find_named_set_id(&[], None, &links), None);
         assert_eq!(id_table_len([1u32, 2, 3].into_iter()), 3.0);
         assert_eq!(id_table_len([1u32, 3].into_iter()), 1.0);
         assert_eq!(id_table_len(std::iter::empty()), 0.0);

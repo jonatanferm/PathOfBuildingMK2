@@ -22,7 +22,7 @@ Applied in `pob-app/src/build/mod.rs`:
 +    pub db_file_name: Option<String>,
 +    pub db_file_name_is_false: bool,   // GetArgs / Settings.xml tell `false` from nil (Main.lua:744 ipairs)
 +    pub db_file_sub_path: Option<String>,
-+    pub build_name: String,
++    pub build_name: Option<String>,    // nil: Init goes on after L74 (SetMode("LIST") is deferred)
 +    pub import_link: Option<String>,
 +    pub save_as_sort_mode: String,
 +    pub abort_save: Option<bool>,
@@ -126,10 +126,28 @@ Proposed: a registered UI hook called at L556-557:
 +    if let Some(f) = hook { f(build, curSpec.treeVersion.get()) }
 ```
 
-Work-around: `build/init.rs::tree_tab_set_active_spec_ui_tails` replays both lines after
-`Init_model` (the constructor's spec is a fresh class-0 spec, PassiveSpec.lua:2391; each Tree
-load's spec is the build's spec). Delete it with the hook. Other callers of the model's
-`SetActiveSpec` (U25, the loadouts selFunc) need the same.
+Work-around (delete both with the hook): `build/init.rs` replays both lines at the points PoB
+runs them, keeping PoB's order of window titles and `UpdateClassDropdowns` calls:
+
+1. `tree_tab_ctor_set_active_spec_ui_tail` at L613, before the TreeTab UI ctor hook (after the
+   Import/Notes/Party/Config/Items UI ctors, L608-612): title with the constructor's fresh
+   class-0 spec (PassiveSpec.lua:2391), `UpdateClassDropdowns(latestTreeVersion)`;
+2. then L646 `UpdateClassDropdowns()` (nil) and the UI-only section loads (L657-670);
+3. `tree_tab_load_set_active_spec_ui_tails` at L671-676: per deferred `Tree` section, title and
+   `UpdateClassDropdowns(spec.treeVersion)`, so the last call before L695 uses the build's own
+   tree version.
+
+Known approximations, which the real hook removes:
+* in PoB the constructor's lines run inside `TreeTab:TreeTab` (TreeTab.lua:37, after the viewer,
+  before `SetCompareSpec`); the work-around runs them just before the UI ctor hook;
+* each replayed `Tree` load uses the build's final spec (class, ascendancy, tree version), where
+  PoB uses that load's own active spec; they differ only for a file with more than one `Tree`
+  section;
+* when `Init_model` closes the build at L666/L675 (a section's `Load` returned true), U19
+  returns before the controls (L111-602) and these lines, while PoB has already run them; the
+  build then closes (CloseBuild, U20), so only side effects before the close differ.
+
+Other callers of the model's `SetActiveSpec` (U25, the loadouts selFunc) need the same hook.
 
 ## 7. `SetWindowTitleWithBuildClass` reaches the UI without `cx`
 
@@ -142,4 +160,14 @@ title flush after it (no frame passes in between, so the effect order is PoB's).
 ## 8. `buildMode:GetArgs` (Build.lua:967-969, U20's range)
 
 The `Mode` trait needs it in `build/mod.rs` (`BuildModeObj::get_args`); U19 implements the one
-statement there (`dbFileName`: string, `false` or nil; `buildName`).
+statement there (`dbFileName`: string, `false` or nil; `buildName`: string or nil).
+
+## 9. Notes for U20
+
+* Conversion popup (L106-109): PoB returns before `wipeTable(self.controls)` (L114), so the
+  previous build's controls stay in place behind the popup. U19's `init` buries the previous
+  build node and starts a fresh one, so none remain. This is visible only with U20's OnFrame and
+  conversion popup; U20 should keep the previous node's controls on that path when it lands
+  them.
+* §5: U20 takes the `default_modes` switch to `crate::build::mode()` together with U16's test
+  change, or the desktop app never enters the Rust build mode.

@@ -12,8 +12,11 @@
 //! * `buildMode:OnFrame` (U20) only runs `ProcessControlsInput`, `SetDrawLayer(5)` and
 //!   `DrawControls` (Build.lua:1253, 1323, 1348), after setting `controls.pointDisplay.str/req`
 //!   to fixed texts (EstimatePlayerProgress, U20); pob-app's `init::pending_on_frame`;
-//! * `UpdateClassDropdowns`, `SyncLoadouts` (U20) and `RefreshStatList` (U21) do nothing (the
-//!   class, loadout and skill dropdowns stay empty; the stat box has no lines);
+//! * `UpdateClassDropdowns` (U20) only records its argument as a window title (`UCD <treeVersion>`),
+//!   so the order of its calls among the window titles is compared (the fixture builds use the
+//!   3_13 and 3_29 trees, the new build the latest); `SyncLoadouts` (U20) and `RefreshStatList`
+//!   (U21) do nothing (the class, loadout and skill dropdowns stay empty; the stat box has no
+//!   lines);
 //! * the tabs are PoB's own on the Lua side (Init constructs and loads them; nothing draws them
 //!   while OnFrame is the stand-in) and pending placeholders on the Rust side;
 //! * `main:OpenAboutPopup` / `OpenOptionsPopup` open a message popup naming their argument.
@@ -90,7 +93,7 @@ local function stubMode()
 end
 main.modes.LIST = stubMode()
 local b = main.modes.BUILD
-function b:UpdateClassDropdowns() end
+function b:UpdateClassDropdowns(treeVersion) SetWindowTitle("UCD " .. tostring(treeVersion)) end
 function b:SyncLoadouts() end
 function b:RefreshStatList() end
 function b:OnFrame(inputEvents)
@@ -130,6 +133,10 @@ fn rust_stubs(cx: &mut Cx) {
     init::set_hooks(|h| {
         *h = init::default_hooks();
         h.on_frame = Rc::new(rust_on_frame);
+        h.update_class_dropdowns = Rc::new(|cx, tv| {
+            let tv = tv.as_deref().unwrap_or("nil");
+            cx.sys.platform.set_window_title(&format!("UCD {tv}"));
+        });
     });
 }
 
