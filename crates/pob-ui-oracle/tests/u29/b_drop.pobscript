@@ -1,0 +1,25 @@
+# U29: click the empty slot's body: OnFocusGained drops the full list sorted by the stand-in DPS
+# (check marks / "+" coloured by dpsColor), hover rows (debounced hover tooltip: the gem tooltip
+# and AddStatComparesToTooltip of CalcOutputWithThisGem), scroll with the wheel, arrow keys
+# (SetText + UpdateGem + ScrollSelIntoView), RETURN selects (gemChangeFunc).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 300 130
+click LEFTBUTTON
+frames 2
+move 300 155
+frames 4
+move 300 190
+frames 3
+wheel down 2
+frames 3
+press DOWN
+press DOWN
+press DOWN
+frames 2
+press UP
+frames 1
+press RETURN
+frames 3
