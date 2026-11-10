@@ -105,6 +105,7 @@ fn cat_key(k: &Key) -> String {
         Key::S(s) => s.to_string(),
         Key::I(i) => tostring_num(*i as f64),
         Key::B(_) => lua_error!("attempt to concatenate a boolean value"),
+        Key::F(f) => tostring_num(f.get()),
     }
 }
 

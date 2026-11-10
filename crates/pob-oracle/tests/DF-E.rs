@@ -13,14 +13,21 @@
 //! Inputs: `data/dump` and the dumps of both stages **from one PoB run** per build (PoB's
 //! string-keyed `pairs` order differs per process, so an `:in` dump of one run and an `:out`
 //! dump of another disagree on mod order; the shared probe cache can hold such a mix when other
-//! units re-probe the same build). Looked up first in `$DFE_PROBE_DIR/<stem>/state/` (default
-//! `<workspace>/target/dfe-probe`), then in testkit's directories; a hit uses the first directory
-//! holding both of its dumps. Fill the private directory with
+//! units re-probe the same build). Taken from `$DFE_PROBE_DIR/<stem>/state/` (default
+//! `<workspace>/target/dfe-probe`) when it exists, else from this test's selection entry of the
+//! shared probe cache (`testkit::probe_selection`: one PoB run per build, probed when absent,
+//! under the machine-wide oracle lock; `POB_QUERY_CACHE=refresh` re-probes). Fill the private
+//! directory with
 //! `scripts/port/oracle.sh exec probe X.xml --out-dir target/dfe-probe/<stem> --stages
 //! docs/port/stages.toml --select buildDefenceEstimations:2153,buildDefenceEstimations:2612`
 //! (with `POB_PARITY_DIR` set). Knobs: `DFE_BUILDS=stem1,stem2`, `DFE_VERBOSE=1` (print every
 //! mismatch). A missing input skips with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it
 //! fails instead.
+//!
+//! Tolerated (counted and reported, not failed): mismatches the `:in` dump's own round trip
+//! shows, the ARM64 `%d` cast host artefact, and (FUP1) buff mod lists that differ only in
+//! PoB's per-process `pairs(stats)` order (`testkit::normalise_lua_order`, the check PF-C
+//! uses; on dumps of one run none occurs, since the segment does not rebuild buff lists).
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -63,35 +70,82 @@ fn xmls(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// The private DF-E dump directory of a build, then testkit's.
-fn dump_dirs(build: &Path) -> Vec<PathBuf> {
+/// The DF-E selection: both stages, every hit (all actors and passes).
+const SELECT: &str = "buildDefenceEstimations:2153,buildDefenceEstimations:2612";
+
+/// A build's dumps, all from one PoB run.
+enum Dumps {
+    /// `$DFE_PROBE_DIR/<stem>/state/` (default `<workspace>/target/dfe-probe`).
+    Private(PathBuf),
+    /// This selection's entry of the shared probe cache (held while the dumps are read).
+    #[cfg_attr(not(feature = "luajit"), allow(dead_code))]
+    Probed(pob_oracle::runner::ProbeDumps),
+}
+
+impl Dumps {
+    fn dir(&self) -> &Path {
+        match self {
+            Dumps::Private(p) => p,
+            Dumps::Probed(d) => d.path(),
+        }
+    }
+}
+
+/// The build's DF-E dumps: the private directory when it exists, else the selection's entry in
+/// the shared probe cache (`testkit::probe_selection`, probed when absent). FUP1: the earlier
+/// fallback to testkit's directories (`.parity/probe`, `.parity/probe-cache/<sha>/<build-key>/`)
+/// could pair an `:in` and an `:out` dump of different PoB runs, whose string-keyed `pairs`
+/// orders differ: on 2026-11-10 that alone made 139 of the 363 all57 hits fail (mod order of
+/// `env.auxSkillList[].baseSkillModList`, `env.buffs.*`, buff mod lists, …: state the segment
+/// never touches); on dumps of one run per build every hit passes.
+fn build_dumps(build: &Path) -> Result<Dumps, String> {
     let root = std::env::var_os("DFE_PROBE_DIR").map(PathBuf::from).unwrap_or_else(|| {
         std::env::var_os("CARGO_TARGET_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"))
             .join("dfe-probe")
     });
-    let mut v: Vec<PathBuf> = vec![root.join(stem(build)).join("state")];
-    v.retain(|d| d.is_dir());
-    v.extend(testkit::dump_dirs(stem(build), Some(build)));
-    v
+    let private = root.join(stem(build)).join("state");
+    if private.is_dir() {
+        return Ok(Dumps::Private(private));
+    }
+    probe(build).map(Dumps::Probed)
 }
 
-/// The hit numbers `n` of `<STAGE_IN>#n` dumped for a build (any dump directory).
-fn hits(build: &Path) -> BTreeSet<u64> {
+#[cfg(feature = "luajit")]
+fn probe(build: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    let stages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/port/stages.toml");
+    let opts = pob_oracle::runner::ProbeOptions {
+        select: SELECT.split(',').map(str::to_owned).collect(),
+        provenance: false,
+        ..Default::default()
+    };
+    testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        build,
+        Some(&stages),
+        &opts,
+    )
+}
+
+#[cfg(not(feature = "luajit"))]
+fn probe(_build: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    Err("needs the luajit feature".to_owned())
+}
+
+/// The hit numbers `n` of `<STAGE_IN>#n` dumped in `dir`.
+fn hits(dir: &Path) -> BTreeSet<u64> {
     let prefix = format!("{STAGE_IN}#");
     let mut out = BTreeSet::new();
-    for d in dump_dirs(build) {
-        let Ok(rd) = std::fs::read_dir(&d) else {
-            continue;
-        };
-        for e in rd.filter_map(Result::ok) {
-            let name = e.file_name().to_string_lossy().into_owned();
-            if let Some(rest) = name.strip_prefix(&prefix) {
-                let n: String = rest.chars().take_while(char::is_ascii_digit).collect();
-                if let Ok(n) = n.parse() {
-                    out.insert(n);
-                }
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for e in rd.filter_map(Result::ok) {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if let Some(rest) = name.strip_prefix(&prefix) {
+            let n: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            if let Ok(n) = n.parse() {
+                out.insert(n);
             }
         }
     }
@@ -99,18 +153,14 @@ fn hits(build: &Path) -> BTreeSet<u64> {
 }
 
 /// One L4 run: `testkit::segment_diff` with the mismatches kept as values.
-fn seg_mismatches(build: &Path, n: u64) -> Result<(Vec<Mismatch>, StateDump), String> {
+fn seg_mismatches(build: &Path, dir: &Path, n: u64) -> Result<(Vec<Mismatch>, StateDump), String> {
     let s = stem(build);
     let (hin, hout) = (format!("{STAGE_IN}#{n}"), format!("{STAGE_OUT}#{n}"));
-    // Both dumps from one directory, i.e. one PoB process: dumps of different runs (other
-    // patched-source shas in the probe cache) differ in PoB's per-process `pairs` order.
-    let (pin, pout) = dump_dirs(build)
-        .into_iter()
-        .find_map(|d| {
-            let one = std::slice::from_ref(&d);
-            Some((testkit::find_dump(one, &hin)?, testkit::find_dump(one, &hout)?))
-        })
-        .ok_or_else(|| format!("missing dumps {hin} + {hout} in one directory"))?;
+    // Both dumps from one directory of one PoB process (`build_dumps`).
+    let one = [dir.to_path_buf()];
+    let (pin, pout) = testkit::find_dump(&one, &hin)
+        .zip(testkit::find_dump(&one, &hout))
+        .ok_or_else(|| format!("missing dumps {hin} + {hout} in {}", dir.display()))?;
     let din = StateDump::load(&pin).map_err(|e| format!("{}: {e}", pin.display()))?;
     let dout = StateDump::load(&pout).map_err(|e| format!("{}: {e}", pout.display()))?;
     let model = testkit::load_build(build).unwrap_or_else(testkit::empty_build);
@@ -137,7 +187,18 @@ fn seg_mismatches(build: &Path, n: u64) -> Result<(Vec<Mismatch>, StateDump), St
         .find(|(k, _)| k == "env")
         .and_then(|(_, v)| v.obj::<pob_calc::env::Env>())
         .or(inj.env);
-    Ok((testkit::diff_against(&dout, env.as_ref(), &after, s), din))
+    // FUP1: with the shared LUA-ORDER normalisation (order-only buff mod lists, see
+    // `is_buff_list_order`)
+    Ok((testkit::diff_against_normalised(&dout, env.as_ref(), &after, s), din))
+}
+
+/// LUA-ORDER (calc doc §3.4/§9.5), FUP1: a `…buffList[i].modList` whose mods are PoB's in
+/// another order inside each source. The order comes from `pairs(stats)` in
+/// `mergeSkillInstanceMods` (CalcActiveSkill.lua:62), PoB's own string-key order, random per
+/// process; `testkit::normalise_lua_order` reduces such a list to one `LuaOrder` mismatch at
+/// the list's path (the same check PF-C applies).
+fn is_buff_list_order(m: &Mismatch) -> bool {
+    m.kind == MismatchKind::LuaOrder && testkit::buff_mod_list_path(&m.path) == Some(m.path.as_str())
 }
 
 fn key(m: &Mismatch) -> String {
@@ -183,6 +244,8 @@ struct Tally {
     /// Mismatches dropped as the ARM64 `%d` cast host artefact.
     cast_artefacts: usize,
     cast_artefact_paths: BTreeSet<String>,
+    /// Buff mod lists accepted as LUA-ORDER ([`is_buff_list_order`]).
+    lua_order: usize,
     builds_without_dumps: Vec<String>,
     failures: Vec<String>,
 }
@@ -195,18 +258,27 @@ fn run(builds: &[PathBuf]) -> Tally {
         artefacts: 0,
         cast_artefacts: 0,
         cast_artefact_paths: BTreeSet::new(),
+        lua_order: 0,
         builds_without_dumps: Vec::new(),
         failures: Vec::new(),
     };
     for b in builds {
-        let ns = hits(b);
+        let dumps = match build_dumps(b) {
+            Ok(d) => d,
+            Err(e) => {
+                t.hits += 1;
+                t.failures.push(format!("{}: probing failed: {e}", stem(b)));
+                continue;
+            }
+        };
+        let ns = hits(dumps.dir());
         if ns.is_empty() {
             t.builds_without_dumps.push(stem(b).to_owned());
             continue;
         }
         for n in ns {
             t.hits += 1;
-            let mm: Vec<String> = match seg_mismatches(b, n) {
+            let mm: Vec<String> = match seg_mismatches(b, dumps.dir(), n) {
                 Err(e) => vec![e],
                 Ok((all, din)) => {
                     let rt = if all.is_empty() { BTreeSet::new() } else { round_trip_artefacts(&din) };
@@ -214,6 +286,8 @@ fn run(builds: &[PathBuf]) -> Tally {
                     for m in all {
                         if rt.contains(&key(&m)) {
                             t.artefacts += 1;
+                        } else if is_buff_list_order(&m) {
+                            t.lua_order += 1;
                         } else if is_int_cast_artefact(&m) {
                             t.cast_artefacts += 1;
                             t.cast_artefact_paths.insert(m.path.clone());
@@ -242,19 +316,20 @@ fn run(builds: &[PathBuf]) -> Tally {
 
 fn report(name: &str, t: &Tally) {
     eprintln!(
-        "{name}: {}/{} hits pass ({:.2}%); dropped: {} :in round-trip artefacts, {} ARM64 %d-cast artefacts",
+        "{name}: {}/{} hits pass ({:.2}%); dropped: {} :in round-trip artefacts, {} ARM64 %d-cast artefacts, {} LUA-ORDER buff mod lists",
         t.passed,
         t.hits,
         if t.hits == 0 { 0.0 } else { 100.0 * t.passed as f64 / t.hits as f64 },
         t.artefacts,
-        t.cast_artefacts
+        t.cast_artefacts,
+        t.lua_order
     );
     if !t.cast_artefact_paths.is_empty() {
         eprintln!("{name}: %d-cast artefact paths: {:?}", t.cast_artefact_paths);
     }
     if !t.builds_without_dumps.is_empty() {
         eprintln!(
-            "{name}: no {STAGE_IN} dumps for {} build(s): {} (fill with scripts/port/oracle.sh run --build X.xml --stage {STAGE_IN},{STAGE_OUT})",
+            "{name}: no {STAGE_IN} dumps for {} build(s): {} (PoB never reached the stage in the probed run)",
             t.builds_without_dumps.len(),
             t.builds_without_dumps.join(", ")
         );

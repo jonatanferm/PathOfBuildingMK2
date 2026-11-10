@@ -19,6 +19,13 @@
 //! stand-in for LuaJIT's per-process string ids (`ljtab` module docs), so for
 //! a table mixing string keys with holed integer keys LuaJIT itself can give
 //! different borders in different processes. `len()` is always a valid border.
+//!
+//! Number keys (FUP1, CCR-0102): any number but NaN is a key, normalised as
+//! `lj_tab.c` does: an integer value is [`Key::I`] (`t[2.0]` is `t[2]`,
+//! `t[-0.0]` is `t[0]`), any other float is [`Key::F`], a hash key (`hashnum`
+//! of its bits in the layout model; `pairs` order is insertion order with the
+//! other hash keys, calc doc D8). Storing at NaN raises "table index is NaN";
+//! reading at NaN is nil ([`Key::try_num`]).
 #![allow(non_snake_case)]
 
 use std::any::Any;
@@ -319,13 +326,40 @@ pub fn land(a: Val, b: impl FnOnce() -> Val) -> Val {
     }
 }
 
-/// A table key. Float keys are integral (others raise, §5.1); table-identity
-/// keys use `PtrSet`/`PtrMap` instead.
+/// A table key (FUP1: float keys as in `lj_tab.c`). A number key is
+/// normalised the way LuaJIT normalises it: a float with an exact integer value
+/// is the integer key ([`Key::I`]; `-0.0` is `0`), any other float is a hash
+/// key of its own ([`Key::F`]); a NaN key raises "table index is NaN" on a
+/// store ([`Key::from`]) and reads nil ([`Key::try_num`]). Table-identity keys
+/// use `PtrSet`/`PtrMap` instead.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Key {
     S(Name),
     I(i64),
     B(bool),
+    /// A number key that is not an `i64` integer (calc doc D8: always a hash
+    /// key, `pairs` in insertion order with the other hash keys).
+    F(FKey),
+}
+
+/// A float table key: a finite non-integral float, an integral float outside
+/// the `i64` range, or `+-inf`. Never NaN and never `+-0` (those are integral),
+/// so bit equality is Lua's number equality.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FKey(u64);
+
+impl FKey {
+    /// The key's number.
+    #[inline]
+    pub fn get(self) -> f64 {
+        f64::from_bits(self.0)
+    }
+}
+
+impl fmt::Debug for FKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&pob_lua::tostring_num(self.get()))
+    }
 }
 
 impl From<Name> for Key {
@@ -358,28 +392,53 @@ impl From<bool> for Key {
         Key::B(b)
     }
 }
+/// A number as a key to store at (`t[x] = v`): NaN raises "table index is NaN"
+/// (`lj_tab_newkey`, `LJ_ERR_NANIDX`).
 impl From<f64> for Key {
     fn from(x: f64) -> Self {
-        if x == x.trunc() && x.is_finite() && x.abs() < 9.007_199_254_740_992e15 {
-            Key::I(x as i64)
-        } else if x.is_nan() {
-            lua_error!("table index is NaN")
-        } else {
-            lua_error!(
-                "non-integral number keys are not supported by Table ({})",
-                pob_lua::tostring_num(x)
-            )
-        }
+        Key::try_num(x).unwrap_or_else(|| lua_error!("table index is NaN"))
     }
 }
 
+/// `-2^63`, the smallest `i64` (exact as a double); `2^63` is the first
+/// double above `i64::MAX`.
+const I64_MIN_F: f64 = i64::MIN as f64;
+
 impl Key {
+    /// A number as a key to read at (`t[x]`): `None` for NaN, which no table
+    /// holds (`lj_tab_get` finds nothing, so the read is nil). Otherwise the
+    /// key LuaJIT normalises `x` to (`lj_tab_set`/`lj_tab_get`: an exact
+    /// integer value is the integer key, `-0.0 == 0`; any other float is a
+    /// number key in the hash part).
+    #[inline]
+    pub fn try_num(x: f64) -> Option<Key> {
+        if x.is_nan() {
+            None
+        } else if x == x.trunc() && (I64_MIN_F..-I64_MIN_F).contains(&x) {
+            // exact: x is integral and inside the i64 range (`-0.0 as i64` is 0)
+            Some(Key::I(x as i64))
+        } else {
+            Some(Key::F(FKey(x.to_bits())))
+        }
+    }
+
     /// The key as a Lua value (for `pairs` loops that use the key).
     pub fn to_val(self) -> Val {
         match self {
             Key::S(n) => Val::from(n),
             Key::I(i) => Val::Num(i as f64),
             Key::B(b) => Val::Bool(b),
+            Key::F(f) => Val::Num(f.get()),
+        }
+    }
+
+    /// The key's number, for an integer or float key.
+    #[inline]
+    pub fn as_num(self) -> Option<f64> {
+        match self {
+            Key::I(i) => Some(i as f64),
+            Key::F(f) => Some(f.get()),
+            _ => None,
         }
     }
 
@@ -410,6 +469,7 @@ impl LjKey for Key {
             Key::I(i) => ljtab::hashnum(i),
             Key::B(b) => ljtab::hashbool(b),
             Key::S(n) => ljtab::str_sid_standin(n.as_str()),
+            Key::F(f) => ljtab::hashnum_f64(f.get()),
         }
     }
     #[inline]
@@ -517,6 +577,27 @@ pub const fn __is_lua_const(s: &str) -> bool {
         }
         p == j - 1
     }
+    /// Is the Rust number literal `b[i..j]` (starting with a digit) zero? Its
+    /// mantissa digits (before an exponent or a type suffix) are all `0`.
+    const fn num_lit_is_zero(b: &[u8], i: usize, j: usize) -> bool {
+        let hex = j - i > 2 && b[i] == b'0' && (b[i + 1] == b'x' || b[i + 1] == b'X');
+        let mut p = if hex { i + 2 } else { i };
+        while p < j {
+            let c = b[p];
+            if c == b'_' || c == b'.' || c == b'0' {
+                p += 1;
+                continue;
+            }
+            let digit = if hex {
+                c.is_ascii_hexdigit()
+            } else {
+                c.is_ascii_digit()
+            };
+            // a non-zero digit: non-zero; anything else ends the mantissa
+            return !digit;
+        }
+        true
+    }
     let b = s.as_bytes();
     let (mut i, mut j) = (0, b.len());
     while i < j && b[i] == b' ' {
@@ -558,13 +639,20 @@ pub const fn __is_lua_const(s: &str) -> bool {
     }
     // number literal, optionally negated
     let mut p = i;
-    if b[p] == b'-' {
+    let negated = b[p] == b'-';
+    if negated {
         p += 1;
         while p < j && b[p] == b' ' {
             p += 1;
         }
     }
     if p >= j || !b[p].is_ascii_digit() {
+        return false;
+    }
+    // FUP1: LuaJIT does not fold the negation of a zero (`lj_parse.c`
+    // `bcemit_unop`: `expr_isnumk(e) && !expr_numiszero(e)`), so `-0.0` is a
+    // run-time value (`[-0.0] = v` is a run-time key).
+    if negated && num_lit_is_zero(b, p, j) {
         return false;
     }
     let mut prev = 0u8;
@@ -1294,6 +1382,10 @@ mod tests {
             r#"n!("Life")"#,
             r#"n! ("Life")"#,
             " 7 ",
+            "0.0",
+            "-0.5",
+            "-0x10",
+            "-0.01e3",
         ] {
             assert!(__is_lua_const(s), "{s:?} is a constant");
         }
@@ -1310,9 +1402,94 @@ mod tests {
             "Val::from(1.0)",
             "",
             "(1.0)",
+            "-0.0",
+            "-0",
+            "- 0.0",
+            "-0e5",
+            "-0x0",
+            "-0.0f64",
+            "-0_0.0_0",
         ] {
             assert!(!__is_lua_const(s), "{s:?} is not a constant");
         }
+    }
+
+    /// FUP1: float keys as `lj_tab.c` keeps them (expected values from LuaJIT:
+    /// `t[2.0]` is `t[2]`, `t[-0.0]` is `t[0]`, `t[0/0] = v` raises "table index
+    /// is NaN" and `t[0/0]` reads nil, a non-integral float is a hash key that
+    /// leaves `#t` alone and `pairs` yields it as a number).
+    #[test]
+    fn float_keys() {
+        let t = Table::new();
+        t.set(Key::from(929.1), 1.0);
+        assert_eq!(t.rawget(Key::from(929.1)).num(), 1.0);
+        assert!(t.rawget(Key::from(929.0)).is_nil());
+        assert!(t.rawget(929).is_nil());
+        assert!(matches!(Key::from(929.1), Key::F(_)));
+        // integral floats normalise to the integer key; -0 == 0
+        assert_eq!(Key::from(2.0), Key::I(2));
+        assert_eq!(Key::from(-0.0), Key::I(0));
+        assert_eq!(Key::from(-2.0), Key::I(-2));
+        t.set(Key::from(1.0), 10.0);
+        t.set(2, 20.0);
+        t.set(Key::from(-0.0), 5.0);
+        assert_eq!(t.rawget(1).num(), 10.0);
+        assert_eq!(t.rawget(Key::from(2.0)).num(), 20.0);
+        assert_eq!(t.rawget(0).num(), 5.0);
+        assert_eq!(t.len(), 2);
+        t.set(Key::from(2.5), 7.0);
+        assert_eq!(t.len(), 2);
+        // integral values beyond i64 and infinities are float keys
+        for x in [1e300, -1e300, f64::INFINITY, f64::NEG_INFINITY, 1.5e-300] {
+            let k = Key::from(x);
+            assert!(matches!(k, Key::F(_)), "{x}");
+            t.set(k, x);
+            assert_eq!(t.rawget(Key::from(x)).num(), x);
+        }
+        // a big integral value inside the i64 range is an integer key
+        assert_eq!(
+            Key::from(9_007_199_254_740_992.0),
+            Key::I(9_007_199_254_740_992)
+        );
+        // pairs: the array part, then the hash part in insertion order; float
+        // keys come back as numbers
+        let keys: Vec<Val> = t.pairs().map(|(k, _)| k.to_val()).collect();
+        let nums: Vec<f64> = keys.iter().map(Val::num).collect();
+        assert_eq!(
+            nums,
+            [
+                1.0,
+                2.0,
+                929.1,
+                0.0,
+                2.5,
+                1e300,
+                -1e300,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                1.5e-300
+            ]
+        );
+        // deleting a float key leaves a tombstone, re-adding keeps its slot
+        t.set(Key::from(929.1), Val::Nil);
+        assert!(t.rawget(Key::from(929.1)).is_nil());
+        assert!(t.pairs().all(|(k, _)| k != Key::from(929.1)));
+        // NaN
+        assert!(Key::try_num(f64::NAN).is_none());
+        let r = pob_lua::error::catch(|| Key::from(f64::NAN));
+        assert!(r.is_err_and(|e| e.to_string().contains("table index is NaN")));
+        // Debug / ordering helpers
+        assert_eq!(format!("{:?}", Key::from(929.1)), "F(929.1)");
+        assert_eq!(Key::from(0.5).as_num(), Some(0.5));
+        assert_eq!(Key::I(3).as_num(), Some(3.0));
+        assert_eq!(Key::B(true).as_num(), None);
+        // a constructor with a float key (`{[0.5] = 1, 2}`)
+        let c = tbl! { [Key::from(0.5)] => 1.0, [1] => 2.0 };
+        assert_eq!(c.rawget(Key::from(0.5)).num(), 1.0);
+        assert_eq!(c.len(), 1);
+        // copyTable keeps float keys
+        let d = c.copyTable(false);
+        assert_eq!(d.rawget(Key::from(0.5)).num(), 1.0);
     }
 
     #[test]

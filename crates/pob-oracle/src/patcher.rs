@@ -1444,6 +1444,149 @@ pub fn default_root() -> PathBuf {
         .join("oracle-src")
 }
 
+// ---- the shared copy and its pruning (FUP1, HYG3 exposed 2) -------------------------------------
+
+/// The one content-keyed home of every patched copy on the machine: `$POB_ORACLE_SRC_ROOT`,
+/// else `<.parity>/patched-src` (the main checkout's `.parity`, found as
+/// [`crate::oracle::find_parity_dir`] finds it, so every worktree and every caller shares one
+/// `<sha>` copy), else `None` (no `.parity`: [`patch`] uses its `root` argument).
+#[must_use]
+pub fn shared_root() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("POB_ORACLE_SRC_ROOT") {
+        return Some(PathBuf::from(p));
+    }
+    crate::oracle::find_parity_dir().map(|p| p.join("patched-src"))
+}
+
+/// The use marker of a published copy (`<root>/<sha>/.last-used`): [`patch`] rewrites it every
+/// time it hands the copy out, so its mtime is the copy's last use.
+const USE_MARKER: &str = ".last-used";
+
+/// Copies (with a use marker) not handed out for this long are pruned; default 24 h,
+/// `$POB_PATCHED_SRC_MAX_AGE_HOURS` overrides, `0` disables pruning.
+fn prune_max_age() -> Option<std::time::Duration> {
+    let hours = std::env::var("POB_PATCHED_SRC_MAX_AGE_HOURS")
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(24.0);
+    (hours > 0.0).then(|| std::time::Duration::from_secs_f64(hours * 3600.0))
+}
+
+/// Copies without a use marker come from the code before FUP1, which never marks a reuse, so
+/// their age is their publication time; another worktree on an older branch may still boot PoB
+/// from one. They are pruned only after this many times [`prune_max_age`] (default 72 h).
+const LEGACY_AGE_FACTOR: u32 = 3;
+
+/// Mark the copy in `dir` as used now. False when `dir` is gone (pruned meanwhile).
+#[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+fn touch_use_marker(dir: &Path) -> bool {
+    dir.is_dir() && std::fs::write(dir.join(USE_MARKER), format!("{}\n", std::process::id())).is_ok()
+}
+
+fn mtime(p: &Path) -> Option<std::time::SystemTime> {
+    std::fs::symlink_metadata(p).and_then(|m| m.modified()).ok()
+}
+
+/// A published copy's directory name: the 16 hex digits of a [`plan_sha`].
+fn is_sha_name(name: &str) -> bool {
+    name.len() == 16 && name.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Remove the patched copies under `root` that are stale: not `keep`, and not handed out for
+/// `max_age` (the use marker's mtime; a copy without one, by its `manifest.json`'s mtime, after
+/// [`LEGACY_AGE_FACTOR`] × `max_age`), plus leftover `.<sha>.tmp.*` / `.<sha>.prune.*`
+/// directories older than `max_age`. A copy is first renamed out of the way (atomic, so no
+/// process can find a half-deleted copy under its sha; one that looks for it republishes it),
+/// then deleted; its unpatched files are hard links, so the PoB checkout is untouched. Errors
+/// are ignored (another process may prune the same copy). Returns the copies removed.
+pub fn prune(root: &Path, keep: Option<&str>, max_age: std::time::Duration) -> Vec<PathBuf> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = std::time::SystemTime::now();
+    let older = |t: Option<std::time::SystemTime>, age: std::time::Duration| {
+        t.and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|d| d >= age)
+    };
+    let mut removed = Vec::new();
+    let Ok(rd) = std::fs::read_dir(root) else {
+        return removed;
+    };
+    for e in rd.filter_map(std::result::Result::ok) {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let path = e.path();
+        if !e.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        if is_sha_name(&name) {
+            if Some(name.as_str()) == keep {
+                continue;
+            }
+            let marker = path.join(USE_MARKER);
+            let stale = if marker.is_file() {
+                older(mtime(&marker), max_age)
+            } else {
+                older(
+                    mtime(&path.join("manifest.json")).or_else(|| mtime(&path)),
+                    max_age * LEGACY_AGE_FACTOR,
+                )
+            };
+            if !stale {
+                continue;
+            }
+            let trash = root.join(format!(
+                ".{name}.prune.{}.{}",
+                std::process::id(),
+                SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            if std::fs::rename(&path, &trash).is_ok() {
+                let _ = std::fs::remove_dir_all(&trash);
+                removed.push(path);
+            }
+        } else if name.starts_with('.')
+            && (name.contains(".tmp.") || name.contains(".prune."))
+            && older(mtime(&path), max_age)
+        {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+    removed
+}
+
+/// [`prune`] each of `roots` once per process (with [`prune_max_age`]; nothing when disabled).
+#[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+fn prune_once(roots: &[&Path], keep: &str) {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static DONE: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    let Some(age) = prune_max_age() else {
+        return;
+    };
+    let done = DONE.get_or_init(Mutex::default);
+    for root in roots {
+        let first = done
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(root.to_path_buf());
+        if first {
+            let _ = prune(root, Some(keep), age);
+        }
+    }
+}
+
+/// The places patched copies were published before FUP1: `root` as the caller passes it, the
+/// default [`default_root`], and the checkout's `target/oracle-src` next to PoB's source
+/// (`runner::shared_patch_root`).
+#[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+fn legacy_roots(pob_src: &Path, root: &Path) -> Vec<PathBuf> {
+    let mut v = vec![root.to_path_buf(), default_root()];
+    let canon = std::fs::canonicalize(pob_src).unwrap_or_else(|_| pob_src.to_path_buf());
+    if let Some(checkout) = canon.parent().and_then(Path::parent) {
+        if checkout.join("Cargo.toml").is_file() {
+            v.push(checkout.join("target").join("oracle-src"));
+        }
+    }
+    v
+}
+
 fn walk_files(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
     let mut entries: Vec<_> = std::fs::read_dir(dir)?
         .filter_map(std::result::Result::ok)
@@ -1616,10 +1759,28 @@ fn build_patched_tree(
     std::fs::write(tmp.join("manifest.json"), json).map_err(|e| io(e, tmp))
 }
 
-/// Plan, validate and publish the patched copy of `pob_src` under `root`
-/// (reused when `<root>/<sha>` already exists).
+/// Plan, validate and publish the patched copy of `pob_src` (reused when `<root>/<sha>` already
+/// exists).
+///
+/// FUP1 (HYG3 exposed 2): the copy lives in the [`shared_root`] (`<.parity>/patched-src/<sha>`)
+/// whatever `root` the caller passes; `root` is only used when there is no shared root. Every
+/// call marks the copy as used (`.last-used`) and, once per process, [`prune`]s the stale copies
+/// of the shared root and of the places copies were published before (`root`, [`default_root`],
+/// the checkout's `target/oracle-src`).
 #[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
 pub fn patch(pob_src: &Path, stages_path: Option<&Path>, root: &Path) -> Result<Patched> {
+    let shared = shared_root();
+    let mut prune_roots = vec![shared.clone().unwrap_or_else(|| root.to_path_buf())];
+    for r in legacy_roots(pob_src, root) {
+        if !prune_roots.contains(&r) {
+            prune_roots.push(r);
+        }
+    }
+    let root: &Path = shared.as_deref().unwrap_or(root);
+    let prune_now = |sha: &str| {
+        let roots: Vec<&Path> = prune_roots.iter().map(PathBuf::as_path).collect();
+        prune_once(&roots, sha);
+    };
     let stages = match stages_path {
         Some(p) => StagesFile::load(p)?,
         None => StagesFile::default(),
@@ -1632,7 +1793,9 @@ pub fn patch(pob_src: &Path, stages_path: Option<&Path>, root: &Path) -> Result<
     let manifest_path = dir.join("manifest.json");
     if let Ok(text) = std::fs::read_to_string(&manifest_path) {
         if let Ok(manifest) = serde_json::from_str::<Manifest>(&text) {
-            if manifest.sha == sha {
+            // (a copy pruned between the read and the mark is published again below)
+            if manifest.sha == sha && touch_use_marker(&dir) {
+                prune_now(&sha);
                 return Ok(Patched {
                     src: dir.join("src"),
                     dir,
@@ -1681,6 +1844,8 @@ pub fn patch(pob_src: &Path, stages_path: Option<&Path>, root: &Path) -> Result<
         let Some(manifest) = theirs else {
             return Err(err(format!("could not publish {}: {e}", dir.display())));
         };
+        touch_use_marker(&dir);
+        prune_now(&sha);
         return Ok(Patched {
             src: dir.join("src"),
             dir,
@@ -1688,6 +1853,8 @@ pub fn patch(pob_src: &Path, stages_path: Option<&Path>, root: &Path) -> Result<
             manifest,
         });
     }
+    touch_use_marker(&dir);
+    prune_now(&sha);
     Ok(Patched {
         src: dir.join("src"),
         dir,
@@ -1764,6 +1931,75 @@ mod tests {
         std::fs::write(jd.join("X.zip"), "zip v2").unwrap();
         assert_ne!(k1, sha(), "the zip is not fingerprinted");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// FUP1: `prune` removes the copies not used for `max_age` (use marker), marker-less
+    /// (pre-FUP1) copies only after `LEGACY_AGE_FACTOR` × `max_age`, never `keep`, and old
+    /// leftover temp dirs; anything else stays.
+    #[test]
+    fn prune_removes_stale_copies() {
+        use std::time::{Duration, SystemTime};
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/tmp")
+            .join(format!("fup1-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let hour = Duration::from_secs(3600);
+        let set_age = |p: &Path, age: Duration| {
+            std::fs::File::options()
+                .read(true)
+                .open(p)
+                .unwrap()
+                .set_modified(SystemTime::now() - age)
+                .unwrap();
+        };
+        let copy = |name: &str, marker: Option<Duration>, manifest_age: Duration| {
+            let d = root.join(name);
+            std::fs::create_dir_all(d.join("src")).unwrap();
+            std::fs::write(d.join("src/a.lua"), "return 1").unwrap();
+            std::fs::write(d.join("manifest.json"), "{}").unwrap();
+            set_age(&d.join("manifest.json"), manifest_age);
+            if let Some(age) = marker {
+                std::fs::write(d.join(USE_MARKER), "1\n").unwrap();
+                set_age(&d.join(USE_MARKER), age);
+            }
+            d
+        };
+        let fresh = copy("00000000000000a1", Some(Duration::from_secs(60)), 10 * hour);
+        let stale = copy("00000000000000a2", Some(2 * hour), 10 * hour);
+        let kept = copy("00000000000000a3", Some(5 * hour), 10 * hour);
+        let legacy_young = copy("00000000000000a4", None, 2 * hour);
+        let legacy_old = copy("00000000000000a5", None, 4 * hour);
+        let other = root.join("not-a-copy");
+        std::fs::create_dir_all(&other).unwrap();
+        let tmp_old = root.join(".00000000000000a6.tmp.1.0");
+        std::fs::create_dir_all(&tmp_old).unwrap();
+        set_age(&tmp_old, 2 * hour);
+        let tmp_new = root.join(".00000000000000a7.tmp.1.0");
+        std::fs::create_dir_all(&tmp_new).unwrap();
+        let mut removed = prune(&root, Some("00000000000000a3"), hour);
+        removed.sort();
+        assert_eq!(removed, vec![stale.clone(), legacy_old.clone()]);
+        for (p, there) in [
+            (&fresh, true),
+            (&stale, false),
+            (&kept, true),
+            (&legacy_young, true),
+            (&legacy_old, false),
+            (&other, true),
+            (&tmp_old, false),
+            (&tmp_new, true),
+        ] {
+            assert_eq!(p.exists(), there, "{}", p.display());
+        }
+        // no trash left behind
+        let left: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".prune."))
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

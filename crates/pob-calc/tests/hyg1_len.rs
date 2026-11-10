@@ -8,7 +8,8 @@
 //! contents are compared too. The same sequence runs as generated Lua source
 //! in LuaJIT and through `Table`/`tbl!`'s API (`Table::from_ctor`).
 //!
-//! * `table_len_matches_luajit`: 10 000 sequences over number and boolean
+//! * `table_len_matches_luajit`: 10 000 sequences over number (integer and,
+//!   since FUP1, float) and boolean
 //!   keys, which LuaJIT lays out deterministically: 0 mismatches required.
 //! * `table_len_with_string_keys`: string keys too. LuaJIT hashes strings by a
 //!   per-process id (`lj_str.c` `sid`, reseeded from a PRNG), so there the
@@ -54,9 +55,15 @@ enum K {
     I(i64),
     B(bool),
     S(&'static str),
+    /// FUP1: a float key, written as a float literal (integral ones and `-0.0`
+    /// normalise to the integer key, the others are hash keys).
+    F(f64),
 }
 
 const NAMES: [&str; 6] = ["a", "b", "c", "Life", "x1", "k"];
+
+/// FUP1: float keys (`929.1` is the statOrder of the crafted flask in IT-B).
+const FLOATS: [f64; 9] = [0.5, 1.5, 2.25, 929.1, -0.5, 2.0, -0.0, 1e300, 9_007_199_254_740_992.0];
 
 impl K {
     fn lua(self) -> String {
@@ -64,6 +71,7 @@ impl K {
             K::I(i) => i.to_string(),
             K::B(b) => b.to_string(),
             K::S(s) => format!("{s:?}"),
+            K::F(f) => format!("{f:?}"),
         }
     }
     fn key(self) -> Key {
@@ -71,6 +79,7 @@ impl K {
             K::I(i) => Key::I(i),
             K::B(b) => Key::B(b),
             K::S(s) => Key::S(Name::from(s)),
+            K::F(f) => Key::from(f),
         }
     }
 }
@@ -126,6 +135,8 @@ fn gen_key(r: &mut Rng, profile: u64, strings: bool) -> K {
     let roll = r.below(100);
     if roll < 4 {
         K::B(r.chance(0.5))
+    } else if roll < 9 {
+        K::F(FLOATS[r.below(FLOATS.len() as u64) as usize])
     } else if strings && roll < 30 {
         K::S(NAMES[r.below(NAMES.len() as u64) as usize])
     } else {
@@ -263,6 +274,7 @@ fn key_text(k: Key) -> String {
         Key::I(i) => format!("n{}", num(i as f64)),
         Key::B(b) => format!("b{b}"),
         Key::S(s) => format!("s{s}"),
+        Key::F(f) => format!("n{}", num(f.get())),
     }
 }
 
@@ -290,7 +302,11 @@ fn rust_ctor(fields: &[Field]) -> Table {
                     FieldKind::Item => TableField::item(f.konst, val),
                     FieldKind::Named(n) => TableField::named(Name::from(n), f.konst, val),
                     FieldKind::Bracket { key, konst } => {
-                        TableField::bracket(key.key(), *konst, f.konst, val)
+                        // `[-0.0]` is no constant key: LuaJIT does not fold the
+                        // negation of a zero (`lj_parse.c` `bcemit_unop`,
+                        // `!expr_numiszero(e)`), so the key is stored at run time.
+                        let konst = *konst && !matches!(key, K::F(f) if *f == 0.0);
+                        TableField::bracket(key.key(), konst, f.konst, val)
                     }
                 }
             })

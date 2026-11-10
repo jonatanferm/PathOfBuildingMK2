@@ -164,6 +164,7 @@ fn flat_table(t: &Table) -> BTreeMap<String, Leaf> {
                 Key::S(n) => n.to_string(),
                 Key::I(i) => i.to_string(),
                 Key::B(b) => b.to_string(),
+                Key::F(f) => tostring_num(f.get()),
             };
             let path = if prefix.is_empty() { ks } else { format!("{prefix}.{ks}") };
             match v {

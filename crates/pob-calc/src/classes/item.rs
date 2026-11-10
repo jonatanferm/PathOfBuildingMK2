@@ -37,13 +37,9 @@ fn cs(v: &Val) -> String {
     }
 }
 
-/// `t[x]` for a number key: a table cannot hold a non-integral key, so such a read is nil.
+/// `t[x]` for a number key (FUP1: any float is a key; a NaN read is nil).
 fn tget(t: &Table, x: f64) -> Val {
-    if x == x.trunc() && x.is_finite() && x.abs() < 9.007_199_254_740_992e15 {
-        t.get(Key::I(x as i64))
-    } else {
-        Val::Nil
-    }
+    Key::try_num(x).map_or(Val::Nil, |k| t.get(k))
 }
 
 /// `v[k]` where `v` must be indexable (`nil[k]` raises) and `k` may be nil (a nil key reads nil).
@@ -112,6 +108,7 @@ fn tconcat(v: &Val, sep: &str) -> String {
 fn key_lt(a: &Key, b: &Key) -> bool {
     match (a, b) {
         (Key::I(x), Key::I(y)) => x < y,
+        (Key::I(_) | Key::F(_), Key::I(_) | Key::F(_)) => a.as_num() < b.as_num(),
         (Key::S(x), Key::S(y)) => x.as_str().as_bytes() < y.as_str().as_bytes(),
         (Key::B(_), Key::B(_)) => lua_error!("attempt to compare two boolean values"),
         _ => lua_error!("attempt to compare number with string"),
