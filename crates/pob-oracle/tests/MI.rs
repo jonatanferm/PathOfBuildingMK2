@@ -19,8 +19,17 @@
 //! * `buildActiveSkill` (CA): General's Cry `mi:361 → mi:364`; compareFunc's builds (Reflection /
 //!   Tawhoa's Chosen) the delta `mirages:in → mi:39` at the first call. The cached env's output is
 //!   another env's table, so the attack time General's Cry reads from it is rebuilt from PoB's
-//!   `cooldown` after the `m_max` (`mi:396`);
+//!   `cooldown` before (`mi:376`) and after (`mi:396`) the `m_max`: 0 where the cooldown
+//!   dominates (the `m_max` then takes Rust's own calcSkillCooldown result), PoB's value where
+//!   the attack time does; Rust's pre-`m_max` cooldown is also compared with `mi:376` directly
+//!   (seam `generalsCryCooldown`);
 //! * `isTriggered` (TR-A, a stub): the Lua expression (CalcTriggers.lua:41-43), inline.
+//!
+//! Reflection / Tawhoa's Chosen: the final `env.player.output` is grafted from `mirages:out`
+//! (above), so for those families its comparison is by construction (a replay limit, CCR-0086
+//! §4.3); what MI writes into it (Tawhoa's Chosen 236-239) is still checked. Any
+//! `pob_calc::stub` reached during a call, and a Rust `true` where PoB returned nothing
+//! (`ret.n = 0`), make the call divergent.
 //!
 //! At every replayed call the live state is also diffed against the call's `in` probe (before) and
 //! its `out` probe (after): a mismatch before a call is MI's code (divergent), one that a replay adds
@@ -424,6 +433,8 @@ struct Log {
     /// The largest number of identity-only mismatches seen at one comparison (see
     /// [`split_identity`]).
     identity_only: usize,
+    /// General's Cry: Rust's `cooldown` before the `m_max` (the `generalsCryCooldown` seam)
+    gc_cooldown: Vec<f64>,
 }
 
 fn verbose() -> bool {
@@ -668,7 +679,12 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
         c.lines.get(id).map(|p| load(p)).transpose()
     };
     let (d39, d41, d52, d53) = (line("mi:39")?, line("mi:41")?, line("mi:52")?, line("mi:53")?);
-    let (d361, d364, d396) = (line("mi:361")?, line("mi:364")?, line("mi:396")?);
+    let (d361, d364, d376, d396) = (
+        line("mi:361")?,
+        line("mi:364")?,
+        line("mi:376")?,
+        line("mi:396")?,
+    );
 
     let build = testkit::empty_build();
     let inj = pob_oracle::inject::inject(&din, &build)?;
@@ -698,23 +714,48 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
         None
     };
 
-    // General's Cry: the attack time the cached env's output gives (`HitTime or Time`), rebuilt
-    // from PoB's cooldown after `m_max` (mi:396): `max(cd, x) = cd396` holds for x = cd396
+    // General's Cry: the attack time the cached env's output gives (`HitTime or Time`; the
+    // cached env's output is another env's table, a `$foreign` marker in every dump), rebuilt
+    // from PoB's `cooldown` before (mi:376) and after (mi:396) the `m_max` at 395:
+    // * cd376 == cd396 (the cooldown dominates): the attack time is any x <= cd396; x = 0 makes
+    //   the `m_max` pick Rust's own cooldown, so the DPS MORE mod at 396 checks Rust's
+    //   calcSkillCooldown independently of PoB's result;
+    // * cd376 < cd396 (the attack time dominates): x = cd396 exactly.
+    // Rust's pre-max cooldown is also compared with cd376 directly (the `generalsCryCooldown`
+    // seam), which covers the second case.
     let gc_uuid: Option<String> = d361
         .as_ref()
         .and_then(|d| d.root["locals"]["uuid"].as_str().map(str::to_owned));
-    let gc_cd: Option<f64> = d396
-        .as_ref()
-        .and_then(|d| d.root["locals"]["cooldown"].as_f64());
+    let num_local = |d: &Option<StateDump>| {
+        d.as_ref()
+            .and_then(|d| pob_oracle::schema::decode_num(&d.root["locals"]["cooldown"]))
+    };
+    let gc_cd_pre: Option<f64> = num_local(&d376);
+    let gc_cd: Option<f64> = num_local(&d396);
+    let gc_attack_time: Option<f64> = match (gc_cd_pre, gc_cd) {
+        (Some(pre), Some(post)) if pre == post => Some(0.0),
+        (Some(pre), Some(post)) if pre < post => Some(post),
+        (Some(pre), Some(post)) => {
+            return Err(format!(
+                "General's Cry: PoB's cooldown went from {pre} (mi:376) down to {post} (mi:396)"
+            ))
+        }
+        (None, None) => None,
+        (pre, post) => {
+            return Err(format!(
+                "General's Cry: cooldown probes incomplete (mi:376 {pre:?}, mi:396 {post:?})"
+            ))
+        }
+    };
     let fix_gc_output = {
         let env = env.clone();
         let gc_uuid = gc_uuid.clone();
         move || {
-            if let (Some(u), Some(cd)) = (&gc_uuid, gc_cd) {
+            if let (Some(u), Some(t)) = (&gc_uuid, gc_attack_time) {
                 if let Some(e) = pob_calc::global_cache::cachedData(env.mode, pob_lua::Name::from(u.as_str())) {
                     let out = e.Env.player.output.get();
                     if out.get("HitTime").is_nil() && out.get("Time").is_nil() {
-                        out.set("Time", cd);
+                        out.set("Time", t);
                     }
                 }
             }
@@ -908,6 +949,10 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
                     .push("buildActiveSkill called, but PoB did not call it".into());
                 None
             }
+            Call::generalsCryCooldown { cooldown } => {
+                lg.gc_cooldown.push(*cooldown);
+                None
+            }
             Call::calcMultiSpellRotationImpact { .. } => {
                 lg.problems
                     .push("calcMultiSpellRotationImpact (TR-A stub) reached".into());
@@ -964,9 +1009,23 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
     let r = real(&all);
     let (content, final_identity) = split_identity(&r, &dout.root, &ours_root);
     let mismatches: Vec<Mismatch> = content.into_iter().cloned().collect();
-    let log = Rc::try_unwrap(log)
+    let mut log = Rc::try_unwrap(log)
         .map(RefCell::into_inner)
         .unwrap_or_else(|l| std::mem::take(&mut *l.borrow_mut()));
+    // a bare `return` (n = 0: CalcMirages.lua 64, 354, `return calculateMirage(env, nil)`) is a
+    // falsy result; the packed `ret` above has no slot to show a Rust `true` there
+    if n < 1.0 && ours {
+        log.problems
+            .push("mirages returned true where PoB returned nothing (ret.n = 0)".into());
+    }
+    // General's Cry: Rust's cooldown before the `m_max` against PoB's (mi:376)
+    match (gc_cd_pre, log.gc_cooldown.as_slice()) {
+        (None, []) => {}
+        (Some(pob), [ours]) if pob_oracle::diff::num_close(pob, *ours, pob_oracle::diff::REL_TOL) => {}
+        (pob, ours) => log.problems.push(format!(
+            "General's Cry cooldown before m_max: PoB {pob:?} (mi:376), Rust {ours:?}"
+        )),
+    }
     Ok(CallResult {
         mismatches,
         final_identity,
@@ -987,6 +1046,10 @@ enum Verdict {
 fn verdict(r: &CallResult, real: usize) -> Verdict {
     if !r.log.problems.is_empty() {
         return Verdict::Divergent(r.log.problems.join("; "));
+    }
+    // a stub reached on the MI path means the Rust run did not compute what PoB did
+    if !r.stubs.is_empty() {
+        return Verdict::Divergent(format!("stubs reached: {}", r.stubs.join(", ")));
     }
     if real == 0 && r.log.steps.iter().all(|(_, b, a)| *b == 0 && *a == 0) {
         return Verdict::Clean;

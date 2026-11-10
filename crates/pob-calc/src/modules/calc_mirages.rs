@@ -88,6 +88,10 @@ pub mod replay_hook {
             sourceRate: f64,
             triggerCD: f64,
         },
+        /// Not a callee: General's Cry's `cooldown` before the `m_max` (CalcMirages.lua:376, the
+        /// `calcSkillCooldown` result of 369 or the initial 1), so the L4 test can check it
+        /// against PoB's even where the cached attack time dominates. The hook answers `None`.
+        generalsCryCooldown { cooldown: f64 },
     }
 
     /// A replayed call's result.
@@ -180,6 +184,17 @@ fn call_buildActiveSkill(
         }
     }
     calcs::buildActiveSkill(env, mode, skill, targetUUID, limitedProcessingFlags);
+}
+
+/// Hand General's Cry's pre-`m_max` `cooldown` to the L4 test (see
+/// `replay_hook::Call::generalsCryCooldown`); a no-op without `probe`.
+fn observe_generalsCryCooldown(cooldown: f64) {
+    #[cfg(feature = "probe")]
+    {
+        let _ = replay_hook::try_replay(&replay_hook::Call::generalsCryCooldown { cooldown });
+    }
+    #[cfg(not(feature = "probe"))]
+    let _ = cooldown;
 }
 
 /// `isTriggered(skill)` (its truthiness), or its replay.
@@ -1203,6 +1218,8 @@ pub fn mirages(env: &EnvRef) -> bool {
                 break;
             }
         }
+
+        observe_generalsCryCooldown(cooldown);
 
         // L375 Scale dps with mirage quantity
         // L376

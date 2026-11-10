@@ -48,7 +48,9 @@ Option<bool>` (file-local; no other caller, as with CCR-0040).
 
 Same pattern as PF-G's (CCR-0077 §1): a thread-local hook, compiled only with `probe`, that the
 L4 test (`crates/pob-oracle/tests/MI.rs`) uses to replace `copyActiveSkill`, the nested
-`calcs.perform(newEnv)`, `buildActiveSkill`, `isTriggered` and `calcMultiSpellRotationImpact`.
+`calcs.perform(newEnv)`, `buildActiveSkill`, `isTriggered` and `calcMultiSpellRotationImpact`,
+plus one observation point that is not a callee (`generalsCryCooldown`: General's Cry's
+`cooldown` before the `m_max` at CalcMirages.lua:395, §4.3).
 It is typed (`Call` / `Ret` enums), because these callees return Rust values
 (`(newSkill, newEnv)`, a bool, `(rate, table)`), not state. When ORC-X moves the seam to
 `pob_calc::probe` (CCR-0077 §1 proposal), MI's wrappers (`call_copyActiveSkill` etc.) are the
@@ -72,9 +74,20 @@ confined to `tests/MI.rs`:
    the test grafts `mirages:out`'s `env.player.output` into `mi:53` (ids remapped) minus the
    keys MI writes; that output's *content* is therefore not an independent check of MI (only
    the keys MI writes, and every other path, are). For General's Cry the cached env's
-   `HitTime or Time` is rebuilt from PoB's `cooldown` after the `m_max` (`mi:396`).
+   `HitTime or Time` is rebuilt from PoB's `cooldown` before (`mi:376`) and after (`mi:396`)
+   the `m_max` at 395: where the cooldown dominates (`cd376 == cd396`) the attack time is set
+   to 0, so the `m_max` takes Rust's own `calcSkillCooldown` result and the DPS MORE mod at 396
+   checks it; where the attack time dominates it is set to `cd396`. Rust's pre-`m_max` cooldown
+   is also handed to the test (`Call::generalsCryCooldown`, an observation that the hook
+   answers with `None`) and compared with `mi:376` directly.
 
 Identity loss in replays (CCR-0077 §6: a callee that replaces tables by fresh ones, e.g. the
 nested `initEnv` reassigning `gemInstance.displayEffect`) shows up as mismatches whose two sides
 have equal content but different identity. The MI test counts those separately
 ("identity-only") and gates on content mismatches only.
+
+Known limits of the MI gate (review round 1, for ORC-X): `content_eq` treats tables nested
+deeper than 10 levels as equal, so an identity-only classification could in principle hide a
+very deep content difference (tightening belongs to the ORC-X diff). Sacred Wisps and Tawhoa's
+Chosen have no corpus build in `.parity/builds` and are reviewed against the Lua only; a corpus
+build for each would make them L4-checked.

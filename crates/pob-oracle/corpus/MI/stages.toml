@@ -55,6 +55,15 @@ line = 364
 locals = ["env", "uuid"]
 expect = "local mainSkillOutputCache = GlobalCache.cachedData[env.mode][uuid].Env.player.output"
 
+# General's Cry: `cooldown` before m_max (calcSkillCooldown's result at 369, or the initial 1);
+# checked against the Rust value directly, and used to tell which side of the m_max at 395 PoB took
+[[stage]]
+id = "mi:376"
+file = "Modules/CalcMirages.lua"
+line = 376
+locals = ["env", "cooldown"]
+expect = "for _, value in ipairs(generalsCryActiveSkill.skillModList:Tabulate(\"BASE\", generalsCryActiveSkill.skillCfg, \"GeneralsCryDoubleMaxCount\")) do"
+
 # General's Cry: `cooldown` after m_max(cooldown, HitTime or Time) (the cached env's output is
 # another env's table, dumped as a $foreign marker; the test rebuilds the attack time from this)
 [[stage]]
