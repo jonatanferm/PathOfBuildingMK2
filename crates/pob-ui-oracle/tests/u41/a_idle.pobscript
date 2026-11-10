@@ -1,0 +1,15 @@
+# U41: open allflame_exp_001 from the build list (RETURN on the selected row), Ctrl+5 (CONFIG):
+# every section and option control the constructor built for the loaded build (visibility from
+# the mainEnv used-tables: ifFlag/ifSkill/ifCond/...), the loaded config values in the
+# controls, and the custom mod block.
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
