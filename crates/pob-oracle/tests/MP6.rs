@@ -383,8 +383,20 @@ fn tag_eq(lua: &Tag, ours: &Tag, n: &mut Notes) -> bool {
     let mut t = lua.clone();
     let mut ex = (**ex).clone();
     let before = ex.fields.len();
-    ex.fields.retain(|(_, v)| {
-        !matches!(v, Value::Str(s) if s.bytes().all(|c| c.is_ascii_digit()) && !s.is_empty())
+    // only a digits-only string whose `tonumber` equals the numeric field of the same key
+    // (as MP1 / MP2 / MP4's strip_known_diffs check)
+    let num_of = |k: &str| match k {
+        "div" => lua.div,
+        "limit" => lua.limit,
+        "percent" => lua.percent,
+        "globalLimit" => lua.globalLimit,
+        "base" => lua.base,
+        _ => None,
+    };
+    ex.fields.retain(|(k, v)| {
+        !matches!((num_of(k.as_str()), v), (Some(x), Value::Str(s))
+            if !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit())
+                && pob_lua::tonumber(s) == Some(x))
     });
     if ex.fields.len() == before {
         return false;
@@ -1228,6 +1240,8 @@ fn whole_parser_l1() {
     let (mut ok, mut nbad) = (0usize, 0usize);
     let (mut nJewel, mut nNilHole, mut nDigit) = (0usize, 0usize, 0usize);
     let mut first: Vec<String> = Vec::new();
+    let mut unlisted: Vec<&str> = Vec::new();
+    let mut listed_bad: BTreeSet<&str> = BTreeSet::new();
     for r in &records {
         let want = oracle_mods(r);
         let mut notes = Notes::default();
@@ -1253,6 +1267,11 @@ fn whole_parser_l1() {
             }
             other => {
                 nbad += 1;
+                if WHOLE_PARSER_ALLOWED_DIFFS.iter().any(|(l, _)| *l == r.line) {
+                    listed_bad.insert(r.line.as_str());
+                } else {
+                    unlisted.push(r.line.as_str());
+                }
                 if first.len() < 40 {
                     first.push(format!(
                         "{:?}: PoB {want:?} / {:?}; ours {other:?}",
@@ -1278,8 +1297,34 @@ fn whole_parser_l1() {
         PARSE_ORACLE_RECORDS,
         "parse-oracle record count"
     );
+    // The doc's floor ...
     assert!(pct >= 99.95, "whole-parser L1 {pct:.3}% < 99.95%");
+    // ... and the ratchet: a line may differ only if WHOLE_PARSER_ALLOWED_DIFFS names it (with
+    // its known_diffs.toml / CCR reference), so a single new regression fails the gate.
+    assert!(
+        unlisted.is_empty(),
+        "whole-parser L1: {} line(s) differ that WHOLE_PARSER_ALLOWED_DIFFS does not list: {:?}",
+        unlisted.len(),
+        &unlisted[..unlisted.len().min(40)]
+    );
+    // A listed line that now matches must be dropped from the list (keep the list tight).
+    let stale: Vec<&str> = WHOLE_PARSER_ALLOWED_DIFFS
+        .iter()
+        .map(|(l, _)| *l)
+        .filter(|l| !listed_bad.contains(l))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "whole-parser L1: WHOLE_PARSER_ALLOWED_DIFFS lists line(s) that now match; remove them: \
+         {stale:?}"
+    );
 }
+
+/// Parse-oracle lines allowed to differ in `whole_parser_l1`, each as `(line text, reference)`
+/// where the reference names its `known_diffs.toml` entry or CCR. Empty: the parser matches the
+/// oracle on all 80,993 records, so any differing line fails the test (MPFIX ratchet; the
+/// 99.95 % floor of the doc stays as a second check).
+const WHOLE_PARSER_ALLOWED_DIFFS: &[(&str, &str)] = &[];
 
 /// `data/dump/parse_oracle.jsonl` record count.
 const PARSE_ORACLE_RECORDS: usize = 80_993;
