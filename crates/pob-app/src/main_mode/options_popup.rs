@@ -19,7 +19,7 @@
 //!   `cx.main` (MainCore); the rest are `cx.app().main` (MainState).
 //! - `main.invertSliderScrollDirection` is also written to SliderControl's stand-in
 //!   `INVERT_SLIDER_SCROLL_DIRECTION` (CCR-0069 A), which SliderControl reads.
-//! - CCR-0095 B: `self.modes.LIST:BuildList()` (L1219) has no counterpart on the frozen
+//! - CCR-0099 B: `self.modes.LIST:BuildList()` (L1219) has no counterpart on the frozen
 //!   [`crate::main_mode::Mode`] trait (CCR-0091 A); until U18 adds `build_list` the call is
 //!   skipped (the stand-in modes have nothing to rebuild).
 //! - The changeFuncs of the colour edits call `updateColorCode` (Data/Global.lua:80-87); for
@@ -1499,7 +1499,7 @@ fn build_controls(
                 }
                 // L1218
                 if cx.app().main.mode.as_deref() == Some("LIST") {
-                    // L1219 self.modes.LIST:BuildList(): CCR-0095 B (the Mode trait has no
+                    // L1219 self.modes.LIST:BuildList(): CCR-0099 B (the Mode trait has no
                     // BuildList yet; U18 adds it)
                 }
                 // L1221

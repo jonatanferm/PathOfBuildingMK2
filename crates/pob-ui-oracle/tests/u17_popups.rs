@@ -11,7 +11,7 @@
 //! BuildList, U18; `main.modes.BUILD` = Build, U19-U21) are not ported, so both sides run the same
 //! stand-in: a mode whose `OnFrame` draws `main:DrawBackground(main.viewPort)` (what
 //! BuildList.lua:179 does every frame) and nothing else, with a no-op `BuildList` (Options' Save
-//! calls `main.modes.LIST:BuildList()` in LIST mode; CCR-0095 B). Everything else is real: the
+//! calls `main.modes.LIST:BuildList()` in LIST mode; CCR-0099 B). Everything else is real: the
 //! popups are PoB's Lua against U17's port.
 //!
 //! `#! u17-setup NAME` steps run on both sides right after the first frame (the popups read
@@ -21,7 +21,7 @@
 //!
 //! Compared side effects exclude `ImageLoad` (as U16: the Lua side's frame 0 loads the images of
 //! modules other units port; the tree background, U23, is loaded by U17's stand-in on first use,
-//! CCR-0095 A). `FileWrite` is recorded by neither side (CCR-0028 item 3).
+//! CCR-0099 A). `FileWrite` is recorded by neither side (CCR-0028 item 3).
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};

@@ -1,9 +1,9 @@
-# CCR-0095: U17 seams to the tree assets and to `listMode:BuildList`
+# CCR-0099: U17 seams to the tree assets and to `listMode:BuildList`
 
 Unit: **U17** (Main popups). Status: **pending** (code on `port/U17` follows it).
 
 U17's range reads two things later units own and the frozen surface does not expose yet. U17
-works around both locally (marked `// CCR-0095` in its own files) and proposes the seams below.
+works around both locally (marked `// CCR-0099` in its own files) and proposes the seams below.
 
 ## A. `main.tree[latestTreeVersion].assets.Background2/Background1` (main:DrawBackground)
 
@@ -72,7 +72,7 @@ and in `options_popup.rs` (U17):
 
 ```diff
              if cx.app().main.mode.as_deref() == Some("LIST") {
--                // L1219 self.modes.LIST:BuildList(): CCR-0095 B
+-                // L1219 self.modes.LIST:BuildList(): CCR-0099 B
 +                // L1219
 +                let list = cx.app().main.modes.get("LIST").cloned()
 +                    .unwrap_or_else(|| lua_error!("attempt to index field 'LIST' (a nil value)"));

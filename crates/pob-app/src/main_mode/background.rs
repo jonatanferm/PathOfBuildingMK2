@@ -7,7 +7,7 @@
 //! PassiveTree.lua:263-266 (`self:LoadImage(name..".png", ..., data, "ASYNC")`) creates. The UI
 //! half of the tree (`tree_view/assets.rs`, `TreeAssets`) is U23's and has no fields yet, and
 //! `main:LoadTree` is a no-op until U23 lands (CCR-0091 B), so [`tree_background`] stands in
-//! (CCR-0095 A): it loads the image the Lua loads for the latest tree. Every tree version from
+//! (CCR-0099 A): it loads the image the Lua loads for the latest tree. Every tree version from
 //! 3_19 on (`latestTreeVersion` included) has no `assets` of its own and copies
 //! `TreeData/3_19/Assets.lua` (PassiveTree.lua:234-236), which has `Background2`; LoadImage finds
 //! `TreeData/Background2.png` first (PassiveTree.lua:910-913), and the name does not match
@@ -21,10 +21,10 @@ use pob_ui_core::prelude::*;
 
 /// `main.tree[latestTreeVersion].assets.Background2` and `.Background1` (nil when absent).
 ///
-/// CCR-0095 A: U23 replaces the body with the lookup in `cx.app().trees` (`TreeAssets`); until
+/// CCR-0099 A: U23 replaces the body with the lookup in `cx.app().trees` (`TreeAssets`); until
 /// then it is the handle PassiveTree.lua:263-266 would make for the latest tree (module notes).
 pub fn tree_background(cx: &mut Cx) -> (Option<ImageHandle>, Option<ImageHandle>) {
-    // CCR-0095
+    // CCR-0099
     let handle = ImageHandle::default();
     handle.load(&mut cx.sg, "TreeData/Background2.png", ImageFlags::ASYNC);
     (Some(handle), None)
