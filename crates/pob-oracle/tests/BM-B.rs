@@ -132,6 +132,7 @@ fn key_str(k: &Key) -> String {
         Key::S(s) => s.to_string(),
         Key::I(i) => tostring_num(*i as f64),
         Key::B(b) => b.to_string(),
+        Key::F(f) => tostring_num(f.get()),
     }
 }
 

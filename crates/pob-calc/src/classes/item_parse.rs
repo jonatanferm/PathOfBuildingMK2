@@ -232,13 +232,10 @@ fn ostr(x: Option<&str>) -> Val {
     x.map_or(Val::Nil, vstr)
 }
 
-/// `t[x]` for a number key that may be non-integral (such a read is nil).
+/// `t[x]` for a number key that may be non-integral (FUP1: a float key is a key; a NaN
+/// read is nil).
 fn tget_num(t: &Table, x: f64) -> Val {
-    if x == x.trunc() && x.is_finite() && x.abs() < 9.007_199_254_740_992e15 {
-        t.get(Key::I(x as i64))
-    } else {
-        Val::Nil
-    }
+    Key::try_num(x).map_or(Val::Nil, |k| t.get(k))
 }
 
 /// `ipairs(v)` over a table value (`ipairs(nil)` raises).

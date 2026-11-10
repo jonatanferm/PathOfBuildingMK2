@@ -139,7 +139,14 @@ fn hashrot(mut lo: u32, mut hi: u32) -> u32 {
 /// `hashnum` before masking: the number key `k` (a double in the hash part).
 #[inline]
 pub fn hashnum(k: i64) -> u32 {
-    let u = (k as f64).to_bits();
+    hashnum_f64(k as f64)
+}
+
+/// `hashnum` before masking for any number key `x` (a double in the hash part:
+/// `hashrot(lo, hi << 1)` on its bits), e.g. a non-integral float key.
+#[inline]
+pub fn hashnum_f64(x: f64) -> u32 {
+    let u = x.to_bits();
     hashrot(u as u32, ((u >> 32) as u32) << 1)
 }
 

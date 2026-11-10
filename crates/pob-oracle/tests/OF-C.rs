@@ -11,17 +11,17 @@
 //! local, so `costs`, `canDeal`, `monsterLife`, `passList` and the conversion
 //! tables reached through `activeSkill` are all compared).
 //!
-//! The segment calls `runSkillFunc("preDamageFunc")` (1908), OF-A's still
-//! unported local function. When PoB ran a `preDamageFunc` hook inside the probed
-//! `offence` call, its recorded `in → out` delta (`skill:<id>:preDamageFunc`) is
-//! replayed onto the state after the segment (`pob_oracle::replay`). The hooks
-//! write `skillData` / `output` fields the rest of the segment does not read, so
-//! applying the delta after the segment instead of at 1908 is equivalent for the
-//! corpus; the count of such builds is reported.
+//! The segment calls `runSkillFunc("preDamageFunc")` (1908). OF-A has ported it
+//! (`helpers_setup::runSkillFunc`), so the segment runs the hook itself and nothing
+//! is replayed: a callee is replayed only while it still hits an unported stub (as
+//! PF-C's `setup_flasks::callee_replay`). FUP1 (HYG3 exposed 1): replaying PoB's
+//! recorded `skill:<id>:preDamageFunc` delta on top applied the hook twice, and
+//! PoisonousConcoction's `NewMod` calls doubled its `ChaosMin`/`ChaosMax` mods on
+//! allflame_exp_029/046/049.
 //!
 //! Dumps: the shared probe cache, `.parity/probe-cache/<sha>/<build-key>/sel-<key>/state/`
 //! (probed by this test when absent, selection
-//! `offence:1692@main,offence:2174@main,skill:*:preDamageFunc:*@main`; needs LuaJIT, PoB's
+//! `offence:1692@main,offence:2174@main`; needs LuaJIT, PoB's
 //! checkout and the machine-wide oracle lock; `POB_QUERY_CACHE=refresh` re-probes). Knobs:
 //! `OFC_BUILDS=stem1,stem2`, `OFC_VERBOSE=1`. A missing input fails
 //! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
@@ -65,7 +65,7 @@ fn corpus(parity: &Path) -> Vec<(&'static str, PathBuf)> {
     v
 }
 
-const SELECT: &str = "offence:1692@main,offence:2174@main,skill:*:preDamageFunc:*@main";
+const SELECT: &str = "offence:1692@main,offence:2174@main";
 
 /// The build's OF-C dumps: the `state/` dir of this selection's entry in the shared probe cache
 /// (`.parity/probe-cache/<sha>/<build-key>/sel-<key>/`, `testkit::probe_selection`), probed when
@@ -120,16 +120,14 @@ struct Tally {
     hits: usize,
     hits_by_set: BTreeMap<&'static str, usize>,
     clean: usize,
-    replayed: usize,
     no_hit: Vec<String>,
     failed: Vec<String>,
     dirty: Vec<(String, &'static str, Vec<String>)>,
     conv_tables: usize,
 }
 
-/// One L4 run: inject `offence:1692`, run the segment, replay a recorded
-/// preDamageFunc, diff against `offence:2174`.
-fn l4_one(stem: &str, dumps: &BTreeMap<String, StateDump>) -> Result<(Vec<String>, bool), String> {
+/// One L4 run: inject `offence:1692`, run the segment, diff against `offence:2174`.
+fn l4_one(stem: &str, dumps: &BTreeMap<String, StateDump>) -> Result<Vec<String>, String> {
     let pick = |probe: &str| {
         dumps
             .values()
@@ -190,43 +188,23 @@ fn l4_one(stem: &str, dumps: &BTreeMap<String, StateDump>) -> Result<(Vec<String
             }
         }
     }
-    // the preDamageFunc hook PoB ran inside this offence call (1908)
-    let mut replayed = false;
-    let hook = dumps.values().find(|d| {
-        d.kind == "in"
-            && d.probe.starts_with("skill:")
-            && d.probe.ends_with(":preDamageFunc:in")
-            && offence_call(d) == Some(call)
-    });
-    if let Some(h) = hook {
-        let callee = h.probe.trim_end_matches(":in");
-        let replay = pob_oracle::replay::Replay::load(callee, dumps);
-        let applied = replay
-            .apply_report(&h.hit, &env)
-            .map_err(|e| format!("replay {}: {e}", h.hit))?;
-        if !applied.notes.is_empty() {
-            return Err(format!("replay {} notes: {:?}", h.hit, applied.notes));
-        }
-        replayed = true;
-    }
+    // runSkillFunc("preDamageFunc") (1908) is ported: the segment ran the hook itself
     let mm = testkit::diff_against(dout, Some(&env), &after, stem);
-    Ok((
-        mm.into_iter()
-            .map(|m| {
-                format!(
-                    "{} {:?}: pob={} ours={}{}",
-                    m.path,
-                    m.kind,
-                    clip(m.pob.as_ref()),
-                    clip(m.ours.as_ref()),
-                    m.writer
-                        .map(|w| format!(" (pob writer {w})"))
-                        .unwrap_or_default()
-                )
-            })
-            .collect(),
-        replayed,
-    ))
+    Ok(mm
+        .into_iter()
+        .map(|m| {
+            format!(
+                "{} {:?}: pob={} ours={}{}",
+                m.path,
+                m.kind,
+                clip(m.pob.as_ref()),
+                clip(m.ours.as_ref()),
+                m.writer
+                    .map(|w| format!(" (pob writer {w})"))
+                    .unwrap_or_default()
+            )
+        })
+        .collect())
 }
 
 fn clip(v: Option<&serde_json::Value>) -> String {
@@ -307,10 +285,7 @@ fn ofc_l4_costs_passes() {
             }
         }
         match l4_one(stem, &dumps) {
-            Ok((mm, replayed)) => {
-                if replayed {
-                    t.replayed += 1;
-                }
+            Ok(mm) => {
                 if mm.is_empty() {
                     t.clean += 1;
                 } else {
@@ -321,7 +296,7 @@ fn ofc_l4_costs_passes() {
         }
     }
     eprintln!(
-        "OF-C L4 offence:1692 -> offence:2174: {} builds, {} hits, {} clean, {} with mismatches, {} failed, {} without a main-env hit ({}); preDamageFunc replayed in {}; conversion tables in {} :out dumps",
+        "OF-C L4 offence:1692 -> offence:2174: {} builds, {} hits, {} clean, {} with mismatches, {} failed, {} without a main-env hit ({}); conversion tables in {} :out dumps",
         builds.len(),
         t.hits,
         t.clean,
@@ -329,7 +304,6 @@ fn ofc_l4_costs_passes() {
         t.failed.len(),
         t.no_hit.len(),
         t.no_hit.join(","),
-        t.replayed,
         t.conv_tables
     );
     for f in &t.failed {
@@ -373,7 +347,9 @@ fn ofc_l4_costs_passes() {
     );
     // coverage (HYG2/V2): every build was probed, and the builds whose main env never reaches
     // offence:1692 are exactly the listed ones
-    if std::env::var_os("OFC_BUILDS").is_none() {
+    // (full corpus only: the quick corpus, 14 of all57, has neither the build count nor the
+    // listed no-hit builds)
+    if std::env::var_os("OFC_BUILDS").is_none() && !pob_testpaths::quick_corpus() {
         assert_eq!(builds.len(), OFC_BUILDS, "all57 + slice5 builds");
         let mut no_hit: Vec<&str> = t.no_hit.iter().map(String::as_str).collect();
         no_hit.sort_unstable();

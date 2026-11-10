@@ -2,7 +2,8 @@
 --
 -- Runs after a build has loaded and calculated (`build` = the BUILD mode). Collects the mod
 -- stores of the main env (player/enemy/minion modDBs and their parents, every active skill's
--- skillModList, item mod lists, buff mod lists), serialises their mods (dump shape,
+-- skillModList, item mod lists, buff mod lists; plus synthetic MAX / MIN stores, FUP1),
+-- serialises their mods (dump shape,
 -- crates/pob-dump/FORMAT.md, so pob_gamedata::Mod deserialises them), runs the query matrix
 -- (calc doc §9.4 L3) with pcall, and runs ScaleAddMod / ScaleAddList on real mods. Returns
 -- one JSON string.
@@ -181,6 +182,57 @@ for slot, item in pairs(env.player.itemList or { }) do
 			addStore(item.slotModList[2], "item:" .. tostring(slot) .. ".slot2")
 		end
 	end
+end
+
+---------------------------------------------------------------------------
+-- Synthetic MAX / MIN stores (FUP1, HYG2 exposed). The corpus has almost no MAX / MIN mods, so
+-- Max / Min (ModStore.lua:251-271: Tabulate("MAX"/"MIN"), then EvalMod on each mod) would
+-- only ever answer nil. These stores give them mods to find: untagged MAX / MIN mods of two
+-- synthetic names and of Life (positive, negative, zero and fractional values; flags,
+-- keywordFlags and sources that some cfgs match and others do not; a name whose MAX mods are
+-- all negative, so Max stays nil through `val > (max or 0)`), held by a ModList child of each
+-- actor's modDB (Tabulate walks the parent chain), a standalone ModDB and a ModDB child of it.
+-- The query matrix below runs over them like over every other store.
+---------------------------------------------------------------------------
+local function synthMaxMin(s, tag)
+	local function add(name, modType, value, source, flags, keywordFlags)
+		s:AddMod(modLib.createMod(name, modType, value, source or ("Synth:" .. tag), flags or 0, keywordFlags or 0))
+	end
+	add("MsaMaxMinA", "MAX", 5)
+	add("MsaMaxMinA", "MAX", 12.5)
+	add("MsaMaxMinA", "MAX", -3)
+	add("MsaMaxMinA", "MIN", 4)
+	add("MsaMaxMinA", "MIN", -7.25)
+	add("MsaMaxMinA", "MIN", 0)
+	add("MsaMaxMinA", "MAX", 30, "Item:1:Synthetic")
+	add("MsaMaxMinA", "MIN", -40, "Tree:1")
+	add("MsaMaxMinA", "MAX", 50, nil, ModFlag.Attack)
+	add("MsaMaxMinA", "MIN", -60, nil, ModFlag.Spell, KeywordFlag.Hit)
+	add("MsaMaxMinA", "MAX", 70, nil, 0, KeywordFlag.Fire)
+	add("MsaMaxMinA", "BASE", 1000)
+	add("MsaMaxMinB", "MAX", -1)
+	add("MsaMaxMinB", "MAX", -2)
+	add("MsaMaxMinB", "MIN", 9)
+	add("MsaMaxMinB", "MIN", 3, nil, ModFlag.Attack)
+	add("Life", "MAX", 7)
+	add("Life", "MIN", 2.5)
+end
+for _, key in ipairs({ "player", "enemy", "minion" }) do
+	local a = actors[key]
+	if a and isStore(a.modDB) then
+		local l = new("ModList"):ModList(a.modDB)
+		synthMaxMin(l, key)
+		addStore(l, "synthMaxMin:" .. key)
+	end
+end
+do
+	local db = new("ModDB"):ModDB()
+	synthMaxMin(db, "db")
+	addStore(db, "synthMaxMin:db")
+	local child = new("ModDB"):ModDB(db)
+	child:AddMod(modLib.createMod("MsaMaxMinA", "MAX", 99, "Synth:child", 0, 0))
+	child:AddMod(modLib.createMod("MsaMaxMinB", "MIN", -99, "Synth:child", 0, 0))
+	addStore(child, "synthMaxMin:db.child")
 end
 
 -- Serialise every store.

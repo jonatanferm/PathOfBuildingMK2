@@ -577,6 +577,7 @@ fn c_from_val(v: &Val, key: Option<&str>, item: &Item) -> C {
                     Key::S(s) => (CK::S(s.as_str().to_owned()), Some(s.as_str().to_owned())),
                     Key::I(i) => (CK::I(i), None),
                     Key::B(b) => (CK::B(b), None),
+                    Key::F(f) => (CK::F(f.get().to_bits()), None),
                 };
                 m.insert(ck, c_from_val(&x, ks.as_deref(), item));
             }

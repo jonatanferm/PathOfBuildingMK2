@@ -1,0 +1,75 @@
+# U22: the colour buttons (SetColor, NotesTab.lua:64-73) with no selection (Insert at the
+# caret of the unfocused edit) and with a selection (ReplaceSel with the last colour of the
+# selection or ^7), then "Show Color Codes" (SetShowColorCodes(true): the label and the
+# escaped buffer), a colour with the codes shown (the escaped text), a selection over escaped
+# codes, and Ctrl+S with the codes shown (Save runs SetShowColorCodes(false) first, so the
+# saved text and the label after it are unescaped).
+#! u22-saved Builds/allflame_exp_001.xml
+#! u22-expect-notes abcdef ^4four
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 6
+key-up CTRL
+frames 2
+type "abc"
+frames 1
+# MAGIC: no selection
+move 490 97
+click LEFTBUTTON
+frames 2
+# back into the edit, then select "def" with shift+left and click RARE
+move 600 300
+click LEFTBUTTON
+press END
+type "def ^4four"
+key-down SHIFT
+press LEFT
+press LEFT
+press LEFT
+key-up SHIFT
+frames 1
+move 610 97
+click LEFTBUTTON
+frames 2
+# show the codes
+move 1190 112
+frames 1
+click LEFTBUTTON
+frames 2
+# a colour with the codes shown (FIRE), then a selection over escaped codes (COLD)
+move 600 300
+click LEFTBUTTON
+press END
+type "x"
+move 370 115
+click LEFTBUTTON
+frames 1
+move 600 300
+click LEFTBUTTON
+press END
+key-down SHIFT
+press HOME
+key-up SHIFT
+frames 1
+move 490 115
+click LEFTBUTTON
+frames 2
+# DEFAULT and STRENGTH with no selection
+move 730 133
+click LEFTBUTTON
+move 370 133
+click LEFTBUTTON
+frames 2
+# save while the codes are shown
+key-down CTRL
+press s
+key-up CTRL
+frames 3
+snapshot saved
+frames 1

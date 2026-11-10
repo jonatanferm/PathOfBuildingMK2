@@ -431,10 +431,14 @@ pub fn default_hooks() -> BuildHooks {
         import_try_fetch_character_list: Rc::new(|_| {
             not_ported("ImportTab:TryFetchCharacterList", "U43")
         }),
-        // calc:BM-A keeps the section and writes it back (CCR-0080 §8)
-        load_ui_section: Rc::new(|_, _, _, _| false),
+        // one arm per UI-only saver (U22 Notes; TreeView U25-U28, Import U43); calc:BM-A keeps
+        // the other sections and writes them back (CCR-0080 §8)
+        load_ui_section: Rc::new(|cx, elem, node, db| match elem {
+            "Notes" => crate::tabs::notes::load_ui_section(cx, node, db),
+            _ => false,
+        }),
         import_tab: pending_tab(),
-        notes_tab: pending_tab(),
+        notes_tab: Rc::new(crate::tabs::notes::ctor_hook),
         party_tab: pending_tab(),
         config_tab: pending_tab(),
         items_tab: pending_tab(),

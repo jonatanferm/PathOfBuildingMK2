@@ -1142,7 +1142,7 @@ fn item_core_vs_pob() {
                 .all(|r| r["craft"].is_string() && list_range(r)),
         "synthetic crafted rares: PoB did not parse/craft them with list ranges: {synth:?}"
     );
-    if std::env::var_os("IT_B_LIMIT").is_none() {
+    if std::env::var_os("IT_B_LIMIT").is_none() && !pob_testpaths::quick_corpus() {
         // coverage and the tolerated buckets (HYG2/V2): the oracle's records by kind, the
         // checks passed, and the both-raise / skipped counts are bounded
         let got: Vec<(&str, usize)> = kinds.iter().map(|(k, v)| (k.as_str(), *v)).collect();

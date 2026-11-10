@@ -1,0 +1,46 @@
+# U22: a build whose Notes section has text (NotesTab:Load: SetText of the XML text node,
+# lastContent), shown and hidden codes over the loaded ^x / ^digit codes, a switch to another
+# tab (Ctrl+1) and back (the Notes edit keeps its state), typing after a hide, Ctrl+S, and a
+# second Ctrl+S with nothing changed.
+#! u22-saved Builds/notes_build.xml
+#! u22-expect-notes ^xFF0000Leveling^7 notes
+fixture userdir=user
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 6
+key-up CTRL
+frames 2
+move 1190 112
+click LEFTBUTTON
+frames 2
+key-down CTRL
+press 1
+frames 1
+press 6
+key-up CTRL
+frames 2
+move 1190 112
+click LEFTBUTTON
+frames 2
+move 600 300
+click LEFTBUTTON
+key-down CTRL
+press END
+key-up CTRL
+type " ^5end"
+frames 2
+key-down CTRL
+press s
+key-up CTRL
+frames 2
+key-down CTRL
+press s
+key-up CTRL
+frames 2
+snapshot saved
+frames 1
