@@ -390,7 +390,8 @@ pub fn default_hooks() -> BuildHooks {
         sync_loadouts: Rc::new(|_| {}),
         update_class_dropdowns: Rc::new(|_, _| {}),
         open_spectre_library: Rc::new(|_| not_ported("buildMode:OpenSpectreLibrary", "U20")),
-        refresh_stat_list: Rc::new(|_| {}),
+        // U21 (CCR-0098 §3)
+        refresh_stat_list: Rc::new(super::stats::refresh_stat_list),
         set_display_stat: Rc::new(|_, _, _| not_ported("buildMode:SetDisplayStat", "U21")),
         clear_display_stat: Rc::new(|_| not_ported("buildMode:ClearDisplayStat", "U21")),
         list_sub_path: Rc::new(|_| None),
@@ -792,6 +793,8 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
         unsaved: false,
     });
     install_title_hook();
+    // U21: Build:Save's display stats (CCR-0080 §8)
+    super::stats::install_save_stats_hook();
 
     // L65
     cx.build_mut().db_file_name = db_file_name.clone();
