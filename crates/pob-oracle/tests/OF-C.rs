@@ -347,7 +347,9 @@ fn ofc_l4_costs_passes() {
     );
     // coverage (HYG2/V2): every build was probed, and the builds whose main env never reaches
     // offence:1692 are exactly the listed ones
-    if std::env::var_os("OFC_BUILDS").is_none() {
+    // (full corpus only: the quick corpus, 14 of all57, has neither the build count nor the
+    // listed no-hit builds)
+    if std::env::var_os("OFC_BUILDS").is_none() && !pob_testpaths::quick_corpus() {
         assert_eq!(builds.len(), OFC_BUILDS, "all57 + slice5 builds");
         let mut no_hit: Vec<&str> = t.no_hit.iter().map(String::as_str).collect();
         no_hit.sort_unstable();
