@@ -1,0 +1,27 @@
+screen 1280 800 dpi 1.0
+# U20: Ctrl+S on a build without a file name (load-build passes dbFileName = false): the Save
+# popup (OpenSaveAsPopup; the build's own name exists, so Save starts disabled), extend the
+# name (RETURN goes to the focused edit, which consumes it), click Save (SaveDBFile,
+# ResetModFlags, window title), then MOUSE4 closes the build (nothing unsaved).
+#! u20-saved Builds/allflame_exp_001_x.xml
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press s
+key-up CTRL
+frames 3
+move 640 250
+frames 2
+press END
+type "_x"
+frames 2
+press RETURN
+frames 1
+move 595 657
+click LEFTBUTTON
+frames 3
+snapshot saved
+press MOUSE4
+frames 3

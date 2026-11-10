@@ -1,0 +1,31 @@
+screen 1280 800 dpi 1.0
+# U20: change the level (modFlag), then Ctrl+W: the Save Changes popup (OpenSavePopup "LIST");
+# Cancel keeps the build, Ctrl+W again and "Don't Save" closes it (CloseBuild -> LIST).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_048.xml"
+frames 2
+move 580 14
+click LEFTBUTTON
+press END
+press BACK
+type "7"
+frames 1
+move 700 400
+click LEFTBUTTON
+frames 2
+key-down CTRL
+press w
+key-up CTRL
+frames 2
+move 730 430
+frames 1
+click LEFTBUTTON
+frames 2
+key-down CTRL
+press w
+key-up CTRL
+frames 2
+move 640 430
+click LEFTBUTTON
+frames 3

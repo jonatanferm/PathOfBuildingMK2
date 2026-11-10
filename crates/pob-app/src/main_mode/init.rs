@@ -28,7 +28,7 @@ use pob_ui_core::controls::{ButtonControl, LabelControl};
 use pob_ui_core::coroutine::{co, Coroutine};
 use pob_ui_core::prelude::*;
 
-use super::{ItemDb, MainHooks, MainHost, Mode, ModeArg, PendingMode};
+use super::{ItemDb, MainHooks, MainHost, Mode, ModeArg};
 use crate::app::CxApp;
 use crate::model;
 
@@ -38,8 +38,8 @@ pub fn default_modes() -> IndexMap<String, Rc<dyn Mode>> {
     let mut modes: IndexMap<String, Rc<dyn Mode>> = IndexMap::new();
     // L62 self.modes["LIST"] = LoadModule("Modules/BuildList")
     modes.insert("LIST".to_owned(), crate::build_list::mode());
-    // L63 self.modes["BUILD"] = LoadModule("Modules/Build")
-    modes.insert("BUILD".to_owned(), Rc::new(PendingMode::new("BUILD")));
+    // L63 self.modes["BUILD"] = LoadModule("Modules/Build") (CCR-0098 §5: U20)
+    modes.insert("BUILD".to_owned(), crate::build::mode());
     modes
 }
 

@@ -9,7 +9,7 @@
 //! (skill_select, stats, display_stats). `main.modes.BUILD` is [`BuildModeObj`] (the
 //! `main_mode::Mode` trait, CCR-0091 A); methods of U20/U21 and of the tabs that U19's code calls
 //! go through [`init::BuildHooks`] (CCR-0098 §3) until their owners install
-//! theirs. `main:Init` still installs the BUILD placeholder until U20 lands (CCR-0098 §5).
+//! theirs. `main:Init` installs [`mode`] as `main.modes.BUILD` (CCR-0098 §5, done by U20).
 //!
 //! The Rust node is created afresh by every `Init` (the Lua object persists across builds; every
 //! field `Init` reads before writing is listed in init.rs).
@@ -153,6 +153,7 @@ impl Mode for BuildModeObj {
         f(cx, input_events, vp);
     }
     /// lua: Build.lua:967-969 `buildMode:GetArgs()` (U20's range; the Mode trait needs it here)
+    /// @pob Modules/Build.lua:967-969 h=3338c457
     fn get_args(&self, cx: &Cx) -> Option<Vec<ModeArg>> {
         let b = cx.app().build.as_ref()?;
         // L968 return self.dbFileName, self.buildName

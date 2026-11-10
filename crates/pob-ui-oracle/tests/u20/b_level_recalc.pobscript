@@ -1,0 +1,22 @@
+screen 1280 800 dpi 1.0
+# U20: edit the character level of a fixture build: buildFlag -> OnFrame recalc (BuildOutput,
+# RefreshStatList -> EstimatePlayerProgress, GetMiscCalculator) and the saved level.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_030.xml"
+frames 2
+snapshot before
+move 580 14
+click LEFTBUTTON
+press END
+press BACK
+press BACK
+press BACK
+type "42"
+frames 2
+move 700 400
+click LEFTBUTTON
+frames 3
+snapshot level42
+move 499 14
+frames 2
