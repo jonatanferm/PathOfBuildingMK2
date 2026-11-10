@@ -444,7 +444,7 @@ pub fn default_hooks() -> BuildHooks {
         items_tab: pending_tab(),
         tree_tab: pending_tab(),
         skills_tab: pending_tab(),
-        calcs_tab: pending_tab(),
+        calcs_tab: Rc::new(crate::tabs::calcs::core::ctor_hook),
         compare_tab: pending_tab(),
         // CalcBreakdownControl (U40) starts hidden (CalcBreakdownControl.lua:24)
         breakdown: Rc::new(|cx, build, _init| {
