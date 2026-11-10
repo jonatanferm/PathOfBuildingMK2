@@ -1,0 +1,65 @@
+# MI acceptance probes (crates/pob-oracle/tests/MI.rs). Owned by MI.
+#
+# `mirages:in` / `mirages:out` are the patcher's function probes. The line probes below sit
+# around every callee of calcs.mirages / calculateMirage that the L4 test replays (the state
+# between two consecutive probes is one callee's in -> out), and at the points where the test
+# diffs the live state mid-run. All are selected `@main` (the build's main env; `env` is the
+# main env in every one of them).
+
+# calculateMirage, after the compareFunc loop (Reflection / Tawhoa's Chosen: buildActiveSkill
+# calls happen in the loop), before `if mirageSkill then`
+[[stage]]
+id = "mi:39"
+file = "Modules/CalcMirages.lua"
+line = 39
+locals = ["env", "mirageSkill"]
+expect = "if mirageSkill then"
+
+# after copyActiveSkill (newSkill, newEnv), before line 41
+[[stage]]
+id = "mi:41"
+file = "Modules/CalcMirages.lua"
+line = 41
+locals = ["env", "newSkill", "newEnv"]
+expect = "newSkill.skillCfg.skillCond[\"usedByMirage\"] = true"
+
+# after preCalcFunc and `newEnv.player.mainSkill = newSkill`, before calcs.perform(newEnv)
+[[stage]]
+id = "mi:52"
+file = "Modules/CalcMirages.lua"
+line = 52
+locals = ["env", "newSkill", "newEnv"]
+expect = "calcs.perform(newEnv)"
+
+# after calcs.perform(newEnv), before postCalcFunc
+[[stage]]
+id = "mi:53"
+file = "Modules/CalcMirages.lua"
+line = 53
+locals = ["env", "newSkill", "newEnv"]
+expect = "config.postCalcFunc(env, newSkill, newEnv)"
+
+# General's Cry: before the cache check / buildActiveSkill (after 357-359)
+[[stage]]
+id = "mi:361"
+file = "Modules/CalcMirages.lua"
+line = 361
+locals = ["env", "uuid", "maxMirageWarriors", "cooldown"]
+expect = "if not GlobalCache.cachedData[env.mode][uuid] or env.mode == \"CALCULATOR\" then"
+
+# General's Cry: after buildActiveSkill
+[[stage]]
+id = "mi:364"
+file = "Modules/CalcMirages.lua"
+line = 364
+locals = ["env", "uuid"]
+expect = "local mainSkillOutputCache = GlobalCache.cachedData[env.mode][uuid].Env.player.output"
+
+# General's Cry: `cooldown` after m_max(cooldown, HitTime or Time) (the cached env's output is
+# another env's table, dumped as a $foreign marker; the test rebuilds the attack time from this)
+[[stage]]
+id = "mi:396"
+file = "Modules/CalcMirages.lua"
+line = 396
+locals = ["env", "cooldown", "maxMirageWarriors", "mirageSpawnTime"]
+expect = "env.player.mainSkill.skillModList:NewMod(\"DPS\", \"MORE\", (1 / cooldown - 1) * 100, \"General's Cry Cooldown\")"
