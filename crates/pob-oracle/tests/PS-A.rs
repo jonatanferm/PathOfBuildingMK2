@@ -714,7 +714,16 @@ fn check_import_branches(build: &BuildRef, spec: &PassiveSpecRef, ver: Name) {
     if latest != ver {
         let sw = new_spec(build, latest);
         let old = sw.nodes.with(|m| m.pairs());
-        sw.ImportFromNodeList(None, classId, ascendId, sec, &hashes, &none, &effects, Some(ver));
+        sw.ImportFromNodeList(
+            None,
+            classId,
+            ascendId,
+            sec,
+            &hashes,
+            &none,
+            &effects,
+            Some(ver),
+        );
         assert!(sw.tree.get().treeVersion == ver, "switch: tree version");
         assert_eq!(dump(&sw), want, "tree-version switch {latest} -> {ver}");
         // the replaced node set is unlinked (CCR-0052 §10)
