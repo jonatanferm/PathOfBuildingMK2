@@ -202,7 +202,16 @@ pub(crate) fn getActiveSkillCount(activeSkill: &ActiveSkillRef) -> (f64, bool) {
 
 /// `x and x > y` for a nil-able output value (`output.X and output.X > y`).
 fn gt(v: &Val, y: f64) -> bool {
-    v.truthy() && v.num() > y
+    v.truthy() && lua_gt(v, y)
+}
+
+/// Lua `x > y` with a number `y`: no string coercion; a non-number `x` raises LuaJIT's
+/// "attempt to compare number with <type>" (`x > y` is compiled as `y < x`).
+fn lua_gt(x: &Val, y: f64) -> bool {
+    match x {
+        Val::Num(n) => *n > y,
+        other => lua_error!("attempt to compare number with {}", other.lua_type()),
+    }
 }
 
 /// One `fullDPS.skills` row (`{ name = …, dps = …, count = …, trigger = …, skillPart = … }`;
@@ -1363,7 +1372,7 @@ fn mod_row(m: &ModRef, value: &Value) -> Table {
 
 /// `t_insert(list, s_format(fmt, output[key]))` when `output[key] > 0` (nil raises).
 fn charges(list: &mut Vec<String>, output: &Output, key: Name, fmt: &str) {
-    if output.num(key) > 0.0 {
+    if lua_gt(&output.get(key), 0.0) {
         list.push(lfmt!(fmt, output.num(key)));
     }
 }

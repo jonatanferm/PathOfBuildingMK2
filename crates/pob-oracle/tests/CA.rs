@@ -634,17 +634,42 @@ mod oracle_side {
     /// `cacheSkillUUID` reads `build.skillsTab.socketGroupList` (Common.lua 913-918), which a
     /// pob-state dump does not carry (the build is a marker): rebuild it with every injected
     /// skill's socket group at the index PoB's uuid names (other slots are empty groups).
+    /// A skill the dump carries no `$uuid` for (PoB had not cached it before the loop: the loop
+    /// builds it) takes its uuid from `known` (PoB's GlobalCache keys after the load, ca.json
+    /// `costs`) when exactly one unused key has its `name_SLOT_slotIndx_` prefix, which does not
+    /// depend on the group list.
     /// → the skills whose Rust uuid still differs from PoB's.
-    fn fill_socket_groups(dump: &StateDump, env: &EnvRef) -> Vec<String> {
+    fn fill_socket_groups(dump: &StateDump, env: &EnvRef, known: &[String]) -> Vec<String> {
         let mut uuids = BTreeMap::new();
         skill_uuids(&dump.root, &mut uuids);
         let list_json = dump.root["env"]["player"]["activeSkillList"].as_array().cloned().unwrap_or_default();
         let skills = env.player.activeSkillList.get().snapshot();
-        let pob_uuid = |i: usize| -> Option<String> {
+        let dumped = |i: usize| -> Option<String> {
             let e = list_json.get(i)?;
             let id = e.get("$id").or_else(|| e.get("$ref")).and_then(J::as_u64)?;
             uuids.get(&id).cloned()
         };
+        let used: BTreeSet<String> = (0..skills.len()).filter_map(dumped).collect();
+        let mut fallback: BTreeMap<usize, String> = BTreeMap::new();
+        for (i, s) in skills.iter().enumerate() {
+            if dumped(i).is_some() || i >= list_json.len() {
+                continue;
+            }
+            let ours = cacheSkillUUID(s, env).to_string();
+            let Some((prefix, _)) = ours.rsplit_once('_') else { continue };
+            let prefix = format!("{prefix}_");
+            let cands: Vec<&String> = known
+                .iter()
+                .filter(|k| !used.contains(*k))
+                .filter(|k| k.strip_prefix(&prefix).is_some_and(|x| x.parse::<usize>().is_ok()))
+                .collect();
+            if let [one] = cands[..] {
+                if !fallback.values().any(|v| v == one) {
+                    fallback.insert(i, one.clone());
+                }
+            }
+        }
+        let pob_uuid = |i: usize| -> Option<String> { dumped(i).or_else(|| fallback.get(&i).cloned()) };
         let mut slots: BTreeMap<usize, SocketGroupRef> = BTreeMap::new();
         for (i, s) in skills.iter().enumerate() {
             let (Some(u), Some(g)) = (pob_uuid(i), s.socketGroup.get()) else { continue };
@@ -883,15 +908,19 @@ mod oracle_side {
         let din = load(run, main.get("ca:399").ok_or("no MAIN ca:399 dump")?)?;
         let dout = load(run, main.get("ca:437").ok_or("no MAIN ca:437 dump")?)?;
         let inj = inject(&din)?;
-        let bad = fill_socket_groups(&din, &inj.env);
+        let known: Vec<String> =
+            run.ca["costs"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
+        let bad = fill_socket_groups(&din, &inj.env, &known);
         if !bad.is_empty() {
             return Err(format!("{LIMITED}skill uuids not reproducible from the dump: {bad:?}"));
         }
         let mut d = Vec::new();
         fill_cost_cache(&inj, &run.ca["costs"]);
-        // A skill PoB left uncached after its loop (cause not investigated; docs/port/
-        // FOLLOWUPS.md "CA" 4) makes the Rust loop call buildActiveSkill, i.e. the full calc on
-        // the injected placeholder build: not reproducible here.
+        // A skill PoB leaves uncached after its loop makes the Rust loop call buildActiveSkill,
+        // i.e. the full calc on the injected placeholder build: not reproducible here. PoB does
+        // this for The Saviour's Reflection: its mirage postCalcFunc (CalcMirages.lua:154-159)
+        // makes the mirrored attack `env.player.mainSkill`, so `cacheData` (CalcPerform.lua:3989)
+        // files the nested calc under that skill's uuid (docs/port/FOLLOWUPS.md "CA" 4).
         let missing: Vec<String> = inj
             .env
             .player
@@ -1179,13 +1208,11 @@ mod oracle_side {
     }
 
     /// Harness-limited builds per block on the all57 corpus (measured; see the reasons printed
-    /// by the test): cost warnings: 3 builds where PoB's loop left a skill uncached
-    /// (upstream_Dual_Savior Reflection x2,
-    /// upstream_Dual_Wield_Cospris_CoC Ice Spear / Commandment of Frost,
-    /// upstream_Generals_Perforate_Zerker Dash / Portal), so the Rust loop would run the full
-    /// calc; used-tracking: 2 builds (allflame_exp_016, _049) whose `Spec:LifeInc` sums a Tree mod
+    /// by the test): cost warnings: 1 build where PoB's loop leaves a skill uncached
+    /// (upstream_Dual_Savior Reflection x2: the mirage re-keys the cache, `cost_block`), so the
+    /// Rust loop would run the full calc; used-tracking: 2 builds (allflame_exp_016, _049) whose `Spec:LifeInc` sums a Tree mod
     /// with an `ItemCondition` searchCond tag (injected items carry no mod lines).
-    const L5_MAX_LIMITED: [usize; 3] = [3, 2, 0];
+    const L5_MAX_LIMITED: [usize; 3] = [1, 2, 0];
 
     // ---- L6 -------------------------------------------------------------------------------------
 
@@ -1350,14 +1377,23 @@ mod oracle_side {
                     )
                 });
                 lut::clear_timeless_jewel_luts(None);
-                if let Ok((a, b)) = calls {
-                    for (which, ours) in [("callDefault", a), ("callNoFullDPS", b)] {
-                        let p = flat_json(&run.ca["misc"][which]);
-                        for (k, pv) in &p {
-                            t.misc += 1;
-                            if ours.get(k).is_some_and(|ov| leaf_eq(ov, pv)) {
-                                t.misc_exact += 1;
-                            }
+                // a raising call counts as a Rust error (stage "misc call") and its PoB
+                // values as not exact
+                let (a, b) = match calls {
+                    Ok((a, b)) => (Some(a), Some(b)),
+                    Err(e) => {
+                        eprintln!("L6 {stem}: Rust misc call: {e}");
+                        *t.stage_errors.entry("misc call".to_owned()).or_default() += 1;
+                        t.rust_errors.push(format!("{stem}: misc call: {e}"));
+                        (None, None)
+                    }
+                };
+                for (which, ours) in [("callDefault", a), ("callNoFullDPS", b)] {
+                    let p = flat_json(&run.ca["misc"][which]);
+                    for (k, pv) in &p {
+                        t.misc += 1;
+                        if ours.as_ref().and_then(|o| o.get(k)).is_some_and(|ov| leaf_eq(ov, pv)) {
+                            t.misc_exact += 1;
                         }
                     }
                 }
@@ -1407,6 +1443,11 @@ mod oracle_side {
             assert!(t.headline_exact >= L6_MIN_HEADLINE_EXACT, "headline exact {} < floor {L6_MIN_HEADLINE_EXACT}", t.headline_exact);
             assert!(t.keys_exact >= L6_MIN_KEYS_EXACT, "keys exact {} < floor {L6_MIN_KEYS_EXACT}", t.keys_exact);
             assert!(t.rust_errors.len() <= L6_MAX_RUST_ERRORS, "{} Rust errors > bound {L6_MAX_RUST_ERRORS}", t.rust_errors.len());
+            // per stage: a MAIN-stage error replacing a CALCS-stage one must not pass
+            for (stage, n) in &t.stage_errors {
+                let max = L6_MAX_STAGE_ERRORS.iter().find(|(s, _)| s == stage).map_or(0, |(_, m)| *m);
+                assert!(*n <= max, "{n} Rust errors in stage {stage:?} > bound {max}");
+            }
         }
     }
 
@@ -1417,4 +1458,7 @@ mod oracle_side {
     const L6_MIN_HEADLINE_EXACT: usize = 195;
     const L6_MIN_KEYS_EXACT: usize = 21_822;
     const L6_MAX_RUST_ERRORS: usize = 57;
+    /// The per-stage split of [`L6_MAX_RUST_ERRORS`] (measured the same way); a stage not
+    /// listed (MAIN, getMiscCalculator, misc call, load …) is bounded by 0.
+    const L6_MAX_STAGE_ERRORS: &[(&str, usize)] = &[("CALCS", 57)];
 }

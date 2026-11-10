@@ -3,7 +3,7 @@
 Status: proposed by CA (port/CA, 2026-11-10)
 
 No frozen signature of calc doc §5.10 changes. This CCR records what CA added next to the frozen
-API and one change it made in two other units' test files, so the integrator can review them
+API and one change it made in three other units' test files, so the integrator can review them
 together.
 
 ## 1. `buildOutput`'s blocks are public functions (addition)
@@ -43,8 +43,22 @@ let run = std::panic::catch_unwind(...);
 pob_calc::modules::calcs::replay_hook::set(None);
 ```
 
+The same applies to PF-A's `getCachedOutputValue` probe: CalcPerform.lua:33-35 calls
+`calcs.buildActiveSkill` whenever the uuid is uncached **or `env.mode == "CALCULATOR"`**, and PF-A
+stands the callee in with `replay_build_active_skill` (the `:in → :out` delta). Ported, the call
+ran `initEnv` on the placeholder build (4 of 12 `pfa_cached_outputs` hits, `#9..#12`, failed with
+`attempt to index a nil value`). Same diff, guarded to that one function:
+
+```rust
+// crates/pob-oracle/tests/PF-A.rs run_hit (f == "getCachedOutputValue" only)
+pob_calc::modules::calcs::replay_hook::set(Some(Box::new(|_| true)));
+let run = std::panic::catch_unwind(...);
+pob_calc::modules::calcs::replay_hook::set(None);
+```
+
 This restores exactly the assumption those tests were written under (the injected cache entries
-replace the nested calc). Measured after the change: TR-A L4 563/563 hits pass (as before).
+replace the nested calc). Measured after the change: TR-A L4 563/563 hits pass (as before); PF-A
+`pfa_function_probes_hit_sample` getCachedOutputValue 12/12 (as on rust-port f275edb).
 
 ## 3. Notes for the docs
 

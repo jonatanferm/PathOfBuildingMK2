@@ -22,7 +22,7 @@ so the suite cannot silently get worse; lowering the bound is part of closing th
 - **u0_smoke: the CALCS runs raise on the PF-B gap** (owner: PF-B). Was "buildOutput leaves the
   player output empty"; resolved by CA (port/CA, 2026-11-10): the 10 MAIN / CALCULATOR runs now
   leave 464-698 player output keys, and `tests/u0_smoke.rs` requires a non-empty output for every
-  run that completes. The 5 CALCS runs raise `attempt to perform arithmetic on a nil value` at
+  run that completes. The 5 CALCS runs raise `attempt to compare number with nil` (LuaJIT's text) at
   Calcs.lua:605 (`output.PowerCharges > 0`): `PowerCharges` is nil because `doActorCharges`
   (CalcPerform.lua:980-1139) is still a stub. The test tolerates a Lua error only on a run that
   hits a stub, bounded by `MAX_STUB_ERRORS = 5`; lower it to 0 when PF-B lands. Still hit on
@@ -95,6 +95,9 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    test catches the CALCS stage and still compares MAIN). The test's floors
    (`L6_MIN_HEADLINE_EXACT = 195`, `L6_MIN_KEYS_EXACT = 21_822`, `L6_MAX_RUST_ERRORS = 57`) are
    the measured values; raise them as CS2 / PF-B land, and make headline exact a hard gate then.
+   The error bound is also split per stage (`L6_MAX_STAGE_ERRORS`: CALCS 57, every other stage,
+   including a raising misc calculator call, 0). `ca_d13_fixed_point` covers MAIN mode only; add
+   CALCS once PF-B lands (it raises at Calcs.lua:605 today).
    CA's own blocks are verified on PoB's injected state by `ca_l5_post` (all clean).
 2. **`CalcsTab:BuildOutput` scaffold in CA.rs** (owner: PWR). `power::BuildOutput`
    (CalcsTab.lua:441-472) is still a stub, so `loadBuildFromXML` computes nothing; CA.rs carries
@@ -105,14 +108,22 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    `ItemCondition` tag with `searchCond` evaluates differently on an injected env. Seen in
    `ca_l5_post` on allflame_exp_016 / _049 (`Spec:LifeInc` sums Tree:41415, "+15 % Life if no
    Life on body armour"); counted as harness-limited (`L5_MAX_LIMITED`).
-4. **Skills PoB leaves uncached** (information). On upstream_Dual_Savior (Reflection x2),
-   upstream_Dual_Wield_Cospris_CoC (Ice Spear, Commandment of Frost) and
-   upstream_Generals_Perforate_Zerker (Dash, Portal) PoB has no `GlobalCache.cachedData.MAIN`
-   entry for the skill's uuid after the cost-warning loop, so the Rust loop on the injected state
-   would call `buildActiveSkill` (the full calc on a placeholder build). Why PoB has no entry was
-   not investigated (candidates: `buildActiveSkill`'s "Failed to process skill" path, or a uuid
-   whose env caches under another key). These 3 builds are harness-limited in `ca_l5_post`
-   (cost-warning block only) and are covered only end to end.
+4. **Skills PoB leaves uncached** (information; investigated in fix round 1). On
+   upstream_Dual_Savior PoB never has a `GlobalCache.cachedData.MAIN` entry for its two Reflection
+   skills (`Reflection_WEAPON1_1_3` / `_WEAPON2_1_4`). `buildActiveSkill` finds the uuid and runs
+   `calcs.perform`, but The Saviour's mirage `postCalcFunc` (CalcMirages.lua:154-159) makes the
+   mirrored attack `env.player.mainSkill`, so `cacheData(cacheSkillUUID(env.player.mainSkill, env),
+   env)` (CalcPerform.lua:3989) files the result under that skill's uuid (`DoubleStrike_WEAPON1_1_1`,
+   measured in PoB). The Rust loop on an injected state would therefore call `buildActiveSkill`
+   (the full calc on a placeholder build), so this build stays harness-limited in `ca_l5_post`
+   (cost-warning block only; `L5_MAX_LIMITED[0] = 1`) and is covered only end to end. The other two
+   builds listed earlier (upstream_Dual_Wield_Cospris_CoC, upstream_Generals_Perforate_Zerker)
+   were a harness gap, not PoB behavior. PoB caches those skills during the loop
+   (`IceSpear_WEAPON2_1_6`, `CommandmentofFrost_GLOVES_1_8`, `Dash_WEAPON1_1_2`,
+   `Portal_WEAPON1_3_2`), so the `ca:399` dump carries no `$uuid` for them and the rebuilt
+   group list missed their groups. `fill_socket_groups` now takes their uuids from PoB's final
+   cache keys (unique `name_SLOT_slotIndx_` prefix match), and both builds' cost warnings are
+   compared clean.
 
 ## CCR2
 
