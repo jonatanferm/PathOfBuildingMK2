@@ -1,0 +1,84 @@
+# U32: the shared item list (SharedItemListControl) and the rare template DB (ItemDBControl
+# "RARE", layout b) of allflame_exp_001. Drag item-list row 1 onto the empty shared list
+# (ReceiveDrag at its selDragIndex: a copy from BuildRaw), then row 2 above it; hover a shared
+# row (the tooltip); double-click it (CreateDisplayItemFromRaw); Ctrl+C (OnSelCopy); drag it onto
+# the item list (ItemListControl:ReceiveDrag: AddItem at the drop index); select row 2 and the
+# Delete button (the confirm popup) with RETURN; the rare DB: the slot filter to Amulet, hover a
+# row, Ctrl+click it (add and equip in Amulet: a recalc), search "a".
+#! u32-layout b
+#! u32-expect ^7Shared items:
+#! u32-expect display: raw
+#! u32-expect from the shared item list?
+#! u32-expect Amulet
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 6
+move 800 72
+key-down LEFTBUTTON
+frames 1
+move 800 90
+frames 1
+move 900 320
+frames 2
+key-up LEFTBUTTON
+frames 2
+move 800 88
+key-down LEFTBUTTON
+frames 1
+move 800 106
+frames 1
+move 900 280
+frames 2
+key-up LEFTBUTTON
+frames 2
+move 800 282
+frames 2
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+key-down CTRL
+press c
+key-up CTRL
+frames 1
+move 800 282
+key-down LEFTBUTTON
+frames 1
+move 800 300
+frames 1
+move 800 150
+frames 2
+key-up LEFTBUTTON
+frames 3
+move 800 298
+click LEFTBUTTON
+frames 1
+move 1052 262
+click LEFTBUTTON
+frames 2
+press RETURN
+frames 2
+move 830 441
+click LEFTBUTTON
+frames 2
+move 830 556
+frames 1
+click LEFTBUTTON
+frames 3
+move 800 482
+frames 2
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 3
+move 870 461
+click LEFTBUTTON
+type "a"
+frames 3
+move 200 600
+frames 1
+snapshot after
