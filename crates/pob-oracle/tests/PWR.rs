@@ -9,7 +9,11 @@
 //!   `calc_replay` hook that answers each `calcFunc(override, useFullDPS)` with PoB's recorded
 //!   output for the same node set. Every spec node's `power` table (singleStat, pathPower,
 //!   offence, defence, distance, masteryEffects), every `clusterNodeMap` node's `power`,
-//!   `powerMax` and the calc call sequence must equal PoB's, for 3 builds × the power-stat modes
+//!   and `powerMax` must equal PoB's, and the Rust run must make as many calc calls as PoB with
+//!   none outside PoB's set (count and membership, not order: the order follows `pairs` over
+//!   node-id maps, PoB's per process, §3.4; a single-node call may be answered with the output
+//!   PoB computed for another node of the same modKey, since which node of a shared modKey fills
+//!   the cache follows that order too; the run prints how many), for 3 builds × the power-stat modes
 //!   (Offence/Defence and `Life` on every build; on the first one also `PhysicalTakenHit` (a
 //!   transform), `FullDPS` and both with `nodePowerMaxDepth` 3), plus a derived fixture (the first
 //!   build with every socket group in Full DPS: no corpus build uses it, so it is the only case
@@ -18,7 +22,9 @@
 //! * `pwr_coroutine_steps` (Rust only, on the same replayed calls): `BuildPower` stepped once
 //!   per "frame" with a clock that passes 101 ms per read yields after every node and ends with
 //!   the same powers as the direct run, then clears `powerBuilder` and calls
-//!   `powerBuilderCallback` once; progress values are monotone.
+//!   `powerBuilderCallback` once; progress values are monotone. With a clock that passes 1 ms per
+//!   read plus 150 ms between frames, each resume does 101 nodes (L660 restarts `start` after the
+//!   yield returns, so the frame gap is not counted).
 //! * `pwr_l6_report` (end to end, reported, not gated: the calc itself is not at parity): the
 //!   real Rust calculator on one build (Offence/Defence, all nodes), against PoB;
 //!   plus parallel mode (D12) against the Rust sequential run, whose divergences are reported.
@@ -749,6 +755,32 @@ fn fast_clock() -> f64 {
     })
 }
 
+/// A clock that passes 1 ms per read; the frame loop adds [`FRAME_GAP`] between `BuildPower`
+/// calls (the tree draw etc. between two PassiveTreeView.lua:785 calls).
+fn slow_clock() -> f64 {
+    CLOCK.with(|c| {
+        let t = c.get() + 1.0;
+        c.set(t);
+        t
+    })
+}
+const FRAME_GAP: f64 = 150.0;
+
+/// `BuildPower` once per frame until the report ends (`gap` ms pass between frames) → frames.
+fn run_frames(build: &BuildRef, gap: f64) -> usize {
+    build.calcsTab.powerBuildFlag.set(true);
+    let mut frames = 0usize;
+    loop {
+        power::BuildPower(build);
+        frames += 1;
+        if !power::powerBuilderRunning(build) {
+            return frames;
+        }
+        CLOCK.with(|c| c.set(c.get() + gap));
+        assert!(frames < 100_000, "the power builder never finished");
+    }
+}
+
 #[cfg(feature = "luajit")]
 #[test]
 fn pwr_coroutine_steps() {
@@ -786,16 +818,33 @@ fn pwr_coroutine_steps() {
             power::set_powerBuilderProgressCallback(&build, Some(Rc::new(move |p| progress.borrow_mut().push(p))));
         }
         power::set_GetTime(Some(fast_clock));
-        build.calcsTab.powerBuildFlag.set(true);
-        let mut frames = 0usize;
-        loop {
-            power::BuildPower(&build);
-            frames += 1;
-            if !power::powerBuilderRunning(&build) {
-                break;
-            }
-            assert!(frames < 100_000, "the power builder never finished");
-        }
+        let frames = run_frames(&build, 0.0);
+        let fast_progress = progress.borrow().clone();
+        // the frame gap does not count against the next resume's 100 ms (L659-660: `start` is
+        // read after `coroutine.yield()` returns). Each resume reads the clock once on resume and
+        // once per counted node, so a resume runs 101 nodes (the last one yields); were `start`
+        // read at the yield instead, every resume after the first time yield would run one node.
+        progress.borrow_mut().clear();
+        power::set_GetTime(Some(slow_clock));
+        let gap_frames = run_frames(&build, FRAME_GAP);
+        let gap_progress = progress.borrow().clone();
+        *progress.borrow_mut() = fast_progress;
+        // counted nodes: the fast clock yields after each one (frames = the L515 yield + one per
+        // node + the resume that ends the body); with 1 ms per read and the clock restarted on
+        // resume, a resume yields at its 101st node, so frames = 2 + nodes / 101
+        let nodes = frames - 2;
+        let want = 2 + nodes / 101;
+        eprintln!(
+            "PWR coroutine {st} {mode}: frame gap {FRAME_GAP} ms, 1 ms/read: {gap_frames} frames for {nodes} nodes (want {want}), {} progress callbacks",
+            gap_progress.len()
+        );
+        assert_eq!(
+            gap_frames, want,
+            "about 100 ms of work per resume after a {FRAME_GAP} ms frame gap: {gap_frames} frames, want {want}"
+        );
+        assert_eq!(gap_progress.len(), gap_frames - 2, "one progress callback per time yield");
+        assert_eq!(done.get(), 2, "powerBuilderCallback once per run");
+        done.set(1);
         power::set_GetTime(None);
         calc_replay::set(None);
         // during the run powerMax was the live table; at the end the final one
@@ -971,7 +1020,9 @@ fn pwr_stat_fns() {
                 other => panic!("unknown transform {other}"),
             };
             assert_eq!(f.hash, want, "{}", f.id);
-            let _ = power::powerStatTransform(&f.id, Val::Num(1.0));
+            // `value:gsub` on a number raises in LuaJIT (numbers have no string metatable)
+            let r = catch(|| power::powerStatTransform(&f.id, Val::Num(1.0)));
+            assert_eq!(r.is_err(), f.id == "data.powerStatList[2].transform", "{}", f.id);
             seen += 1;
         }
     }

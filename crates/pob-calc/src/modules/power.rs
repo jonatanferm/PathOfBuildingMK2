@@ -5,7 +5,7 @@
 //! `data.powerStatList.GetFromOutput` with its `transform` closures (Data.lua 131, 164-168,
 //! 186-212). Sequential by default (D12).
 //!
-//! Owner: PWR. Representation (CCR-0100, `docs/port/ccr/0100-pwr-power-seams.md`):
+//! Owner: PWR. Representation (CCR-0101, `docs/port/ccr/0101-pwr-power-seams.md`):
 //!
 //! * (§1) The `calcsTab` fields the frozen `CalcsTab` struct has no slot for live in the build's
 //!   side table (`build_xml::build_extra(build).calcsTab`) under their Lua names: `powerStat`
@@ -53,10 +53,10 @@ pub struct PowerState {
 }
 
 // ---------------------------------------------------------------------------------------
-// Port plumbing (snake_case): side-table fields, host hooks, callbacks (CCR-0100 §1, §3)
+// Port plumbing (snake_case): side-table fields, host hooks, callbacks (CCR-0101 §1, §3)
 // ---------------------------------------------------------------------------------------
 
-/// `build.calcsTab`'s side table (CCR-0100 §1).
+/// `build.calcsTab`'s side table (CCR-0101 §1).
 fn ct_extra(build: &BuildRef) -> Table {
     build_extra(build).get_or_new_table(n!("calcsTab"))
 }
@@ -96,7 +96,7 @@ pub fn powerBuilderRunning(build: &BuildRef) -> bool {
     ct_extra(build).truthy(n!("powerBuilder"))
 }
 
-/// `self.miscCalculator = { calcFunc, calcBase }` (CalcsTab.lua:471; CCR-0100 §1).
+/// `self.miscCalculator = { calcFunc, calcBase }` (CalcsTab.lua:471; CCR-0101 §1).
 pub fn set_miscCalculator(build: &BuildRef, calc: Option<(Rc<MiscCalculator>, Output)>) {
     match calc {
         Some((f, base)) => {
@@ -110,7 +110,7 @@ pub fn set_miscCalculator(build: &BuildRef, calc: Option<(Rc<MiscCalculator>, Ou
     }
 }
 
-/// Options [`BuildPower`] starts the report with (CCR-0100 §4; sequential by default).
+/// Options [`BuildPower`] starts the report with (CCR-0101 §4; sequential by default).
 pub fn set_powerOptions(build: &BuildRef, options: PowerOptions) {
     ct_extra(build).set(n!("powerOptionsParallel"), options.parallel);
 }
@@ -230,7 +230,7 @@ pub fn powerStat_by_stat(stat: &str) -> Option<Table> {
         .map(powerStat_table)
 }
 
-/// Calc test seam (feature `probe`; CCR-0100 §5): answers `calcFunc(override, useFullDPS)` for the
+/// Calc test seam (feature `probe`; CCR-0101 §5): answers `calcFunc(override, useFullDPS)` for the
 /// oracle's L5 replay of PoB's calc results. Unset (the product), the real calculator runs.
 #[cfg(feature = "probe")]
 pub mod calc_replay {
@@ -315,11 +315,17 @@ pub fn BuildPower(build: &BuildRef) {
     };
     // L482 coroutine.resume(self.powerBuilder, self)
     let options = powerOptions(build);
-    let res: Result<(), String> = {
-        let Ok(mut state) = powerBuilder.try_borrow_mut() else {
-            lua_error!("cannot resume non-suspended coroutine")
-        };
-        resume(&mut state, build, &options)
+    // resuming the running coroutine (BuildPower from a progress callback) returns
+    // `false, "cannot resume non-suspended coroutine"`; its status stays "running" (not dead)
+    let (res, dead): (Result<(), String>, bool) = match powerBuilder.try_borrow_mut() {
+        Ok(mut state) => {
+            let r = resume(&mut state, build, &options);
+            (r, state.done)
+        }
+        Err(_) => (
+            Err("cannot resume non-suspended coroutine".to_owned()),
+            false,
+        ),
     };
     // L483
     if launch_devMode() {
@@ -328,15 +334,16 @@ pub fn BuildPower(build: &BuildRef) {
             lua_error!("{errMsg}")
         }
     }
-    // L486
-    if powerBuilder.borrow().done {
-        // L487 (only when it is still the running report: a callback may have replaced it)
-        if ct
-            .obj::<RefCell<PowerState>>(n!("powerBuilder"))
-            .is_some_and(|p| Rc::ptr_eq(&p, &powerBuilder))
-        {
-            ct.set(n!("powerBuilder"), Val::Nil);
-        }
+    // L486 `coroutine.status(self.powerBuilder)` re-reads the field: a callback may have started
+    // (or, nested, finished) another report during the resume
+    let dead = match ct.obj::<RefCell<PowerState>>(n!("powerBuilder")) {
+        Some(p) if Rc::ptr_eq(&p, &powerBuilder) => dead,
+        Some(p) => p.try_borrow().is_ok_and(|s| s.done),
+        None => lua_error!("bad argument #1 to 'status' (coroutine expected)"),
+    };
+    if dead {
+        // L487
+        ct.set(n!("powerBuilder"), Val::Nil);
         // L488
         if let Some(cb) = powerBuilderCallback(build) {
             // L489
@@ -389,7 +396,7 @@ enum Phase {
     Done,
 }
 
-/// How the body calls `calcFunc` (CCR-0100 §4).
+/// How the body calls `calcFunc` (CCR-0101 §4).
 enum CalcMode {
     /// The misc calculator (sequential, D12).
     Live,
@@ -423,6 +430,9 @@ struct PowerIter {
     newPowerMax: Table,
     // L559
     start: f64,
+    /// The last step ended at an L659/704/732 time yield: the next resume runs L660/705/733
+    /// `start = GetTime()` before the loop goes on (the frame gap is not counted).
+    restartClock: bool,
     // L560
     nodeIndex: f64,
     // L561
@@ -569,6 +579,7 @@ impl PowerIter {
             masteryNodeList: Vec::new(),
             newPowerMax: Table::new(),
             start: 0.0,
+            restartClock: false,
             nodeIndex: 0.0,
             total: 0.0,
             masteryEffects: None,
@@ -617,6 +628,11 @@ impl PowerIter {
 
     /// L559-604 + the loop bodies: runs until the next yield (`true`) or the end (`false`).
     fn step(&mut self, build: &BuildRef, options: &PowerOptions) -> bool {
+        if self.restartClock {
+            // L660 (705, 733): `start = GetTime()` right after `coroutine.yield()` returns
+            self.restartClock = false;
+            self.start = GetTime();
+        }
         loop {
             match self.phase {
                 Phase::Start => {
@@ -746,8 +762,8 @@ impl PowerIter {
                     cb(m_floor(self.nodeIndex / self.total * 100.0));
                 }
             }
-            // L659 coroutine.yield(); L660 start = GetTime() (on resume)
-            self.start = GetTime();
+            // L659 coroutine.yield(); L660 `start = GetTime()` runs on the next resume (`step`)
+            self.restartClock = true;
             return true;
         }
         false
@@ -1035,7 +1051,8 @@ impl PowerIter {
         // L668
         let effectId = masteryEffect.get(n!("effect"));
         let effect = match &effectId {
-            Val::Nil => lua_error!("table index is nil"),
+            // `masteryEffects[nil]` is a read: nil, so L669 `if effect` skips it
+            Val::Nil => return false,
             v => tree.masteryEffects.get(Key::from(v.num())),
         };
         // L669
@@ -1318,12 +1335,11 @@ pub fn GetFromOutput(output: &Output, statTable: &Table, skipTransform: bool) ->
 /// closure id: `Name` strips a leading "The "; the five `*TakenHit` stats negate.
 pub fn powerStatTransform(fnId: &str, value: Val) -> Val {
     match fnId {
-        // L131 function(value) return value:gsub("^The ","") end (first result; a number value
-        // is converted by string.gsub)
+        // L131 function(value) return value:gsub("^The ","") end (first result; only strings
+        // have a metatable in LuaJIT, so `value:gsub` on a number raises like any other type)
         "data.powerStatList[2].transform" => {
             let s = match &value {
                 Val::Str(s) => s.to_string(),
-                Val::Num(x) => tostring_num(*x),
                 other => lua_error!(
                     "attempt to index local 'value' (a {} value)",
                     other.lua_type()
@@ -1342,7 +1358,7 @@ pub fn powerStatTransform(fnId: &str, value: Val) -> Val {
 }
 
 /// @pob Classes/CalcsTab.lua:748-758 h=d5dfc379
-/// → `(offence, defence)`: both Lua results (CCR-0100 §2).
+/// → `(offence, defence)`: both Lua results (CCR-0101 §2).
 pub fn CalculateCombinedOffDefStat(original: &Output, modified: &Output) -> (f64, f64) {
     // `x.EnergyShieldRecoveryCap or x.EnergyShield`
     let esCap = |o: &Output| lor(o.get(n!("EnergyShieldRecoveryCap")), || o.get(n!("EnergyShield"))).num();
@@ -1405,7 +1421,7 @@ pub fn RestoreUndoState(build: &BuildRef, state: &Table) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Parallel mode (CCR-0100 §4; D12): Rust-only plumbing
+// Parallel mode (CCR-0101 §4; D12): Rust-only plumbing
 // ---------------------------------------------------------------------------------------
 
 /// A node of a recorded calc call, as a worker finds it in its own build.

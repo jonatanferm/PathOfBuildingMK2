@@ -1,6 +1,8 @@
-# CCR-0100: PWR (CalcsTab power report) contract notes and seams
+# CCR-0101: PWR (CalcsTab power report) contract notes and seams
 
-Status: proposed by PWR (port/PWR, 2026-11-10)
+Status: proposed by PWR (port/PWR, 2026-11-10). Renumbered from 0100 (held by U18 on rust-port).
+The §2 signature change is already applied in the owned file (power.rs); the AMENDMENTS registry
+row for this CCR is added at integration.
 
 PWR ports `Classes/CalcsTab.lua` 441-773 and `data.powerStatList.GetFromOutput` with its
 `transform` closures (Data.lua 131, 164-168, 186-212) in `crates/pob-calc/src/modules/power.rs`.
@@ -17,7 +19,7 @@ Evidence: CalcsTab.lua reads and writes `self.powerStat` (498, 538, 547, 629, 68
 `model::CalcsTab` (model/mod.rs, U0) has `miscCalculator: Field<Option<Rc<MiscCalculator>>>` (the
 function only, not the base output) and none of the others; `model::Build` has no callback slots.
 
-Work-around (in place, `// CCR-0100` in power.rs's module doc): the fields live in BM-A's build
+Work-around (in place, `// CCR-0101` in power.rs's module doc): the fields live in BM-A's build
 side table (`build_xml::build_extra(build)`), under their Lua names, in a `calcsTab` sub-table
 (`miscCalculatorBase` for `self.miscCalculator[2]`); the callbacks in the build side table. Typed
 accessors in `power.rs`: `powerStat` / `set_powerStat`, `powerMax`, `nodePowerMaxDepth` /
@@ -67,6 +69,15 @@ called outside a coroutine (`coroutine.running()` nil: it never yields; Lua erro
 `launch.devMode` is `launch_devMode()` / `set_launch_devMode` (CalcsTab.lua:483 re-raises only
 in dev mode; otherwise the error just ends the coroutine, as in a release PoB).
 
+After a time yield (659, 704, 732) the next resume runs `start = GetTime()` (660, 705, 733)
+before the loop goes on, so the time between two `BuildPower` frames does not count against the
+100 ms budget. `BuildPower` from inside a running step (a progress callback) behaves as resuming a
+running coroutine: `false, "cannot resume non-suspended coroutine"` (re-raised only in dev mode),
+status not dead. 486 re-reads `self.powerBuilder`, and 487 clears it unconditionally.
+
+wasm (D15, panic=abort): a Lua error inside a resume aborts the program. It does not end the
+coroutine as `coroutine.resume` does in a release PoB. Desktop catches it and matches PoB.
+
 ## 4. Parallel mode (D12)
 
 `PowerOptions { parallel: true }` (opt-in; `set_powerOptions` for `BuildPower`): when the body
@@ -78,6 +89,14 @@ thread), and then runs the body on the results. A call sequence that changes dur
 (`powerStat` changed between frames) falls back to the live calculator for the rest. Results can
 differ from the sequential run where the calc reads GlobalCache entries the sequential order left
 behind (D11); `crates/pob-oracle/tests/PWR.rs` `pwr_l6_report` reports the divergences.
+
+Visible differences while the report runs (parallel mode only, accepted because it is opt-in): the
+dry run writes placeholder powers (computed from zeroed outputs; offence is NaN from 0/0) into every
+node it visits, spec nodes and `clusterNodeMap` nodes. A node keeps them until the real run reaches
+it. In PoB, a node not reached yet still shows the previous run's values. The precompute also runs
+inside the first resume after 515, so that frame blocks for the whole set of calc calls. The
+coroutine still yields every 100 ms after that, but parallel mode gives no responsiveness during the
+precompute.
 
 ## 5. `power::calc_replay` (feature `probe` only; test seam)
 

@@ -208,7 +208,7 @@ Final-review open issues, both resolved in the merge commit's follow-up (listed 
 ## PWR
 
 Open items found while porting the power report (port/PWR, 2026-11-10; `crates/pob-oracle/tests/PWR.rs`,
-CCR-0100).
+CCR-0101).
 
 1. **CA.rs still carries its `calcsTab_BuildOutput` scaffold** (owner: CA). `power::BuildOutput`
    (CalcsTab.lua:441-472) is ported, so `loadBuildFromXML` now runs MAIN, CALCS and the misc
@@ -227,7 +227,7 @@ CCR-0100).
    PWR itself is exact on PoB's calc results (`pwr_l5_replay`, 108,820/108,820). Gate it once
    CA's L6 headline is exact.
 4. **U26 drives the report** (owner: U26). `power::BuildPower` is the per-frame resume
-   (PassiveTreeView.lua:785); TreeTab state goes through the CCR-0100 accessors
+   (PassiveTreeView.lua:785); TreeTab state goes through the CCR-0101 accessors
    (`set_powerStat`, `set_nodePowerMaxDepth`, `set_powerBuilderCallback`,
    `set_powerBuilderProgressCallback`, `powerMax`); `set_launch_devMode` and `set_GetTime` come
    from U16's launch state / the frame clock.
