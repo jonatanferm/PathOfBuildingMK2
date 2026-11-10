@@ -394,7 +394,8 @@ pub fn default_hooks() -> BuildHooks {
         }),
         update_class_dropdowns: Rc::new(super::class_drop::update_class_dropdowns),
         open_spectre_library: Rc::new(super::popups::open_spectre_library),
-        refresh_stat_list: Rc::new(|_| {}),
+        // U21 (CCR-0098 §3)
+        refresh_stat_list: Rc::new(super::stats::refresh_stat_list),
         // U20 (Build.lua:1353-1391 are U20's range)
         set_display_stat: Rc::new(super::on_frame::set_display_stat),
         clear_display_stat: Rc::new(super::on_frame::clear_display_stat),
@@ -797,6 +798,8 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
         unsaved: false,
     });
     install_title_hook();
+    // U21: Build:Save's display stats (CCR-0080 §8)
+    super::stats::install_save_stats_hook();
 
     // L65
     cx.build_mut().db_file_name = db_file_name.clone();
