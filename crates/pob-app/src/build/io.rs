@@ -137,9 +137,10 @@ pub fn reset_mod_flags(cx: &mut Cx) {
 /// text. `None` when no build is open. The UI-only savers' sections (`Notes`, `TreeView`,
 /// `Import`) come from `ShellHooks::save_ui_section` once their owners install it; until then
 /// BM-A's SaveDB writes the loaded sections back (CCR-0080 §8).
-pub fn save_db(cx: &Cx, file_name: &str) -> Option<String> {
-    let b = cx.app().build.as_ref()?;
-    let text = b.model.SaveDB(file_name)?;
+/// `&mut Cx`: a UI saver's `Save` may change its tab (CCR-0106 §1).
+pub fn save_db(cx: &mut Cx, file_name: &str) -> Option<String> {
+    let m = cx.app().build.as_ref()?.model.clone();
+    let text = m.SaveDB(file_name)?;
     let h = shell_hooks();
     let ui: Vec<(&str, model::XmlNode)> = ["Notes", "TreeView", "Import"]
         .into_iter()
@@ -163,12 +164,22 @@ pub fn save_db(cx: &Cx, file_name: &str) -> Option<String> {
             }
         }
     }
-    Some(model::xml::ComposeXML(&root))
+    // CCR-0106 §1: compose the `PathOfBuilding` element (ParseXML_root's result is the
+    // parser's nameless top node, whose child it is)
+    let pob = root
+        .children
+        .iter()
+        .find_map(|c| match c {
+            model::XmlChild::Node(n) => Some(n),
+            model::XmlChild::Text(_) => None,
+        })
+        .unwrap_or_else(|| lua_error!("Error saving '{file_name}': no root element"));
+    Some(model::xml::ComposeXML(pob))
 }
 
 /// The `.pobscript` step `snapshot` (T4): `main.modes.BUILD:SaveDB("snapshot")` while the
 /// current mode is BUILD.
-pub fn snapshot(cx: &Cx) -> Option<String> {
+pub fn snapshot(cx: &mut Cx) -> Option<String> {
     if cx.app().main.mode.as_deref() != Some("BUILD") {
         return None;
     }

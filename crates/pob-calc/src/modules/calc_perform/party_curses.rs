@@ -1317,6 +1317,7 @@ fn key_str(k: Key) -> LStr {
         Key::S(s) => LStr::from(s.as_str()),
         Key::I(i) => LStr::from(i.to_string().as_str()),
         Key::B(b) => lua_error!("attempt to concatenate a boolean value ({b})"),
+        Key::F(f) => LStr::from(pob_lua::tostring_num(f.get()).as_str()),
     }
 }
 

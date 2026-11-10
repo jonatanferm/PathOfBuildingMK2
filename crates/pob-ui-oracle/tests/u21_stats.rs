@@ -878,13 +878,17 @@ fn rust_ser(v: &Val) -> String {
             // Lua type names order: boolean < number < string
             let rank = |k: &Key| match k {
                 Key::B(_) => 0,
-                Key::I(_) => 1,
+                Key::I(_) | Key::F(_) => 1,
                 Key::S(_) => 2,
             };
             kv.sort_by(|(a, _), (b, _)| {
                 rank(a).cmp(&rank(b)).then_with(|| match (a, b) {
                     (Key::B(x), Key::B(y)) => x.cmp(y),
                     (Key::I(x), Key::I(y)) => x.cmp(y),
+                    (Key::I(_) | Key::F(_), Key::I(_) | Key::F(_)) => a
+                        .as_num()
+                        .partial_cmp(&b.as_num())
+                        .unwrap_or(std::cmp::Ordering::Equal),
                     (Key::S(x), Key::S(y)) => x.as_bytes().cmp(y.as_bytes()),
                     _ => std::cmp::Ordering::Equal,
                 })
@@ -895,6 +899,7 @@ fn rust_ser(v: &Val) -> String {
                     let ks = match k {
                         Key::B(b) => b.to_string(),
                         Key::I(i) => i.to_string(),
+                        Key::F(f) => pob_lua::tostring_num(f.get()),
                         Key::S(s) => s.to_string(),
                     };
                     format!("{ks}={}", rust_ser(v))

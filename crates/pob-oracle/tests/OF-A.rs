@@ -795,6 +795,7 @@ fn ser_table(t: &Table) -> String {
             Key::S(n) => n.to_string(),
             Key::I(i) => format!("#{}", f17(i as f64)),
             Key::B(b) => format!("@{b}"),
+            Key::F(f) => format!("#{}", f17(f.get())),
         };
         parts.push(format!("{ks}={}", ser(&v)));
     }

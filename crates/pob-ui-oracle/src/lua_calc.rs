@@ -460,6 +460,7 @@ pub fn override_lua(build: &Build, ov: Option<&Override>) -> Result<String, Stri
             Key::S(n) => lua_quote(n.as_str()),
             Key::I(i) => i.to_string(),
             Key::B(b) => b.to_string(),
+            Key::F(f) => lua_num(f.get()),
         };
         let val = match &v {
             Val::Bool(b) => b.to_string(),

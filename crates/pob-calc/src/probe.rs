@@ -1545,6 +1545,7 @@ mod imp {
                     Key::S(n) => self.s(n.as_str(), v),
                     Key::I(i) => self.n(i as f64, v),
                     Key::B(b) => self.entries.push((PKey::O(PV::V(Val::Bool(b))), PV::V(v))),
+                    Key::F(f) => self.n(f.get(), v),
                 }
             }
             for (k, v) in REG.with(|r| r.borrow().obj_keys(t)) {
@@ -2854,8 +2855,9 @@ mod imp {
                 true
             }
             PKey::N(n) => {
-                if n.fract() == 0.0 && n.is_finite() {
-                    t.set(Key::I(*n as i64), v);
+                // FUP1: a Table holds any number key but NaN (`Key::try_num`)
+                if let Some(k) = Key::try_num(*n) {
+                    t.set(k, v);
                     true
                 } else {
                     with_registry(|r| {

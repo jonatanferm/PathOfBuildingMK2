@@ -1,0 +1,60 @@
+# U22: undo/redo. With the edit focused, Ctrl+Z runs twice (NotesTab:Draw's loop, then the
+# edit's own OnKeyDown through ProcessControlsInput); after a button click took the focus away
+# only NotesTab's loop undoes. Ctrl+Y likewise. Also the zoom keys (Ctrl+- / Ctrl+0,
+# allowZoom), BACK, DELETE and a snapshot of the unsaved state (modFlag on, the title's
+# unsaved mark).
+#! u22-expect-notes ne two thr
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 6
+key-up CTRL
+frames 2
+type "one"
+type " two"
+type " three"
+press BACK
+press BACK
+frames 2
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+key-down CTRL
+press y
+key-up CTRL
+frames 2
+# focus away (NORMAL inserts ^xC8C8C8), then undo from the tab's loop only
+move 370 97
+click LEFTBUTTON
+frames 1
+move 700 450
+key-down CTRL
+press z
+frames 1
+press z
+frames 1
+press y
+key-up CTRL
+frames 2
+# back into the edit: zoom out and reset
+move 600 300
+click LEFTBUTTON
+key-down CTRL
+press -
+frames 1
+press -
+frames 2
+press 0
+key-up CTRL
+frames 2
+press HOME
+press DELETE
+frames 2
+snapshot unsaved
+frames 1

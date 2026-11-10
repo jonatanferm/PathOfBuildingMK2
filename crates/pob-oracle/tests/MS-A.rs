@@ -23,6 +23,15 @@
 //! so while EvalMod is still a stub they are reported, not gated (they are gated as soon as
 //! EvalMod returns `mod.value` for an untagged mod).
 //!
+//! `Max`/`Min` coverage (FUP1, HYG2 exposed): the corpus has almost no MAX/MIN mods, so on the
+//! corpus stores these queries answer nil. The script adds synthetic stores (a ModList child of
+//! each actor's modDB, a standalone ModDB and a ModDB child of it) holding untagged MAX/MIN
+//! mods with assorted values, flags, keywordFlags and sources; their Max/Min queries are gated
+//! with the other non-tag queries, and the number of them where PoB answers a number is gated
+//! by a floor (every build > 0, and [`MAXMIN_VALUE_FLOOR`] over the corpus). The synthetic
+//! stores' both-error and tag-path queries are reported apart, so the corpus bounds
+//! ([`MS_A_BOUNDS`]) keep their meaning.
+//!
 //! PoB's per-build result (the script's JSON) is cached in the shared probe cache,
 //! `.parity/probe-cache/<source-key>/<build-key>/query-<script-key>/` (HYG3: keyed by the PoB
 //! source fingerprint and oracle runtime, the build's BLAKE3 and the script), so a warm run boots
@@ -375,6 +384,16 @@ struct Tally {
     tag_ok: usize,
     eval_path: usize,
     eval_ok: usize,
+    /// FUP1: non-tag `Max`/`Min` queries (part of `gated`), how many match, and how many of
+    /// the matching ones answer a number (not nil / an error).
+    maxmin: usize,
+    maxmin_ok: usize,
+    maxmin_value: usize,
+    /// FUP1: queries on the synthetic stores that both sides raise / that read tagged mods of
+    /// the parent chain (not in the corpus buckets `errors_both` / `tag_path`).
+    synth_errors_both: usize,
+    synth_tag: usize,
+    synth_tag_ok: usize,
     errors_both: usize,
     scale: usize,
     scale_ok: usize,
@@ -534,9 +553,19 @@ fn compare_queries(b: &Build, doc: &J, evalmod_ported: bool, t: &mut Tally, stem
             t.known += 1;
             continue;
         }
+        // FUP1: the synthetic MAX/MIN stores of the script (`synthMaxMin:*`) are kept out of
+        // the corpus buckets bounded below (both-error, tag-path); their non-tag queries are
+        // gated with the others.
+        let synth = doc["stores"][si]["label"]
+            .as_str()
+            .is_some_and(|l| l.starts_with("synthMaxMin:"));
         let ok = match (expect.get("err"), &got) {
             (Some(e), Err(r)) => {
-                t.errors_both += 1;
+                if synth {
+                    t.synth_errors_both += 1;
+                } else {
+                    t.errors_both += 1;
+                }
                 // "…/Classes/ModStore.lua:173: attempt to …" → "ModStore.lua:173: attempt to …"
                 let e = e.as_str().unwrap_or("");
                 let e = e.rsplit('/').next().unwrap_or(e);
@@ -546,7 +575,10 @@ fn compare_queries(b: &Build, doc: &J, evalmod_ported: bool, t: &mut Tally, stem
             (None, Ok(v)) => same(q, expect, v),
             _ => false,
         };
-        if tag {
+        if tag && synth {
+            t.synth_tag += 1;
+            t.synth_tag_ok += usize::from(ok);
+        } else if tag {
             t.tag_path += 1;
             t.tag_ok += usize::from(ok);
         } else if eval {
@@ -555,6 +587,11 @@ fn compare_queries(b: &Build, doc: &J, evalmod_ported: bool, t: &mut Tally, stem
         } else {
             t.gated += 1;
             t.gated_ok += usize::from(ok);
+            if matches!(q, "Max" | "Min") {
+                t.maxmin += 1;
+                t.maxmin_ok += usize::from(ok);
+                t.maxmin_value += usize::from(ok && num(expect).is_some());
+            }
             if !ok {
                 t.mismatches.push(format!(
                     "{stem}: store {} ({}) {q} cfg {} {:?}: lua {} rust {:?}",
@@ -863,7 +900,7 @@ fn l3_query_matrix_and_scaling_all57() {
             compare_create_mod(&b, &doc, &mut t, &stem);
         }
         eprintln!(
-            "{stem}: {} stores, {} mods ({} undecodable); gated {}/{}; tag-path {}/{}; Max/Min {}/{}; both-error {}; ScaleAddMod {}/{}; ScaleAddList {}/{}",
+            "{stem}: {} stores, {} mods ({} undecodable); gated {}/{}; tag-path {}/{}; Max/Min {}/{} ({} with a value); both-error {}; ScaleAddMod {}/{}; ScaleAddList {}/{}",
             b.stores.len(),
             b.mods.len(),
             b.undecodable,
@@ -871,8 +908,9 @@ fn l3_query_matrix_and_scaling_all57() {
             t.gated,
             t.tag_ok,
             t.tag_path,
-            t.eval_ok,
-            t.eval_path,
+            t.maxmin_ok,
+            t.maxmin,
+            t.maxmin_value,
             t.errors_both,
             t.scale_ok,
             t.scale,
@@ -894,6 +932,17 @@ fn l3_query_matrix_and_scaling_all57() {
         total.tag_ok += t.tag_ok;
         total.eval_path += t.eval_path;
         total.eval_ok += t.eval_ok;
+        total.maxmin += t.maxmin;
+        total.maxmin_ok += t.maxmin_ok;
+        total.maxmin_value += t.maxmin_value;
+        total.synth_errors_both += t.synth_errors_both;
+        total.synth_tag += t.synth_tag;
+        total.synth_tag_ok += t.synth_tag_ok;
+        // FUP1: the synthetic MAX/MIN stores make Max/Min answer numbers on every build
+        assert!(
+            t.maxmin_value > 0 || !evalmod_ported,
+            "{stem}: no non-tag Max/Min query answered a number"
+        );
         total.errors_both += t.errors_both;
         total.scale += t.scale;
         total.scale_ok += t.scale_ok;
@@ -915,6 +964,8 @@ fn l3_query_matrix_and_scaling_all57() {
          non-tag queries {}/{} identical ({} of them PoB errors reproduced)\n  \
          tag-path queries (EvalMod, MS-B; not gated) {}/{}\n  \
          Max/Min (EvalMod {}; {}) {}/{}\n  \
+         non-tag Max/Min (gated; synthetic MAX/MIN stores) {}/{}, {} answered a number (floor {})\n  \
+         synthetic stores, not in the corpus buckets: both-error {}, tag-path {}/{}\n  \
          ScaleAddMod {}/{}\n  ScaleAddList(replace) stores {}/{}",
         total.known,
         total.gated_ok,
@@ -926,6 +977,13 @@ fn l3_query_matrix_and_scaling_all57() {
         if evalmod_ported { "gated" } else { "not gated" },
         total.eval_ok,
         total.eval_path,
+        total.maxmin_ok,
+        total.maxmin,
+        total.maxmin_value,
+        MAXMIN_VALUE_FLOOR,
+        total.synth_errors_both,
+        total.synth_tag_ok,
+        total.synth_tag,
         total.scale_ok,
         total.scale,
         total.scale_list_ok,
@@ -967,12 +1025,16 @@ fn l3_query_matrix_and_scaling_all57() {
         evalmod_ported && ct_ported,
         "EvalMod / createMod are stubs again"
     );
-    let filtered =
-        std::env::var_os("MS_A_BUILDS").is_some()
-            || std::env::var_os("MS_A_LIMIT").is_some()
-            || pob_testpaths::quick_corpus();
+    let filtered = std::env::var_os("MS_A_BUILDS").is_some()
+        || std::env::var_os("MS_A_LIMIT").is_some()
+        || pob_testpaths::quick_corpus();
     if !filtered {
         assert_eq!(nbuilds, CORPUS_BUILDS, "builds compared");
+        assert!(
+            total.maxmin_value >= MAXMIN_VALUE_FLOOR,
+            "{} non-tag Max/Min queries answered a number, expected at least {MAXMIN_VALUE_FLOOR}",
+            total.maxmin_value
+        );
         let b = MS_A_BOUNDS;
         assert!(
             total.gated >= b.min_gated,
@@ -996,6 +1058,11 @@ fn l3_query_matrix_and_scaling_all57() {
 
 /// The corpus size (`.parity/builds/*.xml`).
 const CORPUS_BUILDS: usize = 57;
+
+/// FUP1: non-tag Max/Min queries over the corpus (stores of the build plus the synthetic
+/// MAX/MIN stores of `l3_queries.lua`) where PoB answers a number and Rust agrees. The value
+/// measured on port/FUP1 (2026-11-10: 9886 of 292,898 non-tag Max/Min queries).
+const MAXMIN_VALUE_FLOOR: usize = 9886;
 
 #[derive(Debug)]
 struct MsABounds {

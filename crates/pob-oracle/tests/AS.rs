@@ -370,6 +370,7 @@ fn key_str(k: &Key) -> String {
         Key::S(n) => n.as_str().to_owned(),
         Key::I(i) => num(*i as f64),
         Key::B(b) => b.to_string(),
+        Key::F(f) => num(f.get()),
     }
 }
 

@@ -289,6 +289,7 @@ fn key_text(k: Key) -> String {
         Key::S(s) => s.as_str().to_owned(),
         Key::I(i) => i.to_string(),
         Key::B(b) => b.to_string(),
+        Key::F(f) => tostring_num(f.get()),
     }
 }
 

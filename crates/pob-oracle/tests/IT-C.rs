@@ -516,6 +516,7 @@ fn c_from_val(v: &Val) -> C {
                     Key::S(s) => CK::S(s.as_str().to_owned()),
                     Key::I(i) => CK::I(i),
                     Key::B(b) => CK::B(b),
+                    Key::F(f) => CK::F(f.get().to_bits()),
                 };
                 m.insert(ck, c_from_val(&x));
             }

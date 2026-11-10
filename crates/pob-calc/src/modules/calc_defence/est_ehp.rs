@@ -429,6 +429,7 @@ fn numberOfHitsToDie(c: &DefEstCtx, DamageIn: &Table) -> f64 {
                 Key::S(s) => cat!(s, "RecoupableDamageTaken"),
                 Key::I(i) => cat!(i, "RecoupableDamageTaken"),
                 Key::B(_) => lua_error!("attempt to concatenate a boolean value"),
+                Key::F(f) => cat!(f.get(), "RecoupableDamageTaken"),
             };
             let v = output.num(k) + recoupable.num();
             output.set(k, v);

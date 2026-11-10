@@ -1334,7 +1334,12 @@ fn cs2_l4_overrides() {
     );
     assert!(flask_checks + rep_checks + staff_checks > 0, "nothing checked");
     // all57 builds with a granted (anointed / Forbidden) node: 51 measured 2026-11-10
-    assert!(remove_checks >= 51, "CS2: $removeNodeIds checked on {remove_checks} builds < 51");
+    // (the quick corpus, 14 of all57, has fewer such builds: only require coverage there)
+    let remove_min = if pob_testpaths::quick_corpus() { 1 } else { 51 };
+    assert!(
+        remove_checks >= remove_min,
+        "CS2: $removeNodeIds checked on {remove_checks} builds < {remove_min}"
+    );
     assert!(failures.is_empty(), "CS2 override checks failed");
 }
 

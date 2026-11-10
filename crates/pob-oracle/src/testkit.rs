@@ -20,7 +20,7 @@ use pob_calc::lua_table::Val;
 use pob_calc::model::{Build, BuildRef};
 use serde_json::Value as J;
 
-use crate::diff::{diff_trees, DiffOptions, Mismatch};
+use crate::diff::{diff_trees, DiffOptions, Mismatch, MismatchKind};
 use crate::oracle::{find_parity_dir, find_up};
 use crate::schema::{resolve_ids, StateDump};
 
@@ -405,6 +405,28 @@ pub fn diff_against(
     locals: &[(String, Val)],
     stem: &str,
 ) -> Vec<Mismatch> {
+    diff_against_roots(dump, env, locals, stem).0
+}
+
+/// [`diff_against`] followed by the documented LUA-ORDER normalisations
+/// ([`normalise_lua_order`]) on the same two trees.
+pub fn diff_against_normalised(
+    dump: &StateDump,
+    env: Option<&EnvRef>,
+    locals: &[(String, Val)],
+    stem: &str,
+) -> Vec<Mismatch> {
+    let (mm, pob, ours) = diff_against_roots(dump, env, locals, stem);
+    normalise_lua_order(mm, &pob, &ours)
+}
+
+/// [`diff_against`], also returning the two resolved trees it compared (PoB's, ours).
+fn diff_against_roots(
+    dump: &StateDump,
+    env: Option<&EnvRef>,
+    locals: &[(String, Val)],
+    stem: &str,
+) -> (Vec<Mismatch>, J, J) {
     let pob_locals: Vec<String> = dump
         .locals()
         .and_then(J::as_object)
@@ -430,10 +452,147 @@ pub fn diff_against(
         nondet_orders: nondet.as_ref().and_then(|n| n.state_orders.get(&dump.hit)),
         ..DiffOptions::strict()
     };
-    diff_trees(&resolve_ids(&pob), &resolve_ids(&ours), &opts)
+    let (pob, ours) = (resolve_ids(&pob), resolve_ids(&ours));
+    let mm = diff_trees(&pob, &ours, &opts);
+    (mm, pob, ours)
+}
+
+// ---- LUA-ORDER normalisations (FUP1) ------------------------------------------------------------
+
+/// Documented LUA-ORDER normalisations of a state diff (calc doc §3.4/§9.5): mismatches that
+/// only reflect PoB's per-process string-key `pairs` order, which no port can reproduce, are
+/// replaced by one [`MismatchKind::LuaOrder`] mismatch each. `pob` / `ours` are the two
+/// resolved trees `mm` was computed from ([`diff_against_normalised`] passes them).
+///
+/// * **Buff mod lists** ([`buff_list_order_only`]): every mismatch under one
+///   `…buffList[i].modList` list whose contents are the same mods in another order within each
+///   source becomes a single `LuaOrder` mismatch at the list's path.
+///
+/// Any other mismatch is returned unchanged, in order.
+#[must_use]
+pub fn normalise_lua_order(mm: Vec<Mismatch>, pob: &J, ours: &J) -> Vec<Mismatch> {
+    let mut lists: BTreeMap<String, bool> = BTreeMap::new();
+    for m in &mm {
+        if let Some(l) = buff_mod_list_path(&m.path) {
+            if !lists.contains_key(l) {
+                lists.insert(l.to_owned(), buff_list_order_only(pob, ours, l));
+            }
+        }
+    }
+    let mut reported = std::collections::BTreeSet::new();
+    let mut out = Vec::with_capacity(mm.len());
+    for m in mm {
+        match buff_mod_list_path(&m.path) {
+            Some(l) if lists[l] => {
+                if reported.insert(l.to_owned()) {
+                    out.push(Mismatch {
+                        path: l.to_owned(),
+                        kind: MismatchKind::LuaOrder,
+                        pob: None,
+                        ours: None,
+                        writer: None,
+                    });
+                }
+            }
+            _ => out.push(m),
+        }
+    }
+    out
+}
+
+/// `…buffList[i].modList` of a mismatch path at or under one (`None` otherwise).
+#[must_use]
+pub fn buff_mod_list_path(path: &str) -> Option<&str> {
+    let b = path.find(".buffList[")?;
+    let rest = &path[b..];
+    let m = rest.find("].modList")? + "].modList".len();
+    let end = b + m;
+    matches!(path.as_bytes().get(end), None | Some(b'[' | b'.')).then(|| &path[..end])
+}
+
+/// LUA-ORDER for a skill's buff mod lists (CalcActiveSkill.lua:804-869): the buff's `modList`
+/// takes the skill's global-effect mods in `skillModList` order, and the mods of one granted
+/// effect's stat map come in `pairs(stats)` order (`mergeSkillInstanceMods`,
+/// CalcActiveSkill.lua:62, over the string-keyed table `calcLib.buildSkillInstanceStats`
+/// builds, CalcTools.lua:192-250; random per PoB process, calc doc §3.4/§9.5; AS's own
+/// acceptance accepts the same within same-source runs). The list at `list` is order-only
+/// when both trees hold it with the same length (non-empty), the same `source` at every
+/// position (so the permutation stays inside one source's stat map) and the same multiset of
+/// mods (§9.2 tolerance). Moved here from PF-C's test by FUP1.
+#[must_use]
+pub fn buff_list_order_only(pob: &J, ours: &J, list: &str) -> bool {
+    use crate::diff::tree_eq;
+    use crate::schema::{children, get_path};
+    let (Some(a), Some(b)) = (get_path(pob, list), get_path(ours, list)) else {
+        return false;
+    };
+    let la: Vec<&J> = children(list, a).into_iter().map(|(_, v)| v).collect();
+    let lb: Vec<&J> = children(list, b).into_iter().map(|(_, v)| v).collect();
+    if la.len() != lb.len() || la.is_empty() {
+        return false;
+    }
+    if la
+        .iter()
+        .zip(&lb)
+        .any(|(x, y)| x.get("source") != y.get("source"))
+    {
+        return false;
+    }
+    let mut used = vec![false; lb.len()];
+    la.iter().all(|x| {
+        (0..lb.len())
+            .find(|&i| !used[i] && tree_eq(x, lb[i], 1e-9))
+            .map(|i| used[i] = true)
+            .is_some()
+    })
 }
 
 /// A dumped function value (`{"$fn": "<file>:<a>-<b>", …}`).
 fn is_fn_marker(v: &J) -> bool {
     v.as_object().is_some_and(|m| m.contains_key("$fn"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn m(name: &str, value: f64, source: &str) -> J {
+        json!({"name": name, "type": "BASE", "value": value, "flags": 0, "keywordFlags": 0, "source": source})
+    }
+
+    /// FUP1: a buff mod list permuted inside one source collapses to one LUA-ORDER mismatch;
+    /// a permutation across sources, or different mods, is left alone.
+    #[test]
+    fn buff_list_lua_order_normalisation() {
+        let tree = |list: Vec<J>| {
+            json!({"env": {"skill": {"buffList": [{"name": "B", "modList": list}]}}})
+        };
+        let pob = tree(vec![m("A", 1.0, "S1"), m("B", 2.0, "S1"), m("C", 3.0, "S2")]);
+        let ours = tree(vec![m("B", 2.0, "S1"), m("A", 1.0, "S1"), m("C", 3.0, "S2")]);
+        let mm = diff_trees(&pob, &ours, &DiffOptions::strict());
+        assert!(mm.len() > 1, "{mm:?}");
+        let n = normalise_lua_order(mm, &pob, &ours);
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert_eq!(n[0].kind, MismatchKind::LuaOrder);
+        assert_eq!(n[0].path, "env.skill.buffList[1].modList");
+        // across sources: not order-only
+        let ours = tree(vec![m("C", 3.0, "S2"), m("B", 2.0, "S1"), m("A", 1.0, "S1")]);
+        let mm = diff_trees(&pob, &ours, &DiffOptions::strict());
+        let k = mm.len();
+        let n = normalise_lua_order(mm, &pob, &ours);
+        assert_eq!(n.len(), k);
+        assert!(n.iter().all(|x| x.kind != MismatchKind::LuaOrder));
+        // another value: not order-only
+        let ours = tree(vec![m("B", 2.0, "S1"), m("A", 1.5, "S1"), m("C", 3.0, "S2")]);
+        let mm = diff_trees(&pob, &ours, &DiffOptions::strict());
+        let k = mm.len();
+        assert_eq!(normalise_lua_order(mm, &pob, &ours).len(), k);
+        assert_eq!(
+            buff_mod_list_path("a.buffList[2].modList[3].name"),
+            Some("a.buffList[2].modList")
+        );
+        assert_eq!(buff_mod_list_path("a.buffList[2].modListX"), None);
+        assert_eq!(buff_mod_list_path("a.buffList[2].name"), None);
+    }
 }

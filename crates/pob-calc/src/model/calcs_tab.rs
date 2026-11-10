@@ -240,6 +240,7 @@ impl CalcsTab {
                 Key::S(n) => LStr::from(&*n),
                 Key::I(i) => LStr::from(tostring_num(i as f64)),
                 Key::B(b) => LStr::from(if b { "true" } else { "false" }),
+                Key::F(f) => LStr::from(tostring_num(f.get())),
             };
             child.attrib.insert(LStr::from("name"), kname);
             match &v {

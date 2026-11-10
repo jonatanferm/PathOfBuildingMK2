@@ -1,0 +1,30 @@
+# U22: open allflame_exp_001 from the build list (RETURN on the selected row), Ctrl+6 (NOTES),
+# type into the focused edit (RETURN inserts "\n"; the Tab key's extra OnChar inserts "\t"
+# after TabAdvance keeps the edit), then Ctrl+S (SaveDBFile writes the build's own file;
+# ResetModFlags clears notesTab.modFlag, so the title loses its unsaved mark).
+#! u22-saved Builds/allflame_exp_001.xml
+#! u22-expect-notes Hello ^1world\nsecond\tline
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 6
+key-up CTRL
+frames 2
+press END
+type "Hello ^1world"
+press RETURN
+type "second"
+press TAB
+type "line"
+frames 2
+key-down CTRL
+press s
+key-up CTRL
+frames 2
+snapshot saved
+frames 1

@@ -22,7 +22,8 @@
 //! * Skills `createMinionSkills` (AS, real since AS landed) creates in the run: their typed
 //!   `bool` fields that PoB's fresh tables leave nil are marked absent for the exporter
 //!   ([`mark_fresh_skill_defaults`]); their buff mod lists' order inside one source's stat
-//!   map is PoB's per-process `pairs` order and counts as LUA-ORDER ([`buff_list_order_only`]).
+//!   map is PoB's per-process `pairs` order and counts as LUA-ORDER
+//!   (`testkit::buff_list_order_only`, via `testkit::diff_against_normalised`).
 //!
 //! The closures' upvalues (CCR-0079 §1): after the run, `PerformCtx.mergeFlasks` /
 //! `.mergeTinctures` must hold the values PoB's locals had where it created the closures (the
@@ -393,46 +394,6 @@ fn mark_fresh_skill_defaults(env: &EnvRef, before: &[ActiveSkillRef]) {
     }
 }
 
-/// `…buffList[i].modList` of a mismatch path under one (`None` otherwise).
-fn buff_mod_list_path(path: &str) -> Option<&str> {
-    let b = path.find(".buffList[")?;
-    let rest = &path[b..];
-    let m = rest.find("].modList")? + "].modList".len();
-    let end = b + m;
-    matches!(path.as_bytes().get(end), None | Some(b'[' | b'.')).then(|| &path[..end])
-}
-
-/// LUA-ORDER for a skill's buff mod lists (CalcActiveSkill.lua:804-869): the buff's
-/// `modList` takes the skill's global-effect mods in `skillModList` order, and the mods of one
-/// granted effect's stat map come in `pairs(stats)` order (`mergeSkillInstanceMods`,
-/// CalcActiveSkill.lua:62, over the string-keyed table `calcLib.buildSkillInstanceStats`
-/// builds, CalcTools.lua:192-250; random per PoB process, calc doc
-/// §3.4/§9.5; AS's own acceptance accepts the same within same-source runs). A buff mod list
-/// whose mismatches are only positional is accepted when both lists hold the same multiset of
-/// mods and the same source at every position (the permutation stays inside one source).
-fn buff_list_order_only(pob: &J, ours: &J, list: &str) -> bool {
-    use pob_oracle::diff::tree_eq;
-    use pob_oracle::schema::{children, get_path};
-    let (Some(a), Some(b)) = (get_path(pob, list), get_path(ours, list)) else {
-        return false;
-    };
-    let la: Vec<&J> = children(list, a).into_iter().map(|(_, v)| v).collect();
-    let lb: Vec<&J> = children(list, b).into_iter().map(|(_, v)| v).collect();
-    if la.len() != lb.len() || la.is_empty() {
-        return false;
-    }
-    if la.iter().zip(&lb).any(|(x, y)| x.get("source") != y.get("source")) {
-        return false;
-    }
-    let mut used = vec![false; lb.len()];
-    la.iter().all(|x| {
-        (0..lb.len())
-            .find(|&i| !used[i] && tree_eq(x, lb[i], 1e-9))
-            .map(|i| used[i] = true)
-            .is_some()
-    })
-}
-
 /// Non-vacuity: the mismatches of the *unrun* `perform:1289` state against `perform:1943`
 /// (the segment's own effect, which the run must account for).
 fn unrun_mismatches(stem: &str, b: &BuildDumps) -> usize {
@@ -588,28 +549,11 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
     }
     out.party_alias_ok = party_alias_ok(&env);
     mark_fresh_skill_defaults(&env, &injected_skills);
-    let mm = testkit::diff_against(&b.dout, Some(&env), &after, stem);
-    // the buff mod lists with positional mismatches, and whether each is order-only
-    let mut buff_lists: BTreeMap<String, bool> = BTreeMap::new();
-    if mm.iter().any(|m| buff_mod_list_path(&m.path).is_some()) {
-        let pob = pob_oracle::schema::resolve_ids(&b.dout.root);
-        let ours = pob_oracle::schema::resolve_ids(&testkit::export_after(Some(&env), &[]));
-        for m in &mm {
-            if let Some(l) = buff_mod_list_path(&m.path) {
-                buff_lists
-                    .entry(l.to_owned())
-                    .or_insert_with(|| buff_list_order_only(&pob, &ours, l));
-            }
-        }
-    }
-    let mut order_lists = std::collections::BTreeSet::new();
+    // FUP1: the buff mod lists' LUA-ORDER check is the shared testkit normalisation (one
+    // `LuaOrder` mismatch per order-only `…buffList[i].modList`)
+    let mm = testkit::diff_against_normalised(&b.dout, Some(&env), &after, stem);
     for m in mm {
-        let buff_order = buff_mod_list_path(&m.path).is_some_and(|l| buff_lists[l]);
-        if buff_order {
-            if order_lists.insert(buff_mod_list_path(&m.path).unwrap().to_owned()) {
-                out.order_only += 1;
-            }
-        } else if m.kind == MismatchKind::LuaOrder {
+        if m.kind == MismatchKind::LuaOrder {
             out.order_only += 1;
         } else if MODEL_ONLY.iter().any(|p| m.path.starts_with(p)) {
             out.model_only += 1;
