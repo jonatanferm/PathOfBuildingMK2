@@ -2893,6 +2893,7 @@ dependencies = [
  "pob-lua",
  "pob-sg",
  "pob-ui-core",
+ "serde_json",
 ]
 
 [[package]]

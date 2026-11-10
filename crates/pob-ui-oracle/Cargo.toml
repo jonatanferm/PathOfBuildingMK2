@@ -27,6 +27,8 @@ image.workspace = true
 pollster.workspace = true
 # ui doc D1: the new crates pin wgpu exactly (same as pob-sg-wgpu / pob-host).
 wgpu = { version = "=30.0.1", features = ["webgl"] }
+# U28's notable gallery reads data/dump/powerStatList.json (this crate is dev-only itself).
+pob-testpaths.workspace = true
 
 [[bin]]
 name = "ui-parity"
@@ -51,6 +53,6 @@ harness = false
 workspace = true
 
 [dev-dependencies]
-# Test inputs (PoB checkout, data/dump) and the skip policy (HYG1); U15's tests.
-pob-testpaths.workspace = true
+# Test inputs (PoB checkout, data/dump) and the skip policy (HYG1); U15's tests use the
+# [dependencies] entry above.
 pob-gamedata.workspace = true
