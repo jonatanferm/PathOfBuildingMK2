@@ -12,7 +12,7 @@
 //! ported and `main:DrawBackground` (U17) needs U23's tree assets. Both sides run against the
 //! same stand-ins: after `OnInit`, the Lua side's `main.modes.BUILD` becomes an object that draws
 //! nothing and echoes its first two `Init` arguments from `GetArgs` (exactly pob-app's
-//! `PendingMode`, CCR-0091), and `main:DrawBackground` draws nothing on both sides (CCR-0095:
+//! `PendingMode`, CCR-0096), and `main:DrawBackground` draws nothing on both sides (CCR-0100:
 //! `pob_app::build_list::set_draw_background_override`).
 //!
 //! Compared side effects exclude `ImageLoad` (frame 0 loads the images of modules other units
@@ -294,9 +294,9 @@ impl RustSide {
         });
         let mut app = pob_app::PobApp::new(parts);
         effects.borrow_mut().clear(); // Launch.lua:11 runs at script load, before tracing
-                                      // pob-ui-oracle patch 4's equivalent (CCR-0091)
+                                      // pob-ui-oracle patch 4's equivalent (CCR-0096)
         app.cx.app_mut().launch.force_release_install = true;
-        // CCR-0095: main:DrawBackground draws nothing on both sides
+        // CCR-0100: main:DrawBackground draws nothing on both sides
         pob_app::build_list::set_draw_background_override(Some(Rc::new(|_cx, _vp| {})));
         RustSide {
             app,

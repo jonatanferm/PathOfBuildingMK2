@@ -1,7 +1,7 @@
-# CCR-0095: U18 seams: BuildList's background, the mode registration, and U16's test
+# CCR-0100: U18 seams: BuildList's background, the mode registration, and U16's test
 
-Unit: **U18** (BuildList mode). Status: **pending** (code on `port/U18` follows it). The number is
-the next free one on rust-port when U18 started (AMENDMENTS A8: in-flight units take 0095+ in
+Unit: **U18** (BuildList mode). Status: **pending** (code on `port/U18` follows it). The number was
+originally 0095 (taken by PF-B on merge; 0096-0099 held or reserved), renumbered to 0100 on merge (AMENDMENTS A8: in-flight units take 0095+ in
 merge order); renumber on merge if another unit took it first.
 
 ## A. `main:DrawBackground` in BuildList's OnFrame (to U17, U23)
@@ -21,10 +21,10 @@ with a no-op on the Lua side, so the comparison covers everything except the bac
 Proposed: once U17 ports `draw_background` and U23 loads the tree assets, delete the seam
 (`DRAW_BACKGROUND`, `set_draw_background_override`, and the two stubs in the U18 test).
 
-## B. `main.modes.LIST` registration (CCR-0091 A, done)
+## B. `main.modes.LIST` registration (CCR-0096 A, done)
 
 `main_mode/init.rs::default_modes` (U16's file) now inserts `crate::build_list::mode()` for
-`"LIST"`, the one-line change CCR-0091 A asked of U18. `PendingMode` stays for `"BUILD"`.
+`"LIST"`, the one-line change CCR-0096 A asked of U18. `PendingMode` stays for `"BUILD"`.
 
 Also exported for other units:
 
@@ -47,7 +47,7 @@ the real BuildList, so every U16 scenario would diverge in the list's draws.
 
 Change made by U18 (test-only, U16's file): `RustSide::on_init` re-installs
 `PendingMode::new("LIST")` in `main.modes` right after `on_init` (the mode's `Init` runs at the
-first `OnFrame`, so this is before any list code runs). One line plus a comment marked CCR-0095.
+first `OnFrame`, so this is before any list code runs). One line plus a comment marked CCR-0100.
 
 ## D. `main.filterBuildList` lives on the list-mode node
 

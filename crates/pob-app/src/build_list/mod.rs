@@ -6,14 +6,14 @@
 //! `listMode = new("ControlHost"):ControlHost()` is the [`ListMode`] node (class name
 //! "ControlHost", what the control-path markers print), created the first time `main:CallMode`
 //! reaches the mode and stored in `AppState::list_mode`. `main.modes.LIST` is [`mode()`]'s
-//! [`Mode`] object (CCR-0091 A), which forwards to the node's methods.
+//! [`Mode`] object (CCR-0096 A), which forwards to the node's methods.
 //!
 //! `main.filterBuildList` is read and written only by this file (grep), so it lives on the node
 //! ([`ListMode::filter_build_list`]); `self.filterBuildList` (L96) is never assigned, so the search
 //! box starts empty.
 //!
 //! `main:DrawBackground` (L179) is U17's `main_mode::background::draw_background`, which needs U23's
-//! tree assets; CCR-0095 adds a test seam ([`set_draw_background_override`]) that the product never
+//! tree assets; CCR-0100 adds a test seam ([`set_draw_background_override`]) that the product never
 //! sets.
 //!
 //! The `main.showPublicBuilds` branches are `if false` in upstream (L20, L72, L79, L92), so
@@ -77,11 +77,11 @@ impl Widget for ListMode {
 }
 
 thread_local! {
-    // CCR-0095: test seam for main:DrawBackground (never set by the product).
+    // CCR-0100: test seam for main:DrawBackground (never set by the product).
     static DRAW_BACKGROUND: RefCell<Option<Rc<dyn Fn(&mut Cx, &ViewPort)>>> = const { RefCell::new(None) };
 }
 
-/// CCR-0095: replace `main:DrawBackground` in BuildList's OnFrame (tests only; `None` restores
+/// CCR-0100: replace `main:DrawBackground` in BuildList's OnFrame (tests only; `None` restores
 /// the real one). The product never calls this.
 pub fn set_draw_background_override(f: Option<Rc<dyn Fn(&mut Cx, &ViewPort)>>) {
     DRAW_BACKGROUND.with(|d| *d.borrow_mut() = f);
@@ -606,7 +606,7 @@ impl ListMode {
     }
 }
 
-/// `main.modes.LIST` (CCR-0091 A): BuildList.lua's module table as a [`Mode`].
+/// `main.modes.LIST` (CCR-0096 A): BuildList.lua's module table as a [`Mode`].
 struct ListModeObj;
 
 impl Mode for ListModeObj {

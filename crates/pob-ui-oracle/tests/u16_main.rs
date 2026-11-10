@@ -321,7 +321,7 @@ impl App for RustSide {
     fn on_init(&mut self) {
         rust_stubs(&mut self.app.cx);
         self.app.on_init();
-        // CCR-0095 C: main.modes.LIST is U18's real BuildList now; these scenarios stub it on
+        // CCR-0100 C: main.modes.LIST is U18's real BuildList now; these scenarios stub it on
         // both sides (LUA_STUBS), so the Rust side gets the PendingMode back before any frame.
         self.app.cx.app_mut().main.modes.insert(
             "LIST".to_owned(),
