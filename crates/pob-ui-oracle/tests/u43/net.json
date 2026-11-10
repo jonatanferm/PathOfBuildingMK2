@@ -1,0 +1,13 @@
+[
+ {
+  "url": "https://pobb.in/pob/u43Code048",
+  "body_file": "code_048.txt",
+  "headers": "HTTP/1.1 200 OK\r\n\r\n"
+ },
+ {
+  "url": "https://pastebin.com/raw/u43Missing",
+  "body": "",
+  "error": "Response code: 404",
+  "headers": "HTTP/1.1 404 Not Found\r\n\r\n"
+ }
+]

@@ -1,0 +1,35 @@
+# U43: site URL import with a recorded response. Paste a pobb.in link (matchURL: "URL is valid
+# (pobb.in)"), RETURN (importCodeGo: importCodeFetching, "Retrieving paste..", buildSites.
+# DownloadBuild of https://pobb.in/pob/u43Code048 = the code of allflame_exp_048), the next frame
+# delivers it (importCodeHandle(data), importSelectedBuild: the confirm popup), RETURN (Init with
+# importLink), and a snapshot. importCodeHandle(data) (ImportTab.lua:695) clears importCodeSite,
+# so importSelectedBuild passes no import link: the snapshot's Import section has none (PoB's
+# own behaviour; the Rust side must match it).
+#! u43-expect-label URL is valid (pobb.in)
+#! u43-expect-label Retrieving paste..
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press i
+key-up CTRL
+frames 2
+paste-clipboard "  https://pobb.in/u43Code048 "
+move 492 528
+click LEFTBUTTON
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+press RETURN
+frames 1
+frames 2
+press RETURN
+frames 3
+snapshot site_url
+frames 1
