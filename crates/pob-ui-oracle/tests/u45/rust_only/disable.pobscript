@@ -1,0 +1,16 @@
+# U45 (Rust side only, `u45_disable_party_effects`): open party_loaded, the Party button, then
+# "Disable Party Effects" (PartyTab.lua:352-359): the actor and enemyModList are replaced, the
+# edits keep their text. The LuaCalcBridge reloads the text, so this is not a T3 scenario.
+fixture userdir=../user_loaded
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 40 122
+click LEFTBUTTON
+frames 2
+move 568 242
+click LEFTBUTTON
+frames 2

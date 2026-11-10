@@ -16,6 +16,8 @@ pob-lua.workspace = true
 pob-calc.workspace = true
 pob-gamedata.workspace = true
 indexmap.workspace = true
+# SimpleGraphic's `Inflate` (PartyTab code import, U45; CCR-0114 §3)
+flate2.workspace = true
 
 [lints]
 workspace = true

@@ -230,14 +230,17 @@ pub fn default_shell_hooks() -> ShellHooks {
         // one arm per ported tab (U22 Notes); the others draw nothing / read false
         draw_tab: Rc::new(|cx, tab, vp, ev| match tab {
             BuildTab::Notes => crate::tabs::notes::draw_tab(cx, vp, ev),
+            BuildTab::Party => crate::tabs::party::draw_tab(cx, vp, ev),
             _ => {}
         }),
         tab_flag: Rc::new(|cx, flag| match flag {
             TabFlag::Notes => crate::tabs::notes::mod_flag(cx),
+            TabFlag::Party => crate::tabs::party::mod_flag(cx),
             _ => false,
         }),
         set_tab_flag: Rc::new(|cx, flag, v| match flag {
             TabFlag::Notes => crate::tabs::notes::set_mod_flag(cx, v),
+            TabFlag::Party => crate::tabs::party::set_mod_flag(cx, v),
             _ => {}
         }),
         import_select_code_in: Rc::new(|_| {}),
