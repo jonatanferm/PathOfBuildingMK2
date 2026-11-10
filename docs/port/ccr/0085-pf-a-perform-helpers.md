@@ -57,6 +57,12 @@ so the name → positions index stays valid (debug-asserted).
 
 ## 3. `applyEnemyModifiers` calls `modLib.setSource` on a shared mod (§3.6 audit gap)
 
+> **Revised by PF-B (2026-11-10, merge of port/PF-B).** The workaround below replaces the one CCR2
+> applied (a copy added to the enemy DB, the cache keyed on the original `Arc` only). The new
+> behaviour (payload swap in the actor's ModDB chain, two-identity cache key, pass-2 source note,
+> replaced outer `Arc`) is now the text of contracts.md#mod-mutation row CalcPerform.lua 629;
+> see also CCR-0095 §4.
+
 **Problem.** calc doc §3.6 and contracts.md#mod-mutation list ModTools.lua 240-242 as
 "`setSource` on fresh copies". At CalcPerform.lua:629 it is not:
 

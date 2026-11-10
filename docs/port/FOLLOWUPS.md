@@ -126,3 +126,25 @@ Found while fixing HYG3 (shared oracle caches) on port/HYG3 merged with rust-por
    delete `target/oracle-src/<sha>` dirs by hand when no oracle test is running (they are
    rebuilt on demand). A safe prune would need a use marker (e.g. an mtime touched by
    `patcher::patch` on every reuse) and an age threshold.
+
+## PF-B
+
+Final-review open issues, both resolved in the merge commit's follow-up (listed for the record):
+
+1. **CCR number collision (resolved).** PF-B's CCR was `0091-pf-b-minion-fields-and-fn-probes.md`,
+   but 0091 is CT's on rust-port (AMENDMENTS A8). Renamed to
+   `docs/port/ccr/0095-pf-b-minion-fields-and-fn-probes.md`; every `CCR-0091` marker in
+   `crates/pob-calc/src/modules/calc_perform/actor_b.rs` (8) and `crates/pob-oracle/tests/PF-B.rs`
+   (2) now reads `CCR-0095`. **Still open (U16 / CA / CCR3):** U16 merged with
+   `docs/port/ccr/0091-u16-main-mode-seams.md` without renumbering, so 0091 is still held twice on
+   rust-port (CT and U16). Per A8, U16 must take the next free number (0096 now that PF-B holds
+   0095) and update its markers; CA's in-flight `0091-ca-calcs-seams.md` takes the one after.
+2. **Binding doc out of date with the code (resolved).** PF-B's fix rounds changed the
+   `applyEnemyModifiers` port in `calc_perform/actor_a.rs` (`resource_payload` rebuilds the
+   actor's `EnemyModifier` mods with the re-sourced payload; `enemy_cache::set` keys both the
+   original and the re-sourced `Arc`) and rewrote §3 of the already-applied CCR-0085.
+   contracts.md#mod-mutation row "CalcPerform.lua 629" now states the payload swap, the
+   two-identity cache key, the pass-2 `source` difference on `env.modDB`/tree/config/item lists
+   and the replaced outer `Arc`; CCR-0085 §3 carries a dated "revised by PF-B" note and CCR-0095
+   §4 cites the row. Owner of any further change: whoever next touches `applyEnemyModifiers`
+   (a unit that keys on the outer `EnemyModifier` `Arc` files a CCR).

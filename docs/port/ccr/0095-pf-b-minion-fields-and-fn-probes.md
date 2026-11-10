@@ -1,6 +1,7 @@
-# CCR-0091: PF-B — untyped minion fields, `Override`'s zero-value return, crate-private helpers in tests
+# CCR-0095: PF-B — untyped minion fields, `Override`'s zero-value return, crate-private helpers in tests
 
-Status: proposed by PF-B (2026-11-09)
+Status: proposed by PF-B (2026-11-09); §4 applied at merge (2026-11-10). Numbered 0034, then 0091,
+renumbered to 0095 at merge (AMENDMENTS A8: 0091 is CT's).
 
 ## 1. Minion actor fields with no typed `Actor` field
 
@@ -17,7 +18,7 @@ hold as a typed field:
 
 Inject puts all four in `Actor.extra` (`uses` after marking the typed field absent).
 
-**Workaround (`// CCR-0091` in `calc_perform/actor_b.rs`):** PF-B reads them from `minion.extra`:
+**Workaround (`// CCR-0095` in `calc_perform/actor_b.rs`):** PF-B reads them from `minion.extra`:
 `type` as a string, `lifeTable` / `uses` / `itemSet` as indexable values (`Val::get`). The PF-B
 test converts the dumped `$data` markers of `lifeTable` and `uses` (inject keeps them as opaque
 `pob_calc::probe::DataRef`s) to the Lua tables they stand for before the run and restores them
@@ -70,3 +71,12 @@ only dispatches line-probe segments. **Workaround:** `actor_b.rs` has a
 `pob_calc::probe::run_function(id, locals) -> Result<Vec<Val>, String>` (function probe id →
 the Rust fn, args from the probe's `locals`, results as the packed `ret`), next to
 `run_segment`, and the units drop their `probe_fns` modules.
+
+## 4. `applyEnemyModifiers` (CalcPerform.lua 629): revised CCR-0085 §3 workaround
+
+PF-B's fix rounds changed PF-A's `applyEnemyModifiers` port in `calc_perform/actor_a.rs`
+(`resource_payload`, two-identity `enemy_cache` key) and rewrote CCR-0085 §3, which CCR2 had
+already applied. **Applied at merge:** contracts.md#mod-mutation row "CalcPerform.lua 629" now
+states the payload swap in the actor's ModDB chain, the two-identity cache key, the pass-2
+`source` difference on `env.modDB`/tree/config/item lists, and the replaced outer `Arc`; CCR-0085
+§3 carries a dated "revised by PF-B" note pointing there.
