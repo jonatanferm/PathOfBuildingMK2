@@ -16,7 +16,7 @@ use common::*;
 use pob_lua::format::{
     lua_format_bytes, tonumber_base_bytes, tonumber_bytes, tostring_num, FmtArg,
 };
-use pob_oracle::mlua::{Lua, Table, Value};
+use mlua::{Lua, Table, Value};
 
 #[derive(Clone, Debug)]
 enum Arg {

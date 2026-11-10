@@ -14,7 +14,7 @@ use pob_lua::pattern::{
     find_bytes, gmatch_bytes, gsub_bytes_with, match_bytes, Capture, Captures, Repl,
 };
 use pob_lua::string as ls;
-use pob_oracle::mlua::{Table, Value};
+use mlua::{Table, Value};
 
 const SUBJ: &[u8] = b"aabbxyzAZ_12 ()[]-.%^$\n\xe2";
 

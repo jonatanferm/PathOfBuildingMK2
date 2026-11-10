@@ -580,9 +580,14 @@ fn run_hit(
     }
     pob_calc::stub::stub_reset();
     let _ = take_arms_run();
+    // CA ported `calcs.buildActiveSkill`; the injected cache entries above stand in for its
+    // nested calc (module doc), so the call is replayed as a no-op (it would run `initEnv` on
+    // the placeholder build)
+    pob_calc::modules::calcs::replay_hook::set(Some(Box::new(|_| true)));
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         run_triggers(&env, actor.as_ref())
     }));
+    pob_calc::modules::calcs::replay_hook::set(None);
     // the arms called before a Lua error (run_triggers takes them on success)
     let arms: Vec<(String, bool)> = match &run {
         Ok(_) => Vec::new(),

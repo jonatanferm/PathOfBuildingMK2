@@ -12,8 +12,8 @@
 //! * **replay**: injecting a callee's `:in` dump and applying its recorded
 //!   `in → out` delta (`pob_oracle::replay::Replay`) reproduces its `:out`
 //!   dump, for `offence` (all57) and `runSkillFunc` (dumped by this test into
-//!   `target/orcx-probe/<stem>/` when absent; needs LuaJIT and the machine-wide
-//!   oracle lock). Each replay runs a second time after the caller changed
+//!   the shared probe cache `.parity/probe-cache/<sha>/<build-key>/sel-<key>/`
+//!   when absent; needs LuaJIT and the machine-wide oracle lock). Each replay runs a second time after the caller changed
 //!   state of its own (`output.Life`, a key and a mod only the caller has):
 //!   those must survive and the callee's writes (`output.TotalDPS`) must
 //!   still land, so the diff against `:out` is exactly the caller's changes.
@@ -230,11 +230,9 @@ fn orcx_identity_round_trip_all57() {
         for stage in ROUND_TRIP_STAGES {
             let t = tallies.entry(stage).or_default();
             t.exact_measured = true;
-            // the corpus dumps, plus the runSkillFunc dumps the replay test probes
-            let extra = [PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-                .join("orcx-probe")
-                .join(stem)
-                .join("state")];
+            // the corpus dumps, plus the runSkillFunc dumps the replay test probes (HYG3: in the
+            // shared probe cache)
+            let extra: Vec<PathBuf> = rsf_cached(xml).into_iter().collect();
             let dump = testkit::load_dump(stem, Some(xml), stage).or_else(|| {
                 testkit::find_dump(&extra, stage).and_then(|p| StateDump::load(&p).ok())
             });
@@ -289,11 +287,10 @@ fn orcx_identity_round_trip_all57() {
             .filter(|m| {
                 let stem = m.split(' ').next().unwrap_or("");
                 if stage.starts_with("runSkillFunc:") {
-                    let probed = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-                        .join("orcx-probe")
-                        .join(stem)
-                        .join("hits.json")
-                        .is_file();
+                    let probed = builds
+                        .iter()
+                        .find(|x| self::stem(x) == stem)
+                        .is_some_and(|x| rsf_cached(x).is_some());
                     probed && !ORCX_RSF_MISSING.contains(&stem)
                 } else {
                     !ORCX_GATE_MISSING.contains(&m.as_str())
@@ -691,40 +688,43 @@ fn orcx_replay_offence_all57() {
     assert_missing("replay offence", &t.missing, ORCX_OFFENCE_MISSING); // HYG2/V2
 }
 
-/// `runSkillFunc:in/out` dumps of the main env (the corpus run dumps only
-/// `:in`): probed here into `target/tmp/orcx-probe/<stem>/` when absent.
+/// The probe selection of the `runSkillFunc:in/out` dumps (patched copy without a stages file).
 #[cfg(feature = "luajit")]
-fn run_skill_func_dumps(xml: &Path) -> Option<PathBuf> {
-    let stem = stem(xml);
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("orcx-probe")
-        .join(stem);
-    let state = dir.join("state");
-    let have = std::fs::read_dir(&state).is_ok_and(|rd| {
-        rd.filter_map(Result::ok)
-            .any(|e| e.file_name().to_string_lossy().starts_with("runSkillFunc:"))
-    });
-    if have || dir.join("hits.json").is_file() {
-        return Some(state);
+fn rsf_options() -> pob_oracle::runner::ProbeOptions {
+    pob_oracle::runner::ProbeOptions {
+        select: vec!["runSkillFunc:*@main".to_owned()],
+        provenance: false,
+        ..Default::default()
     }
-    let src = pob_oracle::oracle::find_pob_src()?;
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-    let patched = pob_oracle::patcher::patch(&src, None, &root).ok()?;
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).ok()?;
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-        .arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(&dir)
-        .arg("--patched")
-        .arg(&patched.src)
-        .args(["--select", "runSkillFunc:*@main", "--no-provenance"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::fs::File::create(dir.with_extension("log")).ok()?)
-        .status()
-        .ok()?;
-    status.success().then_some(state)
+}
+
+/// The `state/` dir of the build's runSkillFunc entry in the shared probe cache, if probed.
+#[cfg(feature = "luajit")]
+fn rsf_cached(xml: &Path) -> Option<PathBuf> {
+    testkit::selection_cache(xml, None, &rsf_options())
+        .ok()
+        .filter(pob_oracle::runner::SelectionCache::is_filled)
+        .map(|c| c.state_dir())
+}
+
+#[cfg(not(feature = "luajit"))]
+fn rsf_cached(_xml: &Path) -> Option<PathBuf> {
+    None
+}
+
+/// `runSkillFunc:in/out` dumps of the main env (the corpus run dumps only `:in`): the `state/`
+/// dir of this selection's entry in the shared probe cache
+/// (`.parity/probe-cache/<sha>/<build-key>/sel-<key>/`), probed here when absent. HYG3 (test
+/// audit S4): this was a per-worktree `target/tmp/orcx-probe/<stem>/`, keyed by stem only and
+/// never invalidated, under a per-worktree patched copy of PoB.
+#[cfg(feature = "luajit")]
+fn run_skill_func_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        None,
+        &rsf_options(),
+    )
 }
 
 #[cfg(feature = "luajit")]
@@ -749,11 +749,16 @@ fn orcx_replay_run_skill_func_all57() {
     let mut t = Tally::default();
     for xml in &builds {
         let stem = stem(xml);
-        let Some(state) = run_skill_func_dumps(xml) else {
-            t.failed.push(format!("{stem}: probing runSkillFunc failed"));
-            continue;
+        let state = match run_skill_func_dumps(xml) {
+            Ok(s) => s,
+            Err(e) => {
+                t.failed
+                    .push(format!("{stem}: probing runSkillFunc failed: {e}"));
+                continue;
+            }
         };
-        let dirs = vec![state];
+        // `state` (a private run under POB_QUERY_CACHE=off) is held to the end of the iteration
+        let dirs = vec![state.to_path_buf()];
         let (Some(pin), Some(pout)) = (
             testkit::find_dump(&dirs, "runSkillFunc:in"),
             testkit::find_dump(&dirs, "runSkillFunc:out"),

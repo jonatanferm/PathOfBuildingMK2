@@ -1,0 +1,13 @@
+# U17: stacked About popups at an unknown section number (99: section 1) and at named sections
+# ("party tab", "hotkeys"); Escape closes the top one each time.
+screen 1280 800 dpi 1.0
+#! u17-setup dev
+#! u17-setup about99
+#! u17-setup about_party
+#! u17-setup about_hotkeys
+fixture userdir=../../fixtures/user1
+frames 2
+press ESCAPE
+frames 2
+press ESCAPE
+frames 2

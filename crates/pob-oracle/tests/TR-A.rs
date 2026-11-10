@@ -1280,9 +1280,14 @@ fn run_hit(
         eprintln!("  mode {:?} skills {uuids:?} cache {cached:?}", env.mode);
     }
     pob_calc::stub::stub_reset();
+    // CA ported `calcs.buildActiveSkill`; the injected cache entries above stand in for its
+    // nested calc (module doc), so the call is replayed as a no-op (it would run `initEnv` on
+    // the placeholder build)
+    pob_calc::modules::calcs::replay_hook::set(Some(Box::new(|_| true)));
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         scaffold_triggers(&env, actor.as_ref(), keys)
     }));
+    pob_calc::modules::calcs::replay_hook::set(None);
     let stubs: Vec<String> = pob_calc::stub::stub_report()
         .into_iter()
         .map(|(s, n)| format!("{s} x{n}"))

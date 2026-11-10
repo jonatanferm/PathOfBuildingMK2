@@ -23,6 +23,11 @@
 //! so while EvalMod is still a stub they are reported, not gated (they are gated as soon as
 //! EvalMod returns `mod.value` for an untagged mod).
 //!
+//! PoB's per-build result (the script's JSON) is cached in the shared probe cache,
+//! `.parity/probe-cache/<source-key>/<build-key>/query-<script-key>/` (HYG3: keyed by the PoB
+//! source fingerprint and oracle runtime, the build's BLAKE3 and the script), so a warm run boots
+//! no PoB; `POB_QUERY_CACHE=refresh` re-runs PoB, `off` bypasses the cache.
+//!
 //! Knobs: `MS_A_BUILDS=stem1,stem2` or `MS_A_LIMIT=n` restrict the corpus; `MS_A_VERBOSE=1`
 //! prints every mismatch. A missing input (data/dump, PoB checkout, .parity/builds) fails
 //! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
@@ -830,20 +835,25 @@ fn l3_query_matrix_and_scaling_all57() {
     for xml in &builds {
         let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
         let text = std::fs::read_to_string(xml).unwrap();
-        let json = {
-            let _lock = OracleLock::acquire().expect("oracle lock");
-            let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
-            pob.load_build_xml(&text, &stem)
-                .unwrap_or_else(|e| panic!("{stem}: load: {e}"));
-            match pob
-                .run(SCRIPT)
-                .unwrap_or_else(|e| panic!("{stem}: script: {e}"))
-                .first()
-            {
-                Some(Ret::Str(s)) => s.clone(),
-                other => panic!("{stem}: script returned {other:?}"),
-            }
-        };
+        // HYG3 (test audit S1): PoB's result is a function of the PoB source, the build and the
+        // script, so it is cached in `.parity/probe-cache/<source-key>/<build-key>/query-<key>/`
+        // (`POB_QUERY_CACHE=refresh|off`); a miss boots a fresh PoB under the oracle lock.
+        let json =
+            pob_oracle::runner::cached_query(&src, text.as_bytes(), &[&stem, SCRIPT], || {
+                let _lock = OracleLock::acquire().expect("oracle lock");
+                let mut pob =
+                    JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
+                pob.load_build_xml(&text, &stem)
+                    .unwrap_or_else(|e| panic!("{stem}: load: {e}"));
+                match pob
+                    .run(SCRIPT)
+                    .unwrap_or_else(|e| panic!("{stem}: script: {e}"))
+                    .first()
+                {
+                    Some(Ret::Str(s)) => s.clone(),
+                    other => panic!("{stem}: script returned {other:?}"),
+                }
+            });
         let doc: J = serde_json::from_str(&json).unwrap_or_else(|e| panic!("{stem}: json: {e}"));
         let b = load(&doc);
         let mut t = Tally::default();
@@ -922,6 +932,7 @@ fn l3_query_matrix_and_scaling_all57() {
         total.scale_list
     );
     eprintln!("  ScaleAddMod paths (scale != 1): {:?}", total.scale_paths);
+    eprintln!("  {}", pob_oracle::runner::query_cache_summary());
     eprintln!("  errors raised by both (PoB <-> Rust):");
     for (k, v) in &total.error_kinds {
         eprintln!("    {v:>7}  {k}");

@@ -136,6 +136,23 @@ fn probe_hit_sample(xml: &Path) -> Result<PathBuf, String> {
 
 const HIT_SAMPLE: usize = 12;
 
+/// Builds whose `applyEnemyModifiers` calls `#LATE_HITS` (the main-env performs) include
+/// doActorMisc's call (`clearCache` nil, CalcPerform.lua:976) on a cache the flask call
+/// (`clearCache` true) of the same perform already filled, while EnemyModifier mods that
+/// were inactive then (ActorCondition `Marked`, `Ignited`, ...) are now listed before the
+/// cached ones: the `cache[mod]` hit path on keys `setSource` re-sourced (CCR-0085 §3-4).
+const LATE_BUILDS: &[&str] = &["allflame_exp_030", "allflame_exp_048"];
+const LATE_HITS: std::ops::RangeInclusive<usize> = 13..=24;
+
+/// `applyEnemyModifiers` hits [`LATE_HITS`], probed into `target/tmp/pfa-probe-late/<stem>/`.
+#[cfg(feature = "luajit")]
+fn probe_late_hits(xml: &Path) -> Result<PathBuf, String> {
+    let select: Vec<String> = LATE_HITS
+        .map(|n| format!("applyEnemyModifiers:*#{n}"))
+        .collect();
+    probe_into(xml, "pfa-probe-late", &select)
+}
+
 #[cfg(feature = "luajit")]
 fn probe_into(xml: &Path, sub: &str, select: &[String]) -> Result<PathBuf, String> {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
@@ -261,6 +278,9 @@ struct Tally {
     missing: Vec<String>,
     failed: Vec<String>,
     by_path: BTreeMap<String, (usize, String)>,
+    /// applyEnemyModifiers pairs whose call keeps an already filled cache (`clearCache`
+    /// falsy, `actor.appliedEnemyModifiers` holding keys): the `cache[mod]` hit path
+    filled_cache: usize,
 }
 
 /// `a.b[3].c` → `a.b[#].c`.
@@ -331,6 +351,12 @@ impl Tally {
             self.missing.len(),
             self.failed.len()
         );
+        if self.filled_cache > 0 {
+            eprintln!(
+                "  {} of the pairs keep a filled appliedEnemyModifiers cache",
+                self.filled_cache
+            );
+        }
         for f in self.failed.iter().take(10) {
             eprintln!("  failed: {f}");
         }
@@ -392,9 +418,19 @@ fn run_pair(
             }
         }
     }
+    // CA ported `calcs.buildActiveSkill`, which CalcPerform.lua:33-35 calls in CALCULATOR
+    // mode even when the entry is cached; the replayed delta above stands in for that
+    // callee, so the call is a no-op here (it would run `initEnv` on the placeholder build)
+    let hook = f == "getCachedOutputValue";
+    if hook {
+        pob_calc::modules::calcs::replay_hook::set(Some(Box::new(|_| true)));
+    }
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::modules::calc_perform::actor_a::probe_call(f, &locals)
     }));
+    if hook {
+        pob_calc::modules::calcs::replay_hook::set(None);
+    }
     let after = match run {
         Ok(Ok(after)) => after,
         Ok(Err(e)) => return Err(e),
@@ -490,7 +526,7 @@ fn seed_socket_group_list(env: &pob_calc::env::EnvRef, xml: &Path) {
     env.build.skillsTab.socketGroupList.set(groups);
 }
 
-/// `getCachedOutputValue` calls `calcs.buildActiveSkill` (CA, still a stub) when the
+/// `getCachedOutputValue` calls `calcs.buildActiveSkill` (CA; hooked to a no-op here) when the
 /// skill's GlobalCache entry is absent (CalcPerform.lua:33-35). The replay of that callee:
 /// its effect is the `:in → :out` delta of the call (getCachedOutputValue writes nothing
 /// else), applied with `pob_oracle::replay`, i.e. the new `GlobalCache.cachedData[mode][uuid]`
@@ -589,11 +625,37 @@ fn replay_build_active_skill(
     Ok(())
 }
 
+/// An `applyEnemyModifiers(actor, clearCache)` call that keeps the actor's cache
+/// (`clearCache` falsy) while it already holds keys: the path where `cache[mod]` hits
+/// (CalcPerform.lua:620-627).
+fn keeps_filled_cache(din: &StateDump) -> bool {
+    let resolved = pob_oracle::schema::resolve_ids(&din.root);
+    let locals = &resolved["locals"];
+    if locals
+        .get("clearCache")
+        .is_some_and(|v| !v.is_null() && v.as_bool() != Some(false))
+    {
+        return false;
+    }
+    let actor = locals
+        .get("actor")
+        .and_then(|a| match a.get("$ref").and_then(|r| r.as_str()) {
+            Some(p) => pob_oracle::schema::get_path(&resolved, p),
+            None => Some(a),
+        });
+    actor
+        .and_then(|a| a.get("appliedEnemyModifiers"))
+        .and_then(|c| c.get("$keys"))
+        .and_then(|k| k.as_array())
+        .is_some_and(|k| !k.is_empty())
+}
+
 /// Probe every build with `probe`, run every dumped pair, report per function; true when
 /// every pair is clean.
 fn run_corpus(
     title: &str,
     builds: &[PathBuf],
+    fns: &[&'static str],
     probe: impl Fn(&Path) -> Result<PathBuf, String>,
     all_hits: bool,
 ) -> bool {
@@ -603,7 +665,7 @@ fn run_corpus(
         let state = match probe(xml) {
             Ok(s) => s,
             Err(e) => {
-                for f in FNS {
+                for f in fns {
                     tallies
                         .entry(f)
                         .or_default()
@@ -613,7 +675,7 @@ fn run_corpus(
                 continue;
             }
         };
-        for f in FNS {
+        for f in fns {
             let t = tallies.entry(f).or_default();
             let ps = pairs(&state, f, all_hits);
             if ps.is_empty() {
@@ -631,6 +693,9 @@ fn run_corpus(
                     continue;
                 };
                 t.pairs += 1;
+                if *f == "applyEnemyModifiers" && keeps_filled_cache(&din) {
+                    t.filled_cache += 1;
+                }
                 let known = known_diff(stem, f);
                 match run_pair(xml, stem, f, &din, &dout) {
                     Ok((mm, noop)) => {
@@ -663,14 +728,23 @@ fn run_corpus(
         builds.len(),
         REPLAY_IDENTITY.with(|c| c.replace(0))
     );
-    for f in FNS {
+    for f in fns {
         let t = tallies.entry(f).or_default();
         t.report(f);
         total += t.pairs;
         ok &= t.clean + t.known.len() == t.pairs && t.failed.is_empty() && t.stale.is_empty();
     }
     assert!(total > 0, "no function-probe dumps");
+    let filled = tallies
+        .get("applyEnemyModifiers")
+        .map_or(0, |t| t.filled_cache);
+    FILLED_CACHE.with(|c| c.set(filled));
     ok
+}
+
+thread_local! {
+    /// [`Tally::filled_cache`] of applyEnemyModifiers in the last [`run_corpus`].
+    static FILLED_CACHE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The first call of each helper in every build's main env (all57 + unit corpus).
@@ -690,7 +764,7 @@ fn pfa_function_probes_all57() {
     if builds.is_empty() {
         return skip("no .parity/builds/*.xml");
     }
-    let ok = run_corpus("main env, first call", &builds, probe_dumps, false);
+    let ok = run_corpus("main env, first call", &builds, FNS, probe_dumps, false);
     assert!(ok, "some PF-A function probes differ from PoB");
 }
 
@@ -731,10 +805,46 @@ fn pfa_function_probes_hit_sample() {
     let ok = run_corpus(
         "hit sample #1..#12, any env",
         &builds,
+        FNS,
         probe_hit_sample,
         true,
     );
     assert!(ok, "some PF-A function probes differ from PoB");
+}
+
+/// Later `applyEnemyModifiers` calls that keep a filled cache ([`LATE_BUILDS`],
+/// [`LATE_HITS`]); fails when none of the probed pairs has one (non-vacuity).
+#[cfg(feature = "luajit")]
+#[test]
+fn pfa_apply_enemy_modifiers_filled_cache() {
+    if !testkit::init_default_data() {
+        return skip("no data dump (data/dump)");
+    }
+    let Some(parity) = find_parity_dir() else {
+        return skip("no .parity directory");
+    };
+    if pob_oracle::oracle::find_pob_src().is_none() {
+        return skip("no PoB checkout");
+    }
+    let builds: Vec<PathBuf> = corpus(&parity)
+        .into_iter()
+        .filter(|p| LATE_BUILDS.contains(&stem(p)))
+        .collect();
+    if builds.is_empty() {
+        return skip("none of the late-hit builds found");
+    }
+    let ok = run_corpus(
+        "applyEnemyModifiers late hits, filled cache",
+        &builds,
+        &["applyEnemyModifiers"],
+        probe_late_hits,
+        true,
+    );
+    assert!(ok, "some applyEnemyModifiers late hits differ from PoB");
+    assert!(
+        FILLED_CACHE.with(std::cell::Cell::get) > 0,
+        "no applyEnemyModifiers call with a filled cache was probed"
+    );
 }
 
 /// The probes are placed where the unit's ranges begin (guards stages.toml against drift).

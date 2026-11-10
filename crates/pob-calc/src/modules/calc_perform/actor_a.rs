@@ -1724,16 +1724,71 @@ pub(crate) fn applyEnemyModifiers(actor: &ActorRef, clearCache: bool) {
                 // L628
                 let source: Option<AStr> =
                     r#mod.source.clone().or_else(|| value.r#mod.source.clone());
-                // L629 `modLib.setSource(mod, source)` mutates `mod` in place in Lua. It is the
-                // inner mod of the actor's EnemyModifier mod (shared): CCR-0085 §3. When the
-                // assignment changes nothing the very mod is added (identity as in Lua);
-                // otherwise a re-sourced copy.
+                // L629 `modLib.setSource(mod, source)` mutates `mod` in place, and `mod` is the
+                // very table inside the actor's EnemyModifier mod when the Tabulate value is
+                // that mod's own payload (EvalMod copies it only to scale it). CCR-0085 §3:
+                // the re-sourced mod replaces the payload in the store, so the actor's mod,
+                // the enemy DB and the cache key are one object again, as in Lua.
                 let added = setSource_shared(&r#mod, source.as_deref());
+                if !Arc::ptr_eq(&added, &r#mod)
+                    && value
+                        .r#mod
+                        .value
+                        .inner_mod()
+                        .is_some_and(|i| Arc::ptr_eq(i, &r#mod))
+                {
+                    resource_payload(&actor.modDB.get(), &r#mod, &added);
+                }
                 enemyDB.AddMod(added.clone());
-                // L630
+                // L630 `cache[mod] = true`: the key is the one Lua table that `r#mod` held
+                // before L629 and `added` holds after it, so both identities hit. A later
+                // Tabulate entry of this same loop still holds `r#mod` (Tabulate ran before
+                // the payload swap); in Lua it is the mutated table and hits the cache.
                 enemy_cache::set(actor, &cache, &r#mod, &added);
             }
         }
+    }
+}
+
+/// The in-place half of `modLib.setSource(mod, …)` at L629 (CCR-0085 §3): every
+/// `EnemyModifier` mod of `store` (and its parents, which Tabulate also reads) whose payload
+/// is `old` gets `new` as its payload, at the same position.
+fn resource_payload(store: &ModStoreRef, old: &ModRef, new: &ModRef) {
+    let rebuild = |m: &ModRef| -> Option<ModRef> {
+        if !m.value.inner_mod().is_some_and(|i| Arc::ptr_eq(i, old)) {
+            return None;
+        }
+        let Value::Table(t) = &m.value else {
+            return None;
+        };
+        let mut c = (**m).clone();
+        c.value = Value::Table(Arc::new(t.with(n!("mod"), Value::Mod(new.clone()))));
+        Some(Arc::new(c))
+    };
+    let name = n!("EnemyModifier");
+    let mut cur = Some(store.clone());
+    while let Some(s) = cur {
+        match &mut *s.mods.borrow_mut() {
+            crate::classes::StoreMods::DB(map) => {
+                if let Some(l) = map.get_mut(&name) {
+                    for m in l.iter_mut() {
+                        if let Some(r) = rebuild(m) {
+                            *m = r;
+                        }
+                    }
+                }
+            }
+            crate::classes::StoreMods::List { list, index } => {
+                if let Some(pos) = index.get(&name) {
+                    for &i in pos {
+                        if let Some(r) = rebuild(&list[i as usize]) {
+                            list[i as usize] = r;
+                        }
+                    }
+                }
+            }
+        }
+        cur = s.parent.get();
     }
 }
 
@@ -1775,10 +1830,18 @@ mod enemy_cache {
         table: Table,
         /// The keys, by `Arc` identity.
         mods: Vec<ModRef>,
+        /// For a table this module did not create (an injected one, probe builds): the
+        /// keys it held when first seen, matched by value (their identity is lost). Keys
+        /// added afterwards are in `mods` and match by identity only, as in Lua.
+        injected: Option<Vec<ModRef>>,
     }
 
     thread_local! {
         static CACHES: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn is_for(e: &Entry, actor: &ActorRef, t: &Table) -> bool {
+        e.actor.ptr_eq(&Rc::downgrade(actor)) && e.table.ptr_eq(t)
     }
 
     /// A fresh `{ }` for `actor` (L621).
@@ -1790,6 +1853,7 @@ mod enemy_cache {
                 actor: Rc::downgrade(actor),
                 table: t.clone(),
                 mods: Vec::new(),
+                injected: None,
             });
         });
         // probe builds: an injected actor whose field was nil in Lua has it marked absent,
@@ -1797,63 +1861,67 @@ mod enemy_cache {
         probe_written(actor, "appliedEnemyModifiers");
     }
 
+    /// Run `f` on the entry for `(actor, t)`, creating it for a table this module did not
+    /// create (snapshotting that table's injected keys).
+    fn with_entry<R>(actor: &ActorRef, t: &Table, f: impl FnOnce(&mut Entry) -> R) -> R {
+        CACHES.with(|c| {
+            let mut c = c.borrow_mut();
+            let i = match c.iter().position(|e| is_for(e, actor, t)) {
+                Some(i) => i,
+                None => {
+                    c.push(Entry {
+                        actor: Rc::downgrade(actor),
+                        table: t.clone(),
+                        mods: Vec::new(),
+                        injected: Some(injected_keys(t)),
+                    });
+                    c.len() - 1
+                }
+            };
+            f(&mut c[i])
+        })
+    }
+
     /// `cache[mod]` (truthy).
     pub(super) fn has(actor: &ActorRef, t: &Table, m: &ModRef) -> bool {
-        let own = CACHES.with(|c| {
-            c.borrow().iter().find_map(|e| {
-                (e.actor.ptr_eq(&Rc::downgrade(actor)) && e.table.ptr_eq(t))
-                    .then(|| e.mods.iter().any(|x| Arc::ptr_eq(x, m)))
-            })
-        });
-        match own {
-            Some(hit) => hit,
-            // a table this module did not create: an injected one (probe builds)
-            None => injected_has(t, m),
-        }
+        with_entry(actor, t, |e| {
+            e.mods.iter().any(|x| Arc::ptr_eq(x, m))
+                || e.injected
+                    .as_ref()
+                    .is_some_and(|k| k.iter().any(|x| Arc::ptr_eq(x, m) || **x == **m))
+        })
     }
 
-    /// `cache[mod] = true`; `exported` is the mod as Lua's key table looks afterwards
-    /// (re-sourced by `setSource`), for the state export.
-    pub(super) fn set(actor: &ActorRef, t: &Table, m: &ModRef, exported: &ModRef) {
-        let found = CACHES.with(|c| {
-            let mut c = c.borrow_mut();
-            if let Some(e) = c
-                .iter_mut()
-                .find(|e| e.actor.ptr_eq(&Rc::downgrade(actor)) && e.table.ptr_eq(t))
-            {
-                e.mods.push(m.clone());
-                true
-            } else {
-                false
+    /// `cache[mod] = true`, where the Lua `mod` was `original` before `setSource` mutated it
+    /// in place and is `m` after (CCR-0085 §3: the port's re-sourced copy). Both identities
+    /// are keys of the one Lua key; only `m` (the mod Lua holds afterwards) is exported.
+    pub(super) fn set(actor: &ActorRef, t: &Table, original: &ModRef, m: &ModRef) {
+        with_entry(actor, t, |e| {
+            if !Arc::ptr_eq(original, m) {
+                e.mods.push(original.clone());
             }
+            e.mods.push(m.clone());
         });
-        if !found {
-            // an injected table: start tracking it, keeping its injected keys
-            CACHES.with(|c| {
-                c.borrow_mut().push(Entry {
-                    actor: Rc::downgrade(actor),
-                    table: t.clone(),
-                    mods: vec![m.clone()],
-                });
-            });
-        }
-        exported_set(t, exported);
+        exported_set(t, m);
     }
 
+    /// The truthy mod keys an injected table holds (decoded afresh by `pob_oracle::inject`).
     #[cfg(feature = "probe")]
-    fn injected_has(t: &Table, m: &ModRef) -> bool {
-        // Injection decodes the dumped key mods afresh (their identity with the actor's
-        // EnemyModifier mods is lost), so an injected key matches by value.
+    fn injected_keys(t: &Table) -> Vec<ModRef> {
         crate::probe::with_registry(|r| {
-            r.obj_keys(t).iter().any(|(k, v)| {
-                v.truthy() && matches!(k, Val::Mod(x) if Arc::ptr_eq(x, m) || (**x == **m))
-            })
+            r.obj_keys(t)
+                .into_iter()
+                .filter_map(|(k, v)| match k {
+                    Val::Mod(x) if v.truthy() => Some(x),
+                    _ => None,
+                })
+                .collect()
         })
     }
 
     #[cfg(not(feature = "probe"))]
-    fn injected_has(_t: &Table, _m: &ModRef) -> bool {
-        false
+    fn injected_keys(_t: &Table) -> Vec<ModRef> {
+        Vec::new()
     }
 
     #[cfg(feature = "probe")]
@@ -1940,4 +2008,106 @@ pub fn probe_call(id: &str, locals: &[(String, Val)]) -> Result<Vec<(String, Val
     let mut out: Vec<(String, Val)> = locals.to_vec();
     out.push(("ret".to_owned(), Val::Table(ret_table(&ret))));
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// L629: `modLib.setSource` re-sources the payload of the actor's EnemyModifier mod in
+    /// place (ModTools.lua:239-245), the enemy DB holds that same mod, and a later call that
+    /// keeps the cache (`clearCache` nil, as doActorMisc's L976) finds it and adds nothing.
+    #[test]
+    fn apply_enemy_modifiers_resources_payload_in_place() {
+        let player = Actor::with(ModStore::ModDB(None), 1.0);
+        let enemy = Actor::with(ModStore::ModDB(None), 1.0);
+        player.enemy.set(Rc::downgrade(&enemy));
+        let inner = Arc::new(modLib::createMod(
+            n!("LifeRegen"),
+            ModType::INC,
+            -50.0,
+            None,
+            0,
+            0,
+            &[],
+        ));
+        let payload = ValueTable::default().with(n!("mod"), Value::Mod(inner));
+        let outer = modLib::createMod(
+            n!("EnemyModifier"),
+            ModType::LIST,
+            Value::Table(Arc::new(payload)),
+            Some("Pantheon:Soul of Ryslatha"),
+            0,
+            0,
+            &[],
+        );
+        player.modDB.get().AddMod(Arc::new(outer));
+
+        applyEnemyModifiers(&player, true);
+        let stored = player.modDB.get().mods_named(n!("EnemyModifier"));
+        assert_eq!(stored.len(), 1);
+        let payload = stored[0].value.inner_mod().expect("payload").clone();
+        assert_eq!(payload.source.as_deref(), Some("Pantheon:Soul of Ryslatha"));
+        let added = enemy.modDB.get().mods_named(n!("LifeRegen"));
+        assert_eq!(added.len(), 1);
+        assert!(
+            Arc::ptr_eq(&added[0], &payload),
+            "the enemy DB holds the payload itself"
+        );
+
+        applyEnemyModifiers(&player, false);
+        assert_eq!(enemy.modDB.get().mods_named(n!("LifeRegen")).len(), 1);
+        applyEnemyModifiers(&player, true);
+        assert_eq!(enemy.modDB.get().mods_named(n!("LifeRegen")).len(), 2);
+    }
+
+    /// One EnemyModifier table added twice (the Config/Pantheon shape: outer source set,
+    /// inner source nil). Lua's `setSource` mutates the shared inner table on the first
+    /// entry, so `cache[mod]` hits on the second and the enemy gets the mod once
+    /// (CalcPerform.lua:625-630, ModTools.lua:239-245), although both Tabulate entries were
+    /// read before the payload was re-sourced.
+    #[test]
+    fn apply_enemy_modifiers_shared_payload_two_entries_adds_once() {
+        let player = Actor::with(ModStore::ModDB(None), 1.0);
+        let enemy = Actor::with(ModStore::ModDB(None), 1.0);
+        player.enemy.set(Rc::downgrade(&enemy));
+        let inner = Arc::new(modLib::createMod(
+            n!("LifeRegen"),
+            ModType::INC,
+            -50.0,
+            None,
+            0,
+            0,
+            &[],
+        ));
+        let payload = ValueTable::default().with(n!("mod"), Value::Mod(inner));
+        let outer = Arc::new(modLib::createMod(
+            n!("EnemyModifier"),
+            ModType::LIST,
+            Value::Table(Arc::new(payload)),
+            Some("Config"),
+            0,
+            0,
+            &[],
+        ));
+        player.modDB.get().AddMod(outer.clone());
+        player.modDB.get().AddMod(outer);
+
+        applyEnemyModifiers(&player, true);
+        let added = enemy.modDB.get().mods_named(n!("LifeRegen"));
+        assert_eq!(added.len(), 1, "added once, as in Lua");
+        assert_eq!(added[0].source.as_deref(), Some("Config"));
+        let stored = player.modDB.get().mods_named(n!("EnemyModifier"));
+        assert_eq!(stored.len(), 2);
+        for s in &stored {
+            let p = s.value.inner_mod().expect("payload");
+            assert!(
+                Arc::ptr_eq(p, &added[0]),
+                "both entries hold the re-sourced payload"
+            );
+        }
+
+        applyEnemyModifiers(&player, false);
+        assert_eq!(enemy.modDB.get().mods_named(n!("LifeRegen")).len(), 1);
+    }
 }

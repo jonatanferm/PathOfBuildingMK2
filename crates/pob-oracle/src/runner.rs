@@ -491,6 +491,883 @@ mod tests {
     }
 }
 
+// ---- the shared caches of the oracle tests (HYG3, test audit S1/S3/S4) ---------------------------
+//
+// Every entry lives in the probe cache, `<parity>/probe-cache/<sha>/<input-key>/…`, keyed like the
+// dumps above: `<sha>` is the PoB source the run boots (a patched copy's manifest sha, or
+// [`source_key`] for the unpatched checkout), `<input-key>` the first 16 hex digits of the BLAKE3 of
+// the run's input (a build's XML bytes: [`build_key`]), and the last component hashes whatever else
+// decides the result (the query scripts, the probe selection). An entry is written to a private
+// temp name and renamed into place, so a reader sees it whole or not at all, and concurrent writers
+// of one key (other tests, other worktrees) each publish a valid copy.
+//
+// `$POB_QUERY_CACHE`: unset / `on` reads and writes; `refresh` runs PoB again and overwrites;
+// `off` neither reads nor writes (every query and probe runs, as before HYG3; a probe run goes to
+// a private directory outside the cache, deleted after use: `SelectionCache::fill`).
+
+/// What `$POB_QUERY_CACHE` allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheMode {
+    On,
+    Refresh,
+    Off,
+}
+
+#[must_use]
+pub fn cache_mode() -> CacheMode {
+    match std::env::var("POB_QUERY_CACHE").as_deref() {
+        Ok("off" | "0") => CacheMode::Off,
+        Ok("refresh") => CacheMode::Refresh,
+        _ => CacheMode::On,
+    }
+}
+
+/// The first 16 hex digits of the BLAKE3 of `parts` (each length-prefixed, so part boundaries
+/// count).
+#[must_use]
+pub fn content_key(domain: &str, parts: &[&[u8]]) -> String {
+    let mut h = blake3::Hasher::new();
+    h.update(domain.as_bytes());
+    h.update(&[0]);
+    for p in parts {
+        h.update(&(p.len() as u64).to_le_bytes());
+        h.update(p);
+    }
+    h.finalize().to_hex()[..16].to_owned()
+}
+
+/// The Rust and Lua code an in-process oracle run boots PoB with (`JitPob::boot_oracle`, the
+/// headless loader, `oracle.lua`): part of every [`source_key`], so a change to any of it
+/// invalidates the cached query results.
+const ORACLE_RUNTIME: &[&str] = &[
+    include_str!("jit.rs"),
+    include_str!("headless.rs"),
+    include_str!("oracle.rs"),
+    include_str!("oracle.lua"),
+];
+
+/// Bumped to retire every cached oracle result (query and selection entries) when something the
+/// keys do not see changes what PoB returns.
+pub const ORACLE_CACHE_EPOCH: u32 = 1;
+
+/// The Lua runtime the oracle runs PoB on, as `Cargo.lock` pins it (`mlua`, `mlua-sys`,
+/// `luajit-src` versions) plus [`ORACLE_CACHE_EPOCH`]: part of [`source_key`] and
+/// `patcher::plan_sha`, so a LuaJIT or binding bump invalidates the cached results.
+#[must_use]
+pub fn lua_runtime_versions() -> &'static str {
+    static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        const LOCK: &str = include_str!("../../../Cargo.lock");
+        let mut out = format!("epoch {ORACLE_CACHE_EPOCH}");
+        let mut name: Option<&str> = None;
+        for line in LOCK.lines() {
+            if line == "[[package]]" {
+                name = None;
+            } else if let Some(n) = line.strip_prefix("name = \"") {
+                name = n.strip_suffix('"');
+            } else if let Some(v) = line.strip_prefix("version = \"") {
+                if let Some(n @ ("mlua" | "mlua-sys" | "luajit-src")) = name {
+                    out.push(' ');
+                    out.push_str(n);
+                    out.push('@');
+                    out.push_str(v.trim_end_matches('"'));
+                }
+            }
+        }
+        out
+    })
+}
+
+/// The `<sha>` of an unpatched PoB source tree booted in-process: BLAKE3 of the oracle runtime,
+/// the Lua runtime versions, the JIT mode (`POB_ORACLE_JIT`), the canonical path and the stat
+/// fingerprint (relative path, size, mtime) of every file but PoB's derived caches
+/// (`patcher::is_derived_cache`), the fingerprint the patcher's sha takes of the tree it copies
+/// (`patcher::plan_sha`). Memoised per process.
+pub fn source_key(src: &Path) -> Result<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static KEYS: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+    let canon = std::fs::canonicalize(src).unwrap_or_else(|_| src.to_path_buf());
+    let keys = KEYS.get_or_init(Mutex::default);
+    if let Some(k) = keys
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&canon)
+    {
+        return Ok(k.clone());
+    }
+    let mut files = Vec::new();
+    walk(&canon, "", &mut files).map_err(|e| OracleError(format!("{}: {e}", canon.display())))?;
+    let key = source_fingerprint(&canon, &files)?;
+    keys.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(canon, key.clone());
+    Ok(key)
+}
+
+/// Every file under `dir` as `(path relative to the walk root, path)`, sorted by name.
+fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?
+        .filter_map(std::result::Result::ok)
+        .collect();
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for e in entries {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let r = if rel.is_empty() {
+            name
+        } else {
+            format!("{rel}/{name}")
+        };
+        if e.file_type()?.is_dir() {
+            walk(&e.path(), &r, out)?;
+        } else {
+            out.push((r, e.path()));
+        }
+    }
+    Ok(())
+}
+
+/// [`source_key`] of the canonical tree `canon` with the files `files`, not memoised.
+fn source_fingerprint(canon: &Path, files: &[(String, PathBuf)]) -> Result<String> {
+    let mut h = blake3::Hasher::new();
+    h.update(b"pob-oracle unpatched source 2\n");
+    for code in ORACLE_RUNTIME {
+        h.update(code.as_bytes());
+        h.update(&[0]);
+    }
+    h.update(lua_runtime_versions().as_bytes());
+    h.update(&[0]);
+    #[cfg(all(not(target_arch = "wasm32"), feature = "luajit"))]
+    h.update(if crate::jit::oracle_jit_off() {
+        b"jit.off"
+    } else {
+        b"jit.on"
+    });
+    h.update(canon.to_string_lossy().as_bytes());
+    crate::patcher::hash_stat_fingerprint(&mut h, files)
+        .map_err(|(p, e)| OracleError(format!("{}: {e}", p.display())))?;
+    Ok(h.finalize().to_hex()[..16].to_owned())
+}
+
+/// A temp path next to `dst` that no other writer (thread or process) uses.
+fn private_tmp(dst: &Path) -> PathBuf {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let name = dst
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    dst.with_file_name(format!(
+        ".{name}.tmp.{}.{}",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ))
+}
+
+/// zstd level of the cache entries (fast; the entries are read far more often than written).
+const CACHE_ZSTD_LEVEL: i32 = 3;
+
+/// The cached results of one in-process oracle query:
+/// `<parity>/probe-cache/<source-key>/<input-key>/query-<script-key>/<name>.zst`.
+#[derive(Debug, Clone)]
+pub struct QueryCache {
+    pub dir: PathBuf,
+}
+
+/// Hits and misses of [`QueryCache::get`] in this process (for the tests' summaries).
+static QUERY_HITS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static QUERY_MISSES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// `(hits, misses)` of the query cache in this process.
+#[must_use]
+pub fn query_cache_stats() -> (usize, usize) {
+    (
+        QUERY_HITS.load(std::sync::atomic::Ordering::Relaxed),
+        QUERY_MISSES.load(std::sync::atomic::Ordering::Relaxed),
+    )
+}
+
+/// The tests' one-line summary of the query cache in this process: the mode, the builds served
+/// from the cache and those run in PoB ([`cached_query`] counts a run under `off` as well).
+#[must_use]
+pub fn query_cache_summary() -> String {
+    let (hits, misses) = query_cache_stats();
+    let mode = match cache_mode() {
+        CacheMode::On => "on",
+        CacheMode::Refresh => "refresh",
+        CacheMode::Off => "off",
+    };
+    format!(
+        "PoB query cache (HYG3, POB_QUERY_CACHE={mode}): {hits} builds cached, {misses} run in PoB"
+    )
+}
+
+impl QueryCache {
+    /// The entry of the query `script` (every text that decides the result besides PoB and the
+    /// input: the scripts run, in order) over `input` (a build's XML bytes, or the input a test
+    /// generates) on the PoB checkout `src`. `None` when there is no `.parity` directory or the
+    /// cache is off.
+    pub fn new(src: &Path, input: &[u8], script: &[&str]) -> Result<Option<Self>> {
+        if cache_mode() == CacheMode::Off {
+            return Ok(None);
+        }
+        let Some(parity) = crate::oracle::find_parity_dir() else {
+            return Ok(None);
+        };
+        let parts: Vec<&[u8]> = script.iter().map(|s| s.as_bytes()).collect();
+        Ok(Some(Self {
+            dir: parity
+                .join("probe-cache")
+                .join(source_key(src)?)
+                .join(&blake3::hash(input).to_hex()[..16])
+                .join(format!(
+                    "query-{}",
+                    content_key("pob-oracle query 1", &parts)
+                )),
+        }))
+    }
+
+    #[must_use]
+    pub fn path(&self, name: &str) -> PathBuf {
+        self.dir.join(format!("{name}.zst"))
+    }
+
+    /// Is `name` present (and readable under the cache mode)?
+    #[must_use]
+    pub fn has(&self, name: &str) -> bool {
+        cache_mode() == CacheMode::On && self.path(name).is_file()
+    }
+
+    /// The cached text `name` (counted as a hit or a miss).
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<String> {
+        let got = if self.has(name) {
+            read_text(&self.path(name)).ok()
+        } else {
+            None
+        };
+        let c = if got.is_some() {
+            &QUERY_HITS
+        } else {
+            &QUERY_MISSES
+        };
+        c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        got
+    }
+
+    /// Store `text` as `name`.
+    pub fn put(&self, name: &str, text: &str) -> Result<()> {
+        let dst = self.path(name);
+        std::fs::create_dir_all(&self.dir)
+            .map_err(|e| OracleError(format!("{}: {e}", self.dir.display())))?;
+        let tmp = private_tmp(&dst);
+        let z = zstd::encode_all(text.as_bytes(), CACHE_ZSTD_LEVEL)
+            .map_err(|e| OracleError(e.to_string()))?;
+        std::fs::write(&tmp, z).map_err(|e| OracleError(format!("{}: {e}", tmp.display())))?;
+        std::fs::rename(&tmp, &dst).map_err(|e| OracleError(format!("{}: {e}", dst.display())))
+    }
+
+    /// Store the file `src` as `name`, compressed as a stream (large JSONL outputs).
+    pub fn put_file(&self, name: &str, src: &Path) -> Result<()> {
+        let dst = self.path(name);
+        std::fs::create_dir_all(&self.dir)
+            .map_err(|e| OracleError(format!("{}: {e}", self.dir.display())))?;
+        let tmp = private_tmp(&dst);
+        let io = |e: std::io::Error, p: &Path| OracleError(format!("{}: {e}", p.display()));
+        let mut from = std::fs::File::open(src).map_err(|e| io(e, src))?;
+        let to = std::fs::File::create(&tmp).map_err(|e| io(e, &tmp))?;
+        let mut enc =
+            zstd::stream::write::Encoder::new(to, CACHE_ZSTD_LEVEL).map_err(|e| io(e, &tmp))?;
+        std::io::copy(&mut from, &mut enc).map_err(|e| io(e, &tmp))?;
+        enc.finish().map_err(|e| io(e, &tmp))?;
+        std::fs::rename(&tmp, &dst).map_err(|e| io(e, &dst))
+    }
+
+    /// Store the text `result` and the files `files` (`(name, path)`, compressed as streams) as
+    /// one entry: all are written to a private directory that is renamed into place as a whole,
+    /// so a reader never pairs the `result` of one run with a file of another (IT-A/IT-C: the
+    /// header and its JSONL records). When a concurrent writer published a complete entry first,
+    /// that one stands; an incomplete one (no `result`: an older layout) is replaced, and so is
+    /// any entry under `refresh`.
+    pub fn put_entry(&self, result: &str, files: &[(&str, &Path)]) -> Result<()> {
+        let tmp = private_tmp(&self.dir);
+        let _ = std::fs::remove_dir_all(&tmp);
+        let res = (|| {
+            let staged = Self { dir: tmp.clone() };
+            for (name, src) in files {
+                staged.put_file(name, src)?;
+            }
+            staged.put("result", result)?;
+            if cache_mode() == CacheMode::Refresh || !self.path("result").is_file() {
+                let _ = std::fs::remove_dir_all(&self.dir);
+            }
+            match std::fs::rename(&tmp, &self.dir) {
+                Ok(()) => Ok(()),
+                Err(_) if self.path("result").is_file() => Ok(()),
+                Err(e) => Err(OracleError(format!("{}: {e}", self.dir.display()))),
+            }
+        })();
+        let _ = std::fs::remove_dir_all(&tmp);
+        res
+    }
+
+    /// The cached file `name` as a decompressing line reader.
+    pub fn open(&self, name: &str) -> Result<Box<dyn std::io::BufRead>> {
+        let p = self.path(name);
+        let f =
+            std::fs::File::open(&p).map_err(|e| OracleError(format!("{}: {e}", p.display())))?;
+        let dec = zstd::stream::read::Decoder::new(f)
+            .map_err(|e| OracleError(format!("{}: {e}", p.display())))?;
+        Ok(Box::new(std::io::BufReader::new(dec)))
+    }
+}
+
+/// The text a query returns, from the cache when present; otherwise `run` computes it (the
+/// caller boots PoB under the [`OracleLock`] inside `run`) and it is stored.
+pub fn cached_query(
+    src: &Path,
+    input: &[u8],
+    script: &[&str],
+    run: impl FnOnce() -> String,
+) -> String {
+    let cache = QueryCache::new(src, input, script).unwrap_or_else(|e| panic!("query cache: {e}"));
+    match &cache {
+        Some(c) => {
+            if let Some(text) = c.get("result") {
+                return text;
+            }
+        }
+        // no cache (off, or no `.parity`): a run in PoB all the same
+        None => {
+            QUERY_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    let text = run();
+    if let Some(c) = &cache {
+        if let Err(e) = c.put("result", &text) {
+            eprintln!("query cache: not stored: {e}");
+        }
+    }
+    text
+}
+
+/// Where the oracle tests publish patched copies: `$POB_ORACLE_SRC_ROOT`, else
+/// `target/oracle-src` of the checkout that holds the PoB source (`<checkout>/.PathOfBuilding/src`;
+/// from a git worktree that is the main checkout, so every worktree shares one copy per sha),
+/// else [`crate::patcher::default_root`].
+#[must_use]
+pub fn shared_patch_root(pob_src: &Path) -> PathBuf {
+    if let Some(p) = std::env::var_os("POB_ORACLE_SRC_ROOT") {
+        return PathBuf::from(p);
+    }
+    let canon = std::fs::canonicalize(pob_src).unwrap_or_else(|_| pob_src.to_path_buf());
+    if let Some(checkout) = canon.parent().and_then(Path::parent) {
+        if checkout.join("Cargo.toml").is_file() {
+            return checkout.join("target").join("oracle-src");
+        }
+    }
+    crate::patcher::default_root()
+}
+
+/// The Rust code of a `bin probe` run beyond [`ORACLE_RUNTIME`]: this file (`probe_prelude`,
+/// `probe_in_process`, the dump layout) and the binary's `probe` command. Part of every
+/// [`SelectionCache`] key, so a change to how a dump is made retires the cached dumps (any edit to
+/// these files does: conservative, the probes just rerun).
+const PROBE_RUNTIME: &[&str] = &[include_str!("runner.rs"), include_str!("bin/pob_oracle.rs")];
+
+/// One probe run of a selection, content-keyed:
+/// `<parity>/probe-cache/<sha>/<build-key>/sel-<options-key>/` with `hits.json.zst`,
+/// `outputs.json.zst` (and `provenance.json.zst`) and `state/<hit>.json.zst`.
+#[derive(Debug, Clone)]
+pub struct SelectionCache {
+    pub dir: PathBuf,
+}
+
+impl SelectionCache {
+    pub fn new(parity: &Path, sha: &str, build: &Path, opts: &ProbeOptions) -> Result<Self> {
+        let sel = opts.select.join(",");
+        let max = opts.max_dumps.to_string();
+        // the Rust/Lua runtime the `bin probe` process boots PoB with, and the probe run itself
+        // (`probe_prelude`, `probe_in_process`; the binary's `probe` command): the `<sha>`
+        // covers the patched tree, the probe's Lua and the Lua runtime versions
+        let mut parts: Vec<&[u8]> = vec![
+            sel.as_bytes(),
+            max.as_bytes(),
+            if opts.provenance { b"prov" } else { b"noprov" },
+        ];
+        parts.extend(ORACLE_RUNTIME.iter().map(|s| s.as_bytes()));
+        parts.extend(PROBE_RUNTIME.iter().map(|s| s.as_bytes()));
+        let key = content_key("pob-oracle selection 3", &parts);
+        Ok(Self {
+            dir: ProbeCache::new(parity, sha, build)?
+                .dir
+                .join(format!("sel-{key}")),
+        })
+    }
+
+    /// The entry's dumps (`<hit>.json.zst`).
+    #[must_use]
+    pub fn state_dir(&self) -> PathBuf {
+        self.dir.join("state")
+    }
+
+    /// Has the selection been probed (and may it be read under the cache mode)?
+    #[must_use]
+    pub fn is_filled(&self) -> bool {
+        cache_mode() == CacheMode::On && self.dir.join("hits.json.zst").is_file()
+    }
+
+    /// Probe `build` with `opts` in a fresh `bin probe` process (which takes the [`OracleLock`]
+    /// itself) and return the run's dumps.
+    ///
+    /// `On` publishes the run as this entry (when a concurrent writer published it first, that
+    /// copy is served: it is of the same key). `Refresh` replaces the entry with the run. `Off`
+    /// neither reads nor writes the cache: the run stays in a private directory outside it
+    /// (`target/tmp/probe-off/`), which the returned [`ProbeDumps`] deletes when dropped.
+    pub fn fill(
+        &self,
+        bin: &Path,
+        build: &Path,
+        patched_src: &Path,
+        opts: &ProbeOptions,
+    ) -> Result<ProbeDumps> {
+        self.fill_with(cache_mode(), &off_scratch_root(), |run| {
+            run_probe_process(bin, build, run, patched_src, opts)
+        })
+    }
+
+    /// [`Self::fill`] with the mode, the root of `Off`'s private runs and the probe run given
+    /// (`probe` writes `state/*.json`, `hits.json`, ... into the directory it is passed).
+    fn fill_with(
+        &self,
+        mode: CacheMode,
+        off_root: &Path,
+        probe: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<ProbeDumps> {
+        if mode == CacheMode::Off {
+            let private = private_tmp(&off_root.join("run"));
+            let _ = std::fs::remove_dir_all(&private);
+            let run = private.join("run");
+            let dumps = ProbeDumps {
+                state: run.join("state"),
+                private: Some(private),
+            };
+            // on error `dumps` is dropped here, deleting the private run
+            probe(&run)?;
+            return Ok(dumps);
+        }
+        let tmp = private_tmp(&self.dir);
+        let _ = std::fs::remove_dir_all(&tmp);
+        let res = (|| {
+            let run = tmp.join("run");
+            probe(&run)?;
+            let out = tmp.join("out");
+            let state = out.join("state");
+            std::fs::create_dir_all(&state)
+                .map_err(|e| OracleError(format!("{}: {e}", state.display())))?;
+            // the run is compressed into `out`, which is then renamed into place as a whole
+            if let Ok(rd) = std::fs::read_dir(run.join("state")) {
+                for e in rd.filter_map(std::result::Result::ok) {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    if name.ends_with(".json") {
+                        compress_into(&e.path(), &state.join(format!("{name}.zst")))?;
+                    }
+                }
+            }
+            for f in ["outputs.json", "provenance.json", "hits.json"] {
+                let p = run.join(f);
+                if p.is_file() {
+                    compress_into(&p, &out.join(format!("{f}.zst")))?;
+                }
+            }
+            if let Some(d) = self.dir.parent() {
+                std::fs::create_dir_all(d)
+                    .map_err(|e| OracleError(format!("{}: {e}", d.display())))?;
+            }
+            if mode == CacheMode::Refresh {
+                let _ = std::fs::remove_dir_all(&self.dir);
+            }
+            match std::fs::rename(&out, &self.dir) {
+                Ok(()) => Ok(()),
+                // On: another test or worktree published the same entry first. Refresh: a
+                // concurrent writer published a run of this key after the removal above (also
+                // a run made now, not an old entry).
+                Err(_) if self.dir.join("hits.json.zst").is_file() => Ok(()),
+                Err(e) => Err(OracleError(format!("{}: {e}", self.dir.display()))),
+            }
+        })();
+        let _ = std::fs::remove_dir_all(&tmp);
+        res.map(|()| ProbeDumps::cached(self.state_dir()))
+    }
+}
+
+/// Where `POB_QUERY_CACHE=off` keeps its private probe runs: `target/tmp/probe-off` of this
+/// checkout (on disk, not the tmpfs `/tmp`; never inside the probe cache).
+fn off_scratch_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/probe-off")
+}
+
+/// The `state/` directory of a probe run (`<hit>.json.zst` from the cache, `<hit>.json` from an
+/// uncached run). An uncached run (`POB_QUERY_CACHE=off`) lives in a private directory that is
+/// deleted when this is dropped, so hold it while the dumps are read.
+#[derive(Debug)]
+pub struct ProbeDumps {
+    state: PathBuf,
+    private: Option<PathBuf>,
+}
+
+impl ProbeDumps {
+    /// A cache entry's dumps (nothing to delete).
+    #[must_use]
+    pub fn cached(state: PathBuf) -> Self {
+        Self {
+            state,
+            private: None,
+        }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.state
+    }
+
+    /// Did the dumps come from the cache (rather than a private run)?
+    #[must_use]
+    pub fn is_cached(&self) -> bool {
+        self.private.is_none()
+    }
+}
+
+impl std::ops::Deref for ProbeDumps {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.state
+    }
+}
+
+impl AsRef<Path> for ProbeDumps {
+    fn as_ref(&self) -> &Path {
+        &self.state
+    }
+}
+
+impl Drop for ProbeDumps {
+    fn drop(&mut self) {
+        if let Some(p) = &self.private {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use std::io::BufRead;
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/tmp")
+            .join(format!("hyg3-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// Part boundaries and the domain are part of a content key.
+    #[test]
+    fn content_keys_separate_parts() {
+        let k = |d: &str, p: &[&[u8]]| content_key(d, p);
+        assert_eq!(k("a", &[b"xy"]), k("a", &[b"xy"]));
+        assert_ne!(k("a", &[b"xy"]), k("a", &[b"x", b"y"]));
+        assert_ne!(k("a", &[b"xy"]), k("b", &[b"xy"]));
+        assert_eq!(k("a", &[]).len(), 16);
+    }
+
+    /// Texts and streamed files come back byte for byte; writes leave no temp files.
+    #[test]
+    fn query_cache_round_trips() {
+        let d = scratch("query");
+        let c = QueryCache { dir: d.join("q") };
+        assert!(c.get("result").is_none());
+        let text = "{\"a\": \"\u{e9}\\n\"}\n".repeat(1000);
+        c.put("result", &text).unwrap();
+        let src = d.join("records.jsonl");
+        std::fs::write(&src, "{\"t\":1}\n{\"t\":2}\n").unwrap();
+        c.put_file("records", &src).unwrap();
+        if cache_mode() == CacheMode::On {
+            assert_eq!(c.get("result").as_deref(), Some(text.as_str()));
+        }
+        let lines = c
+            .open("records")
+            .unwrap()
+            .lines()
+            .collect::<std::io::Result<Vec<String>>>()
+            .unwrap();
+        assert_eq!(lines, ["{\"t\":1}", "{\"t\":2}"]);
+        let names: Vec<String> = std::fs::read_dir(&c.dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.iter().all(|n| !n.starts_with('.')), "{names:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// `put_entry` publishes the result and its files together; a complete entry already in
+    /// place stands, an incomplete one (files without `result`) is replaced.
+    #[test]
+    fn query_entry_is_published_whole() {
+        let d = scratch("entry");
+        let c = QueryCache { dir: d.join("q") };
+        let rec = d.join("records.jsonl");
+        // an incomplete entry: records of some run, no result
+        std::fs::write(&rec, "{\"run\":0}\n").unwrap();
+        c.put_file("records", &rec).unwrap();
+        std::fs::write(&rec, "{\"run\":1}\n").unwrap();
+        c.put_entry("header 1", &[("records", &rec)]).unwrap();
+        let lines = |c: &QueryCache| {
+            c.open("records")
+                .unwrap()
+                .lines()
+                .collect::<std::io::Result<Vec<String>>>()
+                .unwrap()
+        };
+        assert_eq!(read_text(&c.path("result")).unwrap(), "header 1");
+        assert_eq!(lines(&c), ["{\"run\":1}"]);
+        if cache_mode() == CacheMode::On {
+            // a second writer of the key leaves the first complete entry as it is
+            std::fs::write(&rec, "{\"run\":2}\n").unwrap();
+            c.put_entry("header 2", &[("records", &rec)]).unwrap();
+            assert_eq!(read_text(&c.path("result")).unwrap(), "header 1");
+            assert_eq!(lines(&c), ["{\"run\":1}"]);
+        }
+        let names: Vec<String> = std::fs::read_dir(&d)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.iter().all(|n| !n.starts_with('.')), "{names:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A selection key covers the selection, the dump cap and provenance.
+    #[test]
+    fn selection_keys_cover_the_options() {
+        let d = scratch("sel");
+        let xml = d.join("b.xml");
+        std::fs::write(&xml, "<PathOfBuilding/>").unwrap();
+        let o = ProbeOptions {
+            select: vec!["offence:in@main".to_owned()],
+            max_dumps: 200,
+            provenance: false,
+        };
+        let dir = |o: &ProbeOptions| SelectionCache::new(&d, "sha", &xml, o).unwrap().dir;
+        let base = dir(&o);
+        assert!(base.starts_with(
+            d.join("probe-cache")
+                .join("sha")
+                .join(build_key(&xml).unwrap())
+        ));
+        assert_ne!(
+            base,
+            dir(&ProbeOptions {
+                provenance: true,
+                ..o.clone()
+            })
+        );
+        assert_ne!(
+            base,
+            dir(&ProbeOptions {
+                max_dumps: 1,
+                ..o.clone()
+            })
+        );
+        assert_ne!(
+            base,
+            dir(&ProbeOptions {
+                select: vec!["offence:out@main".to_owned()],
+                ..o.clone()
+            })
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A fake `bin probe` run: one dump whose content is `tag`, plus `hits.json`.
+    fn fake_probe(tag: &'static str) -> impl FnOnce(&Path) -> Result<()> {
+        move |run: &Path| {
+            std::fs::create_dir_all(run.join("state")).unwrap();
+            std::fs::write(
+                run.join("state").join("offence_in#1.json"),
+                format!("{{\"tag\":\"{tag}\"}}"),
+            )
+            .unwrap();
+            std::fs::write(run.join("hits.json"), "{}").unwrap();
+            Ok(())
+        }
+    }
+
+    /// The text of the one dump in a `state/` dir (compressed or not).
+    fn dump_tag(state: &Path) -> String {
+        let p = state.join("offence_in#1.json");
+        if p.is_file() {
+            return std::fs::read_to_string(p).unwrap();
+        }
+        let z = std::fs::read(state.join("offence_in#1.json.zst")).unwrap();
+        String::from_utf8(zstd::decode_all(&z[..]).unwrap()).unwrap()
+    }
+
+    /// Every file under `dir` with its bytes (to show an entry untouched).
+    fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(d) = todo.pop() {
+            for e in std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().path()) {
+                if e.is_dir() {
+                    todo.push(e);
+                } else {
+                    out.push((e.clone(), std::fs::read(&e).unwrap()));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// `POB_QUERY_CACHE=off` over an existing selection entry probes into a private directory
+    /// outside the cache and returns that run, not the cached dumps, and leaves the entry as it
+    /// was; with no entry it publishes none; the private run is gone once the result is dropped.
+    /// `refresh` replaces the entry with the new run. (The mode is passed in rather than set in
+    /// the process environment, which the other tests of this binary read concurrently.)
+    #[test]
+    fn selection_off_bypasses_the_cache() {
+        let d = scratch("seloff");
+        let xml = d.join("b.xml");
+        std::fs::write(&xml, "<PathOfBuilding/>").unwrap();
+        let o = ProbeOptions::default();
+        let cache = SelectionCache::new(&d, "sha", &xml, &o).unwrap();
+        let off_root = d.join("off");
+
+        // no entry yet: Off publishes nothing
+        let fresh = cache
+            .fill_with(CacheMode::Off, &off_root, fake_probe("off-1"))
+            .unwrap();
+        assert!(!fresh.is_cached());
+        assert_eq!(dump_tag(&fresh), "{\"tag\":\"off-1\"}");
+        assert!(!cache.dir.exists(), "Off published an entry");
+        let private = fresh.path().to_path_buf();
+        assert!(private.starts_with(&off_root), "{}", private.display());
+        drop(fresh);
+        assert!(!private.exists(), "private run not deleted");
+
+        // an entry exists: Off returns its own run and leaves the entry alone
+        let old = cache
+            .fill_with(CacheMode::On, &off_root, fake_probe("old"))
+            .unwrap();
+        assert!(old.is_cached());
+        assert_eq!(old.path(), cache.state_dir());
+        assert_eq!(dump_tag(&cache.state_dir()), "{\"tag\":\"old\"}");
+        let before = tree(&cache.dir);
+        let fresh = cache
+            .fill_with(CacheMode::Off, &off_root, fake_probe("new"))
+            .unwrap();
+        assert_ne!(fresh.path(), cache.state_dir());
+        assert!(!fresh.path().starts_with(&cache.dir));
+        assert!(!fresh.path().starts_with(d.join("probe-cache")));
+        assert_eq!(dump_tag(&fresh), "{\"tag\":\"new\"}");
+        assert_eq!(tree(&cache.dir), before, "Off wrote to the entry");
+        let private = fresh.path().to_path_buf();
+        drop(fresh);
+        assert!(!private.exists());
+
+        // a failed Off run leaves nothing behind either
+        assert!(cache
+            .fill_with(CacheMode::Off, &off_root, |_: &Path| Err(OracleError(
+                "boom".to_owned()
+            )))
+            .is_err());
+        assert_eq!(
+            std::fs::read_dir(&off_root).map_or(0, std::iter::Iterator::count),
+            0
+        );
+
+        // Refresh overwrites the existing entry
+        let new = cache
+            .fill_with(CacheMode::Refresh, &off_root, fake_probe("refreshed"))
+            .unwrap();
+        assert_eq!(new.path(), cache.state_dir());
+        assert_eq!(dump_tag(&new), "{\"tag\":\"refreshed\"}");
+        // no temp dirs left beside the entry
+        let names: Vec<String> = std::fs::read_dir(cache.dir.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.iter().all(|n| !n.starts_with('.')), "{names:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Different trees get different source keys; a tree's key is stable (memoised).
+    #[test]
+    fn source_key_tracks_the_tree() {
+        let d = scratch("src");
+        std::fs::write(d.join("a.lua"), "return 1").unwrap();
+        let k1 = source_key(&d).unwrap();
+        assert_eq!(k1, source_key(&d).unwrap());
+        let d2 = scratch("src2");
+        std::fs::write(d2.join("a.lua"), "return 1").unwrap();
+        std::fs::write(d2.join("b.lua"), "return 2").unwrap();
+        assert_ne!(k1, source_key(&d2).unwrap());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&d2);
+    }
+
+    /// Rewriting (or deleting) a jewel `.bin`, as PoB's DataJewelFileLoader does on any run,
+    /// leaves the source key unchanged; the zips and every other file stay fingerprinted.
+    #[test]
+    fn source_key_ignores_jewel_bins() {
+        let d = scratch("src-bin");
+        let jd = d.join("Data/TimelessJewelData");
+        std::fs::create_dir_all(&jd).unwrap();
+        std::fs::write(d.join("a.lua"), "return 1").unwrap();
+        std::fs::write(jd.join("LethalPride.zip"), "zip").unwrap();
+        std::fs::write(jd.join("LethalPride.bin"), "inflated").unwrap();
+        let canon = std::fs::canonicalize(&d).unwrap();
+        // the unmemoised key: the walk and the fingerprint `source_key` memoises
+        let key = || {
+            let k = source_key(&d).unwrap();
+            let mut files = Vec::new();
+            walk(&canon, "", &mut files).unwrap();
+            assert_eq!(k.len(), 16);
+            source_fingerprint(&canon, &files).unwrap()
+        };
+        let k1 = key();
+        assert_eq!(k1, source_key(&d).unwrap());
+        std::fs::write(jd.join("LethalPride.bin"), "inflated, written again").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(jd.join("LethalPride.bin"))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3600))
+            .unwrap();
+        assert_eq!(k1, key(), "a .bin rewrite changed the source key");
+        std::fs::remove_file(jd.join("LethalPride.bin")).unwrap();
+        assert_eq!(k1, key(), "a missing .bin changed the source key");
+        std::fs::write(jd.join("LethalPride.zip"), "zip v2").unwrap();
+        assert_ne!(k1, key(), "the zip is not fingerprinted");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The Lua runtime versions come from Cargo.lock.
+    #[test]
+    fn lua_runtime_versions_name_luajit() {
+        let v = lua_runtime_versions();
+        assert!(v.starts_with(&format!("epoch {ORACLE_CACHE_EPOCH}")), "{v}");
+        assert!(v.contains(" mlua@") && v.contains(" luajit-src@"), "{v}");
+    }
+}
+
+/// `src` zstd-compressed into `dst`.
+fn compress_into(src: &Path, dst: &Path) -> Result<()> {
+    let raw = std::fs::read(src).map_err(|e| OracleError(format!("{}: {e}", src.display())))?;
+    let z = zstd::encode_all(&raw[..], CACHE_ZSTD_LEVEL).map_err(|e| OracleError(e.to_string()))?;
+    std::fs::write(dst, z).map_err(|e| OracleError(format!("{}: {e}", dst.display())))
+}
+
 /// The command that fills a missing cache entry (printed by tests that
 /// skip on a cache miss).
 #[must_use]

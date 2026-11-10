@@ -23,7 +23,7 @@ export POB_ORACLE_REQUIRE=1
 for c in $crates; do
     [ -d "crates/$c" ] || continue
     t0=$(date +%s)
-    POB_FULL_SUITE=1 POB_PARITY_DIR="$main/.parity" timeout 7200 scripts/port/cargo.sh test -p "$c" --no-fail-fast > "$out/$c.log" 2>&1
+    POB_FULL_SUITE=1 POB_PARITY_DIR="$main/.parity" timeout "${POB_FULLSUITE_TIMEOUT:-14400}" scripts/port/cargo.sh test -p "$c" --no-fail-fast > "$out/$c.log" 2>&1
     rc=$?
     pass=$(grep -oE 'test result: [a-zA-Z]+\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored' "$out/$c.log" | awk '{p+=$4; f+=$6; i+=$8} END {printf "%d passed, %d failed, %d ignored", p, f, i}')
     fails=$(grep -E '^test .* FAILED$|^    [A-Za-z0-9_:]+$' "$out/$c.log" | grep -oE '^test [^ ]+' | sed 's/^test //' | sort -u | tr '\n' ' ')

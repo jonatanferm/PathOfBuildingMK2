@@ -31,6 +31,13 @@
 //! `validateGemLevel`, `modLib.*`; MS-A: ModStore/ModDB/ModList storage); every
 //! other difference fails the test. With CT and MS-A merged nothing is pending.
 //!
+//! PoB's texts for each run (capture and export per build, the synthetic and
+//! ProcessGemLevel stages) are cached in the shared probe cache,
+//! `.parity/probe-cache/<source-key>/<input-key>/query-<key>/` (HYG3: keyed by
+//! the PoB source fingerprint and oracle runtime, the input's BLAKE3 and every
+//! script run), so a warm run boots no PoB; `POB_QUERY_CACHE=refresh` re-runs
+//! PoB, `off` bypasses the cache.
+//!
 //! A missing input (data/dump, the PoB checkout, .parity/builds) fails
 //! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
 //! `BMB_BUILDS=<substring>` restricts the corpus run.
@@ -1563,6 +1570,23 @@ fn boot(src: &Path) -> JitPob {
     pob
 }
 
+/// HYG3 (test audit S1): the texts PoB returns for a run of [`boot`] + `script` over `input`,
+/// cached in the shared probe cache (`pob_oracle::runner::cached_query`, keyed by the PoB source,
+/// the input's BLAKE3, the boot scripts and `script`); `run` boots PoB on a miss.
+fn cached(
+    src: &Path,
+    input: &[u8],
+    script: &[&str],
+    run: impl FnOnce() -> Vec<String>,
+) -> Vec<String> {
+    let mut parts = vec![QUIET_PRELUDE, ORACLE_LUA, BMB_LUA];
+    parts.extend_from_slice(script);
+    let json = pob_oracle::runner::cached_query(src, input, &parts, || {
+        serde_json::to_string(&run()).expect("texts as JSON")
+    });
+    serde_json::from_str(&json).expect("cached texts")
+}
+
 fn first_text(pob: &mut JitPob, code: &str) -> String {
     let r = pob.run(code).unwrap_or_else(|e| panic!("{code}: {e}"));
     r.first().map(|r| r.text().to_owned()).unwrap_or_default()
@@ -1618,12 +1642,20 @@ fn corpus_tabs_match_oracle() {
         let stem = b.file_stem().unwrap().to_string_lossy().into_owned();
         let xml = std::fs::read_to_string(b).unwrap();
         let (cap, exp) = {
-            let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
-            let mut pob = boot(&src);
-            pob.load_build_xml(&xml, &stem)
-                .unwrap_or_else(|e| panic!("{stem}: {e}"));
-            let cap = first_text(&mut pob, "return __bmb.captured or 'error\\tno capture'");
-            let exp = first_text(&mut pob, "return __bmb.exportStage()");
+            // HYG3 (test audit S1): cached per (PoB source, build, scripts); a miss boots a fresh
+            // PoB under the oracle lock
+            const CAP: &str = "return __bmb.captured or 'error\\tno capture'";
+            const EXP: &str = "return __bmb.exportStage()";
+            let pair = cached(&src, xml.as_bytes(), &[&stem, CAP, EXP], || {
+                let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
+                let mut pob = boot(&src);
+                pob.load_build_xml(&xml, &stem)
+                    .unwrap_or_else(|e| panic!("{stem}: {e}"));
+                let cap = first_text(&mut pob, CAP);
+                let exp = first_text(&mut pob, EXP);
+                vec![cap, exp]
+            });
+            let [cap, exp]: [String; 2] = pair.try_into().expect("two cached texts");
             (cap, exp)
         };
         let lua = parse_lua(&cap);
@@ -1721,13 +1753,19 @@ fn synthetic_sections_match_oracle() {
         let stem = f.file_stem().unwrap().to_string_lossy().into_owned();
         let text = std::fs::read_to_string(f).unwrap();
         let out = {
-            let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
-            let mut pob = boot(&src);
-            pob.load_build_xml(&std::fs::read_to_string(&base).unwrap(), "base")
-                .unwrap_or_else(|e| panic!("base build: {e}"));
+            let base_xml = std::fs::read_to_string(&base).unwrap();
             let quoted = format!("{text:?}");
             // a Rust string literal is a valid Lua long-escape string for this ASCII text
-            first_text(&mut pob, &format!("return __bmb.syntheticStage({quoted})"))
+            let code = format!("return __bmb.syntheticStage({quoted})");
+            // HYG3 (test audit S1): cached per (PoB source, base build, scripts)
+            let mut texts = cached(&src, base_xml.as_bytes(), &["base", &code], || {
+                let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
+                let mut pob = boot(&src);
+                pob.load_build_xml(&base_xml, "base")
+                    .unwrap_or_else(|e| panic!("base build: {e}"));
+                vec![first_text(&mut pob, &code)]
+            });
+            texts.pop().expect("one cached text")
         };
         let lua = parse_lua(&out);
         match check_capture(&stem, data, &lua, &mut r) {
@@ -1769,11 +1807,17 @@ fn process_gem_level_matches_oracle() {
         return; // POB_ALLOW_SKIP=1
     }
     let out = {
-        let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
-        let mut pob = boot(&src);
-        pob.load_build_xml(&std::fs::read_to_string(&base).unwrap(), "base")
-            .unwrap_or_else(|e| panic!("base build: {e}"));
-        first_text(&mut pob, "return __bmb.processGemLevelStage()")
+        const CODE: &str = "return __bmb.processGemLevelStage()";
+        let base_xml = std::fs::read_to_string(&base).unwrap();
+        // HYG3 (test audit S1): cached per (PoB source, base build, scripts)
+        let mut texts = cached(&src, base_xml.as_bytes(), &["base", CODE], || {
+            let _lock = OracleLock::acquire().unwrap_or_else(|e| panic!("oracle lock: {e}"));
+            let mut pob = boot(&src);
+            pob.load_build_xml(&base_xml, "base")
+                .unwrap_or_else(|e| panic!("base build: {e}"));
+            vec![first_text(&mut pob, CODE)]
+        });
+        texts.pop().expect("one cached text")
     };
     let lua = parse_lua(&out);
     let build = Build::new(data);

@@ -288,6 +288,20 @@ flask / tincture / jewel data; active skills carry `"$uuid"`.
 Dumps are cached zstd-compressed at
 `.parity/probe-cache/<sha>/<build-blake3>/<hit>.json.zst`
 (`runner::cached_state` prints the `oracle.sh` command on a miss).
+`<sha>` (`patcher::plan_sha`) and the in-process `runner::source_key` take the
+stat fingerprint (path, size, mtime) of every file of PoB's `src/` except
+`Data/TimelessJewelData/*.bin` (`patcher::is_derived_cache`: PoB inflates the
+zips into these and rewrites them on any run that finds them stale), plus the
+`mlua` / `mlua-sys` / `luajit-src` versions of `Cargo.lock` and
+`runner::ORACLE_CACHE_EPOCH`.
+
+The same tree holds the tests' shared entries (HYG3): `query-<key>/` (the
+results of in-process queries, `runner::QueryCache`) and `sel-<key>/` (one
+`bin probe` run of a selection, `runner::SelectionCache`; the key also hashes
+`runner.rs` and `bin/pob_oracle.rs`, so a change to how a dump is made
+re-probes). `POB_QUERY_CACHE=refresh` reruns PoB and overwrites an entry;
+`POB_QUERY_CACHE=off` neither reads nor writes one (a probe run goes to a
+private `target/tmp/probe-off/` directory that is deleted after use).
 
 ### Nondeterminism
 

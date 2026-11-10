@@ -19,9 +19,10 @@
 //! applying the delta after the segment instead of at 1908 is equivalent for the
 //! corpus; the count of such builds is reported.
 //!
-//! Dumps: `target/tmp/ofc-probe/<stem>/` (probed by this test when absent,
-//! selection `offence:1692@main,offence:2174@main,skill:*:preDamageFunc:*@main`;
-//! needs LuaJIT, PoB's checkout and the machine-wide oracle lock). Knobs:
+//! Dumps: the shared probe cache, `.parity/probe-cache/<sha>/<build-key>/sel-<key>/state/`
+//! (probed by this test when absent, selection
+//! `offence:1692@main,offence:2174@main,skill:*:preDamageFunc:*@main`; needs LuaJIT, PoB's
+//! checkout and the machine-wide oracle lock; `POB_QUERY_CACHE=refresh` re-probes). Knobs:
 //! `OFC_BUILDS=stem1,stem2`, `OFC_VERBOSE=1`. A missing input fails
 //! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
 
@@ -66,43 +67,30 @@ fn corpus(parity: &Path) -> Vec<(&'static str, PathBuf)> {
 
 const SELECT: &str = "offence:1692@main,offence:2174@main,skill:*:preDamageFunc:*@main";
 
-/// The build's OF-C dumps (`target/tmp/ofc-probe/<stem>/state`), probed when absent.
-fn ofc_dumps(xml: &Path) -> Option<PathBuf> {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("ofc-probe")
-        .join(stem(xml));
-    if dir.join("hits.json").is_file() {
-        return Some(dir.join("state"));
-    }
-    probe(xml, &dir)
-}
-
+/// The build's OF-C dumps: the `state/` dir of this selection's entry in the shared probe cache
+/// (`.parity/probe-cache/<sha>/<build-key>/sel-<key>/`, `testkit::probe_selection`), probed when
+/// absent. HYG3 (test audit S4): this was a per-worktree `target/tmp/ofc-probe/<stem>/`, keyed by
+/// stem only and never invalidated, under a per-worktree patched copy of PoB. Under
+/// `POB_QUERY_CACHE=off` it is a private run, deleted when the result is dropped.
 #[cfg(feature = "luajit")]
-fn probe(xml: &Path, dir: &Path) -> Option<PathBuf> {
-    let src = pob_oracle::oracle::find_pob_src()?;
+fn ofc_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
     let stages = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/port/stages.toml");
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-    let patched = pob_oracle::patcher::patch(&src, Some(&stages), &root).ok()?;
-    let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).ok()?;
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-        .arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(dir)
-        .arg("--patched")
-        .arg(&patched.src)
-        .args(["--select", SELECT, "--no-provenance"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::fs::File::create(dir.with_extension("log")).ok()?)
-        .status()
-        .ok()?;
-    status.success().then(|| dir.join("state"))
+    let opts = pob_oracle::runner::ProbeOptions {
+        select: SELECT.split(',').map(str::to_owned).collect(),
+        provenance: false,
+        ..Default::default()
+    };
+    testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&stages),
+        &opts,
+    )
 }
 
 #[cfg(not(feature = "luajit"))]
-fn probe(_xml: &Path, _dir: &Path) -> Option<PathBuf> {
-    None
+fn ofc_dumps(_xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    Err("needs the luajit feature".to_owned())
 }
 
 /// Every dump in `state` (file name → dump).
@@ -298,10 +286,12 @@ fn ofc_l4_costs_passes() {
     let mut t = Tally::default();
     for &(set, ref xml) in &builds {
         let stem = stem(xml);
-        let Some(state) = ofc_dumps(xml) else {
-            t.failed
-                .push(format!("{stem}: probing failed (LuaJIT / PoB checkout?)"));
-            continue;
+        let state = match ofc_dumps(xml) {
+            Ok(s) => s,
+            Err(e) => {
+                t.failed.push(format!("{stem}: probing failed: {e}"));
+                continue;
+            }
         };
         let dumps = load_all(&state);
         if !dumps.values().any(|d| d.probe == "offence:1692") {
@@ -452,7 +442,7 @@ fn ofc_combine_stat_modes() {
         return; // POB_ALLOW_SKIP=1
     };
     let Some(dout) = corpus(&parity).iter().find_map(|(_, xml)| {
-        let dumps = load_all(&ofc_dumps(xml)?);
+        let dumps = load_all(&ofc_dumps(xml).ok()?);
         dumps.into_values().find(|d| d.probe == "offence:2174")
     }) else {
         let _ = pob_testpaths::require(None::<()>, "no offence:2174 dump");
