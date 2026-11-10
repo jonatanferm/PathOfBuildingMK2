@@ -1,0 +1,55 @@
+# PF-C acceptance probes (calc doc §9.4 L4 `perform:1289` -> `perform:1943`).
+# The two U0 line probes of the segment (copied verbatim from docs/port/stages.toml) plus function
+# probes on the not-yet-ported callees the segment calls, whose recorded in->out deltas the
+# acceptance test replays (pob_oracle::replay) until their units land:
+# createMinionSkills (AS), initMinionModDB (PF-B), applyEnemyModifiers (PF-A).
+
+[[stage]]
+id = "perform:1289"
+file = "Modules/CalcPerform.lua"
+line = 1291
+locals = ["env", "skipEHP", "modDB", "enemyDB"]
+expect = "env.keystonesAdded = { }"
+
+[[stage]]
+id = "perform:1943"
+file = "Modules/CalcPerform.lua"
+line = 1944
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures"]
+expect = "doActorAttribsConditions(env, env.player)"
+
+[[function]]
+id = "createMinionSkills"
+file = "Modules/CalcActiveSkill.lua"
+line = 878
+expect = "function calcs.createMinionSkills(env, activeSkill)"
+
+[[function]]
+id = "initMinionModDB"
+file = "Modules/CalcPerform.lua"
+line = 1154
+expect = "local function initMinionModDB(env, activeSkill, output)"
+
+[[function]]
+id = "applyEnemyModifiers"
+file = "Modules/CalcPerform.lua"
+line = 619
+expect = "local function applyEnemyModifiers(actor, clearCache)"
+
+# `modLib.mergeKeystones` is ported (CT), but it reads `env.spec.tree.keystoneMap` and the
+# keystone nodes' modList, which the injected graph cannot resolve until the tree loads (PT,
+# BM-A): the test replays it (CCR-0079 §4).
+[[function]]
+id = "mergeKeystones"
+file = "Modules/ModTools.lua"
+line = 248
+expect = "function modLib.mergeKeystones(env, modDB)"
+
+# `calcFlaskMods` sees each flask's `item.buffModList`, which the pob-state/1 item dump
+# leaves out (state_dump.lua itemFields; CCR-0079 §3): the test restores it from here.
+[[stage]]
+id = "pfc:calcFlaskMods"
+file = "Modules/CalcPerform.lua"
+line = 1702
+locals = ["item", "baseName", "buffModList", "modList", "onlyMinion"]
+expect = "local flaskEffectInc = effectInc + item.flaskData.effectInc"

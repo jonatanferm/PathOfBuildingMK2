@@ -17,8 +17,8 @@
 //!    (ModStore.lua:401/499), which the port computes into a local (§5.3; CCR-0015 §1).
 //!
 //! Knobs: `MS_B_BUILDS=stem1,stem2` or `MS_B_LIMIT=n` restrict the corpus; `MS_B_VERBOSE=1`
-//! prints every mismatch. A missing input (data/dump, PoB checkout, .parity/builds) skips with a
-//! message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! prints every mismatch. A missing input (data/dump, PoB checkout, .parity/builds) fails
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
 #![allow(non_snake_case)]
 
 use std::path::{Path, PathBuf};
@@ -36,13 +36,6 @@ mod rebuild;
 use rebuild::{catch, decode_value, init_data, load, num, Build};
 
 const FIND_MOD_SUBSTRING: &str = "Classes/Item.lua:289-333";
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 /// LuaErrors are expected (the matrix provokes PoB's own errors): keep them off stderr.
 fn quiet_lua_errors() {
@@ -456,18 +449,22 @@ fn compare_synth(b: &Build, doc: &J, s: &mut Synth, stem: &str) {
 
 #[test]
 fn l3_full_matrix_all57() {
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    let Some(src) = pob_testpaths::require(
+        find_pob_src(),
+        "PoB checkout (.PathOfBuilding/src) not found",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(parity) = find_parity_dir() else {
-        return skip(".parity not found");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
     let builds = corpus(&parity);
     if builds.is_empty() {
-        return skip(".parity/builds is empty");
+        let _ = pob_testpaths::require(None::<()>, ".parity/builds is empty");
+        return; // POB_ALLOW_SKIP=1
     }
     quiet_lua_errors();
     let verbose = std::env::var_os("MS_B_VERBOSE").is_some();
@@ -632,7 +629,69 @@ fn l3_full_matrix_all57() {
     );
     assert!(synth.total > 0);
     assert_eq!(synth.ok, synth.total, "synthetic tag probes differ");
+    // coverage and the excused buckets (HYG2/V2). IT-B is merged, so `pending IT-B` must be 0;
+    // the CCR-0014 / CCR-0015 known differences and the undecodable-name skips are bounded.
+    assert_eq!(
+        (total.pending_itb, synth.pending_itb),
+        (0, 0),
+        "pending IT-B (Item:FindModifierSubstring stub reached)"
+    );
+    let filtered =
+        std::env::var_os("MS_B_BUILDS").is_some()
+            || std::env::var_os("MS_B_LIMIT").is_some()
+            || pob_testpaths::quick_corpus();
+    if !filtered {
+        assert_eq!(nbuilds, CORPUS_BUILDS, "builds compared");
+        let b = MS_B_BOUNDS;
+        assert!(
+            total.total >= b.min_queries.0 && synth.total >= b.min_queries.1,
+            "{} / {} queries compared, expected at least {:?}",
+            total.total,
+            synth.total,
+            b.min_queries
+        );
+        let got = (
+            total.known_ccr0014 + synth.known_ccr0014,
+            total.known_ccr0015 + synth.known_ccr0015,
+            total.undecodable,
+            known_undecodable + synth.known_undecodable_probes,
+        );
+        assert!(
+            got.0 <= b.max_ccr0014
+                && got.1 <= b.max_ccr0015
+                && got.2 <= b.max_undecodable_skips
+                && got.3 <= b.max_known_undecodable,
+            "buckets (CCR-0014, CCR-0015, undecodable-name skips, CCR-0014 §3 tag-key mods) {got:?}; bounds {b:?}"
+        );
+    }
 }
+
+/// The corpus size (`.parity/builds/*.xml`).
+const CORPUS_BUILDS: usize = 57;
+
+#[derive(Debug)]
+struct MsBBounds {
+    /// `(matrix queries, synthetic tag-probe queries)` compared.
+    min_queries: (usize, usize),
+    /// CCR-0014 §2 known differences (matrix + synthetic).
+    max_ccr0014: usize,
+    /// CCR-0015 §3 known differences (matrix + synthetic).
+    max_ccr0015: usize,
+    /// Matrix queries skipped because a mod of the queried names is undecodable.
+    max_undecodable_skips: usize,
+    /// Mods / probes with CCR-0014 §3 tag keys the Rust model does not decode.
+    max_known_undecodable: usize,
+}
+
+/// Measured by HYG2 on rust-port 746b103; re-measured unchanged (2026-11-10) after the items gained
+/// their mod lines (all queries identical, the excused buckets at exactly these values).
+const MS_B_BOUNDS: MsBBounds = MsBBounds {
+    min_queries: (6_948_606, 5_668_313),
+    max_ccr0014: 10_360,
+    max_ccr0015: 1192,
+    max_undecodable_skips: 638,
+    max_known_undecodable: 9,
+};
 
 // ---------------------------------------------------------------------------------------------
 // tag.div no-reader proof
@@ -844,11 +903,14 @@ fn observe(src: &Path, xml: &str, name: &str, restore: bool) -> J {
 ///   through the stock run's mutated `div`) and on the unmodified builds.
 #[test]
 fn tag_div_no_reader() {
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    let Some(src) = pob_testpaths::require(
+        find_pob_src(),
+        "PoB checkout (.PathOfBuilding/src) not found",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(parity) = find_parity_dir() else {
-        return skip(".parity not found");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     // --- static census ---
     let mut div_var_sites = Vec::new();
@@ -921,7 +983,8 @@ fn tag_div_no_reader() {
     // --- dynamic: stock vs restored, on Rage Vortex variants and plain builds ---
     let builds = corpus(&parity);
     if builds.is_empty() {
-        return skip(".parity/builds is empty");
+        let _ = pob_testpaths::require(None::<()>, ".parity/builds is empty");
+        return; // POB_ALLOW_SKIP=1
     }
     let want_rv: usize = std::env::var("MS_B_DIV_RV")
         .ok()

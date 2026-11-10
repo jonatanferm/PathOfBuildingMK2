@@ -4,8 +4,9 @@
 //! (`.parity/builds`).
 //!
 //! `BuildAllDependsAndPaths` (PS-B), `BuildClusterJewelGraphs` and `ReplaceNode` (PS-C) are
-//! still `unported!` stubs in the port, so the oracle replaces them with no-ops too
-//! ("stubbed" mode): both sides then run exactly PS-A's code. For every spec both sides:
+//! replaced by no-ops on both sides ("stubbed" mode): the oracle replaces the methods, the port
+//! sets `passive_spec::set_spec_stubs` (CCR-0052 §12), so both sides run exactly PS-A's code
+//! (PS-B / PS-C have their own tests). For every spec both sides:
 //!
 //! * `new("PassiveSpec"):PassiveSpec(build, ver)` + `Load(<Spec>)` (the XML node is PoB's own
 //!   `common.xml.ParseXML` result, serialised and rebuilt as a `XmlNode`), then record the
@@ -25,8 +26,8 @@
 //! keys, the URL bytes, `nodesInRadius`) are random per process in PoB for 3.10+ trees
 //! (CCR-0024 §5): for those builds they are compared as sets (asserted) and in order
 //! (reported). For older trees the port loads the tree with the `tree.lua` source node order
-//! and the orders are asserted too. `mastkey` (the `modKey` of mastery options) depends on the
-//! native ModParser (MP units) and is reported, not asserted. Comparing against an unstubbed
+//! and the orders are asserted too. `mastkey` (the `modKey` of mastery options, from the native
+//! ModParser) is asserted like every other record. Comparing against an unstubbed
 //! PoB (real PS-B) needs the build's items (PS-B indexes `itemsTab.items` for every jewel) and
 //! is left to PS-B / BM-A.
 //!
@@ -35,8 +36,8 @@
 //! `ImportFromNodeList` with a tree-version switch (latest tree -> the spec's) and with a
 //! `className` gives the same state as a plain import on a fresh spec.
 //!
-//! Self-skips without a PoB checkout, `data/dump` or the corpus (`POB_ORACLE_REQUIRE=1`
-//! makes that a failure). `PSA_BUILDS=substr,...` limits the builds.
+//! Fails without a PoB checkout, `data/dump` or the corpus (`pob_testpaths::require`;
+//! `POB_ALLOW_SKIP=1` skips). `PSA_BUILDS=substr,...` limits the builds.
 #![allow(non_snake_case, clippy::too_many_lines)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -44,7 +45,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use pob_calc::classes::passive_spec::{
-    base64_encode, main_LoadTree, main_tree_insert, new_PassiveSpec,
+    base64_encode, main_LoadTree, main_tree_insert, new_PassiveSpec, set_spec_stubs, SpecStubs,
 };
 use pob_calc::classes::passive_tree::{new_passive_tree_with_node_order, setJewelRadiiGlobally};
 use pob_calc::classes::{Item, Node, NodeRef, PassiveSpecRef};
@@ -55,13 +56,6 @@ use pob_lua::{tostring_num, Field, Shared};
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_parity_dir, find_pob_src, find_up};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn init_data() -> bool {
     if pob_gamedata::is_initialised() {
@@ -721,7 +715,16 @@ fn check_import_branches(build: &BuildRef, spec: &PassiveSpecRef, ver: Name) {
     if latest != ver {
         let sw = new_spec(build, latest);
         let old = sw.nodes.with(|m| m.pairs());
-        sw.ImportFromNodeList(None, classId, ascendId, sec, &hashes, &none, &effects, Some(ver));
+        sw.ImportFromNodeList(
+            None,
+            classId,
+            ascendId,
+            sec,
+            &hashes,
+            &none,
+            &effects,
+            Some(ver),
+        );
         assert!(sw.tree.get().treeVersion == ver, "switch: tree version");
         assert_eq!(dump(&sw), want, "tree-version switch {latest} -> {ver}");
         // the replaced node set is unlinked (CCR-0052 §10)
@@ -1112,14 +1115,14 @@ fn url_norm(url: &str) -> String {
 
 #[test]
 fn passive_spec_acceptance() {
-    let Some(src) = find_pob_src() else {
-        return skip("no PoB checkout");
+    let Some(src) = pob_testpaths::require(find_pob_src(), "no PoB checkout") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    if !init_data() {
-        return skip("data/dump not found");
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity corpus");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity corpus") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let src = std::fs::canonicalize(&src).unwrap();
     let only: Option<Vec<String>> = std::env::var("PSA_BUILDS")
@@ -1142,9 +1145,16 @@ fn passive_spec_acceptance() {
         .collect();
     files.sort();
     if files.is_empty() {
-        return skip("no builds in .parity/builds");
+        let _ = pob_testpaths::require(None::<()>, "no builds in .parity/builds");
+        return; // POB_ALLOW_SKIP=1
     }
 
+    // the port side of the oracle's `stub(true)` (LIB): PS-B / PS-C bodies are no-ops
+    set_spec_stubs(SpecStubs {
+        build_all_depends_and_paths: true,
+        build_cluster_jewel_graphs: true,
+        replace_node: true,
+    });
     let t0 = std::time::Instant::now();
     let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
     pob.run(LIB).unwrap_or_else(|e| panic!("{e}"));
@@ -1204,7 +1214,7 @@ fn passive_spec_acceptance() {
                     .collect::<Vec<_>>()
                     .join("/");
                 let (l, r) = (lua.get(k), rust.get(k));
-                if k.starts_with("mastkey/") || (order_dependent(k) && !det) {
+                if order_dependent(k) && !det {
                     let e = info_by_kind.entry(kind.clone()).or_default();
                     e.1 += 1;
                     if l == r {
@@ -1282,12 +1292,13 @@ fn passive_spec_acceptance() {
             );
         }
     }
+    set_spec_stubs(SpecStubs::NONE);
     eprintln!("\n== PS-A: {specs} specs in {} builds ==", files.len());
     for (k, n) in &total_by_kind {
         let b = bad_by_kind.get(k).copied().unwrap_or(0);
         eprintln!("  {k:<22} {:>6}/{n:<6} identical", n - b);
     }
-    eprintln!("  reported only (orders random in PoB, parser-dependent modKey):");
+    eprintln!("  reported only (orders random in PoB):");
     for (k, (same, n)) in &info_by_kind {
         eprintln!("  {k:<22} {same:>6}/{n:<6} identical");
     }
@@ -1295,4 +1306,39 @@ fn passive_spec_acceptance() {
     let total: usize = total_by_kind.values().sum();
     eprintln!("  asserted records: {}/{total} identical", total - bad);
     assert_eq!(bad, 0, "{bad} mismatching records (see above)");
+    // coverage and the report-only bucket (HYG2/V2): every build's specs were compared, and the
+    // records excused as order-dependent may not differ more than measured
+    if only.is_none() && !pob_testpaths::quick_corpus() {
+        assert_eq!(
+            (files.len(), specs),
+            PSA_COVERAGE,
+            "(builds, specs) compared"
+        );
+        assert!(
+            total >= PSA_MIN_RECORDS,
+            "{total} asserted records, expected at least {PSA_MIN_RECORDS}"
+        );
+        for (k, (same, n)) in &info_by_kind {
+            let max = PSA_MAX_REPORT_ONLY_MISSES
+                .iter()
+                .find(|(kk, _)| kk == k)
+                .map_or(0, |(_, m)| *m);
+            assert!(
+                n - same <= max,
+                "report-only {k}: {} of {n} differ, bound {max} (PSA_MAX_REPORT_ONLY_MISSES)",
+                n - same
+            );
+        }
+    }
 }
+
+/// `(builds, specs)` of the corpus; measured by HYG2 on rust-port 746b103.
+const PSA_COVERAGE: (usize, usize) = (57, 59);
+/// Asserted records over the corpus; measured by HYG2 on rust-port 746b103 (31,969), plus the
+/// 16,963 `mastkey` records MPFIX moved from report-only to asserted (rust-port 387db54).
+const PSA_MIN_RECORDS: usize = 48_932;
+/// Per report-only kind, the records that may differ (unlisted kinds: 0), measured by HYG2 on
+/// rust-port 746b103. `leap` is the order-dependent leap list of a tree whose node order is
+/// random in PoB (CCR-0024 §5): any order is allowed because the same list is asserted as a set
+/// (`leapset`). Everything else matched on every record.
+const PSA_MAX_REPORT_ONLY_MISSES: &[(&str, usize)] = &[("leap", usize::MAX)];

@@ -1,0 +1,32 @@
+# PF-E curated corpus (calc doc §11.1 row PF-E: "aura/herald/curse/warcry builds").
+# One .parity/builds stem per line, with what it exercises in CalcPerform.lua 2308-2996.
+# Gem counts are from the build XML (nameSpec); the segment runs on the main env.
+#
+# warcries (2363-2443: exerts, warcry power, uptime, Rallying Cry)
+allflame_exp_000                        # warcry + 7 auras + curse
+allflame_exp_002                        # warcry + auras + minion
+allflame_exp_008                        # warcry + auras
+allflame_exp_020                        # warcry + 10 auras + link skill
+allflame_exp_028                        # warcry
+allflame_exp_033                        # warcry + 5 auras + 3 curses/marks
+allflame_exp_039                        # warcry + minions + marks
+allflame_exp_050                        # warcry + 6 auras + herald
+upstream_Generals_Perforate_Zerker      # warcries (Generals Cry), Berserk
+upstream_OccVortex                      # warcry + auras + curses
+# heralds and aura stacks (2444-2585)
+allflame_exp_001                        # 6 heralds
+allflame_exp_009                        # 10 auras + marks
+allflame_exp_022                        # 6 heralds + 8 auras
+allflame_exp_027                        # 13 auras + link + minion
+allflame_exp_030                        # 6 heralds + minions
+allflame_exp_034                        # 6 heralds + 7 auras
+# curses and marks (2653-2707)
+allflame_exp_003                        # marks + buffs
+allflame_exp_014                        # 4 curses + minions
+allflame_exp_015                        # 3 curses + heralds
+allflame_exp_041                        # 6 curses
+# minion skills (2777-2996: spectre auras, minion curses/debuffs)
+allflame_exp_007                        # 6 minion gems + herald
+allflame_exp_025                        # minions + herald
+allflame_exp_037                        # minions + heralds
+allflame_exp_043                        # 6 minion gems + 4 heralds

@@ -91,34 +91,118 @@ if [ "${POB_PORT_ALLOW_WORKSPACE:-0}" != 1 ]; then
     fi
 fi
 
+sub="${sub:-}"   # set by the guard block above (empty with POB_PORT_ALLOW_WORKSPACE=1)
 lock_dir="${POB_PORT_LOCK_DIR:-${XDG_RUNTIME_DIR:-/tmp}/pob-port}"
 mkdir -p "$lock_dir"
-# POB_PORT_SLOTS concurrent cargo runs machine-wide (default 2): slot i holds cargo.lock[.i].
-slots="${POB_PORT_SLOTS:-2}"
-got=""
-waited=0
-while [ -z "$got" ]; do
-    for i in $(seq 0 $((slots - 1))); do
-        if [ "$i" = 0 ]; then lock="$lock_dir/cargo.lock"; else lock="$lock_dir/cargo.lock.$i"; fi
-        exec 9>>"$lock"
-        if flock -n 9; then got="$lock"; break; fi
-        exec 9>&-
-    done
-    if [ -z "$got" ]; then
-        if [ "$waited" = 0 ]; then echo "cargo.sh: waiting for one of $slots cargo slots ($lock_dir)..." >&2; waited=1; fi
+
+# take_slot FD PREFIX COUNT LABEL: hold one of COUNT flocks $lock_dir/PREFIX.lock[.i] on FD.
+# Compile slots (fd 9, prefix "cargo", POB_PORT_SLOTS, default 2) are held while cargo compiles.
+# For test/bench the slot is released after `--no-run`, and the test binaries then run under a run
+# slot (fd 8, prefix "run", POB_PORT_RUN_SLOTS, default 3), so long oracle runs no longer block
+# other agents' compiles (audit 2026-11-09: 15.5 min slot wait for a 69 s build).
+take_slot() {
+    local fd="$1" prefix="$2" n="$3" label="$4" waited=0 i l
+    while :; do
+        for i in $(seq 0 $((n - 1))); do
+            if [ "$i" = 0 ]; then l="$lock_dir/$prefix.lock"; else l="$lock_dir/$prefix.lock.$i"; fi
+            eval "exec $fd>>\"\$l\""
+            if flock -n "$fd"; then return 0; fi
+            eval "exec $fd>&-"
+        done
+        if [ "$waited" = 0 ]; then echo "cargo.sh: waiting for one of $n $label slots ($lock_dir)..." >&2; waited=1; fi
         sleep 2
-    fi
-done
+    done
+}
+
 here=$(pwd -P)
 case "$here/" in
     "$worktree"/*) ;;
     *) cd "$worktree" ;;
 esac
+
+# Worktrees on a RAM-backed /tmp (reviewers' /tmp/review-*) build into ~/.cache/pob-port-targets/
+# instead: target dirs are 2-3 GB each and filled the 7.6 GB tmpfs. --target-dir is passed as an
+# argument (an exported CARGO_TARGET_DIR would bust sccache). Dirs whose worktree is gone are removed.
+args=("$@")
+tcache="$HOME/.cache/pob-port-targets"
+case "$worktree" in
+    /tmp/*|/dev/shm/*)
+        case "$sub" in
+            build|b|check|c|test|t|bench|run|r|clippy|doc|d|rustc|fix)
+                td="$tcache/$(basename "$worktree")"
+                mkdir -p "$td"; echo "$worktree" > "$td/.worktree"
+                new=(); done_ins=0
+                for a in "${args[@]}"; do
+                    new+=("$a")
+                    if [ "$done_ins" = 0 ] && [ "$a" = "$sub" ]; then new+=(--target-dir "$td"); done_ins=1; fi
+                done
+                args=("${new[@]}") ;;
+        esac ;;
+esac
+if [ -d "$tcache" ]; then
+    for d in "$tcache"/*/; do
+        [ -f "$d.worktree" ] && [ ! -d "$(cat "$d.worktree")" ] && rm -rf "$d"
+    done
+fi
+
+# Merge-time tests use the quick corpus: in the MAIN checkout (only integrators and the orchestrator
+# run tests there) `cargo.sh test` points $POB_PARITY_DIR at .parity-quick (14 of the 57 builds,
+# scripts/port/quick_parity.sh). Worktrees (implementers, reviewers) keep the full corpus, and the
+# full suite runs every few hours (scripts/port/full_suite.sh). POB_FULL_SUITE=1 forces the full corpus.
+if [ -d "$worktree/.git" ] && [ -z "${POB_PARITY_DIR:-}" ] && [ "${POB_FULL_SUITE:-0}" != 1 ]; then
+    case "${sub:-}" in
+        test|t)
+            if [ -d "$worktree/.parity-quick/builds" ]; then
+                export POB_PARITY_DIR="$worktree/.parity-quick" POB_QUICK_CORPUS=1
+                echo "cargo.sh: main checkout -> quick corpus ($(ls "$POB_PARITY_DIR/builds" | wc -l) builds, POB_PARITY_DIR=$POB_PARITY_DIR); POB_FULL_SUITE=1 for all builds" >&2
+            fi ;;
+    esac
+fi
+
 # Each cargo run (compiles and the test binaries it starts) gets its own memory-capped systemd
 # scope, so an OOM kills only this run instead of the whole terminal scope (2026-11-09 incident:
 # a 6 GB test binary got the terminal scope, and with it the agent session, stopped).
+use_scope=0
 if [ "${POB_PORT_NO_SCOPE:-0}" != 1 ] && command -v systemd-run >/dev/null 2>&1 \
     && systemd-run --user --scope --quiet true >/dev/null 2>&1; then
-    exec systemd-run --user --scope --quiet -p MemoryMax="${POB_PORT_MEM:-5G}" -p MemorySwapMax="${POB_PORT_SWAP:-1G}" cargo "$@"
+    use_scope=1
 fi
-exec cargo "$@"
+run_cargo() {
+    if [ "$use_scope" = 1 ]; then
+        systemd-run --user --scope --quiet -p MemoryMax="${POB_PORT_MEM:-5G}" -p MemorySwapMax="${POB_PORT_SWAP:-1G}" cargo "$@"
+    else
+        cargo "$@"
+    fi
+}
+
+two_phase=0
+case "$sub" in
+    test|t|bench)
+        two_phase=1
+        for a in "${args[@]}"; do
+            [ "$a" = -- ] && break
+            [ "$a" = --no-run ] && two_phase=0
+        done ;;
+esac
+
+case "$sub" in
+    metadata|tree|locate-project|pkgid|version|help|search|read-manifest)
+        exec cargo "${args[@]}" ;;   # no compile: no slot
+esac
+take_slot 9 cargo "${POB_PORT_SLOTS:-2}" compile
+if [ "$two_phase" = 0 ]; then
+    run_cargo "${args[@]}"
+    exit $?
+fi
+# Phase 1: compile under the compile slot (--no-run goes before any `--`).
+pre=(); post=(); seen=0
+for a in "${args[@]}"; do
+    if [ "$seen" = 0 ] && [ "$a" = -- ]; then seen=1; fi
+    if [ "$seen" = 0 ]; then pre+=("$a"); else post+=("$a"); fi
+done
+run_cargo "${pre[@]}" --no-run || exit $?
+exec 9>&-
+# Phase 2: run the (now fresh) test binaries under a run slot.
+take_slot 8 run "${POB_PORT_RUN_SLOTS:-3}" test-run
+run_cargo "${args[@]}"
+exit $?

@@ -225,3 +225,12 @@ mod tests {
         let _ = require(None::<()>, "nothing");
     }
 }
+
+/// `POB_QUICK_CORPUS=1` (set by `scripts/port/cargo.sh` when it points `$POB_PARITY_DIR` at the
+/// quick corpus for merge-time runs): the build set is a deliberate subset, so tests treat the run
+/// like a filtered one and skip whole-corpus coverage assertions (build counts, query floors).
+/// Reviewers and the periodic full suite run without it and keep those assertions.
+pub fn quick_corpus() -> bool {
+    std::env::var_os("POB_QUICK_CORPUS").is_some_and(|v| v == "1")
+}
+

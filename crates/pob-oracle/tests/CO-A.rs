@@ -16,8 +16,8 @@
 //! * `apply_a_rows_cover_range` — `apply_a::ROWS` is exactly the closures.json `config:apply`
 //!   ids defined in lines 1-1188, with the same hashes, and no body is a stub.
 //!
-//! A missing input (data/dump, the PoB checkout) skips with a message; with
-//! `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead. `COA_VERBOSE=1` prints every mismatch.
+//! A missing input (data/dump, the PoB checkout) fails (`pob_testpaths::require`;
+//! `POB_ALLOW_SKIP=1` skips instead). `COA_VERBOSE=1` prints every mismatch.
 #![allow(non_snake_case, clippy::pedantic)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,13 +36,6 @@ const PROBE: &str = include_str!("../corpus/CO-A/apply_probe.lua");
 const EMPTY_XML: &str = include_str!("../corpus/CO-A/empty.xml");
 /// CO-A's line range of Modules/ConfigOptions.lua.
 const RANGE: (u32, u32) = (1, 1188);
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -181,11 +174,14 @@ struct Tally {
 
 #[test]
 fn apply_probe_matches_oracle() {
-    let Some(data) = init_data() else {
-        return skip("data/dump/data.bin not found");
+    let Some(data) = pob_testpaths::require(init_data(), "data/dump/data.bin not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(src) = find_pob_src() else {
-        return skip("PoB checkout (.PathOfBuilding/src) not found");
+    let Some(src) = pob_testpaths::require(
+        find_pob_src(),
+        "PoB checkout (.PathOfBuilding/src) not found",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
     quiet_lua_errors();
     let want = probed_indices(data);
@@ -325,12 +321,48 @@ fn apply_probe_matches_oracle() {
         t.pending_sites
     );
     assert_eq!(t.mismatched, 0, "apply results differ from PoB");
+    // coverage and the tolerated buckets (HYG2/V2). With every stub this range reaches ported
+    // (measured: 0 pending), a pending case is a regression: one may only come from a stub site
+    // of another unit listed in COA_PENDING_SITES (none today), and none are allowed. Both-raise
+    // matches are bounded by the measured count.
+    assert_eq!(
+        (want.len(), t.cases),
+        COA_COVERAGE,
+        "probed options and cases"
+    );
+    let unlisted: Vec<&str> = t
+        .pending_sites
+        .iter()
+        .copied()
+        .filter(|s| !COA_PENDING_SITES.contains(s))
+        .collect();
+    assert!(
+        unlisted.is_empty(),
+        "pending cases hit stub sites outside COA_PENDING_SITES: {unlisted:?}"
+    );
+    assert_eq!(
+        t.pending, 0,
+        "pending cases (a stub reached and the result differs)"
+    );
+    assert!(
+        t.both_error <= COA_MAX_BOTH_ERROR,
+        "{} cases raise on both sides, bound {}",
+        t.both_error,
+        COA_MAX_BOTH_ERROR
+    );
 }
+
+/// `(probed options, probed cases)`; measured by HYG2 on rust-port 746b103.
+const COA_COVERAGE: (usize, usize) = (266, 1741);
+/// The other units' `unported!` sites a pending case may hit (HYG2/V2): none.
+const COA_PENDING_SITES: &[&str] = &[];
+/// Cases where PoB and the port both raise; measured by HYG2 on rust-port 746b103.
+const COA_MAX_BOTH_ERROR: usize = 18;
 
 #[test]
 fn apply_a_rows_cover_range() {
-    let Some(dir) = dump_dir() else {
-        return skip("data/dump not found");
+    let Some(dir) = pob_testpaths::require(dump_dir(), "data/dump not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let text = std::fs::read_to_string(dir.join("closures.json")).expect("closures.json");
     let j: J = serde_json::from_str(&text).unwrap();

@@ -7,7 +7,8 @@
 --   * every actor reachable from the env and from the stores (`store.actor`), with its
 --     player/enemy/parent/minion/partyMembers links, modDB, weaponData1/2 scalars (countsAsAll1H,
 --     Added<Cond>), itemList (slot -> item), minionData (its data.minions key), output;
---   * every item of those itemLists (name, type, rarity, corrupted, shaper, elder);
+--   * every item of those itemLists (name, type, rarity, corrupted, shaper, elder, and the
+--     enabled lines of its explicit/enchant/scourge/implicit/crucible mod line lists);
 --   * the cfgs with every key EvalMod reads (skillCond read through its __index chain for every
 --     Condition var of the dumped mods, skillTypes, skillGrantedEffect / skillGem ids, skillPart,
 --     skillDist, skillStats, slotName, socket fields, item, baseFlags, actor).
@@ -480,16 +481,34 @@ for i, c in ipairs(cfgs) do
 	end
 end
 
+-- The mod lines Item:FindModifierSubstring (Item.lua:289-333) reads, already filtered by its
+-- L308 `not v.disabled and self:CheckModLineVariant(v)` (variant selection is IT-B's, not
+-- EvalMod's): the line text per list, so the Rust item answers ItemCondition `searchCond` tags.
+local modLineLists = { "explicitModLines", "enchantModLines", "scourgeModLines", "implicitModLines", "crucibleModLines" }
+local function encModLines(it, key)
+	local lines = { }
+	local list = rawget(it, key)
+	if type(list) == "table" then
+		for _, v in ipairs(list) do
+			if type(v) == "table" and not v.disabled and (not it.CheckModLineVariant or it:CheckModLineVariant(v)) then
+				lines[#lines + 1] = enc(v.line)
+			end
+		end
+	end
+	return '"' .. key .. '":[' .. concat(lines, ",") .. "]"
+end
 local itemJson = { }
 for id, it in ipairs(itemObj) do
-	itemJson[id] = "{" .. concat({
+	local fields = {
 		'"name":' .. enc(it.name),
 		'"type":' .. enc(it.type),
 		'"rarity":' .. enc(it.rarity),
 		'"corrupted":' .. enc(it.corrupted),
 		'"shaper":' .. enc(it.shaper),
 		'"elder":' .. enc(it.elder),
-	}, ",") .. "}"
+	}
+	for _, key in ipairs(modLineLists) do fields[#fields + 1] = encModLines(it, key) end
+	itemJson[id] = "{" .. concat(fields, ",") .. "}"
 end
 
 ---------------------------------------------------------------------------

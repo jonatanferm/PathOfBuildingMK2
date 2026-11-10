@@ -1,0 +1,42 @@
+# PF-F unit probes (calc doc §9.2 line probes; used by crates/pob-oracle/tests/PF-F.rs).
+# The segment boundaries perform:2997 / perform:3497 are copied from docs/port/stages.toml; the
+# extra probes bracket the callees the segment cannot run yet so their PoB delta can be replayed:
+#   perform:3118 -> perform:3125  mergeFlasks(env.flasks, true, ...) (PF-C, CalcPerform.lua:3121)
+#   perform:3484 -> perform:3497  defenceForConditionals / doActorCharges / doActorMisc (DF-A, PF-B)
+# Fill: scripts/port/oracle.sh run --build X.xml --stages crates/pob-oracle/corpus/PF-F/stages.toml \
+#   --stage perform:2997@main,perform:3118@main,perform:3125@main,perform:3484@main,perform:3497@main
+
+[[stage]]
+id = "perform:2997"
+file = "Modules/CalcPerform.lua"
+line = 2997
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "if allyBuffs[\"otherEffects\"] then"
+
+[[stage]]
+id = "perform:3118"
+file = "Modules/CalcPerform.lua"
+line = 3118
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "if env.mode_combat then"
+
+[[stage]]
+id = "perform:3125"
+file = "Modules/CalcPerform.lua"
+line = 3125
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "if env.mode_combat then"
+
+[[stage]]
+id = "perform:3484"
+file = "Modules/CalcPerform.lua"
+line = 3484
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "calcs.defenceForConditionals(env, env.player)"
+
+[[stage]]
+id = "perform:3497"
+file = "Modules/CalcPerform.lua"
+line = 3498
+locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
+expect = "local ailmentData = data.nonDamagingAilment"

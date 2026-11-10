@@ -60,6 +60,41 @@ thread_local! {
     /// `main.tree`: the trees `main:LoadTree` has built, by version.
     static MAIN_TREE: RefCell<ahash::AHashMap<Name, PassiveTreeRef>> =
         RefCell::new(ahash::AHashMap::new());
+    static SPEC_STUBS: std::cell::Cell<SpecStubs> = const { std::cell::Cell::new(SpecStubs::NONE) };
+}
+
+/// Oracle-test seam (CCR-0052 §12): the `PassiveSpec` methods of one unit replaced by no-ops on
+/// this thread, as the PS-A / PS-B / PS-C oracle tests replace them in PoB
+/// (`PassiveSpecClass.X = function() end`), so each test runs one unit's code on both sides.
+/// The product never sets it: every flag is `false` and every method runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SpecStubs {
+    /// `BuildAllDependsAndPaths` (PS-B) returns at once; the counters it initialises are the
+    /// port's fields, which start at 0.
+    pub build_all_depends_and_paths: bool,
+    /// `BuildClusterJewelGraphs` (PS-C) returns at once.
+    pub build_cluster_jewel_graphs: bool,
+    /// `ReplaceNode` (PS-C) returns `nil` (`false`) at once.
+    pub replace_node: bool,
+}
+
+impl SpecStubs {
+    /// Nothing stubbed (the product).
+    pub const NONE: Self = Self {
+        build_all_depends_and_paths: false,
+        build_cluster_jewel_graphs: false,
+        replace_node: false,
+    };
+}
+
+/// Installs the [`SpecStubs`] of this thread ([`SpecStubs::NONE`] restores the product).
+pub fn set_spec_stubs(stubs: SpecStubs) {
+    SPEC_STUBS.with(|s| s.set(stubs));
+}
+
+/// The [`SpecStubs`] of this thread.
+pub fn spec_stubs() -> SpecStubs {
+    SPEC_STUBS.with(std::cell::Cell::get)
 }
 
 /// `main:LoadTree(treeVersion)` (Modules/Main.lua 352-363, outside the calc scope; CCR-0052

@@ -20,8 +20,8 @@
 //!
 //! Inputs: `.parity/probe/<stem>/state/` (`scripts/port/oracle.sh corpus`),
 //! `data/dump`. Knobs: `ORCX_BUILDS=stem1,stem2`, `ORCX_LIMIT=n`,
-//! `ORCX_VERBOSE=1` (print every mismatch). A missing input skips with a
-//! message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! `ORCX_VERBOSE=1` (print every mismatch). A missing input fails
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips instead).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -30,13 +30,6 @@ use pob_oracle::diff::Mismatch;
 use pob_oracle::oracle::find_parity_dir;
 use pob_oracle::schema::StateDump;
 use pob_oracle::testkit;
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn corpus(parity: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(parity.join("builds"))
@@ -215,15 +208,21 @@ const ROUND_TRIP_STAGES: &[&str] = &[
 
 #[test]
 fn orcx_identity_round_trip_all57() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "no data dump (data/dump)",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity directory");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let builds = corpus(&parity);
     if builds.is_empty() {
-        return skip("no .parity/builds/*.xml");
+        let _ = pob_testpaths::require(None::<()>, "no .parity/builds/*.xml");
+        return; // POB_ALLOW_SKIP=1
     }
     let mut tallies: BTreeMap<&str, Tally> = BTreeMap::new();
     for xml in &builds {
@@ -272,15 +271,96 @@ fn orcx_identity_round_trip_all57() {
     }
     let total: usize = tallies.values().map(|t| t.dumps).sum();
     assert!(total > 0, "no dumps found under .parity/probe");
-    assert!(ok, "identity round trip: some dumps do not export back to themselves");
+    assert!(
+        ok,
+        "identity round trip: some dumps do not export back to themselves"
+    );
+    // coverage (HYG2/V2): every build has its gate-stage dumps (`.parity/probe`, filled by
+    // `scripts/port/oracle.sh corpus`) except the listed ones. A runSkillFunc dump may only be
+    // missing for a build the replay test has not probed yet (test order is not fixed) or one
+    // whose main env runs no skill hook (ORCX_RSF_MISSING).
+    if !filtered() {
+        assert_eq!(builds.len(), CORPUS_BUILDS, ".parity/builds/*.xml count");
+    }
+    for (stage, t) in &tallies {
+        let unlisted: Vec<&String> = t
+            .missing
+            .iter()
+            .filter(|m| {
+                let stem = m.split(' ').next().unwrap_or("");
+                if stage.starts_with("runSkillFunc:") {
+                    let probed = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+                        .join("orcx-probe")
+                        .join(stem)
+                        .join("hits.json")
+                        .is_file();
+                    probed && !ORCX_RSF_MISSING.contains(&stem)
+                } else {
+                    !ORCX_GATE_MISSING.contains(&m.as_str())
+                }
+            })
+            .collect();
+        assert!(
+            unlisted.is_empty(),
+            "round trip {stage}: missing dumps {unlisted:?}"
+        );
+    }
+}
+
+/// The corpus size (`.parity/builds/*.xml`).
+const CORPUS_BUILDS: usize = 57;
+/// `<stem> <stage>` gate-stage dumps (initEnv:out, perform:in, offence:in) absent from
+/// `.parity/probe`; measured by HYG2 on rust-port 746b103.
+const ORCX_GATE_MISSING: &[&str] = &["upstream_Dual_Savior offence:in"];
+/// Builds whose main env runs no skill hook through runSkillFunc (no `runSkillFunc:in/out`
+/// dump); measured by HYG2 on rust-port 746b103.
+const ORCX_RSF_MISSING: &[&str] = &[
+    "allflame_exp_010",
+    "allflame_exp_023",
+    "allflame_exp_028",
+    "upstream_Dual_Savior",
+];
+/// Builds without an `offence:in/out` dump pair; measured by HYG2 on rust-port 746b103.
+const ORCX_OFFENCE_MISSING: &[&str] = &["upstream_Dual_Savior"];
+
+/// `ORCX_BUILDS` / `ORCX_LIMIT` restrict the corpus.
+fn filtered() -> bool {
+    std::env::var_os("ORCX_BUILDS").is_some()
+        || std::env::var_os("ORCX_LIMIT").is_some()
+        || pob_testpaths::quick_corpus()
+}
+
+/// `missing` (`"<stem> <what>"`) names exactly the builds of `allowed`.
+#[track_caller]
+fn assert_missing(what: &str, missing: &[String], allowed: &[&str]) {
+    let mut got: Vec<&str> = missing
+        .iter()
+        .map(|m| m.split(' ').next().unwrap_or(""))
+        .collect();
+    got.sort_unstable();
+    let mut want = allowed.to_vec();
+    want.sort_unstable();
+    if filtered() {
+        assert!(
+            got.iter().all(|s| want.contains(s)),
+            "{what}: missing dumps {got:?}, allowed {want:?}"
+        );
+    } else {
+        assert_eq!(got, want, "{what}: builds without dumps");
+    }
 }
 
 /// A dump's root through export(inject()) — the unit test of the pieces on a
 /// small hand-written document.
 #[test]
 fn orcx_round_trip_synthetic() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "no data dump (data/dump)",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
     let doc = serde_json::json!({
         "$env": null, "build": "synthetic", "format": "pob-state/1", "hit": "x:in#1",
@@ -317,17 +397,28 @@ fn orcx_round_trip_synthetic() {
 #[test]
 fn orcx_inject_is_typed_and_export_sensitive() {
     use pob_calc::prelude::*;
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "no data dump (data/dump)",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity directory");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(xml) = corpus(&parity).into_iter().next() else {
-        return skip("no .parity/builds/*.xml");
+    let Some(xml) = pob_testpaths::require(
+        corpus(&parity).into_iter().next(),
+        "no .parity/builds/*.xml",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(dump) = testkit::load_dump(stem(&xml), Some(&xml), "perform:in") else {
-        return skip("no perform:in dump under .parity/probe");
+    let Some(dump) = pob_testpaths::require(
+        testkit::load_dump(stem(&xml), Some(&xml), "perform:in"),
+        "no perform:in dump under .parity/probe",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
     let build = testkit::empty_build();
     let (env, locals) = pob_oracle::inject::state(&dump, &build).expect("inject");
@@ -567,11 +658,16 @@ fn replay_both(
 
 #[test]
 fn orcx_replay_offence_all57() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "no data dump (data/dump)",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity directory");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let builds = corpus(&parity);
     let mut t = Tally::default();
@@ -592,6 +688,7 @@ fn orcx_replay_offence_all57() {
         t.clean == t.dumps && t.perturbed_clean == t.perturbed && t.failed.is_empty(),
         "replaying offence does not apply exactly its in→out delta"
     );
+    assert_missing("replay offence", &t.missing, ORCX_OFFENCE_MISSING); // HYG2/V2
 }
 
 /// `runSkillFunc:in/out` dumps of the main env (the corpus run dumps only
@@ -633,14 +730,20 @@ fn run_skill_func_dumps(xml: &Path) -> Option<PathBuf> {
 #[cfg(feature = "luajit")]
 #[test]
 fn orcx_replay_run_skill_func_all57() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "no data dump (data/dump)",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity directory");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+        return; // POB_ALLOW_SKIP=1
     };
     if pob_oracle::oracle::find_pob_src().is_none() {
-        return skip("no PoB checkout");
+        let _ = pob_testpaths::require(None::<()>, "no PoB checkout");
+        return; // POB_ALLOW_SKIP=1
     }
     let builds = corpus(&parity);
     let mut t = Tally::default();
@@ -671,6 +774,7 @@ fn orcx_replay_run_skill_func_all57() {
         t.clean == t.dumps && t.perturbed_clean == t.perturbed && t.failed.is_empty(),
         "replaying runSkillFunc does not apply exactly its in→out delta"
     );
+    assert_missing("replay runSkillFunc", &t.missing, ORCX_RSF_MISSING); // HYG2/V2
 }
 
 // ---- the L4 segment runner -----------------------------------------------------------------------
@@ -681,18 +785,29 @@ fn orcx_replay_run_skill_func_all57() {
 /// (the plumbing L4 tests stand on: inject → ctx → segment → export → diff).
 #[test]
 fn orcx_segment_runner_plumbing() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if pob_testpaths::require(
+        testkit::init_default_data().then_some(()),
+        "no data dump (data/dump)",
+    )
+    .is_none()
+    {
+        return; // POB_ALLOW_SKIP=1
     }
-    let Some(parity) = find_parity_dir() else {
-        return skip("no .parity directory");
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), "no .parity directory") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(xml) = corpus(&parity).into_iter().next() else {
-        return skip("no .parity/builds/*.xml");
+    let Some(xml) = pob_testpaths::require(
+        corpus(&parity).into_iter().next(),
+        "no .parity/builds/*.xml",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
     let stem = stem(&xml);
-    let Some(din) = testkit::load_dump(stem, Some(&xml), "offence:in") else {
-        return skip("no offence:in dump under .parity/probe");
+    let Some(din) = pob_testpaths::require(
+        testkit::load_dump(stem, Some(&xml), "offence:in"),
+        "no offence:in dump under .parity/probe",
+    ) else {
+        return; // POB_ALLOW_SKIP=1
     };
     let build = testkit::empty_build();
     let inj = pob_oracle::inject::inject(&din, &build).expect("inject");

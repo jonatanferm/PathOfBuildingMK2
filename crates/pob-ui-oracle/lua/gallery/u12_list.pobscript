@@ -1,0 +1,67 @@
+# Interactions of the "u12_list" gallery (U12).
+frames 2
+# hover a header (sortable highlight), a row with the ellipsis (tooltip), the list label
+move 60 50
+frames 1
+move 300 100
+frames 2
+move 300 148
+frames 1
+# sort by the first and the third column (header clicks clear the selection)
+move 60 50
+click LEFTBUTTON
+move 487 50
+click LEFTBUTTON
+frames 1
+# select a row, double click it
+move 100 84
+click LEFTBUTTON
+frames 1
+click LEFTBUTTON
+frames 1
+# keyboard: down, up (wrap from row 1 needs two), home, end, down (wraps to 1)
+press DOWN
+press UP
+press UP
+press UP
+press HOME
+press END
+press DOWN
+frames 1
+# Ctrl+C, another key, delete
+key-down CTRL
+press c
+key-up CTRL
+press a
+press DELETE
+frames 1
+# the wheel over the list, then the tooltip of a scrolled row
+move 300 150
+wheel down 2
+frames 1
+wheel up 1
+frames 1
+# the plain list: separators and icons; select, shift-select (highlight), wheel
+move 650 72
+click LEFTBUTTON
+frames 1
+key-down SHIFT
+move 650 132
+click LEFTBUTTON
+key-up SHIFT
+frames 1
+move 650 152
+frames 1
+wheel down 3
+frames 1
+# double click releases the focus (OnSelClick returns false)
+move 650 92
+click LEFTBUTTON
+click LEFTBUTTON
+frames 1
+# the non-scrolling list and the empty list
+move 650 260
+click LEFTBUTTON
+move 100 300
+click LEFTBUTTON
+frames 2

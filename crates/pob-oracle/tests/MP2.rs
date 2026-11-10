@@ -16,14 +16,16 @@
 //!     capture classes (digits, words, dotted numbers, …, including inputs on which the Lua
 //!     raises). The Lua result table and the Rust `ModSpec` must be equal; when the Lua raises,
 //!     the Rust must raise the same message;
-//!   - L1 for this range: every parse-oracle line whose parse used one of the three lists (and
-//!     no specialModList / jewel / cluster / unsupported entry, whose lists are other units'
-//!     stubs) is parsed by MP0's driver over these lists and must give PoB's mods and remainder.
+//!   - L1 for this range: every parse-oracle line whose parse used one of the three lists
+//!     (whatever other lists it also took) is parsed by MP0's driver over the crate's lists and
+//!     must give PoB's mods (`extra` included) and remainder, up to the known parse-level
+//!     differences (calc doc §6, known_diffs.toml), accepted only for lines whose parse took a
+//!     specialModList entry listed for them.
 //!     formList and modNameList come from MP1 when it is merged, else they are rebuilt from
 //!     PoB's tables (test-only, read from the instrumented LuaJIT state).
 //!
-//! Inputs: `data/dump` and the PoB checkout; missing inputs skip (fail with
-//! `POB_ORACLE_REQUIRE=1` or `CI`). `MP2_L1_STRIDE=n` checks every n-th L1 record.
+//! Inputs: `data/dump` and the PoB checkout; missing inputs fail
+//! (`pob_testpaths::require`; `POB_ALLOW_SKIP=1` skips). `MP2_L1_STRIDE=n` checks every n-th L1 record.
 #![allow(non_snake_case)]
 #![allow(clippy::type_complexity, clippy::too_many_lines)]
 
@@ -42,13 +44,6 @@ use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::{find_pob_src, find_up};
 use serde_json::{Map, Value as J};
-
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
-}
 
 fn dump_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("POB_DUMP_DIR").map(PathBuf::from) {
@@ -120,8 +115,8 @@ fn is_fn(v: &TagVal) -> bool {
 
 #[test]
 fn list_shape() {
-    let Some(src) = modparser_src() else {
-        return skip("PoB checkout not found");
+    let Some(src) = pob_testpaths::require(modparser_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let src: Vec<&str> = src.lines().collect();
     pob_gamedata::stub::stub_reset();
@@ -592,9 +587,9 @@ struct Step {
     list: String,
     pattern: Option<String>,
     #[serde(default)]
-    caps: Vec<J>,
+    line: Option<u32>,
     #[serde(default)]
-    exact: bool,
+    caps: Vec<J>,
 }
 
 fn load_oracle(dir: &std::path::Path) -> Option<Vec<Record>> {
@@ -671,18 +666,25 @@ fn strip_pos(e: &str) -> &str {
 
 #[test]
 fn mp2_oracle() {
-    let Some(dir) = init_data() else {
-        return skip("data/dump not found");
+    let Some(dir) = pob_testpaths::require(init_data(), "data/dump not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
-    let Some(pob_src) = find_pob_src() else {
-        return skip("PoB checkout not found");
+    let Some(pob_src) = pob_testpaths::require(find_pob_src(), "PoB checkout not found") else {
+        return; // POB_ALLOW_SKIP=1
     };
     let modparser = std::fs::read_to_string(pob_src.join("Modules/ModParser.lua")).unwrap();
     let srcl: Vec<&str> = modparser.lines().collect();
-    let records = load_oracle(&dir);
-    if records.is_none() {
-        eprintln!("parse_oracle.jsonl not found: synthetic captures only, no L1");
-    }
+    // HYG2: a missing parse oracle used to print and drop L1 silently
+    let Some(records) = pob_testpaths::require(load_oracle(&dir), "data/dump/parse_oracle.jsonl")
+    else {
+        return; // POB_ALLOW_SKIP=1
+    };
+    assert_eq!(
+        records.len(),
+        PARSE_ORACLE_RECORDS,
+        "parse_oracle.jsonl records"
+    );
+    let records = Some(records);
 
     // -- sample captures per closure
     let mut samples: BTreeMap<&str, BTreeMap<&'static str, Vec<Vec<String>>>> = BTreeMap::new();
@@ -966,6 +968,93 @@ fn mod_eq(a: &Mod, b: &Mod) -> bool {
         && a.source == b.source
         && a.tags.len() == b.tags.len()
         && a.tags.iter().zip(&b.tags).all(|(x, y)| x == y)
+        && a.extra == b.extra
+}
+
+// ---------------------------------------------------------------------------------------------
+// Known parse-level differences (calc doc §6; docs/port/known_diffs.toml)
+// ---------------------------------------------------------------------------------------------
+
+/// specialModList lines whose `mod(…, nil, {tag})` leaves a tag at `mod[2]` (known_diffs.toml
+/// MP5-1, MP6-1).
+const NIL_HOLE_LINES: [u32; 8] = [4576, 4577, 4578, 4579, 4580, 5686, 5689, 5692];
+/// specialModList lines whose closures store a digits-only capture string in a numeric tag field
+/// (known_diffs.toml MP3-1, MP4-1, MP5-2, MP6-2).
+const DIGIT_STRING_LINES: [u32; 10] = [2325, 2571, 2862, 2922, 3535, 4216, 4222, 5733, 5734, 5741];
+
+/// The specialModList entry lines a record's parse took.
+fn special_lines(steps: impl Iterator<Item = (bool, Option<u32>)>) -> BTreeSet<u32> {
+    steps
+        .filter(|(special, _)| *special)
+        .filter_map(|(_, l)| l)
+        .collect()
+}
+
+/// PoB's mod (as the dump decoder gives it) with the accepted parse-level differences removed,
+/// only when the record's parse took an entry known_diffs.toml lists for them; counts them in
+/// `n`. The differences: a tag at a non-sequence index (decoded as `Mod.extra["#n"]`, which
+/// `ipairs` never reaches) and a digits-only capture string in a numeric tag field (decoded as
+/// the number plus the string in `Tag.extra`; the port holds `tonumber` of it).
+fn strip_known_diffs(m: &Mod, lines: &BTreeSet<u32>, n: &mut usize) -> Mod {
+    let nil_hole = lines.iter().any(|l| NIL_HOLE_LINES.contains(l));
+    let digits = lines.iter().any(|l| DIGIT_STRING_LINES.contains(l));
+    let mut m = m.clone();
+    if nil_hole {
+        if let Some(x) = &m.extra {
+            if x.array.is_empty()
+                && x.fields
+                    .iter()
+                    .all(|(k, v)| k.as_str().starts_with('#') && matches!(v, Value::Table(_)))
+            {
+                m.extra = None;
+                *n += 1;
+            }
+        }
+    }
+    if digits {
+        for t in &mut m.tags {
+            let Some(ex) = &t.extra else {
+                continue;
+            };
+            let num_of = |k: &str| match k {
+                "div" => t.div,
+                "limit" => t.limit,
+                "percent" => t.percent,
+                "globalLimit" => t.globalLimit,
+                "base" => t.base,
+                _ => None,
+            };
+            let mut ex = (**ex).clone();
+            let before = ex.fields.len();
+            ex.fields.retain(|(k, v)| {
+                !matches!((num_of(k.as_str()), v), (Some(x), Value::Str(s))
+                    if !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit())
+                        && pob_lua::tonumber(s) == Some(x))
+            });
+            *n += before - ex.fields.len();
+            t.extra = (!ex.fields.is_empty() || !ex.array.is_empty()).then(|| Box::new(ex));
+        }
+    }
+    m.value = strip_value(&m.value, lines, n);
+    m
+}
+
+/// [`strip_known_diffs`] on the mods inside a mod value (`{ mod = … }` payloads).
+fn strip_value(v: &Value, lines: &BTreeSet<u32>, n: &mut usize) -> Value {
+    match v {
+        Value::Mod(inner) => Value::Mod(std::sync::Arc::new(strip_known_diffs(inner, lines, n))),
+        Value::Table(t) => {
+            let mut t2 = (**t).clone();
+            for x in &mut t2.array {
+                *x = strip_value(x, lines, n);
+            }
+            for (_, x) in &mut t2.fields {
+                *x = strip_value(x, lines, n);
+            }
+            Value::Table(std::sync::Arc::new(t2))
+        }
+        other => other.clone(),
+    }
 }
 
 fn mods_eq(a: &Option<Vec<Mod>>, b: &Option<Vec<Mod>>) -> bool {
@@ -989,20 +1078,15 @@ fn l1(lua: &mut Lua, src: &[&str], recs: &[Record], bad: &mut Vec<String>) {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1)
         .max(1);
-    let other_units = [
-        "specialModList",
-        "jewelFuncList",
-        "clusterJewelSkills",
-        "unsupportedModList",
-    ];
+    // every line whose parse took an entry of the three lists, whatever other lists it also took
+    // (MP0-MP7 are all ported; the full specialModList and jewelFuncList are in `lists`)
     let sel: Vec<&Record> = recs
         .iter()
         .filter(|r| {
-            let steps = || r.passes.iter().flat_map(|p| p.steps.iter());
-            steps().any(|s| MP2_LISTS.contains(&s.list.as_str()) && s.pattern.is_some())
-                && !steps().any(|s| {
-                    s.exact || (other_units.contains(&s.list.as_str()) && s.pattern.is_some())
-                })
+            r.passes
+                .iter()
+                .flat_map(|p| p.steps.iter())
+                .any(|s| MP2_LISTS.contains(&s.list.as_str()) && s.pattern.is_some())
         })
         .step_by(stride)
         .collect();
@@ -1021,7 +1105,15 @@ fn l1(lua: &mut Lua, src: &[&str], recs: &[Record], bad: &mut Vec<String>) {
     }
     let t = std::time::Instant::now();
     let (mut ok, mut nbad) = (0usize, 0usize);
+    let mut nKnown = 0usize;
     for r in &sel {
+        let special = special_lines(
+            r.passes
+                .iter()
+                .flat_map(|p| p.steps.iter())
+                .filter(|s| s.pattern.is_some())
+                .map(|s| (s.list == "specialModList", s.line)),
+        );
         let got = pcall(|| {
             let (m, e) = parseModPassWith(&lists, &r.line, 1);
             if m.is_some() && e.is_some() {
@@ -1030,7 +1122,11 @@ fn l1(lua: &mut Lua, src: &[&str], recs: &[Record], bad: &mut Vec<String>) {
                 (m, e)
             }
         });
-        let want = oracle_mods(r);
+        let want = oracle_mods(r).map(|ms| {
+            ms.iter()
+                .map(|m| strip_known_diffs(m, &special, &mut nKnown))
+                .collect::<Vec<_>>()
+        });
         match got {
             Ok((m, e)) if mods_eq(&m, &want) && e.as_deref() == r.extra.as_deref() => ok += 1,
             other => {
@@ -1044,8 +1140,24 @@ fn l1(lua: &mut Lua, src: &[&str], recs: &[Record], bad: &mut Vec<String>) {
     }
     eprintln!(
         "L1 (formList/modNameList: {which}): {} lines whose parse used modFlagList/preFlagList/modTagList \
-         (stride {stride}; per list {per_list:?}): {ok} identical, {nbad} differ, {:.1}s",
+         (stride {stride}; per list {per_list:?}): {ok} identical, {nbad} differ \
+         ({nKnown} known-diff fields normalised), {:.1}s",
         sel.len(),
         t.elapsed().as_secs_f64()
     );
+    // coverage (HYG2/V2): the checked share cannot shrink
+    if stride == 1 {
+        assert!(
+            sel.len() >= MP2_MIN_L1,
+            "{} L1 lines checked, expected at least {MP2_MIN_L1}",
+            sel.len()
+        );
+    }
 }
+
+/// `data/dump/parse_oracle.jsonl` record count.
+const PARSE_ORACLE_RECORDS: usize = 80_993;
+/// L1 lines checked at stride 1; measured by HYG2 on rust-port 746b103 and unchanged by MPFIX
+/// (rust-port 387db54) dropping the other-units exclusion: no oracle line's parse takes one of the
+/// three lists together with a specialModList / jewel / cluster / unsupported entry.
+const MP2_MIN_L1: usize = 26_904;
