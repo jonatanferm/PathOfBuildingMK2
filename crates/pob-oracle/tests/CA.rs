@@ -1451,14 +1451,15 @@ mod oracle_side {
         }
     }
 
-    /// Floors measured on port/CA (rust-port f275edb + CA, 2026-11-10; docs/port/FOLLOWUPS.md
-    /// "CA"): headline 195/741 exact, all keys 21,822/47,610 exact, and every build's CALCS
-    /// BuildOutput raises (57: `output.PowerCharges` is nil because PF-B's `doActorCharges` is a
-    /// stub). Raise the floors / lower the bound as CS2 and PF-B land.
-    const L6_MIN_HEADLINE_EXACT: usize = 195;
-    const L6_MIN_KEYS_EXACT: usize = 21_822;
-    const L6_MAX_RUST_ERRORS: usize = 57;
+    /// Floors re-measured at the CA merge (rust-port 8ecb963 + CA, i.e. with PF-B, 2026-11-10;
+    /// docs/port/FOLLOWUPS.md "CA"): headline 194/741 exact, all keys 24,381/48,958 exact, no
+    /// Rust errors. On port/CA alone (PF-B stubs) it was 195/741 and 21,822/47,610 with 57
+    /// CALCS-stage errors; the one headline key lost is allflame_exp_002 `TotalDPS` (PoB 0,
+    /// formerly 0 by the stubs, now 0.598752). Raise the floors as CS2 and PF-B's rest land.
+    const L6_MIN_HEADLINE_EXACT: usize = 194;
+    const L6_MIN_KEYS_EXACT: usize = 24_381;
+    const L6_MAX_RUST_ERRORS: usize = 0;
     /// The per-stage split of [`L6_MAX_RUST_ERRORS`] (measured the same way); a stage not
     /// listed (MAIN, getMiscCalculator, misc call, load …) is bounded by 0.
-    const L6_MAX_STAGE_ERRORS: &[(&str, usize)] = &[("CALCS", 57)];
+    const L6_MAX_STAGE_ERRORS: &[(&str, usize)] = &[];
 }

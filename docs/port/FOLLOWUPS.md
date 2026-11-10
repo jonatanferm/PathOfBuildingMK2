@@ -99,6 +99,15 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    including a raising misc calculator call, 0). `ca_d13_fixed_point` covers MAIN mode only; add
    CALCS once PF-B lands (it raises at Calcs.lua:605 today).
    CA's own blocks are verified on PoB's injected state by `ca_l5_post` (all clean).
+   **Re-measured at the CA merge (with PF-B on rust-port, 2026-11-10):** headline 194/741, all
+   keys 24,381/48,958, CALCS lists 78/171, used-tracking 183/513, misc 154/1248, 0 Rust errors
+   (PF-B's `doActorCharges` fixed the Calcs.lua:605 raise). Floors now 194 / 24,381 / 0 errors
+   (no stage allowed). The one headline key lost vs port/CA alone is allflame_exp_002 `TotalDPS`
+   (PoB 0; 0 under the stubs, 0.598752 now). The merge also fixed a PF-B bug the corpus exposed:
+   `initMinionModDB` indexed `minion.extra["lifeTable"]` as a table, but CalcActiveSkill stores a
+   `LifeTable` object (CCR-0040), so every build with a minion raised "attempt to index a userdata
+   value" (CalcPerform.lua:1160); `minion_lifeTable` (calc_perform/actor_b.rs) now converts it.
+   PF-B's own test injects tables and did not see it.
 2. **`CalcsTab:BuildOutput` scaffold in CA.rs** (owner: PWR). `power::BuildOutput`
    (CalcsTab.lua:441-472) is still a stub, so `loadBuildFromXML` computes nothing; CA.rs carries
    a scaffold copy (`calcsTab_BuildOutput`, `rust_load`: Init's pass plus PoB's `OnFrame`

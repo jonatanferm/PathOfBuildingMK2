@@ -2983,10 +2983,15 @@ fn minion_type(minion: &ActorRef) -> Option<Name> {
 }
 
 /// `minion.lifeTable` (CCR-0095 §1: one of the `data.monster*LifeTable` sequences, kept in
-/// `minion.extra` until a typed field exists).
+/// `minion.extra` until a typed field exists). CalcActiveSkill stores it as a
+/// `calc_active_skill::LifeTable` object (CCR-0040); an injected table is used as is.
 fn minion_lifeTable(minion: &ActorRef) -> Val {
     // CCR-0095
-    minion.extra.get(n!("lifeTable"))
+    let v = minion.extra.get(n!("lifeTable"));
+    match v.obj::<crate::modules::calc_active_skill::LifeTable>() {
+        Some(lt) => data_table(lt.0),
+        None => v,
+    }
 }
 
 /// `actor.itemList[slotName]`.
