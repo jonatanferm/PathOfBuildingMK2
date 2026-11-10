@@ -77,7 +77,11 @@ stored mod's own payload (`value.value.mod` is `value.mod.value.mod` by `Arc` id
 copies the payload only to scale it, `copyTable` at ModStore.lua:423/512/562, and then Lua mutates
 that copy, which nobody else holds), `resource_payload` rebuilds every `EnemyModifier` mod of
 the actor's ModDB and its parents whose payload is `mod` with `mod'` as payload, at the same
-position. The enemy DB gets `mod'` and the cache is keyed on `mod'`. So, as in Lua, the
+position. The enemy DB gets `mod'` and the cache holds both `mod` and `mod'` as identities
+of the one Lua key (only `mod'` is exported): the Tabulate result is taken before the swap, so a
+later entry of the same loop that holds the same payload (one EnemyModifier mod added twice,
+e.g. the Config/Pantheon shape with outer source set and inner source nil) still holds `mod`,
+and in Lua that is the mutated table and hits the cache. So, as in Lua, the
 actor's EnemyModifier payload, the enemy DB mod and the cache key are one object; a later call
 with the cache kept (doActorMisc, CalcPerform.lua:976) Tabulates `mod'` and hits the cache.
 
@@ -88,8 +92,19 @@ doActorMisc probes: `LifeRegen` of `Pantheon:Soul of Ryslatha`, allflame_exp_030
 Remaining difference: Lua's write also reaches other holders of the same mod table outside the
 actor's ModDB chain (e.g. the tree node's `modList`, which the next calc pass adds again). The
 port leaves those holders unchanged. The next pass re-sources them again, with the same value.
+Observable consequence: on calc pass 2 and later, a dump of `env.modDB` (or the tree, config or
+item modLists) taken before `applyEnemyModifiers` shows the inner `source` in PoB (written by
+pass 1) and `nil` in the port. A unit that probes those stores at later hits sees this as a
+`source` mismatch on `EnemyModifier` payloads; that mismatch is this difference, not a bug in
+that unit.
 
-**Proposed resolution.** Record the site in contracts.md#mod-mutation as "shared, ported as a
+`resource_payload` also replaces the outer `EnemyModifier` mod `Arc` (a rebuilt copy with the
+new payload, at the same position); Lua keeps the outer table and mutates only the inner one.
+No port code keys on the outer mod's identity (the cache keys the inner mod), so this is not
+observable today; a unit that keys on it files a CCR.
+
+**Proposed resolution.** Record the site in contracts.md#mod-mutation (with the pass-2 note
+above) as "shared, ported as a
 replacement in the actor's ModDB chain (CCR-0085 §3)".
 
 ## 4. `actor.appliedEnemyModifiers` keys (CCR-0030 #6)

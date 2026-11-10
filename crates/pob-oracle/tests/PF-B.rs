@@ -29,9 +29,14 @@
 //! they stand for before the run and puts the markers back before the export.
 //!
 //! Cases of `initMinionModDB` whose minion iterates `env.build.itemsTab.slots` (`minion.uses`,
-//! 1222-1240) cannot pass until BM-A's build loader fills the model: when every value
-//! mismatch is one the empty slots explain (`from_slot_items`) they are listed as
-//! "needs BM-A" and not gated; any other mismatch in such a case is still a failure.
+//! 1222-1240) cannot pass here: the case injects into `testkit::empty_build()`, and inject
+//! does not carry the ItemsTab slots (no `Build:Init` / `ItemsTab` construction runs for the
+//! injected env; loading the build with `testkit::load_build` instead does not fill the
+//! injected env's slots either). When every value mismatch is one the empty slots explain
+//! (`from_slot_items`) the case is listed as "needs itemsTab slots" and not gated; any other
+//! mismatch in such a case is still a failure. So 1222-1240 have no oracle coverage yet.
+//! Closing it needs the injected env's `build.itemsTab` built by BM-A's `ItemsTab::ctor_model`
+//! from the build XML.
 //!
 //! A case whose stub callee's nested call fell outside the probed hit window (no recorded
 //! call to replay) is not evaluated; it is listed, not counted.
@@ -328,9 +333,9 @@ struct Tally {
     unpaired: u64,
     builds: u64,
     probe_failed: Vec<String>,
-    /// Cases that need the build model's `itemsTab.slots` (BM-A's loader is a stub, so the
-    /// injected build has none): reported, not gated.
-    needs_bm_a: Vec<String>,
+    /// Cases that need the build model's `itemsTab.slots` (inject does not carry them, so
+    /// the injected build has none): reported, not gated.
+    needs_slots: Vec<String>,
     order_cases: Vec<String>,
 }
 
@@ -601,7 +606,7 @@ fn run_case(
         (Vec::new(), value)
     };
     if !slot_value.is_empty() && value.is_empty() {
-        t.needs_bm_a.push(format!(
+        t.needs_slots.push(format!(
             "{label}: {} mismatches, all from the slot items (minion.uses over itemsTab.slots)",
             slot_value.len()
         ));
@@ -718,8 +723,8 @@ fn pfb_function_probes_all57() {
     for m in &t.order_cases {
         eprintln!("  LUA-ORDER in {m}");
     }
-    for m in &t.needs_bm_a {
-        eprintln!("  needs BM-A (not gated): {m}");
+    for m in &t.needs_slots {
+        eprintln!("  needs itemsTab slots (not gated): {m}");
     }
     for m in &t.missing_callee {
         eprintln!("  not evaluated (stub callee's call outside the probe window): {m}");
@@ -740,7 +745,7 @@ fn pfb_function_probes_all57() {
         "probing failed: {:?}",
         t.probe_failed
     );
-    let gated = all - t.needs_bm_a.len() as u64;
+    let gated = all - t.needs_slots.len() as u64;
     assert!(
         t.failures.is_empty() && clean == gated,
         "{} of {gated} gated cases not clean",

@@ -1740,8 +1740,11 @@ pub(crate) fn applyEnemyModifiers(actor: &ActorRef, clearCache: bool) {
                     resource_payload(&actor.modDB.get(), &r#mod, &added);
                 }
                 enemyDB.AddMod(added.clone());
-                // L630 `cache[mod] = true`: the key is the (now re-sourced) mod
-                enemy_cache::set(actor, &cache, &added);
+                // L630 `cache[mod] = true`: the key is the one Lua table that `r#mod` held
+                // before L629 and `added` holds after it, so both identities hit. A later
+                // Tabulate entry of this same loop still holds `r#mod` (Tabulate ran before
+                // the payload swap); in Lua it is the mutated table and hits the cache.
+                enemy_cache::set(actor, &cache, &r#mod, &added);
             }
         }
     }
@@ -1889,9 +1892,16 @@ mod enemy_cache {
         })
     }
 
-    /// `cache[mod] = true`.
-    pub(super) fn set(actor: &ActorRef, t: &Table, m: &ModRef) {
-        with_entry(actor, t, |e| e.mods.push(m.clone()));
+    /// `cache[mod] = true`, where the Lua `mod` was `original` before `setSource` mutated it
+    /// in place and is `m` after (CCR-0085 §3: the port's re-sourced copy). Both identities
+    /// are keys of the one Lua key; only `m` (the mod Lua holds afterwards) is exported.
+    pub(super) fn set(actor: &ActorRef, t: &Table, original: &ModRef, m: &ModRef) {
+        with_entry(actor, t, |e| {
+            if !Arc::ptr_eq(original, m) {
+                e.mods.push(original.clone());
+            }
+            e.mods.push(m.clone());
+        });
         exported_set(t, m);
     }
 
@@ -2049,5 +2059,55 @@ mod tests {
         assert_eq!(enemy.modDB.get().mods_named(n!("LifeRegen")).len(), 1);
         applyEnemyModifiers(&player, true);
         assert_eq!(enemy.modDB.get().mods_named(n!("LifeRegen")).len(), 2);
+    }
+
+    /// One EnemyModifier table added twice (the Config/Pantheon shape: outer source set,
+    /// inner source nil). Lua's `setSource` mutates the shared inner table on the first
+    /// entry, so `cache[mod]` hits on the second and the enemy gets the mod once
+    /// (CalcPerform.lua:625-630, ModTools.lua:239-245), although both Tabulate entries were
+    /// read before the payload was re-sourced.
+    #[test]
+    fn apply_enemy_modifiers_shared_payload_two_entries_adds_once() {
+        let player = Actor::with(ModStore::ModDB(None), 1.0);
+        let enemy = Actor::with(ModStore::ModDB(None), 1.0);
+        player.enemy.set(Rc::downgrade(&enemy));
+        let inner = Arc::new(modLib::createMod(
+            n!("LifeRegen"),
+            ModType::INC,
+            -50.0,
+            None,
+            0,
+            0,
+            &[],
+        ));
+        let payload = ValueTable::default().with(n!("mod"), Value::Mod(inner));
+        let outer = Arc::new(modLib::createMod(
+            n!("EnemyModifier"),
+            ModType::LIST,
+            Value::Table(Arc::new(payload)),
+            Some("Config"),
+            0,
+            0,
+            &[],
+        ));
+        player.modDB.get().AddMod(outer.clone());
+        player.modDB.get().AddMod(outer);
+
+        applyEnemyModifiers(&player, true);
+        let added = enemy.modDB.get().mods_named(n!("LifeRegen"));
+        assert_eq!(added.len(), 1, "added once, as in Lua");
+        assert_eq!(added[0].source.as_deref(), Some("Config"));
+        let stored = player.modDB.get().mods_named(n!("EnemyModifier"));
+        assert_eq!(stored.len(), 2);
+        for s in &stored {
+            let p = s.value.inner_mod().expect("payload");
+            assert!(
+                Arc::ptr_eq(p, &added[0]),
+                "both entries hold the re-sourced payload"
+            );
+        }
+
+        applyEnemyModifiers(&player, false);
+        assert_eq!(enemy.modDB.get().mods_named(n!("LifeRegen")).len(), 1);
     }
 }
