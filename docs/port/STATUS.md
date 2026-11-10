@@ -111,7 +111,7 @@ the port/* branches (commits titled '<id>: WIP (paused 2026-11-10; unverified)')
 
 | Unit | Start stage |
 |---|---|
-| RETYPE (A8 E1-E5, orchestrator-approved) | review (WIP on branch; was in review) |
+| RETYPE (A8 E1-E5, orchestrator-approved) | review (WIP on branch; was in review). A parallel fix attempt that diverges from port/RETYPE is saved on `port/RETYPE-fixwip`: merge or cherry-pick what is useful in the fix round |
 | INT-1-A (triage fix A, AS) | review |
 | INT-1-B (triage fix B + exact L6 gates) | impl, deps INT-1-A |
 | U23 | review |
@@ -122,3 +122,5 @@ the port/* branches (commits titled '<id>: WIP (paused 2026-11-10; unverified)')
 
 Machine services (transient systemd user units, recreate after a reboot): pob-port-oomguard (running),
 pob-port-push (hourly push of rust-port to GitHub, running), pob-port-fullsuite (stopped for the pause).
+
+Superseded/orphaned agent commits found at the pause are kept as `refs/archive/orphan-<sha>` (not branches); all their units are merged.
