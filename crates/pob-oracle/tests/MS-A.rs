@@ -957,7 +957,9 @@ fn l3_query_matrix_and_scaling_all57() {
         "EvalMod / createMod are stubs again"
     );
     let filtered =
-        std::env::var_os("MS_A_BUILDS").is_some() || std::env::var_os("MS_A_LIMIT").is_some();
+        std::env::var_os("MS_A_BUILDS").is_some()
+            || std::env::var_os("MS_A_LIMIT").is_some()
+            || pob_testpaths::quick_corpus();
     if !filtered {
         assert_eq!(nbuilds, CORPUS_BUILDS, "builds compared");
         let b = MS_A_BOUNDS;
@@ -1003,6 +1005,8 @@ const MS_A_BOUNDS: MsABounds = MsABounds {
     max_known: 964,
     max_known_undecodable: 4,
     max_errors_both: 33_771,
-    // HYG2 exposed: 6771 of 1,326,872 tag-path queries differ (docs/port/FOLLOWUPS.md)
+    // 6771 of 1,326,872 tag-path queries differ because this model lacks the actor links, items
+    // and cfg fields EvalMod reads; MS-B.rs rebuilds them and gates those paths at 100%
+    // (docs/port/FOLLOWUPS.md, "limits of a test's own rebuilt model"). Re-measured 2026-11-10.
     max_tag_path_misses: 6771,
 };

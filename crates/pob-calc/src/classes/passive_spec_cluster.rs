@@ -292,6 +292,10 @@ impl PassiveSpec {
 impl PassiveSpec {
     /// → `true` for Lua's `return 1` (the node already has this `sd`), `false` for no value.
     pub fn ReplaceNode(&self, old: &NodeRef, newNode: &NodeRef) -> bool {
+        // oracle-test seam (CCR-0052 §12); never set in the product
+        if crate::classes::passive_spec::spec_stubs().replace_node {
+            return false;
+        }
         // Edited nodes can share a name
         // L1699 (`sd` tables compare by identity)
         if old.sd.get().ptr_eq(&newNode.sd.get()) {
@@ -585,6 +589,10 @@ impl PassiveSpec {
 /// @pob Classes/PassiveSpec.lua:1806-1880 h=309d9367
 impl PassiveSpec {
     pub fn BuildClusterJewelGraphs(&self) {
+        // oracle-test seam (CCR-0052 §12); never set in the product
+        if crate::classes::passive_spec::spec_stubs().build_cluster_jewel_graphs {
+            return;
+        }
         // L1807 (CCR-0072 §1)
         let needsLegacyClusterHashConversion = self.BeginLegacyClusterHashConversion_ret();
 

@@ -5,14 +5,15 @@
 //! intuitive-leap builds (a corpus spec with one stand-in jewel in an allocated socket).
 //!
 //! PS-C (`ReplaceNode`, `NodeAdditionOrReplacementFromString`, `ReconnectNodeToClassStart`,
-//! `NodeInKeystoneRadius`, `BuildClusterJewelGraphs`) is still `unported!` in the port, so both
-//! sides run the same stand-ins: PS-B's calls into PS-C are recorded (the port through
+//! `NodeInKeystoneRadius`, `BuildClusterJewelGraphs`; it has its own test) is replaced on both
+//! sides by the same stand-ins: PS-B's calls into PS-C are recorded (the port through
 //! `passive_spec_paths::set_psc_calls`, the oracle by replacing the methods) and compared in
 //! order, together with PS-B's `ConPrintf` lines. The `ReplaceNode` stand-in copies only the
 //! fields PS-B reads back (`sd`, `dn`, `name`, `isTattoo`, `overrideType`, with Lua's nil
 //! fall-through to the tree node), `NodeInKeystoneRadius` is PoB's own on the oracle side
 //! and a test copy on the port side, the others only record. Outside `BuildAllDependsAndPaths`
-//! the oracle's `ReplaceNode` and `BuildClusterJewelGraphs` are no-ops (the port's stubs).
+//! the oracle's `ReplaceNode` and `BuildClusterJewelGraphs` are no-ops, and so are the port's
+//! (`passive_spec::set_spec_stubs`, CCR-0052 §12).
 //!
 //! Orders: PoB's `pairs(spec.nodes)` and `nodesInRadius` orders are random per process for
 //! 3.10+ trees (CCR-0024 §5). Both sides therefore rebuild `spec.nodes` (right after the
@@ -44,7 +45,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use pob_calc::classes::passive_spec::{main_LoadTree, new_PassiveSpec};
+use pob_calc::classes::passive_spec::{main_LoadTree, new_PassiveSpec, set_spec_stubs, SpecStubs};
 use pob_calc::classes::passive_spec_paths::{set_psc_calls, PscCalls};
 use pob_calc::classes::passive_tree::{node_id_val, nodesInRadiusAt};
 use pob_calc::classes::{Item, Node, NodeRef, PassiveSpec, PassiveSpecRef, PassiveTreeRef};
@@ -1412,6 +1413,13 @@ fn build_all_depends_and_paths_acceptance() {
         trace: RefCell::new(Vec::new()),
     });
     set_psc_calls(Some(rec.clone() as Rc<dyn PscCalls>));
+    // the port side of the oracle's PS-C no-ops outside BuildAllDependsAndPaths (LIB): inside it
+    // `ReplaceNode` goes to the recorder above, never to the port's method (CCR-0052 §12)
+    set_spec_stubs(SpecStubs {
+        build_cluster_jewel_graphs: true,
+        replace_node: true,
+        ..SpecStubs::NONE
+    });
     let mut renormed: BTreeSet<String> = BTreeSet::new();
     let mut ensure_tree = |ver: Name| {
         if renormed.insert(ver.to_string()) {
@@ -1530,6 +1538,7 @@ fn build_all_depends_and_paths_acceptance() {
         }
     }
     set_psc_calls(None);
+    set_spec_stubs(SpecStubs::NONE);
 
     eprintln!(
         "\n== PS-B: {specs} corpus specs, {} synthetic builds, {} runs ==",

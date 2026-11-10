@@ -248,6 +248,23 @@ pub fn load(doc: &J) -> Build {
                     item.influences.set(Name::from(k), b);
                 }
             }
+            // The enabled mod lines (l3_full.lua filters `disabled` / CheckModLineVariant), read
+            // by Item:FindModifierSubstring for ItemCondition `searchCond` tags.
+            let lists = [
+                ("explicitModLines", &item.explicitModLines),
+                ("enchantModLines", &item.enchantModLines),
+                ("scourgeModLines", &item.scourgeModLines),
+                ("implicitModLines", &item.implicitModLines),
+                ("crucibleModLines", &item.crucibleModLines),
+            ];
+            for (key, field) in lists {
+                let dst = field.get();
+                for l in it[key].as_array().into_iter().flatten() {
+                    let t = Table::new();
+                    t.set(n!("line"), json_val(l));
+                    dst.push(t);
+                }
+            }
             Rc::new(item)
         })
         .collect();
