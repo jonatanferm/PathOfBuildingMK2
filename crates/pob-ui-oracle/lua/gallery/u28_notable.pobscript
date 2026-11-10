@@ -1,0 +1,84 @@
+# Interactions of the "u28_notable" gallery (U28).
+frames 2
+# name sort (the default): tooltips of Arcane Focus, Bravery (unsupported line, reminder text),
+# Cold Heart (a " " line), Divine Fury (a mod without a list)
+move 100 110
+frames 1
+move 100 142
+frames 1
+move 100 158
+frames 1
+move 100 174
+frames 1
+# open the sort dropdown (its rows are 14 high from y 80), hover the list, pick "Sort by Full DPS"
+# (the ListBuilder coroutine, power colours)
+move 100 69
+click LEFTBUTTON
+frames 1
+move 100 113
+frames 1
+move 100 99
+click LEFTBUTTON
+frames 2
+move 100 110
+frames 1
+move 100 126
+frames 1
+# "Sort by Life" (row 12)
+move 100 69
+click LEFTBUTTON
+frames 1
+move 100 239
+click LEFTBUTTON
+frames 2
+move 100 142
+frames 1
+# search "ar" (names and modifiers), then "(fire|cold)" with the modes "Modifiers" and "Names"
+move 100 89
+click LEFTBUTTON
+type ar
+frames 2
+move 100 110
+frames 1
+move 100 89
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type (fire|cold)
+frames 1
+move 320 89
+click LEFTBUTTON
+frames 1
+move 320 133
+click LEFTBUTTON
+frames 2
+move 320 89
+click LEFTBUTTON
+frames 1
+move 320 119
+click LEFTBUTTON
+frames 2
+# a new output revision rebuilds the list
+move 500 110
+click LEFTBUTTON
+frames 2
+# select a row and drag it towards the drop target, release in empty space
+move 100 89
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+press BACK
+frames 1
+move 100 110
+key-down LEFTBUTTON
+frames 1
+move 200 130
+frames 1
+move 480 150
+frames 1
+move 800 400
+frames 1
+key-up LEFTBUTTON
+frames 2

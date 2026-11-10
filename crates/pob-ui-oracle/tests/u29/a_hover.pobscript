@@ -1,0 +1,24 @@
+# U29: three GemSelectControls (gem 1, gem 2 of the main socket group, the empty slot), idle and
+# hovered without focus: the socket group gems' tooltips (GemTooltip with their displayEffect)
+# and the support highlight, the empty slot's prompt tooltip, the S / A filter overlays, then F1
+# on gem 1 (focuses it and opens the wiki on key up).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 300 70
+frames 2
+move 300 100
+frames 2
+move 300 130
+frames 2
+move 491 130
+frames 2
+move 470 130
+frames 2
+move 600 300
+frames 1
+move 300 70
+frames 1
+press F1
+frames 2

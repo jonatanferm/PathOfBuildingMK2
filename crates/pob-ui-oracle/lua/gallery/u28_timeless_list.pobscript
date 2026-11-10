@@ -1,0 +1,111 @@
+# Interactions of the "u28_timeless_list" gallery (U28).
+frames 2
+# row 1: the shared socket (allocated): "It will be socketed into", node lists, weight, item text
+move 150 50
+frames 2
+# row 3: its own socket, not allocated; row 4: socket -1; row 5: weight 0; row 6: own socket
+move 150 82
+frames 1
+move 150 98
+frames 1
+move 150 114
+frames 1
+move 150 130
+frames 1
+# select row 2, shift-click row 6 (highlight 2..6), a plain click on row 7 clears it
+move 150 66
+click LEFTBUTTON
+frames 1
+key-down SHIFT
+move 150 130
+click LEFTBUTTON
+key-up SHIFT
+frames 1
+move 150 146
+click LEFTBUTTON
+frames 1
+# double click row 1 (AddItem, SetSelItemId, the greyed label); row 6 (slot not valid);
+# row 3 (socket not allocated)
+move 150 50
+click LEFTBUTTON
+frames 1
+click LEFTBUTTON
+frames 1
+move 150 130
+click LEFTBUTTON
+frames 1
+click LEFTBUTTON
+frames 1
+move 150 82
+click LEFTBUTTON
+frames 1
+click LEFTBUTTON
+frames 1
+# the "successfully added" tooltip of row 1 (another row first: CheckForUpdate)
+move 150 66
+frames 1
+move 150 50
+frames 1
+# a button held down owns the focus: the list draws with noTooltip (cleared tooltip)
+move 500 50
+key-down LEFTBUTTON
+frames 1
+move 150 162
+frames 1
+key-up LEFTBUTTON
+frames 1
+# every jewel type: next type, hover row 8 (types 2, 3, 4 ...)
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+# Militant Faith: random devotion variants for rows 8 and 9, then devotion 1 fixed to 5
+move 150 178
+frames 1
+move 500 80
+click LEFTBUTTON
+move 150 162
+frames 1
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+move 500 50
+click LEFTBUTTON
+move 150 162
+frames 1
+# back to type 1 (wraps), then ScrollToIndex(15) and a scrolled row
+move 500 50
+click LEFTBUTTON
+move 500 110
+click LEFTBUTTON
+move 150 66
+frames 2

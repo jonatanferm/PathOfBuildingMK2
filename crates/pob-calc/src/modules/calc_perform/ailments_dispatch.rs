@@ -1180,14 +1180,8 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
         calcs::triggers(&env, Some(&player));
         Val::Nil
     });
-    // L3798
-    // CCR-0077 §2: `calcs.mirages(env)` returns a value Lua tests (`return not
-    // config.calcMainSkillOffence`, CalcMirages.lua:57) but the frozen Rust signature returns
-    // `()`; until the CCR is applied the Rust call counts as returning nil.
-    let miragesRet = callee("mirages", &env, &player, || {
-        calcs::mirages(&env);
-        Val::Nil
-    });
+    // L3798 (`calcs::mirages` returns the Lua result's truthiness: CCR-0090 §1)
+    let miragesRet = callee("mirages", &env, &player, || Val::Bool(calcs::mirages(&env)));
     let miragesRet = match &miragesRet {
         Val::Table(r) => r.get(1),
         other => other.clone(),

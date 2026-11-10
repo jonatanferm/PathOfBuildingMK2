@@ -1,0 +1,49 @@
+# U39: the SkillSelect section's selectors (CalcsTab.lua:45-148): the Calculation Mode dropdown
+# (misc_buffMode = "UNBUFFED", AddUndoState, buildFlag: a recalc through the bridge), Ctrl+Z /
+# Ctrl+Y (UndoHandler over `calcsTab.input`, CalcsTab.lua:323-328), then the Socket Group
+# dropdown (skill_number = 5: Leap Slam; the section's update function refreshes the selectors
+# with RefreshSkillSelectControls(…, "Calcs")) and its hover tooltip (the U30 stand-in). Each
+# step is snapshotted (T4: the Calcs section's Input values).
+#! u39-expect-calcs misc_buffMode" string="UNBUFFED"
+#! u39-expect-calcs name="skill_number" number="5"
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+# Calculation Mode: open, pick "Unbuffed"
+move 500 128
+click LEFTBUTTON
+frames 2
+move 500 145
+frames 1
+click LEFTBUTTON
+frames 3
+snapshot unbuffed
+# undo, redo
+move 1270 790
+key-down CTRL
+press z
+key-up CTRL
+frames 3
+snapshot undone
+key-down CTRL
+press y
+key-up CTRL
+frames 3
+snapshot redone
+# Socket Group: hover (tooltip), open, pick the 5th group
+move 600 92
+frames 2
+click LEFTBUTTON
+frames 2
+move 520 157
+frames 1
+click LEFTBUTTON
+frames 3
+move 1270 790
+frames 2
+snapshot group5
