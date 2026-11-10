@@ -357,6 +357,12 @@ impl App for RustSide {
             .main
             .modes
             .insert("BUILD".to_owned(), pob_app::build::mode());
+        // CCR-0100 C: main.modes.LIST is U18's real BuildList now; these scenarios stub it on
+        // both sides (lua_stubs), so the Rust side gets the PendingMode back before any frame.
+        self.app.cx.app_mut().main.modes.insert(
+            "LIST".to_owned(),
+            Rc::new(pob_app::main_mode::PendingMode::new("LIST")),
+        );
         for s in self.setups.clone() {
             rust_setup(&mut self.app.cx, &s);
         }
