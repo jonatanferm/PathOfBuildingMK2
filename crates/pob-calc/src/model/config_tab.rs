@@ -194,9 +194,15 @@ impl ConfigTab {
 /// and `selIndex = 1` (DropDownControl.lua:45-46). The input/placeholder defaults of L673/L676/L679
 /// are `NewConfigSet`'s (ConfigTab.lua:1289-1296, already applied by `ctor_model`), and
 /// `defaultState` (L683-692) is `config_tab::defaultState`.
+/// Idempotent, like `ctor_model`: PoB runs the constructor once, so a non-empty `varControls`
+/// means it has run, and a second call keeps the controls (and the `SetPlaceholder` /
+/// `selIndex` state written into them since) instead of replacing them.
 impl ConfigTab {
     pub fn ctor_controls_model(&self, data: &'static Data) {
         let varControls = &self.varControls;
+        if !varControls.is_empty() {
+            return;
+        }
         // L261 for _, varData in ipairs(varList) do (section headers carry no var)
         for varData in &data.configOptions {
             if varData.section.is_some() {
