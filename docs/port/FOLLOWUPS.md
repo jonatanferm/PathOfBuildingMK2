@@ -19,13 +19,16 @@ so the suite cannot silently get worse; lowering the bound is part of closing th
 
 ### Gaps behind a bound set to the measured value
 
-- **u0_smoke: `buildOutput` leaves the player output empty** (owners: CS2, CS3, PF-C..PF-G, CA).
-  On all 15 slice5 runs (5 builds x MAIN/CALCS/CALCULATOR) `env.player.output` has 0 keys, the
-  enemy output 0 keys and `activeSkillList` 0 entries. Every run hits the stubs
-  `CalcSetup.lua:488-799`, `:800-1450`, `:1451-1973`, `CalcPerform.lua:1289-1942`, `:1943-2307`,
-  `:2308-2996`, `:2997-3496`, `:3497-3990`, `Calcs.lua:384-870` and `Build.lua:2222-2260`.
-  `tests/u0_smoke.rs` now requires a non-empty output for every run that hits none of the
-  orchestrator stubs (`ORCHESTRATOR_STUBS`); it no longer asserts that stub sites are hit.
+- **u0_smoke: the CALCS runs raise on the PF-B gap** (owner: PF-B). Was "buildOutput leaves the
+  player output empty"; resolved by CA (port/CA, 2026-11-10): the 10 MAIN / CALCULATOR runs now
+  leave 464-698 player output keys, and `tests/u0_smoke.rs` requires a non-empty output for every
+  run that completes. The 5 CALCS runs raise `attempt to perform arithmetic on a nil value` at
+  Calcs.lua:605 (`output.PowerCharges > 0`): `PowerCharges` is nil because `doActorCharges`
+  (CalcPerform.lua:980-1139) is still a stub. The test tolerates a Lua error only on a run that
+  hits a stub, bounded by `MAX_STUB_ERRORS = 5`; lower it to 0 when PF-B lands. Still hit on
+  slice5: `CalcSetup.lua:800-1450` (CS2), `CalcPerform.lua:636-1272` (PF-B) and
+  `CalcsTab.lua:441-472` (PWR, called by `loadBuildFromXML`). u0_smoke now also registers the
+  timeless-jewel LUT file system (slice5_allflame_exp_030 failed to load without it since PS-B).
 - **MS-A: the gated Max/Min (EvalMod) queries compare 0 cases** (owner: MS-A). The summary prints
   `Max/Min (EvalMod ported; gated) 0/0`: the probe script produces no Max/Min query on the
   corpus, so that gate is vacuous. Not bounded (nothing to bound); needs probe coverage.
@@ -72,3 +75,36 @@ Port review follow-ups: open issues the final review left on merged units.
 
 1. Integration with rust-port broke the BM-A acceptance test. PS-B (`BuildAllDependsAndPaths`, 17bdabd) was merged on rust-port as 4733437, and port/BM-A did not contain it. After merging rust-port into port/BM-A, `POB_ORACLE_REQUIRE=1 scripts/port/cargo.sh test -p pob-oracle --test BM-A -- bm_a_corpus` loaded only 23 of 57 builds in Rust. The other 34 raised `Rust Error occurred loading Timeless Jewel data` or `... Glorious Vanity data` (pob-gamedata/src/timeless_lut.rs:1012/1022), because `bm_a_corpus` in crates/pob-oracle/tests/BM-A.rs never registered a timeless-jewel file system. The default `StdJewelFs::new("")` probes `./` and `./src` from the crate directory and finds no data.
    - Integrator note: fixed before this merge. port/BM-A now merges rust-port (5997856) and has ba622fa, which registers `timeless_lut::set_jewel_fs(StdJewelFs { script_path: canonicalize(src), writable: false })` and `set_con_printf(|_| {})` in `bm_a_corpus` (the same as PS-B.rs), and calls `clear_timeless_jewel_luts(None)` after each `run_build`. The acceptance test was re-run on the merged rust-port tree; the result is recorded in the merge report.
+
+## CA
+
+Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracle/tests/CA.rs`).
+
+1. **L6 (end to end) is not met; blocked on CS2 and PF-B** (owners: CS2, PF-B). `ca_l6_corpus`
+   on all57: headline keys 195/741 exact (26.3 %), 0 builds with every headline key exact, all
+   main-output keys 21,822/47,610 exact (45.8 %), CALCS lists 0/171, main-env used-tracking key
+   sets 174/513, misc calculator headline values 156/1248. Cause: `initEnv`'s item segment
+   (CalcSetup.lua:800-1450, CS2) is a stub, so no item mod reaches the player (e.g. Life ~1245,
+   resists at their -60/-45 base on most builds), and every build's CALCS `buildOutput` raises at
+   Calcs.lua:605 because PF-B's `doActorCharges` leaves `output.PowerCharges` nil (57/57; the
+   test catches the CALCS stage and still compares MAIN). The test's floors
+   (`L6_MIN_HEADLINE_EXACT = 195`, `L6_MIN_KEYS_EXACT = 21_822`, `L6_MAX_RUST_ERRORS = 57`) are
+   the measured values; raise them as CS2 / PF-B land, and make headline exact a hard gate then.
+   CA's own blocks are verified on PoB's injected state by `ca_l5_post` (all clean).
+2. **`CalcsTab:BuildOutput` scaffold in CA.rs** (owner: PWR). `power::BuildOutput`
+   (CalcsTab.lua:441-472) is still a stub, so `loadBuildFromXML` computes nothing; CA.rs carries
+   a scaffold copy (`calcsTab_BuildOutput`, `rust_load`: Init's pass plus PoB's `OnFrame`
+   rebuilds, as many as PoB made per the probe counts). PWR replaces it with the real function.
+3. **Injected items carry no mod lines** (owner: ORC-X). `pob-state/1` item dumps hold
+   modList/slotModList/…, not the `*ModLines` that `Item:FindModifierSubstring` reads, so an
+   `ItemCondition` tag with `searchCond` evaluates differently on an injected env. Seen in
+   `ca_l5_post` on allflame_exp_016 / _049 (`Spec:LifeInc` sums Tree:41415, "+15 % Life if no
+   Life on body armour"); counted as harness-limited (`L5_MAX_LIMITED`).
+4. **Skills PoB leaves uncached** (information). On upstream_Dual_Savior (Reflection x2),
+   upstream_Dual_Wield_Cospris_CoC (Ice Spear, Commandment of Frost) and
+   upstream_Generals_Perforate_Zerker (Dash, Portal) PoB has no `GlobalCache.cachedData.MAIN`
+   entry for the skill's uuid after the cost-warning loop, so the Rust loop on the injected state
+   would call `buildActiveSkill` (the full calc on a placeholder build). Why PoB has no entry was
+   not investigated (candidates: `buildActiveSkill`'s "Failed to process skill" path, or a uuid
+   whose env caches under another key). These 3 builds are harness-limited in `ca_l5_post`
+   (cost-warning block only) and are covered only end to end.

@@ -1,0 +1,33 @@
+# CA acceptance probes (crates/pob-oracle/tests/CA.rs). Owned by CA.
+#
+# Line probes inside `calcs.buildOutput` (Modules/Calcs.lua 384-870) at the boundaries of its
+# post-processing: the state between two consecutive probes of one call is exactly one block's
+# in -> out, so the test injects the first probe, runs the Rust block and diffs the second.
+#
+#   ca:399 (after calcFullDPS, L392-397)  -> [MAIN] cost warnings L400-435 -> ca:437
+#   ca:437                                -> [MAIN] spec sums + used-tracking L437-600 -> ca:869
+#   ca:399                                -> [CALCS] buff / combat / curse lists L601-866 -> ca:869
+#
+# `calcs.buildOutput` is called by `CalcsTab:BuildOutput` once in MAIN and once in CALCS mode
+# (CalcsTab.lua:459/461); the probes fire in that order (`ca:399#1` MAIN, `ca:399#2` CALCS).
+
+[[stage]]
+id = "ca:399"
+file = "Modules/Calcs.lua"
+line = 399
+locals = ["build", "mode", "env", "output", "fullDPS"]
+expect = "if mode == \"MAIN\" then"
+
+[[stage]]
+id = "ca:437"
+file = "Modules/Calcs.lua"
+line = 437
+locals = ["build", "mode", "env", "output", "fullDPS"]
+expect = "output.ExtraPoints = env.modDB:Sum(\"BASE\", nil, \"ExtraPoints\")"
+
+[[stage]]
+id = "ca:869"
+file = "Modules/Calcs.lua"
+line = 869
+locals = ["build", "mode", "env", "output", "fullDPS"]
+expect = "return env"
