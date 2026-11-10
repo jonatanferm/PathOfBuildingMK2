@@ -211,7 +211,10 @@ dummy `corpus/P3/stages.toml`.
 
 ### Patched sources
 
-`patcher::patch` copies PoB's `src/` to `target/oracle-src/<sha>/src/`
+`patcher::patch` copies PoB's `src/` to `.parity/patched-src/<sha>/src/`
+(`patcher::shared_root()`: one copy per `<sha>` for every worktree and caller,
+`$POB_ORACLE_SRC_ROOT` overrides; FUP1, CCR-0102 §2. Copies unused for 24 h are
+pruned, `$POB_PATCHED_SRC_MAX_AGE_HOURS`)
 (patched files written, the rest hard-linked; every other entry of the PoB
 checkout symlinked next to it, so `runtime/` and `manifest.xml` resolve) and
 writes `manifest.json` (every site and edit). `<sha>` hashes the patcher

@@ -155,6 +155,7 @@ fn key_str(k: &Key) -> String {
         Key::S(s) => format!("s:{s}"),
         Key::I(i) => format!("i:{i}"),
         Key::B(b) => format!("b:{b}"),
+        Key::F(f) => format!("f:{}", f.get()),
     }
 }
 

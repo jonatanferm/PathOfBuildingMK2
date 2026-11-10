@@ -2090,6 +2090,7 @@ fn key_num(k: Key) -> f64 {
         Key::I(i) => i as f64,
         Key::S(s) => Val::from(s).num(),
         Key::B(_) => lua_error!("attempt to perform arithmetic on a boolean value"),
+        Key::F(f) => f.get(),
     }
 }
 

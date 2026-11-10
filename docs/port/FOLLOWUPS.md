@@ -29,9 +29,6 @@ so the suite cannot silently get worse; lowering the bound is part of closing th
   slice5: `CalcSetup.lua:800-1450` (CS2), `CalcPerform.lua:636-1272` (PF-B) and
   `CalcsTab.lua:441-472` (PWR, called by `loadBuildFromXML`). u0_smoke now also registers the
   timeless-jewel LUT file system (slice5_allflame_exp_030 failed to load without it since PS-B).
-- **MS-A: the gated Max/Min (EvalMod) queries compare 0 cases** (owner: MS-A). The summary prints
-  `Max/Min (EvalMod ported; gated) 0/0`: the probe script produces no Max/Min query on the
-  corpus, so that gate is vacuous. Not bounded (nothing to bound); needs probe coverage.
 
 ### Pre-existing failures seen during the HYG2 runs (not caused by HYG2's assertions)
 
@@ -45,9 +42,6 @@ These assertions were already in the files and fail on 746b103 before any HYG2 b
   model the BM-B test loads has no `enemyRadius` control. Because of this, the HYG2 floors in
   `tests/BM-B.rs` (`TABS_BOUNDS` / `BUFFS_BOUNDS` / `SYNTHETIC_BOUNDS`) come from the last green
   runs on rust-port (148,776 / 3310 / 1302 values compared, 0 / 5 / 0 pending), not from 746b103.
-- **IT-B `item_core_vs_pob`** (owner: IT-B; the Table limitation is U0's `lua_table.rs`). One
-  Craft case fails: `rare#195` (a crafted magic flask with `{range:0.028}`): the port raises
-  `non-integral number keys are not supported by Table (929.1)`; PoB crafts the item.
 
 ### Bounds that are PoB's own nondeterminism
 
@@ -210,37 +204,51 @@ Open issues from the CCR2 final review (owner: whoever next touches scripts/port
    and `*.pyc`). Units branched from port/CCR2 before c477ed9 still carry the tracked files and
    pick up the removal on merge; do not re-add them.
 
-## HYG3 exposed
+## FUP1
 
-Found while fixing HYG3 (shared oracle caches) on port/HYG3 merged with rust-port ef928ff
-(2026-11-10).
+Found while running the touched units' acceptance tests on port/FUP1 (rust-port 85604a9 + FUP1,
+2026-11-10).
 
-1. **OF-C `ofc_l4_costs_passes` fails on allflame_exp_029, allflame_exp_046 and allflame_exp_049**
-   (owner: OF-C, the test; the calc is right). `3 of 53 all57 hits differ (> 2 %)`. Each build
-   has two `ModExtra` entries in `locals.skillModList.mods`: Rust's state has
-   `ChaosMin` / `ChaosMax` BASE 0 from source `Life Flask charges consumed` (the
-   PoisonousConcoction `preDamageFunc`, Data/Skills/act_dex.lua:17423-17428) one time more than
-   PoB's `offence:2174` dump. Cause: the test still replays PoB's recorded
-   `skill:<id>:preDamageFunc` delta onto the state after the segment
-   (tests/OF-C.rs, `if let Some(h) = hook`), as its module doc says, because
-   `runSkillFunc("preDamageFunc")` (CalcOffence.lua:1908) "is OF-A's still unported local
-   function". OF-A has since ported it (`calc_offence/costs_passes.rs:925`
-   `runSkillFunc(ctx, SkillHook::preDamageFunc)`), so the segment runs the hook itself and the
-   replay applies it a second time. Its `NewMod` calls append, so the mods are doubled. Hooks that
-   only assign fields are idempotent, which is why only these three builds differ. Evidence:
-   with the replay disabled locally, the test reports `62 builds, 58 hits, 58 clean, 0 with
-   mismatches` (and the three builds alone are 3/3 clean). Fix: drop the replay (and the
-   `skill:*:preDamageFunc:*@main` part of the selection, with "preDamageFunc replayed in N")
-   and update the module doc.
-2. **Patched PoB copies accumulate in `target/oracle-src`** (owner: HYG3 / the test tooling).
-   Each copy is about 839 MB, one per patch sha (`runner::shared_patch_root`; the main
-   checkout's `target/oracle-src` held 5 on 2026-11-10). Any change to the PoB tree,
-   `docs/port/stages.toml`, the probe Lua or the Lua runtime versions adds one, and nothing
-   removes the old ones. They cannot be pruned automatically while running: another worktree
-   on another branch (another `stages.toml`) may be booting PoB from an older copy. For now,
-   delete `target/oracle-src/<sha>` dirs by hand when no oracle test is running (they are
-   rebuilt on demand). A safe prune would need a use marker (e.g. an mtime touched by
-   `patcher::patch` on every reuse) and an age threshold.
+1. **PF-C `pfc_l4_perform_1289_1943` fails: 55/57 builds clean** (owner: PF-C; dumps probed
+   fresh with `corpus/PF-C/probe.sh`). Identical with PF-C's own `buff_list_order_only` (the
+   pre-FUP1 test, run from a temporary copy) and with the shared
+   `testkit::diff_against_normalised` (55/57, 191 LUA-ORDER-only, 672 model-only both times), so
+   it is not caused by FUP1's move. `allflame_exp_039`: the segment raises `attempt to index a
+   userdata value` (the shape CA's merge fixed for `minion.extra.lifeTable`, CCR-0040; look for
+   a replayed callee that stores a `LifeTable` object where the segment indexes a table).
+   `allflame_exp_000`: 4 mismatches, `env.modDB.mods.BleedImmune` / `CorruptedBloodImmune` come
+   from flask `Item:20` (Flagellant's Basalt Flask of the Iguana) in Rust but from `Item:23`
+   (Seething Divine Life Flask of Sealing) in PoB, i.e. which of two flasks granting the same
+   immunity wins.
+2. **DF-E all57 was red on mixed-run dumps, not on the calc** (resolved in FUP1, recorded for
+   the record). The 139 failing hits of 363 (fullsuite 2026-11-10 02:34: 171/363) paired an
+   `:in` and an `:out` dump of different PoB processes found in `.parity/probe-cache/<sha>/<build-key>/`
+   (or a stale private `target/dfe-probe`), whose string-keyed `pairs` orders differ
+   (`env.auxSkillList[].baseSkillModList`, `env.buffs.*`, buff mod lists: state the segment never
+   touches). `tests/DF-E.rs` now takes its dumps from its own selection entry of the shared probe
+   cache (one run per build): 363/363.
+3. **`DIVERGENCE(calc-item-errors)` can go** (owner: U16, `crates/pob-app/src/main_mode/init.rs`
+   `guard_item`). Its one known case, `rare#195`'s Craft raising "non-integral number keys are
+   not supported by Table (929.1)", is fixed: `Table` takes float keys (CCR-0102 §1) and IT-B's
+   Craft is 207/207. Remove the guard (and the console line) once nothing else needs it.
+4. **Patched-src prune can pull a copy from under a long run** (owner: whoever next touches
+   `crates/pob-oracle/src/patcher.rs` `prune`). A `<.parity>/patched-src/<sha>` copy whose
+   `.last-used` is older than 24 h (`POB_PATCHED_SRC_MAX_AGE_HOURS`) is renamed away even while
+   another process that took it more than 24 h earlier still loads Lua files from it; `keep`
+   protects only the pruning process's own sha. Marker-less legacy copies in `target/oracle-src`
+   go after 72 h the same way, under an older branch still using them. Unlikely at current run
+   lengths; closing it means holding the marker for a run (re-touch it while a process holds the
+   copy, or a per-process lock file the prune checks).
+5. **`runner::shared_patch_root` doc is stale** (owner: the next change to
+   `crates/pob-oracle/src/runner.rs` for another reason). It still says "every worktree shares
+   one copy per sha" of `target/oracle-src`; since FUP1 `patcher::patch` publishes into
+   `patcher::shared_root()` whatever root it is given. Left alone in FUP1 because `runner.rs` is
+   `include_str!`'d into `PROBE_RUNTIME`, so any edit retires every cached probe selection.
+6. **NaN `f64` keys still raise on reads outside item.rs / item_parse.rs** (owner: the units of
+   each file; predates FUP1). Helpers such as `val_key` in `calc_active_skill.rs`,
+   `init_env_skills.rs`, `item_mods.rs` and `passive_tree.rs` build the read key with
+   `Key::from(f64)`, which raises on NaN, where Lua's `t[0/0]` reads nil. FUP1 switched only
+   item.rs / item_parse.rs to `try_num`; the others should read through it too.
 
 ## PF-B
 

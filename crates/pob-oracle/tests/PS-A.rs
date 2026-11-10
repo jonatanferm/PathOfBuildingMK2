@@ -460,6 +460,7 @@ fn kv_sorted_table(t: &Table) -> String {
                 Key::S(s) => s.to_string(),
                 Key::I(i) => i.to_string(),
                 Key::B(b) => b.to_string(),
+                Key::F(f) => tostring_num(f.get()),
             };
             let v = match v {
                 Val::Num(x) => tostring_num(x),

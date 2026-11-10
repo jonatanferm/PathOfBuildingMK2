@@ -225,6 +225,7 @@ fn key_str(k: &Key) -> String {
         Key::S(n) => n.to_string(),
         Key::I(i) => i.to_string(),
         Key::B(b) => b.to_string(),
+        Key::F(f) => pob_lua::tostring_num(f.get()),
     }
 }
 
