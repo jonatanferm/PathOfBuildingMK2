@@ -5209,12 +5209,12 @@ pub(crate) fn opt_254_apply(
     enemyModList: &ModList,
     build: &BuildRef,
 ) {
-    // `build.configTab.varControls['enemyRadius']:SetPlaceholder(n, false)` (EditControl.lua:111-116:
-    // `self.placeholder = tostring(text)`; notify is false) on the model's control-state table
-    // (CCR-0037: a missing control raises Lua's index error).
-    let SetPlaceholder = |text: f64| match build.configTab.varControls.get(n!("enemyRadius")) {
-        Val::Table(control) => control.set(n!("placeholder"), &*tostring_num(text)),
-        other => lua_error!("attempt to index field '?' (a {} value)", other.lua_type()),
+    // `build.configTab.varControls['enemyRadius']:SetPlaceholder(n, false)` on the model's
+    // control-state table (CCR-0037; CCR-0038: `ConfigTab::SetPlaceholder`).
+    let SetPlaceholder = |text: f64| {
+        build
+            .configTab
+            .SetPlaceholder(build, n!("enemyRadius"), &Val::Num(text), false)
     };
     // L788
     if val_eq_str(&val, "Small") {

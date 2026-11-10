@@ -37,12 +37,67 @@ pub fn stub_reset() {
         .clear();
 }
 
+/// Test hook for `unported!` (CCR-0044): called with the site of every hit; `Some(ret)` is the
+/// stub's return value (a `Box` of exactly the stub's return type, e.g. a recorded callee's
+/// decoded `ret`), `None` keeps `Default`. Thread-local; never set outside tests.
+pub type ReplayHook = Box<dyn FnMut(&'static str) -> Option<Box<dyn std::any::Any>>>;
+
+thread_local! {
+    static REPLAY: std::cell::RefCell<Option<ReplayHook>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Install (or with `None` remove) the `unported!` replay hook; returns the previous one.
+pub fn set_replay_hook(h: Option<ReplayHook>) -> Option<ReplayHook> {
+    REPLAY.with(|c| c.replace(h))
+}
+
+/// The installed hook's return value for a hit of `site` (`None` without a hook or when it
+/// declines). The hook is taken out while it runs, so it may call into the calc. A value of
+/// another type than the stub returns is a test bug and panics.
+pub fn replay<T: 'static>(site: &'static str) -> Option<T> {
+    let mut h = REPLAY.with(|c| c.borrow_mut().take())?;
+    let r = h(site);
+    REPLAY.with(|c| {
+        let mut b = c.borrow_mut();
+        if b.is_none() {
+            *b = Some(h);
+        }
+    });
+    r.map(|b| match b.downcast::<T>() {
+        Ok(v) => *v,
+        Err(_) => panic!(
+            "unported! replay hook for {site}: value is not a {}",
+            std::any::type_name::<T>()
+        ),
+    })
+}
+
 /// Unported body: logs once per site, counts the hit (`stub_report()`),
-/// returns `Default` (D9).
+/// returns `Default` (D9), or the replay hook's value ([`set_replay_hook`], tests only).
 #[macro_export]
 macro_rules! unported {
     ($site:literal) => {{
         $crate::stub::hit($site);
-        Default::default()
+        $crate::stub::replay($site).unwrap_or_default()
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    fn stub_f64() -> f64 {
+        crate::unported!("test:replay-f64")
+    }
+
+    #[test]
+    fn replay_hook_answers_unported_sites() {
+        assert_eq!(stub_f64(), 0.0);
+        let prev = super::set_replay_hook(Some(Box::new(|site| {
+            (site == "test:replay-f64").then(|| Box::new(7.5_f64) as Box<dyn std::any::Any>)
+        })));
+        assert!(prev.is_none());
+        assert_eq!(stub_f64(), 7.5);
+        super::set_replay_hook(None);
+        assert_eq!(stub_f64(), 0.0);
+        assert!(super::stub_report().contains(&("test:replay-f64", 3)));
+    }
 }

@@ -77,20 +77,6 @@ fn mod_value(v: Val) -> Value {
     }
 }
 
-/// `modDB:NewMod(name, "BASE", value)` without a source (L777-L790: `createMod` leaves
-/// `source` nil when no string follows the value).
-fn new_mod_no_source(modDB: &ModDB, name: Name, value: f64) {
-    modDB.AddMod(Arc::new(mod_tools::createMod(
-        name,
-        ModType::BASE,
-        value,
-        None,
-        0,
-        0,
-        &[],
-    )));
-}
-
 /// `t[node.name]` as a key: a nil `name` would be a nil index (a Lua error on write, and the
 /// arithmetic on the nil read errors first on the remove path).
 fn name_key(node: &Node) -> Key {
@@ -631,22 +617,22 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
     // L778
     if allocatedNotableCount > 0.0 {
         // L779
-        new_mod_no_source(&modDB, n!("Multiplier:AllocatedNotable"), allocatedNotableCount);
+        modDB.NewMod(n!("Multiplier:AllocatedNotable"), ModType::BASE, allocatedNotableCount, None, 0, 0, &[]);
     }
     // L781
     if allocatedKeystoneCount > 0.0 {
         // L782
-        new_mod_no_source(&modDB, n!("Multiplier:AllocatedKeystone"), allocatedKeystoneCount);
+        modDB.NewMod(n!("Multiplier:AllocatedKeystone"), ModType::BASE, allocatedKeystoneCount, None, 0, 0, &[]);
     }
     // L784
     if allocatedMasteryCount > 0.0 {
         // L785
-        new_mod_no_source(&modDB, n!("Multiplier:AllocatedMastery"), allocatedMasteryCount);
+        modDB.NewMod(n!("Multiplier:AllocatedMastery"), ModType::BASE, allocatedMasteryCount, None, 0, 0, &[]);
     }
     // L787
     if allocatedMasteryTypeCount > 0.0 {
         // L788
-        new_mod_no_source(&modDB, n!("Multiplier:AllocatedMasteryType"), allocatedMasteryTypeCount);
+        modDB.NewMod(n!("Multiplier:AllocatedMasteryType"), ModType::BASE, allocatedMasteryTypeCount, None, 0, 0, &[]);
     }
     // L790
     let lifeMastery = allocatedMasteryTypes.get(n!("Life Mastery"));

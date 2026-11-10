@@ -1,6 +1,6 @@
 # CCR-0049: OF-H — ailment loop body B: closure calls, shadowed loop locals, `isValueInArray`
 
-**Status: needs code (CCR2, 2026-11-10; ORC-X2: §1-§4). See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by ORC-X2 (§1 `ailments_b.rs` calls `super::ailments_a` and the private `ccr0035` module is deleted; §2 `run_segment` fills `OffenceCtx.output/breakdown` from the actor at `offence:3346`/`4990`; §3 `common::isValueInArray`; §4 state_dump.lua writes another env's actors, mod stores and actor outputs in full, so `allflame_exp_013 offence:4990#4` now injects and passes). See AMENDMENTS A9.**
 
 Filed status: proposed by OF-H (2026-11-09). Nothing frozen is edited; the workarounds live in OF-H's
 own files (`crates/pob-calc/src/modules/calc_offence/ailments_b.rs`,

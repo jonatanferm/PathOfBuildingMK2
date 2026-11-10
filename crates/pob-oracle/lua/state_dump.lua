@@ -24,8 +24,9 @@
 --   * markers (never descended): {"$data": "<dump path>"} for tables owned by
 --     PoB's `data`, {"$node": id} / {"$treeNode": id} for passive tree nodes,
 --     {"$object": className} for PoB class instances other than mod stores
---     and items, {"$foreign": {"env", "path"}} for the actors / mod stores /
---     active skills of other calc envs than the dump's own;
+--     and items, {"$foreign": {"env", "path"}} for the envs / breakdowns / active
+--     skills of other calc envs than the dump's own (their actors, mod stores and
+--     actors' outputs are written in full where reached: inlineForeign);
 --   * mod stores: {"$store": "ModDB"|"ModList", "mods": ..., <fields>} with
 --     ModDB mods grouped by name (names sorted, PoB's order within a name),
 --     ModList mods in PoB's order, each mod in pob_calc::Mod's JSON shape plus
@@ -355,6 +356,22 @@ local function addForeign(ctx, own, obj, envId, path)
 	end
 end
 
+-- Objects of other envs that are dumped in full where the dump reaches them (not as
+-- {"$foreign": ...}): their mod stores (a copied skill's `skillModList` chains to the source
+-- env's `modDB` through `baseSkillModList.parent`, CalcActiveSkill.lua:184/492, and every query
+-- of the copy falls through to it) and their actors' `output` tables (`activeSkill.mirage.output`,
+-- CalcMirages.lua; read by CalcOffence.lua:6213-6247) and the actors themselves. Their envs,
+-- active skills and breakdowns stay markers. ORC-X2 (CCR-0041 §5, CCR-0044, CCR-0049 §4, CCR-0064 §1, CCR-0075).
+local function inlineForeign(obj, path)
+	local cls = type(obj) == "table" and classOf(obj)
+	if cls == "ModDB" or cls == "ModList" then return true end
+	-- the actors too: a copied skill keeps its source's `actor` (CalcActiveSkill.lua:181), and
+	-- that is the context actor of every query of its stores (ModStore:EvalMod reads
+	-- `self.actor`: conditions, multipliers, stats)
+	if path == "player" or path == "enemy" or path == "minion" then return true end
+	return path:match("%.output$") ~= nil
+end
+
 local function envObjects(env, f)
 	if type(env) ~= "table" then return end
 	f(env, "")
@@ -434,7 +451,9 @@ local function prepare(ctx)
 	end
 	sort(envs, function(a, b) return tonumber(a[2]:sub(4)) < tonumber(b[2]:sub(4)) end)
 	for _, e in ipairs(envs) do
-		envObjects(e[1], function(obj, path) addForeign(ctx, own, obj, e[2], path) end)
+		envObjects(e[1], function(obj, path)
+			if not inlineForeign(obj, path) then addForeign(ctx, own, obj, e[2], path) end
+		end)
 	end
 end
 
@@ -978,6 +997,10 @@ function S.encodeDoc(doc)
 	head[#head + 1] = '"kind":' .. quote(doc.kind)
 	head[#head + 1] = '"n":' .. jnum(doc.n)
 	head[#head + 1] = '"probe":' .. jstr(doc.probe)
+	-- the probe process (one id per process; CCR-0067 §3)
+	if __probe_cfg and type(__probe_cfg.runId) == "string" then
+		head[#head + 1] = '"run":' .. jstr(__probe_cfg.runId)
+	end
 	head[#head + 1] = '"root":'
 	ctx:put(concat(head, ","))
 	emitValue(ctx, root, "")

@@ -89,26 +89,6 @@ fn stub_counts() -> BTreeMap<&'static str, u64> {
     pob_calc::stub::stub_report().into_iter().collect()
 }
 
-/// CCR-0036 (filed by OF-G; OF-D's duplicate CCR-0065 is superseded by it): `inject` decodes every local as `Kind::Any`, so the
-/// `passList` array arrives as a plain table, which the `Shared<Vec<Table>>` ctx
-/// field rejects. Rebuild it from the same pass tables (identity kept).
-fn pass_list((k, v): (String, Val)) -> (String, Val) {
-    use pob_calc::probe::ProbeField;
-    if k != "passList" {
-        return (k, v);
-    }
-    let Val::Table(t) = &v else { return (k, v) };
-    let mut list = Vec::new();
-    for (_, p) in t.ipairs() {
-        match p {
-            Val::Table(p) => list.push(p),
-            _ => return (k, v),
-        }
-    }
-    let v = pob_lua::Shared::new(list).to_val();
-    (k, v)
-}
-
 /// The hit runs inside another env's call (`mirages` builds and performs an
 /// env of its own) and its dump holds `$foreign` markers.
 fn foreign_env(d: &StateDump) -> bool {
@@ -141,7 +121,7 @@ fn run_one(xml: &Path, stem: &str, din: &StateDump, dout: &StateDump) -> Outcome
         Ok(i) => i,
         Err(e) => return Outcome::Raised(format!("inject: {e}"), Vec::new()),
     };
-    let locals: Vec<(String, Val)> = inj.locals.into_iter().map(pass_list).collect();
+    let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
     // does `runSkillFunc("postCritFunc")` reach a hook (CalcOffence.lua:510-513)?
     let has_post_crit = locals
         .iter()

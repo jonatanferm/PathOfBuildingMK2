@@ -15,8 +15,7 @@
 //! * `triggeredBy.mainSkill` (an active skill stored on the triggering skill effect) is
 //!   `triggeredBy.extra.mainSkill` as a `Val::Obj` (the handlers read it there, TR-A).
 //! * `NewMod` with a tag table in the source position (`DealNo*` mods of Snipe, 1449-1453) has a
-//!   nil source (ModTools.lua:36-41); `ModStore::NewMod` cannot pass nil (CCR-0063), so those
-//!   mods go through `createMod(…, None, …)`.
+//!   nil source (ModTools.lua:36-41): `NewMod(…, None, …)` (CCR-0063).
 #![allow(non_snake_case)]
 // closures keep the Lua parameter lists `function(env, skill)`
 #![allow(unused_variables)]
@@ -44,7 +43,6 @@ use crate::modules::calc_tools as calcLib;
 use crate::modules::calcs::buildActiveSkill;
 use crate::modules::common::cacheSkillUUID;
 use crate::prelude::*;
-use pob_gamedata::mod_tools::createMod;
 use pob_gamedata::tag;
 
 /// The `configTable` keys, in Lua order (CalcTriggers.lua 902-1582).
@@ -253,18 +251,6 @@ fn melee_or_attack() -> Option<SkillCondFn> {
 /// `function(env, skill) return (skill.skillTypes[SkillType.Damage] or skill.skillTypes[SkillType.Attack]) end`
 fn damage_or_attack() -> Option<SkillCondFn> {
     cond(|env, skill| has(skill, SkillType::Damage) || has(skill, SkillType::Attack))
-}
-
-/// `NewMod(name, type, value, { tag })`: the tag is in the source position, so the source is nil
-/// (ModTools.lua:36-41; CCR-0063).
-fn new_mod_nosource(
-    store: &ModStore,
-    name: Name,
-    ty: ModType,
-    value: impl Into<Value>,
-    tags: &[Tag],
-) {
-    store.AddMod(Arc::new(createMod(name, ty, value, None, 0, 0, tags)));
 }
 
 // ---- configTable --------------------------------------------------------------------------------
@@ -2058,43 +2044,53 @@ fn snipe(env: &EnvRef) -> Option<TriggerConfig> {
             // L1432 Snipe is being used as a trigger source, it triggers other skills but does no damage it self
             let skillModList = pmain(env).skillModList.get();
             // L1433
-            new_mod_nosource(
-                &skillModList,
+            skillModList.NewMod(
                 n!("DealNoLightning"),
                 ModType::FLAG,
                 true,
+                None,
+                0,
+                0,
                 &[tag!({ type = SkillName, skillName = "Snipe", includeTransfigured = true })],
             );
             // L1434
-            new_mod_nosource(
-                &skillModList,
+            skillModList.NewMod(
                 n!("DealNoCold"),
                 ModType::FLAG,
                 true,
+                None,
+                0,
+                0,
                 &[tag!({ type = SkillName, skillName = "Snipe", includeTransfigured = true })],
             );
             // L1435
-            new_mod_nosource(
-                &skillModList,
+            skillModList.NewMod(
                 n!("DealNoFire"),
                 ModType::FLAG,
                 true,
+                None,
+                0,
+                0,
                 &[tag!({ type = SkillName, skillName = "Snipe", includeTransfigured = true })],
             );
             // L1436
-            new_mod_nosource(
-                &skillModList,
+            skillModList.NewMod(
                 n!("DealNoChaos"),
                 ModType::FLAG,
                 true,
+                None,
+                0,
+                0,
                 &[tag!({ type = SkillName, skillName = "Snipe", includeTransfigured = true })],
             );
             // L1437
-            new_mod_nosource(
-                &skillModList,
+            skillModList.NewMod(
                 n!("DealNoPhysical"),
                 ModType::FLAG,
                 true,
+                None,
+                0,
+                0,
                 &[tag!({ type = SkillName, skillName = "Snipe", includeTransfigured = true })],
             );
         }

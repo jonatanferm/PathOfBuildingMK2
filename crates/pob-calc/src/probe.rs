@@ -3006,7 +3006,7 @@ mod imp {
             let is_fn = v
                 .obj::<Marker>()
                 .is_some_and(|m| m.0.get("$fn").is_some());
-            if !c.probe_set(k, v) && !is_fn {
+            if !c.probe_set(k, v) && !table_list_set(c, k, v) && !is_fn {
                 bad.push(format!("{k} = {}", v.lua_type()));
             }
         }
@@ -3015,6 +3015,23 @@ mod imp {
         } else {
             Err(format!("injected locals of the wrong type: {}", bad.join(", ")))
         }
+    }
+
+    /// A local of a `Shared<Vec<Table>>` field (`OffenceCtx.passList`) arrives as the plain Lua
+    /// sequence of tables (`inject` decodes locals with `Kind::Any`): hand the field a fresh
+    /// `Shared` of the same element tables (identity kept). A local is never aliased by another
+    /// table, so this is the same state; typed fields of injected objects keep the strict
+    /// conversion (their sequences may be aliased, e.g. `socketGroup.explodeSources`). CCR-0036.
+    fn table_list_set<C: ProbeState>(c: &mut C, k: &str, v: &Val) -> bool {
+        let Some(t) = v.table() else { return false };
+        let mut list = Vec::new();
+        for (_, e) in t.ipairs() {
+            match e.table() {
+                Some(e) => list.push(e),
+                None => return false,
+            }
+        }
+        c.probe_set(k, &Shared::new(list).to_val())
     }
 
     fn ctx_out<C: ProbeState>(c: &C, out: &mut Vec<(String, Val)>) {
@@ -3114,8 +3131,26 @@ mod imp {
                 let skill = get("activeSkill")
                     .obj::<ActiveSkill>()
                     .ok_or("local activeSkill is not an active skill")?;
-                let mut c = co::OffenceCtx::init(&env()?, &actor()?, &skill);
+                let actor = actor()?;
+                let mut c = co::OffenceCtx::init(&env()?, &actor, &skill);
                 ctx_fill(&mut c, locals)?;
+                if matches!(id, "offence:3346" | "offence:4990") {
+                    // In the pass bodies `output`/`breakdown` are the loop locals (CalcOffence.lua
+                    // 2610/2613, 4168/4171), which fill the pass locals below; the function-level
+                    // ones are `actor.output`/`actor.breakdown` (354/356), never reassigned. CCR-0049 §2.
+                    c.output = actor.output.get();
+                    c.breakdown = actor.breakdown.get();
+                }
+                if !matches!(id, "offence:362" | "offence:1037" | "offence:1692") {
+                    // The module upvalues `globalOutput, globalBreakdown` (65/67) are not dumped.
+                    // From 2174 on every segment runs after (or, for 2174/2607/4165, begins with)
+                    // `globalOutput, globalBreakdown = output, breakdown` (2176/2607/4165), which
+                    // copies the function-level locals. CCR-0075.
+                    crate::module_state::OFFENCE_STATE.with(|s| {
+                        s.globalOutput.set(Some(actor.output.get()));
+                        s.globalBreakdown.set(actor.breakdown.get());
+                    });
+                }
                 let pass = || get("pass").table().ok_or("local pass is not a table");
                 let mut pass_out = Vec::new();
                 let f = match id {

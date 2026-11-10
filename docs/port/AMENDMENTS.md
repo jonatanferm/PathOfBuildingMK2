@@ -360,3 +360,41 @@ until item 10 leaves one `formatNumSep` marker (two cover it today).
 - **E5. CCR-0046.** `calcSkillDuration(…, env: Option<&EnvRef>, enemyDB: Option<&ModDB>)` changes a
   frozen OF-A function called by OF-A..OF-I, PF-E and the skill hooks; SK-A's private
   `calcSkillDuration_noEnv` is the alternative.
+
+## A9. A8 needs-code items done by ORC-X2 (2026-11-10)
+
+ORC-X2 implemented part of the A8 "Needs code" list once, centrally, and deleted the per-unit
+copies and workarounds it replaces. Items not listed here are still open as A8 describes them.
+
+| A8 item | What was built | Workarounds deleted |
+|---|---|---|
+| 2 `passList` (CCR-0036; 0065 superseded) | `probe::ctx_fill` hands a plain Lua sequence of tables to a `Shared<Vec<Table>>` ctx field (`table_list_set`). `ProbeField::from_val` stays strict: a lenient one also changes how `inject` fills typed fields of injected objects, and those sequences can be aliased (`socketGroup.explodeSources` is `env.explodeSources`; tried, 27 OF-G failures) | the `passList` rebuilds in `tests/OF-{D,E,F,G,H,I}.rs` |
+| 4 `run_segment` state (CCR-0075, CCR-0049 §2) | for every offence stage from `offence:2174` on, `run_segment` sets `OFFENCE_STATE.globalOutput/globalBreakdown` from the injected `actor` (CalcOffence.lua 2176/2607/4165 copy the function-level `output`/`breakdown`, 354/356). At `offence:3346`/`4990` it fills `OffenceCtx.output/breakdown` from the actor; the loop locals fill the pass locals | the `OFFENCE_STATE` seeding in `tests/OF-F.rs`, `tests/OF-H.rs` |
+| 6 same-run pairing (CCR-0041 §4, 0067 §3) | `testkit::find_pair` (both dumps from the first directory that holds both; `segment_diff` uses it). Every dump now carries `"run": "<pid>-<nanos>"` of its probe process (`runner::probe_prelude` → `__probe_cfg.runId` → state_dump.lua `encodeDoc`; `StateDump::run`), and `testkit::same_run` (called by `segment_mismatches`) reports a pair from two processes as an error instead of diffing it. Dumps made before ORC-X2 have no id and pass | DF-E's private pairing (`tests/DF-E.rs` uses `testkit::{find_pair, segment_mismatches}`) |
+| 3 `$foreign` (CCR-0041 §5, 0044 §2, 0049 §4, 0064 §1, 0075) | state_dump.lua `inlineForeign`: another env's **actors, mod stores and actor `output` tables** are written in full where the dump reaches them; its envs, active skills and breakdowns stay `{"$foreign": …}` markers. A copied skill's `skillModList.actor` and `baseSkillModList.parent` (CalcActiveSkill.lua:181/184/492) and `activeSkill.mirage.output` therefore inject with their contents. New dumps only: the shared probe cache keeps its old dumps (another patched-source sha) | — (the tests' foreign classification stays, it now matches only hits whose dump still reaches a marker) |
+| 1 (part) callee seam (CCR-0044) | `pob_gamedata::stub::{set_replay_hook, replay, ReplayHook}` (re-exported by `pob_calc::stub`): `unported!` returns the hook's value when one is installed (tests only), else `Default` | — (the shared `callee!` seam, `testkit::segment_diff_with_replay`, the `[[function]]` probes for OF-A's helpers and the switch of the six per-unit seams are still open) |
+| 8 (part) (CCR-0088 §2) | `inject::inject_keep` (`inject` without the registry reset) | — (U15's bridge still injects the main env last; `inject_bound`, §1, is open) |
+| 9 (part) `NewMod`/`ReplaceMod` source (CCR-0063, 0094 §5) | `source: impl ModSourceArg<'s>`: any `&T: AsRef<str>` (every existing call site) or `Option<&str>` (nil) | the local no-source helpers in `calc_defence/recovery.rs`, `calc_perform/buffs.rs`, `calc_setup/init_env_base.rs`, `calc_triggers/{config_table,handlers}.rs` |
+| 10 (part) shared helpers | `modules::common::isValueInArray` (Common.lua:569-575, generic, 1-based index); `ConfigTab::{varControl, SetPlaceholder, SelByValue}` (CCR-0038); `pob_lua::{lj_num2int, lua_tointeger}` (CCR-0033 §1) | `ailments_b.rs`' private `isValueInArray` and `mod ccr0035` (now `use super::ailments_a as closures`, CCR-0049 §1, §3); `calc_active_skill.rs`' `isValueInArray`; `est_pools.rs`' copies of DF-A's `isElemental`/`dmgTypeList`/`allyLifePoolList`/`calcLifeHitPoolWithLossPrevention` (CCR-0067 §1-§2); `apply_b.rs`' control helpers (thin delegates now) and `apply_a.rs`' `enemyRadius` placeholder write; `luastr::{lua_int, lua_integer}` (re-exports); U10's `tooltip::wrap_string` copy (re-export of `crate::wrap::wrap_string`, CCR-0073 D) |
+
+New shared testkit API: `find_pair`, `same_run`, `segment_diff_dumps`, `segment_mismatches`,
+`run_dump`/`SegmentRun`, `panic_text`.
+
+Still open from A8 (not touched by ORC-X2): item 1 apart from the stub hook; item 3 for
+foreign envs/skills/breakdowns; items 5, 7, 8 §1, 11-17; from item 9 the insertion-ordered
+`StoreMods::DB`, `list_at/list_remove/list_set`, G1a; from item 10 the `MainOptions`
+thread-local, `formatNumSep`/`lua-utf8` in pob-lua, `math.random`, U8's local
+`normalize`/`diff`.
+
+Verification (ORC-X2, one test binary at a time; before = rust-port 571c0c9, after = ORC-X2):
+OF-D all57 1090 clean + 17 foreign → 1107/1107 clean, unit corpus 333 + 11 foreign → 344/344
+(fresh probes); OF-G 103 ok + 2 foreign → 105 ok; OF-H 233 pass + 1 foreign-ref → 234 pass
+(18 stub-blocked on PF-B's `actionSpeedMod` both times); OF-E 1114 clean / 28 stub-blocked /
+21 mirage-foreign, OF-F 3346 1148 + 21 foreign-parent and 3957 1149, OF-I 54 clean + 4 foreign,
+DF-C 3/14/57, PF-E 24/57, CO-A 1741/1741, CO-B 2407/2407, AS 56/56, CS1 2590/2590, TR-A
+563/563, ORC-X unchanged (all round trips exact): identical before and after (these read the
+shared probe cache, whose dumps predate the state_dump.lua change). DF-E corpus 42/42 both; its
+all57 leg fails its 98% gate before and after alike (171/363 on the probe cache's mixed-run
+dumps), an input problem the run ids now report for new dumps.
+After rebasing onto rust-port 85604a9 (PF-B merged): OF-G 105/105, OF-H 252 pass / 0
+stub-blocked, OF-D 1107/1107 + 344/344, DF-C 3/14/57, CO-B 2407/2407, ORC-X unchanged.

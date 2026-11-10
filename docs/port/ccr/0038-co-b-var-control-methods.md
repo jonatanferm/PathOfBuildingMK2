@@ -1,6 +1,6 @@
 # CCR-0038: CO-B — control methods on `ConfigTab.varControls` (SetPlaceholder, SelByValue)
 
-**Status: needs code (CCR2, 2026-11-10; ORC-X2). See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by ORC-X2 (`ConfigTab::{varControl, SetPlaceholder, SelByValue}` in `model/config_tab.rs`; `apply_b.rs` delegates to them, `apply_a.rs` `enemyRadius` uses `SetPlaceholder`). See AMENDMENTS A9.**
 
 **Filed status: proposed (unit CO-B).** No frozen signature changes. Builds on CCR-0037 (CO-A: the
 model never populates `varControls`). CO-B works around both locally in

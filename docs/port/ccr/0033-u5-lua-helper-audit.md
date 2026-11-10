@@ -1,6 +1,6 @@
 # CCR-0033: U5 Lua-helper audit: gaps, `lua-utf8`, and oracle shims
 
-**Status: applied 2026-11-10 by CCR2 (§5 ui doc §8 rule 8, §6 ui doc §13 item 15); §1-§4 need code. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by CCR2 (§5 ui doc §8 rule 8, §6 ui doc §13 item 15); §1-§4 need code. See AMENDMENTS A8. ORC-X2 (2026-11-10) applied §1 (`pob_lua::{lj_num2int, lua_tointeger}`; `luastr::{lua_int, lua_integer}` re-export them); §2-§4 still need code.**
 
 **Filed status: proposed** (U5, ui doc §12.3). Nothing here edits `pob-lua` or the oracle crates: U5
 worked around every item locally (marked `CCR-0033` in `crates/pob-ui-core/src/luastr.rs`).

@@ -1,6 +1,6 @@
 # CCR-0088: U15 — inject bound to the live build model (socket groups, gem instances, items), several documents per registry
 
-**Status: needs code (CCR2, 2026-11-10; ORC-X2). See AMENDMENTS A8.**
+**Status: needs code (CCR2, 2026-11-10; ORC-X2). See AMENDMENTS A8. ORC-X2 (2026-11-10) added `inject::inject_keep` (§2; U15's bridge is not switched to it yet); §1 `inject_bound` still needs code.**
 
 Filed status: proposed by U15 (2026-11-10). Not blocking: U15 works around both items locally
 (`crates/pob-ui-oracle/src/lua_calc.rs`, marked `// CCR-0088`).

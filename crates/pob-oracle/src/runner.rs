@@ -121,6 +121,16 @@ pub fn hit_file_name(hit: &str) -> String {
     format!("{s}.json")
 }
 
+/// An id for one probe process (`<pid>-<unix nanos>`): every dump it writes carries it as
+/// `"run"`, so a `:in`/`:out` pair from different processes (a probe cache directory refilled
+/// with a partial selection) is detected instead of diffed (CCR-0067 §3, `testkit::same_run`).
+fn run_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    format!("{}-{nanos}", std::process::id())
+}
+
 /// The Lua run before PoB boots: quiet print, `__probe_cfg`, the encoder,
 /// provenance (when on) and the probe runtime.
 #[must_use]
@@ -128,8 +138,9 @@ pub fn probe_prelude(src_root: &str, out_dir: &Path, build: &str, opts: &ProbeOp
     let select: Vec<String> = opts.select.iter().map(|s| lua_str(s)).collect();
     format!(
         // each file in its own block: its locals stay its own
-        "{quiet}\n__probe_cfg = {{ outDir = {out}, build = {build}, root = {root}, select = {{ {sel} }}, maxDumps = {max}, provenance = {prov} }}\ndo\n{dump}\nend\ndo\n{provlua}\nend\ndo\n{probe}\nend\n",
+        "{quiet}\n__probe_cfg = {{ outDir = {out}, build = {build}, root = {root}, select = {{ {sel} }}, maxDumps = {max}, provenance = {prov}, runId = {run} }}\ndo\n{dump}\nend\ndo\n{provlua}\nend\ndo\n{probe}\nend\n",
         quiet = crate::oracle::QUIET_PRELUDE,
+        run = lua_str(&run_id()),
         out = lua_str(&out_dir.to_string_lossy()),
         build = lua_str(build),
         root = lua_str(src_root),

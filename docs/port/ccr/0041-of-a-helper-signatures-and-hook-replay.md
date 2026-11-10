@@ -1,6 +1,6 @@
 # CCR-0041: OF-A — helper signatures that cannot say nil, and skill-hook replay for L4
 
-**Status: applied 2026-11-10 by CCR2 (§2, §3: calc doc §7.2, §9.2); §1, §4, §5 need code. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by CCR2 (§2, §3: calc doc §7.2, §9.2); §1, §4, §5 need code. See AMENDMENTS A8. ORC-X2 (2026-11-10) applied §4 (`testkit::find_pair`, dump run ids + `testkit::same_run`) and §5 (another env's actors, mod stores and outputs are dumped in full); §1 still needs code (A8 item 12). See AMENDMENTS A9.**
 
 Filed status: proposed by OF-A (2026-11-09). §1 is worked around locally (frozen signature kept),
 §2 is applied in OF-A's own file (no other caller), §3 adds a small probe hook to

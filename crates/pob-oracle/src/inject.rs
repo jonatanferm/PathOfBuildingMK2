@@ -83,6 +83,15 @@ pub struct Injected {
 /// graph per thread at a time).
 pub fn inject(dump: &StateDump, build: &BuildRef) -> Result<Injected, String> {
     probe::registry_reset();
+    inject_keep(dump, build)
+}
+
+/// [`inject`] without the registry reset: the registry's side entries (object-keyed table
+/// entries, absent-field marks, `$foreign` placeholders) of graphs injected earlier on this
+/// thread are kept, so several documents can be injected one after the other (the caller
+/// resets once, `pob_calc::probe::registry_reset`). The GlobalCache is still the last
+/// document's. CCR-0088 §2.
+pub fn inject_keep(dump: &StateDump, build: &BuildRef) -> Result<Injected, String> {
     pob_calc::global_cache::clear_all();
     run(dump, build, None)
 }

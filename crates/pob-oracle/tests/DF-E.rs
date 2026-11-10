@@ -25,7 +25,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use pob_calc::lua_table::Val;
 use pob_oracle::diff::{Mismatch, MismatchKind};
 use pob_oracle::oracle::find_parity_dir;
 use pob_oracle::schema::StateDump;
@@ -98,46 +97,16 @@ fn hits(build: &Path) -> BTreeSet<u64> {
     out
 }
 
-/// One L4 run: `testkit::segment_diff` with the mismatches kept as values.
+/// One L4 run: `testkit::segment_diff` with the mismatches kept as values. Both dumps come
+/// from one directory, i.e. one PoB process (`testkit::find_pair`, CCR-0067 §3).
 fn seg_mismatches(build: &Path, n: u64) -> Result<(Vec<Mismatch>, StateDump), String> {
     let s = stem(build);
     let (hin, hout) = (format!("{STAGE_IN}#{n}"), format!("{STAGE_OUT}#{n}"));
-    // Both dumps from one directory, i.e. one PoB process: dumps of different runs (other
-    // patched-source shas in the probe cache) differ in PoB's per-process `pairs` order.
-    let (pin, pout) = dump_dirs(build)
-        .into_iter()
-        .find_map(|d| {
-            let one = std::slice::from_ref(&d);
-            Some((testkit::find_dump(one, &hin)?, testkit::find_dump(one, &hout)?))
-        })
+    let (pin, pout) = testkit::find_pair(&dump_dirs(build), &hin, &hout)
         .ok_or_else(|| format!("missing dumps {hin} + {hout} in one directory"))?;
     let din = StateDump::load(&pin).map_err(|e| format!("{}: {e}", pin.display()))?;
     let dout = StateDump::load(&pout).map_err(|e| format!("{}: {e}", pout.display()))?;
-    let model = testkit::load_build(build).unwrap_or_else(testkit::empty_build);
-    let inj = pob_oracle::inject::inject(&din, &model).map_err(|e| format!("inject {hin}: {e}"))?;
-    let locals: Vec<(String, Val)> = inj.locals.into_iter().collect();
-    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        pob_calc::probe::run_segment(&din.probe, &locals)
-    }));
-    let after = match run {
-        Ok(Ok((_flow, after))) => after,
-        Ok(Err(e)) => return Err(format!("run {hin}: {e}")),
-        Err(p) => {
-            let msg = p
-                .downcast_ref::<pob_lua::LuaError>()
-                .map(|e| e.0.clone())
-                .or_else(|| p.downcast_ref::<String>().cloned())
-                .or_else(|| p.downcast_ref::<&str>().map(|s| (*s).to_owned()))
-                .unwrap_or_else(|| "panic".to_owned());
-            return Err(format!("run {hin}: {msg}"));
-        }
-    };
-    let env = after
-        .iter()
-        .find(|(k, _)| k == "env")
-        .and_then(|(_, v)| v.obj::<pob_calc::env::Env>())
-        .or(inj.env);
-    Ok((testkit::diff_against(&dout, env.as_ref(), &after, s), din))
+    Ok((testkit::segment_mismatches(build, s, &din, &dout)?, din))
 }
 
 fn key(m: &Mismatch) -> String {
