@@ -1190,7 +1190,9 @@ mod oracle_side {
         }
         eprintln!("CA L5: {} builds, {} PoB runs failed", builds.len(), pob_failed.len());
         assert!(pob_failed.is_empty(), "PoB runs failed: {pob_failed:#?}");
-        let full = std::env::var_os("CA_BUILDS").is_none() && std::env::var_os("CA_LIMIT").is_none();
+        let full = std::env::var_os("CA_BUILDS").is_none()
+            && std::env::var_os("CA_LIMIT").is_none()
+            && !pob_testpaths::quick_corpus();
         for ((name, b), max_limited) in
             [("cost warnings", &cost), ("used-tracking", &main), ("CALCS lists", &calcs)].into_iter().zip(L5_MAX_LIMITED)
         {
@@ -1439,7 +1441,10 @@ mod oracle_side {
         assert!(pob_failed.is_empty(), "PoB runs failed: {pob_failed:#?}");
         // L6 is not met while CS2 / PF-B are stubs: floors at the measured values keep the
         // suite from getting worse (docs/port/FOLLOWUPS.md "CA"); full corpus only.
-        if std::env::var_os("CA_BUILDS").is_none() && std::env::var_os("CA_LIMIT").is_none() {
+        if std::env::var_os("CA_BUILDS").is_none()
+            && std::env::var_os("CA_LIMIT").is_none()
+            && !pob_testpaths::quick_corpus()
+        {
             assert!(t.headline_exact >= L6_MIN_HEADLINE_EXACT, "headline exact {} < floor {L6_MIN_HEADLINE_EXACT}", t.headline_exact);
             assert!(t.keys_exact >= L6_MIN_KEYS_EXACT, "keys exact {} < floor {L6_MIN_KEYS_EXACT}", t.keys_exact);
             assert!(t.rust_errors.len() <= L6_MAX_RUST_ERRORS, "{} Rust errors > bound {L6_MAX_RUST_ERRORS}", t.rust_errors.len());
