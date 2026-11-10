@@ -72,16 +72,42 @@ When the inner mod has no source of its own, Lua writes `mod.source` (and
 `mod.value.mod.source` for a nested payload) into the table that also lives inside the
 actor's `EnemyModifier` mod, and the enemy's ModDB holds that very table.
 
-**Workaround.** `setSource_shared`: when the assignment changes nothing (the inner mod already
-has that source), the very `Arc` is added to the enemy DB, as Lua does; otherwise a re-sourced
-copy is added. The identity cache is keyed on the original inner `Arc` (what Lua keys on).
-Observable difference: the actor's own `EnemyModifier` payload keeps `source = nil` where PoB's
-shows the copied source (state dumps of `actor.modDB` only; no calc reads it, and the enemy DB
-mod is identical in value).
+**Workaround (revised in the PF-B fix round).** Mods are immutable `Arc`s, so the in-place
+write is reproduced by replacement. `setSource_shared` returns the very `Arc` when the
+assignment changes nothing, else the re-sourced copy `mod'`. When the Tabulate value is the
+stored mod's own payload (`value.value.mod` is `value.mod.value.mod` by `Arc` identity; EvalMod
+copies the payload only to scale it, `copyTable` at ModStore.lua:423/512/562, and then Lua mutates
+that copy, which nobody else holds), `resource_payload` rebuilds every `EnemyModifier` mod of
+the actor's ModDB and its parents whose payload is `mod` with `mod'` as payload, at the same
+position. The enemy DB gets `mod'` and the cache holds both `mod` and `mod'` as identities
+of the one Lua key (only `mod'` is exported): the Tabulate result is taken before the swap, so a
+later entry of the same loop that holds the same payload (one EnemyModifier mod added twice,
+e.g. the Config/Pantheon shape with outer source set and inner source nil) still holds `mod`,
+and in Lua that is the mutated table and hits the cache. So, as in Lua, the
+actor's EnemyModifier payload, the enemy DB mod and the cache key are one object; a later call
+with the cache kept (doActorMisc, CalcPerform.lua:976) Tabulates `mod'` and hits the cache.
 
-**Proposed resolution.** Record the site in contracts.md#mod-mutation as "shared, ported as a
-copy (CCR-0085)". Making it exact would need the actor's mod rebuilt with the re-sourced
-payload (changing the identity the cache keys on), which no output depends on.
+The first version added a copy and keyed the cache on the original payload. The actor's
+payload then kept `source = nil` where PoB's shows the copied source (seen in the PF-B
+doActorMisc probes: `LifeRegen` of `Pantheon:Soul of Ryslatha`, allflame_exp_030).
+
+Remaining difference: Lua's write also reaches other holders of the same mod table outside the
+actor's ModDB chain (e.g. the tree node's `modList`, which the next calc pass adds again). The
+port leaves those holders unchanged. The next pass re-sources them again, with the same value.
+Observable consequence: on calc pass 2 and later, a dump of `env.modDB` (or the tree, config or
+item modLists) taken before `applyEnemyModifiers` shows the inner `source` in PoB (written by
+pass 1) and `nil` in the port. A unit that probes those stores at later hits sees this as a
+`source` mismatch on `EnemyModifier` payloads; that mismatch is this difference, not a bug in
+that unit.
+
+`resource_payload` also replaces the outer `EnemyModifier` mod `Arc` (a rebuilt copy with the
+new payload, at the same position); Lua keeps the outer table and mutates only the inner one.
+No port code keys on the outer mod's identity (the cache keys the inner mod), so this is not
+observable today; a unit that keys on it files a CCR.
+
+**Proposed resolution.** Record the site in contracts.md#mod-mutation (with the pass-2 note
+above) as "shared, ported as a
+replacement in the actor's ModDB chain (CCR-0085 §3)".
 
 ## 4. `actor.appliedEnemyModifiers` keys (CCR-0030 #6)
 
@@ -90,7 +116,13 @@ actor_a.rs keeps the identity set beside the frozen `Table` (a thread-local list
 `(Weak<Actor>, table, mods)`, entries dropped when the actor dies or the cache is reset), and in
 probe builds mirrors each key into the probe registry (`push_obj_key`) so the state export shows
 the `$keys` PoB dumps; an injected cache (keys decoded afresh by `pob_oracle::inject`, identity
-lost) is matched by value.
+lost) is matched by value. The keys an injected table held when it was first seen are kept in
+its entry, so they still match after the call adds keys of its own (the first version dropped
+them once the call's first new key created the entry, so the cached mods listed after a new one
+were added again: PF-B doActorMisc probes on allflame_exp_030/048). Keys added by the port
+match by identity only, as in Lua. `tests/PF-A.rs` `pfa_apply_enemy_modifiers_filled_cache`
+probes those later calls (applyEnemyModifiers hits 13-24 of allflame_exp_030/048) and fails
+when none of them keeps a filled cache.
 
 ## 5. Oracle gap: pob-state/1 items carry no mod lines (for P3 / ORC-X)
 

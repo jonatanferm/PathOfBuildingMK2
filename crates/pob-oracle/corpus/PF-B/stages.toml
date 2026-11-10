@@ -1,0 +1,46 @@
+# PF-B function probes (calc doc §11.1 row PF-B; patcher `[[function]]` entries).
+# The PF-B acceptance test (crates/pob-oracle/tests/PF-B.rs) patches PoB with this file only:
+# the five PF-B helpers, plus the two not-yet-ported callees it replays
+# (applyEnemyModifiers, PF-A; calcs.initModDB, CS0).
+
+[[function]]
+id = "doActorMisc"
+file = "Modules/CalcPerform.lua"
+line = 636
+expect = "local function doActorMisc(env, actor)"
+
+[[function]]
+id = "doActorCharges"
+file = "Modules/CalcPerform.lua"
+line = 980
+expect = "local function doActorCharges(env, actor)"
+
+[[function]]
+id = "actionSpeedMod"
+file = "Modules/CalcPerform.lua"
+line = 1141
+expect = "function calcs.actionSpeedMod(actor)"
+
+[[function]]
+id = "initMinionModDB"
+file = "Modules/CalcPerform.lua"
+line = 1154
+expect = "local function initMinionModDB(env, activeSkill, output)"
+
+[[function]]
+id = "addMinionModifiers"
+file = "Modules/CalcPerform.lua"
+line = 1247
+expect = "local function addMinionModifiers(modList, skillCfg, minion)"
+
+[[function]]
+id = "applyEnemyModifiers"
+file = "Modules/CalcPerform.lua"
+line = 619
+expect = "local function applyEnemyModifiers(actor, clearCache)"
+
+[[function]]
+id = "initModDB"
+file = "Modules/CalcSetup.lua"
+line = 19
+expect = "function calcs.initModDB(env, modDB)"
