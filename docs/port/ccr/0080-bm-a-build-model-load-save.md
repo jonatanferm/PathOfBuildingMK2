@@ -24,7 +24,7 @@ the model halves, with `@pob` markers, so that a headless build loads like PoB's
 | TreeTab.lua 26-38 (constructor) | the first spec and `SetActiveSpec(1)` | `TreeTab::ctor_model` |
 | CalcsTab.lua 24-40 (+45, 147-150, 370-375; CalcSectionControl.lua 20-49) | `input` defaults (`skill_number`, `misc_buffMode`) and the section list Load/Save use | `CalcsTab::ctor_model`, `CalcsTab::sectionList` |
 | SkillsTab.lua 89, 95-96, 423-426 | CCR-0019 §10 asked BM-A's `Build:Init` to run them | `build_xml::skillsTab_ctor_model` |
-| ConfigTab.lua 672-681 (constructor, the `varControls` half) | Build.lua:645 runs `BuildModList` right after the constructors; option applies index `configTab.varControls[var]` (`enemySizePreset` → `enemyRadius:SetPlaceholder`, map affixes → `multiplierMapModTier.selIndex`, `enemyIsBoss`/`presetBossSkills`), which raise on a missing control. This is the population CCR-0037 proposes for BM-B; CCR-0038's methods stay CO-B's local helpers | `build_xml::configTab_varControls_model` (one control-state table per option with a `var`: `_className`, `enabled`, `buf`, `state`, `placeholder`, `list`, `selIndex`) |
+| ConfigTab.lua 672-681 (constructor, the `varControls` half) | Build.lua:645 runs `BuildModList` right after the constructors; option applies index `configTab.varControls[var]` (`enemySizePreset` → `enemyRadius:SetPlaceholder`, map affixes → `multiplierMapModTier.selIndex`, `enemyIsBoss`/`presetBossSkills`), which raise on a missing control. This is the population CCR-0037 proposes for BM-B; CCR-0038's methods stay CO-B's local helpers | `build_xml::configTab_varControls_model`, now `ConfigTab::ctor_controls_model` (BM-B; one control-state table per option with a `var`: `_className`, `enabled`, `buf`, `state`, `placeholder`, `list`, `selIndex`) |
 | ConfigTab.lua 1205-1240 (`ImportCalcSettings`) | Build.lua:687; no calc or UI unit lists it | `build_xml::ImportCalcSettings` (§6) |
 
 **Slot model.** A slot is a `Table` with the `ItemSlotControl` fields the model reads: `slotName`,
@@ -137,3 +137,7 @@ Merging port/PS-B into this branch locally made both builds pass with zero diffe
 
 If BM-B later owns the ConfigTab constructor's `varControls` half (CCR-0037), it replaces
 `build_xml::configTab_varControls_model`, and `Init_model` calls BM-B's version instead.
+**Done (BM-B fix round 1):** the function moved unchanged to
+`ConfigTab::ctor_controls_model(data)` (`model/config_tab.rs`); `Init_model` calls it after
+`ctor_model()`, and BM-B's oracle test runs both on its `Build::new` model (Load's
+`SetActiveConfigSet` → `BuildModList` → `enemySizePreset` apply raised without them).
