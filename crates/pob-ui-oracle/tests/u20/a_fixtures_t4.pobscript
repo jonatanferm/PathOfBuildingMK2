@@ -1,0 +1,24 @@
+# U20 T4: each of the six fixture builds opened from the build list (load-build), a few idle
+# frames of the real OnFrame (recalc, class dropdowns, loadouts, point display), then its XML.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+snapshot allflame_exp_001
+load-build "Builds/allflame_exp_007.xml"
+frames 3
+snapshot allflame_exp_007
+load-build "Builds/allflame_exp_030.xml"
+frames 3
+snapshot allflame_exp_030
+load-build "Builds/allflame_exp_048.xml"
+frames 3
+snapshot allflame_exp_048
+load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
+frames 3
+snapshot upstream_Dual_Wield_Cospris_CoC
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 3
+move 40 300
+frames 2
+snapshot upstream_Generals_Perforate_Zerker
