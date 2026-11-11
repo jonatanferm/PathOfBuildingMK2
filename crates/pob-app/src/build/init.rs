@@ -417,13 +417,8 @@ pub fn default_hooks() -> BuildHooks {
         items_add_item_set_tooltip: Rc::new(|_, _, _| {
             not_ported("ItemsTab:AddItemSetTooltip", "U34")
         }),
-        skills_set_active_skill_set: Rc::new(|cx, id| {
-            let m = cx.build().model.clone();
-            m.skillsTab.SetActiveSkillSet(&m, id);
-        }),
-        skills_add_socket_group_tooltip: Rc::new(|_, _, _| {
-            not_ported("SkillsTab:AddSocketGroupTooltip", "U30")
-        }),
+        skills_set_active_skill_set: Rc::new(crate::tabs::skills::core::set_active_skill_set_hook),
+        skills_add_socket_group_tooltip: Rc::new(crate::tabs::skills::core::add_socket_group_tooltip_hook),
         config_set_active_config_set: Rc::new(|cx, id| {
             let m = cx.build().model.clone();
             m.configTab.SetActiveConfigSet(&m, Some(id), false);
@@ -442,7 +437,7 @@ pub fn default_hooks() -> BuildHooks {
         config_tab: Rc::new(crate::tabs::config::ctor::ctor_hook),
         items_tab: Rc::new(crate::tabs::items::ctor::ctor_hook),
         tree_tab: pending_tab(),
-        skills_tab: pending_tab(),
+        skills_tab: Rc::new(crate::tabs::skills::core::ctor_hook),
         calcs_tab: Rc::new(crate::tabs::calcs::core::ctor_hook),
         compare_tab: pending_tab(),
         // U40 (CalcBreakdownControl, Build.lua:616-621)

@@ -1,0 +1,46 @@
+# U30: the gem options (L125-154): Sort gems by DPS (off), Show legacy gems (on), the default
+# gem quality edit (Ctrl+A, "15"), then the default gem level dropdown (open, hover an entry: the
+# BODY/HOVER tooltip with the level description, pick "Level 1"). SkillsTab:Save writes them
+# all as attributes of the Skills element (T4).
+#! u30-expect-skills sortGemsByDPS="false"
+#! u30-expect-skills showLegacyGems="true"
+#! u30-expect-skills defaultGemQuality="15"
+#! u30-expect-skills defaultGemLevel="levelOne"
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+move 512 511
+click LEFTBUTTON
+frames 2
+move 512 607
+click LEFTBUTTON
+frames 2
+move 510 559
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+type "15"
+frames 2
+move 1000 300
+click LEFTBUTTON
+frames 2
+snapshot toggles
+move 590 535
+click LEFTBUTTON
+frames 2
+move 590 600
+frames 2
+move 590 618
+frames 1
+click LEFTBUTTON
+frames 3
+move 1000 300
+frames 2
+snapshot level
