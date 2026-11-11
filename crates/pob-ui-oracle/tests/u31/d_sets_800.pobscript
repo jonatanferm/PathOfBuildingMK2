@@ -1,14 +1,15 @@
 # U31: the skill set manager (SkillSetListControl in SkillsTab:OpenSkillSetManagePopup, the
-# stand-in "Manage sets" button) of allflame_exp_048. New (RenameSet: "Second", RETURN);
+# stand-in "Manage sets" button) of allflame_exp_048. New (RenameSet: "Second", Save);
 # double-click row 2 (OnSelClick: SetActiveSkillSet, the empty group list); Copy row 1
-# (RenameSet with addOnName: "Copy"); F2 on row 3 (RenameSet: "CopX"); Delete row 2, the
+# (RenameSet with addOnName: "Copy"); F2 on row 3 (RenameSet: the text selected, BACK, "Renamed"); Delete row 2, the
 # active set (confirm popup: SetActiveSkillSet of the previous row); drag row 1 below row 2
 # (OnOrderChange: modFlag); Done. The popups are centred, so the script runs at its own
 # screen (u32 d_sets form).
 #! u31-expect Enter name for this skill set:
-#! u31-expect (Current)
+#! u31-expect Second  ^9(Current)
+#! u31-expect Renamed
 #! u31-expect Are you sure you want to delete 'Second'?
-screen 1280 800 1.0
+screen 1280 800 dpi 1.0
 fixture userdir=../../fixtures/user1
 frames 2
 load-build "Builds/allflame_exp_048.xml"
@@ -27,7 +28,8 @@ click LEFTBUTTON
 frames 2
 type "Second"
 frames 1
-press RETURN
+move 595 430
+click LEFTBUTTON
 frames 3
 move 600 331
 click LEFTBUTTON
@@ -41,7 +43,8 @@ click LEFTBUTTON
 frames 2
 type "Copy"
 frames 1
-press RETURN
+move 595 430
+click LEFTBUTTON
 frames 3
 move 600 347
 click LEFTBUTTON
@@ -49,9 +52,10 @@ frames 1
 press F2
 frames 2
 press BACK
-type "X"
+type "Renamed"
 frames 1
-press RETURN
+move 595 430
+click LEFTBUTTON
 frames 3
 move 600 331
 click LEFTBUTTON

@@ -1,15 +1,20 @@
 # U31: the gem rows (CreateGemSlot) of allflame_exp_048. Hover gem 1 quality (the quality lines
-# and the 20-quality stat comparison through calcFunc), gem 2 enabled (the toggle comparison) and
-# gem 1 count (the note); edit gem 1 level (BACK, BACK, "15"), gem 2 quality (the + button twice);
-# untick gem 3 (enabled changeFunc); delete gem 1 ("x": the rows below take its place); type
-# "Fireball" + RETURN in the empty row (the gemChangeFunc creates the instance); gem 1 count "2";
-# then group 6 (Vaal Double Strike: the enableGlobal check boxes and the shifted rows), untick
-# its enableGlobal1 and enableGlobal2; type "zz" into gem 2 and click away (focus lost without a
-# matching gem: deleteGem).
+# and the 20-quality stat comparison through the stand-in calcFunc), gem 2 enabled (the toggle
+# comparison) and gem 1 count (the note); edit gem 1 level (BACK, BACK, "15"), gem 2 quality (the
+# + button twice); untick gem 3 (enabled changeFunc); delete gem 1 ("x": the rows below take its
+# place); type "Fireball" + RETURN in the empty row (the gemChangeFunc creates the instance); gem
+# 1 count "2"; type "zz" into gem 3 (Fireball) and click away (the gem selector's focus-lost path
+# into the change function); then group 6 (Vaal Double Strike: the enableGlobal check boxes and
+# the shifted rows), untick its enableGlobal1 and enableGlobal2. (No gem selector of a group with
+# supports is focused or hovered: the LuaCalcBridge leaves `supportEffect.isSupporting` keyed by
+# its own gem copies, so PoB's support highlight, GemSelectControl.lua:631-638, never shows on the
+# Rust side; CCR-0119 §6.)
+#! u31-fake-calc
 #! u31-expect At +20% Quality:
 #! u31-expect Setting to 20 quality will give you:
 #! u31-expect integer value scales the DPS
 #! u31-expect Enable Vaal Double Strike:
+#! u31-expect undo: 10
 fixture userdir=../../fixtures/user1
 frames 2
 load-build "Builds/allflame_exp_048.xml"
@@ -54,16 +59,7 @@ click LEFTBUTTON
 frames 1
 type "2"
 frames 3
-move 400 176
-click LEFTBUTTON
-frames 4
-move 345 530
-frames 3
-click LEFTBUTTON
-frames 3
-move 200 600
-frames 2
-move 600 464
+move 600 486
 click LEFTBUTTON
 frames 1
 type "zz"
@@ -71,6 +67,18 @@ frames 2
 move 1000 300
 click LEFTBUTTON
 frames 3
+move 400 176
+click LEFTBUTTON
+frames 4
+move 516 530
+frames 3
+click LEFTBUTTON
+frames 3
+move 685 530
+click LEFTBUTTON
+frames 3
+move 200 600
+frames 2
 move 200 600
 frames 1
 snapshot after

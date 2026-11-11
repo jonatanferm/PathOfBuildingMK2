@@ -34,6 +34,12 @@
 //!   as each control is created (`slot.delete = …`), so a closure reads the controls of *its*
 //!   row, as in Lua, even if `self.gemSlots[index]` were replaced later. `prevSlot` (L771) is
 //!   the previous row's value at creation time.
+//! - A rebuilt row (CreateGemSlot for an index that already has one; no PoB path does it, since
+//!   UpdateGemSlots only creates missing rows): `self.controls[key] = new` drops the old
+//!   controls from the tab, and `cx.add` buries them (D8). The next row's delete button is
+//!   anchored to this row's old delete button and its `y` reads the old enableGlobal check boxes
+//!   (L772-774), which keeps those three alive in Lua: they are detached instead (not drawn, not
+//!   hit-tested, freed with the tab), so the rows below keep their positions.
 //! - `self.gemSlots[index] = slot` (L745) runs first in Lua; nothing reads `self.gemSlots[index]`
 //!   before the function returns (the constructors call no callback), so the port stores the
 //!   finished row at the end.
@@ -542,6 +548,14 @@ fn enable_global_shown(cx: &Cx, index: usize, effect: usize) -> bool {
 #[allow(clippy::too_many_lines)]
 pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
     let h = skills_tab_ui_hooks();
+    // D8 (module notes: a rebuilt row): the next row's anchor and `y` closure (L772-774) keep
+    // this row's old delete button and enableGlobal check boxes alive in Lua, so the stores
+    // below must not free them
+    if (h.gem_slot)(cx, me, index + 1).is_some() {
+        for key in ["Delete", "EnableGlobal1", "EnableGlobal2"] {
+            cx.detach_child(me, &CtrlKey::from(format!("gemSlot{index}{key}")));
+        }
+    }
     // L744 local slot = { }
     let slot: Rc<Cell<GemSlot>> = Rc::new(Cell::new(GemSlot::default()));
     // L745 self.gemSlots[index] = slot (stored at the end: module notes)

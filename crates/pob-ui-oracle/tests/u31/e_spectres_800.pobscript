@@ -1,6 +1,6 @@
 # U31: the Spectre Library popup (build:OpenSpectreLibrary, U20; the stand-in "Spectres"
 # button) of allflame_exp_048: MinionSearchListControl (the source) and MinionListControl
-# (the destination). Hover a source row (AddValueTooltip); type "golem" in the search field
+# (the destination). Hover a source row (AddValueTooltip); type "shaman" in the search field
 # (ListFilterChanged: the filtered list, SelectIndex 1); Add; double-click source row 2
 # (OnSelClick: AddSel); mode "Skills" in the dropdown and "fire" (filter by skill names);
 # drag source row 1 onto the destination (CanReceiveDrag/ReceiveDrag at selDragIndex);
@@ -9,7 +9,9 @@
 #! u31-expect Spectres in Build:
 #! u31-expect Available Spectres:
 #! u31-expect Life Multiplier:
-screen 1280 800 1.0
+#! u31-expect Alpine Shaman
+#! u31-expect spectres: 2
+screen 1280 800 dpi 1.0
 fixture userdir=../../fixtures/user1
 frames 2
 load-build "Builds/allflame_exp_048.xml"
@@ -23,7 +25,7 @@ click LEFTBUTTON
 frames 3
 move 760 322
 frames 4
-type "golem"
+type "shaman"
 frames 3
 move 881 249
 click LEFTBUTTON

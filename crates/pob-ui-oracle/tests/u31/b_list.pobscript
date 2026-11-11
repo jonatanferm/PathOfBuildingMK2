@@ -5,6 +5,7 @@
 # 1 below row 3 (OnOrderChange: mainSocketGroup and skill_number follow); DELETE on the item-granted
 # row 7 (the message popup), then on row 5 (confirm popup, RETURN); New (a new group, the first
 # gem name selected).
+#! u31-fake-calc
 #! u31-expect ^7group
 #! u31-expect cannot be deleted
 #! u31-expect Are you sure you want to delete

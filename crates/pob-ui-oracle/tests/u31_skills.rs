@@ -26,6 +26,13 @@
 //!   through to `self.controls`), `main:DrawBackground`, `UpdateGemSlots`, and one status line
 //!   (`display: <displayGroup.displayLabel> main: <mainSocketGroup> undo: <count> set:
 //!   <activeSkillSetId> spectres: <#spectreList>`);
+//! * `#! u31-fake-calc` (scripts that focus a gem selector): `calcsTab:GetMiscCalculator()`
+//!   returns a stand-in `calcFunc` on both sides (u29's form: the base output with `CombinedDPS`
+//!   moved by the display group's gems, see [`FakeMisc`]); PoB's GemSelectControl computes the
+//!   DPS of every supporting gem when it gains focus (GemSelectControl.lua:362-371), one bridge
+//!   calc each. `build_output` (the recalcs) stays the bridge's;
+//! * `sortGemsByDPS` is false on both sides (set after Load): the gem selectors sort by name, as
+//!   one bridge calc per gem for the DPS sort would take hours here (the DPS sort is u29's);
 //! * Lua stand-ins on both sides: `AddSocketGroupTooltip` (U30: two lines naming the group and
 //!   its gem count);
 //! * Lua real, Rust ported here (faithful copies of U30's Lua, test-only): `UpdateGemSlots`
@@ -37,9 +44,11 @@
 //!   of the gem edits) is a hidden stand-in EditControl (no script presses TAB).
 //! * every other tab's `Draw` draws nothing (as u22), and u22's `utf8.next` stand-in.
 //!
-//! `u31_rebuilt_slot_controls`: CreateGemSlot run twice for the same index replaces the row's
-//! nine `controls` keys; the old controls are buried (not drawn, not hit-tested, freed at the end
-//! of the frame), as Lua's `self.controls[key] = new` drops the old ones.
+//! `u31_rebuilt_slot_controls`: CreateGemSlot run again for the first and the last row replaces
+//! the row's nine `controls` keys; the old controls leave the tab's controls (not drawn, not
+//! hit-tested) and are freed at the end of the frame, except the three the next row still
+//! references in Lua (its anchor and `y`), which stay alive detached; the frame draws the same
+//! strings as before.
 
 #![allow(
     clippy::format_push_string,
@@ -160,6 +169,7 @@ function b:Init(...)
 	local st = self.skillsTab
 	if not st then return end
 	local build = self
+	st.sortGemsByDPS = false
 	st.anchorGemSlots:SetAnchor("TOPLEFT", st, "TOPLEFT", U31_GEM_SLOTS[1], U31_GEM_SLOTS[2])
 	st.anchorGemSlots.shown = function() return st.displayGroup ~= nil end
 	st.controls.u31Sets = new("ButtonControl"):ButtonControl({"TOPLEFT", st, "TOPLEFT"}, U31_MANAGE, "Manage sets", function()
@@ -173,6 +183,23 @@ function b:Init(...)
 	st.AddUndoState = function(s, ...)
 		s.u31Undo = s.u31Undo + 1
 		return origUndo(s, ...)
+	end
+	if U31_FAKE then
+		local calcsTab = self.calcsTab
+		local function fakeCalc(override, useFullDPS)
+			local base = calcsTab.miscCalculator[2]
+			local out = copyTable(base, true)
+			local add = 0
+			local group = st.displayGroup
+			if group then
+				for _, g in ipairs(group.gemList) do
+					add = add + (g.quality or 0) * 7 + (g.enabled and 1000 or 0) + #(g.gemData and g.gemData.name or "")
+				end
+			end
+			out.CombinedDPS = (base.CombinedDPS or 0) + add
+			return out
+		end
+		function calcsTab:GetMiscCalculator() return fakeCalc, self.miscCalculator[2] end
 	end
 	st.AddSocketGroupTooltip = function(s, tooltip, group)
 		tooltip:AddLine(16, "^7group " .. tostring(group.displayLabel))
@@ -212,7 +239,65 @@ fn lua_layout() -> String {
     )
 }
 
+/// The stand-in `calcFunc` (`#! u31-fake-calc`; the Lua `fakeCalc`): the misc calculator's base
+/// output with `CombinedDPS` moved by every gem of the display group (`quality * 7`, 1000 when
+/// enabled, the gem name's length), so the tooltips' temporary model changes and the gem
+/// selectors' DPS builder show in the numbers without one bridge calc per gem.
+struct FakeMisc {
+    build: model::BuildRef,
+    base: pob_calc::lua_table::Output,
+}
+
+impl pob_app::calc::MiscCalc for FakeMisc {
+    fn call(
+        &self,
+        _ov: Option<Rc<pob_calc::env::Override>>,
+        _full: Option<bool>,
+    ) -> std::task::Poll<pob_calc::lua_table::Output> {
+        let out = self.base.copyTable(true);
+        let mut add = 0.0;
+        if let Some(group) = self.build.skillsTab.displayGroup.get() {
+            for g in group.gemList.get().snapshot() {
+                let q = g.quality.get();
+                let q = if q.is_nan() { 0.0 } else { q };
+                let name = g.gemData.get().map_or(0, |d| d.name.as_str().len());
+                add += q * 7.0 + if g.enabled.get() { 1000.0 } else { 0.0 } + name as f64;
+            }
+        }
+        out.set(n!("CombinedDPS"), self.base.num_or(n!("CombinedDPS"), 0.0) + add);
+        std::task::Poll::Ready(out)
+    }
+}
+
+/// The calc facade with the stand-in `calcFunc` (`build_output` stays the bridge's).
+struct FakeCalc {
+    inner: Box<dyn pob_app::calc::CalcFacade>,
+}
+
+impl pob_app::calc::CalcFacade for FakeCalc {
+    fn build_output(&mut self, build: &model::BuildRef) -> std::task::Poll<()> {
+        self.inner.build_output(build)
+    }
+    fn misc_calculator(
+        &mut self,
+        build: &model::BuildRef,
+    ) -> std::task::Poll<(Rc<dyn pob_app::calc::MiscCalc>, pob_calc::lua_table::Output)> {
+        let std::task::Poll::Ready((_, base)) = self.inner.misc_calculator(build) else {
+            unreachable!("desktop")
+        };
+        std::task::Poll::Ready((
+            Rc::new(FakeMisc {
+                build: build.clone(),
+                base: base.clone(),
+            }),
+            base,
+        ))
+    }
+}
+
 thread_local! {
+    /// `#! u31-fake-calc`
+    static FAKE_CALC: Cell<bool> = const { Cell::new(false) };
     /// The stand-in `spec.modFlag` (UndoHandler.lua:37 via `spec:AddUndoState`, U25).
     static SPEC_MOD_FLAG: Cell<bool> = const { Cell::new(false) };
 }
@@ -381,6 +466,12 @@ fn ctor(cx: &mut Cx, build: CtrlId) -> CtrlId {
             .host(),
         )
         .id();
+    // stand-in: the gem lists sort by name (the DPS sort is u29's; one bridge calc per gem)
+    cx.build()
+        .model
+        .skillsTab
+        .ui_state()
+        .set(n!("sortGemsByDPS"), false);
     // L113
     skill_list_ctor(cx, me, Anchor::new(TopLeft, me, TopLeft), rect(20, 54, 360, 300));
     // L165 (hidden stand-in: the gem edits' tab group master)
@@ -741,7 +832,14 @@ impl RustSide {
         });
         let mut app = pob_app::PobApp::with_calc(
             parts,
-            Rc::new(move || Box::new(LuaCalcBridge::new(Some(src.clone())))),
+            Rc::new(move || -> Box<dyn pob_app::calc::CalcFacade> {
+                let bridge = Box::new(LuaCalcBridge::new(Some(src.clone())));
+                if FAKE_CALC.with(Cell::get) {
+                    Box::new(FakeCalc { inner: bridge })
+                } else {
+                    bridge
+                }
+            }),
         );
         effects.borrow_mut().clear(); // Launch.lua:11 runs at script load, before tracing
                                       // pob-ui-oracle patch 4's equivalent (CCR-0091)
@@ -995,7 +1093,8 @@ fn run_sides(
     // Lua
     let handles = OracleHandles::default();
     let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    let stubs = format!("{}{LUA_STUBS}", lua_layout());
+    let fake = if FAKE_CALC.with(Cell::get) { "true" } else { "false" };
+    let stubs = format!("U31_FAKE = {fake}\n{}{LUA_STUBS}", lua_layout());
     let mut lua_side = LuaSide {
         app: lua_app,
         stubs,
@@ -1175,6 +1274,8 @@ fn u31_scenarios() {
         let text = std::fs::read_to_string(&path).unwrap();
         let (script, base_dir) = runner::load_script(&path).unwrap();
         let fx = runner::fixtures(&script, &base_dir).unwrap();
+        let fake = !directives(&text, "u31-fake-calc").is_empty();
+        FAKE_CALC.with(|f| f.set(fake));
         // a script that sets its own `screen` (the popups are centred, so their coordinates
         // depend on the virtual height) runs once, at that screen
         let own_screen = match script.steps.first() {
@@ -1347,8 +1448,12 @@ fn u31_rebuilt_slot_controls() {
             assert!(!cx.is_child_of(me, o), "{key}: the old control left the controls table");
         }
         cx.end_frame_gc();
+        // the next row still references the old delete button and enableGlobal check boxes
+        // (gem_slots.rs module notes: a rebuilt row); everything else is freed
+        let kept = [old.delete, old.enable_global1, old.enable_global2];
         for (key, o) in row_keys(index, &old) {
-            assert!(!cx.ui.is_alive(o), "{key}: the old control is freed");
+            let referenced = index < n_rows && kept.contains(&o);
+            assert_eq!(cx.ui.is_alive(o), referenced, "{key}: freed unless the next row references it");
         }
         let after = drawn_texts(&traced_frame(&mut rust, &mut d));
         assert_eq!(before, after, "row {index}: the rebuilt row draws once, as before");

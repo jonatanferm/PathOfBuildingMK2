@@ -97,3 +97,17 @@ as equal and counts them among the set-aside fields.
 `PCall(string.matchOrPattern, ..)`; `tabs::items::item_list::{IdListSource, id_value, value_id}`
 for the skill set id list; `controls::gem_select::{wiki_matches_key, wiki_open_gem, wiki_open}`
 (CCR-0108 §2) for SkillListControl's F1; `tabs::items::slot::item_by_id` for GetRowIcon.
+
+## 6. Found by the U31 scenarios (U15, LuaCalcBridge)
+
+`adopt_build_output` re-points a skill effect's `srcInstance` at the live gem instances
+(`pob-ui-oracle/src/lua_calc.rs`, `Rebinder::effect`), but not the keys of
+`supportEffect.isSupporting` (CalcSetup.lua: `isSupporting[srcInstance] = true`), which stay the
+injected copies. GemSelectControl's `CheckSupporting(gemA, gemB)` (GemSelectControl.lua:701-704,
+U29) looks the live `gemB` up there, so through the bridge it is always false and the support
+highlight (L631-638: a translucent green box on a focused or hovered gem selector of a group whose
+gems support each other) never draws on the Rust side (found by `u31_c_slots`: 3 draws per frame
+while a gem selector of allflame_exp_048's Vaal Double Strike group had focus). The RustCalc
+facade writes the live instances and is not affected. Proposed (U15's file): rebind the
+`isSupporting` keys in `Rebinder::effect` as `srcInstance` is. Until then the U31 scripts do not
+focus or hover a gem selector of a group with support links.
