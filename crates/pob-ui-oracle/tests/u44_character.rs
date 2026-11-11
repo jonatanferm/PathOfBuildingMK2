@@ -26,8 +26,9 @@
 //! The Rust side's calc is U15's LuaCalcBridge (ext:calc), as in u20-u22.
 //!
 //! Stand-ins and harness fixes (both sides run the same ones):
-//! * the tabs other than Import and Notes draw nothing (`ShellHooks::draw_tab` has only those
-//!   arms on the Rust side; the other Lua tabs' `Draw` are replaced after every `buildMode:Init`);
+//! * the tabs other than Import and Notes draw nothing (the other Lua tabs' `Draw` are replaced
+//!   after every `buildMode:Init`; the Rust side masks the Tree arm of `ShellHooks::draw_tab`,
+//!   the tab a build opens on);
 //! * `utf8.next` on the Lua side (as u22), `spec.modFlag` and `TreeTab:GetSpecList` (as u22);
 //!   the items, skills and config tabs' `modFlag` (UndoHandler.lua:37, set by U44's
 //!   `TabSeams` stand-ins through `ShellHooks::set_tab_flag`) on the Rust side, as `spec.modFlag`;
@@ -271,6 +272,13 @@ fn rust_stubs() {
     });
     of::set_shell_hooks(|h| {
         *h = of::default_shell_hooks();
+        // LUA_STUBS replaces `treeTab.Draw`: the Tree tab (U25) draws nothing here as well
+        let all_tabs = h.draw_tab.clone();
+        h.draw_tab = Rc::new(move |cx, tab, vp, ev| {
+            if tab != of::BuildTab::Tree {
+                all_tabs(cx, tab, vp, ev);
+            }
+        });
         // keep the default arms (Notes) and add the spec stand-in
         let (flag, set_flag) = (h.tab_flag.clone(), h.set_tab_flag.clone());
         h.tab_flag = Rc::new(move |cx, f| {

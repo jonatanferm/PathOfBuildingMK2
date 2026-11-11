@@ -28,7 +28,8 @@
 //!   the item name, the slot and `dbMode`, then every implicit, enchant, explicit and crucible
 //!   mod line's text with its `crafted`/`custom`/`disabled` flags, so each craft is visible),
 //!   the socket viewer's `Draw` (U23), the undo count around `AddUndoState` (U38), every other
-//!   tab's `Draw` (nothing, as u22) and u22's `utf8.next`.
+//!   tab's `Draw` (nothing, as u22: the Rust side masks the Tree arm of `ShellHooks::draw_tab`,
+//!   the tab a build opens on) and u22's `utf8.next`.
 
 #![allow(
     non_snake_case,
@@ -533,7 +534,8 @@ fn rust_stubs() {
         h.draw_tab = Rc::new(move |cx, t, vp, ev| {
             if t == BuildTab::Items {
                 draw_items(cx, vp, ev);
-            } else {
+            } else if t != BuildTab::Tree {
+                // LUA_STUBS replaces `treeTab.Draw`: the Tree tab (U25) draws nothing here as well
                 draw(cx, t, vp, ev);
             }
         });

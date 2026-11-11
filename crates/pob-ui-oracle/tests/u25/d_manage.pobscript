@@ -1,0 +1,73 @@
+# U25: the Manage Passive Trees popup (Ctrl+M) at 1280x800: the PassiveSpecListControl rows ("(Current)", class and
+# points), select the second tree and Rename it (the Rename button, then Save), New (its Save button: a fresh tree of the
+# build's class, named), Copy of the first tree, a double click on a row (SetActiveSpec), Delete with its confirm
+# popup, Done; then the build XML (the Tree section's titles and order).
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_compare.xml"
+frames 3
+move 800 400
+key-down CTRL
+press m
+key-up CTRL
+frames 2
+move 640 329
+frames 1
+click LEFTBUTTON
+frames 1
+move 608 292
+frames 1
+click LEFTBUTTON
+frames 2
+type " renamed"
+frames 1
+move 595 430
+frames 1
+click LEFTBUTTON
+frames 2
+move 800 600
+frames 1
+move 550 290
+frames 2
+click LEFTBUTTON
+frames 2
+type "Fresh"
+move 595 430
+frames 1
+click LEFTBUTTON
+frames 2
+move 640 313
+frames 1
+click LEFTBUTTON
+frames 1
+move 672 292
+frames 1
+click LEFTBUTTON
+frames 2
+type "Copied"
+move 595 430
+frames 1
+click LEFTBUTTON
+frames 2
+move 640 345
+frames 1
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+move 640 313
+frames 1
+click LEFTBUTTON
+frames 1
+move 736 292
+frames 1
+click LEFTBUTTON
+frames 2
+press RETURN
+frames 2
+move 737 524
+frames 1
+click LEFTBUTTON
+frames 2
+snapshot managed
+frames 1

@@ -234,6 +234,7 @@ pub fn default_shell_hooks() -> ShellHooks {
             BuildTab::Calcs => crate::tabs::calcs::core::draw_tab(cx, vp, ev),
             BuildTab::Skills => crate::tabs::skills::core::draw_tab(cx, vp, ev),
             BuildTab::Import => crate::tabs::import::core::draw_tab(cx, vp, ev),
+            BuildTab::Tree => crate::tabs::tree::core::draw_tab(cx, vp, ev),
             BuildTab::Config => crate::tabs::config::core::draw_tab(cx, vp, ev),
             BuildTab::Items => crate::tabs::items::core::draw_tab(cx, vp, ev),
             _ => {}
@@ -242,19 +243,23 @@ pub fn default_shell_hooks() -> ShellHooks {
             TabFlag::Notes => crate::tabs::notes::mod_flag(cx),
             TabFlag::Party => crate::tabs::party::mod_flag(cx),
             TabFlag::Calcs => crate::tabs::calcs::core::mod_flag(cx),
+            TabFlag::Tree => crate::tabs::tree::core::mod_flag(cx),
+            TabFlag::TreeSearch => crate::tabs::tree::core::search_flag(cx),
+            TabFlag::Spec => crate::tabs::tree::core::spec_flag(cx),
             TabFlag::Skills => crate::tabs::skills::core::mod_flag(cx),
             TabFlag::Config => crate::tabs::config::core::mod_flag(cx),
             TabFlag::Items => crate::tabs::items::tooltip::mod_flag(cx),
-            _ => false,
         }),
         set_tab_flag: Rc::new(|cx, flag, v| match flag {
             TabFlag::Notes => crate::tabs::notes::set_mod_flag(cx, v),
             TabFlag::Party => crate::tabs::party::set_mod_flag(cx, v),
             TabFlag::Calcs => crate::tabs::calcs::core::set_mod_flag(cx, v),
+            TabFlag::Tree => crate::tabs::tree::core::set_mod_flag(cx, v),
+            TabFlag::TreeSearch => crate::tabs::tree::core::set_search_flag(cx, v),
+            TabFlag::Spec => crate::tabs::tree::core::set_spec_flag(cx, v),
             TabFlag::Skills => crate::tabs::skills::core::set_mod_flag(cx, v),
             TabFlag::Config => crate::tabs::config::core::set_mod_flag(cx, v),
             TabFlag::Items => crate::tabs::items::tooltip::set_mod_flag(cx, v),
-            _ => {}
         }),
         import_select_code_in: Rc::new(crate::tabs::import::core::select_code_in),
         calcs_breakdown: Rc::new(crate::tabs::calcs::core::calcs_breakdown),
@@ -289,6 +294,7 @@ pub fn default_shell_hooks() -> ShellHooks {
         save_ui_section: Rc::new(|cx, elem| match elem {
             "Notes" => crate::tabs::notes::save_ui_section(cx),
             "Import" => crate::tabs::import::core::save_ui_section(cx),
+            "TreeView" => crate::tabs::tree::core::save_ui_section(cx),
             _ => None,
         }),
     }

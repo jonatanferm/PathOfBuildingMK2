@@ -1,0 +1,40 @@
+# U25: the spec dropdown of allflame_compare at 1280x800: drop it (it drops up: two trees and "Manage trees..."),
+# hover the second tree (the tooltip: class, points, "Switching to this tree will give you:" stat compares through the
+# bridge, gold respec cost), pick it (SetActiveSpec: window title, version dropdown), UP/DOWN over the tree (switch
+# back and forth), Ctrl+F (the search box gets focus), type a search, the Compare checkbox (the compare dropdown
+# appears, Reset moves after it), then the build XML.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_compare.xml"
+frames 3
+move 411 762
+frames 1
+click LEFTBUTTON
+frames 1
+move 411 710
+frames 1
+move 411 726
+frames 2
+click LEFTBUTTON
+frames 2
+move 800 400
+frames 1
+press UP
+frames 2
+press DOWN
+frames 2
+key-down CTRL
+press f
+key-up CTRL
+frames 1
+type "life"
+frames 2
+move 590 762
+frames 1
+click LEFTBUTTON
+frames 2
+move 700 762
+frames 1
+snapshot spec2
+frames 1
