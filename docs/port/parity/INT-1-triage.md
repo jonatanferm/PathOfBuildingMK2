@@ -1,7 +1,8 @@
 # INT-1 parity triage (INT-1A diagnosis)
 
 Unit INT-1A (calc doc §11.1 row INT-1, diagnosis phase), 2026-11-10. This is a diagnosis only: no
-product code changed. The fixes are grouped into the fix units at the end.
+product code changed. The fixes are grouped into the fix units at the end. The result after
+the fixes merged is in §8.
 
 ## 1. Baseline (confirmed)
 
@@ -251,3 +252,48 @@ not expect more than their own bucket gives.
 Three units are enough for this baseline; nothing else diverges at L6 on the corpus. The calc doc
 row's next gate is "L6 on all57 + 100 fresh poe.ninja builds". That needs a fresh corpus and a new
 triage round once these three land.
+
+## 8. Final result (INT-1-B, 2026-11-11)
+
+The fix units ran under the plan's ids, not the names of §7: **INT-1-A** = §7's INT-1B (bucket A,
+AS, CCR-0113), **INT-1-C** = §7's INT-1C (bucket C, PF-G), **INT-1-B** = §7's INT-1D (bucket B
+and the gates, CA). INT-1-B ran on rust-port `4870179` (INT-1-A, INT-1-C and RETYPE merged).
+
+**Bucket B.** `CA.rs` `flat_table` renders an `Item` as `{"$item": name}` and a `GemInstance`
+as `{"$gemInstance": nameSpec}` (`obj_marker`, the oracle's `refFor`, `src/oracle.lua:70-92`),
+as the one-member marker string `oracle::flatten` produces. Other calc objects stay skipped.
+
+**Measured** (`POB_FULL_SUITE=1 scripts/port/cargo.sh test --release -p pob-oracle --test CA`,
+PoB runs from the main checkout's `target/tmp/ca-probe/` cache, written after the CA merge):
+
+```
+CA L6: 57 builds (0 PoB runs failed), 0 Rust runs raised; headline 741/741 exact (100.0%),
+57 builds with every headline key exact; all keys 45954/45954 exact (100.00%); CALCS lists
+171/171; used-tracking key sets 513/513; misc calculator 1248/1248
+CA D13: 62 builds, 62 ran, 62 fixed points, 0 differ, 0 Lua errors; 1 warm-cache runs checked
+against PoB's
+CA L5: cost warnings 56 clean (1 harness-limited), used-tracking 55 clean (2 harness-limited),
+CALCS lists 57 clean; 0 failed
+```
+
+Control: with the marker rendering switched off (a local env gate, not committed) on the same
+head, L6 gives 45,809/45,954 keys, 49 builds not exact, Dual_Savior 901/903, everything else
+unchanged. So B is the predicted +145, and A + C were already in at 45,809.
+
+**Gates now in `CA.rs`.**
+- `ca_l6_corpus`: no Rust error, and headline, all keys (Rust-only keys count as not exact),
+  CALCS lists, used-tracking key sets and misc calculator values all exact, on any corpus
+  subset. On the full corpus the compared totals are pinned too (`L6_BUILDS = 57`,
+  `L6_HEADLINE_KEYS = 741`, `L6_KEYS = 45_954`, `L6_CALCS_LISTS = 171`,
+  `L6_USED_TABLES = 513`, `L6_MISC = 1_248`), so a value missing on both sides fails. The
+  floors `L6_MIN_*`, `L6_MAX_RUST_ERRORS` and `L6_MAX_STAGE_ERRORS` are removed.
+- `ca_d13_fixed_point`: no build may raise (`D13_MAX_ERRORS` removed). It now also checks a
+  CALCS fixed point (FOLLOWUPS "CA" 1): `calcsTab.mainEnv` set to the MAIN env, then two CALCS
+  `buildOutput`s with equal outputs and equal `SaveDB` between them. The first CALCS run can
+  change the model relative to MAIN (CalcSetup.lua:1883 clamps `mainActiveSkillCalcs`), so the
+  state is compared between the two CALCS runs. `D13_POB_WARM_CACHE` (allflame_exp_050) gets a
+  wipe before each CALCS run, as for MAIN.
+- `L5_MAX_LIMITED = [1, 2, 0]` in `ca_l5_post` is unchanged (harness limits, §5).
+
+INT-1's all57 gate is met. The other half of INT-1's gate (L6 on 100 fresh poe.ninja builds) is
+a separate follow-up: it needs a fresh corpus and a new triage round.
