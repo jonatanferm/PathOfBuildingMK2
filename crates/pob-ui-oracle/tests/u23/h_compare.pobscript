@@ -1,0 +1,21 @@
+# U23: the compare overlay (the build has a second tree; the TreeTab stand-in compares spec 1 with spec 2):
+# node colours, connectors, jewel radius tints; a hover and the heat map over it; a pan and the build XML.
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_compare.xml"
+frames 3
+move 920 212
+frames 2
+move 800 400
+frames 1
+press p
+frames 2
+press p
+key-down LEFTBUTTON
+frames 1
+move 700 300
+frames 1
+key-up LEFTBUTTON
+frames 2
+snapshot compare
+frames 1

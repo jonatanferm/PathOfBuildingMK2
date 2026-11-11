@@ -4,30 +4,27 @@
 //! @pob-file Modules/Main.lua @16de4b82d
 //!
 //! `main.tree[latestTreeVersion].assets.Background2/Background1` are image handles that
-//! PassiveTree.lua:263-266 (`self:LoadImage(name..".png", ..., data, "ASYNC")`) creates. The UI
-//! half of the tree (`tree_view/assets.rs`, `TreeAssets`) is U23's and has no fields yet, and
-//! `main:LoadTree` is a no-op until U23 lands (CCR-0096 B), so [`tree_background`] stands in
-//! (CCR-0099 A): it loads the image the Lua loads for the latest tree. Every tree version from
-//! 3_19 on (`latestTreeVersion` included) has no `assets` of its own and copies
-//! `TreeData/3_19/Assets.lua` (PassiveTree.lua:234-236), which has `Background2`; LoadImage finds
-//! `TreeData/Background2.png` first (PassiveTree.lua:910-913), and the name does not match
-//! `[OL][ri][bn][ie][tC]`, so the flags are `ASYNC`. Registration is deduplicated by
-//! `(path, flags)` (ui doc §4.5), so loading it per call is a lookup; the draw ops are the Lua's.
+//! PassiveTree.lua:263-266 (`self:LoadImage(name..".png", ..., data, "ASYNC")`) creates; the UI
+//! half of the tree is U23's `tree_view/assets.rs` (`TreeAssets`), which `main:LoadTree` fills
+//! (CCR-0099 A, applied by U23: [`tree_background`] is the lookup).
 //!
 //! Props with side effects (ui doc §7.3): none.
 
-use pob_sg::{ImageFlags, ImageHandle};
+use pob_sg::ImageHandle;
 use pob_ui_core::prelude::*;
 
 /// `main.tree[latestTreeVersion].assets.Background2` and `.Background1` (nil when absent).
 ///
-/// CCR-0099 A: U23 replaces the body with the lookup in `cx.app().trees` (`TreeAssets`); until
-/// then it is the handle PassiveTree.lua:263-266 would make for the latest tree (module notes).
+/// CCR-0099 A: the lookup in `cx.app().trees` (`TreeAssets`, U23): `main:LoadTree` built
+/// `main.tree[latestTreeVersion]` in `main:Init` (Main.lua:152).
 pub fn tree_background(cx: &mut Cx) -> (Option<ImageHandle>, Option<ImageHandle>) {
-    // CCR-0099
-    let handle = ImageHandle::default();
-    handle.load(&mut cx.sg, "TreeData/Background2.png", ImageFlags::ASYNC);
-    (Some(handle), None)
+    let Some(assets) = crate::tree_view::assets::latest_tree_assets(cx) else {
+        lua_error!("attempt to index field '?' (a nil value)")
+    };
+    (
+        assets.asset_handle("Background2"),
+        assets.asset_handle("Background1"),
+    )
 }
 
 /// lua: Main.lua:1486-1496 main:DrawBackground(viewPort) (sublayer -100, the tree `Background` asset).

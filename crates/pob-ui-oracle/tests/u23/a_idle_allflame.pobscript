@@ -1,0 +1,12 @@
+# U23: allflame_exp_001 (3_29, Witch with jewels and timeless jewels): the idle tree (groups, connectors, nodes,
+# the jewel radius rings, rotating with the virtual clock), then the cursor over a few places.
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 800 400
+frames 2
+move 600 300
+frames 2
+move 1000 600
+frames 2
