@@ -24,6 +24,12 @@ use crate::diff::{diff_trees, DiffOptions, Mismatch, MismatchKind};
 use crate::oracle::{find_parity_dir, find_up};
 use crate::schema::{resolve_ids, StateDump};
 
+// TP1: the bounded corpus pool (`$POB_TEST_PAR`, default 3); see `crate::par`.
+pub use crate::par::{
+    par_for_each, par_for_each_bounded, par_for_each_init, par_for_each_init_with, par_map,
+    test_par, TEST_PAR_ENV,
+};
+
 /// Initialise `pob_gamedata::data()` from `data/dump` (data.bin, else the JSON dump).
 /// `$POB_DUMP_DIR` overrides the directory. `Ok(false)` when no dump is found; `Err` when a
 /// dump is found but does not load (a corrupt or stale data.bin, a broken JSON dump), so a
@@ -219,6 +225,147 @@ pub fn probe_selection(
     }
     let patched = shared_patch(stages)?;
     cache.fill(bin, xml, &patched.src, opts).map_err(|e| e.0)
+}
+
+/// TP1: the text of an in-process PoB query, from the shared content-addressed query cache
+/// ([`crate::runner::cached_query_result`], `$POB_QUERY_CACHE` / `$POB_ORACLE_NOCACHE`), else
+/// computed by `run` under the machine-wide [`crate::runner::OracleLock`] (taken here, only on a
+/// miss) and stored. The key is the PoB tree `src` boots ([`crate::runner::source_key`]: its
+/// files, the oracle runtime, the LuaJIT build and mode), `input` (a build's XML bytes, or what
+/// the test generates) and `key`: every other text that decides the result, in order (the
+/// prelude and scripts run, the build name passed to PoB, call parameters, a version tag). An
+/// `Err` from `run` is returned and not cached.
+#[cfg(feature = "luajit")]
+pub fn oracle_query(
+    src: &Path,
+    input: &[u8],
+    key: &[&str],
+    run: impl FnOnce() -> Result<String, String>,
+) -> Result<String, String> {
+    crate::runner::cached_query_result(src, input, key, || {
+        let _lock =
+            crate::runner::OracleLock::acquire().map_err(|e| format!("oracle lock: {e}"))?;
+        run()
+    })
+}
+
+/// A directory a PoB run wrote ([`oracle_dir`]): a shared cache entry, or (cache off / verify /
+/// no `.parity`) a private run under `target/tmp/oracle-dir-off/` that is deleted when this is
+/// dropped. Hold it while reading the files.
+#[derive(Debug)]
+pub struct OracleDir {
+    path: PathBuf,
+    private: bool,
+}
+
+impl OracleDir {
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Did the files come from the shared cache?
+    #[must_use]
+    pub fn is_cached(&self) -> bool {
+        !self.private
+    }
+}
+
+impl std::ops::Deref for OracleDir {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl AsRef<Path> for OracleDir {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for OracleDir {
+    fn drop(&mut self) {
+        if self.private {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
+/// TP1: a whole directory of files one PoB run writes (dumps, a result JSON, ...), from the
+/// shared cache, else filled now by `fill(dir)` into a private directory that is then renamed
+/// into place as a whole (a reader sees a complete entry or none; when a concurrent writer of the
+/// key published first, its entry is used). Keyed like [`oracle_query`]: the PoB tree `src`
+/// boots, `input` and `key` (`<parity>/probe-cache/<source key>/<input key>/dir-<key>/`).
+/// `fill` takes the oracle lock itself (an [`crate::runner::OracleLock`] held here around it
+/// would deadlock a `fill` that also takes it). An `Err` from `fill` is returned and nothing is
+/// published.
+pub fn oracle_dir(
+    src: &Path,
+    input: &[u8],
+    key: &[&str],
+    fill: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<OracleDir, String> {
+    use crate::runner::{cache_mode, CacheMode, QueryCache};
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp_name = |base: &Path| {
+        let name = base
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        base.with_file_name(format!(
+            ".{name}.tmp.{}.{}",
+            std::process::id(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+    };
+    const DONE: &str = ".complete";
+    let mode = cache_mode();
+    let entry = QueryCache::new(src, input, key)
+        .map_err(|e| e.0)?
+        .filter(|_| mode != CacheMode::Verify)
+        .map(|q| {
+            let name = q.dir.file_name().map_or_else(String::new, |n| {
+                n.to_string_lossy().replacen("query-", "dir-", 1)
+            });
+            q.dir.with_file_name(name)
+        });
+    let Some(entry) = entry else {
+        // off / verify / no `.parity`: a private run, deleted when the result is dropped
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/oracle-dir-off");
+        let dir = tmp_name(&root.join("run"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let out = OracleDir {
+            path: dir,
+            private: true,
+        };
+        fill(&out.path)?;
+        return Ok(out);
+    };
+    let cached = OracleDir {
+        path: entry.clone(),
+        private: false,
+    };
+    if mode == CacheMode::On && entry.join(DONE).is_file() {
+        return Ok(cached);
+    }
+    let tmp = tmp_name(&entry);
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    let res = (|| {
+        fill(&tmp)?;
+        std::fs::write(tmp.join(DONE), b"").map_err(|e| format!("{}: {e}", tmp.display()))?;
+        if mode == CacheMode::Refresh || !entry.join(DONE).is_file() {
+            let _ = std::fs::remove_dir_all(&entry);
+        }
+        match std::fs::rename(&tmp, &entry) {
+            Ok(()) => Ok(()),
+            Err(_) if entry.join(DONE).is_file() => Ok(()),
+            Err(e) => Err(format!("{}: {e}", entry.display())),
+        }
+    })();
+    let _ = std::fs::remove_dir_all(&tmp);
+    res.map(|()| cached)
 }
 
 /// The dump files of `stage_in` and `stage_out` from the first directory of `dirs` that holds

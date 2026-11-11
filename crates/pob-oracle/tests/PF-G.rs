@@ -77,46 +77,25 @@ fn stages_file() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/PF-G/stages.toml")
 }
 
-/// The build's PF-G dumps (`perform:3497`, `perform:out`, `pfg:<line>`; main env), probed into
-/// `target/tmp/pfg-probe/<stem>/state` when absent.
-fn probe_dumps(xml: &Path) -> Result<PathBuf, String> {
-    let stem = stem(xml);
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("pfg-probe")
-        .join(stem);
-    let state = dir.join("state");
-    if dir.join("hits.json").is_file() {
-        return Ok(state);
-    }
-    let src = pob_oracle::oracle::find_pob_src().ok_or("no PoB checkout")?;
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-    let patched = pob_oracle::patcher::patch(&src, Some(&stages_file()), &root)
-        .map_err(|e| format!("patch: {e}"))?;
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let log = dir.with_extension("log");
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-        .arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(&dir)
-        .arg("--patched")
-        .arg(&patched.src)
-        .args([
-            "--select",
-            "perform:3497@main,perform:out@main,pfg:*@main",
-            "--no-provenance",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::fs::File::create(&log).map_err(|e| e.to_string())?)
-        .status()
-        .map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(state)
-    } else {
-        let _ = std::fs::remove_file(dir.join("hits.json"));
-        Err(format!("pob_oracle probe failed: see {}", log.display()))
-    }
+/// The build's PF-G dumps (`perform:3497`, `perform:out`, `pfg:<line>`; main env): the shared
+/// probe cache's entry of the selection under `corpus/PF-G/stages.toml`, probed in a fresh
+/// `pob_oracle probe` process when absent (TP1: `testkit::probe_selection`, keyed by the patched
+/// source, the build's bytes and the selection, shared by every worktree). Hold the result while
+/// reading the dumps.
+fn probe_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    let opts = pob_oracle::runner::ProbeOptions {
+        select: ["perform:3497@main", "perform:out@main", "pfg:*@main"]
+            .map(str::to_owned)
+            .to_vec(),
+        provenance: false,
+        ..Default::default()
+    };
+    pob_oracle::testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&stages_file()),
+        &opts,
+    )
 }
 
 /// Every dump in `state`, by probe id (one per probe: the selection is `@main`).

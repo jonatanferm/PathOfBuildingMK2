@@ -51,7 +51,6 @@ use pob_gamedata::{JewelFuncKind, JewelFuncSpec};
 use pob_oracle::headless::{Engine, Ret};
 use pob_oracle::jit::JitPob;
 use pob_oracle::oracle::QUIET_PRELUDE;
-use pob_oracle::runner::OracleLock;
 use serde_json::Value as J;
 
 const CS0_LUA: &str = include_str!("../corpus/CS0/cs0.lua");
@@ -409,7 +408,6 @@ struct Stats {
 }
 
 struct BuildCtx {
-    stem: String,
     /// The radius jewels' items by id: PoB's items outlive the envs, so `jewelRadiusData` set
     /// by an earlier MAIN call is still there in a later call.
     items: HashMap<String, ItemRef>,
@@ -1222,24 +1220,81 @@ fn builds(parity: &Path) -> Vec<PathBuf> {
 }
 
 /// PoB's side for one build: boot the patched copy with the CS0 probe runtime, load, drive.
+/// TP1: from the shared oracle query cache (`testkit::oracle_query`, keyed by the patched tree,
+/// the XML, the build name and the probe runtime), else a fresh PoB under the oracle lock.
 fn oracle_records(src: &Path, xml: &Path, stem: &str) -> Result<J, String> {
+    const DRIVE: &str = "__cs0.drive(build) return __cs0.result()";
     let text = std::fs::read_to_string(xml).map_err(|e| e.to_string())?;
-    let json = {
-        let _lock = OracleLock::acquire().map_err(|e| format!("oracle lock: {e}"))?;
-        let pre = format!("{QUIET_PRELUDE}\n{CS0_LUA}");
-        let mut pob = JitPob::boot_oracle(src, Some(&pre)).map_err(|e| format!("boot: {e}"))?;
-        pob.load_build_xml(&text, stem)
-            .map_err(|e| format!("load: {e}"))?;
-        match pob
-            .run("__cs0.drive(build) return __cs0.result()")
-            .map_err(|e| format!("drive: {e}"))?
-            .first()
-        {
-            Some(Ret::Str(s)) => s.clone(),
-            other => return Err(format!("result: {other:?}")),
-        }
-    };
+    let pre = format!("{QUIET_PRELUDE}\n{CS0_LUA}");
+    let json = pob_oracle::testkit::oracle_query(
+        src,
+        text.as_bytes(),
+        &["CS0 oracle_records 1", stem, &pre, DRIVE],
+        || {
+            let mut pob =
+                JitPob::boot_oracle(src, Some(&pre)).map_err(|e| format!("boot: {e}"))?;
+            pob.load_build_xml(&text, stem)
+                .map_err(|e| format!("load: {e}"))?;
+            let r = pob.run(DRIVE).map_err(|e| format!("drive: {e}"))?;
+            match r.first() {
+                Some(Ret::Str(s)) => {
+                    // a result that does not parse is an error of this run (not cached)
+                    serde_json::from_str::<J>(s).map_err(|e| format!("json: {e}"))?;
+                    Ok(s.clone())
+                }
+                other => Err(format!("result: {other:?}")),
+            }
+        },
+    )?;
     serde_json::from_str(&json).map_err(|e| format!("json: {e}"))
+}
+
+/// One build's PoB records checked against the Rust functions (TP1: run on the bounded pool;
+/// merged in corpus order by the caller).
+struct BuildOut {
+    counts: Vec<(String, f64)>,
+    /// `(id, n, result)` per record, in PoB's order.
+    records: Vec<(String, String, Result<(), String>)>,
+    stats: Stats,
+    order_mismatch: usize,
+}
+
+fn cs0_build(src: &Path, xml: &Path) -> Result<BuildOut, String> {
+    let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
+    let doc = oracle_records(src, xml, &stem).map_err(|e| format!("{stem}: {e}"))?;
+    let counts = doc["counts"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.clone(), jnum(v).unwrap_or(0.0)))
+        .collect();
+    let mut ctx = BuildCtx {
+        items: HashMap::new(),
+        stats: Stats::default(),
+        funcs: HashMap::new(),
+        order_mismatch: 0,
+    };
+    let mut records = Vec::new();
+    for rec in list(&doc["records"]) {
+        let id = rec["id"].as_str().unwrap().to_owned();
+        record_stats(&id, &rec, &mut ctx.stats);
+        let r = match id.as_str() {
+            "initModDB" => check_initModDB(&rec),
+            "buildModListForNodeList" => check_nodeList(&rec, &mut ctx),
+            "wipeEnv" => check_wipeEnv(&rec),
+            "applyGemMods" => check_applyGemMods(&rec),
+            "applySocketMods" => check_applySocketMods(&rec),
+            "addBestSupport" => check_addBestSupport(&rec),
+            other => panic!("unknown record {other}"),
+        };
+        records.push((id, rec["n"].to_string(), r));
+    }
+    Ok(BuildOut {
+        counts,
+        records,
+        stats: std::mem::take(&mut ctx.stats),
+        order_mismatch: ctx.order_mismatch,
+    })
 }
 
 #[test]
@@ -1264,9 +1319,11 @@ fn cs0_function_probes() {
     quiet_lua_errors();
     let verbose = std::env::var_os("CS0_VERBOSE").is_some();
     let stages = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/CS0/stages.toml");
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-    let patched = pob_oracle::patcher::patch(&pob_src, Some(&stages), &root)
-        .unwrap_or_else(|e| panic!("patch: {e:?}"));
+    // TP1: the patched copy is the shared one (every worktree boots, and so keys the query
+    // cache by, the same tree)
+    let _ = &pob_src;
+    let patched = pob_oracle::testkit::shared_patch(Some(&stages))
+        .unwrap_or_else(|e| panic!("patch: {e}"));
     let ids = [
         "initModDB",
         "buildModListForNodeList",
@@ -1281,65 +1338,52 @@ fn cs0_function_probes() {
     let mut order_mismatch = 0;
     let mut stats = Stats::default();
     let t0 = std::time::Instant::now();
-    for xml in &corpus {
-        let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
-        let doc = match oracle_records(&patched.src, xml, &stem) {
-            Ok(d) => d,
-            Err(e) => {
-                failed_builds.push(format!("{stem}: {e}"));
-                continue;
-            }
-        };
-        for (k, v) in doc["counts"].as_object().unwrap() {
-            *calls.entry(k.clone()).or_default() += jnum(v).unwrap_or(0.0);
-        }
-        let mut ctx = BuildCtx {
-            stem: stem.clone(),
-            items: HashMap::new(),
-            stats: Stats::default(),
-            funcs: HashMap::new(),
-            order_mismatch: 0,
-        };
-        for rec in list(&doc["records"]) {
-            let id = rec["id"].as_str().unwrap().to_owned();
-            record_stats(&id, &rec, &mut ctx.stats);
-            let r = match id.as_str() {
-                "initModDB" => check_initModDB(&rec),
-                "buildModListForNodeList" => check_nodeList(&rec, &mut ctx),
-                "wipeEnv" => check_wipeEnv(&rec),
-                "applyGemMods" => check_applyGemMods(&rec),
-                "applySocketMods" => check_applySocketMods(&rec),
-                "addBestSupport" => check_addBestSupport(&rec),
-                other => panic!("unknown record {other}"),
+    // TP1: builds (PoB side cached, Rust checks) on the bounded pool (`$POB_TEST_PAR`), merged
+    // here in corpus order
+    pob_oracle::testkit::par_for_each(
+        &corpus,
+        |_, xml| cs0_build(&patched.src, xml),
+        |_, xml, out| {
+            let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
+            let out = match out {
+                Ok(o) => o,
+                Err(e) => {
+                    failed_builds.push(e);
+                    return;
+                }
             };
-            let t = tally.get_mut(id.as_str()).unwrap();
-            t.records += 1;
-            match r {
-                Ok(()) => t.ok += 1,
-                Err(e) if e.ends_with("(not replayed)") => t.skipped += 1,
-                Err(e) => t
-                    .mismatches
-                    .push(format!("{}: {id}#{}: {e}", ctx.stem, rec["n"])),
+            for (k, v) in out.counts {
+                *calls.entry(k).or_default() += v;
             }
-        }
-        order_mismatch += ctx.order_mismatch;
-        let st = &ctx.stats;
-        stats.nodes += st.nodes;
-        stats.extra_nodes += st.extra_nodes;
-        stats.rads += st.rads;
-        stats.rad_line_funcs += st.rad_line_funcs;
-        stats.rad_default_funcs += st.rad_default_funcs;
-        stats.non_main += st.non_main;
-        stats.explode += st.explode;
-        stats.granted += st.granted;
-        stats.gem_rows += st.gem_rows;
-        stats.socket_added += st.socket_added;
-        stats.support_list_entries += st.support_list_entries;
-        stats.init_pre_mods += st.init_pre_mods;
-        if verbose {
-            eprintln!("{stem}: done ({:.0}s)", t0.elapsed().as_secs_f64());
-        }
-    }
+            for (id, n, r) in out.records {
+                let t = tally.get_mut(id.as_str()).unwrap();
+                t.records += 1;
+                match r {
+                    Ok(()) => t.ok += 1,
+                    Err(e) if e.ends_with("(not replayed)") => t.skipped += 1,
+                    Err(e) => t.mismatches.push(format!("{stem}: {id}#{n}: {e}")),
+                }
+            }
+            order_mismatch += out.order_mismatch;
+            let st = &out.stats;
+            stats.nodes += st.nodes;
+            stats.extra_nodes += st.extra_nodes;
+            stats.rads += st.rads;
+            stats.rad_line_funcs += st.rad_line_funcs;
+            stats.rad_default_funcs += st.rad_default_funcs;
+            stats.non_main += st.non_main;
+            stats.explode += st.explode;
+            stats.granted += st.granted;
+            stats.gem_rows += st.gem_rows;
+            stats.socket_added += st.socket_added;
+            stats.support_list_entries += st.support_list_entries;
+            stats.init_pre_mods += st.init_pre_mods;
+            if verbose {
+                eprintln!("{stem}: done ({:.0}s)", t0.elapsed().as_secs_f64());
+            }
+        },
+    );
+    eprintln!("{}", pob_oracle::runner::query_cache_summary());
     eprintln!(
         "CS0: {} builds ({} failed in the oracle) in {:.0}s; PoB call counts {calls:?}",
         corpus.len(),

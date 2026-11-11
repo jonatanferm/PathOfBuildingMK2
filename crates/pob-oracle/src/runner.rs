@@ -263,21 +263,92 @@ fn lock_exclusive(file: &std::fs::File) -> std::io::Result<()> {
     file.lock()
 }
 
+/// Try for an exclusive `flock` on `file` without blocking (`Ok(false)`: another holder).
+#[cfg(unix)]
+fn try_lock_exclusive(file: &std::fs::File) -> std::io::Result<bool> {
+    loop {
+        match rustix::fs::flock(file, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
+            Ok(()) => return Ok(true),
+            Err(e) if e == rustix::io::Errno::INTR => {}
+            Err(e) if e == rustix::io::Errno::WOULDBLOCK => return Ok(false),
+            Err(e) => return Err(std::io::Error::from(e)),
+        }
+    }
+}
+
+#[cfg(not(unix))]
+#[allow(clippy::incompatible_msrv)]
+fn try_lock_exclusive(file: &std::fs::File) -> std::io::Result<bool> {
+    match file.try_lock() {
+        Ok(()) => Ok(true),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+        Err(std::fs::TryLockError::Error(e)) => Err(e),
+    }
+}
+
+/// `$POB_ORACLE_SLOTS`: how many LuaJIT PoBs may run at once machine-wide. Default 1 (calc doc
+/// D20: one LuaJIT oracle at a time; CCR-0127 proposes raising it).
+// CCR-0127: the slot count is configurable; the default stays D20's single oracle.
+#[must_use]
+pub fn oracle_slots() -> usize {
+    std::env::var("POB_ORACLE_SLOTS")
+        .ok()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .unwrap_or(1)
+        .max(1)
+}
+
+/// The lock file of oracle slot `i`: slot 0 is [`lock_path`] (the one `oracle.sh` takes), slot
+/// `i > 0` is `<lock_path>.<i>`.
+#[must_use]
+pub fn slot_lock_path(i: usize) -> PathBuf {
+    let p = lock_path();
+    if i == 0 {
+        return p;
+    }
+    let mut s = p.into_os_string();
+    s.push(format!(".{i}"));
+    PathBuf::from(s)
+}
+
 impl OracleLock {
+    /// Hold one of the [`oracle_slots`] machine-wide oracle slots (blocking). With one slot this
+    /// is the blocking `flock` on [`lock_path`] it always was; with more, the slots are tried in
+    /// order without blocking and the call retries every 50-250 ms until one is free.
     pub fn acquire() -> Result<Self> {
         if std::env::var_os(LOCK_HELD_ENV).is_some_and(|v| v == "1") {
             return Ok(Self { _file: None });
         }
-        let path = lock_path();
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&path)
-            .map_err(|e| OracleError(format!("{}: {e}", path.display())))?;
-        lock_exclusive(&file)
-            .map_err(|e| OracleError(format!("locking {}: {e}", path.display())))?;
-        Ok(Self { _file: Some(file) })
+        let open = |path: &Path| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(path)
+                .map_err(|e| OracleError(format!("{}: {e}", path.display())))
+        };
+        let slots = oracle_slots();
+        if slots == 1 {
+            let path = lock_path();
+            let file = open(&path)?;
+            lock_exclusive(&file)
+                .map_err(|e| OracleError(format!("locking {}: {e}", path.display())))?;
+            return Ok(Self { _file: Some(file) });
+        }
+        let mut wait = std::time::Duration::from_millis(50);
+        loop {
+            for i in 0..slots {
+                let path = slot_lock_path(i);
+                let file = open(&path)?;
+                if try_lock_exclusive(&file)
+                    .map_err(|e| OracleError(format!("locking {}: {e}", path.display())))?
+                {
+                    return Ok(Self { _file: Some(file) });
+                }
+            }
+            std::thread::sleep(wait);
+            wait = (wait * 2).min(std::time::Duration::from_millis(250));
+        }
     }
 }
 
@@ -514,23 +585,90 @@ mod tests {
 //
 // `$POB_QUERY_CACHE`: unset / `on` reads and writes; `refresh` runs PoB again and overwrites;
 // `off` neither reads nor writes (every query and probe runs, as before HYG3; a probe run goes to
-// a private directory outside the cache, deleted after use: `SelectionCache::fill`).
+// a private directory outside the cache, deleted after use: `SelectionCache::fill`); `verify`
+// (TP1) runs PoB like `off` and compares each fresh result with the cached entry of its key
+// (`cached_query`: the text; `SelectionCache`: the set of dump files), reporting every difference
+// and counting it in `query_cache_summary`, without writing. `POB_ORACLE_NOCACHE=1` is `off` and
+// `POB_ORACLE_CACHE_VERIFY=1` is `verify`, whatever `$POB_QUERY_CACHE` says.
 
-/// What `$POB_QUERY_CACHE` allows.
+/// What `$POB_QUERY_CACHE` (`$POB_ORACLE_NOCACHE`, `$POB_ORACLE_CACHE_VERIFY`) allows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheMode {
     On,
     Refresh,
     Off,
+    /// Run PoB, compare with the cached entry, write nothing (TP1).
+    Verify,
+}
+
+/// A flag variable that is set to anything but empty / `0`.
+fn env_flag(name: &str) -> bool {
+    std::env::var_os(name).is_some_and(|v| !v.is_empty() && v != "0")
 }
 
 #[must_use]
 pub fn cache_mode() -> CacheMode {
+    if env_flag("POB_ORACLE_NOCACHE") {
+        return CacheMode::Off;
+    }
+    if env_flag("POB_ORACLE_CACHE_VERIFY") {
+        return CacheMode::Verify;
+    }
     match std::env::var("POB_QUERY_CACHE").as_deref() {
         Ok("off" | "0") => CacheMode::Off,
         Ok("refresh") => CacheMode::Refresh,
+        Ok("verify") => CacheMode::Verify,
         _ => CacheMode::On,
     }
+}
+
+/// `cached_query` / `SelectionCache` verifications in this process: (same, differing, no entry).
+static VERIFY_SAME: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static VERIFY_DIFF: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static VERIFY_NONE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// `(same, differing, without an entry)` of the verifications in this process.
+#[must_use]
+pub fn verify_stats() -> (usize, usize, usize) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (
+        VERIFY_SAME.load(Relaxed),
+        VERIFY_DIFF.load(Relaxed),
+        VERIFY_NONE.load(Relaxed),
+    )
+}
+
+/// Count one verification of the entry at `what`: `cached` is the entry's content (`None`: no
+/// entry), `fresh` the fresh run's. A difference is printed with its first differing position.
+fn record_verify(what: &Path, cached: Option<&str>, fresh: &str) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let Some(cached) = cached else {
+        VERIFY_NONE.fetch_add(1, Relaxed);
+        return;
+    };
+    if cached == fresh {
+        VERIFY_SAME.fetch_add(1, Relaxed);
+        return;
+    }
+    VERIFY_DIFF.fetch_add(1, Relaxed);
+    let at = cached
+        .bytes()
+        .zip(fresh.bytes())
+        .position(|(a, b)| a != b)
+        .unwrap_or_else(|| cached.len().min(fresh.len()));
+    let ctx = |s: &str| -> String {
+        let a = at.saturating_sub(60);
+        let b = (at + 60).min(s.len());
+        String::from_utf8_lossy(&s.as_bytes()[a..b]).into_owned()
+    };
+    eprintln!(
+        "oracle cache verify: {} differs from a fresh PoB run at byte {at} (cached {} bytes, fresh {}):\n  cached: …{}…\n  fresh:  …{}…",
+        what.display(),
+        cached.len(),
+        fresh.len(),
+        ctx(cached),
+        ctx(fresh)
+    );
 }
 
 /// The first 16 hex digits of the BLAKE3 of `parts` (each length-prefixed, so part boundaries
@@ -705,10 +843,18 @@ pub fn query_cache_summary() -> String {
         CacheMode::On => "on",
         CacheMode::Refresh => "refresh",
         CacheMode::Off => "off",
+        CacheMode::Verify => "verify",
     };
-    format!(
+    let mut s = format!(
         "PoB query cache (HYG3, POB_QUERY_CACHE={mode}): {hits} builds cached, {misses} run in PoB"
-    )
+    );
+    if mode == "verify" {
+        let (same, diff, none) = verify_stats();
+        s.push_str(&format!(
+            "; verified {same} identical, {diff} differing, {none} without an entry"
+        ));
+    }
+    s
 }
 
 impl QueryCache {
@@ -764,8 +910,15 @@ impl QueryCache {
         got
     }
 
-    /// Store `text` as `name`.
+    /// Store `text` as `name` (nothing under `verify`, which never writes).
     pub fn put(&self, name: &str, text: &str) -> Result<()> {
+        if cache_mode() == CacheMode::Verify {
+            return Ok(());
+        }
+        self.put_unchecked(name, text)
+    }
+
+    fn put_unchecked(&self, name: &str, text: &str) -> Result<()> {
         let dst = self.path(name);
         std::fs::create_dir_all(&self.dir)
             .map_err(|e| OracleError(format!("{}: {e}", self.dir.display())))?;
@@ -776,8 +929,16 @@ impl QueryCache {
         std::fs::rename(&tmp, &dst).map_err(|e| OracleError(format!("{}: {e}", dst.display())))
     }
 
-    /// Store the file `src` as `name`, compressed as a stream (large JSONL outputs).
+    /// Store the file `src` as `name`, compressed as a stream (large JSONL outputs; nothing under
+    /// `verify`).
     pub fn put_file(&self, name: &str, src: &Path) -> Result<()> {
+        if cache_mode() == CacheMode::Verify {
+            return Ok(());
+        }
+        self.put_file_unchecked(name, src)
+    }
+
+    fn put_file_unchecked(&self, name: &str, src: &Path) -> Result<()> {
         let dst = self.path(name);
         std::fs::create_dir_all(&self.dir)
             .map_err(|e| OracleError(format!("{}: {e}", self.dir.display())))?;
@@ -799,14 +960,17 @@ impl QueryCache {
     /// that one stands; an incomplete one (no `result`: an older layout) is replaced, and so is
     /// any entry under `refresh`.
     pub fn put_entry(&self, result: &str, files: &[(&str, &Path)]) -> Result<()> {
+        if cache_mode() == CacheMode::Verify {
+            return Ok(());
+        }
         let tmp = private_tmp(&self.dir);
         let _ = std::fs::remove_dir_all(&tmp);
         let res = (|| {
             let staged = Self { dir: tmp.clone() };
             for (name, src) in files {
-                staged.put_file(name, src)?;
+                staged.put_file_unchecked(name, src)?;
             }
-            staged.put("result", result)?;
+            staged.put_unchecked("result", result)?;
             if cache_mode() == CacheMode::Refresh || !self.path("result").is_file() {
                 let _ = std::fs::remove_dir_all(&self.dir);
             }
@@ -840,10 +1004,34 @@ pub fn cached_query(
     run: impl FnOnce() -> String,
 ) -> String {
     let cache = QueryCache::new(src, input, script).unwrap_or_else(|e| panic!("query cache: {e}"));
-    match &cache {
+    cached_query_in(cache.as_ref(), || Ok::<_, std::convert::Infallible>(run()))
+        .unwrap_or_else(|e| match e {})
+}
+
+/// [`cached_query`] for a run that can fail: an `Err` is returned and not cached. A cache that
+/// cannot be set up (an unreadable source tree) is reported and the query runs uncached.
+pub fn cached_query_result(
+    src: &Path,
+    input: &[u8],
+    script: &[&str],
+    run: impl FnOnce() -> std::result::Result<String, String>,
+) -> std::result::Result<String, String> {
+    let cache = QueryCache::new(src, input, script).unwrap_or_else(|e| {
+        eprintln!("query cache: not used: {e}");
+        None
+    });
+    cached_query_in(cache.as_ref(), run)
+}
+
+/// The query `run` through `cache` (`None`: uncached, counted as a run in PoB).
+fn cached_query_in<E>(
+    cache: Option<&QueryCache>,
+    run: impl FnOnce() -> std::result::Result<String, E>,
+) -> std::result::Result<String, E> {
+    match cache {
         Some(c) => {
             if let Some(text) = c.get("result") {
-                return text;
+                return Ok(text);
             }
         }
         // no cache (off, or no `.parity`): a run in PoB all the same
@@ -851,13 +1039,17 @@ pub fn cached_query(
             QUERY_MISSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
     }
-    let text = run();
-    if let Some(c) = &cache {
-        if let Err(e) = c.put("result", &text) {
+    let text = run()?;
+    if let Some(c) = cache {
+        if cache_mode() == CacheMode::Verify {
+            let p = c.path("result");
+            let cached = p.is_file().then(|| read_text(&p).ok()).flatten();
+            record_verify(&c.dir, cached.as_deref(), &text);
+        } else if let Err(e) = c.put("result", &text) {
             eprintln!("query cache: not stored: {e}");
         }
     }
-    text
+    Ok(text)
 }
 
 /// Where the oracle tests publish patched copies: `$POB_ORACLE_SRC_ROOT`, else
@@ -953,6 +1145,30 @@ impl SelectionCache {
         off_root: &Path,
         probe: impl FnOnce(&Path) -> Result<()>,
     ) -> Result<ProbeDumps> {
+        if mode == CacheMode::Verify {
+            // a private run like `off`, whose dump list is compared with the entry's (the dumps'
+            // contents carry a per-process run id and `pairs` order, so only the list compares)
+            let dumps = self.fill_with(CacheMode::Off, off_root, probe)?;
+            let names = |d: &Path, strip: &str| -> Vec<String> {
+                let mut v: Vec<String> = std::fs::read_dir(d)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(std::result::Result::ok)
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter_map(|n| n.strip_suffix(strip).map(str::to_owned))
+                    .collect();
+                v.sort();
+                v
+            };
+            let cached = self
+                .dir
+                .join("hits.json.zst")
+                .is_file()
+                .then(|| names(&self.state_dir(), ".json.zst").join("\n"));
+            let fresh = names(dumps.path(), ".json").join("\n");
+            record_verify(&self.dir, cached.as_deref(), &fresh);
+            return Ok(dumps);
+        }
         if mode == CacheMode::Off {
             let private = private_tmp(&off_root.join("run"));
             let _ = std::fs::remove_dir_all(&private);

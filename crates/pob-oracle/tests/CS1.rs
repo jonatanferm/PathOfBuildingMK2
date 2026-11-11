@@ -40,6 +40,7 @@
     clippy::single_match_else
 )]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pob_calc::prelude::*;
@@ -111,20 +112,26 @@ fn oracle_run(src: &Path, xml: &Path, stem: &str, dir: &Path) -> Result<usize, S
     Ok(j["forwarded"].as_u64().unwrap_or(0) as usize)
 }
 
-/// The build's oracle directory (made on first use, reused while complete).
-fn ensure_oracle(src: &Path, xml: &Path, stem: &str) -> Result<(PathBuf, usize), String> {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("CS1")
-        .join(stem);
-    let done = dir.join("complete");
-    if let Ok(s) = std::fs::read_to_string(&done) {
-        if let Ok(n) = s.trim().parse::<usize>() {
-            return Ok((dir, n));
-        }
-    }
-    let _ = std::fs::remove_dir_all(&dir);
-    let n = oracle_run(src, xml, stem, &dir)?;
-    std::fs::write(&done, n.to_string()).map_err(|e| e.to_string())?;
+/// The build's oracle directory and its pair count. TP1: an entry of the shared oracle cache
+/// (`testkit::oracle_dir`, keyed by the patched tree, the XML, the build name and the CS1 / probe
+/// runtime, shared by every worktree), filled by one PoB run when absent. Hold it while reading.
+fn ensure_oracle(
+    src: &Path,
+    xml: &Path,
+    stem: &str,
+) -> Result<(pob_oracle::testkit::OracleDir, usize), String> {
+    let text = std::fs::read(xml).map_err(|e| e.to_string())?;
+    let dir = pob_oracle::testkit::oracle_dir(
+        src,
+        &text,
+        // the probe options live in this file, the prelude in runner.rs
+        &["CS1 oracle_run 1", stem, CS1_LUA, include_str!("CS1.rs"), include_str!("../src/runner.rs")],
+        |dir| oracle_run(src, xml, stem, dir).map(|_| ()),
+    )?;
+    let info: J = std::fs::read_to_string(dir.join("cs1.json"))
+        .map_err(|e| format!("cs1.json: {e}"))
+        .and_then(|s| serde_json::from_str(&s).map_err(|e| format!("cs1.json: {e}")))?;
+    let n = info["forwarded"].as_u64().unwrap_or(0) as usize;
     Ok((dir, n))
 }
 
@@ -765,34 +772,59 @@ fn cs1_l4_initEnv_488_to_800() {
     quiet_lua_errors();
     let verbose = std::env::var_os("CS1_VERBOSE").is_some();
     let stages = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/CS1/stages.toml");
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-    let patched = pob_oracle::patcher::patch(&pob_src, Some(&stages), &root)
-        .unwrap_or_else(|e| panic!("patch: {e:?}"));
+    // TP1: the shared patched copy (every worktree keys the oracle cache by the same tree)
+    let _ = &pob_src;
+    let patched = pob_oracle::testkit::shared_patch(Some(&stages))
+        .unwrap_or_else(|e| panic!("patch: {e}"));
     let (mut pairs, mut ok, mut bad_order, mut bad_order_failed) = (0, 0, 0, 0);
     let mut failures: Vec<String> = Vec::new();
     let mut oracle_failures = Vec::new();
     let mut shapes: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
     let t0 = std::time::Instant::now();
-    for xml in &corpus {
+    // TP1: builds (oracle entry, pair checks) on the bounded pool (`$POB_TEST_PAR`); each
+    // build's checks and its thread-local filter counts come back here and are tallied in corpus
+    // order, as the serial loop did
+    type Checked = (String, Result<(Vec<String>, bool), String>);
+    type BuildRun = Result<(usize, Vec<Checked>, BTreeMap<&'static str, usize>, usize), String>;
+    let run_build = |xml: &PathBuf| -> BuildRun {
         let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
-        let (dir, n) = match ensure_oracle(&patched.src, xml, &stem) {
-            Ok(x) => x,
-            Err(e) => {
-                oracle_failures.push(format!("{stem}: {e}"));
-                continue;
-            }
-        };
+        let (dir, n) = ensure_oracle(&patched.src, xml, &stem).map_err(|e| format!("{stem}: {e}"))?;
         let info: J = std::fs::read_to_string(dir.join("cs1.json"))
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or(J::Null);
+        let checked = (1..=n)
+            .map(|k| {
+                let shape = info["shapes"][k - 1].as_str().unwrap_or("?").to_owned();
+                (shape, check_pair(&dir, k, &stem))
+            })
+            .collect();
+        // this worker's share of the report's thread-local counters
+        let filtered = FILTERED.with(|f| std::mem::take(&mut *f.borrow_mut()));
+        let limited = ORDER_LIMITED.with(|c| c.replace(0));
+        Ok((n, checked, filtered, limited))
+    };
+    let mut merged_filtered: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut merged_limited = 0usize;
+    pob_oracle::testkit::par_for_each(&corpus, |_, xml| run_build(xml), |_, xml, r| {
+        let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
+        let (n, checked, filtered, limited) = match r {
+            Ok(x) => x,
+            Err(e) => {
+                oracle_failures.push(e);
+                return;
+            }
+        };
+        for (k, v) in filtered {
+            *merged_filtered.entry(k).or_default() += v;
+        }
+        merged_limited += limited;
         let mut build_ok = 0;
-        for k in 1..=n {
-            let shape = info["shapes"][k - 1].as_str().unwrap_or("?").to_owned();
+        for (k, (shape, checked)) in (1..=n).zip(checked) {
             pairs += 1;
             let e = shapes.entry(shape.clone()).or_default();
             e.0 += 1;
-            match check_pair(&dir, k, &stem) {
+            match checked {
                 Ok((mm, order_ok)) => {
                     if !order_ok {
                         bad_order += 1;
@@ -828,7 +860,15 @@ fn cs1_l4_initEnv_488_to_800() {
                 t0.elapsed().as_secs_f64()
             );
         }
-    }
+    });
+    // the workers' counts (and, serially, this thread's own) into this thread's counters
+    FILTERED.with(|f| {
+        let mut f = f.borrow_mut();
+        for (k, v) in merged_filtered {
+            *f.entry(k).or_default() += v;
+        }
+    });
+    ORDER_LIMITED.with(|c| c.set(c.get() + merged_limited));
     eprintln!(
         "CS1 L4 initEnv:488 -> initEnv:800: {ok}/{pairs} pairs identical over {} builds ({} oracle failures) in {:.0}s",
         corpus.len(),

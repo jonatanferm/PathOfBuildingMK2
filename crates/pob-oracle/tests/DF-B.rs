@@ -28,10 +28,11 @@
 //! done
 //! ```
 //!
-//! Memory: builds run one at a time and each call's dumps are parsed just before it runs and
-//! dropped after it (only the build's few `defence:674..676` minion dumps and its model stay
-//! alive for the build). An earlier version kept every parsed dump of all 59 builds and reached
-//! 6 GB RSS; this one peaks at ~1.4 GB over the full corpus (printed at the end).
+//! Memory: each worker of the bounded pool (`$POB_TEST_PAR`, default 3; TP1) runs one build at a
+//! time and each call's dumps are parsed just before it runs and dropped after it (only the
+//! build's few `defence:674..676` minion dumps and its model stay alive for the build). An earlier
+//! version kept every parsed dump of all 59 builds and reached 6 GB RSS; one worker peaks at
+//! ~1.4 GB over the full corpus (printed at the end).
 //!
 //! `DF_B_ONLY=<stem>[,..]` restricts the builds; `DF_B_VERBOSE=1` prints every mismatch and a
 //! per-build line with the peak RSS so far.
@@ -353,67 +354,97 @@ fn df_b_l4() {
         .collect();
     unit.sort();
     builds.extend(unit);
-    let hit_chance = lua_hit_chance(&src);
+    // TP1: builds run on the bounded pool (`testkit::par_for_each_init`, `$POB_TEST_PAR`), each
+    // worker with its own LuaJIT `calcs.hitChance`; the per-build results are merged and printed
+    // on this thread in corpus order, so the report is the serial one.
+    let builds: Vec<PathBuf> = builds
+        .into_iter()
+        .filter(|xml| {
+            let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
+            only.as_ref().map_or(true, |o| o.contains(&stem))
+        })
+        .collect();
+    let nbuilds = builds.len();
 
-    // One build at a time, one call at a time: only the current call's dumps, the build's
-    // few minion dumps and its parsed model are alive at once (memory budget, AMENDMENTS).
+    // One call at a time per worker: only the current call's dumps, the build's few minion
+    // dumps and its parsed model are alive at once per worker (memory budget, AMENDMENTS).
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let mut missing = Vec::new();
     let mut failures: Vec<(String, String, Vec<String>)> = Vec::new();
     let (mut total, mut pass, mut minion_cases) = (0usize, 0usize, 0usize);
     let (mut unit_cases, mut unit_pass) = (0usize, 0usize);
-    let mut nbuilds = 0usize;
-    for xml in &builds {
-        let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
-        if only.as_ref().is_some_and(|o| !o.contains(&stem)) {
-            continue;
-        }
-        nbuilds += 1;
-        let Some(dir) = cache_dir(&parity, xml) else {
-            missing.push(format!(
-                "{stem}: no DF-B dumps (see the fill command in tests/DF-B.rs)"
-            ));
-            continue;
-        };
-        let is_unit = xml.starts_with(&unit_dir);
-        let files = dump_files(&dir);
-        let minion = minion_dumps(&files);
-        let model = testkit::load_build(xml).unwrap_or_else(testkit::empty_build);
-        let (mut bpass, mut btotal) = (0usize, 0usize);
-        for n in hits_of(&files, P_IN) {
-            let c = match case_of(&stem, &files, &minion, n) {
-                Ok(c) => c,
-                Err(e) => {
-                    missing.push(e);
-                    continue;
-                }
-            };
-            total += 1;
-            btotal += 1;
-            minion_cases += usize::from(c.minion.is_some());
-            unit_cases += usize::from(is_unit);
-            let m = run_case(&c, &model, &hit_chance);
-            if m.is_empty() {
-                pass += 1;
-                bpass += 1;
-                unit_pass += usize::from(is_unit);
-            } else {
-                let keep = if verbose { m.len() } else { 8 };
-                let n = m.len();
-                let mut m = m;
-                m.truncate(keep);
-                m.push(format!("({n} mismatches)"));
-                failures.push((c.stem.clone(), c.hit.clone(), m));
-            }
-        }
-        if verbose {
-            eprintln!(
-                "{stem}: {bpass}/{btotal} (peak RSS {} MB)",
-                peak_rss_kb().unwrap_or(0) / 1024
-            );
-        }
+    #[derive(Default)]
+    struct BuildOut {
+        missing: Vec<String>,
+        failures: Vec<(String, String, Vec<String>)>,
+        total: usize,
+        pass: usize,
+        minion_cases: usize,
+        unit_cases: usize,
+        unit_pass: usize,
     }
+    testkit::par_for_each_init(
+        &builds,
+        || lua_hit_chance(&src),
+        |hit_chance, _, xml| {
+            let mut o = BuildOut::default();
+            let stem = xml.file_stem().unwrap().to_string_lossy().into_owned();
+            let Some(dir) = cache_dir(&parity, xml) else {
+                o.missing.push(format!(
+                    "{stem}: no DF-B dumps (see the fill command in tests/DF-B.rs)"
+                ));
+                return o;
+            };
+            let is_unit = xml.starts_with(&unit_dir);
+            let files = dump_files(&dir);
+            let minion = minion_dumps(&files);
+            let model = testkit::load_build(xml).unwrap_or_else(testkit::empty_build);
+            for n in hits_of(&files, P_IN) {
+                let c = match case_of(&stem, &files, &minion, n) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        o.missing.push(e);
+                        continue;
+                    }
+                };
+                o.total += 1;
+                o.minion_cases += usize::from(c.minion.is_some());
+                o.unit_cases += usize::from(is_unit);
+                let m = run_case(&c, &model, hit_chance);
+                if m.is_empty() {
+                    o.pass += 1;
+                    o.unit_pass += usize::from(is_unit);
+                } else {
+                    let keep = if verbose { m.len() } else { 8 };
+                    let n = m.len();
+                    let mut m = m;
+                    m.truncate(keep);
+                    m.push(format!("({n} mismatches)"));
+                    o.failures.push((c.stem.clone(), c.hit.clone(), m));
+                }
+            }
+            o
+        },
+        |_, xml, o| {
+            if verbose {
+                let stem = xml.file_stem().unwrap().to_string_lossy();
+                eprintln!(
+                    "{stem}: {}/{} (peak RSS {} MB)",
+                    o.pass,
+                    o.total,
+                    peak_rss_kb().unwrap_or(0) / 1024
+                );
+            }
+            missing.extend(o.missing);
+            failures.extend(o.failures);
+            total += o.total;
+            pass += o.pass;
+            minion_cases += o.minion_cases;
+            unit_cases += o.unit_cases;
+            unit_pass += o.unit_pass;
+        },
+    );
     std::panic::set_hook(hook);
     for (stem, hit, m) in &failures {
         eprintln!("FAIL {stem} {hit}");
