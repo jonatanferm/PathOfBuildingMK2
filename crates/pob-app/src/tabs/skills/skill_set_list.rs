@@ -103,6 +103,7 @@ pub fn copy_socket_group(s: &SocketGroup) -> SocketGroup {
         displaySkillListCalcs: model::Field::new(s.displaySkillListCalcs.get()),
         displayLabel: model::Field::new(s.displayLabel.get()),
         explodeSources: model::Field::new(s.explodeSources.get()),
+        sourceItem: model::Field::new(s.sourceItem.get()),
         extra: s.extra.copyTable(true),
     }
 }

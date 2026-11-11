@@ -865,6 +865,7 @@ fn copy_group(d: &SocketGroup, s: &SocketGroup) {
     d.displaySkillListCalcs.set(s.displaySkillListCalcs.get());
     d.displayLabel.set(s.displayLabel.get());
     d.explodeSources.set(s.explodeSources.get());
+    d.sourceItem.set(s.sourceItem.get());
     copy_table(&d.extra, &s.extra);
 }
 

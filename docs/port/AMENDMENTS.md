@@ -443,7 +443,8 @@ nil value" for every minion skill with a duration) and in `activeSpectreList`
 (`pools_charges.rs`, CalcPerform.lua:2215-2216, left the list empty), read `minion.r#type`; a
 grep over every retyped key (`type`, `uses`, `lifeTable`, `itemSet`, `sourceItem`,
 `triggeredBy`, `req`, `explodeSources`, `notBuff`, `appliedEnemyModifiers`, `flaskSlotMap`,
-`itemList`, `sourceWeapon`) finds no other. The live-first rebind above replaced a rebind by
+`itemList`, `sourceWeapon`) finds no other in pob-calc and pob-oracle (pob-app was not searched
+then; fix round 2 below). The live-first rebind above replaced a rebind by
 first equal payload, which bound Yoke keys to payloads of ailments that did not hold and
 re-applied a `DamageTaken` at doActorMisc. A minion's `itemList` is `None` from
 CalcActiveSkill.lua:704 (`local minion = { }`) until 722 (`calc_active_skill.rs` unsets
@@ -455,7 +456,7 @@ directory when one holds them (an older five-stage fill earlier in the cache ord
 supplies a `perform:2997` with no closure dumps beside it).
 
 Verification (2026-11-11, one test binary at a time through `scripts/port/cargo.sh`, after
-merging rust-port 9493f99): PF-F dumps refilled for all 58 builds (57 `.parity/builds` +
+merging rust-port 41e8c3a): PF-F dumps refilled for all 58 builds (57 `.parity/builds` +
 `pff_party_minion`) with the 7-stage fill command, into probe-cache `71b97fdcfcdf9d92`; PF-F L4
 `perform:2997` → `perform:3497` 58/58 pass, 0 mismatches, both closures seeded on every build
 (before: 0/58, all raising "attempt to call local 'mergeFlasks' (a nil value)" at L3121);
@@ -471,3 +472,36 @@ and on rust-port 41e8c3a, so not from the retype: L4 pass 329 / restart 6 / fail
 builds x `initEnv:1451#9/#10`) on `env.override.extraJewelFuncs.actor.modDB.mods.LifeRegenPercent`
 (the `warcryPowerBonus` tag, CCR-0083 §7 / CCR-0014 §3); L5 171/171 runs raise "attempt to index
 a nil value" (`lua_table.rs:163`, the nil class stats at CalcSetup.lua:593).
+
+Fix round 2 (after review): U30's Skills tab, which arrived with the rust-port merge, still used
+the old representation, and pob-app (so pob-ui-oracle) did not compile. `tabs/skills/core.rs`:
+`copy_socket_group` copies `sourceItem`; the source note (SkillsTab.lua 389-394) and
+`AddSocketGroupTooltip` (1310-1312) iterate `explodeSources.snapshot()` through
+`ExplodeSource::to_val`; the source note (398-399) and the tooltip (1319) read
+`socketGroup.sourceItem` (the typed field) where they read `extra["sourceItem"]`, which nothing
+writes any more (the item never showed, the note fell through to `sourceNode` or `?`). U15's
+bridge (`pob-ui-oracle/src/lua_calc.rs` `copy_group`) copies `sourceItem` too, so the Rust side
+of the UI oracle gets the item PoB's calc set. New U30 scenario `f_item_source` (allflame_exp_028
+with its item-granted group first, so the displayed group has a `sourceItem`): before the fix
+8 divergences per screen (the note read `'^xC8C8C8?^7'`), after 0. It also showed a U30 slip in
+the same label: L412's `[[` drops the newline after it, so `sourceName` runs straight into
+"will automatically apply" (the port had `\nwill`). The second rust-port merge (2167f22)
+brought three more: U31's `skill_set_list::copy_socket_group` copies `sourceItem`; U38's
+`tabs/items/tooltip.rs` copies all three `slotModList` slots in `copy_item` and reads Ring 3's
+as `slotModList[2]` (it called the deleted `Item::slotModList3`); U34's
+`tests/u34_items_core.rs` `shallow_copy_item` copies the third slot. The grep, redone over
+every crate (`n!("<key>")` and `"<key>"` for all keys listed above plus `triggerSkillCond`,
+`comparer`, `mergeFlasks`, `mergeTinctures`, `monsterTags`, `slotModList3`), finds no other read of a moved
+key from a retyped object: the remaining hits are other tables' keys of the same name (mod
+`type`, `weaponData.type`, buff `type`, the `ExtraAura` LIST value's `notBuff`,
+`grantedSkill.sourceItem` and the requirements entries' `sourceItem`, plain tables in PoB too),
+probe/inject registry names, or tests.
+
+Verification (fix round 2, after merging rust-port 2167f22, one test binary at a time through
+`scripts/port/cargo.sh`): `check -p pob-calc -p pob-app -p pob-ui-core -p pob-ui-oracle -p
+pob-oracle --tests` clean (every crate that depends on pob-calc). u30_skills 11 runs (6 scripts,
+`f_item_source` new), 0 divergences, T4 29 Skills sections identical; u31_skills 2/2 (10 runs,
+T4 10 pairs); u38_tooltips 3/3 (400 unique tooltips, 48 compare tooltips, 0 failures);
+u34_items_core 1/1 (9 runs, T4 33 pairs); AS 4/4 (one earlier run of `as_oracle` exceeded its
+LUA-ORDER bucket bound and passed on the rerun: PoB's per-process `pairs` order, not this
+change, which touches no calc code).

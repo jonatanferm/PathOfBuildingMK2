@@ -1,0 +1,18 @@
+# U30: user1/item_source.xml is allflame_exp_028 with its Severed in Sleep group (an item-granted
+# skill, source "Item:15:...") moved to the front, so it is the displayed group on load: the
+# source note names the granting item (L397-411: `socketGroup.sourceItem`, its rarity colour and
+# name; "un-equip the item"), Socketed in is disabled (source ~= nil); then the mouse over the
+# slot dropdown (its tooltip), and off the tab.
+fixture userdir=user1
+frames 2
+load-build "Builds/item_source.xml"
+frames 2
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+move 860 124
+frames 2
+move 1270 790
+frames 2
+snapshot loaded
