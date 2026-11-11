@@ -239,12 +239,14 @@ pub fn default_shell_hooks() -> ShellHooks {
             TabFlag::Notes => crate::tabs::notes::mod_flag(cx),
             TabFlag::Party => crate::tabs::party::mod_flag(cx),
             TabFlag::Calcs => crate::tabs::calcs::core::mod_flag(cx),
+            TabFlag::Items => crate::tabs::items::tooltip::mod_flag(cx),
             _ => false,
         }),
         set_tab_flag: Rc::new(|cx, flag, v| match flag {
             TabFlag::Notes => crate::tabs::notes::set_mod_flag(cx, v),
             TabFlag::Party => crate::tabs::party::set_mod_flag(cx, v),
             TabFlag::Calcs => crate::tabs::calcs::core::set_mod_flag(cx, v),
+            TabFlag::Items => crate::tabs::items::tooltip::set_mod_flag(cx, v),
             _ => {}
         }),
         import_select_code_in: Rc::new(crate::tabs::import::core::select_code_in),
