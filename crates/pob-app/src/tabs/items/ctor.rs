@@ -487,29 +487,21 @@ fn not_ported(what: &str, owner: &str) -> ! {
 pub fn default_items_ui_hooks() -> ItemsUiHooks {
     ItemsUiHooks {
         add_display_item: Rc::new(|_, _, _| not_ported("ItemsTab:AddDisplayItem", "U34")),
-        select_display_item_variant: Rc::new(|_, _, _, _, _, _| {
-            not_ported("ItemsTab:SelectDisplayItemVariant", "U35")
+        // U35 (display_item.rs)
+        select_display_item_variant: Rc::new(super::display_item::SelectDisplayItemVariant),
+        update_display_item_variant_controls: Rc::new(super::display_item::UpdateDisplayItemVariantControls),
+        update_display_item_tooltip: Rc::new(super::display_item::UpdateDisplayItemTooltip),
+        update_socket_controls: Rc::new(super::display_item::UpdateSocketControls),
+        craft_cluster_jewel: Rc::new(super::display_item::CraftClusterJewel),
+        update_affix_controls: Rc::new(super::display_item::UpdateAffixControls),
+        update_custom_controls: Rc::new(super::display_item::UpdateCustomControls),
+        update_display_item_range_lines: Rc::new(super::display_item::UpdateDisplayItemRangeLines),
+        // (`replaceImplicits` nil: CCR-0124 §2)
+        add_mod_comparison_tooltip: Rc::new(|cx, me, tt, m| {
+            super::display_item::AddModComparisonTooltip(cx, me, tt, m.map(|m| &**m), false);
         }),
-        update_display_item_variant_controls: Rc::new(|_, _| {
-            not_ported("ItemsTab:UpdateDisplayItemVariantControls", "U35")
-        }),
-        update_display_item_tooltip: Rc::new(|_, _| {
-            not_ported("ItemsTab:UpdateDisplayItemTooltip", "U35")
-        }),
-        update_socket_controls: Rc::new(|_, _| not_ported("ItemsTab:UpdateSocketControls", "U35")),
-        craft_cluster_jewel: Rc::new(|_, _| not_ported("ItemsTab:CraftClusterJewel", "U35")),
-        update_affix_controls: Rc::new(|_, _| not_ported("ItemsTab:UpdateAffixControls", "U35")),
-        update_custom_controls: Rc::new(|_, _| {
-            not_ported("ItemsTab:UpdateCustomControls", "U35")
-        }),
-        update_display_item_range_lines: Rc::new(|_, _| {
-            not_ported("ItemsTab:UpdateDisplayItemRangeLines", "U35")
-        }),
-        add_mod_comparison_tooltip: Rc::new(|_, _, _, _| {
-            not_ported("ItemsTab:AddModComparisonTooltip", "U35")
-        }),
-        get_comparison_slot_name_for_item: Rc::new(|_, _, _| {
-            not_ported("ItemsTab:GetComparisonSlotNameForItem", "U35")
+        get_comparison_slot_name_for_item: Rc::new(|cx, me, item| {
+            Some(super::display_item::GetComparisonSlotNameForItem(cx, me, item))
         }),
         open_item_set_manage_popup: Rc::new(|_, _| {
             not_ported("ItemsTab:OpenItemSetManagePopup", "U36")
