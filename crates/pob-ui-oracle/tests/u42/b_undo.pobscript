@@ -1,0 +1,46 @@
+# U42: the tab's undo/redo (Draw's KeyDown loop: Ctrl+Z / Ctrl+Y -> UndoHandler with
+# ConfigTab:CreateUndoState / RestoreUndoState -> UpdateControls, BuildModList) after an option
+# change ("Are you always moving?", whose callback runs AddUndoState): undo restores the loaded
+# input (ResetUndo ran after the loaded Config section), redo the change; a second undo past the
+# first state does nothing. Ctrl+F focuses the search box (typing filters the options), and the
+# unsaved marker follows the tab's modFlag (ResetModFlags is not run: the title keeps the `*`).
+#! u42-expect-config boolean="true" name="conditionMoving"
+#! u42-expect-absent boolean="true" name="conditionMoving"
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+move 573 254
+click LEFTBUTTON
+frames 3
+snapshot moving
+move 900 600
+key-down CTRL
+press z
+key-up CTRL
+frames 3
+snapshot undone
+key-down CTRL
+press y
+key-up CTRL
+frames 3
+snapshot redone
+key-down CTRL
+press z
+press z
+press z
+key-up CTRL
+frames 3
+snapshot undone_twice
+key-down CTRL
+press f
+key-up CTRL
+type "boss"
+frames 3

@@ -232,16 +232,19 @@ pub fn default_shell_hooks() -> ShellHooks {
             BuildTab::Notes => crate::tabs::notes::draw_tab(cx, vp, ev),
             BuildTab::Calcs => crate::tabs::calcs::core::draw_tab(cx, vp, ev),
             BuildTab::Import => crate::tabs::import::core::draw_tab(cx, vp, ev),
+            BuildTab::Config => crate::tabs::config::core::draw_tab(cx, vp, ev),
             _ => {}
         }),
         tab_flag: Rc::new(|cx, flag| match flag {
             TabFlag::Notes => crate::tabs::notes::mod_flag(cx),
             TabFlag::Calcs => crate::tabs::calcs::core::mod_flag(cx),
+            TabFlag::Config => crate::tabs::config::core::mod_flag(cx),
             _ => false,
         }),
         set_tab_flag: Rc::new(|cx, flag, v| match flag {
             TabFlag::Notes => crate::tabs::notes::set_mod_flag(cx, v),
             TabFlag::Calcs => crate::tabs::calcs::core::set_mod_flag(cx, v),
+            TabFlag::Config => crate::tabs::config::core::set_mod_flag(cx, v),
             _ => {}
         }),
         import_select_code_in: Rc::new(crate::tabs::import::core::select_code_in),
