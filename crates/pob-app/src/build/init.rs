@@ -445,14 +445,8 @@ pub fn default_hooks() -> BuildHooks {
         skills_tab: pending_tab(),
         calcs_tab: Rc::new(crate::tabs::calcs::core::ctor_hook),
         compare_tab: pending_tab(),
-        // CalcBreakdownControl (U40) starts hidden (CalcBreakdownControl.lua:24)
-        breakdown: Rc::new(|cx, build, _init| {
-            cx.add(
-                build,
-                "breakdown",
-                PlainControl::new(Anchor::NONE, rect(0, 0, 0, 0)).shown(Prop::Val(false)),
-            );
-        }),
+        // U40 (CalcBreakdownControl, Build.lua:616-621)
+        breakdown: Rc::new(crate::tabs::calcs::breakdown::sidebar_breakdown_ctor),
     }
 }
 
@@ -971,6 +965,8 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
     // L695
     let calc_model = model_ref.clone();
     let _ = cx.build_mut().calc.build_output(&calc_model);
+    // CalcsTab.lua:464-467, the UI tail of BuildOutput (CCR-0111 §1, applied by U40)
+    crate::tabs::calcs::core::build_output_ui_tail(cx);
     // L696
     let f = h.refresh_stat_list.clone();
     f(cx);

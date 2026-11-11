@@ -198,43 +198,10 @@ impl Widget for BreakdownStandIn {
 /// The defaults (U40 replaces each entry with its CalcBreakdownControl).
 pub fn default_calcs_hooks() -> CalcsHooks {
     CalcsHooks {
-        breakdown_ctor: Rc::new(|cx, tab| {
-            // CalcBreakdownControl.lua:24 self.shown = false
-            cx.add(
-                tab,
-                "breakdown",
-                New::new(
-                    Base::new(Anchor::NONE, rect(0, 0, 0, 0)),
-                    BreakdownStandIn::default(),
-                )
-                .host()
-                .shown(Prop::Val(false)),
-            )
-            .id()
-        }),
-        set_breakdown_data: Rc::new(|cx, bd, data, pinned| {
-            let w = cx.w_mut::<BreakdownStandIn>(bd);
-            // CalcBreakdownControl.lua:61
-            w.pinned = pinned;
-            // :62
-            let same = match (&w.source_data, data) {
-                (Some(a), Some(b)) => a.ptr_eq(b),
-                (None, None) => true,
-                _ => false,
-            };
-            if same {
-                // :63
-                return;
-            }
-            // :65
-            w.source_data = data.cloned();
-            // :67
-            cx.base_mut(bd).shown = Prop::Val(false);
-        }),
-        breakdown_source_data: Rc::new(|cx, bd| {
-            cx.try_w::<BreakdownStandIn>(bd)
-                .and_then(|w| w.source_data.clone())
-        }),
+        // U40 (CCR-0111 §2)
+        breakdown_ctor: Rc::new(super::breakdown::calcs_breakdown_ctor),
+        set_breakdown_data: Rc::new(super::breakdown::calcs_set_breakdown_data),
+        breakdown_source_data: Rc::new(super::breakdown::calcs_breakdown_source_data),
     }
 }
 
