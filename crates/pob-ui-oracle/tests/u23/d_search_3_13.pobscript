@@ -1,0 +1,8 @@
+# U23: a 3_13 build whose TreeView section has searchStr="Guid" (search highlight, edgeSearchHighlight
+# snapping matches to the viewport edge) and Thread of Hope / timeless jewels (3_13 Cospris).
+fixture userdir=user
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 3
+load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
+frames 3
