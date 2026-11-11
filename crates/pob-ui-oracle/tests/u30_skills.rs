@@ -226,6 +226,10 @@ fn rust_stubs() {
     });
     pob_app::tabs::skills::core::set_skills_hooks(|h| {
         *h = pob_app::tabs::skills::core::default_skills_hooks();
+        // U31's lists and gem rows are stand-ins here (module notes; CCR-0119 §2)
+        h.skill_list_ctor = Rc::new(pob_app::tabs::skills::core::standin_skill_list);
+        h.create_gem_slot = Rc::new(pob_app::tabs::skills::core::standin_create_gem_slot);
+        h.skill_set_list_ctor = Rc::new(pob_app::tabs::skills::core::standin_skill_set_list);
     });
 }
 

@@ -12,21 +12,21 @@
 //! # Seams (CCR-0119)
 //!
 //! CreateGemSlot, SkillListControl and SkillSetListControl read and call SkillsTab UI state that
-//! U30 ports (`self.gemSlots`, `self.anchorGemSlots`, `AddUndoState`, the UI tail of
-//! `SetDisplayGroup`, `CopySocketGroup`). U30 is not merged, so these go through
-//! [`SkillsTabUiHooks`] (thread-local, [`skills_tab_ui_hooks`] / [`set_skills_tab_ui_hooks`],
-//! the CCR-0098 §3 / CCR-0107 §1 pattern). Every entry takes the SkillsTab node (`self` of the
-//! Lua; `skillsTab` of the list controls). The defaults raise "… is not ported yet (U30)",
-//! except `set_display_group`, whose default is calc:BM-B's model half. U30 replaces the entries
-//! in [`default_skills_tab_ui_hooks`] (one line each); the other SkillsTab methods the controls
-//! call already have seams: `SetActiveSkillSet` and `AddSocketGroupTooltip` are
+//! U30 ports in `core.rs` (`self.gemSlots`, `self.anchorGemSlots`, `AddUndoState`, the UI tail of
+//! `SetDisplayGroup`, `CopySocketGroup`). They go through [`SkillsTabUiHooks`] (thread-local,
+//! [`skills_tab_ui_hooks`] / [`set_skills_tab_ui_hooks`], the CCR-0098 §3 / CCR-0107 §1
+//! pattern), written while U30 was unmerged; every entry takes the SkillsTab node (`self` of the
+//! Lua; `skillsTab` of the list controls) and the defaults are U30's methods, so a test can put a
+//! stand-in tab behind the controls (`tests/u31_skills.rs`). The other SkillsTab methods the
+//! controls call have seams of their own: `SetActiveSkillSet` and `AddSocketGroupTooltip` are
 //! `build::init::BuildHooks` entries, `skillsTab.modFlag` is `on_frame::ShellHooks::set_tab_flag
 //! (TabFlag::Skills)` and `build:SyncLoadouts()` is `BuildHooks::sync_loadouts`.
 //! `self.controls.groupLabel` is read from the tab node's controls (`cx.child(me,
-//! "groupLabel")`), as the Lua reads `self.controls`.
+//! "groupLabel")`), as the Lua reads `self.controls`. U30's `SkillsHooks` defaults construct these
+//! controls ([`CreateGemSlot`], `skill_list::skill_list_ctor`,
+//! `skill_set_list::skill_set_list_ctor`; CCR-0118 §1).
 //!
-//! [`GemSlot`] (`self.gemSlots[i]`) has the fields of U30's WIP declaration (`core::GemSlot` on
-//! `port/U30`), so the two can be merged into one type.
+//! [`GemSlot`] (`self.gemSlots[i]`) is U30's `core::GemSlot`.
 //!
 //! # Lua semantics
 //!
@@ -80,6 +80,7 @@ use pob_ui_core::prelude::*;
 use pob_ui_core::tooltip::tooltip::{TtKey, TtObj};
 use pob_ui_core::tooltip::Tooltip;
 
+use super::SkillsTab;
 use crate::app::CxApp;
 use crate::build::stats;
 use crate::controls::gem_select::{GemChangeFunc, GemSelectControl};
@@ -87,28 +88,8 @@ use crate::controls::gem_tooltip::stat_describer;
 use crate::model::gamedata::schema::skills::GrantedEffect;
 use crate::model::{self, GemInstance, GemInstanceRef, SocketGroupRef, Val};
 
-/// `self.gemSlots[index]` (CreateGemSlot): the controls of one gem row.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct GemSlot {
-    /// `slot.delete` (ButtonControl)
-    pub delete: CtrlId,
-    /// `slot.nameSpec` (GemSelectControl)
-    pub name_spec: CtrlId,
-    /// `slot.level` (EditControl)
-    pub level: CtrlId,
-    /// `slot.quality` (EditControl)
-    pub quality: CtrlId,
-    /// `slot.enabled` (CheckBoxControl)
-    pub enabled: CtrlId,
-    /// `slot.count` (EditControl)
-    pub count: CtrlId,
-    /// `slot.errMsg` (LabelControl)
-    pub err_msg: CtrlId,
-    /// `slot.enableGlobal1` (CheckBoxControl)
-    pub enable_global1: CtrlId,
-    /// `slot.enableGlobal2` (CheckBoxControl)
-    pub enable_global2: CtrlId,
-}
+/// `self.gemSlots[index]`: U30's declaration (`core::GemSlot`, the nine control ids of a row).
+pub use super::core::GemSlot;
 
 /// U31's part of the split `SkillsTab` struct (ui doc §12.1): none. `self.gemSlots` and
 /// `self.anchorGemSlots` are U30's fields (module notes: Seams).
@@ -135,24 +116,17 @@ pub struct SkillsTabUiHooks {
     pub copy_socket_group: Rc<dyn Fn(&mut Cx, CtrlId, &SocketGroupRef)>,
 }
 
-#[track_caller]
-fn not_ported(what: &str) -> ! {
-    lua_error!("{what} is not ported yet (U30)")
-}
-
-/// The placeholders until U30 lands (module notes).
+/// The SkillsTab's (U30's `core.rs`, CCR-0119 §2).
 pub fn default_skills_tab_ui_hooks() -> SkillsTabUiHooks {
     SkillsTabUiHooks {
-        gem_slot: Rc::new(|_, _, _| not_ported("SkillsTab.gemSlots")),
-        set_gem_slot: Rc::new(|_, _, _, _| not_ported("SkillsTab.gemSlots")),
-        anchor_gem_slots: Rc::new(|_, _| not_ported("SkillsTab.anchorGemSlots")),
-        add_undo_state: Rc::new(|_, _| not_ported("SkillsTab:AddUndoState")),
-        // calc:BM-B's model half (SkillsTab.lua:1275-1278); the UI tail is U30's
-        set_display_group: Rc::new(|cx, _, group| {
-            let m = cx.build().model.clone();
-            m.skillsTab.SetDisplayGroup(&m, group);
+        gem_slot: Rc::new(|cx, me, i| {
+            SkillsTab::has_gem_slot(cx, me, i).then(|| SkillsTab::gem_slot(cx, me, i))
         }),
-        copy_socket_group: Rc::new(|_, _, _| not_ported("SkillsTab:CopySocketGroup")),
+        set_gem_slot: Rc::new(SkillsTab::set_gem_slot),
+        anchor_gem_slots: Rc::new(|cx, me| cx.w::<SkillsTab>(me).core.anchor_gem_slots),
+        add_undo_state: Rc::new(SkillsTab::add_undo_state),
+        set_display_group: Rc::new(SkillsTab::set_display_group),
+        copy_socket_group: Rc::new(SkillsTab::copy_socket_group),
     }
 }
 

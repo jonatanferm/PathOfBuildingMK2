@@ -1,13 +1,14 @@
-# CCR-0119: U31 SkillsTab B seams (the SkillsTab UI calls, U30's WIP seam, the New group's nil numbers)
+# CCR-0119: U31 SkillsTab B seams (the SkillsTab UI calls, wiring with U30, the New group's nil numbers, a bridge finding)
 
 Unit: **U31** (SkillsTab.lua:743-1080 `CreateGemSlot`; `SkillListControl` 1-267,
 `SkillSetListControl` 1-127, `MinionListControl` 1-107, `MinionSearchListControl` 1-71; files
 `pob-app/src/tabs/skills/{gem_slots,skill_list,skill_set_list,minion_list,minion_search_list}.rs`).
-Status: **pending** (code on `port/U31` follows it, local workarounds marked `// CCR-0119`). Number
+Status: **pending** (code on `port/U31` follows it; §2 is applied there). Number
 reserved with `scripts/port/next_ccr.sh`.
 
 No frozen contract changes. This CCR records the seams U31 introduced in its own files, how they
-meet U30's (unmerged, WIP on `port/U30`) seams, and one model-side note for calc:BM-B.
+meet U30's seams (U30 merged while U31 was in flight; §2), a model-side note for calc:BM-B (§4)
+and a LuaCalcBridge finding for U15 (§6).
 
 ## 1. `SkillsTabUiHooks`: the SkillsTab UI state and methods U31's controls use
 
@@ -18,21 +19,22 @@ SkillListControl calls `skillsTab:SetDisplayGroup(..)` (SkillListControl.lua:49,
 `skillsTab.gemSlots[1].nameSpec` (:71); SkillSetListControl calls `:SetActiveSkillSet(..)` (:101,
 :115), `:AddUndoState()` (:74, :102, :117), writes `skillsTab.modFlag` (:68, :96) and calls
 `build:SyncLoadouts()` (:75, :118). `gemSlots`, `anchorGemSlots`, the UndoHandler, the UI tail of
-SetDisplayGroup and CopySocketGroup are U30's (SkillsTab.lua:1-742, 1081-1502), which is not
-merged; the ui doc has no seam for a control unit that precedes its tab (as CCR-0107 §1 for U32).
+SetDisplayGroup and CopySocketGroup are U30's (SkillsTab.lua:1-742, 1081-1502), unmerged when
+U31 started; the ui doc has no seam for a control unit that precedes its tab (as CCR-0107 §1 for
+U32).
 
 Applied locally (U31's own file `gem_slots.rs`), in the CCR-0098 §3 / CCR-0107 §1 form:
 `SkillsTabUiHooks` + `skills_tab_ui_hooks()` / `set_skills_tab_ui_hooks(..)` /
 `default_skills_tab_ui_hooks()`, every entry taking the SkillsTab node:
 
-| entry | Lua | default |
+| entry | Lua | default (U30's `core.rs`) |
 |---|---|---|
-| `gem_slot(cx, tab, i) -> Option<GemSlot>` | `self.gemSlots[i]` | raises "… not ported yet (U30)" |
-| `set_gem_slot(cx, tab, i, slot)` | `self.gemSlots[i] = slot` | raises |
-| `anchor_gem_slots(cx, tab) -> CtrlId` | `self.anchorGemSlots` | raises |
-| `add_undo_state(cx, tab)` | `self:AddUndoState()` | raises |
-| `set_display_group(cx, tab, group)` | `self:SetDisplayGroup(group)` | calc:BM-B's model half |
-| `copy_socket_group(cx, tab, group)` | `self:CopySocketGroup(group)` | raises |
+| `gem_slot(cx, tab, i) -> Option<GemSlot>` | `self.gemSlots[i]` | `SkillsTab::has_gem_slot` / `gem_slot` |
+| `set_gem_slot(cx, tab, i, slot)` | `self.gemSlots[i] = slot` | `SkillsTab::set_gem_slot` |
+| `anchor_gem_slots(cx, tab) -> CtrlId` | `self.anchorGemSlots` | `core.anchor_gem_slots` |
+| `add_undo_state(cx, tab)` | `self:AddUndoState()` | `SkillsTab::add_undo_state` |
+| `set_display_group(cx, tab, group)` | `self:SetDisplayGroup(group)` | `SkillsTab::set_display_group` |
+| `copy_socket_group(cx, tab, group)` | `self:CopySocketGroup(group)` | `SkillsTab::copy_socket_group` |
 
 The other calls already have seams and are used as is: `SetActiveSkillSet` and
 `AddSocketGroupTooltip` are `build::init::BuildHooks::{skills_set_active_skill_set,
@@ -40,39 +42,25 @@ skills_add_socket_group_tooltip}`, `skillsTab.modFlag = true` is
 `on_frame::ShellHooks::set_tab_flag(TabFlag::Skills, true)`, `SyncLoadouts` is
 `BuildHooks::sync_loadouts`, `NewSkillSet` / `RebuildImbuedSupportBySlot` / `ProcessSocketGroup` /
 `ProcessGemLevel` / `UpdateSocketGroups` are calc:BM-B's. `self.controls.groupLabel` is read from
-the tab node's controls (`cx.child(tab, "groupLabel")`).
+the tab node's controls (`cx.child(tab, "groupLabel")`). The hooks stay (rather than direct calls)
+so `tests/u31_skills.rs` can run the controls on a stand-in tab.
 
-Nothing in the product constructs the SkillsTab yet (`BuildHooks::skills_tab` is `pending_tab()` on
-`rust-port`), so the raising defaults are never reached there; `tests/u31_skills.rs` installs
-stand-ins.
+## 2. Meeting U30's seam (CCR-0118 §1) — applied on `port/U31` after merging `rust-port`
 
-## 2. Meeting U30's WIP seam (`port/U30`, `tabs/skills/core.rs`, its CCR-0118)
+U30 merged while U31 was in flight. `port/U31` merges `rust-port` and wires both directions:
 
-U30's WIP declares `SkillsHooks { skill_list_ctor, create_gem_slot, skill_set_list_ctor, … }` with
-stand-ins, plus `core::GemSlot` and `SkillsTab::{gem_slot, set_gem_slot}` over
-`core::State::gem_slots`. U31 provides the three constructors with exactly those shapes and a
-`GemSlot` with the same fields. Proposed, for whichever of U30/U31 merges second (one line each):
-
-```rust
-// tabs/skills/core.rs, default_skills_hooks()
-skill_list_ctor: Rc::new(super::skill_list::skill_list_ctor),
-create_gem_slot: Rc::new(super::gem_slots::CreateGemSlot),
-skill_set_list_ctor: Rc::new(super::skill_set_list::skill_set_list_ctor),
-// tabs/skills/core.rs: `pub use super::gem_slots::GemSlot;` replaces its own declaration;
-// the three stand-ins (standin_skill_list, standin_create_gem_slot, standin_skill_set_list) go.
-
-// tabs/skills/gem_slots.rs, default_skills_tab_ui_hooks()
-gem_slot: Rc::new(|cx, tab, i| SkillsTab::has_gem_slot(cx, tab, i).then(|| SkillsTab::gem_slot(cx, tab, i))),
-set_gem_slot: Rc::new(SkillsTab::set_gem_slot),
-anchor_gem_slots: Rc::new(|cx, tab| cx.w::<SkillsTab>(tab).core.anchor_gem_slots),
-add_undo_state: Rc::new(SkillsTab::add_undo_state),       // (cx, tab)
-set_display_group: Rc::new(SkillsTab::set_display_group), // model half + UI tail
-copy_socket_group: Rc::new(SkillsTab::copy_socket_group),
-```
-
-and SkillsTab.lua:1495 (`self.controls.groupList.list = self.socketGroupList`, U30's
-SetActiveSkillSet UI tail) calls `skill_list::SkillListControl::set_list(cx, groupList, list)`.
-The signatures U30's WIP has for these methods (`(cx, me, …)`) may need a closure adapter.
+* U30's `default_skills_hooks()` (`tabs/skills/core.rs`) now constructs U31's controls, as
+  CCR-0118 §1 asks (three lines): `skill_list_ctor: skill_list::skill_list_ctor`,
+  `create_gem_slot: gem_slots::CreateGemSlot`, `skill_set_list_ctor:
+  skill_set_list::skill_set_list_ctor`. The three stand-ins (`standin_skill_list`,
+  `standin_create_gem_slot`, `standin_skill_set_list`) are made `pub` and stay, because
+  `tests/u30_skills.rs` runs the tab with U31's controls stubbed on the Lua side; that test now
+  installs the three stand-ins explicitly after `default_skills_hooks()` (three lines).
+* `gem_slots::GemSlot` is `pub use super::core::GemSlot` (U31's own declaration had the same
+  fields), and `default_skills_tab_ui_hooks()` (§1) calls U30's methods.
+* SkillsTab.lua:1495 is U30's `set_group_list_list`, which writes the `ListControl` part of
+  `controls.groupList` (U31's SkillListControl) with U30's `GroupListSource`;
+  `SkillListControl::set_list` does the same for callers outside the tab.
 
 ## 3. `ShellHooks` minion entries
 
@@ -80,7 +68,7 @@ The signatures U30's WIP has for these methods (`(cx, me, …)`) may need a clos
 points `minion_list_control` / `minion_search_list_control` at
 `minion_list::spectre_library_list` / `minion_search_list::spectre_library_source` (two lines).
 
-## 4. calc:BM-B note: Save of a nil `mainActiveSkill`
+## 4. calc:BM-B note: Save of a nil `mainActiveSkill` (the same as CCR-0118 §3)
 
 A group the SkillListControl "New" button creates (SkillListControl.lua:60-64) has
 `mainActiveSkill` / `mainActiveSkillCalcs` nil. U31 stores NaN, the CCR-0019 nil convention calc:CS3
