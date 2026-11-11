@@ -25,8 +25,7 @@ Profile: dev (`debug = "line-tables-only"`, pob-calc at `-O0`, incremental on). 
 * It is feasible. Under the proposed layering only **40 file-to-file edges** point the wrong way.
   They have 8 distinct causes (B1-B8). Besides those, **6 declarations** need `pub(crate)` → `pub`
   (B9), and one partial `calcs` facade is needed (B10). The prototype, made of the real files with only those fixes, compiles with default features, with
-  `--features probe` and with `--tests`. Its in-crate unit tests are being compared with the
-  monolith's in §5.4.
+  `--features probe` and with `--tests`. Its in-crate unit tests were not run (§5.4, §8).
 * Five calls must be bound late, from a lower crate to a higher one: `configApply`, `BuildOutput`,
   `MiscCalculator::call`, `doActorLifeMana` and `doActorLifeManaReservation`. None of them is on a
   hot path. The mechanism (§3.4) is a link-time symbol seam with no init call and no runtime cost.
@@ -579,8 +578,8 @@ The split must not lose test coverage:
   `pob-calc-offence` and `pob-calc-perform`** (to be safe, all six). Otherwise those tests stop
   running.
 * The prototype compiles them (`check --tests --features probe`: clean).
-* A run that compares unit-test counts between the monolith and the prototype was queued behind the
-  machine's test-run slots (§8).
+* A run comparing unit-test counts between the monolith and the prototype **did not run**. It waited
+  more than an hour for a test-run slot and was stopped (§8).
 
 ## 6. Alternatives (measured on the monolith, cold, -j3 unless noted)
 
@@ -698,8 +697,9 @@ Conflict risk with the named units:
 ## 8. Not measured / open
 
 * The unit-test count comparison between the monolith (`cargo.sh test -p pob-calc --lib --features
-  probe`) and the prototype was queued behind the machine's 3 test-run slots, which other agents'
-  oracle runs held. Both test targets compile.
+  probe`) and the prototype was **not run**. It waited more than an hour for one of the 3 test-run
+  slots, which other agents' oracle runs held, and was stopped. Both test targets compile. The
+  implementation unit's gate covers this (§7).
 * The compile peak of the pob-oracle and pob-ui-oracle test binaries, which decides 2 against 3
   slots (§5.3).
 * Release-mode runtime before and after: an INT-2 gate (§3.2).
