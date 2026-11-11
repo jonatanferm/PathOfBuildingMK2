@@ -14,6 +14,7 @@ pob-host.workspace = true
 pob-lua.workspace = true
 # The calc plan's crates (calc doc §2): the model and the calc, as U0 stubs until their units land.
 pob-calc.workspace = true
+# Also U44 (ImportTab B): `modLib.parseMod` of item flavour text (CCR-0117 §5).
 pob-modparser.workspace = true
 pob-gamedata.workspace = true
 indexmap.workspace = true
@@ -21,9 +22,6 @@ indexmap.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 miniz_oxide = "0.8"
-# U44 (ImportTab B): `modLib.parseMod` of item flavour text (CCR-0117 §5: model.rs does not
-# re-export it).
-pob-modparser.workspace = true
 
 [dev-dependencies]
 # U28's unit tests: a small `data.powerStatList` and an item base from JSON.
