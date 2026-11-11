@@ -20,7 +20,7 @@
 //! scenario whose input silently stopped reaching the tab, which both sides would agree on),
 //! `#! u44-expect-import ATTR=VALUE` (a Lua snapshot's `Import` element has it),
 //! `#! u44-expect-copy` (the Lua side copied a build code that decodes to a `PathOfBuilding`
-//! document), `#! u44-expect-xml TEXT` (every Lua snapshot contains TEXT: guards that the
+//! document), `#! u44-expect-xml TEXT` (the last Lua snapshot contains TEXT: guards that the
 //! import reached the build).
 //!
 //! The Rust side's calc is U15's LuaCalcBridge (ext:calc), as in u20-u22.
@@ -39,7 +39,17 @@
 //! T4 normalisation besides u20's: a Lua `nil` `mainActiveSkill`/`mainActiveSkillCalcs` of a
 //! socket group the import created (ImportTab.lua:1855 sets neither; CalcSetup.lua:1888 sets the
 //! main group's) is the model's NaN (CCR-0019), which BM-B's SkillsTab:Save writes as
-//! `tostring(NaN)` (CCR-0117 §6); both are compared as `nil` and counted.
+//! `tostring(NaN)` (CCR-0117 §6); both are compared as `nil` and counted. The LuaCalcBridge's VM
+//! loads the Rust build through SkillsTab:Load, whose defaults the adoption hands back: a nil gem
+//! `count` (ImportTab.lua:1843 sets none) and a granted skill's empty gem `nameSpec`
+//! (SkillsTab.lua:489-493) get their values back after each calc, and a NaN group
+//! field crosses as 1 and gets its NaN back unless CalcSetup set it (`NilGroupFieldBridge`,
+//! CCR-0117 §6).
+//!
+//! The Lua side's sub-script pass frees a slot before the download callback runs, so a download
+//! started inside a callback (the profile page, ImportTab.lua:948) reuses the id and Launch.lua's
+//! trailing `subScripts[id] = nil` drops it; a Lua stand-in keeps the re-registration
+//! (CCR-0117 §8).
 //!
 //! `u44_rust_unit`: the import methods on the Rust side alone: an empty-build import of the
 //! sample character checked against values PoB's own `spec/System/TestImport_spec.lua` asserts.
@@ -125,10 +135,70 @@ if not lutf8.next then
 		return p + 1, s:byte(p + 1)
 	end
 end
+-- CCR-0117 §8: the oracle's sub-script pass (sg_bridge deliver_subscripts) frees a slot before
+-- launch:OnSubFinished/OnSubError run, so a download started from a download callback
+-- (ImportTab.lua:948, the profile page of DownloadSiteCharacterList) gets the same id and the
+-- trailing `self.subScripts[id] = nil` (Launch.lua:220/:252) drops it. SimpleGraphic frees the
+-- slot after the callback, so the new id differs. During the call, a re-registration of `id`
+-- survives that trailing nil.
+for _, name in ipairs({ "OnSubFinished", "OnSubError" }) do
+	local orig = launch[name]
+	launch[name] = function(self, id, ...)
+		local real = self.subScripts
+		local relaunched = false
+		self.subScripts = setmetatable({ }, {
+			__index = real,
+			__newindex = function(_, k, v)
+				if k == id then
+					if v ~= nil then
+						relaunched = true
+						real[k] = v
+					elseif not relaunched then
+						real[k] = nil
+					end
+				else
+					real[k] = v
+				end
+			end,
+		})
+		local ok, err = pcall(orig, self, id, ...)
+		self.subScripts = real
+		if not ok then error(err, 0) end
+	end
+end
+-- calc doc D8 / ui doc §11 patch 6: ImportTab.lua:1384 `pairs(self.build.itemsTab.slots)` visits
+-- the slots in PoB's per-process string-hash order, and the order is observable: DeleteItem's
+-- PopulateSlots can empty a later slot (a quiver once its bow is gone), whose item then survives
+-- "Delete equipment". The Rust side visits them in insertion order (D8), i.e. the slot controls'
+-- creation order, which __canonPairs yields.
+local function canonSlotOrder(ImportTab)
+	local orig = ImportTab.ImportItemsAndSkills
+	ImportTab.ImportItemsAndSkills = function(self, ...)
+		local slots = self.build.itemsTab.slots
+		local nativePairs = pairs
+		pairs = function(t)
+			if t == slots then
+				return __canonPairs(t)
+			end
+			return nativePairs(t)
+		end
+		local ret = { n = 0 }
+		local function pack(...) ret = { n = select('#', ...), ... } end
+		pack(pcall(orig, self, ...))
+		pairs = nativePairs
+		if not ret[1] then error(ret[2], 0) end
+		return unpack(ret, 2, ret.n)
+	end
+end
 local b = main.modes.BUILD
 local origInit = b.Init
 function b:Init(...)
 	origInit(self, ...)
+	local ImportTab = common.classes.ImportTab
+	if ImportTab and not ImportTab.__u44CanonSlots then
+		ImportTab.__u44CanonSlots = true
+		canonSlotOrder(ImportTab)
+	end
 	for _, t in ipairs({ "partyTab", "configTab", "treeTab", "skillsTab", "itemsTab", "calcsTab", "compareTab" }) do
 		if self[t] then self[t].Draw = function() end end
 	end
@@ -163,6 +233,17 @@ fn rust_stubs() {
     init::set_hooks(|h| {
         *h = init::default_hooks();
         h.spec_add_undo_state = Rc::new(|_| SPEC_MOD_FLAG.with(|f| f.set(true)));
+        // U25 stand-in: TreeTab.lua:549-557, the model half and the UI tail it leaves out (L556
+        // `self.build.spec:SetWindowTitleWithBuildClass()`, L557 `UpdateClassDropdowns`);
+        // ImportTab.lua:1210 calls it
+        h.tree_set_active_spec = Rc::new(|cx, id| {
+            let m = cx.build().model.clone();
+            m.treeTab.SetActiveSpec(&m, id);
+            init::set_window_title_with_build_class(cx);
+            let tv = m.spec.get().treeVersion.get();
+            let f = init::hooks(cx).update_class_dropdowns;
+            f(cx, Some(tv));
+        });
         // U25 stand-in: TreeTab.lua:492-498 (the buildLoadouts selFunc, reached from
         // SyncLoadouts' SetSel), as in u20
         h.tree_get_spec_list = Rc::new(|cx| {
@@ -412,6 +493,146 @@ impl pob_sg::Net for DeferredNet {
     }
 }
 
+/// CCR-0117 §6: BM-B's `SkillsTab:Save` writes a nil (NaN) `mainActiveSkill` /
+/// `mainActiveSkillCalcs` as `tostring(NaN)` instead of `"nil"`, so the LuaCalcBridge's VM loads
+/// NaN (`tonumber("nan")`, SkillsTab.lua:453-454) instead of SkillsTab:Load's `or 1`, and
+/// Build.lua:1655 indexes `displaySkillList[NaN]`. Until BM-B writes `"nil"`, the fields the
+/// import left nil (ImportTab.lua:1855) cross as the 1 that `"nil"` would load as, and afterwards
+/// get their nil back unless CalcSetup.lua:1879-1888 set them in the bridge's VM (the main group
+/// of the MAIN / CALCS env with a non-empty skill list). A gem's nil `count` (ImportTab.lua:1843
+/// sets none; Load's `or 1`, SkillsTab.lua:501) gets its nil back too, and so does the empty
+/// `nameSpec` of a granted skill's gem (Load's SkillsTab.lua:489-493). Nothing else is changed.
+struct NilGroupFieldBridge(LuaCalcBridge);
+
+/// The groups with a nil `mainActiveSkill` / `mainActiveSkillCalcs`, the gems with a nil
+/// `count`, and the gems without a `gemId` whose `nameSpec` is "".
+type NilFields = (
+    Vec<(pob_calc::model::SocketGroupRef, bool, bool)>,
+    Vec<Rc<pob_calc::model::GemInstance>>,
+    Vec<Rc<pob_calc::model::GemInstance>>,
+);
+
+fn nil_group_fields_to_one(build: &pob_calc::model::BuildRef) -> NilFields {
+    let mut v = Vec::new();
+    let mut gems = Vec::new();
+    let mut unnamed = Vec::new();
+    for g in build.skillsTab.socketGroupList.get().snapshot() {
+        for gem in g.gemList.get().snapshot() {
+            if gem.gemId.get().is_none() && gem.nameSpec.get().is_empty() {
+                unnamed.push(gem.clone());
+            }
+            if gem.count.get().is_none() {
+                gems.push(gem);
+            }
+        }
+        let (a, c) = (
+            g.mainActiveSkill.get().is_nan(),
+            g.mainActiveSkillCalcs.get().is_nan(),
+        );
+        if a || c {
+            if a {
+                g.mainActiveSkill.set(1.0);
+            }
+            if c {
+                g.mainActiveSkillCalcs.set(1.0);
+            }
+            v.push((g, a, c));
+        }
+    }
+    (v, gems, unnamed)
+}
+
+fn restore_nil_group_fields(
+    build: &pob_calc::model::BuildRef,
+    (v, gems, unnamed): NilFields,
+    calc_ran: bool,
+) {
+    // SkillsTab.lua:501 `tonumber(count) or 1` in the bridge's VM, adopted back; the calc never
+    // sets a gem's count
+    for gem in gems {
+        gem.count.set(None);
+    }
+    // SkillsTab.lua:489-493: the VM's Load names a gem saved with a skillId and no gemId (a
+    // granted skill's, CalcSetup.lua:1487-1492, which ProcessSocketGroup leaves "",
+    // SkillsTab.lua:1166) after its granted effect; the calc keeps an existing gem's nameSpec
+    for gem in unnamed {
+        gem.nameSpec.set(Default::default());
+    }
+    let groups = build.skillsTab.socketGroupList.get().snapshot();
+    let main = build.mainSocketGroup.get();
+    let calcs_main = build.calcsTab.input.num("skill_number");
+    let non_empty = |n: Option<usize>| n.is_some_and(|n| n > 0);
+    for (g, a, c) in v {
+        let index = groups
+            .iter()
+            .position(|x| Rc::ptr_eq(x, &g))
+            .map(|i| (i + 1) as f64);
+        let set_main =
+            calc_ran && index == Some(main) && non_empty(g.displaySkillList.get().map(|l| l.len()));
+        let set_calcs = calc_ran
+            && index == Some(calcs_main)
+            && non_empty(g.displaySkillListCalcs.get().map(|l| l.len()));
+        if a && !set_main {
+            g.mainActiveSkill.set(f64::NAN);
+        }
+        if c && !set_calcs {
+            g.mainActiveSkillCalcs.set(f64::NAN);
+        }
+    }
+}
+
+impl pob_app::calc::facade::CalcFacade for NilGroupFieldBridge {
+    fn build_output(&mut self, build: &pob_calc::model::BuildRef) -> std::task::Poll<()> {
+        let v = nil_group_fields_to_one(build);
+        let r = self.0.try_build_output(build);
+        restore_nil_group_fields(build, v, r.is_ok());
+        if let Err(e) = r {
+            pob_lua::lua_error!("{e}")
+        }
+        std::task::Poll::Ready(())
+    }
+    fn misc_calculator(
+        &mut self,
+        build: &pob_calc::model::BuildRef,
+    ) -> std::task::Poll<(
+        Rc<dyn pob_app::calc::facade::MiscCalc>,
+        pob_app::calc::facade::Output,
+    )> {
+        match self.0.misc_calculator(build) {
+            std::task::Poll::Ready((calc, base)) => std::task::Poll::Ready((
+                Rc::new(NilGroupFieldMisc(calc, build.clone()))
+                    as Rc<dyn pob_app::calc::facade::MiscCalc>,
+                base,
+            )),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// The misc calculator's VM loads the build too (Calcs.lua:96-112; it adopts no groups).
+struct NilGroupFieldMisc(
+    Rc<dyn pob_app::calc::facade::MiscCalc>,
+    pob_calc::model::BuildRef,
+);
+
+impl pob_app::calc::facade::MiscCalc for NilGroupFieldMisc {
+    fn call(
+        &self,
+        ov: Option<Rc<pob_app::calc::facade::Override>>,
+        use_full_dps: Option<bool>,
+    ) -> std::task::Poll<pob_app::calc::facade::Output> {
+        let v = nil_group_fields_to_one(&self.1);
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.0.call(ov, use_full_dps)
+        }));
+        restore_nil_group_fields(&self.1, v, false);
+        match r {
+            Ok(o) => o,
+            Err(p) => std::panic::resume_unwind(p),
+        }
+    }
+}
+
 struct RustSide {
     app: pob_app::PobApp,
     effects: Rc<RefCell<Vec<SideEffect>>>,
@@ -437,7 +658,7 @@ impl RustSide {
         });
         let mut app = pob_app::PobApp::with_calc(
             parts,
-            Rc::new(move || Box::new(LuaCalcBridge::new(Some(src.clone())))),
+            Rc::new(move || Box::new(NilGroupFieldBridge(LuaCalcBridge::new(Some(src.clone()))))),
         );
         effects.borrow_mut().clear(); // Launch.lua:11 runs at script load, before tracing
                                       // pob-ui-oracle patch 4's equivalent (CCR-0091)
@@ -537,6 +758,8 @@ struct T4Notes {
     ambiguous_variants: usize,
     /// `Party/ExportedBuffs` elements of the Lua side (see `normalise`)
     exported_buffs: usize,
+    /// `Spec masteryEffects` compared as sets (see `normalise`)
+    mastery_orders: usize,
 }
 
 fn ambiguous_variant(node: &XmlNode) -> bool {
@@ -559,12 +782,14 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
             ("Gem", "enableGlobal1" | "enableGlobal2") | ("Skill", "includeInFullDPS") => {
                 Some("false")
             }
-            ("Skill", "mainActiveSkill" | "mainActiveSkillCalcs") => Some("0"),
             _ => None,
         };
+        // a nil group field: the Lua side's `nil`, the Rust side's NaN (`tostring(NaN)`, CCR-0117
+        // §6) or the model default 0 of a group the bridge's VM created (CalcSetup's tree-granted
+        // groups, `source = "Tree:<id>"`; u20's rule)
         let nil_group_field = &*node.elem == "Skill"
             && matches!(&**k, "mainActiveSkill" | "mainActiveSkillCalcs")
-            && matches!(&**v, "nil" | "nan" | "-nan" | "NaN");
+            && (matches!(&**v, "nil" | "nan" | "-nan" | "NaN") || (!lua && &**v == "0"));
         if nil_group_field {
             if lua {
                 notes.gem_nil_bools += 1;
@@ -573,6 +798,18 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
         } else if let Some(d) = rust_default.filter(|_| lua && &**v == "nil") {
             notes.gem_nil_bools += 1;
             attrs.push((k.to_string(), d.to_owned()));
+        } else if &*node.elem == "Spec" && &**k == "masteryEffects" {
+            // PassiveSpec:Save writes `pairs(self.masterySelections)`, whose integer-key layout
+            // follows the insertion order, which for an import is `pairs` of the JSON object
+            // (ImportTab.lua:1136): PoB's per-process string-hash order (calc doc D8); compared
+            // as a set
+            let inner = v.trim_start_matches('{').trim_end_matches('}');
+            let mut e: Vec<&str> = inner.split("},{").collect();
+            e.sort_unstable();
+            if lua && e.len() > 1 {
+                notes.mastery_orders += 1;
+            }
+            attrs.push((k.to_string(), format!("{{{}}}", e.join("},{"))));
         } else if &*node.elem == "Gem"
             && matches!(&**k, "variantId" | "nameSpec")
             && ambiguous_variant(node)
@@ -698,6 +935,7 @@ fn compare_t4(what: &str, lua: &str, rust: &str, notes: &mut T4Notes) -> Result<
     notes.gem_nil_bools += local.gem_nil_bools;
     notes.ambiguous_variants += local.ambiguous_variants;
     notes.exported_buffs += local.exported_buffs;
+    notes.mastery_orders += local.mastery_orders;
     notes.pending_sections.extend(local.pending_sections);
     if ln != rn {
         return Err(format!("{what}: T4 differs: {}", first_diff(&ln, &rn)));
@@ -971,8 +1209,12 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
         }
     }
     for want in directives(text, "u44-expect-xml") {
-        if lua.snapshots.is_empty() || !lua.snapshots.iter().all(|(_, x)| x.contains(want.as_str())) {
-            errs.push(format!("a Lua snapshot lacks {want:?}"));
+        if !lua
+            .snapshots
+            .last()
+            .is_some_and(|(_, x)| x.contains(want.as_str()))
+        {
+            errs.push(format!("the last Lua snapshot lacks {want:?}"));
         }
     }
     if !directives(text, "u44-expect-copy").is_empty() {
@@ -1127,8 +1369,8 @@ fn u44_scenarios() {
                     pending.sort();
                     pending.dedup();
                     format!(
-                        "T4 {p} identical incl. Import and Notes and {} decoded build codes ({b} byte-identical; set aside: {} Lua nil gem/group fields, {} pairs-chosen gem variants, {} Party/ExportedBuffs, pending UI-saver sections differing {:?})",
-                        lua_codes.len(), notes.gem_nil_bools, notes.ambiguous_variants, notes.exported_buffs, pending
+                        "T4 {p} identical incl. Import and Notes and {} decoded build codes ({b} byte-identical; set aside: {} Lua nil gem/group fields, {} pairs-chosen gem variants, {} Party/ExportedBuffs, {} masteryEffects compared as sets, pending UI-saver sections differing {:?})",
+                        lua_codes.len(), notes.gem_nil_bools, notes.ambiguous_variants, notes.exported_buffs, notes.mastery_orders, pending
                     )
                 }
                 Err(e) => format!("T4 FAILED: {}", e.join("; ")),
@@ -1238,7 +1480,6 @@ fn u44_probe_positions() {
     }
 }
 
-
 /// The import methods on the Rust side alone (module notes), against what PoB's own
 /// `spec/System/TestImport_spec.lua` asserts for the sample character ("imports with correct
 /// tree", "imports with correct jewels", "imports modifier flags from the 3.29 item API").
@@ -1261,11 +1502,17 @@ fn u44_rust_unit() {
 
     // "imports with correct tree"
     let msg = character::import_passive_tree_and_jewels(cx, tab, &sample, true);
-    assert!(msg.ends_with("Passive tree and jewels successfully imported."), "{msg}");
+    assert!(
+        msg.ends_with("Passive tree and jewels successfully imported."),
+        "{msg}"
+    );
     let m = cx.build().model.clone();
     let input = m.configTab.input.clone();
     assert_eq!(input.str("bandit").as_deref(), Some("None"));
-    assert_eq!(input.str("pantheonMajorGod").as_deref(), Some("TheBrineKing"));
+    assert_eq!(
+        input.str("pantheonMajorGod").as_deref(),
+        Some("TheBrineKing")
+    );
     assert_eq!(input.str("pantheonMinorGod").as_deref(), Some("Yugul"));
     assert_eq!(m.characterLevel.get(), 99.0);
     let spec = m.spec.get();
@@ -1288,15 +1535,23 @@ fn u44_rust_unit() {
     let j3 = jd.table(3).expect("jewel_data[3]");
     assert_eq!(j3.num("radius"), 2400.0);
     assert_eq!(j3.str("type").as_deref(), Some("JewelStr"));
-    let jewels: Vec<f64> = spec.jewels.with(|j| j.pairs().into_iter().map(|(_, v)| v).collect());
+    let jewels: Vec<f64> = spec
+        .jewels
+        .with(|j| j.pairs().into_iter().map(|(_, v)| v).collect());
     let names: Vec<String> = m.itemsTab.items.with(|i| {
         i.values()
             .filter(|it| it.id.get().is_some_and(|id| jewels.contains(&id)))
             .map(|it| it.name.get().to_string())
             .collect()
     });
-    for want in ["Healthy Mind, Cobalt Jewel", "Fulgent Bliss, Small Cluster Jewel"] {
-        assert!(names.iter().any(|n| n == want), "{want} not socketed: {names:?}");
+    for want in [
+        "Healthy Mind, Cobalt Jewel",
+        "Fulgent Bliss, Small Cluster Jewel",
+    ] {
+        assert!(
+            names.iter().any(|n| n == want),
+            "{want} not socketed: {names:?}"
+        );
     }
 
     // "imports modifier flags from the 3.29 item API"
@@ -1324,11 +1579,18 @@ fn u44_rust_unit() {
         .with(|i| i.get(&(id as u32)).cloned())
         .expect("the gloves");
     assert_eq!(
-        it.implicitModLines.get().snapshot()[0].str("line").as_deref(),
+        it.implicitModLines.get().snapshot()[0]
+            .str("line")
+            .as_deref(),
         Some("+20 to maximum Life")
     );
     let ex = it.explicitModLines.get().snapshot();
-    let line = |l: &str| ex.iter().find(|t| t.str("line").as_deref() == Some(l)).cloned().unwrap();
+    let line = |l: &str| {
+        ex.iter()
+            .find(|t| t.str("line").as_deref() == Some(l))
+            .cloned()
+            .unwrap()
+    };
     assert!(line("+10 to maximum Life").truthy("crafted"));
     assert!(line("+11 to maximum Mana").truthy("fractured"));
     assert!(line("+12 to Strength").truthy("mutated"));

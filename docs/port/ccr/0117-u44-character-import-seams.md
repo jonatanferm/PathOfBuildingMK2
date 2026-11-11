@@ -13,7 +13,8 @@ ItemSlotControl.lua:72-84, U32), `:1484` (`skillsTab:AddUndoState`, U30), `:1410
 (`skillsTab.controls.groupList.selIndex/selValue = nil`, U31), `:1412`
 (`skillsTab:SetDisplayGroup()`, SkillsTab.lua:1275-1308, U30), `:1227`, `:1232`
 (`configTab.varControls[var]:SetSel(i)` with the list option's selFunc, ConfigTab.lua:316-321,
-U41). None of these UI tabs is ported yet.
+U41). Of these only U32 (the slot controls) is merged; its `ItemsTabHooks` (slot_helper.rs)
+cover PopulateSlots but raise "not ported" for DeleteItem (U34) and AddUndoState (U38).
 
 Applied (U44's file, `tabs/import/character.rs`): `TabSeams` with `default_tab_seams()`,
 `tab_seams()` / `set_tab_seams(..)` (the `ShellHooks` pattern, CCR-0104 §1). The defaults act on
@@ -22,11 +23,13 @@ the model as the Lua methods do:
 * `items_delete_item`: ItemsTab.lua:1857-1903 over the model's slot tables, item sets,
   `orderList` and `treeTab.specList` (including PoB's `allocNodes[depNodeId] = nil` with the
   `ipairs` index, L1888), then `PopulateSlots` / `AddUndoState` through the seams;
-* `items_populate_slots`: `model.itemsTab.PopulateSlots`;
+* `items_populate_slots`: U32's `slot_helper::items_hooks().populate_slots` (the model half, then
+  the slot dropdown lists);
 * `items_add_undo_state` / `skills_add_undo_state`: `modFlag = true` (UndoHandler.lua:37) through
   `on_frame::ShellHooks::set_tab_flag` (`TabFlag::Items` / `TabFlag::Skills`); the undo buffers
   are the tabs';
-* `items_slot_set_sel_item_id`: ItemSlotControl.lua:72-84 on the model's slot table (§2);
+* `items_slot_set_sel_item_id`: U32's `tabs::items::slot::set_sel_item_id` (ItemSlotControl.lua:
+  72-84 on the model's slot table, §2);
 * `skills_clear_group_list_selection`: nothing (no group list control exists);
 * `skills_set_display_group`: `model.skillsTab.SetDisplayGroup` (the model half, 1275-1278);
 * `config_var_set_sel`: DropDownControl.lua:160-169 on the model's control-state table
@@ -40,8 +43,9 @@ when their tabs land; the model-side defaults then become the model halves those
 ## 2. `ItemSlotControl:SetSelItemId` is private in pob-calc
 
 Evidence: `pob-calc/src/model/items_tab.rs:209` `fn ItemSlot_SetSelItemId` (BM-A ported it, not
-`pub`); ImportTab.lua:1818 calls it on a slot. Work-around: `character::slot_set_sel_item_id`, the
-same 10 lines over the slot table (marked CCR-0117 §2). Proposed (BM-A):
+`pub`); ImportTab.lua:1818 calls it on a slot. Work-around: U32's copy
+`tabs::items::slot::set_sel_item_id` (CCR-0107 §2), also used by the DeleteItem stand-in.
+Proposed (BM-A, as CCR-0107 §2):
 
 ```diff
 -fn ItemSlot_SetSelItemId(build: &BuildRef, slot: &Table, selItemId: Val) {
@@ -94,9 +98,60 @@ The u44 test compares both spellings as `nil` (counted in its output). Proposed 
 `model/skills_tab.rs` Save, L596-597): `tostring_opt_nan(socketGroup.mainActiveSkill.get())`
 (the helper the file already has for gem levels).
 
+This is not only cosmetic: the LuaCalcBridge (U15) loads `build:SaveDB()` into PoB, where
+SkillsTab.lua:453 `tonumber("nan")` is NaN (LuaJIT parses it), not nil, so `or 1` does not apply
+and Build.lua:1655 `displaySkillList[NaN]` raises "attempt to index local 'activeSkill'" on the
+first recalc after an import ("build load failed"). Work-around in the u44 harness
+(`NilGroupFieldBridge`, marked CCR-0117 §6): around each bridge call a NaN group field is set to
+the 1 that `"nil"` loads as and gets its NaN back afterwards unless CalcSetup.lua:1879-1888 set
+it in the bridge's VM (index == the MAIN / CALCS env's main group, non-empty skill list). The
+same wrapper hands back two other SkillsTab:Load defaults the bridge adopts into the model and
+real PoB never applies to an in-process group: a gem's nil `count` (SkillsTab.lua:501 `or 1`;
+ImportTab.lua:1843 sets none) and a granted skill's empty `nameSpec` (SkillsTab.lua:489-493
+names a skillId-only gem; CalcSetup.lua:1487-1492 + SkillsTab.lua:1166 leave it ""). Those two
+are U15 bridge-adoption limits (`lua_calc.rs` `copy_gem`), not model bugs; listed for U15.
+
 ## 7. Harness
 
 `tests/u44_character.rs` is a copy of U43's `tests/u43_import.rs` harness (test files cannot
 share modules) with: the u44 directives, the items/skills/config `modFlag` stand-ins on the
-Rust side (§1), the §6 normalisation, and a site-import probe. CCR-0109 §8 (Net completions held
-back by `Driver::frame`) still applies; the copy keeps u43's `DeferredNet` work-around.
+Rust side (§1), the §6 normalisation and bridge wrapper, and a site-import probe. CCR-0109 §8
+(Net completions held back by `Driver::frame`) still applies; the copy keeps u43's
+`DeferredNet` work-around. Also:
+
+* U25 stand-in for `BuildHooks::tree_set_active_spec`: the default hook runs only the model half
+  of TreeTab:SetActiveSpec (`model/tree_tab.rs` marks L556 `SetWindowTitleWithBuildClass` and L557
+  `UpdateClassDropdowns` as UI), so ImportTab.lua:1210 sent no "(Hierophant + Farrul Bloodline)"
+  title. The stand-in adds `init::set_window_title_with_build_class` and
+  `update_class_dropdowns`; U25's hook must do the same. `import_passive_tree_and_jewels` flushes
+  the queued titles after the hook (the `init.rs` pattern).
+* PoB nondeterminism (calc doc D8): ImportTab.lua:1384 `pairs(self.build.itemsTab.slots)` is
+  observable (DeleteItem's PopulateSlots empties the quiver slot once the bow is deleted, so
+  Maloney's Mechanism survived "Delete equipment" in some PoB processes and not in others). The
+  Lua side iterates the slots in `__canonPairs` order there (creation order = the Rust insertion
+  order). `Spec masteryEffects` follows `pairs` of the JSON object (ImportTab.lua:1136, string
+  keys) and is compared as a set (counted).
+
+## 8. pob-ui-oracle (U8): the sub-script slot is freed before the download callback runs
+
+Evidence: `crates/pob-ui-oracle/src/sg_bridge.rs` `deliver_subscripts` takes the slot
+(`Option::take`, freeing it) and then calls `launch:OnSubFinished(id, ...)`. A download started
+inside that callback (ImportTab.lua:948, the profile page requested from the get-characters
+callback of DownloadSiteCharacterList) gets the lowest free slot, i.e. the same id;
+Launch.lua:206-220 then ends with `self.subScripts[id] = nil`, dropping the new entry, and the
+next frame's `OnSubFinished` fails at Launch.lua:224 ("attempt to index a nil value"). Real
+SimpleGraphic keeps the slot until the callback returned (PoB's own nested downloads work).
+Work-around (u44 harness Lua stub, marked CCR-0117 §8): during OnSubFinished/OnSubError a
+re-registration of `id` survives the trailing nil. Proposed (U8, `sg_bridge.rs`): keep the slot
+occupied while the callback runs, e.g.
+
+```diff
+-        let Some(r) = b.subs.borrow_mut().get_mut(slot).and_then(Option::take) else {
++        let Some(r) = b.subs.borrow_mut().get_mut(slot).and_then(|s| s.as_mut().map(std::mem::take)) else {
+             continue;
+         };
+         ...call OnSubFinished / OnSubError...
++        b.subs.borrow_mut()[slot] = None;
+```
+
+(the response type needs `Default`, or the slot holds a "running" marker separately).

@@ -8,7 +8,7 @@
 #! u44-expect-label Character list successfully retrieved.
 #! u44-expect-label testCharacter
 #! u44-expect-label lvl 99
-#! u44-expect-xml Farrul
+#! u44-expect-xml secondaryAscendClassId="11"
 fixture userdir=../../fixtures/user1
 fixture net=net.json
 frames 2

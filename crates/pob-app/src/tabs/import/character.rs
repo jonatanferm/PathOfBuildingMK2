@@ -15,9 +15,10 @@
 //! `jsonToLua` and `codePointToUTF8` (Common.lua:216-230, 407-410).
 //!
 //! The import methods write the build model (`cx.build().model`, the calc plan's halves of the
-//! tabs). The other tabs' UI methods they call are not ported yet (ItemsTab U32-U34, SkillsTab
-//! U30-U31, ConfigTab U41-U42); they go through [`TabSeams`] (CCR-0117 §1), whose defaults act
-//! on the model as the Lua methods do (each names its owner).
+//! tabs). The other tabs' UI methods they call go through [`TabSeams`] (CCR-0117 §1): U32's
+//! slot hooks where they exist (PopulateSlots, SetSelItemId), else defaults that act on the
+//! model as the Lua methods do until the owners land (ItemsTab U34/U38, SkillsTab U30-U31,
+//! ConfigTab U41-U42; each entry names its owner).
 //!
 //! Lua semantics:
 //! * Decoded JSON is `poe_api::Json` (dkjson: `null` reads as nil, see `json_get`); objects
@@ -40,6 +41,7 @@
 //! * DIVERGENCE(dead-tab) (core.rs): a download that completes after its ImportTab was replaced
 //!   writes into an object nobody reaches in Lua; the port skips the tab's writes and keeps the
 //!   writes to `main`.
+//!
 //! ORDER: see the `LUA-ORDER` notes at each `pairs` loop.
 
 use std::rc::Rc;
@@ -57,9 +59,11 @@ use crate::build::init as build_init;
 use crate::build::loadouts::{self, ActValue};
 use crate::build::on_frame::{self as build_on_frame, TabFlag};
 use crate::build::BuildMode;
+use crate::model::build_xml;
 use crate::model::{self, ItemRef, Key, LStr, LjIntMap, NodeRef, Shared, Table, Val};
 use crate::platform::net::{download_page, PageResponse};
-use crate::model::build_xml;
+use crate::tabs::items::slot as items_slot;
+use crate::tabs::items::slot_helper as items_slot_helper;
 
 /// This unit's part of the split class struct (ui doc §12.1): U44's methods keep their state in
 /// U43's `core::State` (CCR-0109 §5 lists the fields), so it has none of its own.
@@ -106,9 +110,10 @@ pub struct TabSeams {
 pub fn default_tab_seams() -> TabSeams {
     TabSeams {
         items_delete_item: Rc::new(model_delete_item),
+        // U32's (the model half, then the slot controls' dropdown lists)
         items_populate_slots: Rc::new(|cx| {
-            let m = cx.build().model.clone();
-            m.itemsTab.PopulateSlots(&m);
+            let f = items_slot_helper::items_hooks().populate_slots;
+            f(cx);
         }),
         items_add_undo_state: Rc::new(|cx| set_tab_mod_flag(cx, TabFlag::Items)),
         items_slot_set_sel_item_id: Rc::new(model_slot_set_sel_item_id),
@@ -144,8 +149,9 @@ fn set_tab_mod_flag(cx: &mut Cx, flag: TabFlag) {
     f(cx, flag, true);
 }
 
-/// `slot:SetSelItemId(selItemId)` on the model's slot table (ItemSlotControl.lua:72-84; the
-/// model half is `pob_calc`'s private `ItemSlot_SetSelItemId`, CCR-0117 §2).
+/// `slot:SetSelItemId(selItemId)` on the model's slot table (ItemSlotControl.lua:72-84: U32's
+/// `tabs::items::slot::set_sel_item_id`, its copy of `pob_calc`'s private
+/// `ItemSlot_SetSelItemId`, CCR-0107 §2 / CCR-0117 §2).
 fn model_slot_set_sel_item_id(cx: &mut Cx, slot_name: &str, sel_item_id: f64) {
     let m = cx.build().model.clone();
     let slot = m
@@ -153,37 +159,7 @@ fn model_slot_set_sel_item_id(cx: &mut Cx, slot_name: &str, sel_item_id: f64) {
         .slots
         .with(|s| s.get(&Name::from(slot_name)).cloned())
         .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"));
-    slot_set_sel_item_id(&m, &slot, sel_item_id);
-}
-
-/// ItemSlotControl.lua:72-84 on a slot table.
-fn slot_set_sel_item_id(m: &model::BuildRef, slot: &Table, sel_item_id: f64) {
-    // L73
-    if let Some(node_id) = slot.get(n!("nodeId")).opt_num() {
-        // L74 (`self.itemsTab.build.spec` is always set once the tab exists)
-        let spec = m.spec.get();
-        // L75
-        spec.jewels
-            .with_mut(|j| j.set(node_id as i64, Some(sel_item_id)));
-        // L76
-        if !Val::Num(sel_item_id).raw_eq(&slot.get(n!("selItemId"))) {
-            // L77
-            spec.BuildClusterJewelGraphs();
-        }
-    } else {
-        // L81
-        let slot_name = slot.str(n!("slotName")).unwrap_or_else(|| LStr::from(""));
-        let set = m
-            .itemsTab
-            .activeItemSet
-            .get()
-            .unwrap_or_else(|| lua_error!("attempt to index field 'activeItemSet' (a nil value)"));
-        set.table(&*slot_name)
-            .unwrap_or_else(|| lua_error!("attempt to index field '?' (a nil value)"))
-            .set(n!("selItemId"), sel_item_id);
-    }
-    // L83
-    slot.set(n!("selItemId"), sel_item_id);
+    items_slot::set_sel_item_id(&m, &slot, sel_item_id);
 }
 
 /// `self.build.itemsTab:DeleteItem(item, deferUndoState)` on the model (ItemsTab.lua:1857-1903,
@@ -201,7 +177,7 @@ fn model_delete_item(cx: &mut Cx, item: &ItemRef, defer_undo_state: bool) {
         // L1859
         if slot.get(n!("selItemId")).raw_eq(&id_val) {
             // L1860
-            slot_set_sel_item_id(&m, &slot, 0.0);
+            items_slot::set_sel_item_id(&m, &slot, 0.0);
             // L1861
             m.buildFlag.set(true);
         }
@@ -225,7 +201,10 @@ fn model_delete_item(cx: &mut Cx, item: &ItemRef, defer_undo_state: bool) {
     }
     // L1872
     if let Some(id) = id.and_then(model::items_tab::id_key) {
-        let pos = m.itemsTab.orderList.with(|l| l.iter().position(|x| *x == id));
+        let pos = m
+            .itemsTab
+            .orderList
+            .with(|l| l.iter().position(|x| *x == id));
         if let Some(pos) = pos {
             // L1874
             m.itemsTab.orderList.with_mut(|l| {
@@ -249,7 +228,8 @@ fn model_delete_item(cx: &mut Cx, item: &ItemRef, defer_undo_state: bool) {
                 // L1885
                 if let Some(node) = spec.nodes.with(|n| n.get(node_id)) {
                     // L1886 (`depNodeId` is the list index, as in PoB)
-                    for (dep_node_id, dep_node) in node.depends.get().snapshot().iter().enumerate() {
+                    for (dep_node_id, dep_node) in node.depends.get().snapshot().iter().enumerate()
+                    {
                         // L1887
                         dep_node.alloc.set(false);
                         // L1888
@@ -533,7 +513,9 @@ pub fn code_point_to_utf8(code_point: f64) -> Vec<u8> {
 /// @pob Modules/Common.lua:407-410 h=21d853ee
 pub fn json_to_lua(json: &str) -> Vec<u8> {
     use pob_lua::pattern::{gsub_bytes_with, Repl};
-    let step = |s: &[u8], p: &str, r: &str| gsub_bytes_with(s, p.as_bytes(), Repl::Str(r.as_bytes()), None).0;
+    let step = |s: &[u8], p: &str, r: &str| {
+        gsub_bytes_with(s, p.as_bytes(), Repl::Str(r.as_bytes()), None).0
+    };
     // L408
     let s = step(json.as_bytes(), "%[", "{");
     let s = step(&s, "%]", "}");
@@ -543,8 +525,13 @@ pub fn json_to_lua(json: &str) -> Vec<u8> {
     let s = step(&s, "{(%w+)}", "{[0]=%1}");
     // L409
     let mut f = |c: &pob_lua::pattern::Captures<'_>| {
-        let hex = c.first().map(|c| c.to_str().into_owned()).unwrap_or_default();
-        Some(code_point_to_utf8(pob_lua::tonumber_base(&hex, 16).unwrap_or(f64::NAN)))
+        let hex = c
+            .first()
+            .map(|c| c.to_str().into_owned())
+            .unwrap_or_default();
+        Some(code_point_to_utf8(
+            pob_lua::tonumber_base(&hex, 16).unwrap_or(f64::NAN),
+        ))
     };
     gsub_bytes_with(&s, b"\\u(%x%x%x%x)", Repl::Func(&mut f), None).0
 }
@@ -575,7 +562,10 @@ struct LuaEval<'a> {
 
 impl LuaEval<'_> {
     fn err<T>(&self, what: &str) -> Result<T, String> {
-        Err(format!("[string \"return ...\"]:1: {what} near byte {}", self.i + 1))
+        Err(format!(
+            "[string \"return ...\"]:1: {what} near byte {}",
+            self.i + 1
+        ))
     }
     fn skip_ws(&mut self) {
         loop {
@@ -606,8 +596,16 @@ impl LuaEval<'_> {
     fn name(&mut self) -> Option<Vec<u8>> {
         self.skip_ws();
         let st = self.i;
-        if self.s.get(self.i).is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_') {
-            while self.s.get(self.i).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
+        if self
+            .s
+            .get(self.i)
+            .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_')
+        {
+            while self
+                .s
+                .get(self.i)
+                .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+            {
                 self.i += 1;
             }
             Some(self.s[st..self.i].to_vec())
@@ -669,7 +667,10 @@ impl LuaEval<'_> {
                         }
                         b'x' => {
                             let h = self.s.get(self.i..self.i + 2).unwrap_or_default();
-                            match std::str::from_utf8(h).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                            match std::str::from_utf8(h)
+                                .ok()
+                                .and_then(|h| u8::from_str_radix(h, 16).ok())
+                            {
                                 Some(b) if h.len() == 2 => {
                                     self.i += 2;
                                     out.push(b);
@@ -792,7 +793,9 @@ impl LuaEval<'_> {
                 _ => {
                     let save = self.i;
                     let named = self.name().filter(|_| self.peek() == Some(b'='));
-                    if let Some(name) = named.filter(|n| n != b"true" && n != b"false" && n != b"nil") {
+                    if let Some(name) =
+                        named.filter(|n| n != b"true" && n != b"false" && n != b"nil")
+                    {
                         self.i += 1;
                         let v = self.expr()?;
                         store(&mut fields, LKey::Str(name), v);
@@ -887,7 +890,11 @@ pub fn process_site_json(json: &str) -> Result<Json, String> {
 pub fn save_account_history(cx: &mut Cx, me: CtrlId) {
     let name = buf(cx, me, "siteAccountName");
     // L803
-    if !main_extra(cx, |m| m.history_list.as_ref().is_some_and(|h| h.set.contains(&name))) {
+    if !main_extra(cx, |m| {
+        m.history_list
+            .as_ref()
+            .is_some_and(|h| h.set.contains(&name))
+    }) {
         let list = main_extra_mut(cx, |m| {
             let h = m.history_list.get_or_insert_with(Default::default);
             // L804
@@ -938,72 +945,74 @@ pub fn download_passive_tree(cx: &mut Cx, me: CtrlId, realm: &'static Realm) {
     launch_download(
         cx,
         &url,
-        Rc::new(move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
-            if !alive(cx, me) {
-                // DIVERGENCE(dead-tab)
-                return;
-            }
-            let neg = cx.main.cc.NEGATIVE.clone();
-            // L825
-            st_mut(cx, me).char_import_mode = "SELECTCHAR".to_owned();
-            // L826
-            if let Some(err) = err_msg {
-                // L827-828
-                st_mut(cx, me).char_import_status = format!(
-                    "{neg}Error importing character data, try again ({})",
-                    err_line(&err)
-                );
-                // L829
-                return;
-            // L830
-            } else if response.body.as_deref() == Some("false") {
-                // L831
-                st_mut(cx, me).char_import_status =
-                    format!("{neg}Failed to retrieve character data, try again.");
-                // L832
-                return;
-            }
-            // L834
-            st_mut(cx, me).last_character_hash = Some(sha1_hex(&char_name));
-            // L835
-            if st(cx, me).last_league.is_none() {
-                // L836
-                let league = sel_league(cx, ctl(cx, me, "siteCharSelectLeague"));
-                st_mut(cx, me).last_league = league;
-            }
-            // L838
-            let mut response_lua = decode_body(&response);
-            // Account-name imports omit quest choices, so keep the build's current values.
-            let input = cx.build().model.configTab.input.clone();
-            for (k, var) in [
-                // L840
-                ("bandit_choice", "bandit"),
-                // L841
-                ("pantheon_major", "pantheonMajorGod"),
-                // L842
-                ("pantheon_minor", "pantheonMinorGod"),
-            ] {
-                let a = json_get(&response_lua, k);
-                let v = if json_truthy(a) {
-                    a.cloned()
-                } else {
-                    val_to_json(&input.get(Name::from(var)))
-                };
-                jset(&mut response_lua, k, v);
-            }
-            // modify response to be like the oauth API response
-            // L844
-            let mut char_data = char_list_data.clone();
-            // L845
-            let jewels = json_get(&response_lua, "items").cloned();
-            jset(&mut char_data, "passives", Some(response_lua));
-            // L846
-            jset(&mut char_data, "jewels", jewels);
-            // L847
-            let delete_jewels = check_state(cx, me, "siteCharImportTreeClearJewels");
-            // L848
-            import_passive_tree_and_jewels(cx, me, &char_data, delete_jewels);
-        }),
+        Rc::new(
+            move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
+                if !alive(cx, me) {
+                    // DIVERGENCE(dead-tab)
+                    return;
+                }
+                let neg = cx.main.cc.NEGATIVE.clone();
+                // L825
+                st_mut(cx, me).char_import_mode = "SELECTCHAR".to_owned();
+                // L826
+                if let Some(err) = err_msg {
+                    // L827-828
+                    st_mut(cx, me).char_import_status = format!(
+                        "{neg}Error importing character data, try again ({})",
+                        err_line(&err)
+                    );
+                    // L829
+                    return;
+                // L830
+                } else if response.body.as_deref() == Some("false") {
+                    // L831
+                    st_mut(cx, me).char_import_status =
+                        format!("{neg}Failed to retrieve character data, try again.");
+                    // L832
+                    return;
+                }
+                // L834
+                st_mut(cx, me).last_character_hash = Some(sha1_hex(&char_name));
+                // L835
+                if st(cx, me).last_league.is_none() {
+                    // L836
+                    let league = sel_league(cx, ctl(cx, me, "siteCharSelectLeague"));
+                    st_mut(cx, me).last_league = league;
+                }
+                // L838
+                let mut response_lua = decode_body(&response);
+                // Account-name imports omit quest choices, so keep the build's current values.
+                let input = cx.build().model.configTab.input.clone();
+                for (k, var) in [
+                    // L840
+                    ("bandit_choice", "bandit"),
+                    // L841
+                    ("pantheon_major", "pantheonMajorGod"),
+                    // L842
+                    ("pantheon_minor", "pantheonMinorGod"),
+                ] {
+                    let a = json_get(&response_lua, k);
+                    let v = if json_truthy(a) {
+                        a.cloned()
+                    } else {
+                        val_to_json(&input.get(Name::from(var)))
+                    };
+                    jset(&mut response_lua, k, v);
+                }
+                // modify response to be like the oauth API response
+                // L844
+                let mut char_data = char_list_data.clone();
+                // L845
+                let jewels = json_get(&response_lua, "items").cloned();
+                jset(&mut char_data, "passives", Some(response_lua));
+                // L846
+                jset(&mut char_data, "jewels", jewels);
+                // L847
+                let delete_jewels = check_state(cx, me, "siteCharImportTreeClearJewels");
+                // L848
+                import_passive_tree_and_jewels(cx, me, &char_data, delete_jewels);
+            },
+        ),
     );
 }
 
@@ -1054,57 +1063,74 @@ pub fn download_items(cx: &mut Cx, me: CtrlId, realm: &'static Realm) {
     launch_download(
         cx,
         &url,
-        Rc::new(move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
-            if !alive(cx, me) {
-                // DIVERGENCE(dead-tab)
-                return;
-            }
-            let neg = cx.main.cc.NEGATIVE.clone();
-            // L863
-            st_mut(cx, me).char_import_mode = "SELECTCHAR".to_owned();
-            // L864
-            if let Some(err) = err_msg {
-                // L865-866
-                st_mut(cx, me).char_import_status = format!(
-                    "{neg}Error importing character data, try again ({})",
-                    err_line(&err)
+        Rc::new(
+            move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
+                if !alive(cx, me) {
+                    // DIVERGENCE(dead-tab)
+                    return;
+                }
+                let neg = cx.main.cc.NEGATIVE.clone();
+                // L863
+                st_mut(cx, me).char_import_mode = "SELECTCHAR".to_owned();
+                // L864
+                if let Some(err) = err_msg {
+                    // L865-866
+                    st_mut(cx, me).char_import_status = format!(
+                        "{neg}Error importing character data, try again ({})",
+                        err_line(&err)
+                    );
+                    // L867
+                    return;
+                // L868
+                } else if response.body.as_deref() == Some("false") {
+                    // L869
+                    st_mut(cx, me).char_import_status =
+                        format!("{neg}Failed to retrieve character data, try again.");
+                    // L870
+                    return;
+                }
+                // L872
+                st_mut(cx, me).last_character_hash = Some(sha1_hex(&char_name));
+                // L873
+                if st(cx, me).last_league.is_none() {
+                    // L874
+                    let league = sel_league(cx, ctl(cx, me, "siteCharSelectLeague"));
+                    st_mut(cx, me).last_league = league;
+                }
+                // L876
+                let response_lua = decode_body(&response);
+                // modify response to be like the oauth API response
+                // L878
+                let mut char_data = char_list_data.clone();
+                // L879
+                jset(
+                    &mut char_data,
+                    "equipment",
+                    json_get(&response_lua, "items").cloned(),
                 );
-                // L867
-                return;
-            // L868
-            } else if response.body.as_deref() == Some("false") {
-                // L869
-                st_mut(cx, me).char_import_status =
-                    format!("{neg}Failed to retrieve character data, try again.");
-                // L870
-                return;
-            }
-            // L872
-            st_mut(cx, me).last_character_hash = Some(sha1_hex(&char_name));
-            // L873
-            if st(cx, me).last_league.is_none() {
-                // L874
-                let league = sel_league(cx, ctl(cx, me, "siteCharSelectLeague"));
-                st_mut(cx, me).last_league = league;
-            }
-            // L876
-            let response_lua = decode_body(&response);
-            // modify response to be like the oauth API response
-            // L878
-            let mut char_data = char_list_data.clone();
-            // L879
-            jset(&mut char_data, "equipment", json_get(&response_lua, "items").cloned());
-            // L880
-            jset(&mut char_data, "guardian", json_get(&response_lua, "guardian").cloned());
-            // L881
-            let clear_items = check_state(cx, me, "siteCharImportItemsClearItems");
-            // L882
-            let clear_skills = check_state(cx, me, "siteCharImportItemsClearSkills");
-            // L883
-            let ignore_weapon_swap = check_state(cx, me, "siteCharImportItemsIgnoreWeaponSwap");
-            // L884
-            import_items_and_skills(cx, me, &char_data, clear_items, clear_skills, ignore_weapon_swap);
-        }),
+                // L880
+                jset(
+                    &mut char_data,
+                    "guardian",
+                    json_get(&response_lua, "guardian").cloned(),
+                );
+                // L881
+                let clear_items = check_state(cx, me, "siteCharImportItemsClearItems");
+                // L882
+                let clear_skills = check_state(cx, me, "siteCharImportItemsClearSkills");
+                // L883
+                let ignore_weapon_swap = check_state(cx, me, "siteCharImportItemsIgnoreWeaponSwap");
+                // L884
+                import_items_and_skills(
+                    cx,
+                    me,
+                    &char_data,
+                    clear_items,
+                    clear_skills,
+                    ignore_weapon_swap,
+                );
+            },
+        ),
     );
 }
 
@@ -1167,84 +1193,95 @@ pub fn download_site_character_list(cx: &mut Cx, me: CtrlId, realm: &'static Rea
     launch_download(
         cx,
         &url,
-        Rc::new(move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
-            if !alive(cx, me) {
-                // DIVERGENCE(dead-tab)
-                return;
-            }
-            let neg = cx.main.cc.NEGATIVE.clone();
-            let fail = |cx: &mut Cx, status: String| {
-                let s = st_mut(cx, me);
-                s.char_import_status = status;
-                s.char_import_mode = "GETACCOUNTNAME".to_owned();
-            };
-            match err_msg.as_deref() {
-                // L919
-                Some("Response code: 401" | "Response code: 403") => {
-                    // L920-922
-                    fail(cx, format!("{neg}Account profile is private or does not exist."));
+        Rc::new(
+            move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
+                if !alive(cx, me) {
+                    // DIVERGENCE(dead-tab)
                     return;
                 }
-                // L923
-                Some("Response code: 404") => {
-                    // L924-926
-                    fail(cx, format!("{neg}Account name is incorrect."));
-                    return;
+                let neg = cx.main.cc.NEGATIVE.clone();
+                let fail = |cx: &mut Cx, status: String| {
+                    let s = st_mut(cx, me);
+                    s.char_import_status = status;
+                    s.char_import_mode = "GETACCOUNTNAME".to_owned();
+                };
+                match err_msg.as_deref() {
+                    // L919
+                    Some("Response code: 401" | "Response code: 403") => {
+                        // L920-922
+                        fail(
+                            cx,
+                            format!("{neg}Account profile is private or does not exist."),
+                        );
+                        return;
+                    }
+                    // L923
+                    Some("Response code: 404") => {
+                        // L924-926
+                        fail(cx, format!("{neg}Account name is incorrect."));
+                        return;
+                    }
+                    // L927
+                    Some(err) => {
+                        // L928-931
+                        fail(
+                            cx,
+                            format!(
+                                "{neg}Error retrieving character list, try again ({})",
+                                err_line(err)
+                            ),
+                        );
+                        return;
+                    }
+                    None => {}
                 }
-                // L927
-                Some(err) => {
-                    // L928-931
+                // L933
+                let Ok(char_list) =
+                    process_site_json(response.body.as_deref().unwrap_or_else(|| {
+                        lua_error!("attempt to concatenate local 'json' (a nil value)")
+                    }))
+                else {
+                    // L934-937
                     fail(
                         cx,
-                        format!("{neg}Error retrieving character list, try again ({})", err_line(err)),
+                        format!("{neg}Error processing character list, try again later"),
                     );
                     return;
-                }
-                None => {}
-            }
-            // L933
-            let char_list = match process_site_json(response.body.as_deref().unwrap_or_else(|| {
-                lua_error!("attempt to concatenate local 'json' (a nil value)")
-            })) {
-                Ok(c) => c,
-                // L934
-                Err(_) => {
-                    // L935-937
-                    fail(cx, format!("{neg}Error processing character list, try again later"));
+                };
+                //ConPrintTable(charList)
+                // L940
+                let char_list_len = match &char_list {
+                    Json::Array(a) => a.len(),
+                    _ => 0,
+                };
+                if char_list_len == 0 {
+                    // L941-943
+                    fail(cx, format!("{neg}The account has no characters to import."));
                     return;
                 }
-            };
-            //ConPrintTable(charList)
-            // L940
-            let char_list_len = match &char_list {
-                Json::Array(a) => a.len(),
-                _ => 0,
-            };
-            if char_list_len == 0 {
-                // L941-943
-                fail(cx, format!("{neg}The account has no characters to import."));
-                return;
-            }
-            // GGG's character API has an issue where for /get-characters the account name is not
-            // case-sensitive, but for /get-passive-skills and /get-items it is.
-            // This workaround grabs the profile page and extracts the correct account name from
-            // one of the URLs.
-            // L947
-            let url = format!(
-                "{}{}{}",
-                realm.host_name,
-                realm.profile_url,
-                pob_lua::gsub(&account_name, "#", "%%23", None).0
-            );
-            let char_list = Rc::new(char_list);
-            launch_download(
-                cx,
-                &url,
-                Rc::new(move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
-                    profile_page_done(cx, me, realm, &char_list, &response, err_msg);
-                }),
-            );
-        }),
+                // GGG's character API has an issue where for /get-characters the account name is not
+                // case-sensitive, but for /get-passive-skills and /get-items it is.
+                // This workaround grabs the profile page and extracts the correct account name from
+                // one of the URLs.
+                // L947
+                let url = format!(
+                    "{}{}{}",
+                    realm.host_name,
+                    realm.profile_url,
+                    pob_lua::gsub(&account_name, "#", "%%23", None).0
+                );
+                let char_list = Rc::new(char_list);
+                launch_download(
+                    cx,
+                    &url,
+                    Rc::new(
+                        move |cx: &mut Cx, response: PageResponse, err_msg: Option<String>| {
+                            profile_page_done(cx, me, realm, &char_list, &response, err_msg);
+                        },
+                    ),
+                );
+            },
+        ),
     );
 }
 
@@ -1264,8 +1301,10 @@ fn profile_page_done(
         if tab {
             // L950-952
             let s = st_mut(cx, me);
-            s.char_import_status =
-                format!("{neg}Error retrieving character list, try again ({})", err_line(&err));
+            s.char_import_status = format!(
+                "{neg}Error retrieving character list, try again ({})",
+                err_line(&err)
+            );
             s.char_import_mode = "GETACCOUNTNAME".to_owned();
         }
         // L953
@@ -1363,8 +1402,10 @@ fn profile_page_done(
     cx.w_mut::<DropDownControl>(char_select_league).list = list;
     // set the league combo to the last used if possible, used for previously imported characters
     // L993
-    let by_league = |l: String| move |it: &DropItem| -> bool {
-        it.get::<LeagueEntry>().and_then(|e| e.league.as_deref()) == Some(l.as_str())
+    let by_league = |l: String| {
+        move |it: &DropItem| -> bool {
+            it.get::<LeagueEntry>().and_then(|e| e.league.as_deref()) == Some(l.as_str())
+        }
     };
     if let Some(last_league) = st(cx, me).last_league.clone() {
         // L994
@@ -1449,7 +1490,10 @@ pub fn build_character_list(
         let char_realm = json_get(ch, "realm");
         let char_league = json_get(ch, "league");
         let realm_match = matches!(char_realm, Some(Json::String(r)) if r == realm);
-        let league_match = league.map_or(true, |l| matches!(char_league, Some(Json::String(c)) if c == l));
+        let league_match = league.map_or(
+            true,
+            |l| matches!(char_league, Some(Json::String(c)) if c == l),
+        );
         if !(realm_match && league_match) {
             continue;
         }
@@ -1458,9 +1502,11 @@ pub fn build_character_list(
         // L1035
         let char_league = char_league.map_or_else(|| "?".to_owned(), |v| jstr(Some(v), "league"));
         // L1036
-        let char_name = json_get(ch, "name").map_or_else(|| "?".to_owned(), |v| jstr(Some(v), "name"));
+        let char_name =
+            json_get(ch, "name").map_or_else(|| "?".to_owned(), |v| jstr(Some(v), "name"));
         // L1037
-        let char_class = json_get(ch, "class").map_or_else(|| "?".to_owned(), |v| jstr(Some(v), "class"));
+        let char_class =
+            json_get(ch, "class").map_or_else(|| "?".to_owned(), |v| jstr(Some(v), "class"));
 
         // L1039 (`colorCodes.DEFAULT` is nil: Global.lua has no such key)
         let mut class_color = color_code(cx, "DEFAULT");
@@ -1475,7 +1521,12 @@ pub fn build_character_list(
                 // L1044-1045
                 let group = if matches!(
                     c,
-                    "Elementalist" | "Necromancer" | "Occultist" | "Harbinger" | "Herald" | "Bog Shaman"
+                    "Elementalist"
+                        | "Necromancer"
+                        | "Occultist"
+                        | "Harbinger"
+                        | "Herald"
+                        | "Bog Shaman"
                 ) {
                     // L1046
                     Some("WITCH")
@@ -1626,15 +1677,15 @@ fn is_ascendancy_in_tree(tree: &model::PassiveTreeRef, class_name: &str) -> bool
             // L1173
             return true;
         }
-        let subs = class
-            .table(n!("classes"))
-            .unwrap_or_else(|| lua_error!("attempt to get length of field 'classes' (a nil value)"));
+        let subs = class.table(n!("classes")).unwrap_or_else(|| {
+            lua_error!("attempt to get length of field 'classes' (a nil value)")
+        });
         // L1175
         for i in 0..=subs.len() as i64 {
             // L1176
-            let ascend_class = subs
-                .table(i)
-                .unwrap_or_else(|| lua_error!("attempt to index local 'ascendClass' (a nil value)"));
+            let ascend_class = subs.table(i).unwrap_or_else(|| {
+                lua_error!("attempt to index local 'ascendClass' (a nil value)")
+            });
             // L1177
             if ascend_class.str(n!("name")).as_deref() == Some(class_name) {
                 // L1178
@@ -1718,7 +1769,10 @@ pub fn import_passive_tree_and_jewels(
                 ..model::Node::default()
             });
             for (k, v) in json_object(over) {
-                if !matches!(k.as_str(), "name" | "icon" | "activeEffectImage" | "isTattoo" | "reminderText") {
+                if !matches!(
+                    k.as_str(),
+                    "name" | "icon" | "activeEffectImage" | "isTattoo" | "reminderText"
+                ) {
                     node.extra.set(Name::from(k.as_str()), json_to_val(v));
                 }
             }
@@ -1731,7 +1785,10 @@ pub fn import_passive_tree_and_jewels(
     // L1152
     let hashes_ex = json_get(&char_passives, "hashes_ex")
         .unwrap_or_else(|| lua_error!("bad argument #1 to 'pairs' (table expected, got nil)"));
-    m.spec.get().extra.set(n!("extended_hashes"), json_to_val(hashes_ex));
+    m.spec
+        .get()
+        .extra
+        .set(n!("extended_hashes"), json_to_val(hashes_ex));
     // L1153
     if delete_jewels {
         // L1154 LUA-ORDER (string keys; the deleted set is the same in any order)
@@ -1832,6 +1889,9 @@ pub fn import_passive_tree_and_jewels(
     // L1210
     let hooks = build_init::hooks(cx);
     (hooks.tree_set_active_spec)(cx, m.treeTab.activeSpec.get());
+    // TreeTab.lua:556 `self.build.spec:SetWindowTitleWithBuildClass()` (the model queues the
+    // class text; the UI sends it, init.rs `flush_window_titles`)
+    build_init::flush_window_titles(cx);
     // L1211
     m.spec.get().BuildClusterJewelGraphs();
     // L1212
@@ -1876,9 +1936,9 @@ pub fn import_passive_tree_and_jewels(
     // L1229-1235 setSelByVal(dropdown, val)
     let set_sel_by_val = |cx: &mut Cx, var: &str, val: &str| {
         let control = cx.build().model.configTab.varControl(Name::from(var));
-        let list = control.table(n!("list")).unwrap_or_else(|| {
-            lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)")
-        });
+        let list = control
+            .table(n!("list"))
+            .unwrap_or_else(|| lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"));
         // L1230
         for (i, v) in list.ipairs() {
             // L1231
@@ -1964,8 +2024,14 @@ fn get_socket_group_reimport_key(socket_group: &model::SocketGroup) -> String {
     }
     // L1263-1268
     [
-        socket_group.slot.get().map_or_else(String::new, |s| s.to_string()),
-        socket_group.source.get().map_or_else(String::new, |s| s.to_string()),
+        socket_group
+            .slot
+            .get()
+            .map_or_else(String::new, |s| s.to_string()),
+        socket_group
+            .source
+            .get()
+            .map_or_else(String::new, |s| s.to_string()),
         pob_lua::tostring_num(gems.len() as f64),
         gem_name_parts.join(SOCKET_GROUP_REIMPORT_KEY_SEPARATOR),
     ]
@@ -2076,11 +2142,13 @@ fn apply_gem_reimport_state(gem: &model::GemInstance, state: &GemReimportState) 
     // L1316
     gem.skillMinionItemSet.set(state.skill_minion_item_set);
     // L1317
-    gem.skillMinionItemSetCalcs.set(state.skill_minion_item_set_calcs);
+    gem.skillMinionItemSetCalcs
+        .set(state.skill_minion_item_set_calcs);
     // L1318
     gem.skillMinionSkill.set(state.skill_minion_skill);
     // L1319
-    gem.skillMinionSkillCalcs.set(state.skill_minion_skill_calcs);
+    gem.skillMinionSkillCalcs
+        .set(state.skill_minion_skill_calcs);
     // L1320
     gem.enableGlobal1.set(state.enable_global1);
     // L1321
@@ -2090,9 +2158,14 @@ fn apply_gem_reimport_state(gem: &model::GemInstance, state: &GemReimportState) 
 /// `socketGroup.includeInFullDPS = v` with Lua nil (CCR-0019).
 fn set_include_in_full_dps(socket_group: &model::SocketGroup, v: &Val) {
     socket_group.includeInFullDPS.set(v.truthy());
-    socket_group
-        .extra
-        .set(n!("$includeInFullDPSNil"), if v.is_nil() { Val::Bool(true) } else { Val::Nil });
+    socket_group.extra.set(
+        n!("$includeInFullDPSNil"),
+        if v.is_nil() {
+            Val::Bool(true)
+        } else {
+            Val::Nil
+        },
+    );
 }
 
 /// lua: ImportTab.lua:1324-1338 `local function applySocketGroupReimportState(socketGroup, state)`
@@ -2112,7 +2185,9 @@ fn apply_socket_group_reimport_state(
     // L1329
     socket_group.mainActiveSkill.set(state.main_active_skill);
     // L1330
-    socket_group.mainActiveSkillCalcs.set(state.main_active_skill_calcs);
+    socket_group
+        .mainActiveSkillCalcs
+        .set(state.main_active_skill_calcs);
     // L1331 (`state.gemStates` is always a table)
     let gems = socket_group.gemList.get().snapshot();
     // L1332
@@ -2159,7 +2234,8 @@ fn get_or_create_guardian_item_set(cx: &mut Cx) -> Table {
     // L1352
     let id = item_set.num(n!("id"));
     m.itemsTab.itemSetOrderList.push(
-        model::items_tab::id_key(id).unwrap_or_else(|| lua_error!("CCR-0080: non-integer item set id")),
+        model::items_tab::id_key(id)
+            .unwrap_or_else(|| lua_error!("CCR-0080: non-integer item set id")),
     );
     // L1353
     item_set
@@ -2208,7 +2284,10 @@ fn skill_order_rank(group: &model::SocketGroup, skill_order: &[Name]) -> Option<
     for gem in group.gemList.get().snapshot() {
         if let Some(ge) = gem.grantedEffect.get() {
             if !ge.support {
-                let i = skill_order.iter().position(|n| *n == ge.name).map(|i| i + 1);
+                let i = skill_order
+                    .iter()
+                    .position(|n| *n == ge.name)
+                    .map(|i| i + 1);
                 if let Some(i) = i {
                     if order.map_or(true, |o| i < o) {
                         order = Some(i);
@@ -2237,7 +2316,9 @@ pub fn import_items_and_skills(
     let char_data = char_data.clone();
     // L1383
     if clear_items {
-        // L1384 LUA-ORDER (string keys; the deleted set is the same in any order)
+        // L1384 LUA-ORDER: string keys, insertion order (calc doc D8). PoB's order is its
+        // per-process string-hash order and is observable here: DeleteItem's PopulateSlots can
+        // empty a slot visited later (a quiver once its bow is deleted), whose item then stays.
         let slots: Vec<Table> = m.itemsTab.slots.with(|s| s.values().cloned().collect());
         for slot in slots {
             // L1385
@@ -2255,7 +2336,7 @@ pub fn import_items_and_skills(
     }
 
     // L1391
-    let main_skill_empty = m.skillsTab.socketGroupList.get().len() == 0;
+    let main_skill_empty = m.skillsTab.socketGroupList.get().is_empty();
     // L1392-1393
     let mut skill_order: Option<Vec<Name>> = None;
     let mut preserved: Option<indexmap::IndexMap<String, Vec<SocketGroupReimportState>>> = None;
@@ -2305,14 +2386,22 @@ pub fn import_items_and_skills(
         import_item(cx, &item_data, None, ignore_weapon_swap, None);
     }
     // L1418
-    if let Some(guardian) = json_get(&char_data, "guardian").filter(|g| jindex(Some(g), 1).is_some()) {
+    if let Some(guardian) =
+        json_get(&char_data, "guardian").filter(|g| jindex(Some(g), 1).is_some())
+    {
         // L1419
         let guardian_set = get_or_create_guardian_item_set(cx);
         let guardian_set_id = guardian_set.num(n!("id"));
         // L1420
         for item_data in json_list(guardian) {
             // L1421
-            import_item(cx, &item_data, None, ignore_weapon_swap, Some(guardian_set_id));
+            import_item(
+                cx,
+                &item_data,
+                None,
+                ignore_weapon_swap,
+                Some(guardian_set_id),
+            );
         }
         // L1423
         assign_guardian_item_set(cx, guardian_set_id);
@@ -2357,7 +2446,14 @@ pub fn import_items_and_skills(
         // L1463
         let mut restored_main_socket_group: Option<f64> = None;
         // L1464
-        for (index, socket_group) in m.skillsTab.socketGroupList.get().snapshot().iter().enumerate() {
+        for (index, socket_group) in m
+            .skillsTab
+            .socketGroupList
+            .get()
+            .snapshot()
+            .iter()
+            .enumerate()
+        {
             // L1465
             let key = get_socket_group_reimport_key(socket_group);
             // L1466
@@ -2404,7 +2500,10 @@ pub fn import_items_and_skills(
     m.buildFlag.set(true);
     // charData for the wrapper
     // L1490
-    let msg = format!("{}Items and skills successfully imported.", cx.main.cc.POSITIVE);
+    let msg = format!(
+        "{}Items and skills successfully imported.",
+        cx.main.cc.POSITIVE
+    );
     (char_data, msg)
 }
 
@@ -2451,7 +2550,7 @@ fn mod_line(line: &str, flags: &[(&str, Val)]) -> Table {
     t.set(n!("line"), line);
     t.set(n!("mods"), Table::new());
     for (k, v) in flags {
-        t.set(Name::from(*k), v.clone());
+        t.set(Name::from(k), v.clone());
     }
     t
 }
@@ -2459,7 +2558,11 @@ fn mod_line(line: &str, flags: &[(&str, Val)]) -> Table {
 /// `for line in text:gmatch("[^\n]+")`
 fn lines_of(text: &str) -> Vec<String> {
     pob_lua::gmatch(text, "[^\n]+")
-        .map(|c| c.first().map(|c| c.to_str().into_owned()).unwrap_or_default())
+        .map(|c| {
+            c.first()
+                .map(|c| c.to_str().into_owned())
+                .unwrap_or_default()
+        })
         .collect()
 }
 
@@ -2476,7 +2579,10 @@ fn flag(flags: &Json, k: &str) -> Val {
     match flags {
         Json::Object(_) => json_get(flags, k).map_or(Val::Nil, json_to_val),
         Json::String(_) => Val::Nil,
-        _ => lua_error!("attempt to index local 'flags' (a {} value)", lua_type(Some(flags))),
+        _ => lua_error!(
+            "attempt to index local 'flags' (a {} value)",
+            lua_type(Some(flags))
+        ),
     }
 }
 
@@ -2572,10 +2678,17 @@ pub fn import_item(
         let title = pob_lua::string::sanitiseText(&name);
         item.title.set(Some(LStr::from(title.as_str())));
         // L1518
-        let base_name = pob_lua::gsub(&pob_lua::string::sanitiseText(&type_line), "Synthesised ", "", None).0;
+        let base_name = pob_lua::gsub(
+            &pob_lua::string::sanitiseText(&type_line),
+            "Synthesised ",
+            "",
+            None,
+        )
+        .0;
         let mut base_name = pob_lua::gsub(&base_name, "^Vestigial ", "", None).0;
         // L1519
-        item.name.set(LStr::from(format!("{title}, {base_name}").as_str()));
+        item.name
+            .set(LStr::from(format!("{title}, {base_name}").as_str()));
         // L1520
         if base_name == "Two-Toned Boots" {
             // Hack for Two-Toned Boots
@@ -2628,17 +2741,25 @@ pub fn import_item(
             // L1541
             rarity = Some("NORMAL");
             // L1542
-            jset(&mut item_data, "implicitMods", Some(Json::Array(Vec::new())));
+            jset(
+                &mut item_data,
+                "implicitMods",
+                Some(Json::Array(Vec::new())),
+            );
             // L1543
-            jset(&mut item_data, "explicitMods", Some(Json::Array(Vec::new())));
+            jset(
+                &mut item_data,
+                "explicitMods",
+                Some(Json::Array(Vec::new())),
+            );
         }
         item.name.set(LStr::from(item_name.as_str()));
         // L1545 LUA-ORDER (string keys: the first base whose name the item name contains)
         for (base_name, base_data) in &data.itemBases {
             // L1546
-            if let Some((s, e, _)) = pob_lua::find(&item_name, &**base_name, Some(1), true) {
+            if let Some((s, e, _)) = pob_lua::find(&item_name, base_name, Some(1), true) {
                 // L1547
-                item.baseName.set(Some(Name::from(&**base_name)));
+                item.baseName.set(Some(Name::from(base_name)));
                 // L1548
                 let prefix = pob_lua::string::sub(&item_name, 1, Some(s as i64 - 1)).into_owned();
                 item.extra.set(n!("namePrefix"), prefix.as_str());
@@ -2688,13 +2809,17 @@ pub fn import_item(
 
     // Import item data
     // L1572
-    item.uniqueID.set(json_get(&item_data, "id").map(|v| LStr::from(jstr(Some(v), "id").as_str())));
+    item.uniqueID
+        .set(json_get(&item_data, "id").map(|v| LStr::from(jstr(Some(v), "id").as_str())));
     // L1573
     if let Some(influences) = json_get(&item_data, "influences").filter(|v| json_truthy(Some(v))) {
         // L1574
         for cur_influence_info in &pob_calc::classes::item::influenceInfo {
             // L1575
-            let v = json_get(influences, &pob_lua::string::lower(cur_influence_info.display));
+            let v = json_get(
+                influences,
+                &pob_lua::string::lower(cur_influence_info.display),
+            );
             item.influences.set(
                 Name::from(cur_influence_info.key),
                 v.map_or(Val::Nil, json_to_val),
@@ -2718,7 +2843,11 @@ pub fn import_item(
         item.itemLevel.set(Some(ilvl));
     }
     // L1587
-    if base.weapon.is_some() || base.armour.is_some() || base.flask.is_some() || base.tincture.is_some() {
+    if base.weapon.is_some()
+        || base.armour.is_some()
+        || base.flask.is_some()
+        || base.tincture.is_some()
+    {
         // L1588
         item.quality.set(Some(0.0));
     }
@@ -2767,13 +2896,18 @@ pub fn import_item(
             // L1615
             } else if pname == "Evasion Rating" {
                 // L1616
-                if item.baseName.get().as_deref() == Some("Two-Toned Boots (Armour/Energy Shield)") {
+                if item.baseName.get().as_deref() == Some("Two-Toned Boots (Armour/Energy Shield)")
+                {
                     // Another hack for Two-Toned Boots
                     // L1618
-                    item.baseName.set(Some(n!("Two-Toned Boots (Armour/Evasion)")));
+                    item.baseName
+                        .set(Some(n!("Two-Toned Boots (Armour/Evasion)")));
                     // L1619
-                    item.base
-                        .set(data.itemBases.get("Two-Toned Boots (Armour/Evasion)").cloned());
+                    item.base.set(
+                        data.itemBases
+                            .get("Two-Toned Boots (Armour/Evasion)")
+                            .cloned(),
+                    );
                 }
             // L1621
             } else if pname == "Energy Shield" {
@@ -2806,14 +2940,18 @@ pub fn import_item(
                 );
             }
             // L1632
-            if matches!(pname.as_str(), "Energy Shield" | "Ward" | "Armour" | "Evasion Rating") {
+            if matches!(
+                pname.as_str(),
+                "Energy Shield" | "Ward" | "Armour" | "Evasion Rating"
+            ) {
                 // L1633
                 let armour_data = item.armourData.get().unwrap_or_else(|| {
                     let t = Table::new();
                     item.armourData.set(Some(t.clone()));
                     t
                 });
-                let key = pob_lua::gsub(&pob_lua::gsub(&pname, " Rating", "", None).0, " ", "", None).0;
+                let key =
+                    pob_lua::gsub(&pob_lua::gsub(&pname, " Rating", "", None).0, " ", "", None).0;
                 // L1634
                 for value in jlist(json_get(&property, "values"), "values") {
                     // L1635
@@ -2832,14 +2970,18 @@ pub fn import_item(
     item.split.set(json_truthy(json_get(&item_data, "split")));
     // L1641
     item.mirrored.set(
-        json_truthy(json_get(&item_data, "duplicated")) || json_truthy(json_get(&item_data, "mirrored")),
+        json_truthy(json_get(&item_data, "duplicated"))
+            || json_truthy(json_get(&item_data, "mirrored")),
     );
     // L1642
-    item.corrupted.set(json_truthy(json_get(&item_data, "corrupted")));
+    item.corrupted
+        .set(json_truthy(json_get(&item_data, "corrupted")));
     // L1643
-    item.fractured.set(json_truthy(json_get(&item_data, "fractured")));
+    item.fractured
+        .set(json_truthy(json_get(&item_data, "fractured")));
     // L1644
-    item.synthesised.set(json_truthy(json_get(&item_data, "synthesised")));
+    item.synthesised
+        .set(json_truthy(json_get(&item_data, "synthesised")));
     // L1645
     item.extra.set(
         n!("vestigial"),
@@ -2862,7 +3004,10 @@ pub fn import_item(
             }
             // L1652
             let t = Table::new();
-            t.set(n!("group"), json_get(&socket, "group").map_or(Val::Nil, json_to_val));
+            t.set(
+                n!("group"),
+                json_get(&socket, "group").map_or(Val::Nil, json_to_val),
+            );
             t.set(n!("color"), colour.map_or(Val::Nil, json_to_val));
             sockets.push(t);
         }
@@ -2872,12 +3017,17 @@ pub fn import_item(
         if count > 0.0 && lmatch(&item.name.get(), "Energy Blade").is_some() {
             // L1655
             let mut mods = jlist(json_get(&item_data, "explicitMods"), "explicitMods");
-            mods.push(Json::String(format!("Has {} Abyssal Sockets", pob_lua::tostring_num(count))));
+            mods.push(Json::String(format!(
+                "Has {} Abyssal Sockets",
+                pob_lua::tostring_num(count)
+            )));
             jset(&mut item_data, "explicitMods", Some(Json::Array(mods)));
         }
     }
     // L1658
-    if let Some(socketed_items) = json_get(&item_data, "socketedItems").filter(|v| json_truthy(Some(v))) {
+    if let Some(socketed_items) =
+        json_get(&item_data, "socketedItems").filter(|v| json_truthy(Some(v)))
+    {
         // L1659
         let socketed_items = socketed_items.clone();
         import_socketed_items(cx, &item, &socketed_items, &slot_name);
@@ -2898,7 +3048,8 @@ pub fn import_item(
             if rname == "Level" {
                 // L1666
                 let v = jindex(jindex(json_get(&req, "values"), 1), 1);
-                item.requirements.set(n!("level"), v.map_or(Val::Nil, json_to_val));
+                item.requirements
+                    .set(n!("level"), v.map_or(Val::Nil, json_to_val));
             // L1667
             } else if rname == "Class:" {
                 // L1668
@@ -3030,7 +3181,9 @@ pub fn import_item(
         }
     }
     // L1777
-    if json_truthy(json_get(&item_data, "foilVariation")) || json_truthy(json_get(&item_data, "isRelic")) {
+    if json_truthy(json_get(&item_data, "foilVariation"))
+        || json_truthy(json_get(&item_data, "isRelic"))
+    {
         // L1778-1791
         const FOIL_VARIANTS: [&str; 12] = [
             "Amethyst",
@@ -3064,7 +3217,11 @@ pub fn import_item(
         let unique_id = json_get(&item_data, "id").map(|v| jstr(Some(v), "id"));
         let mut rep_item: Option<ItemRef> = None;
         // L1800 LUA-ORDER (unique ids are unique: the first match is the only one)
-        for it in m.itemsTab.items.with(|i| i.values().cloned().collect::<Vec<_>>()) {
+        for it in m
+            .itemsTab
+            .items
+            .with(|i| i.values().cloned().collect::<Vec<_>>())
+        {
             // L1801
             if it.uniqueID.get().as_deref() == unique_id.as_deref() {
                 // L1802-1803
@@ -3137,19 +3294,25 @@ pub fn import_socketed_items(cx: &mut Cx, item: &ItemRef, socketed_items: &Json,
             abyssal_socket_id += 1;
         } else {
             // L1832
-            let mut normalized_basename =
-                pob_lua::string::sanitiseText(&jstr(json_get(&socketed_item, "typeLine"), "typeLine"));
+            let mut normalized_basename = pob_lua::string::sanitiseText(&jstr(
+                json_get(&socketed_item, "typeLine"),
+                "typeLine",
+            ));
             // L1833
             let mut gem_id = data
                 .gemForBaseName
                 .get(pob_lua::string::lower(&normalized_basename).as_str())
                 .copied();
             // L1834
-            if let Some(hybrid) = json_get(&socketed_item, "hybrid").filter(|v| json_truthy(Some(v))) {
+            if let Some(hybrid) =
+                json_get(&socketed_item, "hybrid").filter(|v| json_truthy(Some(v)))
+            {
                 // Used by transfigured gems and dual-skill gems (currently just Stormbind)
                 // L1836
-                normalized_basename =
-                    pob_lua::string::sanitiseText(&jstr(json_get(hybrid, "baseTypeName"), "baseTypeName"));
+                normalized_basename = pob_lua::string::sanitiseText(&jstr(
+                    json_get(hybrid, "baseTypeName"),
+                    "baseTypeName",
+                ));
                 // L1837
                 gem_id = data
                     .gemForBaseName
@@ -3215,23 +3378,23 @@ pub fn import_socketed_items(cx: &mut Cx, item: &ItemRef, socketed_items: &Json,
                     .get(n!("group"));
                 let group_key = group_id
                     .opt_num()
-                    .unwrap_or_else(|| lua_error!("table index is nil")) as i64;
+                    .unwrap_or_else(|| lua_error!("table index is nil"))
+                    as i64;
                 // L1854
-                let socket_group = match item_socket_group_list.get(group_key) {
-                    Some(g) => g,
-                    None => {
-                        // L1855
-                        let g = model::SocketGroup::default();
-                        model::skills_tab::set_socketGroup_label(&g, Some(""));
-                        g.enabled.set(true);
-                        g.slot.set(Some(Name::from(slot_name)));
-                        set_include_in_full_dps(&g, &Val::Nil);
-                        g.mainActiveSkill.set(f64::NAN);
-                        g.mainActiveSkillCalcs.set(f64::NAN);
-                        let g = Rc::new(g);
-                        item_socket_group_list.set(group_key, Some(g.clone()));
-                        g
-                    }
+                let socket_group = if let Some(g) = item_socket_group_list.get(group_key) {
+                    g
+                } else {
+                    // L1855
+                    let g = model::SocketGroup::default();
+                    model::skills_tab::set_socketGroup_label(&g, Some(""));
+                    g.enabled.set(true);
+                    g.slot.set(Some(Name::from(slot_name)));
+                    set_include_in_full_dps(&g, &Val::Nil);
+                    g.mainActiveSkill.set(f64::NAN);
+                    g.mainActiveSkillCalcs.set(f64::NAN);
+                    let g = Rc::new(g);
+                    item_socket_group_list.set(group_key, Some(g.clone()));
+                    g
                 };
                 // L1857-1858
                 socket_group.gemList.get().push(gem_instance);
@@ -3320,7 +3483,10 @@ pub fn import_socketed_items(cx: &mut Cx, item: &ItemRef, socketed_items: &Json,
             }
         } else {
             // L1894
-            m.skillsTab.socketGroupList.get().push(item_socket_group.clone());
+            m.skillsTab
+                .socketGroupList
+                .get()
+                .push(item_socket_group.clone());
         }
         // L1896
         m.skillsTab.ProcessSocketGroup(&m, &item_socket_group);
@@ -3336,7 +3502,16 @@ pub fn guess_main_socket_group(cx: &Cx) -> f64 {
     // L1903
     let mut largest_group_index = 1;
     // L1904
-    for (i, socket_group) in cx.build().model.skillsTab.socketGroupList.get().snapshot().iter().enumerate() {
+    for (i, socket_group) in cx
+        .build()
+        .model
+        .skillsTab
+        .socketGroupList
+        .get()
+        .snapshot()
+        .iter()
+        .enumerate()
+    {
         let n = socket_group.gemList.get().len();
         // L1905
         if n > largest_group_size {
@@ -3370,7 +3545,12 @@ pub fn set_predefined_build_name(cx: &mut Cx, me: CtrlId) {
 
 /// `core::ImportHooks::import_passive_tree_and_jewels` (the result is discarded by every caller,
 /// ImportTab.lua:260, :848).
-pub fn import_passive_tree_and_jewels_hook(cx: &mut Cx, me: CtrlId, char_data: &Json, delete_jewels: bool) {
+pub fn import_passive_tree_and_jewels_hook(
+    cx: &mut Cx,
+    me: CtrlId,
+    char_data: &Json,
+    delete_jewels: bool,
+) {
     import_passive_tree_and_jewels(cx, me, char_data, delete_jewels);
 }
 
@@ -3384,7 +3564,14 @@ pub fn import_items_and_skills_hook(
     clear_skills: bool,
     ignore_weapon_swap: bool,
 ) {
-    import_items_and_skills(cx, me, char_data, clear_items, clear_skills, ignore_weapon_swap);
+    import_items_and_skills(
+        cx,
+        me,
+        char_data,
+        clear_items,
+        clear_skills,
+        ignore_weapon_swap,
+    );
 }
 
 #[cfg(test)]
@@ -3414,7 +3601,10 @@ mod tests {
         assert_eq!(json_get(&a[0], "name").and_then(Json::as_str), Some("A b"));
         assert_eq!(json_get(&a[0], "level").and_then(Json::as_f64), Some(90.0));
         assert!(json_get(&a[0], "x").is_none());
-        assert_eq!(json_get(&a[1], "level").and_then(Json::as_f64), Some(-150.0));
+        assert_eq!(
+            json_get(&a[1], "level").and_then(Json::as_f64),
+            Some(-150.0)
+        );
         // `{(%w+)}` turns `[5]` into `{[0]=5}`: not a sequence
         let v = process_site_json("[5]").unwrap();
         assert!(matches!(v, Json::Object(_)));
@@ -3428,7 +3618,10 @@ mod tests {
     #[test]
     fn standard_leagues() {
         assert_eq!(find_matching_standard_league("Hardcore Mirage"), "Hardcore");
-        assert_eq!(find_matching_standard_league("HC SSF R Mirage"), "SSF Hardcore");
+        assert_eq!(
+            find_matching_standard_league("HC SSF R Mirage"),
+            "SSF Hardcore"
+        );
         assert_eq!(find_matching_standard_league("SSF Mirage"), "SSF Standard");
         assert_eq!(find_matching_standard_league("Ruthless Mirage"), "Standard");
     }
