@@ -30,9 +30,11 @@
 //! pattern) holds what this file calls in units not merged yet:
 //! * U31: `new("SkillListControl")` (`controls.groupList`), `self:CreateGemSlot(index)` and
 //!   `new("SkillSetListControl")` (the manager popup). The defaults are stand-ins with the Lua
-//!   controls' geometry that are never shown: a plain `ListControl` over `socketGroupList`, the
-//!   gem slot controls of CreateGemSlot (same classes, anchors, rects and `controls` keys, no
-//!   callbacks), a plain `ListControl` over `skillSetOrderList`. U31 replaces the three entries.
+//!   controls' geometry: the two lists are [`ListStandIn`]s (a `ListControl` part over
+//!   `socketGroupList` / an empty list, shown, so the controls anchored to the group list show,
+//!   but drawing nothing and taking no input); the gem slot controls of CreateGemSlot are the
+//!   Lua classes with the same anchors, rects and `controls` keys, never shown and without
+//!   callbacks. U31 replaces the three entries.
 //!   [`GemSlot`] (`self.gemSlots[i]`, written by CreateGemSlot and read by UpdateGemSlots and
 //!   SetDisplayGroup) is declared here; CreateGemSlot stores it with [`SkillsTab::set_gem_slot`].
 //! * U38/U34: `itemsTab:GetSocketDescriptionLine(item)`, `itemsTab:AddItemTooltip(tooltip, item,
@@ -84,8 +86,8 @@
 //! overwrote it before the UI ran).
 //!
 //! DIVERGENCE(paste-main-active-skill): a pasted group's `mainActiveSkill` and
-//! `mainActiveSkillCalcs` are nil in Lua (L711; `or 1` at every reader, CalcSetup.lua:1886,
-//! Build.lua:1637, CompareTab.lua:389) and 1 here (the frozen `Cell<f64>` has no nil, CCR-0118 §3):
+//! `mainActiveSkillCalcs` are nil in Lua (L711; the readers write `or 1`, e.g. CalcSetup.lua:1886)
+//! and 1 here (the frozen `Cell<f64>` has no nil, CCR-0118 §3):
 //! Save writes `"1"` where PoB writes `"nil"` until the group becomes the main group.
 //!
 //! DIVERGENCE(node-name): `sourceNode.name` (L402, L1321) is the node's `dn` (PassiveTree.lua:534
@@ -108,7 +110,7 @@ use std::rc::Rc;
 use pob_lua::math::m_min;
 use pob_lua::{lfmt, n, tonumber, tostring_num};
 use pob_ui_core::controls::drop_down::{DropTipArgs, DropTipMode, SelFunc};
-use pob_ui_core::controls::list::{ListData, ListSource};
+use pob_ui_core::controls::list::{ListData, ListHooks, ListSource};
 use pob_ui_core::controls::scroll_bar::ScrollDir;
 use pob_ui_core::controls::{
     ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl,
@@ -247,7 +249,7 @@ fn sort_type_items() -> Vec<DropItem> {
         .collect()
 }
 
-// @pob Classes/SkillsTab.lua:76-81 h=e7f8ad32
+// @pob Classes/SkillsTab.lua:76-81 h=fddf8120
 // (L78-79 `newClass("SkillsTab", "UndoHandler", "ControlHost", "Control")`: the `Widget` impl
 // below, `.host()` in the constructor and [`UNDO`])
 
@@ -344,24 +346,61 @@ pub struct SkillsHooks {
     pub items_add_undo_state: Rc<dyn Fn(&mut Cx)>,
 }
 
-/// The stand-in for `SkillListControl` until U31 lands: a plain `ListControl` with the Lua rect
-/// and list (`ListControl(anchor, rect, 16, "VERTICAL", true, skillsTab.socketGroupList)`,
-/// SkillListControl.lua:36) that is never shown.
+/// The stand-in list of U31's `SkillListControl` / `SkillSetListControl` until U31 lands: a
+/// `ListControl` part (the fields the tab writes: `list`, `selIndex`, `selValue`) with the Lua
+/// rect, shown (the tab's controls anchored to the group list show), drawing nothing and taking
+/// no input (`IsMouseOver` is false, so it never gets the focus).
+pub struct ListStandIn {
+    pub list: ListControl,
+}
+
+static LIST_STANDIN_HOOKS: ListHooks = ListHooks {
+    get_row_value: |_, _, _, _, _| String::new(),
+    ..ListHooks::BASE
+};
+
+impl ListStandIn {
+    /// `ListControl(anchor, rect, 16, "VERTICAL", true, list)` (SkillListControl.lua:36,
+    /// SkillSetListControl.lua:18).
+    pub fn new(anchor: Anchor, rect: [Prop<f64>; 4], list: ListData) -> New<ListStandIn> {
+        New::new(
+            Base::new(anchor, rect),
+            ListStandIn {
+                list: ListControl::state(&LIST_STANDIN_HOOKS, 16.0, true, true, list, false),
+            },
+        )
+        .host()
+        .init(|cx, me| ListControl::init(cx, me.id()))
+    }
+}
+
+impl Widget for ListStandIn {
+    const NAME: &'static str = "ListStandIn";
+    const CAPS: Caps = Caps::DRAW
+        .union(Caps::IS_MOUSE_OVER)
+        .union(Caps::KEY_DOWN)
+        .union(Caps::KEY_UP);
+    fn draw(_cx: &mut Cx, _me: CtrlId, _vp: &ViewPort, _no_tooltip: bool) {}
+    fn is_mouse_over(_cx: &Cx, _me: CtrlId) -> bool {
+        false
+    }
+    fn on_key_down(_cx: &mut Cx, _me: CtrlId, _key: Key, _double_click: bool) -> Focus {
+        None
+    }
+    fn on_key_up(_cx: &mut Cx, _me: CtrlId, _key: Key) -> Focus {
+        None
+    }
+
+    pob_ui_core::impl_parts!(ListStandIn: list => ListControl);
+}
+
+/// The stand-in for `SkillListControl` until U31 lands ([`ListStandIn`] over `socketGroupList`).
 fn standin_skill_list(cx: &mut Cx, tab: CtrlId, anchor: Anchor, rect: [Prop<f64>; 4]) -> CtrlId {
     let list = cx.build().model.skillsTab.socketGroupList.get();
     cx.add(
         tab,
         "groupList",
-        ListControl::new(
-            anchor,
-            rect,
-            16.0,
-            true,
-            true,
-            ListData::Source(Rc::new(GroupListSource(list))),
-            false,
-        )
-        .shown(Prop::Val(false)),
+        ListStandIn::new(anchor, rect, ListData::Source(Rc::new(GroupListSource(list)))),
     )
     .id()
 }
@@ -484,9 +523,8 @@ fn standin_create_gem_slot(cx: &mut Cx, me: CtrlId, index: usize) {
     );
 }
 
-/// The stand-in for `SkillSetListControl` until U31 lands: a plain `ListControl` with the Lua rect
-/// (`ListControl(anchor, rect, 16, "VERTICAL", true, skillsTab.skillSetOrderList)`,
-/// SkillSetListControl.lua:18) over an empty list, never shown.
+/// The stand-in for `SkillSetListControl` until U31 lands ([`ListStandIn`] over an empty list;
+/// the popup's Done button is the tab's).
 fn standin_skill_set_list(
     cx: &mut Cx,
     popup: CtrlId,
@@ -494,13 +532,8 @@ fn standin_skill_set_list(
     rect: [Prop<f64>; 4],
     _tab: CtrlId,
 ) -> CtrlId {
-    cx.add(
-        popup,
-        key,
-        ListControl::new(Anchor::NONE, rect, 16.0, true, true, ListData::default(), false)
-            .shown(Prop::Val(false)),
-    )
-    .id()
+    cx.add(popup, key, ListStandIn::new(Anchor::NONE, rect, ListData::default()))
+        .id()
 }
 
 /// The defaults (U31 and U38 replace the entries with their controls and methods).
@@ -915,11 +948,11 @@ fn effect_line(cx: &Cx, e: &pob_calc::active_skill::SkillEffectRef) -> String {
 
 impl SkillsTab {
     /// lua: SkillsTab.lua:82-438 `SkillsTab(build)`
-    /// @pob Classes/SkillsTab.lua:82-88 h=PLACEHOLDER
-    /// @pob Classes/SkillsTab.lua:90-94 h=PLACEHOLDER
-    /// @pob Classes/SkillsTab.lua:97-322 h=PLACEHOLDER
-    /// @pob Classes/SkillsTab.lua:350-422 h=PLACEHOLDER
-    /// @pob Classes/SkillsTab.lua:427-440 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:82-88 h=caf1f96d
+    /// @pob Classes/SkillsTab.lua:90-94 h=3cf3db11
+    /// @pob Classes/SkillsTab.lua:97-322 h=e2cbc7d2
+    /// @pob Classes/SkillsTab.lua:350-422 h=c11d9856
+    /// @pob Classes/SkillsTab.lua:427-440 h=973e5f61
     pub fn new(build: CtrlId) -> New<SkillsTab> {
         // L83 self:UndoHandler() (`State::undo`); L84 self:ControlHost(); L85 self:Control()
         New::new(
@@ -1961,7 +1994,7 @@ impl SkillsTab {
     }
 
     /// lua: SkillsTab.lua:631-697 `SkillsTab:Draw(viewPort, inputEvents)`
-    /// @pob Classes/SkillsTab.lua:630-692 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:630-692 h=d2a94c18
     pub fn draw(cx: &mut Cx, me: CtrlId, vp: &ViewPort, ev: &mut InputEvents) {
         let scroll_bar_h = Self::control(cx, me, "scrollBarH");
         {
@@ -2090,7 +2123,7 @@ impl SkillsTab {
     }
 
     /// lua: SkillsTab.lua:694-706 `SkillsTab:CopySocketGroup(socketGroup)`
-    /// @pob Classes/SkillsTab.lua:693-707 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:693-707 h=5a236dac
     pub fn copy_socket_group(cx: &mut Cx, _me: CtrlId, socketGroup: &SocketGroupRef) {
         // L695
         let mut skillText = String::new();
@@ -2122,7 +2155,7 @@ impl SkillsTab {
     }
 
     /// lua: SkillsTab.lua:708-740 `SkillsTab:PasteSocketGroup(testInput)`
-    /// @pob Classes/SkillsTab.lua:708-741 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:708-741 h=3bd33b26
     pub fn paste_socket_group(cx: &mut Cx, me: CtrlId, testInput: Option<&str>) {
         // L709
         let skillText = cx
@@ -2201,7 +2234,7 @@ impl SkillsTab {
     }
 
     /// lua: SkillsTab.lua:1081-1100 `SkillsTab:UpdateGemSlots()`
-    /// @pob Classes/SkillsTab.lua:1081-1102 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:1081-1102 h=986ebd5d
     pub fn update_gem_slots(cx: &mut Cx, me: CtrlId) {
         // L1082
         let Some(displayGroup) = display_group(cx) else {
@@ -2245,8 +2278,8 @@ impl SkillsTab {
 
     /// lua: SkillsTab.lua:1275-1307 `SkillsTab:SetDisplayGroup(socketGroup)`: the model half
     /// (L1276-1278, calc:BM-B) and the controls (L1280-1306).
-    /// @pob Classes/SkillsTab.lua:1274-1274 h=PLACEHOLDER
-    /// @pob Classes/SkillsTab.lua:1279-1308 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:1274-1274 h=f449aee3
+    /// @pob Classes/SkillsTab.lua:1279-1308 h=7d430c87
     pub fn set_display_group(cx: &mut Cx, me: CtrlId, socketGroup: Option<SocketGroupRef>) {
         let m = model(cx);
         // L1276-1278 (model half: calc:BM-B)
@@ -2293,12 +2326,12 @@ impl SkillsTab {
                 .get(key.as_str())
                 .and_then(|id| d.gems.get(id))
                 .cloned();
-            let gemId = gemId.unwrap_or_else(|| lua_error!("attempt to index local 'gemId' (a nil value)"));
             // L1288
-            cx.w_mut::<GemSelectControl>(imb).gem_id = Some(GemIdVal::Data(gemId.clone()));
+            cx.w_mut::<GemSelectControl>(imb).gem_id = gemId.clone().map(GemIdVal::Data);
             // L1289
             EditControl::set_text(cx, imb, &name, false);
             // L1290
+            let gemId = gemId.unwrap_or_else(|| lua_error!("attempt to index local 'gemId' (a nil value)"));
             let col = skill_color_map(cx, gemId.grantedEffect.color)
                 .unwrap_or_else(|| lua_error!("CCR-0118: skillColorMap[nil]"));
             cx.w_mut::<EditControl>(imb).inactive_col = col;
@@ -2334,7 +2367,7 @@ impl SkillsTab {
     }
 
     /// lua: SkillsTab.lua:1309-1395 `SkillsTab:AddSocketGroupTooltip(tooltip, socketGroup)`
-    /// @pob Classes/SkillsTab.lua:1309-1396 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:1309-1396 h=ac37696d
     pub fn add_socket_group_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, socketGroup: &SocketGroupRef) {
         // L1310
         if let Some(explodeSources) = socketGroup.explodeSources.get() {
@@ -2527,7 +2560,7 @@ impl SkillsTab {
     }
 
     /// lua: SkillsTab.lua:1397-1418 `SkillsTab:CreateUndoState()`
-    /// @pob Classes/SkillsTab.lua:1397-1419 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:1397-1419 h=87364554
     fn create_undo_state(cx: &mut Cx, _me: CtrlId) -> UndoState {
         let m = model(cx);
         let st = &m.skillsTab;
@@ -2583,7 +2616,7 @@ impl SkillsTab {
     }
 
     /// lua: SkillsTab.lua:1421-1441 `SkillsTab:RestoreUndoState(state)`
-    /// @pob Classes/SkillsTab.lua:1420-1442 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:1420-1442 h=bf9adf26
     fn restore_undo_state(cx: &mut Cx, me: CtrlId, state: UndoState) {
         let m = model(cx);
         let st = &m.skillsTab;
@@ -2633,7 +2666,7 @@ impl SkillsTab {
     }
 
     /// lua: SkillsTab.lua:1444-1451 `SkillsTab:OpenSkillSetManagePopup()`
-    /// @pob Classes/SkillsTab.lua:1443-1451 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:1443-1451 h=edd78c31
     pub fn open_skill_set_manage_popup(cx: &mut Cx, me: CtrlId) {
         // L1445
         popups::open_popup(
@@ -2663,8 +2696,8 @@ impl SkillsTab {
     /// lua: SkillsTab.lua:1478-1502 `SkillsTab:SetActiveSkillSet(skillSetId)`: the model half
     /// (calc:BM-B) and the UI lines (L1495, the UI part of L1500's SetDisplayGroup, L1501).
     /// `None` is Lua's nil (`self.skillSetOrderList[index]` past the end).
-    /// @pob Classes/SkillsTab.lua:1463-1463 h=PLACEHOLDER
-    /// @pob Classes/SkillsTab.lua:1476-1477 h=PLACEHOLDER
+    /// @pob Classes/SkillsTab.lua:1463-1463 h=da39a3ee
+    /// @pob Classes/SkillsTab.lua:1476-1477 h=3759b500
     pub fn set_active_skill_set(cx: &mut Cx, me: CtrlId, skillSetId: Option<f64>) {
         let m = model(cx);
         // L1485-1487 `if not skillSetId then skillSetId = self.activeSkillSetId end`
