@@ -1,0 +1,25 @@
+# U42: open allflame_exp_001 from the build list (RETURN on the selected row), Ctrl+5 (CONFIG):
+# ConfigTab:Draw lays the sections out in columns (the section `col` hints, the shortest column
+# otherwise), fills the config set selector (SetList) and sizes the scroll bar. Then the mouse
+# wheel scrolls the tab (Draw's KeyUp loop: scrollBar:Scroll) and back. At the end ConfigVisibility
+# (isRelevantForBuild over the mainEnv used-tables the bridge brings, isShowAllExcluded) runs on
+# both sides for every option and must agree.
+#! u42-visibility
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+move 900 500
+wheel down 3
+frames 3
+wheel down 20
+frames 3
+wheel up 30
+frames 3

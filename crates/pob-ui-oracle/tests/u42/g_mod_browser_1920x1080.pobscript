@@ -1,0 +1,62 @@
+screen 1920 1080 dpi 1.5
+# U42: the mod browser (ConfigModBrowser.OpenAddModPopup) from the custom mod block's "Add Mod"
+# (f_mod_browser_1280x800 at 1920x1080 @1.5: 1280x720 virtual, the centred popup sits 40 px
+# higher). A search no label matches ("zqzq") puts "Custom Modifiers" at the top of
+# column 1 (U41's c_custom). The popup collects every supported tree/item mod line (sorted by
+# sortKey/template/text). Each search is typed before the popup's first frame: the unfiltered
+# list's numeric templates show whichever line PoB's per-process `pairs` order met first
+# (mod_browser.rs ORDER), the digit-free rows of these searches do not depend on it.
+# * search "cannot be stunned" (fuzzyScore ranks: substring, all words), hover the "?" button
+#   (its wrapped help tooltip), double-click row 2 (OnSelClick -> save.onClick: the line
+#   appended to the block text, UpdateCustomModsControls, AddUndoState, BuildModList);
+# * reopen, search "unaffected by", single-click row 1, move off the list, press "Add";
+# * reopen, a search nothing matches ("No matching modifiers found": Add disabled), Cancel.
+#! u42-expect-config title="Default" enabled="true"
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+move 500 75
+click LEFTBUTTON
+type "zqzq"
+frames 3
+move 621 154
+click LEFTBUTTON
+type "cannot be stunned"
+move 640 621
+frames 3
+move 640 123
+click LEFTBUTTON
+click LEFTBUTTON
+move 1100 700
+frames 3
+snapshot first
+move 621 154
+click LEFTBUTTON
+type "unaffected by"
+move 1100 700
+frames 3
+move 640 107
+click LEFTBUTTON
+move 1100 700
+frames 2
+move 598 595
+click LEFTBUTTON
+move 1100 700
+frames 3
+snapshot second
+move 621 154
+click LEFTBUTTON
+type "qqqqzzzz"
+move 1100 700
+frames 3
+move 682 595
+click LEFTBUTTON
+frames 3
