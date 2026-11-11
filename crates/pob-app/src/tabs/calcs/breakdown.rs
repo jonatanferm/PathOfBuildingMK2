@@ -209,7 +209,7 @@ pub struct BreakdownHooks {
 /// highlight ring image.
 pub fn default_breakdown_hooks() -> BreakdownHooks {
     BreakdownHooks {
-        add_item_tooltip: Rc::new(|_, _, _, _| {}),
+        add_item_tooltip: Rc::new(crate::tabs::items::tooltip::add_item_tooltip_named),
         node_viewer_draw: Rc::new(|_, _, _, _, _, _| {}),
         node_viewer_highlight_ring: Rc::new(|_, _| None),
     }

@@ -165,9 +165,9 @@ pub fn default_items_hooks() -> ItemsTabHooks {
             not_ported("ItemsTab:GetEquippedSlotForItem", "U35")
         }),
         add_item_set_tooltip: Rc::new(|_, _, _| not_ported("ItemsTab:AddItemSetTooltip", "U37")),
-        add_item_tooltip: Rc::new(|_, _, _, _, _| not_ported("ItemsTab:AddItemTooltip", "U38")),
-        add_undo_state: Rc::new(|_| not_ported("ItemsTab:AddUndoState", "U38")),
-        set_mod_flag: Rc::new(|_, _| not_ported("ItemsTab.modFlag", "U38")),
+        add_item_tooltip: Rc::new(super::tooltip::add_item_tooltip_hook),
+        add_undo_state: Rc::new(super::tooltip::add_undo_state_hook),
+        set_mod_flag: Rc::new(super::tooltip::set_mod_flag_hook),
         socket_viewer_draw: Rc::new(|_, _, _| not_ported("PassiveTreeView:Draw", "U23")),
     }
 }

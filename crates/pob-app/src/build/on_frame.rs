@@ -243,6 +243,7 @@ pub fn default_shell_hooks() -> ShellHooks {
             TabFlag::Calcs => crate::tabs::calcs::core::mod_flag(cx),
             TabFlag::Skills => crate::tabs::skills::core::mod_flag(cx),
             TabFlag::Config => crate::tabs::config::core::mod_flag(cx),
+            TabFlag::Items => crate::tabs::items::tooltip::mod_flag(cx),
             _ => false,
         }),
         set_tab_flag: Rc::new(|cx, flag, v| match flag {
@@ -251,6 +252,7 @@ pub fn default_shell_hooks() -> ShellHooks {
             TabFlag::Calcs => crate::tabs::calcs::core::set_mod_flag(cx, v),
             TabFlag::Skills => crate::tabs::skills::core::set_mod_flag(cx, v),
             TabFlag::Config => crate::tabs::config::core::set_mod_flag(cx, v),
+            TabFlag::Items => crate::tabs::items::tooltip::set_mod_flag(cx, v),
             _ => {}
         }),
         import_select_code_in: Rc::new(crate::tabs::import::core::select_code_in),
