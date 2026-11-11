@@ -17,8 +17,9 @@
 //! Real on both sides: Launch, Main (U16), the build list (U18), Init (U19), OnFrame,
 //! SyncLoadouts, SaveDBFile and ResetModFlags (U20), RefreshStatList and the stat box (U21),
 //! the Notes tab (U22). Stand-ins (both sides run the same ones) for the units not ported yet:
-//! * the other tabs' `Draw` (U25-U46) draw nothing (`ShellHooks::draw_tab` has only the Notes
-//!   arm on the Rust side; the Lua tabs' `Draw` are replaced after `buildMode:Init`);
+//! * the other tabs' `Draw` (U25-U46) draw nothing (the Lua tabs' `Draw` are replaced after
+//!   `buildMode:Init`; the Rust side masks the Tree arm of `ShellHooks::draw_tab`, the
+//!   tab a build opens on);
 //! * `utf8.next` on the Lua side (the oracle's `lua-utf8` stand-in lacks it; see `LUA_STUBS`);
 //! * `spec.modFlag` (U25's spec undo) reads from the stand-in of `spec:AddUndoState`, and
 //!   `TreeTab:GetSpecList` (U25) is TreeTab.lua:492-498 (as in u20).
@@ -159,6 +160,13 @@ fn rust_stubs() {
     });
     of::set_shell_hooks(|h| {
         *h = of::default_shell_hooks();
+        // LUA_STUBS replaces `treeTab.Draw`: the Tree tab (U25) draws nothing here as well
+        let all_tabs = h.draw_tab.clone();
+        h.draw_tab = Rc::new(move |cx, tab, vp, ev| {
+            if tab != of::BuildTab::Tree {
+                all_tabs(cx, tab, vp, ev);
+            }
+        });
         // keep the default arms (Notes) and add the spec stand-in
         let (flag, set_flag) = (h.tab_flag.clone(), h.set_tab_flag.clone());
         h.tab_flag = Rc::new(move |cx, f| {

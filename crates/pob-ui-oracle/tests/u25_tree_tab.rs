@@ -26,9 +26,10 @@
 //! order; after `ResetNodes` (Reset Tree, and every `RestoreUndoState` / `ImportFromNodeList`)
 //! that order depends on the dead keys `self.allocNodes[id] = nil` leaves for each id of
 //! `pairs(self.nodes)` (PassiveSpec.lua:769-772), and `pairs(spec.nodes)` is per-process random
-//! in PoB (ui doc §8 rule 6 (b)); `h_undo` reaches it. The Spec's `URL` child (`EncodeURL`, the
-//! same node order) is set aside for the same reason (the node set, class and ascendancy are
-//! compared through the attributes).
+//! in PoB (ui doc §8 rule 6 (b)); `h_undo` reaches it. The Spec's `URL` child (`EncodeURL`'s
+//! `pairs(self.allocNodes)`, PassiveSpec.lua:537, the same node order) is compared strictly
+//! where the two sides' `nodes` attributes are byte-identical, and set aside where only their
+//! node sets match (the node set, class and ascendancy are compared through the attributes).
 //!
 //! `e_convert` uses a 3_19 build without a search string (`tree_3_19_plain.xml`): with
 //! `searchStr="life"` the search highlights after the conversion differ (U23's search-result
@@ -480,7 +481,8 @@ fn normalise(node: &XmlNode, top: bool, lua: bool, notes: &mut T4Notes) -> Strin
                 }
                 kids.push(normalise(n, false, lua, notes));
             }
-            // a Spec's URL lists the nodes in the same allocNodes order (module notes)
+            // a Spec's URL lists the nodes in the same allocNodes order: compared in compare_t4
+            // where the `nodes` attributes match byte for byte (module notes)
             XmlChild::Text(_) if &*node.elem == "URL" => kids.push("<URL: allocNodes order>".to_owned()),
             XmlChild::Text(t) => kids.push(format!("{t:?}")),
         }
@@ -512,10 +514,49 @@ fn first_diff(a: &str, b: &str) -> String {
     format!("lengths {} vs {}", a.len(), b.len())
 }
 
+/// Each `Tree`/`Spec`'s raw `nodes` attribute and `URL` text, in document order.
+fn spec_urls(root: &XmlNode) -> Vec<(String, String)> {
+    let nodes = |n: &XmlNode| -> Vec<XmlNode> {
+        n.children
+            .iter()
+            .filter_map(|c| match c {
+                XmlChild::Node(n) => Some(n.clone()),
+                XmlChild::Text(_) => None,
+            })
+            .collect()
+    };
+    let text = |n: &XmlNode| -> String {
+        n.children
+            .iter()
+            .filter_map(|c| match c {
+                XmlChild::Text(t) => Some(t.to_string()),
+                XmlChild::Node(_) => None,
+            })
+            .collect()
+    };
+    nodes(root)
+        .into_iter()
+        .filter(|n| &*n.elem == "Tree")
+        .flat_map(|t| nodes(&t))
+        .filter(|n| &*n.elem == "Spec")
+        .map(|spec| {
+            let ids = spec.attrib.get("nodes").map(|v| v.to_string()).unwrap_or_default();
+            let url = nodes(&spec).iter().filter(|n| &*n.elem == "URL").map(text).collect();
+            (ids, url)
+        })
+        .collect()
+}
+
 /// Compare one T4 pair; `Ok(byte_identical)`.
 fn compare_t4(what: &str, lua: &str, rust: &str, notes: &mut T4Notes) -> Result<bool, String> {
     let lr = root_element(lua).map_err(|e| format!("{what}: Lua XML: {e}"))?;
     let rr = root_element(rust).map_err(|e| format!("{what}: Rust XML: {e}"))?;
+    // the same allocNodes order on both sides: EncodeURL's text must match too (module notes)
+    for (i, ((ln, lu), (rn, ru))) in spec_urls(&lr).iter().zip(&spec_urls(&rr)).enumerate() {
+        if ln == rn && lu != ru {
+            return Err(format!("{what}: Spec {} URL differs: lua {lu:?} | rust {ru:?}", i + 1));
+        }
+    }
     let mut local = T4Notes::default();
     let section = |root: &XmlNode, elem: &str, lua: bool| {
         root.children.iter().find_map(|c| match c {

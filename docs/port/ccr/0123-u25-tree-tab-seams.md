@@ -36,7 +36,11 @@ is the UI's`). calc:BM-A's `TreeTab:Load` runs inside `Init_model`, followed by 
 (`BuildClusterJewelGraphs`, TreeTab.lua:529-534), before the UI constructor exists.
 
 Workaround (`DIVERGENCE(reset-undo)` in core.rs): `tabs::tree::core::ctor_hook` runs `ResetUndo`
-for every spec of the list when the build file has a `Tree`/`Spec` section. The first undo state
+for every spec of the list when `PassiveSpec:Load` ran for them: the build file has a legacy
+`Spec` section (TreeTab.lua:502-505) or a `Tree` section with `Spec` children (L510-521). A `Tree`
+section without `Spec` children leaves the L522-524 fallback spec, which never runs `Load`, so its
+buffers stay empty, as in PoB. (The version dropdown's L581-583 runs only for a `Tree` section: the
+legacy branch returns before L526's `SetActiveSpec`.) The first undo state
 then holds the allocation after PostLoad; PoB's holds it before. They differ only for specs with
 cluster-jewel subgraph nodes (`BuildClusterJewelGraphs` allocates them in PostLoad), where an
 Undo right after loading restores the post-PostLoad allocation instead of the pre-PostLoad one.

@@ -22,11 +22,11 @@
 //! itself in `hashOverrides` after writing its `id` (L886-889), so two nodes given the same
 //! tattoo share one table whose `id` is the last node's. `Node::id` is not mutable in the model,
 //! so the port stores a copy carrying the node's id (as PassiveSpec:Load does, PassiveSpec.lua:181
-//! `copyTable(..., true)`); the shared tattoo data node is unchanged. CCR-0123 §2.
+//! `copyTable(..., true)`); the shared tattoo data node is unchanged. CCR-0123 §3.
 //! DIVERGENCE(poeurl-resolve): the `poeurl.com` import branch runs a curl sub-script that only
 //! reads the redirect URL (`LaunchSubScript`, L769-784). The platform has no such request
 //! (`Sys::net` downloads pages), so `LaunchSubScript` returns no id here and, as in Lua when it
-//! returns nil, nothing follows "Resolving PoEURL link..." (CCR-0123 §3).
+//! returns nil, nothing follows "Resolving PoEURL link..." (CCR-0123 §4).
 //!
 //! ORDER:
 //! * `pairs(self.build.spec.tree.tattoo.nodes)` (L856, string keys): the groups are sorted by
@@ -48,7 +48,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use pob_lua::math::m_max;
 use pob_lua::{n, pattern};
 use pob_ui_core::controls::drop_down::DropTipArgs;
 use pob_ui_core::controls::{
@@ -64,7 +63,7 @@ use super::mastery::{MasteryEffect, PassiveMasteryControl};
 use super::spec_list::PassiveSpecListControl;
 use super::TreeTab;
 use crate::app::CxApp;
-use crate::model::{self, Name, NodeRef, Table, Val};
+use crate::model::{self, Name, NodeRef, Val};
 // not re-exported by model.rs (U15; CCR-0115)
 use pob_calc::classes::passive_spec::{copy_node, new_PassiveSpec}; // CCR-0123 §9
 
@@ -946,11 +945,13 @@ fn build_mods(cx: &mut Cx, me: CtrlId, selected_node: &NodeRef, mod_groups: &Rc<
         // L857 (`targetType:gsub("^Small ", "")` passes the count as `init`; module docs)
         let pat = pob_ui_core::luastr::gsub(&target_type, "^Small ", "");
         let m1 = pattern::find(&node_name, &pat, None, false).is_some();
-        let m2 = match &target_value {
-            Some(tv) if !tv.is_empty() => pattern::find(&node_value, tv, None, false).is_some(),
-            Some(_) => false,
-            None => lua_error!("bad argument #1 to 'match' (string expected, got nil)"),
-        };
+        // `or` short-circuits: the nil-targetValue error is raised only when m1 is false
+        let m2 = !m1
+            && match &target_value {
+                Some(tv) if !tv.is_empty() => pattern::find(&node_value, tv, None, false).is_some(),
+                Some(_) => false,
+                None => lua_error!("bad argument #1 to 'match' (string expected, got nil)"),
+            };
         // L858
         let m3 = target_type == "Small Attribute"
             && (node_name == "Intelligence" || node_name == "Strength" || node_name == "Dexterity");
@@ -1314,11 +1315,3 @@ fn decode_tree_link(cx: &mut Cx, me: CtrlId, p: CtrlId, tree_link: &str, new_tre
         popups::close_popup(cx);
     }
 }
-
-#[allow(dead_code)]
-fn _m(a: f64) -> f64 {
-    m_max(a, 0.0)
-}
-
-#[allow(dead_code)]
-fn _t(_t: &Table) {}

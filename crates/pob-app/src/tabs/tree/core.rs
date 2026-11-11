@@ -49,9 +49,10 @@
 //! DIVERGENCE(reset-undo): `PassiveSpec:Load` ends with `self:ResetUndo()`
 //! (PassiveSpec.lua:194). calc:BM-A's TreeTab:Load runs inside `Init_model` (and PostLoad after
 //! it), before the UI constructor, so [`ctor_hook`] calls `ResetUndo` for every spec right after
-//! constructing the tab when the build file has a `Tree` or `Spec` section. The state differs
-//! from PoB's only where PostLoad's `BuildClusterJewelGraphs` changed the allocation (cluster
-//! jewel subgraph nodes): see CCR-0123.
+//! constructing the tab when the build file has a legacy `Spec` section or a `Tree` section with
+//! `Spec` children (a `Tree` without them leaves TreeTab.lua:522-524's unloaded fallback spec,
+//! whose buffers stay empty, as in PoB). The state differs from PoB's only where PostLoad's
+//! `BuildClusterJewelGraphs` changed the allocation (cluster jewel subgraph nodes): see CCR-0123.
 //! DIVERGENCE(load-version-select): the `SetActiveSpec` at the end of a deferred `Tree` load
 //! (L526 -> L581-583) runs before this constructor in the port, so the constructor sets
 //! `versionSelect` to the active spec's version itself (the value L582 leaves); L579 (the
@@ -92,6 +93,7 @@ use super::TreeTab;
 use crate::app::CxApp;
 use crate::build::init::{self, flush_window_titles, set_window_title_with_build_class};
 use crate::main_mode::toast;
+use crate::model::xml::XmlChild;
 use crate::model::{self, build_xml, Name, NodeRef, PassiveSpecRef, Table, Val};
 use crate::tree_view::PassiveTreeView;
 // calc:PWR's accessors and the PassiveSpec constructor are not re-exported by model.rs (U15;
@@ -142,7 +144,8 @@ pub struct State {
     pub search_flag: bool,
     /// `self.showLegacyTattoo` (nil until the ModifyNodePopup checkbox sets it)
     pub show_legacy_tattoo: Option<bool>,
-    /// The UndoHandler buffers of each spec (module docs), keyed by `Rc` identity.
+    /// The UndoHandler buffers of each spec (module docs), keyed by `Rc` identity; the entries
+    /// of specs that left the list are dropped when a new entry is made.
     pub spec_undo: Vec<(PassiveSpecRef, UndoStack<Table>)>, // CCR-0123 §1
 }
 
@@ -223,10 +226,18 @@ pub fn set_tree_tab_hooks(f: impl FnOnce(&mut TreeTabHooks)) {
 
 // ---- the spec's UndoHandler (module docs) ----------------------------------------------------
 
-fn spec_stack_index(st: &mut State, spec: &PassiveSpecRef) -> usize {
+fn spec_stack_index(cx: &mut Cx, me: CtrlId, spec: &PassiveSpecRef) -> usize {
+    let st = &cx.w::<TreeTab>(me).core;
     if let Some(i) = st.spec_undo.iter().position(|(s, _)| Rc::ptr_eq(s, spec)) {
         return i;
     }
+    // the buffers of specs deleted or converted away go with them, as Lua's collector frees
+    // them: only the list's specs and the active one keep an entry
+    let m = cx.build().model.clone();
+    let (list, active) = (m.treeTab.specList.snapshot(), m.spec.get());
+    let st = &mut cx.w_mut::<TreeTab>(me).core;
+    st.spec_undo
+        .retain(|(s, _)| Rc::ptr_eq(s, &active) || list.iter().any(|l| Rc::ptr_eq(s, l)));
     // UndoHandler.lua:17-21 (PassiveSpec.lua:28): empty buffers
     st.spec_undo.push((spec.clone(), UndoStack::default()));
     st.spec_undo.len() - 1
@@ -234,9 +245,8 @@ fn spec_stack_index(st: &mut State, spec: &PassiveSpecRef) -> usize {
 
 fn spec_undo_stack(cx: &mut Cx, me: CtrlId) -> &mut UndoStack<Table> {
     let spec = cx.build().model.spec.get();
-    let st = &mut cx.w_mut::<TreeTab>(me).core;
-    let i = spec_stack_index(st, &spec);
-    &mut st.spec_undo[i].1
+    let i = spec_stack_index(cx, me, &spec);
+    &mut cx.w_mut::<TreeTab>(me).core.spec_undo[i].1
 }
 
 /// `self:CreateUndoState()` of the active spec (PassiveSpec.lua:2361-2383, calc:PS-C).
@@ -262,7 +272,7 @@ pub const SPEC_UNDO: UndoOps<Table> = UndoOps {
 /// `spec:ResetUndo()` (UndoHandler.lua:25-29) for any spec of the list.
 /// (the same statements as `UndoOps::reset_undo`, whose marker covers UndoHandler.lua:25-29)
 pub fn spec_reset_undo(cx: &mut Cx, me: CtrlId, spec: &PassiveSpecRef) {
-    let i = spec_stack_index(&mut cx.w_mut::<TreeTab>(me).core, spec);
+    let i = spec_stack_index(cx, me, spec);
     {
         let st = &mut cx.w_mut::<TreeTab>(me).core.spec_undo[i].1;
         // L26-27
@@ -1960,14 +1970,25 @@ fn tab_or_err(cx: &Cx) -> CtrlId {
 pub fn ctor_hook(cx: &mut Cx, build: CtrlId) -> CtrlId {
     let me = cx.add_free(Some(build), TreeTab::new(build)).id();
     let m = cx.build().model.clone();
-    let loaded = build_xml::xmlSectionList(&m)
-        .iter()
-        .any(|n| matches!(&*n.elem, "Tree" | "Spec"));
-    if loaded {
+    let sections = build_xml::xmlSectionList(&m);
+    let is_spec = |c: &XmlChild| matches!(c, XmlChild::Node(n) if &*n.elem == "Spec");
+    // PassiveSpec:Load ran for the list's specs: the legacy `Spec` section (L502-505), or a
+    // `Tree` section with `Spec` children (L510-521). A `Tree` without them leaves the L522-524
+    // fallback spec, which never loads, with its empty buffers.
+    let specs_loaded = sections.iter().any(|n| match &*n.elem {
+        "Spec" => true,
+        "Tree" => n.children.iter().any(is_spec),
+        _ => false,
+    });
+    if specs_loaded {
         // PassiveSpec.lua:194 self:ResetUndo() of each loaded spec // CCR-0123 §2
         for spec in m.treeTab.specList.snapshot() {
             spec_reset_undo(cx, me, &spec);
         }
+    }
+    // the legacy `Spec` branch returns at L508, before L526's SetActiveSpec: only a `Tree` load
+    // reaches L581-583 (otherwise versionSelect keeps L179's selIndex)
+    if sections.iter().any(|n| &*n.elem == "Tree") {
         // L581-583 of the load's SetActiveSpec
         let version_select = ctl(cx, me, "versionSelect");
         let tv = m.spec.get().treeVersion.get();

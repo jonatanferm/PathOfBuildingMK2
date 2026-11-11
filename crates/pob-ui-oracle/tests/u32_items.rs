@@ -751,6 +751,13 @@ fn rust_stubs() {
     });
     of::set_shell_hooks(|h| {
         *h = of::default_shell_hooks();
+        // LUA_STUBS replaces `treeTab.Draw`: the Tree tab (U25) draws nothing here as well
+        let all_tabs = h.draw_tab.clone();
+        h.draw_tab = Rc::new(move |cx, tab, vp, ev| {
+            if tab != of::BuildTab::Tree {
+                all_tabs(cx, tab, vp, ev);
+            }
+        });
         let (draw, flag, set_flag) = (
             h.draw_tab.clone(),
             h.tab_flag.clone(),
