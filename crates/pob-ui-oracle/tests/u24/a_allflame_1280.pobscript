@@ -1,0 +1,70 @@
+# U24: allflame_exp_001 (1280x800 coordinates, default zoom): the node tooltips with stat differences through
+# the calc: an allocated mastery (Unallocating, gold, runegraft tip), an allocated notable with a dependent
+# (the depends diff), an allocated jewel socket (the AddItemTooltip stand-in, the right click tip), an
+# unallocated socket (threshold jewel lines), an unallocated keystone (Allocating + path diff, reminder and
+# flavour text), an unallocated mastery (the mastery options list), a cluster subgraph node (expansion
+# node, no tattoo tip), the allocated runegraft, an allocated keystone and Ctrl+C on it (Copy), then Ctrl+D
+# (no stat differences) and a SHIFT trace hover.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+move 1155 129
+frames 2
+#! tooltip Critical Mastery
+#! tooltip Unallocating this node will give you:
+#! tooltip Gold ^7required to unallocate this node
+move 1159 137
+frames 2
+#! tooltip Doom Cast
+#! tooltip Unallocating this node and all nodes depending on it will give you:
+move 1166 280
+frames 2
+#! tooltip Elegant Hubris
+#! tooltip Tip: Right click this socket to go to the items page
+move 996 412
+frames 2
+#! tooltip Basic Jewel Socket
+move 1117 156
+frames 2
+#! tooltip Lethe Shade
+#! tooltip Allocating this node will give you:
+move 926 130
+frames 2
+#! tooltip Available Mastery node options are:
+move 1249 406
+frames 2
+#! tooltip Chaos Damage
+move 1126 137
+frames 2
+#! tooltip Runegraft of the Spellbound
+move 943 173
+frames 2
+#! tooltip Pain Attunement
+key-down CTRL
+press c
+key-up CTRL
+frames 2
+key-down CTRL
+press d
+key-up CTRL
+frames 1
+move 1117 156
+frames 2
+#! tooltip Tip: Press Ctrl+D to enable the display of stat differences.
+key-down CTRL
+press d
+key-up CTRL
+frames 1
+move 937 196
+frames 2
+#! tooltip Life and Energy Shield
+key-down SHIFT
+frames 1
+move 980 181
+frames 2
+move 937 196
+frames 2
+key-up SHIFT
+frames 2

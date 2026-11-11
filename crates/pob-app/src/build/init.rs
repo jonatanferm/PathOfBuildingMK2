@@ -419,10 +419,7 @@ pub fn default_hooks() -> BuildHooks {
         }),
         skills_set_active_skill_set: Rc::new(crate::tabs::skills::core::set_active_skill_set_hook),
         skills_add_socket_group_tooltip: Rc::new(crate::tabs::skills::core::add_socket_group_tooltip_hook),
-        config_set_active_config_set: Rc::new(|cx, id| {
-            let m = cx.build().model.clone();
-            m.configTab.SetActiveConfigSet(&m, Some(id), false);
-        }),
+        config_set_active_config_set: Rc::new(crate::tabs::config::core::set_active_config_set_hook),
         import_try_fetch_character_list: Rc::new(crate::tabs::import::core::try_fetch_character_list_hook),
         // one arm per UI-only saver (U22 Notes; TreeView U25-U28, Import U43); calc:BM-A keeps
         // the other sections and writes them back (CCR-0080 §8)
@@ -434,7 +431,7 @@ pub fn default_hooks() -> BuildHooks {
         import_tab: Rc::new(crate::tabs::import::core::ctor_hook),
         notes_tab: Rc::new(crate::tabs::notes::ctor_hook),
         party_tab: Rc::new(crate::tabs::party::ctor_hook),
-        config_tab: Rc::new(crate::tabs::config::ctor::ctor_hook),
+        config_tab: Rc::new(crate::tabs::config::core::ctor_hook),
         items_tab: Rc::new(crate::tabs::items::ctor::ctor_hook),
         tree_tab: pending_tab(),
         skills_tab: Rc::new(crate::tabs::skills::core::ctor_hook),

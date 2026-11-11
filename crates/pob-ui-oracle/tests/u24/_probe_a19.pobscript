@@ -1,0 +1,6 @@
+# probe prefix (u24_probe): allflame at 1920x1080 @1.5
+screen 1920 1080 dpi 1.5
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2

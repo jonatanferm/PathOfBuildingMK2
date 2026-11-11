@@ -1,0 +1,26 @@
+# U24: upstream_Generals_Perforate_Zerker (1280x800 coordinates, the build's saved zoom): unreachable nodes
+# (no path: the ASCENDANCY header of other classes' ascendancy notables and normals, a mastery with all
+# options and no path: PoB shows no tooltip for it), keystones with a path (flavour text), an unallocated large jewel socket.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 2
+move 1137 396
+frames 2
+#! tooltip Void Beacon
+move 1129 411
+frames 2
+#! tooltip Energy Shield, Chaos Damage
+# an unconnected Fire Mastery: PoB draws no tooltip for it (no hover), compared as is
+move 879 712
+frames 2
+move 935 607
+frames 2
+#! tooltip Minion Instability
+move 976 597
+frames 2
+#! tooltip Large Jewel Socket
+move 1070 718
+frames 2
+#! tooltip Elemental Overload

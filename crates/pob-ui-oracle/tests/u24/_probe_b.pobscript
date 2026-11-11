@@ -1,0 +1,6 @@
+# probe prefix (u24_probe) and the state u24_tooltip_lines builds its tooltips in: the compare build at 1280x800
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_compare.xml"
+frames 2
