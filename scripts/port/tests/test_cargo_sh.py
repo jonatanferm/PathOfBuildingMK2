@@ -11,6 +11,9 @@ Behaviour covered (see cargo.sh's header and inline comments):
   * compile slots: POB_PORT_SLOTS (default 1) flocks cargo.lock, cargo.lock.1, ...;
   * test/bench run in two phases: `--no-run` under a compile slot, then the run under one of
     POB_PORT_RUN_SLOTS (default 3) run slots run.lock, run.lock.1, ...;
+  * the run phase of `test` goes through testrun.py (its recording `--config` runner before any `--`;
+    POB_PORT_PARALLEL_TESTS=0 or no testrun.py: plain cargo; bench: plain cargo). The runner itself
+    is tested in test_testrun.py;
   * read-only subcommands take no slot;
   * worktrees under /tmp (or /dev/shm) get --target-dir ~/.cache/pob-port-targets/<name>, and target
     dirs whose worktree is gone are removed;
@@ -20,6 +23,7 @@ Behaviour covered (see cargo.sh's header and inline comments):
 
 import fcntl
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -30,6 +34,17 @@ import unittest
 import _util
 
 CARGO_SH = os.path.join(_util.PORT, "cargo.sh")
+TESTRUN_PY = os.path.join(_util.PORT, "testrun.py")
+
+# The run phase of `test` goes through testrun.py, which adds one `--config <recording runner>` before
+# any `--` (scripts/port/testrun.py; tested in test_testrun.py).
+RUNNER_CFG = re.compile(r" --config target\.'cfg\(all\(\)\)'\.runner=\[[^\]]*testrun\.py\",\"record\",\"[0-9a-f]+\"\]")
+
+
+def strip_runner(args):
+    """(args without testrun.py's runner config, "1" if it was there else "0")."""
+    new = RUNNER_CFG.sub("", args, count=1)
+    return new, "1" if new != args else "0"
 
 # One "---" block of key=value lines per invocation. `held` lists the lock files in the lock dir
 # that some process holds while this invocation runs (flock(1) opens its own file description, so it
@@ -123,7 +138,7 @@ class CargoShTest(unittest.TestCase):
         for k in ("RUSTC_WRAPPER", "CARGO_TARGET_DIR", "CARGO_BUILD_JOBS", "POB_PORT_ALLOW_WORKSPACE",
                   "POB_PORT_SLOTS", "POB_PORT_RUN_SLOTS", "POB_PORT_JOBS", "POB_PORT_MEM", "POB_PORT_SWAP",
                   "POB_PARITY_DIR", "POB_QUICK_CORPUS", "POB_FULL_SUITE", "FAKE_SLEEP", "FAKE_RC",
-                  "FAKE_RC_COMPILE", "FAKE_LOG", "FAKE_BARRIER", "FAKE_BARRIER_N", "FAKE_BARRIER_TRIES", "FAKE_IN_SCOPE"):
+                  "FAKE_RC_COMPILE", "FAKE_LOG", "POB_PORT_TEST_JOBS", "POB_PORT_PARALLEL_TESTS", "FAKE_BARRIER", "FAKE_BARRIER_N", "FAKE_BARRIER_TRIES", "FAKE_IN_SCOPE"):
             self.env.pop(k, None)
         self.env.update(PATH=self.bin + os.pathsep + self.env["PATH"], HOME=self.home,
                         POB_PORT_LOCK_DIR=self.lockdir, POB_PORT_NO_SCOPE="1", FAKE_SCOPE_LOG=self.scope_log)
@@ -153,13 +168,16 @@ class CargoShTest(unittest.TestCase):
 
     @staticmethod
     def calls(stdout):
-        """One dict per fake-cargo invocation, in order."""
+        """One dict per fake-cargo invocation, in order. The `--config <runner>` that testrun.py adds to
+        the run phase of `test` is cut from `args` and reported as `runner=1` (see strip_runner)."""
         out = []
         for line in stdout.splitlines():
             if line == "---":
                 out.append({})
-            elif out and "=" in line:
+            elif out and re.match(r"^[a-z_]+=", line):
                 k, v = line.split("=", 1)
+                if k == "args":
+                    v, out[-1]["runner"] = strip_runner(v)
                 out[-1][k] = v
         return out
 
@@ -204,6 +222,7 @@ class CargoShTest(unittest.TestCase):
         main = os.path.join(self.tmp, name)
         os.makedirs(os.path.join(main, "scripts", "port"))
         shutil.copy2(CARGO_SH, os.path.join(main, "scripts", "port", "cargo.sh"))
+        shutil.copy2(TESTRUN_PY, os.path.join(main, "scripts", "port", "testrun.py"))
         self.git("init", "-q", cwd=main)
         lt = None
         if linked:
@@ -419,6 +438,31 @@ class CargoShTest(unittest.TestCase):
             # Phase 1 holds only a compile slot; phase 2 holds only a run slot (the compile slot is
             # released so long test runs do not block other compiles).
             self.assertEqual([c["held"] for c in cs], ["cargo.lock", "run.lock"], args)
+            # The run phase of test/t goes through testrun.py (its recording runner config, placed
+            # before any `--`); bench and the compile phase run plain cargo.
+            self.assertEqual([c["runner"] for c in cs], ["0", "0" if args[0] == "bench" else "1"], args)
+        r = self.run_sh("test", "-p", "x", "--", "--exact")
+        raw = [line for line in r.stdout.splitlines() if line.startswith("args=")]
+        self.assertRegex(raw[1], r"^args=test -p x --config target\.'cfg\(all\(\)\)'\.runner=\[.*\] -- --exact$")
+        # The run summary line of testrun.py.
+        self.assertRegex(r.stdout, r"(?m)^cargo\.sh: test binaries: 0 run, 0 failed, 0 cancelled;")
+
+    def test_parallel_runner_can_be_turned_off(self):
+        # POB_PORT_PARALLEL_TESTS=0, or no testrun.py beside cargo.sh: phase 2 is plain cargo, as before.
+        cs = self.calls(self.run_sh("test", "-p", "x", POB_PORT_PARALLEL_TESTS="0").stdout)
+        self.assertEqual([(c["args"], c["runner"]) for c in cs],
+                         [(self.expect_args(["test", "-p", "x", "--no-run"]), "0"),
+                          (self.expect_args(["test", "-p", "x"]), "0")])
+        main, _ = self.fake_checkout()
+        os.remove(os.path.join(main, "scripts", "port", "testrun.py"))
+        cs = self.calls(self.run_sh("test", "-p", "x", script=self.script_in(main)).stdout)
+        self.assertEqual([c["runner"] for c in cs], ["0", "0"])
+
+    def test_run_phase_exit_status_and_jobs_env(self):
+        # The cargo pass's exit status comes through testrun.py; POB_PORT_TEST_JOBS reaches it.
+        self.assertEqual(self.run_sh("test", "-p", "x", FAKE_RC="3").returncode, 3)
+        r = self.run_sh("test", "-p", "x", POB_PORT_TEST_JOBS="5")
+        self.assertIn("(POB_PORT_TEST_JOBS=5)", r.stdout)
 
     def test_no_run_is_a_single_compile_phase(self):
         c = self.one_call(self.run_sh("test", "-p", "x", "--no-run"))
@@ -496,7 +540,7 @@ class CargoShTest(unittest.TestCase):
         if not os.path.exists(self.scope_log):
             return []
         with open(self.scope_log) as fh:
-            return fh.read().splitlines()
+            return [strip_runner(line)[0] for line in fh.read().splitlines()]
 
     def test_scope_wraps_each_cargo_run(self):
         env = dict(self.env)

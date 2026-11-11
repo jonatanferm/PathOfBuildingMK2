@@ -7,6 +7,9 @@
 #   holds an exclusive flock on one of $POB_PORT_LOCK_DIR/cargo.lock, cargo.lock.1, ...
 #   (default: ${XDG_RUNTIME_DIR:-/tmp}/pob-port). test/bench then run under a run slot (see take_slot);
 #   read-only subcommands (metadata, tree, ...) take no slot.
+# - test runs the test binaries of the selected crate(s) in parallel, up to $POB_PORT_TEST_JOBS
+#   (default 3) at once, each further one under a run slot of its own, output in cargo's order
+#   (scripts/port/testrun.py; docs/port/testing.md "Runners"). POB_PORT_PARALLEL_TESTS=0: plain cargo.
 # - Exports CARGO_BUILD_JOBS=${POB_PORT_JOBS:-3} and RUSTC_WRAPPER=$HOME/.cargo/bin/sccache (when executable;
 #   an existing RUSTC_WRAPPER is kept).
 # - The target dir is cargo's default <worktree>/target (not exported, see below): never share a target dir between
@@ -101,16 +104,25 @@ mkdir -p "$lock_dir"
 # For test/bench the slot is released after `--no-run`, and the test binaries then run under a run
 # slot (fd 8, prefix "run", POB_PORT_RUN_SLOTS, default 3), so long oracle runs no longer block
 # other agents' compiles (audit 2026-11-09: 15.5 min slot wait for a 69 s build).
+# While it waits, a run marks itself with $lock_dir/PREFIX.wait.<pid>: the parallel test runner
+# (testrun.py) takes extra run slots only while nobody waits for one.
 take_slot() {
     local fd="$1" prefix="$2" n="$3" label="$4" waited=0 i l
     while :; do
         for i in $(seq 0 $((n - 1))); do
             if [ "$i" = 0 ]; then l="$lock_dir/$prefix.lock"; else l="$lock_dir/$prefix.lock.$i"; fi
             eval "exec $fd>>\"\$l\""
-            if flock -n "$fd"; then return 0; fi
+            if flock -n "$fd"; then
+                if [ "$waited" = 1 ]; then rm -f "$lock_dir/$prefix.wait.$$"; trap - EXIT; fi
+                return 0
+            fi
             eval "exec $fd>&-"
         done
-        if [ "$waited" = 0 ]; then echo "cargo.sh: waiting for one of $n $label slots ($lock_dir)..." >&2; waited=1; fi
+        if [ "$waited" = 0 ]; then
+            echo "cargo.sh: waiting for one of $n $label slots ($lock_dir)..." >&2; waited=1
+            : > "$lock_dir/$prefix.wait.$$"
+            trap 'rm -f "$lock_dir/'"$prefix"'.wait.$$"' EXIT
+        fi
         sleep 2
     done
 }
@@ -124,7 +136,7 @@ esac
 # Worktrees on a RAM-backed /tmp (reviewers' /tmp/review-*) build into ~/.cache/pob-port-targets/
 # instead: target dirs are 2-3 GB each and filled the 7.6 GB tmpfs. --target-dir is passed as an
 # argument (an exported CARGO_TARGET_DIR would bust sccache). Dirs whose worktree is gone are removed.
-args=("$@")
+args=("$@"); td=""
 tcache="$HOME/.cache/pob-port-targets"
 case "$worktree" in
     /tmp/*|/dev/shm/*)
@@ -205,5 +217,19 @@ run_cargo "${pre[@]}" --no-run || exit $?
 exec 9>&-
 # Phase 2: run the (now fresh) test binaries under a run slot.
 take_slot 8 run "${POB_PORT_RUN_SLOTS:-3}" test-run
+# `test` runs its test binaries in parallel through testrun.py (docs/port/testing.md "Runners"):
+# cargo still picks the binaries, their arguments, environment and cwd, and runs the doctests;
+# up to $POB_PORT_TEST_JOBS (default 3) binaries run at once, the first under the run slot taken
+# above and each further one under one more run slot of its own, each in its own memory-capped
+# scope; output stays in cargo's order. POB_PORT_TEST_JOBS=1 runs them one at a time (same output),
+# POB_PORT_PARALLEL_TESTS=0 hands phase 2 to plain cargo as before. bench always runs plain.
+if [ "$sub" != bench ] && [ "${POB_PORT_PARALLEL_TESTS:-1}" != 0 ] && [ -f "$script_dir/testrun.py" ] \
+    && command -v python3 >/dev/null 2>&1; then
+    spool="${td:-$worktree/target}"
+    mkdir -p "$spool"
+    exec python3 "$script_dir/testrun.py" run --jobs "${POB_PORT_TEST_JOBS:-3}" \
+        --run-slots "${POB_PORT_RUN_SLOTS:-3}" --lock-dir "$lock_dir" --scope "$use_scope" \
+        --mem "${POB_PORT_MEM:-5G}" --swap "${POB_PORT_SWAP:-1G}" --spool "$spool" -- "${args[@]}"
+fi
 run_cargo "${args[@]}"
 exit $?
