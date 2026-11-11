@@ -1,0 +1,32 @@
+# U24: allflame_compare (1280x800 coordinates; the TreeTab stand-in compares spec 1 with spec 2): the
+# compare branches of AddNodeTooltip: allocated masteries (the compare-side colour), allocated jewel sockets
+# (the compare spec's jewel section), an unallocated socket, a node allocated on both sides, a notable.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_compare.xml"
+frames 3
+move 1155 129
+frames 2
+#! tooltip Critical Mastery
+move 1252 450
+frames 2
+#! tooltip Projectile Mastery
+move 1166 280
+frames 2
+#! tooltip Elegant Hubris
+move 920 212
+frames 2
+#! tooltip The Balance of Terror
+move 996 412
+frames 2
+#! tooltip Basic Jewel Socket
+move 804 214
+frames 2
+#! tooltip Energy Shield and Mana
+move 1171 310
+frames 2
+#! tooltip Gemling Training
+move 1126 137
+frames 2
+#! tooltip Runegraft of the Spellbound

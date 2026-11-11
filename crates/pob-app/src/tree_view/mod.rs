@@ -138,13 +138,14 @@ fn not_ported(what: &str, owner: &str) -> ! {
     lua_error!("{what} is not ported yet ({owner})")
 }
 
-/// The placeholders until the owners land: the tooltips stay empty (Draw calls them every
-/// frame a node is hovered), the user-triggered popups raise a Lua error naming the owner, and
-/// `BuildPower` runs calc:PWR's `CalcsTab:BuildPower` once per frame, as PoB resumes it.
+/// The placeholders until the owners land (the tooltips are U24's ports): the user-triggered
+/// popups raise a Lua error naming the owner, and `BuildPower` runs calc:PWR's
+/// `CalcsTab:BuildPower` once per frame, as PoB resumes it.
 pub fn default_hooks() -> TreeViewHooks {
     TreeViewHooks {
-        add_node_tooltip: Rc::new(|_, _, _, _| {}),
-        add_compare_node_tooltip: Rc::new(|_, _, _, _| {}),
+        // CCR-0115 A: U24's ports (tooltip.rs)
+        add_node_tooltip: Rc::new(|cx, view, tt, node| view.add_node_tooltip(cx, tt, node, false)),
+        add_compare_node_tooltip: Rc::new(|cx, view, tt, node| view.add_compare_node_tooltip(cx, tt, node)),
         open_mastery_popup: Rc::new(|_, _, _| not_ported("TreeTab:OpenMasteryPopup", "U25")),
         modify_node_popup: Rc::new(|_, _, _| not_ported("TreeTab:ModifyNodePopup", "U25")),
         build_power: Rc::new(|cx| {
