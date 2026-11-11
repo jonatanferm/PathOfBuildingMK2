@@ -1,0 +1,90 @@
+# U34: item sets and the undo buffers (allflame_exp_007 has two sets). The idle frame (Load's
+# ResetUndo: one undo state); untick the five flasks (U32's checkboxes: `slot.active`, the set's
+# `active`, AddUndoState); open the set selector and pick the second set (U32's selFunc:
+# SetActiveItemSet, its PopulateSlots tail and SyncLoadouts, AddUndoState; the set list refresh of
+# Draw L1515-1523), snapshot; Ctrl+Z (Undo: RestoreUndoState with U34's PopulateSlots tail, the
+# first set again), snapshot; Ctrl+Y (Redo), snapshot; Ctrl+D (showStatDifferences, saved in the
+# Items section, L1488-1490), snapshot; the weapon set button "II" and Ctrl+Z twice (the second
+# Undo goes back over the set switch); "I"; Ctrl+Y.
+# (The flasks are unticked first: an undo state holds the slots' `selItemId` but not their
+# `active`, so undoing across a set switch whose sets differ in flask `active` leaves PoB's live
+# `slot.active` different from the set's saved `active`. PoB then calculates with the live value;
+# U15's LuaCalcBridge loads the saved XML, which cannot carry it.)
+#! u34-expect undo: 1 redo: 0 mod: false
+#! u34-expect undo: 7 redo: 0 mod: true
+#! u34-expect undo: 6 redo: 1 mod: true
+#! u34-expect undo: 6 redo: 2 mod: true
+#! u34-expect ^7set Animated Guardian
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_007.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 396 340
+click LEFTBUTTON
+frames 2
+move 396 362
+click LEFTBUTTON
+frames 2
+move 396 384
+click LEFTBUTTON
+frames 2
+move 396 406
+click LEFTBUTTON
+frames 2
+move 396 428
+click LEFTBUTTON
+frames 3
+move 515 49
+click LEFTBUTTON
+frames 2
+move 515 86
+frames 2
+click LEFTBUTTON
+frames 3
+snapshot set2
+move 1200 700
+frames 1
+key-down CTRL
+press z
+key-up CTRL
+frames 3
+snapshot undo
+key-down CTRL
+press y
+key-up CTRL
+frames 3
+snapshot redo
+key-down CTRL
+press d
+key-up CTRL
+frames 3
+snapshot statdiff
+move 708 96
+frames 1
+click LEFTBUTTON
+frames 3
+move 1200 700
+frames 1
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+key-down CTRL
+press z
+key-up CTRL
+frames 3
+snapshot undo2
+move 689 96
+frames 1
+click LEFTBUTTON
+frames 2
+move 1200 700
+key-down CTRL
+press y
+key-up CTRL
+frames 3
+snapshot after

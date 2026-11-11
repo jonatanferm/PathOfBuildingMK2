@@ -143,11 +143,11 @@ pub fn default_items_hooks() -> ItemsTabHooks {
             let m = cx.build().model.clone();
             m.itemsTab.AddItem(&m, item, no_auto_equip, index);
         }),
-        add_forbidden_jewel_counterpart: Rc::new(|_, _| {
-            not_ported("ItemsTab:AddForbiddenJewelCounterpart", "U34")
+        add_forbidden_jewel_counterpart: Rc::new(|cx, item| {
+            super::core::AddForbiddenJewelCounterpart(cx, Some(item))
         }),
-        sort_item_list: Rc::new(|_| not_ported("ItemsTab:SortItemList", "U34")),
-        delete_item: Rc::new(|_, _, _| not_ported("ItemsTab:DeleteItem", "U34")),
+        sort_item_list: Rc::new(super::core::SortItemList),
+        delete_item: Rc::new(super::core::DeleteItem),
         // L1592-1615 model (calc:BM-A), the UI half of its PopulateSlots, L1616 SyncLoadouts
         set_active_item_set: Rc::new(|cx, id| {
             let m = cx.build().model.clone();
@@ -165,9 +165,9 @@ pub fn default_items_hooks() -> ItemsTabHooks {
             not_ported("ItemsTab:GetEquippedSlotForItem", "U35")
         }),
         add_item_set_tooltip: Rc::new(|_, _, _| not_ported("ItemsTab:AddItemSetTooltip", "U37")),
-        add_item_tooltip: Rc::new(|_, _, _, _, _| not_ported("ItemsTab:AddItemTooltip", "U38")),
-        add_undo_state: Rc::new(|_| not_ported("ItemsTab:AddUndoState", "U38")),
-        set_mod_flag: Rc::new(|_, _| not_ported("ItemsTab.modFlag", "U38")),
+        add_item_tooltip: Rc::new(super::tooltip::add_item_tooltip_hook),
+        add_undo_state: Rc::new(super::tooltip::add_undo_state_hook),
+        set_mod_flag: Rc::new(super::tooltip::set_mod_flag_hook),
         socket_viewer_draw: Rc::new(|_, _, _| not_ported("PassiveTreeView:Draw", "U23")),
     }
 }

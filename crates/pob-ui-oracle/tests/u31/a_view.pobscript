@@ -1,0 +1,10 @@
+# U31 smoke: the Skills tab stand-in after load.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_048.xml"
+frames 2
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+snapshot after

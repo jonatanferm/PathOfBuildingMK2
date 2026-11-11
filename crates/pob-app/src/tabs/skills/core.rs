@@ -396,7 +396,7 @@ impl Widget for ListStandIn {
 }
 
 /// The stand-in for `SkillListControl` until U31 lands ([`ListStandIn`] over `socketGroupList`).
-fn standin_skill_list(cx: &mut Cx, tab: CtrlId, anchor: Anchor, rect: [Prop<f64>; 4]) -> CtrlId {
+pub fn standin_skill_list(cx: &mut Cx, tab: CtrlId, anchor: Anchor, rect: [Prop<f64>; 4]) -> CtrlId {
     let list = cx.build().model.skillsTab.socketGroupList.get();
     cx.add(
         tab,
@@ -413,7 +413,7 @@ fn standin_skill_list(cx: &mut Cx, tab: CtrlId, anchor: Anchor, rect: [Prop<f64>
 /// The stand-in for `CreateGemSlot(index)` until U31 lands: the row's controls with the classes,
 /// `controls` keys, anchors and rects of SkillsTab.lua:743-1080, never shown and without
 /// callbacks (so `UpdateGemSlots`/`SetDisplayGroup` write into the same controls U31 creates).
-fn standin_create_gem_slot(cx: &mut Cx, me: CtrlId, index: usize) {
+pub fn standin_create_gem_slot(cx: &mut Cx, me: CtrlId, index: usize) {
     let hidden = || Prop::Val(false);
     let anchor_gem_slots = cx.w::<SkillsTab>(me).core.anchor_gem_slots;
     let prev = (index > 1).then(|| SkillsTab::gem_slot(cx, me, index - 1));
@@ -559,7 +559,7 @@ fn standin_create_gem_slot(cx: &mut Cx, me: CtrlId, index: usize) {
 
 /// The stand-in for `SkillSetListControl` until U31 lands ([`ListStandIn`] over an empty list;
 /// the popup's Done button is the tab's).
-fn standin_skill_set_list(
+pub fn standin_skill_set_list(
     cx: &mut Cx,
     popup: CtrlId,
     key: CtrlKey,
@@ -577,9 +577,10 @@ fn standin_skill_set_list(
 /// The defaults (U31 and U38 replace the entries with their controls and methods).
 pub fn default_skills_hooks() -> SkillsHooks {
     SkillsHooks {
-        skill_list_ctor: Rc::new(standin_skill_list),
-        create_gem_slot: Rc::new(standin_create_gem_slot),
-        skill_set_list_ctor: Rc::new(standin_skill_set_list),
+        // U31's controls (CCR-0118 §1, CCR-0119 §2); the stand-ins above stay for tests
+        skill_list_ctor: Rc::new(super::skill_list::skill_list_ctor),
+        create_gem_slot: Rc::new(super::gem_slots::CreateGemSlot),
+        skill_set_list_ctor: Rc::new(super::skill_set_list::skill_set_list_ctor),
         // stand-in: the number of sockets (ItemsTab.lua:4185-4212 is U38's)
         items_get_socket_description_line: Rc::new(|_cx, item| {
             format!("{} sockets", item.sockets.get().len())

@@ -235,6 +235,7 @@ pub fn default_shell_hooks() -> ShellHooks {
             BuildTab::Skills => crate::tabs::skills::core::draw_tab(cx, vp, ev),
             BuildTab::Import => crate::tabs::import::core::draw_tab(cx, vp, ev),
             BuildTab::Config => crate::tabs::config::core::draw_tab(cx, vp, ev),
+            BuildTab::Items => crate::tabs::items::core::draw_tab(cx, vp, ev),
             _ => {}
         }),
         tab_flag: Rc::new(|cx, flag| match flag {
@@ -243,6 +244,7 @@ pub fn default_shell_hooks() -> ShellHooks {
             TabFlag::Calcs => crate::tabs::calcs::core::mod_flag(cx),
             TabFlag::Skills => crate::tabs::skills::core::mod_flag(cx),
             TabFlag::Config => crate::tabs::config::core::mod_flag(cx),
+            TabFlag::Items => crate::tabs::items::tooltip::mod_flag(cx),
             _ => false,
         }),
         set_tab_flag: Rc::new(|cx, flag, v| match flag {
@@ -251,6 +253,7 @@ pub fn default_shell_hooks() -> ShellHooks {
             TabFlag::Calcs => crate::tabs::calcs::core::set_mod_flag(cx, v),
             TabFlag::Skills => crate::tabs::skills::core::set_mod_flag(cx, v),
             TabFlag::Config => crate::tabs::config::core::set_mod_flag(cx, v),
+            TabFlag::Items => crate::tabs::items::tooltip::set_mod_flag(cx, v),
             _ => {}
         }),
         import_select_code_in: Rc::new(crate::tabs::import::core::select_code_in),
@@ -276,10 +279,10 @@ pub fn default_shell_hooks() -> ShellHooks {
             )
         }),
         refresh_skill_select_controls: Rc::new(super::skill_select::refresh_skill_select_controls),
-        minion_list_control: Rc::new(|_, _, _| not_ported("MinionListControl", "U31")),
-        minion_search_list_control: Rc::new(|_, _, _, _| {
-            not_ported("MinionSearchListControl", "U31")
-        }),
+        minion_list_control: Rc::new(crate::tabs::skills::minion_list::spectre_library_list),
+        minion_search_list_control: Rc::new(
+            crate::tabs::skills::minion_search_list::spectre_library_source,
+        ),
         similar_build_list: Rc::new(|_, _, _| not_ported("ExtBuildListControl", "U52")),
         // one arm per UI-only saver (U22 Notes); calc:BM-A writes the other loaded sections
         // back (CCR-0080 §8)

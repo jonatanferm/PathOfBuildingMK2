@@ -406,14 +406,8 @@ pub fn default_hooks() -> BuildHooks {
             let m = cx.build().model.clone();
             m.treeTab.SetActiveSpec(&m, id);
         }),
-        items_set_active_item_set: Rc::new(|cx, id| {
-            let m = cx.build().model.clone();
-            m.itemsTab.SetActiveItemSet(&m, id);
-        }),
-        items_equip_item_in_set: Rc::new(|cx, item, id| {
-            let m = cx.build().model.clone();
-            m.itemsTab.EquipItemInSet(&m, item, id);
-        }),
+        items_set_active_item_set: Rc::new(crate::tabs::items::core::SetActiveItemSet),
+        items_equip_item_in_set: Rc::new(crate::tabs::items::core::EquipItemInSet),
         items_add_item_set_tooltip: Rc::new(|_, _, _| {
             not_ported("ItemsTab:AddItemSetTooltip", "U34")
         }),
@@ -432,7 +426,7 @@ pub fn default_hooks() -> BuildHooks {
         notes_tab: Rc::new(crate::tabs::notes::ctor_hook),
         party_tab: Rc::new(crate::tabs::party::ctor_hook),
         config_tab: Rc::new(crate::tabs::config::core::ctor_hook),
-        items_tab: Rc::new(crate::tabs::items::ctor::ctor_hook),
+        items_tab: Rc::new(crate::tabs::items::core::ctor_hook),
         tree_tab: pending_tab(),
         skills_tab: Rc::new(crate::tabs::skills::core::ctor_hook),
         calcs_tab: Rc::new(crate::tabs::calcs::core::ctor_hook),
