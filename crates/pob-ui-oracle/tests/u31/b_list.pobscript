@@ -1,0 +1,68 @@
+# U31: the socket group list (SkillListControl) of allflame_exp_048. Hover a row (the
+# AddValueTooltip -> AddSocketGroupTooltip stand-in); click row 2 (OnSelect: SetDisplayGroup and
+# the gem rows); right-click row 1 (main socket group); Ctrl+click row 4 (enabled) and
+# Ctrl+right-click it (FullDPS); Ctrl+C on the selected row (OnSelCopy: CopySocketGroup); drag row
+# 1 below row 3 (OnOrderChange: mainSocketGroup and skill_number follow); DELETE on the item-granted
+# row 7 (the message popup), then on row 5 (confirm popup, RETURN); New (a new group, the first
+# gem name selected).
+#! u31-expect ^7group
+#! u31-expect cannot be deleted
+#! u31-expect Are you sure you want to delete
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_048.xml"
+frames 2
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+move 400 112
+frames 3
+click LEFTBUTTON
+frames 3
+move 400 96
+click RIGHTBUTTON
+frames 3
+move 400 144
+key-down CTRL
+click LEFTBUTTON
+frames 2
+click RIGHTBUTTON
+key-up CTRL
+frames 3
+move 400 112
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press c
+key-up CTRL
+frames 2
+move 400 96
+key-down LEFTBUTTON
+frames 1
+move 400 110
+frames 1
+move 400 140
+frames 2
+key-up LEFTBUTTON
+frames 3
+move 400 192
+click LEFTBUTTON
+frames 1
+press DELETE
+frames 2
+press RETURN
+frames 2
+move 400 160
+click LEFTBUTTON
+frames 1
+press DELETE
+frames 2
+press RETURN
+frames 3
+move 523 74
+click LEFTBUTTON
+frames 3
+move 200 600
+frames 1
+snapshot after

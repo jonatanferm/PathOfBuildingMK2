@@ -1,0 +1,77 @@
+# U31: the Spectre Library popup (build:OpenSpectreLibrary, U20; the stand-in "Spectres"
+# button) of allflame_exp_048: MinionSearchListControl (the source) and MinionListControl
+# (the destination). Hover a source row (AddValueTooltip); type "golem" in the search field
+# (ListFilterChanged: the filtered list, SelectIndex 1); Add; double-click source row 2
+# (OnSelClick: AddSel); mode "Skills" in the dropdown and "fire" (filter by skill names);
+# drag source row 1 onto the destination (CanReceiveDrag/ReceiveDrag at selDragIndex);
+# clear the search (the unfiltered list); select destination row 1 and Remove (OnSelDelete);
+# Save (spectreList, modFlag, buildFlag). The popup is centred: own screen per script.
+#! u31-expect Spectres in Build:
+#! u31-expect Available Spectres:
+#! u31-expect Life Multiplier:
+screen 1920 1080 1.5
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_048.xml"
+frames 2
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+move 887 50
+click LEFTBUTTON
+frames 3
+move 760 282
+frames 4
+type "golem"
+frames 3
+move 881 209
+click LEFTBUTTON
+frames 2
+move 760 266
+click LEFTBUTTON
+click LEFTBUTTON
+frames 3
+move 881 229
+click LEFTBUTTON
+frames 2
+move 881 265
+click LEFTBUTTON
+frames 2
+move 700 229
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+type "fire"
+frames 3
+move 760 250
+key-down LEFTBUTTON
+frames 1
+move 700 250
+frames 1
+move 500 246
+frames 2
+key-up LEFTBUTTON
+frames 3
+move 700 229
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+press BACK
+frames 3
+move 500 230
+click LEFTBUTTON
+frames 2
+move 603 209
+click LEFTBUTTON
+frames 3
+move 594 520
+click LEFTBUTTON
+frames 3
+move 200 600
+frames 1
+snapshot after

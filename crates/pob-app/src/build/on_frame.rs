@@ -264,10 +264,10 @@ pub fn default_shell_hooks() -> ShellHooks {
             )
         }),
         refresh_skill_select_controls: Rc::new(super::skill_select::refresh_skill_select_controls),
-        minion_list_control: Rc::new(|_, _, _| not_ported("MinionListControl", "U31")),
-        minion_search_list_control: Rc::new(|_, _, _, _| {
-            not_ported("MinionSearchListControl", "U31")
-        }),
+        minion_list_control: Rc::new(crate::tabs::skills::minion_list::spectre_library_list),
+        minion_search_list_control: Rc::new(
+            crate::tabs::skills::minion_search_list::spectre_library_source,
+        ),
         similar_build_list: Rc::new(|_, _, _| not_ported("ExtBuildListControl", "U52")),
         // one arm per UI-only saver (U22 Notes); calc:BM-A writes the other loaded sections
         // back (CCR-0080 §8)
