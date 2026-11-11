@@ -439,7 +439,7 @@ pub fn default_hooks() -> BuildHooks {
         import_tab: Rc::new(crate::tabs::import::core::ctor_hook),
         notes_tab: Rc::new(crate::tabs::notes::ctor_hook),
         party_tab: pending_tab(),
-        config_tab: pending_tab(),
+        config_tab: Rc::new(crate::tabs::config::ctor::ctor_hook),
         items_tab: pending_tab(),
         tree_tab: pending_tab(),
         skills_tab: pending_tab(),
