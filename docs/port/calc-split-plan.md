@@ -19,17 +19,26 @@ Profile: dev (`debug = "line-tables-only"`, pob-calc at `-O0`, incremental on). 
 | ... in perform | not measured (every measured monolith edit: 3.3-3.7 s) | **0.8-0.9 s**, 0.49 GB |
 | ... in core (`ModStore::Sum`) | 3.4 s, 1.53-1.54 GB | 3.8 s, 0.64 GB (all six crates rebuild) |
 
-* The split is worth doing. Two concurrent split builds (2 × ≤ 2.0 GB) need less memory than one
-  monolith build does today (4.1 GB). That allows **`POB_PORT_SLOTS=2`** at once, and 3 slots once
-  the test-binary compiles are measured as well (§5.3).
+* The split is worth doing, for edit times (above) and for the calc's own peak (4.1 GB → ≤ 2.0 GB
+  summed). It does **not** by itself allow a second compile slot. A slot covers every rustc and
+  linker of a run. The pob-ui-oracle test-binary links already take 3.4 GB (PSS) at -j3, and the
+  split does not change them. A fully cold run on the split prototype peaked at 2.67 GB, because
+  pob-modparser compiles next to the calc. So one slot's worst case drops from 4.3 GB to about
+  3.3-3.4 GB, which is not half. `POB_PORT_SLOTS` stays at 1 until the run-level peaks are measured
+  on the split tree. Changing it is an orchestrator decision (§5.3).
 * It is feasible. Under the proposed layering only **40 file-to-file edges** point the wrong way.
   They have 8 distinct causes (B1-B8). Besides those, **6 declarations** need `pub(crate)` → `pub`
-  (B9), and one partial `calcs` facade is needed (B10). The prototype, made of the real files with only those fixes, compiles with default features, with
-  `--features probe` and with `--tests`. Its in-crate unit tests were not run (§5.4, §8).
+  (B9), and one partial `calcs` facade is needed (B10). The prototype, made of the real files with
+  only those fixes, compiles with default features, with `--features probe` and with `--tests`.
+  Two fixes took a simpler form in the prototype than the plan specifies: B4 used a trait, and B7
+  deleted `run_segment` instead of moving it (§3.3). The B4 form in the plan was compiled in toy
+  crates only (§3.4). The prototype's in-crate unit tests were not run (§5.4, §8).
 * Five calls must be bound late, from a lower crate to a higher one: `configApply`, `BuildOutput`,
   `MiscCalculator::call`, `doActorLifeMana` and `doActorLifeManaReservation`. None of them is on a
   hot path. The mechanism (§3.4) is a link-time symbol seam with no init call and no runtime cost.
-  It was verified on lld, GNU ld, release thin-LTO, wasm32 and core-only unit tests. It needs a local
+  It was verified in toy crates (not yet on the real crates; that is a gate, §7) on lld, GNU ld,
+  release thin-LTO, wasm32 and core-only unit tests, including B4's inherent `call`. Every type in
+  the shared list must be a full path (§3.4). It needs a local
   `allow(unsafe_code)` in two small macro-generated modules. **That is an orchestrator decision
   (CCR).**
 * The cheapest alternative on its own is `debug = 0` for pob-calc: 3.0 GB peak, 17 s (§6). It does
@@ -104,7 +113,10 @@ lower (2.93 GB in 27.9 s). Such runs are marked and are not used as the baseline
 
 The scripts live in the scratchpad of the CSPLIT-PLAN session and are not committed (scope: this
 document is the only file this unit adds). The implementation unit should commit `depgraph.py` as
-`scripts/port/calc_depgraph.py` so the graph can be measured again.
+`scripts/port/calc_depgraph.py` so the graph can be measured again. The round-1 fix added `sumall.py`
+(the run-level sampler of §5.3, which also sums PSS and anonymous RSS and counts rust-lld) and a
+`RUSTC_WRAPPER` that also times every `--test` crate. The implementation unit should commit both
+next to `depgraph.py`, because §7's slot gate reuses them.
 
 ## 2. Module dependency graph (measured)
 
@@ -242,6 +254,14 @@ compile prototype confirms this.
   `#[cfg(feature = "probe")]`, which is evaluated in the *invoking* crate. Every sub-crate therefore
   needs its own `probe` feature that forwards to core's. Otherwise `ProbeState` impls lose their
   methods. The prototype does this.
+  The reverse also matters. `ProbeState::probe_locals` (probe.rs:46-47) is a required trait method
+  under core's `probe`. If anything turns on `pob-calc-core/probe` while a sub-crate in the same
+  build has its own `probe` off, that sub-crate's `ctx_struct!` impls lack the method, and the build
+  fails with E0046. That is loud, not silent, but it breaks the build. Cargo unifies features per
+  build, so a single dependent with `pob-calc-core = { features = ["probe"] }` is enough. **Rule**:
+  only `pob-calc`'s `probe` feature (which enables all six) and the sub-crates' own `probe` features
+  (each forwards to every lower calc crate) may enable `pob-calc-core/probe`. Crates outside the
+  calc depend on `pob-calc` only, never on a sub-crate. The CSPLIT CCR adds this to calc doc §2.
 
 ## 3. Proposed layering
 
@@ -316,14 +336,27 @@ Why this cut:
 
 ### 3.3 Breaking each cycle across crates (B1-B10)
 
-Evidence lines are at `4870179`. The prototype applied each fix as listed.
+Evidence lines are at `4870179`. The prototype applied B1, B2 and B8-B10 as listed. It did not
+apply the others in the form listed:
+
+* **B3, B5, B6**: the call sites go through `crate::late::…` as listed, but `late.rs` holds
+  `unimplemented!()` stubs, not the seam (§1.2). The seam itself was checked in toy crates (§3.4).
+* **B4**: the struct moved into `late.rs` as listed. `call`, however, became a trait
+  `MiscCalculatorCall` in perform's `calcs.rs` (proto `perform/src/modules/calcs.rs:15-22`), and
+  `power.rs:39` imports that trait. This is not the design below. A trait in perform would break
+  `pob-app/src/calc/rust.rs:51` (`self.0.call(…)` with no trait in scope). The inherent `call` that
+  forwards through the seam was compiled only in the round-1 toy check (§3.4), not in the
+  prototype.
+* **B7**: `run_segment` was **deleted** from `probe.rs` (proto `core/src/probe.rs:3202`, a comment
+  left in its place), not moved. `probe_segments.rs` does not exist in the prototype, so the moved
+  dispatcher was never compiled (§8).
 
 | # | edge (file:line) | fix | cost |
 |---|---|---|---|
 | B1 | `config_options/apply_a.rs`, `apply_b.rs`, `mod_map.rs` → `data_fns/mod.rs` `FnRow` (578 refs, via `config_options/mod.rs:13` `pub use crate::data_fns::FnRow`); `probe.rs:3112,3125` → `SkillHook` | **move types down**: `SkillHook`, `SkillFunc`, `ExplosiveArrowFunc`, `SkillFuncImpl`, `FnRow` (`data_fns/mod.rs:18-63`) → new core file `data_fns_types.rs`. `data_fns/mod.rs` keeps `pub use crate::data_fns_types::{…}`, so `pob_calc::data_fns::FnRow` etc. are unchanged. `config_options/mod.rs:13` and `probe.rs` import from `crate::data_fns_types` | 0 runtime; ~45 lines moved, 3 imports edited |
 | B2 | `actionSpeedMod` (`calc_perform/actor_b.rs:2276-2303`), called from `calc_defence/est_ehp.rs:20/966`, `primary.rs:24/82`, `calc_offence/ailments_b.rs:30/2018`, `helpers_setup.rs:30/800`, `crit.rs:920` (`calcs::actionSpeedMod`) | **move the function down** (28 lines with comments; it only uses `modDB`/`data()`): `@pob CalcPerform.lua:1141-1151` marker and body → new core file `modules/calc_perform_shared.rs`. `actor_b.rs` keeps `pub use …::actionSpeedMod` (the `calc_perform::actionSpeedMod` and `calcs.actionSpeedMod` paths stay). Change 4 `use` lines | 0 runtime. The function now lives outside `calc_perform/`, an exception to D1's file↔Lua mirroring that the PF-B owner signs off in the CSPLIT CCR. Its `@pob` marker moves with it (provenance.py scans all of `crates/`) |
 | B3 | `calc_defence/primary.rs:100` `doActorLifeMana`, `:109` `doActorLifeManaReservation` (`calc_perform/actor_a.rs:266`, `:1514`) | **late seam** (§3.4), inside the existing `call_doActorLifeMana*` wrappers (primary.rs:94-110); the replay hooks there are unchanged | 2 lines + 2 seam entries |
-| B4 | `model/mod.rs:21,218` → `modules/calcs.rs` `MiscCalculator` (`CalcsTab.miscCalculator` field) | **move the struct down** (2 fields, core types) into `late.rs`. It keeps an **inherent** `pub fn call(&self, …) -> Output` that calls the seam. The body stays in `calcs.rs` as `fn MiscCalculator_call(this, …)` with its marker. It must stay inherent: `pob-app/src/calc/rust.rs:51` calls `self.0.call(…)`, and `pob-oracle/tests/CA.rs:369,1416` sets and gets the typed field. `calcs.rs` keeps `pub use …::MiscCalculator` | 1 seam entry; ~10 lines |
+| B4 | `model/mod.rs:21,218` → `modules/calcs.rs` `MiscCalculator` (`CalcsTab.miscCalculator` field) | **move the struct down** (2 fields, core types) into `late.rs`. It keeps an **inherent** `pub fn call(&self, …) -> Output` that calls the seam. The body stays in `calcs.rs` as `pub fn misc_calculator_call(this: &MiscCalculator, …)`. The Lua closure (Calcs.lua:100-113) has no name, so this is Rust-only plumbing and is snake_case (STYLE §3.1 rule 1), like `call` today. The `@pob Modules/Calcs.lua:89-114` marker stays on `getMiscCalculator`, which covers the closure today. It must stay inherent: `pob-app/src/calc/rust.rs:51` calls `self.0.call(…)`, and `pob-oracle/tests/CA.rs:369,1416` sets and gets the typed field. `calcs.rs` keeps `pub use …::MiscCalculator` | 1 seam entry; ~10 lines |
 | B5 | `model/build_xml.rs:450` → `modules::power::BuildOutput(build)` | **late seam** | 1 line + 1 entry |
 | B6 | `model/config_build_mod_list.rs:13,112` → `modules::config_options::configApply` | **late seam**. The `ConfigApply` fn-pointer alias (`config_options/mod.rs:16`) moves to core, and `config_options` re-exports it. `ConfigTab::BuildModList` stays inherent in core, because pob-app calls it as a method at 18 sites | 1 line + 1 entry |
 | B7 | `probe.rs:3202-3371` `run_segment` (the stage dispatcher, imports `calc_setup/perform/defence/offence` at :3210) | **move the function up**: probe.rs:3202-3371 → new file `probe_segments.rs` in perform. The facade's `probe` module re-exports it (§4), so `pob_calc::probe::run_segment` (23 files in pob-oracle) is unchanged | 0 runtime; feature `probe` only |
@@ -351,12 +384,15 @@ Design, verified in a 5-crate experiment (core / provider / facade / app / app-w
 ```rust
 // pob-calc-core/src/late.rs — the one list (macro_export so the providers expand the same list)
 #[macro_export]
+// Every type is a full path ($crate::, ::std::, ::core::, ::pob_gamedata::): see "Safety" below.
 macro_rules! late_fns { ($cb:ident) => { $cb! {
     BuildOutput(build: &$crate::model::BuildRef) -> ();
-    configApply(r: &pob_gamedata::LuaFnRef) -> $crate::late::ConfigApply;
-    MiscCalculator_call(this: &$crate::late::MiscCalculator, ov: Rc<Override>, full: Option<bool>) -> Output;
+    configApply(r: &::pob_gamedata::LuaFnRef) -> $crate::late::ConfigApply;
+    misc_calculator_call(this: &$crate::late::MiscCalculator,
+        ov: ::std::rc::Rc<$crate::env::Override>,
+        full: ::core::option::Option<::core::primitive::bool>) -> $crate::lua_table::Output;
     doActorLifeMana(actor: &$crate::actor::ActorRef) -> ();
-    doActorLifeManaReservation(actor: &$crate::actor::ActorRef, addAura: bool) -> ();
+    doActorLifeManaReservation(actor: &$crate::actor::ActorRef, addAura: ::core::primitive::bool) -> ();
 } } }
 // expands (in core) to: #[cfg(not(test))] extern "Rust" { #[link_name = "pob_calc_late_<name>"] fn …; }
 // plus a safe `pub fn <name>(…)` that calls it; under #[cfg(test)] (core's own unit tests) a panicking stub.
@@ -364,8 +400,19 @@ macro_rules! late_fns { ($cb:ident) => { $cb! {
 // #[export_name = "pob_calc_late_<name>"] pub fn …(args) { crate::path::<real fn>(args) }
 ```
 
-* **Safety**: both sides expand from the same token list, so the signatures cannot differ. Each
-  provider body calls the real function, so the real signature is type-checked as well.
+* **Safety**: both sides expand from the same token list. That alone does not make the signatures
+  equal: `macro_rules!` resolves a plain name such as `Output`, `Rc` or `Option` at each expansion
+  site, so core and the provider could resolve one token to two different types. The extern
+  declaration in core is never type-checked against the provider, so that mismatch would be
+  undefined behaviour behind the `unsafe` call. **Rule: every type in the `late_fns!` list is a full
+  path**: `$crate::…` for core types (the `$crate` token keeps its hygiene when it is passed on to
+  the provider's macro, so it names core at both sites), `::std::…`/`::core::…` for std types
+  (`::core::primitive::bool`, since a local `type bool` can shadow the primitive), and
+  `::<crate>::…` for other crates. The CSPLIT CCR adds this rule, and review checks every new entry
+  against it. Each provider body calls the real function, so the provider side is type-checked
+  against the real signature as well. The round-1 toy check (below) defines a provider-local
+  `type Output = u32` next to a list that uses `$crate::Output`; it builds and returns the right
+  value.
   `#[allow(unsafe_code)]` is limited to the two macro-generated modules. Today the workspace has
   `unsafe_code = "deny"` (deny, not forbid). → **needs a CCR/AMENDMENTS decision.**
 * **Verified** (experiment run through `cargo.sh`):
@@ -381,6 +428,21 @@ macro_rules! late_fns { ($cb:ident) => { $cb! {
   * The prefixed form shown above (`link_name`/`export_name` = `pob_calc_late_<name>`) passed all of
     these checks, and `nm` shows the two `T pob_calc_late_*` symbols in the app. A first run with
     bare `#[no_mangle]` names passed them too.
+  * **Round-1 check** (same toy crates extended; all through `cargo.sh`; toy test binaries built
+    with `--no-run` and run directly, because the run slots were held):
+    * **B4 as planned**: core defines `MiscCalculator` with an **inherent** `call` that forwards
+      to `late::misc_calculator_call`; the provider defines the body. The app imports only the
+      facade and no trait, calls `mc.call(Rc::new(..), Some(true))`, and gets the right value. That
+      holds with rust-lld, with GNU ld.bfd, and in release + thin LTO + `codegen-units = 1`.
+    * **Qualified list**: every type in `late_fns!` is a full path (`$crate::MiscCalculator`,
+      `::std::rc::Rc<$crate::Build>`, `::core::option::Option<::core::primitive::bool>`,
+      `$crate::Output`). A provider-local `type Output = u32` does not affect the result.
+    * **Unit tests**: core's own (`cfg(test)` stubs): 2 passed, including a `should_panic` test
+      that hits the stub. The provider crate's own tests: 1 passed, through the real seam, since
+      core is a normal dependency there. A single crate holding both declaration and provider with
+      **no** stubs (commit A's monolith, §7): 1 passed, through the real seam.
+    * wasm32: links, no import section. Without the provider: `undefined symbol:
+      pob_calc_late_BuildOutput` / `…configApply`. `nm`: three `T pob_calc_late_*` symbols.
 * **Linking the providers**: rustc links only crates that are used. The facade's `pub use` of every
   sub-crate makes them used. The pob-calc facade is the only crate downstream code depends on.
 * **Runtime cost**: a direct call to a Rust-ABI symbol, the same as a normal cross-crate call.
@@ -560,13 +622,71 @@ Downstream test binaries relink the same way in both layouts.
 ### 5.3 Compile slots
 
 `cargo.sh` allows `POB_PORT_SLOTS=1` today because one pob-calc rustc reaches 4.1 GB (measured;
-the script's comment says 3.5-4). After the split, the whole calc stack of one cargo run peaks at
-**≤ 2.0 GB** in total (probe feature, -j3). Two slots (≤ 4.0 GB) then fit within today's single-slot
-peak, so **`POB_PORT_SLOTS=2` can be set right away**. Three slots (about 6 GB) need one more
-measurement: the compile peaks of the pob-oracle and pob-ui-oracle test binaries, and of
-pob-modparser (1.37-1.54 GB at opt-level 1), which run under the same slot. This unit did not
-measure them; they do not change with the split. The 5 GB per-run cap keeps about 3 GB of
-headroom.
+the script's comment says 3.5-4). A compile slot covers **every rustc and linker of one cargo run**,
+not just the calc. So what decides the slot count is the run-level peak, which is the summed memory
+of all compiler and linker processes of one run at one moment. The split halves the calc part of
+that (≤ 2.0 GB summed, probe, -j3, deps already built, §5.2). It does not change the rest.
+
+Round-1 measurement (`rust-port` @ `db192bc`, this worktree, fully cold `target/`, through
+`cargo.sh` at -j3). Per process, `ptime.py` (wait4 `ru_maxrss`, which includes the linker child) was
+applied to every `pob_*` crate and every `--test` crate. The run-level sum was sampled every 0.2 s
+over the processes whose command line names this worktree's target dir. For the four cold full
+runs this covered rustc and cc. Their peaks fall in the calc compile, before any downstream
+binary can link. For the two test-binary-only runs it covered every process, rust-lld included,
+with RSS, PSS and anonymous RSS each summed:
+
+| crate / binary | peak of one process |
+|---|---:|
+| `pob-app` lib (73k lines) / its unit-test binary | 1.00 / 1.20 GB |
+| `pob-ui-core` lib / unit-test binary | 0.32 / 0.37 GB |
+| `pob-modparser` (opt-level 1) / `pob-gamedata` / `pob-host` | 1.33-1.37 / 0.89-0.92 / 0.40 GB |
+| pob-oracle test binaries (65; rustc + rust-lld, mostly the link) | 0.86-1.08 GB (median 0.95) |
+| pob-ui-oracle test binaries (25) | 1.54-1.61 GB |
+| `pob-port-desktop`, `pob-lua-gui`, `pob-ui-oracle` bins (link) | 1.43, 1.42, 1.35 GB |
+| `pob-calc` in these runs (deps compiled at the same time, so fewer jobserver tokens) | 2.93-3.67 GB |
+
+| run | run-level summed peak | at the peak |
+|---|---:|---|
+| `build -p pob-app --lib`, everything cold | 4.14 GB | pob_calc 2.37 + pob_modparser 1.29 + pob_host 0.39 |
+| `test -p pob-ui-core --lib --no-run` (rebuilds pob-calc for the dev-dep) | 3.59 GB | pob_calc alone |
+| `test -p pob-oracle --tests --no-run`, cold | 3.59 GB | pob_calc 2.79 + pob_modparser 0.72 |
+| `test -p pob-ui-oracle --tests --no-run`, cold | 4.31 GB | pob_calc 2.78 + pob_app 0.87 + pob_oracle 0.55 |
+| pob-oracle test binaries only (deps built, all `tests/*.rs` touched) | RSS 2.81-3.19 GB; **PSS 2.06 GB**; anon 1.07 GB | three rust-lld at 0.81-1.02 GB |
+| pob-ui-oracle test binaries only (same) | RSS 5.24 GB; **PSS 3.38 GB**; anon 1.57 GB | three rust-lld at 1.57 GB each |
+| split prototype, `build` with pob-lua/gamedata/modparser cold too (default / probe) | 2.67 / 2.63 GB | pob_modparser 1.28 + pob_calc_core 0.67-0.69 + pob_gamedata 0.60-0.65 |
+
+The concurrent linkers map the same rlibs, so their RSS counts shared file pages once per process.
+PSS divides shared pages between the processes, so the PSS sum is the right sum for the link phase.
+The rustc rows are mostly anonymous memory, so RSS is the right figure there.
+
+What this shows:
+
+* **The link phase of the test binaries is already as heavy as the calc compile.** Three
+  concurrent pob-ui-oracle links take 3.4 GB PSS today. The split does not change that, because
+  the binaries link the same code.
+* **Cold runs overlap the calc with its neighbours.** Pipelining runs pob-modparser codegen next
+  to the calc, and pob-app/pob-oracle front ends next to calc codegen. Today that gives 4.1-4.3 GB
+  even though pob-calc itself is only 2.4-2.8 GB at that moment. On the split prototype the fully
+  cold run peaked at **2.67 GB**, not at the calc's 1.8-2.0 GB. The overlap of offence/perform with
+  pob-app (1.0-1.2 GB) cannot be measured on the prototype, which has no facade and no downstream
+  crates. If three processes overlap (the jobserver allows that at -j3), it could reach about
+  1.4 + 0.9 + 1.0 = 3.3 GB (estimate).
+* After the split, one slot's worst case is therefore about **3.3-3.4 GB** (the ui-oracle link
+  phase, measured; a cold app build, estimated). That is down from 4.3 GB today, not halved.
+
+**Recommendation: keep `POB_PORT_SLOTS=1` when the split lands.** Two slots at -j3 would allow
+about 2 × 3.4 = 6.8 GB of compile and link memory, against 4.3 GB today. Change the slot count only
+after the implementation unit has measured the run-level peaks of the table above on the split
+tree (a gate in §7). Even then it is an orchestrator decision, made together with one of these
+link-phase measures, none of which is measured yet:
+
+* `POB_PORT_JOBS=2`: at most two concurrent links per run. Measured on the calc only (§5.2,
+  1.60 GB).
+* Fewer concurrent test links, for example a cargo `-j` cap for `--tests` builds.
+* `debug = 0` for test binaries, which shrinks the link input.
+
+Three slots are out of reach on the measured numbers.
+The 5 GB per-run cap (`MemoryMax`, which counts a page once) did not trip in any of these runs.
 
 ### 5.4 Tests
 
@@ -614,11 +734,15 @@ full suite and quick corpus pass, so behaviour is unchanged:
 
 1. add `src/late.rs` (the seam, §3.4) and one `late_provide!` invocation, in a new perform-destined
    file `late_provider.rs`. It forwards all five entries; perform depends on config for
-   `configApply`. A provider in the same crate works too, so the seam is tested in the monolith
-   first;
+   `configApply`. A provider in the same crate works too (toy `mono` crate, §3.4). In commit A,
+   `late.rs` has **no `#[cfg(test)]` stub branch**: the monolith's own unit tests (`actor_a`,
+   `actor_b`, ...) are a `cfg(test)` build of the whole crate, so stubs would replace the seam in
+   every one of them. Without stubs they link the same-crate provider and exercise the real seam.
+   The `cfg(test)` stubs are added in commit C, when core becomes its own crate and its unit-test
+   binary has no provider;
 2. B5, B6, B3: switch the 4 call sites to `crate::late::…`. B4: move `MiscCalculator` to
    `late.rs`, add its inherent `call`, and rename the body in `calcs.rs` to
-   `MiscCalculator_call`;
+   `misc_calculator_call`;
 3. B2, B8: add `modules/calc_perform_shared.rs` with `actionSpeedMod` and the two upvalue structs,
    re-export them at the old places, and update 4 `use` lines;
 4. B1: add `data_fns_types.rs`, re-export it from `data_fns/mod.rs`, and fix the imports in
@@ -639,14 +763,27 @@ About 150-250 changed lines.
 **Commit C: "CSPLIT: crates, roots, facade"**:
 
 * new `Cargo.toml` × 6 and mirror-root `lib.rs` × 6;
+* add the `#[cfg(test)]` stub branch to `late.rs` (core's own unit-test binary links no provider);
 * `pob-calc/src/lib.rs` becomes the facade;
 * workspace `members` and `[workspace.dependencies]`;
 * trim `modules/mod.rs` in core to the core modules;
 * drop the temporary `pub use` from `probe.rs`;
-* fix the test paths `pob-oracle/tests/CO-A.rs:391` (`../pob-calc/src/modules/config_options/apply_a.rs`)
-  and `SK-A.rs:33` (`include_str!("../../pob-calc/src/data_fns/skills_act_int.rs")`);
+* fix the four pob-oracle tests that read pob-calc sources by path. All four are found by
+  `grep -rn 'pob-calc/' crates app --include='*.rs'` outside `crates/pob-calc/src` (the other hits
+  are doc comments):
+
+  | test | line | reads | after commit B without the fix |
+  |---|---|---|---|
+  | `CO-A.rs` | 391 | `read_to_string(…join("../pob-calc/src/modules/config_options/apply_a.rs")).unwrap()` | panics at run time |
+  | `CO-B.rs` | 506 | `read_to_string(…join("../pob-calc/src/modules/config_options/apply_b.rs")).unwrap()` | panics at run time |
+  | `SK-A.rs` | 33 | `include_str!("../../pob-calc/src/data_fns/skills_act_int.rs")` | compile error |
+  | `SK-B.rs` | 84 | `read_to_string(manifest_dir().join("../pob-calc/src/data_fns").join(f)).unwrap()` for `skills_act_dex.rs`, `skills_act_str.rs`, `skills_misc.rs` | panics at run time |
+
+  The new paths are `../pob-calc-config/src/modules/config_options/apply_{a,b}.rs` and
+  `../pob-calc-offence/src/data_fns/…`. Rerun the grep after commit C: it must find only doc
+  comments;
 * `full_suite.sh` crate list;
-* the comment in `cargo.sh`;
+* the comment in `cargo.sh` (the slot reason becomes the test-binary link phase, §5.3; the count stays 1);
 * an AMENDMENTS entry with the old → new path map. The 145 mentions of `crates/pob-calc/src` in 59
   docs files can be updated with a sed pass in a follow-up docs commit, or read through the map.
 
@@ -654,8 +791,16 @@ Gates:
 
 * `cargo.sh check -p <each> --target wasm32-unknown-unknown`;
 * a wasm32 build of `pob-port-web`, which links and so proves the seam on wasm;
+* GNU ld on the real crates, not only in toy crates (§3.4). `.cargo/config.toml` selects rust-lld
+  only for `aarch64-unknown-linux-gnu`, so x86_64 builds link with the system linker. On this
+  machine: `RUSTFLAGS="-C link-arg=-fuse-ld=bfd" cargo.sh build -p pob-port-desktop` and
+  `… test -p pob-app --lib`, then run both. On an x86_64 Linux host: a native build and run of
+  `pob-port-desktop` and of one pob-oracle test with the default linker. Check `nm` for the five
+  `T pob_calc_late_*` symbols in each binary;
 * `cargo.sh test -p pob-calc-core -p pob-calc-offence -p pob-calc-perform --lib`, with the same test
-  count as before;
+  count as before (and the same as commit A, whose monolith unit tests already go through the seam);
+* the run-level compile peaks of §5.3 on the split tree, which decide `POB_PORT_SLOTS`;
+* optional: `debug = 0` on the six crates (§6), measured the same way;
 * the pob-oracle quick corpus;
 * one full suite run (about 4 h);
 * the release power-report timing (§3.2).
@@ -700,13 +845,21 @@ Conflict risk with the named units:
   probe`) and the prototype was **not run**. It waited more than an hour for one of the 3 test-run
   slots, which other agents' oracle runs held, and was stopped. Both test targets compile. The
   implementation unit's gate covers this (§7).
-* The compile peak of the pob-oracle and pob-ui-oracle test binaries, which decides 2 against 3
-  slots (§5.3).
+* The run-level compile and link peaks **on the split tree**. In particular, the overlap of
+  offence/perform with pob-app and pob-oracle cannot be measured on the prototype (no facade, no
+  downstream crates). Today's peaks of every non-calc crate and test binary were measured in
+  round 1 (§5.3). They decide `POB_PORT_SLOTS`.
 * Release-mode runtime before and after: an INT-2 gate (§3.2).
 * `debug = 0` applied to the split crates.
-* The facade crate and the `probe_segments.rs` part of perform were not compiled in the prototype.
-  They are re-exports, and `run_segment`'s imports all exist in perform, but the implementation unit
-  compiles them first.
+* Not compiled in the prototype (§3.3); the implementation unit compiles each in commit A first:
+  * the facade crate (re-exports only);
+  * B7: `probe_segments.rs` in perform. The prototype deleted `run_segment` instead of moving it.
+    Its imports all exist in perform;
+  * B4: the inherent `MiscCalculator::call` in core that forwards through the seam to
+    `misc_calculator_call` in perform. The prototype used a trait in perform instead, which the
+    plan rejects (pob-app's `self.0.call(…)` has no trait in scope). The same shape was compiled
+    and run only in toy crates (§3.4, round-1 check);
+  * B3, B5, B6 through the real seam. The prototype has `unimplemented!()` stubs there.
 * Decisions needed before the implementation unit starts. The implementation unit files one CCR
   for all of them (this unit only adds this document):
   1. the `#[allow(unsafe_code)]` exception for the seam (§3.4). If it is refused, use fallback 1,
@@ -718,4 +871,9 @@ Conflict risk with the named units:
      `pob-lua ← pob-gamedata ← pob-modparser ← pob-calc-core ← {setup, config, defence}`,
      `defence ← offence`, `{setup, config, defence, offence} ← perform ← pob-calc ← UI/oracle`,
      and rule 3 (wasm32, no mlua) extends to the six crates;
-  4. `POB_PORT_SLOTS=2` in `scripts/port/cargo.sh` once the split has landed (§5.3).
+  4. `POB_PORT_SLOTS` stays at 1 when the split lands. A second slot needs the split-tree
+     run-level measurement and one of the link-phase measures of §5.3;
+  5. two rules for calc doc §2. First, every type in `late_fns!` is a full path (§3.4). Second,
+     only `pob-calc`'s and the sub-crates' own `probe` features may enable `pob-calc-core/probe`
+     (§2.3). Also the B4 body name `misc_calculator_call`: Rust-only plumbing, so snake_case per
+     STYLE §3.1 rule 1, since the Lua closure has no name.
