@@ -11,7 +11,8 @@
 //! `OnSelKeyDown`.
 //!
 //! DIVERGENCE(items-spec-select): `self.treeTab.build.itemsTab.controls.specSelect` (L125) is
-//! ItemsTab's control (U33): updated when it exists, skipped otherwise (core.rs module docs).
+//! ItemsTab's control (U33): always there with the real ItemsTab, skipped when a test stand-in
+//! has none (core.rs module docs).
 //!
 //! ORDER: no `pairs` loops. Props with side effects (ui doc §7.3): none.
 #![allow(non_snake_case)]

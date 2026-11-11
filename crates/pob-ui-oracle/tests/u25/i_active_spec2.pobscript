@@ -1,0 +1,26 @@
+# U25: a build whose Tree section has activeSpec="2" (a 3_29 tree, then the active 3_19 one): the load's SetActiveSpec
+# UI tail (TreeTab.lua:579, 581-583): the Tree tab shows the second tree in the spec dropdown, 3.19 in the version
+# dropdown and the "older tree version" bar; Ctrl+3 shows the Items tab's stand-in line with
+# itemsTab.controls.specSelect.selIndex (2); Ctrl+1 back, UP over the tree (SetActiveSpec(1) at run time: 3.29, no
+# bar), Ctrl+3 again (selIndex 1), then the build XML.
+fixture userdir=user
+frames 2
+load-build "Builds/two_specs_active2.xml"
+frames 3
+key-down CTRL
+press 3
+key-up CTRL
+frames 2
+key-down CTRL
+press 1
+key-up CTRL
+frames 2
+move 800 400
+press UP
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 2
+snapshot active1
+frames 1

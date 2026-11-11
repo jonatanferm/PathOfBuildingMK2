@@ -944,7 +944,8 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
     }
 
     // L671-676 (model part: calc:BM-A). CCR-0098 §6: the UI lines of the `SetActiveSpec` at
-    // the end of each deferred `Tree` section's `TreeTab:Load` (TreeTab.lua:525 -> :556-557)
+    // the end of each deferred `Tree` section's `TreeTab:Load` (TreeTab.lua:526 -> :556-557,
+    // 579, 581-583)
     tree_tab_load_set_active_spec_ui_tails(cx, &h, &model_ref);
     // L677-694 (model part: calc:BM-A) up to the first BuildOutput
     // L695
@@ -997,25 +998,30 @@ fn tree_tab_ctor_set_active_spec_ui_tail(
     (h.update_class_dropdowns)(cx, Some(model_ref.data.gameVersions.latestTreeVersion));
 }
 
-/// CCR-0098 §6 workaround (delete with the hook): replays TreeTab.lua:556-557 for the
-/// `SetActiveSpec` at the end of each deferred `Tree` section's `TreeTab:Load` (L671-676 ->
-/// TreeTab.lua:525; a legacy `Spec` section sets the spec without it, :502-508). Approximation
-/// (CCR-0098 §6): every replay uses the build's final spec, where PoB uses that load's own
-/// active spec; the two differ only for a build file with more than one `Tree` section.
-/// PostLoad and UpdateSocketGroups (L678-693) do not change the final spec's class.
+/// CCR-0098 §6 workaround (delete with the hook): replays TreeTab.lua:556-557, 579 and 581-583
+/// for the `SetActiveSpec` at the end of each deferred `Tree` section's `TreeTab:Load` (L671-676
+/// -> TreeTab.lua:526; a legacy `Spec` section sets the spec without it, :502-508).
+/// Approximation (CCR-0098 §6): every replay uses the build's final spec, where PoB uses that
+/// load's own active spec; the two differ only for a build file with more than one `Tree`
+/// section. L579 uses each section's own raw `activeSpec`. PostLoad and UpdateSocketGroups
+/// (L678-693) do not change the final spec's class.
 fn tree_tab_load_set_active_spec_ui_tails(
     cx: &mut Cx,
     h: &BuildHooks,
     model_ref: &model::BuildRef,
 ) {
-    let tree_loads = build_xml::xmlSectionList(model_ref)
+    let tree_loads: Vec<f64> = build_xml::xmlSectionList(model_ref)
         .iter()
         .filter(|n| &*n.elem == "Tree")
-        .count();
-    for _ in 0..tree_loads {
+        // TreeTab.lua:526 tonumber(xml.attrib.activeSpec) or 1
+        .map(|n| n.attrib.get("activeSpec").and_then(|v| tonumber(v)).unwrap_or(1.0))
+        .collect();
+    for spec_id in tree_loads {
         set_window_title_with_build_class(cx);
         let tv = model_ref.spec.get().treeVersion.get();
         (h.update_class_dropdowns)(cx, Some(tv));
+        // TreeTab.lua:579, 581-583 (U25)
+        crate::tabs::tree::core::load_set_active_spec_ui_tail(cx, spec_id);
     }
 }
 

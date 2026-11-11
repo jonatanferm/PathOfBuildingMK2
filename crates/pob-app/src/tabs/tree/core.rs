@@ -54,13 +54,17 @@
 //! whose buffers stay empty, as in PoB). The state differs from PoB's only where PostLoad's
 //! `BuildClusterJewelGraphs` changed the allocation (cluster jewel subgraph nodes): see CCR-0123.
 //! DIVERGENCE(load-version-select): the `SetActiveSpec` at the end of a deferred `Tree` load
-//! (L526 -> L581-583) runs before this constructor in the port, so the constructor sets
-//! `versionSelect` to the active spec's version itself (the value L582 leaves); L579 (the
-//! ItemsTab spec dropdown) and L584 (`SyncLoadouts`, which Init calls again at Build.lua:726) are
-//! left to those callers.
+//! (L526) runs in calc:BM-A's `Init_model`, before the UI tabs exist. Init replays its UI lines
+//! where Build.lua:671-676 runs the load: L556-557 (`tree_tab_load_set_active_spec_ui_tails`,
+//! CCR-0098 §6), then L579 and L581-583 ([`load_set_active_spec_ui_tail`]: the ItemsTab spec
+//! dropdown gets that load's raw `activeSpec`, `versionSelect` the active spec's version).
+//! With more than one `Tree` section, L582 uses the final spec for every replay (that section's
+//! own spec in PoB; CCR-0098 §6's approximation): the last replay leaves the same state. L584
+//! (`SyncLoadouts`) is left to Init, which calls it again at Build.lua:726.
 //! DIVERGENCE(items-spec-select): `self.build.itemsTab.controls.specSelect` (L579,
-//! PassiveSpecListControl.lua:125-131) is ItemsTab's control (U33): it is updated when the
-//! ItemsTab node has a `specSelect` DropDownControl, and skipped otherwise.
+//! PassiveSpecListControl.lua:125-131) is ItemsTab's control (U33, ported): it is updated when
+//! the build's ItemsTab node has a `specSelect` DropDownControl (always, with the real ItemsTab
+//! constructor) and skipped otherwise (a test stand-in for the Items tab).
 //!
 //! ORDER: `pairs(self.build.spec.allocNodes)` (L76) only counts (c); `pairs(self.build.itemsTab
 //! .slots)` (L558) is calc:BM-A's; `pairs(self.build.spec.hashOverrides)` (L145) removes every
@@ -1965,8 +1969,7 @@ fn tab_or_err(cx: &Cx) -> CtrlId {
 }
 
 /// `BuildHooks::tree_tab`: `self.treeTab = new("TreeTab"):TreeTab(self)` (Build.lua:613), then
-/// the tails of the loads that already ran (DIVERGENCE(reset-undo),
-/// DIVERGENCE(load-version-select)).
+/// the `ResetUndo` tail of the spec loads that already ran (DIVERGENCE(reset-undo)).
 pub fn ctor_hook(cx: &mut Cx, build: CtrlId) -> CtrlId {
     let me = cx.add_free(Some(build), TreeTab::new(build)).id();
     let m = cx.build().model.clone();
@@ -1986,15 +1989,28 @@ pub fn ctor_hook(cx: &mut Cx, build: CtrlId) -> CtrlId {
             spec_reset_undo(cx, me, &spec);
         }
     }
-    // the legacy `Spec` branch returns at L508, before L526's SetActiveSpec: only a `Tree` load
-    // reaches L581-583 (otherwise versionSelect keeps L179's selIndex)
-    if sections.iter().any(|n| &*n.elem == "Tree") {
-        // L581-583 of the load's SetActiveSpec
-        let version_select = ctl(cx, me, "versionSelect");
-        let tv = m.spec.get().treeVersion.get();
+    me
+}
+
+/// The UI lines 578-583 of the `SetActiveSpec` at the end of a deferred `Tree` section's
+/// `TreeTab:Load` (L526, from Build.lua:671-676; DIVERGENCE(load-version-select)). `spec_id` is
+/// L526's raw `tonumber(xml.attrib.activeSpec) or 1` (not clamped by L551's `m_min`). The
+/// legacy `Spec` branch returns at L508, before L526: Init calls this for `Tree` sections only
+/// (otherwise versionSelect keeps L179's selIndex and the ItemsTab dropdown its L46 one).
+pub fn load_set_active_spec_ui_tail(cx: &mut Cx, spec_id: f64) {
+    let Some(me) = tab(cx) else { return };
+    // Update the passive tree dropdown control in itemsTab
+    // L579 (DIVERGENCE(items-spec-select))
+    if let Some(sel) = items_spec_select(cx) {
+        cx.w_mut::<DropDownControl>(sel).sel_index = spec_id as usize;
+    }
+    // Update Version dropdown to active spec's
+    // L581
+    if let Some(version_select) = cx.child(me, "versionSelect") {
+        // L582
+        let tv = cx.build().model.spec.get().treeVersion.get();
         TreeTab::sel_version(cx, version_select, &tv);
     }
-    me
 }
 
 /// `ShellHooks::draw_tab` for `BuildTab::Tree`: `self.treeTab:Draw(tabViewPort, inputEvents)`

@@ -5,7 +5,7 @@ Unit: **U25** (TreeTab core). Status: **pending** (the code on `port/U25` follow
 U25 ports the UI half of `TreeTab.lua:1-1046`, `PassiveSpecListControl.lua` and
 `PassiveMasteryControl.lua` (`pob-app/src/tabs/tree/{core.rs,popups.rs,spec_list.rs,mastery.rs}`).
 Its code reaches model items that are missing or frozen in a shape the Lua does not have, and code
-of units not ported yet (U26, U27, U33). Each item below says what U25 does now (marked
+of units not ported yet when it was written (U26, U27; U33 is now merged, §7). Each item below says what U25 does now (marked
 `// CCR-0123` or a `DIVERGENCE(...)` note in the file header) and what it proposes.
 
 ## 1. The spec's UndoHandler lives in the UI, per spec (doc amendment)
@@ -39,8 +39,8 @@ Workaround (`DIVERGENCE(reset-undo)` in core.rs): `tabs::tree::core::ctor_hook` 
 for every spec of the list when `PassiveSpec:Load` ran for them: the build file has a legacy
 `Spec` section (TreeTab.lua:502-505) or a `Tree` section with `Spec` children (L510-521). A `Tree`
 section without `Spec` children leaves the L522-524 fallback spec, which never runs `Load`, so its
-buffers stay empty, as in PoB. (The version dropdown's L581-583 runs only for a `Tree` section: the
-legacy branch returns before L526's `SetActiveSpec`.) The first undo state
+buffers stay empty, as in PoB. (The load's `SetActiveSpec` UI tail, L579 and L581-583, runs only
+for a `Tree` section, the legacy branch returns before L526: see §8.) The first undo state
 then holds the allocation after PostLoad; PoB's holds it before. They differ only for specs with
 cluster-jewel subgraph nodes (`BuildClusterJewelGraphs` allocates them in PostLoad), where an
 Undo right after loading restores the post-PostLoad allocation instead of the pre-PostLoad one.
@@ -124,10 +124,11 @@ of `tab_flag`/`set_tab_flag`, the `TreeView` arm of `save_ui_section`), `tree_vi
 ## 7. ItemsTab's `specSelect` (U33)
 
 Evidence: TreeTab.lua:579, PassiveSpecListControl.lua:124-132
-(`self.build.itemsTab.controls.specSelect`). The ItemsTab UI constructor is U33's and not ported.
-Workaround (`DIVERGENCE(items-spec-select)`): `tabs::tree::core::items_spec_select` looks the
-dropdown up as the ItemsTab node's `specSelect` child and skips the update when there is none, so
-U33 needs no change here.
+(`self.build.itemsTab.controls.specSelect`). The ItemsTab UI constructor is U33's (ported).
+`DIVERGENCE(items-spec-select)`: `tabs::tree::core::items_spec_select` looks the dropdown up as
+the ItemsTab node's `specSelect` child. With the real ItemsTab it is always there; the update is
+skipped only when a test replaces the Items tab with a stand-in that has none. U33 needs no change
+here.
 
 ## 8. `SetActiveSpec`'s UI lines 556-557 (restates CCR-0098 §6)
 
@@ -135,6 +136,12 @@ U33 needs no change here.
 then 556-557 (window title, `UpdateClassDropdowns`) and 578-584 (`DIVERGENCE(set-active-spec-order)`).
 CCR-0098 §6's model hook would let the UI lines run in Lua's place; the reorder is unobservable
 today (558-577 only move jewels between item slots).
+
+The `SetActiveSpec` at the end of a `Tree` section's load (L526) runs in `Init_model`, before the
+UI tabs exist (`DIVERGENCE(load-version-select)`): Init's `tree_tab_load_set_active_spec_ui_tails`
+replays 556-557 and then `tabs::tree::core::load_set_active_spec_ui_tail` (L579: the ItemsTab
+`specSelect.selIndex` = that section's raw `tonumber(activeSpec) or 1`; L581-583: `versionSelect`
+to the final spec's version) once per `Tree` section, where Build.lua:671-676 loads it.
 
 ## 9. `pob-app/src/model.rs` re-exports (U15)
 

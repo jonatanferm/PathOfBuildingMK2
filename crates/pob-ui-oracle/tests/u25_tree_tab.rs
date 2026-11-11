@@ -16,7 +16,10 @@
 //! * U26's `calcsTab:BuildPower()` (the heat map): as u23. `PowerReportListControl` (U26) stays
 //!   hidden in every scenario (its Rust stand-in draws nothing; PoB's draws nothing while
 //!   hidden).
-//! * The other tabs' `Draw` draw nothing; `utf8.next` (as u22).
+//! * The other tabs' `Draw` draw nothing; `utf8.next` (as u22). The Items tab's `Draw` draws
+//!   one line, `itemsTab.controls.specSelect.selIndex` (TreeTab.lua:579 and
+//!   PassiveSpecListControl.lua:125-131 set it): `i_active_spec2` loads a build with
+//!   `activeSpec="2"` (the load-time `SetActiveSpec` tails: that line, the version dropdown).
 //!
 //! T3 multiset buckets: as u23 (sub-layers 0..=30 of layer 0, the tree's `pairs` loops).
 //!
@@ -121,6 +124,10 @@ function b:Init(...)
 	for _, t in ipairs({ "importTab", "partyTab", "configTab", "skillsTab", "itemsTab", "calcsTab", "compareTab" }) do
 		if self[t] then self[t].Draw = function() end end
 	end
+	-- the Items tab's stand-in: the tree dropdown's selIndex (TreeTab.lua:579)
+	self.itemsTab.Draw = function(s, viewPort, inputEvents)
+		DrawString(viewPort.x + 4, viewPort.y + 4, "LEFT", 16, "VAR", "^7specSelect: " .. tostring(s.controls.specSelect.selIndex))
+	end
 	local cls = common.classes.PassiveTreeView
 	if cls then
 		cls.AddNodeTooltip = function(view, tooltip, node, build)
@@ -147,7 +154,30 @@ end
 
 fn rust_stubs() {
     init::set_hooks(|h| *h = init::default_hooks());
-    of::set_shell_hooks(|h| *h = of::default_shell_hooks());
+    of::set_shell_hooks(|h| {
+        *h = of::default_shell_hooks();
+        // the Items tab's stand-in (LUA_STUBS): the tree dropdown's selIndex (TreeTab.lua:579)
+        let all_tabs = h.draw_tab.clone();
+        h.draw_tab = Rc::new(move |cx, tab, vp, ev| {
+            if tab == of::BuildTab::Items {
+                let sel = pob_app::tabs::tree::core::items_spec_select(cx).expect("U33's specSelect");
+                let line = format!(
+                    "^7specSelect: {}",
+                    cx.w::<pob_ui_core::controls::DropDownControl>(sel).sel_index
+                );
+                cx.sg.draw_string(
+                    vp.x + 4.0,
+                    vp.y + 4.0,
+                    pob_sg::Align::Left,
+                    16.0,
+                    pob_sg::Font::Var,
+                    &line,
+                );
+            } else {
+                all_tabs(cx, tab, vp, ev);
+            }
+        });
+    });
     pob_app::tabs::tree::core::set_tree_tab_hooks(|h| {
         *h = pob_app::tabs::tree::core::default_tree_tab_hooks();
     });
