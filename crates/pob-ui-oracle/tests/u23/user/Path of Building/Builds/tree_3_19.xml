@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Build ascendClassName="None" bandit="None" characterLevelAutoMode="false" className="Witch" level="20" mainSocketGroup="1" pantheonMajorGod="None" pantheonMinorGod="None" targetVersion="3_0" viewMode="TREE">
+	</Build>
+	<Import exportParty="false"/>
+	<Calcs/>
+	<Config activeConfigSet="1">
+		<ConfigSet id="1" title="Default"/>
+	</Config>
+	<Items activeItemSet="1" showStatDifferences="true" useSecondWeaponSet="nil">
+		<ItemSet id="1" useSecondWeaponSet="nil"/>
+	</Items>
+	<Notes/>
+	<Party ShowAdvanceTools="false" append="false" destination="All"/>
+	<Skills activeSkillSet="1" defaultGemLevel="normalMaximum" defaultGemQuality="nil" showLegacyGems="false" showSupportGemTypes="ALL" sortGemsByDPS="true" sortGemsByDPSField="CombinedDPS">
+		<SkillSet id="1"/>
+	</Skills>
+	<Tree activeSpec="1">
+		<Spec ascendClassId="0" classId="3" masteryEffects="" nodes="" treeVersion="3_19"/>
+	</Tree>
+	<TreeView searchStr="life" showStatDifferences="true" zoomLevel="3" zoomX="0" zoomY="0"/>
+</PathOfBuilding>

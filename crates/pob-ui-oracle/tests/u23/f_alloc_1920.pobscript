@@ -1,0 +1,50 @@
+# U23: as f_alloc_1280, at 1920x1080 @1.5 (1280x720 virtual) coordinates.
+screen 1920 1080 dpi 1.5
+fixture userdir=user
+frames 2
+load-build "Builds/tree_3_27.xml"
+frames 2
+move 796 400
+key-down LEFTBUTTON
+frames 1
+move 796 650
+frames 1
+key-up LEFTBUTTON
+frames 1
+move 796 472
+wheel up 6
+frames 1
+move 726 285
+frames 2
+key-down CTRL
+press c
+key-up CTRL
+frames 1
+click LEFTBUTTON
+frames 3
+key-down SHIFT
+move 820 369
+frames 1
+move 858 324
+frames 1
+move 865 285
+frames 1
+click LEFTBUTTON
+frames 2
+key-up SHIFT
+frames 1
+move 726 285
+frames 1
+click LEFTBUTTON
+frames 3
+key-down CTRL
+press d
+key-up CTRL
+frames 1
+move 900 500
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 2
+snapshot alloc
+frames 1

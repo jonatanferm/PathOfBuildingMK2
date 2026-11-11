@@ -9,6 +9,10 @@
 //!   empty `Vec`; [`minionList_is_set`] tells them apart.
 //! * `t_remove(skillModList, i)` / `skillModList[i]` (CalcActiveSkill.lua:805-869) need
 //!   positional access to a ModList, which the ModStore API lacks ([`list_at`] / [`list_remove`]).
+//! * `newSkill.actor = skill.actor` (CalcActiveSkill.lua:181) is a strong reference in Lua, but
+//!   `ActiveSkill.actor` is a `Weak` (calc doc §3.3 rule 4). CCR-0113: `copyActiveSkill` keeps a
+//!   foreign actor (one that is not `env.player`) alive in `newSkill.extra["actorKeep"]` as
+//!   `Val::Obj(ActorRef)`, see [`actorKeepKey`].
 #![allow(non_snake_case)]
 // Lua statement shapes are kept (locals assigned per branch, `if … then … else … end`).
 #![allow(
@@ -533,6 +537,12 @@ pub fn createActiveSkill(
     activeSkill
 }
 
+/// CCR-0113: the `newSkill.extra` key under which [`copyActiveSkill`] keeps the copied skill's
+/// foreign actor alive (`Val::Obj(ActorRef)`). Rust-only; PoB has no such key.
+pub fn actorKeepKey() -> Name {
+    n!("actorKeep")
+}
+
 /// @pob Modules/CalcActiveSkill.lua:167-192 h=0b95f5c3
 /// → (newSkill, newEnv).
 /// Copy an Active Skill
@@ -566,6 +576,18 @@ pub fn copyActiveSkill(
         skill.socketGroup.get(),
         skill.summonSkill.get(),
     );
+    // CCR-0113: Lua's `skill.actor` reference (L181) is strong. The source skill may come from
+    // another env (a `GlobalCache` entry's skill, CalcMirages.lua:134/137) whose only owner is
+    // that cache entry; `cacheData` can overwrite the entry (CalcPerform.lua:3989) while the copy
+    // lives on as `env.player.mainSkill`, and the `Weak` would then die. Keep the foreign actor
+    // alive on the copy. An actor that is `env.player` is owned by `env` already, and a strong
+    // reference to it would close an `Rc` cycle (`postCalcFunc` stores the copy in
+    // `env.player.mainSkill`, CalcMirages.lua:155/232).
+    if let Some(actor) = skill.actor() {
+        if !Rc::ptr_eq(&actor, &env.player) {
+            newSkill.extra.set(actorKeepKey(), Val::Obj(actor));
+        }
+    }
     // L182
     let (newEnv, _, _, _) =
         crate::modules::calc_setup::initEnv(&env.build, mode, Some(env.r#override.clone()), None);

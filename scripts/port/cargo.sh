@@ -3,7 +3,7 @@
 #
 # Usage: scripts/port/cargo.sh <cargo args...>      e.g. scripts/port/cargo.sh check -p pob-calc
 #
-# - At most $POB_PORT_SLOTS (default 2) cargo compiles run at a time machine-wide, across all worktrees: each
+# - At most $POB_PORT_SLOTS (default 1; a pob-calc rustc peaks at 3.5-4 GB) cargo compiles run at a time machine-wide, across all worktrees: each
 #   holds an exclusive flock on one of $POB_PORT_LOCK_DIR/cargo.lock, cargo.lock.1, ...
 #   (default: ${XDG_RUNTIME_DIR:-/tmp}/pob-port). test/bench then run under a run slot (see take_slot);
 #   read-only subcommands (metadata, tree, ...) take no slot.
@@ -97,7 +97,7 @@ lock_dir="${POB_PORT_LOCK_DIR:-${XDG_RUNTIME_DIR:-/tmp}/pob-port}"
 mkdir -p "$lock_dir"
 
 # take_slot FD PREFIX COUNT LABEL: hold one of COUNT flocks $lock_dir/PREFIX.lock[.i] on FD.
-# Compile slots (fd 9, prefix "cargo", POB_PORT_SLOTS, default 2) are held while cargo compiles.
+# Compile slots (fd 9, prefix "cargo", POB_PORT_SLOTS, default 1) are held while cargo compiles.
 # For test/bench the slot is released after `--no-run`, and the test binaries then run under a run
 # slot (fd 8, prefix "run", POB_PORT_RUN_SLOTS, default 3), so long oracle runs no longer block
 # other agents' compiles (audit 2026-11-09: 15.5 min slot wait for a 69 s build).
@@ -190,7 +190,7 @@ case "$sub" in
     metadata|tree|locate-project|pkgid|version|help|search|read-manifest)
         exec cargo "${args[@]}" ;;   # no compile: no slot
 esac
-take_slot 9 cargo "${POB_PORT_SLOTS:-2}" compile
+take_slot 9 cargo "${POB_PORT_SLOTS:-1}" compile
 if [ "$two_phase" = 0 ]; then
     run_cargo "${args[@]}"
     exit $?

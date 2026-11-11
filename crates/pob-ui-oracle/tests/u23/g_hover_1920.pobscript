@@ -1,0 +1,18 @@
+# U23: allflame_exp_001 (1920x1080 @1.5 coordinates): as g_hover_1280.
+screen 1920 1080 dpi 1.5
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+move 907 193
+frames 2
+move 1122 454
+frames 2
+move 1127 254
+frames 2
+move 928 158
+frames 2
+move 731 37
+frames 2
+move 1180 366
+frames 2

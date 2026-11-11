@@ -1,0 +1,19 @@
+# U23: allflame_exp_001 (1280x800 coordinates): hover jewel sockets (the radius rings, the nodes in radius
+# coloured by the radius colours), a keystone and a mastery (tooltips), a large socket.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+move 920 212
+frames 2
+move 1162 505
+frames 2
+move 1167 281
+frames 2
+move 944 174
+frames 2
+move 724 38
+frames 2
+move 1226 407
+frames 2

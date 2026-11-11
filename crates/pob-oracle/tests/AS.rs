@@ -1388,3 +1388,118 @@ fn as_census() {
     empty_minion_lists.sort();
     assert_eq!(empty_minion_lists, vec!["RaiseSpectre", "RaiseSpectreAltX"]);
 }
+
+// ---------------------------------------------------------------------------------------------
+// copyActiveSkill keeps a foreign actor alive (CCR-0113, INT-1 triage §4 A)
+
+/// `copyActiveSkill` (CalcActiveSkill.lua:181) hands the source skill's actor to the copy, a
+/// strong reference in Lua. Rust keeps a foreign actor (not `env.player`) alive on the copy
+/// (`newSkill.extra["actorKeep"]`, CCR-0113) and keeps none for a same-env copy (that one would
+/// close an `Rc` cycle through `env.player.mainSkill`, CalcMirages.lua:155). Three checks on
+/// upstream_Dual_Savior (main skill Reflection, which copies a cached Double Strike):
+/// 1. foreign-env copy: the source env dies, the copy's actor stays alive; once the copy, its
+///    env and the `GlobalCache` are dropped / wiped, the actor is freed (no cycle, no leak);
+/// 2. same-env copy: no strong reference is stored, and the env's player is freed after the drop
+///    with the copy installed as `env.player.mainSkill` (as `postCalcFunc` does);
+/// 3. end to end: the MAIN `buildOutput` installs the mirage copy as the main skill and
+///    re-caches it (CalcPerform.lua:3989), freeing the cached source env; the copy's actor is
+///    alive while the result lives, and freed once it and the `GlobalCache` are gone.
+#[test]
+fn as_copy_actor_keepalive() {
+    use pob_calc::model::build_xml::loadBuildModelFromXML;
+    use pob_calc::modules::calc_active_skill::{actorKeepKey, copyActiveSkill};
+    use pob_calc::modules::calc_setup::initEnv;
+    use pob_calc::modules::calcs::buildOutput;
+    use pob_calc::modules::common::wipeGlobalCache;
+
+    if pob_testpaths::require(init_data().then_some(()), "data/dump not found").is_none() {
+        return; // POB_ALLOW_SKIP=1
+    }
+    let Some(parity) = pob_testpaths::require(find_parity_dir(), ".parity (build corpus)") else {
+        return; // POB_ALLOW_SKIP=1
+    };
+    let xml = std::fs::read_to_string(parity.join("builds/upstream_Dual_Savior.xml"))
+        .expect("upstream_Dual_Savior.xml");
+    let load = || loadBuildModelFromXML(&xml, data()).expect("load upstream_Dual_Savior");
+    let kept = |s: &ActiveSkillRef| s.extra.obj::<Actor>(actorKeepKey());
+
+    // 1. a copy from a foreign env
+    let wSource;
+    {
+        let build = load();
+        wipeGlobalCache();
+        let (env1, _, _, _) = initEnv(&build, Mode::MAIN, None, None);
+        let skill = env1.player.mainSkill.get().expect("env1.player.mainSkill");
+        wSource = Rc::downgrade(&env1.player);
+        let (env0, _, _, _) = initEnv(&build, Mode::MAIN, None, None);
+        let (newSkill, newEnv) = copyActiveSkill(&env0, Mode::CALCULATOR, &skill);
+        let k = kept(&newSkill).expect("foreign-env copy keeps its actor");
+        assert!(
+            Rc::ptr_eq(&k, &env1.player),
+            "kept actor is the source's actor"
+        );
+        drop(k);
+        // CalcMirages.lua:155 (postCalcFunc)
+        env0.player.mainSkill.set(Some(newSkill.clone()));
+        drop(skill);
+        drop(env1);
+        let a = newSkill
+            .actor()
+            .expect("copy's actor alive after the source env is gone");
+        assert!(Rc::ptr_eq(&a, &wSource.upgrade().expect("source actor")));
+        drop(a);
+        drop((newEnv, newSkill, env0, build));
+    }
+    wipeGlobalCache();
+    assert!(
+        wSource.upgrade().is_none(),
+        "foreign actor still alive after dropping the copy and wiping the GlobalCache"
+    );
+
+    // 2. a copy of a same-env skill
+    let (wPlayer, wCopy);
+    {
+        let build = load();
+        wipeGlobalCache();
+        let (env0, _, _, _) = initEnv(&build, Mode::MAIN, None, None);
+        let skill = env0.player.mainSkill.get().expect("env0.player.mainSkill");
+        let (newSkill, newEnv) = copyActiveSkill(&env0, Mode::CALCULATOR, &skill);
+        assert!(
+            kept(&newSkill).is_none(),
+            "same-env copy must keep no strong actor reference"
+        );
+        assert!(Rc::ptr_eq(&newSkill.actor().expect("actor"), &env0.player));
+        env0.player.mainSkill.set(Some(newSkill.clone()));
+        wPlayer = Rc::downgrade(&env0.player);
+        wCopy = Rc::downgrade(&newSkill);
+        drop((skill, newSkill, newEnv, env0, build));
+    }
+    wipeGlobalCache();
+    assert!(
+        wPlayer.upgrade().is_none(),
+        "same-env copy: env.player leaked (Rc cycle)"
+    );
+    assert!(
+        wCopy.upgrade().is_none(),
+        "same-env copy: the copy leaked (Rc cycle)"
+    );
+
+    // 3. end to end through the mirage path
+    let (wMain, wKept);
+    {
+        let build = load();
+        wipeGlobalCache();
+        let mainEnv = buildOutput(&build, Mode::MAIN);
+        let mainSkill = mainEnv.player.mainSkill.get().expect("mainSkill");
+        let k = kept(&mainSkill).expect("the Reflection mirage copy keeps Double Strike's actor");
+        assert!(!Rc::ptr_eq(&k, &mainEnv.player));
+        let a = mainSkill.actor().expect("the mirage copy's actor is alive");
+        assert!(Rc::ptr_eq(&a, &k));
+        wMain = Rc::downgrade(&mainEnv.player);
+        wKept = Rc::downgrade(&k);
+        drop((k, a, mainSkill, mainEnv, build));
+    }
+    wipeGlobalCache();
+    assert!(wMain.upgrade().is_none(), "MAIN env's player leaked");
+    assert!(wKept.upgrade().is_none(), "the kept foreign actor leaked");
+}

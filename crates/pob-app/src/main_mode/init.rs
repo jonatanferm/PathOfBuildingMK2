@@ -43,7 +43,7 @@ pub fn default_modes() -> IndexMap<String, Rc<dyn Mode>> {
     modes
 }
 
-/// CCR-0096: U17's popups (installed by U17) and U23's `main:LoadTree` (until U23 installs it).
+/// CCR-0096: U17's popups (installed by U17) and U23's `main:LoadTree` (installed by U23).
 pub fn default_hooks() -> MainHooks {
     MainHooks {
         // U17 (Main.lua:865-1485)
@@ -51,7 +51,9 @@ pub fn default_hooks() -> MainHooks {
         open_about_popup: Rc::new(super::about_popup::open_about_popup),
         open_update_popup: Rc::new(super::update_popup::open_update_popup),
         // main:LoadTree (U23, tree_view/assets.rs): builds main.tree[treeVersion]
-        load_tree: Rc::new(|_cx, _tree_version| {}),
+        load_tree: Rc::new(|cx, tree_version| {
+            let _ = crate::tree_view::assets::main_load_tree(cx, tree_version);
+        }),
     }
 }
 

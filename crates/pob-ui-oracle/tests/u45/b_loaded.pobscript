@@ -1,0 +1,59 @@
+# U45: open party_loaded, whose Party section has ImportedBuffs for the member stats, auras,
+# curses, enemy conditions and enemy mods (no warcries, no links) and ShowAdvanceTools="true"
+# append="true" destination="Aura" (Load: SetText, ParseBuffs, lastContent; SelByValue and the
+# two check boxes; the replayed UI tail). The Party button shows the advanced edits, editAuras
+# focused by the constructor's SelectControl (its height then follows bufferHeightLeft).
+# Typing at the end of the auras, Ctrl+Z (PartyTab:Draw's undo of the focused edit), more
+# typing, Rebuild All (every ParseBuffs again), then a pasted code imported with the button in
+# append mode with destination Aura (the auras' text gains the code's Grace entry; the code's
+# Curse section is skipped), Ctrl+S.
+#! u45-saved Builds/party_loaded.xml
+#! u45-expect-party Despair
+#! u45-expect-party Grace
+#! u45-expect-party Bar
+fixture userdir=user_loaded
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 40 122
+click LEFTBUTTON
+frames 2
+key-down CTRL
+press END
+key-up CTRL
+type "Foo"
+frames 1
+key-down CTRL
+press z
+key-up CTRL
+frames 1
+press RETURN
+type "Bar"
+frames 2
+move 400 266
+click LEFTBUTTON
+frames 3
+snapshot rebuilt
+frames 1
+move 400 170
+click LEFTBUTTON
+frames 1
+paste-clipboard "eJx1T8sKwjAQPJuvCLnHtuJBpI1oqUUQFdQPiO1Gg-mDNC0t9ONNCx5UZA-7M7PMMP6qzRRuQFeyyAPiTV2CIU-KVOb3gFwvW7ogK4b8EzePo9jUUg0KQxPLaNNZJWrLQhtIN7UQFc55BgFZ15oTFmueAPI8F83m_fkplVqOVB81fIjrd4ewp3ZMV0IQq-LGVSQEJMaBcV0GfvBClFLf-Uj6kxzWugLC7D8eT7yXmTTYYuT9OEx8593C-S74AoB-XYk="
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+move 560 194
+click LEFTBUTTON
+frames 3
+snapshot appended
+frames 1
+key-down CTRL
+press s
+key-up CTRL
+frames 2
+snapshot saved
+frames 1

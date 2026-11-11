@@ -1,0 +1,61 @@
+# U33: rare display items. Double-click item list row 1 (a rare cluster jewel of the build:
+# SetDisplayItem with its id, so addDisplayItem reads "Save"; corrupt/add implicit, "Add
+# modifier..."); switch the DB selector to "Rare Templates"; search "amulet" and double-click the
+# first template (a crafted amulet: anoint, corrupt, add implicit, influence, catalyst, the
+# modifier sorting, the six crafted affix rows with their labels and roll sliders, the
+# custom-modifier section, the range line dropdown and slider); hover its influence dropdown;
+# search "cluster" and double-click the first template (a crafted cluster jewel: the cluster
+# skill dropdown and node count slider, the modifier sorting hidden, L721-725, and the affix
+# section's collapse anchor); Cancel.
+#! u33-expect Save
+#! u33-expect display: Amulet
+#! u33-expect display: nil
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 70
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1270 700
+frames 2
+move 570 389
+click LEFTBUTTON
+frames 3
+move 545 421
+click LEFTBUTTON
+frames 3
+move 545 434
+click LEFTBUTTON
+frames 1
+type "amulet"
+frames 4
+move 500 456
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 848 106
+frames 3
+move 545 434
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+type "cluster"
+frames 4
+move 500 456
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1270 700
+frames 2
+move 1003 50
+frames 1
+click LEFTBUTTON
+frames 3

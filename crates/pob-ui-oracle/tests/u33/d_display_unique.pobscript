@@ -1,0 +1,53 @@
+# U33: display items from the unique DB (CreateDisplayItemFromRaw and SetDisplayItem stand-ins):
+# search "greatwolf" and double-click Eyes of the Greatwolf (the legacy variant and alt variant
+# dropdowns, the variant section height, corrupt/add implicit, influence, catalyst, the stacked
+# range lines of showAllItemAffixes); hover its influence dropdown (the wrapped tooltipText,
+# L613); search "actum" and double-click it (a two-hand axe: one variant, an enchant, quality,
+# "Add Crucible mod..."); type a quality (the edit's changeFunc: quality, BuildAndParseRaw,
+# UpdateDisplayItemTooltip); Cancel (SetDisplayItem(nil): the display controls hide, the craft
+# buttons return, snapHScroll "LEFT").
+#! u33-expect display: Eyes of the Greatwolf
+#! u33-expect display: Actum
+#! u33-expect display: nil
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 870 475
+click LEFTBUTTON
+frames 1
+type "greatwolf"
+frames 4
+move 800 496
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 848 158
+frames 3
+move 548 475
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press a
+key-up CTRL
+type "actum"
+frames 4
+move 500 496
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 860 160
+click LEFTBUTTON
+frames 1
+type "12"
+frames 3
+move 1003 50
+frames 1
+click LEFTBUTTON
+frames 3
+move 1270 700
+frames 2
