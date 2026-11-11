@@ -1,0 +1,28 @@
+screen 1600 900 dpi 1.0
+# U33: the layout at 1600 px (a 1288 px tab, 868 px high: still one DB at a time) with the
+# dual-wield build (both weapon sets used): idle, the weapon set button "II" and back "I", and a
+# display item from the item list (double-click row 1: SetDisplayItem with the item's id, so
+# addDisplayItem reads "Save"), then Cancel (SetDisplayItem(nil): snapHScroll "LEFT").
+#! u33-expect Save
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 708 96
+frames 1
+click LEFTBUTTON
+frames 3
+move 689 96
+frames 1
+click LEFTBUTTON
+frames 3
+move 800 70
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1590 890
+frames 2
