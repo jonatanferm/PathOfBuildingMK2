@@ -52,7 +52,7 @@ pub enum ModMapApply {
     ),
 }
 
-pub use crate::data_fns::FnRow;
+pub use crate::data_fns_types::FnRow;
 
 /// `data.mapMods.AffixData[k].apply` by closure id.
 pub static MODMAP_APPLY: std::sync::LazyLock<

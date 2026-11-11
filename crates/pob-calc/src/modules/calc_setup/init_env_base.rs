@@ -108,7 +108,7 @@ fn add_num(t: &Table, k: Key, d: f64) -> f64 {
 /// CS1: CalcSetup.lua 488-799.
 #[rustfmt::skip]
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity, clippy::needless_late_init)]
-pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
+pub fn seg(ctx: &mut InitEnvCtx) -> Flow {
     let build = ctx.build.clone();
     let mode = ctx.mode;
     let r#override = ctx.r#override.clone();

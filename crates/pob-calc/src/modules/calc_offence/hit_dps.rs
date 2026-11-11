@@ -102,7 +102,7 @@ fn num_or_else(a: Val, b: impl FnOnce() -> Val) -> f64 {
 
 /// @pob Modules/CalcOffence.lua:3346-3955 h=0090c651
 /// OF-F: CalcOffence.lua 3346-3955 (pass body B, incl. the loop `end`).
-pub(crate) fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
+pub fn seg_passHit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
     let env = ctx.env.clone();
     let activeSkill = ctx.activeSkill.clone();
     let modDB = ctx.modDB.clone();
@@ -2132,7 +2132,7 @@ fn as_table(v: &Val) -> Table {
 
 /// @pob Modules/CalcOffence.lua:3956-4154 h=9757aaae
 /// OF-F: CalcOffence.lua 3956-4154 (combine passes).
-pub(crate) fn seg_combinePasses(ctx: &mut OffenceCtx) -> Flow {
+pub fn seg_combinePasses(ctx: &mut OffenceCtx) -> Flow {
     let ctx: &OffenceCtx = ctx;
     let env = ctx.env.clone();
     let activeSkill = ctx.activeSkill.clone();

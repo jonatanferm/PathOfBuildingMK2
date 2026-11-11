@@ -70,7 +70,7 @@ fn spell_suppression(ctx: &DefenceCtx) -> f64 {
 
 /// @pob Modules/CalcDefence.lua:1211-1673 h=d5d3073d
 /// DF-C: CalcDefence.lua 1211-1673.
-pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
+pub fn seg(ctx: &mut DefenceCtx) -> Flow {
     let actor = ctx.actor.clone();
     let modDB = ctx.modDB.clone();
     let enemyDB = ctx.enemyDB.clone();

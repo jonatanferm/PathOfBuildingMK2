@@ -27,7 +27,7 @@ use super::ailments_a as closures; // OF-G's loop-local functions (4308-4410)
 use super::helpers_setup::{calcAilmentSourceDamage, calcResistForType};
 use super::{AilmentPassLocals, OffenceCtx};
 use crate::modules::calc_defence::helpers::armourReductionF;
-use crate::modules::calc_perform::actor_b::actionSpeedMod;
+use crate::modules::calc_perform_shared::actionSpeedMod;
 use crate::modules::calc_tools as calcLib;
 use crate::modules::common::isValueInArray;
 use crate::prelude::*;
@@ -229,7 +229,7 @@ impl AilmentDef {
 
 /// @pob Modules/CalcOffence.lua:4990-5648 h=aab3d12d
 /// OF-H: CalcOffence.lua 4990-5648 (incl. the loop `end`).
-pub(crate) fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) -> Flow {
+pub fn seg_igniteNonDmgImpale(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) -> Flow {
     let ctx: &OffenceCtx = ctx;
     let al: &AilmentPassLocals = al;
     let (globalOutput, globalBreakdown): (Option<Output>, Option<Breakdown>) =

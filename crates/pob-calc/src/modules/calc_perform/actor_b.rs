@@ -2273,34 +2273,9 @@ fn replace_mod_override(modDB: &ModDB, name: Name, value: Val, source: Option<po
     }
 }
 
-/// @pob Modules/CalcPerform.lua:1141-1151 h=c94cebd4
-pub fn actionSpeedMod(actor: &ActorRef) -> f64 {
-    // L1142
-    let modDB = actor.modDB.get();
-    // L1143
-    let minimumActionSpeed = modDB.Max(None, nm!["MinimumActionSpeed"]).unwrap_or(0.0);
-    // L1144
-    let maximumActionSpeedReduction = modDB.Max(None, nm!["MaximumActionSpeedReduction"]);
-    // L1145
-    let mut actionSpeedMod = 1.0
-        + (m_max(
-            -data().misc.TemporalChainsEffectCap,
-            modDB.Sum(ModType::INC, None, nm!["TemporalChainsActionSpeed"]),
-        ) + modDB.Sum(ModType::INC, None, nm!["ActionSpeed"]))
-            / 100.0;
-    // L1146
-    actionSpeedMod = m_max(minimumActionSpeed / 100.0, actionSpeedMod);
-    // L1147
-    if let Some(maximumActionSpeedReduction) = maximumActionSpeedReduction {
-        // L1148
-        actionSpeedMod = m_min(
-            (100.0 - maximumActionSpeedReduction) / 100.0,
-            actionSpeedMod,
-        );
-    }
-    // L1150
-    actionSpeedMod
-}
+/// `calcs.actionSpeedMod` (CalcPerform.lua 1141-1151) lives in `calc_perform_shared.rs`, where
+/// defence and offence can reach it (CCR-0131).
+pub use crate::modules::calc_perform_shared::actionSpeedMod;
 
 /// @pob Modules/CalcPerform.lua:1154-1244 h=fd93e0f2
 /// Build the same modifier database for the selected minion and any minion used as a defensive Life pool.

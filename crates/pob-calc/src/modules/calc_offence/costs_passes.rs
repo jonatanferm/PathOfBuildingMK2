@@ -143,7 +143,7 @@ fn cost_entry(
 
 /// @pob Modules/CalcOffence.lua:1692-2173 h=b7eb396e
 /// OF-C: CalcOffence.lua 1692-2173.
-pub(crate) fn seg_costsAndPasses(ctx: &mut OffenceCtx) -> Flow {
+pub fn seg_costsAndPasses(ctx: &mut OffenceCtx) -> Flow {
     let env = ctx.env.clone();
     let actor = ctx.actor.clone();
     let activeSkill = ctx.activeSkill.clone();

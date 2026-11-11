@@ -19,7 +19,7 @@ use crate::prelude::*;
 /// [`calcMoMEBPool`]).
 /// @pob Modules/CalcDefence.lua:2153-2350 h=d058a741
 /// @pob Modules/CalcDefence.lua:2364-2611 h=66913b3a
-pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
+pub fn seg(ctx: &mut DefEstCtx) -> Flow {
     let env = ctx.env.clone();
     let actor = ctx.actor.clone();
     let modDB = ctx.modDB.clone();

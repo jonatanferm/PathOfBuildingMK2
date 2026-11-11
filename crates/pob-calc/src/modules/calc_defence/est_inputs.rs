@@ -71,7 +71,7 @@ fn typeValueRow(r#type: String, value: String) -> Table {
 
 /// @pob Modules/CalcDefence.lua:1681-2152 h=3809a1c4
 /// DF-D: CalcDefence.lua 1681-2152.
-pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
+pub fn seg(ctx: &mut DefEstCtx) -> Flow {
     let env = ctx.env.clone();
     let actor = ctx.actor.clone();
     let modDB = ctx.modDB.clone();

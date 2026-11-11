@@ -21,7 +21,7 @@ use super::StoreMods;
 impl ModStore {
     /// `#self.mods[name]`, `None` when `self.mods[name]` is nil.
     #[inline]
-    pub(crate) fn db_len(&self, name: Name) -> Option<usize> {
+    pub fn db_len(&self, name: Name) -> Option<usize> {
         match &*self.mods.borrow() {
             StoreMods::DB(map) => map.get(&name).map(Vec::len),
             StoreMods::List { .. } => unreachable!("ModDB body on a ModList"),
@@ -30,7 +30,7 @@ impl ModStore {
 
     /// `self.mods[name][i]` (1-based).
     #[inline]
-    pub(crate) fn db_at(&self, name: Name, i1: usize) -> Option<ModRef> {
+    pub fn db_at(&self, name: Name, i1: usize) -> Option<ModRef> {
         match &*self.mods.borrow() {
             StoreMods::DB(map) => map.get(&name).and_then(|l| l.get(i1 - 1)).cloned(),
             StoreMods::List { .. } => unreachable!("ModDB body on a ModList"),

@@ -38,7 +38,7 @@ pub(crate) fn value_type(v: &Value) -> &'static str {
 
 /// A mod value used as an arithmetic operand (`result + mod.value`, `mod.value / 100`):
 /// numbers, and numeric strings by Lua's coercion; anything else raises as Lua does.
-pub(crate) fn arith(v: &Value, what: &str) -> f64 {
+pub fn arith(v: &Value, what: &str) -> f64 {
     match v {
         Value::Num(n) => *n,
         Value::Str(s) => pob_lua::tonumber(s).unwrap_or_else(|| {
@@ -149,7 +149,7 @@ fn cmp_operand(v: &Value) -> f64 {
 
 impl ModStore {
     /// `self:ReplaceModInternal(mod)` (ModDB.lua:42 / ModList.lua:36).
-    pub(crate) fn ReplaceModInternal(&self, m: ModRef) -> bool {
+    pub fn ReplaceModInternal(&self, m: ModRef) -> bool {
         match self.kind {
             StoreKind::ModDB => self.ReplaceModInternal_DB(m),
             StoreKind::ModList => self.ReplaceModInternal_List(m),

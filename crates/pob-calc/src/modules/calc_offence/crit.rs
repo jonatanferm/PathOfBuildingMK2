@@ -114,7 +114,7 @@ fn mod_value_num(m: &Mod) -> f64 {
 
 /// @pob Modules/CalcOffence.lua:2607-3345 h=6f0af00d
 /// OF-E: CalcOffence.lua 2607-3345 (sets `globalOutput` at 2607).
-pub(crate) fn seg_passCrit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
+pub fn seg_passCrit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow {
     let env = ctx.env.clone();
     let actor = ctx.actor.clone();
     let activeSkill = ctx.activeSkill.clone();

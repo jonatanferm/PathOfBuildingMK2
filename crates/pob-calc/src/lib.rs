@@ -46,15 +46,20 @@ pub mod calcs_facade;
 pub mod cfg;
 pub mod classes;
 pub mod data_fns;
+pub mod data_fns_types;
 pub mod env;
 pub mod flow;
 pub mod global_cache;
+pub mod late;
+mod late_provider;
 pub mod lua_table;
 pub mod model;
 pub mod module_state;
 pub mod modules;
 pub mod prelude;
 pub mod probe;
+#[cfg(feature = "probe")]
+pub mod probe_segments;
 pub mod stub;
 
 pub use calcs_facade::calcs;

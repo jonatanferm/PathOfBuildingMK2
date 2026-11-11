@@ -279,7 +279,7 @@ fn split_degen(modDB: &ModDB, output: &Output, damageType: Name, degen: f64) -> 
 
 /// DF-G: CalcDefence.lua 3165-3873.
 /// @pob Modules/CalcDefence.lua:3165-3873 h=be305576
-pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
+pub fn seg(ctx: &mut DefEstCtx) -> Flow {
     let env = ctx.env.clone();
     let actor = ctx.actor.clone();
     let modDB = ctx.modDB.clone();

@@ -21,7 +21,7 @@
 )]
 
 use super::DefenceCtx;
-use crate::modules::calc_perform::{actor_a, actor_b};
+use crate::modules::calc_perform_shared::actionSpeedMod;
 use crate::modules::calc_tools as calcLib;
 use crate::prelude::*;
 use pob_gamedata::mod_tools;
@@ -79,7 +79,7 @@ fn calcs_actionSpeedMod(actor: &ActorRef) -> f64 {
     if let Some(f) = replay::get().actionSpeedMod {
         return f(actor);
     }
-    actor_b::actionSpeedMod(actor)
+    actionSpeedMod(actor)
 }
 
 /// `calcs.resistances(actor)` (CalcDefence.lua:512, DF-A).
@@ -97,7 +97,7 @@ fn call_doActorLifeMana(actor: &ActorRef) {
     if let Some(f) = replay::get().doActorLifeMana {
         return f(actor);
     }
-    actor_a::doActorLifeMana(actor);
+    crate::late::doActorLifeMana(actor);
 }
 
 /// Global `doActorLifeManaReservation(actor, addAura)` (CalcPerform.lua:551).
@@ -106,7 +106,7 @@ fn call_doActorLifeManaReservation(actor: &ActorRef, addAura: bool) {
     if let Some(f) = replay::get().doActorLifeManaReservation {
         return f(actor, addAura);
     }
-    actor_a::doActorLifeManaReservation(actor, addAura);
+    crate::late::doActorLifeManaReservation(actor, addAura);
 }
 
 /// `calcs.hitChance(evasion, accuracy)` (CalcDefence.lua:58, DF-A).
@@ -244,7 +244,7 @@ fn unlucky_worst_of(env: &EnvRef) -> Option<f64> {
 
 /// @pob Modules/CalcDefence.lua:659-1210 h=c1300dd8
 /// DF-B: CalcDefence.lua 659-1210.
-pub(crate) fn seg(ctx: &mut DefenceCtx) -> Flow {
+pub fn seg(ctx: &mut DefenceCtx) -> Flow {
     let env = ctx.env.clone();
     let actor = ctx.actor.clone();
     let modDB = ctx.modDB.clone();

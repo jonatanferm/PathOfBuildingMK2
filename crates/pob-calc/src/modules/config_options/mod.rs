@@ -10,10 +10,9 @@ use crate::prelude::*;
 pub mod apply_a;
 pub mod apply_b;
 
-pub use crate::data_fns::FnRow;
+pub use crate::data_fns_types::FnRow;
 
-/// `apply(val, modList, enemyModList, build)` (ConfigOptions.lua).
-pub type ConfigApply = fn(val: &Val, modList: &ModList, enemyModList: &ModList, build: &BuildRef);
+pub use crate::late::ConfigApply;
 
 /// Every `ConfigOptions[i].apply` closure by id (`apply_a::ROWS ++ apply_b::ROWS`).
 pub static CONFIG_APPLY: LazyLock<ahash::AHashMap<&'static str, &'static FnRow<ConfigApply>>> =

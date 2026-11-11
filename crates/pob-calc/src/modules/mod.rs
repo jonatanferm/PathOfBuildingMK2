@@ -9,6 +9,7 @@ pub mod calc_format;
 pub mod calc_mirages;
 pub mod calc_offence;
 pub mod calc_perform;
+pub mod calc_perform_shared;
 pub mod calc_setup;
 pub mod calc_tools;
 pub mod calc_triggers;

@@ -447,7 +447,7 @@ pub fn Init_model(
     build.outputRevision.set(1.0);
     // L695
     if buildOutput {
-        crate::modules::power::BuildOutput(build);
+        crate::late::BuildOutput(build);
     }
     // L696 UI: self:RefreshStatList()
     // L697

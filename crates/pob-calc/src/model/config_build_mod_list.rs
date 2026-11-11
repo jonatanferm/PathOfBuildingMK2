@@ -10,7 +10,7 @@
 //! * `modLib.parseMod` is `pob_modparser::parseMod` (`isComb` nil → false).
 #![allow(non_snake_case, clippy::all, clippy::pedantic)]
 
-use crate::modules::config_options::configApply;
+use crate::late::configApply;
 use crate::prelude::*;
 
 use pob_gamedata::mod_tools::setSource;

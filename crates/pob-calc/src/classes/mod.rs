@@ -48,7 +48,7 @@ pub enum StoreKind {
 
 /// The mods of a store. Only the `*Internal` functions (MS-A) touch it.
 #[allow(dead_code)]
-pub(crate) enum StoreMods {
+pub enum StoreMods {
     /// ModDB: `self.mods[name] = { mod, … }`.
     DB(ahash::AHashMap<Name, Vec<ModRef>>),
     /// ModList: flat list in insertion order, plus a name → positions index.
@@ -64,7 +64,7 @@ pub(crate) enum StoreMods {
 pub struct ModStore {
     pub kind: StoreKind,
     #[allow(dead_code)]
-    pub(crate) mods: RefCell<StoreMods>,
+    pub mods: RefCell<StoreMods>,
     /// `self.parent` (false → None). A `Field`: CalcSetup.lua:689-692 reassigns
     /// `env.modDB.parent = cachedPlayerDB` (contracts.md#modstore).
     pub parent: Field<Option<ModStoreRef>>,

@@ -30,38 +30,9 @@ use crate::prelude::*;
 
 // ---- Rust-only plumbing ----------------------------------------------------------------------
 
-crate::ctx_struct! {
-    /// The upvalues of the local function `mergeFlasks` (CalcPerform.lua 1691; with its local
-    /// functions `getFlaskInstantRecovery` 1638, `calcFlaskRecovery` 1652, `calcFlaskMods` 1701):
-    /// the segment locals declared at 1602-1611, captured when the closure is created. The
-    /// `PerformCtx.mergeFlasks` field holds them (CCR-0079 §1); the line probe `perform:1691`
-    /// dumps them under these names (`env`, `modDB` and `nonUniqueFlasksApplyToMinion` are ctx
-    /// fields).
-    pub struct FlaskUpvalues {
-        effectInc: f64,
-        effectIncMagic: f64,
-        effectIncMagicNoAdjacent: f64,
-        effectIncNonPlayer: f64,
-        effectIncMagicNonPlayer: f64,
-        flasksApplyToMinion: bool,
-        quickSilverAppliesToAllies: bool,
-        flaskTotalRateInc: f64,
-        flaskDurInc: f64,
-    }
-}
-
-crate::ctx_struct! {
-    /// The upvalues of the local function `mergeTinctures` (CalcPerform.lua 1862; with
-    /// `calcTinctureMods` 1872): the tincture `effectInc`/`effectIncMagic` (1851-1852, shadowing
-    /// the flask ones) and `tinctureLimit` (1853), which `mergeTinctures` decrements (1909), so it
-    /// is shared by every call of the closure. `PerformCtx.mergeTinctures` holds them (CCR-0079
-    /// §1); the line probe `perform:1862` dumps them.
-    pub struct TinctureUpvalues {
-        effectInc: f64,
-        effectIncMagic: f64,
-        tinctureLimit: Cell<f64>,
-    }
-}
+/// The closures' upvalue structs live in `calc_perform_shared.rs`, where the probe reflection
+/// can reach them (CCR-0131).
+pub use crate::modules::calc_perform_shared::{FlaskUpvalues, TinctureUpvalues};
 
 /// CCR-0079 §2: callee replay for the L4 test (feature `probe` only). A call of a callee
 /// whose body is still an `unported!` stub is reported to the installed hook with its

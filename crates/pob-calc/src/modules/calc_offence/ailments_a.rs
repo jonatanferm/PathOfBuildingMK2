@@ -179,7 +179,7 @@ fn newPerfectAgonyMod(
 
 /// @pob Modules/CalcOffence.lua:4155-4163 h=64e58855
 /// OF-G: CalcOffence.lua 4155-4163 (ailment prelude).
-pub(crate) fn seg_ailmentPrelude(ctx: &mut OffenceCtx) -> Flow {
+pub fn seg_ailmentPrelude(ctx: &mut OffenceCtx) -> Flow {
     // -- Ailment + Non Damaging Ailment Section
     // L4156
     ctx.ailmentData = Some(&data().nonDamagingAilment);
@@ -212,7 +212,7 @@ pub(crate) fn seg_ailmentPrelude(ctx: &mut OffenceCtx) -> Flow {
 
 /// @pob Modules/CalcOffence.lua:4165-4989 h=cb5977f2
 /// OF-G: CalcOffence.lua 4165-4989 (sets `globalOutput` at 4165).
-pub(crate) fn seg_bleedPoison(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) -> Flow {
+pub fn seg_bleedPoison(ctx: &mut OffenceCtx, al: &mut AilmentPassLocals) -> Flow {
     // --Calculate ailments and debuffs (poison, bleed, ignite, impale, exposure, etc)
     // L4165
     OFFENCE_STATE.with(|s| {

@@ -87,7 +87,7 @@ fn hasSkillType(ctx: &OffenceCtx, t: SkillType::T) -> bool {
 
 /// @pob Modules/CalcOffence.lua:2174-2605 h=5aa62b9a
 /// OF-D: CalcOffence.lua 2174-2605.
-pub(crate) fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
+pub fn seg_speed(ctx: &mut OffenceCtx) -> Flow {
     use ModType::{BASE, INC};
     let skillModList = ctx.skillModList.clone();
     let skillData = ctx.skillData.clone();

@@ -612,7 +612,7 @@ fn handlerEnmitysEmbrace(
 
 /// @pob Modules/CalcOffence.lua:5649-6263 h=6a1ec530
 /// OF-I: CalcOffence.lua 5649-6263 (incl. the closing `end`).
-pub(crate) fn seg_dotCombined(ctx: &mut OffenceCtx) -> Flow {
+pub fn seg_dotCombined(ctx: &mut OffenceCtx) -> Flow {
     // the segment assigns no ctx local (it writes through the handles), so a shared view suffices
     let ctx: &OffenceCtx = ctx;
     let env = ctx.env.clone();

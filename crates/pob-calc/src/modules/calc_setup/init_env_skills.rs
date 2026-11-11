@@ -468,7 +468,7 @@ fn itemWeaponData(item: &Item, i: i64) -> Option<Table> {
 
 /// @pob Modules/CalcSetup.lua:1451-1973 h=952365eb
 /// CS3: CalcSetup.lua 1451-1973 (`Flow::Restart` at 1923).
-pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
+pub fn seg(ctx: &mut InitEnvCtx) -> Flow {
     let build = ctx.build.clone();
     let accelerate = ctx.accelerate;
     let env = match &ctx.env {

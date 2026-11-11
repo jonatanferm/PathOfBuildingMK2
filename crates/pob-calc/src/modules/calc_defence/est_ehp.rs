@@ -17,7 +17,7 @@
 
 use super::helpers::{buildAllyLifePools, reducePoolsByDamage};
 use super::DefEstCtx;
-use crate::modules::calc_perform::actionSpeedMod;
+use crate::modules::calc_perform_shared::actionSpeedMod;
 use crate::prelude::*;
 
 // Module-level locals of CalcDefence.lua (24, 28) used by this segment. Their
@@ -477,7 +477,7 @@ fn numberOfHitsToDie(c: &DefEstCtx, DamageIn: &Table) -> f64 {
 
 /// @pob Modules/CalcDefence.lua:2779-3164 h=7f4fe209
 /// DF-F: CalcDefence.lua 2612-3164 (2612-2778 is `numberOfHitsToDie`).
-pub(crate) fn seg(ctx: &mut DefEstCtx) -> Flow {
+pub fn seg(ctx: &mut DefEstCtx) -> Flow {
     let c: &DefEstCtx = ctx;
     let env = &c.env;
     let actor = &c.actor;

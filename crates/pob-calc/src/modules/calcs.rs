@@ -10,52 +10,51 @@ use crate::modules::calc_setup::initEnv;
 use crate::modules::common::cacheSkillUUID;
 use crate::prelude::*;
 
-/// The closure `getMiscCalculator` returns (Calcs.lua:100-113): captures the build and
-/// `usedFullDPS`.
-pub struct MiscCalculator {
-    pub build: BuildRef,
-    pub usedFullDPS: Cell<bool>,
-}
+pub use crate::late::MiscCalculator;
 
-impl MiscCalculator {
-    /// `calcFunc(override, useFullDPS)` (Calcs.lua:100-113; marker on [`getMiscCalculator`]).
-    pub fn call(&self, r#override: Rc<Override>, useFullDPS: Option<bool>) -> Output {
-        let build = &self.build;
-        let usedFullDPS = self.usedFullDPS.get();
-        // L101
-        let (env, cachedPlayerDB, cachedEnemyDB, cachedMinionDB) =
-            initEnv(build, Mode::CALCULATOR, Some(r#override.clone()), None);
-        // L102
-        perform(&env, false);
-        // L103
-        if (useFullDPS != Some(false) || build.viewMode.get() == n!("TREE")) && usedFullDPS {
-            // prevent upcoming calculation from using Cached Data and thus forcing it to re-calculate new FullDPS roll-up
-            // without this, FullDPS increase/decrease when for node/item/gem comparison would be all 0 as it would be comparing
-            // A with A (due to cache reuse) instead of A with B
-            // L107
-            let fullDPS = calcFullDPS(
-                build,
-                Mode::CALCULATOR,
-                r#override,
-                Some(&SpecEnv {
-                    cachedPlayerDB,
-                    cachedEnemyDB,
-                    cachedMinionDB,
-                    env: None,
-                    accelerate: Accelerate::default(),
-                }),
-            );
-            let output = env.player.output.get();
-            // L108
-            output.set(n!("SkillDPS"), fullDPS.skills.clone());
-            // L109
-            output.set(n!("FullDPS"), fullDPS.combinedDPS);
-            // L110
-            output.set(n!("FullDotDPS"), fullDPS.TotalDotDPS);
-        }
-        // L112
-        env.player.output.get()
+/// `calcFunc(override, useFullDPS)` (Calcs.lua:100-113; marker on [`getMiscCalculator`]): the
+/// body of the closure [`MiscCalculator::call`] calls through the late seam (CCR-0131). Rust-only
+/// name: the Lua closure has none.
+pub fn misc_calculator_call(
+    this: &MiscCalculator,
+    r#override: Rc<Override>,
+    useFullDPS: Option<bool>,
+) -> Output {
+    let build = &this.build;
+    let usedFullDPS = this.usedFullDPS.get();
+    // L101
+    let (env, cachedPlayerDB, cachedEnemyDB, cachedMinionDB) =
+        initEnv(build, Mode::CALCULATOR, Some(r#override.clone()), None);
+    // L102
+    perform(&env, false);
+    // L103
+    if (useFullDPS != Some(false) || build.viewMode.get() == n!("TREE")) && usedFullDPS {
+        // prevent upcoming calculation from using Cached Data and thus forcing it to re-calculate new FullDPS roll-up
+        // without this, FullDPS increase/decrease when for node/item/gem comparison would be all 0 as it would be comparing
+        // A with A (due to cache reuse) instead of A with B
+        // L107
+        let fullDPS = calcFullDPS(
+            build,
+            Mode::CALCULATOR,
+            r#override,
+            Some(&SpecEnv {
+                cachedPlayerDB,
+                cachedEnemyDB,
+                cachedMinionDB,
+                env: None,
+                accelerate: Accelerate::default(),
+            }),
+        );
+        let output = env.player.output.get();
+        // L108
+        output.set(n!("SkillDPS"), fullDPS.skills.clone());
+        // L109
+        output.set(n!("FullDPS"), fullDPS.combinedDPS);
+        // L110
+        output.set(n!("FullDotDPS"), fullDPS.TotalDotDPS);
     }
+    // L112
+    env.player.output.get()
 }
 
 /// `calcs.calcFullDPS` result (Calcs.lua:146-160). `cullingDPS` (L348, set only when

@@ -27,7 +27,7 @@ use std::sync::LazyLock;
 
 use super::OffenceCtx;
 use crate::data_fns::{self, SkillFuncImpl, SkillHook};
-use crate::modules::calc_perform::actor_b as calc_perform_b;
+use crate::modules::calc_perform_shared::actionSpeedMod;
 use crate::modules::calc_tools as calcLib;
 use crate::prelude::*;
 use pob_gamedata::mod_tools;
@@ -797,7 +797,7 @@ pub fn calcWarcryCastTime(
     // L313
     let mut warcryCastTime = baseSpeed
         * calcLib::r#mod(skillModList, skillCfg, nm!["WarcrySpeed"])
-        * calc_perform_b::actionSpeedMod(actor);
+        * actionSpeedMod(actor);
     // L314
     warcryCastTime = m_min(warcryCastTime, data().misc.ServerTickRate);
     // L315

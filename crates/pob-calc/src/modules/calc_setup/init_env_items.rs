@@ -413,7 +413,7 @@ const EXTRA_JEWEL_FUNCS_ACTOR: &str = "$extraJewelFuncsActor";
 /// @pob Modules/CalcSetup.lua:800-1450 h=d03eb08e
 /// CS2: CalcSetup.lua 800-1450 (`Flow::Restart` at 1433).
 #[rustfmt::skip]
-pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
+pub fn seg(ctx: &mut InitEnvCtx) -> Flow {
     let build = ctx.build.clone();
     let accelerate = ctx.accelerate;
     let r#override = ctx.r#override.clone();

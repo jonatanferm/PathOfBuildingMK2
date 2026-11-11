@@ -31,7 +31,7 @@ use pob_lua::format::FmtArg;
 
 /// @pob Modules/CalcOffence.lua:1037-1691 h=77ee8685
 /// OF-B: CalcOffence.lua 1037-1691.
-pub(crate) fn seg_skillTypeStats(ctx: &mut OffenceCtx) -> Flow {
+pub fn seg_skillTypeStats(ctx: &mut OffenceCtx) -> Flow {
     // The ctx fields this segment reads (handles: every write goes through them).
     let env = ctx.env.clone();
     let actor = ctx.actor.clone();
