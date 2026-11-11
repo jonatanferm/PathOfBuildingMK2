@@ -1,0 +1,45 @@
+# U44: account-name import of PoB's sample character (spec/System/SampleCharacter.json) from
+# recorded site responses. Open allflame_exp_001, Ctrl+I, type the account name, Start
+# (get-characters, the profile page: "Tester-1234" -> "Tester#1234", the league and character
+# dropdowns, the account history), "Passive Tree and Jewels" (the build has a tree: the confirm
+# popup, RETURN; get-passive-skills: tattoos, masteries, cluster jewels, the bloodline, bandit and
+# pantheons), then "Items and Skills" (get-items: deletes the equipment and skills, imports the
+# items and their socketed gems), with a snapshot after each stage.
+#! u44-expect-label Character list successfully retrieved.
+#! u44-expect-label testCharacter
+#! u44-expect-label lvl 99
+#! u44-expect-xml secondaryAscendClassId="11"
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press i
+key-up CTRL
+frames 2
+move 496 198
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "Tester#1234"
+frames 1
+move 634 198
+click LEFTBUTTON
+frames 3
+snapshot listed
+move 464 250
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+snapshot tree
+move 434 286
+click LEFTBUTTON
+frames 3
+snapshot items
+frames 1

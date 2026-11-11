@@ -1,0 +1,52 @@
+# U40: Life/ES/Mana cells: "Base from Gear" (the slot table with gearOnly, rows sorted by base,
+# sourceLabel from the item rarity colour, sourceLabelTooltip), "Total" (the full slot table),
+# "Reserved" (the reservations table), the ES base and recharge cells; pin the Life base and
+# hover its slot rows' Name cells (U38 stand-in tooltip); then the Poison and Ignite DPS cells
+# (panes near the bottom of the viewport: `y = min(sourceData.y, bottom - height)`), one pinned,
+# and the wheel over it.
+#! u40-expect-text Reservation
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 1200 232
+frames 2
+move 1200 322
+frames 2
+move 1200 340
+frames 2
+move 1200 516
+frames 2
+move 1200 602
+frames 2
+move 1200 710
+frames 2
+move 1200 232
+click LEFTBUTTON
+frames 2
+move 1200 260
+frames 2
+move 1200 280
+frames 2
+move 1150 780
+click LEFTBUTTON
+frames 2
+move 490 656
+frames 2
+wheel down
+frames 2
+move 720 638
+click LEFTBUTTON
+frames 2
+move 600 600
+wheel down 3
+frames 2
+wheel up
+frames 2
+move 1150 780
+click LEFTBUTTON
+frames 2

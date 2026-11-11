@@ -1,0 +1,20 @@
+# U30: allflame_exp_001 in the Skills tab (Ctrl+2): the set selector (one set: disabled), the
+# group list stand-in, the gem options, and the details of socket group 1 (the "Explode" group,
+# source ~= nil: the source note with the explosion sources, the count field, no imbued support),
+# idle; then the mouse over the slot dropdown (its OUT tooltip, disabled: source ~= nil) and the
+# default gem level dropdown (its tooltip), and off the tab.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+move 860 124
+frames 2
+move 590 535
+frames 2
+move 1270 790
+frames 2
+snapshot loaded

@@ -8,7 +8,7 @@ Behaviour covered (see cargo.sh's header and inline comments):
   * environment: CARGO_BUILD_JOBS, RUSTC_WRAPPER=sccache, CARGO_TARGET_DIR not exported;
   * cwd: kept inside the worktree, worktree root otherwise;
   * guards: test/bench need -p, release builds need -p, never --workspace (POB_PORT_ALLOW_WORKSPACE=1);
-  * compile slots: POB_PORT_SLOTS (default 2) flocks cargo.lock, cargo.lock.1, ...;
+  * compile slots: POB_PORT_SLOTS (default 1) flocks cargo.lock, cargo.lock.1, ...;
   * test/bench run in two phases: `--no-run` under a compile slot, then the run under one of
     POB_PORT_RUN_SLOTS (default 3) run slots run.lock, run.lock.1, ...;
   * read-only subcommands take no slot;
@@ -361,21 +361,24 @@ class CargoShTest(unittest.TestCase):
         self.assertIn("waiting for one of 1 compile slots", err)
         self.assertEqual(self.calls(out)[0]["args"], self.expect_args(["check", "-p", "x"]))
 
-    def test_default_two_compile_slots(self):
-        # One slot busy: the run takes cargo.lock.1 without waiting.
-        self.hold("cargo.lock")
-        r = self.run_sh("check", "-p", "x")
-        self.assertEqual(self.one_call(r)["held"], "cargo.lock cargo.lock.1")
-        self.assertNotIn("waiting", r.stderr)
-        # Both busy: it waits.
-        lock1 = self.hold("cargo.lock.1")
+    def test_default_one_compile_slot(self):
+        # The default is one compile slot (a pob-calc rustc peaks at 3.5-4 GB): a held cargo.lock
+        # makes the run wait, and it proceeds once the slot is released.
+        lock0 = self.hold("cargo.lock")
         p = self.popen("check", "-p", "x")
         time.sleep(1.0)
-        self.assertIsNone(p.poll(), "cargo.sh must wait while both compile slots are held")
-        self.release(lock1)
+        self.assertIsNone(p.poll(), "cargo.sh must wait while the compile slot is held")
+        self.release(lock0)
         out, err = p.communicate(timeout=30)
         self.assertEqual(p.returncode, 0, err)
-        self.assertIn("waiting for one of 2 compile slots", err)
+        self.assertIn("waiting for one of 1 compile slots", err)
+
+    def test_two_compile_slots_when_configured(self):
+        # POB_PORT_SLOTS=2: one slot busy, the run takes cargo.lock.1 without waiting.
+        self.hold("cargo.lock")
+        r = self.run_sh("check", "-p", "x", POB_PORT_SLOTS="2")
+        self.assertEqual(self.one_call(r)["held"], "cargo.lock cargo.lock.1")
+        self.assertNotIn("waiting", r.stderr)
 
     def test_two_runs_do_not_overlap(self):
         # With one compile slot, two compiles run one after the other.
@@ -387,10 +390,11 @@ class CargoShTest(unittest.TestCase):
         self.assertGreaterEqual(time.time() - t0, 1.9)
 
     def test_two_slots_run_concurrently(self):
-        # With the default two compile slots, two compiles are inside cargo at the same time.
+        # With POB_PORT_SLOTS=2, two compiles are inside cargo at the same time.
         barrier = os.path.join(self.tmp, "barrier")
         os.makedirs(barrier)
-        ps = [self.popen("check", "-p", str(i), FAKE_BARRIER=barrier, FAKE_BARRIER_N="2") for i in range(2)]
+        ps = [self.popen("check", "-p", str(i), FAKE_BARRIER=barrier, FAKE_BARRIER_N="2", POB_PORT_SLOTS="2")
+              for i in range(2)]
         for p in ps:
             out, err = p.communicate(timeout=30)
             self.assertEqual(p.returncode, 0, err)

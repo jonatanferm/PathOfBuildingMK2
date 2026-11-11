@@ -1,0 +1,27 @@
+screen 1280 800 dpi 1.0
+# U33: `main.showAllItemAffixes` off (Settings.xml): a unique's range lines use the range line
+# dropdown and its slider (L1031-1095) instead of the stacked lines (all hidden), and the range
+# section height is 28 (L1026). The foulborn checkbox's `shown` is evaluated with the selected
+# line 1, which is not Abyssus' mutable line, so it stays hidden here (scenario c draws the stacked
+# checkboxes with the foulborn icon). Double-click unique row 4 (Abyssus), then Cancel.
+#! u33-settings showAllItemAffixes="true" => showAllItemAffixes="false"
+#! u33-expect display: Abyssus
+#! u33-expect display: nil
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 544
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1270 700
+frames 2
+move 1003 50
+frames 1
+click LEFTBUTTON
+frames 3

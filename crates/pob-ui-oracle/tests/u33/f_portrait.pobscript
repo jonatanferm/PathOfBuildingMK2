@@ -1,0 +1,14 @@
+screen 1000 1400 dpi 1.0
+# U33: portrait mode (main.portraitMode, screen height > width): the item list is anchored under
+# the last slot (L280 with `self.lastSlot` still nil, re-anchored by Draw), the craft buttons and
+# the display item anchor next to the set manager (L310, L337).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_030.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 990 1390
+frames 3

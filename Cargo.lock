@@ -2886,13 +2886,16 @@ dependencies = [
 name = "pob-app"
 version = "0.0.1"
 dependencies = [
+ "flate2",
  "indexmap",
  "miniz_oxide",
  "pob-calc",
  "pob-gamedata",
  "pob-host",
  "pob-lua",
+ "pob-modparser",
  "pob-sg",
+ "pob-testpaths",
  "pob-ui-core",
  "serde_json",
  "sha2",

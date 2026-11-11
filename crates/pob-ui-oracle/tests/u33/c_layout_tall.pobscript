@@ -1,0 +1,29 @@
+screen 1920 1200 dpi 1.0
+# U33: the layout at 1920 px and a 1168 px high tab (`self.height < 980` is false: the
+# "Import from:" selector hides, both DBs show, the unique DB at y 96 and the rare DB at y 396
+# under the item list, L287-308). Double-click unique row 4 (Abyssus: a helmet with the enchant
+# buttons, corrupt/add implicit, influence, and a foulborn-mutable line among its stacked range
+# lines: the stacked checkbox with the foulborn icon), then rare template row 2 (a crafted staff:
+# quality, "Add Crucible mod...", the crafted affix rows and the modifier sorting).
+#! u33-expect display: Abyssus
+#! u33-expect display: +5 Chaos Staff
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 522
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1910 1190
+frames 3
+move 800 782
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1910 1190
+frames 3

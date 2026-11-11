@@ -1,0 +1,15 @@
+# U23: the tree versions 2_6, 3_19 and 3_27 (a Witch with no points; searchStr="life").
+fixture userdir=user
+frames 2
+load-build "Builds/tree_2_6.xml"
+frames 3
+move 800 300
+frames 1
+load-build "Builds/tree_3_19.xml"
+frames 3
+move 800 300
+frames 1
+load-build "Builds/tree_3_27.xml"
+frames 3
+move 800 300
+frames 1

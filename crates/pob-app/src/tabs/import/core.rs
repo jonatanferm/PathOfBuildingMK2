@@ -285,26 +285,16 @@ fn not_ported(what: &str, owner: &str) -> ! {
 
 /// The placeholders (each raises a Lua error naming its owner).
 pub fn default_import_hooks() -> ImportHooks {
+    use super::character as u44;
     ImportHooks {
-        build_character_list: Rc::new(|_, _, _, _, _, _| {
-            not_ported("ImportTab:BuildCharacterList", "U44")
-        }),
-        import_passive_tree_and_jewels: Rc::new(|_, _, _, _| {
-            not_ported("ImportTab:ImportPassiveTreeAndJewels", "U44")
-        }),
-        import_items_and_skills: Rc::new(|_, _, _, _, _, _| {
-            not_ported("ImportTab:ImportItemsAndSkills", "U44")
-        }),
-        download_site_character_list: Rc::new(|_, _, _| {
-            not_ported("ImportTab:DownloadSiteCharacterList", "U44")
-        }),
-        download_passive_tree: Rc::new(|_, _, _| {
-            not_ported("ImportTab:DownloadPassiveTree", "U44")
-        }),
-        download_items: Rc::new(|_, _, _| not_ported("ImportTab:DownloadItems", "U44")),
-        set_predefined_build_name: Rc::new(|_, _| {
-            not_ported("ImportTab:SetPredefinedBuildName", "U44")
-        }),
+        // U44 (CCR-0109 §5)
+        build_character_list: Rc::new(u44::build_character_list),
+        import_passive_tree_and_jewels: Rc::new(u44::import_passive_tree_and_jewels_hook),
+        import_items_and_skills: Rc::new(u44::import_items_and_skills_hook),
+        download_site_character_list: Rc::new(u44::download_site_character_list),
+        download_passive_tree: Rc::new(u44::download_passive_tree),
+        download_items: Rc::new(u44::download_items),
+        set_predefined_build_name: Rc::new(u44::set_predefined_build_name),
         compare_import_build: Rc::new(|_, _, _| not_ported("CompareTab:ImportBuild", "U46")),
     }
 }

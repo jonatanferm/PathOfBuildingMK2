@@ -1,0 +1,44 @@
+[
+ {
+  "url": "https://www.pathofexile.com/character-window/get-characters?accountName=Tester%231234&realm=pc",
+  "body_file": "chars.json",
+  "headers": "HTTP/1.1 200 OK\r\n\r\n"
+ },
+ {
+  "url": "https://www.pathofexile.com/account/view-profile/Tester%231234",
+  "body_file": "profile.html",
+  "headers": "HTTP/1.1 200 OK\r\n\r\n"
+ },
+ {
+  "url": "https://www.pathofexile.com/character-window/get-passive-skills?accountName=Tester%231234&character=testCharacter&realm=pc",
+  "body_file": "passives.json",
+  "headers": "HTTP/1.1 200 OK\r\n\r\n"
+ },
+ {
+  "url": "https://www.pathofexile.com/character-window/get-items?accountName=Tester%231234&character=testCharacter&realm=pc",
+  "body_file": "items.json",
+  "headers": "HTTP/1.1 200 OK\r\n\r\n"
+ },
+ {
+  "url": "https://www.pathofexile.com/character-window/get-characters?accountName=Nobody%230001&realm=pc",
+  "body": "",
+  "error": "Response code: 404",
+  "headers": "HTTP/1.1 404 Not Found\r\n\r\n"
+ },
+ {
+  "url": "https://www.pathofexile.com/character-window/get-characters?accountName=Private%230002&realm=pc",
+  "body": "",
+  "error": "Response code: 403",
+  "headers": "HTTP/1.1 403 Forbidden\r\n\r\n"
+ },
+ {
+  "url": "https://www.pathofexile.com/character-window/get-characters?accountName=Empty%230003&realm=pc",
+  "body": "[]",
+  "headers": "HTTP/1.1 200 OK\r\n\r\n"
+ },
+ {
+  "url": "https://www.pathofexile.com/character-window/get-characters?accountName=Garbled%230004&realm=pc",
+  "body": "<html>oops</html>",
+  "headers": "HTTP/1.1 200 OK\r\n\r\n"
+ }
+]

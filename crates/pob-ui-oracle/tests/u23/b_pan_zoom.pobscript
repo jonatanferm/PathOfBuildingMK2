@@ -1,0 +1,34 @@
+# U23: pan (drag past the 5 px threshold), zoom with the wheel to the clamp at level 12 and 0, PAGEUP/PAGEDOWN
+# with and without SHIFT.
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+move 800 400
+key-down LEFTBUTTON
+frames 1
+move 803 402
+frames 1
+move 860 450
+frames 1
+move 900 420
+frames 1
+key-up LEFTBUTTON
+frames 1
+wheel up 10
+frames 2
+move 700 300
+wheel down 13
+frames 2
+press PAGEUP
+frames 1
+key-down SHIFT
+press PAGEUP
+frames 1
+press PAGEDOWN
+key-up SHIFT
+frames 1
+press PAGEDOWN
+frames 2
+snapshot zoomed
+frames 1

@@ -1,0 +1,79 @@
+# U44: the character list's failure paths and the league dropdown. Account names whose recorded
+# get-characters response is a 404 ("Account name is incorrect."), a 403 ("Account profile is
+# private or does not exist."), an empty list ("The account has no characters to import.") and
+# an HTML page (ProcessSiteJSON fails: "Error processing character list, try again later"); then
+# a good account and "All" in the league dropdown (BuildCharacterList with no league: the detail
+# names each character's league).
+#! u44-expect-label Account name is incorrect.
+#! u44-expect-label Account profile is private or does not exist.
+#! u44-expect-label The account has no characters to import.
+#! u44-expect-label Error processing character list, try again later
+#! u44-expect-label lvl 80 in Standard
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press i
+key-up CTRL
+frames 2
+move 496 198
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "Nobody#0001"
+move 634 198
+click LEFTBUTTON
+frames 2
+move 496 198
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "Private#0002"
+move 634 198
+click LEFTBUTTON
+frames 2
+move 496 198
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "Empty#0003"
+move 634 198
+click LEFTBUTTON
+frames 2
+move 496 198
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "Garbled#0004"
+move 634 198
+click LEFTBUTTON
+frames 2
+move 496 198
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "Tester#1234"
+move 634 198
+click LEFTBUTTON
+frames 3
+move 453 197
+click LEFTBUTTON
+frames 1
+move 453 248
+click LEFTBUTTON
+frames 2
+move 528 217
+click LEFTBUTTON
+frames 2
+snapshot errors
+frames 1

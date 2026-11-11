@@ -1,0 +1,19 @@
+# U45 layout, wide: party_loaded (ShowAdvanceTools="true") at 1920x1080@1, where the tab is
+# 1608 px wide (> theme.widthThreshold1 = 1350): appendNotReplace beside the Import button
+# (x 60, y 0, PartyTab.lua:332-337), ShowAdvanceTools at y 4 (L349-351), Rebuild All beside
+# Disable Party Effects (x 8, y 0, L379-384), editAurasLabel at y 36 (L387-389),
+# bufferHeightLeft without the 24 (L57), importCodeIn 328 wide (L288-290). The build list is
+# centred on the screen (900 wide), so its first row is clicked at the centre.
+screen 1920 1080 dpi 1.0
+fixture userdir=user_loaded
+frames 2
+move 960 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 40 122
+click LEFTBUTTON
+frames 3
+snapshot wide
+frames 1
