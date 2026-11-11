@@ -1,0 +1,104 @@
+screen 1280 800 dpi 1.0
+# U36: EnchantDisplayItem (ItemsTab.lua:2764-2973). A custom rare helmet (skill enchantments:
+# haveSkills, the build's skills in skillsUsed): "Change Enchantment..." opens the popup (skill,
+# "All skills:", source, sort and enchantment dropdowns); hover the enchantment box (the BODY
+# tooltip: enchantItem of the selection), drop it, hover and pick the second entry; sort by the
+# second "Sort by" entry (applySort: getSortValue through the calc for every entry, table.sort,
+# UpdateSearch, SetSel(1, true)); tick "All skills:" (buildSkillList, SetSel on the skill
+# dropdown); pick the second source (buildEnchantmentList, the clamped SetSel, applySort);
+# "Enchant" (SetDisplayItem). Reopen and "Remove" (t_remove of the slot). Then "Cancel" the item
+# and create custom rare boots (no skill keys: the skill controls are absent), enchant with the
+# second source's first line.
+#! u36-expect Enchant Item
+#! u36-expect Doom Stride
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 1262 50
+click LEFTBUTTON
+frames 3
+move 640 300
+click LEFTBUTTON
+type "Doom Visor"
+press RETURN
+type "Iron Hat"
+press RETURN
+type "+20 to maximum Life"
+frames 2
+move 595 630
+click LEFTBUTTON
+frames 3
+move 878 106
+click LEFTBUTTON
+frames 3
+move 680 414
+frames 3
+click LEFTBUTTON
+frames 2
+move 680 444
+frames 3
+click LEFTBUTTON
+frames 2
+move 812 389
+click LEFTBUTTON
+frames 2
+move 812 428
+frames 2
+click LEFTBUTTON
+frames 3
+move 696 364
+click LEFTBUTTON
+frames 3
+move 527 389
+click LEFTBUTTON
+frames 2
+move 527 428
+click LEFTBUTTON
+frames 3
+move 680 414
+frames 3
+move 551 445
+click LEFTBUTTON
+frames 3
+move 878 106
+click LEFTBUTTON
+frames 3
+move 639 445
+click LEFTBUTTON
+frames 3
+move 1004 50
+click LEFTBUTTON
+frames 3
+move 1262 50
+click LEFTBUTTON
+frames 3
+move 640 300
+click LEFTBUTTON
+type "Doom Stride"
+press RETURN
+type "Iron Greaves"
+press RETURN
+type "+20 to maximum Life"
+frames 2
+move 595 630
+click LEFTBUTTON
+frames 3
+move 878 106
+click LEFTBUTTON
+frames 3
+move 527 389
+click LEFTBUTTON
+frames 2
+move 527 428
+click LEFTBUTTON
+frames 3
+move 680 414
+frames 3
+move 551 445
+click LEFTBUTTON
+frames 3

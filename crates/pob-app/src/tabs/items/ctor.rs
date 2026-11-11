@@ -503,21 +503,14 @@ pub fn default_items_ui_hooks() -> ItemsUiHooks {
         get_comparison_slot_name_for_item: Rc::new(|cx, me, item| {
             Some(super::display_item::GetComparisonSlotNameForItem(cx, me, item))
         }),
-        open_item_set_manage_popup: Rc::new(|_, _| {
-            not_ported("ItemsTab:OpenItemSetManagePopup", "U36")
-        }),
-        craft_item: Rc::new(|_, _| not_ported("ItemsTab:CraftItem", "U36")),
-        edit_display_item_text: Rc::new(|_, _, _| {
-            not_ported("ItemsTab:EditDisplayItemText", "U36")
-        }),
-        enchant_display_item: Rc::new(|_, _, _| not_ported("ItemsTab:EnchantDisplayItem", "U36")),
-        append_added_notable_tooltip: Rc::new(|_, _, _, _| {
-            not_ported("ItemsTab:AppendAddedNotableTooltip", "U36")
-        }),
-        anoint_display_item: Rc::new(|_, _, _| not_ported("ItemsTab:AnointDisplayItem", "U36")),
-        add_implicit_to_display_item: Rc::new(|_, _, _| {
-            not_ported("addImplicit.AddImplicitToDisplayItem", "U36")
-        }),
+        // U36 (craft_a.rs, add_implicit.rs)
+        open_item_set_manage_popup: Rc::new(super::craft_a::OpenItemSetManagePopup),
+        craft_item: Rc::new(super::craft_a::CraftItem),
+        edit_display_item_text: Rc::new(super::craft_a::EditDisplayItemText),
+        enchant_display_item: Rc::new(|cx, me, slot| super::craft_a::EnchantDisplayItem(cx, me, Some(slot))),
+        append_added_notable_tooltip: Rc::new(super::craft_a::AppendAddedNotableTooltip),
+        anoint_display_item: Rc::new(|cx, me, slot| super::craft_a::AnointDisplayItem(cx, me, Some(slot))),
+        add_implicit_to_display_item: Rc::new(super::add_implicit::AddImplicitToDisplayItem),
         corrupt_display_item: Rc::new(|_, _| not_ported("ItemsTab:CorruptDisplayItem", "U37")),
         add_custom_modifier_to_display_item: Rc::new(|_, _| {
             not_ported("ItemsTab:AddCustomModifierToDisplayItem", "U37")

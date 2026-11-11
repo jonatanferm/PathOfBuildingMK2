@@ -1,0 +1,43 @@
+screen 1280 800 dpi 1.0
+# U36: AddImplicitPopup.lua's Vestigial source (L121-158, L161-172): a unique helmet from the
+# unique DB (Abyssus: a helmet base without `source`). "Add Implicit..." opens the popup with
+# Vestigial first (the mappings of the other unique helmets, sorted by mod id; the Type dropdown
+# is the selector: modSelect hidden, height 110); hover the Type box (the mod lines, "Source:"
+# and AddModComparisonTooltip with replaceImplicits), drop it and pick the second entry (its
+# selFunc), hover and click "Add" (applyCandidateMod: the implicits replaced).
+#! u36-expect Add Implicit to Item
+#! u36-expect ^7Source: 
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 870 475
+click LEFTBUTTON
+frames 1
+type "abyssus"
+frames 4
+move 800 496
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1270 790
+frames 2
+move 1134 134
+click LEFTBUTTON
+frames 3
+move 600 399
+frames 3
+click LEFTBUTTON
+frames 2
+move 600 429
+frames 3
+click LEFTBUTTON
+frames 3
+move 596 437
+frames 2
+click LEFTBUTTON
+frames 3

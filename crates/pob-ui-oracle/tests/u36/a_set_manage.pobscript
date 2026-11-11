@@ -1,0 +1,26 @@
+screen 1280 800 dpi 1.0
+# U36: OpenItemSetManagePopup (ItemsTab.lua:2609-2619; allflame_exp_007 has two sets): "Manage..."
+# opens the popup with U32's ItemSetListControl and SharedItemSetListControl (each the other's
+# drag target); hover the first set row (its AddItemSetTooltip stand-in), click it, then "Done".
+#! u36-expect Manage Item Sets
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_007.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 673 50
+click LEFTBUTTON
+frames 3
+move 480 330
+frames 3
+click LEFTBUTTON
+frames 2
+move 800 330
+frames 2
+move 640 525
+frames 2
+click LEFTBUTTON
+frames 3
