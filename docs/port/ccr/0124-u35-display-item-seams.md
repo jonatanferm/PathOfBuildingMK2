@@ -15,25 +15,14 @@ written (`core.rs` is the UI-U0 stub). Every double-click on an ItemDB or shared
 (`ItemDBControl.lua:384`, `SharedItemListControl.lua:65`) and Ctrl+V on the tab (L1464) go through
 it with `normalise = true`.
 
-Applied locally (U35's own file): `display_item::DisplayItemHooks` with one entry,
-`copy_anoints_and_eldritch_implicits: Rc<dyn Fn(&mut Cx, CtrlId /* the ItemsTab */, &ItemRef
-/* newItem */, bool /* copyEldritchImplicits */, bool /* overwrite */, Option<&str>
-/* sourceSlotName */)>`, plus `display_item_hooks()` / `set_display_item_hooks(..)` /
-`default_display_item_hooks()`. The default raises "ItemsTab:CopyAnointsAndEldritchImplicits is
-not ported yet (U34)", as the other hook tables do.
-
-Proposed: U34 replaces the entry in `default_display_item_hooks` with its port (one line):
-
-```diff
--        copy_anoints_and_eldritch_implicits: Rc::new(|_, _, _, _, _, _| {
--            lua_error!("ItemsTab:CopyAnointsAndEldritchImplicits is not ported yet (U34)")
--        }),
-+        copy_anoints_and_eldritch_implicits: Rc::new(super::core::CopyAnointsAndEldritchImplicits),
-```
-
-(or, if U34 prefers, it adds the entry to its own table and U35's call site switches to it; one
-line in `display_item.rs`). TradeQuery.lua:1090 (U51) calls the same method with
-`overwrite = true` and a `sourceSlotName`, which the signature already carries.
+As done (U34 merged first, with the port as the `pub fn`
+`core::CopyAnointsAndEldritchImplicits(cx, newItem, copyEldritchImplicits, overwrite,
+sourceSlotName)`, `core.rs`, CCR-0126 §5): U35's `CreateDisplayItemFromRaw` (L1952) calls it
+directly. The `display_item::DisplayItemHooks` table that U35's first draft added for this one
+entry (with a default raising "ItemsTab:CopyAnointsAndEldritchImplicits is not ported yet
+(U34)") is dropped: the method is ported, so no seam is needed, and the u35 scenarios now run
+U34's port instead of a test-only copy. TradeQuery.lua:1090 (U51) calls the same `pub fn` with
+`overwrite = true` and a `sourceSlotName`.
 
 ## 2. `ItemsUiHooks::add_mod_comparison_tooltip` lacks `replaceImplicits`
 
@@ -58,7 +47,10 @@ through `ctor::State::slots[slotName]`. No change proposed.
 ## 4. Notes for U34, U36-U38
 
 * `ToggleDisplayItemModLine(cx, me, Option<&Table>)` (L2123-2136) is a `pub fn` for Draw's
-  tooltip click (L1542, U34).
+  tooltip click (L1542, U34). As CCR-0126 §1 asks, U35 replaced the
+  `core::CoreHooks::toggle_display_item_mod_line` default with it: the entry downcasts the
+  tooltip line's `ModLineRef` to `TtModLine` and its `line` to the mod line `Table` (what
+  AddItemTooltip stores, CCR-0073 B).
 * `UpdateAffixControl` takes the affix dropdown's node and finds its index among
   `displayItemAffix1..9` (for `drop.slider` and the `outputTable`/`outputIndex` fields of
   `ctor::State::affix_controls`); `PowerCache` is the shared `powerCache` table of one

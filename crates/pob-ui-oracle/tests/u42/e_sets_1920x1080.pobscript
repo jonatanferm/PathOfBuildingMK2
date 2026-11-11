@@ -1,0 +1,81 @@
+screen 1920 1080 dpi 1.5
+# U42: d_sets_1280x800 at 1920x1080 @1.5 (1280x720 virtual: the centred popups sit 40 px higher)
+# "Manage..." (OpenConfigSetManagePopup: ConfigSetListControl + Done):
+# * New: NewConfigSet, the "Set Name" popup (RenameSet with addOnName), type a name, Save
+#   (title, modFlag, the row appended and selected, AddUndoState, SyncLoadouts); RETURN would
+#   not reach the popup's enter control: the focused edit consumes it (EditControl.lua:513);
+# * select row 1 and F2 (OnSelKeyDown: the "Rename" popup), append "X", Save;
+# * Copy row 1 (copyTable of the set under the first free id, RenameSet with addOnName);
+# * double-click row 2 (OnSelClick: SetActiveConfigSet(2), AddUndoState): "(Current)" moves;
+# * Delete row 2 (OnSelDelete: the confirm popup, RETURN: the set removed, the active set falls
+#   back to the row above, AddUndoState, SyncLoadouts);
+# * Done; then the "Config set:" dropdown (enabled with more than one set) picks the copy
+#   (SetActiveConfigSet through BuildHooks, AddUndoState).
+#! u42-expect-config id="3" title="DefaultXC"
+#! u42-expect-config activeConfigSet="3"
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+move 647 50
+click LEFTBUTTON
+frames 3
+move 544 252
+frames 2
+click LEFTBUTTON
+frames 2
+type "Second"
+frames 2
+move 595 390
+click LEFTBUTTON
+frames 3
+move 600 275
+click LEFTBUTTON
+frames 2
+press F2
+frames 2
+press END
+type "X"
+frames 2
+move 595 390
+click LEFTBUTTON
+frames 3
+move 672 252
+frames 2
+click LEFTBUTTON
+frames 2
+press END
+type "C"
+frames 2
+move 595 390
+click LEFTBUTTON
+frames 3
+move 600 291
+click LEFTBUTTON
+click LEFTBUTTON
+frames 3
+snapshot second_active
+move 736 252
+click LEFTBUTTON
+frames 3
+press RETURN
+frames 3
+move 640 485
+click LEFTBUTTON
+frames 3
+snapshot deleted
+move 493 50
+click LEFTBUTTON
+frames 2
+move 493 84
+frames 3
+click LEFTBUTTON
+frames 3
+snapshot switched

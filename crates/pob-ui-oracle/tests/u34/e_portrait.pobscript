@@ -1,0 +1,35 @@
+screen 1000 1400 dpi 1.0
+# U34: Draw in portrait mode (main.portraitMode: the item list re-anchored under `self.lastSlot`
+# after UpdateSockets, the craft buttons and the display item anchor next to the set manager,
+# L1553-1559) and the scroll keys (L1495-1511: the wheel scrolls the vertical bar when it is under
+# the mouse or the horizontal bar is hidden, else the horizontal one), allflame_exp_030; then the
+# E shortcut on the Helmet slot (the display item beside the set manager: snapHScroll "RIGHT",
+# L1448-1453).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_030.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 990 1390
+frames 2
+wheel down 3
+frames 2
+move 600 1385
+frames 1
+wheel down 2
+frames 2
+wheel up 2
+frames 2
+move 990 700
+wheel up 3
+frames 3
+move 560 164
+frames 2
+press e
+frames 4
+move 990 1390
+frames 3
+snapshot end

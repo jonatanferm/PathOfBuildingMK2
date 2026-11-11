@@ -1,0 +1,37 @@
+# U40: a minion build (allflame_exp_007, Summon Ice Golem): the sidebar's minion stat lines
+# (SetBreakdownData's forceActor = the line's actorName, GetActor L52-54) and the player lines,
+# then the Calcs tab cells.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_007.xml"
+frames 2
+move 200 222
+frames 2
+move 200 254
+frames 2
+move 200 286
+frames 2
+move 200 318
+frames 2
+move 200 350
+frames 2
+move 200 430
+frames 2
+move 200 510
+frames 2
+move 200 590
+frames 2
+move 200 670
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 500 376
+frames 2
+move 735 444
+frames 2
+move 1200 322
+frames 2
+move 1270 790
+frames 2

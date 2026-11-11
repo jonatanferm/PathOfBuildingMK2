@@ -13,8 +13,9 @@
 //! [`default_items_ui_hooks`](super::ctor::default_items_ui_hooks) and
 //! [`default_items_hooks`](super::slot_helper::default_items_hooks) are these functions.
 //! The methods of other units that these functions call go through the same tables
-//! (`AddItemTooltip`, U38) and through this file's [`DisplayItemHooks`]
-//! (`CopyAnointsAndEldritchImplicits`, U34; CCR-0124 §1).
+//! (`AddItemTooltip`, U38); `CopyAnointsAndEldritchImplicits` (U34) is called directly
+//! ([`core::CopyAnointsAndEldritchImplicits`](super::core::CopyAnointsAndEldritchImplicits),
+//! CCR-0124 §1 as applied).
 //!
 //! Lua semantics:
 //! * `control.list = t` (a direct field store, no CheckDroppedWidth) is `w.list = ..`; the Lua
@@ -47,11 +48,10 @@
 //! Remove buttons' `onClick` closures of UpdateCustomControls are callbacks).
 #![allow(non_snake_case, clippy::too_many_lines)]
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use pob_lua::math::{m_max, m_min, round};
-use pob_lua::{n, tonumber, tostring, Name};
+use pob_lua::{lfmt, n, tonumber, tostring, Name};
 use pob_sg::Font;
 use pob_ui_core::controls::check_box::CheckBoxControl;
 use pob_ui_core::controls::slider::SliderControl;
@@ -88,55 +88,6 @@ pub struct VariantValue {
 #[derive(Clone, Debug)]
 pub struct RangeLineValue {
     pub modLine: Table,
-}
-
-// ---- the methods of other units this range calls -----------------------------------------------
-// CCR-0124 §1: `CopyAnointsAndEldritchImplicits` (U34) has no entry in U32's or U33's hook tables.
-
-/// `self:CopyAnointsAndEldritchImplicits(newItem, copyEldritchImplicits, overwrite,
-/// sourceSlotName)` (ItemsTab.lua:1906-1946, U34): `(cx, me, newItem, copyEldritchImplicits,
-/// overwrite, sourceSlotName)`.
-pub type CopyAnointsHook = Rc<dyn Fn(&mut Cx, CtrlId, &model::ItemRef, bool, bool, Option<&str>)>;
-
-/// The methods of other units that this file calls and neither U32's
-/// [`ItemsTabHooks`](super::slot_helper::ItemsTabHooks) nor U33's
-/// [`ItemsUiHooks`](super::ctor::ItemsUiHooks) has (CCR-0124 §1). The owners replace their entry
-/// in [`default_display_item_hooks`].
-#[derive(Clone)]
-pub struct DisplayItemHooks {
-    // ---- U34 (ItemsTab.lua:1216-1947) ----
-    /// `self:CopyAnointsAndEldritchImplicits(..)` (L1906-1946)
-    pub copy_anoints_and_eldritch_implicits: CopyAnointsHook,
-}
-
-/// The defaults: every entry raises a Lua error naming its owner (PoB's error prompt shows it).
-pub fn default_display_item_hooks() -> DisplayItemHooks {
-    DisplayItemHooks {
-        copy_anoints_and_eldritch_implicits: Rc::new(|_, _, _, _, _, _| {
-            lua_error!("ItemsTab:CopyAnointsAndEldritchImplicits is not ported yet (U34)")
-        }),
-    }
-}
-
-thread_local! {
-    static HOOKS: RefCell<Option<DisplayItemHooks>> = const { RefCell::new(None) };
-}
-
-/// The installed hooks (a clone; entries are `Rc`s).
-pub fn display_item_hooks() -> DisplayItemHooks {
-    HOOKS.with(|h| {
-        h.borrow_mut()
-            .get_or_insert_with(default_display_item_hooks)
-            .clone()
-    })
-}
-
-/// Replace hook entries (the owners, and tests).
-pub fn set_display_item_hooks(f: impl FnOnce(&mut DisplayItemHooks)) {
-    HOOKS.with(|h| {
-        f(h.borrow_mut()
-            .get_or_insert_with(default_display_item_hooks))
-    });
 }
 
 // ---- helpers (Rust-only plumbing) ------------------------------------------------------------
@@ -299,10 +250,9 @@ pub fn CreateDisplayItemFromRaw(cx: &mut Cx, me: CtrlId, itemRaw: &str, normalis
     if newItem.base.get().is_some() {
         // L1951
         if normalise {
-            // L1952 (CCR-0124 §1: U34's method through `DisplayItemHooks`)
+            // L1952
             let migrate = cx.app().main.migrate_eldritch_implicits;
-            let f = display_item_hooks().copy_anoints_and_eldritch_implicits;
-            f(cx, me, &newItem, migrate, false, None);
+            super::core::CopyAnointsAndEldritchImplicits(cx, &newItem, migrate, false, None);
             // L1953
             newItem.NormaliseQuality();
             // L1954
@@ -448,7 +398,10 @@ pub fn UpdateDisplayItemVariantControls(cx: &mut Cx, me: CtrlId) {
             // L2000
             let Some(&control) = controls.get(controlIndex - 1) else {
                 // L2002
-                eprintln!("Item '{}' has more than 6 variant groups", item.name.get());
+                let name = item.name.get();
+                cx.sys
+                    .platform
+                    .con_print(&lfmt!("Item '%s' has more than 6 variant groups", &name));
                 // L2003
                 break;
             };
@@ -1651,19 +1604,19 @@ pub fn UpdateCustomControls(cx: &mut Cx, me: CtrlId) {
                         di(cx, me).id.set(id);
                         None
                     });
-                    // L2468
+                    // L2467
                     i += 1;
                 }
             }
         }
     }
-    // L2473
+    // L2472
     item.extra.set(n!("customCount"), (i - 1) as f64);
-    // L2474
+    // L2473
     while let Some(remove) = cx.child(me, format!("displayItemCustomModifierRemove{i}")) {
-        // L2475
+        // L2474
         cx.base_mut(remove).shown = Prop::Val(false);
-        // L2476
+        // L2475
         i += 1;
     }
 }
@@ -1832,22 +1785,25 @@ pub fn GetEquippedSlotForItem(cx: &Cx, item: &model::ItemRef) -> (Option<Table>,
                 // L2532
                 return (Some(slot), None);
             }
-            let slotName = slot
-                .str(n!("slotName"))
-                .unwrap_or_else(|| lua_error!("table index is nil"));
+            // (`itemSet[nil]` is a legal read: a nil slotName matches nothing)
+            let slotName = slot.str(n!("slotName"));
             // L2534
             for itemSetId in m.itemsTab.itemSetOrderList.snapshot() {
-                // L2535
-                let itemSet = m
-                    .itemsTab
-                    .itemSets
-                    .with(|s| s.get(&itemSetId).cloned())
-                    .unwrap_or_else(|| {
-                        lua_error!("attempt to index local 'itemSet' (a nil value)")
-                    });
-                // L2536
+                // L2536 (`and` short-circuits: the set is indexed only when it is not the
+                // active one)
                 if f64::from(itemSetId) != m.itemsTab.activeItemSetId.get() {
-                    if let Some(e) = itemSet.table(Name::from(&slotName)) {
+                    // L2535
+                    let itemSet = m
+                        .itemsTab
+                        .itemSets
+                        .with(|s| s.get(&itemSetId).cloned())
+                        .unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'itemSet' (a nil value)")
+                        });
+                    let e = slotName
+                        .as_ref()
+                        .and_then(|slotName| itemSet.table(Name::from(slotName)));
+                    if let Some(e) = e {
                         if e.get(n!("selItemId")).raw_eq(&id) {
                             // L2537
                             return (Some(slot), Some(itemSet));

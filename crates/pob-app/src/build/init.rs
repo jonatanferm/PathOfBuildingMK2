@@ -406,28 +406,14 @@ pub fn default_hooks() -> BuildHooks {
             let m = cx.build().model.clone();
             m.treeTab.SetActiveSpec(&m, id);
         }),
-        items_set_active_item_set: Rc::new(|cx, id| {
-            let m = cx.build().model.clone();
-            m.itemsTab.SetActiveItemSet(&m, id);
-        }),
-        items_equip_item_in_set: Rc::new(|cx, item, id| {
-            let m = cx.build().model.clone();
-            m.itemsTab.EquipItemInSet(&m, item, id);
-        }),
+        items_set_active_item_set: Rc::new(crate::tabs::items::core::SetActiveItemSet),
+        items_equip_item_in_set: Rc::new(crate::tabs::items::core::EquipItemInSet),
         items_add_item_set_tooltip: Rc::new(|_, _, _| {
             not_ported("ItemsTab:AddItemSetTooltip", "U34")
         }),
-        skills_set_active_skill_set: Rc::new(|cx, id| {
-            let m = cx.build().model.clone();
-            m.skillsTab.SetActiveSkillSet(&m, id);
-        }),
-        skills_add_socket_group_tooltip: Rc::new(|_, _, _| {
-            not_ported("SkillsTab:AddSocketGroupTooltip", "U30")
-        }),
-        config_set_active_config_set: Rc::new(|cx, id| {
-            let m = cx.build().model.clone();
-            m.configTab.SetActiveConfigSet(&m, Some(id), false);
-        }),
+        skills_set_active_skill_set: Rc::new(crate::tabs::skills::core::set_active_skill_set_hook),
+        skills_add_socket_group_tooltip: Rc::new(crate::tabs::skills::core::add_socket_group_tooltip_hook),
+        config_set_active_config_set: Rc::new(crate::tabs::config::core::set_active_config_set_hook),
         import_try_fetch_character_list: Rc::new(crate::tabs::import::core::try_fetch_character_list_hook),
         // one arm per UI-only saver (U22 Notes; TreeView U25-U28, Import U43); calc:BM-A keeps
         // the other sections and writes them back (CCR-0080 §8)
@@ -439,20 +425,14 @@ pub fn default_hooks() -> BuildHooks {
         import_tab: Rc::new(crate::tabs::import::core::ctor_hook),
         notes_tab: Rc::new(crate::tabs::notes::ctor_hook),
         party_tab: Rc::new(crate::tabs::party::ctor_hook),
-        config_tab: Rc::new(crate::tabs::config::ctor::ctor_hook),
-        items_tab: Rc::new(crate::tabs::items::ctor::ctor_hook),
+        config_tab: Rc::new(crate::tabs::config::core::ctor_hook),
+        items_tab: Rc::new(crate::tabs::items::core::ctor_hook),
         tree_tab: pending_tab(),
-        skills_tab: pending_tab(),
+        skills_tab: Rc::new(crate::tabs::skills::core::ctor_hook),
         calcs_tab: Rc::new(crate::tabs::calcs::core::ctor_hook),
         compare_tab: pending_tab(),
-        // CalcBreakdownControl (U40) starts hidden (CalcBreakdownControl.lua:24)
-        breakdown: Rc::new(|cx, build, _init| {
-            cx.add(
-                build,
-                "breakdown",
-                PlainControl::new(Anchor::NONE, rect(0, 0, 0, 0)).shown(Prop::Val(false)),
-            );
-        }),
+        // U40 (CalcBreakdownControl, Build.lua:616-621)
+        breakdown: Rc::new(crate::tabs::calcs::breakdown::sidebar_breakdown_ctor),
     }
 }
 
@@ -971,6 +951,8 @@ pub fn init(cx: &mut Cx, args: &[ModeArg]) {
     // L695
     let calc_model = model_ref.clone();
     let _ = cx.build_mut().calc.build_output(&calc_model);
+    // CalcsTab.lua:464-467, the UI tail of BuildOutput (CCR-0111 §1, applied by U40)
+    crate::tabs::calcs::core::build_output_ui_tail(cx);
     // L696
     let f = h.refresh_stat_list.clone();
     f(cx);

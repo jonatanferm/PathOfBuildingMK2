@@ -22,8 +22,8 @@
 //!   u33's test-only port [`draw_items`], without the keyboard shortcuts of L1460-1497 (the port
 //!   fails the run if one arrives); both sides then draw one status line (`display:
 //!   <displayItem.name> undo: <count>`);
-//! * `CopyAnointsAndEldritchImplicits` (U34, ItemsTab.lua:1906-1946): PoB's on the Lua side, the
-//!   test-only port [`copy_anoints`] on the Rust side (CCR-0124 §1's hook);
+//! * `CopyAnointsAndEldritchImplicits` (U34, ItemsTab.lua:1906-1946): PoB's on the Lua side,
+//!   U34's `core::CopyAnointsAndEldritchImplicits` on the Rust side (called directly);
 //! * stand-ins on both sides, for methods of units that are not ported: `AddItemTooltip` (U38:
 //!   the item name, the slot and `dbMode`, then every implicit, enchant, explicit and crucible
 //!   mod line's text with its `crafted`/`custom`/`disabled` flags, so each craft is visible),
@@ -43,9 +43,8 @@ use std::rc::Rc;
 use pob_app::app::CxApp;
 use pob_app::build::init;
 use pob_app::build::on_frame::{self as of, BuildTab, TabFlag};
-use pob_app::model::{self, Val};
+use pob_app::model;
 use pob_app::tabs::items::ctor;
-use pob_app::tabs::items::display_item as di;
 use pob_app::tabs::items::slot::item_label;
 use pob_app::tabs::items::slot_helper::{self as sh};
 use pob_app::tabs::items::ItemsTab;
@@ -471,106 +470,6 @@ fn add_item_tooltip(
     }
 }
 
-/// ItemsTab.lua:1906-1946 `CopyAnointsAndEldritchImplicits(newItem, copyEldritchImplicits,
-/// overwrite, sourceSlotName)` (U34's; test port behind CCR-0124 §1's hook).
-fn copy_anoints(
-    cx: &mut Cx,
-    _me: CtrlId,
-    newItem: &model::ItemRef,
-    copyEldritchImplicits: bool,
-    overwrite: bool,
-    sourceSlotName: Option<&str>,
-) {
-    let m = cx.build().model.clone();
-    let base = newItem.base.get().expect("base");
-    // L1907
-    let newItemType: String = sourceSlotName.map_or_else(
-        || {
-            if base.weapon.is_some() {
-                "Weapon 1".to_owned()
-            } else {
-                base.r#type.to_string()
-            }
-        },
-        str::to_owned,
-    );
-    let set = m.itemsTab.activeItemSet.get().expect("activeItemSet");
-    // L1908
-    let Some(entry) = set.table(pob_lua::Name::from(newItemType.as_str())) else {
-        return;
-    };
-    // L1909
-    let sel = entry.get(n!("selItemId"));
-    let currentItem = match sel {
-        Val::Num(id) if id >= 0.0 && id.fract() == 0.0 => {
-            m.itemsTab.items.with(|i| i.get(&(id as u32)).cloned())
-        }
-        _ => None,
-    };
-    // L1911
-    let Some(currentItem) = currentItem else {
-        return;
-    };
-    let sel = sel.num();
-    // L1913
-    if ctor::isAnointable(Some(newItem))
-        && (newItem.enchantModLines.get().is_empty() || overwrite)
-        && sel > 0.0
-    {
-        // L1914
-        let currentAnoint = currentItem.enchantModLines.get();
-        // L1915
-        if currentAnoint.len() == 1 {
-            // L1916
-            newItem.enchantModLines.set(currentAnoint);
-        }
-    }
-    // L1923
-    for influence in &pob_calc::classes::item_tools::influenceInfo_default {
-        // L1924
-        if newItem.influences.truthy(influence.key) {
-            // L1925
-            return;
-        }
-    }
-    // L1929
-    let modifiableItem = !(newItem.corrupted.get() || newItem.mirrored.get());
-    // L1930-1931
-    let t = base.r#type;
-    let rarity = newItem.rarity.get();
-    if copyEldritchImplicits
-        && matches!(&*t, "Helmet" | "Body Armour" | "Gloves" | "Boots")
-        && matches!(&*rarity, "NORMAL" | "MAGIC" | "RARE")
-        && (newItem.implicitModLines.get().is_empty() || overwrite)
-        && modifiableItem
-        && (currentItem.influences.truthy("cleansing") || currentItem.influences.truthy("tangle"))
-    {
-        // L1932-1934
-        newItem
-            .implicitModLines
-            .set(currentItem.implicitModLines.get());
-        newItem
-            .influences
-            .set("tangle", currentItem.influences.get("tangle"));
-        newItem
-            .influences
-            .set("cleansing", currentItem.influences.get("cleansing"));
-    }
-    // L1938
-    if (base.weapon.is_some() || &*t == "Body Armour")
-        && (newItem.enchantModLines.get().is_empty() || overwrite)
-        && sel > 0.0
-        && modifiableItem
-    {
-        // L1939
-        newItem
-            .enchantModLines
-            .set(currentItem.enchantModLines.get());
-    }
-    // L1942
-    newItem.BuildAndParseRaw();
-}
-
 fn rust_stubs() {
     SPEC_MOD_FLAG.with(|f| f.set(false));
     ITEMS_MOD_FLAG.with(|f| f.set(false));
@@ -624,10 +523,6 @@ fn rust_stubs() {
         });
     });
     ctor::set_items_ui_hooks(|h| *h = ctor::default_items_ui_hooks());
-    di::set_display_item_hooks(|h| {
-        *h = di::default_display_item_hooks();
-        h.copy_anoints_and_eldritch_implicits = Rc::new(copy_anoints);
-    });
     of::set_shell_hooks(|h| {
         *h = of::default_shell_hooks();
         let (draw, flag, set_flag) = (

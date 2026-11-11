@@ -1,0 +1,29 @@
+# U24: allflame_exp_001 (1920x1080 @1.5 coordinates): a subset of a_allflame_1280 at the second acceptance
+# screen: an allocated mastery, an allocated jewel socket, an unallocated keystone, an unallocated mastery,
+# a cluster subgraph node, the runegraft, an allocated notable with a dependent.
+screen 1920 1080 dpi 1.5
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+move 1116 119
+frames 2
+#! tooltip Critical Mastery
+move 1126 253
+frames 2
+#! tooltip Elegant Hubris
+move 1082 142
+frames 2
+#! tooltip Lethe Shade
+move 912 120
+frames 2
+#! tooltip Available Mastery node options are:
+move 1200 366
+frames 2
+#! tooltip Chaos Damage
+move 1090 126
+frames 2
+#! tooltip Runegraft of the Spellbound
+move 1120 125
+frames 2
+#! tooltip Doom Cast

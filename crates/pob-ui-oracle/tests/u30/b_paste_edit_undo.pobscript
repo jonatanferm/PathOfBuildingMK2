@@ -1,0 +1,71 @@
+# U30: socket group CRUD through the tab's own controls. Ctrl+V pastes a group from the
+# clipboard (PasteSocketGroup, L708-740: label, slot and two gems; the group is appended,
+# selected in the list and displayed; AddUndoState; recalc through the bridge); then the label
+# edit (L165-170: every char is ProcessSocketGroup + AddUndoState), the Enabled and Include in
+# Full DPS checkboxes (L207-216), the Socketed in dropdown (L172-188: Helmet -> Gloves), Ctrl+Z
+# twice and Ctrl+Y (UndoHandler over CreateUndoState /
+# RestoreUndoState, L1397-1441). Each step is snapshotted (T4: the Skills section).
+#! u30-expect-skills label="Pasted"
+#! u30-expect-skills label="PastedX"
+#! u30-expect-skills enabled="false" includeInFullDPS="true" label="PastedX"
+#! u30-expect-skills label="PastedX" mainActiveSkill="<nil>" mainActiveSkillCalcs="<nil>" slot="Gloves"
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+paste-clipboard "Label: Pasted\r\nSlot: Helmet\r\nFireball 20/20  1\r\nSpell Echo 20/0 DISABLED 1\r\n"
+key-down CTRL
+press v
+key-up CTRL
+frames 3
+snapshot pasted
+# the label edit: click at its right end (caret after "Pasted"), type one char, click off
+move 1080 96
+click LEFTBUTTON
+frames 1
+type "X"
+frames 2
+move 1000 300
+click LEFTBUTTON
+frames 2
+snapshot labeled
+# Enabled, then Include in Full DPS
+move 1007 124
+click LEFTBUTTON
+frames 2
+move 1172 124
+click LEFTBUTTON
+frames 3
+move 1000 300
+frames 1
+snapshot toggled
+# Socketed in: open, hover, pick "Gloves" (the 8th entry)
+move 860 124
+click LEFTBUTTON
+frames 2
+move 860 255
+frames 2
+click LEFTBUTTON
+frames 3
+move 1000 300
+frames 1
+snapshot slot
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+snapshot undo1
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+snapshot undo2
+key-down CTRL
+press y
+key-up CTRL
+frames 3
+snapshot redo1

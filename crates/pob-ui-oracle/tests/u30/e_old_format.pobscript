@@ -1,0 +1,33 @@
+# U30: an old-format Skills section (no SkillSet elements: Load's L551-556 path, set 1 created
+# on the fly), defaultGemQuality="20" and defaultGemLevel="20" (a number: Load falls back to
+# "normalMaximum"), its first group (a plain item group: Socketed in, the socket line and the
+# Optimise Sockets button over the items-tab stand-in, the imbued support selector); then the
+# slot dropdown (open, hover the entries: the item tooltip stand-in, close with Escape), and a
+# paste with no gem line (nothing is added).
+#! u30-expect-skills defaultGemLevel="normalMaximum"
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
+frames 2
+key-down CTRL
+press 2
+key-up CTRL
+frames 3
+snapshot loaded
+move 860 124
+click LEFTBUTTON
+frames 2
+move 860 200
+frames 2
+move 860 260
+frames 2
+press ESCAPE
+frames 2
+paste-clipboard "Label: Nothing\r\n"
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+move 1000 300
+frames 2
+snapshot after_paste
