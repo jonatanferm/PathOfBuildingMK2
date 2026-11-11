@@ -1,0 +1,26 @@
+# U29: the S overlay click (sortGemsBy = "support": UpdateSortCache repopulates), F1 on a hovered
+# row (wiki), ESCAPE, the A overlay click (grants_active_skill) and RETURN re-drop, a click
+# outside the dropped list (CancelSelection), and hovering gem 2 afterwards.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 3
+move 491 130
+click LEFTBUTTON
+frames 2
+move 300 160
+frames 3
+press F1
+frames 1
+press ESCAPE
+frames 1
+move 470 130
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 2
+move 700 500
+click LEFTBUTTON
+frames 2
+move 300 100
+frames 2

@@ -1,0 +1,53 @@
+# U41: the search filter and the custom mod blocks. Typing a search no label matches
+# (searchMatch / matchOrPattern) hides every option, so only "Custom Modifiers" (its add button
+# ignores the search) stays, laid out at the top of column 1 at both resolutions. Then:
+# * type a mod into the block's text (changeFunc per character: blockData.text, BuildModList,
+#   rebuild), click outside (the unfocused edit draws the inactiveText: parseMod colours);
+# * hover the enable check (the "Disabling this group will give you:" compare through the bridge),
+#   click it (blockData.enabled = false);
+# * "Add Mod Group" (UpdateCustomModsControls: a second block "Group 2"), edit its title;
+# * delete the first block (table.remove, the blocks rebuilt).
+#! u41-expect-config enabled="false" title="Default"
+#! u41-expect-config title="Group 2X" enabled="true"
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+move 500 75
+click LEFTBUTTON
+type "zqzq"
+frames 3
+move 510 205
+click LEFTBUTTON
+type "+100 to maximum Life"
+press RETURN
+type "Nonsense line"
+frames 3
+move 500 290
+click LEFTBUTTON
+frames 3
+move 673 154
+frames 3
+click LEFTBUTTON
+frames 3
+snapshot disabled
+move 450 128
+click LEFTBUTTON
+frames 3
+move 470 264
+click LEFTBUTTON
+press END
+type "X"
+frames 3
+snapshot added
+move 348 154
+click LEFTBUTTON
+frames 3
+snapshot deleted

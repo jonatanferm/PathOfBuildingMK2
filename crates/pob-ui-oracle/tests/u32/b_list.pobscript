@@ -1,0 +1,88 @@
+# U32: the build's item list (ItemListControl) of allflame_exp_001. Hover a row (the
+# AddValueTooltip stand-in, no slot); Sort (SortItemList, UpdateList); Ctrl+click the first row
+# twice (unequip from its primary slot, equip again: SetSelItemId, PopulateSlots, AddUndoState,
+# buildFlag); select row 2 and Ctrl+C (OnSelCopy: Copy of BuildRaw with CRLF); double-click it
+# (SetDisplayItem with a copy of the item); drag row 1 below row 3 (the reorder writes through to
+# itemOrderList: OnOrderChange); the loadout filter: "Unused Items" (the filtered list,
+# isMutable false) and back to "Any Loadout"; drag row 1 onto the Ring 2 slot; select row 4 and
+# press DELETE (OnSelDelete: the "equipped" confirm popup) and RETURN (DeleteItem).
+#! u32-expect ^7slot nil db nil
+#! u32-expect Unused Items
+#! u32-expect Delete Item
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 72
+frames 2
+move 883 53
+frames 1
+click LEFTBUTTON
+frames 2
+move 800 72
+frames 1
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 3
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 3
+move 800 88
+click LEFTBUTTON
+frames 1
+key-down CTRL
+press c
+key-up CTRL
+frames 1
+move 800 88
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+move 800 72
+key-down LEFTBUTTON
+frames 1
+move 800 90
+frames 1
+move 800 120
+frames 2
+key-up LEFTBUTTON
+frames 2
+move 797 53
+click LEFTBUTTON
+frames 2
+move 797 98
+frames 1
+click LEFTBUTTON
+frames 3
+move 797 53
+click LEFTBUTTON
+frames 2
+move 797 70
+frames 1
+click LEFTBUTTON
+frames 3
+move 800 72
+key-down LEFTBUTTON
+frames 1
+move 790 90
+frames 1
+move 560 296
+frames 2
+key-up LEFTBUTTON
+frames 3
+move 800 120
+click LEFTBUTTON
+frames 1
+press DELETE
+frames 2
+press RETURN
+frames 3
+move 200 600
+frames 1
+snapshot after

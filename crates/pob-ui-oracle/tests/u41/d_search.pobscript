@@ -1,0 +1,36 @@
+# U41: the search filter with an "or" pattern (matchOrPattern's `|` split: "shocked|chilled"
+# shows the options whose label matches either), so the matching options of every section pack
+# at the top; hover "Is the enemy Shocked?" (a check the fixture sets: the "Toggling this option
+# will give you:" compare through the bridge) and untick it; collapse "For Effective DPS" with
+# its "-" toggle while the search is active (IsSectionCollapsed: a search keeps it open), then
+# clear the search with the edit's clear button (changeFunc -> UpdateControls): the collapsed
+# section shows only its header.
+#! u41-expect-absent name="conditionEnemyShocked"
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+move 500 75
+click LEFTBUTTON
+type "shocked|chilled"
+frames 3
+move 573 151
+frames 3
+click LEFTBUTTON
+frames 3
+snapshot unshocked
+move 676 106
+click LEFTBUTTON
+frames 3
+move 670 77
+click LEFTBUTTON
+frames 3
+move 900 600
+frames 2

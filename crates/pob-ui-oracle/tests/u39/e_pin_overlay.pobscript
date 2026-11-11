@@ -1,0 +1,61 @@
+# U39: pinning and the pop-out pane. A click on a cell pins it (CalcSectionControl:OnKeyDown ->
+# SetDisplayStat(colData, true); the green highlight stays while the mouse moves away), a second
+# click on it unpins (SetDisplayStat -> ClearDisplayStat). Then "^" on Skill Hit Damage
+# (ToggleOverlay: the section leaves the columns and becomes a pane in build.overlayPanes,
+# drawn by Build:OnFrame on layer 10), hover a pane cell (overlayBreakdownCell), drag the pane by
+# its header (HandleOverlayClick/HandleOverlayRelease, DrawOverlay's clamp), collapse its
+# subsection from the pane, click a pane cell (pin from the pane) and close the pane (its X).
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+# pin "Skill DPS", move away, unpin
+move 500 376
+frames 1
+click LEFTBUTTON
+frames 1
+move 900 760
+frames 2
+move 500 376
+click LEFTBUTTON
+frames 1
+move 900 760
+frames 2
+# pin "Crit Chance" and leave it pinned
+move 735 444
+click LEFTBUTTON
+frames 2
+# pop out Skill Hit Damage
+move 991 212
+frames 1
+click LEFTBUTTON
+frames 2
+# hover a pane cell (the pane is where the section was: x 316, y 202)
+move 500 376
+frames 2
+# drag the pane by its header to the right and down
+move 500 210
+key-down LEFTBUTTON
+frames 1
+move 600 400
+frames 2
+key-up LEFTBUTTON
+frames 2
+# pin a pane cell: "Skill DPS" (pane x 416, y 392: rows start at y + 26 + 20 + 2, 18 px each; row 9)
+move 600 592
+click LEFTBUTTON
+frames 2
+# collapse the pane's subsection (its toggle: x 416 + 706 - 18, y 392 + 26 + 3)
+move 1108 425
+click LEFTBUTTON
+frames 2
+# close the pane (its X: x 416 + 706 - 18, y 392 + 2)
+move 1110 400
+click LEFTBUTTON
+frames 2
+move 1270 790
+frames 2

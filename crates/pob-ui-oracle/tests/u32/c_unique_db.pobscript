@@ -1,0 +1,79 @@
+# U32: the unique DB (ItemDBControl "UNIQUE") of allflame_exp_001. Hover a row (the tooltip
+# with dbMode); search "kaom" (the edit's changeFunc: listBuildFlag, the list builder
+# coroutine, DoesItemMatchFilters); the slot filter to "Body Armour" and back to "Any slot";
+# the sort dropdown to "Sort by Life" (SetSortMode, BuildSortOrder: the stat sort, calcFunc
+# with repSlotName/repItem for every valid slot through the bridge); hover; drag row 1 onto the
+# item list (ItemListControl:ReceiveDrag at its selDragIndex); Ctrl+click row 2 (add and equip
+# in its primary slot); double-click row 3 (CreateDisplayItemFromRaw); drag row 1 onto the
+# Boots slot (ItemSlotControl:CanReceiveDrag/ReceiveDrag).
+#! u32-expect ^7slot nil db true
+#! u32-expect Sort by Life
+#! u32-expect Body Armour
+#! u32-expect display: raw
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 6
+move 800 482
+frames 2
+move 870 461
+click LEFTBUTTON
+frames 1
+type "kaom"
+frames 3
+move 830 401
+click LEFTBUTTON
+frames 2
+move 830 474
+frames 1
+click LEFTBUTTON
+frames 3
+move 830 401
+click LEFTBUTTON
+frames 2
+move 830 418
+frames 1
+click LEFTBUTTON
+frames 3
+move 830 421
+click LEFTBUTTON
+frames 2
+move 830 592
+frames 1
+click LEFTBUTTON
+frames 3
+move 800 482
+frames 2
+key-down LEFTBUTTON
+frames 1
+move 800 500
+frames 1
+move 800 150
+frames 2
+key-up LEFTBUTTON
+frames 3
+move 800 498
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 3
+move 800 514
+click LEFTBUTTON
+click LEFTBUTTON
+frames 2
+move 800 482
+key-down LEFTBUTTON
+frames 1
+move 790 465
+frames 1
+move 560 230
+frames 2
+key-up LEFTBUTTON
+frames 3
+move 200 600
+frames 1
+snapshot after

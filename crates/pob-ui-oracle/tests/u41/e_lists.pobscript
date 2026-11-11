@@ -1,0 +1,50 @@
+# U41: the list options' own tooltipFuncs (ConfigOptions.lua 11-115) through the option tooltip
+# wrapper: hover the "Bandit quest" box (banditTooltip, mode BODY), open "Major God" and hover
+# its rows (applyPantheonDescription, mode HOVER, plus the Selecting-this compare), close it;
+# search "prefix" and open a map Prefix dropdown, hover an affix row (mapAffixTooltip: the tier
+# lines) and pick it (the map affix apply reads varControls['multiplierMapModTier'].selIndex
+# through the bridge); then reopen it, hover the Profane row (a multi-line "count" affix whose
+# second line's `values[i][j][2]` is nil, so ConfigOptions.lua:104's `A and B or C` falls through
+# to `values[i][2]`), pick it and hover the closed box (mode BODY).
+#! u41-expect-config name="MapPrefix1" string="Profane"
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+move 620 148
+frames 3
+move 620 168
+click LEFTBUTTON
+frames 2
+move 620 190
+frames 3
+press ESCAPE
+frames 2
+move 500 75
+click LEFTBUTTON
+type "prefix"
+frames 3
+move 990 149
+click LEFTBUTTON
+frames 2
+move 990 182
+frames 3
+click LEFTBUTTON
+frames 3
+move 990 149
+click LEFTBUTTON
+frames 2
+move 990 297
+frames 3
+click LEFTBUTTON
+frames 3
+move 990 150
+frames 3
+snapshot prefix

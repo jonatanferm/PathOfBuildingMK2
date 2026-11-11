@@ -1,0 +1,49 @@
+# U41: the option controls of every data type on allflame_exp_001's Config tab.
+# * check: hover "Are you always moving?" (the option tooltip), click it (input, BuildModList,
+#   rebuild); hover "Are you always on Low Life?" (the LowLifeTooltip function tooltip);
+#   hover "Do you have Onslaught?" (Toggling this option will give you:, the calcFunc compare
+#   through the bridge) and toggle it; hover "Do you use Ghost Shrouds?" (set but its source is
+#   missing: the invalid-option label and tooltip line);
+# * list: open "Resistance penalty", hover a row (the Selecting-this compare), pick "None";
+# * count: click "Enemy Corpse Life" and type 1500 (changeFunc per character).
+#! u41-expect-config boolean="true" name="conditionMoving"
+#! u41-expect-config boolean="true" name="buffOnslaught"
+#! u41-expect-config name="resistancePenalty" number="0"
+#! u41-expect-config name="detonateDeadCorpseLife" number="1500"
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+move 573 254
+frames 3
+click LEFTBUTTON
+frames 3
+snapshot moving
+move 573 276
+frames 3
+move 573 550
+frames 3
+click LEFTBUTTON
+frames 3
+move 573 486
+frames 3
+move 620 128
+click LEFTBUTTON
+frames 2
+move 620 143
+frames 3
+click LEFTBUTTON
+frames 3
+snapshot resist
+move 600 210
+click LEFTBUTTON
+type "1500"
+frames 3
+snapshot corpse
