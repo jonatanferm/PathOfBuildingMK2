@@ -1,0 +1,40 @@
+# U35: item list items as display items (SetDisplayItem with the item's id, no normalise): a
+# corrupted magic bow with a crafted explicit (sockets and links from UpdateSocketControls, the
+# custom modifier row from UpdateCustomControls: its Remove button, label and "Crafted:" tag);
+# Remove it (the onClick: t_remove, BuildAndParseRaw, CreateDisplayItemFromRaw, the id kept, the
+# row hidden again); then a rare ring with a crafted enchant and a crafted explicit (one row,
+# after four other explicits: the captured index 5); remove it.
+#! u35-expect display: Upgraded Thicket Bow
+#! u35-expect ^7exp +8% to Quality of Socketed Gems C
+#! u35-expect display: Blight Whorl
+#! u35-expect  ^7Crafted:
+fixture userdir=user
+frames 2
+load-build "Builds/u35_items.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 70
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1270 700
+frames 2
+move 832 216
+frames 2
+click LEFTBUTTON
+frames 3
+move 500 102
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1270 700
+frames 2
+move 832 160
+frames 2
+click LEFTBUTTON
+frames 3
+move 1270 700
+frames 2
