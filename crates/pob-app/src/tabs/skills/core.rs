@@ -86,9 +86,10 @@
 //! overwrote it before the UI ran).
 //!
 //! DIVERGENCE(paste-main-active-skill): a pasted group's `mainActiveSkill` and
-//! `mainActiveSkillCalcs` are nil in Lua (L711; the readers write `or 1`, e.g. CalcSetup.lua:1886)
-//! and 1 here (the frozen `Cell<f64>` has no nil, CCR-0118 §3):
-//! Save writes `"1"` where PoB writes `"nil"` until the group becomes the main group.
+//! `mainActiveSkillCalcs` are nil in Lua (L711). Here they are NaN, the model's nil number
+//! (CCR-0083 §3, as for the groups CalcSetup creates; the readers treat NaN as nil), but calc:BM-B's
+//! Save writes `tostring` of the number, so the saved attribute is `"nan"`/`"-nan"` where PoB
+//! writes `"nil"` until a main skill is picked (CCR-0118 §3 proposes the Save fix).
 //!
 //! DIVERGENCE(node-name): `sourceNode.name` (L402, L1321) is the node's `dn` (PassiveTree.lua:534
 //! `node.dn = node.name`; the model's `Node` has no `name`).
@@ -113,8 +114,8 @@ use pob_ui_core::controls::drop_down::{DropTipArgs, DropTipMode, SelFunc};
 use pob_ui_core::controls::list::{ListData, ListHooks, ListSource};
 use pob_ui_core::controls::scroll_bar::ScrollDir;
 use pob_ui_core::controls::{
-    ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl,
-    LabelControl, ListControl, ListValue, ScrollBarControl, SectionControl,
+    ButtonControl, CheckBoxControl, DropDownControl, DropItem, EditArgs, EditControl, LabelControl,
+    ListControl, ListValue, ScrollBarControl, SectionControl,
 };
 use pob_ui_core::input::InputEvents;
 use pob_ui_core::popups::{self, PopupOpts};
@@ -400,7 +401,11 @@ fn standin_skill_list(cx: &mut Cx, tab: CtrlId, anchor: Anchor, rect: [Prop<f64>
     cx.add(
         tab,
         "groupList",
-        ListStandIn::new(anchor, rect, ListData::Source(Rc::new(GroupListSource(list)))),
+        ListStandIn::new(
+            anchor,
+            rect,
+            ListData::Source(Rc::new(GroupListSource(list))),
+        ),
     )
     .id()
 }
@@ -427,9 +432,23 @@ fn standin_create_gem_slot(cx: &mut Cx, me: CtrlId, index: usize) {
                 2.0
             }
         });
-        cx.set_anchor(delete, TopLeft, Some(prev.delete), BottomLeft, Some((0.0.into(), y)), false);
+        cx.set_anchor(
+            delete,
+            TopLeft,
+            Some(prev.delete),
+            BottomLeft,
+            Some((0.0.into(), y)),
+            false,
+        );
     } else {
-        cx.set_anchor(delete, TopLeft, Some(anchor_gem_slots), TopLeft, Some((0.0.into(), 0.0.into())), false);
+        cx.set_anchor(
+            delete,
+            TopLeft,
+            Some(anchor_gem_slots),
+            TopLeft,
+            Some((0.0.into(), 0.0.into())),
+            false,
+        );
     }
     let name_spec = cx
         .add(
@@ -470,8 +489,15 @@ fn standin_create_gem_slot(cx: &mut Cx, me: CtrlId, index: usize) {
         .add(
             me,
             format!("gemSlot{index}Enable"),
-            CheckBoxControl::new(Anchor::new(Left, quality, Right), rect(18, 0, 20, 0), None, None, None, false)
-                .shown(hidden()),
+            CheckBoxControl::new(
+                Anchor::new(Left, quality, Right),
+                rect(18, 0, 20, 0),
+                None,
+                None,
+                None,
+                false,
+            )
+            .shown(hidden()),
         )
         .id();
     let count = edit(cx, format!("gemSlot{index}Count"), enabled, 18);
@@ -479,15 +505,23 @@ fn standin_create_gem_slot(cx: &mut Cx, me: CtrlId, index: usize) {
         .add(
             me,
             format!("gemSlot{index}ErrMsg"),
-            LabelControl::new(Anchor::new(Left, count, Right), rect(2, 2, 0, 16), "").shown(hidden()),
+            LabelControl::new(Anchor::new(Left, count, Right), rect(2, 2, 0, 16), "")
+                .shown(hidden()),
         )
         .id();
     let enable_global1 = cx
         .add(
             me,
             format!("gemSlot{index}EnableGlobal1"),
-            CheckBoxControl::new(Anchor::new(TopLeft, delete, BottomLeft), rect(0, 2, 20, 0), Some(String::new()), None, None, false)
-                .shown(hidden()),
+            CheckBoxControl::new(
+                Anchor::new(TopLeft, delete, BottomLeft),
+                rect(0, 2, 20, 0),
+                Some(String::new()),
+                None,
+                None,
+                false,
+            )
+            .shown(hidden()),
         )
         .id();
     let enable_global2 = cx
@@ -532,8 +566,12 @@ fn standin_skill_set_list(
     rect: [Prop<f64>; 4],
     _tab: CtrlId,
 ) -> CtrlId {
-    cx.add(popup, key, ListStandIn::new(Anchor::NONE, rect, ListData::default()))
-        .id()
+    cx.add(
+        popup,
+        key,
+        ListStandIn::new(Anchor::NONE, rect, ListData::default()),
+    )
+    .id()
 }
 
 /// The defaults (U31 and U38 replace the entries with their controls and methods).
@@ -729,7 +767,9 @@ fn val_name(v: &Val) -> Option<String> {
         // DIVERGENCE(node-name)
         return Some(node.dn.get().to_string());
     }
-    v.table().and_then(|t| t.str(n!("name"))).map(|s| s.to_string())
+    v.table()
+        .and_then(|t| t.str(n!("name")))
+        .map(|s| s.to_string())
 }
 
 /// `x.dn` of a passive node or a table (`source.dn`).
@@ -740,7 +780,9 @@ fn val_dn(v: &Val) -> Option<String> {
     if let Some(node) = v.obj::<Node>() {
         return Some(node.dn.get().to_string());
     }
-    v.table().and_then(|t| t.str(n!("dn"))).map(|s| s.to_string())
+    v.table()
+        .and_then(|t| t.str(n!("dn")))
+        .map(|s| s.to_string())
 }
 
 /// `x.rarity` of an item or a table (a passive node has none).
@@ -751,7 +793,9 @@ fn val_rarity(v: &Val) -> Option<String> {
     if v.obj::<Node>().is_some() {
         return None;
     }
-    v.table().and_then(|t| t.str(n!("rarity"))).map(|s| s.to_string())
+    v.table()
+        .and_then(|t| t.str(n!("rarity")))
+        .map(|s| s.to_string())
 }
 
 /// `gem.grantedEffect or (gem.gemData and gem.gemData.grantedEffect)`
@@ -763,7 +807,10 @@ fn gem_granted_effect(gem: &GemInstance) -> Option<model::gamedata::GrantedEffec
 
 /// `local function getSelectedItem()` (L218-231): `(item, groupSlot)`; `groupSlot` is the
 /// selected entry's `slotName` (`Some(None)` for "None").
-fn get_selected_item(cx: &Cx, group_slot: CtrlId) -> (Option<ItemRef>, Option<Option<&'static str>>) {
+fn get_selected_item(
+    cx: &Cx,
+    group_slot: CtrlId,
+) -> (Option<ItemRef>, Option<Option<&'static str>>) {
     // L219
     let mut item = None;
     // L220
@@ -904,7 +951,10 @@ impl DisplayEffect {
     /// `not .isSupporting or not next(.isSupporting)`
     fn supports_nothing(&self) -> bool {
         match self {
-            DisplayEffect::Effect(e) => e.isSupporting.get().map_or(true, |s| s.with(|s| s.is_empty())),
+            DisplayEffect::Effect(e) => e
+                .isSupporting
+                .get()
+                .map_or(true, |s| s.with(|s| s.is_empty())),
             DisplayEffect::Gem(g) => g
                 .extra
                 .table(n!("isSupporting"))
@@ -929,7 +979,10 @@ fn effect_line(cx: &Cx, e: &pob_calc::active_skill::SkillEffectRef) -> String {
     let quality = src.as_ref().map_or(e.quality.get(), |s| s.quality.get());
     let quality_plus = match &src {
         Some(s) if gt(e.quality.get(), s.quality.get()) => {
-            format!("{magic}+{}^7", tostring_num(e.quality.get() - s.quality.get()))
+            format!(
+                "{magic}+{}^7",
+                tostring_num(e.quality.get() - s.quality.get())
+            )
         }
         _ => String::new(),
     };
@@ -988,19 +1041,21 @@ impl SkillsTab {
                     Anchor::new(TopLeft, me, TopLeft),
                     rect(76, 8, 210, 20),
                     Vec::new(),
-                    Some(Rc::new(move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
-                        // L100 self:SetActiveSkillSet(self.skillSetOrderList[index])
-                        let id = cx
-                            .build()
-                            .model
-                            .skillsTab
-                            .skillSetOrderList
-                            .get(index)
-                            .map(f64::from);
-                        SkillsTab::set_active_skill_set(cx, me, id);
-                        // L101
-                        SkillsTab::add_undo_state(cx, me);
-                    }) as SelFunc),
+                    Some(Rc::new(
+                        move |cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
+                            // L100 self:SetActiveSkillSet(self.skillSetOrderList[index])
+                            let id = cx
+                                .build()
+                                .model
+                                .skillsTab
+                                .skillSetOrderList
+                                .get(index)
+                                .map(f64::from);
+                            SkillsTab::set_active_skill_set(cx, me, id);
+                            // L101
+                            SkillsTab::add_undo_state(cx, me);
+                        },
+                    ) as SelFunc),
                     None,
                     false,
                 ),
@@ -1015,21 +1070,35 @@ impl SkillsTab {
         cx.add(
             me,
             "setLabel",
-            LabelControl::new(Anchor::new(Right, set_select, Left), rect(-2, 0, 0, 16), "^7Skill set:"),
+            LabelControl::new(
+                Anchor::new(Right, set_select, Left),
+                rect(-2, 0, 0, 16),
+                "^7Skill set:",
+            ),
         );
         // L108-110
         cx.add(
             me,
             "setManage",
-            ButtonControl::new(Anchor::new(Left, set_select, Right), rect(4, 0, 90, 20), "Manage...", move |cx| {
-                // L109
-                SkillsTab::open_skill_set_manage_popup(cx, me);
-            }),
+            ButtonControl::new(
+                Anchor::new(Left, set_select, Right),
+                rect(4, 0, 90, 20),
+                "Manage...",
+                move |cx| {
+                    // L109
+                    SkillsTab::open_skill_set_manage_popup(cx, me);
+                },
+            ),
         );
 
         // Socket group list
         // L113
-        let group_list = (hooks.skill_list_ctor)(cx, me, Anchor::new(TopLeft, me, TopLeft), rect(20, 54, 360, 300));
+        let group_list = (hooks.skill_list_ctor)(
+            cx,
+            me,
+            Anchor::new(TopLeft, me, TopLeft),
+            rect(20, 54, 360, 300),
+        );
         // L114-122
         cx.add(
             me,
@@ -1069,7 +1138,11 @@ impl SkillsTab {
                     Some("Sort gems by DPS:".to_owned()),
                     Some(Rc::new(|cx: &mut Cx, state: bool| {
                         // L129
-                        cx.build().model.skillsTab.ui_state().set(n!("sortGemsByDPS"), state);
+                        cx.build()
+                            .model
+                            .skillsTab
+                            .ui_state()
+                            .set(n!("sortGemsByDPS"), state);
                     })),
                     None,
                     true,
@@ -1084,15 +1157,19 @@ impl SkillsTab {
                 Anchor::new(Left, sort_gems_by_dps, Right),
                 rect(10, 0, 140, 20),
                 sort_type_items(),
-                Some(Rc::new(|cx: &mut Cx, index: usize, value: Option<&DropItem>| {
-                    let v = value
-                        .and_then(|v| v.get::<SortTypeValue>())
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
-                    let ui = cx.build().model.skillsTab.ui_state();
-                    // L132
-                    ui.set(n!("sortGemsByDPSField"), v.0);
-                    ui.set(n!("sortGemsByDPSFieldSelIndex"), index as f64);
-                }) as SelFunc),
+                Some(
+                    Rc::new(|cx: &mut Cx, index: usize, value: Option<&DropItem>| {
+                        let v = value
+                            .and_then(|v| v.get::<SortTypeValue>())
+                            .unwrap_or_else(|| {
+                                lua_error!("attempt to index local 'value' (a nil value)")
+                            });
+                        let ui = cx.build().model.skillsTab.ui_state();
+                        // L132
+                        ui.set(n!("sortGemsByDPSField"), v.0);
+                        ui.set(n!("sortGemsByDPSFieldSelIndex"), index as f64);
+                    }) as SelFunc,
+                ),
                 None,
                 false,
             ),
@@ -1106,15 +1183,20 @@ impl SkillsTab {
                     Anchor::new(TopLeft, group_list, BottomLeft),
                     rect(optionInputsX, optionInputsY + 94.0, 170.0, 20.0),
                     default_gem_level_items(),
-                    Some(Rc::new(|cx: &mut Cx, index: usize, value: Option<&DropItem>| {
-                        let v = value
-                            .and_then(|v| v.get::<GemLevelValue>())
-                            .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
-                        let st = &cx.build().model.skillsTab;
-                        // L135
-                        st.defaultGemLevel.set(Some(Name::from(v.gem_level)));
-                        st.ui_state().set(n!("defaultLevelSelIndex"), index as f64);
-                    }) as SelFunc),
+                    Some(
+                        Rc::new(|cx: &mut Cx, index: usize, value: Option<&DropItem>| {
+                            let v =
+                                value
+                                    .and_then(|v| v.get::<GemLevelValue>())
+                                    .unwrap_or_else(|| {
+                                        lua_error!("attempt to index local 'value' (a nil value)")
+                                    });
+                            let st = &cx.build().model.skillsTab;
+                            // L135
+                            st.defaultGemLevel.set(Some(Name::from(v.gem_level)));
+                            st.ui_state().set(n!("defaultLevelSelIndex"), index as f64);
+                        }) as SelFunc,
+                    ),
                     None,
                     false,
                 ),
@@ -1130,7 +1212,9 @@ impl SkillsTab {
                     let v = value
                         .as_ref()
                         .map(|v| v.get::<GemLevelValue>().map(|v| v.description))
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
+                        .unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'value' (a nil value)")
+                        });
                     if let Some(description) = v {
                         // L140
                         tooltip.add_line(cx, 16.0, &format!("^7{description}"));
@@ -1142,7 +1226,11 @@ impl SkillsTab {
         cx.add(
             me,
             "defaultLevelLabel",
-            LabelControl::new(Anchor::new(Right, default_level, Left), rect(-4, 0, 0, 16), "^7Default gem level:"),
+            LabelControl::new(
+                Anchor::new(Right, default_level, Left),
+                rect(-4, 0, 0, 16),
+                "^7Default gem level:",
+            ),
         );
         // L144-146
         let default_quality = cx
@@ -1169,7 +1257,11 @@ impl SkillsTab {
         cx.add(
             me,
             "defaultQualityLabel",
-            LabelControl::new(Anchor::new(Right, default_quality, Left), rect(-4, 0, 0, 16), "^7Default gem quality:"),
+            LabelControl::new(
+                Anchor::new(Right, default_quality, Left),
+                rect(-4, 0, 0, 16),
+                "^7Default gem quality:",
+            ),
         );
         // L148-150
         let show_support = cx
@@ -1180,15 +1272,19 @@ impl SkillsTab {
                     Anchor::new(TopLeft, group_list, BottomLeft),
                     rect(optionInputsX, optionInputsY + 142.0, 170.0, 20.0),
                     show_support_items(),
-                    Some(Rc::new(|cx: &mut Cx, index: usize, value: Option<&DropItem>| {
-                        let v = value
-                            .and_then(|v| v.get::<ShowSupportValue>())
-                            .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
-                        let ui = cx.build().model.skillsTab.ui_state();
-                        // L149
-                        ui.set(n!("showSupportGemTypes"), v.0);
-                        ui.set(n!("showSupportGemTypesSelIndex"), index as f64);
-                    }) as SelFunc),
+                    Some(
+                        Rc::new(|cx: &mut Cx, index: usize, value: Option<&DropItem>| {
+                            let v = value
+                                .and_then(|v| v.get::<ShowSupportValue>())
+                                .unwrap_or_else(|| {
+                                    lua_error!("attempt to index local 'value' (a nil value)")
+                                });
+                            let ui = cx.build().model.skillsTab.ui_state();
+                            // L149
+                            ui.set(n!("showSupportGemTypes"), v.0);
+                            ui.set(n!("showSupportGemTypesSelIndex"), index as f64);
+                        }) as SelFunc,
+                    ),
                     None,
                     false,
                 ),
@@ -1198,7 +1294,11 @@ impl SkillsTab {
         cx.add(
             me,
             "showSupportGemTypesLabel",
-            LabelControl::new(Anchor::new(Right, show_support, Left), rect(-4, 0, 0, 16), "^7Show support gems:"),
+            LabelControl::new(
+                Anchor::new(Right, show_support, Left),
+                rect(-4, 0, 0, 16),
+                "^7Show support gems:",
+            ),
         );
         // L152-154
         cx.add(
@@ -1210,7 +1310,11 @@ impl SkillsTab {
                 Some("^7Show legacy gems:".to_owned()),
                 Some(Rc::new(|cx: &mut Cx, state: bool| {
                     // L153
-                    cx.build().model.skillsTab.ui_state().set(n!("showLegacyGems"), state);
+                    cx.build()
+                        .model
+                        .skillsTab
+                        .ui_state()
+                        .set(n!("showLegacyGems"), state);
                 })),
                 None,
                 false,
@@ -1223,13 +1327,19 @@ impl SkillsTab {
             // L158
             cx.add_free(
                 Some(me),
-                PlainControl::new(Anchor::new(TopLeft, option_section, BottomLeft), rect(0, 20, 0, 0)),
+                PlainControl::new(
+                    Anchor::new(TopLeft, option_section, BottomLeft),
+                    rect(0, 20, 0, 0),
+                ),
             )
         } else {
             // L160
             cx.add_free(
                 Some(me),
-                PlainControl::new(Anchor::new(TopLeft, group_list, TopRight), rect(20, 0, 0, 0)),
+                PlainControl::new(
+                    Anchor::new(TopLeft, group_list, TopRight),
+                    rect(20, 0, 0, 0),
+                ),
             )
         }
         .id();
@@ -1268,7 +1378,11 @@ impl SkillsTab {
             .add(
                 me,
                 "groupSlotLabel",
-                LabelControl::new(Anchor::new(TopLeft, anchor_group_detail, TopLeft), rect(0, 30, 0, 16), "^7Socketed in:"),
+                LabelControl::new(
+                    Anchor::new(TopLeft, anchor_group_detail, TopLeft),
+                    rect(0, 30, 0, 16),
+                    "^7Socketed in:",
+                ),
             )
             .id();
         // L172-188
@@ -1280,53 +1394,68 @@ impl SkillsTab {
                     Anchor::new(TopLeft, anchor_group_detail, TopLeft),
                     rect(85, 28, 130, 20),
                     group_slot_items(),
-                    Some(Rc::new(move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
-                        let value = value
-                            .and_then(|v| v.get::<GroupSlotValue>())
-                            .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
-                        let m = model(cx);
-                        let st = &m.skillsTab;
-                        let g = dg(cx);
-                        let by_slot = |slot: Option<Name>| slot.map_or(Val::Nil, |s| st.imbuedSupportBySlot.get(s));
-                        // maintain imbued support to new slot
-                        // L174
-                        if by_slot(g.slot.get()).truthy() && g.extra.truthy(n!("imbuedSupport")) {
-                            // L175
-                            if let Some(new_slot) = value.0.filter(|s| !by_slot(Some(Name::from(s))).truthy()) {
-                                // L176 copyTable(grantedEffect, true): a new table with the same
-                                // contents (here a new box around the same record)
-                                let ge = by_slot(g.slot.get())
-                                    .obj::<model::gamedata::GrantedEffectRef>()
-                                    .map(|ge| (*ge).clone())
-                                    .unwrap_or_else(|| lua_error!("bad argument #1 to 'pairs' (table expected)"));
-                                st.imbuedSupportBySlot.set(
-                                    Name::from(new_slot),
-                                    Val::Obj(Rc::new(ge) as Rc<dyn std::any::Any>),
-                                );
-                            } else {
-                                let imb = cx.child(me, "imbuedSupport").unwrap_or_else(|| {
-                                    lua_error!("attempt to index field 'imbuedSupport' (a nil value)")
+                    Some(Rc::new(
+                        move |cx: &mut Cx, _index: usize, value: Option<&DropItem>| {
+                            let value = value
+                                .and_then(|v| v.get::<GroupSlotValue>())
+                                .unwrap_or_else(|| {
+                                    lua_error!("attempt to index local 'value' (a nil value)")
                                 });
-                                // L178
-                                cx.w_mut::<GemSelectControl>(imb).gem_id = None;
-                                // L179
-                                EditControl::set_text(cx, imb, "", false);
-                                // L180 reset saved support to None
-                                g.extra.set(n!("imbuedSupport"), Val::Nil);
+                            let m = model(cx);
+                            let st = &m.skillsTab;
+                            let g = dg(cx);
+                            let by_slot = |slot: Option<Name>| {
+                                slot.map_or(Val::Nil, |s| st.imbuedSupportBySlot.get(s))
+                            };
+                            // maintain imbued support to new slot
+                            // L174
+                            if by_slot(g.slot.get()).truthy() && g.extra.truthy(n!("imbuedSupport"))
+                            {
+                                // L175
+                                if let Some(new_slot) =
+                                    value.0.filter(|s| !by_slot(Some(Name::from(s))).truthy())
+                                {
+                                    // L176 copyTable(grantedEffect, true): a new table with the same
+                                    // contents (here a new box around the same record)
+                                    let ge = by_slot(g.slot.get())
+                                        .obj::<model::gamedata::GrantedEffectRef>()
+                                        .map(|ge| (*ge).clone())
+                                        .unwrap_or_else(|| {
+                                            lua_error!(
+                                                "bad argument #1 to 'pairs' (table expected)"
+                                            )
+                                        });
+                                    st.imbuedSupportBySlot.set(
+                                        Name::from(new_slot),
+                                        Val::Obj(Rc::new(ge) as Rc<dyn std::any::Any>),
+                                    );
+                                } else {
+                                    let imb = cx.child(me, "imbuedSupport").unwrap_or_else(|| {
+                                        lua_error!(
+                                            "attempt to index field 'imbuedSupport' (a nil value)"
+                                        )
+                                    });
+                                    // L178
+                                    cx.w_mut::<GemSelectControl>(imb).gem_id = None;
+                                    // L179
+                                    EditControl::set_text(cx, imb, "", false);
+                                    // L180 reset saved support to None
+                                    g.extra.set(n!("imbuedSupport"), Val::Nil);
+                                }
+                                // L182 (the slot is set: L174's lookup found an entry)
+                                if let Some(s) = g.slot.get() {
+                                    st.imbuedSupportBySlot.set(s, Val::Nil);
+                                }
                             }
-                            // L182 (the slot is set: L174's lookup found an entry)
-                            if let Some(s) = g.slot.get() {
-                                st.imbuedSupportBySlot.set(s, Val::Nil);
-                            }
-                        }
 
-                        // L185
-                        g.slot.set(value.0.map(Name::from));
-                        // L186
-                        SkillsTab::add_undo_state(cx, me);
-                        // L187
-                        m.buildFlag.set(true);
-                    }) as SelFunc),
+                            // L185
+                            g.slot.set(value.0.map(Name::from));
+                            // L186
+                            SkillsTab::add_undo_state(cx, me);
+                            // L187
+                            m.buildFlag.set(true);
+                        },
+                    ) as SelFunc),
                     None,
                     false,
                 ),
@@ -1351,11 +1480,15 @@ impl SkillsTab {
                     let slot_name = value
                         .as_ref()
                         .and_then(|v| v.get::<GroupSlotValue>().map(|v| v.0))
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'value' (a nil value)"));
+                        .unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'value' (a nil value)")
+                        });
                     // L195
                     let slot = slot_name
                         .and_then(|s| items_slot(cx, s))
-                        .unwrap_or_else(|| lua_error!("attempt to index local 'slot' (a nil value)"));
+                        .unwrap_or_else(|| {
+                            lua_error!("attempt to index local 'slot' (a nil value)")
+                        });
                     // L196
                     let ttItem = items_item(cx, &slot);
                     // L197
@@ -1434,7 +1567,10 @@ impl SkillsTab {
                         // L234
                         let mut socketLine = String::new();
                         // L235
-                        if let Some(item) = item.as_ref().filter(|i| i.base.get().is_some_and(|b| b.socketLimit.is_none())) {
+                        if let Some(item) = item
+                            .as_ref()
+                            .filter(|i| i.base.get().is_some_and(|b| b.socketLimit.is_none()))
+                        {
                             let _ = item;
                             // L236
                             socketLine = "This item cannot have sockets".to_owned();
@@ -1463,79 +1599,88 @@ impl SkillsTab {
             .add(
                 me,
                 "optimiseSockets",
-                ButtonControl::new(Anchor::new(Left, sockets_label, Right), rect(4, 0, 120, 18), "Optimise Sockets", move |cx| {
-                    // L257
-                    let (item, groupSlot) = get_selected_item(cx, group_slot);
-                    // L258
-                    let (Some(item), Some(groupSlot)) = (item, groupSlot) else {
-                        // L259
-                        return;
-                    };
-                    if item.base.get().is_none() {
-                        return;
-                    }
-
-                    // L262
-                    let f = skills_hooks().items_add_undo_state;
-                    f(cx);
-
-                    // L264
-                    let (mut maxSockets, abyssalSocketCount) = get_socket_counts(&item);
-
-                    // L266
-                    let mut groupCount = 0.0;
-                    // L267
-                    item.sockets.set(Shared::new(Vec::new()));
-                    let m = model(cx);
-                    // L268
-                    for group in m.skillsTab.socketGroupList.get().snapshot() {
-                        // L269
-                        let colours = ["R", "G", "B"];
-                        // L270
-                        if group.slot.get().as_deref() == groupSlot {
-                            // L271
-                            for gem in group.gemList.get().snapshot() {
-                                // L272
-                                let grantedEffect = gem_granted_effect(&gem);
-                                // L273
-                                if let Some(grantedEffect) = grantedEffect.filter(|_| maxSockets > 0.0) {
-                                    // L274
-                                    let gemColour = grantedEffect
-                                        .color
-                                        .and_then(|c| colours.get(usize::from(c).wrapping_sub(1)).copied())
-                                        .unwrap_or("W");
-                                    // L275
-                                    let t = Table::new();
-                                    t.set(n!("color"), gemColour);
-                                    t.set(n!("group"), groupCount);
-                                    item.sockets.get().push(t);
-                                    // L276
-                                    maxSockets -= 1.0;
-                                }
-                            }
-                            // L279
-                            groupCount += 1.0;
+                ButtonControl::new(
+                    Anchor::new(Left, sockets_label, Right),
+                    rect(4, 0, 120, 18),
+                    "Optimise Sockets",
+                    move |cx| {
+                        // L257
+                        let (item, groupSlot) = get_selected_item(cx, group_slot);
+                        // L258
+                        let (Some(item), Some(groupSlot)) = (item, groupSlot) else {
+                            // L259
+                            return;
+                        };
+                        if item.base.get().is_none() {
+                            return;
                         }
-                    }
-                    // L282
-                    let mut i = 0.0;
-                    while i <= abyssalSocketCount - 1.0 {
-                        // L283
-                        groupCount += 1.0;
-                        // L284
-                        let t = Table::new();
-                        t.set(n!("color"), "A");
-                        t.set(n!("group"), groupCount);
-                        item.sockets.get().push(t);
-                        i += 1.0;
-                    }
-                    // L286
-                    item.BuildAndParseRaw();
-                    // L287
-                    m.skillsTab.UpdateSocketGroups(&m);
-                    // L288
-                    m.buildFlag.set(true);
-                }),
+
+                        // L262
+                        let f = skills_hooks().items_add_undo_state;
+                        f(cx);
+
+                        // L264
+                        let (mut maxSockets, abyssalSocketCount) = get_socket_counts(&item);
+
+                        // L266
+                        let mut groupCount = 0.0;
+                        // L267
+                        item.sockets.set(Shared::new(Vec::new()));
+                        let m = model(cx);
+                        // L268
+                        for group in m.skillsTab.socketGroupList.get().snapshot() {
+                            // L269
+                            let colours = ["R", "G", "B"];
+                            // L270
+                            if group.slot.get().as_deref() == groupSlot {
+                                // L271
+                                for gem in group.gemList.get().snapshot() {
+                                    // L272
+                                    let grantedEffect = gem_granted_effect(&gem);
+                                    // L273
+                                    if let Some(grantedEffect) =
+                                        grantedEffect.filter(|_| maxSockets > 0.0)
+                                    {
+                                        // L274
+                                        let gemColour = grantedEffect
+                                            .color
+                                            .and_then(|c| {
+                                                colours.get(usize::from(c).wrapping_sub(1)).copied()
+                                            })
+                                            .unwrap_or("W");
+                                        // L275
+                                        let t = Table::new();
+                                        t.set(n!("color"), gemColour);
+                                        t.set(n!("group"), groupCount);
+                                        item.sockets.get().push(t);
+                                        // L276
+                                        maxSockets -= 1.0;
+                                    }
+                                }
+                                // L279
+                                groupCount += 1.0;
+                            }
+                        }
+                        // L282
+                        let mut i = 0.0;
+                        while i <= abyssalSocketCount - 1.0 {
+                            // L283
+                            groupCount += 1.0;
+                            // L284
+                            let t = Table::new();
+                            t.set(n!("color"), "A");
+                            t.set(n!("group"), groupCount);
+                            item.sockets.get().push(t);
+                            i += 1.0;
+                        }
+                        // L286
+                        item.BuildAndParseRaw();
+                        // L287
+                        m.skillsTab.UpdateSocketGroups(&m);
+                        // L288
+                        m.buildFlag.set(true);
+                    },
+                ),
             )
             .id();
         // L290-293
@@ -1611,9 +1756,15 @@ impl SkillsTab {
             )
             .id();
         // L322-350
-        let imbued_change: GemChangeFunc = Rc::new(move |cx: &mut Cx, gem_id: Option<String>, _add_undo: bool, _focus_lost: bool, buf_matches_gem: bool| {
-            SkillsTab::imbued_support_gem_change_func(cx, me, gem_id, buf_matches_gem, None);
-        });
+        let imbued_change: GemChangeFunc = Rc::new(
+            move |cx: &mut Cx,
+                  gem_id: Option<String>,
+                  _add_undo: bool,
+                  _focus_lost: bool,
+                  buf_matches_gem: bool| {
+                SkillsTab::imbued_support_gem_change_func(cx, me, gem_id, buf_matches_gem, None);
+            },
+        );
         let imbued_support = cx
             .add(
                 me,
@@ -1633,8 +1784,12 @@ impl SkillsTab {
         // L351-353
         let is_imbued_enabled = |cx: &Cx| -> bool {
             // L352
-            let Some(g) = display_group(cx) else { return false };
-            let Some(slot) = g.slot.get() else { return false };
+            let Some(g) = display_group(cx) else {
+                return false;
+            };
+            let Some(slot) = g.slot.get() else {
+                return false;
+            };
             let by_slot = cx.build().model.skillsTab.imbuedSupportBySlot.get(slot);
             (by_slot.truthy() && g.extra.truthy(n!("imbuedSupport"))) || !by_slot.truthy()
         };
@@ -1648,28 +1803,38 @@ impl SkillsTab {
             .add(
                 me,
                 "imbuedSupportClear",
-                ButtonControl::new(Anchor::new(Left, imbued_support_label, Right), rect(260, 0, 20, 20), "x", move |cx| {
-                    // L362
-                    cx.w_mut::<GemSelectControl>(imbued_support).gem_id = None;
-                    // L363
-                    EditControl::set_text(cx, imbued_support, "", false);
-                    // L364 `self.controls.imbuedSupport:gemChangeFunc(nil)` (module notes)
-                    SkillsTab::imbued_support_gem_change_func(cx, me, None, false, None);
-                }),
+                ButtonControl::new(
+                    Anchor::new(Left, imbued_support_label, Right),
+                    rect(260, 0, 20, 20),
+                    "x",
+                    move |cx| {
+                        // L362
+                        cx.w_mut::<GemSelectControl>(imbued_support).gem_id = None;
+                        // L363
+                        EditControl::set_text(cx, imbued_support, "", false);
+                        // L364 `self.controls.imbuedSupport:gemChangeFunc(nil)` (module notes)
+                        SkillsTab::imbued_support_gem_change_func(cx, me, None, false, None);
+                    },
+                ),
             )
             .id();
         // L366-368
         cx.base_mut(imbued_support_clear).enabled = Prop::f(move |cx, _| is_imbued_enabled(cx));
         // L369
-        cx.w_mut::<ButtonControl>(imbued_support_clear).tt.tooltip_text =
-            Some(Prop::Val(Some("Remove this imbued support.".to_owned())));
+        cx.w_mut::<ButtonControl>(imbued_support_clear)
+            .tt
+            .tooltip_text = Some(Prop::Val(Some("Remove this imbued support.".to_owned())));
 
         // L371
         let group_count_label = cx
             .add(
                 me,
                 "groupCountLabel",
-                LabelControl::new(Anchor::new(Left, include_in_full_dps, Right), rect(16, 0, 0, 16), "^7Count:"),
+                LabelControl::new(
+                    Anchor::new(Left, include_in_full_dps, Right),
+                    rect(16, 0, 0, 16),
+                    "^7Count:",
+                ),
             )
             .id();
         // L372-374
@@ -1705,7 +1870,11 @@ impl SkillsTab {
             .add(
                 me,
                 "sourceNote",
-                LabelControl::new(Anchor::new(TopLeft, sockets_label, TopLeft), rect(0, 30, 0, 16), ""),
+                LabelControl::new(
+                    Anchor::new(TopLeft, sockets_label, TopLeft),
+                    rect(0, 30, 0, 16),
+                    "",
+                ),
             )
             .id();
         // L384-386
@@ -1718,7 +1887,13 @@ impl SkillsTab {
         cx.add(
             me,
             "scrollBarH",
-            ScrollBarControl::new(Anchor::NONE, rect(0, 0, 0, 18), Some(100.0), Some(ScrollDir::Horizontal), true),
+            ScrollBarControl::new(
+                Anchor::NONE,
+                rect(0, 0, 0, 18),
+                Some(100.0),
+                Some(ScrollDir::Horizontal),
+                true,
+            ),
         );
 
         // Initialise skill sets
@@ -1732,7 +1907,10 @@ impl SkillsTab {
         let anchor_gem_slots = cx
             .add_free(
                 Some(me),
-                PlainControl::new(Anchor::new(TopLeft, imbued_support_label, BottomLeft), rect(0, 30, 0, 0)),
+                PlainControl::new(
+                    Anchor::new(TopLeft, imbued_support_label, BottomLeft),
+                    rect(0, 30, 0, 0),
+                ),
             )
             .id();
         cx.w_mut::<SkillsTab>(me).core.anchor_gem_slots = anchor_gem_slots;
@@ -1745,31 +1923,51 @@ impl SkillsTab {
         cx.add(
             me,
             "gemNameHeader",
-            LabelControl::new(Anchor::new(BottomLeft, slot1.name_spec, TopLeft), rect(0, -2, 0, 16), "^7Gem name:"),
+            LabelControl::new(
+                Anchor::new(BottomLeft, slot1.name_spec, TopLeft),
+                rect(0, -2, 0, 16),
+                "^7Gem name:",
+            ),
         );
         // L433
         cx.add(
             me,
             "gemLevelHeader",
-            LabelControl::new(Anchor::new(BottomLeft, slot1.level, TopLeft), rect(0, -2, 0, 16), "^7Level:"),
+            LabelControl::new(
+                Anchor::new(BottomLeft, slot1.level, TopLeft),
+                rect(0, -2, 0, 16),
+                "^7Level:",
+            ),
         );
         // L434
         cx.add(
             me,
             "gemQualityHeader",
-            LabelControl::new(Anchor::new(BottomLeft, slot1.quality, TopLeft), rect(0, -2, 0, 16), "^7Quality:"),
+            LabelControl::new(
+                Anchor::new(BottomLeft, slot1.quality, TopLeft),
+                rect(0, -2, 0, 16),
+                "^7Quality:",
+            ),
         );
         // L435
         cx.add(
             me,
             "gemEnableHeader",
-            LabelControl::new(Anchor::new(BottomLeft, slot1.enabled, TopLeft), rect(-16, -2, 0, 16), "^7Enabled:"),
+            LabelControl::new(
+                Anchor::new(BottomLeft, slot1.enabled, TopLeft),
+                rect(-16, -2, 0, 16),
+                "^7Enabled:",
+            ),
         );
         // L436
         cx.add(
             me,
             "gemCountHeader",
-            LabelControl::new(Anchor::new(BottomLeft, slot1.count, TopLeft), rect(8, -2, 0, 16), "^7Count:"),
+            LabelControl::new(
+                Anchor::new(BottomLeft, slot1.count, TopLeft),
+                rect(8, -2, 0, 16),
+                "^7Count:",
+            ),
         );
         // L437 return self
     }
@@ -1796,11 +1994,10 @@ impl SkillsTab {
             label.push_str("^7\nYou cannot delete this group, but it will disappear if you lose the above sources.");
         } else {
             // L397
-            let activeGem = g
-                .gemList
-                .get()
-                .get(1)
-                .unwrap_or_else(|| lua_error!("attempt to index local 'activeGem' (a nil value)"));
+            let activeGem =
+                g.gemList.get().get(1).unwrap_or_else(|| {
+                    lua_error!("attempt to index local 'activeGem' (a nil value)")
+                });
             // L398
             let mut sourceName;
             let source_item = g.extra.get(n!("sourceItem"));
@@ -1826,14 +2023,13 @@ impl SkillsTab {
             // L406
             sourceName.push_str("^7'");
             // L407-409
-            let color = activeGem
-                .extra
-                .str(n!("color"))
-                .unwrap_or_else(|| lua_error!("attempt to concatenate field 'color' (a nil value)"));
-            let gem_name = activeGem
-                .grantedEffect
-                .get()
-                .map_or_else(|| activeGem.nameSpec.get().to_string(), |ge| ge.name.to_string());
+            let color = activeGem.extra.str(n!("color")).unwrap_or_else(|| {
+                lua_error!("attempt to concatenate field 'color' (a nil value)")
+            });
+            let gem_name = activeGem.grantedEffect.get().map_or_else(
+                || activeGem.nameSpec.get().to_string(),
+                |ge| ge.name.to_string(),
+            );
             let tail = if source_node.truthy() {
                 "un-allocate the node."
             } else {
@@ -1930,7 +2126,10 @@ impl SkillsTab {
         } else if index >= 1 && index <= slots.len() {
             slots[index - 1] = slot;
         } else {
-            lua_error!("CCR-0118: gemSlots[{index}] with {} slots (a hole)", slots.len());
+            lua_error!(
+                "CCR-0118: gemSlots[{index}] with {} slots (a hole)",
+                slots.len()
+            );
         }
     }
 
@@ -1969,7 +2168,11 @@ impl SkillsTab {
         // L536 (model half)
         // L537 self.controls.defaultQuality:SetText(self.defaultGemQuality or "")
         let dq = Self::control(cx, me, "defaultQuality");
-        let q = m.skillsTab.defaultGemQuality.get().map_or_else(String::new, tostring_num);
+        let q = m
+            .skillsTab
+            .defaultGemQuality
+            .get()
+            .map_or_else(String::new, tostring_num);
         EditControl::set_text(cx, dq, &q, false);
         // L538-540 (model half)
         // L541 self.controls.sortGemsByDPS.state = self.sortGemsByDPS
@@ -1981,10 +2184,12 @@ impl SkillsTab {
         cx.w_mut::<CheckBoxControl>(sl).state = ui.truthy(n!("showLegacyGems"));
         // L546 self.controls.showSupportGemTypes:SelByValue(...)
         let ss = Self::control(cx, me, "showSupportGemTypes");
-        cx.w_mut::<DropDownControl>(ss).sel_index = ui.num(n!("showSupportGemTypesSelIndex")) as usize;
+        cx.w_mut::<DropDownControl>(ss).sel_index =
+            ui.num(n!("showSupportGemTypesSelIndex")) as usize;
         // L547 self.controls.sortGemsByDPSFieldControl:SelByValue(...)
         let sf = Self::control(cx, me, "sortGemsByDPSFieldControl");
-        cx.w_mut::<DropDownControl>(sf).sel_index = ui.num(n!("sortGemsByDPSFieldSelIndex")) as usize;
+        cx.w_mut::<DropDownControl>(sf).sel_index =
+            ui.num(n!("sortGemsByDPSFieldSelIndex")) as usize;
         // L548-549 (model half)
         // L550-567 LoadSkill: the imbued-support call returns at L325 (DIVERGENCE(load-ui-tail))
         // L569 self:SetActiveSkillSet(...): the model half ran; its UI tail
@@ -2108,11 +2313,25 @@ impl SkillsTab {
         if cx.app().main.portrait_mode {
             // L684
             let option_section = Self::control(cx, me, "optionSection");
-            cx.set_anchor(anchor_group_detail, TopLeft, Some(option_section), BottomLeft, Some((0.0.into(), 20.0.into())), false);
+            cx.set_anchor(
+                anchor_group_detail,
+                TopLeft,
+                Some(option_section),
+                BottomLeft,
+                Some((0.0.into(), 20.0.into())),
+                false,
+            );
         } else {
             // L686
             let group_list = Self::control(cx, me, "groupList");
-            cx.set_anchor(anchor_group_detail, TopLeft, Some(group_list), TopRight, Some((20.0.into(), 0.0.into())), false);
+            cx.set_anchor(
+                anchor_group_detail,
+                TopLeft,
+                Some(group_list),
+                TopRight,
+                Some((20.0.into(), 0.0.into())),
+                false,
+            );
         }
 
         // L689
@@ -2128,7 +2347,9 @@ impl SkillsTab {
         // L695
         let mut skillText = String::new();
         // L696
-        if let Some(label) = socketGroup_label(socketGroup).filter(|l| pob_lua::find(l, "%S", None, false).is_some()) {
+        if let Some(label) =
+            socketGroup_label(socketGroup).filter(|l| pob_lua::find(l, "%S", None, false).is_some())
+        {
             // L697
             skillText = format!("{skillText}Label: {label}\r\n");
         }
@@ -2145,7 +2366,11 @@ impl SkillsTab {
                 &gemInstance.nameSpec.get(),
                 nan_nil(gemInstance.level.get()),
                 nan_nil(gemInstance.quality.get()),
-                if gemInstance.enabled.get() { "" } else { "DISABLED" },
+                if gemInstance.enabled.get() {
+                    ""
+                } else {
+                    "DISABLED"
+                },
                 gemInstance.count.get().unwrap_or(1.0)
             );
             skillText.push_str(&line);
@@ -2173,10 +2398,10 @@ impl SkillsTab {
             newGroup.gemList.set(Shared::new(Vec::new()));
             // `includeInFullDPS` is nil in the table constructor (CCR-0019's marker)
             newGroup.extra.set(n!("$includeInFullDPSNil"), true);
-            // DIVERGENCE(paste-main-active-skill): `mainActiveSkill`/`mainActiveSkillCalcs` are
-            // nil here; every Lua reader writes `or 1`, the frozen fields are numbers (CCR-0118 §3)
-            newGroup.mainActiveSkill.set(1.0);
-            newGroup.mainActiveSkillCalcs.set(1.0);
+            // `mainActiveSkill`/`mainActiveSkillCalcs` are nil in the table constructor: NaN, the
+            // model's nil number (CCR-0083 §3; DIVERGENCE(paste-main-active-skill) for Save)
+            newGroup.mainActiveSkill.set(f64::NAN);
+            newGroup.mainActiveSkillCalcs.set(f64::NAN);
             // L712
             let label = pob_lua::lmatch(&skillText, "Label: (%C+)", None);
             // L713
@@ -2294,7 +2519,8 @@ impl SkillsTab {
         // Update the main controls
         // L1281
         let gl = Self::control(cx, me, "groupLabel");
-        let label = socketGroup_label(socketGroup).map_or_else(|| "nil".to_owned(), |s| s.to_string());
+        let label =
+            socketGroup_label(socketGroup).map_or_else(|| "nil".to_owned(), |s| s.to_string());
         EditControl::set_text(cx, gl, &label, false);
         // L1282
         let gs = Self::control(cx, me, "groupSlot");
@@ -2331,7 +2557,8 @@ impl SkillsTab {
             // L1289
             EditControl::set_text(cx, imb, &name, false);
             // L1290
-            let gemId = gemId.unwrap_or_else(|| lua_error!("attempt to index local 'gemId' (a nil value)"));
+            let gemId =
+                gemId.unwrap_or_else(|| lua_error!("attempt to index local 'gemId' (a nil value)"));
             let col = skill_color_map(cx, gemId.grantedEffect.color)
                 .unwrap_or_else(|| lua_error!("CCR-0118: skillColorMap[nil]"));
             cx.w_mut::<EditControl>(imb).inactive_col = col;
@@ -2351,15 +2578,27 @@ impl SkillsTab {
             // L1299
             EditControl::set_text(cx, slot.name_spec, &gemInstance.nameSpec.get(), false);
             // L1300
-            EditControl::set_text(cx, slot.level, &tostring_nan(gemInstance.level.get()), false);
+            EditControl::set_text(
+                cx,
+                slot.level,
+                &tostring_nan(gemInstance.level.get()),
+                false,
+            );
             // L1301
-            EditControl::set_text(cx, slot.quality, &tostring_nan(gemInstance.quality.get()), false);
+            EditControl::set_text(
+                cx,
+                slot.quality,
+                &tostring_nan(gemInstance.quality.get()),
+                false,
+            );
             // L1302
             cx.w_mut::<CheckBoxControl>(slot.enabled).state = gemInstance.enabled.get();
             // L1303
-            cx.w_mut::<CheckBoxControl>(slot.enable_global1).state = gemInstance.enableGlobal1.get();
+            cx.w_mut::<CheckBoxControl>(slot.enable_global1).state =
+                gemInstance.enableGlobal1.get();
             // L1304
-            cx.w_mut::<CheckBoxControl>(slot.enable_global2).state = gemInstance.enableGlobal2.get();
+            cx.w_mut::<CheckBoxControl>(slot.enable_global2).state =
+                gemInstance.enableGlobal2.get();
             // L1305
             let count = tostring_num(gemInstance.count.get().unwrap_or(1.0));
             EditControl::set_text(cx, slot.count, &count, false);
@@ -2368,7 +2607,11 @@ impl SkillsTab {
 
     /// lua: SkillsTab.lua:1309-1395 `SkillsTab:AddSocketGroupTooltip(tooltip, socketGroup)`
     /// @pob Classes/SkillsTab.lua:1309-1396 h=ac37696d
-    pub fn add_socket_group_tooltip(cx: &mut Cx, tooltip: &mut Tooltip, socketGroup: &SocketGroupRef) {
+    pub fn add_socket_group_tooltip(
+        cx: &mut Cx,
+        tooltip: &mut Tooltip,
+        socketGroup: &SocketGroupRef,
+    ) {
         // L1310
         if let Some(explodeSources) = socketGroup.explodeSources.get() {
             // L1311
@@ -2387,7 +2630,11 @@ impl SkillsTab {
         // L1316
         if socketGroup.enabled.get() && !socketGroup.slotEnabled.get() {
             // L1317
-            tooltip.add_line(cx, 16.0, "^7Note: this group is disabled because it is socketed in the inactive weapon set.");
+            tooltip.add_line(
+                cx,
+                16.0,
+                "^7Note: this group is disabled because it is socketed in the inactive weapon set.",
+            );
         }
         // L1319
         let source_item = socketGroup.extra.get(n!("sourceItem"));
@@ -2400,7 +2647,8 @@ impl SkillsTab {
         if sourceSingle.truthy() {
             // L1321 (DIVERGENCE(node-name))
             let rarity = val_rarity(&sourceSingle).unwrap_or_else(|| "NORMAL".to_owned());
-            let name = val_name(&sourceSingle).unwrap_or_else(|| lua_error!("attempt to concatenate field 'name' (a nil value)"));
+            let name = val_name(&sourceSingle)
+                .unwrap_or_else(|| lua_error!("attempt to concatenate field 'name' (a nil value)"));
             let line = format!("^7Source: {}{name}", color_code_cat(cx, &rarity));
             tooltip.add_line(cx, 18.0, &line);
             // L1322
@@ -2439,13 +2687,19 @@ impl SkillsTab {
                 // L1344
                 tooltip.add_separator(cx, Some(10.0));
                 // L1345
-                tooltip.add_line(cx, 16.0, &format!("^7Active Skill #{index}'s Main Minion Skill:"));
+                tooltip.add_line(
+                    cx,
+                    16.0,
+                    &format!("^7Active Skill #{index}'s Main Minion Skill:"),
+                );
                 // L1346
                 let activeEffect = minion
                     .mainSkill
                     .get()
                     .and_then(|s| s.effectList.get().get(1))
-                    .unwrap_or_else(|| lua_error!("attempt to index local 'activeEffect' (a nil value)"));
+                    .unwrap_or_else(|| {
+                        lua_error!("attempt to index local 'activeEffect' (a nil value)")
+                    });
                 // L1347-1354
                 let line = effect_line(cx, &activeEffect);
                 tooltip.add_line(cx, 20.0, &line);
@@ -2464,8 +2718,9 @@ impl SkillsTab {
                 .ipairs()
                 .into_iter()
                 .map(|(_, v)| {
-                    v.obj::<GemInstance>()
-                        .unwrap_or_else(|| lua_error!("CCR-0118: displayGemList entry is not a gem"))
+                    v.obj::<GemInstance>().unwrap_or_else(|| {
+                        lua_error!("CCR-0118: displayGemList entry is not a gem")
+                    })
                 })
                 .collect(),
             None => socketGroup.gemList.get().snapshot(),
@@ -2503,7 +2758,7 @@ impl SkillsTab {
                         reason = "(Disabled)";
                     // L1375
                     } else if !socketGroup.enabled.get() || !socketGroup.slotEnabled.get() {
-                    // L1376
+                        // L1376
                     } else if grantedEffect.support {
                         // L1377
                         if displayEffect.superseded() {
@@ -2521,10 +2776,7 @@ impl SkillsTab {
                 }
                 // L1383-1391
                 let magic = cx.main.cc.MAGIC.clone();
-                let color = gemInstance
-                    .extra
-                    .str(n!("color"))
-                    .map(|s| s.to_string());
+                let color = gemInstance.extra.str(n!("color")).map(|s| s.to_string());
                 let name = gemInstance
                     .grantedEffect
                     .get()
@@ -2532,15 +2784,25 @@ impl SkillsTab {
                     .or_else(|| gemInstance.gemData.get().map(|g| g.name.to_string()))
                     .unwrap_or_else(|| gemInstance.nameSpec.get().to_string());
                 let src = displayEffect.src_instance();
-                let level = src.as_ref().map_or(displayEffect.level(), |s| s.level.get());
+                let level = src
+                    .as_ref()
+                    .map_or(displayEffect.level(), |s| s.level.get());
                 let level_plus = if gt(displayEffect.level(), gemInstance.level.get()) {
-                    format!("{magic}+{}^7", tostring_num(displayEffect.level() - gemInstance.level.get()))
+                    format!(
+                        "{magic}+{}^7",
+                        tostring_num(displayEffect.level() - gemInstance.level.get())
+                    )
                 } else {
                     String::new()
                 };
-                let quality = src.as_ref().map_or(displayEffect.quality(), |s| s.quality.get());
+                let quality = src
+                    .as_ref()
+                    .map_or(displayEffect.quality(), |s| s.quality.get());
                 let quality_plus = if gt(displayEffect.quality(), gemInstance.quality.get()) {
-                    format!("{magic}+{}^7", tostring_num(displayEffect.quality() - gemInstance.quality.get()))
+                    format!(
+                        "{magic}+{}^7",
+                        tostring_num(displayEffect.quality() - gemInstance.quality.get())
+                    )
                 } else {
                     String::new()
                 };
@@ -2569,7 +2831,9 @@ impl SkillsTab {
         // L1400
         let mut skillSets = Vec::new();
         // L1401 ORDER: (c) the model map's order (module notes)
-        let sets: Vec<(u32, Table)> = st.skillSets.with(|s| s.iter().map(|(k, v)| (*k, v.clone())).collect());
+        let sets: Vec<(u32, Table)> = st
+            .skillSets
+            .with(|s| s.iter().map(|(k, v)| (*k, v.clone())).collect());
         for (skillSetIndex, skillSet) in sets {
             // L1402
             let newSkillSet = skillSet.copyTable(true);
@@ -2662,7 +2926,9 @@ impl SkillsTab {
         // L1437
         m.mainSocketGroup.set(state.activeSocketGroup);
         // L1438
-        m.calcsTab.input.set(n!("skill_number"), state.activeSocketGroup2);
+        m.calcsTab
+            .input
+            .set(n!("skill_number"), state.activeSocketGroup2);
     }
 
     /// lua: SkillsTab.lua:1444-1451 `SkillsTab:OpenSkillSetManagePopup()`
@@ -2790,6 +3056,10 @@ pub fn set_active_skill_set_hook(cx: &mut Cx, id: f64) {
 
 /// `BuildHooks::skills_add_socket_group_tooltip`: `self.skillsTab:AddSocketGroupTooltip(tooltip,
 /// socketGroup)` (Build.lua:540, CalcsTab.lua:55).
-pub fn add_socket_group_tooltip_hook(cx: &mut Cx, tooltip: &mut Tooltip, socketGroup: &SocketGroupRef) {
+pub fn add_socket_group_tooltip_hook(
+    cx: &mut Cx,
+    tooltip: &mut Tooltip,
+    socketGroup: &SocketGroupRef,
+) {
     SkillsTab::add_socket_group_tooltip(cx, tooltip, socketGroup);
 }

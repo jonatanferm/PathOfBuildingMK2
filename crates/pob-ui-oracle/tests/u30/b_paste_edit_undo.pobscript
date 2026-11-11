@@ -2,11 +2,13 @@
 # clipboard (PasteSocketGroup, L708-740: label, slot and two gems; the group is appended,
 # selected in the list and displayed; AddUndoState; recalc through the bridge); then the label
 # edit (L165-170: every char is ProcessSocketGroup + AddUndoState), the Enabled and Include in
-# Full DPS checkboxes (L207-216), Ctrl+Z twice and Ctrl+Y (UndoHandler over CreateUndoState /
+# Full DPS checkboxes (L207-216), the Socketed in dropdown (L172-188: Helmet -> Gloves), Ctrl+Z
+# twice and Ctrl+Y (UndoHandler over CreateUndoState /
 # RestoreUndoState, L1397-1441). Each step is snapshotted (T4: the Skills section).
 #! u30-expect-skills label="Pasted"
 #! u30-expect-skills label="PastedX"
 #! u30-expect-skills enabled="false" includeInFullDPS="true" label="PastedX"
+#! u30-expect-skills label="PastedX" mainActiveSkill="<nil>" mainActiveSkillCalcs="<nil>" slot="Gloves"
 fixture userdir=../../fixtures/user1
 frames 2
 load-build "Builds/allflame_exp_001.xml"
@@ -27,7 +29,7 @@ click LEFTBUTTON
 frames 1
 type "X"
 frames 2
-move 1270 790
+move 1000 300
 click LEFTBUTTON
 frames 2
 snapshot labeled
@@ -38,9 +40,20 @@ frames 2
 move 1172 124
 click LEFTBUTTON
 frames 3
-move 1270 790
+move 1000 300
 frames 1
 snapshot toggled
+# Socketed in: open, hover, pick "Gloves" (the 8th entry)
+move 860 124
+click LEFTBUTTON
+frames 2
+move 860 255
+frames 2
+click LEFTBUTTON
+frames 3
+move 1000 300
+frames 1
+snapshot slot
 key-down CTRL
 press z
 key-up CTRL

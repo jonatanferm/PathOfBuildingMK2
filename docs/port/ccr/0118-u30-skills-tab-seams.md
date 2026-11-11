@@ -42,28 +42,28 @@ gets the `BuildTab::Skills` draw arm and the `TabFlag::Skills` get/set arms. Bef
 exists (Build:Init's own SetActiveSkillSet calls), `set_active_skill_set_hook` runs the model half
 only.
 
-## 3. A pasted group's `mainActiveSkill` is nil in PoB (proposal, not applied)
+## 3. Save of a nil `mainActiveSkill` (proposal to calc:BM-B, not applied)
 
 Evidence: `SkillsTab.lua:711` `local newGroup = { label = "", enabled = true, gemList = { } }`
-(also `SkillListControl.lua` "New"): `mainActiveSkill`/`mainActiveSkillCalcs` stay nil; every
-reader writes `or 1` (e.g. CalcSetup.lua:1886), and
-`SkillsTab:Save` writes `tostring(nil)` = `"nil"` (L596-597). The frozen `SocketGroup` has
-`mainActiveSkill: Cell<f64>` (no nil), so U30 stores 1 and Save writes `"1"`
-(DIVERGENCE(paste-main-active-skill)).
+(also `SkillListControl.lua` "New", and the groups CalcSetup creates): `mainActiveSkill` /
+`mainActiveSkillCalcs` stay nil; the readers write `or 1` (e.g. CalcSetup.lua:1886), and
+`SkillsTab:Save` writes `tostring(nil)` = `"nil"` (L596-597). The model's nil number is NaN
+(CCR-0083 §3; `init_env_skills.rs` sets it for the groups it creates, the readers treat NaN as
+nil), and U30's paste follows it, but calc:BM-B's Save writes `tostring_num(NaN)` (`"nan"` /
+`"-nan"`) where PoB writes `"nil"` (DIVERGENCE(paste-main-active-skill)).
 
-Proposed (calc:BM-B's file): an `extra["$mainActiveSkillNil"]` marker like CCR-0019's
-`$includeInFullDPSNil`, set by the paste/new constructors and cleared by every writer of the
-field, with Save writing `"nil"` while it is set:
+Proposed (calc:BM-B's file):
 
 ```diff
  // model/skills_tab.rs, Save (L596-597)
 -                    Some(tostring_num(socketGroup.mainActiveSkill.get())),
-+                    Some(if socketGroup.extra.truthy(n!("$mainActiveSkillNil")) { "nil".to_owned() }
++                    Some(if socketGroup.mainActiveSkill.get().is_nan() { "nil".to_owned() }
 +                         else { tostring_num(socketGroup.mainActiveSkill.get()) }),
 ```
 
-Until then U30's scenarios (`pob-ui-oracle/tests/u30_skills.rs`) mask exactly that pair of
-attributes (Lua `"nil"`, Rust `"1"`) and count the masked lines.
+(and the same for `mainActiveSkillCalcs`). Until then U30's scenarios
+(`pob-ui-oracle/tests/u30_skills.rs`, `mask`) compare a Lua `"nil"` and a Rust `"nan"`/`"-nan"`
+of these two attributes as equal and count the masked attributes.
 
 ## 4. `data.skillColorMap[nil]`
 

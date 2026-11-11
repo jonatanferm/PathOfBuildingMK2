@@ -1,6 +1,7 @@
 //! U30 acceptance (ui doc §12 U30 row): the Skills tab (SkillsTab.lua 1-742, 1081-1502) on both
-//! sides of the UI oracle: socket group CRUD (paste, label, slot, enabled, Full DPS, count),
-//! skill sets (the set selector, the manager popup), copy/paste and undo/redo.
+//! sides of the UI oracle: socket group create (paste) and update (label, slot, enabled, Full
+//! DPS), skill sets (the set selector, the manager popup), the gem options, paste and undo/redo.
+//! Delete, Copy (`OnSelCopy`) and the gem rows are U31's list/row controls (stand-ins here).
 //! Owner: U30.
 //!
 //! `u30_scenarios`: every `tests/u30/*.pobscript`; a script without its own `screen` runs at
@@ -8,7 +9,8 @@
 //! Skills tab (Ctrl+2) and drives it. Per run: zero T3 divergences (the same draw ops per
 //! `(layer, sub)` bucket and the same side effects, frame by frame), the same window titles, and
 //! T4 for the `Skills` section of every `snapshot` step (every element of the section in document
-//! order with its attributes; see [`t4`] for the one mask).
+//! order with its attributes; see [`mask`] for the written masks, and `flatten` for the gem
+//! variant PoB picks through `pairs`, not compared as in u20).
 //!
 //! The Rust side's calc is U15's LuaCalcBridge (ext:calc, ui doc §12.1), as in u20-u22/u39.
 //!
@@ -586,26 +588,93 @@ fn root_element(text: &str) -> Result<XmlNode, String> {
         .ok_or_else(|| "no root element".to_owned())
 }
 
+/// The attribute masks (written reasons, ui doc §11.1 T4), applied to `(elem, attribute, value)`:
+/// * A8 item 15 (CCR-0019 §4-7, the mask of u20/u22/u32/u43): the frozen
+///   `GemInstance.enableGlobal1/2` and `SocketGroup.includeInFullDPS` (`Cell<bool>`) and
+///   `mainActiveSkill(Calcs)` (`Cell<f64>`) cannot hold nil. A gem or group whose field is nil in
+///   Lua (the `EnemyExplode` gems of CalcSetup.lua:1535-1542, the item-granted groups, a pasted
+///   group, an old-format group without `includeInFullDPS`) saves the Rust default where PoB
+///   writes `tostring(nil)`; the CCR-0019 markers that would keep the nil do not survive U15's
+///   bridge (`lua_calc.rs` `copy_group` copies the Lua group's `extra` over the model's). A Lua
+///   `"nil"` compares equal to `"false"` for the booleans;
+/// * `mainActiveSkill(Calcs)`: a Lua `"nil"` and a Rust `"0"` (the default of a group the calc
+///   creates, as in u20) or `"nan"`/`"-nan"` (the model's nil number, which a pasted group
+///   carries: DIVERGENCE(paste-main-active-skill) of `tabs/skills/core.rs`, CCR-0118 §3) all read
+///   `"<nil>"`.
+fn mask(elem: &str, k: &str, v: &str, lua: bool) -> Option<&'static str> {
+    match (elem, k) {
+        ("Gem", "enableGlobal1" | "enableGlobal2") | ("Skill", "includeInFullDPS")
+            if lua && v == "nil" =>
+        {
+            Some("false")
+        }
+        ("Skill", "mainActiveSkill" | "mainActiveSkillCalcs")
+            if (lua && v == "nil") || (!lua && matches!(v, "0" | "nan" | "-nan")) =>
+        {
+            Some("<nil>")
+        }
+        _ => None,
+    }
+}
+
+/// A `Gem` element whose `gemId` has more than one variant with its `skillId` as granted
+/// effect (`data.gemsByGameId[gemId]`; u20's test).
+fn ambiguous_variant(node: &XmlNode) -> bool {
+    let (Some(game_id), Some(skill_id)) = (node.attrib.get("gemId"), node.attrib.get("skillId"))
+    else {
+        return false;
+    };
+    let n = pob_gamedata::data()
+        .gems
+        .values()
+        .filter(|g| *g.gameId == **game_id && *g.grantedEffectId == **skill_id)
+        .count();
+    n > 1
+}
+
 /// `elem {attributes sorted}` of `n` and of every descendant element, in document order, indented
 /// by depth (SkillsTab:Save writes the sets in `skillSetOrderList` order and the groups and gems
-/// in list order, so the order is compared too).
-fn flatten(n: &XmlNode, depth: usize, out: &mut Vec<String>) {
+/// in list order, so the order is compared too). Attributes are compared as sets (Lua builds
+/// `xml.attrib` with a table constructor, `pairs` order). `masked` counts [`mask`] hits.
+fn flatten(n: &XmlNode, depth: usize, lua: bool, masked: &mut usize, out: &mut Vec<String>) {
     let mut a: Vec<String> = n
         .attrib
         .iter()
-        .map(|(k, v)| format!("{k}={v:?}"))
+        .map(|(k, v)| match mask(&n.elem, k, v, lua) {
+            // SkillsTab.lua:472-478 (as in u20): an old-format gem (no variantId) picks the first
+            // variant of `pairs(possibleVariants)` (string keys, per-process order) whose
+            // grantedEffectId matches, and several variants share one (Vaal Righteous Fire and
+            // its AltX): PoB's own pick differs between its runs, so the pick is not compared
+            _ if &*n.elem == "Gem"
+                && matches!(&**k, "variantId" | "nameSpec")
+                && ambiguous_variant(n) =>
+            {
+                *masked += 1;
+                format!("{k}=<pairs-chosen variant>")
+            }
+            Some(m) => {
+                *masked += 1;
+                format!("{k}={m:?}")
+            }
+            None => format!("{k}={v:?}"),
+        })
         .collect();
     a.sort();
-    out.push(format!("{}{} {{{}}}", "  ".repeat(depth), n.elem, a.join(" ")));
+    out.push(format!(
+        "{}{} {{{}}}",
+        "  ".repeat(depth),
+        n.elem,
+        a.join(" ")
+    ));
     for c in &n.children {
         if let XmlChild::Node(c) = c {
-            flatten(c, depth + 1, out);
+            flatten(c, depth + 1, lua, masked, out);
         }
     }
 }
 
 /// The `<Skills>` element, flattened.
-fn skills_section(xml: &str) -> Result<Vec<String>, String> {
+fn skills_section(xml: &str, lua: bool, masked: &mut usize) -> Result<Vec<String>, String> {
     let root = root_element(xml)?;
     let skills = root
         .children
@@ -616,19 +685,11 @@ fn skills_section(xml: &str) -> Result<Vec<String>, String> {
         })
         .ok_or_else(|| "no Skills section".to_owned())?;
     let mut out = Vec::new();
-    flatten(skills, 0, &mut out);
+    flatten(skills, 0, lua, masked, &mut out);
     Ok(out)
 }
 
-/// The one mask, DIVERGENCE(paste-main-active-skill) of `tabs/skills/core.rs`: a pasted group's
-/// `mainActiveSkill`/`mainActiveSkillCalcs` are nil in Lua (Save writes "nil") and 1 here. Lua
-/// writes "nil" for nothing else (LoadSkill reads both with `or 1`), so only pasted groups match.
-fn mask_paste(lua: &str) -> String {
-    lua.replace("mainActiveSkill=\"nil\"", "mainActiveSkill=\"1\"")
-        .replace("mainActiveSkillCalcs=\"nil\"", "mainActiveSkillCalcs=\"1\"")
-}
-
-/// Every snapshot pair's `Skills` section: `Ok((pairs, masked lines))`.
+/// Every snapshot pair's `Skills` section: `Ok((pairs, masked attributes))`.
 fn t4(lua: &Side, rust: &Side) -> Result<(usize, usize), Vec<String>> {
     let mut errs = Vec::new();
     if lua.snapshots.len() != rust.snapshots.len() {
@@ -642,7 +703,10 @@ fn t4(lua: &Side, rust: &Side) -> Result<(usize, usize), Vec<String>> {
     let mut masked = 0;
     for ((name, lx), (_, rx)) in lua.snapshots.iter().zip(&rust.snapshots) {
         n += 1;
-        match (skills_section(lx), skills_section(rx)) {
+        match (
+            skills_section(lx, true, &mut masked),
+            skills_section(rx, false, &mut masked),
+        ) {
             (Ok(l), Ok(r)) => {
                 if l.len() != r.len() {
                     errs.push(format!(
@@ -651,16 +715,8 @@ fn t4(lua: &Side, rust: &Side) -> Result<(usize, usize), Vec<String>> {
                         r.len()
                     ));
                 }
-                for (a, b) in l.iter().zip(&r) {
-                    if a == b {
-                        continue;
-                    }
-                    if mask_paste(a) == *b {
-                        masked += 1;
-                        continue;
-                    }
+                if let Some((a, b)) = l.iter().zip(&r).find(|(a, b)| a != b) {
                     errs.push(format!("snapshot {name}: lua {a} | rust {b}"));
-                    break;
                 }
             }
             (l, r) => errs.push(format!(
@@ -684,7 +740,8 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
     let mut errs = Vec::new();
     for want in directives(text, "u30-expect-skills") {
         let found = lua.snapshots.iter().any(|(_, x)| {
-            skills_section(x).is_ok_and(|s| s.iter().any(|e| e.contains(want.as_str())))
+            skills_section(x, true, &mut 0)
+                .is_ok_and(|s| s.iter().any(|e| e.contains(want.as_str())))
         });
         if !found {
             errs.push(format!("no Lua Skills section element contains {want:?}"));
@@ -736,14 +793,18 @@ fn u30_scenarios() {
             } else {
                 format!("u30_{stem}@{w}x{h}@{s}")
             };
-            let (lua, rust) =
-                match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s)) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        failures.push(format!("{tag}: {e:#}"));
-                        continue;
-                    }
-                };
+            let (lua, rust) = match run_sides(
+                &root,
+                &script,
+                fx.user_dir.as_deref(),
+                runner::screen(w, h, s),
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    failures.push(format!("{tag}: {e:#}"));
+                    continue;
+                }
+            };
             ran += 1;
             let titles = (window_titles(&lua.frames), window_titles(&rust.frames));
             let t4r = t4(&lua, &rust);
@@ -763,7 +824,7 @@ fn u30_scenarios() {
                 Ok((p, m)) => {
                     t4_pairs += p;
                     t4_masked += m;
-                    format!("T4 {p} Skills sections identical ({m} masked lines)")
+                    format!("T4 {p} Skills sections identical ({m} masked attributes)")
                 }
                 Err(e) => format!("T4 FAILED: {}", e.join("; ")),
             };
@@ -805,7 +866,7 @@ fn u30_scenarios() {
             }
         }
     }
-    println!("u30: {ran} runs, T4 {t4_pairs} Skills sections ({t4_masked} masked lines)");
+    println!("u30: {ran} runs, T4 {t4_pairs} Skills sections ({t4_masked} masked attributes)");
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

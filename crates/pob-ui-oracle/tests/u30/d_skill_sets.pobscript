@@ -1,8 +1,9 @@
+screen 1280 800 dpi 1.0
 # U30: skill sets (L99-110, L673-681, L1443-1451, L1478-1502). two_sets.xml has a second set
 # ("Leap set"): the set selector is enabled; pick the second set (SetActiveSkillSet: the group
 # list, the displayed group, SyncLoadouts; AddUndoState; recalc), Ctrl+Z back to the first set,
 # then the "Manage..." popup (the SkillSetListControl stand-in and the Done button), closed with
-# Done.
+# Done (one screen: the popup is centred vertically).
 #! u30-expect-skills activeSkillSet="2"
 #! u30-expect-skills activeSkillSet="1"
 fixture userdir=user1
@@ -20,7 +21,7 @@ move 480 92
 frames 1
 click LEFTBUTTON
 frames 3
-move 1270 790
+move 1000 300
 frames 2
 snapshot second
 key-down CTRL
@@ -31,10 +32,10 @@ snapshot undone
 move 647 50
 click LEFTBUTTON
 frames 3
-move 640 520
+move 640 525
 frames 2
 click LEFTBUTTON
 frames 3
-move 1270 790
+move 1000 300
 frames 2
 snapshot closed

@@ -28,6 +28,6 @@ key-down CTRL
 press v
 key-up CTRL
 frames 2
-move 1270 790
+move 1000 300
 frames 2
 snapshot after_paste
