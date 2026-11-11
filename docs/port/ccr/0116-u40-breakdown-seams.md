@@ -10,7 +10,7 @@ Applied in other units' files:
 
 | File (owner) | Entry | Now |
 |---|---|---|
-| `tabs/calcs/core.rs` (U39) `default_calcs_hooks` | `breakdown_ctor`, `set_breakdown_data`, `breakdown_source_data` | `breakdown::{calcs_breakdown_ctor, calcs_set_breakdown_data, calcs_breakdown_source_data}` (the real control replaces `BreakdownStandIn`, which stays, unused, in U39's file) |
+| `tabs/calcs/core.rs` (U39) `default_calcs_hooks` | `breakdown_ctor`, `set_breakdown_data`, `breakdown_source_data` | `breakdown::{calcs_breakdown_ctor, calcs_set_breakdown_data, calcs_breakdown_source_data}` (the real control replaces `BreakdownStandIn`, which stays in U39's file; the u39 harness uses it, §6) |
 | `build/on_frame.rs` (U20) `default_shell_hooks` | `breakdown_pinned`, `breakdown_set_data`, `breakdown_set_border_colour` | `breakdown::sidebar_breakdown_*` |
 | `build/init.rs` (U19) `default_hooks` | `breakdown` | `breakdown::sidebar_breakdown_ctor` (applies `BreakdownInit`: `pinnedColour`, `envName`, `clearDisplayFunc`, Build.lua:617-621) |
 
@@ -57,7 +57,21 @@ Entry `U40-1` added (CCR-0015 §1 / ui doc §13 item 14: the `divVar` tag text, 
 
 ## 6. Tests
 
-`crates/pob-ui-oracle/tests/u39_calcs.rs` (U39's) stubbed the breakdown's methods on the Lua side
-to match the stand-in; with the real control on both sides that stub is removed (and the
-AddItemTooltip/nodeViewer stand-ins of u40 added), so the u39 scenarios now also compare the
-breakdown panes their hovers and pins open.
+`crates/pob-ui-oracle/tests/u39_calcs.rs` (U39's) stubs the Calcs tab breakdown's methods on the
+Lua side to match `BreakdownStandIn`. With the hook arms of §1 the Rust default is the real
+control, so the u39 harness now overrides U40's three `CalcsHooks` arms with U39's stand-in
+(the closures `default_calcs_hooks` had before §1, moved into the test) and keeps its Lua stub:
+u39 compares the Calcs tab with the stand-in on both sides, as accepted for U39. The sidebar
+control is real on both sides there (with u40's `AddItemTooltip`/`nodeViewer` stand-ins).
+
+Why not the real control in u39: tried; 12 of 13 u39 runs had zero divergences with it, but
+`u39/d_skill_mode_undo` hovers (through the open Calculation Mode list, at 500,145) a cell whose
+breakdown is `SkillBuffs` (Calcs.lua:762-772). Its rows tie under the L349 comparator (Herald
+of Ice/Thunder's Attack and Spell `ColdMin`/`ColdMax`/`LightningMin` mods, equal name and value),
+and the order of `env.buffs[name]` is PoB's per-process random order (calc doc D8;
+`.parity/nondet/allflame_exp_001.json` records `env.buffs["Herald of Ice"].mods`). Verified: two
+fresh LuaJIT PoB processes loading the same build gave different `SkillBuffs.modList` orders, and
+the failing pairs changed between runs (Cold Max at 1280x800, Lightning Min/Cold Min at
+1920x1080). The UI VM and the bridge's VM are two processes, so the tied rows' order cannot be
+matched. U40's own scenarios (`tests/u40/`) cover the real control in the Calcs tab, pinned, in
+the overlay pane and in the sidebar, and avoid tied mod lists (see `e_radius.pobscript`).

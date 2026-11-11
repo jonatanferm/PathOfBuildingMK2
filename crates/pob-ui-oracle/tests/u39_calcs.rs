@@ -21,9 +21,17 @@
 //! ones) for the units not ported yet:
 //! * the other tabs' `Draw` draw nothing (the Lua tabs' `Draw` are replaced after Init; the
 //!   Rust side's `draw_tab` has no arm for them);
-//! * both CalcBreakdownControls are real (U40, CCR-0116 §6); `ItemsTab:AddItemTooltip` (U38) adds
-//!   one line with the item name and the breakdowns' `nodeViewer` (U23) is
-//!   `{ Draw = function() end }`, as in u40;
+//! * `calcsTab.controls.breakdown` (CalcBreakdownControl, U40) is U39's stand-in on both sides
+//!   (`tabs::calcs::core::BreakdownStandIn`: never shown, draws nothing, ignores keys,
+//!   `SetBreakdownData` keeps `pinned`/`sourceData`); the Lua side replaces the same methods on
+//!   the real control (`LUA_STUBS`), the Rust side overrides U40's `CalcsHooks` arms. The real
+//!   control is u40's acceptance (CCR-0116 §6): here a hover through the open Calculation Mode
+//!   list (u39/d_skill_mode_undo) would open the SkillBuffs mod table, whose tie order is PoB's
+//!   per-process hash order (calc doc D8; `.parity/nondet` records
+//!   `env.buffs["Herald of Ice"].mods`), different in the UI VM and the bridge's VM;
+//! * the sidebar CalcBreakdownControl is real on both sides (U40), with u40's stand-ins:
+//!   `ItemsTab:AddItemTooltip` (U38) adds one line with the item name and its `nodeViewer` (U23)
+//!   is `{ Draw = function() end }`;
 //! * `SkillsTab:AddSocketGroupTooltip` (U30, the socket group dropdown's tooltip) adds one line
 //!   with the group's label on both sides;
 //! * `utf8.next`, `spec.modFlag` and `TreeTab:GetSpecList` as in u22.
@@ -121,15 +129,28 @@ function b:Init(...)
 			tooltip:AddLine(16, "^7" .. tostring(socketGroup.label))
 		end
 	end
-	-- U40: the real CalcBreakdownControls; U38/U23 stand-ins as in u40 (CCR-0116 §6)
+	local bd = self.calcsTab and self.calcsTab.controls.breakdown
+	if bd then
+		bd.Draw = function() end
+		bd.IsMouseOver = function() end
+		bd.OnKeyDown = function() end
+		bd.OnKeyUp = function() end
+		bd.SetBreakdownData = function(self, displayData, pinned)
+			self.pinned = pinned
+			if displayData == self.sourceData then
+				return
+			end
+			self.sourceData = displayData
+			self.shown = false
+		end
+	end
+	-- the sidebar CalcBreakdownControl (U40) is real; U38/U23 stand-ins as in u40 (CCR-0116 §6)
 	if self.itemsTab then
 		self.itemsTab.AddItemTooltip = function(_, tooltip, item, slot)
 			tooltip:AddLine(16, "^7" .. tostring(item.name))
 		end
 	end
-	for _, bd in ipairs({ self.calcsTab and self.calcsTab.controls.breakdown, self.controls.breakdown }) do
-		bd.nodeViewer = { Draw = function() end }
-	end
+	self.controls.breakdown.nodeViewer = { Draw = function() end }
 end
 "#;
 
@@ -191,8 +212,48 @@ fn rust_stubs() {
             }
         });
     });
+    // U39's CalcBreakdownControl stand-in (see the module notes; CCR-0116 §6)
     pob_app::tabs::calcs::core::set_calcs_hooks(|h| {
+        use pob_app::tabs::calcs::core::BreakdownStandIn;
+        use pob_ui_core::prelude::*;
         *h = pob_app::tabs::calcs::core::default_calcs_hooks();
+        h.breakdown_ctor = Rc::new(|cx, tab| {
+            // CalcBreakdownControl.lua:24 self.shown = false
+            cx.add(
+                tab,
+                "breakdown",
+                New::new(
+                    Base::new(Anchor::NONE, rect(0, 0, 0, 0)),
+                    BreakdownStandIn::default(),
+                )
+                .host()
+                .shown(Prop::Val(false)),
+            )
+            .id()
+        });
+        h.set_breakdown_data = Rc::new(|cx, bd, data, pinned| {
+            let w = cx.w_mut::<BreakdownStandIn>(bd);
+            // CalcBreakdownControl.lua:61
+            w.pinned = pinned;
+            // :62
+            let same = match (&w.source_data, data) {
+                (Some(a), Some(b)) => a.ptr_eq(b),
+                (None, None) => true,
+                _ => false,
+            };
+            if same {
+                // :63
+                return;
+            }
+            // :65
+            w.source_data = data.cloned();
+            // :67
+            cx.base_mut(bd).shown = Prop::Val(false);
+        });
+        h.breakdown_source_data = Rc::new(|cx, bd| {
+            cx.try_w::<BreakdownStandIn>(bd)
+                .and_then(|w| w.source_data.clone())
+        });
     });
     // U38 stand-in (CCR-0116 §6, as in u40)
     pob_app::tabs::calcs::breakdown::set_breakdown_hooks(|h| {
