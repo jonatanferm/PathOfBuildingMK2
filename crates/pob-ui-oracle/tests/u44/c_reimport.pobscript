@@ -1,0 +1,53 @@
+# U44: re-importing items and skills. Import the sample character's tree and items, then import
+# the items again with "Delete skills" and "Delete equipment" unticked (ImportItem overwrites the
+# items with the same unique ID; ImportSocketedItems updates the matching socket groups), and a
+# third time with "Delete skills" ticked again (the socket group reimport state: the groups are
+# snapshotted by key, wiped, re-imported, sorted by the old skill order and restored).
+#! u44-expect-label Character list successfully retrieved.
+#! u44-expect-xml secondaryAscendClassId="11"
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press i
+key-up CTRL
+frames 2
+move 496 198
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "Tester#1234"
+move 634 198
+click LEFTBUTTON
+frames 3
+move 464 250
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 434 286
+click LEFTBUTTON
+frames 3
+move 583 286
+click LEFTBUTTON
+move 718 286
+click LEFTBUTTON
+frames 1
+move 434 286
+click LEFTBUTTON
+frames 3
+snapshot kept
+move 583 286
+click LEFTBUTTON
+frames 1
+move 434 286
+click LEFTBUTTON
+frames 3
+snapshot reimported
+frames 1

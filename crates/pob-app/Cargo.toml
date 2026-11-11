@@ -21,6 +21,9 @@ indexmap.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 miniz_oxide = "0.8"
+# U44 (ImportTab B): `modLib.parseMod` of item flavour text (CCR-0117 §5: model.rs does not
+# re-export it).
+pob-modparser.workspace = true
 
 [dev-dependencies]
 # U28's unit tests: a small `data.powerStatList` and an item base from JSON.
