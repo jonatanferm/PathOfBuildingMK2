@@ -1,0 +1,109 @@
+# U32: the item set manage popup's lists (ItemSetListControl, SharedItemSetListControl) of
+# allflame_exp_001, at 1920 1080 dpi 1.5 (the popups are centred: this script sets its own screen; its
+# twin runs the same steps at the other resolution). The stand-in "Manage sets" button
+# (OpenItemSetManagePopup); hover a set (AddValueTooltip: AddItemSetTooltip); New (NewItemSet,
+# RenameSet with addOnName: the name popup, Save: title, modFlag, t_insert into
+# itemSetOrderList, AddUndoState, SyncLoadouts); double-click the new set (SetActiveItemSet:
+# the slots show the empty set, a recalc); Done; Sort the item list and Ctrl+click its first
+# row (one item equipped in the new set); the popup again: drag the new set onto the shared list
+# (its ReceiveDrag: a copy of the equipped item); F2 on the shared set (RenameSet) and Save;
+# hover it (the shared tooltip); drag it back onto the set list (NewItemSet with the item, at
+# the drop index); Copy on set 3 and Cancel (the copy is removed again); DELETE on set 3 and
+# RETURN (the confirm popup: t_remove, itemSets[id] = nil, AddUndoState, SyncLoadouts); Done.
+# (One item in the dragged set: ReceiveDrag gives the items their ids in `pairs(value.slots)`
+# order, which PoB randomises per process.)
+#! u32-expect Manage Item Sets
+#! u32-expect Second
+#! u32-expect Shared
+#! u32-expect Delete Item Set
+screen 1920 1080 dpi 1.5
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 1172 72
+click LEFTBUTTON
+frames 2
+move 480 275
+frames 2
+move 389 252
+click LEFTBUTTON
+frames 2
+type "Second"
+frames 1
+move 595 390
+click LEFTBUTTON
+frames 3
+move 480 291
+click LEFTBUTTON
+click LEFTBUTTON
+frames 3
+move 640 485
+click LEFTBUTTON
+frames 2
+move 883 53
+click LEFTBUTTON
+frames 2
+move 800 72
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 3
+move 1172 72
+click LEFTBUTTON
+frames 2
+move 480 291
+key-down LEFTBUTTON
+frames 1
+move 500 307
+frames 1
+move 795 339
+frames 2
+key-up LEFTBUTTON
+frames 2
+move 795 275
+click LEFTBUTTON
+frames 1
+press F2
+frames 2
+type "Shared"
+frames 1
+move 595 390
+click LEFTBUTTON
+frames 2
+move 795 275
+frames 2
+key-down LEFTBUTTON
+frames 1
+move 780 291
+frames 1
+move 480 355
+frames 2
+key-up LEFTBUTTON
+frames 3
+move 480 307
+click LEFTBUTTON
+frames 1
+move 517 252
+click LEFTBUTTON
+frames 2
+move 685 390
+click LEFTBUTTON
+frames 2
+move 480 307
+click LEFTBUTTON
+frames 1
+press DELETE
+frames 2
+press RETURN
+frames 3
+move 640 485
+click LEFTBUTTON
+frames 2
+move 200 600
+frames 1
+snapshot after
