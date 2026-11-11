@@ -1,0 +1,57 @@
+# U35: cluster jewel controls. A crafted rare cluster jewel template (SetDisplayItem ->
+# UpdateClusterJewelControls: the sorted skill list without the affliction_* attribute skills,
+# the node count slider's divCount/val, CraftClusterJewel: the enchant lines, BuildAndParseRaw,
+# UpdateAffixControls with the skill's tag, the affix selFuncs forced); pick another skill
+# (the dropdown's selFunc: CraftClusterJewel, "[Retained]" affixes); move the node count slider.
+#! u35-expect display: Cluster Jewel, Large Cluster Jewel
+#! u35-expect ^7enc Adds
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 70
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1150 600
+frames 2
+move 570 389
+click LEFTBUTTON
+frames 3
+move 545 421
+click LEFTBUTTON
+frames 3
+move 545 434
+click LEFTBUTTON
+frames 1
+type "large cluster"
+frames 4
+move 500 456
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1150 600
+frames 2
+move 980 158
+click LEFTBUTTON
+frames 2
+move 980 200
+frames 2
+click LEFTBUTTON
+frames 3
+move 880 106
+click LEFTBUTTON
+frames 2
+move 880 172
+frames 2
+click LEFTBUTTON
+frames 3
+move 960 130
+click LEFTBUTTON
+frames 3
+move 1150 600
+frames 2

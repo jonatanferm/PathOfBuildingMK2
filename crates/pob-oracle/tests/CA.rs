@@ -18,13 +18,15 @@
 //!   BuildOutput` as PoB's load runs it (once for `Build:Init`, plus once per `Build:OnFrame`
 //!   rebuild PoB made, CalcsTab.lua 441-472 / Build.lua 1258-1273; PWR owns that function, the
 //!   test carries a scaffold copy), against PoB's `calcsTab.mainOutput`, `calcsOutput`, the main
-//!   env's used-tracking and the misc calculator. Reported per build (headline keys) and in total;
-//!   gated by floors at the measured values while CS2 (initEnv items, CalcSetup.lua 800-1450) and
-//!   PF-B (CalcPerform.lua 636-1272) are stubs (docs/port/FOLLOWUPS.md "CA").
+//!   env's used-tracking and the misc calculator. Reported per build (headline keys) and in total.
+//!   Gate (INT-1): every compared value exact and no Rust error, on any corpus subset; on the
+//!   full corpus the compared totals are pinned as well (docs/port/parity/INT-1-triage.md).
 //! * `ca_d13_fixed_point` (L5 D13, Rust only): build → buildOutput → buildOutput gives identical
-//!   outputs and model state (`Build:SaveDB`), on slice5 and the corpus. A build PoB itself does
-//!   not reproduce on a warm GlobalCache (`D13_POB_WARM_CACHE`) gets its warm run checked against
-//!   PoB's warm values and its fixed point checked after a `wipeGlobalCache()`.
+//!   outputs and model state (`Build:SaveDB`), on slice5 and the corpus, in MAIN mode and then
+//!   for two CALCS runs (with `calcsTab.mainEnv` set, as CalcsTab:BuildOutput does). A build PoB
+//!   itself does not reproduce on a warm GlobalCache (`D13_POB_WARM_CACHE`) gets its warm run
+//!   checked against PoB's warm values and its fixed points checked after a `wipeGlobalCache()`.
+//!   Gate (INT-1): every build runs and is a fixed point.
 //!
 //! PoB runs (probe dumps + `ca.lua`) are cached in `target/tmp/ca-probe/<stem>/`. Knobs:
 //! `CA_BUILDS=stem1,stem2`, `CA_LIMIT=n`, `CA_VERBOSE=1`. A missing input skips with a message;
@@ -153,8 +155,27 @@ fn leaf_eq(a: &Leaf, b: &Leaf) -> bool {
     }
 }
 
+/// The oracle's reference marker for a calc object (`refFor`, `pob-oracle/src/oracle.lua:70-92`),
+/// as `pob_oracle::oracle::flatten` leaves it: the one-member marker object as a JSON string.
+/// Only the objects a main output holds are rendered: an `Item` (`{"$item": tostring(name)}`,
+/// `Req*Item.sourceItem`, CalcSetup.lua:1074 / CalcPerform.lua:2156) and a `GemInstance`
+/// (`{"$gemInstance": nameSpec}`, `Req*Item.sourceGem`, CalcSetup.lua:1847).
+fn obj_marker(o: &Rc<dyn std::any::Any>) -> Option<String> {
+    let (tag, name) = if let Some(item) = o.downcast_ref::<Item>() {
+        ("$item", item.name.get().to_string())
+    } else if let Some(gem) = o.downcast_ref::<GemInstance>() {
+        ("$gemInstance", gem.nameSpec.get().to_string())
+    } else {
+        return None;
+    };
+    let mut m = serde_json::Map::new();
+    m.insert(tag.to_owned(), J::String(name));
+    Some(J::Object(m).to_string())
+}
+
 /// A Rust output table flattened as `pob_oracle::oracle::flatten` names the oracle's keys
-/// (`.`-joined, list positions 1-based). Calc objects in the table are skipped.
+/// (`.`-joined, list positions 1-based). Items and gem instances become the oracle's marker
+/// strings ([`obj_marker`]); other calc objects in the table are skipped.
 fn flat_table(t: &Table) -> BTreeMap<String, Leaf> {
     fn walk(prefix: &str, t: &Table, out: &mut BTreeMap<String, Leaf>, seen: &mut Vec<*const ()>) {
         if seen.contains(&t.as_ptr()) || seen.len() > 16 {
@@ -180,6 +201,11 @@ fn flat_table(t: &Table) -> BTreeMap<String, Leaf> {
                     out.insert(path, Leaf::Str(s.to_string()));
                 }
                 Val::Table(c) => walk(&path, &c, out, seen),
+                Val::Obj(o) => {
+                    if let Some(m) = obj_marker(&o) {
+                        out.insert(path, Leaf::Str(m));
+                    }
+                }
                 _ => {}
             }
         }
@@ -454,10 +480,25 @@ fn ca_d13_fixed_point() {
             let e2 = buildOutput(&build, Mode::MAIN);
             let o2 = flat_table(&e2.player.output.get());
             let s2 = build.SaveDB("ca-d13");
-            (o1, o2, s1, s2, ow)
+            // CALCS mode (Calcs.lua:635 reads `calcsTab.mainEnv`, which CalcsTab:BuildOutput
+            // sets first, CalcsTab.lua:459-461); a warm-cache build gets a wipe before each run
+            build.calcsTab.mainEnv.set(Some(e2));
+            let calcs = || {
+                if warm.is_some() {
+                    wipeGlobalCache();
+                }
+                flat_table(&buildOutput(&build, Mode::CALCS).player.output.get())
+            };
+            // (the first CALCS run can change the model, e.g. CalcSetup.lua:1883 clamps a group's
+            // `mainActiveSkillCalcs`, which SaveDB writes; the fixed point is between the two runs)
+            let c1 = calcs();
+            let s3 = build.SaveDB("ca-d13");
+            let c2 = calcs();
+            let s4 = build.SaveDB("ca-d13");
+            (o1, o2, s1, s2, ow, c1, c2, s3, s4)
         });
         lut::clear_timeless_jewel_luts(None);
-        let (o1, o2, s1, s2, ow) = match run {
+        let (o1, o2, s1, s2, ow, c1, c2, s3, s4) = match run {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("D13 {name}: {e}");
@@ -479,6 +520,13 @@ fn ca_d13_fixed_point() {
         leaves_diff("output", &o2, &o1, &mut d);
         if s1 != s2 {
             d.push("model: SaveDB differs after the second buildOutput".to_owned());
+        }
+        leaves_diff("CALCS output", &c2, &c1, &mut d);
+        if s3 != s4 {
+            d.push("model: SaveDB differs after the second CALCS buildOutput".to_owned());
+        }
+        if c1.is_empty() {
+            d.push("CALCS output: empty".to_owned());
         }
         if o1.is_empty() {
             d.push("output: empty".to_owned());
@@ -502,19 +550,9 @@ fn ca_d13_fixed_point() {
     );
     assert!(failures.is_empty(), "D13 fixed point broken: {failures:#?}");
     assert!(ran > 0, "no build ran");
-    // Runs that raise are upstream-stub gaps (CS2 / PF-B leave nil outputs that Lua code then
-    // indexes); bounded at the measured value (docs/port/FOLLOWUPS.md "CA").
-    assert!(
-        errored.len() <= D13_MAX_ERRORS,
-        "{} D13 runs raised (bound {D13_MAX_ERRORS}): {errored:#?}",
-        errored.len()
-    );
+    // every build runs (INT-1: upstream_Dual_Savior's mirage raise is fixed, CCR-0113)
+    assert!(errored.is_empty(), "{} D13 runs raised: {errored:#?}", errored.len());
 }
-
-/// Measured on port/CA (rust-port f275edb + CA): see docs/port/FOLLOWUPS.md "CA". With CS2:
-/// 1 (upstream_Dual_Savior, the mirage-skill `Weak` actor of the L6 floors' note; FOLLOWUPS.md
-/// "CA" 6).
-const D13_MAX_ERRORS: usize = 1;
 
 /// Builds whose second `buildOutput` on a warm GlobalCache differs from the first in PoB itself
 /// (D13 is then not a property of the Lua; docs/port/FOLLOWUPS.md "CA" 5), with values of PoB's
@@ -1481,41 +1519,40 @@ mod oracle_side {
             eprintln!("  {n:>3} x {m}");
         }
         assert!(pob_failed.is_empty(), "PoB runs failed: {pob_failed:#?}");
-        // L6 is not met while CS2 / PF-B are stubs: floors at the measured values keep the
-        // suite from getting worse (docs/port/FOLLOWUPS.md "CA"); full corpus only.
+        // L6 is met on every build (INT-1, docs/port/parity/INT-1-triage.md): every compared
+        // value is exact and no Rust stage raises, on any subset of the corpus.
+        assert!(t.rust_errors.is_empty(), "{} Rust errors: {:#?}", t.rust_errors.len(), t.rust_errors);
+        assert_eq!(t.headline_exact, t.headline, "headline keys not exact");
+        assert_eq!(t.keys_exact, t.keys, "main-output keys not exact (Rust-only keys count as not exact)");
+        assert_eq!(t.calcs_lists_exact, t.calcs_lists, "CALCS lists not exact");
+        assert_eq!(t.used_tables_equal, t.used_tables, "used-tracking key sets differ");
+        assert_eq!(t.misc_exact, t.misc, "misc calculator values not exact");
+        // On the full corpus the compared totals are pinned too, so a value that goes missing
+        // on both sides (or a build that stops reaching mainEnv / the misc calculator) fails.
         if std::env::var_os("CA_BUILDS").is_none()
             && std::env::var_os("CA_LIMIT").is_none()
             && !pob_testpaths::quick_corpus()
         {
-            assert!(t.headline_exact >= L6_MIN_HEADLINE_EXACT, "headline exact {} < floor {L6_MIN_HEADLINE_EXACT}", t.headline_exact);
-            assert!(t.keys_exact >= L6_MIN_KEYS_EXACT, "keys exact {} < floor {L6_MIN_KEYS_EXACT}", t.keys_exact);
-            assert!(t.rust_errors.len() <= L6_MAX_RUST_ERRORS, "{} Rust errors > bound {L6_MAX_RUST_ERRORS}", t.rust_errors.len());
-            // per stage: a MAIN-stage error replacing a CALCS-stage one must not pass
-            for (stage, n) in &t.stage_errors {
-                let max = L6_MAX_STAGE_ERRORS.iter().find(|(s, _)| s == stage).map_or(0, |(_, m)| *m);
-                assert!(*n <= max, "{n} Rust errors in stage {stage:?} > bound {max}");
-            }
+            assert_eq!(t.builds, L6_BUILDS, "builds compared");
+            assert_eq!(t.headline, L6_HEADLINE_KEYS, "headline keys compared");
+            assert_eq!(t.keys, L6_KEYS, "main-output keys compared");
+            assert_eq!(t.calcs_lists, L6_CALCS_LISTS, "CALCS lists compared");
+            assert_eq!(t.used_tables, L6_USED_TABLES, "used-tracking tables compared");
+            assert_eq!(t.misc, L6_MISC, "misc calculator values compared");
         }
     }
 
-    /// Floors re-measured with CS2 (CalcSetup.lua 800-1450, rust-port c4628cb + CS2, 2026-11-10,
-    /// full corpus): headline 728/741 exact (56 of 57 builds with every headline key exact), all
-    /// keys 44,908/45,954 exact, CALCS lists 168/171, used-tracking 504/504, misc calculator
-    /// 1226/1226. Before CS2: headline 194/741, keys 24,381/48,958, no Rust errors. The four
-    /// Rust errors are all upstream_Dual_Savior (The Saviour's Reflection mirage, now reachable
-    /// with items): `attempt to index field 'actor'` at calc_active_skill.rs:713, the mirage skill
-    /// kept by `env.player.mainSkill = newSkill` (CalcMirages.lua:155) outlives its env, whose
-    /// actor is a `Weak` back-pointer, and CALCS then has no `mainEnv` (docs/port/FOLLOWUPS.md
-    /// "CA" 6, owners MI/AS).
-    const L6_MIN_HEADLINE_EXACT: usize = 728;
-    const L6_MIN_KEYS_EXACT: usize = 44_908;
-    const L6_MAX_RUST_ERRORS: usize = 4;
-    /// The per-stage split of [`L6_MAX_RUST_ERRORS`] (measured the same way); a stage not
-    /// listed (misc call, load …) is bounded by 0.
-    const L6_MAX_STAGE_ERRORS: &[(&str, usize)] = &[
-        ("MAIN", 1),
-        ("CALCS", 1),
-        ("getMiscCalculator", 1),
-        ("configTab GetMiscCalculator", 1),
-    ];
+    /// The full corpus's compared totals, measured with every L6 value exact (INT-1-B, rust-port
+    /// 4870179 + INT-1-B, 2026-11-11; docs/port/parity/INT-1-triage.md §8): 57 builds, headline
+    /// 741/741, all keys 45,954/45,954, CALCS lists 171/171, used-tracking key sets 513/513, misc
+    /// calculator 1,248/1,248, 0 Rust errors. History: CA merge 194/741 headline and 24,381/48,958
+    /// keys; CS2 728/741 and 44,908/45,954 with 4 Rust errors (upstream_Dual_Savior's dead mirage
+    /// actor, fixed by INT-1-A / CCR-0113, and its discarded `calcs.mirages` result, INT-1-C);
+    /// INT-1-B renders `Req*Item.sourceGem` / `.sourceItem` (`obj_marker`).
+    const L6_BUILDS: usize = 57;
+    const L6_HEADLINE_KEYS: usize = 741;
+    const L6_KEYS: usize = 45_954;
+    const L6_CALCS_LISTS: usize = 171;
+    const L6_USED_TABLES: usize = 513;
+    const L6_MISC: usize = 1_248;
 }

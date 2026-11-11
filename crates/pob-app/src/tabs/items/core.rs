@@ -88,7 +88,7 @@ use pob_ui_core::controls::list::ListControl;
 use pob_ui_core::controls::scroll_bar::ScrollBarControl;
 use pob_ui_core::controls::{DropDownControl, DropItem};
 use pob_ui_core::prelude::*;
-use pob_ui_core::tooltip::tooltip::{ModLineRef, Tooltip};
+use pob_ui_core::tooltip::tooltip::{ModLineRef, Tooltip, TtModLine};
 
 use super::ctor::{self, forbiddenJewelCounterpart, isAnointable};
 use super::item_list::id_value;
@@ -141,8 +141,13 @@ pub fn default_core_hooks() -> CoreHooks {
         undo: Rc::new(|_, _| not_ported("ItemsTab:Undo (CreateUndoState/RestoreUndoState)", "U38")),
         redo: Rc::new(|_, _| not_ported("ItemsTab:Redo (CreateUndoState/RestoreUndoState)", "U38")),
         reset_undo: Rc::new(|_, _| {}),
-        toggle_display_item_mod_line: Rc::new(|_, _, _| {
-            not_ported("ItemsTab:ToggleDisplayItemModLine", "U35")
+        // U35: `line.modLine` is the `TtModLine` of AddItemTooltip (CCR-0073 B), whose `line` is
+        // the mod line table
+        toggle_display_item_mod_line: Rc::new(|cx, me, modLine| {
+            let line = modLine
+                .downcast_ref::<TtModLine>()
+                .and_then(|l| l.line.downcast_ref::<Table>());
+            super::display_item::ToggleDisplayItemModLine(cx, me, line);
         }),
     }
 }

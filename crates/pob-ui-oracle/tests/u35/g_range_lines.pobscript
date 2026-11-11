@@ -1,0 +1,31 @@
+# U35: the range line dropdown (`main.showAllItemAffixes` off): a unique's range lines from
+# UpdateDisplayItemRangeLines (the entries with a range or a mutation, selIndex 1, the slider's
+# value from rangeLineList[1].range); pick another line (the dropdown's selFunc reads
+# rangeLineList[index]). The range slider itself is not moved: clicking or dragging it diverges
+# (knob x 1163.000032 vs 1163.0) in U33's DIVERGENCE(range-slider-val) emulation, not in this
+# unit's code; see CCR-0124 §5.
+#! u35-settings showAllItemAffixes="true" => showAllItemAffixes="false"
+#! u35-expect display: Abyssus
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 544
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1150 600
+frames 2
+move 970 216
+click LEFTBUTTON
+frames 2
+move 970 266
+frames 2
+click LEFTBUTTON
+frames 3
+move 1150 600
+frames 2

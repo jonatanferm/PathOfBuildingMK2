@@ -1,0 +1,62 @@
+screen 1280 800 dpi 1.0
+# U35: the modifier sorting (UpdateAffixControl L2307-2382: the power of each affix group through
+# calcFunc on a test copy of the item, the shared powerCache, the fresh cache of a control with a
+# selected affix, table.sort by power with "None" first). A crafted rare Cobalt Jewel template;
+# select an affix first (that control's testSubject gets it replaced by "None" and re-crafted),
+# then switch the sorting to the second stat (Full DPS); open another affix dropdown and hover a
+# sorted entry. Runs once (the power
+# sort calls the calc a few hundred times on each side).
+#! u35-expect display: Jewel, Cobalt Jewel
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 70
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1150 600
+frames 2
+move 570 389
+click LEFTBUTTON
+frames 3
+move 545 421
+click LEFTBUTTON
+frames 3
+move 545 434
+click LEFTBUTTON
+frames 1
+type "cobalt"
+frames 4
+move 500 456
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1150 600
+frames 2
+move 1040 130
+click LEFTBUTTON
+frames 2
+move 1040 180
+frames 2
+click LEFTBUTTON
+frames 3
+move 1000 104
+click LEFTBUTTON
+frames 2
+move 1000 138
+frames 2
+click LEFTBUTTON
+frames 3
+move 1040 154
+click LEFTBUTTON
+frames 2
+move 1040 188
+frames 4
+move 1150 600
+click LEFTBUTTON
+frames 3
