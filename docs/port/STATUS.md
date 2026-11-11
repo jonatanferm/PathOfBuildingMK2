@@ -113,7 +113,7 @@ the port/* branches (commits titled '<id>: WIP (paused 2026-11-10; unverified)')
 |---|---|
 | RETYPE (A8 E1-E5, orchestrator-approved) | review (WIP on branch; was in review). A parallel fix attempt that diverges from port/RETYPE is saved on `port/RETYPE-fixwip`: merge or cherry-pick what is useful in the fix round |
 | INT-1-A (triage fix A, AS) | review |
-| INT-1-B (triage fix B + exact L6 gates) | impl, deps INT-1-A |
+| INT-1-B (triage fix B + exact L6 gates) | done on port/INT-1-B (2026-11-11): INT-1 all57 gate met, see below |
 | U23 | review |
 | U41 | review (fix round 1 committed) |
 | U30, U40, U44, U45 | resume (WIP) |
@@ -124,3 +124,12 @@ Machine services (transient systemd user units, recreate after a reboot): pob-po
 pob-port-push (hourly push of rust-port to GitHub, running), pob-port-fullsuite (stopped for the pause).
 
 Superseded/orphaned agent commits found at the pause are kept as `refs/archive/orphan-<sha>` (not branches); all their units are merged.
+
+## INT-1 all57 gate: done (INT-1-B, 2026-11-11)
+
+INT-1-A (CCR-0113), INT-1-C and INT-1-B together meet the all57 half of INT-1's gate (calc doc
+§11.1 row INT-1; docs/port/parity/INT-1-triage.md §8). Full corpus on rust-port 4870179 +
+INT-1-B: L6 headline 741/741, all keys 45,954/45,954, CALCS lists 171/171, used-tracking
+513/513, misc calculator 1,248/1,248, 0 Rust errors; D13 62/62 fixed points (MAIN, and now
+CALCS too), 0 errors. `CA.rs` gates all of these as exact (no floors left). Still open for
+INT-1: L6 on 100 fresh poe.ninja builds (a new corpus and a new triage round).
