@@ -230,32 +230,47 @@ pub fn default_shell_hooks() -> ShellHooks {
         // one arm per ported tab (U22 Notes); the others draw nothing / read false
         draw_tab: Rc::new(|cx, tab, vp, ev| match tab {
             BuildTab::Notes => crate::tabs::notes::draw_tab(cx, vp, ev),
+            BuildTab::Party => crate::tabs::party::draw_tab(cx, vp, ev),
             BuildTab::Calcs => crate::tabs::calcs::core::draw_tab(cx, vp, ev),
+            BuildTab::Skills => crate::tabs::skills::core::draw_tab(cx, vp, ev),
             BuildTab::Import => crate::tabs::import::core::draw_tab(cx, vp, ev),
             BuildTab::Tree => crate::tabs::tree::core::draw_tab(cx, vp, ev),
+            BuildTab::Config => crate::tabs::config::core::draw_tab(cx, vp, ev),
+            BuildTab::Items => crate::tabs::items::core::draw_tab(cx, vp, ev),
             _ => {}
         }),
         tab_flag: Rc::new(|cx, flag| match flag {
             TabFlag::Notes => crate::tabs::notes::mod_flag(cx),
+            TabFlag::Party => crate::tabs::party::mod_flag(cx),
             TabFlag::Calcs => crate::tabs::calcs::core::mod_flag(cx),
             TabFlag::Tree => crate::tabs::tree::core::mod_flag(cx),
             TabFlag::TreeSearch => crate::tabs::tree::core::search_flag(cx),
             TabFlag::Spec => crate::tabs::tree::core::spec_flag(cx),
+            TabFlag::Skills => crate::tabs::skills::core::mod_flag(cx),
+            TabFlag::Config => crate::tabs::config::core::mod_flag(cx),
+            TabFlag::Items => crate::tabs::items::tooltip::mod_flag(cx),
             _ => false,
         }),
         set_tab_flag: Rc::new(|cx, flag, v| match flag {
             TabFlag::Notes => crate::tabs::notes::set_mod_flag(cx, v),
+            TabFlag::Party => crate::tabs::party::set_mod_flag(cx, v),
             TabFlag::Calcs => crate::tabs::calcs::core::set_mod_flag(cx, v),
             TabFlag::Tree => crate::tabs::tree::core::set_mod_flag(cx, v),
             TabFlag::TreeSearch => crate::tabs::tree::core::set_search_flag(cx, v),
             TabFlag::Spec => crate::tabs::tree::core::set_spec_flag(cx, v),
+            TabFlag::Skills => crate::tabs::skills::core::set_mod_flag(cx, v),
+            TabFlag::Config => crate::tabs::config::core::set_mod_flag(cx, v),
+            TabFlag::Items => crate::tabs::items::tooltip::set_mod_flag(cx, v),
             _ => {}
         }),
         import_select_code_in: Rc::new(crate::tabs::import::core::select_code_in),
         calcs_breakdown: Rc::new(crate::tabs::calcs::core::calcs_breakdown),
-        breakdown_pinned: Rc::new(|_, _| false),
-        breakdown_set_data: Rc::new(|_, _, _| {}),
-        breakdown_set_border_colour: Rc::new(|_, _, _| {}),
+        // U40 (the sidebar CalcBreakdownControl)
+        breakdown_pinned: Rc::new(crate::tabs::calcs::breakdown::sidebar_breakdown_pinned),
+        breakdown_set_data: Rc::new(crate::tabs::calcs::breakdown::sidebar_breakdown_set_data),
+        breakdown_set_border_colour: Rc::new(
+            crate::tabs::calcs::breakdown::sidebar_breakdown_set_border_colour,
+        ),
         // U21's (CCR-0106 §4: U20 and U21 merged without wiring these two)
         get_sidebar_breakdown: Rc::new(|cx, line| {
             let mod_names: Option<Vec<&str>> = line
@@ -271,10 +286,10 @@ pub fn default_shell_hooks() -> ShellHooks {
             )
         }),
         refresh_skill_select_controls: Rc::new(super::skill_select::refresh_skill_select_controls),
-        minion_list_control: Rc::new(|_, _, _| not_ported("MinionListControl", "U31")),
-        minion_search_list_control: Rc::new(|_, _, _, _| {
-            not_ported("MinionSearchListControl", "U31")
-        }),
+        minion_list_control: Rc::new(crate::tabs::skills::minion_list::spectre_library_list),
+        minion_search_list_control: Rc::new(
+            crate::tabs::skills::minion_search_list::spectre_library_source,
+        ),
         similar_build_list: Rc::new(|_, _, _| not_ported("ExtBuildListControl", "U52")),
         // one arm per UI-only saver (U22 Notes); calc:BM-A writes the other loaded sections
         // back (CCR-0080 §8)
@@ -590,6 +605,8 @@ pub fn on_frame(cx: &mut Cx, input_events: &mut InputEvents, _vp: &ViewPort) {
         let built = cx.build_mut().calc.build_output(&model).is_ready();
         init::flush_window_titles(cx);
         if built {
+            // CalcsTab.lua:464-467, the UI tail of BuildOutput (CCR-0111 §1, applied by U40)
+            crate::tabs::calcs::core::build_output_ui_tail(cx);
             // L1267
             let bd = init_ctl(cx, me, "breakdown");
             if (h.breakdown_pinned)(cx, bd) {

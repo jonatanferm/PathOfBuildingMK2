@@ -1,0 +1,39 @@
+screen 1280 420 dpi 1.0
+# U40: a short screen, so breakdowns are taller than the viewport (Draw L696-701: the pane is
+# clamped to the viewport height, the scroll bar is shown and sized, SetContentDimension); hover
+# and pin Life "Total Increased" and Skill Hit Damage cells, the wheel over the pinned pane
+# (OnKeyUp -> Scroll; the sections drawn at `y - scrollBar.offset`), the scroll bar's own
+# OnKeyDown (a click on it: mOverControl, L759-761), then a click outside.
+#! u40-expect-text Value
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 1200 286
+frames 2
+move 590 286
+frames 2
+move 590 340
+frames 2
+move 1200 286
+click LEFTBUTTON
+frames 2
+move 900 250
+wheel down
+frames 2
+wheel down 3
+frames 2
+wheel up
+frames 2
+move 1018 200
+click LEFTBUTTON
+frames 2
+move 1150 400
+click LEFTBUTTON
+frames 2
+move 1270 410
+frames 2

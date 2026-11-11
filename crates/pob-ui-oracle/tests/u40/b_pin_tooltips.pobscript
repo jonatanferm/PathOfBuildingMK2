@@ -1,0 +1,38 @@
+# U40: pin Crit Chance (CalcSectionControl:OnKeyDown -> SetDisplayStat(colData, true): the pane
+# with the pinned colour, CalcsTab:Draw selects it), hover its modifier table's cells: a Source
+# cell (sourceTooltip: "Total from <type>" with the per-type totals of L354-398), a Tree source
+# name (the node viewer frame, L623-642), an item source name (sourceNameTooltip, the U38
+# stand-in) and an item Source cell; the wheel over the pane (OnKeyUp -> ScrollBarControl:Scroll),
+# then a click outside (OnKeyDown: ClearDisplayStat, shown = false).
+#! u40-expect-text Total from Tree:
+#! u40-expect-text Marylene's Fallacy
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 735 444
+frames 1
+click LEFTBUTTON
+frames 2
+move 650 555
+frames 2
+move 720 555
+frames 2
+move 720 625
+frames 2
+move 650 625
+frames 2
+move 500 600
+wheel down
+frames 2
+wheel up
+frames 2
+move 1150 780
+click LEFTBUTTON
+frames 2
+move 1270 790
+frames 2

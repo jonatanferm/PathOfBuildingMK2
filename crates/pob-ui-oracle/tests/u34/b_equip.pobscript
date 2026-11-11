@@ -1,0 +1,75 @@
+# U34: equip and unequip (allflame_exp_001). "Sort" (SortItemList: the weapon first), then
+# Ctrl+click the first item list row twice (U32's OnSelClick: SetSelItemId on its primary slot,
+# U34's PopulateSlots, AddUndoState, a recalc through the bridge: unequip, equip), Ctrl+Z (the
+# weapon slot is empty again), snapshot; pick "None" in the Helmet slot dropdown (U32's selFunc:
+# SetSelItemId(0), PopulateSlots, AddUndoState), snapshot; hover the Body Armour slot and press E
+# (Draw L1466-1471: the item list's double-click procedure, the SetDisplayItem stand-in), then
+# "Save" (U34's AddDisplayItem: AddItem replacing the item of the same id, SetDisplayItem(nil),
+# the Forbidden jewel checks, PopulateSlots, AddUndoState), snapshot; Ctrl+Z twice and Ctrl+Y.
+#! u34-expect undo: 3 redo: 1 mod: true
+#! u34-expect undo: 4 redo: 0 mod: true
+#! u34-expect display: Blunderbore
+#! u34-expect undo: 5 redo: 0 mod: true
+#! u34-expect undo: 4 redo: 1 mod: true
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 872 48
+frames 1
+click LEFTBUTTON
+frames 3
+move 800 70
+frames 1
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 3
+key-down CTRL
+click LEFTBUTTON
+key-up CTRL
+frames 3
+move 1200 700
+frames 1
+key-down CTRL
+press z
+key-up CTRL
+frames 3
+snapshot unequip
+move 560 164
+frames 1
+click LEFTBUTTON
+frames 2
+move 560 182
+frames 1
+click LEFTBUTTON
+frames 3
+snapshot helmet_none
+move 560 186
+frames 2
+press e
+frames 3
+move 847 50
+frames 2
+click LEFTBUTTON
+frames 3
+move 1200 700
+frames 2
+snapshot saved
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+key-down CTRL
+press y
+key-up CTRL
+frames 3
+snapshot after

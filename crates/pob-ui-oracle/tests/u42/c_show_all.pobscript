@@ -1,0 +1,30 @@
+# U42: "Show All Configurations" (isShowAllConfig -> configVisibility.isShowAllExcluded): every
+# option that is not on the shared exclusion list (ifOption/ifSkill/ifSkillData/ifSkillFlag/
+# legacy, "recently"/"in the past"/"pvp" labels) shows, so Draw packs many more sections and the
+# scroll bar grows; hover a newly shown option, scroll down (wheel) through the long columns,
+# then "Hide Ineligible Configurations" restores the build's own set.
+fixture userdir=../../fixtures/user1
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+key-down CTRL
+press 5
+key-up CTRL
+frames 3
+move 790 77
+click LEFTBUTTON
+frames 3
+move 573 300
+frames 3
+wheel down 10
+frames 3
+wheel down 40
+frames 3
+wheel up 60
+frames 2
+move 790 77
+click LEFTBUTTON
+frames 3

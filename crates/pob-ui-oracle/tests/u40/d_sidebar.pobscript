@@ -1,0 +1,24 @@
+# U40: the sidebar CalcBreakdownControl (Build.lua:616-621, envName "mainEnv", clearDisplayFunc):
+# hover stat-box lines (SetDisplayStat: GetSidebarBreakdown -> SetBreakdownData(data, pin,
+# actorName), borderColour from the line), pin one with a click (pinnedColour), the wheel over
+# the pane, a second click on the line (unpin), then pin again and click away.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+move 200 258
+frames 2
+move 200 290
+frames 2
+move 150 596
+frames 2
+move 150 612
+frames 2
+move 200 444
+frames 2
+move 150 596
+click LEFTBUTTON
+frames 2
+move 600 500
+wheel down
+frames 2

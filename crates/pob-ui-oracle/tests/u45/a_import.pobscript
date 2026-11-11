@@ -1,0 +1,49 @@
+# U45: open party_plain (an empty Party section) from the build list, the Party button, then
+# paste a whole build code with every ExportedBuffs section into the code edit
+# (importCodeHandle: "Code is valid"), RETURN (the edit's enterFunc: finishImport with
+# destination All, replace: clearInputText, SetText and ParseBuffs of each section, the simple
+# labels and their line counts moving the labels below them), a recalc, Show Advanced Info (the
+# edits replace the labels), Ctrl+S (Save writes ImportedBuffs and the attributes, lastContent:
+# modFlag clears), then Clear with destination All (every edit and label emptied, enemyModList
+# replaced, a recalc) and a snapshot.
+#! u45-saved Builds/party_plain.xml
+#! u45-expect-party Destructive Link
+#! u45-expect-party Life=5000
+#! u45-expect-party Condition:Blinded
+#! u45-expect-no-party Hatred
+fixture userdir=user_plain
+frames 2
+move 400 91
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 40 122
+click LEFTBUTTON
+frames 2
+move 400 170
+click LEFTBUTTON
+frames 1
+paste-clipboard "eJyVVNtu4jAQfa6_Isp7loSK1QqRVEmAbiXYImi1zyaZgIUvyHZaIvnj1zGXpVtVG5QHW3PG55yZjD16ODDqvYFURPDYj76Fvge8ECXhm9h_fZkGP_yHBI0WWG-fq6wmtEUSdGcjUjcWmRz2Qmoos7qqlMcxg9h32BzYGuRKY638ZEYqiAdhGKI55jiO-mE46n04-gVVWkvsJz-xllAiewzdfzerHaF0eIyZxbZRpMB0jBnewCMmPFW5oKXJ0tXEBPbTzR7iRyrWmE6qCgrdA7e8tPGWHwVBgMag9phIFFmPQX9wEjlFTb7FQi1BEaVvIB7D2pbi6OGgJXZiA_OkgQ2joeuSt7T9NG17lrABvgBZAL_SCNrT3VqV11KBn9h8z229GWFEe616H00pZgyvCSW6cTVWmCpAwX14qvQ6wUyJhJuqdYLdrf7GspCN55TtdKS8AGX7Q71cHt1FZ1sXyCImlUzU0jz9yv_v6CjRe3fLQryDzASvVdzv7nJG-O7icdzaqAtN3trG8p2zOQj_zskZbUGTS6LtzFjz3dw6xs7GJhxYkwteEm2vrTV32Q8zSngJ5Q08c1Faho_XaAllW4zgKLB_wg2q-SLjalQ_id6NeudnovfvC_IH4HmS4g=="
+key-down CTRL
+press v
+key-up CTRL
+frames 2
+press RETURN
+frames 3
+snapshot imported
+frames 1
+move 470 242
+click LEFTBUTTON
+frames 2
+key-down CTRL
+press s
+key-up CTRL
+frames 2
+snapshot saved
+frames 1
+move 480 218
+click LEFTBUTTON
+frames 3
+snapshot cleared
+frames 1

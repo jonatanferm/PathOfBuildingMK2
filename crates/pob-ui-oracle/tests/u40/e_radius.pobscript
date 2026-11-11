@@ -1,0 +1,36 @@
+# U40: an area skill (Perforate): the Radius cell (the RADIUS section: range guide, the
+# RenderCircle of the radius, the UI overlay image), pinned; the Damage Taken and EHP cells
+# (typed tables); the sidebar AoE Radius line. (Not the sidebar Crit Chance line: its modifier
+# table has rows tied under the L349-351 sort, equal name and value from different tree nodes,
+# whose order follows Tabulate's, i.e. the order CalcSetup merged the nodes in: `pairs` over
+# `allocNodes`, per-process random in PoB, CCR-0028 §9; the Lua side and the bridge's PoB are
+# different processes.)
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 700 448
+frames 2
+click LEFTBUTTON
+frames 2
+move 1270 790
+frames 2
+move 700 448
+click LEFTBUTTON
+frames 2
+move 490 516
+frames 2
+move 490 534
+frames 2
+move 490 592
+frames 2
+move 420 704
+frames 2
+move 180 414
+frames 2
+move 1270 790
+frames 2

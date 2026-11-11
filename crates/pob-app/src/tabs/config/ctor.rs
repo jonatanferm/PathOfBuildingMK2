@@ -203,23 +203,15 @@ pub struct ConfigHooks {
     pub is_show_all_excluded: Rc<dyn Fn(&ConfigOptionDef) -> bool>,
 }
 
-#[track_caller]
-fn not_ported(what: &str, owner: &str) -> ! {
-    lua_error!("{what} is not ported yet ({owner})")
-}
-
-/// The defaults installed until U42 lands.
+/// The installed defaults: U42's ports (core.rs, mod_browser.rs, visibility.rs).
 pub fn default_config_hooks() -> ConfigHooks {
     ConfigHooks {
-        update_controls: Rc::new(ConfigTab::update_controls_default),
-        add_undo_state: Rc::new(|_, _| {}),
-        open_config_set_manage_popup: Rc::new(|_, _| {
-            not_ported("ConfigTab:OpenConfigSetManagePopup", "U42")
-        }),
-        open_add_mod_popup: Rc::new(|_, _, _| {
-            not_ported("configModBrowser.OpenAddModPopup", "U42")
-        }),
-        is_show_all_excluded: Rc::new(|_| not_ported("configVisibility.isShowAllExcluded", "U42")),
+        // U42's ports (CCR-0110 §1, CCR-0121 §3)
+        update_controls: Rc::new(ConfigTab::update_controls),
+        add_undo_state: Rc::new(ConfigTab::add_undo_state),
+        open_config_set_manage_popup: Rc::new(ConfigTab::open_config_set_manage_popup),
+        open_add_mod_popup: Rc::new(super::mod_browser::open_add_mod_popup_hook),
+        is_show_all_excluded: Rc::new(super::visibility::isShowAllExcluded),
     }
 }
 

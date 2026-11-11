@@ -157,16 +157,16 @@ impl TimelessBuild for AppTimelessBuild {
         let m = cx.build().model.clone();
         int_key(node_id).and_then(|k| m.itemsTab.sockets.with(|s| s.get(k)))
     }
-    /// U38 (ItemsTab.lua:4664) is not ported: the tooltip goes without the stat differences.
-    /// Not an error, because every hover of a new row reaches it.
+    /// U38's `ItemsTab:AddItemStatDifferences` (ItemsTab.lua:4664-5019).
     fn add_item_stat_differences(
         &self,
-        _cx: &mut Cx,
-        _tooltip: &mut Tooltip,
-        _item: &ItemRef,
-        _base: Option<ItemBaseRef>,
-        _slot: &Val,
+        cx: &mut Cx,
+        tooltip: &mut Tooltip,
+        item: &ItemRef,
+        base: Option<ItemBaseRef>,
+        slot: &Val,
     ) {
+        crate::tabs::items::tooltip::add_item_stat_differences_hook(cx, tooltip, item, base, slot);
     }
     /// The model half (ItemsTab.lua:1686-1724, calc:BM-A); `noAutoEquip` is always true here.
     fn add_item(&self, cx: &mut Cx, item: &ItemRef, no_auto_equip: bool) {

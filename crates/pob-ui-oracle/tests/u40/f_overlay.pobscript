@@ -1,0 +1,39 @@
+# U40: the breakdown of a pinned overlay pane (CalcSectionControl:DrawOverlay draws it,
+# CalcSectionControl.lua:424-431; CalcsTab:Draw hides it from DrawControls, L353-358; Build.lua
+# 1213-1246 route the mouse to it): pop out the Crits section, hover then pin its Crit Chance
+# cell, hover a Source cell of the pane's breakdown (tooltip), the wheel over the breakdown (the
+# KeyUp branch of Build.lua:1243), a click inside the breakdown (L1228-1229: OnKeyDown returns the
+# control, its OnKeyUp on release) and a click outside (ClearDisplayStat).
+#! u40-expect-text Total from Tree:
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+# pop out "Crits" (its ^ button)
+move 762 407
+frames 1
+click LEFTBUTTON
+frames 2
+move 735 444
+frames 2
+click LEFTBUTTON
+frames 2
+move 650 555
+frames 2
+move 500 600
+wheel down
+frames 2
+wheel up
+frames 2
+move 600 520
+click LEFTBUTTON
+frames 2
+move 1150 780
+click LEFTBUTTON
+frames 2
+move 1270 790
+frames 2

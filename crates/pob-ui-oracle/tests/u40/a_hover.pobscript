@@ -1,0 +1,24 @@
+# U40: allflame_exp_001 in the Calcs tab (Ctrl+4): hover cells with breakdowns (the pane beside
+# the cell: SetBreakdownData from CalcsTab:SetDisplayStat without pin, the text/table sections,
+# sizing and placement, Draw), and off the sections (the pane hides).
+#! u40-expect-text Value
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 500 376
+frames 2
+move 735 444
+frames 2
+move 700 300
+frames 2
+move 1100 200
+frames 2
+move 400 500
+frames 2
+move 1270 790
+frames 2
