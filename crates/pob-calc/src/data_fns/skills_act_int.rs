@@ -27,6 +27,7 @@ use crate::prelude::*;
 
 use super::{FnRow, SkillFuncImpl};
 use crate::lua_table::TableField;
+use crate::modules::calc_offence::calcSkillDuration;
 use crate::modules::calc_tools as calcLib;
 use pob_gamedata::ModType::{BASE, INC, MORE};
 use pob_gamedata::{tag, Ramp};
@@ -65,44 +66,6 @@ fn distance_ramp(points: &[[f64; 2]]) -> Tag {
         ramp: Some(Ramp::Points(points.into())),
         ..Default::default()
     }
-}
-
-/// CCR-0046: the global `calcSkillDuration(skillModList, skillCfg, skillData, env, enemyDB)`
-/// (Modules/CalcOffence.lua:322-335) as WintertideBrand calls it, `calcSkillDuration(…, {})`
-/// (Data/Skills/act_int.lua:21113): `env` is a fresh empty table (so `env.mode_effective` is
-/// nil and the debuff multiplier stays 1) and `enemyDB` is nil. The frozen Rust signature takes
-/// `&EnvRef`/`&ModDB`, which this call cannot supply; until the CCR lands this is the body of
-/// CalcOffence.lua 322-335 with `env = {}` (provenance stays with OF-A's marker).
-fn calcSkillDuration_noEnv(skillModList: &ModList, skillCfg: Option<&ModCfg>, skillData: &Table) -> f64 {
-    // L323
-    let mut durationMod = calcLib::r#mod(
-        skillModList,
-        skillCfg,
-        &names([
-            Some(n!("Duration")),
-            Some(n!("PrimaryDuration")),
-            skillData
-                .truthy(n!("mineDurationAppliesToSkill"))
-                .then(|| n!("MineDuration")),
-        ]),
-    );
-    // L324
-    durationMod = m_max(durationMod, 0.0);
-    // L325
-    let durationBase = skillData.num_or(n!("duration"), 0.0)
-        + skillModList.Sum(BASE, skillCfg, nm!["Duration", "PrimaryDuration"]);
-    // L326
-    let mut duration = durationBase * durationMod;
-    // L327
-    let debuffDurationMult = 1.0;
-    // L328: `if env.mode_effective then` — nil on the `{}` env, the branch never runs
-    // L331
-    if skillData.truthy(n!("debuff")) {
-        // L332
-        duration = duration * debuffDurationMult;
-    }
-    // L334
-    duration
 }
 
 /// Every skill hook of this file: id (closures.json), sha256 of its source lines, Rust body.
@@ -3767,8 +3730,8 @@ pub(crate) fn WintertideBrand_preDamageFunc(
                 calcLib::r#mod(&enemy.modDB.get(), Some(&skillCfg), nm!["BuffExpireFaster"]),
             );
         // L21113
-        // CCR-0046: `calcSkillDuration(…, {})` with an empty env table (see calcSkillDuration_noEnv)
-        let duration = calcSkillDuration_noEnv(&skillModList, Some(&skillCfg), &skillData) * debuffDurationMult;
+        // (`{}`: an env table without `mode_effective` and no enemyDB, CCR-0046)
+        let duration = calcSkillDuration(&skillModList, Some(&skillCfg), &skillData, None, None) * debuffDurationMult;
         // L21114
         let maxStages = m_min(m_floor(duration / skillData.num(n!("hitTimeOverride"))), skillMaxStages);
         // L21115

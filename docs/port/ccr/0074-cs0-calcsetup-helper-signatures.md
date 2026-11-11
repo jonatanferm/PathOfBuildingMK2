@@ -1,6 +1,6 @@
 # CCR-0074 (CS0): CalcSetup.lua 1-474 helper signatures and representations
 
-**Status: applied 2026-11-10 by CCR2 (§1-§5, §7, §8: calc doc §5.10, contracts.md); §6 needs code. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by CCR2 (§1-§5, §7, §8: calc doc §5.10, contracts.md) and by RETYPE (§6: `SkillEffect.req: Cell<Option<f64>>`; AMENDMENTS A8 E1, A10). See AMENDMENTS A8.**
 
 **Filed status: proposed (CS0, 2026-11-09).** CS0 changed the signatures of its own frozen stubs
 (nothing calls them yet: CS1-CS3 and PF-B are their callers) to carry what the Lua passes and

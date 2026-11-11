@@ -331,6 +331,65 @@ pub struct SegmentRun {
     pub locals: Vec<(String, Val)>,
 }
 
+/// CCR-0079 §1: a perform dump's `mergeFlasks` / `mergeTinctures` locals are `{"$fn": …}`
+/// markers (PoB dumps no upvalues), which leave `PerformCtx.mergeFlasks/.mergeTinctures` nil.
+/// Replace each with its closure's upvalues read from the same run's line dump where PoB
+/// created the closure (`perform:1691` / `perform:1862`, the PF-C stages; a nil boolean upvalue
+/// is `false`). Returns the locals seeded; a closure whose dump is missing or undecodable stays
+/// a marker.
+pub fn seed_merge_closures(
+    locals: &mut [(String, Val)],
+    up1691: Option<&StateDump>,
+    up1862: Option<&StateDump>,
+) -> Vec<&'static str> {
+    use pob_calc::modules::calc_perform::setup_flasks::{FlaskUpvalues, TinctureUpvalues};
+    use std::rc::Rc;
+    fn num(l: &J, k: &str) -> Option<f64> {
+        let v = l.get(k)?;
+        v.as_f64().or_else(|| crate::schema::decode_num(v))
+    }
+    fn flag(l: &J, k: &str) -> Option<bool> {
+        match l.get(k) {
+            None | Some(J::Null) => Some(false),
+            Some(J::Bool(b)) => Some(*b),
+            Some(_) => None,
+        }
+    }
+    let flask = up1691.and_then(StateDump::locals).and_then(|l| {
+        Some(Val::Obj(Rc::new(FlaskUpvalues {
+            effectInc: num(l, "effectInc")?,
+            effectIncMagic: num(l, "effectIncMagic")?,
+            effectIncMagicNoAdjacent: num(l, "effectIncMagicNoAdjacent")?,
+            effectIncNonPlayer: num(l, "effectIncNonPlayer")?,
+            effectIncMagicNonPlayer: num(l, "effectIncMagicNonPlayer")?,
+            flasksApplyToMinion: flag(l, "flasksApplyToMinion")?,
+            quickSilverAppliesToAllies: flag(l, "quickSilverAppliesToAllies")?,
+            flaskTotalRateInc: num(l, "flaskTotalRateInc")?,
+            flaskDurInc: num(l, "flaskDurInc")?,
+        })))
+    });
+    let tincture = up1862.and_then(StateDump::locals).and_then(|l| {
+        Some(Val::Obj(Rc::new(TinctureUpvalues {
+            effectInc: num(l, "effectInc")?,
+            effectIncMagic: num(l, "effectIncMagic")?,
+            tinctureLimit: std::cell::Cell::new(num(l, "tinctureLimit")?),
+        })))
+    });
+    let mut seeded = Vec::new();
+    for (k, v) in locals.iter_mut() {
+        let (name, up) = match k.as_str() {
+            "mergeFlasks" => ("mergeFlasks", &flask),
+            "mergeTinctures" => ("mergeTinctures", &tincture),
+            _ => continue,
+        };
+        if let Some(up) = up {
+            *v = up.clone();
+            seeded.push(name);
+        }
+    }
+    seeded
+}
+
 /// The message of a caught panic (a raised `LuaError`, or a panic string).
 pub fn panic_text(p: &(dyn std::any::Any + Send)) -> String {
     p.downcast_ref::<pob_lua::LuaError>()

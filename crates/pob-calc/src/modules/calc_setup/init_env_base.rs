@@ -164,11 +164,15 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
         // L514
         env.player.modDB.set(env.modDB.get());
         env.player.level.set(build.characterLevel.get());
+        // (the literal has no `itemList` until L536; CCR-0015 §3)
+        env.player.itemList.set(None);
         // L518
         env.modDB.get().actor.set(Rc::downgrade(&env.player));
         // L519
         env.enemy.modDB.set(env.enemyDB.get());
         env.enemy.level.set(env.enemyLevel.get());
+        // (the enemy table never gets an `itemList`; CCR-0015 §3)
+        env.enemy.itemList.set(None);
         // L523
         enemyDB.actor.set(Rc::downgrade(&env.enemy));
         // L524
@@ -191,8 +195,8 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
         env.radiusJewelList.set(Shared::new(Vec::new()));
         // L535
         env.extraRadiusNodeList.set(Shared::new(LjIntMap::new()));
-        // L536 (`itemList` is the fresh actor's own map: emptying it is the new `{ }`; CCR-0082 §4)
-        env.player.itemList.with_mut(indexmap::IndexMap::clear);
+        // L536
+        env.player.itemList.set(Some(Shared::new(indexmap::IndexMap::new())));
         // L537
         env.grantedSkills.set(Shared::new(Vec::new()));
         // L538

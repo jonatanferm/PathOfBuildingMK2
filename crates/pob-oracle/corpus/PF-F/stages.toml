@@ -4,7 +4,7 @@
 #   perform:3118 -> perform:3125  mergeFlasks(env.flasks, true, ...) (PF-C, CalcPerform.lua:3121)
 #   perform:3484 -> perform:3497  defenceForConditionals / doActorCharges / doActorMisc (DF-A, PF-B)
 # Fill: scripts/port/oracle.sh run --build X.xml --stages crates/pob-oracle/corpus/PF-F/stages.toml \
-#   --stage perform:2997@main,perform:3118@main,perform:3125@main,perform:3484@main,perform:3497@main
+#   --stage perform:1691@main,perform:1862@main,perform:2997@main,perform:3118@main,perform:3125@main,perform:3484@main,perform:3497@main
 
 [[stage]]
 id = "perform:2997"
@@ -40,3 +40,20 @@ file = "Modules/CalcPerform.lua"
 line = 3498
 locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures", "buffs", "guards", "minionBuffs", "debuffs", "curses", "minionCurses", "linkSkills", "allyBuffs", "buffExports", "appliedCombustion", "warcryList"]
 expect = "local ailmentData = data.nonDamagingAilment"
+
+# CCR-0079 §1: the upvalues of `mergeFlasks` (1691) / `mergeTinctures` (1862), copied from
+# corpus/PF-C/stages.toml. The perform:2997 dump has `$fn` markers for both locals; the test
+# seeds `PerformCtx.mergeFlasks/.mergeTinctures` from these dumps (`testkit::seed_merge_closures`).
+[[stage]]
+id = "perform:1691"
+file = "Modules/CalcPerform.lua"
+line = 1691
+locals = ["effectInc", "effectIncMagic", "effectIncMagicNoAdjacent", "effectIncNonPlayer", "effectIncMagicNonPlayer", "flasksApplyToMinion", "quickSilverAppliesToAllies", "flaskTotalRateInc", "flaskDurInc"]
+expect = "local function mergeFlasks(flasks"
+
+[[stage]]
+id = "perform:1862"
+file = "Modules/CalcPerform.lua"
+line = 1862
+locals = ["effectInc", "effectIncMagic", "tinctureLimit"]
+expect = "local function mergeTinctures(tinctures)"

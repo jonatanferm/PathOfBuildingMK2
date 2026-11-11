@@ -203,7 +203,7 @@ pub(crate) fn seg_passCrit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow
                     && !valueDisabled()
                 {
                     // L2632
-                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), &env, &enemyDB);
+                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), Some(&env), Some(&enemyDB));
                     globalOutput.set(n!("AncestralCryDuration"), v);
                     // L2633
                     let v = calcSkillCooldown(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get()).0;
@@ -254,7 +254,7 @@ pub(crate) fn seg_passCrit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow
                 {
                     // L2654 (elseif)
                     // L2655
-                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), &env, &enemyDB);
+                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), Some(&env), Some(&enemyDB));
                     globalOutput.set(n!("InfernalCryDuration"), v);
                     // L2656
                     let v = calcSkillCooldown(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get()).0;
@@ -311,7 +311,7 @@ pub(crate) fn seg_passCrit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow
                     // L2680
                     globalOutput.set(n!("CreateWarcryOffensiveCalcSection"), true);
                     // L2681
-                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), &env, &enemyDB);
+                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), Some(&env), Some(&enemyDB));
                     globalOutput.set(n!("IntimidatingCryDuration"), v);
                     // L2682
                     let v = calcSkillCooldown(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get()).0;
@@ -406,7 +406,7 @@ pub(crate) fn seg_passCrit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow
                     // L2726
                     globalOutput.set(n!("CreateWarcryOffensiveCalcSection"), true);
                     // L2727
-                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), &env, &enemyDB);
+                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), Some(&env), Some(&enemyDB));
                     globalOutput.set(n!("RallyingCryDuration"), v);
                     // L2728
                     let v = calcSkillCooldown(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get()).0;
@@ -501,7 +501,7 @@ pub(crate) fn seg_passCrit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow
                     // L2773
                     globalOutput.set(n!("CreateWarcryOffensiveCalcSection"), true);
                     // L2774
-                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), &env, &enemyDB);
+                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), Some(&env), Some(&enemyDB));
                     globalOutput.set(n!("SeismicCryDuration"), v);
                     // L2775
                     let v = calcSkillCooldown(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get()).0;
@@ -565,7 +565,7 @@ pub(crate) fn seg_passCrit(ctx: &mut OffenceCtx, hp: &mut HitPassLocals) -> Flow
                 {
                     // L2803 (elseif)
                     // L2804
-                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), &env, &enemyDB);
+                    let v = calcSkillDuration(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get(), Some(&env), Some(&enemyDB));
                     globalOutput.set(n!("BattleMageCryDuration"), v);
                     // L2805
                     let v = calcSkillCooldown(&value.skillModList.get(), Some(&*value.skillCfg.get()), &value.skillData.get()).0;

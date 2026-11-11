@@ -30,7 +30,9 @@
 //! Inputs: `data/dump`; `.parity/builds/*.xml` (all57) and `corpus/PF-F/*.xml` (party micro
 //! builds); dumps from
 //! `scripts/port/oracle.sh run --build X.xml --stages crates/pob-oracle/corpus/PF-F/stages.toml
-//!  --stage perform:2997@main,perform:3118@main,perform:3125@main,perform:3484@main,perform:3497@main`.
+//!  --stage perform:1691@main,perform:1862@main,perform:2997@main,perform:3118@main,perform:3125@main,perform:3484@main,perform:3497@main`
+//! (`perform:1691` / `perform:1862` seed the `mergeFlasks` / `mergeTinctures` closures' upvalues,
+//! `testkit::seed_merge_closures`, CCR-0079 §1; without them the segment raises at L3121).
 //! Knobs: `PFF_BUILDS=stem1,stem2`, `PFF_VERBOSE=1` (print mismatches). A missing input skips
 //! with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
 
@@ -101,7 +103,7 @@ enum Verdict {
 struct Outcome {
     verdict: Verdict,
     mismatches: Vec<Mismatch>,
-    /// mismatches explained by a recorded contract gap (CCR-0030 row 7, `notBuff`)
+    /// mismatches explained by a recorded replay limit
     known: Vec<String>,
     /// stub sites the run hit that no delta replaced
     blockers: Vec<String>,
@@ -116,6 +118,18 @@ fn load(dirs: &[PathBuf], hit: &str) -> Option<StateDump> {
 fn run_build(xml: &Path) -> Outcome {
     let stem = stem(xml).to_owned();
     let dirs = testkit::dump_dirs(&stem, Some(xml));
+    // Prefer one directory holding all seven stages (a run of the fill command above): an older
+    // five-stage fill earlier in the probe-cache order would otherwise supply `perform:2997`
+    // from a run without the `perform:1691` / `perform:1862` dumps, and nothing gets seeded.
+    let dirs = match dirs.iter().find(|d| {
+        let one = [(*d).clone()];
+        ["perform:1691", "perform:1862", "perform:2997", "perform:3118", "perform:3125", "perform:3484", "perform:3497"]
+            .iter()
+            .all(|h| testkit::find_dump(&one, h).is_some())
+    }) {
+        Some(d) => vec![d.clone()],
+        None => dirs,
+    };
     let hits = [
         "perform:2997",
         "perform:3118",
@@ -179,7 +193,11 @@ fn run_build(xml: &Path) -> Outcome {
         }
     };
     let env = inj.env.clone().expect("perform:2997 dump has an env");
-    let locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
+    let mut locals: Vec<(String, pob_calc::Val)> = inj.locals.into_iter().collect();
+    // CCR-0079 §1: the closures' upvalues from the same perform run's line dumps (when probed)
+    let same_env = |h: &str| load(&dirs, h).filter(|x| x.env_id == din.env_id && testkit::same_run(din, x).is_ok());
+    let (up1691, up1862) = (same_env("perform:1691"), same_env("perform:1862"));
+    let seeded = testkit::seed_merge_closures(&mut locals, up1691.as_ref(), up1862.as_ref());
     pob_calc::stub::stub_reset();
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pob_calc::probe::run_segment("perform:2997", &locals)
@@ -225,6 +243,9 @@ fn run_build(xml: &Path) -> Outcome {
     let mut blockers: Vec<String> = stubs.clone();
     let mut replayed = Vec::new();
     let mut notes = Vec::new();
+    if !seeded.is_empty() {
+        notes.push(format!("seeded {seeded:?}"));
+    }
     for (name, group, a, b) in [
         ("mergeFlasks", FLASK_GROUP, d3118, d3125),
         ("defenceForConditionals+doActorCharges+doActorMisc", TAIL_GROUP, d3484, dout),
@@ -256,30 +277,7 @@ fn run_build(xml: &Path) -> Outcome {
         }
     }
     let mut mismatches = diff_with_unit_nondet(dout, &env, &after, &stem);
-    // CCR-0030 row 7: `modList.notBuff` on a ModList object is not readable from the calc (the
-    // frozen ModStore has no such field; the injected value lives in the probe registry), so
-    // each such buff counts once too often in `BuffOnSelf` (CalcPerform.lua:3346-3348).
-    let not_buff = count_not_buff(din);
     let mut known = Vec::new();
-    mismatches.retain(|m| {
-        let explained = not_buff > 0
-            && m.path == "env.modDB.multipliers.BuffOnSelf"
-            && m.kind == MismatchKind::Value
-            && match (
-                m.pob.as_ref().and_then(J::as_f64),
-                m.ours.as_ref().and_then(J::as_f64),
-            ) {
-                (Some(p), Some(o)) => o - p == not_buff as f64,
-                _ => false,
-            };
-        if explained {
-            known.push(format!(
-                "{}: pob={:?} ours={:?} ({not_buff} notBuff buff(s), CCR-0030)",
-                m.path, m.pob, m.ours
-            ));
-        }
-        !explained
-    });
     // Replay limit (pob_oracle::replay module doc): a mod the callee changed in place (e.g.
     // `modLib.setSource` on `value.mod` of an `EnemyModifier` LIST mod inside doActorMisc) is
     // replayed as removed + appended, so its position in the store's list moves. A LUA-ORDER
@@ -454,20 +452,6 @@ fn diff_with_unit_nondet(
         ..DiffOptions::strict()
     };
     diff_trees(&resolve_ids(&pob), &resolve_ids(&ours), &opts)
-}
-
-/// Buffs of the `:in` state whose ModList carries `notBuff = true`
-/// (CalcPerform.lua 2331, 2810, 2834).
-fn count_not_buff(din: &StateDump) -> usize {
-    let root = resolve_ids(&din.root);
-    root.get("env")
-        .and_then(|e| e.get("buffs"))
-        .and_then(J::as_object)
-        .map_or(0, |m| {
-            m.values()
-                .filter(|v| v.get("notBuff").and_then(J::as_bool) == Some(true))
-                .count()
-        })
 }
 
 /// The value at a diff path (`env.modDB.mods.Damage`, `env.buffs["Molten Shell"]`, `a[2]`)

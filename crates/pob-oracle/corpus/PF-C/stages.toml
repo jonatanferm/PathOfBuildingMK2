@@ -18,6 +18,24 @@ line = 1944
 locals = ["env", "skipEHP", "modDB", "enemyDB", "output", "partyTabEnableExportBuffs", "hasGuaranteedBonechill", "guaranteedChillSkills", "summonedMinionOverride", "breakdown", "nonUniqueFlasksApplyToMinion", "mergeFlasks", "mergeTinctures"]
 expect = "doActorAttribsConditions(env, env.player)"
 
+# CCR-0079 §1: the upvalues of the local functions `mergeFlasks` (1691) and `mergeTinctures`
+# (1862), which `PerformCtx.mergeFlasks` / `.mergeTinctures` hold (`setup_flasks::FlaskUpvalues`
+# / `TinctureUpvalues`, whose ProbeState locals are these names). At 1862 `effectInc` and
+# `effectIncMagic` are the tincture locals (1851-1852, shadowing the flask ones).
+[[stage]]
+id = "perform:1691"
+file = "Modules/CalcPerform.lua"
+line = 1691
+locals = ["effectInc", "effectIncMagic", "effectIncMagicNoAdjacent", "effectIncNonPlayer", "effectIncMagicNonPlayer", "flasksApplyToMinion", "quickSilverAppliesToAllies", "flaskTotalRateInc", "flaskDurInc"]
+expect = "local function mergeFlasks(flasks"
+
+[[stage]]
+id = "perform:1862"
+file = "Modules/CalcPerform.lua"
+line = 1862
+locals = ["effectInc", "effectIncMagic", "tinctureLimit"]
+expect = "local function mergeTinctures(tinctures)"
+
 [[function]]
 id = "createMinionSkills"
 file = "Modules/CalcActiveSkill.lua"

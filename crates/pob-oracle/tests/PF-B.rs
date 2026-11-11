@@ -24,9 +24,8 @@
 //! which only set `minion.output` and `multipliers.Level`). A callee that is already ported
 //! runs for real and is not replayed.
 //!
-//! Test-side adapter (CCR-0095 §1): `minion.lifeTable` / `minion.uses` are `$data` markers in
-//! the dump, which inject keeps as opaque `DataRef`s; the case converts them to the Lua tables
-//! they stand for before the run and puts the markers back before the export.
+//! `minion.lifeTable` / `minion.uses` are `$data` markers in the dump, which inject resolves to
+//! the typed `Actor` fields (CCR-0040 §1, CCR-0095 §1).
 //!
 //! Cases of `initMinionModDB` whose minion iterates `env.build.itemsTab.slots` (`minion.uses`,
 //! 1222-1240) cannot pass here: the case injects into `testkit::empty_build()`, and inject
@@ -56,7 +55,6 @@ use pob_calc::actor::Actor;
 use pob_calc::classes::ModStore;
 use pob_calc::lua_table::{Table, Val};
 use pob_calc::modules::calc_perform::actor_b::probe_fns;
-use pob_calc::probe::DataRef;
 use pob_oracle::diff::{Mismatch, MismatchKind};
 use pob_oracle::oracle::find_parity_dir;
 use pob_oracle::replay::Replay;
@@ -357,71 +355,6 @@ fn callee_call<'a>(
     })
 }
 
-/// `minion.lifeTable` / `minion.uses` `$data` markers → the Lua tables (CCR-0095 §1).
-/// Returns the originals to restore.
-fn adapt_minion(minion: &Actor, saved: &mut Vec<(Table, &'static str, Val)>) {
-    for key in ["lifeTable", "uses"] {
-        let v = minion.extra.get(key);
-        let Some(d) = v.obj::<DataRef>() else {
-            continue;
-        };
-        let data = pob_gamedata::data();
-        let seq = |t: &[f64]| {
-            let out = Table::new();
-            for x in t {
-                out.push(*x);
-            }
-            Some(out)
-        };
-        let conv = match d.path.as_str() {
-            "data.monsterLifeTable" => seq(&data.monsterLifeTable),
-            "data.monsterLifeTable2" => seq(&data.monsterLifeTable2),
-            "data.monsterLifeTable3" => seq(&data.monsterLifeTable3),
-            "data.monsterAllyLifeTable" => seq(&data.monsterAllyLifeTable),
-            p => p
-                .strip_prefix("data.skills.")
-                .and_then(|r| r.strip_suffix(".minionUses"))
-                .and_then(|id| data.skills.get(&pob_lua::Name::from(id)))
-                .and_then(|g| g.minionUses.clone())
-                .map(|set| {
-                    let t = Table::new();
-                    for s in set.iter() {
-                        t.set(*s, true);
-                    }
-                    t
-                }),
-        };
-        if let Some(t) = conv {
-            saved.push((minion.extra.clone(), key, v.clone()));
-            minion.extra.set(key, t);
-        }
-    }
-}
-
-fn minions_of(
-    env: &pob_calc::env::EnvRef,
-    locals: &BTreeMap<String, Val>,
-) -> Vec<std::rc::Rc<Actor>> {
-    let mut out = Vec::new();
-    if let Some(m) = env.minion.get() {
-        out.push(m);
-    }
-    for s in env.player.activeSkillList.get().snapshot() {
-        if let Some(m) = s.minion.get() {
-            out.push(m);
-        }
-    }
-    if let Some(s) = locals.get("activeSkill").and_then(Val::obj::<ActiveSkill>) {
-        if let Some(m) = s.minion.get() {
-            out.push(m);
-        }
-    }
-    if let Some(m) = locals.get("minion").and_then(Val::obj::<Actor>) {
-        out.push(m);
-    }
-    out
-}
-
 fn run_case(
     t: &mut Tally,
     stem: &str,
@@ -469,11 +402,6 @@ fn run_case(
         }
     }
 
-    let mut saved = Vec::new();
-    for m in minions_of(&env, &locals) {
-        adapt_minion(&m, &mut saved);
-    }
-
     let stub_before = stub_hits(STUB_APPLY_ENEMY);
     let run = catch_unwind(AssertUnwindSafe(|| -> Result<Val, String> {
         let actor = || {
@@ -513,9 +441,6 @@ fn run_case(
             _ => unreachable!(),
         })
     }));
-    for (tbl, key, v) in saved {
-        tbl.set(key, v);
-    }
     // inject marks a field PoB had as nil (`minion.output` before 1157) absent; the Rust
     // write makes it present again (the probe registry does not track writes)
     if f == "initMinionModDB" {
@@ -531,7 +456,7 @@ fn run_case(
         && get("activeSkill")
             .obj::<ActiveSkill>()
             .and_then(|s| s.minion.get())
-            .is_some_and(|m| m.extra.get("uses").truthy() || m.extra.get("itemSet").truthy());
+            .is_some_and(|m| m.uses.get().is_some() || m.itemSet.get().is_some());
     let ret = match run {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => {

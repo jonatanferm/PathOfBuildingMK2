@@ -1,6 +1,6 @@
 # CCR-0015: MS-B EvalMod contract notes
 
-**Status: applied 2026-11-10 by CCR2 (§1 ui doc §13 item 14, §2 retracted, §4 getActor doc line, §5 record); §6 needs code (G1a dhat half fails); §3 escalated; the `known_diffs.toml` entries for §1 and §3 are A8 item 17. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by CCR2 (§1 ui doc §13 item 14, §2 retracted, §4 getActor doc line, §5 record) and by RETYPE (§3: `Actor.itemList: Field<Option<ItemList>>`, `MinionData.monsterTags: Option<Vec<Name>>`; AMENDMENTS A8 E3, A10; the `itemList`/`monsterTags` rows of A8 item 17 are no longer divergences); §6 needs code (G1a dhat half fails); the `known_diffs.toml` entry for §1 is A8 item 17. See AMENDMENTS A8.**
 
 Filed status: proposed by MS-B (2026-10-10). Numbering: first free number at the time of writing; the
 integrator may renumber (the markers in MS-B's files and tests say `CCR-0015`).

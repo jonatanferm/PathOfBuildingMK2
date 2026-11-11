@@ -4,12 +4,10 @@
 //! Owner: PF-C. Signatures of `seg`, `mergeFlasks` and `mergeTinctures` are U0's (frozen).
 //!
 //! The segment declares the local functions `mergeFlasks` (1691) and `mergeTinctures` (1862),
-//! which later segments call (PF-F 3121, PF-D 2095; calc doc §7.1). Their Lua upvalues are
-//! segment locals the frozen `PerformCtx` does not carry (the flask `effectInc`… and
-//! `flaskDurInc`, the tincture `effectInc`, `effectIncMagic` and the mutable `tinctureLimit`):
-//! CCR-0079 §1. Until it is applied the segment records them per env in a thread-local side
-//! table ([`MERGE_UPVALUES`]) where the closures are created, and the frozen entry points read
-//! them from there.
+//! which later segments call (PF-F 3121, PF-D 2095; calc doc §7.1). The ctx fields of the same
+//! names hold the closures' upvalues ([`FlaskUpvalues`], [`TinctureUpvalues`]; CCR-0079 §1):
+//! the segment assigns them where Lua creates the closures, and the frozen entry points read
+//! them from the ctx.
 //!
 //! Callees that are not ported yet (createMinionSkills [AS], initMinionModDB [PF-B],
 //! applyEnemyModifiers and mergeBuff [PF-A]) are called through [`callee`]: with the `probe`
@@ -17,6 +15,7 @@
 //! ([`callee_replay`]; CCR-0079 §2). Without the feature `callee` is the plain call.
 #![allow(non_snake_case, dead_code, clippy::all, clippy::pedantic)]
 
+#[cfg(feature = "probe")]
 use std::cell::RefCell;
 
 use pob_gamedata::{mod_tools, tag};
@@ -31,88 +30,37 @@ use crate::prelude::*;
 
 // ---- Rust-only plumbing ----------------------------------------------------------------------
 
-/// CCR-0079 §1: the upvalues of the local function `mergeFlasks` (CalcPerform.lua 1691),
-/// captured when the closure is created (the locals declared at 1655-1664).
-struct FlaskUpvalues {
-    effectInc: f64,
-    effectIncMagic: f64,
-    effectIncMagicNoAdjacent: f64,
-    effectIncNonPlayer: f64,
-    effectIncMagicNonPlayer: f64,
-    flasksApplyToMinion: bool,
-    quickSilverAppliesToAllies: bool,
-    flaskTotalRateInc: f64,
-    flaskDurInc: f64,
+crate::ctx_struct! {
+    /// The upvalues of the local function `mergeFlasks` (CalcPerform.lua 1691; with its local
+    /// functions `getFlaskInstantRecovery` 1638, `calcFlaskRecovery` 1652, `calcFlaskMods` 1701):
+    /// the segment locals declared at 1602-1611, captured when the closure is created. The
+    /// `PerformCtx.mergeFlasks` field holds them (CCR-0079 §1); the line probe `perform:1691`
+    /// dumps them under these names (`env`, `modDB` and `nonUniqueFlasksApplyToMinion` are ctx
+    /// fields).
+    pub struct FlaskUpvalues {
+        effectInc: f64,
+        effectIncMagic: f64,
+        effectIncMagicNoAdjacent: f64,
+        effectIncNonPlayer: f64,
+        effectIncMagicNonPlayer: f64,
+        flasksApplyToMinion: bool,
+        quickSilverAppliesToAllies: bool,
+        flaskTotalRateInc: f64,
+        flaskDurInc: f64,
+    }
 }
 
-/// CCR-0079 §1: the upvalues of the local function `mergeTinctures` (CalcPerform.lua 1862):
-/// the tincture `effectInc`/`effectIncMagic` (1851-1852, shadowing the flask ones) and
-/// `tinctureLimit` (1853), which `mergeTinctures` decrements (1909), so it is shared.
-struct TinctureUpvalues {
-    effectInc: f64,
-    effectIncMagic: f64,
-    tinctureLimit: Cell<f64>,
-}
-
-/// One `calcs.perform` call's closures, by env (CCR-0079 §1).
-struct MergeUpvalues {
-    env: Weak<Env>,
-    flasks: Option<Rc<FlaskUpvalues>>,
-    tinctures: Option<Rc<TinctureUpvalues>>,
-}
-
-thread_local! {
-    /// CCR-0079 §1: the upvalues of the latest `mergeFlasks` / `mergeTinctures` closures of
-    /// each live env (one perform at a time per env; a new perform replaces the entry).
-    static MERGE_UPVALUES: RefCell<Vec<MergeUpvalues>> = const { RefCell::new(Vec::new()) };
-}
-
-fn record_upvalues(env: &EnvRef, f: impl FnOnce(&mut MergeUpvalues)) {
-    MERGE_UPVALUES.with(|m| {
-        let mut m = m.borrow_mut();
-        m.retain(|e| e.env.strong_count() > 0);
-        let i = match m
-            .iter()
-            .position(|e| std::ptr::eq(e.env.as_ptr(), Rc::as_ptr(env)))
-        {
-            Some(i) => i,
-            None => {
-                m.push(MergeUpvalues {
-                    env: Rc::downgrade(env),
-                    flasks: None,
-                    tinctures: None,
-                });
-                m.len() - 1
-            }
-        };
-        f(&mut m[i]);
-    });
-}
-
-fn flask_upvalues(env: &EnvRef) -> Rc<FlaskUpvalues> {
-    MERGE_UPVALUES
-        .with(|m| {
-            m.borrow()
-                .iter()
-                .find(|e| std::ptr::eq(e.env.as_ptr(), Rc::as_ptr(env)))
-                .and_then(|e| e.flasks.clone())
-        })
-        .unwrap_or_else(|| {
-            lua_error!("CCR-0079: mergeFlasks called before its closure was created (upvalues of CalcPerform.lua 1655-1664 not captured for this env)")
-        })
-}
-
-fn tincture_upvalues(env: &EnvRef) -> Rc<TinctureUpvalues> {
-    MERGE_UPVALUES
-        .with(|m| {
-            m.borrow()
-                .iter()
-                .find(|e| std::ptr::eq(e.env.as_ptr(), Rc::as_ptr(env)))
-                .and_then(|e| e.tinctures.clone())
-        })
-        .unwrap_or_else(|| {
-            lua_error!("CCR-0079: mergeTinctures called before its closure was created (upvalues of CalcPerform.lua 1851-1853 not captured for this env)")
-        })
+crate::ctx_struct! {
+    /// The upvalues of the local function `mergeTinctures` (CalcPerform.lua 1862; with
+    /// `calcTinctureMods` 1872): the tincture `effectInc`/`effectIncMagic` (1851-1852, shadowing
+    /// the flask ones) and `tinctureLimit` (1853), which `mergeTinctures` decrements (1909), so it
+    /// is shared by every call of the closure. `PerformCtx.mergeTinctures` holds them (CCR-0079
+    /// §1); the line probe `perform:1862` dumps them.
+    pub struct TinctureUpvalues {
+        effectInc: f64,
+        effectIncMagic: f64,
+        tinctureLimit: Cell<f64>,
+    }
 }
 
 /// CCR-0079 §2: callee replay for the L4 test (feature `probe` only). A call of a callee
@@ -421,7 +369,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
     // L1315
     let aegisItem = if env.aegisModList.get().is_some() {
         env.player
-            .itemList
+            .itemList()
             .with(|l| l.get(&n!("Weapon 2")).cloned())
             .or_else(|| env.aegisItem.get())
     } else {
@@ -458,7 +406,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
     // L1322
     if env.aegisModList.get().is_some() {
         // L1323
-        env.player.itemList.with_mut(|l| {
+        env.player.itemList().with_mut(|l| {
             l.shift_remove(&n!("Weapon 2"));
         });
     }
@@ -1051,7 +999,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
             // L1529
             let armourData = env
                 .player
-                .itemList
+                .itemList()
                 .with(|l| l.get(&Name::from(slot)).cloned())
                 .and_then(|i| i.armourData.get());
             // L1530
@@ -1366,7 +1314,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
         flaskTotalRateInc,
         flaskDurInc,
     });
-    record_upvalues(&env, |e| e.flasks = Some(flaskUp.clone()));
+    ctx.mergeFlasks = Some(flaskUp.clone());
 
     // L1851
     let effectInc = modDB.Sum(
@@ -1398,7 +1346,7 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
         effectIncMagic,
         tinctureLimit: Cell::new(tinctureLimit),
     });
-    record_upvalues(&env, |e| e.tinctures = Some(tinctureUp.clone()));
+    ctx.mergeTinctures = Some(tinctureUp.clone());
 
     // L1934
     if env.mode_combat.get() {
@@ -1606,12 +1554,20 @@ fn calcFlaskMods(
     // Essence of Desolation belt mod: bonus for magic flasks with no flask in an adjacent slot (1-5)
     // L1709
     if rarity.as_str() == "MAGIC" && up.effectIncMagicNoAdjacent != 0.0 {
-        // L1710 CCR-0030 #5: `env.flaskSlotMap` is keyed by items, which the frozen
-        // `Field<Table>` cannot hold (no object keys); the read cannot be ported until then.
-        let _ = env.flaskSlotMap.get();
-        lua_error!(
-            "CCR-0030 #5: env.flaskSlotMap[item] (CalcPerform.lua:1710) needs an item-keyed map"
-        );
+        // L1710 (`env.flaskSlotMap and …`: the typed map always exists, an absent entry is nil)
+        let flaskSlotNum = env.flaskSlotMap.get().with(|m| m.get(item));
+        // L1711
+        if let Some(flaskSlotNum) = flaskSlotNum {
+            // L1712
+            let occupied = env.flaskSlotOccupied.get();
+            let hasAdjacent =
+                occupied.truthy(flaskSlotNum - 1.0) || occupied.truthy(flaskSlotNum + 1.0);
+            // L1713
+            if !hasAdjacent {
+                // L1714
+                flaskEffectInc = flaskEffectInc + up.effectIncMagicNoAdjacent;
+            }
+        }
     }
     // L1718
     let effectMod = 1.0 + (flaskEffectInc) / 100.0;
@@ -2119,7 +2075,9 @@ pub(super) fn mergeFlasks(
     onlyRecovery: bool,
     checkNonRecoveryFlasksForMinions: bool,
 ) {
-    let up = flask_upvalues(&ctx.env); // CCR-0079 §1
+    let up = ctx.mergeFlasks.clone().unwrap_or_else(|| {
+        lua_error!("attempt to call local 'mergeFlasks' (a nil value)")
+    });
     mergeFlasks_up(
         ctx,
         &up,
@@ -2130,6 +2088,8 @@ pub(super) fn mergeFlasks(
 }
 
 pub(super) fn mergeTinctures(ctx: &PerformCtx, tinctures: &PtrMap<Item, bool>) {
-    let up = tincture_upvalues(&ctx.env); // CCR-0079 §1
+    let up = ctx.mergeTinctures.clone().unwrap_or_else(|| {
+        lua_error!("attempt to call local 'mergeTinctures' (a nil value)")
+    });
     mergeTinctures_up(ctx, &up, tinctures);
 }

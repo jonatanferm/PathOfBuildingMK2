@@ -73,6 +73,9 @@ pub struct ModStore {
     pub actor: Field<ActorWeak>,
     pub conditions: Table,
     pub multipliers: Table,
+    /// `modList.notBuff = true` (CalcPerform.lua 2331/2810/2834, on a buff's ModList; read
+    /// 3346, 3425). Lua nil = false (CCR-0030 #7, CCR-0076).
+    pub notBuff: Cell<bool>,
 }
 
 impl Default for ModStore {
@@ -84,6 +87,7 @@ impl Default for ModStore {
             actor: Field::new(Weak::new()),
             conditions: Table::new(),
             multipliers: Table::new(),
+            notBuff: Cell::new(false),
         }
     }
 }
@@ -111,6 +115,7 @@ impl ModStore {
             actor: Field::new(actor),
             conditions: Table::new(),
             multipliers: Table::new(),
+            notBuff: Cell::new(false),
         })
     }
 
@@ -127,6 +132,7 @@ impl ModStore {
             actor: Field::new(actor),
             conditions: Table::new(),
             multipliers: Table::new(),
+            notBuff: Cell::new(false),
         })
     }
 }
@@ -175,8 +181,8 @@ pub struct Item {
     pub classRequirementModLines: Field<Shared<Vec<Table>>>,
     pub baseModList: Field<Option<ModList>>,
     pub modList: Field<Option<ModList>>,
-    /// Lua `slotModList[1]`, `[2]`.
-    pub slotModList: [Field<Option<ModList>>; 2],
+    /// Lua `slotModList[1]`, `[2]`, `[3]` (rings: "Ring 3", Item.lua:2693-2700; CCR-0030 #4).
+    pub slotModList: [Field<Option<ModList>>; 3],
     pub buffModList: Field<Option<ModList>>,
     /// Lua `weaponData[1]`, `[2]` (keyed by slot number).
     pub weaponData: Field<Option<Table>>,

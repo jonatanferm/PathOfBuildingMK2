@@ -14,8 +14,9 @@ pub type MinionDataRef = Arc<MinionData>;
 #[serde(deny_unknown_fields)]
 pub struct MinionData {
     pub name: Name,
+    /// `None` = Lua nil (`data.minions.GuardianRelicAll` has no `monsterTags`; CCR-0015 §3).
     #[serde(default)]
-    pub monsterTags: Vec<Name>,
+    pub monsterTags: Option<Vec<Name>>,
     pub life: f64,
     #[serde(default)]
     pub lifeScaling: Option<Name>,

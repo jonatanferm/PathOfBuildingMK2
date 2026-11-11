@@ -36,7 +36,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use pob_calc::modules::calc_active_skill::{
-    buildActiveSkillModList, createActiveSkill, createMinionSkills, triggeredBy, LifeTable,
+    buildActiveSkillModList, createActiveSkill, createMinionSkills,
 };
 use pob_calc::prelude::*;
 use pob_gamedata::mod_tools::{createMod, formatMod};
@@ -457,7 +457,8 @@ fn ser(s: &ActiveSkillRef, depth: u32) -> String {
     ));
     p.push(format!(
         "trig={}",
-        ss(triggeredBy(s)
+        ss(s.triggeredBy
+            .get()
             .map(|e| e.grantedEffect.get().id)
             .as_ref()
             .map(|n| n.as_str()))
@@ -502,15 +503,15 @@ fn ser(s: &ActiveSkillRef, depth: u32) -> String {
     p.push(format!("buffs={}", bl.join("\x1d")));
     if let (Some(m), 0) = (s.minion.get(), depth) {
         let mut uses: Vec<String> = m
-            .extra
-            .table(n!("uses"))
-            .map(|t| t.pairs().map(|(k, _)| key_str(&k)).collect())
+            .uses
+            .get()
+            .map(|t| t.iter().map(|k| k.as_str().to_owned()).collect())
             .unwrap_or_default();
         uses.sort();
         let list = m.activeSkillList.get().with(Clone::clone);
         p.push(format!(
             "minion={},{},{},wd1{{{}}},wd2{{{}}},uses{{{}}},{},{}",
-            sval(&m.extra.get(n!("type"))),
+            sval(&m.r#type.get().map_or(Val::Nil, |t| Val::from(t.as_str()))),
             num(m.level.get()),
             m.hostile.get(),
             kv(&m.weaponData1.get(), None),
@@ -578,10 +579,10 @@ fn wd(ty: &str, rate: Option<f64>) -> Table {
 }
 
 fn weapons(actor: &ActorRef, w: u32) {
-    actor.itemList.with_mut(|m| m.clear());
+    actor.itemList().with_mut(|m| m.clear());
     let put = |slot: &str, ty: &str| {
         actor
-            .itemList
+            .itemList()
             .with_mut(|m| m.insert(Name::from(slot), item(ty)));
     };
     match w {
@@ -751,8 +752,8 @@ fn run_rust(c: &Case, build: &BuildRef, spectres: &[Name]) -> String {
         mdb.actor.set(Rc::downgrade(&minion));
         minion.modDB.set(mdb);
         createMinionSkills(&env, &skill);
-        // the minion's lifeTable is one of the data tables (CCR-0040 representation check)
-        assert!(minion.extra.obj::<LifeTable>(n!("lifeTable")).is_some());
+        // the minion's lifeTable is one of the data tables
+        assert!(minion.lifeTable.get().is_some());
     }
     let out = format!(
         "{}\nsrc={}\nenv={},{}",
@@ -1130,8 +1131,6 @@ fn fix_absent_marks(skill: &ActiveSkillRef) {
 }
 
 /// Split the state-diff mismatches into unexplained ones and documented differences:
-/// * `minion.lifeTable`: PoB writes the data table's `$data` marker; the port stores a
-///   [`LifeTable`] handle (CCR-0040) — accepted when it points at the very table the marker names;
 /// * mods whose only difference is a `Skill:<id>AltX/AltY` source (PoB's per-process gem variant
 ///   choice, CCR-0010), matched pairwise between ModMissing and ModExtra;
 /// * `minion.itemSet` / `srcInstance.skillMinionItemSet`: the build model's
@@ -1139,7 +1138,7 @@ fn fix_absent_marks(skill: &ActiveSkillRef) {
 ///   build loader (BM-A) is not ported yet, so the item set lookup sees an empty build.
 fn explain(
     mm: Vec<pob_oracle::diff::Mismatch>,
-    skill: &ActiveSkillRef,
+    _skill: &ActiveSkillRef,
 ) -> (Vec<pob_oracle::diff::Mismatch>, Vec<&'static str>) {
     use pob_oracle::diff::MismatchKind as K;
     let mut why = Vec::new();
@@ -1158,64 +1157,10 @@ fn explain(
     let mut extra: Vec<(String, pob_oracle::diff::Mismatch)> = Vec::new();
     let itemSetGap = mm.iter().any(|m| m.path.ends_with("minion.itemSet"));
     for m in mm {
-        if m.path.ends_with("minion.uses") {
-            // CCR-0030 #2: PoB's `$data` marker of the granted effect's `minionUses`; the port
-            // keeps the same slot names as a table in `minion.extra["uses"]`
-            let ge = skill.activeEffect.get().grantedEffect.get();
-            let mut want: Vec<String> = ge
-                .minionUses
-                .as_ref()
-                .map(|u| u.iter().map(|n| n.as_str().to_owned()).collect())
-                .unwrap_or_default();
-            want.sort();
-            let mut have: Vec<String> = m
-                .ours
-                .as_ref()
-                .and_then(serde_json::Value::as_object)
-                .map(|o| o.keys().cloned().collect())
-                .unwrap_or_default();
-            have.sort();
-            let marker_ok = m
-                .pob
-                .as_ref()
-                .and_then(|j| j.get("$data"))
-                .and_then(serde_json::Value::as_str)
-                == Some(&format!("data.skills.{}.minionUses", ge.id));
-            if marker_ok && want == have {
-                why.push("minion.uses holds the granted effect's minionUses slots (CCR-0030 #2 representation)");
-                continue;
-            }
-            rest.push(m);
-        } else if itemSetGap
+        if itemSetGap
             && (m.path.ends_with("minion.weaponData1") || m.path.ends_with("minion.weaponData2"))
         {
             why.push("minion weapon data from the item set: item sets are not in the dump (BM-A)");
-        } else if m.path.ends_with("minion.lifeTable") {
-            let named = m
-                .pob
-                .as_ref()
-                .and_then(|j| j.get("$data"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned);
-            let d = data();
-            let target: Option<&[f64]> = match named.as_deref() {
-                Some("data.monsterLifeTable") => Some(&d.monsterLifeTable),
-                Some("data.monsterLifeTable2") => Some(&d.monsterLifeTable2),
-                Some("data.monsterLifeTable3") => Some(&d.monsterLifeTable3),
-                Some("data.monsterAllyLifeTable") => Some(&d.monsterAllyLifeTable),
-                _ => None,
-            };
-            let ours = skill
-                .minion
-                .get()
-                .and_then(|mi| mi.extra.obj::<LifeTable>(n!("lifeTable")));
-            if let (Some(t), Some(o)) = (target, ours) {
-                if std::ptr::eq(t.as_ptr(), o.0.as_ptr()) {
-                    why.push("minion.lifeTable is the same data table (CCR-0040 representation)");
-                    continue;
-                }
-            }
-            rest.push(m);
         } else if m.path.ends_with("minion.itemSet") || m.path.ends_with("skillMinionItemSet") {
             why.push("item sets are not in the dump and BM-A's build loader is not ported (empty itemsTab)");
         } else if matches!(m.kind, K::ModMissing) {

@@ -815,12 +815,15 @@ pub fn calcWarcryCastTime(
 
 /// @pob Modules/CalcOffence.lua:322-335 h=84318871
 /// Global `calcSkillDuration`.
+///
+/// `env = None` is a Lua table without `mode_effective` (Data/Skills/act_int.lua:21113 passes
+/// `{}`); `enemyDB` is read only when `env.mode_effective` is true (CCR-0046).
 pub fn calcSkillDuration(
     skillModList: &ModList,
     skillCfg: Option<&ModCfg>,
     skillData: &Table,
-    env: &EnvRef,
-    enemyDB: &ModDB,
+    env: Option<&EnvRef>,
+    enemyDB: Option<&ModDB>,
 ) -> f64 {
     // L323
     let mut durationMod = calcLib::r#mod(
@@ -844,8 +847,11 @@ pub fn calcSkillDuration(
     // L327
     let mut debuffDurationMult = 1.0;
     // L328
-    if env.mode_effective.get() {
-        // L329
+    if env.is_some_and(|e| e.mode_effective.get()) {
+        // L329 (a nil `enemyDB` raises inside calcLib.mod: `modStore:Sum`, CalcTools.lua:15)
+        let enemyDB = enemyDB.unwrap_or_else(|| {
+            lua_error!("attempt to index local 'modStore' (a nil value)")
+        });
         debuffDurationMult = 1.0
             / m_max(
                 data().misc.BuffExpirationSlowCap,
@@ -957,7 +963,7 @@ fn val_value(v: &Val) -> Value {
 
 /// `actor.itemList[slot] and actor.itemList[slot].weaponData and actor.itemList[slot].weaponData[1]`.
 fn slot_has_weapon(actor: &Actor, slotName: Name) -> bool {
-    let item = actor.itemList.with(|l| l.get(&slotName).cloned());
+    let item = actor.item_in(slotName);
     match item {
         Some(item) => match item.weaponData.get() {
             Some(wd) => wd.truthy(1_i64),

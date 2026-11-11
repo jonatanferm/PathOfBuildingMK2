@@ -58,10 +58,10 @@
 //!   them (`srcInstance.skillPart`, Build.lua:494-566) or looks them up by identity
 //!   (`mainEnv.flasks[item]`, ItemsTab.lua:4868, :4904).
 //! * Lost to the per-document registry reset (CCR-0088 §2), in the calcsEnv document: its
-//!   object-keyed side entries (`env.flaskSlotMap`, `player.appliedEnemyModifiers`,
-//!   `itemList[*].slotModList`, `grantedSkills[*].sourceItem.slotModList`, the
-//!   `explodeSources` entries' side keys); the mainEnv document's, at the next `inject` (a
-//!   `MiscCalc::call`). No UI code reads them (only `Modules/Calc*.lua` do).
+//!   object-keyed side entries of dynamic tables; the mainEnv document's, at the next `inject`
+//!   (a `MiscCalc::call`). No UI code reads them (only `Modules/Calc*.lua` do). The typed
+//!   object-keyed fields (`env.flaskSlotMap`, `actor.appliedEnemyModifiers`, `item.slotModList`,
+//!   `env.explodeSources`; CCR-0030) are not registry entries and are kept.
 //! * CalcsTab.lua:465-468 (`SetBreakdownData` refresh when `displayData` is set) is UI-side and
 //!   belongs to the CalcsTab unit (U39), not to either facade implementation.
 //! * A `MiscCalc::call` does not write back what the CALCULATOR pass writes into the model in
@@ -557,8 +557,13 @@ pub fn adopt_build_output(
     for g in build.skillsTab.socketGroupList.get().snapshot() {
         // `group.sourceItem`, `group.explodeSources` (CalcSetup.lua:1486, :1520)
         rb.table(&g.extra);
-        if let Some(t) = g.explodeSources.get() {
-            rb.table(&t);
+        if let Some(it) = g.sourceItem.get() {
+            if let Some(l) = rb.live_item(&it) {
+                g.sourceItem.set(Some(l));
+            }
+        }
+        if let Some(l) = g.explodeSources.get() {
+            rb.explode_list(&l);
         }
         if let Some(l) = g.displaySkillList.get() {
             rb.skills(&l);
@@ -860,6 +865,7 @@ fn copy_group(d: &SocketGroup, s: &SocketGroup) {
     d.displaySkillListCalcs.set(s.displaySkillListCalcs.get());
     d.displayLabel.set(s.displayLabel.get());
     d.explodeSources.set(s.explodeSources.get());
+    d.sourceItem.set(s.sourceItem.get());
     copy_table(&d.extra, &s.extra);
 }
 
@@ -972,6 +978,22 @@ impl Rebind {
 
     /// `env.flasks` / `env.tinctures` (CalcSetup.lua:1031, :1047; read by ItemsTab.lua:4868,
     /// :4904 with the live item).
+    /// `env.explodeSources` items (CalcSetup.lua:838) → the live items.
+    fn explode_list(&mut self, l: &Shared<Vec<pob_calc::env::ExplodeSource>>) {
+        use pob_calc::env::ExplodeSource;
+        let list = l.snapshot();
+        let out: Vec<ExplodeSource> = list
+            .into_iter()
+            .map(|e| match e {
+                ExplodeSource::Item(it) => {
+                    ExplodeSource::Item(self.live_item(&it).unwrap_or(it))
+                }
+                n => n,
+            })
+            .collect();
+        l.with_mut(|x| *x = out);
+    }
+
     fn item_flags(&mut self, m: &Shared<PtrMap<Item, bool>>) {
         let pairs = m.with(PtrMap::pairs);
         let mut out = PtrMap::new();
@@ -996,12 +1018,20 @@ impl Rebind {
                 env.aegisItem.set(Some(l));
             }
         }
+        self.explode_list(&env.explodeSources.get());
+        let slots = env.flaskSlotMap.get();
+        let pairs = slots.with(PtrMap::pairs);
+        let mut out = PtrMap::new();
+        for (k, v) in pairs {
+            let k = self.live_item(&k).unwrap_or(k);
+            out.set(&k, Some(v));
+        }
+        slots.with_mut(|x| *x = out);
         for list in [
             &env.radiusJewelList,
             &env.grantedSkills,
             &env.grantedSkillsNodes,
             &env.grantedSkillsItems,
-            &env.explodeSources,
         ] {
             for t in list.get().snapshot() {
                 self.table(&t);
@@ -1020,14 +1050,16 @@ impl Rebind {
             self.table(&b.t);
         }
         // `actor.itemList[slotName] = item` (CalcSetup.lua:1068)
-        let list: Vec<(pob_lua::Name, ItemRef)> = a
-            .itemList
-            .with(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
-        for (k, it) in list {
-            if let Some(l) = self.live_item(&it) {
-                a.itemList.with_mut(|m| {
-                    m.insert(k, l);
-                });
+        // (the enemy has no `itemList`, CCR-0015 §3)
+        if let Some(il) = a.itemList.get() {
+            let list: Vec<(pob_lua::Name, ItemRef)> =
+                il.with(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+            for (k, it) in list {
+                if let Some(l) = self.live_item(&it) {
+                    il.with_mut(|m| {
+                        m.insert(k, l);
+                    });
+                }
             }
         }
         if let Some(s) = a.mainSkill.get() {

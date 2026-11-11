@@ -130,7 +130,12 @@ pub struct SocketGroup {
     pub displaySkillList: Field<Option<Shared<Vec<ActiveSkillRef>>>>,
     pub displaySkillListCalcs: Field<Option<Shared<Vec<ActiveSkillRef>>>>,
     pub displayLabel: Field<Option<LStr>>,
-    pub explodeSources: Field<Option<Table>>,
+    /// `group.explodeSources = env.explodeSources` (CalcSetup.lua:1522): the env's list, aliased
+    /// (CCR-0030 #3, CCR-0083 §2).
+    pub explodeSources: Field<Option<Shared<Vec<crate::env::ExplodeSource>>>>,
+    /// `group.sourceItem = grantedSkill.sourceItem` (CalcSetup.lua:1486; read
+    /// CalcActiveSkill.lua:290/504; CCR-0040 §2).
+    pub sourceItem: Field<Option<ItemRef>>,
     pub extra: Table,
 }
 

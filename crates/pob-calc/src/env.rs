@@ -42,6 +42,41 @@ impl Mode {
 
 pub type EnvRef = Rc<Env>;
 
+/// One entry of `env.explodeSources`: `buildModListForNodeList` returns the allocated nodes
+/// with a `CanExplode` mod (CalcSetup.lua:252-275), CalcSetup.lua:838 adds items (CCR-0030 #3).
+#[derive(Clone)]
+pub enum ExplodeSource {
+    Node(NodeRef),
+    Item(ItemRef),
+}
+
+impl ExplodeSource {
+    /// The entry as a Lua value (`Val::Obj` of the node or item).
+    pub fn to_val(&self) -> crate::lua_table::Val {
+        match self {
+            ExplodeSource::Node(n) => crate::lua_table::Val::Obj(n.clone()),
+            ExplodeSource::Item(i) => crate::lua_table::Val::Obj(i.clone()),
+        }
+    }
+
+    /// A node or item value as an entry (`None` for anything else).
+    pub fn from_val(v: &crate::lua_table::Val) -> Option<Self> {
+        if let Some(n) = v.obj::<crate::classes::Node>() {
+            return Some(ExplodeSource::Node(n));
+        }
+        v.obj::<Item>().map(ExplodeSource::Item)
+    }
+
+    /// Identity (`rawequal`).
+    pub fn ptr_eq(&self, o: &ExplodeSource) -> bool {
+        match (self, o) {
+            (ExplodeSource::Node(a), ExplodeSource::Node(b)) => Rc::ptr_eq(a, b),
+            (ExplodeSource::Item(a), ExplodeSource::Item(b)) => Rc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
 /// The `env` table (CalcSetup.lua 490+).
 pub struct Env {
     pub build: BuildRef,
@@ -79,7 +114,9 @@ pub struct Env {
     pub flasks: Field<Shared<PtrMap<Item, bool>>>,
     pub tinctures: Field<Shared<PtrMap<Item, bool>>>,
     pub flaskSlotOccupied: Field<Table>,
-    pub flaskSlotMap: Field<Table>,
+    /// `env.flaskSlotMap[item] = flaskNum` (CalcSetup.lua:1023/1035): keyed by item identity
+    /// (CCR-0030 #5).
+    pub flaskSlotMap: Field<Shared<PtrMap<Item, f64>>>,
     pub itemWarnings: Field<Table>,
     pub requirementsTable: Field<Table>,
     pub requirementsTableItems: Field<Table>,
@@ -89,7 +126,9 @@ pub struct Env {
     pub mainSocketGroup: Cell<Option<f64>>,
     pub crossLinkedSupportGroups: Field<Table>,
     pub keystonesAdded: Field<Table>,
-    pub explodeSources: Field<Shared<Vec<Table>>>,
+    /// Passive tree nodes and items with an explode mod (CalcSetup.lua 540, 838, 1421-1423;
+    /// CCR-0030 #3). `socketGroup.explodeSources` aliases it (1522).
+    pub explodeSources: Field<Shared<Vec<ExplodeSource>>>,
     pub aegisItem: Field<Option<ItemRef>>,
     pub buffs: Field<Table>,
     pub minionBuffs: Field<Table>,
@@ -155,7 +194,7 @@ impl Env {
             flasks: Field::new(Shared::new(PtrMap::new())),
             tinctures: Field::new(Shared::new(PtrMap::new())),
             flaskSlotOccupied: Field::new(Table::new()),
-            flaskSlotMap: Field::new(Table::new()),
+            flaskSlotMap: Field::new(Shared::new(PtrMap::new())),
             itemWarnings: Field::new(Table::new()),
             requirementsTable: Field::new(Table::new()),
             requirementsTableItems: Field::new(Table::new()),

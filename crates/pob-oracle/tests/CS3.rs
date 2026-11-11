@@ -40,8 +40,8 @@
 //!   Counted per reordered list);
 //! * `gem variant (CCR-0010)`: mods of a skill whose gem resolved to its `AltX`/`AltY` variant in
 //!   one of the two PoB processes (the oracle's, the data dump's);
-//! * `minion`: AS's minion representation (CCR-0030 #2, CCR-0040) and the minion item set, which
-//!   is not in the dump (BM-A).
+//! * `minion`: the minion's fresh `modDB` and the minion item set, which is not in the dump
+//!   (BM-A). (`minion.uses` / `lifeTable` are typed since RETYPE and compared exactly.)
 //!
 //! Before diffing, `warcryPowerBonus` is dropped from PoB's tree (CalcPerform.lua:2382 writes it
 //! into a shared mod's tag in an earlier perform; CCR-0083 §7).
@@ -521,7 +521,7 @@ fn install_sockets(env: &pob_calc::env::EnvRef, model: &Table) {
         let (Some(slot), Some(list)) = (k.name(), v.table()) else {
             continue;
         };
-        let item = env.player.itemList.with(|m| m.get(&slot).cloned());
+        let item = env.player.item_in(slot);
         if let Some(item) = item {
             let sockets: Vec<Table> = list
                 .ipairs()
@@ -971,21 +971,11 @@ fn classify(
                 }
             }
         }
-        // the minion actor as AS represents it (CCR-0030 #2, CCR-0040), and the minion item set
-        // (`build.itemsTab.itemSets`, not in the dump; BM-A)
+        // the minion's fresh modDB, and the minion item set (`build.itemsTab.itemSets`, not in
+        // the dump; BM-A)
         if let Some(i) = m.path.find(".minion.") {
             let field = &m.path[i + ".minion.".len()..];
-            let pob_data = m
-                .pob
-                .as_ref()
-                .and_then(|j| j.get("$data"))
-                .and_then(J::as_str)
-                .unwrap_or("");
             let ok = match field.split(['.', '[']).next().unwrap_or("") {
-                "lifeTable" => {
-                    pob_data.starts_with("data.monster") && pob_data.ends_with("LifeTable")
-                }
-                "uses" => pob_data.ends_with(".minionUses"),
                 "modDB" => {
                     matches!(m.kind, MismatchKind::Extra)
                         && m.ours

@@ -55,8 +55,9 @@
 //!   write both, so the model's Load/Save and GemSelectControl (U29) read what the controls show.
 //! * A nil `socketGroup.label`, `gemInstance.level`/`quality` are BM-B's markers (CCR-0019):
 //!   `SetText` of them writes `"nil"` (`tostring(nil)`), `%d` of them raises the Lua error.
-//! * `socketGroup.sourceItem`, `sourceNode`, `imbuedSupport`, `displayGemList` and
-//!   `gemInstance.color`, `matchesSocket` are in the objects' `extra` tables (CCR-0040, CCR-0083).
+//! * `socketGroup.sourceNode`, `imbuedSupport`, `displayGemList` and `gemInstance.color`,
+//!   `matchesSocket` are in the objects' `extra` tables (CCR-0040, CCR-0083);
+//!   `socketGroup.sourceItem` and `explodeSources` are typed fields (A10 E1).
 //! * `data.skillColorMap` (Data.lua:306) is `{ STRENGTH, DEXTERITY, INTELLIGENCE, NORMAL }` of
 //!   `colorCodes`; Main only ever changes POSITIVE/NEGATIVE/HIGHLIGHT, so [`skill_color_map`] reads
 //!   `cx.main.cc`.
@@ -876,6 +877,7 @@ fn copy_socket_group(s: &SocketGroup) -> SocketGroup {
         displaySkillListCalcs: model::Field::new(s.displaySkillListCalcs.get()),
         displayLabel: model::Field::new(s.displayLabel.get()),
         explodeSources: model::Field::new(s.explodeSources.get()),
+        sourceItem: model::Field::new(s.sourceItem.get()),
         extra: s.extra.copyTable(true),
     }
 }
@@ -1983,7 +1985,7 @@ impl SkillsTab {
             // L390-391
             label = "^7This is a special group created for the enemy explosion effect,\nwhich comes from the following sources:".to_owned();
             // L392
-            for (_, source) in explodeSources.ipairs() {
+            for source in explodeSources.snapshot().iter().map(|s| s.to_val()) {
                 // L393
                 let rarity = val_rarity(&source).unwrap_or_else(|| "NORMAL".to_owned());
                 let name = val_name(&source)
@@ -2001,7 +2003,7 @@ impl SkillsTab {
                 });
             // L398
             let mut sourceName;
-            let source_item = g.extra.get(n!("sourceItem"));
+            let source_item = g.sourceItem.get().map_or(Val::Nil, |i| Val::Obj(i));
             let source_node = g.extra.get(n!("sourceNode"));
             // L399
             if source_item.truthy() {
@@ -2041,9 +2043,10 @@ impl SkillsTab {
             );
             // L410
             if !g.noSupports.get() && !source_node.truthy() {
-                // L411-413
+                // L411-413 (the `[[` of L412's second long string drops the newline that follows
+                // it, so `sourceName` runs straight into "will")
                 label = format!(
-                    "{label}\n\nYou cannot add support gems to this group, but support gems in\nany other group socketed into {sourceName}\nwill automatically apply to the skill."
+                    "{label}\n\nYou cannot add support gems to this group, but support gems in\nany other group socketed into {sourceName}will automatically apply to the skill."
                 );
             }
         }
@@ -2616,7 +2619,7 @@ impl SkillsTab {
         // L1310
         if let Some(explodeSources) = socketGroup.explodeSources.get() {
             // L1311
-            for (_, source) in explodeSources.ipairs() {
+            for source in explodeSources.snapshot().iter().map(|s| s.to_val()) {
                 // L1312
                 let rarity = val_rarity(&source).unwrap_or_else(|| "NORMAL".to_owned());
                 let name = val_name(&source)
@@ -2638,7 +2641,10 @@ impl SkillsTab {
             );
         }
         // L1319
-        let source_item = socketGroup.extra.get(n!("sourceItem"));
+        let source_item = socketGroup
+            .sourceItem
+            .get()
+            .map_or(Val::Nil, |i| Val::Obj(i));
         let sourceSingle = if source_item.truthy() {
             source_item
         } else {
