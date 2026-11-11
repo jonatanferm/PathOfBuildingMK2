@@ -235,6 +235,7 @@ pub fn default_shell_hooks() -> ShellHooks {
             BuildTab::Skills => crate::tabs::skills::core::draw_tab(cx, vp, ev),
             BuildTab::Import => crate::tabs::import::core::draw_tab(cx, vp, ev),
             BuildTab::Config => crate::tabs::config::core::draw_tab(cx, vp, ev),
+            BuildTab::Items => crate::tabs::items::core::draw_tab(cx, vp, ev),
             _ => {}
         }),
         tab_flag: Rc::new(|cx, flag| match flag {

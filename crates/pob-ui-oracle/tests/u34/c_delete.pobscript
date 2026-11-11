@@ -1,0 +1,43 @@
+# U34: DeleteItem (allflame_exp_001). Select the third item list row (a jewel in Socket #10) and
+# press DELETE (U32's OnSelDelete: the confirm popup, RETURN): DeleteItem clears the socket slot
+# and `spec.jewels`, deallocates the socket node and its `depends` (a recalc), PopulateSlots,
+# AddUndoState; snapshot; "Del Unused" (DeleteItem with deferUndoState for every item no slot,
+# abyssal socket or tree uses, then the cluster graphs, PopulateSlots, AddUndoState), snapshot;
+# Ctrl+Z twice (the deleted items, the slots and the item order come back; the tree keeps its
+# deallocated nodes, which the spec's own undo buffer holds), snapshot.
+#! u34-expect currently equipped in Socket #10
+#! u34-expect undo: 2 redo: 0 mod: true
+#! u34-expect undo: 3 redo: 0 mod: true
+#! u34-expect undo: 1 redo: 2 mod: true
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 102
+click LEFTBUTTON
+frames 2
+press DELETE
+frames 2
+press RETURN
+frames 3
+snapshot deleted
+move 940 48
+frames 1
+click LEFTBUTTON
+frames 3
+snapshot unused
+move 1200 700
+frames 1
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+key-down CTRL
+press z
+key-up CTRL
+frames 3
+snapshot undone

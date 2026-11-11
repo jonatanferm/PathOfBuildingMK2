@@ -143,11 +143,11 @@ pub fn default_items_hooks() -> ItemsTabHooks {
             let m = cx.build().model.clone();
             m.itemsTab.AddItem(&m, item, no_auto_equip, index);
         }),
-        add_forbidden_jewel_counterpart: Rc::new(|_, _| {
-            not_ported("ItemsTab:AddForbiddenJewelCounterpart", "U34")
+        add_forbidden_jewel_counterpart: Rc::new(|cx, item| {
+            super::core::AddForbiddenJewelCounterpart(cx, Some(item))
         }),
-        sort_item_list: Rc::new(|_| not_ported("ItemsTab:SortItemList", "U34")),
-        delete_item: Rc::new(|_, _, _| not_ported("ItemsTab:DeleteItem", "U34")),
+        sort_item_list: Rc::new(super::core::SortItemList),
+        delete_item: Rc::new(super::core::DeleteItem),
         // L1592-1615 model (calc:BM-A), the UI half of its PopulateSlots, L1616 SyncLoadouts
         set_active_item_set: Rc::new(|cx, id| {
             let m = cx.build().model.clone();
