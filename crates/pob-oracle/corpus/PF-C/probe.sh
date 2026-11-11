@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Probe builds for the PF-C acceptance test (tests/PF-C.rs): the segment's line probes
-# `perform:1289`/`perform:1943` of the main env and every call of the replayed callees.
+# `perform:1289`/`perform:1943` of the main env, the closure-upvalue probes `perform:1691` /
+# `perform:1862` (CCR-0079 §1) and every call of the replayed callees.
 #
 # Usage: crates/pob-oracle/corpus/PF-C/probe.sh [build.xml ...]   (default: .parity/builds/*.xml)
 # Output: target/tmp/pfc-probe/<stem>/ (hits.json, state/); the test reads it from there.
@@ -22,7 +23,7 @@ src="$("$root/scripts/port/oracle.sh" patch --stages "$stages" 2>/dev/null)"
 out_root="${PFC_PROBE_DIR:-$root/target/tmp/pfc-probe}"
 builds=("$@")
 if [ ${#builds[@]} -eq 0 ]; then builds=("$parity"/builds/*.xml); fi
-sel='perform:1289@main,perform:1943@main,pfc:calcFlaskMods*,mergeKeystones:*,createMinionSkills:*,initMinionModDB:*,applyEnemyModifiers:*'
+sel='perform:1289@main,perform:1943@main,perform:1691@main,perform:1862@main,pfc:calcFlaskMods*,mergeKeystones:*,createMinionSkills:*,initMinionModDB:*,applyEnemyModifiers:*'
 for xml in "${builds[@]}"; do
     stem="$(basename "$xml" .xml)"
     dir="$out_root/$stem"

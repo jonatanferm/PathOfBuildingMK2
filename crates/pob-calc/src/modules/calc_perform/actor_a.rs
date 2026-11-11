@@ -4,9 +4,7 @@
 //! Owner: PF-A. Signatures are U0's (frozen); two additions are marked
 //! `// CCR-0085` (docs/port/ccr/0085-pf-a-perform-helpers.md):
 //! [`mergeBuff_v`] takes the `src` argument as the Lua value it is (a ModList
-//! object or a plain list of mods; the frozen `mergeBuff` takes a `Table`),
-//! and the `actor.appliedEnemyModifiers` mod-identity cache is kept beside the
-//! frozen `Table` field (CCR-0030 #6).
+//! object or a plain list of mods; the frozen `mergeBuff` takes a `Table`).
 //!
 //! [`probe_call`] (feature `probe`) runs one of these functions on injected
 //! function-probe locals, for the PF-A acceptance test.
@@ -43,7 +41,7 @@ fn mainSkill_of(actor: &Actor) -> ActiveSkillRef {
 
 /// `actor.itemList[slot]`.
 fn item_in(actor: &Actor, slot: Name) -> Option<ItemRef> {
-    actor.itemList.with(|l| l.get(&slot).cloned())
+    actor.item_in(slot)
 }
 
 /// `env.data.weaponTypeInfo[t]` where Lua indexes the result (nil raises).
@@ -1702,9 +1700,10 @@ pub(crate) fn applyEnemyModifiers(actor: &ActorRef, clearCache: bool) {
     // L620
     if clearCache || actor.appliedEnemyModifiers.get().is_none() {
         // L621
-        let t = Table::new();
-        enemy_cache::reset(actor, &t);
-        actor.appliedEnemyModifiers.set(Some(t));
+        actor
+            .appliedEnemyModifiers
+            .set(Some(Shared::new(ModPtrSet::new())));
+        probe_written(actor, "appliedEnemyModifiers");
     }
     // L623
     let cache = actor.appliedEnemyModifiers.get().expect("set above");
@@ -1714,13 +1713,18 @@ pub(crate) fn applyEnemyModifiers(actor: &ActorRef, clearCache: bool) {
         .unwrap_or_else(|| lua_error!("attempt to index field 'enemy' (a nil value)"))
         .modDB
         .get();
+    // The mods this loop re-sourced (L629): in Lua `setSource` mutates the key table in place,
+    // so a later entry of this same Tabulate that still holds the original mod hits the cache.
+    let mut resourced: Vec<ModRef> = Vec::new();
     // L625
     for value in actor.modDB.get().Tabulate(None, None, nm!["EnemyModifier"]) {
         // L626 `value.value and value.value.mod`
         let r#mod = value.value.inner_mod().cloned();
         // L627
         if let Some(r#mod) = r#mod {
-            if !enemy_cache::has(actor, &cache, &r#mod) {
+            if !cache.with(|c| c.contains(&r#mod))
+                && !resourced.iter().any(|x| Arc::ptr_eq(x, &r#mod))
+            {
                 // L628
                 let source: Option<AStr> =
                     r#mod.source.clone().or_else(|| value.r#mod.source.clone());
@@ -1741,10 +1745,13 @@ pub(crate) fn applyEnemyModifiers(actor: &ActorRef, clearCache: bool) {
                 }
                 enemyDB.AddMod(added.clone());
                 // L630 `cache[mod] = true`: the key is the one Lua table that `r#mod` held
-                // before L629 and `added` holds after it, so both identities hit. A later
-                // Tabulate entry of this same loop still holds `r#mod` (Tabulate ran before
-                // the payload swap); in Lua it is the mutated table and hits the cache.
-                enemy_cache::set(actor, &cache, &r#mod, &added);
+                // before L629 and `added` holds after it. The set keeps `added` (what Lua holds
+                // afterwards); a later Tabulate entry of this same loop still holds `r#mod`
+                // (Tabulate ran before the payload swap), which `resourced` catches.
+                cache.with_mut(|c| c.insert(&added));
+                if !Arc::ptr_eq(&added, &r#mod) {
+                    resourced.push(r#mod.clone());
+                }
             }
         }
     }
@@ -1814,125 +1821,6 @@ fn setSource_shared(m: &ModRef, source: Option<&str>) -> ModRef {
             Arc::new(c)
         }
     }
-}
-
-/// `actor.appliedEnemyModifiers`: a Lua table keyed by mod identity (`cache[mod] = true`).
-/// The frozen field is a `Table`, which has no identity keys (CCR-0030 #6), so the set of
-/// mods lives beside it, per actor, tied to the table it belongs to. CCR-0085.
-mod enemy_cache {
-    use super::*;
-    use std::cell::RefCell;
-
-    struct Entry {
-        actor: Weak<Actor>,
-        /// The `appliedEnemyModifiers` table this set belongs to (kept alive so its
-        /// address is not reused while the entry exists).
-        table: Table,
-        /// The keys, by `Arc` identity.
-        mods: Vec<ModRef>,
-        /// For a table this module did not create (an injected one, probe builds): the
-        /// keys it held when first seen, matched by value (their identity is lost). Keys
-        /// added afterwards are in `mods` and match by identity only, as in Lua.
-        injected: Option<Vec<ModRef>>,
-    }
-
-    thread_local! {
-        static CACHES: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) };
-    }
-
-    fn is_for(e: &Entry, actor: &ActorRef, t: &Table) -> bool {
-        e.actor.ptr_eq(&Rc::downgrade(actor)) && e.table.ptr_eq(t)
-    }
-
-    /// A fresh `{ }` for `actor` (L621).
-    pub(super) fn reset(actor: &ActorRef, t: &Table) {
-        CACHES.with(|c| {
-            let mut c = c.borrow_mut();
-            c.retain(|e| e.actor.strong_count() > 0 && !e.actor.ptr_eq(&Rc::downgrade(actor)));
-            c.push(Entry {
-                actor: Rc::downgrade(actor),
-                table: t.clone(),
-                mods: Vec::new(),
-                injected: None,
-            });
-        });
-        // probe builds: an injected actor whose field was nil in Lua has it marked absent,
-        // and the exporter would hide the new table (its mod keys live in the registry)
-        probe_written(actor, "appliedEnemyModifiers");
-    }
-
-    /// Run `f` on the entry for `(actor, t)`, creating it for a table this module did not
-    /// create (snapshotting that table's injected keys).
-    fn with_entry<R>(actor: &ActorRef, t: &Table, f: impl FnOnce(&mut Entry) -> R) -> R {
-        CACHES.with(|c| {
-            let mut c = c.borrow_mut();
-            let i = match c.iter().position(|e| is_for(e, actor, t)) {
-                Some(i) => i,
-                None => {
-                    c.push(Entry {
-                        actor: Rc::downgrade(actor),
-                        table: t.clone(),
-                        mods: Vec::new(),
-                        injected: Some(injected_keys(t)),
-                    });
-                    c.len() - 1
-                }
-            };
-            f(&mut c[i])
-        })
-    }
-
-    /// `cache[mod]` (truthy).
-    pub(super) fn has(actor: &ActorRef, t: &Table, m: &ModRef) -> bool {
-        with_entry(actor, t, |e| {
-            e.mods.iter().any(|x| Arc::ptr_eq(x, m))
-                || e.injected
-                    .as_ref()
-                    .is_some_and(|k| k.iter().any(|x| Arc::ptr_eq(x, m) || **x == **m))
-        })
-    }
-
-    /// `cache[mod] = true`, where the Lua `mod` was `original` before `setSource` mutated it
-    /// in place and is `m` after (CCR-0085 §3: the port's re-sourced copy). Both identities
-    /// are keys of the one Lua key; only `m` (the mod Lua holds afterwards) is exported.
-    pub(super) fn set(actor: &ActorRef, t: &Table, original: &ModRef, m: &ModRef) {
-        with_entry(actor, t, |e| {
-            if !Arc::ptr_eq(original, m) {
-                e.mods.push(original.clone());
-            }
-            e.mods.push(m.clone());
-        });
-        exported_set(t, m);
-    }
-
-    /// The truthy mod keys an injected table holds (decoded afresh by `pob_oracle::inject`).
-    #[cfg(feature = "probe")]
-    fn injected_keys(t: &Table) -> Vec<ModRef> {
-        crate::probe::with_registry(|r| {
-            r.obj_keys(t)
-                .into_iter()
-                .filter_map(|(k, v)| match k {
-                    Val::Mod(x) if v.truthy() => Some(x),
-                    _ => None,
-                })
-                .collect()
-        })
-    }
-
-    #[cfg(not(feature = "probe"))]
-    fn injected_keys(_t: &Table) -> Vec<ModRef> {
-        Vec::new()
-    }
-
-    #[cfg(feature = "probe")]
-    fn exported_set(t: &Table, exported: &ModRef) {
-        crate::probe::with_registry(|r| {
-            r.push_obj_key(t, Val::Mod(exported.clone()), Val::Bool(true))
-        });
-    }
-
-    #[cfg(not(feature = "probe"))]
-    fn exported_set(_t: &Table, _exported: &ModRef) {}
 }
 
 // ---- function probes (PF-A acceptance) --------------------------------------------------------

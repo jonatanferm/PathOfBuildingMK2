@@ -17,11 +17,8 @@
 //! * `grantedEffect.fromItem = true` (CalcSetup.lua:1637) writes into PoB's global `data`;
 //!   the immutable Rust data cannot take it, so the write goes to a process-wide set
 //!   ([`grantedEffect_fromItem`]) that readers must consult (CCR-0083 §1);
-//! * `env.explodeSources` holds items / nodes (CCR-0030 #3): read from `env.extra` when the
-//!   injection or CS2 put the Lua list there, else from the typed list (CCR-0083 §2);
 //! * a nil `socketGroup.mainActiveSkill` / `mainActiveSkillCalcs` (groups CS3 creates) is NaN,
-//!   the CCR-0019 convention for nil numbers in typed model fields (CCR-0083 §3);
-//! * `SkillEffect.req` is a number kept in `effect.extra["req"]` (CCR-0074 §6).
+//!   the CCR-0019 convention for nil numbers in typed model fields (CCR-0083 §3).
 #![allow(non_snake_case)]
 // Lua statement shapes are kept (locals assigned per branch, `if … then … else … end`).
 #![allow(
@@ -150,19 +147,6 @@ fn or1(v: f64) -> f64 {
     }
 }
 
-/// `env.explodeSources` as the Lua list (CCR-0030 #3, CCR-0083 §2): the Lua list in
-/// `env.extra` when present (items / nodes / `false`), else the typed list's tables.
-fn env_explodeSources(env: &Env) -> Table {
-    if let Some(t) = env.extra.table(n!("explodeSources")) {
-        return t;
-    }
-    let t = Table::new();
-    for x in env.explodeSources.get().snapshot() {
-        t.push(Val::Table(x));
-    }
-    t
-}
-
 /// `explodeSource.modSource or explodeSource.id` (an item, a passive node or a table).
 fn explode_key(src: &Val) -> Val {
     if let Some(item) = src.obj::<Item>() {
@@ -210,13 +194,13 @@ fn count_gem(c: &Cell<Option<f64>>, gemData: &GemData, tag: Name) {
 /// `playerItems[groupCfg.slotName] and playerItems[groupCfg.slotName].sockets and
 /// playerItems[groupCfg.slotName].sockets[gemIndex]`.
 fn socketedIn(env: &Env, slotName: Option<Name>, gemIndex: usize) -> Option<Table> {
-    let item = slotName.and_then(|s| env.player.itemList.with(|m| m.get(&s).cloned()))?;
+    let item = slotName.and_then(|s| env.player.item_in(s))?;
     item.sockets.get().get(gemIndex)
 }
 
 /// `playerItems[groupCfg.slotName] and playerItems[groupCfg.slotName].name`.
 fn slotItemName(env: &Env, slotName: Option<Name>) -> Option<LStr> {
-    let item = slotName.and_then(|s| env.player.itemList.with(|m| m.get(&s).cloned()))?;
+    let item = slotName.and_then(|s| env.player.item_in(s))?;
     Some(item.name.get())
 }
 
@@ -413,11 +397,11 @@ fn gemEffect(grantedEffect: &GrantedEffectRef, gemInstance: &GemInstanceRef) -> 
     e
 }
 
-/// `gemInstance.reqOverride = effect.req` (CCR-0074 §6: `req` is in `effect.extra`).
+/// `gemInstance.reqOverride = effect.req`.
 fn setReqOverride(gemInstance: &GemInstance, effect: &SkillEffect) {
     gemInstance
         .extra
-        .set(n!("reqOverride"), effect.extra.get(n!("req")));
+        .set(n!("reqOverride"), effect.req.get().map_or(Val::Nil, Val::Num));
 }
 
 /// `gemInstance.gemData and gemInstance.gemData.grantedEffect or gemInstance.grantedEffect`.
@@ -563,7 +547,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
 
                 // Update the group
                 // L1486
-                group.extra.set(n!("sourceItem"), grantedSkill.get(n!("sourceItem")));
+                group.sourceItem.set(grantedSkill.obj::<Item>(n!("sourceItem")));
                 // L1487
                 group.extra.set(n!("sourceNode"), grantedSkill.get(n!("sourceNode")));
                 // L1488
@@ -604,7 +588,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
             });
 
             // L1507
-            let explodeSources = env_explodeSources(&env);
+            let explodeSources = env.explodeSources.get();
             if explodeSources.len() != 0 {
                 // Check if a matching group already exists
                 // L1509
@@ -656,7 +640,8 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                 // L1529
                 group.gemList.get().wipe();
                 // L1530
-                for (_i, explodeSource) in explodeSources.ipairs() {
+                for explodeSource in explodeSources.snapshot() {
+                    let explodeSource = explodeSource.to_val();
                     // L1531
                     let activeGemInstance: GemInstanceRef;
                     // L1532
@@ -719,13 +704,13 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
         // L1566
         let weapon1 = env
             .player
-            .itemList
+            .itemList()
             .with(|m| m.get(&n!("Weapon 1")).cloned());
         let weapon2 = env
             .player
-            .itemList
+            .itemList()
             .with(|m| m.get(&n!("Weapon 2")).cloned());
-        let gloves = env.player.itemList.with(|m| m.get(&n!("Gloves")).cloned());
+        let gloves = env.player.itemList().with(|m| m.get(&n!("Gloves")).cloned());
         let wd1 = match weapon1.as_ref().and_then(|w| itemWeaponData(w, 1)) {
             Some(t) => t,
             None => unarmedWeaponData(&env),

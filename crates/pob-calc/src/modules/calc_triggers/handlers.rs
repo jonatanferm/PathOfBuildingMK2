@@ -4,17 +4,15 @@
 //! Owner: TR-A.
 //!
 //! Notes:
-//! * `activeSkill.triggeredBy` is a skill effect read through
-//!   `calc_active_skill::triggeredBy` (CCR-0030 #1). Its run-time keys (`mainSkill`,
+//! * `activeSkill.triggeredBy` is a skill effect (`ActiveSkill.triggeredBy`, CCR-0030 #1). Its
+//!   run-time keys (`mainSkill`,
 //!   `ignoresTickRate`, `activationFreqMore`/`Inc`, `attachedBrandCount`, written by configTable
 //!   arms, TR-B) live in the effect's `extra` table.
 //! * `grantedEffect.fromItem` is read through `init_env_skills::grantedEffect_fromItem`
 //!   (CCR-0083 §1: CalcSetup.lua:1637 writes it into the global data).
-//! * `TriggerConfig` cannot hold `triggeredSkillCond`, a closure `comparer` with a nil
-//!   source/rate, or `sourceWeapon = true` (CCR-0087). The handlers read the config through the
-//!   accessors below (`triggeredSkillCond()`, `comparer_fn()`, `sourceWeapon()`); configTable
-//!   arms (TR-B) store them with the matching setters. The other untyped keys the handler reads
-//!   live in `config.extra` under their Lua names: `triggeredSkills`, `trigRate`,
+//! * `TriggerConfig` holds `triggeredSkillCond`, the closure `comparer` (nil-able source/rate)
+//!   and the `sourceWeapon` flag as typed fields (CCR-0087). The other untyped keys the handler
+//!   reads live in `config.extra` under their Lua names: `triggeredSkills`, `trigRate`,
 //!   `allowTriggered`, `sourceName`, `ignoreSourceRate`, `stagesAreOverlaps`, `overlaps`,
 //!   `customTriggerName` (census of CalcTriggers.lua 394-900).
 //! * `simBreakdown` (CalcTriggers.lua:814) is an implicit global (§7.3); every read follows a
@@ -39,7 +37,6 @@
 
 use super::TriggerConfig;
 use crate::global_cache::cachedData as cache_get;
-use crate::modules::calc_active_skill::triggeredBy;
 use crate::modules::calc_setup::init_env_skills::grantedEffect_fromItem;
 use crate::modules::calc_tools as calcLib;
 use crate::modules::calcs::buildActiveSkill;
@@ -50,59 +47,9 @@ use pob_lua::format::FmtArg;
 // @pob Modules/CalcTriggers.lua:8-21 h=5c4fa880
 // (module-level statements: calcs,ipairs,t_insert,t_remove,m_min,m_max,m_ceil,m_floor,m_modf,s_format,m_huge,bor,band)
 
-// ---- config values the frozen `TriggerConfig` cannot hold (CCR-0087) -----------------------------
+// ---- trigger config closures ------------------------------------------------------------------
 
-/// A `function(env, skill)` predicate of a trigger config (`triggerSkillCond`,
-/// `triggeredSkillCond`). Only its truthiness is used.
-pub type SkillCondFn = Rc<dyn Fn(&EnvRef, &ActiveSkillRef) -> bool>;
-
-/// A `comparer = function(env, uuid, source, triggerRate)` of a trigger config: `source` and
-/// `triggerRate` may be nil (findTriggerSkill's first candidate), and the arms' comparers close
-/// over locals (CalcTriggers.lua:1090, 1104, 1318, 1354, 1482).
-pub type ComparerFn = Rc<dyn Fn(&EnvRef, Name, Option<&ActiveSkillRef>, Option<f64>) -> bool>;
-
-struct CondBox(SkillCondFn);
-struct ComparerBox(ComparerFn);
-
-/// CCR-0087: typed access to the config keys `TriggerConfig` has no usable field for.
-impl TriggerConfig {
-    /// `config.triggeredSkillCond = f`.
-    pub fn set_triggeredSkillCond(&mut self, f: SkillCondFn) {
-        self.extra
-            .set(n!("triggeredSkillCond"), Val::Obj(Rc::new(CondBox(f))));
-    }
-
-    /// `config.triggeredSkillCond`.
-    pub fn triggeredSkillCond(&self) -> Option<SkillCondFn> {
-        self.extra
-            .obj::<CondBox>(n!("triggeredSkillCond"))
-            .map(|b| b.0.clone())
-    }
-
-    /// `config.comparer = f`.
-    pub fn set_comparer(&mut self, f: ComparerFn) {
-        self.extra
-            .set(n!("comparer"), Val::Obj(Rc::new(ComparerBox(f))));
-    }
-
-    /// `config.comparer`. The typed `comparer` field (a plain fn of a non-nil source and rate)
-    /// cannot express the Lua comparers; it must stay `None` (CCR-0087).
-    pub fn comparer_fn(&self) -> Option<ComparerFn> {
-        debug_assert!(
-            self.comparer.is_none(),
-            "CCR-0087: store trigger comparers with TriggerConfig::set_comparer"
-        );
-        self.extra
-            .obj::<ComparerBox>(n!("comparer"))
-            .map(|b| b.0.clone())
-    }
-
-    /// `config.sourceWeapon` (truthiness; the arms write `sourceWeapon = true`, CalcTriggers.lua
-    /// 1575-1580). Either the typed field or `extra.sourceWeapon`.
-    pub fn sourceWeapon(&self) -> bool {
-        self.sourceWeapon.is_some() || self.extra.truthy(n!("sourceWeapon"))
-    }
-}
+pub use super::{ComparerFn, SkillCondFn};
 
 // ---- small Lua shapes ---------------------------------------------------------------------------
 
@@ -126,7 +73,7 @@ fn main_skill(actor: &ActorRef) -> ActiveSkillRef {
 
 /// `skill.triggeredBy` where the Lua indexes it (nil raises).
 fn trig_by(skill: &ActiveSkillRef) -> SkillEffectRef {
-    triggeredBy(skill)
+    skill.triggeredBy.get()
         .unwrap_or_else(|| lua_error!("attempt to index field 'triggeredBy' (a nil value)"))
 }
 
@@ -621,7 +568,7 @@ pub fn helmetFocusHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option<Ta
     // L137
     if !skillFlags.truthy(n!("minion"))
         && !skillFlags.truthy(n!("disable"))
-        && triggeredBy(&mainSkill).is_some()
+        && mainSkill.triggeredBy.get().is_some()
     {
         let skillData = mainSkill.skillData.get();
         let skillModList = mainSkill.skillModList.get();
@@ -1300,7 +1247,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
     // L402
     let mut uuid: Option<Name> = None;
     // L403
-    let sourceWeapon = config.sourceWeapon();
+    let sourceWeapon = config.sourceWeapon;
     let mainSkill = main_skill(&actor);
     let mainData = mainSkill.skillData.get();
     let mainFlags = mainSkill.skillFlags.get();
@@ -1318,7 +1265,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
         None
     };
     let triggerSkillCond = config.triggerSkillCond.clone();
-    let triggeredSkillCond = config.triggeredSkillCond();
+    let triggeredSkillCond = config.triggeredSkillCond.clone();
 
     // L407 Find trigger skill and triggered skills
     // L408
@@ -1334,7 +1281,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                 && !Rc::ptr_eq(&skill, &mainSkill)
             {
                 // L411
-                let r = findTriggerSkill(env, &skill, source.take(), trigRate, config.comparer_fn());
+                let r = findTriggerSkill(env, &skill, source.take(), trigRate, config.comparer.clone());
                 source = r.0;
                 trigRate = r.1;
                 uuid = r.2;
@@ -1445,7 +1392,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                     .as_ref()
                     .is_some_and(|s| s.skillFlags.get().truthy(n!("bothWeaponAttack")));
             // L448
-            let itemSupportTrigger = triggeredBy(&mainSkill).is_some_and(|tb| {
+            let itemSupportTrigger = mainSkill.triggeredBy.get().is_some_and(|tb| {
                 let ge = tb.grantedEffect.get();
                 ge.support && grantedEffect_fromItem(&ge)
             });
@@ -1762,7 +1709,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                 Val::from_value(&skillModList.Override(Some(&skillCfg), &[n!("CooldownRecovery")]))
                     .opt_num();
             // L567
-            let mut triggerCD: Option<f64> = if triggeredBy(&mainSkill).is_some() {
+            let mut triggerCD: Option<f64> = if mainSkill.triggeredBy.get().is_some() {
                 level_cooldown(&trig_by(&main_skill(&env.player)))
             } else {
                 None
@@ -1772,7 +1719,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                 let src = source
                     .as_ref()
                     .unwrap_or_else(|| lua_error!("attempt to index local 'source' (a nil value)"));
-                triggerCD = triggeredBy(src).and_then(|tb| level_cooldown(&tb));
+                triggerCD = src.triggeredBy.get().and_then(|tb| level_cooldown(&tb));
             }
             // L569
             let triggeredCD: Option<f64> = mainData.get(n!("cooldown")).opt_num();
@@ -1822,7 +1769,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                 m_ceil(triggeredCDAdjusted * misc.ServerTickRate) / misc.ServerTickRate
             };
             // L583
-            let triggerCDTickRounded = if triggeredBy(&mainSkill)
+            let triggerCDTickRounded = if mainSkill.triggeredBy.get()
                 .is_some_and(|tb| tb.extra.truthy(n!("ignoresTickRate")))
             {
                 triggerCDAdjusted
@@ -2101,7 +2048,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                 // L666
                 let displayCooldownRounding = (!mainData.truthy(n!("ignoresTickRate"))
                     && triggeredCDAdjusted != 0.0)
-                    || (triggeredBy(&mainSkill)
+                    || (mainSkill.triggeredBy.get()
                         .is_some_and(|tb| !tb.extra.truthy(n!("ignoresTickRate")))
                         && triggerCDAdjusted != 0.0);
                 // L667
@@ -2194,7 +2141,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                 && doomBlastSource.str().as_deref() == Some("vixen")
             {
                 // L706
-                let gloves = env.player.itemList.with(|l| l.get(&n!("Gloves")).cloned());
+                let gloves = env.player.itemList().with(|l| l.get(&n!("Gloves")).cloned());
                 if !gloves.is_some_and(|g| {
                     g.title
                         .get()
@@ -2292,7 +2239,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
             // L730
             let skillName: Name = match &source {
                 Some(s) => ge_of(s).name,
-                None => match triggeredBy(&mainSkill) {
+                None => match mainSkill.triggeredBy.get() {
                     Some(tb) => tb.grantedEffect.get().name,
                     None => ge_of(&mainSkill).name,
                 },
@@ -2671,7 +2618,7 @@ pub fn defaultTriggerHandler(env: &EnvRef, config: &mut TriggerConfig) -> Option
                     .set(Some(LStr::from(format!("{prefix}{srcName}").as_str())));
             } else {
                 // L890
-                let msg = match triggeredBy(&mainSkill) {
+                let msg = match mainSkill.triggeredBy.get() {
                     Some(tb) => tb.grantedEffect.get().name.as_str().to_owned(),
                     None => concat_name(config.triggerName, " Trigger"),
                 };

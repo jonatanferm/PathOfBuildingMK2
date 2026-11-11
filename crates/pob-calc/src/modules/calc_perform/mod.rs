@@ -22,7 +22,9 @@ crate::ctx_struct! {
     /// The locals of `calcs.perform` that cross a segment boundary (§7.1). Fields whose local
     /// is declared in a later segment are default-initialised and first written there.
     /// `allyBuffs` is `env.partyMembers["Aura"]` (nil when absent), hence `Option`
-    /// (contracts.md#ctx-deviations).
+    /// (contracts.md#ctx-deviations). The local functions `mergeFlasks` / `mergeTinctures`
+    /// are fields holding their closures' upvalues (`None` = nil before 1691 / 1862;
+    /// CCR-0079 §1).
     pub struct PerformCtx {
         env: EnvRef,
         skipEHP: bool,
@@ -35,6 +37,8 @@ crate::ctx_struct! {
         guaranteedChillSkills: Table,
         summonedMinionOverride: Option<f64>,
         nonUniqueFlasksApplyToMinion: bool,
+        mergeFlasks: Option<Rc<setup_flasks::FlaskUpvalues>>,
+        mergeTinctures: Option<Rc<setup_flasks::TinctureUpvalues>>,
         buffs: Table,
         guards: Table,
         minionBuffs: Table,
@@ -68,6 +72,8 @@ impl PerformCtx {
             guaranteedChillSkills: Table::new(),
             summonedMinionOverride: None,
             nonUniqueFlasksApplyToMinion: false,
+            mergeFlasks: None,
+            mergeTinctures: None,
             buffs: Table::new(),
             guards: Table::new(),
             minionBuffs: Table::new(),

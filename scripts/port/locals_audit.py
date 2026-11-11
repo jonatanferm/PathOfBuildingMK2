@@ -18,11 +18,19 @@ of the same name shadows it. (initEnv's `override` is shadowed by
 At the pin one listed parameter is not itself crossing: `env` of calcs.defence
 (referenced only in 651-1210); --check prints it as a note.
 
+A crossing local *function* carries its upvalues with it (CCR-0079 §1): the function-body
+locals and parameters its body (or a nested function's) references, plus those of the
+non-crossing local functions it calls. The ones that are not ctx fields are values the
+segment that creates the closure must hand over beside the ctx (`PerformCtx.mergeFlasks`
+holds `setup_flasks::FlaskUpvalues`). `--check` also compares them with the "Closure
+upvalues" lines under the §7.1 table.
+
 Usage:
   locals_audit.py                 print the §7.1 table (markdown rows)
   locals_audit.py --check [DOC]   compare with the table in docs/port/calc-architecture.md
                                   (exit 1 on any difference)
   locals_audit.py --json          machine-readable result
+  locals_audit.py --upvalues      print the closure-upvalue lines of §7.1
   locals_audit.py --file F --header N --starts a,b,c [--loop H:E:s1,s2]
                                   ad-hoc audit of any function
 """
@@ -107,6 +115,83 @@ def audit_function(sf, chunk, res):
     return a
 
 
+def _inside(f, fn):
+    """True if FunctionExpr f is fn or nested inside it."""
+    while f is not None:
+        if f is fn:
+            return True
+        f = getattr(f, "parent_func", None)
+    return False
+
+
+def closure_upvalues(a, res):
+    """For every crossing local function of an audited function: the function-body locals and
+    params (not the function itself) its closure captures, transitively through the
+    non-crossing local functions of the same body it references. Returns
+    [(decl, [captured decl, ...])] in declaration order."""
+    func = segments.find_function(res, a.sf.header)
+    body_decls = [d for d in res.decls if d.scope is func.body or d.scope is func]
+    cache = {}
+
+    def direct(fd):
+        fn = fd.node.func
+        out = []
+        for x in body_decls:
+            if x is fd:
+                continue
+            if any(r.func is not None and _inside(r.func, fn) for r in x.refs):
+                out.append(x)
+        return out
+
+    def captured(fd, seen):
+        if fd.uid in cache:
+            return cache[fd.uid]
+        out = []
+        for x in direct(fd):
+            if x.uid in seen:
+                continue
+            seen.add(x.uid)
+            out.append(x)
+            crossing = x in a.top
+            if x.kind == "localfn" and not crossing:
+                out.extend(y for y in captured(x, seen) if y not in out)
+        cache[fd.uid] = out
+        return out
+
+    rows = []
+    for d in a.top:
+        if d.kind != "localfn":
+            continue
+        caps = captured(d, {d.uid})
+        rows.append((d, sorted(caps, key=lambda x: (x.line, x.uid))))
+    return rows
+
+
+def upvalue_lines(audits, pob_src):
+    """The §7.1 "Closure upvalues" lines: per crossing local function, the captured values that
+    are not ctx fields (local functions it calls are listed with "(fn)")."""
+    lines = []
+    for a in audits:
+        chunk, res = segments.load(pob_src, a.sf.file)
+        ctx = set(d.uid for d in a.top) | set(d.uid for d in a.params)
+        for d, caps in closure_upvalues(a, res):
+            extra = [x for x in caps if x.uid not in ctx and x.kind != "localfn"]
+            fns = [x for x in caps if x.uid not in ctx and x.kind == "localfn"]
+            vals = " ".join("`%s`%d" % (x.name, x.line) for x in extra) or "none"
+            via = (" (through local fns %s)" % " ".join("`%s`%d" % (x.name, x.line) for x in fns)) if fns else ""
+            lines.append("- `%s` `%s`%d: %s%s" % (a.sf.name, d.name, d.line, vals, via))
+    return lines
+
+
+def doc_upvalue_lines(doc_path):
+    with open(doc_path, encoding="utf-8") as fh:
+        text = fh.read()
+    m = re.search(r"^### 7\.1 .*?$(.*?)^### 7\.2 ", text, re.S | re.M)
+    if not m:
+        return []
+    return [ln.strip() for ln in m.group(1).splitlines() if ln.strip().startswith("- `calcs.")]
+
+
 def render_decls(decls, params=()):
     """Render a crossing list the way calc doc §7.1 writes it.
 
@@ -187,7 +272,7 @@ def run_all(pob_src):
     return audits
 
 
-def check(audits, doc_path):
+def check(audits, doc_path, pob_src=None):
     ours = table_rows(audits)
     theirs = doc_rows(doc_path)
     ok = True
@@ -215,9 +300,23 @@ def check(audits, doc_path):
         for d in a.uncrossed_params:
             print("note %s: param `%s` is a ctx field by the params rule but is referenced only in "
                   "segment %d" % (a.sf.name, d.name, a.crossing_segments[d.uid][0]))
+    if pob_src is not None:
+        uo = upvalue_lines(audits, pob_src)
+        ut = doc_upvalue_lines(doc_path)
+        if uo != ut:
+            ok = False
+            print("FAIL closure upvalues differ:")
+            for ln in uo:
+                if ln not in ut:
+                    print("  measured: %s" % ln)
+            for ln in ut:
+                if ln not in uo:
+                    print("  doc:      %s" % ln)
     if ok:
         n = sum(len(a.top) + len(a.params) + sum(len(v) for v in a.loops.values()) for a in audits)
-        print("ok: %d rows, %d crossing locals identical to %s" % (len(ours), n, os.path.relpath(doc_path)))
+        nu = len(upvalue_lines(audits, pob_src)) if pob_src is not None else 0
+        print("ok: %d rows, %d crossing locals, %d closure-upvalue lines identical to %s" % (
+            len(ours), n, nu, os.path.relpath(doc_path)))
     return 0 if ok else 1
 
 
@@ -245,6 +344,7 @@ def main(argv=None):
     ap.add_argument("--check", nargs="?", const="", metavar="DOC",
                     help="compare with the §7.1 table of DOC (default docs/port/calc-architecture.md)")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--upvalues", action="store_true", help="print the §7.1 closure-upvalue lines")
     ap.add_argument("--file", help="ad-hoc: Lua file relative to src/ (or absolute)")
     ap.add_argument("--header", type=int, help="ad-hoc: line of the function header")
     ap.add_argument("--starts", help="ad-hoc: comma-separated top-level segment starts")
@@ -275,7 +375,11 @@ def main(argv=None):
 
     if args.check is not None:
         doc = args.check or os.path.join(pobpaths.docs_port(), "calc-architecture.md")
-        return check(audits, doc)
+        return check(audits, doc, None if args.file else pob_src)
+    if args.upvalues:
+        for ln in upvalue_lines(audits, pob_src):
+            print(ln)
+        return 0
     if args.json:
         json.dump(to_json(audits), sys.stdout, indent=1)
         print()

@@ -1280,13 +1280,18 @@ impl ModStore {
                         // L928
                         return Value::Nil;
                     };
+                    // L927 `not self.actor.minionData.monsterTags` (CCR-0015 §3)
+                    let Some(monsterTags) = &minionData.monsterTags else {
+                        // L928
+                        return Value::Nil;
+                    };
 
                     // L931
                     let mut r#match = false;
 
                     // validate for actor and minionData
                     // L934
-                    for &tagList in &minionData.monsterTags {
+                    for &tagList in monsterTags {
                         // L935
                         let matchName = lower(tagList);
                         // L936
@@ -1384,20 +1389,23 @@ impl ModStore {
         // booleans whose order does not matter, so PoB's random `pairs` order is not observable.
         let mut items: SmallVec<[(Name, ItemRef); 64]> = SmallVec::new();
         // L695
+        // `self.actor.itemList`: nil for a store without an actor (`self.actor = { }`) and for
+        // the enemy actor (CalcSetup.lua:519-522; CCR-0015 §3).
+        let actorItemList = actor.as_ref().and_then(|a| a.itemList.get());
         if tag.allSlots {
-            // L696: `self.actor.itemList` (nil for a store without an actor: the `pairs(items)`
-            // below raises before anything else happens).
-            let Some(actor) = &actor else {
-                lua_error!("bad argument #1 to 'for iterator' (table expected, got nil)")
-            };
-            actor.itemList.with(|l| {
-                for (k, v) in l {
-                    items.push((*k, v.clone()));
-                }
-            });
-        } else if let Some(actor) = &actor {
+            // L696 `items = self.actor.itemList`: when it is nil, `pairs(items)` raises at the
+            // latest at L747 (which always runs), and nothing before it has an effect.
+            match &actorItemList {
+                None => lua_error!("bad argument #1 to 'for iterator' (table expected, got nil)"),
+                Some(l) => l.with(|l| {
+                    for (k, v) in l {
+                        items.push((*k, v.clone()));
+                    }
+                }),
+            }
+        } else if let Some(il) = &actorItemList {
             // L697
-            let itemList = |k: Name| actor.itemList.with(|l| l.get(&k).cloned());
+            let itemList = |k: Name| il.with(|l| l.get(&k).cloned());
             // L698
             if tag.bothSlots {
                 // L699

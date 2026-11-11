@@ -31,7 +31,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use pob_calc::modules::calc_active_skill::triggeredBy;
 use pob_calc::modules::calc_tools as calcLib;
 use pob_calc::modules::calc_triggers::handlers::{
     defaultComparer, defaultTriggerHandler, helmetFocusHandler, isTriggered, slotMatch, CWCHandler,
@@ -229,7 +228,7 @@ fn arm(key: &str, env: &EnvRef) -> Option<Option<TriggerConfig>> {
             triggerSkillCond: trig,
             ..c()
         };
-        t.set_triggeredSkillCond(triggered);
+        t.triggeredSkillCond = Some(triggered);
         Some(t)
     };
     let self_source = || {
@@ -319,7 +318,7 @@ fn arm(key: &str, env: &EnvRef) -> Option<Option<TriggerConfig>> {
                     || (cachedSpeed.truthy() && cachedSpeed.num() > triggerRate.unwrap_or(0.0)))
                     && cachedManaCost.num_or(0.0) >= requiredManaCost
             });
-            t.set_comparer(cmp);
+            t.comparer = Some(cmp);
             Some(t)
         }
         // 1114-1135
@@ -471,7 +470,7 @@ fn arm(key: &str, env: &EnvRef) -> Option<Option<TriggerConfig>> {
             let m = pmain(env);
             if ge_name(&m) != "Arcanist Brand" {
                 m.skillData.get().set(n!("sourceRateIsFinal"), true);
-                let tb = triggeredBy(&m).expect("triggeredBy");
+                let tb = m.triggeredBy.get().expect("triggeredBy");
                 for s in env.player.activeSkillList.get().with(|l| l.clone()) {
                     if ge_name(&s) == "Arcanist Brand" {
                         tb.extra.set(
@@ -513,7 +512,7 @@ fn arm(key: &str, env: &EnvRef) -> Option<Option<TriggerConfig>> {
                         * activationFreqMore
                         * tb.extra.get(n!("attachedBrandCount")).num(),
                 );
-                t.set_triggeredSkillCond(Rc::new(|env, s| {
+                t.triggeredSkillCond = Some(Rc::new(|env, s| {
                     s.skillData.get().truthy(n!("triggeredByBrand")) && slotMatch(env, s)
                 }));
                 Some(t)
@@ -527,7 +526,7 @@ fn arm(key: &str, env: &EnvRef) -> Option<Option<TriggerConfig>> {
                 triggerSkillCond: cond(|_, s| has(s, SkillType::Melee)),
                 ..c()
             };
-            t.set_comparer(Rc::new(|env, uuid, source, triggerRate| {
+            t.comparer = Some(Rc::new(|env, uuid, source, triggerRate| {
                 let uptimeRatio = cachedData(env.mode, uuid)
                     .expect("cache entry")
                     .Env
@@ -612,9 +611,9 @@ fn arm(key: &str, env: &EnvRef) -> Option<Option<TriggerConfig>> {
             let t = TriggerConfig {
                 triggerOnUse: true,
                 triggerSkillCond: cond(|_, s| has(s, SkillType::Attack)),
+                sourceWeapon: true,
                 ..c()
             };
-            t.extra.set(n!("sourceWeapon"), true);
             Some(t)
         }
         "replica gifts from above" => Some(TriggerConfig {
@@ -798,7 +797,7 @@ fn arm(key: &str, env: &EnvRef) -> Option<Option<TriggerConfig>> {
             } else {
                 for s in env.player.activeSkillList.get().with(|l| l.clone()) {
                     if ge_name(&s) == "Automation" {
-                        triggeredBy(&m)
+                        m.triggeredBy.get()
                             .expect("triggeredBy")
                             .grantedEffect
                             .set(s.activeEffect.get().grantedEffect.get());
@@ -870,7 +869,7 @@ fn scaffold_triggers(env: &EnvRef, actor: Option<&ActorRef>, keys: &[String]) ->
     }
     let ge = mainSkill.activeEffect.get().grantedEffect.get();
     let skillName = ge.name;
-    let triggerName = triggeredBy(&mainSkill).map(|tb| tb.grantedEffect.get().name);
+    let triggerName = mainSkill.triggeredBy.get().map(|tb| tb.grantedEffect.get().name);
     let uniqueName = if isTriggered(&mainSkill) {
         getUniqueItemTriggerName(&mainSkill)
     } else {

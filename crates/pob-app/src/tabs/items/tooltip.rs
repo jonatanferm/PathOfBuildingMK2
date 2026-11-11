@@ -59,8 +59,8 @@
 //!
 //! DIVERGENCE(item-copy): `copyTableSafe(item, true, true)` (L5026) is [`copy_item`]: the
 //! scalar fields and the item's raw keys (`extra`, `influences`) are copied, the sub-tables are
-//! shared (as Lua's shallow copy shares them). Two typed fields that are one Lua sub-table are
-//! two Rust fields (`slotModList[1]`, `[2]`), so a later write of one slot's mod list through
+//! shared (as Lua's shallow copy shares them). The one Lua sub-table `slotModList` is three
+//! typed Rust fields (`slotModList[1]`..`[3]`), so a later write of one slot's mod list through
 //! the copy would not reach the original (PoB writes it only in `BuildModList`, which assigns a
 //! new `slotModList` table there too). CCR-0125 §3.
 //! DIVERGENCE(temp-item-id): `buildSpecForJewelComparison` stores the replacement jewel under
@@ -275,7 +275,11 @@ pub fn copy_item(src: &model::Item) -> model::Item {
         classRequirementModLines: src.classRequirementModLines.clone(),
         baseModList: src.baseModList.clone(),
         modList: src.modList.clone(),
-        slotModList: [src.slotModList[0].clone(), src.slotModList[1].clone()],
+        slotModList: [
+            src.slotModList[0].clone(),
+            src.slotModList[1].clone(),
+            src.slotModList[2].clone(),
+        ],
         buffModList: src.buffModList.clone(),
         weaponData: src.weaponData.clone(),
         armourData: src.armourData.clone(),
@@ -997,8 +1001,8 @@ pub fn AddItemTooltip(
         match slotNum {
             Val::Num(1.0) => item.slotModList[0].get(),
             Val::Num(2.0) => item.slotModList[1].get(),
-            // `slotModList[3]` ("Ring 3", CCR-0061)
-            Val::Num(3.0) => item.slotModList3(),
+            // `slotModList[3]` ("Ring 3", CCR-0061; a typed slot since A10 E1)
+            Val::Num(3.0) => item.slotModList[2].get(),
             _ => None,
         }
     });

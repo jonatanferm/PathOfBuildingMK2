@@ -386,13 +386,13 @@ pub fn buildModListForNode(
 /// Build list of modifiers from the listed tree nodes
 /// `calcs.buildModListForNodeList(env, nodeList, finishJewels)` → `modList, explodeSources`.
 /// `nodeList` is a node-id map (LuaJIT order, D8); `finishJewels` runs the jewel funcs' "finish" call (node = nil).
-/// Signature: CCR-0074 §2.
+/// Signature: CCR-0074 §2 (the entries are nodes: `ExplodeSource::Node`, CCR-0030 #3).
 /// @pob Modules/CalcSetup.lua:259-304 h=6c6f8915
 pub fn buildModListForNodeList(
     env: &EnvRef,
     nodeList: &Shared<LjIntMap<NodeRef>>,
     finishJewels: bool,
-) -> (ModList, Vec<Val>) {
+) -> (ModList, Vec<ExplodeSource>) {
     // Initialise radius jewels
     // L261 (a list built with t_insert: pairs = index order)
     for rad in env.radiusJewelList.get().snapshot() {
@@ -407,7 +407,7 @@ pub fn buildModListForNodeList(
     // L267
     let modList = ModStore::ModList(None);
     // L268
-    let mut explodeSources: Vec<Val> = Vec::new();
+    let mut explodeSources: Vec<ExplodeSource> = Vec::new();
     // Outside MAIN mode the per-node list is merged into modList and then
     // dropped, so a single list can be recycled for every node instead of
     // allocating one each time.
@@ -421,9 +421,9 @@ pub fn buildModListForNodeList(
     for (_, node) in nodeList.with(|m| m.pairs()) {
         // L274
         let (nodeModList, explode) = buildModListForNode(env, &node, scratch.as_ref());
-        // L275 (`t_insert(t, nil)` appends nothing)
-        if !explode.is_nil() {
-            explodeSources.push(explode);
+        // L275 (`t_insert(t, nil)` appends nothing; the value is the node or nil, CCR-0074 §1)
+        if let Some(node) = explode.obj::<Node>() {
+            explodeSources.push(ExplodeSource::Node(node));
         }
         // L276
         modList.AddList(&nodeModList.ipairs());

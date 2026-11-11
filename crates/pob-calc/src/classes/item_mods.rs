@@ -5,9 +5,6 @@
 //! Owner: IT-C. Field shapes follow CCR-0032 §2 / CCR-0025 §2 (untyped fields in `Item.extra`
 //! under their Lua names; mod lines are `Table`s; a mod line's `modList` is a list `Table` of
 //! `Val::Mod`). Workarounds for gaps in the frozen contract (CCR-0061):
-//! * `self.slotModList[3]` ("Ring 3", Item.lua:2699): `Item.slotModList` has two slots
-//!   (CCR-0030 #4); the third list is kept in `Item.extra` under [`SLOT_MOD_LIST_3`], read with
-//!   [`Item::slotModList3`];
 //! * `t_remove(modList, i)` (calcLocal) and `mod[1] = …` / `t_insert(mod, …)` on the slot list's
 //!   own copies (Item.lua 2336-2338, contracts.md#mod-mutation) need "remove/replace the mod at
 //!   index i" on a ModList, which MS-A's API does not offer: the list is rebuilt
@@ -25,25 +22,6 @@ use pob_lua::pattern;
 use crate::classes::item::dmgTypeList;
 use crate::classes::item_tools as itemLib;
 use crate::prelude::*;
-
-/// `Item.extra` key of `self.slotModList[3]` (CCR-0061 / CCR-0030 #4).
-pub const SLOT_MOD_LIST_3: &str = "$slotModList3";
-
-impl Item {
-    /// `self.slotModList[3]` (CCR-0061 / CCR-0030 #4: the frozen `slotModList` has two slots).
-    pub fn slotModList3(&self) -> Option<ModList> {
-        self.extra
-            .obj::<ModList>(Name::from(SLOT_MOD_LIST_3))
-            .map(|l| (*l).clone())
-    }
-
-    fn set_slotModList3(&self, l: Option<ModList>) {
-        self.extra.set(
-            Name::from(SLOT_MOD_LIST_3),
-            l.map_or(Val::Nil, |l| Val::Obj(Rc::new(l))),
-        );
-    }
-}
 
 // ---- plumbing (Rust-only helpers; snake_case) ------------------------------------------------
 
@@ -1456,9 +1434,9 @@ impl Item {
         // L2692
         if base.weapon.is_some() || self.r#type.get() == n!("Ring") {
             // L2693: self.slotModList = { }
-            self.slotModList[0].set(None);
-            self.slotModList[1].set(None);
-            self.set_slotModList3(None);
+            for l in &self.slotModList {
+                l.set(None);
+            }
             // L2694
             for i in 1..=2usize {
                 // L2695
@@ -1468,9 +1446,9 @@ impl Item {
             // Ring 3
             // L2698
             if self.r#type.get() == n!("Ring") {
-                // L2699 (CCR-0061 / CCR-0030 #4)
+                // L2699
                 let l = self.BuildModListForSlotNum(&baseList, Some(3.0));
-                self.set_slotModList3(Some(l));
+                self.slotModList[2].set(Some(l));
             }
         } else {
             // L2702

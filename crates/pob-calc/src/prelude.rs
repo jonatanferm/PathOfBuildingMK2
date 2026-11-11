@@ -16,14 +16,14 @@ pub use pob_lua::{
 };
 
 pub use crate::active_skill::{ActiveSkill, ActiveSkillRef, SkillEffect, SkillEffectRef};
-pub use crate::actor::{Actor, ActorRef, ActorWeak};
+pub use crate::actor::{Actor, ActorRef, ActorWeak, ItemList, ModPtrSet};
 pub use crate::breakdown::{newBreakdown, Breakdown};
 pub use crate::cfg::{Cfg, ModCfg, SkillTypes};
 pub use crate::classes::{
     GlobalLimits, Item, ItemRef, ModDB, ModList, ModStore, ModStoreRef, Node, NodeRef, PassiveSpec,
     PassiveSpecRef, PassiveTree, PassiveTreeRef, StoreKind, TabRow,
 };
-pub use crate::env::{Accelerate, Env, EnvRef, Mode, Override, SpecEnv};
+pub use crate::env::{Accelerate, Env, EnvRef, ExplodeSource, Mode, Override, SpecEnv};
 pub use crate::flow::Flow;
 pub use crate::global_cache::{cachedData, CachedData};
 pub use crate::lua_table::{land, lor, IndexMeta, Key, LStr, Output, Table, Val};

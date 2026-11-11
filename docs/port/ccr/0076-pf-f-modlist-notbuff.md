@@ -1,6 +1,6 @@
 # CCR-0076: PF-F — `modList.notBuff` on a ModList object (CCR-0030 row 7, made concrete)
 
-**Status: escalated by CCR2 2026-11-10 together with CCR-0030 row 7 (AMENDMENTS A8 E1); this CCR's diff is the concrete one. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by RETYPE (AMENDMENTS A8 E1, A10): `ModStore.notBuff: Cell<bool>`; PF-E writes it, PF-F reads it, the PF-F test allowance is removed. Previously: escalated by CCR2 together with CCR-0030 row 7.**
 
 Filed status: proposed by PF-F (2026-11-09)
 

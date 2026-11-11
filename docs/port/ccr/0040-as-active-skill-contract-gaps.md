@@ -1,6 +1,6 @@
 # CCR-0040: AS — contract gaps met porting CalcActiveSkill.lua
 
-**Status: applied 2026-11-10 by CCR2 (§5, §6); §3, §4, §7, §8 need code; §1, §2 escalated with CCR-0030. See AMENDMENTS A8.**
+**Status: applied 2026-11-10 by CCR2 (§5, §6) and by RETYPE (§1, §2: `Actor.type/lifeTable/itemSet/uses`, `SocketGroup.sourceItem`; AMENDMENTS A8 E1, A10); §3, §4, §7, §8 need code. See AMENDMENTS A8.**
 
 Filed status: proposed by AS (2026-11-09)
 

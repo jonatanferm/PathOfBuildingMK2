@@ -76,8 +76,10 @@ pub fn wipeEnv(env: &EnvRef, accelerate: &Accelerate) {
         env.radiusJewelList.get().wipe();
         // L346
         env.extraRadiusNodeList.get().with_mut(|m| m.wipe());
-        // L347
-        env.player.itemList.with_mut(|m| m.clear());
+        // L347 (`wipeTable(nil)` returns a fresh table nobody keeps)
+        if let Some(l) = env.player.itemList.get() {
+            l.with_mut(|m| m.clear());
+        }
         // L348
         env.grantedSkillsItems.get().wipe();
         // L349
@@ -173,9 +175,9 @@ fn effect_num(effect: &SkillEffect, key: &str) -> Option<f64> {
         "itemQuality" => effect.itemQuality.get(),
         "supportQuality" => effect.supportQuality.get(),
         "actorLevel" => effect.actorLevel.get(),
-        // CCR-0074: `effect.req` is a number here (GemProperty `key = "req"`, ModParser.lua
-        // 2374-2375; read as `gemInstance.reqOverride = effect.req`, CalcSetup.lua:1705/1776),
-        // which the frozen `req: Field<Option<Table>>` cannot hold: it lives in `extra`.
+        // GemProperty `key = "req"` (ModParser.lua 2374-2375; read as
+        // `gemInstance.reqOverride = effect.req`, CalcSetup.lua:1705/1776; CCR-0074 §6)
+        "req" => effect.req.get(),
         _ => match effect.extra.get(key) {
             Val::Nil => None,
             other => Some(arith(&other, "field (effect[value.key])")),
@@ -192,7 +194,7 @@ fn set_effect_num(effect: &SkillEffect, key: &str, v: f64) {
         "itemQuality" => effect.itemQuality.set(Some(v)),
         "supportQuality" => effect.supportQuality.set(Some(v)),
         "actorLevel" => effect.actorLevel.set(Some(v)),
-        // CCR-0074 (`req`, see effect_num)
+        "req" => effect.req.set(Some(v)),
         _ => effect.extra.set(key, v),
     }
 }

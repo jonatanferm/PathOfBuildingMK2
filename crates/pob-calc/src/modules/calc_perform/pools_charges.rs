@@ -878,10 +878,9 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
                 hasActiveSpectreSkill = true;
                 // L2215
                 if let Some(minion) = activeSkill.minion.get() {
-                    let r#type = minion.extra.get(n!("type"));
-                    if r#type.truthy() {
+                    if let Some(r#type) = minion.r#type.get() {
                         // L2216
-                        activeSpectreList.push(r#type);
+                        activeSpectreList.push(Val::from(r#type));
                     }
                 }
             }
@@ -926,8 +925,11 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
                 // L2232
                 if !modDB.conditions.truthy(n!("HaveBeastSpectre")) {
                     // L2233 Change to grab from monster family using CorpseTypeTags.dat if other monster families are needed in the future
-                    // L2234
-                    for_ipairs!((_, tagName) in spectreData.monsterTags => {
+                    // L2234 (`ipairs(nil)` raises: CCR-0015 §3)
+                    let monsterTags = spectreData.monsterTags.as_ref().unwrap_or_else(|| {
+                        lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)")
+                    });
+                    for_ipairs!((_, tagName) in monsterTags => {
                         // L2235
                         if tagName.as_str() == "beast" {
                             // L2236

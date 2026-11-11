@@ -412,6 +412,7 @@ fn shallow_copy_item(i: &model::ItemRef) -> model::ItemRef {
         slotModList: [
             Field::new(i.slotModList[0].get()),
             Field::new(i.slotModList[1].get()),
+            Field::new(i.slotModList[2].get()),
         ],
         buffModList: Field::new(i.buffModList.get()),
         weaponData: Field::new(i.weaponData.get()),

@@ -18,12 +18,12 @@
 //!    both `activeSkill.weapon1Cfg` and `pass.cfg` is one `ModCfg`.
 //! 2. **Allocation**, parents first, binding the immutable handles a Rust
 //!    struct owns (`env.player`, `env.configInput`, `store.conditions`,
-//!    `actor.itemList`, `item.requirements`) to the dumped tables.
+//!    `item.requirements`) to the dumped tables.
 //! 3. **Fill**: every member through `pob_calc::probe::set_member`, the same
 //!    reflection the exporter reads, so `export(inject(dump)) == dump` is a
 //!    test of both (tests/ORC-X.rs). What a typed field cannot hold falls back
-//!    to the struct's `extra` table or to the probe registry (CCR-0030) and is
-//!    counted in [`Injected::fallbacks`].
+//!    to the struct's `extra` table or to the probe registry and is counted in
+//!    [`Injected::fallbacks`].
 //!
 //! Markers: `$data` paths resolve to the typed data (`GrantedEffectRef`,
 //! `GemDataRef`, `SkillLevelRef`, `ItemBaseRef`, `MinionDataRef`) or stay a
@@ -37,7 +37,7 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use pob_calc::active_skill::{ActiveSkill, SkillEffect};
-use pob_calc::actor::{Actor, ActorRef};
+use pob_calc::actor::{Actor, ActorRef, ModPtrSet};
 use pob_calc::breakdown::Breakdown;
 use pob_calc::cfg::ModCfg;
 use pob_calc::classes::{Item, ItemRef, ModStore, ModStoreRef, Node, NodeRef};
@@ -142,6 +142,7 @@ fn run(dump: &StateDump, build: &BuildRef, live: Option<&EnvRef>) -> Result<Inje
     // pass 3: fill
     inj.fill_all();
     inj.patch_breakdowns();
+    inj.patch_enemy_modifier_keys();
     let env = match root.get("env").filter(|e| !e.is_null()) {
         Some(e) => inj.decode(e, Kind::Env).obj::<Env>(),
         None => None,
@@ -482,8 +483,7 @@ impl<'a> Inj<'a> {
             return;
         };
         let expect = if expect.is_leaf() { Kind::Any } else { expect };
-        // a typed list whose elements do not fit (CCR-0030: `env.explodeSources`
-        // holds nodes and items) stays a dynamic table
+        // a typed list whose elements do not fit stays a dynamic table
         let expect = if self.list_fits(expect, def) {
             expect
         } else {
@@ -682,12 +682,6 @@ impl<'a> Inj<'a> {
                 let env = Env::new(&self.build, mode, ov, self.build.spec.get());
                 for (k, a) in [("player", &env.player), ("enemy", &env.enemy)] {
                     self.bind(def.get(k), PObj::Actor(a.clone()));
-                    // the actor's own immutable handle
-                    let adef = def.get(k).and_then(|j| self.node_of(j)).map(|(_, d)| d);
-                    self.bind(
-                        adef.and_then(|d| d.get("itemList")),
-                        PObj::ItemList(a.itemList.clone()),
-                    );
                 }
                 for (k, t) in [
                     ("configInput", &env.configInput),
@@ -708,11 +702,7 @@ impl<'a> Inj<'a> {
                 self.bind(def.get("multipliers"), PObj::Table(s.multipliers.clone()));
                 PObj::Store(s)
             }
-            Kind::Actor => {
-                let a = Actor::new();
-                self.bind(def.get("itemList"), PObj::ItemList(a.itemList.clone()));
-                PObj::Actor(a)
-            }
+            Kind::Actor => PObj::Actor(Actor::new()),
             Kind::Item => {
                 let it: ItemRef = Rc::new(Item::default());
                 self.bind(def.get("requirements"), PObj::Table(it.requirements.clone()));
@@ -776,6 +766,9 @@ impl<'a> Inj<'a> {
             Kind::ItemFlags => PObj::ItemFlags(Shared::new(PtrMap::new())),
             Kind::GemSet => PObj::GemSet(Shared::new(PtrSet::new())),
             Kind::ItemList => PObj::ItemList(Shared::new(indexmap::IndexMap::new())),
+            Kind::ExplodeList => PObj::ExplodeList(Shared::new(Vec::new())),
+            Kind::FlaskSlots => PObj::FlaskSlots(Shared::new(PtrMap::new())),
+            Kind::ModSet => PObj::ModSet(Shared::new(ModPtrSet::new())),
             Kind::ItemMods => PObj::ItemMods(ModStore::ModList(None)),
             // the item fills its slot lists itself
             Kind::SlotMods => PObj::Table(Table::new()),
@@ -905,6 +898,7 @@ impl<'a> Inj<'a> {
                     DataTarget::Level(x) => Some(Arc::as_ptr(x).cast::<()>() as usize),
                     DataTarget::ItemBase(x) => Some(Arc::as_ptr(x).cast::<()>() as usize),
                     DataTarget::Minion(x) => Some(Arc::as_ptr(x).cast::<()>() as usize),
+                    DataTarget::NameSet(x) => Some(Arc::as_ptr(x).cast::<()>() as usize),
                     _ => None,
                 };
                 if let Some(p) = ptr {
@@ -1112,6 +1106,37 @@ impl<'a> Inj<'a> {
                     }
                 }
             }
+            PObj::ExplodeList(l) => self.fill_list(l, members, Kind::Any),
+            PObj::FlaskSlots(m) => {
+                for (k, x) in members {
+                    let (PKeyJ::O(kj), Some(n)) = (k, x.as_f64()) else {
+                        self.note("flaskSlotMap entry that is not [item] = number".to_owned());
+                        continue;
+                    };
+                    match self.decode(kj, Kind::Item).obj::<Item>() {
+                        Some(it) => m.with_mut(|m| m.set(&it, Some(n))),
+                        None => self.note("flaskSlotMap key that is not an item".to_owned()),
+                    }
+                }
+            }
+            PObj::ModSet(m) => {
+                for (k, x) in members {
+                    let PKeyJ::O(kj) = k else {
+                        self.note("appliedEnemyModifiers entry with a non-mod key".to_owned());
+                        continue;
+                    };
+                    if !matches!(x, J::Bool(true)) {
+                        self.note("appliedEnemyModifiers value that is not true".to_owned());
+                        continue;
+                    }
+                    match self.decode(kj, Kind::Any) {
+                        Val::Mod(md) => m.with_mut(|m| {
+                            m.insert(&md);
+                        }),
+                        _ => self.note("appliedEnemyModifiers key that is not a mod".to_owned()),
+                    }
+                }
+            }
             PObj::ItemMods(s) => {
                 for (_, x) in members {
                     match decode_mod(x) {
@@ -1164,7 +1189,9 @@ impl<'a> Inj<'a> {
                     }
                     if present.contains(k) {
                         probe::unmark_absent(ptr, k);
-                    } else if seeded {
+                    } else if seeded || (kind == Kind::Actor && *k == "itemList") {
+                        // an actor without `itemList` (the enemy; a minion before
+                        // CalcActiveSkill.lua:722) holds `None`, not `Actor::new`'s empty list
                         probe::unset_typed(o, k);
                     } else {
                         mark_absent(ptr, k);
@@ -1335,13 +1362,7 @@ impl<'a> Inj<'a> {
                 let PKeyJ::N(i) = k else { continue };
                 let l = self.decode(y, Kind::ItemMods).obj::<ModStore>();
                 match (i as usize, l) {
-                    (1, Some(l)) => it.slotModList[0].set(Some(l)),
-                    (2, Some(l)) => it.slotModList[1].set(Some(l)),
-                    // CCR-0030: Item.slotModList has two slots; Lua writes [3] (Item.lua:2699)
-                    (3, Some(l)) => with_registry(|r| {
-                        r.set_slot3(it, l);
-                        r.fallback("item.slotModList[3] (CCR-0030)".to_owned());
-                    }),
+                    (n @ 1..=3, Some(l)) => it.slotModList[n - 1].set(Some(l)),
                     _ => self.note("item.slotModList entry not decoded".to_owned()),
                 }
             }
@@ -1354,6 +1375,89 @@ impl<'a> Inj<'a> {
             }
         }
         with_registry(|r| r.keep(it.clone()));
+    }
+
+    /// `actor.appliedEnemyModifiers` is keyed by the very mod tables the actor's `EnemyModifier`
+    /// mods hold (`cache[value.value.mod] = true`, CalcPerform.lua:626-630). The dump writes
+    /// each key inline, so injection decodes a copy: rebind every key to the equal payload mod
+    /// of the actor's store chain, so `cache[mod]` hits by identity as in Lua.
+    fn patch_enemy_modifier_keys(&mut self) {
+        let actors: Vec<ActorRef> = self
+            .objs
+            .values()
+            .filter_map(|o| match o {
+                PObj::Actor(a) => Some(a.clone()),
+                _ => None,
+            })
+            .collect();
+        let name = Name::from("EnemyModifier");
+        for a in actors {
+            let Some(set) = a.appliedEnemyModifiers.get() else { continue };
+            let mut payloads: Vec<ModRef> = Vec::new();
+            let mut cur = Some(a.modDB.get());
+            while let Some(s) = cur {
+                for m in s.all_mods() {
+                    if m.name == name {
+                        if let Some(inner) = m.value.inner_mod() {
+                            if !payloads.iter().any(|p| Arc::ptr_eq(p, inner)) {
+                                payloads.push(inner.clone());
+                            }
+                        }
+                    }
+                }
+                cur = s.parent.get();
+            }
+            // The payloads the actor's `Tabulate(nil, nil, "EnemyModifier")` returns now (L625):
+            // the ones the next `applyEnemyModifiers` looks up. The dump writes mods as values,
+            // so a key equal to several payloads (Yoke of Suffering: nine EnemyModifier mods,
+            // one per ailment, with equal payloads; the keys are the ones whose ailment held at
+            // L1350) does not say which of them it is. Binding keys to the payloads that are
+            // live now first makes `cache[mod]` hit for every live payload a key accounts for,
+            // as it does in Lua whenever the same mods qualify at both calls.
+            let live: Vec<ModRef> = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                a.modDB
+                    .get()
+                    .Tabulate(None, None, &[name])
+                    .into_iter()
+                    .filter_map(|v| v.value.inner_mod().cloned())
+                    .collect()
+            }))
+            .unwrap_or_default();
+            let is_live = |p: &ModRef| live.iter().any(|l| Arc::ptr_eq(l, p));
+            // one-to-one, in the dump's key order: two equal payloads are two Lua tables (two
+            // keys), so each payload is claimed by one key at most; first pass live payloads,
+            // second pass the rest
+            let keys = set.with(ModPtrSet::keys);
+            let mut used = vec![false; payloads.len()];
+            let mut bound: Vec<Option<ModRef>> = vec![None; keys.len()];
+            for want_live in [true, false] {
+                for (ki, k) in keys.iter().enumerate() {
+                    if bound[ki].is_some() {
+                        continue;
+                    }
+                    let hit = payloads
+                        .iter()
+                        .enumerate()
+                        .find(|(i, p)| !used[*i] && is_live(p) == want_live && ***p == **k)
+                        .map(|(i, _)| i);
+                    if let Some(i) = hit {
+                        used[i] = true;
+                        bound[ki] = Some(payloads[i].clone());
+                    }
+                }
+            }
+            let rebound: Vec<ModRef> = keys
+                .into_iter()
+                .zip(bound)
+                .map(|(k, b)| b.unwrap_or(k))
+                .collect();
+            set.with_mut(|s| {
+                s.wipe();
+                for k in &rebound {
+                    s.insert(k);
+                }
+            });
+        }
     }
 
     /// `actor.breakdown` closures capture (modDB, output, actor): rebuild them
@@ -1566,6 +1670,11 @@ pub fn resolve_data(path: &str) -> DataTarget {
             .spectres
             .get(&Name::from(id))
             .map_or(DataTarget::Other, |g| DataTarget::Minion(g.clone())),
+        ["data", "skills", id, "minionUses"] => d
+            .skills
+            .get(&Name::from(id))
+            .and_then(|g| g.minionUses.clone())
+            .map_or(DataTarget::Other, DataTarget::NameSet),
         _ => DataTarget::Other,
     }
 }

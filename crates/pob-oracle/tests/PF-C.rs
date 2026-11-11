@@ -25,6 +25,11 @@
 //!   map is PoB's per-process `pairs` order and counts as LUA-ORDER
 //!   (`testkit::buff_list_order_only`, via `testkit::diff_against_normalised`).
 //!
+//! The closures' upvalues (CCR-0079 §1): after the run, `PerformCtx.mergeFlasks` /
+//! `.mergeTinctures` must hold the values PoB's locals had where it created the closures (the
+//! line probes `perform:1691` / `perform:1862`; a Lua nil boolean is `false`). A difference fails
+//! the build like a state mismatch.
+//!
 //! Dumps: `crates/pob-oracle/corpus/PF-C/probe.sh` probes every `.parity/builds`
 //! build with `corpus/PF-C/stages.toml` into `target/tmp/pfc-probe/<stem>/`
 //! (`$PFC_PROBE_DIR` overrides). Without dumps the test prints that command and
@@ -122,6 +127,9 @@ fn merge_buff_standin(src: &Table, destTable: &Table, destKey: Name) {
 struct BuildDumps {
     din: StateDump,
     dout: StateDump,
+    /// the main env's `perform:1691` / `perform:1862` line dumps (CCR-0079 §1), when probed
+    up1691: Option<StateDump>,
+    up1862: Option<StateDump>,
     /// callee → its recorded calls and the hits the segment's perform made, in call order.
     replays: Rc<BTreeMap<&'static str, (Replay, Vec<String>)>>,
     /// item id → `item.buffModList` as PoB had it (from the `pfc:calcFlaskMods` dumps).
@@ -211,6 +219,8 @@ fn load_build_dumps(dir: &Path) -> Result<BuildDumps, String> {
     };
     let din = first("perform:1289")?;
     let dout = first("perform:1943")?;
+    let up1691 = first("perform:1691").ok();
+    let up1862 = first("perform:1862").ok();
     let mut replays = BTreeMap::new();
     for callee in REPLAYED {
         let r = Replay::load(callee, &dumps);
@@ -228,6 +238,8 @@ fn load_build_dumps(dir: &Path) -> Result<BuildDumps, String> {
     Ok(BuildDumps {
         din,
         dout,
+        up1691,
+        up1862,
         replays: Rc::new(replays),
         buffModLists,
     })
@@ -243,7 +255,31 @@ struct Outcome {
     leftover: usize,
     replay_notes: Vec<String>,
     party_alias_ok: bool,
+    /// closure upvalues that differ from PoB's `perform:1691` / `perform:1862` locals
+    upvalue_mismatches: Vec<String>,
+    /// closures whose upvalues were compared (0, 1 or 2)
+    upvalues_checked: usize,
     error: Option<String>,
+}
+
+/// CCR-0079 §1: the ctx's closure upvalues against the line dump PoB made where it created the
+/// closure. `fields` are (Lua local name, the Rust value as a Lua value).
+fn check_upvalues(probe: &str, dump: &StateDump, fields: &[(&str, Val)], out: &mut Vec<String>) {
+    let locals = dump.locals().and_then(J::as_object);
+    for (name, ours) in fields {
+        let pob = locals.and_then(|l| l.get(*name)).cloned().unwrap_or(J::Null);
+        let same = match (ours, &pob) {
+            (Val::Num(a), J::Number(b)) => b.as_f64() == Some(*a),
+            (Val::Num(a), J::Object(_)) => pob_oracle::schema::decode_num(&pob) == Some(*a),
+            (Val::Bool(a), J::Bool(b)) => a == b,
+            // `env.minion and modDB:Flag(…)` is nil without a minion
+            (Val::Bool(false), J::Null) => true,
+            _ => false,
+        };
+        if !same {
+            out.push(format!("{probe} {name}: pob={pob} ours={ours:?}"));
+        }
+    }
 }
 
 /// Set `item.buffModList` of the env's flasks from PoB's lists (by item id).
@@ -466,6 +502,51 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
     // recorded calls left over are the ones the rest of `calcs.perform` makes after 1943
     // (applyEnemyModifiers in doActorMisc, mergeKeystones in later segments)
     out.leftover = queues.borrow().values().map(VecDeque::len).sum();
+    let local = |k: &str| after.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+    if let (Some(d), Some(up)) = (
+        &b.up1691,
+        local("mergeFlasks").and_then(|v| v.obj::<pob_calc::modules::calc_perform::setup_flasks::FlaskUpvalues>()),
+    ) {
+        out.upvalues_checked += 1;
+        check_upvalues(
+            "perform:1691",
+            d,
+            &[
+                ("effectInc", Val::Num(up.effectInc)),
+                ("effectIncMagic", Val::Num(up.effectIncMagic)),
+                ("effectIncMagicNoAdjacent", Val::Num(up.effectIncMagicNoAdjacent)),
+                ("effectIncNonPlayer", Val::Num(up.effectIncNonPlayer)),
+                ("effectIncMagicNonPlayer", Val::Num(up.effectIncMagicNonPlayer)),
+                ("flasksApplyToMinion", Val::Bool(up.flasksApplyToMinion)),
+                ("quickSilverAppliesToAllies", Val::Bool(up.quickSilverAppliesToAllies)),
+                ("flaskTotalRateInc", Val::Num(up.flaskTotalRateInc)),
+                ("flaskDurInc", Val::Num(up.flaskDurInc)),
+            ],
+            &mut out.upvalue_mismatches,
+        );
+    }
+    if let (Some(d), Some(up)) = (
+        &b.up1862,
+        local("mergeTinctures").and_then(|v| v.obj::<pob_calc::modules::calc_perform::setup_flasks::TinctureUpvalues>()),
+    ) {
+        out.upvalues_checked += 1;
+        check_upvalues(
+            "perform:1862",
+            d,
+            &[
+                ("effectInc", Val::Num(up.effectInc)),
+                ("effectIncMagic", Val::Num(up.effectIncMagic)),
+                ("tinctureLimit", Val::Num(up.tinctureLimit.get())),
+            ],
+            &mut out.upvalue_mismatches,
+        );
+    }
+    if b.up1691.is_some() != (local("mergeFlasks").is_some_and(|v| !v.is_nil()))
+        || b.up1862.is_some() != (local("mergeTinctures").is_some_and(|v| !v.is_nil()))
+    {
+        out.upvalue_mismatches
+            .push("a closure PoB created (perform:1691 / 1862 hit) is not in the ctx, or the reverse".to_owned());
+    }
     out.party_alias_ok = party_alias_ok(&env);
     mark_fresh_skill_defaults(&env, &injected_skills);
     // FUP1: the buff mod lists' LUA-ORDER check is the shared testkit normalisation (one
@@ -543,6 +624,7 @@ fn pfc_l4_perform_1289_1943() {
     let mut failed = Vec::new();
     let mut classes: BTreeMap<String, (usize, String)> = BTreeMap::new();
     let (mut order_only, mut model_only, mut replayed, mut leftover) = (0, 0, 0, 0);
+    let mut upvalues_checked = 0usize;
     let mut notes = Vec::new();
     let mut unrun = 0usize;
     for dir in &dirs {
@@ -562,6 +644,7 @@ fn pfc_l4_perform_1289_1943() {
         leftover += o.leftover;
         order_only += o.order_only;
         model_only += o.model_only;
+        upvalues_checked += o.upvalues_checked;
         notes.extend(o.replay_notes.iter().map(|n| format!("{stem}: {n}")));
         if let Some(e) = o.error {
             errors.push(format!("{stem}: {e}"));
@@ -569,6 +652,8 @@ fn pfc_l4_perform_1289_1943() {
         }
         if !o.party_alias_ok {
             failed.push(format!("{stem} (env.partyMembers is not env.build.partyTab.actor)"));
+        } else if !o.upvalue_mismatches.is_empty() {
+            failed.push(format!("{stem} (closure upvalues: {})", o.upvalue_mismatches.join("; ")));
         } else if o.mismatches.is_empty() && o.replay_notes.is_empty() {
             clean += 1;
         } else {
@@ -614,6 +699,7 @@ fn pfc_l4_perform_1289_1943() {
         eprintln!("  {n:5} {c}\n        e.g. {ex}");
     }
     eprintln!("  non-vacuity: {unrun} mismatches between the unrun perform:1289 state and perform:1943");
+    eprintln!("  closure upvalues (CCR-0079 §1) compared with perform:1691 / perform:1862: {upvalues_checked} closures");
     assert!(total > 0, "no build ran");
     assert!(unrun >= total, "the segment's effect is not visible in the diff");
     // calc doc §9.4 L4: ≥ 98 % of the all57 hits (the remainder documented)

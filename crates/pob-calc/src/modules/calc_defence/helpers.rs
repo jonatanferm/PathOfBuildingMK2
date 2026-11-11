@@ -1454,7 +1454,7 @@ pub fn defenceForConditionals(env: &EnvRef, actor: &ActorRef) {
         "Weapon 3",
     ] {
         // L488
-        let item = actor.itemList.with(|m| m.get(&Name::from(slot)).cloned());
+        let item = actor.itemList().with(|m| m.get(&Name::from(slot)).cloned());
         let armourData = item.and_then(|i| i.armourData.get());
         // L489
         if let Some(armourData) = armourData {

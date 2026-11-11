@@ -16,12 +16,6 @@
 //!   emits them), so `funcData.func` is that value ([`jewel_func`]).
 //! * The CalcSetup.lua:877-884 default func is `JewelFuncSpec { key: "$default" }` (CCR-0039;
 //!   its body is MP7's `jewel_funcs::default_func`).
-//! * `env.explodeSources` holds items and nodes, which the frozen `Field<Shared<Vec<Table>>>`
-//!   cannot (CCR-0030 #3, CCR-0083 §2): the Lua list lives in `env.extra["explodeSources"]`
-//!   (a `Table` of `Val::Obj(ItemRef)` / `Val::Obj(NodeRef)`), which CS3 reads.
-//! * `env.flaskSlotMap` is keyed by items (CCR-0030 #5): the item-keyed entries live in a side
-//!   map in `env.extra["$flaskSlotMap"]` ([`flaskSlotMap_get`]); probe builds also record them as
-//!   the table's object keys, so the export writes `env.flaskSlotMap` as PoB does.
 //! * `override.removeNodes[node.id]` (1393, 1408): PoB's set mixes node keys (power calcs) and
 //!   node-id keys (anointed nodes, PassiveTreeView.lua:1706); the frozen id → node map is the
 //!   node-keyed set (CS1, CCR-0082 §2), so id-keyed entries are read from
@@ -114,12 +108,12 @@ fn flaskData(item: &Item) -> Table {
     }
 }
 
-/// `item.slotModList[slotNum]` (`slotModList[3]` is IT-C's side list, CCR-0061 §1).
+/// `item.slotModList[slotNum]`.
 fn slotModList_at(item: &Item, slotNum: &Val) -> Option<ModList> {
     match slotNum {
         Val::Num(x) if *x == 1.0 => item.slotModList[0].get(),
         Val::Num(x) if *x == 2.0 => item.slotModList[1].get(),
-        Val::Num(x) if *x == 3.0 => item.slotModList3(),
+        Val::Num(x) if *x == 3.0 => item.slotModList[2].get(),
         _ => None,
     }
 }
@@ -171,43 +165,6 @@ fn add_mult(t: &Table, k: &str, d: f64) {
     t.add(Name::from(k), d);
 }
 
-/// The Lua list `env.explodeSources` (CCR-0030 #3, CCR-0083 §2): `env.extra["explodeSources"]`,
-/// created from the typed (Lua-empty or table-only) list on first use.
-fn env_explodeSources(env: &Env) -> Table {
-    if let Some(t) = env.extra.table(n!("explodeSources")) {
-        return t;
-    }
-    let t = Table::new();
-    for x in env.explodeSources.get().snapshot() {
-        t.push(Val::Table(x));
-    }
-    env.extra.set(n!("explodeSources"), t.clone());
-    t
-}
-
-/// The item-keyed side of `env.flaskSlotMap` (CCR-0030 #5).
-type FlaskSlotMap = Shared<PtrMap<Item, f64>>;
-
-/// `env.extra` key of [`FlaskSlotMap`].
-const FLASK_SLOT_MAP: &str = "$flaskSlotMap";
-
-/// `env.flaskSlotMap[item]` (CCR-0030 #5): the slot number CS2 recorded for a flask
-/// (CalcSetup.lua:1035), for CalcPerform.lua:1710.
-pub fn flaskSlotMap_get(env: &Env, item: &ItemRef) -> Option<f64> {
-    env.extra
-        .obj::<FlaskSlotMap>(Name::from(FLASK_SLOT_MAP))
-        .and_then(|m| m.with(|m| m.get(item)))
-}
-
-/// `env.flaskSlotMap = { }` (CalcSetup.lua:1018): a fresh typed table and a fresh side map.
-fn new_flaskSlotMap(env: &Env) -> FlaskSlotMap {
-    env.flaskSlotMap.set(Table::new());
-    let m: FlaskSlotMap = Shared::new(PtrMap::new());
-    env.extra
-        .set(Name::from(FLASK_SLOT_MAP), Val::Obj(Rc::new(m.clone())));
-    m
-}
-
 /// Probe builds: `<obj>.<key>` is set in Lua now. The exporter leaves out a typed field that was
 /// nil in the injected dump while it holds a default (A8 needs-code item 5; CCR-0079 §5), and
 /// `env.flaskSlotMap` holds only object keys (registry entries), which the default check does not
@@ -217,18 +174,6 @@ fn field_present<T>(obj: &T, key: &str) {
     crate::probe::unmark_absent(std::ptr::from_ref(obj).cast::<()>() as usize, key);
     #[cfg(not(feature = "probe"))]
     let _ = (obj, key);
-}
-
-/// `env.flaskSlotMap[item] = flaskNum` (CCR-0030 #5).
-fn set_flaskSlotMap(env: &Env, side: &FlaskSlotMap, item: &ItemRef, flaskNum: f64) {
-    side.with_mut(|m| m.set(item, Some(flaskNum)));
-    #[cfg(feature = "probe")]
-    {
-        let t = env.flaskSlotMap.get();
-        crate::probe::with_registry(|r| r.push_obj_key(&t, obj(item), Val::Num(flaskNum)));
-    }
-    #[cfg(not(feature = "probe"))]
-    let _ = env;
 }
 
 /// `override.removeNodes[node.id]` (1393, 1408; CCR-0105): the node-id keys of PoB's mixed set
@@ -565,8 +510,8 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
             }
             // L837
             if let Some(it) = item.as_ref().filter(|i| i.baseModList.get().is_some_and(|l| l.Flag(None, nm!["CanExplode"]))) {
-                // L838 (CCR-0030 #3: the Lua list in env.extra)
-                env_explodeSources(&env).push(obj(it));
+                // L838
+                env.explodeSources.get().push(ExplodeSource::Item(it.clone()));
             }
             let weaponSet = slot.get(n!("weaponSet"));
             // L840
@@ -893,8 +838,8 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
         }
 
         // Track which flask slot (1-5) each flask is in, for adjacency checks
-        // L1023 (CCR-0030 #5)
-        let flaskSlotMap = new_flaskSlotMap(&env);
+        // L1023
+        env.flaskSlotMap.set(Shared::new(PtrMap::new()));
         field_present(&*env, "flaskSlotMap");
         // L1024
         env.flaskSlotOccupied.set(Table::new());
@@ -923,7 +868,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                 // L1034
                 if let Some(flaskNum) = flaskNum {
                     // L1035
-                    set_flaskSlotMap(&env, &flaskSlotMap, &it, flaskNum);
+                    env.flaskSlotMap.get().with_mut(|m| m.set(&it, Some(flaskNum)));
                     // L1036
                     env.flaskSlotOccupied.get().set(flaskNum, true);
                 }
@@ -956,7 +901,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                 // Check if the item in the parent slot has enough Abyssal Sockets
                 // L1054
                 let parentItem = match slot.get(n!("parentSlot")).get(n!("slotName")) {
-                    Val::Str(s) => env.player.itemList.with(|m| m.get(&Name::from(&*s)).cloned()),
+                    Val::Str(s) => env.player.itemList().with(|m| m.get(&Name::from(&*s)).cloned()),
                     _ => None,
                 };
                 // L1055
@@ -993,7 +938,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
             // L1067
             if let Some(item) = item {
                 // L1068
-                env.player.itemList.with_mut(|m| m.insert(slotName, item.clone()));
+                env.player.itemList().with_mut(|m| m.insert(slotName, item.clone()));
                 // Merge mods for this item
                 // L1070
                 let srcList: Vec<ModRef> = match item.modList.get() {
@@ -1076,7 +1021,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                     }
                 } else if (slotName == n!("Weapon 1") || slotName == n!("Weapon 2")) && modDB.conditions.truthy(n!("AffectedByEnergyBlade")) {
                     // L1119
-                    let previousItem = env.player.itemList.with(|m| m.get(&slotName).cloned());
+                    let previousItem = env.player.item_in(slotName);
                     // L1120
                     let r#type: Val = match previousItem.as_ref().and_then(|p| p.weaponData.get()) {
                         Some(wd) => match wd.get(1.0) {
@@ -1133,7 +1078,7 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
                             // L1148
                             item.abyssalSocketCount.set(previousItem.abyssalSocketCount.get());
                             // L1149
-                            env.player.itemList.with_mut(|m| m.insert(slotName, item.clone()));
+                            env.player.itemList().with_mut(|m| m.insert(slotName, item.clone()));
                         }
                         None => {
                             // L1151
@@ -1617,16 +1562,10 @@ pub(crate) fn seg(ctx: &mut InitEnvCtx) -> Flow {
         let (modList, explodeSources) = super::buildModListForNodeList(&env, &env.allocNodes.get(), true);
         // L1422
         env.modDB.get().AddList(&modList.ipairs());
-        // L1423 (CCR-0030 #3: the Lua list in env.extra; `tableConcat`, Common.lua 610-619)
-        let previous = env_explodeSources(&env);
-        let t = Table::new();
-        for v in explodeSources {
-            t.push(v);
-        }
-        for (_, v) in previous.ipairs() {
-            t.push(v);
-        }
-        env.extra.set(n!("explodeSources"), t);
+        // L1423 (`tableConcat`, Common.lua 610-619: a new list, the node sources first)
+        let mut t = explodeSources;
+        t.extend(env.explodeSources.get().snapshot());
+        env.explodeSources.set(Shared::new(t));
     }
     // L1425 (`override` is never nil here: CalcSetup.lua:485)
     if r#override.extraJewelFuncs.get().is_none() {

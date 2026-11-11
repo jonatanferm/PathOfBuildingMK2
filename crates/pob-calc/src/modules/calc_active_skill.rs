@@ -4,15 +4,7 @@
 //!
 //! Owner: AS.
 //!
-//! Contract gaps worked around here (CCR-0030 for the ones ORC-X already filed, CCR-0040 for
-//! the rest; each site is marked):
-//! * `activeSkill.triggeredBy` holds a skill effect; until CCR-0030 #1 types the field it lives
-//!   in `activeSkill.extra["triggeredBy"]` as `Val::Obj(SkillEffectRef)` (the key ORC-X's
-//!   injection uses for the same fallback).
-//! * the minion actor's `type`, `uses`, `lifeTable` and `itemSet` (CalcActiveSkill.lua:707-745)
-//!   have no typed `Actor` slot: they live in `minion.extra` (`"type"` a string, `"uses"` a table
-//!   of slot names → true, `"lifeTable"` a [`LifeTable`] object, `"itemSet"` the item set table).
-//! * `socketGroup.sourceItem` (CalcSetup.lua:1486) is read from `socketGroup.extra`.
+//! Contract gaps worked around here (CCR-0040; each site is marked):
 //! * `grantedEffect.minionList = { }` (Raise Spectre) and an absent `minionList` both load as an
 //!   empty `Vec`; [`minionList_is_set`] tells them apart.
 //! * `t_remove(skillModList, i)` / `skillModList[i]` (CalcActiveSkill.lua:805-869) need
@@ -31,7 +23,6 @@
     clippy::cognitive_complexity
 )]
 
-use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -47,11 +38,6 @@ use pob_gamedata::{statMapLookup, NameSet, StatMapItem, WeaponTypeInfo};
 
 // @pob Modules/CalcActiveSkill.lua:7-21 h=0d514f10
 // (module-level statements: calcs,pairs,ipairs,t_insert,t_remove,m_floor,m_min,m_max,bor,band,bnot,mergeLevelCache)
-
-/// `minion.lifeTable` (CalcActiveSkill.lua:725-727): one of `data.monster*LifeTable`, shared by
-/// identity with the data (CCR-0040: stored in `minion.extra["lifeTable"]` until `Actor` has a
-/// typed slot).
-pub struct LifeTable(pub &'static [f64]);
 
 // ---- Rust-only plumbing ----------------------------------------------------------------------
 
@@ -136,11 +122,6 @@ fn list_remove(ml: &ModStore, i1: usize) {
 /// (`RaiseSpectre`, `RaiseSpectreAltX`; checked against the dump by tests/AS.rs).
 pub fn minionList_is_set(ge: &GrantedEffect) -> bool {
     !ge.minionList.is_empty() || matches!(ge.id.as_str(), "RaiseSpectre" | "RaiseSpectreAltX")
-}
-
-/// `activeSkill.triggeredBy` (CCR-0030 #1: the typed field cannot hold a skill effect).
-pub fn triggeredBy(activeSkill: &ActiveSkill) -> Option<SkillEffectRef> {
-    activeSkill.extra.obj::<SkillEffect>(n!("triggeredBy"))
 }
 
 fn has_type(t: &SkillTypes, ty: SkillType::T) -> bool {
@@ -816,7 +797,7 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
     if (has_type(&skillTypes, SkillType::RequiresShield) || skillFlags.truthy(n!("shieldAttack")))
         && summon.is_none()
         && actor()
-            .itemList
+            .itemList()
             .with(|m| m.get(&n!("Weapon 2")).cloned())
             .map_or(true, |it| it.r#type.get() != n!("Shield"))
     {
@@ -833,7 +814,7 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
     if has_type(&skillTypes, SkillType::RequiresStaff)
         && summon.is_none()
         && actor()
-            .itemList
+            .itemList()
             .with(|m| m.get(&n!("Weapon 1")).cloned())
             .map_or(true, |it| it.r#type.get() != n!("Staff"))
     {
@@ -857,8 +838,7 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
         // L289 Set weapon flags
         // L290
         if let Some(sg) = activeSkill.socketGroup.get() {
-            // CCR-0040: `socketGroup.sourceItem` lives in `extra`
-            if skillFlags.truthy(n!("forceSourceWeapon")) && sg.extra.truthy(n!("sourceItem")) {
+            if skillFlags.truthy(n!("forceSourceWeapon")) && sg.sourceItem.get().is_some() {
                 // L291 Some item-granted attacks must use the weapon that grants the skill
                 // L292
                 let sourceSlot = sg
@@ -1313,11 +1293,11 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
     }
 
     // L503 Mods which apply curses are not disabled by Gruthkul's Pelt
-    // L504 (CCR-0040: `socketGroup.sourceItem` lives in `extra`)
+    // L504
     let curseApplicationSkill = activeSkill
         .socketGroup
         .get()
-        .is_some_and(|g| !g.extra.get(n!("sourceItem")).is_nil())
+        .is_some_and(|g| g.sourceItem.get().is_some())
         && activeSkill.skillFlags.get().truthy(n!("curse"))
         && activeSkill
             .activeEffect
@@ -1400,8 +1380,8 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
             let r#match = !skillFlags.truthy(n!("disable"));
             // L531
             if r#match && sge.isTrigger {
-                // L532 CCR-0030 #1: `activeSkill.triggeredBy` lives in `extra`
-                if triggeredBy(activeSkill).is_some() {
+                // L532
+                if activeSkill.triggeredBy.get().is_some() {
                     // L533
                     skillFlags.set(n!("disable"), true);
                     // L534
@@ -1410,8 +1390,7 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
                         .set(lstr("This skill is supported by more than one trigger"));
                 } else {
                     // L536
-                    let o: Rc<dyn Any> = skillEffect.clone();
-                    activeSkill.extra.set(n!("triggeredBy"), Val::Obj(o));
+                    activeSkill.triggeredBy.set(Some(skillEffect.clone()));
                 }
             }
             // L539
@@ -1931,12 +1910,14 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
         if let Some(minionType) = minionType {
             // L704
             let minion = Actor::new();
+            // `{ }`: no `itemList` until L722 (`Actor::new` gives one)
+            minion.itemList.set(None);
             // L705
             activeSkill.minion.set(Some(minion.clone()));
             // L706
             skillFlags.set(n!("haveMinion"), true);
-            // L707 CCR-0040: `minion.type` lives in `extra`
-            minion.extra.set(n!("type"), minionType);
+            // L707
+            minion.r#type.set(Some(minionType));
             // L708
             minion
                 .minionData
@@ -1990,22 +1971,17 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
             minion
                 .level
                 .set(m_min(m_max(minion.level.get(), 1.0), 100.0));
-            // L722 (`minion.itemList = { }`: Actor::new's list is fresh)
-            // L723 CCR-0030 #2: `minion.uses` (a data set) lives in `extra` as a table of slot names
-            if let Some(uses) = &activeGrantedEffect.minionUses {
-                let t = Table::new();
-                let mut ks: Vec<Name> = uses.iter().copied().collect();
-                ks.sort_by(|a, b| a.as_str().cmp(b.as_str()));
-                for k in ks {
-                    t.set(k, true);
-                }
-                minion.extra.set(n!("uses"), t);
-            }
+            // L722
+            minion
+                .itemList
+                .set(Some(Shared::new(indexmap::IndexMap::new())));
+            // L723
+            minion.uses.set(activeGrantedEffect.minionUses.clone());
             let minionData = minion
                 .minionData
                 .get()
                 .unwrap_or_else(|| lua_error!("attempt to index field 'minionData' (a nil value)"));
-            // L724 CCR-0040: `minion.lifeTable` lives in `extra`
+            // L724
             let lifeTable: &'static [f64] = if minionData.hostile {
                 // L725
                 &env.data.monsterLifeTable
@@ -2027,8 +2003,7 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
                     &env.data.monsterAllyLifeTable
                 }
             };
-            let lt: Rc<dyn Any> = Rc::new(LifeTable(lifeTable));
-            minion.extra.set(n!("lifeTable"), Val::Obj(lt));
+            minion.lifeTable.set(Some(lifeTable));
             // L729
             let attackTime = minionData.attackTime;
             // L730
@@ -2069,10 +2044,10 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
                         // L738
                         src.skillMinionItemSetCalcs.set(firstSet());
                     }
-                    // L740 CCR-0040: `minion.itemSet` lives in `extra`
+                    // L740
                     minion
-                        .extra
-                        .set(n!("itemSet"), itemSetAt(src.skillMinionItemSetCalcs.get()));
+                        .itemSet
+                        .set(itemSetAt(src.skillMinionItemSetCalcs.get()));
                 } else {
                     let src = src_or_err(&activeEffect);
                     // L742
@@ -2081,9 +2056,7 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
                         src.skillMinionItemSet.set(firstSet());
                     }
                     // L745
-                    minion
-                        .extra
-                        .set(n!("itemSet"), itemSetAt(src.skillMinionItemSet.get()));
+                    minion.itemSet.set(itemSetAt(src.skillMinionItemSet.get()));
                 }
             } else if let Some(src) = src_not_secondary(&activeEffect) {
                 // L747
@@ -2124,8 +2097,8 @@ pub fn buildActiveSkillModList(env: &EnvRef, activeSkill: &ActiveSkillRef) {
             // L765
             minion.weaponData2.set(Table::new());
             // L766
-            if let Some(uses) = &activeGrantedEffect.minionUses {
-                let itemSet = minion.extra.table(n!("itemSet"));
+            if let Some(uses) = minion.uses.get() {
+                let itemSet = minion.itemSet.get();
                 let slotItem = |slot: &str, swap: &str| -> Option<ItemRef> {
                     let set = itemSet.as_ref().expect("checked by the caller");
                     let key = if set.truthy(n!("useSecondWeaponSet")) {
@@ -2408,7 +2381,7 @@ pub fn createMinionSkills(env: &EnvRef, activeSkill: &ActiveSkillRef) {
         }
     }
     // L890
-    let minionType = minion.extra.str(n!("type")).map(|s| Name::from(&*s));
+    let minionType = minion.r#type.get();
     for skill in activeSkill
         .skillModList
         .get()

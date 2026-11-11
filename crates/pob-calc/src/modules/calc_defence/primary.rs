@@ -185,7 +185,7 @@ fn new_mod_from(
 
 /// `actor.itemList[slot]`.
 fn item_in(actor: &ActorRef, slot: Name) -> Option<ItemRef> {
-    actor.itemList.with(|l| l.get(&slot).cloned())
+    actor.item_in(slot)
 }
 
 /// `item` field of a breakdown slot row (`actor.itemList[slot]`, nil when absent).

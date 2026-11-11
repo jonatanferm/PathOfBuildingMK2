@@ -300,7 +300,7 @@ pub fn load(doc: &J) -> Build {
         scalars(&actor.weaponData1.get(), &a["weaponData1"]);
         scalars(&actor.weaponData2.get(), &a["weaponData2"]);
         if let Some(il) = a["itemList"].as_object() {
-            actor.itemList.with_mut(|l| {
+            actor.itemList().with_mut(|l| {
                 for (slot, id) in il {
                     l.insert(
                         Name::from(slot.as_str()),
@@ -308,6 +308,9 @@ pub fn load(doc: &J) -> Build {
                     );
                 }
             });
+        } else if a["itemList"].is_null() {
+            // Lua nil (the enemy actor; CCR-0015 §3)
+            actor.itemList.set(None);
         }
         if let Some(k) = a["minionData"].as_str() {
             let md = pob_gamedata::data()
