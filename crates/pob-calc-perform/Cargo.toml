@@ -1,0 +1,32 @@
+[package]
+name = "pob-calc-perform"
+description = "pob-calc split (CCR-0131): CalcPerform, CalcTriggers, CalcMirages, Calcs, the power report, the calcs facade and the late-seam provider."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pob-lua.workspace = true
+pob-gamedata.workspace = true
+pob-modparser.workspace = true
+smallvec.workspace = true
+indexmap.workspace = true
+ahash.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+pob-calc-core.workspace = true
+pob-calc-setup.workspace = true
+pob-calc-config.workspace = true
+pob-calc-defence.workspace = true
+pob-calc-offence.workspace = true
+
+[features]
+default = []
+# State export for the oracle (calc doc §9.2, ORC-X). Enabled only through pob-calc's `probe` (all
+# six together) or a higher calc crate's (CCR-0131: never name pob-calc-core/probe elsewhere).
+probe = ["dep:serde", "dep:serde_json", "pob-calc-core/probe", "pob-calc-setup/probe", "pob-calc-config/probe", "pob-calc-defence/probe", "pob-calc-offence/probe"]
+
+[lints]
+workspace = true

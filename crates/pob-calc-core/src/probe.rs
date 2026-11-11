@@ -3199,9 +3199,8 @@ mod imp {
         }
     }
 
-    /// The stage dispatcher moved to `probe_segments.rs` (CCR-0131); temporary re-export until
-    /// the calc crates split.
-    pub use crate::probe_segments::run_segment;
+    // The stage dispatcher `run_segment` is pob-calc-perform's `probe_segments.rs` (CCR-0131):
+    // it calls the segments of every calc crate. `pob_calc::probe::run_segment` re-exports it.
 
     #[allow(dead_code)]
     fn _assert_traits() {

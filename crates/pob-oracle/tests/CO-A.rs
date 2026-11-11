@@ -388,7 +388,7 @@ fn apply_a_rows_cover_range() {
     assert_eq!(have.len(), 259);
     let src = std::fs::read_to_string(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../pob-calc/src/modules/config_options/apply_a.rs"),
+            .join("../pob-calc-config/src/modules/config_options/apply_a.rs"),
     )
     .unwrap();
     assert!(

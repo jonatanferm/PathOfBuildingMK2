@@ -2905,9 +2905,106 @@ dependencies = [
 name = "pob-calc"
 version = "0.0.1"
 dependencies = [
+ "mlua",
+ "pob-calc-config",
+ "pob-calc-core",
+ "pob-calc-defence",
+ "pob-calc-offence",
+ "pob-calc-perform",
+ "pob-calc-setup",
+ "pob-lua",
+]
+
+[[package]]
+name = "pob-calc-config"
+version = "0.0.1"
+dependencies = [
  "ahash",
  "indexmap",
- "mlua",
+ "pob-calc-core",
+ "pob-calc-perform",
+ "pob-gamedata",
+ "pob-lua",
+ "pob-modparser",
+ "serde",
+ "serde_json",
+ "smallvec",
+]
+
+[[package]]
+name = "pob-calc-core"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "indexmap",
+ "pob-gamedata",
+ "pob-lua",
+ "pob-modparser",
+ "serde",
+ "serde_json",
+ "smallvec",
+]
+
+[[package]]
+name = "pob-calc-defence"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "indexmap",
+ "pob-calc-core",
+ "pob-calc-perform",
+ "pob-gamedata",
+ "pob-lua",
+ "pob-modparser",
+ "serde",
+ "serde_json",
+ "smallvec",
+]
+
+[[package]]
+name = "pob-calc-offence"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "indexmap",
+ "pob-calc-core",
+ "pob-calc-defence",
+ "pob-calc-perform",
+ "pob-gamedata",
+ "pob-lua",
+ "pob-modparser",
+ "serde",
+ "serde_json",
+ "smallvec",
+]
+
+[[package]]
+name = "pob-calc-perform"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "indexmap",
+ "pob-calc-config",
+ "pob-calc-core",
+ "pob-calc-defence",
+ "pob-calc-offence",
+ "pob-calc-setup",
+ "pob-gamedata",
+ "pob-lua",
+ "pob-modparser",
+ "serde",
+ "serde_json",
+ "smallvec",
+]
+
+[[package]]
+name = "pob-calc-setup"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "indexmap",
+ "pob-calc-core",
+ "pob-calc-perform",
  "pob-gamedata",
  "pob-lua",
  "pob-modparser",

@@ -17,7 +17,9 @@
 //! expands the same list into `#[export_name = "pob_calc_late_<name>"]` functions that call the
 //! real bodies. There is no registration call and no runtime cost (a direct call); a binary
 //! that links the core without the provider fails to link (`undefined symbol:
-//! pob_calc_late_…`), it never fails at run time.
+//! pob_calc_late_…`), it never fails at run time. The core's own unit-test binary gets
+//! panicking stubs instead (`cfg(test)`); the other calc crates' test binaries link the provider
+//! through a dev-dependency on pob-calc-perform.
 //!
 //! **Safety rule** (CCR-0131): the extern declaration is not type-checked against the provider,
 //! so both sides must name the same types. Every type in the `late_fns!` list is therefore a
@@ -76,6 +78,7 @@ macro_rules! late_fns {
 macro_rules! late_decl {
     ($($name:ident($($a:ident : $t:ty),* $(,)?) -> $r:ty;)*) => {
         /// The seam's declaration side (CCR-0131): the only `unsafe` of the calc core.
+        #[cfg(not(test))]
         #[allow(unsafe_code, clippy::unused_unit)]
         mod seam {
             mod ext {
@@ -92,6 +95,19 @@ macro_rules! late_decl {
                     // of the same `late_fns!` list, whose types are full paths (module doc), so
                     // the declaration and the definition have the same Rust signature and ABI.
                     unsafe { ext::$name($($a),*) }
+                }
+            )*
+        }
+        /// The core's own unit-test binary links no provider (the provider crate depends on the
+        /// core, so it cannot be a dev-dependency here: its core would be a second copy). A unit
+        /// test that runs a late-bound call panics here.
+        #[cfg(test)]
+        #[allow(clippy::unused_unit)]
+        mod seam {
+            $(
+                #[allow(unused_variables)]
+                pub fn $name($($a: $t),*) -> $r {
+                    panic!(concat!("late seam stub in pob-calc-core's unit tests: ", stringify!($name)))
                 }
             )*
         }

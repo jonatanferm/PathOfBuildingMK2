@@ -1,0 +1,31 @@
+[package]
+name = "pob-calc-core"
+description = "Calc core of the pob-calc split (CCR-0131): lua_table, classes, model, the shared calc modules, probe export, the late seam."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# Doc tests link this crate without the late-seam provider (CCR-0131); there are none today.
+doctest = false
+
+[dependencies]
+pob-lua.workspace = true
+pob-gamedata.workspace = true
+pob-modparser.workspace = true
+smallvec.workspace = true
+indexmap.workspace = true
+ahash.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[features]
+default = []
+# State export for the oracle (calc doc §9.2, ORC-X). Enabled only through pob-calc's `probe` (all
+# six together) or a higher calc crate's (CCR-0131: never name pob-calc-core/probe elsewhere).
+probe = ["dep:serde", "dep:serde_json"]
+
+[lints]
+workspace = true

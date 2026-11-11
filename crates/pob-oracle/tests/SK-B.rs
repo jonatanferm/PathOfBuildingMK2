@@ -81,7 +81,7 @@ fn skb_rows_match_closures() {
         "act_dex 41 + act_str 15 + other 5 + minion 2 + spectre 1 + sup_str 1"
     );
     for f in ["skills_act_dex.rs", "skills_act_str.rs", "skills_misc.rs"] {
-        let src = std::fs::read_to_string(manifest_dir().join("../pob-calc/src/data_fns").join(f))
+        let src = std::fs::read_to_string(manifest_dir().join("../pob-calc-offence/src/data_fns").join(f))
             .unwrap();
         assert!(
             !src.contains("unported!("),

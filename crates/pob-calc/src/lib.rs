@@ -9,14 +9,18 @@
 //! mutability (D2); computed-key tables are dynamic [`lua_table::Table`]s
 //! (D3). No Lua runs here (D4); `pob-oracle` is the test oracle.
 //!
-//! Layout (owners per file: calc doc §2.1):
-//! * core types (U0): [`lua_table`], [`cfg`], [`classes`] (types), [`actor`],
-//!   [`active_skill`], [`env`], [`breakdown`], [`global_cache`],
-//!   [`module_state`], [`flow`], [`stub`], [`model`] (types), [`calcs_facade`];
-//! * the ported modules: [`modules`] (Calc*.lua, CalcsTab power, config
-//!   options, mod map, jewel funcs), [`classes`] (ModStore/ModDB/ModList,
-//!   Item, PassiveTree, PassiveSpec), [`model`] (build/tab loaders),
-//!   [`data_fns`] (skill hooks).
+//! Layout: the code lives in six crates (CCR-0131, docs/port/calc-split-plan.md), and this
+//! crate re-exports every public path, so `pob_calc::…` is unchanged for downstream code:
+//! * `pob-calc-core`: [`lua_table`], [`cfg`], [`classes`], [`actor`], [`active_skill`], [`env`],
+//!   [`breakdown`], [`global_cache`], [`module_state`], [`flow`], [`stub`], [`model`], [`probe`]
+//!   and the shared modules ([`modules`]`::{calc_tools, common, calc_format, calc_breakdown,
+//!   mod_tools_env, jewel_funcs, calc_base, calc_perform_shared}`);
+//! * `pob-calc-setup`: `modules::{calc_setup, calc_active_skill}`;
+//! * `pob-calc-config`: `modules::{config_options, mod_map}`;
+//! * `pob-calc-defence`: `modules::calc_defence`;
+//! * `pob-calc-offence`: `modules::calc_offence`, [`data_fns`] (skill hooks);
+//! * `pob-calc-perform`: `modules::{calc_perform, calc_triggers, calc_mirages, calcs, power}`,
+//!   [`calcs_facade`], `probe::run_segment`, and the provider of the core's late-bound calls.
 //!
 //! Single-threaded by design (`Rc`, `!Send`), like PoB's one Lua VM (D12).
 #![allow(non_snake_case, non_upper_case_globals, non_camel_case_types)]
@@ -39,32 +43,35 @@
     clippy::single_match_else
 )]
 
-pub mod active_skill;
-pub mod actor;
-pub mod breakdown;
-pub mod calcs_facade;
-pub mod cfg;
-pub mod classes;
-pub mod data_fns;
-pub mod data_fns_types;
-pub mod env;
-pub mod flow;
-pub mod global_cache;
-pub mod late;
-mod late_provider;
-pub mod lua_table;
-pub mod model;
-pub mod module_state;
-pub mod modules;
-pub mod prelude;
-pub mod probe;
-#[cfg(feature = "probe")]
-pub mod probe_segments;
-pub mod stub;
+pub use pob_calc_core::{
+    active_skill, actor, breakdown, cfg, classes, env, flow, global_cache, lua_table, model,
+    module_state, prelude, stub,
+};
+pub use pob_calc_core::{ctx_struct, seg, tbl, unported};
+pub use pob_calc_offence::data_fns;
+pub use pob_calc_perform::{calcs_facade, calcs_facade::calcs};
 
-pub use calcs_facade::calcs;
 #[cfg(not(target_arch = "wasm32"))]
-pub use calcs_facade::try_buildOutput;
+pub use pob_calc_perform::calcs_facade::try_buildOutput;
+
+/// State export for the oracle (`pob-calc-core`'s `probe`), plus the stage dispatcher
+/// [`run_segment`](probe::run_segment) (`pob-calc-perform`, feature `probe`).
+pub mod probe {
+    pub use pob_calc_core::probe::*;
+    #[cfg(feature = "probe")]
+    pub use pob_calc_perform::probe_segments::run_segment;
+}
+
+/// `Modules/*` (calc doc §2.1), from the crate each module lives in.
+pub mod modules {
+    pub use pob_calc_config::modules::{config_options, mod_map};
+    pub use pob_calc_core::modules::*;
+    pub use pob_calc_defence::modules::calc_defence;
+    pub use pob_calc_offence::modules::calc_offence;
+    pub use pob_calc_perform::modules::{calc_mirages, calc_perform, calc_triggers, calcs, power};
+    pub use pob_calc_setup::modules::{calc_active_skill, calc_setup};
+}
+
 pub use env::{EnvRef, Mode};
 pub use flow::Flow;
 pub use lua_table::{Key, LStr, Output, Table, Val};

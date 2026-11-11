@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 
 use pob_calc::data_fns::{skillFunc, skills_act_int, SkillFuncImpl, SkillHook, SKILL_FUNCS};
 
-const OWN_SRC: &str = include_str!("../../pob-calc/src/data_fns/skills_act_int.rs");
+const OWN_SRC: &str = include_str!("../../pob-calc-offence/src/data_fns/skills_act_int.rs");
 const LUA_FILE: &str = "Data/Skills/act_int.lua";
 
 fn skip(why: &str) {

@@ -7,7 +7,7 @@
 set -uo pipefail
 main="$(cd "$(dirname "$0")/../.." && pwd)"
 wt="${POB_FULLSUITE_WT:-$(dirname "$main")/pob-fullsuite}"
-crates="${POB_FULLSUITE_CRATES:-pob-lua pob-gamedata pob-modparser pob-calc pob-dump pob-oracle pob-sg pob-sg-wgpu pob-host pob-ui-core pob-ui-oracle pob-app}"
+crates="${POB_FULLSUITE_CRATES:-pob-lua pob-gamedata pob-modparser pob-calc pob-calc-core pob-calc-setup pob-calc-config pob-calc-defence pob-calc-offence pob-calc-perform pob-dump pob-oracle pob-sg pob-sg-wgpu pob-host pob-ui-core pob-ui-oracle pob-app}"
 if [ ! -d "$wt" ]; then git -C "$main" worktree add --detach "$wt" rust-port >/dev/null; fi
 git -C "$wt" checkout -q --detach -f rust-port
 head=$(git -C "$wt" rev-parse --short HEAD)
