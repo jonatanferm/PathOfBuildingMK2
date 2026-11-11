@@ -400,12 +400,10 @@ pub fn default_hooks() -> BuildHooks {
         set_display_stat: Rc::new(super::on_frame::set_display_stat),
         clear_display_stat: Rc::new(super::on_frame::clear_display_stat),
         list_sub_path: Rc::new(|_| None),
-        spec_add_undo_state: Rc::new(|_| {}),
-        tree_get_spec_list: Rc::new(|_| not_ported("TreeTab:GetSpecList", "U25")),
-        tree_set_active_spec: Rc::new(|cx, id| {
-            let m = cx.build().model.clone();
-            m.treeTab.SetActiveSpec(&m, id);
-        }),
+        // U25
+        spec_add_undo_state: Rc::new(crate::tabs::tree::core::spec_add_undo_state_hook),
+        tree_get_spec_list: Rc::new(crate::tabs::tree::core::get_spec_list_hook),
+        tree_set_active_spec: Rc::new(crate::tabs::tree::core::set_active_spec_hook),
         items_set_active_item_set: Rc::new(|cx, id| {
             let m = cx.build().model.clone();
             m.itemsTab.SetActiveItemSet(&m, id);
@@ -434,6 +432,7 @@ pub fn default_hooks() -> BuildHooks {
         load_ui_section: Rc::new(|cx, elem, node, db| match elem {
             "Notes" => crate::tabs::notes::load_ui_section(cx, node, db),
             "Import" => crate::tabs::import::core::load_ui_section(cx, node, db),
+            "TreeView" => crate::tabs::tree::core::load_ui_section(cx, node, db),
             _ => false,
         }),
         import_tab: Rc::new(crate::tabs::import::core::ctor_hook),
@@ -441,7 +440,7 @@ pub fn default_hooks() -> BuildHooks {
         party_tab: pending_tab(),
         config_tab: Rc::new(crate::tabs::config::ctor::ctor_hook),
         items_tab: pending_tab(),
-        tree_tab: pending_tab(),
+        tree_tab: Rc::new(crate::tabs::tree::core::ctor_hook),
         skills_tab: pending_tab(),
         calcs_tab: Rc::new(crate::tabs::calcs::core::ctor_hook),
         compare_tab: pending_tab(),

@@ -145,8 +145,8 @@ pub fn default_hooks() -> TreeViewHooks {
     TreeViewHooks {
         add_node_tooltip: Rc::new(|_, _, _, _| {}),
         add_compare_node_tooltip: Rc::new(|_, _, _, _| {}),
-        open_mastery_popup: Rc::new(|_, _, _| not_ported("TreeTab:OpenMasteryPopup", "U25")),
-        modify_node_popup: Rc::new(|_, _, _| not_ported("TreeTab:ModifyNodePopup", "U25")),
+        open_mastery_popup: Rc::new(crate::tabs::tree::core::open_mastery_popup_hook),
+        modify_node_popup: Rc::new(crate::tabs::tree::core::modify_node_popup_hook),
         build_power: Rc::new(|cx| {
             let m = cx.build().model.clone();
             // CCR-0115: model.rs (U15) does not re-export calc:PWR's module

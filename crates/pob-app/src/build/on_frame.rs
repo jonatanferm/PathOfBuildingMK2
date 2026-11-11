@@ -232,16 +232,23 @@ pub fn default_shell_hooks() -> ShellHooks {
             BuildTab::Notes => crate::tabs::notes::draw_tab(cx, vp, ev),
             BuildTab::Calcs => crate::tabs::calcs::core::draw_tab(cx, vp, ev),
             BuildTab::Import => crate::tabs::import::core::draw_tab(cx, vp, ev),
+            BuildTab::Tree => crate::tabs::tree::core::draw_tab(cx, vp, ev),
             _ => {}
         }),
         tab_flag: Rc::new(|cx, flag| match flag {
             TabFlag::Notes => crate::tabs::notes::mod_flag(cx),
             TabFlag::Calcs => crate::tabs::calcs::core::mod_flag(cx),
+            TabFlag::Tree => crate::tabs::tree::core::mod_flag(cx),
+            TabFlag::TreeSearch => crate::tabs::tree::core::search_flag(cx),
+            TabFlag::Spec => crate::tabs::tree::core::spec_flag(cx),
             _ => false,
         }),
         set_tab_flag: Rc::new(|cx, flag, v| match flag {
             TabFlag::Notes => crate::tabs::notes::set_mod_flag(cx, v),
             TabFlag::Calcs => crate::tabs::calcs::core::set_mod_flag(cx, v),
+            TabFlag::Tree => crate::tabs::tree::core::set_mod_flag(cx, v),
+            TabFlag::TreeSearch => crate::tabs::tree::core::set_search_flag(cx, v),
+            TabFlag::Spec => crate::tabs::tree::core::set_spec_flag(cx, v),
             _ => {}
         }),
         import_select_code_in: Rc::new(crate::tabs::import::core::select_code_in),
@@ -274,6 +281,7 @@ pub fn default_shell_hooks() -> ShellHooks {
         save_ui_section: Rc::new(|cx, elem| match elem {
             "Notes" => crate::tabs::notes::save_ui_section(cx),
             "Import" => crate::tabs::import::core::save_ui_section(cx),
+            "TreeView" => crate::tabs::tree::core::save_ui_section(cx),
             _ => None,
         }),
     }

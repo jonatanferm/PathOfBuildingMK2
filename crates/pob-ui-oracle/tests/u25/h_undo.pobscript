@@ -1,0 +1,52 @@
+# U25: the spec undo at 1280x800 (allflame_compare zoomed in): allocate an Intelligence node (AllocNode +
+# spec:AddUndoState), Ctrl+Z (Undo: the loaded state from ResetUndo), Ctrl+Y (Redo), Ctrl+Z again, then the Reset
+# Tree/Tattoos popup: Reset Tree (ResetNodes + AddUndoState), Ctrl+Z (back to the tree), the popup's Cancel; the
+# unsaved marks follow spec.modFlag; then the build XML.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_compare.xml"
+frames 3
+move 1100 250
+wheel up 3
+frames 2
+move 755 182
+frames 1
+click LEFTBUTTON
+frames 2
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+key-down CTRL
+press y
+key-up CTRL
+frames 2
+snapshot redone
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+move 680 762
+frames 1
+click LEFTBUTTON
+frames 2
+move 510 425
+frames 1
+click LEFTBUTTON
+frames 2
+move 800 400
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+move 680 762
+frames 1
+click LEFTBUTTON
+frames 1
+move 770 425
+frames 1
+click LEFTBUTTON
+frames 2
+snapshot undone
+frames 1
