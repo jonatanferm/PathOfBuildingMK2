@@ -27,18 +27,24 @@ Profile: dev (`debug = "line-tables-only"`, pob-calc at `-O0`, incremental on). 
   3.3-3.4 GB, which is not half. `POB_PORT_SLOTS` stays at 1 until the run-level peaks are measured
   on the split tree. Changing it is an orchestrator decision (§5.3).
 * It is feasible. Under the proposed layering only **40 file-to-file edges** point the wrong way.
-  They have 8 distinct causes (B1-B8). Besides those, **6 declarations** need `pub(crate)` → `pub`
-  (B9), and one partial `calcs` facade is needed (B10). The prototype, made of the real files with
-  only those fixes, compiles with default features, with `--features probe` and with `--tests`.
-  Two fixes took a simpler form in the prototype than the plan specifies: B4 used a trait, and B7
-  deleted `run_segment` instead of moving it (§3.3). The B4 form in the plan was compiled in toy
-  crates only (§3.4). The prototype's in-crate unit tests were not run (§5.4, §8).
+  They have 8 distinct causes (B1-B8). Besides those, **27 declarations** need wider visibility
+  (B9), and one partial `calcs` facade is needed (B10). The compiler found 6 of the 27 in the
+  prototype. The other 21 are what B7's moved `run_segment` calls: 19 `pub(crate)` segment
+  functions in 17 setup/defence/offence files, and 2 private helpers in `probe.rs`. They were found
+  by reading `run_segment`, because the prototype deleted it (§3.3). The prototype, made of the
+  real files with the other fixes, compiles with default features, with `--features probe` and
+  with `--tests`. Two fixes took a simpler form in the prototype than the plan specifies: B4 used
+  a trait, and B7 deleted `run_segment` instead of moving it (§3.3). The B4 form in the plan was
+  compiled in toy crates only (§3.4). The prototype's in-crate unit tests were not run (§5.4, §8).
 * Five calls must be bound late, from a lower crate to a higher one: `configApply`, `BuildOutput`,
   `MiscCalculator::call`, `doActorLifeMana` and `doActorLifeManaReservation`. None of them is on a
   hot path. The mechanism (§3.4) is a link-time symbol seam with no init call and no runtime cost.
   It was verified in toy crates (not yet on the real crates; that is a gate, §7) on lld, GNU ld,
   release thin-LTO, wasm32 and core-only unit tests, including B4's inherent `call`. Every type in
-  the shared list must be a full path (§3.4). It needs a local
+  the shared list must be a full path (§3.4). The unit-test binaries of setup, config, defence and
+  offence link core but no provider, so they fail to link as soon as a test reaches a seam caller.
+  Each of these crates therefore takes `pob-calc-perform` as a dev-dependency and links it into
+  its own tests (§3.4, verified in toy crates). It needs a local
   `allow(unsafe_code)` in two small macro-generated modules. **That is an orchestrator decision
   (CCR).**
 * The cheapest alternative on its own is `debug = 0` for pob-calc: 3.0 GB peak, 17 s (§6). It does
@@ -48,7 +54,9 @@ Profile: dev (`debug = "line-tables-only"`, pob-calc at `-O0`, incremental on). 
 
 ### 1.1 Dependency graph: name resolution, not `use` lines
 
-Every module does `use crate::prelude::*`, and the prelude re-exports items from 11 modules. A grep
+Every module does `use crate::prelude::*`, and the prelude re-exports items from 12 of the crate's
+modules (§2.1 lists 11 of them; the resolver misses `module_state::OFFENCE_STATE`, which
+`thread_local!` declares, see "Limits" below), besides std, pob-gamedata and pob-lua. A grep
 for `use` lines therefore shows almost everything depending on almost everything. Instead, a
 resolver (`depgraph.py`, about 500 lines of Python, written for this unit) does the following:
 
@@ -87,7 +95,10 @@ Each crate gets a "mirror root" `lib.rs` (§3.5), so that moved files keep their
 exactly that declaration and records it. Results:
 
 * `cargo check` of all six crates passes: default features, `--features probe`, and `--tests` with
-  probe. After the B-fixes the only extra changes needed were **6** visibility widenings.
+  probe. After the B-fixes the only extra changes needed were **6** visibility widenings. This
+  count is only for code the prototype contains. The prototype deleted `run_segment` (B7), so the
+  21 widenings that the moved dispatcher needs never produced an error. They are listed by hand in
+  B9.
 * The resolver's predictions held. The first compile of the core crate passed with no further
   edits. The probe-feature errors were exactly the predicted lines (probe.rs:3210 `run_segment`, and
   probe.rs:1014-1022 `FlaskUpvalues`).
@@ -167,7 +178,7 @@ Directories under `modules/` are one row each.
 | `modules/jewel_funcs` | 1 | 1186 | core | lua_table 36, classes/mod 29, classes/mod_store 6, classes/mod_db 4, classes/mod_list 1 |
 | `modules/mod` | 1 | 21 | core | |
 | `modules/mod_tools_env` | 1 | 57 | core | lua_table 15, classes/mod 3, classes/mod_db 2, env 1, classes/mod_store 1 |
-| `prelude` | 1 | 35 | core | classes/mod 15, model/mod 12, lua_table 9, env 7, actor 5, active_skill 4, cfg 3, breakdown 2, global_cache 2, flow 1, stub 1 |
+| `prelude` | 1 | 35 | core | classes/mod 15, model/mod 12, lua_table 9, env 7, actor 5, active_skill 4, cfg 3, breakdown 2, global_cache 2, flow 1, stub 1 (and `module_state` 1, `OFFENCE_STATE`, which the resolver misses inside `thread_local!`) |
 | `probe` | 1 | 3371 | core | lua_table 323, env 60, classes/mod 55, model/mod 30, active_skill 27, actor 23, cfg 18, **modules/calc_offence/ 14, modules/calc_perform/ 12, modules/calc_defence/ 8, modules/calc_setup/ 4, data_fns/ 2**, global_cache 6, ... |
 | `stub` | 1 | 16 | core | |
 | `modules/calc_active_skill` | 1 | 2504 | setup | lua_table 169, classes/mod_store 25, active_skill 19, env 14, classes/mod 12, modules/calc_tools 12, classes/mod_db 7, actor 4, modules/common 4, model/mod 3, cfg 2, modules/calc_setup/ 1 |
@@ -248,8 +259,9 @@ compile prototype confirms this.
   its own `GemLevelTarget` (2), and there are 2 `Drop` impls inside core (`PassiveSpec`,
   `ItemsTab`). The orphan rule is satisfied (local trait) in every layout.
 * **Restricted visibility**: 833 `pub(crate)`/`pub(super)` markers, most of them in `apply_a/b`
-  (532), `data_fns` (133) and `mod_map` (41). Only **6** are used across the new boundaries (found
-  by the compiler, §1.2).
+  (532), `data_fns` (133) and `mod_map` (41). **25** of them are used across the new boundaries:
+  6 that the compiler found (§1.2), and the 19 segment functions the moved `run_segment` calls
+  (B7, B9). In addition, 2 private functions of `probe.rs` (`ctx_fill`, `ctx_out`) need `pub`.
 * **`cfg(feature = "probe")` inside exported macros**: `ctx_struct!` and `probe!` contain
   `#[cfg(feature = "probe")]`, which is evaluated in the *invoking* crate. Every sub-crate therefore
   needs its own `probe` feature that forwards to core's. Otherwise `ProbeState` impls lose their
@@ -260,8 +272,12 @@ compile prototype confirms this.
   fails with E0046. That is loud, not silent, but it breaks the build. Cargo unifies features per
   build, so a single dependent with `pob-calc-core = { features = ["probe"] }` is enough. **Rule**:
   only `pob-calc`'s `probe` feature (which enables all six) and the sub-crates' own `probe` features
-  (each forwards to every lower calc crate) may enable `pob-calc-core/probe`. Crates outside the
-  calc depend on `pob-calc` only, never on a sub-crate. The CSPLIT CCR adds this to calc doc §2.
+  (each forwards to every lower calc crate) may enable `pob-calc-core/probe`. The one dependency
+  that names such a feature is the middle crates' dev-dependency on
+  `pob-calc-perform = { features = ["probe"] }` (§3.4, "Test binaries of the middle crates"). It
+  enables perform's `probe`, which forwards to every lower calc crate, so all six get `probe`
+  together. Crates outside the calc depend on `pob-calc` only, never on a sub-crate. The CSPLIT
+  CCR adds this to calc doc §2.
 
 ## 3. Proposed layering
 
@@ -349,23 +365,72 @@ apply the others in the form listed:
   prototype.
 * **B7**: `run_segment` was **deleted** from `probe.rs` (proto `core/src/probe.rs:3202`, a comment
   left in its place), not moved. `probe_segments.rs` does not exist in the prototype, so the moved
-  dispatcher was never compiled (§8).
+  dispatcher was never compiled (§8). `visfix.py` widens only declarations that code in the
+  prototype uses, so it could not find what `run_segment` needs. Reading it (at `4870179`;
+`crates/pob-calc/src` is unchanged at `d479e21`) shows
+  that it needs **21 more widenings** (listed in B9). Every other item it uses is already `pub`:
+  `InitEnvCtx::init`, `DefenceCtx::init`, `DefEstCtx::init`, `OffenceCtx::init`,
+  `PerformCtx::init`, `HitPassLocals::new`, `AilmentPassLocals::new`, `helpers_setup::seg_setup`,
+  the `ctx_struct!` fields (`pub` by construction), `module_state::OFFENCE_STATE` and its fields,
+  `ProbeField` (for `Mode::from_val`/`SpecEnv::from_val`), and the submodules
+  (`pub mod init_env_base`, ...).
 
 | # | edge (file:line) | fix | cost |
 |---|---|---|---|
-| B1 | `config_options/apply_a.rs`, `apply_b.rs`, `mod_map.rs` → `data_fns/mod.rs` `FnRow` (578 refs, via `config_options/mod.rs:13` `pub use crate::data_fns::FnRow`); `probe.rs:3112,3125` → `SkillHook` | **move types down**: `SkillHook`, `SkillFunc`, `ExplosiveArrowFunc`, `SkillFuncImpl`, `FnRow` (`data_fns/mod.rs:18-63`) → new core file `data_fns_types.rs`. `data_fns/mod.rs` keeps `pub use crate::data_fns_types::{…}`, so `pob_calc::data_fns::FnRow` etc. are unchanged. `config_options/mod.rs:13` and `probe.rs` import from `crate::data_fns_types` | 0 runtime; ~45 lines moved, 3 imports edited |
+| B1 | `config_options/apply_a.rs`, `apply_b.rs`, `mod_map.rs` → `data_fns/mod.rs` `FnRow` (578 refs, via `config_options/mod.rs:13` and `mod_map.rs:55`, each `pub use crate::data_fns::FnRow`); `probe.rs:3112,3125` → `SkillHook` | **move types down**: `SkillHook`, `SkillFunc`, `ExplosiveArrowFunc`, `SkillFuncImpl`, `FnRow` (`data_fns/mod.rs:18-63`) → new core file `data_fns_types.rs`. `data_fns/mod.rs` keeps `pub use crate::data_fns_types::{…}`, so `pob_calc::data_fns::FnRow` etc. are unchanged. Three files switch to `crate::data_fns_types`: `config_options/mod.rs:13` and `mod_map.rs:55` (each `pub use crate::data_fns::FnRow`), and `probe.rs:3112,3125` (two `crate::data_fns::SkillHook` paths) | 0 runtime; 46 lines moved, 4 lines edited in 3 files |
 | B2 | `actionSpeedMod` (`calc_perform/actor_b.rs:2276-2303`), called from `calc_defence/est_ehp.rs:20/966`, `primary.rs:24/82`, `calc_offence/ailments_b.rs:30/2018`, `helpers_setup.rs:30/800`, `crit.rs:920` (`calcs::actionSpeedMod`) | **move the function down** (28 lines with comments; it only uses `modDB`/`data()`): `@pob CalcPerform.lua:1141-1151` marker and body → new core file `modules/calc_perform_shared.rs`. `actor_b.rs` keeps `pub use …::actionSpeedMod` (the `calc_perform::actionSpeedMod` and `calcs.actionSpeedMod` paths stay). Change 4 `use` lines | 0 runtime. The function now lives outside `calc_perform/`, an exception to D1's file↔Lua mirroring that the PF-B owner signs off in the CSPLIT CCR. Its `@pob` marker moves with it (provenance.py scans all of `crates/`) |
 | B3 | `calc_defence/primary.rs:100` `doActorLifeMana`, `:109` `doActorLifeManaReservation` (`calc_perform/actor_a.rs:266`, `:1514`) | **late seam** (§3.4), inside the existing `call_doActorLifeMana*` wrappers (primary.rs:94-110); the replay hooks there are unchanged | 2 lines + 2 seam entries |
 | B4 | `model/mod.rs:21,218` → `modules/calcs.rs` `MiscCalculator` (`CalcsTab.miscCalculator` field) | **move the struct down** (2 fields, core types) into `late.rs`. It keeps an **inherent** `pub fn call(&self, …) -> Output` that calls the seam. The body stays in `calcs.rs` as `pub fn misc_calculator_call(this: &MiscCalculator, …)`. The Lua closure (Calcs.lua:100-113) has no name, so this is Rust-only plumbing and is snake_case (STYLE §3.1 rule 1), like `call` today. The `@pob Modules/Calcs.lua:89-114` marker stays on `getMiscCalculator`, which covers the closure today. It must stay inherent: `pob-app/src/calc/rust.rs:51` calls `self.0.call(…)`, and `pob-oracle/tests/CA.rs:369,1416` sets and gets the typed field. `calcs.rs` keeps `pub use …::MiscCalculator` | 1 seam entry; ~10 lines |
 | B5 | `model/build_xml.rs:450` → `modules::power::BuildOutput(build)` | **late seam** | 1 line + 1 entry |
 | B6 | `model/config_build_mod_list.rs:13,112` → `modules::config_options::configApply` | **late seam**. The `ConfigApply` fn-pointer alias (`config_options/mod.rs:16`) moves to core, and `config_options` re-exports it. `ConfigTab::BuildModList` stays inherent in core, because pob-app calls it as a method at 18 sites | 1 line + 1 entry |
-| B7 | `probe.rs:3202-3371` `run_segment` (the stage dispatcher, imports `calc_setup/perform/defence/offence` at :3210) | **move the function up**: probe.rs:3202-3371 → new file `probe_segments.rs` in perform. The facade's `probe` module re-exports it (§4), so `pob_calc::probe::run_segment` (23 files in pob-oracle) is unchanged | 0 runtime; feature `probe` only |
+| B7 | `probe.rs:3202-3355` `run_segment` (the stage dispatcher, doc comment from 3202, `fn` at 3206; imports `calc_setup/perform/defence/offence` at :3210). Lines 3357-3370 are `_assert_traits` and 3371 closes `mod imp`; both stay | **move the function up**: probe.rs:3202-3355 (154 lines) → new file `probe_segments.rs` in perform, `#[cfg(feature = "probe")]`. The facade's `probe` module re-exports it (§4), so `pob_calc::probe::run_segment` (23 files in pob-oracle) is unchanged. It calls 19 `pub(crate)` segment functions of setup, defence and offence, and the private `ctx_fill`/`ctx_out` of core's `probe::imp`. All 21 are widened (B9) | 0 runtime; feature `probe` only; 21 widenings (B9) |
 | B8 | `probe.rs:137,1014-1022` reflect `FlaskUpvalues`/`TinctureUpvalues` (`calc_perform/setup_flasks.rs:33-64`) | **move the two `ctx_struct!` types down** (plain `f64`/`bool`/`Cell` fields) into `modules/calc_perform_shared.rs`. `setup_flasks.rs` keeps `pub use` | 0 runtime |
-| B9 | `pub(crate)` used across crates: `classes/mod.rs:51` `enum StoreMods`, `:67` `ModStore.mods`, `classes/mod_store.rs:41` `arith`, `:152` `ReplaceModInternal`, `classes/mod_db.rs:24` `db_len`, `:33` `db_at` | **widen** to `pub` (`#[doc(hidden)]`). Users: `calc_active_skill.rs:29,86,95`, `calc_perform/actor_b.rs:2271`, `ailments_dispatch.rs:160,162`, ... | 6 lines; no behaviour change |
+| B9 | (a) `pub(crate)` used across crates, found by the compiler: `classes/mod.rs:51` `enum StoreMods`, `:67` `ModStore.mods`, `classes/mod_store.rs:41` `arith`, `:152` `ReplaceModInternal`, `classes/mod_db.rs:24` `db_len`, `:33` `db_at`. (b) Called by the moved `run_segment` (B7), found by reading it: the 19 segment functions and 2 probe helpers in the table below | **widen** to `pub` (`#[doc(hidden)]`). Users of (a): `calc_active_skill.rs:29,86,95`, `calc_perform/actor_b.rs:2271`, `ailments_dispatch.rs:160,162`, ...; user of (b): `probe_segments.rs` | 27 lines in 21 files; no behaviour change |
 | B10 | `crate::calcs_facade::calcs` / `crate::calcs` used inside offence (`crit.rs:24`, `hit_dps.rs:29`) and perform (`calc_mirages.rs:25,211,240,1208`, `ailments_dispatch.rs:24`, `actor_a.rs:97`) | **per-crate partial facade**: `calcs_facade.rs` moves whole into perform, where every name it lists exists. offence's `lib.rs` declares a 6-line `calcs_facade::calcs` with what it can see (`actionSpeedMod`, `applyDmgTakenConversion`, `armourReduction`, `armourReductionF`, `hitChance`) | 0 edits in moved files |
 
-Nothing else crosses a crate boundary. The layering DAG and every file's `crate::` paths compile in
-the prototype.
+B9 (b), the declarations the moved `run_segment` calls (lines at `4870179`, unchanged at `d479e21`).
+The 5 perform segments it also calls (`setup_flasks`, `pools_charges`, `buffs`, `party_curses`,
+`ailments_dispatch` `seg`) are in perform, so they need nothing. `helpers_setup.rs:988`
+`seg_setup` is already `pub`.
+
+| crate | file:line | declaration | owner |
+|---|---|---|---|
+| setup | `calc_setup/init_env_base.rs:111` | `pub(crate) fn seg` | CS1 |
+| setup | `calc_setup/init_env_items.rs:416` | `pub(crate) fn seg` | CS2 |
+| setup | `calc_setup/init_env_skills.rs:471` | `pub(crate) fn seg` | CS3 |
+| defence | `calc_defence/primary.rs:247` | `pub(crate) fn seg` | DF-B |
+| defence | `calc_defence/recovery.rs:73` | `pub(crate) fn seg` | DF-C |
+| defence | `calc_defence/est_inputs.rs:74` | `pub(crate) fn seg` | DF-D |
+| defence | `calc_defence/est_pools.rs:22` | `pub(crate) fn seg` | DF-E |
+| defence | `calc_defence/est_ehp.rs:480` | `pub(crate) fn seg` | DF-F |
+| defence | `calc_defence/est_maxhit.rs:282` | `pub(crate) fn seg` | DF-G |
+| offence | `calc_offence/skill_types.rs:34` | `pub(crate) fn seg_skillTypeStats` | OF-B |
+| offence | `calc_offence/costs_passes.rs:146` | `pub(crate) fn seg_costsAndPasses` | OF-C |
+| offence | `calc_offence/speed.rs:90` | `pub(crate) fn seg_speed` | OF-D |
+| offence | `calc_offence/crit.rs:117` | `pub(crate) fn seg_passCrit` | OF-E |
+| offence | `calc_offence/hit_dps.rs:105`, `:2135` | `pub(crate) fn seg_passHit`, `seg_combinePasses` | OF-F |
+| offence | `calc_offence/ailments_a.rs:182`, `:215` | `pub(crate) fn seg_ailmentPrelude`, `seg_bleedPoison` | OF-G |
+| offence | `calc_offence/ailments_b.rs:232` | `pub(crate) fn seg_igniteNonDmgImpale` | OF-H |
+| offence | `calc_offence/dot_combined.rs:615` | `pub(crate) fn seg_dotCombined` | OF-I |
+| core | `probe.rs:3148`, `:3186` (inside the private `mod imp`, re-exported by `pub use imp::*`) | `fn ctx_fill`, `fn ctx_out` (`table_list_set` at :3174 is called only by `ctx_fill` and stays private) | ORC-X |
+
+That is 21 declarations in 18 files (17 segment files owned by 17 units, plus `probe.rs`, which
+B7 edits anyway). Each edit is one token on a signature line, which parity fixes rarely touch.
+
+Alternative considered for B7: a **per-crate dispatcher**. Setup, defence, offence and perform
+each get a `#[cfg(feature = "probe")] probe_segments.rs` with
+`pub fn run_segment(id, locals) -> Option<Result<…>>` holding that crate's match arms. Perform's
+`run_segment` strips `#n`, tries the four in turn and keeps today's "no segment starts at" errors.
+The 19 segment functions then stay `pub(crate)`, and only `ctx_fill`/`ctx_out` are widened. It is
+not chosen. It splits one 154-line stage table, which mirrors `docs/port/stages.toml`, across four
+crates, and it puts ORC-X code into new files in three more crates. It also needs the `get`/`env`/
+`actor` helpers either repeated four times or added to core as new public API. The 19 one-token
+widenings are smaller and easier to review. If the CCR refuses widening owner signatures, this is
+the fallback, and it changes no owner file.
+
+Nothing else crosses a crate boundary. For B7, this claim rests on reading `run_segment`, not on
+the compiler, since the prototype does not contain it. Commit A compiles it first (§7). The rest
+of the layering DAG and every other file's `crate::` paths compile in the prototype.
 
 ### 3.4 The late seam (B3-B6): link-time symbols, no init
 
@@ -373,7 +438,10 @@ The problem: core code must call five functions that live in higher crates, and 
 keep working unchanged:
 
 * external call sites, such as `configTab.BuildModList(&m)` in pob-app and `mc.call(…)`;
-* every test that enters the calc anywhere (`run_segment`, direct module calls).
+* every test that enters the calc anywhere (`run_segment`, direct module calls). The design below
+  covers the tests of crates that link the provider (pob-oracle, pob-app, pob-ui-*, perform, the
+  facade) and core's own unit tests (stubs). The test binaries of setup, config, defence and
+  offence link neither. They need the extra step in "Test binaries of the middle crates" below.
 
 A registry filled by an `init()` call would require every external entry point to call `init()`,
 and would panic wherever one is missed. A trait or generic parameter would change public
@@ -417,7 +485,15 @@ macro_rules! late_fns { ($cb:ident) => { $cb! {
   `unsafe_code = "deny"` (deny, not forbid). → **needs a CCR/AMENDMENTS decision.**
 * **Verified** (experiment run through `cargo.sh`):
   * the app links and runs with rust-lld (the repo config);
-  * it links and runs with **GNU ld.bfd**, so rlib order is not a problem;
+  * it links and runs with **GNU ld.bfd**. The mechanism (checked in round 2): when rustc links an
+    executable, it writes a synthetic `symbols.o` and puts it first on the link line. That object
+    holds undefined references to the symbols the upstream crates export, here each
+    `#[export_name]` function. In the toy app (`--print link-args -C save-temps`, ld.bfd),
+    `nm symbols.o` lists `U pob_calc_late_BuildOutput`, `U pob_calc_late_configApply` and
+    `U pob_calc_late_misc_calculator_call`. So the linker pulls the provider's archive member in
+    no matter where the rlib comes on the line or which CGU holds the function. A single-pass
+    linker such as ld.bfd needs nothing more. The x86_64 / GNU ld gate (§7) therefore confirms a
+    known mechanism on the real crates; it is not the only evidence;
   * it links and runs in **release + thin LTO + `codegen-units = 1`**;
   * `cargo test -p <core>` links and passes, using the `cfg(test)` stubs;
   * a **wasm32-unknown-unknown** build links, and the `.wasm` has **zero imports**, so the
@@ -443,6 +519,68 @@ macro_rules! late_fns { ($cb:ident) => { $cb! {
       **no** stubs (commit A's monolith, §7): 1 passed, through the real seam.
     * wasm32: links, no import section. Without the provider: `undefined symbol:
       pob_calc_late_BuildOutput` / `…configApply`. `nm`: three `T pob_calc_late_*` symbols.
+* **Test binaries of the middle crates** (setup, config, defence, offence). Each one links core
+  as a normal dependency, so core's `cfg(test)` stubs are not compiled into it, and it does not
+  link perform. A test fails to link as soon as it reaches a seam caller, even if it never runs
+  it. So whether a test binary links depends on which functions its tests can reach, which is
+  not something a test author checks. Offence has real in-crate tests (`costs_passes.rs`, `dot_combined.rs`,
+  4 tests), and the §7 gate runs them.
+  * **Remedy (chosen)**: every middle crate links the real provider into its own test binaries.
+    * `Cargo.toml`: `[dev-dependencies] pob-calc-perform = { workspace = true, features = ["probe"] }`.
+    * Mirror-root `lib.rs`: `#[cfg(test)] extern crate pob_calc_perform as _;`. rustc does not
+      link a dev-dependency that nothing names, so the line is required. Any future `tests/*.rs`
+      file of a middle crate needs `use pob_calc_perform as _;`. Today the middle crates have no
+      `tests/` and no Rust doc examples (only ```` ```lua ```` blocks). The plan sets
+      `[lib] doctest = false` on the four, so a future doc example cannot hit the same failure.
+  * **Why this is sound**: core is the only crate whose types cross the seam (every `late_fns!`
+    type is a `$crate::`, std or pob-gamedata path). A middle crate's test binary holds a single
+    copy of core, shared by the crate under test and by perform. The middle crate itself is there
+    twice: the `cfg(test)` copy under test, and the normal copy that perform was built against.
+    Seam calls run perform's real code on the normal copy. Statics are duplicated too
+    (`calc_defence/primary.rs:57` `HOOKS`, `MERGE_LEVEL_CACHE`, `DAMAGE_STATS_FOR_TYPES`, ...). A
+    test that sets one of them and expects the code behind the seam to see the value would not
+    work. No such test exists. Core cannot use this remedy: its test copy would be a second core,
+    and the seam would join two different copies of the same types. So core keeps the stubs.
+  * **Why `features = ["probe"]`**: cargo cannot make a dev-dependency's features follow the
+    crate's own features. Without it, `cargo.sh test -p pob-calc-offence --features probe` turns
+    on core's `probe` but not perform's, and perform's `ctx_struct!` impls fail with E0046 (§2.3).
+    With it, `probe` is on for all six whenever a middle crate's tests are built. A run that also
+    builds other packages (`-p pob-calc-offence -p pob-app`) then builds the whole calc with
+    `probe`. That adds code but is consistent, since all six crates switch together.
+  * **Cost**: `cargo.sh test -p pob-calc-offence --lib` also builds perform (0.9 GB) and the
+    normal offence lib (1.4 GB). Offence's test rustc can overlap perform. That is estimated at
+    2.3-2.5 GB, inside the 3 GB per-process budget, but not measured; the §7 slot gate measures it.
+  * **Rejected**:
+    * a `late-stubs` feature in core enabled from the middle crates' dev-dependencies. Cargo
+      unifies features per run, so `cargo.sh test -p pob-calc-offence -p pob-oracle` would build
+      pob-oracle's binaries on the stubs too. Their seam calls would then panic at run time
+      instead of failing to link. That turns a loud build error into a run-time fault in
+      unrelated binaries;
+    * moving the 4 offence tests into perform or into the facade's `tests/`. They call private
+      functions (`costs_passes.rs:1236` `buildConversionTable`, `dot_combined.rs:170`
+      `capitaliseDamageType`), so they would need more widenings, and tests would leave owner
+      files. It also does nothing for future middle-crate tests. This is the fallback;
+    * relying on dead-code removal. The toy shows that a test which only reaches a seam caller
+      already fails.
+  * **Verified** (round 2; toy crates `lowc` (core, with `cfg(test)` stubs), `mid` (a middle
+    crate), `prov` (provider, depends on `lowc` and `mid`), `facade`, `app`; built through
+    `cargo.sh … --no-run`, toy binaries run directly):
+    * without the remedy, `mid`'s lib test and its `tests/it.rs` fail to link
+      (`rust-lld: error: undefined symbol: pob_calc_late_BuildOutput`). Each has one test that
+      calls a function which can reach `late::BuildOutput` and passes `go = false`, so the call
+      never runs. The dev-dependency alone, without `extern crate`, fails the same way;
+    * with the remedy, rust-lld dev: `mid` lib tests 2 passed (one reaches the seam without
+      calling it; one goes through the real seam for `BuildOutput` and B4's inherent `call`),
+      `tests/it.rs` 1 passed, `lowc` 2 passed (stubs, including a `should_panic`), `prov` 1
+      passed. All four packages were built in one `cargo.sh test -p mid -p lowc -p prov -p app`
+      run. `cfg(test)` is per crate, not a feature, so `lowc`'s stubs do not leak into the other
+      binaries;
+    * the same with GNU ld.bfd in dev and in release + thin LTO + `codegen-units = 1`: all pass;
+    * a `probe` analogue (a trait method under `cfg(feature = "probe")`, and a `ctx_struct!`-like
+      macro in `mid` and `prov`): with `features = ["probe"]` on the dev-dependency,
+      `test -p mid` and `test -p mid --features probe` build the same `mid` test binary (same
+      hash) and pass. With the dev-dependency's features removed, `--features probe` fails:
+      `error[E0046]: not all trait items implemented, missing: probe_locals` in `prov`.
 * **Linking the providers**: rustc links only crates that are used. The facade's `pub use` of every
   sub-crate makes them used. The pob-calc facade is the only crate downstream code depends on.
 * **Runtime cost**: a direct call to a Rust-ABI symbol, the same as a normal cross-crate call.
@@ -523,9 +661,21 @@ pub use lua_table::{Key, LStr, Output, Table, Val}; pub use model::{Build, Build
 ```
 
 **Checked against the actual external uses.** All `pob_calc::` paths in `crates/` and `app/`
-outside `crates/pob-calc/src` were collected: **894 references, 282 distinct paths**, in pob-oracle,
-pob-app, pob-ui-core, pob-ui-oracle and pob-calc's own `tests/`. Every one maps to exactly one
-sub-crate module that the facade re-exports:
+outside `crates/pob-calc/src` were collected: **894 references, 282 distinct paths** at
+`4870179`, and **905 / 281** at `d479e21` (re-counted in round 2 with a re-implementation of the
+same method, since the external crates changed in between). They are in pob-oracle, pob-app,
+pob-ui-core, pob-ui-oracle and pob-calc's own `tests/`.
+
+How they were counted: in code only (lines starting with `//` are skipped). Every
+`pob_calc::` path is followed through its `use` tree, and brace groups are expanded to one path
+per leaf. So `use pob_calc::lua_table::{Table, Val}` counts as `lua_table::Table` and
+`lua_table::Val`, `self` names the parent, and `as` aliases are dropped. A plain grep for the
+textual prefix (`pob_calc::[A-Za-z_:]*`, comments included, no expansion) counts fewer: 694
+occurrences and 210 distinct prefixes at `d479e21`. The round-2 review counted 699 / 222 with a
+slightly different regex. The implementation unit adds this count as a mode of
+`scripts/port/calc_depgraph.py` (`--external-paths`), so the gate can repeat it. The breakdown
+below is from `4870179`. At `d479e21` only two rows changed: core 719, perform 56.
+Every path maps to exactly one sub-crate module that the facade re-exports:
 
 | target of the external paths | refs | served by |
 |---|---:|---|
@@ -615,7 +765,7 @@ slower (+0.4 s), because six small sessions replace one large one.
 Not in the prototype:
 
 * the facade crate: about 60 lines of `pub use`, estimated below 0.5 s;
-* the probe dispatcher's 170 lines in perform.
+* the probe dispatcher's 154 lines in perform (probe.rs:3202-3355, B7).
 
 Downstream test binaries relink the same way in both layouts.
 
@@ -697,7 +847,14 @@ The split must not lose test coverage:
   `scripts/port/full_suite.sh` lists crates by name, so it **must add `pob-calc-core`,
   `pob-calc-offence` and `pob-calc-perform`** (to be safe, all six). Otherwise those tests stop
   running.
-* The prototype compiles them (`check --tests --features probe`: clean).
+* Offence's 4 tests only link if offence's test binary links the provider. Setup, config and
+  defence have no tests today, but the same holds for any test they add. All four middle crates
+  therefore take `pob-calc-perform` as a dev-dependency (§3.4, "Test binaries of the middle
+  crates"). Core's tests use the `cfg(test)` stubs, and perform's tests link the provider
+  directly.
+* The prototype compiles them (`check --tests --features probe`: clean). `check` does not link,
+  and the prototype's seam was `unimplemented!()` stubs, so this says nothing about the link
+  problem above.
 * A run comparing unit-test counts between the monolith and the prototype **did not run**. It waited
   more than an hour for a test-run slot and was stopped (§8).
 
@@ -746,11 +903,21 @@ full suite and quick corpus pass, so behaviour is unchanged:
 3. B2, B8: add `modules/calc_perform_shared.rs` with `actionSpeedMod` and the two upvalue structs,
    re-export them at the old places, and update 4 `use` lines;
 4. B1: add `data_fns_types.rs`, re-export it from `data_fns/mod.rs`, and fix the imports in
-   `config_options/mod.rs` and `probe.rs`;
-5. B7: move `run_segment` into `probe_segments.rs`, with a temporary `pub use` in `probe.rs`;
-6. B9: the 6 widenings.
+   `config_options/mod.rs`, `mod_map.rs` and `probe.rs`;
+5. B7: move `run_segment` (probe.rs:3202-3355) into `probe_segments.rs`, with a temporary
+   `pub use` in `probe.rs`. In the monolith `pub(crate)` still covers the whole crate, so commit A
+   cannot show that the 21 widenings of B9 (b) are complete. The first build of perform in
+   commit C shows it (`check -p pob-calc-perform --features probe`). Apply B9 (b) in commit A
+   anyway, so that commit C edits no owner file;
+6. B9: the 27 widenings, 6 from (a) and 21 from (b).
 
-About 150-250 changed lines.
+Size (estimated from the listed items, not measured): about **60 lines edited in place in about
+35 existing files** (4 call sites, B4's rename in `calcs.rs`, re-exports, `use` and import lines,
+the 27 widenings, module declarations). About **270 lines move** out of 6 existing files into
+the new files: `run_segment` 154, `FnRow` and friends 46, the upvalue structs 32,
+`actionSpeedMod` 28, the `MiscCalculator` struct 7, the `ConfigApply` alias 1. About 120 new lines
+(`late.rs`, `late_provider.rs`, headers and imports of the new files). In `git diff --stat` that
+is about 700-850 changed lines, most of them the moved blocks counted twice.
 
 **Commit B: "CSPLIT: move files (pure renames)"**:
 
@@ -764,6 +931,9 @@ About 150-250 changed lines.
 
 * new `Cargo.toml` × 6 and mirror-root `lib.rs` × 6;
 * add the `#[cfg(test)]` stub branch to `late.rs` (core's own unit-test binary links no provider);
+* setup, config, defence and offence: `[dev-dependencies] pob-calc-perform = { workspace = true,
+  features = ["probe"] }`, `#[cfg(test)] extern crate pob_calc_perform as _;` in the mirror-root
+  `lib.rs`, and `[lib] doctest = false` (§3.4, "Test binaries of the middle crates");
 * `pob-calc/src/lib.rs` becomes the facade;
 * workspace `members` and `[workspace.dependencies]`;
 * trim `modules/mod.rs` in core to the core modules;
@@ -797,8 +967,11 @@ Gates:
   `… test -p pob-app --lib`, then run both. On an x86_64 Linux host: a native build and run of
   `pob-port-desktop` and of one pob-oracle test with the default linker. Check `nm` for the five
   `T pob_calc_late_*` symbols in each binary;
-* `cargo.sh test -p pob-calc-core -p pob-calc-offence -p pob-calc-perform --lib`, with the same test
-  count as before (and the same as commit A, whose monolith unit tests already go through the seam);
+* `cargo.sh test -p <crate> --lib` for each of the six crates, one `-p` per run, with the same total
+  test count as before (and the same as commit A, whose monolith unit tests already go through
+  the seam). Setup, config and defence have 0 tests, but their runs prove that their test binaries
+  link. The four middle-crate runs also build perform (dev-dependency, §3.4). Measure their peak
+  with the §5.3 sampler; the estimate is 2.3-2.5 GB;
 * the run-level compile peaks of §5.3 on the split tree, which decide `POB_PORT_SLOTS`;
 * optional: `debug = 0` on the six crates (§6), measured the same way;
 * the pob-oracle quick corpus;
@@ -809,7 +982,9 @@ Why this keeps merges working:
 
 * Commit B is pure renames, so git's exact-rename detection (cheap and not subject to rename limits)
   pairs every file. `git merge` (ort) then applies an in-flight branch's edits to the new paths.
-* Commit A edits ~20 lines in place before any move, so its conflicts look like ordinary conflicts.
+* Commit A edits about 60 lines in place before any move (27 of them one-token widenings on
+  signature lines), so its conflicts look like ordinary conflicts. Its moved blocks are the
+  exception below.
 * Commit C edits new files and `lib.rs`. It changes only one or a few lines in two moved files
   (`modules/mod.rs`, `probe.rs`); rename detection still pairs them, because the similarity stays
   far above the 50 % threshold.
@@ -835,7 +1010,7 @@ Conflict risk with the named units:
 
 | unit | what it touches | risk | mitigation |
 |---|---|---|---|
-| INT-1-B (L6 parity fixes in owner files) | any `pob-calc` file, content edits | **medium** while open, **low** after: content edits follow pure renames; real conflicts only on the ~20 lines of commit A and the moved code (B2/B4/B7/B8) | run CSPLIT after INT-1-B merges, as planned. If INT-1-B is still open, it rebases once over A+B+C (renames resolve automatically; check the moved-code list) |
+| INT-1-B (L6 parity fixes in owner files) | any `pob-calc` file, content edits | **medium** while open, **low** after: content edits follow pure renames; real conflicts only on the ~60 in-place lines of commit A (including the 19 segment signatures of B9 (b) in 17 owner files) and the moved code (B2/B4/B7/B8) | run CSPLIT after INT-1-B merges, as planned. If INT-1-B is still open, it rebases once over A+B+C (renames resolve automatically; check the moved-code list) |
 | INT-2 (performance; CA `calcs.rs`, PWR `power.rs`, profiling-driven) | `calcs.rs` (B4 touches `MiscCalculator`'s 20 lines), `power.rs` (none) and release-perf baselines | low (textual), **medium (measurement)**: the split can shift release timings | run INT-2's power-report timing on both sides of the split, and re-baseline INT-2 after it |
 | INT-3 (breakdown parity; owner files, CA) | content edits in `calc_breakdown.rs`, offence/defence breakdown code, `calcs.rs` | low | none beyond the general rule; new files under `src/` → directory-rename conflict |
 
@@ -854,7 +1029,11 @@ Conflict risk with the named units:
 * Not compiled in the prototype (§3.3); the implementation unit compiles each in commit A first:
   * the facade crate (re-exports only);
   * B7: `probe_segments.rs` in perform. The prototype deleted `run_segment` instead of moving it.
-    Its imports all exist in perform;
+    The items it uses exist in crates perform depends on, but 21 of them are not visible from
+    perform today (19 `pub(crate)` segment functions, and `ctx_fill`/`ctx_out` in `probe::imp`).
+    B9 (b) widens them; the list comes from reading the function, not from the compiler;
+  * the middle crates' unit-test binaries linking the provider through a dev-dependency
+    (§3.4). Compiled and run only in toy crates (round 2);
   * B4: the inherent `MiscCalculator::call` in core that forwards through the seam to
     `misc_calculator_call` in perform. The prototype used a trait in perform instead, which the
     plan rejects (pob-app's `self.0.call(…)` has no trait in scope). The same shape was compiled
@@ -866,7 +1045,14 @@ Conflict risk with the named units:
      at the cost of an `init()` call in pob-app, pob-oracle and pob-ui-oracle;
   2. code that leaves its owner's file: B2 and B8 from PF-B/PF-C files into
      `modules/calc_perform_shared.rs`, B4 within CA's `calcs.rs` and into core, and B7 out of
-     ORC-X's `probe.rs`. The new files and their owners go into calc doc §2.1;
+     ORC-X's `probe.rs`. The new files and their owners go into calc doc §2.1. Also the B9 (b)
+     signature widenings in owner files, which those owners sign off: CS1 `init_env_base.rs`,
+     CS2 `init_env_items.rs`, CS3 `init_env_skills.rs`, DF-B `primary.rs`, DF-C `recovery.rs`,
+     DF-D `est_inputs.rs`, DF-E `est_pools.rs`, DF-F `est_ehp.rs`, DF-G `est_maxhit.rs`,
+     OF-B `skill_types.rs`, OF-C `costs_passes.rs`, OF-D `speed.rs`, OF-E `crit.rs`,
+     OF-F `hit_dps.rs`, OF-G `ailments_a.rs`, OF-H `ailments_b.rs`, OF-I `dot_combined.rs`, and
+     ORC-X `probe.rs` (`ctx_fill`, `ctx_out`). If the widening is refused, B7 takes the per-crate
+     dispatcher form instead (§3.3), which edits none of these files;
   3. calc doc §2 dependency rule 1 becomes
      `pob-lua ← pob-gamedata ← pob-modparser ← pob-calc-core ← {setup, config, defence}`,
      `defence ← offence`, `{setup, config, defence, offence} ← perform ← pob-calc ← UI/oracle`,
@@ -874,6 +1060,8 @@ Conflict risk with the named units:
   4. `POB_PORT_SLOTS` stays at 1 when the split lands. A second slot needs the split-tree
      run-level measurement and one of the link-phase measures of §5.3;
   5. two rules for calc doc §2. First, every type in `late_fns!` is a full path (§3.4). Second,
-     only `pob-calc`'s and the sub-crates' own `probe` features may enable `pob-calc-core/probe`
-     (§2.3). Also the B4 body name `misc_calculator_call`: Rust-only plumbing, so snake_case per
+     only `pob-calc`'s and the sub-crates' own `probe` features may enable `pob-calc-core/probe`,
+     plus the middle crates' `pob-calc-perform` dev-dependency with `probe` (§2.3). A third
+     rule: a middle crate's test targets link the provider (`extern crate pob_calc_perform as _`
+     in `lib.rs`, `use pob_calc_perform as _;` in each `tests/*.rs`), §3.4. Also the B4 body name `misc_calculator_call`: Rust-only plumbing, so snake_case per
      STYLE §3.1 rule 1, since the Lua closure has no name.
