@@ -233,6 +233,7 @@ pub fn default_shell_hooks() -> ShellHooks {
             BuildTab::Party => crate::tabs::party::draw_tab(cx, vp, ev),
             BuildTab::Calcs => crate::tabs::calcs::core::draw_tab(cx, vp, ev),
             BuildTab::Import => crate::tabs::import::core::draw_tab(cx, vp, ev),
+            BuildTab::Items => crate::tabs::items::core::draw_tab(cx, vp, ev),
             _ => {}
         }),
         tab_flag: Rc::new(|cx, flag| match flag {

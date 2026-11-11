@@ -486,7 +486,7 @@ fn not_ported(what: &str, owner: &str) -> ! {
 /// The defaults: every entry raises a Lua error naming its owner (PoB's error prompt shows it).
 pub fn default_items_ui_hooks() -> ItemsUiHooks {
     ItemsUiHooks {
-        add_display_item: Rc::new(|_, _, _| not_ported("ItemsTab:AddDisplayItem", "U34")),
+        add_display_item: Rc::new(super::core::add_display_item_hook),
         select_display_item_variant: Rc::new(|_, _, _, _, _, _| {
             not_ported("ItemsTab:SelectDisplayItemVariant", "U35")
         }),
