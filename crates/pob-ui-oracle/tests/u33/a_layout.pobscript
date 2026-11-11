@@ -1,0 +1,50 @@
+# U33: the constructor's layout at 1280 virtual px (allflame_exp_001): the slot chain under the
+# set selector and the trade button (collapsed swap/abyssal slots, hidden Ring 3 and grafts), the
+# weapon set buttons, the passive tree selector and the jewel sockets, the item list, the
+# "Import from:" selector (the tab is under 980 px high: one DB at a time), the craft/create
+# buttons, the tip, the shared item list, and both scroll bars (the content is wider and higher
+# than the tab). Hover the Helmet slot (its tooltip) and jewel socket #1 (the socket viewer
+# stand-in); wheel the tab down and up (L1499-1515); press the weapon set buttons "II" and "I"
+# (L236-275: useSecondWeaponSet, AddUndoState, buildFlag: a recalc through the bridge; the swap
+# slots replace the weapon slots, the `locked` states flip), snapshotting each; switch the DB
+# selector to "Rare Templates" (the rare DB replaces the unique DB, L297-308).
+#! u33-expect ^7slot Helmet db nil
+#! u33-expect ^7viewer 17
+#! u33-expect undo: 2
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 560 164
+frames 3
+move 560 478
+frames 3
+move 330 600
+frames 1
+wheel down 2
+frames 2
+wheel up 2
+frames 2
+move 708 96
+frames 1
+click LEFTBUTTON
+frames 3
+snapshot swap2
+move 689 96
+frames 1
+click LEFTBUTTON
+frames 3
+snapshot swap1
+move 570 389
+click LEFTBUTTON
+frames 2
+move 545 421
+frames 1
+click LEFTBUTTON
+frames 3
+move 1270 700
+frames 2
