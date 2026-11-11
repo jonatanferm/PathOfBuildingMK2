@@ -157,13 +157,16 @@ pub fn default_items_hooks() -> ItemsTabHooks {
             f(cx);
         }),
         new_item_set: Rc::new(|cx| cx.build().model.itemsTab.NewItemSet(None)),
-        create_display_item_from_raw: Rc::new(|_, _, _| {
-            not_ported("ItemsTab:CreateDisplayItemFromRaw", "U35")
+        // U35 (display_item.rs)
+        create_display_item_from_raw: Rc::new(|cx, raw, normalise| {
+            let me = super::display_item::items_tab_or_err(cx);
+            super::display_item::CreateDisplayItemFromRaw(cx, me, raw, normalise);
         }),
-        set_display_item: Rc::new(|_, _| not_ported("ItemsTab:SetDisplayItem", "U35")),
-        get_equipped_slot_for_item: Rc::new(|_, _| {
-            not_ported("ItemsTab:GetEquippedSlotForItem", "U35")
+        set_display_item: Rc::new(|cx, item| {
+            let me = super::display_item::items_tab_or_err(cx);
+            super::display_item::SetDisplayItem(cx, me, item);
         }),
+        get_equipped_slot_for_item: Rc::new(super::display_item::GetEquippedSlotForItem),
         add_item_set_tooltip: Rc::new(|_, _, _| not_ported("ItemsTab:AddItemSetTooltip", "U37")),
         add_item_tooltip: Rc::new(super::tooltip::add_item_tooltip_hook),
         add_undo_state: Rc::new(super::tooltip::add_undo_state_hook),

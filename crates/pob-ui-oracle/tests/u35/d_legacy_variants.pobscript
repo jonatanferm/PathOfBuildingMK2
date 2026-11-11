@@ -1,0 +1,41 @@
+# U35: legacy variants. Eyes of the Greatwolf from the unique DB (CreateDisplayItemFromRaw with
+# normalise: CopyAnointsAndEldritchImplicits, NormaliseQuality, BuildModList; SetDisplayItem's
+# legacy variant and alt variant lists); pick another variant and another alt variant
+# (SelectDisplayItemVariant with the legacy fields: BuildAndParseRaw, the tooltip, the range
+# lines).
+#! u35-expect display: Eyes of the Greatwolf
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 870 475
+click LEFTBUTTON
+frames 1
+type "greatwolf"
+frames 4
+move 800 496
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1150 600
+frames 2
+move 850 78
+click LEFTBUTTON
+frames 2
+move 850 128
+frames 2
+click LEFTBUTTON
+frames 3
+move 850 102
+click LEFTBUTTON
+frames 2
+move 850 200
+frames 2
+click LEFTBUTTON
+frames 3
+move 1150 600
+frames 2

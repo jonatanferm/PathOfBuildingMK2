@@ -1,0 +1,46 @@
+# U35: variants. An item with variant groups (fixture item 36: two versions, five variants, two
+# groups; SetDisplayItem -> UpdateDisplayItemVariantControls: the version dropdown, one dropdown
+# per eligible group with the options not selected by the other group, newVariantEnabled);
+# pick group 1's third option (SelectDisplayItemVariant with a variantId: variantGroupSelections,
+# NormaliseVariantSelections, BuildAndParseRaw, the controls rebuilt); switch the version to
+# "Old" (the version dropdown's selFunc: group 2 loses the Mana option).
+#! u35-expect display: U35 Grouped Ring
+fixture userdir=user
+frames 2
+load-build "Builds/u35_items.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 86
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1270 700
+frames 2
+move 950 102
+click LEFTBUTTON
+frames 2
+move 950 150
+frames 2
+click LEFTBUTTON
+frames 3
+move 950 126
+click LEFTBUTTON
+frames 3
+move 1150 600
+click LEFTBUTTON
+frames 2
+move 950 78
+click LEFTBUTTON
+frames 2
+move 950 98
+click LEFTBUTTON
+frames 3
+move 950 126
+click LEFTBUTTON
+frames 3
+move 1150 600
+click LEFTBUTTON
+frames 2
