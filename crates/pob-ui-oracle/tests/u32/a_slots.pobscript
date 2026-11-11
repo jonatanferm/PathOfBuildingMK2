@@ -1,0 +1,51 @@
+# U32: the slots of allflame_exp_001. The idle frame (the slot chain with its collapsed swap,
+# abyssal and hidden slots, the jewel sockets under the passive-tree dropdown's position);
+# hover the Helmet slot (its tooltipFunc: the AddItemTooltip stand-in with the slot); open it
+# and pick "None" (the selFunc: SetSelItemId, PopulateSlots, AddUndoState, buildFlag: a
+# recalc through the bridge), then pick the helmet again; the Flask 1 activate checkbox off and
+# on (changeFunc: active, the item set's active, AddUndoState, buildFlag); hover jewel socket
+# #1 (DrawViewer with the socket viewer stand-in) and its dropdown; the wheel on Ring 1.
+#! u32-expect ^7slot Helmet db nil
+#! u32-expect ^7viewer 17
+#! u32-expect undo: 4
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 560 164
+frames 2
+click LEFTBUTTON
+frames 2
+move 560 184
+frames 1
+click LEFTBUTTON
+frames 3
+move 560 164
+frames 1
+click LEFTBUTTON
+frames 2
+move 560 200
+frames 1
+click LEFTBUTTON
+frames 3
+move 396 340
+frames 2
+click LEFTBUTTON
+frames 3
+click LEFTBUTTON
+frames 3
+move 560 478
+frames 3
+move 560 274
+frames 1
+wheel down 1
+frames 3
+wheel up 1
+frames 3
+move 200 600
+frames 1
+snapshot after
