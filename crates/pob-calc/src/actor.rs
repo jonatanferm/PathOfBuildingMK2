@@ -66,6 +66,9 @@ pub struct Actor {
     pub breakdown: Field<Option<Breakdown>>,
     /// slot name → item. `None` = Lua nil: the enemy actor has no `itemList`
     /// (CalcSetup.lua:519-522), a minion gets one at CalcActiveSkill.lua:722 (CCR-0015 §3).
+    /// `Actor::default()` holds an empty list (`Some`); where Lua builds the table without one
+    /// the constructor sets `None` (CS1: the player before CalcSetup.lua:536 and the enemy; AS:
+    /// a minion before 722; inject: a dumped actor without the key).
     pub itemList: Field<Option<ItemList>>,
     pub weaponData1: Field<Table>,
     pub weaponData2: Field<Table>,
