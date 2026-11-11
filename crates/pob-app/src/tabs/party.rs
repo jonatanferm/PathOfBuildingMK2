@@ -47,9 +47,10 @@
 //!   the wiped old table; nothing reads a stale env's party members between the click and the
 //!   next calc. `wipeTable(self.enemyModList)` wipes a ModList nobody else holds (CalcSetup
 //!   copies its mods), so the port only replaces it.
-//! * `buildSites` (Modules/BuildSiteTools.lua, U43) and ImportTab.lua's global `UrlDecode`
-//!   (U44) are reached through [`SiteHooks`] (CCR-0114 §2) until their owners provide them: the
-//!   defaults know no site (a URL reads "Invalid input") and raise a Lua error naming the owner.
+//! * `buildSites` (Modules/BuildSiteTools.lua) and ImportTab.lua's global `UrlDecode` are
+//!   reached through [`SiteHooks`] (CCR-0114 §2); [`default_site_hooks`] holds U43's
+//!   `tabs::import::build_sites::{WEBSITE_LIST, download_build}` and
+//!   `tabs::import::core::UrlDecode` (CCR-0109 §7).
 //!
 //! ORDER: no `pairs` loops. The controls are added in the Lua's insertion order (D7).
 //!
@@ -139,8 +140,9 @@ pub struct BuildSite {
 /// `buildSites.DownloadBuild`'s callback `(isSuccess, data)`.
 pub type DownloadCallback = Box<dyn FnOnce(&mut Cx, bool, &str)>;
 
-/// CCR-0114 §2: what PartyTab calls of `buildSites` (Modules/BuildSiteTools.lua, U43) and of
-/// ImportTab.lua's global `UrlDecode` (U44). The owners install theirs with [`set_site_hooks`].
+/// CCR-0114 §2: what PartyTab calls of `buildSites` (Modules/BuildSiteTools.lua) and of
+/// ImportTab.lua's global `UrlDecode`. [`default_site_hooks`] holds U43's; tests replace entries
+/// with [`set_site_hooks`].
 #[derive(Clone)]
 pub struct SiteHooks {
     /// `buildSites.websiteList`
@@ -152,17 +154,45 @@ pub struct SiteHooks {
     pub url_decode: Rc<dyn Fn(&str) -> String>,
 }
 
-fn not_ported(what: &str, owner: &str) -> ! {
-    lua_error!("{what} is not ported yet ({owner})")
-}
-
-/// The placeholders until U43/U44 land: no site, and the calls raise a Lua error naming the
-/// owner.
+/// The owners' implementations (U43, CCR-0109 §7): `buildSites.websiteList` is
+/// `build_sites::WEBSITE_LIST`, `buildSites.DownloadBuild` is `build_sites::download_build` with
+/// `websiteInfo = buildSites.websiteList[site]`, `UrlDecode` is `import::core::UrlDecode`.
 pub fn default_site_hooks() -> SiteHooks {
+    use crate::tabs::import::build_sites;
+    use crate::tabs::import::core as import_core;
     SiteHooks {
-        website_list: Rc::new(|_| Vec::new()),
-        download_build: Rc::new(|_, _, _, _| not_ported("buildSites.DownloadBuild", "U43")),
-        url_decode: Rc::new(|_| not_ported("UrlDecode", "U44")),
+        website_list: Rc::new(|_| {
+            build_sites::WEBSITE_LIST
+                .iter()
+                .map(|w| BuildSite {
+                    label: w.label.to_owned(),
+                    match_url: w.match_url.to_owned(),
+                })
+                .collect()
+        }),
+        download_build: Rc::new(|cx, link, site, callback| {
+            // `buildSites.websiteList[site]`: nil past the end, as the Lua index
+            let info = site
+                .checked_sub(1)
+                .and_then(|i| build_sites::WEBSITE_LIST.get(i));
+            // U43's callback is `(isSuccess, data, siteCodeURL)`; PartyTab's reads the first
+            // two, and DownloadBuild calls it once
+            let once = RefCell::new(Some(callback));
+            build_sites::download_build(
+                cx,
+                link,
+                info,
+                Rc::new(
+                    move |cx: &mut Cx, is_success: bool, data: String, _url: Option<String>| {
+                        if let Some(f) = once.borrow_mut().take() {
+                            f(cx, is_success, &data);
+                        }
+                    },
+                ),
+            );
+        }),
+        // `UrlDecode(url)` with a string argument returns a string
+        url_decode: Rc::new(|s| import_core::UrlDecode(Some(s)).unwrap_or_default()),
     }
 }
 
@@ -1861,6 +1891,17 @@ mod tests {
         let mut t = z.clone();
         t.extend_from_slice(b"junk");
         assert_eq!(inflate(&t).as_deref(), Some(&b"<PathOfBuilding/>"[..]));
+    }
+
+    #[test]
+    fn default_site_hooks_are_u43s() {
+        let h = default_site_hooks();
+        // `website_list` needs no Cx field; the closure ignores its argument, so check the
+        // mapping through the list it is built from
+        let list = &crate::tabs::import::build_sites::WEBSITE_LIST;
+        assert_eq!(list[0].label, "Maxroll");
+        assert!(lmatch("https://pob.codes/b/abc", list[1].match_url).is_some());
+        assert_eq!((h.url_decode)("a+b%41"), "a bA");
     }
 
     #[test]

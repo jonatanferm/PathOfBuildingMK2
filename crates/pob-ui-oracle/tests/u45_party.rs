@@ -4,7 +4,9 @@
 //! rules this file shares).
 //!
 //! `u45_scenarios`: every `tests/u45/*.pobscript` at 1280x800 @1.0 and 1920x1080 @1.5 (both
-//! 1280 virtual px wide). Each script starts at the real build list (U18) of its fixture user
+//! 1280 virtual px wide), except scripts whose first step is `screen` (`c_wide` 1920x1080@1,
+//! `d_narrow` 1100x800@1: the layout's width branches), which run once at that screen. Each
+//! script starts at the real build list (U18) of its fixture user
 //! dir, opens the build, switches to the Party tab and drives it: pasted build codes (Ctrl+V
 //! into the code edit: `importCodeHandle`), Import (button and RETURN: `finishImport`), the
 //! Append / Show Advanced Info check boxes, Clear, Rebuild All, typing and Ctrl+Z in the

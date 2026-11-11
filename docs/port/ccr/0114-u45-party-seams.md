@@ -47,6 +47,14 @@ patterns, in list order) and `download_build` (`buildSites.DownloadBuild` with t
 `(isSuccess, data)`), and U44 `url_decode`, with one `set_site_hooks` call each in the place
 U43 installs its own hooks (or replaces the defaults in `default_site_hooks`, one line each).
 
+Update (U45 resume, after U43 merged): U43 landed `tabs::import::build_sites::{WEBSITE_LIST,
+download_build}` and `tabs::import::core::UrlDecode` (CCR-0109 §7), so `default_site_hooks` now
+calls them (U45's file only): `website_list` maps `WEBSITE_LIST` to `{label, matchURL}` in list
+order, `download_build` passes `WEBSITE_LIST.get(site - 1)` and adapts U43's
+`Fn(isSuccess, data, siteCodeURL)` callback to PartyTab's once-called two-argument one, and
+`url_decode` is `UrlDecode(Some(s))`. The placeholders and their `lua_error!` are gone; the
+hooks stay so tests can replace them.
+
 ## 3. SimpleGraphic's `Inflate` has no owner
 
 Evidence: PartyTab.lua:150 (and ImportTab.lua, U43) call `Inflate(…)`, a SimpleGraphic host
