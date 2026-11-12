@@ -170,3 +170,29 @@ PoB per build. Measured on rust-port fa733f3 + INT-1F-A:
   INT-1F-B (on `port/INT-1F-B`, not on rust-port when INT-1F-A finished): with it merged, both
   halves of INT-1's gate (L6 exact on all57 and on 100 fresh poe.ninja builds, D13 everywhere)
   hold. See FOLLOWUPS "INT-1F-A".
+
+## U53 cut-over (2026-11-12)
+
+On `port/U53` (merged rust-port b20e2bd). CCR-0145 lists every cross-unit edit.
+
+- **E2E with the Rust calc, no stand-ins:** `crates/pob-ui-oracle/scenarios/e2e/*.pobscript`
+  (12 scenarios: build list, tree open/hover/allocate/undo/search/zoom/drag, Skills, Items +
+  undo/redo, Calcs, Config, Notes + Ctrl+S, Party, Import/Export, Compare) under
+  `tests/u53_e2e.rs`: unmodified PoB Lua vs `pob_app::PobApp::new` (RustCalc), 24 runs at
+  1280x800@1 and 1920x1080@1.5, 1,438,240 Lua draw ops, **0 T3 divergences**, T4 28 pairs
+  identical, same window titles, no error on either side.
+- **Every unit harness on the Rust calc:** `LuaCalcBridge::new` now delegates to RustCalc
+  (`POB_UI_CALC=lua` for the old bridge; `LuaCalcBridge::lua` for u15 and `lua-calc`). All of
+  u16-u52 (35 binaries) pass with it, plus `parity` (54 cases, 42 gallery runs). No text masks:
+  no open calc issue needed one.
+- **Integration fixes found by the e2e run:** Save of nil `mainActiveSkill(Calcs)` and nil gem
+  `enableGlobal1/2` of the calc's own groups (CCR-0145 §3-§4); the last stand-ins in the shipping
+  hook defaults (SkillsTab→ItemsTab socket line/tooltip/undo, ItemsTab undo/redo, LIST subPath,
+  the breakdown node viewer, the character-import seams; §5).
+- **Renames:** `app/pob-port-{desktop,web}` → `app/pob-{desktop,web}`; the egui `crates/pob-ui`
+  and the legacy apps are deleted. `pob-engine`/`pob-data` stay for calc:INT-4. The web page runs
+  the app by default (`?app=testcard` for the test card).
+- **Open (FOLLOWUPS "U53"):** T6 (Wine not installed); the tree perf gate (< 4 ms at 1080p:
+  p50 2.7-4.2 ms, p95 3.1-5.3 ms, two of four builds over); web tree node icons draw as grey
+  squares (the app loads and runs in headless Chromium: build mode with the worker's numbers,
+  tabs, build list).
