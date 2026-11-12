@@ -331,6 +331,7 @@ pub struct CompareHooks {
     pub power_report_list: Rc<dyn Fn(&mut Cx, CtrlId) -> CtrlId>,
 }
 
+#[allow(dead_code)] // every entry has its owner's body now (U47)
 #[track_caller]
 fn not_ported(what: &str, owner: &str) -> ! {
     lua_error!("{what} is not ported yet ({owner})")
@@ -338,39 +339,21 @@ fn not_ported(what: &str, owner: &str) -> ! {
 
 /// The placeholders (CCR-0136 §1).
 pub fn default_compare_hooks() -> CompareHooks {
+    use super::entry;
     CompareHooks {
-        new_compare_entry: Rc::new(|_, _, _| not_ported("CompareEntry", "U47")),
-        entry_set_active_spec: Rc::new(|_, _, _| not_ported("CompareEntry:SetActiveSpec", "U47")),
-        entry_set_active_item_set: Rc::new(|_, _, _| {
-            not_ported("CompareEntry:SetActiveItemSet", "U47")
-        }),
-        entry_set_active_skill_set: Rc::new(|_, _, _| {
-            not_ported("CompareEntry:SetActiveSkillSet", "U47")
-        }),
-        entry_set_main_socket_group: Rc::new(|_, _, _| {
-            not_ported("CompareEntry:SetMainSocketGroup", "U47")
-        }),
-        entry_config_set_active_config_set: Rc::new(|_, _, _| {
-            not_ported("CompareEntry configTab:SetActiveConfigSet", "U47")
-        }),
-        entry_config_update_controls: Rc::new(|_, _| {
-            not_ported("CompareEntry configTab:UpdateControls", "U47")
-        }),
+        // U47 (CCR-0136 §1: one line each)
+        new_compare_entry: Rc::new(entry::new_compare_entry),
+        entry_set_active_spec: Rc::new(entry::entry_set_active_spec),
+        entry_set_active_item_set: Rc::new(entry::entry_set_active_item_set),
+        entry_set_active_skill_set: Rc::new(entry::entry_set_active_skill_set),
+        entry_set_main_socket_group: Rc::new(entry::entry_set_main_socket_group),
+        entry_config_set_active_config_set: Rc::new(entry::entry_config_set_active_config_set),
+        entry_config_update_controls: Rc::new(entry::entry_config_update_controls),
+        // CCR-0137 §2: the entry has no ConfigTab controls
         entry_config_var_control: Rc::new(|_, _, _| None),
-        entry_set_viewer_search_str: Rc::new(|_, _, _| {
-            not_ported("CompareEntry treeTab.viewer", "U47")
-        }),
-        entry_open_version_convert_popup: Rc::new(|_, _, _| {
-            not_ported("CompareEntry treeTab:OpenVersionConvertPopup", "U47")
-        }),
-        power_report_list: Rc::new(|cx, me| {
-            cx.add(
-                me,
-                "comparePowerReportList",
-                New::new(Base::new(Anchor::NONE, rect(0, 0, 750, 250)), PendingPowerReportList),
-            )
-            .id()
-        }),
+        entry_set_viewer_search_str: Rc::new(entry::entry_set_viewer_search_str),
+        entry_open_version_convert_popup: Rc::new(entry::entry_open_version_convert_popup),
+        power_report_list: Rc::new(super::power_list::ctor_hook), // U48 (CCR-0136 §1)
     }
 }
 
@@ -398,8 +381,13 @@ pub struct PendingPowerReportList;
 
 impl Widget for PendingPowerReportList {
     const NAME: &'static str = "ComparePowerReportListControl";
-    const CAPS: Caps = Caps::DRAW;
+    const CAPS: Caps = Caps::DRAW.union(Caps::IS_MOUSE_OVER);
     fn draw(_cx: &mut Cx, _me: CtrlId, _vp: &ViewPort, _no_tooltip: bool) {}
+    /// CCR-0137 §4: ListControl.lua:119-124 `IsMouseOver` (the placeholder has no scroll bar
+    /// child): U47's HandleScrollInput calls it while the list is shown.
+    fn is_mouse_over(cx: &Cx, me: CtrlId) -> bool {
+        cx.is_shown(me) && cx.is_mouse_in_bounds(me)
+    }
 }
 
 // ---- the tab's state -------------------------------------------------------------------------

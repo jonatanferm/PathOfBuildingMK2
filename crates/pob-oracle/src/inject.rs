@@ -574,7 +574,8 @@ impl<'a> Inj<'a> {
                 let ek = element_kind(kind);
                 for (k, x) in m {
                     match k.as_str() {
-                        "$id" | "$item" | "$store" | "$uuid" => {}
+                        // `$modLines`: an item's plain mod lines, decoded by `fill_item`
+                        "$id" | "$item" | "$store" | "$uuid" | "$modLines" => {}
                         "mods" if kind == Kind::Store => {}
                         "$seq" => {
                             if let J::Array(a) = x {
@@ -1367,6 +1368,9 @@ impl<'a> Inj<'a> {
                 }
             }
         }
+        if let Some(J::Object(ml)) = get("$modLines") {
+            fill_mod_lines(it, ml);
+        }
         for k in ITEM_FIELDS {
             if m.contains_key(*k) {
                 probe::unmark_absent(ptr, k);
@@ -1561,6 +1565,115 @@ impl ObjAny for Val {
         match self {
             Val::Obj(o) => o.clone(),
             _ => Rc::new(()),
+        }
+    }
+}
+
+/// An item's `$modLines` (pob-state/2, `lua/state_dump.lua` `itemModLines`; FUP3, FOLLOWUPS "CA"
+/// 3): the mod line lists `Item:FindModifierSubstring` merges (Item.lua:299-305) with the line
+/// fields it and `CheckModLineVariant` read, and the item's variant selection fields
+/// (Item.lua:2121-2145). The typed `variantAlt*` go to their fields, the others to `item.extra`
+/// as `CheckModLineVariant` reads them there. Not exported (`ITEM_FIELDS`): an injection input.
+fn fill_mod_lines(it: &ItemRef, ml: &Map<String, J>) {
+    for (k, f) in [
+        ("explicitModLines", &it.explicitModLines),
+        ("enchantModLines", &it.enchantModLines),
+        ("scourgeModLines", &it.scourgeModLines),
+        ("implicitModLines", &it.implicitModLines),
+        ("crucibleModLines", &it.crucibleModLines),
+    ] {
+        let Some(list) = ml.get(k) else { continue };
+        let lines: Vec<Table> = plain_seq(list)
+            .into_iter()
+            .filter_map(|l| plain_val(l).table())
+            .collect();
+        f.set(Shared::new(lines));
+    }
+    let Some(J::Object(v)) = ml.get("variant") else { return };
+    for (k, f) in [
+        ("variantAlt", &it.variantAlt),
+        ("variantAlt2", &it.variantAlt2),
+        ("variantAlt3", &it.variantAlt3),
+        ("variantAlt4", &it.variantAlt4),
+        ("variantAlt5", &it.variantAlt5),
+    ] {
+        f.set(v.get(k).and_then(J::as_f64));
+    }
+    for (k, x) in v {
+        if !k.starts_with("variantAlt") {
+            it.extra.set(Name::from(k.as_str()), plain_val(x));
+        }
+    }
+}
+
+/// The elements of a plain (value-object) sequence: a JSON array, or a table's `$seq`.
+fn plain_seq(j: &J) -> Vec<&J> {
+    match j {
+        J::Array(a) => a.iter().collect(),
+        J::Object(m) => m.get("$seq").and_then(J::as_array).map(|a| a.iter().collect()).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// A plain value (`state_dump.lua` `encodePlain`: no identity) as a calc value: tables become
+/// fresh `Table`s with their sequence, numeric (`$num`) and string members; `$float` / `$bytes`
+/// scalars are decoded; other markers are kept verbatim.
+fn plain_val(j: &J) -> Val {
+    match j {
+        J::Null => Val::Nil,
+        J::Bool(b) => Val::Bool(*b),
+        J::Number(n) => Val::Num(n.as_f64().unwrap_or(f64::NAN)),
+        J::String(s) => Val::Str(Rc::from(s.as_str())),
+        J::Array(a) => {
+            let t = Table::new();
+            for x in a {
+                t.push(plain_val(x));
+            }
+            Val::Table(t)
+        }
+        J::Object(m) => {
+            if let Some(n) = crate::schema::decode_num(j) {
+                return Val::Num(n);
+            }
+            if let (1, Some(hex)) = (m.len(), m.get("$bytes").and_then(J::as_str)) {
+                let bytes: Vec<u8> = (0..hex.len() / 2)
+                    .filter_map(|i| u8::from_str_radix(hex.get(2 * i..2 * i + 2)?, 16).ok())
+                    .collect();
+                return Val::Str(Rc::from(String::from_utf8_lossy(&bytes).as_ref()));
+            }
+            if marker_key(m).is_some() {
+                return Val::Obj(Rc::new(Marker(j.clone())));
+            }
+            let t = Table::new();
+            for (k, x) in m {
+                match k.as_str() {
+                    "$seq" => {
+                        for (i, y) in plain_seq(j).into_iter().enumerate() {
+                            t.set(i as i64 + 1, plain_val(y));
+                        }
+                    }
+                    "$num" => {
+                        if let J::Object(n) = x {
+                            for (nk, y) in n {
+                                let key = match nk.as_str() {
+                                    "inf" => Some(f64::INFINITY),
+                                    "-inf" => Some(f64::NEG_INFINITY),
+                                    s => s.parse::<f64>().ok(),
+                                };
+                                if let Some(key) = key.and_then(pob_calc::lua_table::Key::try_num) {
+                                    t.set(key, plain_val(y));
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        if let Some(name) = unescape(k) {
+                            t.set(Name::from(name), plain_val(x));
+                        }
+                    }
+                }
+            }
+            Val::Table(t)
         }
     }
 }

@@ -1,0 +1,23 @@
+# U47 e: Calcs view: RefreshCalcsSkillControls (the primary build's RefreshSkillSelectControls
+# through the control map, CompareEntry's for the comparison, buff modes, the view-mode
+# gates), LayoutCalcsSkillControls (two columns, info lines, the show-only-differences check
+# box), the header background; wheel scrolling goes to the calcs scroll bar.
+#! u47-import allflame_exp_048.xml
+#! u47-expect-text u47 CALCS hdr=
+screen 1600 900 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 98
+click LEFTBUTTON
+frames 3
+move 656 138
+click LEFTBUTTON
+frames 3
+move 700 600
+wheel down 2
+frames 2
+move 352 138
+click LEFTBUTTON
+frames 2

@@ -1,0 +1,19 @@
+# U47 c: Items view: the expanded check box and the two item set rows positioned by Draw (the
+# default column width while DrawItems has not set itemsColWidth), the build names, the
+# separator, PopulateSetDropdown for both builds; wheel scrolling.
+#! u47-import allflame_exp_048.xml
+#! u47-expect-text u47 ITEMS col=nil
+screen 1600 900 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 98
+click LEFTBUTTON
+frames 3
+move 580 138
+click LEFTBUTTON
+frames 3
+move 700 500
+wheel down 2
+frames 2

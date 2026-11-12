@@ -364,7 +364,10 @@ pub fn build_tree_connectors(assets: &TreeAssets, tree: &PassiveTreeRef) -> Vec<
 /// The connector polygons of one cluster subgraph: `subGraph.connectors` holds the node pairs
 /// PS-C's `linkNodes` recorded, in call order (CCR-0072 §3); PoB builds the polygons there
 /// (PassiveSpec.lua:2021-2025).
-/// @pob Classes/PassiveSpec.lua:2021-2025 h=d719263c
+/// lua: PassiveSpec.lua:2021-2025 (the UI half of `linkNodes`; model part: calc:PS-C
+/// `BuildSubgraph`, whose `@pob` marker of 1970-2359 covers these lines, so this copy carries
+/// none; FS1: one marker per Lua line). An upstream change here is PS-C's work item: re-port
+/// this half with it.
 pub fn build_subgraph_connectors(assets: &TreeAssets, sub_graph: &Table) -> Vec<Rc<Connector>> {
     let mut out = Vec::new();
     let Some(pairs) = sub_graph.table(n!("connectors")) else {

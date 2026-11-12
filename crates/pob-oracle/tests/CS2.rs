@@ -26,8 +26,9 @@
 //!
 //! **Corpus.** all57 (`.parity/builds`) has no `ExtraJewelFunc` mod, so the L4 run adds the
 //! synthetic builds of `corpus/CS2/*.xml` (see `SYNTHETIC`): one where PoB restarts and one where
-//! the mod's tags block the restart. Injected closures have no upvalues; the test puts them back
-//! from a second, never-injected load (`restore_jewel_func_args`).
+//! the mod's tags block the restart. The injected closures carry their upvalues (pob-state/2
+//! `$up`, decoded into `JewelFuncSpec.args`; FUP3): `check_jewel_func_args` checks them against a
+//! second, never-injected load of the same build.
 //!
 //! **Driven overrides.** After the build load the oracle side runs no extra calls; the
 //! calculator envs PoB makes during the load (`getMiscCalculator`, power) carry `override.repItem`
@@ -631,68 +632,48 @@ fn jewel_func_args(build: &BuildRef) -> JfArgs {
     out
 }
 
-/// A copy of `l` whose `ExtraJewelFunc` closures lost their upvalues get them back from `args`
-/// (`None` when nothing needs restoring).
-fn restore_list(l: &ModList, args: &JfArgs) -> Option<ModList> {
-    let mods = l.all_mods();
-    let mut changed = false;
-    let fixed: Vec<ModRef> = mods
-        .iter()
-        .map(|m| match &m.value {
-            Value::JewelFunc(j) if m.name == n!("ExtraJewelFunc") && j.args.is_empty() => {
-                match args.get(&(j.key, j.radius)) {
-                    Some(Some(p)) if p.key == j.key && p.r#type == j.r#type => {
-                        changed = true;
-                        let mut c = (**m).clone();
-                        c.value = Value::JewelFunc(p.clone());
-                        Arc::new(c)
-                    }
-                    _ => m.clone(),
+/// FUP3 (FOLLOWUPS "CS2" 2): the dump carries a closure's upvalues (pob-state/2 `$up`) and
+/// injection decodes them into `JewelFuncSpec.args` (`pob_oracle::mod_json::closure_args`), so an
+/// injected `ExtraJewelFunc` closure runs as it is. Check each one, on the injected items' mod
+/// lists and the `override.extraJewelFuncs` local, against the upvalues the Rust parse of the
+/// same build gave (`args`; the closure is the same source range with the same upvalues in PoB:
+/// the parse is L3, MP3). Returns how many were compared, or the first that differs.
+fn check_jewel_func_args(build: &BuildRef, locals: &[(String, Val)], args: &JfArgs) -> Result<usize, String> {
+    let mut n = 0;
+    let mut check = |l: &ModList, what: &str| -> Result<(), String> {
+        for m in l.all_mods() {
+            let Value::JewelFunc(j) = &m.value else { continue };
+            if m.name != n!("ExtraJewelFunc") {
+                continue;
+            }
+            if let Some(Some(p)) = args.get(&(j.key, j.radius)) {
+                n += 1;
+                if p.args != j.args {
+                    return Err(format!(
+                        "{what}: injected {} args {:?}, the parse's {:?}",
+                        j.key.as_str(),
+                        j.args,
+                        p.args
+                    ));
                 }
             }
-            _ => m.clone(),
-        })
-        .collect();
-    if !changed {
-        return None;
-    }
-    let n = ModStore::ModList(None);
-    n.actor.set(l.actor.get());
-    n.AddList(&fixed);
-    Some(n)
-}
-
-/// Injection decodes a dumped closure (`{"$fn": src}`) without its upvalues (the dump cannot see
-/// them: `lua/state_dump.lua`), so an injected `ExtraJewelFunc` mod whose closure reads them
-/// (2630-2634: `firstToUpper(attr)`) raises when it runs. Put back the upvalues the Rust parse of
-/// the same build gave, on the injected items' mod lists and the `override.extraJewelFuncs`
-/// local. (The closure is the same source range with the same upvalues in PoB: the parse is L3,
-/// MP3; the restored mod exports exactly as the injected one.)
-fn restore_jewel_func_args(build: &BuildRef, locals: &[(String, Val)], args: &JfArgs) {
-    if args.is_empty() {
-        return;
-    }
+        }
+        Ok(())
+    };
     let items: Vec<ItemRef> = build.itemsTab.items.with(|m| m.values().cloned().collect());
     for item in &items {
-        for (i, l) in item_mod_lists(item) {
-            if let Some(n) = restore_list(&l, args) {
-                if i == 0 {
-                    item.modList.set(Some(n));
-                } else {
-                    item.slotModList[i - 1].set(Some(n));
-                }
-            }
+        for (_, l) in item_mod_lists(item) {
+            check(&l, &format!("item {}", item.name.get()))?;
         }
     }
     for (name, v) in locals {
         if name == "override" {
-            if let Some(o) = v.obj::<Override>() {
-                if let Some(n) = o.extraJewelFuncs.get().and_then(|l| restore_list(&l, args)) {
-                    o.extraJewelFuncs.set(Some(n));
-                }
+            if let Some(l) = v.obj::<Override>().and_then(|o| o.extraJewelFuncs.get()) {
+                check(&l, "override.extraJewelFuncs")?;
             }
         }
     }
+    Ok(n)
 }
 
 /// What a Rust restart (pass 1) hands its recursive call: the `override.extraJewelFuncs` store
@@ -745,6 +726,7 @@ fn run_hit(
     carry: Option<&Carry>,
     carry_out: &mut Option<Carry>,
     extra_entries: &mut usize,
+    jf_checked: &mut usize,
 ) -> Outcome {
     pob_calc::global_cache::clear_all();
     let inj = match catch(|| pob_oracle::inject::inject(din, build)) {
@@ -777,7 +759,10 @@ fn run_hit(
             }
         }
     }
-    restore_jewel_func_args(build, &locals, jf);
+    match check_jewel_func_args(build, &locals, jf) {
+        Ok(k) => *jf_checked += k,
+        Err(e) => return Outcome::Error(format!("injected jewel func upvalues: {e}")),
+    }
     let before: std::collections::HashSet<String> =
         testkit::diff_against(din, inj.env.as_ref(), &locals, &format!("CS2-{stem}"))
             .iter()
@@ -1365,6 +1350,8 @@ struct Tally {
     synthetic: BTreeMap<String, (usize, usize)>,
     explained: BTreeMap<&'static str, usize>,
     fail_paths: BTreeMap<String, usize>,
+    /// injected ExtraJewelFunc closures whose decoded upvalues were checked (FUP3)
+    jf_args_checked: usize,
 }
 
 /// One build of `cs2_l4_items_segment`: its tally, report lines and missing-dump notes (merged in
@@ -1390,7 +1377,7 @@ fn items_build(xml: &Path, verbose: bool, max_hits: usize) -> (Tally, Vec<String
         }
     };
     // a second, never injected copy: the upvalues of its ExtraJewelFunc closures
-    // and the closure sources of its jewel funcs (`jewel_func_equal`)
+    // (`check_jewel_func_args`) and the closure sources of its jewel funcs (`jewel_func_equal`)
     let (jf, jsrc) = load_model(xml).map(|b| (jewel_func_args(&b), jewel_func_srcs(&b))).unwrap_or_default();
     let state = dir.path().to_path_buf();
     let ins = hit_files(&state, "initEnv:800");
@@ -1442,7 +1429,7 @@ fn items_build(xml: &Path, verbose: bool, max_hits: usize) -> (Tally, Vec<String
             .to_owned();
         let tag = format!("{stem} initEnv:800#{n} ({mode})");
         let (mut next, mut entries) = (None, 0);
-        let outcome = run_hit(&build, &jf, &jsrc, &din, dout.as_ref(), inner_ejf, &stem, this_carry.as_ref(), &mut next, &mut entries);
+        let outcome = run_hit(&build, &jf, &jsrc, &din, dout.as_ref(), inner_ejf, &stem, this_carry.as_ref(), &mut next, &mut entries, &mut t.jf_args_checked);
         drop(this_carry);
         carry = next;
         if second && matches!(outcome, Outcome::Pass(_) | Outcome::Fail(..)) {
@@ -1518,6 +1505,7 @@ impl Tally {
         self.second_pass += o.second_pass;
         self.second_pass_ok += o.second_pass_ok;
         self.second_pass_entries += o.second_pass_entries;
+        self.jf_args_checked += o.jf_args_checked;
         for (k, (a, b)) in o.synthetic {
             let e = self.synthetic.entry(k).or_default();
             e.0 += a;
@@ -1581,6 +1569,7 @@ fn cs2_l4_items_segment() {
         "  restart second passes (on Rust's pass-1 store): {} compared, {} identical, {} ExtraJewelFunc radius entries; synthetic builds (restarts, identical second passes): {:?}",
         t.second_pass, t.second_pass_ok, t.second_pass_entries, t.synthetic
     );
+    eprintln!("  injected ExtraJewelFunc closures with their decoded upvalues checked: {}", t.jf_args_checked);
     eprintln!("  explained representation differences: {:?}", t.explained);
     let mut fp: Vec<(&String, &usize)> = t.fail_paths.iter().collect();
     fp.sort_by(|a, b| b.1.cmp(a.1));
@@ -1608,6 +1597,11 @@ fn cs2_l4_items_segment() {
     // the restart path (1425-1433 and the 905-931 pass) against PoB: every second pass identical,
     // and each synthetic build that expects a restart (see SYNTHETIC) restarted with one
     assert_eq!(t.second_pass, t.second_pass_ok, "CS2 L4: restart second passes differ from PoB");
+    // the dumped upvalues reach the injected closures (a wrong one is an `errors` hit above)
+    assert!(
+        t.synthetic.is_empty() || t.jf_args_checked > 0,
+        "CS2 L4: no injected ExtraJewelFunc closure had its upvalues checked"
+    );
     for (stem, (restarts, ok)) in &t.synthetic {
         match SYNTHETIC.iter().find(|(s, _)| s == stem) {
             Some((_, true)) => assert!(

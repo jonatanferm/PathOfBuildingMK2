@@ -1,0 +1,70 @@
+# U48 a: import Sub/allflame_exp_030 as the comparison build (U46's folder popup), pick the
+# first metric (Full DPS: useFullDPS, the FullDPS fallback of GetFromOutput) with every category
+# on: RunComparePowerReport creates and runs the ComparePowerBuilder coroutine (tree nodes,
+# items, jewels, socket groups, support gems, config options), the list syncs (SetReport,
+# ReList, ReSort(3)). Select the first row (the list takes the focus, so its tooltips show) and
+# hover two more (socket groups / config rows: AddValueTooltip clears the tooltip), sort by
+# Category (ReSort 1) and hover an item row (the item tooltip), by Points (ReSort 4: the tree
+# rows first) and hover two tree rows (the node tooltip), then by Per Point and impact (ReSort
+# 5, 3).
+#! u48-expect-text u48 SUMMARY progress=100
+#! u48-expect-text ^7stub UNIQUE
+#! u48-expect-text ^7stub Normal
+screen 1280 800 dpi 1
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 718 48
+click LEFTBUTTON
+frames 2
+move 640 460
+click LEFTBUTTON
+frames 2
+move 640 236
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 640 236
+click LEFTBUTTON
+frames 2
+move 585 625
+click LEFTBUTTON
+frames 3
+move 420 228
+click LEFTBUTTON
+frames 2
+move 420 262
+click LEFTBUTTON
+frames 4
+move 500 277
+click LEFTBUTTON
+frames 2
+move 500 295
+frames 2
+move 500 313
+frames 2
+move 350 257
+click LEFTBUTTON
+frames 2
+move 500 441
+frames 2
+move 910 257
+click LEFTBUTTON
+frames 2
+move 500 277
+frames 2
+move 500 295
+frames 2
+move 980 257
+click LEFTBUTTON
+frames 2
+move 800 257
+click LEFTBUTTON
+frames 2
+move 500 277
+frames 2

@@ -792,7 +792,9 @@ mod oracle_side {
     }
 
     /// PoB's run of a build: the `ca:*` probe dumps and `ca.lua`'s JSON, cached in
-    /// `target/tmp/ca-probe/<stem>/`.
+    /// `target/tmp/ca-probe/<stem>/` with the dump format they were written in (`format.txt`): a
+    /// directory of an older encoder is probed again (FUP3: `ca_l5_post` needs pob-state/2's item
+    /// mod lines).
     pub(super) struct PobRun {
         pub dir: PathBuf,
         pub hits: J,
@@ -809,6 +811,11 @@ mod oracle_side {
             };
             Ok(PobRun { dir: dir.to_path_buf(), hits: j("hits.json")?, ca: j("ca.json")? })
         };
+        let current = std::fs::read_to_string(dir.join("format.txt"))
+            .is_ok_and(|f| f.trim() == pob_oracle::schema::STATE_FORMAT);
+        if !current {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
         if dir.join("ca.json").is_file() && dir.join("hits.json").is_file() {
             return read(&dir);
         }
@@ -842,6 +849,7 @@ mod oracle_side {
             pob_oracle::runner::write_atomic(&out_dir.join("ca.json"), &text).map_err(|e| e.to_string())?;
             Ok(())
         })();
+        let _ = std::fs::write(dir.join("format.txt"), pob_oracle::schema::STATE_FORMAT);
         if let Err(e) = result {
             let _ = std::fs::write(dir.join("error.txt"), &e);
             return Err(e);
@@ -1276,40 +1284,12 @@ mod oracle_side {
             .filter(|(k, _)| is_spec_key(k))
             .collect();
         leaves_diff("output", &ours, &theirs, &mut d);
-        // An `ItemCondition` tag with `searchCond` reads the item's mod lines
-        // (Item:FindModifierSubstring), which pob-state item dumps do not carry: a `Spec:*` sum
-        // over such a Tree mod is not reproducible from the dump.
-        let db = inj.env.modDB.get();
-        let item_cond = |names: &[&str]| {
-            db.all_mods().iter().any(|m| {
-                names.contains(&m.name.as_str())
-                    && m.source_category() == Some("Tree")
-                    && m.tags.iter().any(|t| t.r#type == TagType::ItemCondition && t.searchCond.is_some())
-            })
-        };
-        let mut limited = Vec::new();
-        d.retain(|x| {
-            let names: &[&str] = match x.split(' ').nth(1).unwrap_or_default().trim_end_matches(':') {
-                "Spec:LifeInc" => &["Life"],
-                "Spec:ManaInc" => &["Mana"],
-                "Spec:ArmourInc" => &["Armour", "ArmourAndEvasion"],
-                "Spec:EvasionInc" => &["Evasion", "ArmourAndEvasion"],
-                "Spec:EnergyShieldInc" => &["EnergyShield"],
-                _ => &[],
-            };
-            if !names.is_empty() && item_cond(names) {
-                limited.push(x.clone());
-                false
-            } else {
-                true
-            }
-        });
+        // A `Spec:*` sum over a Tree mod with an `ItemCondition` searchCond tag reads the item's
+        // mod lines (Item:FindModifierSubstring): pob-state/2 items carry them (`$modLines`,
+        // injected into the items' `*ModLines`; FUP3, FOLLOWUPS "CA" 3), so it is compared.
         for name in std::iter::once("skillsUsed").chain(USED) {
             let pob = res.shallow(&["env", name]);
             used_diff(name, &used_rust(&env_used(&inj.env, name)), &used_pob(Some(&pob)), &mut d);
-        }
-        if d.is_empty() && !limited.is_empty() {
-            return Err(format!("{LIMITED}item-condition Tree mods (injected items carry no mod lines): {limited:?}"));
         }
         Ok(d)
     }
@@ -1492,9 +1472,10 @@ mod oracle_side {
     /// Harness-limited builds per block on the all57 corpus (measured; see the reasons printed
     /// by the test): cost warnings: 1 build where PoB's loop leaves a skill uncached
     /// (upstream_Dual_Savior Reflection x2: the mirage re-keys the cache, `cost_block`), so the
-    /// Rust loop would run the full calc; used-tracking: 2 builds (allflame_exp_016, _049) whose `Spec:LifeInc` sums a Tree mod
-    /// with an `ItemCondition` searchCond tag (injected items carry no mod lines).
-    const L5_MAX_LIMITED: [usize; 3] = [1, 2, 0];
+    /// Rust loop would run the full calc; used-tracking: none since FUP3 (allflame_exp_016 and
+    /// _049, whose `Spec:LifeInc` sums a Tree mod with an `ItemCondition` searchCond tag, were
+    /// limited while injected items carried no mod lines).
+    const L5_MAX_LIMITED: [usize; 3] = [1, 0, 0];
 
     // ---- L6 -------------------------------------------------------------------------------------
 

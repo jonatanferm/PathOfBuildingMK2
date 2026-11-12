@@ -68,7 +68,9 @@ Not port gaps either, but limits of a test's own rebuilt model:
   (skillCond, skillTypes, skillGrantedEffect, slotName, item, ...) are absent, so tag paths that
   read them answer differently. MS-B's `l3_full_matrix_all57` rebuilds all of them and gates the
   same tag paths at 100% (6,948,606/6,948,606 matrix and 5,668,313/5,668,313 synthetic queries).
-  The bound only keeps MS-A's ungated count from drifting.
+  The bound only keeps MS-A's ungated count from drifting. (FUP3 left it alone: MS-A's
+  stores come from its own `corpus/MS-A/l3_queries.lua` serialisation, not from pob-state dumps,
+  so FUP3's `$modLines` / `$up` do not reach it.)
 
 ## BM-A
 
@@ -136,6 +138,20 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    `ItemCondition` tag with `searchCond` evaluates differently on an injected env. Seen in
    `ca_l5_post` on allflame_exp_016 / _049 (`Spec:LifeInc` sums Tree:41415, "+15 % Life if no
    Life on body armour"); counted as harness-limited (`L5_MAX_LIMITED`).
+   **Closed by FUP3** (port/FUP3, 2026-11-12). The dump format is now `pob-state/2`
+   (`schema::STATE_FORMAT`): every item carries `"$modLines"` (`lua/state_dump.lua`
+   `itemModLines`: the explicit / enchant / scourge / implicit / crucible lines with the fields
+   FindModifierSubstring and CheckModLineVariant read, Item.lua:289-333/2120-2146, and the item's
+   variant selection fields), and `inject::fill_mod_lines` sets the injected item's `*ModLines`,
+   `variantAlt*` and `extra` from it. `ca_l5_post` no longer excuses `Spec:*` sums over
+   searchCond Tree mods (the `limited` branch of `main_block` is gone) and `L5_MAX_LIMITED` is
+   `[1, 0, 0]`: allflame_exp_016 and _049 are compared clean. `CA.rs`'s private
+   `target/tmp/ca-probe/<stem>` dumps carry a `format.txt` and are re-probed when older.
+   `$modLines` is an injection input, ignored by every comparison (`schema::INPUT_KEYS`).
+   The same gap was PF-A's four CCR-0085 §5 `KNOWN_DIFFS` (allflame_exp_016 / _049,
+   doActorLifeMana and doActorAttribsConditions): all four came out clean (stale) on pob-state/2
+   dumps, so `PF-A.rs`'s list is now empty (its `target/tmp/pfa-probe` dumps carry a
+   `format.txt` too).
 4. **Skills PoB leaves uncached** (information; investigated in fix round 1). On
    upstream_Dual_Savior PoB never has a `GlobalCache.cachedData.MAIN` entry for its two Reflection
    skills (`Reflection_WEAPON1_1_3` / `_WEAPON2_1_4`). `buildActiveSkill` finds the uuid and runs
@@ -216,6 +232,20 @@ Open items found while porting initEnv's item segment (port/CS2, 2026-11-10;
    from a second, never-injected load of the same build (`restore_jewel_func_args`). Any other
    test that runs an injected ExtraJewelFunc or `jewelData.funcList` closure with captures needs
    the same workaround, or a dump that carries the captures.
+   **Closed by FUP3** (port/FUP3, 2026-11-12). The probe host gives the encoder an upvalue
+   reader (`JitPob::install_probe_upvalue_reader`, a `lua_getupvalue` C function stored in
+   `__state_dump`, not a global `debug`, so PoB's environment is unchanged; called by
+   `runner::probe_in_process`), and a ModParser.lua closure is dumped as
+   `{"$fn": src, "$up": [[name, value], …]}` (pob-state/2; one level: functions among the values
+   carry no `$up`). `mod_json::closure_args` fills `JewelFuncSpec.args` for the closures whose key
+   is their source range (`CLOSURE_ARGS`: 2622-2627, 2630-2634 and the jewelOtherFuncs inner
+   closures 6232-6364). `restore_jewel_func_args` is gone from `CS2.rs`; `check_jewel_func_args`
+   now checks the decoded upvalues against a fresh parse (all57 + corpus/CS2 with
+   `POB_FULL_SUITE=1`: 93 injected closures checked, 0 differ). Still not covered: the
+   jewelFuncList wrappers (6564-6569 and the threshold-table wrapper), whose Rust key is the
+   jewelFuncList key and not the closure's range; their `$up` is dumped but not decoded.
+   In-process probe preludes that boot their own `JitPob` (CS1, INT-3, CA's `pob_run`, the UI
+   oracle) do not install the reader, so their dumps have no `$up`.
 3. **Two explained buckets of `cs2_l4_items_segment` rest on exporter gaps** (owner: ORC-X2).
    `override.extraJewelFuncs (second pass, $foreign actor)`: on a restart's recursive call the
    Rust store is pass 1's (CalcSetup.lua:1425 leaves an existing store untouched), whose actor
@@ -225,6 +255,12 @@ Open items found while porting initEnv's item segment (port/CS2, 2026-11-10;
    (`EXPLAINED_MAX`, the measured counts) so a regression cannot move more hits into them
    silently; close the gaps in the exporter and drop the buckets. The `pre-load` skip count is
    bounded the same way (`PRELOAD_MAX`).
+   **FUP3 (2026-11-12): not closed, bounds unchanged.** Both gaps are in the Rust exporter
+   (`crates/pob-calc-core/src/probe.rs`), outside FUP3's crate. `radiusJewelList.nodes` is a bare
+   `Val::Obj(Rc<LjIntMap<NodeRef>>)` (CCR-0024 §3) that `PObj::from_val` only knows boxed, so it
+   exports as `{"$userdata": true}`; the second-pass actor needs a change to the export
+   identity rules. Both are proposed in CCR-0140 (`0140-fup3-exporter-gaps.md`). Re-measured
+   with `POB_FULL_SUITE=1` on port/FUP3: 17,414 and 129,887, exactly the bounds; `pre-load` 354.
 
 ## CCR2
 
@@ -283,11 +319,23 @@ Found while running the touched units' acceptance tests on port/FUP1 (rust-port 
    go after 72 h the same way, under an older branch still using them. Unlikely at current run
    lengths; closing it means holding the marker for a run (re-touch it while a process holds the
    copy, or a per-process lock file the prune checks).
+   **Closed by FUP3** (port/FUP3, 2026-11-12) for copies this code hands out: `patcher::publish`
+   takes a shared `flock` on `<copy>/.in-use.lock` for the rest of the process
+   (`patcher::hold_copy`), and `prune` removes a stale copy only while it holds that lock
+   exclusively (non-blocking; held across the rename, so a process that takes the copy meanwhile
+   finds it gone and republishes). The kernel drops a dead process's lock. Test:
+   `patcher::tests::prune_keeps_held_copies`. Still open: copies used by processes of older
+   code (no lock; pre-FUP3 branches) keep the 24 h / 72 h age rule.
 5. **`runner::shared_patch_root` doc is stale** (owner: the next change to
    `crates/pob-oracle/src/runner.rs` for another reason). It still says "every worktree shares
    one copy per sha" of `target/oracle-src`; since FUP1 `patcher::patch` publishes into
    `patcher::shared_root()` whatever root it is given. Left alone in FUP1 because `runner.rs` is
    `include_str!`'d into `PROBE_RUNTIME`, so any edit retires every cached probe selection.
+   **Closed by FUP3** (port/FUP3, 2026-11-12), in the same change as FUP3's other `runner.rs`
+   edit (`probe_in_process` installs the encoder's upvalue reader): the doc now says that
+   `patcher::patch` publishes into `patcher::shared_root()` and uses the given root only without
+   a `.parity`. FUP3 also edits `jit.rs` (`ORACLE_RUNTIME`), so it retires every cached query
+   result as well as every probe selection; the patched `<sha>` changes with `state_dump.lua`.
 6. **NaN `f64` keys still raise on reads outside item.rs / item_parse.rs** (owner: the units of
    each file; predates FUP1). Helpers such as `val_key` in `calc_active_skill.rs`,
    `init_env_skills.rs`, `item_mods.rs` and `passive_tree.rs` build the read key with
