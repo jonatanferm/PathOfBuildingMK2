@@ -21,7 +21,10 @@
 //!   env's used-tracking and the misc calculator. Reported per build (headline keys) and in total.
 //!   Gate (INT-1): every compared value exact and no Rust error, on any corpus subset; on the
 //!   full corpus (all57, or the whole fresh corpus) the compared totals are pinned as well
-//!   (docs/port/parity/INT-1-triage.md, INT-1-fresh-triage.md).
+//!   (docs/port/parity/INT-1-triage.md, INT-1-fresh-triage.md). A main-output key in the build's
+//!   §9.5 record (`.parity/nondet/<stem>.json` `outputs`, as `pob_calc_diff outputs` reads it)
+//!   counts as exact when both PoB's value of this run and Rust's are values PoB produced there
+//!   (FUP4: fresh_076 `ManaCostRaw`); every such value is listed.
 //! * `ca_d13_fixed_point` (L5 D13, Rust only): build → buildOutput → buildOutput gives identical
 //!   outputs and model state (`Build:SaveDB`), on slice5 and the corpus, in MAIN mode and then
 //!   for two CALCS runs (with `calcsTab.mainEnv` set, as CalcsTab:BuildOutput does). A build PoB
@@ -249,7 +252,10 @@ fn flat_json(j: &J) -> BTreeMap<String, Leaf> {
 }
 
 /// A JSON value with every number as an f64 (so `1` and `1.0` compare equal) and object keys
-/// sorted, as a string.
+/// sorted, as a string. A mod-shaped object without `tags` gets `"tags": []`, as INT-3's
+/// breakdown norm does (H3, docs/port/parity/INT-3-triage.md §5; FUP4): PoB dumps the inner mod
+/// of a LIST value (`SkillBuffs` `MinionModifier` rows, Calcs.lua:765-770) with an empty
+/// `tags`, and the Rust export leaves the member out.
 fn canon(j: &J) -> String {
     fn norm(j: &J) -> J {
         match j {
@@ -259,11 +265,13 @@ fn canon(j: &J) -> String {
             }
             J::Array(a) => J::Array(a.iter().map(norm).collect()),
             J::Object(m) => {
-                let s: BTreeMap<String, J> = m
+                let mut o: serde_json::Map<String, J> = m
                     .iter()
                     .filter(|(k, _)| k.as_str() != "$id")
                     .map(|(k, v)| (k.clone(), norm(v)))
                     .collect();
+                pob_oracle::mod_json::default_empty_tags(&mut o);
+                let s: BTreeMap<String, J> = o.into_iter().collect();
                 J::Object(s.into_iter().collect())
             }
             other => other.clone(),
@@ -1540,6 +1548,48 @@ mod oracle_side {
         used_tables_equal: usize,
         misc: usize,
         misc_exact: usize,
+        /// main-output values counted exact because they are one of PoB's recorded values at a
+        /// §9.5 nondeterministic key ([`Nondet`]), not PoB's value of this run.
+        nondet_accepted: Vec<String>,
+    }
+
+    /// The §9.5 record of a build (`.parity/nondet/<stem>.json`, `scripts/port/oracle.sh nondet`;
+    /// for the fresh corpus `oracle.sh nondet --fresh`), as the other all57 consumers read it
+    /// (`pob_calc_diff outputs`, `testkit`): `outputs` maps a flattened main-output key
+    /// (`env.player.output`, = `calcsTab.mainOutput`) to every value PoB produced there over
+    /// the recorded processes. FUP4: fresh_076 `ManaCostRaw` (CalcSetup.lua:1807 `pairs` over
+    /// group-keyed `supportLists[slotName]`, address order in PoB, LUA-ORDER in the port).
+    struct Nondet(BTreeMap<String, Vec<Leaf>>);
+
+    impl Nondet {
+        fn load(parity: &Path, stem: &str) -> Self {
+            let path = parity.join("nondet").join(format!("{stem}.json"));
+            let rec = path.is_file().then(|| {
+                pob_oracle::nondet::NondetRecord::load(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+            });
+            let mut m = BTreeMap::new();
+            for (k, vals) in rec.map(|r| r.outputs).unwrap_or_default() {
+                let leaves: Vec<Leaf> = vals
+                    .iter()
+                    .filter_map(|v| {
+                        let mut one = serde_json::Map::new();
+                        one.insert("v".to_owned(), v.clone());
+                        pob_oracle::oracle::flatten(&one).remove("v")
+                    })
+                    .collect();
+                m.insert(k, leaves);
+            }
+            Self(m)
+        }
+
+        /// PoB's value `pob` of this run and Rust's `ours` at `key` are both values PoB
+        /// produced there (calc doc §9.5: the diff accepts any of them). A record that does not
+        /// hold this run's PoB value does not describe the run and accepts nothing.
+        fn accepts(&self, key: &str, ours: Option<&Leaf>, pob: &Leaf) -> bool {
+            let Some(vals) = self.0.get(key) else { return false };
+            let Some(ours) = ours else { return false };
+            vals.iter().any(|v| leaf_eq(v, pob)) && vals.iter().any(|v| leaf_eq(v, ours))
+        }
     }
 
     #[test]
@@ -1600,6 +1650,7 @@ mod oracle_side {
             };
             let ours = build.calcsTab.mainOutput.get().map(|o| flat_table(&o)).unwrap_or_default();
             let pob = flat_json(&run.ca["main"]);
+            let nondet = Nondet::load(&parity, stem);
             // headline keys
             let mut line = Vec::new();
             let mut all = true;
@@ -1607,7 +1658,7 @@ mod oracle_side {
                 let (o, p) = (ours.get(k), pob.get(k));
                 t.headline += 1;
                 let eq = match (o, p) {
-                    (Some(a), Some(b)) => leaf_eq(a, b),
+                    (Some(a), Some(b)) => leaf_eq(a, b) || nondet.accepts(k, o, b),
                     (None, None) => true,
                     _ => false,
                 };
@@ -1626,6 +1677,11 @@ mod oracle_side {
             for (k, pv) in &pob {
                 if ours.get(k).is_some_and(|ov| leaf_eq(ov, pv)) {
                     exact += 1;
+                } else if nondet.accepts(k, ours.get(k), pv) {
+                    exact += 1;
+                    let msg = format!("{stem} {k}: Rust {} vs PoB {} (§9.5 nondeterministic)", fmt_leaf(ours.get(k)), fmt_leaf(Some(pv)));
+                    eprintln!("L6 {msg}");
+                    t.nondet_accepted.push(msg);
                 } else {
                     l6_diff(stem, "main", k, &fmt_leaf(ours.get(k)), &fmt_leaf(Some(pv)));
                 }
@@ -1735,6 +1791,11 @@ mod oracle_side {
             let msg = e.split_once(": ").map_or(e.as_str(), |(_, m)| m);
             *messages.entry(msg.to_owned()).or_default() += 1;
         }
+        eprintln!(
+            "CA L6: {} main-output values accepted as one of PoB's recorded nondeterministic values (§9.5): {:#?}",
+            t.nondet_accepted.len(),
+            t.nondet_accepted
+        );
         eprintln!("CA L6 Rust errors by stage: {:?}", t.stage_errors);
         for (m, n) in &messages {
             eprintln!("  {n:>3} x {m}");

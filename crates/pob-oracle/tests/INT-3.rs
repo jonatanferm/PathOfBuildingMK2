@@ -400,14 +400,9 @@ fn norm(v: &J, ids: &HashMap<u64, &J>, stack: &mut Vec<u64>) -> J {
             // `"tags": []`, but one reached inside a data value (a LIST mod's `value.mod`, e.g.
             // the `value` of `MinionModifier` rows of `SkillBuffs`, Calcs.lua:765-770) without the
             // member (state_dump.lua `encodeMod` vs its plain values; `pob_calc::probe::
-            // plain_mod_json`). An absent `tags` is the empty tag list either way.
-            let is_mod = ["name", "type"].iter().all(|k| o.get(*k).is_some_and(J::is_string))
-                && o.contains_key("value")
-                && o.contains_key("flags")
-                && o.contains_key("keywordFlags");
-            if is_mod && !o.contains_key("tags") {
-                o.insert("tags".to_owned(), J::Array(Vec::new()));
-            }
+            // plain_mod_json`). An absent `tags` is the empty tag list either way (H3; the
+            // helper is shared with CA's L5 compare, FUP4).
+            pob_oracle::mod_json::default_empty_tags(&mut o);
             J::Object(o)
         }
         other => other.clone(),

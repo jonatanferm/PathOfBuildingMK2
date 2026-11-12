@@ -171,6 +171,26 @@ pub fn decode_mod(j: &J) -> Result<(Mod, Option<String>), String> {
     ))
 }
 
+/// Normalises the representation gap INT-3 recorded as H3 (docs/port/parity/INT-3-triage.md §5;
+/// FUP4 shares it with CA's L5 compare). Both encoders write a mod reached as a calc table with
+/// `"tags": []`. A mod reached inside a data value (a LIST mod's `value.mod`, e.g. the `value`
+/// of the `MinionModifier` rows of `SkillBuffs`, Calcs.lua:765-770) is written without the
+/// member by `pob_calc::probe::plain_mod_json`, but with `"tags": []` by state_dump.lua's
+/// `encodeMod`. An absent `tags` is the empty tag list either way, as [`decode_mod`] reads it.
+/// The function adds `"tags": []` to a mod-shaped object (string `name` and `type`, plus
+/// `value`, `flags` and `keywordFlags`) that has no `tags`, and returns whether it added it.
+pub fn default_empty_tags(o: &mut Map<String, J>) -> bool {
+    let is_mod = ["name", "type"].iter().all(|k| o.get(*k).is_some_and(J::is_string))
+        && o.contains_key("value")
+        && o.contains_key("flags")
+        && o.contains_key("keywordFlags");
+    if is_mod && !o.contains_key("tags") {
+        o.insert("tags".to_owned(), J::Array(Vec::new()));
+        return true;
+    }
+    false
+}
+
 // ---- jewel closures ----------------------------------------------------------------------------
 
 /// The closures whose `JewelFuncSpec` key is their own source range
