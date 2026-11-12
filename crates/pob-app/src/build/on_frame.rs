@@ -216,6 +216,7 @@ pub struct ShellHooks {
     pub save_ui_section: Rc<dyn Fn(&mut Cx, &str) -> Option<model::XmlNode>>,
 }
 
+#[allow(dead_code)] // every ShellHooks placeholder has its owner now (U52 was the last)
 fn not_ported(what: &str, owner: &str) -> ! {
     lua_error!("{what} is not ported yet ({owner})")
 }
@@ -288,7 +289,7 @@ pub fn default_shell_hooks() -> ShellHooks {
         minion_search_list_control: Rc::new(
             crate::tabs::skills::minion_search_list::spectre_library_source,
         ),
-        similar_build_list: Rc::new(|_, _, _| not_ported("ExtBuildListControl", "U52")),
+        similar_build_list: crate::ext_build_list::similar_build_list_hook(),
         // one arm per UI-only saver (U22 Notes); calc:BM-A writes the other loaded sections
         // back (CCR-0080 §8)
         save_ui_section: Rc::new(|cx, elem| match elem {

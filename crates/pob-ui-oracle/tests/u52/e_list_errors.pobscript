@@ -1,0 +1,16 @@
+# U52: failed fetches in the list beside the build list (draw body on). Trending answers with a
+# DownloadPage error: the status line shows it (PoBArchivesProvider.lua:140-142). Latest answers
+# with a page that is not JSON: ParseBuilds sets "No builds found.", which the callback then
+# clears (L145-147), so the list shows nothing at all.
+#! u52-setup list
+#! u52-draw-body
+#! expect-text Response code: 503
+#! expect-text Loading..
+#! expect-no-text No builds found.
+#! u52-expect-keys 2
+fixture userdir=../../fixtures/user1
+fixture net=net_errors.json
+frames 3
+move 1206 69
+click LEFTBUTTON
+frames 3

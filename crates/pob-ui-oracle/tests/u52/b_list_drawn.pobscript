@@ -1,0 +1,39 @@
+# U52: the list beside the build list (BuildList.lua:93, getPublicBuilds) with its dead draw
+# body run on both sides (`#! u52-draw-body`). Frame 1 draws the Trending list (portraits only
+# for the lower-case ascendancies, long titles and skills wrapped, the stats line, Import and
+# Preview buttons for the builds inside the view, re-created every frame at `#controls + 1`).
+# Then: hover an Import button; Preview of the first build (OpenURL); a click on the list's empty
+# area (the focus leaves the build list) and the wheel (the scroll bar moves the content, the
+# buttons and the status line; back to the top); the "Latest" tab ("Loading.." for a frame, then the Latest list; the tab buttons'
+# `locked` flags swap); Import of the first Latest build (ImportBuild: pobb.in, DownloadBuild,
+# the build code decoded, main:SetMode("BUILD", false, "Latest Hierophant", xml, false, url)).
+#! u52-setup list
+#! u52-draw-body
+#! expect-text Righteous Fire Juggernaut
+#! expect-text Loading..
+#! expect-text Latest Hierophant
+#! u52-expect-effect open-url https://pobarchives.com/build/aB3dE5
+#! u52-expect-mode BUILD
+#! u52-expect-build-name Latest Hierophant
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 3
+move 1150 250
+frames 1
+move 1200 250
+click LEFTBUTTON
+frames 1
+move 1250 460
+click LEFTBUTTON
+wheel down 3
+frames 2
+wheel up 1
+frames 1
+wheel up 3
+frames 1
+move 1206 69
+click LEFTBUTTON
+frames 2
+move 1150 215
+click LEFTBUTTON
+frames 3

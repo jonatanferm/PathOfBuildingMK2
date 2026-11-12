@@ -1,0 +1,6 @@
+{"builds":[
+ {"build_info":{"title":"Similar Necromancer","author":"Minion Main","mainSkill":"Raise Spectre","ascendancy":"necromancer","class":"Witch","short_uuid":"sm1","build_link":"https://pobb.in/u52Code"},
+  "stats":{"TotalEHP":52000,"LifeUnreserved":4100,"EnergyShield":900},"fullDPS":780000,"tree":{"version":"3_25"},"similarity_score":0.9312},
+ {"build_info":{"title":"Similar Occultist","author":"Curse Fan","mainSkill":"Vortex","ascendancy":"occultist","class":"Witch","short_uuid":"sm2","build_link":"https://pobb.in/u52Code"},
+  "stats":{"TotalEHP":61000,"LifeUnreserved":200,"EnergyShield":7300},"fullDPS":1350000,"tree":{"version":"3_25"},"similarity_score":0.875}
+]}

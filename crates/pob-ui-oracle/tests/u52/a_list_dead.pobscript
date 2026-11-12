@@ -1,0 +1,26 @@
+# U52: PoB's own behaviour. The list beside the build list (BuildList.lua:93, getPublicBuilds)
+# fetches Trending at Init, but its Draw returns at `if true then return end` (L249): nothing of
+# it is drawn and no Import/Preview button is ever created. Its controls are still there for
+# input: a click on its empty area takes the focus from the build list (so the wheel reaches the
+# list's OnKeyUp, whose scroll bar is disabled), a click where the invisible "Latest" tab is
+# fetches the Latest list (the response arrives next frame; nothing shows), and a click where an
+# Import button would be does nothing.
+#! u52-setup list
+#! expect-no-text Trending
+#! expect-no-text Loading..
+#! expect-no-text Righteous Fire
+#! u52-expect-keys 2
+#! u52-expect-mode LIST
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 3
+move 1250 400
+click LEFTBUTTON
+wheel down 2
+frames 1
+move 1206 69
+click LEFTBUTTON
+frames 3
+move 1150 250
+click LEFTBUTTON
+frames 2

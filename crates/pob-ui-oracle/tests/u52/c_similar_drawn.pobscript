@@ -1,0 +1,31 @@
+# U52: the Similar Builds popup (Build.lua:1576-1614, U20's popup with U52's hook entry) with the
+# list's draw body run on both sides. Init POSTs importCode=<the build code> to
+# /api/recommendations (the recorded response: HTTP 200, two builds with a "Match Score"); the
+# list shows them with the metadata line. Then: hover the provider dropdown, open it and pick its
+# only entry again (DropDownControl:SetSel calls selFunc only for another index, so Init does not
+# run again; the Rust unit test `init_again_keeps_a_focused_control_until_it_loses_focus` covers
+# that with two providers), Preview of the first build (OpenURL), the wheel (the content fits:
+# the scroll bar stays disabled).
+#! u52-setup similar
+#! u52-draw-body
+#! expect-text Similar Necromancer
+#! expect-text Match Score: 0.9312
+#! u52-expect-post https://pobarchives.com/api/recommendations importCode=eN
+#! u52-expect-effect open-url https://pobarchives.com/build/sm1
+fixture userdir=../../fixtures/user1
+fixture net=net.json
+frames 3
+move 840 116
+frames 1
+click LEFTBUTTON
+frames 1
+move 840 134
+click LEFTBUTTON
+frames 3
+move 450 290
+frames 1
+click LEFTBUTTON
+frames 1
+move 640 400
+wheel down 2
+frames 2
