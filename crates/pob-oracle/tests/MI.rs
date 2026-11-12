@@ -12,10 +12,10 @@
 //!   `(newSkill, newEnv)` decoded into the live graph as the call's results;
 //! * `calcs.perform(newEnv)`: the delta `mi:52 → mi:53` (newSkill is attached to the env for the
 //!   replay so its changes land on the live skill); newEnv is another env, which a dump writes as a
-//!   `$env` marker (CCR-0064 §1), so its `player.output` is either kept as PoB's `$foreign` marker
-//!   (Mirage Archer / Sacred Wisps: `mirage.output`) or, where the main env takes it over
-//!   (Reflection / Tawhoa's Chosen: `env.player.output = newEnv.player.output`), taken from PoB's
-//!   `mirages:out` minus the keys MI writes itself;
+//!   `$env` marker (CCR-0064 §1), so its `player.output` is taken from PoB's `mirages:out`, where
+//!   MI stores it: `mirage.output` (Mirage Archer / Sacred Wisps; written in full since ORC-X2,
+//!   CCR-0146) or `env.player.output` (Reflection / Tawhoa's Chosen take it over), minus the keys
+//!   MI writes itself;
 //! * `buildActiveSkill` (CA): General's Cry `mi:361 → mi:364`; compareFunc's builds (Reflection /
 //!   Tawhoa's Chosen) the delta `mirages:in → mi:39` at the first call. The cached env's output is
 //!   another env's table, so the attack time General's Cry reads from it is rebuilt from PoB's
@@ -27,7 +27,8 @@
 //!
 //! Reflection / Tawhoa's Chosen: the final `env.player.output` is grafted from `mirages:out`
 //! (above), so for those families its comparison is by construction (a replay limit, CCR-0090
-//! §4.3); what MI writes into it (Tawhoa's Chosen 236-239) is still checked. Any
+//! §4.3); what MI writes into it (Tawhoa's Chosen 236-239) is still checked. Mirage Archer /
+//! Sacred Wisps: `mirage.output` likewise (CCR-0146: the dumps write it in full since ORC-X2). Any
 //! `pob_calc::stub` reached during a call, and a Rust `true` where PoB returned nothing
 //! (`ret.n = 0`), make the call divergent.
 //!
@@ -35,9 +36,10 @@
 //! its `out` probe (after): a mismatch before a call is MI's code (divergent), one that a replay adds
 //! is the replay's (replay-limited). Gate: every comparable call clean, no divergent or failed one.
 //!
-//! Dumps are probed by this test into `target/tmp/mi-probe/<stem>/` when absent (LuaJIT, the
-//! machine-wide oracle lock). Knobs: `MI_BUILDS=stem1,stem2`, `MI_LIMIT=n`, `MI_VERBOSE=1`. A
-//! missing input skips with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
+//! Dumps come from the shared probe cache (`testkit::probe_selection`: content-keyed, probed in a
+//! fresh `pob_oracle probe` process when absent, under the machine-wide oracle lock). Knobs:
+//! `MI_BUILDS=stem1,stem2`, `MI_LIMIT=n`, `MI_VERBOSE=1`. A missing input skips with a message;
+//! with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails instead.
 #![cfg(feature = "luajit")]
 
 use std::cell::RefCell;
@@ -96,47 +98,24 @@ fn stages_file() -> PathBuf {
 }
 
 /// The build's dumps: every `mirages:in/out` and `mi:*` hit of the run (not only the main env's),
-/// probed into `target/tmp/mi-probe/<stem>/state` when absent.
-fn probe_dumps(xml: &Path) -> Result<PathBuf, String> {
-    let stem = stem(xml);
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("mi-probe")
-        .join(stem);
-    let state = dir.join("state");
-    if dir.join("hits.json").is_file() {
-        return Ok(state);
-    }
-    let src = pob_oracle::oracle::find_pob_src().ok_or("no PoB checkout")?;
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-    let patched = pob_oracle::patcher::patch(&src, Some(&stages_file()), &root)
-        .map_err(|e| format!("patch: {e}"))?;
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let log = dir.with_extension("log");
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-        .arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(&dir)
-        .arg("--patched")
-        .arg(&patched.src)
-        .args([
-            "--select",
-            "mirages:*,mi:*",
-            "--max-dumps",
-            "400",
-            "--no-provenance",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::fs::File::create(&log).map_err(|e| e.to_string())?)
-        .status()
-        .map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(state)
-    } else {
-        let _ = std::fs::remove_file(dir.join("hits.json"));
-        Err(format!("pob_oracle probe failed: see {}", log.display()))
-    }
+/// from the shared probe cache (`testkit::probe_selection`, probed in a fresh `pob_oracle probe`
+/// process when absent). MI1: the entry is content-keyed (the patched source's sha, which covers
+/// `corpus/MI/stages.toml`, the patcher and the dump Lua; the build's bytes; the selection; the
+/// probe's Rust code), so a harness or dump-format change probes again. The earlier
+/// `target/tmp/mi-probe/<stem>/` directory was reused whenever it held a `hits.json`, whatever
+/// made it. Hold the result while reading the dumps.
+fn probe_dumps(xml: &Path) -> Result<pob_oracle::runner::ProbeDumps, String> {
+    let opts = pob_oracle::runner::ProbeOptions {
+        select: vec!["mirages:*".to_owned(), "mi:*".to_owned()],
+        max_dumps: 400,
+        provenance: false,
+    };
+    testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&stages_file()),
+        &opts,
+    )
 }
 
 /// The hits of one `calcs.mirages` call: its `in`/`out` and the line probes fired inside it.
@@ -153,8 +132,17 @@ struct MirageCall {
 /// probe hit is the call's `mirages:in#n`).
 fn mirage_calls(state: &Path) -> Result<Vec<MirageCall>, String> {
     let dir = state.parent().ok_or("bad dir")?;
+    // a cache entry's files are `<name>.zst`, an uncached run's (`POB_QUERY_CACHE=off`) plain
+    let file = |rel: &str| -> PathBuf {
+        let z = dir.join(format!("{rel}.zst"));
+        if z.is_file() {
+            z
+        } else {
+            dir.join(rel)
+        }
+    };
     let hits: J = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("hits.json")).map_err(|e| e.to_string())?,
+        &pob_oracle::schema::read_text(&file("hits.json")).map_err(|e| e.0)?,
     )
     .map_err(|e| e.to_string())?;
     let main_env = hits["mainEnv"].as_str().unwrap_or_default().to_owned();
@@ -166,7 +154,7 @@ fn mirage_calls(state: &Path) -> Result<Vec<MirageCall>, String> {
     let mut lines: BTreeMap<String, BTreeMap<String, PathBuf>> = BTreeMap::new();
     for d in hits["dumps"].as_array().into_iter().flatten() {
         let hit = d["hit"].as_str().unwrap_or_default();
-        let file = dir.join(d["file"].as_str().unwrap_or_default());
+        let file = file(d["file"].as_str().unwrap_or_default());
         let (id, n) = hit.split_once('#').unwrap_or((hit, ""));
         match id {
             "mirages:in" => {
@@ -351,11 +339,31 @@ fn id_paths(root: &J) -> BTreeMap<u64, String> {
     out
 }
 
-/// `output` (a subtree of `mirages:out`, `env.player.output`) rewritten into `mi53`'s identity
-/// space: a reference to a table outside the subtree becomes a reference to the table at the same
-/// path in `mi53` (`env.player.mainSkill` of `mirages:out` is `locals.newSkill` there); the
-/// subtree's own ids are moved past `mi53`'s.
-fn graft_output(mi53: &StateDump, out: &StateDump, output: &J) -> Result<J, String> {
+/// The full occurrence of the table at `path` in `d` (a `$ref` there is followed): its canonical
+/// path and the table.
+fn full_table(d: &StateDump, path: &str) -> Option<(String, J)> {
+    let v = pob_oracle::schema::get_path(&d.root, path)?;
+    match v
+        .as_object()
+        .filter(|m| m.len() == 1)
+        .and_then(|m| m.get("$ref"))
+        .and_then(J::as_u64)
+    {
+        Some(n) => {
+            let canon = id_paths(&d.root).remove(&n)?;
+            let t = pob_oracle::schema::get_path(&d.root, &canon)?.clone();
+            Some((canon, t))
+        }
+        None => Some((path.to_owned(), v.clone())),
+    }
+}
+
+/// `output` (the subtree of `mirages:out` at `base`: `env.player.output`, or
+/// `env.player.mainSkill.mirage.output`) rewritten into `mi53`'s identity space: a reference to a
+/// table outside the subtree becomes a reference to the table at the same path in `mi53`
+/// (`env.player.mainSkill` of `mirages:out` is `locals.newSkill` there); the subtree's own ids are
+/// moved past `mi53`'s.
+fn graft_output(mi53: &StateDump, out: &StateDump, base: &str, output: &J) -> Result<J, String> {
     let ids53: BTreeMap<String, u64> = id_paths(&mi53.root)
         .into_iter()
         .map(|(id, p)| (p, id))
@@ -363,7 +371,6 @@ fn graft_output(mi53: &StateDump, out: &StateDump, output: &J) -> Result<J, Stri
     let ids_out = id_paths(&out.root);
     let offset = 1 + ids53.values().copied().max().unwrap_or(0)
         + ids_out.keys().copied().max().unwrap_or(0);
-    let base = "env.player.output";
     fn rw(
         v: &J,
         ids53: &BTreeMap<String, u64>,
@@ -696,11 +703,22 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
         .get()
         .map(|s| s.activeEffect.get().grantedEffect.get().name.to_string())
         .unwrap_or_default();
-    // Reflection / Tawhoa's Chosen: `env.player.output = newEnv.player.output` (CalcMirages.lua
-    // 157, 235). newEnv's output is another env's table in every line probe (a `$foreign`
-    // marker), so the perform replay grafts PoB's `mirages:out` `env.player.output` in, minus the
-    // keys MI writes itself (Tawhoa's Chosen, 236-239)
-    let graft: Option<J> = if d53.is_some() && (family == "Reflection" || family == "Tawhoa's Chosen") {
+    // newEnv's final `player.output` (`env.player.output = { }`, CalcPerform.lua:1305, then
+    // filled by the nested perform) is another env's table, which no line probe reaches (`newEnv`
+    // is a `$env` marker there), so the perform replay grafts PoB's copy of it from `mirages:out`
+    // (`(base, table)`):
+    // * Reflection / Tawhoa's Chosen: `env.player.output = newEnv.player.output`
+    //   (CalcMirages.lua 157, 235), minus the keys MI writes itself (Tawhoa's Chosen, 236-239);
+    // * Mirage Archer / Sacred Wisps: `env.player.mainSkill.mirage.output = newEnv.player.output`
+    //   (100, 326). MI1: since ORC-X2 the dumps write another env's `*.output` in full where they
+    //   reach it (state_dump.lua `inlineForeign`), so `mirages:out` holds it; the earlier
+    //   `$foreign` placeholder no longer matches. A `$foreign` marker there (a dump of an older
+    //   encoder) keeps the placeholder.
+    // Either way the output's content is PoB's by construction; what MI checks is that the table
+    // lands where MI puts it (and every other path).
+    let graft: Option<(String, J)> = if d53.is_none() {
+        None
+    } else if family == "Reflection" || family == "Tawhoa's Chosen" {
         let mut o = dout.root["env"]["player"]["output"].clone();
         if family == "Tawhoa's Chosen" {
             if let Some(m) = o.as_object_mut() {
@@ -709,9 +727,13 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
                 }
             }
         }
-        Some(o)
+        Some(("env.player.output".to_owned(), o))
     } else {
-        None
+        let path = "env.player.mainSkill.mirage.output";
+        let (base, o) = full_table(&dout, path)
+            .ok_or_else(|| format!("perform ran, but mirages:out has no {path}"))?;
+        let marker = o.as_object().is_some_and(pob_oracle::schema::is_marker);
+        (!marker).then_some((base, o))
     };
 
     // General's Cry: the attack time the cached env's output gives (`HitTime or Time`; the
@@ -854,8 +876,8 @@ fn run_call(c: &MirageCall) -> Result<CallResult, String> {
                         return Some(Ret::Unit);
                     }
                 };
-                if let Some(g) = &graft {
-                    match graft_output(b, &dout_h, g) {
+                if let Some((base, g)) = &graft {
+                    match graft_output(b, &dout_h, base, g) {
                         Ok(j) => {
                             if let Some(e) = b2.root.get_mut("env").and_then(J::as_object_mut) {
                                 e.insert(GRAFT.to_owned(), j);
@@ -1106,7 +1128,9 @@ fn mi_l4_mirages_in_to_out() {
     let mut vacuous: Vec<String> = Vec::new();
     for xml in &builds {
         let stem = stem(xml);
-        let calls = match probe_dumps(xml).and_then(|s| mirage_calls(&s)) {
+        // held while the build's calls read their dumps
+        let dumps = probe_dumps(xml);
+        let calls = match dumps.as_ref().map_err(Clone::clone).and_then(|s| mirage_calls(s)) {
             Ok(c) => c,
             Err(e) => {
                 failed.push(format!("{stem}: {e}"));

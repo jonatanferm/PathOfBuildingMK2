@@ -226,7 +226,8 @@ fn count_keys(build: &pob_calc::model::BuildRef) {
 }
 
 /// `modKey:gsub("function: %w+", "function")`: a closure's `tostring` is an address in PoB
-/// (`function: 0x…`, per process) and `function: builtin` in the port (as calc:PWR's L5 test).
+/// (`function: 0x…`, per process) and `function: 0x` plus a hash of the closure's spec in the
+/// port (`mod_tools::function_text`, FUP2; as calc:PWR's L5 test).
 fn norm_mod_key(k: &str) -> String {
     let mut out = String::with_capacity(k.len());
     let mut rest = k;

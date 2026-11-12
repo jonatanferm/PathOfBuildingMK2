@@ -155,12 +155,15 @@ fn explode_key(src: &Val) -> Val {
         });
     }
     if let Some(node) = src.obj::<Node>() {
-        return Val::Num(node.id);
+        // FUP2: `node.id` as Lua has it (the string id of a legion / tattoo node, CCR-0024 §1;
+        // the typed `Node.id` is NaN there)
+        return crate::classes::passive_tree::node_id_val(&node);
     }
     lor(src.get(n!("modSource")), || src.get(n!("id")))
 }
 
-/// A Lua table key from a value (`gemsBySource[k]`): strings and numbers.
+/// A Lua table key from a value to store at (`gemsBySource[k] = gem`): strings and numbers; a
+/// nil or NaN key raises.
 fn val_key(v: &Val) -> Key {
     match v {
         Val::Str(s) => Key::S(Name::from(&**s)),
@@ -168,6 +171,16 @@ fn val_key(v: &Val) -> Key {
         Val::Bool(b) => Key::B(*b),
         Val::Nil => lua_error!("table index is nil"),
         other => lua_error!("gemsBySource: unsupported key type {}", other.lua_type()),
+    }
+}
+
+/// The key `gemsBySource[k]` reads at (FUP2, FOLLOWUPS "FUP1" item 6): `None` for a nil or NaN
+/// key, which reads nil (`lj_tab_get` finds nothing) where a store at it raises ([`val_key`]).
+fn read_key(v: &Val) -> Option<Key> {
+    match v {
+        Val::Nil => None,
+        Val::Num(x) => Key::try_num(*x),
+        other => Some(val_key(other)),
     }
 }
 
@@ -649,13 +662,9 @@ pub fn seg(ctx: &mut InitEnvCtx) -> Flow {
                     // L1531
                     let activeGemInstance: GemInstanceRef;
                     // L1532
-                    // (a nil key reads nil)
+                    // (a nil or NaN key reads nil)
                     let key = explode_key(&explodeSource);
-                    let found = if key.is_nil() {
-                        None
-                    } else {
-                        gemsBySource.obj::<GemInstance>(val_key(&key))
-                    };
+                    let found = read_key(&key).and_then(|k| gemsBySource.obj::<GemInstance>(k));
                     if let Some(g) = found {
                         // L1533
                         activeGemInstance = g;
@@ -1496,4 +1505,27 @@ fn skillData_set(activeSkill: &ActiveSkill, value: &Val) {
         other => lua_error!("skillData key is a {} value", other.lua_type()),
     };
     activeSkill.skillData.get().set(key, value.get(n!("value")));
+}
+
+#[cfg(test)]
+mod fup2_key_tests {
+    use super::*;
+
+    /// CalcSetup.lua:1526/1532 `gemsBySource[explodeSource.modSource or explodeSource.id]`: a
+    /// passive node's key is its Lua `id`, the string id for a node whose typed `id` is NaN
+    /// (CCR-0024 §1); a NaN or nil key reads nil (FOLLOWUPS "FUP1" item 6).
+    #[test]
+    fn explode_key_and_nan_reads() {
+        let node = Rc::new(crate::classes::passive_tree::new_node_table(f64::NAN));
+        node.extra.set(n!("id"), "tattoo_1");
+        let src = Val::Obj(node);
+        assert_eq!(explode_key(&src).str().as_deref(), Some("tattoo_1"));
+        let numbered = Rc::new(crate::classes::passive_tree::new_node_table(26725.0));
+        assert_eq!(explode_key(&Val::Obj(numbered)).opt_num(), Some(26725.0));
+        assert!(read_key(&Val::Num(f64::NAN)).is_none());
+        assert!(read_key(&Val::Nil).is_none());
+        assert_eq!(read_key(&Val::Num(2.0)), Some(Key::I(2)));
+        let e = pob_lua::error::catch(|| val_key(&Val::Num(f64::NAN))).unwrap_err();
+        assert!(e.0.contains("table index is NaN"), "{}", e.0);
+    }
 }
