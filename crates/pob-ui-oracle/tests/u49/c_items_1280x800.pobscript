@@ -1,0 +1,43 @@
+# U49 c: Items view with allflame_exp_048, compact mode: the slot rows (drawCompactSlotRow: the
+# label, both item boxes with fitted names, the diff labels, the Buy/Copy/Equip buttons; the
+# abyssal sockets of either build), the tree set dropdowns DrawItems positions and fills, the
+# jewel rows (warnings, the underlined socket labels), itemsColWidth and the horizontal scroll
+# bar (the content is wider than 1280). At 1600/1920 the Equip buttons are on screen:
+# hovering Weapon 2's (the stat comparison tooltip: getMiscCalculator, calcFunc with repSlotName /
+# repItem, AddStatComparesToTooltip; 1920: an Equip click equips it, T4). Hovering the primary Weapon 1 box (U38's item tooltip
+# with its stat differences), the Copy button (hover fill), a Copy click
+# (CopyCompareItemToPrimary: the item is added to the primary build; T4), wheel scrolling, then expanded mode (DrawItemExpanded: the measure
+# pass, both item cards with the diff markers, the column divider).
+#! u49-import allflame_exp_048.xml
+#! u49-expect-text ^7-- Jewels --
+#! u49-expect-text ^7Copy
+#! u49-expect-text Expanded mode
+screen 1280 800 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 580 138
+click LEFTBUTTON
+frames 3
+move 500 250
+frames 1
+move 1260 250
+frames 1
+click LEFTBUTTON
+frames 3
+snapshot copied
+move 700 500
+wheel down 2
+frames 2
+wheel up 2
+frames 2
+move 437 175
+click LEFTBUTTON
+frames 3
+move 700 500
+wheel down 3
+frames 2
