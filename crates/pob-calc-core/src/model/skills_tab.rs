@@ -154,6 +154,14 @@ pub fn levelCostCleared(grantedEffectId: Name, level: f64) -> bool {
     LEVEL_COST_CLEARED.with(|s| s.borrow().contains(&(grantedEffectId, level.to_bits())))
 }
 
+/// Forget every `levels[level].cost = {}` write of this thread, as a freshly booted PoB process
+/// would (CCR-0133, amending CCR-0019 §8). Rust-only: the oracle harnesses call it per build,
+/// because the oracle boots a new PoB for each build; the desktop app never calls it and keeps
+/// PoB's process scope.
+pub fn reset_level_cost_cleared() {
+    LEVEL_COST_CLEARED.with(|s| s.borrow_mut().clear());
+}
+
 /// `defaultGemLevelList` (SkillsTab.lua:30-57): the `gemLevel` keys, in order.
 const defaultGemLevelList: [&str; 5] = [
     "normalMaximum",

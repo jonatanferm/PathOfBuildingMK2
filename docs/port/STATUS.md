@@ -151,3 +151,22 @@ docs/port/parity/INT-1-fresh-triage.md finds two buckets. Both are XS:
   measured 85,603/85,603.
 - **INT-1F-B** (CA): fresh_017 is not a fixed point on a warm cache in PoB itself, so it needs a
   `D13_POB_WARM_CACHE` entry.
+
+## INT-1: done (INT-1F-A, 2026-11-12)
+
+INT-1F-A (CCR-0133, amending CCR-0019 §8) fixes bucket A of INT-1-fresh-triage.md:
+`calc_offence/costs_passes.rs` (CalcOffence.lua:1720) now treats the cost of a level that
+SkillsTab.lua:1190 emptied (`skills_tab::levelCostCleared`) as `{}`, and `CA.rs` resets that
+per-process state per build (`skills_tab::reset_level_cost_cleared`), as the oracle boots a fresh
+PoB per build. Measured on rust-port fa733f3 + INT-1F-A:
+
+- fresh corpus (`CA_CORPUS_DIR=.parity/fresh`) L6: 100 builds, 0 Rust errors, headline
+  1,300/1,300, all keys **85,603/85,603** (the 3 Rust-only `ManaCostWarningList` keys are gone,
+  nothing else changed: `CA_L6_DIFFS` wrote no line), CALCS lists 300/300, used-tracking
+  900/900, misc 2,200/2,200.
+- all57 (`POB_FULL_SUITE=1`) L6 unchanged: headline 741/741, keys 45,954/45,954, CALCS lists
+  171/171, used-tracking 513/513, misc 1,248/1,248, 0 Rust errors; D13 62/62 fixed points.
+- fresh D13: 99/100, fresh_017 differs, which is PoB's own warm-cache behaviour. That is
+  INT-1F-B (on `port/INT-1F-B`, not on rust-port when INT-1F-A finished): with it merged, both
+  halves of INT-1's gate (L6 exact on all57 and on 100 fresh poe.ninja builds, D13 everywhere)
+  hold. See FOLLOWUPS "INT-1F-A".
