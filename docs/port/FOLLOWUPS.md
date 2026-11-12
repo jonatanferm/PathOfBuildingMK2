@@ -326,3 +326,18 @@ CCR-0101).
    (`set_powerStat`, `set_nodePowerMaxDepth`, `set_powerBuilderCallback`,
    `set_powerBuilderProgressCallback`, `powerMax`); `set_launch_devMode` and `set_GetTime` come
    from U16's launch state / the frame clock.
+
+## INT-1F-A
+
+1. **INT-1F-B's fresh-corpus pin comment goes stale once both merge** (owner: whichever of
+   INT-1F-A / INT-1F-B merges second; INT-1F-B was not on rust-port when INT-1F-A finished). The
+   pin value needs no bump: INT-1F-B's `L6_FRESH.keys = 85_603` is what `ca_l6_corpus` compares
+   after INT-1F-A (the 3 Rust-only `ManaCostWarningList` keys are gone). Its doc comment ("Until
+   INT-1F-A lands, Rust adds 3 Rust-only … keys … fails the exactness assert") should then say
+   that INT-1F-A removed them (CCR-0133).
+2. **CalcPerform.lua:1985-1991 still ignores `levelCostCleared`** (owner: PF,
+   `calc_perform/pools_charges.rs` `has_cost` / `cost_of`; AMENDMENTS A8 item 11). A build with
+   `ManaCostGainAsReservation` / `LifeCostGainAsReservation` and an item-granted triggered skill
+   would add the level's cost to `pool.<res>.baseFlat`, where PoB adds 0 (the emptied table is
+   still truthy, so PoB takes the branch with `cost.Mana or 0`). Not seen in either corpus.
+   INT-1F-A fixed only the OF-C reader (CalcOffence.lua:1720).
