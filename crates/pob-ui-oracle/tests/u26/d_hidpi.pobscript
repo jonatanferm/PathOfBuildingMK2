@@ -1,0 +1,41 @@
+# U26: the power report of allflame_exp_000 at 1920x1080 @1.5 (a 1280x720 virtual screen): P, Show Power Report,
+# Life through the stat dropdown's wheel, hover and click a row, sort by Per Point, Show Allocated, then the Show
+# Node Power checkbox hides the heat map and the list.
+screen 1920 1080 dpi 1.5
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_000.xml"
+frames 3
+move 800 350
+press p
+frames 3
+move 764 706
+frames 1
+click LEFTBUTTON
+frames 2
+move 606 512
+frames 1
+wheel down 11
+frames 4
+move 600 592
+frames 2
+click LEFTBUTTON
+frames 3
+move 941 557
+frames 1
+click LEFTBUTTON
+frames 2
+move 916 536
+frames 1
+click LEFTBUTTON
+frames 1
+move 916 586
+frames 1
+click LEFTBUTTON
+frames 2
+move 600 576
+frames 2
+move 450 512
+frames 1
+click LEFTBUTTON
+frames 2
