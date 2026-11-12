@@ -462,12 +462,28 @@ Found while running FUP2's acceptance tests (port/FUP2 on rust-port 4c24bc2, 202
    _089: one `player.breakdown.SkillBuffs` row each). The same three-build subset fails the same
    way on rust-port 4c24bc2 with FUP2's code reverted, and no calc file changed between 840bac2
    (the INT-1F-A pin) and 4c24bc2. Evidence for the two causes:
-   - fresh_076: PoB itself gives both values. `pob_headless` (POB_ENGINE=jit) loading
-     fresh_076.xml twice in one process prints `ManaCostRaw` 45.75809523809523 for the first load
-     and 45.759999999999998 for the second, so the cached PoB value comes from a process that had
-     already loaded a build (process-scope PoB state; SkillsTab.lua:1190's cleared level costs
-     are one such state, CCR-0133). Rust matches PoB's first load. Closing it: find the state,
-     then either make the oracle run match a fresh process or reproduce the warm state.
+   - fresh_076: PoB under LuaJIT is not deterministic on this key between processes, and
+     nothing here shows a warm process state or a stale cache. Measured on 2026-11-12 with
+     `POB_ENGINE=jit pob_headless` and `HEADLESS_EXEC='return string.format("%.17g",
+     build.calcsTab.mainOutput.ManaCostRaw)'`, one process per line. The first load in a process
+     printed 45.759999999999998 in 7 of 10 processes and 45.75809523809523 in the other 3. The second
+     load in the same process printed 45.759999999999998 in all 8 processes that did one. With
+     `HEADLESS_RECALC=1` (a second `BuildOutput` after each load), one process printed 45.758...,
+     45.76, 45.76 for three loads and another printed 45.76 for both of its loads. The embedded
+     interpreter (no `POB_ENGINE`) printed 45.75809523809523 for both loads. A fresh PoB process
+     (the CCR-0133 oracle setup, one process per build) can therefore give either value, and both
+     are real PoB outputs. The cached oracle value 45.76 is one valid fresh result, and Rust's
+     45.758... is the other. The likely cause is D8: LuaJIT seeds the string hash per process, so a
+     `pairs()` over a string-keyed table somewhere on the cost path (Will of the Lords, base Mana
+     cost 24) iterates in a different order. Rust uses insertion order. That site is not found yet.
+     An earlier version of this bullet said that the first load always gave 45.758, the second
+     always gave 45.76, and Rust matched the first load. A review then reported 45.76 first and
+     45.758 second. Repeated runs showed neither sequence as a fixed pattern, and a second load
+     never gave 45.758. Closing it: find the order-dependent
+     `pairs` site. Then either show that Rust's insertion order is one of PoB's orders and record
+     fresh_076 as a §9.5 nondeterministic key (`scripts/port/oracle.sh nondet` covers
+     `.parity/builds` by default, not `.parity/fresh`, and CA.rs's L6 compare reads no nondet
+     record), or fix Rust if the order PoB uses is deterministic after all.
    - the 4 `SkillBuffs` rows: the representation gap INT-3 recorded as H3
      (docs/port/parity/INT-3-triage.md §5: PoB dumps an inner mod's empty `tags` as `[]`, the
      Rust export leaves it out); INT-3 fixed it in its own harness's `norm`, CA.rs's L5 compare
