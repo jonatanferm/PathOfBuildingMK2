@@ -1,0 +1,67 @@
+# U26: the power report of allflame_exp_000 (3.29 tree, masteries) at 1280x800. P shows the heat map
+# (Offence/Defence: the builder yields once, then runs to the end and calls powerBuilderCallback, whose report
+# is empty: "not supported"); Show Power Report (the list moves the control lines up); the wheel over the stat
+# dropdown steps it to Life (SetPowerCalc per step: "Building Tree...", the recalc, the Life report); hover a
+# row (its sd tooltip) and click it (the tree focuses the node); the column headers (ReSort 5, 4, 1, 3); the
+# filter dropdown (Show Allocated, then Show Unallocated); the masteries checkbox; the Show Node Power
+# checkbox hides the list.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_000.xml"
+frames 3
+move 800 400
+press p
+frames 3
+move 764 786
+frames 1
+click LEFTBUTTON
+frames 2
+move 606 592
+frames 1
+wheel down 11
+frames 4
+move 600 672
+frames 2
+click LEFTBUTTON
+frames 3
+move 941 637
+frames 1
+click LEFTBUTTON
+frames 2
+move 867 637
+frames 1
+click LEFTBUTTON
+frames 2
+move 370 637
+frames 1
+click LEFTBUTTON
+frames 2
+move 794 637
+frames 1
+click LEFTBUTTON
+frames 2
+move 916 616
+frames 1
+click LEFTBUTTON
+frames 1
+move 916 666
+frames 1
+click LEFTBUTTON
+frames 2
+move 916 616
+frames 1
+click LEFTBUTTON
+frames 1
+move 916 634
+frames 1
+click LEFTBUTTON
+frames 2
+move 687 616
+frames 1
+click LEFTBUTTON
+frames 2
+move 450 592
+frames 1
+click LEFTBUTTON
+frames 2

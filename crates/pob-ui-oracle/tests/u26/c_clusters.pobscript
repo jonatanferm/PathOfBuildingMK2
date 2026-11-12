@@ -1,0 +1,51 @@
+# U26: the power report of allflame_exp_014 (3.29 tree, cluster jewels) at 1280x800: P, Show Power Report, Life;
+# the filter dropdown's "Show Unallocated & Clusters" (the clusterNodeMap entries, "Cluster" / "--"); sort by Points
+# (ReSort 4: Cluster rows last) and back by power; the masteries checkbox off and on; Show Allocated; hover a row.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_014.xml"
+frames 3
+move 800 400
+press p
+frames 3
+move 764 786
+frames 1
+click LEFTBUTTON
+frames 2
+move 606 592
+frames 1
+wheel down 11
+frames 4
+move 916 616
+frames 1
+click LEFTBUTTON
+frames 1
+move 916 650
+frames 1
+click LEFTBUTTON
+frames 2
+move 867 637
+frames 1
+click LEFTBUTTON
+frames 2
+move 794 637
+frames 1
+click LEFTBUTTON
+frames 2
+move 687 616
+frames 1
+click LEFTBUTTON
+frames 2
+click LEFTBUTTON
+frames 2
+move 916 616
+frames 1
+click LEFTBUTTON
+frames 1
+move 916 666
+frames 1
+click LEFTBUTTON
+frames 2
+move 600 656
+frames 2
