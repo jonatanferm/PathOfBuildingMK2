@@ -20,7 +20,7 @@
 set -uo pipefail
 main="$(cd "$(dirname "$0")/../.." && pwd)"
 wt="${POB_FULLSUITE_WT:-$(dirname "$main")/pob-fullsuite}"
-crates="${POB_FULLSUITE_CRATES:-pob-lua pob-gamedata pob-modparser pob-calc pob-dump pob-oracle pob-sg pob-sg-wgpu pob-host pob-ui-core pob-ui-oracle pob-app}"
+crates="${POB_FULLSUITE_CRATES:-pob-lua pob-gamedata pob-modparser pob-calc pob-calc-core pob-calc-setup pob-calc-config pob-calc-defence pob-calc-offence pob-calc-perform pob-dump pob-oracle pob-sg pob-sg-wgpu pob-host pob-ui-core pob-ui-oracle pob-app}"
 heavy="${POB_FULLSUITE_HEAVY:-pob-oracle pob-ui-oracle}"
 lanes="${POB_FULLSUITE_LANES:-2}"
 if [ ! -d "$wt" ]; then git -C "$main" worktree add --detach "$wt" rust-port >/dev/null; fi

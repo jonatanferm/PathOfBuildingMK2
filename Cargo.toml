@@ -6,6 +6,13 @@ members = [
     "crates/pob-modparser",
     "crates/pob-engine",
     "crates/pob-calc",
+    # The pob-calc split (CCR-0131): pob-calc is their facade.
+    "crates/pob-calc-core",
+    "crates/pob-calc-setup",
+    "crates/pob-calc-config",
+    "crates/pob-calc-defence",
+    "crates/pob-calc-offence",
+    "crates/pob-calc-perform",
     "crates/pob-oracle",
     "crates/pob-sg",
     "crates/pob-data",
@@ -39,6 +46,14 @@ pob-gamedata = { path = "crates/pob-gamedata" }
 pob-modparser = { path = "crates/pob-modparser" }
 pob-engine = { path = "crates/pob-engine" }
 pob-calc = { path = "crates/pob-calc" }
+# The crates pob-calc is split into (CCR-0131). Only the calc crates depend on them; everything
+# else depends on pob-calc.
+pob-calc-core = { path = "crates/pob-calc-core" }
+pob-calc-setup = { path = "crates/pob-calc-setup" }
+pob-calc-config = { path = "crates/pob-calc-config" }
+pob-calc-defence = { path = "crates/pob-calc-defence" }
+pob-calc-offence = { path = "crates/pob-calc-offence" }
+pob-calc-perform = { path = "crates/pob-calc-perform" }
 pob-oracle = { path = "crates/pob-oracle" }
 pob-data = { path = "crates/pob-data" }
 pob-ui = { path = "crates/pob-ui" }

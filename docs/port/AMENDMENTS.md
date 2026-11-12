@@ -505,3 +505,38 @@ T4 10 pairs); u38_tooltips 3/3 (400 unique tooltips, 48 compare tooltips, 0 fail
 u34_items_core 1/1 (9 runs, T4 33 pairs); AS 4/4 (one earlier run of `as_oracle` exceeded its
 LUA-ORDER bucket bound and passed on the rerun: PoB's per-process `pairs` order, not this
 change, which touches no calc code).
+
+## A11. pob-calc split into six crates (CSPLIT, CCR-0131; orchestrator decision)
+
+`crates/pob-calc` is now a facade that re-exports every public path; the code lives in six crates
+(docs/port/calc-split-plan.md, CCR-0131). Every `pob_calc::…` path is unchanged, so code outside
+the calc depends on `pob-calc` only, never on a sub-crate. Docs that name
+`crates/pob-calc/src/<p>` mean `crates/pob-calc-<crate>/src/<p>`:
+
+| `<p>` under `src/` | crate |
+|---|---|
+| `lua_table cfg flow stub breakdown global_cache module_state actor active_skill env prelude probe late data_fns_types` (`.rs`), `classes/`, `model/`, `modules/{mod,calc_tools,common,calc_format,calc_breakdown,mod_tools_env,jewel_funcs,calc_base,calc_perform_shared}.rs` | `pob-calc-core` |
+| `modules/calc_setup/`, `modules/calc_active_skill.rs` | `pob-calc-setup` |
+| `modules/config_options/`, `modules/mod_map.rs` | `pob-calc-config` |
+| `modules/calc_defence/` | `pob-calc-defence` |
+| `modules/calc_offence/`, `data_fns/` | `pob-calc-offence` |
+| `modules/calc_perform/`, `modules/calc_triggers/`, `modules/{calc_mirages,calcs,power}.rs`, `calcs_facade.rs`, `probe_segments.rs`, `late_provider.rs` | `pob-calc-perform` |
+| `lib.rs` (the facade), `tests/hyg1_len.rs` | `pob-calc` |
+
+Binding rules (CCR-0131 §2): calc doc §2 rule 1 becomes `pob-lua ← pob-gamedata ← pob-modparser ←
+pob-calc-core ← {setup, config, defence}`, `defence ← offence`, `{core, setup, config, defence,
+offence} ← perform ← pob-calc ← UI/oracle`, and rule 3 (wasm32, no mlua) covers all seven calc
+crates. Five calls from the core to perform (`BuildOutput`, `configApply`,
+`MiscCalculator::call`, `doActorLifeMana`, `doActorLifeManaReservation`) go through the
+link-time seam in `pob-calc-core/src/late.rs` (`late_fns!`; provider
+`pob-calc-perform/src/late_provider.rs`). **`#[allow(unsafe_code)]` is approved for exactly those
+two macro-generated `seam` modules**; every type in `late_fns!` is a full path. Only `pob-calc`'s and
+the sub-crates' own `probe` features (and the middle crates' `pob-calc-perform` dev-dependency
+with `probe`) enable `pob-calc-core/probe`. The unit-test binaries of setup, config, defence and
+offence link the provider (dev-dependency + `extern crate pob_calc_perform as _` under
+`cfg(test)`, `doctest = false`); the core's own unit tests use panicking `cfg(test)` stubs.
+Moved items and the new files' owners: CCR-0131 §3 (`calc_perform_shared.rs` [PF-B], `late.rs`
+/ `late_provider.rs` [CSPLIT, frozen], `data_fns_types.rs` [U0], `probe_segments.rs` [ORC-X]).
+A branch that adds a file under the old `crates/pob-calc/src/` gets a directory-rename conflict on
+merge: `git mv` it into the crate of the table above (git's suggested directory can be wrong,
+because `src/modules/` is split across crates). `POB_PORT_SLOTS` stays 1.

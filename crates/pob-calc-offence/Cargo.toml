@@ -1,0 +1,38 @@
+[package]
+name = "pob-calc-offence"
+description = "pob-calc split (CCR-0131): CalcOffence and the skill hooks (data_fns)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# Doc tests link this crate without the late-seam provider (CCR-0131); there are none today.
+doctest = false
+
+[dependencies]
+pob-lua.workspace = true
+pob-gamedata.workspace = true
+pob-modparser.workspace = true
+smallvec.workspace = true
+indexmap.workspace = true
+ahash.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+pob-calc-core.workspace = true
+pob-calc-defence.workspace = true
+
+[dev-dependencies]
+# Links the late-seam provider into this crate's own test binaries (CCR-0131, calc-split-plan
+# §3.4); `probe` so that all six calc crates switch `probe` together (§2.3).
+pob-calc-perform = { workspace = true, features = ["probe"] }
+
+[features]
+default = []
+# State export for the oracle (calc doc §9.2, ORC-X). Enabled only through pob-calc's `probe` (all
+# six together) or a higher calc crate's (CCR-0131: never name pob-calc-core/probe elsewhere).
+probe = ["dep:serde", "dep:serde_json", "pob-calc-core/probe", "pob-calc-defence/probe"]
+
+[lints]
+workspace = true

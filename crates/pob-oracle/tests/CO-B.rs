@@ -503,7 +503,7 @@ fn apply_b_rows_cover_range() {
     assert_eq!(have.len(), 273);
     let src = std::fs::read_to_string(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../pob-calc/src/modules/config_options/apply_b.rs"),
+            .join("../pob-calc-config/src/modules/config_options/apply_b.rs"),
     )
     .unwrap();
     assert!(
