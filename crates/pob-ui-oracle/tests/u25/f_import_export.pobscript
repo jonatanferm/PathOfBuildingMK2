@@ -1,0 +1,63 @@
+# U25: Export Tree and Import Tree from the manage popup at 1280x800: the export link (EncodeURL) and Copy (the
+# clipboard side effect), Done; Import with a broken link (DecodeURL's error in the message label), Cancel; Import
+# (the Import button) with a GGG 3.15 link (validateTreeVersion, ConPrintf, a new 3_15 tree made active), Done; then the build XML.
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 800 400
+key-down CTRL
+press m
+key-up CTRL
+frames 2
+move 639 524
+frames 1
+click LEFTBUTTON
+frames 2
+move 670 430
+frames 1
+click LEFTBUTTON
+frames 1
+move 760 430
+frames 1
+click LEFTBUTTON
+frames 2
+move 541 524
+frames 1
+click LEFTBUTTON
+frames 2
+type "Broken"
+move 740 396
+frames 1
+click LEFTBUTTON
+type "https://www.pathofexile.com/passive-skill-tree/3.15.0/AAAA"
+frames 1
+move 595 437
+frames 1
+click LEFTBUTTON
+frames 2
+move 685 437
+frames 1
+click LEFTBUTTON
+frames 2
+move 541 524
+frames 1
+click LEFTBUTTON
+frames 2
+type "Imported"
+move 740 396
+frames 1
+click LEFTBUTTON
+type "https://www.pathofexile.com/passive-skill-tree/3.15.0/AAAABgMADI6-HwKSwQQHLJwtH9-wTLNfKoP3ES3r5AAA"
+frames 1
+move 595 437
+frames 1
+click LEFTBUTTON
+frames 3
+move 737 524
+frames 1
+click LEFTBUTTON
+frames 2
+snapshot imported
+frames 1
