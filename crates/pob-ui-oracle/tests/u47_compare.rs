@@ -419,7 +419,18 @@ fn rust_stubs() {
         *h = init::default_hooks();
         h.spec_add_undo_state = Rc::new(|_| SPEC_MOD_FLAG.with(|f| f.set(true)));
     });
-    ci::set_compare_hooks(|h| *h = ci::default_compare_hooks());
+    ci::set_compare_hooks(|h| {
+        *h = ci::default_compare_hooks();
+        // the power report list draws nothing (as the Lua stub's); U48's own scenarios are u48
+        h.power_report_list = Rc::new(|cx, me| {
+            cx.add(
+                me,
+                "comparePowerReportList",
+                New::new(Base::new(Anchor::NONE, rect(0, 0, 750, 250)), ci::PendingPowerReportList),
+            )
+            .id()
+        });
+    });
     cl::set_draw_hooks(|h| *h = stub_hooks());
     of::set_shell_hooks(|h| {
         *h = of::default_shell_hooks();
