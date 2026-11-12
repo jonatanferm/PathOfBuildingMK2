@@ -37,10 +37,9 @@ use pob_sg::{Key, Sg, Sys};
 use pob_ui_core::cx::Cx;
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn inputs() -> Option<PathBuf> {
     let root = pob_testpaths::require(
@@ -385,6 +384,63 @@ struct Sides {
     rust_settings: Option<String>,
 }
 
+/// The Lua side of one run through the Lua-side cache (TP4, as u41): PoB boot, `script` and what
+/// the test keeps of the VM and the user dir afterwards (`extra`, JSON). The key covers this file
+/// (stubs and Lua-side wrapper), the Lua-side code, PoB, this test's scripts and fixtures, the
+/// fixture user dir, the script, the screen and the other arguments.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+    setups: &[String],
+    save_settings: bool,
+) -> anyhow::Result<LuaRun> {
+    let scripts = test_dir();
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u16",
+        pob_ui_oracle::test_source!(),
+        root,
+        &inputs,
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+            &format!("{setups:?}"),
+            &format!("{save_settings:?}"),
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let settings_file = user.path.join("Path of Building/Settings.xml");
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        let mut lua_side = LuaSide {
+            app: lua_app,
+            setups: setups.to_vec(),
+        };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (lua, r) = runner::drive(&mut lua_side, script, &mut d);
+        r.map_err(|e| anyhow::anyhow!("Lua side: {e}"))?;
+        let mut lua_settings = None;
+        if save_settings {
+            lua_side
+                .app
+                .with_vm(|pob| pob.eval::<()>("main:SaveSettings()"))
+                .map_err(|e| anyhow::anyhow!("Lua SaveSettings: {e}"))?;
+            lua_settings = Some(std::fs::read_to_string(&settings_file)?);
+        }
+        drop(lua_side);
+        Ok(LuaRun {
+            frames: lua,
+            error: None,
+            snapshots: Vec::new(),
+            extra: vec![serde_json::to_string(&lua_settings)?],
+        })
+    })
+}
+
 /// Run `script` on both sides with `fixture` as the user dir (fresh copies per side).
 fn run_sides(
     root: &Path,
@@ -397,25 +453,10 @@ fn run_sides(
     let user = UserDir::new(fixture)?;
     let settings_file = user.path.join("Path of Building/Settings.xml");
 
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    let mut lua_side = LuaSide {
-        app: lua_app,
-        setups: setups.to_vec(),
-    };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut lua, r) = runner::drive(&mut lua_side, script, &mut d);
-    r.map_err(|e| anyhow::anyhow!("Lua side: {e}"))?;
-    let mut lua_settings = None;
-    if save_settings {
-        lua_side
-            .app
-            .with_vm(|pob| pob.eval::<()>("main:SaveSettings()"))
-            .map_err(|e| anyhow::anyhow!("Lua SaveSettings: {e}"))?;
-        lua_settings = Some(std::fs::read_to_string(&settings_file)?);
-    }
-    drop(lua_side);
+    // Lua (cached, TP4)
+    let run = lua_run(root, script, &user, fixture, screen, setups, save_settings)?;
+    let mut lua = run.frames;
+    let lua_settings = serde_json::from_str(run.extra.first().map_or("null", String::as_str))?;
 
     // Rust
     user.reset()?;
@@ -472,9 +513,16 @@ fn draw_ops(frames: &[FrameTrace]) -> usize {
         .count()
 }
 
+/// One case's outcome (TP4: cases run on `oracle_cache::par_map`; collected in case order).
+#[derive(Default)]
+struct CaseOut {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    ran: usize,
+}
+
 #[test]
 fn u16_scenarios() {
-    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u16")
@@ -485,16 +533,13 @@ fn u16_scenarios() {
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u16/*.pobscript");
     let filter = std::env::var("U16_FILTER").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
-        let text = std::fs::read_to_string(&path).unwrap();
-        let (script, base_dir) = runner::load_script(&path).unwrap();
-        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        let (script, _) = runner::load_script(&path).unwrap();
         let own_screen = matches!(
             script.steps.first(),
             Some(pob_host::script::Step::Screen { .. })
@@ -505,6 +550,15 @@ fn u16_scenarios() {
             runner::ACCEPTANCE_SCREENS.to_vec()
         };
         for (w, h, s) in screens {
+            cases.push((path.clone(), stem.clone(), (w, h, s)));
+        }
+    }
+    let results = oracle_cache::par_map(cases, |(path, stem, (w, h, s))| {
+        let mut out = CaseOut::default();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (script, base_dir) = runner::load_script(&path).unwrap();
+        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        {
             let tag = format!("u16_{stem}@{w}x{h}@{s}");
             let sides = match run_sides(
                 &root,
@@ -516,11 +570,11 @@ fn u16_scenarios() {
             ) {
                 Ok(s) => s,
                 Err(e) => {
-                    failures.push(format!("{tag}: {e:#}"));
-                    continue;
+                    out.failures.push(format!("{tag}: {e:#}"));
+                    return out;
                 }
             };
-            ran += 1;
+            out.ran += 1;
             let run = RunResult {
                 lua: sides.lua,
                 rust: sides.rust,
@@ -532,17 +586,17 @@ fn u16_scenarios() {
             };
             let n = diff_report::write_report(&out_dir(), &tag, &run, false).unwrap_or(usize::MAX);
             let ops = draw_ops(&run.lua);
-            println!(
+            out.lines.push(format!(
                 "{tag}: {} frames, {ops} Lua draw ops, {n} divergences{}",
                 run.lua.len(),
                 sides
                     .rust_error
                     .as_ref()
                     .map_or_else(String::new, |e| format!(", Rust error: {e}"))
-            );
+            ));
             if n != 0 || sides.rust_error.is_some() || run.lua.len() != run.rust.len() || ops == 0
             {
-                failures.push(format!(
+                out.failures.push(format!(
                     "{tag}: {n} divergences, frames lua {} rust {}, {ops} ops (see {})",
                     run.lua.len(),
                     run.rust.len(),
@@ -550,7 +604,18 @@ fn u16_scenarios() {
                 ));
             }
         }
+        out
+    });
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    for case in results {
+        for l in &case.lines {
+            println!("{l}");
+        }
+        failures.extend(case.failures);
+        ran += case.ran;
     }
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -584,7 +649,8 @@ fn normalise(xml: &str) -> String {
 
 #[test]
 fn u16_settings_roundtrip() {
-    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
+    let _permit = oracle_cache::Permit::acquire();
     let Some(root) = inputs() else { return };
     let dir = test_dir().join("settings");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -648,7 +714,8 @@ fn u16_settings_roundtrip() {
 /// Without a Settings.xml both sides write main:Init's defaults (and the Unnamed build mode).
 #[test]
 fn u16_settings_defaults() {
-    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
+    let _permit = oracle_cache::Permit::acquire();
     let Some(root) = inputs() else { return };
     let tmp = std::env::temp_dir().join(format!("pob-u16-defaults-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);

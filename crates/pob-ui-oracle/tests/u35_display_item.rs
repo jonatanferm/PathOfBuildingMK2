@@ -960,7 +960,7 @@ fn lua_run(
     inputs.extend(fixture);
     let key = oracle_cache::ui_key(
         "ui-u35",
-        file!(),
+        pob_ui_oracle::test_source!(),
         root,
         &inputs,
         &[
@@ -1214,7 +1214,6 @@ fn u35_scenarios() {
     }
     let results = oracle_cache::par_map(cases, |(path, stem, (w, h, s))| {
         let mut out = CaseOut::default();
-
         let text = std::fs::read_to_string(&path).unwrap();
         let (script, base_dir) = runner::load_script(&path).unwrap();
         let fx = runner::fixtures(&script, &base_dir).unwrap();

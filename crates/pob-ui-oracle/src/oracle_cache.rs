@@ -652,30 +652,48 @@ fn write_plain(path: &Path, data: &[u8]) {
     let _ = std::fs::remove_file(&tmp);
 }
 
-/// The key of one UI oracle Lua-side run of a test: `test_file` is the test's `file!()` (its source
-/// holds the Lua stubs and the Lua-side wrapper, so it is hashed whole), `pob_root` the PoB
-/// checkout (`src/` and `runtime/` content keys, [`pob_tree_key`]), `fixtures` the directories and
-/// files the run reads (hashed by content: a directory's files by their names relative to it, so
-/// never by where the checkout is), and `params` everything else that decides the run (script
-/// text, screen, mode, query chunks). The caller adds nothing else: everything goes through here.
+/// A test file's name (`file!()`, relative to the workspace root) and the source the test binary
+/// was compiled from ([`test_source!`](crate::test_source)).
+#[derive(Clone, Copy, Debug)]
+pub struct TestSource {
+    pub file: &'static str,
+    pub text: &'static str,
+}
+
+/// The calling test file's [`TestSource`]: its `file!()` and its text, compiled in
+/// (`include_str!`), so a key always describes the code that runs, even when the file is edited
+/// while the binary runs (TP2 read the file at run time).
+#[macro_export]
+macro_rules! test_source {
+    () => {
+        $crate::oracle_cache::TestSource {
+            file: file!(),
+            text: include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../", file!())),
+        }
+    };
+}
+
+/// The key of one UI oracle Lua-side run of a test: `test` is the test file
+/// ([`test_source!`](crate::test_source); its source holds the Lua stubs and the Lua-side
+/// wrapper, so it is hashed whole), `pob_root` the PoB checkout (`src/` and `runtime/` content
+/// keys, [`pob_tree_key`]), `fixtures` the directories and files the run reads (hashed by content:
+/// a directory's files by their names relative to it, so never by where the checkout is), and
+/// `params` everything else that decides the run (script text, screen, mode, query chunks). The
+/// caller adds nothing else: everything goes through here.
 ///
 /// TP4: no absolute path goes in. TP2 hashed each fixture's path, which is under the worktree
 /// (`CARGO_MANIFEST_DIR`), so the full suite's `../pob-fullsuite` worktree, the main checkout and
 /// every agent worktree each had keys of their own.
 pub fn ui_key(
     kind: &str,
-    test_file: &str,
+    test: TestSource,
     pob_root: &Path,
     fixtures: &[&Path],
     params: &[&str],
 ) -> Result<Key, String> {
-    let ws = workspace_root();
     let mut k = KeyBuilder::new(kind);
     k.part(lua_side_code_hash());
-    // `file!()` is relative to the workspace root (cargo compiles from there)
-    let tf = ws.join(test_file);
-    let src = std::fs::read(&tf).map_err(|e| format!("{}: {e}", tf.display()))?;
-    k.part(test_file).part(&src);
+    k.part(test.file).part(test.text);
     k.part(pob_tree_key(&pob_root.join("src"))?);
     k.part(pob_tree_key(&pob_root.join("runtime"))?);
     for f in fixtures {

@@ -507,7 +507,7 @@ fn lua_run(
     inputs.extend(fixture);
     let key = oracle_cache::ui_key(
         "ui-u21",
-        file!(),
+        pob_ui_oracle::test_source!(),
         root,
         &inputs,
         &[
@@ -1251,7 +1251,7 @@ fn u21_format_stat() {
     let fixture = fixture_dir();
     let key = oracle_cache::ui_key(
         "ui-u21-format-stat",
-        file!(),
+        pob_ui_oracle::test_source!(),
         &root,
         &[&fixture],
         &[&code],

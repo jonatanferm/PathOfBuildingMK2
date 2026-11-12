@@ -42,10 +42,9 @@ use pob_ui_core::input::InputEvents;
 use pob_ui_core::prelude::ViewPort;
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The three widths of the acceptance row (1024, 1280, 1920), and 1920x1080 at DPI 1.5.
 const SCREENS: [(i32, i32, f32); 4] = [
@@ -418,6 +417,53 @@ struct Sides {
     rust_error: Option<String>,
 }
 
+/// The Lua side of one run through the Lua-side cache (TP4, as u41): PoB boot, `script` and what
+/// the test keeps of the VM and the user dir afterwards (`extra`, JSON). The key covers this file
+/// (stubs and Lua-side wrapper), the Lua-side code, PoB, this test's scripts and fixtures, the
+/// fixture user dir, the script, the screen and the other arguments.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+    setups: &[String],
+) -> anyhow::Result<LuaRun> {
+    let scripts = test_dir();
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u19",
+        pob_ui_oracle::test_source!(),
+        root,
+        &inputs,
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+            &format!("{setups:?}"),
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+    
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        let mut lua_side = LuaSide {
+            app: lua_app,
+            setups: setups.to_vec(),
+        };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (lua, r) = runner::drive(&mut lua_side, script, &mut d);
+        let lua_error = r.err().map(|e| e.to_string());
+        drop(lua_side);
+        Ok(LuaRun {
+            frames: lua,
+            error: lua_error,
+            snapshots: Vec::new(),
+            extra: Vec::new(),
+        })
+    })
+}
+
 /// Run `script` on both sides with `fixture` as the user dir (fresh copies per side). The Lua
 /// VM is dropped before the Rust side starts (memory).
 fn run_sides(
@@ -429,17 +475,10 @@ fn run_sides(
 ) -> anyhow::Result<Sides> {
     let user = UserDir::new(fixture)?;
 
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    let mut lua_side = LuaSide {
-        app: lua_app,
-        setups: setups.to_vec(),
-    };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut lua, r) = runner::drive(&mut lua_side, script, &mut d);
-    let lua_error = r.err().map(|e| e.to_string());
-    drop(lua_side);
+    // Lua (cached, TP4)
+    let run = lua_run(root, script, &user, fixture, screen, setups)?;
+    let mut lua = run.frames;
+    let lua_error = run.error;
 
     // Rust
     user.reset()?;
@@ -502,9 +541,16 @@ fn window_titles(frames: &[FrameTrace]) -> Vec<String> {
         .collect()
 }
 
+/// One case's outcome (TP4: cases run on `oracle_cache::par_map`; collected in case order).
+#[derive(Default)]
+struct CaseOut {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    ran: usize,
+}
+
 #[test]
 fn u19_scenarios() {
-    let _g = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u19")
@@ -515,16 +561,13 @@ fn u19_scenarios() {
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u19/*.pobscript");
     let filter = std::env::var("U19_FILTER").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
-        let text = std::fs::read_to_string(&path).unwrap();
-        let (script, base_dir) = runner::load_script(&path).unwrap();
-        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        let (script, _) = runner::load_script(&path).unwrap();
         let own_screen = matches!(
             script.steps.first(),
             Some(pob_host::script::Step::Screen { .. })
@@ -535,6 +578,15 @@ fn u19_scenarios() {
             SCREENS.to_vec()
         };
         for (w, h, s) in screens {
+            cases.push((path.clone(), stem.clone(), own_screen, (w, h, s)));
+        }
+    }
+    let results = oracle_cache::par_map(cases, |(path, stem, own_screen, (w, h, s))| {
+        let mut out = CaseOut::default();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (script, base_dir) = runner::load_script(&path).unwrap();
+        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        {
             let tag = if own_screen {
                 format!("u19_{stem}")
             } else {
@@ -549,11 +601,11 @@ fn u19_scenarios() {
             ) {
                 Ok(s) => s,
                 Err(e) => {
-                    failures.push(format!("{tag}: {e:#}"));
-                    continue;
+                    out.failures.push(format!("{tag}: {e:#}"));
+                    return out;
                 }
             };
-            ran += 1;
+            out.ran += 1;
             let titles = (window_titles(&sides.lua), window_titles(&sides.rust));
             let run = RunResult {
                 lua: sides.lua,
@@ -566,7 +618,7 @@ fn u19_scenarios() {
             };
             let n = diff_report::write_report(&out_dir(), &tag, &run, false).unwrap_or(usize::MAX);
             let ops = draw_ops(&run.lua);
-            println!(
+            out.lines.push(format!(
                 "{tag}: {} frames, {ops} Lua draw ops, {n} divergences, titles {:?}{}{}",
                 run.lua.len(),
                 titles.0,
@@ -578,7 +630,7 @@ fn u19_scenarios() {
                     .rust_error
                     .as_ref()
                     .map_or_else(String::new, |e| format!(", Rust error: {e}"))
-            );
+            ));
             if n != 0
                 || sides.rust_error.is_some()
                 || sides.lua_error.is_some()
@@ -586,7 +638,7 @@ fn u19_scenarios() {
                 || ops == 0
                 || titles.0 != titles.1
             {
-                failures.push(format!(
+                out.failures.push(format!(
                     "{tag}: {n} divergences, frames lua {} rust {}, {ops} ops, titles lua {:?} rust {:?} (see {})",
                     run.lua.len(),
                     run.rust.len(),
@@ -596,7 +648,18 @@ fn u19_scenarios() {
                 ));
             }
         }
+        out
+    });
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    for case in results {
+        for l in &case.lines {
+            println!("{l}");
+        }
+        failures.extend(case.failures);
+        ran += case.ran;
     }
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

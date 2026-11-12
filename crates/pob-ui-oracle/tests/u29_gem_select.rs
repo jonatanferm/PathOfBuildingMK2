@@ -683,7 +683,7 @@ fn lua_run(
     let scripts = crate_dir().join("tests/u29");
     let key = oracle_cache::ui_key(
         "ui-u29",
-        file!(),
+        pob_ui_oracle::test_source!(),
         root,
         &[&fixture, &scripts],
         &[

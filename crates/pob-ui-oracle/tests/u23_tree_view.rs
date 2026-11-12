@@ -57,10 +57,9 @@ use pob_ui_core::prelude::{InputEvents, ViewPort};
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
 use pob_ui_oracle::lua_calc::LuaCalcBridge;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 const SCREENS: [(i32, i32, f32); 2] = [(1280, 800, 1.0), (1920, 1080, 1.5)];
 
@@ -706,6 +705,48 @@ fn drop_image_loads(frames: &mut [FrameTrace]) {
     }
 }
 
+/// The Lua side of one run through the Lua-side cache (TP4, as u41): PoB boot, `script` and what
+/// the test keeps of the VM and the user dir afterwards (`extra`, JSON). The key covers this file
+/// (stubs and Lua-side wrapper), the Lua-side code, PoB, this test's scripts and fixtures, the
+/// fixture user dir, the script, the screen and the other arguments.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+) -> anyhow::Result<LuaRun> {
+    let scripts = test_dir();
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u23",
+        pob_ui_oracle::test_source!(),
+        root,
+        &inputs,
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        let mut lua_side = LuaSide { app: lua_app };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
+        drop(lua_side);
+        let images = tree_image_loads(&frames);
+        drop_image_loads(&mut frames);
+        Ok(LuaRun {
+            frames,
+            error: r.err().map(|e| e.to_string()),
+            snapshots: std::mem::take(&mut d.snapshots),
+            extra: vec![serde_json::to_string(&images)?],
+        })
+    })
+}
+
 struct Side {
     frames: Vec<FrameTrace>,
     error: Option<String>,
@@ -721,20 +762,13 @@ fn run_sides(
 ) -> anyhow::Result<(Side, Side)> {
     let user = UserDir::new(fixture)?;
 
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    let mut lua_side = LuaSide { app: lua_app };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
-    drop(lua_side);
-    let images = tree_image_loads(&frames);
-    drop_image_loads(&mut frames);
+    // Lua (cached, TP4)
+    let run = lua_run(root, script, &user, fixture, screen)?;
     let lua = Side {
-        frames,
-        error: r.err().map(|e| e.to_string()),
-        snapshots: std::mem::take(&mut d.snapshots),
-        images,
+        frames: run.frames,
+        error: run.error,
+        snapshots: run.snapshots,
+        images: serde_json::from_str(run.extra.first().map_or("null", String::as_str))?,
     };
 
     // Rust
@@ -943,11 +977,19 @@ fn t4(lua: &Side, rust: &Side, notes: &mut T4Notes) -> Result<(usize, usize), Ve
     }
 }
 
+/// One case's outcome (TP4: cases run on `oracle_cache::par_map`; collected in case order).
+#[derive(Default)]
+struct CaseOut {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    ran: usize,
+    t4_pairs: usize,
+    t4_bytes: usize,
+    total_ops: usize,
+}
+
 #[test]
 fn u23_scenarios() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u23")
@@ -958,17 +1000,13 @@ fn u23_scenarios() {
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u23/*.pobscript");
     let filter = std::env::var("U23_FILTER").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
-    let (mut t4_pairs, mut t4_bytes) = (0, 0);
-    let mut total_ops = 0;
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
-        let (script, base_dir) = runner::load_script(&path).unwrap();
-        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        let (script, _) = runner::load_script(&path).unwrap();
         let own_screen = script
             .steps
             .iter()
@@ -980,6 +1018,14 @@ fn u23_scenarios() {
             SCREENS.to_vec()
         };
         for (w, h, s) in screens {
+            cases.push((path.clone(), stem.clone(), own_screen, (w, h, s)));
+        }
+    }
+    let results = oracle_cache::par_map(cases, |(path, stem, own_screen, (w, h, s))| {
+        let mut out = CaseOut::default();
+        let (script, base_dir) = runner::load_script(&path).unwrap();
+        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        {
             let tag = if own_screen {
                 format!("u23_{stem}")
             } else {
@@ -988,11 +1034,11 @@ fn u23_scenarios() {
             let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s)) {
                 Ok(s) => s,
                 Err(e) => {
-                    failures.push(format!("{tag}: {e:#}"));
-                    continue;
+                    out.failures.push(format!("{tag}: {e:#}"));
+                    return out;
                 }
             };
-            ran += 1;
+            out.ran += 1;
             let times = DRAW_MS.with(|d| d.borrow().clone());
             let mut by_version: std::collections::BTreeMap<String, (usize, f64, f64)> = Default::default();
             for (v, ms) in &times {
@@ -1005,7 +1051,7 @@ fn u23_scenarios() {
                 .iter()
                 .map(|(v, (n, sum, max))| format!("{v}: {n} draws, mean {:.1} ms, max {:.1} ms", sum / *n as f64, max))
                 .collect();
-            println!("{tag}: viewer:Draw (Rust, this build profile) {}", perf.join("; "));
+            out.lines.push(format!("{tag}: viewer:Draw (Rust, this build profile) {}", perf.join("; ")));
             let titles = (window_titles(&lua.frames), window_titles(&rust.frames));
             let mut notes = T4Notes::default();
             let t4r = t4(&lua, &rust, &mut notes);
@@ -1029,11 +1075,11 @@ fn u23_scenarios() {
                 )
             });
             let ops = draw_ops(&run.lua);
-            total_ops += ops;
+            out.total_ops += ops;
             let t4_line = match &t4r {
                 Ok((p, b)) => {
-                    t4_pairs += p;
-                    t4_bytes += b;
+                    out.t4_pairs += p;
+                    out.t4_bytes += b;
                     format!(
                         "T4 {p} identical ({b} byte-identical; set aside: {} Lua nil gem/group fields, {} pairs-chosen gem variants, pending UI-saver sections differing {:?})",
                         notes.gem_nil_bools, notes.ambiguous_variants, notes.pending_sections
@@ -1041,7 +1087,7 @@ fn u23_scenarios() {
                 }
                 Err(e) => format!("T4 FAILED: {}", e.join("; ")),
             };
-            println!(
+            out.lines.push(format!(
                 "{tag}: {} frames, {ops} Lua draw ops, {n} divergences, {} Lua tree image loads, {t4_line}, titles {:?}{}{}{}",
                 run.lua.len(),
                 lua.images.len(),
@@ -1053,7 +1099,7 @@ fn u23_scenarios() {
                     .as_ref()
                     .map_or_else(String::new, |e| format!(", Rust error: {e}")),
                 first.as_ref().map_or_else(String::new, |f| format!(", first: {f}")),
-            );
+            ));
             if n != 0
                 || rust.error.is_some()
                 || lua.error.is_some()
@@ -1062,7 +1108,7 @@ fn u23_scenarios() {
                 || titles.0 != titles.1
                 || t4r.is_err()
             {
-                failures.push(format!(
+                out.failures.push(format!(
                     "{tag}: {n} divergences ({}), frames lua {} rust {}, {ops} ops, {t4_line}, titles lua {:?} rust {:?}, errors lua {:?} rust {:?}",
                     first.unwrap_or_default(),
                     run.lua.len(),
@@ -1074,8 +1120,24 @@ fn u23_scenarios() {
                 ));
             }
         }
+        out
+    });
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    let (mut t4_pairs, mut t4_bytes) = (0, 0);
+    let mut total_ops = 0;
+    for case in results {
+        for l in &case.lines {
+            println!("{l}");
+        }
+        failures.extend(case.failures);
+        ran += case.ran;
+        t4_pairs += case.t4_pairs;
+        t4_bytes += case.t4_bytes;
+        total_ops += case.total_ops;
     }
     println!("u23: {ran} runs, {total_ops} Lua draw ops, T4 {t4_pairs} pairs ({t4_bytes} byte-identical)");
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -1223,9 +1285,8 @@ fn rust_describe(a: &assets::TreeAssets) -> String {
 
 #[test]
 fn u23_assets() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
+    let _permit = oracle_cache::Permit::acquire();
     let Some(root) = inputs() else { return };
     let latest = pob_gamedata::data()
         .gameVersions

@@ -37,10 +37,8 @@ use pob_ui_core::ids::ViewPort;
 use pob_ui_core::input::InputEvents;
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::diff_report;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
-
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn inputs() -> Option<PathBuf> {
     let root = pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)")?;
@@ -414,6 +412,62 @@ struct Sides {
     rust_settings: Option<String>,
 }
 
+/// The Lua side of one run through the Lua-side cache (TP4, as u41): PoB boot, `script` and what
+/// the test keeps of the VM and the user dir afterwards (`extra`, JSON). The key covers this file
+/// (stubs and Lua-side wrapper), the Lua-side code, PoB, this test's scripts and fixtures, the
+/// fixture user dir, the script, the screen and the other arguments.
+fn lua_run(
+    root: &Path,
+    script: &pob_host::script::Script,
+    user: &UserDir,
+    fixture: Option<&Path>,
+    screen: pob_sg::ScreenInfo,
+    setups: &[String],
+) -> anyhow::Result<LuaRun> {
+    let scripts = test_dir();
+    let mut inputs: Vec<&Path> = vec![&scripts];
+    inputs.extend(fixture);
+    let key = oracle_cache::ui_key(
+        "ui-u17",
+        pob_ui_oracle::test_source!(),
+        root,
+        &inputs,
+        &[
+            &format!("{script:?}"),
+            &format!("{screen:?}"),
+            &format!("{setups:?}"),
+        ],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let settings_file = user.path.join("Path of Building/Settings.xml");
+        let handles = OracleHandles::default();
+        let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
+        let mut lua_side = LuaSide {
+            app: lua_app,
+            setups: setups.to_vec(),
+            frames: 0,
+        };
+        let mut d = Driver::new(screen, handles, user.path.clone());
+        let (lua, r) = runner::drive(&mut lua_side, script, &mut d);
+        r.map_err(|e| anyhow::anyhow!("Lua side: {e}"))?;
+        let lua_prompt = lua_side
+            .app
+            .with_vm(|pob| pob.eval::<Option<String>>("return launch.promptMsg"))
+            .map_err(|e| anyhow::anyhow!("Lua promptMsg: {e}"))?;
+        let lua_settings = std::fs::read_to_string(&settings_file).ok();
+        drop(lua_side);
+        Ok(LuaRun {
+            frames: lua,
+            error: None,
+            snapshots: Vec::new(),
+            extra: vec![
+                serde_json::to_string(&lua_prompt)?,
+                serde_json::to_string(&lua_settings)?,
+            ],
+        })
+    })
+}
+
 /// Run `script` on both sides with `fixture` as the user dir (fresh copies per side).
 fn run_sides(
     root: &Path,
@@ -425,23 +479,11 @@ fn run_sides(
     let user = UserDir::new(fixture)?;
     let settings_file = user.path.join("Path of Building/Settings.xml");
 
-    // Lua
-    let handles = OracleHandles::default();
-    let lua_app = runner::lua_side(root, &user, &handles, Entry::Launch, false)?;
-    let mut lua_side = LuaSide {
-        app: lua_app,
-        setups: setups.to_vec(),
-        frames: 0,
-    };
-    let mut d = Driver::new(screen, handles, user.path.clone());
-    let (mut lua, r) = runner::drive(&mut lua_side, script, &mut d);
-    r.map_err(|e| anyhow::anyhow!("Lua side: {e}"))?;
-    let lua_prompt = lua_side
-        .app
-        .with_vm(|pob| pob.eval::<Option<String>>("return launch.promptMsg"))
-        .map_err(|e| anyhow::anyhow!("Lua promptMsg: {e}"))?;
-    let lua_settings = std::fs::read_to_string(&settings_file).ok();
-    drop(lua_side);
+    // Lua (cached, TP4)
+    let run = lua_run(root, script, &user, fixture, screen, setups)?;
+    let mut lua = run.frames;
+    let lua_prompt = serde_json::from_str(run.extra.first().map_or("null", String::as_str))?;
+    let lua_settings = serde_json::from_str(run.extra.get(1).map_or("null", String::as_str))?;
 
     // Rust
     user.reset()?;
@@ -527,11 +569,17 @@ fn normalise(xml: &str) -> String {
     pob_app::model::xml::ComposeXML(top)
 }
 
+/// One case's outcome (TP4: cases run on `oracle_cache::par_map`; collected in case order).
+#[derive(Default)]
+struct CaseOut {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    ran: usize,
+    total_ops: usize,
+}
+
 #[test]
 fn u17_scenarios() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u17")
@@ -542,17 +590,13 @@ fn u17_scenarios() {
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u17/*.pobscript");
     let filter = std::env::var("U17_FILTER").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
-    let mut total_ops = 0;
+    let mut cases = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !stem.contains(f.as_str())) {
             continue;
         }
-        let text = std::fs::read_to_string(&path).unwrap();
-        let (script, base_dir) = runner::load_script(&path).unwrap();
-        let fx = runner::fixtures(&script, &base_dir).unwrap();
+        let (script, _) = runner::load_script(&path).unwrap();
         let own_screen = script.steps.first().and_then(|s| match s {
             pob_host::script::Step::Screen { w, h, dpi } => Some((*w, *h, *dpi)),
             _ => None,
@@ -561,6 +605,15 @@ fn u17_scenarios() {
             Some(s) => vec![s],
             None => runner::ACCEPTANCE_SCREENS.to_vec(),
         };
+        for (w, h, s) in screens {
+            cases.push((path.clone(), stem.clone(), (w, h, s)));
+        }
+    }
+    let results = oracle_cache::par_map(cases, |(path, stem, (w, h, s))| {
+        let mut out = CaseOut::default();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (script, base_dir) = runner::load_script(&path).unwrap();
+        let fx = runner::fixtures(&script, &base_dir).unwrap();
         let setups = setups(&text);
         let compare_settings = text.lines().any(|l| l.trim() == "#! u17-settings");
         let clicks_save = text.contains("Options Save");
@@ -568,7 +621,7 @@ fn u17_scenarios() {
             !clicks_save || setups.iter().any(|s| s == "dev"),
             "{stem}: Save outside dev mode would rewrite the checkout's manifest.xml"
         );
-        for (w, h, s) in screens {
+        {
             let tag = format!("u17_{stem}@{w}x{h}@{s}");
             let sides = match run_sides(
                 &root,
@@ -579,11 +632,11 @@ fn u17_scenarios() {
             ) {
                 Ok(s) => s,
                 Err(e) => {
-                    failures.push(format!("{tag}: {e:#}"));
-                    continue;
+                    out.failures.push(format!("{tag}: {e:#}"));
+                    return out;
                 }
             };
-            ran += 1;
+            out.ran += 1;
             let run = RunResult {
                 lua: sides.lua,
                 rust: sides.rust,
@@ -595,42 +648,45 @@ fn u17_scenarios() {
             };
             let n = diff_report::write_report(&out_dir(), &tag, &run, false).unwrap_or(usize::MAX);
             let ops = draw_ops(&run.lua);
-            total_ops += ops;
+            out.total_ops += ops;
             let settings = if compare_settings {
                 match (&sides.lua_settings, &sides.rust_settings) {
                     (Some(l), Some(r)) => {
                         let same = normalise(l) == normalise(r);
-                        println!("{tag}: Settings.xml written by the Rust side:\n{r}");
+                        out.lines.push(format!(
+                            "{tag}: Settings.xml written by the Rust side:\n{r}"
+                        ));
                         if !same {
-                            failures
+                            out.failures
                                 .push(format!("{tag}: Settings.xml\n--- lua\n{l}\n--- rust\n{r}"));
                         }
                         format!(", Settings.xml Rust == PoB (normalised): {same}")
                     }
                     other => {
-                        failures.push(format!("{tag}: Settings.xml missing: {other:?}"));
+                        out.failures
+                            .push(format!("{tag}: Settings.xml missing: {other:?}"));
                         ", Settings.xml missing".to_owned()
                     }
                 }
             } else {
                 String::new()
             };
-            println!(
+            out.lines.push(format!(
                 "{tag}: {} frames, {ops} Lua draw ops, {n} divergences{settings}{}",
                 run.lua.len(),
                 sides
                     .rust_error
                     .as_ref()
                     .map_or_else(String::new, |e| format!(", Rust error: {e}"))
-            );
+            ));
             if sides.lua_prompt.is_some() || sides.rust_prompt.is_some() {
-                failures.push(format!(
+                out.failures.push(format!(
                     "{tag}: error prompt: lua {:?} rust {:?}",
                     sides.lua_prompt, sides.rust_prompt
                 ));
             }
             if n != 0 || sides.rust_error.is_some() || run.lua.len() != run.rust.len() || ops == 0 {
-                failures.push(format!(
+                out.failures.push(format!(
                     "{tag}: {n} divergences, frames lua {} rust {}, {ops} ops (see {})",
                     run.lua.len(),
                     run.rust.len(),
@@ -638,8 +694,21 @@ fn u17_scenarios() {
                 ));
             }
         }
+        out
+    });
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    let mut total_ops = 0;
+    for case in results {
+        for l in &case.lines {
+            println!("{l}");
+        }
+        failures.extend(case.failures);
+        ran += case.ran;
+        total_ops += case.total_ops;
     }
     println!("u17: {ran} runs, {total_ops} Lua draw ops compared");
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

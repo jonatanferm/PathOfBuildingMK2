@@ -47,10 +47,13 @@ use pob_ui_core::prelude::*;
 use pob_ui_core::tooltip::tooltip::{TtBackground, TtColor, Tooltip};
 use pob_ui_oracle::boot::{self, Entry, OracleHandles};
 use pob_ui_oracle::lua_calc::LuaCalcBridge;
+use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, ScenarioApp, UserDir};
 
-/// One LuaJIT PoB at a time (memory; ui doc §11.3).
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+// TP4: the fixture builds of `u38_unique_tooltips` and `u38_stat_differences` run as independent
+// cases on `oracle_cache::par_map` (the process-wide case pool replaces the old one-PoB-at-a-time
+// lock), and the Lua side of each (the PoB boot, the build and the test's query on the VM) goes
+// through the Lua-side cache (`lua_query`). Results are collected in build order.
 
 fn inputs() -> Option<PathBuf> {
     let root = pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)")?;
@@ -204,6 +207,45 @@ fn run_lua(root: &Path, name: &str, user: &UserDir) -> LuaSide {
         panic!("{name}: Lua: {e}");
     }
     side
+}
+
+/// The Lua side of one build through the Lua-side cache (TP4): [`run_lua`] and `query` (a chunk
+/// returning a list of strings) on its VM. The key covers this file, the Lua-side code, PoB, the
+/// fixture user dir, the build name and the query. `kind` names the test.
+fn lua_query(root: &Path, name: &str, user: &UserDir, kind: &str, query: &str) -> Vec<String> {
+    let fixture = fixture_dir();
+    let key = oracle_cache::ui_key(
+        kind,
+        pob_ui_oracle::test_source!(),
+        root,
+        &[&fixture],
+        &[name, query],
+    );
+    oracle_cache::cached_lua_run(key, || {
+        let mut lua_side = run_lua(root, name, user);
+        let lua: Vec<String> = lua_side
+            .app
+            .with_vm(|pob| pob.eval::<Vec<String>>(query))
+            .map_err(|e| anyhow::anyhow!("Lua tooltips: {e}"))?;
+        drop(lua_side);
+        Ok(LuaRun {
+            extra: lua,
+            ..LuaRun::default()
+        })
+    })
+    .unwrap_or_else(|e| panic!("{e:#}"))
+    .extra
+}
+
+/// One build's outcome (TP4: collected in build order).
+#[derive(Default)]
+struct BuildOut {
+    lines: Vec<String>,
+    failures: Vec<String>,
+    tooltips: usize,
+    n2: usize,
+    unordered: usize,
+    errors: usize,
 }
 
 /// U25 stand-in (TreeTab.lua:492-498, as u20/u22/u32/u33): the spec list labels.
@@ -489,9 +531,6 @@ fn rust_unique_tooltips(side: &mut RustSide, picked: &[String]) -> (String, Vec<
 
 #[test]
 fn u38_unique_tooltips() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let filter = std::env::var("U38_TT_FIXTURES").ok();
     let builds: Vec<String> = fixture_builds()
@@ -509,16 +548,10 @@ fn u38_unique_tooltips() {
         .map(|(k, _)| k)
         .collect();
     println!("flavour lookup: {} names, {} with several entries: {multi_flavour:?}", tt38::flavour_lookup().len(), multi_flavour.len());
-    let mut failures = Vec::new();
-    let (mut tooltips, mut lines, mut unordered, mut errors) = (0, 0, 0, 0);
-    for name in builds {
+    let results = oracle_cache::par_map(builds, |name| {
+        let mut out = BuildOut::default();
         let user = UserDir::new(Some(&fixture_dir())).unwrap();
-        let mut lua_side = run_lua(&root, &name, &user);
-        let mut lua: Vec<String> = lua_side
-            .app
-            .with_vm(|pob| pob.eval::<Vec<String>>(&lua_unique_tooltips()))
-            .unwrap_or_else(|e| panic!("Lua tooltips: {e}"));
-        drop(lua_side);
+        let mut lua = lua_query(&root, &name, &user, "ui-u38-unique", &lua_unique_tooltips());
         let lua_head = lua.remove(0);
         let picked: Vec<String> = lua.remove(0).lines().map(str::to_owned).collect();
         assert_eq!(picked.len(), N_UNIQUES, "{name}: picked uniques");
@@ -534,7 +567,8 @@ fn u38_unique_tooltips() {
                 rust_unique_tooltips(&mut side, &picked)
             })
         };
-        println!("{name}: unique DB lua {lua_head} / rust {rust_head}");
+        out.lines
+            .push(format!("{name}: unique DB lua {lua_head} / rust {rust_head}"));
         // the flavour-order cases: drop them from the comparison
         let skip: Vec<usize> = picked
             .iter()
@@ -550,7 +584,10 @@ fn u38_unique_tooltips() {
             .flat_map(|(i, _)| [2 * i, 2 * i + 1])
             .collect();
         if !skip.is_empty() {
-            println!("{name}: {} tooltips skipped (several flavour entries)", skip.len());
+            out.lines.push(format!(
+                "{name}: {} tooltips skipped (several flavour entries)",
+                skip.len()
+            ));
         }
         let keep = |v: &[String]| -> Vec<String> {
             v.iter()
@@ -559,13 +596,28 @@ fn u38_unique_tooltips() {
                 .map(|(_, t)| t.clone())
                 .collect()
         };
-        let (u, e) = compare(&name, &keep(&lua), &keep(&rust), &mut failures);
-        unordered += u;
-        errors += e;
-        tooltips += lua.len();
-        lines += lua.iter().map(|t| t.lines().count() - 2).sum::<usize>();
-        println!("{name}: {} tooltips compared", lua.len() - skip.len());
+        let (u, e) = compare(&name, &keep(&lua), &keep(&rust), &mut out.failures);
+        out.unordered += u;
+        out.errors += e;
+        out.tooltips += lua.len();
+        out.n2 += lua.iter().map(|t| t.lines().count() - 2).sum::<usize>();
+        out.lines
+            .push(format!("{name}: {} tooltips compared", lua.len() - skip.len()));
+        out
+    });
+    let mut failures = Vec::new();
+    let (mut tooltips, mut lines, mut unordered, mut errors) = (0, 0, 0, 0);
+    for b in results {
+        for l in &b.lines {
+            println!("{l}");
+        }
+        failures.extend(b.failures);
+        tooltips += b.tooltips;
+        lines += b.n2;
+        unordered += b.unordered;
+        errors += b.errors;
     }
+    println!("{}", oracle_cache::summary());
     println!(
         "u38_unique_tooltips: {tooltips} tooltips, {lines} lines, {unordered} order-only, {errors} raise on both sides, {} failures",
         failures.len()
@@ -663,31 +715,22 @@ fn rust_stat_differences(side: &mut RustSide, picked: &[(u32, String)]) -> Vec<S
 
 #[test]
 fn u38_stat_differences() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(root) = inputs() else { return };
     let filter = std::env::var("U38_SD_FIXTURES").ok();
     let max: usize = std::env::var("U38_SD_MAX")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(8);
-    let mut failures = Vec::new();
-    let (mut tooltips, mut compares, mut unordered, mut errors) = (0, 0, 0, 0);
-    let mut ran = 0;
-    for name in fixture_builds() {
-        if filter.as_ref().is_some_and(|f| !name.contains(f.as_str())) {
-            continue;
-        }
-        ran += 1;
+    let names: Vec<String> = fixture_builds()
+        .into_iter()
+        .filter(|name| !filter.as_ref().is_some_and(|f| !name.contains(f.as_str())))
+        .collect();
+    let ran = names.len();
+    let results = oracle_cache::par_map(names, |name| {
+        let mut out = BuildOut::default();
         let t0 = std::time::Instant::now();
         let user = UserDir::new(Some(&fixture_dir())).unwrap();
-        let mut lua_side = run_lua(&root, &name, &user);
-        let mut lua: Vec<String> = lua_side
-            .app
-            .with_vm(|pob| pob.eval::<Vec<String>>(&lua_stat_differences(max)))
-            .unwrap_or_else(|e| panic!("Lua tooltips: {e}"));
-        drop(lua_side);
+        let mut lua = lua_query(&root, &name, &user, "ui-u38-sd", &lua_stat_differences(max));
         let picked: Vec<(u32, String)> = lua
             .remove(0)
             .lines()
@@ -705,10 +748,10 @@ fn u38_stat_differences() {
                 rust_stat_differences(&mut side, &picked)
             })
         };
-        let (u, e) = compare(&name, &lua, &rust, &mut failures);
-        unordered += u;
-        errors += e;
-        tooltips += lua.len();
+        let (u, e) = compare(&name, &lua, &rust, &mut out.failures);
+        out.unordered += u;
+        out.errors += e;
+        out.tooltips += lua.len();
         let n_cmp = lua
             .iter()
             .map(|t| {
@@ -717,8 +760,8 @@ fn u38_stat_differences() {
                     .count()
             })
             .sum::<usize>();
-        compares += n_cmp;
-        println!(
+        out.n2 += n_cmp;
+        out.lines.push(format!(
             "{name}: {} items ({}), {n_cmp} compare headers; Lua {:.1}s, Rust (bridge) {:.1}s",
             lua.len(),
             picked
@@ -728,8 +771,22 @@ fn u38_stat_differences() {
                 .join(" "),
             (t1 - t0).as_secs_f64(),
             t1.elapsed().as_secs_f64()
-        );
+        ));
+        out
+    });
+    let mut failures = Vec::new();
+    let (mut tooltips, mut compares, mut unordered, mut errors) = (0, 0, 0, 0);
+    for b in results {
+        for l in &b.lines {
+            println!("{l}");
+        }
+        failures.extend(b.failures);
+        tooltips += b.tooltips;
+        compares += b.n2;
+        unordered += b.unordered;
+        errors += b.errors;
     }
+    println!("{}", oracle_cache::summary());
     assert!(ran > 0, "no fixture selected");
     println!(
         "u38_stat_differences: {ran} builds, {tooltips} tooltips, {compares} compare headers, {unordered} order-only, {errors} raise on both sides, {} failures",
@@ -742,9 +799,8 @@ fn u38_stat_differences() {
 
 #[test]
 fn u38_undo_round_trip() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // TP4: the process-wide case pool (shared with the `par_map` cases) instead of the lock
+    let _permit = oracle_cache::Permit::acquire();
     let Some(root) = inputs() else { return };
     let name = fixture_builds().remove(0);
     let user = UserDir::new(Some(&fixture_dir())).unwrap();
