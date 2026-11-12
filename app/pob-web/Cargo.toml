@@ -1,28 +1,27 @@
 [package]
 name = "pob-web"
+description = "Browser entry point of the Rust UI port of Path of Building (ui doc §3): wasm32 + Trunk, pob_host::run_web(...)."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
-description = "Browser entry point for Path of Building MK2 (wasm32)."
+repository.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pob-ui.workspace = true
-eframe.workspace = true
+pob-host.workspace = true
+pob-app.workspace = true
+pob-sg.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-console_error_panic_hook = "0.1"
-log = "0.4"
-console_log = "1"
-web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
-# getrandom 0.3 surfaces in the dep tree (via egui-wgpu etc.) and requires the
-# `wasm_js` feature plus a matching cfg (set in .cargo/config.toml) when
-# targeting wasm32-unknown-unknown.
-getrandom = { version = "0.3", features = ["wasm_js"] }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+web-sys = { workspace = true, features = ["Window", "Location", "console"] }
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints]
 workspace = true

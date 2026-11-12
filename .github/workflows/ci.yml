@@ -87,46 +87,47 @@ jobs:
         run: cargo clippy -p pob-engine -p pob-data -p pob-extract --all-targets -- -D warnings
 
   ui:
-    name: cargo test + clippy (pob-ui)
+    name: cargo test + clippy (UI port)
     runs-on: ubuntu-latest
-    # `pob-ui` was previously excluded from CI because winit / wgpu / eframe /
-    # rfd need extra system libs on Linux. Reversed deliberately: the UI crate
-    # carries ~630 logic tests (pure helpers factored out of the egui render
-    # code) that until now only ran on a maintainer's machine. Installing the
-    # dev libs below lets CI compile the crate and run that suite, so UI logic
-    # regressions are gated like the engine. No GPU is needed at runtime — none
-    # of the tests construct a wgpu device; they only exercise pure logic.
+    # The UI is the port of PoB's own UI (docs/port/ui-architecture.md): pob-sg (the
+    # SimpleGraphic equivalent), pob-sg-wgpu, pob-host, pob-ui-core, pob-app and the apps
+    # app/pob-desktop and app/pob-web (U53's cut-over replaced the egui crate pob-ui). Tests that
+    # need the gitignored PoB checkout or data dump skip under POB_ALLOW_SKIP=1.
+    env:
+      POB_ALLOW_SKIP: 1
     steps:
       - uses: actions/checkout@v4
 
       - name: Install UI system libraries
-        # winit/wgpu need xkbcommon + wayland + xcb dev headers; rfd's file
-        # dialog needs GTK3. keyring uses the pure-Rust secret-service backend,
-        # so no libsecret/dbus dev package is required to build.
+        # winit/wgpu need xkbcommon + wayland + xcb dev headers.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libxkbcommon-dev libwayland-dev \
+            libxkbcommon-dev libwayland-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Install Rust toolchain (with clippy)
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: wasm32-unknown-unknown
 
       - name: Cache Cargo registry + target
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
 
-      - name: cargo build (pob-ui)
-        run: cargo build -p pob-ui --all-targets
+      - name: cargo build (pob-desktop)
+        run: cargo build -p pob-desktop
 
-      - name: cargo clippy (pob-ui)
-        run: cargo clippy -p pob-ui --all-targets -- -D warnings
+      - name: cargo check (pob-web, wasm32)
+        run: cargo check -p pob-web --target wasm32-unknown-unknown
 
-      - name: cargo test (pob-ui)
-        run: cargo test -p pob-ui
+      - name: cargo clippy (UI crates)
+        run: cargo clippy -p pob-sg -p pob-host -p pob-ui-core -p pob-app -p pob-desktop --all-targets -- -D warnings
+
+      - name: cargo test (pob-sg, pob-ui-core)
+        run: cargo test -p pob-sg -p pob-ui-core
 
   # Optional: run pob_diff against an upstream PoB checkout. Manual trigger
   # only — the upstream PoB repo is not redistributable as a CI artifact, so

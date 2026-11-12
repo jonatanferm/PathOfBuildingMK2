@@ -1307,6 +1307,15 @@ pub struct LuaCalcBridge {
     pub last_report: Option<AdoptReport>,
 }
 
+/// CCR-0145 §1 (U53, the cut-over): the calc the scenario tests' `LuaCalcBridge` runs. Every UI
+/// unit's acceptance test builds its Rust side with `LuaCalcBridge::new` (ui doc §11.3: "Rust-side
+/// numbers come from LuaCalcBridge until the Rust calc reaches parity"); with `POB_UI_CALC=rust`
+/// the bridge delegates every operation to [`pob_app::calc::RustCalc`] (calc:PWR/CA), so the same
+/// scenarios run against the Rust calc unchanged. Unset or any other value: PoB in a second VM.
+pub fn rust_calc_selected() -> bool {
+    std::env::var("POB_UI_CALC").is_ok_and(|v| v == "rust")
+}
+
 impl LuaCalcBridge {
     pub fn new(pob_src: Option<PathBuf>) -> Self {
         Self {
@@ -1317,6 +1326,13 @@ impl LuaCalcBridge {
 
     /// [`CalcFacade::build_output`] with errors as values.
     pub fn try_build_output(&mut self, build: &BuildRef) -> Result<(), String> {
+        // CCR-0145 §1
+        if rust_calc_selected() {
+            let _ = pob_app::calc::RustCalc.build_output(build);
+            self.misc = None;
+            self.last_report = None;
+            return Ok(());
+        }
         let src = pob_src(self.pob_src.as_deref())?;
         let xml = save_xml(build)?;
         let docs = LuaSession::cached_build_output(&src, &xml, &session_name(build))?;
@@ -1350,6 +1366,10 @@ impl CalcFacade for LuaCalcBridge {
 
     /// lua: Classes/CalcsTab.lua:760-762.
     fn misc_calculator(&mut self, build: &BuildRef) -> Poll<(Rc<dyn MiscCalc>, Output)> {
+        // CCR-0145 §1
+        if rust_calc_selected() {
+            return pob_app::calc::RustCalc.misc_calculator(build);
+        }
         // L761 return self.miscCalculator[1], self.miscCalculator[2]
         let Some((_, base)) = self
             .misc

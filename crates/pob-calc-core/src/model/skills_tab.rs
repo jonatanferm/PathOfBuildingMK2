@@ -125,6 +125,23 @@ pub fn socketGroup_includeInFullDPS(socketGroup: &SocketGroup) -> Val {
     }
 }
 
+/// `gemInstance.enableGlobal1` / `enableGlobal2` as Lua sees them (CCR-0145 §4, CCR-0019 §6 style):
+/// `false` plus `extra["$enableGlobal<n>Nil"]` is Lua nil (a gem literal of CalcSetup.lua's
+/// granted-skill and explode groups, :1488-1493 and :1535-1542, which set neither field or only
+/// `enableGlobal1`).
+pub fn gemInstance_enableGlobal(gemInstance: &GemInstance, n: u8) -> Val {
+    let (v, marker) = if n == 1 {
+        (gemInstance.enableGlobal1.get(), n!("$enableGlobal1Nil"))
+    } else {
+        (gemInstance.enableGlobal2.get(), n!("$enableGlobal2Nil"))
+    };
+    if !v && gemInstance.extra.truthy(marker) {
+        Val::Nil
+    } else {
+        Val::Bool(v)
+    }
+}
+
 /// `skillSet.socketGroupList` of a skill-set table (`{ id, title, socketGroupList }`):
 /// the list is stored as `Val::Obj(Rc<Shared<Vec<SocketGroupRef>>>)`.
 pub fn skillSet_socketGroupList(skillSet: &Table) -> Shared<Vec<SocketGroupRef>> {
@@ -743,12 +760,16 @@ impl SkillsTab {
                 set_attr(
                     &mut node,
                     "mainActiveSkill",
-                    Some(tostring_num(socketGroup.mainActiveSkill.get())),
+                    // CCR-0145 §3: NaN is Lua nil (CCR-0019 §6; the calc's granted-skill and
+                    // explode groups, CalcSetup.lua:1480/:1516), and `tostring(nil)` is "nil"
+                    Some(tostring_opt_nan(socketGroup.mainActiveSkill.get())),
                 );
                 set_attr(
                     &mut node,
                     "mainActiveSkillCalcs",
-                    Some(tostring_num(socketGroup.mainActiveSkillCalcs.get())),
+                    // CCR-0145 §3: NaN is Lua nil (CCR-0019 §6; the calc's granted-skill and
+                    // explode groups, CalcSetup.lua:1480/:1516), and `tostring(nil)` is "nil"
+                    Some(tostring_opt_nan(socketGroup.mainActiveSkillCalcs.get())),
                 );
                 set_attr(
                     &mut node,
@@ -770,8 +791,10 @@ impl SkillsTab {
                     set_attr(&mut g, "level", Some(tostring_opt_nan(gemInstance.level.get())));
                     set_attr(&mut g, "quality", Some(tostring_opt_nan(gemInstance.quality.get())));
                     set_attr(&mut g, "enabled", Some(tostring_bool(gemInstance.enabled.get())));
-                    set_attr(&mut g, "enableGlobal1", Some(tostring_bool(gemInstance.enableGlobal1.get())));
-                    set_attr(&mut g, "enableGlobal2", Some(tostring_bool(gemInstance.enableGlobal2.get())));
+                    // CCR-0145 §4: `tostring(nil)` for the calc's gem literals (CalcSetup.lua:1488-1493,
+                    // :1535-1542), whose enableGlobal1/2 are nil until set
+                    set_attr(&mut g, "enableGlobal1", Some(tostring_val(&gemInstance_enableGlobal(&gemInstance, 1))));
+                    set_attr(&mut g, "enableGlobal2", Some(tostring_val(&gemInstance_enableGlobal(&gemInstance, 2))));
                     set_attr(
                         &mut g,
                         "count",

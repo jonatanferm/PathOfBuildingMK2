@@ -401,7 +401,11 @@ pub fn default_hooks() -> BuildHooks {
         // U20 (Build.lua:1353-1391 are U20's range)
         set_display_stat: Rc::new(super::on_frame::set_display_stat),
         clear_display_stat: Rc::new(super::on_frame::clear_display_stat),
-        list_sub_path: Rc::new(|_| None),
+        // CCR-0145 §5: `main.modes.LIST.subPath` (U18's ListMode; nil before its first Init)
+        list_sub_path: Rc::new(|cx| {
+            let lm = cx.app().list_mode?;
+            cx.get(lm).sub_path.clone()
+        }),
         // U25
         spec_add_undo_state: Rc::new(crate::tabs::tree::core::spec_add_undo_state_hook),
         tree_get_spec_list: Rc::new(crate::tabs::tree::core::get_spec_list_hook),

@@ -205,14 +205,34 @@ pub struct BreakdownHooks {
     pub node_viewer_highlight_ring: Rc<dyn Fn(&Cx, CtrlId) -> Option<ImageHandle>>,
 }
 
-/// The defaults until U38/U23 land: no tooltip lines, a viewer that draws nothing and has no
-/// highlight ring image.
+/// The defaults: U38's AddItemTooltip and U23's PassiveTreeView (CCR-0145 §5).
 pub fn default_breakdown_hooks() -> BreakdownHooks {
     BreakdownHooks {
         add_item_tooltip: Rc::new(crate::tabs::items::tooltip::add_item_tooltip_named),
-        node_viewer_draw: Rc::new(|_, _, _, _, _, _| {}),
-        node_viewer_highlight_ring: Rc::new(|_, _| None),
+        // CCR-0145 §5 (U53 cut-over): U23's PassiveTreeView
+        node_viewer_draw: Rc::new(node_viewer_draw),
+        node_viewer_highlight_ring: Rc::new(|cx, me| {
+            Some(cx.w::<CalcBreakdownControl>(me).node_viewer.highlight_ring.clone())
+        }),
     }
+}
+
+/// L632-637 `viewer.zoom = zoom; viewer.zoomX = zoomX; viewer.zoomY = zoomY;
+/// viewer:Draw(build, viewPort, { })` on `self.nodeViewer`, lent to its own `Draw` (ui doc §7.2).
+/// DIVERGENCE(load-order): L26 `self.nodeViewer = new("PassiveTreeView"):PassiveTreeView()` runs
+/// in the constructor in Lua; `CalcBreakdownControl::new` has no `Cx`, so the viewer is built
+/// on its first draw (`zoom_level` is 0 only before `PassiveTreeView::new`, which sets 3). Only
+/// the frame of its image loads moves; nothing reads the viewer before it draws.
+fn node_viewer_draw(cx: &mut Cx, me: CtrlId, zoom: f64, zoom_x: f64, zoom_y: f64, vp: &ViewPort) {
+    let mut v = std::mem::take(&mut cx.w_mut::<CalcBreakdownControl>(me).node_viewer);
+    if v.zoom_level == 0.0 {
+        v = PassiveTreeView::new(cx);
+    }
+    v.zoom = zoom;
+    v.zoom_x = Some(zoom_x);
+    v.zoom_y = Some(zoom_y);
+    v.draw(cx, vp, &mut pob_ui_core::input::InputEvents::default());
+    cx.w_mut::<CalcBreakdownControl>(me).node_viewer = v;
 }
 
 thread_local! {

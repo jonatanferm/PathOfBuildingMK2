@@ -1,0 +1,26 @@
+# U53 e2e: open allflame_exp_001 on the tree: hover allocated and unallocated nodes (the stat-difference tooltips come from the Rust calc's misc calculator), allocate a node by clicking, undo it (Ctrl+Z), then the build XML.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 1155 129
+frames 2
+move 1117 156
+frames 2
+move 926 130
+frames 2
+move 943 173
+frames 2
+move 1117 156
+frames 1
+click LEFTBUTTON
+frames 3
+snapshot allocated
+key-down CTRL
+press z
+key-up CTRL
+frames 2
+move 640 400
+frames 1
+snapshot undone
+#! expect-snapshot allocated

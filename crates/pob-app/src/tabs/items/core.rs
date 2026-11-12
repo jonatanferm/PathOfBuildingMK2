@@ -128,19 +128,13 @@ pub struct CoreHooks {
     pub toggle_display_item_mod_line: Rc<dyn Fn(&mut Cx, CtrlId, &ModLineRef)>,
 }
 
-#[track_caller]
-fn not_ported(what: &str, owner: &str) -> ! {
-    lua_error!("{what} is not ported yet ({owner})")
-}
-
-/// The defaults. `ResetUndo` runs on every build load (DIVERGENCE(load-tail)) and has nothing
-/// to reset until U38's undo buffers exist, so it does nothing; the user-triggered ones raise a
-/// Lua error naming the owner (PoB's error prompt shows it).
+/// The defaults: the ported methods (U35, and U38's UndoHandler since the cut-over, CCR-0145 §5).
 pub fn default_core_hooks() -> CoreHooks {
     CoreHooks {
-        undo: Rc::new(|_, _| not_ported("ItemsTab:Undo (CreateUndoState/RestoreUndoState)", "U38")),
-        redo: Rc::new(|_, _| not_ported("ItemsTab:Redo (CreateUndoState/RestoreUndoState)", "U38")),
-        reset_undo: Rc::new(|_, _| {}),
+        // CCR-0145 §5 (U53 cut-over): U38's UndoHandler (CreateUndoState/RestoreUndoState)
+        undo: Rc::new(super::tooltip::undo),
+        redo: Rc::new(super::tooltip::redo),
+        reset_undo: Rc::new(super::tooltip::reset_undo),
         // U35: `line.modLine` is the `TtModLine` of AddItemTooltip (CCR-0073 B), whose `line` is
         // the mod line table
         toggle_display_item_mod_line: Rc::new(|cx, me, modLine| {

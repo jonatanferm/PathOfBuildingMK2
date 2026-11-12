@@ -1,0 +1,8 @@
+# U53 e2e: the unmodified app on both sides (no stand-ins; the Rust side is pob_app::PobApp with
+# the Rust calc, RustCalc). PoB boots to the build list of fixtures/user1 and idles; hover a build.
+fixture userdir=../../fixtures/user1
+frames 3
+move 400 120
+frames 2
+#! expect-text allflame_exp_048
+#! expect-text Version: 2.67.2

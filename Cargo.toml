@@ -18,17 +18,15 @@ members = [
     "crates/pob-data",
     "crates/pob-dump",
     "crates/pob-extract",
-    "crates/pob-ui",
-    "app/pob-desktop",
-    "app/pob-web",
-    # UI port (ui doc §3, D16): new crates beside the legacy UI until cut-over (U53).
+    # UI port (ui doc §3, D16). U53's cut-over deleted the legacy egui UI (`crates/pob-ui`) and
+    # renamed `app/pob-port-{desktop,web}` to `app/pob-{desktop,web}`.
     "crates/pob-sg-wgpu",
     "crates/pob-host",
     "crates/pob-ui-core",
     "crates/pob-app",
     "crates/pob-ui-oracle",
-    "app/pob-port-desktop",
-    "app/pob-port-web",
+    "app/pob-desktop",
+    "app/pob-web",
     # Test-only input locator and skip policy (HYG1); dev-dependency only.
     "crates/pob-testpaths",
 ]
@@ -56,7 +54,6 @@ pob-calc-offence = { path = "crates/pob-calc-offence" }
 pob-calc-perform = { path = "crates/pob-calc-perform" }
 pob-oracle = { path = "crates/pob-oracle" }
 pob-data = { path = "crates/pob-data" }
-pob-ui = { path = "crates/pob-ui" }
 # UI port crates (ui doc §3).
 pob-sg = { path = "crates/pob-sg" }
 pob-sg-wgpu = { path = "crates/pob-sg-wgpu" }

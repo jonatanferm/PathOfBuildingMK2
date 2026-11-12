@@ -182,6 +182,12 @@ fn scenario_cases() -> Vec<Case> {
     units.sort();
     for unit_dir in units {
         let unit = unit_dir.file_name().unwrap().to_string_lossy().into_owned();
+        // CCR-0145 §2: `scenarios/e2e` (U53) is the whole app with the Rust calc and needs the
+        // game data, the recorded platform effects and u20's T4 normalisation; its harness is
+        // `tests/u53_e2e.rs`.
+        if unit == "e2e" {
+            continue;
+        }
         let mut scripts: Vec<PathBuf> = std::fs::read_dir(&unit_dir)
             .map(|rd| {
                 rd.filter_map(Result::ok)

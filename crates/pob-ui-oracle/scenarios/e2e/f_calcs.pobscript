@@ -1,0 +1,20 @@
+# U53 e2e: upstream_Generals_Perforate_Zerker in the Calcs tab (Ctrl+4): the sections with the Rust calc's numbers, hover cells (breakdowns), scroll, then the build XML.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/upstream_Generals_Perforate_Zerker.xml"
+frames 2
+key-down CTRL
+press 4
+key-up CTRL
+frames 3
+move 420 200
+frames 2
+move 420 260
+frames 2
+move 700 330
+frames 2
+wheel down 3
+frames 2
+wheel up 3
+frames 2
+snapshot calcs

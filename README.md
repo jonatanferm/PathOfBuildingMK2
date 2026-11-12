@@ -19,8 +19,11 @@ feature coverage, and [docs/parity-plan.md](docs/parity-plan.md) for history.
 | `crates/pob-engine` | MK2's character model, import/export, and the legacy hand-written calc engine. |
 | `crates/pob-data` | Data types + loaders. Shared by engine and UI. |
 | `crates/pob-extract` | Build-time tool: reads PoB's `src/Data/` Lua tables, emits Rust-loadable files. |
-| `crates/pob-ui` | egui application. |
-| `app/pob-desktop` | Thin binary wrapping `pob-ui` in eframe. |
+| `crates/pob-sg`, `crates/pob-sg-wgpu`, `crates/pob-host` | SimpleGraphic equivalent (draw API, fonts, images), its wgpu backend, and the desktop/web host. |
+| `crates/pob-ui-core`, `crates/pob-app` | The port of PoB's own UI: the control framework and every mode and tab. |
+| `crates/pob-ui-oracle` | Dev only: PoB's Lua UI under LuaJIT drawing through `pob-sg`, the UI parity harness. |
+| `app/pob-desktop` | The desktop app (`pob_host::run_desktop` with `pob_app::PobApp`). |
+| `app/pob-web` | The browser app (wasm32 + Trunk). |
 | `data/` | Generated data files (output of `pob-extract`). |
 
 ## Building
@@ -40,10 +43,8 @@ gitignored. Round-trip tests skip silently when it's missing.
 `main`:
 
 - `cargo build` and `cargo test` against the headless calc-engine crates
-  (`pob-engine`, `pob-data`, `pob-extract`). UI crates (`pob-ui`,
-  `pob-desktop`, `pob-web`) pull in `winit` / `wgpu` / `eframe`, which need
-  extra Linux system packages — not worth the CI surface area for a
-  calc-focused regression suite.
+  (`pob-engine`, `pob-data`, `pob-extract`), and a UI job that builds `pob-desktop`,
+  checks `pob-web` for wasm32 and runs clippy and the `pob-sg` / `pob-ui-core` tests.
 - `cargo fmt --check` and `cargo clippy` run as *advisory* jobs while the
   existing fmt/clippy drift is cleaned up — they do not block merge today.
 
