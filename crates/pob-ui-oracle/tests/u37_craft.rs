@@ -29,7 +29,8 @@
 //!   every implicit, enchant, explicit, scourge and crucible mod line's text with its
 //!   `crafted`/`custom`/`disabled` flags, so each craft is visible), the socket viewer's `Draw`
 //!   (U23), the undo count around `AddUndoState` (U38), every other tab's `Draw` (nothing, as
-//!   u22), TreeTab:GetSpecList (U25, Rust only, as u33) and u22's `utf8.next`; after `Draw`,
+//!   u22: the Rust side masks the Tree arm of `ShellHooks::draw_tab`, the tab a build opens on),
+//!   TreeTab:GetSpecList (U25, Rust only, as u33) and u22's `utf8.next`; after `Draw`,
 //!   both sides draw one status line (`display: <displayItem.name> undo: <count>`).
 
 #![allow(
@@ -351,6 +352,10 @@ fn rust_stubs() {
             h.set_tab_flag.clone(),
         );
         h.draw_tab = Rc::new(move |cx, t, vp, ev| {
+            if t == BuildTab::Tree {
+                // LUA_STUBS replaces `treeTab.Draw`: the Tree tab (U25) draws nothing here as well
+                return;
+            }
             draw(cx, t, vp, ev);
             if t == BuildTab::Items {
                 status_line(cx, vp);
