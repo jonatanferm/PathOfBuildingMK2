@@ -2916,7 +2916,9 @@ dependencies = [
  "pob-calc-offence",
  "pob-calc-perform",
  "pob-calc-setup",
+ "pob-gamedata",
  "pob-lua",
+ "rustix 1.1.4",
 ]
 
 [[package]]

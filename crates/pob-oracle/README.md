@@ -19,7 +19,8 @@ that `pob-calc` (the Rust port of PoB's calculations) has no Lua runtime:
 | `mod_json` | Mods, tags and mod values of the oracle's JSON as `pob_gamedata::{Mod, Tag, Value}` (the encoders are `pob_calc::probe::{mod_json, tag_json, value_json}`). |
 
 Binaries: `pob_oracle` (the harness), `pob_calc_diff` (PoB vs Rust),
-`pob_timing` (LuaJIT ModStore query timings, gate G1a), `pob_headless`
+`pob_timing` (LuaJIT ModStore query timings, gate G1a), `pob_calc_timing`
+(LuaJIT full-recalc and power-report timings, gate INT-2; `scripts/port/perf_bench.sh`), `pob_headless`
 (ad-hoc runs with `HEADLESS_EXEC`), `lua_bench`.
 
 ## The oracle
@@ -193,6 +194,7 @@ pob_oracle nondet  <build.xml> [--out FILE] [--keep DIR] [--verify] [--max-runs 
 pob_calc_diff outputs POB OURS [--json-out DIR] [--nondet DIR] [--unit ID] [--provenance DIR]
 pob_calc_diff state   POB.json[.zst] OURS.json[.zst] [--nondet FILE]
 pob_timing <build.xml> [--iters N] [--json OUT]
+pob_calc_timing [--recalc N] [--warmup N] [--power N] [--json OUT] [--pob SRC] <build.xml>...
 ```
 
 Every command that boots PoB holds an exclusive `flock` on

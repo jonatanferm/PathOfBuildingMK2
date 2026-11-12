@@ -30,7 +30,7 @@ ureq = { version = "2.12", default-features = false, features = ["tls"], optiona
 toml = "0.8"
 zstd = "0.13"
 blake3 = "1"
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "time"] }
 
 [dev-dependencies]
 pob-modparser.workspace = true
@@ -58,6 +58,11 @@ name = "pob_calc_diff"
 
 [[bin]]
 name = "pob_timing"
+required-features = ["luajit"]
+
+# Gate INT-2 (calc doc §9.7): LuaJIT full-recalc and power-report timings (JIT on).
+[[bin]]
+name = "pob_calc_timing"
 required-features = ["luajit"]
 
 [[bin]]

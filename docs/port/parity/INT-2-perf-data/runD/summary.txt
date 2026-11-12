@@ -1,0 +1,7 @@
+| build | recalc LuaJIT ms (min/med) | recalc Rust ms (min/med) | ratio | power LuaJIT s (min/med) | power Rust s (min/med) | ratio | peak RSS MB LuaJIT / Rust |
+|---|---|---|---|---|---|---|---|
+| allflame_exp_000 | 36.1 / 41.4 | 33.6 / 34.4 | 0.93 | 5.14 / 5.49 | 4.36 / 4.47 | 0.85 | 1065 / 490 |
+| allflame_exp_023 | 12.8 / 14.2 | 11.8 / 12.2 | 0.92 | 2.73 / 2.87 | 2.07 / 2.09 | 0.76 | 728 / 428 |
+| allflame_exp_028 | 8.5 / 10.7 | 8.2 / 8.5 | 0.96 | 2.01 / 2.25 | 1.87 / 1.89 | 0.93 | 741 / 936 |
+recalc: total min CPU LuaJIT 0.057 s, Rust 0.054 s, ratio 0.93; every build <= LuaJIT: True
+power: total min CPU LuaJIT 9.881 s, Rust 8.308 s, ratio 0.84; every build <= LuaJIT: True
