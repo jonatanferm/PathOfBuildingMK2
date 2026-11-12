@@ -1,0 +1,80 @@
+screen 1280 800 dpi 1.0
+# U37: CorruptDisplayItem on a unique ring with variant groups (the "Implicits" and "Roll Ranges"
+# buttons). Roll Ranges: the explicit lines that pass isModLineScalable and CheckModLineVariant
+# get a value label, a slider and a wrapped range label (L3344-3378); click one slider and drag
+# the other (the changeFunc: corruptedRanges, the labels re-formatted through applyRange), hover
+# the Corrupt button (corruptItem(false): the roll ranges written as corruptedRange). Then
+# Implicits (the popup height and shown flags), switch the source to Scourge (the upside and
+# downside lists, buildScourgeList on the downside pair, every dropdown reset by SetSel(1)), pick
+# an upside in the first dropdown (its selFunc rebuilds the paired dropdown without that group)
+# and open the second, then Corrupt (SetDisplayItem, ClosePopup).
+#! u37-expect display: U35 Grouped Ring, Ruby Ring
+#! u37-expect ^71.00
+fixture userdir=user
+frames 2
+load-build "Builds/u37_items.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 86
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 848 154
+click LEFTBUTTON
+frames 3
+move 467 343
+click LEFTBUTTON
+frames 3
+move 445 366
+click LEFTBUTTON
+frames 3
+move 420 386
+key-down LEFTBUTTON
+frames 2
+move 400 386
+frames 2
+move 392 386
+frames 2
+key-up LEFTBUTTON
+frames 2
+move 595 429
+frames 4
+move 382 343
+click LEFTBUTTON
+frames 3
+move 512 367
+click LEFTBUTTON
+frames 3
+move 512 399
+frames 2
+click LEFTBUTTON
+frames 3
+move 637 392
+click LEFTBUTTON
+frames 3
+move 637 424
+frames 3
+click LEFTBUTTON
+frames 3
+move 637 412
+click LEFTBUTTON
+frames 3
+move 637 444
+frames 3
+move 1000 650
+click LEFTBUTTON
+frames 2
+move 595 497
+frames 3
+click LEFTBUTTON
+frames 3
+move 1270 700
+frames 3
+move 848 50
+click LEFTBUTTON
+frames 3
+snapshot crafted
+frames 1

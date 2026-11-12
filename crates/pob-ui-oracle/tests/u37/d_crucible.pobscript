@@ -1,0 +1,53 @@
+screen 1280 800 dpi 1.0
+# U37: AddCrucibleModifierToDisplayItem on a bow with a crucible mod line (buildCrucibleMods:
+# CanHaveMod, every node location's list sorted Spawn before MergeOnly by mod id with the "None"
+# string entry where the sort leaves it; nodeSelections pre-selects the item's mod in Node 1).
+# Open Node 1 and hover an entry (the tooltip: checkLineForAllocates lines and
+# AddModComparisonTooltip through the calc), pick another tier; open Node 2, pick an entry; hover
+# Add (addModifier: the crucibleModLines rebuilt from the five dropdowns), then Add
+# (SetDisplayItem, ClosePopup).
+#! u37-expect display: Upgraded Thicket Bow
+#! u37-expect Adds 4 to 9 Physical Damage - Tier: 1
+#! u37-expect Adding this mod will give
+fixture userdir=user
+frames 2
+load-build "Builds/u37_items.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 70
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 1000 190
+click LEFTBUTTON
+frames 3
+move 662 361
+click LEFTBUTTON
+frames 3
+move 662 379
+frames 3
+move 662 393
+frames 3
+click LEFTBUTTON
+frames 3
+move 662 383
+click LEFTBUTTON
+frames 3
+move 662 415
+frames 3
+click LEFTBUTTON
+frames 3
+move 595 474
+frames 4
+click LEFTBUTTON
+frames 3
+move 1270 700
+frames 3
+move 848 50
+click LEFTBUTTON
+frames 3
+snapshot crafted
+frames 1

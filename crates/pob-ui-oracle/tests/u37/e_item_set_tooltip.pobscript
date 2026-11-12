@@ -1,0 +1,32 @@
+# U37: AddItemSetTooltip (ItemsTab.lua:3982-3991) through the Items tab's item set dropdown
+# (U33's tooltipFunc, HOVER mode): open it and hover both sets (every non-socket slot with an
+# item: "<label>: <rarity colour><name>"), pick the second set (SetActiveItemSet), reopen and
+# hover the first.
+#! u37-expect ^7Weapon 1:
+fixture userdir=user
+frames 2
+load-build "Builds/u37_items.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 515 49
+click LEFTBUTTON
+frames 3
+move 515 67
+frames 3
+move 515 81
+frames 3
+click LEFTBUTTON
+frames 3
+move 515 49
+click LEFTBUTTON
+frames 3
+move 515 67
+frames 3
+move 1000 700
+click LEFTBUTTON
+frames 3
+snapshot set2
+frames 1

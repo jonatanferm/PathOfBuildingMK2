@@ -518,13 +518,10 @@ pub fn default_items_ui_hooks() -> ItemsUiHooks {
         add_implicit_to_display_item: Rc::new(|_, _, _| {
             not_ported("addImplicit.AddImplicitToDisplayItem", "U36")
         }),
-        corrupt_display_item: Rc::new(|_, _| not_ported("ItemsTab:CorruptDisplayItem", "U37")),
-        add_custom_modifier_to_display_item: Rc::new(|_, _| {
-            not_ported("ItemsTab:AddCustomModifierToDisplayItem", "U37")
-        }),
-        add_crucible_modifier_to_display_item: Rc::new(|_, _| {
-            not_ported("ItemsTab:AddCrucibleModifierToDisplayItem", "U37")
-        }),
+        // U37 (craft_b.rs)
+        corrupt_display_item: Rc::new(super::craft_b::CorruptDisplayItem),
+        add_custom_modifier_to_display_item: Rc::new(super::craft_b::AddCustomModifierToDisplayItem),
+        add_crucible_modifier_to_display_item: Rc::new(super::craft_b::AddCrucibleModifierToDisplayItem),
         socket_viewer_add_node_name: Rc::new(|_, _, _, _| {
             not_ported("PassiveTreeView:AddNodeName", "U24")
         }),
