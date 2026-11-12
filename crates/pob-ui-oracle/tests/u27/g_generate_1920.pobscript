@@ -1,0 +1,37 @@
+# U27 fallback weights: Lethal Pride on 61834; Generate (setupFallbackWeights: every node of the list through
+# the misc calculator, "Sort by Full DPS"; the Rust side's misc calculator is the Rust calc, CCR-0132 §4), show
+# the fallback list, hover Generate (its tooltip), Generate again, Search (the fallback rows join the desired
+# ones), then the build XML.
+#! u27-rust-misc-calc
+#! u27-expect-text ^4Fallback Nodes
+#! u27-expect-text ^7Click this button to generate new fallback node weights
+screen 1920 1080 dpi 1.5
+fixture userdir=user
+fixture net=net.json
+frames 2
+load-build "Builds/lp.xml"
+frames 3
+move 699 706
+frames 1
+click LEFTBUTTON
+frames 3
+move 880 306
+frames 1
+click LEFTBUTTON
+frames 2
+move 300 394
+frames 1
+click LEFTBUTTON
+frames 2
+move 880 306
+frames 2
+click LEFTBUTTON
+frames 2
+move 550 632
+frames 1
+click LEFTBUTTON
+frames 2
+move 560 360
+frames 1
+snapshot generate
+frames 1

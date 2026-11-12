@@ -1,0 +1,34 @@
+# U27 search 3: Militant Faith (Dominus, devotion variants 2 and 6) on 61834 with the node filter on
+# (distance 4: the distance slider and the protect check boxes of the allocated notables in radius), Total
+# Devotion plus two notables; protect the first notable, Search, Open Trade URL (the devotion filters of the
+# two variants), then the build XML.
+#! u27-expect-text ^7Protect allocated nodes from changing:
+#! u27-expect-text ^7Node Distance:
+#! u27-expect-text   2424: 370.0
+#! u27-expect-effect OpenUrl
+screen 1280 800
+fixture userdir=user
+fixture net=net.json
+frames 2
+load-build "Builds/mf.xml"
+frames 3
+move 699 786
+frames 1
+click LEFTBUTTON
+frames 3
+move 145 160
+frames 1
+click LEFTBUTTON
+frames 2
+move 550 672
+frames 1
+click LEFTBUTTON
+frames 2
+move 1061 434
+frames 1
+click LEFTBUTTON
+frames 2
+move 560 400
+frames 1
+snapshot mf
+frames 1

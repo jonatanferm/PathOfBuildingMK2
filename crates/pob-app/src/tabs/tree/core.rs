@@ -206,7 +206,7 @@ pub fn default_tree_tab_hooks() -> TreeTabHooks {
         }),
         power_report_list_set_label: Rc::new(|_, _, _| {}),
         power_report_set: Rc::new(|_, _, _| not_ported("TreeTab:BuildPowerReportList", "U26")),
-        find_timeless_jewel: Rc::new(|_, _| not_ported("TreeTab:FindTimelessJewel", "U27")),
+        find_timeless_jewel: Rc::new(TreeTab::FindTimelessJewel), // U27 (CCR-0123 §6)
     }
 }
 

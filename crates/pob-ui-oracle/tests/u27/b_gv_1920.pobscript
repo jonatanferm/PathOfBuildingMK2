@@ -1,0 +1,33 @@
+# U27 search 2: Glorious Vanity (Doryani) on 61834: two notables with secondary weights and the small life
+# node (GV scores every radius node, headers of 2/3 and 6/8 entries), one fallback row; Search, show the
+# fallback list and back, hover the secondary weight slider, then the build XML.
+#! u27-expect-text 1370:   37.5   307.0       1.25   28.0
+#! u27-expect-text ^7For nodes with multiple stats this slider controls the weight of the second stat listed.
+screen 1920 1080 dpi 1.5
+fixture userdir=user
+fixture net=net.json
+frames 2
+load-build "Builds/gv.xml"
+frames 3
+move 699 706
+frames 1
+click LEFTBUTTON
+frames 3
+move 550 632
+frames 1
+click LEFTBUTTON
+frames 2
+move 300 394
+frames 1
+click LEFTBUTTON
+frames 2
+move 187 394
+frames 1
+click LEFTBUTTON
+frames 2
+move 662 237
+frames 2
+move 560 360
+frames 1
+snapshot gv
+frames 1

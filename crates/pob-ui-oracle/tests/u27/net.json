@@ -1,0 +1,7 @@
+[
+ {
+  "url": "https://www.pathofexile.com/api/trade/data/leagues",
+  "body": "{\"result\":[{\"id\":\"Mercenaries\",\"realm\":\"pc\",\"text\":\"Mercenaries\"},{\"id\":\"Hardcore Mercenaries\",\"realm\":\"pc\",\"text\":\"Hardcore Mercenaries\"},{\"id\":\"Standard\",\"realm\":\"pc\",\"text\":\"Standard\"},{\"id\":\"Hardcore\",\"realm\":\"pc\",\"text\":\"Hardcore\"},{\"id\":\"Ruthless Mercenaries\",\"realm\":\"pc\",\"text\":\"Ruthless Mercenaries\"},{\"id\":\"Mercenaries\",\"realm\":\"sony\",\"text\":\"Mercenaries\"}]}",
+  "headers": "HTTP/1.1 200 OK\r\n\r\n"
+ }
+]
