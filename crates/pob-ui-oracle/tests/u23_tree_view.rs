@@ -724,10 +724,7 @@ fn lua_run(
         pob_ui_oracle::test_source!(),
         root,
         &inputs,
-        &[
-            &format!("{script:?}"),
-            &format!("{screen:?}"),
-        ],
+        &[&format!("{script:?}"), &format!("{screen:?}")],
     );
     oracle_cache::cached_lua_run(key, || {
         let handles = OracleHandles::default();
@@ -1051,7 +1048,10 @@ fn u23_scenarios() {
                 .iter()
                 .map(|(v, (n, sum, max))| format!("{v}: {n} draws, mean {:.1} ms, max {:.1} ms", sum / *n as f64, max))
                 .collect();
-            out.lines.push(format!("{tag}: viewer:Draw (Rust, this build profile) {}", perf.join("; ")));
+            out.lines.push(format!(
+                "{tag}: viewer:Draw (Rust, this build profile) {}",
+                perf.join("; ")
+            ));
             let titles = (window_titles(&lua.frames), window_titles(&rust.frames));
             let mut notes = T4Notes::default();
             let t4r = t4(&lua, &rust, &mut notes);

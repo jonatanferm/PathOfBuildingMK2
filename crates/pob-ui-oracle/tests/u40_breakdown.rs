@@ -469,10 +469,7 @@ fn lua_run(
         pob_ui_oracle::test_source!(),
         root,
         &inputs,
-        &[
-            &format!("{script:?}"),
-            &format!("{screen:?}"),
-        ],
+        &[&format!("{script:?}"), &format!("{screen:?}")],
     );
     oracle_cache::cached_lua_run(key, || {
         let handles = OracleHandles::default();
@@ -740,14 +737,18 @@ fn u40_scenarios() {
             } else {
                 format!("u40_{stem}@{w}x{h}@{s}")
             };
-            let (lua, rust) =
-                match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s)) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        out.failures.push(format!("{tag}: {e:#}"));
-                        return out;
-                    }
-                };
+            let (lua, rust) = match run_sides(
+                &root,
+                &script,
+                fx.user_dir.as_deref(),
+                runner::screen(w, h, s),
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    out.failures.push(format!("{tag}: {e:#}"));
+                    return out;
+                }
+            };
             out.ran += 1;
             let titles = (window_titles(&lua.frames), window_titles(&rust.frames));
             let t4r = t4(&lua, &rust);

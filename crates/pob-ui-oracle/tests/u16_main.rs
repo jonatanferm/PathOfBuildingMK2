@@ -40,7 +40,6 @@ use pob_ui_oracle::diff_report;
 use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-
 fn inputs() -> Option<PathBuf> {
     let root = pob_testpaths::require(
         pob_testpaths::pob_root(),

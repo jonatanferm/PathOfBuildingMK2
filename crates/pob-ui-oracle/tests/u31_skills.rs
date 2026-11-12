@@ -1115,7 +1115,11 @@ fn lua_run(
     oracle_cache::cached_lua_run(key, || {
         let handles = OracleHandles::default();
         let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
-        let fake = if FAKE_CALC.with(Cell::get) { "true" } else { "false" };
+        let fake = if FAKE_CALC.with(Cell::get) {
+            "true"
+        } else {
+            "false"
+        };
         let stubs = format!("U31_FAKE = {fake}\n{}{LUA_STUBS}", lua_layout());
         let mut lua_side = LuaSide {
             app: lua_app,

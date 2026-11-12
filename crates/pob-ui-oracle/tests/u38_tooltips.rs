@@ -567,8 +567,9 @@ fn u38_unique_tooltips() {
                 rust_unique_tooltips(&mut side, &picked)
             })
         };
-        out.lines
-            .push(format!("{name}: unique DB lua {lua_head} / rust {rust_head}"));
+        out.lines.push(format!(
+            "{name}: unique DB lua {lua_head} / rust {rust_head}"
+        ));
         // the flavour-order cases: drop them from the comparison
         let skip: Vec<usize> = picked
             .iter()
@@ -601,8 +602,10 @@ fn u38_unique_tooltips() {
         out.errors += e;
         out.tooltips += lua.len();
         out.n2 += lua.iter().map(|t| t.lines().count() - 2).sum::<usize>();
-        out.lines
-            .push(format!("{name}: {} tooltips compared", lua.len() - skip.len()));
+        out.lines.push(format!(
+            "{name}: {} tooltips compared",
+            lua.len() - skip.len()
+        ));
         out
     });
     let mut failures = Vec::new();

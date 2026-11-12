@@ -850,7 +850,7 @@ fn lua_run(
     user: &UserDir,
     fixture: Option<&Path>,
     screen: pob_sg::ScreenInfo,
-    import: &Option<(String, String)>,
+    import: Option<&(String, String)>,
 ) -> anyhow::Result<LuaRun> {
     let scripts = test_dir();
     let mut inputs: Vec<&Path> = vec![&scripts];
@@ -871,7 +871,7 @@ fn lua_run(
         let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
         let mut lua_side = LuaSide {
             app: lua_app,
-            import: import.clone(),
+            import: import.cloned(),
         };
         let mut d = Driver::new(screen, handles, user.path.clone());
         let (mut frames, r) = runner::drive(&mut lua_side, script, &mut d);
@@ -898,7 +898,7 @@ fn run_sides(
     let user = UserDir::new(fixture)?;
 
     // Lua (cached, TP4)
-    let run = lua_run(root, script, &user, fixture, screen, &import)?;
+    let run = lua_run(root, script, &user, fixture, screen, import.as_ref())?;
     let lua = Side {
         frames: run.frames,
         error: run.error,

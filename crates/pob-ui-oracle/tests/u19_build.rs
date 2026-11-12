@@ -45,7 +45,6 @@ use pob_ui_oracle::diff_report;
 use pob_ui_oracle::oracle_cache::{self, LuaRun};
 use pob_ui_oracle::runner::{self, Driver, LuaApp, RunResult, ScenarioApp, UserDir};
 
-
 /// The three widths of the acceptance row (1024, 1280, 1920), and 1920x1080 at DPI 1.5.
 const SCREENS: [(i32, i32, f32); 4] = [
     (1024, 768, 1.0),
@@ -444,7 +443,6 @@ fn lua_run(
         ],
     );
     oracle_cache::cached_lua_run(key, || {
-    
         let handles = OracleHandles::default();
         let lua_app = runner::lua_side(root, user, &handles, Entry::Launch, false)?;
         let mut lua_side = LuaSide {

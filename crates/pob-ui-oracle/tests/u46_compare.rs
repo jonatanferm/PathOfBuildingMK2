@@ -958,10 +958,7 @@ fn lua_run(
         pob_ui_oracle::test_source!(),
         root,
         &inputs,
-        &[
-            &format!("{script:?}"),
-            &format!("{screen:?}"),
-        ],
+        &[&format!("{script:?}"), &format!("{screen:?}")],
     );
     oracle_cache::cached_lua_run(key, || {
         let handles = OracleHandles::default();
