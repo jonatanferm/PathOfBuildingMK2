@@ -1,0 +1,25 @@
+# U49 a: Summary view with allflame_exp_048: the header row (the two build names, col3R moved
+# right of the compare name), DrawStatList (player stats; spacers, flag filters, condFunc
+# rows, formatted values, differences with percentages), the power report section (the
+# metric label and controls positioned by DrawSummary, RunComparePowerReport with no metric,
+# the list emptied by SetReport(nil, nil)), wheel scrolling (scrollY moves every row and
+# the controls).
+#! u49-import allflame_exp_048.xml
+#! u49-expect-text ^7Compare Power Report
+#! u49-expect-text ^7Difference
+screen 1280 800 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 700 500
+frames 2
+wheel down 3
+frames 2
+wheel down 3
+frames 2
+wheel up 1
+frames 2

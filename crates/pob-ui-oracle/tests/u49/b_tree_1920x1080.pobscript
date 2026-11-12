@@ -1,0 +1,31 @@
+# U49 b: Tree view with Sub/allflame_exp_030. Overlay mode: the primary build's viewer drawn in
+# the viewport between header and footer with compareSpec = the entry's spec (added/removed
+# nodes, compare-only nodes and jewels) and the cursor relative to the tree viewport. Side by
+# side (the overlay check box): the divider, the primary tree on the left, the comparison
+# build's own viewer and spec on the right (its tree assets, zoom and allocations), input routed
+# to the half under the cursor (PageUp/PageDown zoom only that tree), back to overlay.
+#! u49-import Sub/allflame_exp_030.xml
+#! u49-expect-text ^xFF9922allflame_exp_030
+screen 1920 1080 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 98
+click LEFTBUTTON
+frames 3
+move 428 138
+click LEFTBUTTON
+frames 3
+move 476 215
+click LEFTBUTTON
+frames 3
+move 1870 260
+press PAGEUP
+frames 2
+move 340 260
+press PAGEDOWN
+frames 2
+move 476 215
+click LEFTBUTTON
+frames 3
