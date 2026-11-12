@@ -2,8 +2,8 @@
 //! doActorCharges, actionSpeedMod, initMinionModDB, addMinionModifiers").
 //!
 //! For every corpus build, PoB is patched with `corpus/PF-B/stages.toml` (function probes on
-//! the five helpers and on the two unported callees) and probed twice into
-//! `target/tmp/pfb-probe/<stem>/`:
+//! the five helpers and on the two unported callees) and probed up to three times into one entry
+//! of the shared, content-keyed oracle cache (`testkit::oracle_dir`, CK1; see `build_dumps`):
 //!
 //! 1. `<fn>:*@main` for every probe: the first call of each in the build's main env;
 //! 2. a window of hit numbers after each first call (`<fn>:in#n … #n+W` and `:out`), which
@@ -156,64 +156,95 @@ fn dump_files(dir: &Path) -> BTreeMap<String, PathBuf> {
     out
 }
 
-/// The build's dumps (hit id → file), probing when the cache is absent.
-fn build_dumps(xml: &Path, patched: &Path) -> Option<BTreeMap<String, PathBuf>> {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("pfb-probe")
-        .join(stem(xml));
-    let done = dir.join("done");
-    if !done.is_file() {
-        let p1 = dir.join("p1");
-        let mut sel: Vec<String> = FNS
-            .iter()
-            .chain(CALLEES.iter())
-            .map(|f| format!("{f}:*@main"))
-            .collect();
-        if !run_probe(xml, patched, &p1, &sel) {
-            return None;
-        }
-        let window: u64 = std::env::var("PFB_WINDOW")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(6);
-        sel.clear();
-        for (hit, _) in dump_files(&p1) {
-            let Some((probe, n)) = hit_of(&format!("{hit}.json")) else {
-                continue;
-            };
-            let Some(f) = probe.strip_suffix(":in") else {
-                continue;
-            };
-            // a callee runs up to ~3 times per caller call in the window
-            let w = if CALLEES.contains(&f) {
-                3 * (window + 1)
+/// The build's dumps (hit id → file) and the directory that holds them (hold it while the dumps
+/// are read). CK1 (CCR-0146 §4, CCR-0147): the three probe runs are one entry of the shared,
+/// content-keyed oracle cache (`testkit::oracle_dir`,
+/// `.parity/probe-cache/<source key>/<build key>/dir-<key>/`), filled when absent. The key is the
+/// patched tree (its sha covers `corpus/PF-B/stages.toml`, the patcher and the dump/probe Lua; the
+/// source key the oracle runtime and the Lua runtime), the build's bytes, `PFB_WINDOW`, the
+/// probe's Rust code (`runner.rs`, `bin/pob_oracle.rs`) and this file (the selections are made
+/// here), so a harness, dump-format or PoB change probes again. The earlier
+/// `target/tmp/pfb-probe/<stem>/` was reused whenever it held a `done` marker, whatever made it.
+fn build_dumps(
+    xml: &Path,
+    patched: &pob_oracle::patcher::Patched,
+) -> Option<(testkit::OracleDir, BTreeMap<String, PathBuf>)> {
+    let window: u64 = std::env::var("PFB_WINDOW")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(6);
+    let text = std::fs::read(xml).ok()?;
+    let dir = testkit::oracle_dir(
+        &patched.src,
+        &text,
+        &[
+            "PF-B build_dumps 1",
+            &patched.sha,
+            &window.to_string(),
+            include_str!("../src/runner.rs"),
+            include_str!("../src/bin/pob_oracle.rs"),
+            include_str!("PF-B.rs"),
+        ],
+        |dir| {
+            if fill_dumps(xml, &patched.src, dir, window) {
+                Ok(())
             } else {
-                window
-            };
-            for j in n..=n + w {
-                sel.push(format!("{f}:in#{j}"));
-                sel.push(format!("{f}:out#{j}"));
+                Err(format!("{}: pob_oracle probe failed", stem(xml)))
             }
-        }
-        if !sel.is_empty() && !run_probe(xml, patched, &dir.join("p2"), &sel) {
-            return None;
-        }
-        // 3. the stub-callee calls nested in recorded caller calls that the p2 window missed
-        let p3 = dir.join("p3");
-        let _ = std::fs::remove_dir_all(&p3);
-        let sel3 = gap_selection(&dir.join("p2"), &sel);
-        if !sel3.is_empty() {
-            if !run_probe(xml, patched, &p3, &sel3) {
-                return None;
-            }
-            prune_unneeded(&dir.join("p2"), &p3);
-        }
-        std::fs::write(&done, "").ok()?;
-    }
+        },
+    )
+    .map_err(|e| eprintln!("{e}"))
+    .ok()?;
     let mut all = dump_files(&dir.join("p1"));
     all.extend(dump_files(&dir.join("p2")));
     all.extend(dump_files(&dir.join("p3")));
-    Some(all)
+    Some((dir, all))
+}
+
+/// The three probe runs of a build into `dir` (`p1`, `p2`, `p3`).
+fn fill_dumps(xml: &Path, patched: &Path, dir: &Path, window: u64) -> bool {
+    let p1 = dir.join("p1");
+    let mut sel: Vec<String> = FNS
+        .iter()
+        .chain(CALLEES.iter())
+        .map(|f| format!("{f}:*@main"))
+        .collect();
+    if !run_probe(xml, patched, &p1, &sel) {
+        return false;
+    }
+    sel.clear();
+    for (hit, _) in dump_files(&p1) {
+        let Some((probe, n)) = hit_of(&format!("{hit}.json")) else {
+            continue;
+        };
+        let Some(f) = probe.strip_suffix(":in") else {
+            continue;
+        };
+        // a callee runs up to ~3 times per caller call in the window
+        let w = if CALLEES.contains(&f) {
+            3 * (window + 1)
+        } else {
+            window
+        };
+        for j in n..=n + w {
+            sel.push(format!("{f}:in#{j}"));
+            sel.push(format!("{f}:out#{j}"));
+        }
+    }
+    if !sel.is_empty() && !run_probe(xml, patched, &dir.join("p2"), &sel) {
+        return false;
+    }
+    // 3. the stub-callee calls nested in recorded caller calls that the p2 window missed
+    let p3 = dir.join("p3");
+    let _ = std::fs::remove_dir_all(&p3);
+    let sel3 = gap_selection(&dir.join("p2"), &sel);
+    if !sel3.is_empty() {
+        if !run_probe(xml, patched, &p3, &sel3) {
+            return false;
+        }
+        prune_unneeded(&dir.join("p2"), &p3);
+    }
+    true
 }
 
 /// The stub callee replayed inside each caller (see `run_case`).
@@ -581,9 +612,9 @@ fn from_slot_items(m: &Mismatch) -> bool {
         || matches!(source, "Item Sockets" | "Unlinked Item Sockets" | "Quality")
 }
 
-fn run_build(t: &mut Tally, xml: &Path, patched: &Path) {
+fn run_build(t: &mut Tally, xml: &Path, patched: &pob_oracle::patcher::Patched) {
     let stem = stem(xml);
-    let Some(files) = build_dumps(xml, patched) else {
+    let Some((_dir, files)) = build_dumps(xml, patched) else {
         t.probe_failed.push(stem.to_owned());
         return;
     };
@@ -630,7 +661,7 @@ fn pfb_function_probes_all57() {
     assert!(!builds.is_empty(), "no builds in {}", parity.display());
     let mut t = Tally::default();
     for xml in &builds {
-        run_build(&mut t, xml, &patched.src);
+        run_build(&mut t, xml, &patched);
     }
 
     eprintln!("PF-B function probes over {} builds:", t.builds);

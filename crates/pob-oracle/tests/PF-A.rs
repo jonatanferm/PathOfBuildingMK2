@@ -17,10 +17,12 @@
 //! "no-op" (the function changed nothing PoB dumps).
 //!
 //! Builds: all57 (`.parity/builds`) plus the unit corpus `corpus/PF-A/*.xml`.
-//! Dumps go to `target/tmp/pfa-probe/<stem>/` (needs LuaJIT, feature
-//! `luajit`, and the machine-wide oracle lock). Knobs: `PFA_BUILDS=stem1,stem2`,
-//! `PFA_LIMIT=n`, `PFA_VERBOSE=1` (every mismatch), `PFA_REPROBE=1`. A missing
-//! input skips with a message; with `POB_ORACLE_REQUIRE=1` (or `CI`) it fails.
+//! Dumps come from the shared, content-keyed probe cache (`testkit::probe_selection`, CK1;
+//! probing needs LuaJIT, feature `luajit`, and the machine-wide oracle lock). Knobs:
+//! `PFA_BUILDS=stem1,stem2`, `PFA_LIMIT=n`, `PFA_VERBOSE=1` (every mismatch);
+//! `POB_QUERY_CACHE=refresh` probes again (the former `PFA_REPROBE=1`), `off` probes into
+//! private directories. A missing input skips with a message; with `POB_ORACLE_REQUIRE=1` (or
+//! `CI`) it fails.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -28,6 +30,7 @@ use std::path::{Path, PathBuf};
 use pob_calc::Val;
 use pob_oracle::diff::Mismatch;
 use pob_oracle::oracle::find_parity_dir;
+use pob_oracle::runner::ProbeDumps;
 use pob_oracle::schema::StateDump;
 use pob_oracle::testkit;
 
@@ -93,45 +96,24 @@ fn stages_file() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/PF-A/stages.toml")
 }
 
-/// The patched PoB copy with the PF-A function probes (built once per test process).
+/// The `:in`/`:out` dumps of the PF-A helpers in a build's main env ([`probe_into`]).
 #[cfg(feature = "luajit")]
-fn patched_src() -> Option<PathBuf> {
-    use std::sync::OnceLock;
-    static P: OnceLock<Option<PathBuf>> = OnceLock::new();
-    P.get_or_init(|| {
-        let src = pob_oracle::oracle::find_pob_src()?;
-        let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
-        match pob_oracle::patcher::patch(&src, Some(&stages_file()), &root) {
-            Ok(p) => Some(p.src),
-            Err(e) => {
-                eprintln!("patch failed: {e}");
-                None
-            }
-        }
-    })
-    .clone()
-}
-
-/// The `:in`/`:out` dumps of the PF-A helpers in a build's main env, probed into
-/// `target/tmp/pfa-probe/<stem>/` when absent.
-#[cfg(feature = "luajit")]
-fn probe_dumps(xml: &Path) -> Result<PathBuf, String> {
+fn probe_dumps(xml: &Path) -> Result<ProbeDumps, String> {
     let select: Vec<String> = FNS.iter().map(|f| format!("{f}:*@main")).collect();
-    probe_into(xml, "pfa-probe", &select)
+    probe_into(xml, &select)
 }
 
 /// Hits `#1..#HIT_SAMPLE` of every PF-A helper (any env: initEnv/perform runs of every
-/// mode, buildActiveSkill and calcFullDPS envs, minions), probed into
-/// `target/tmp/pfa-probe-hits/<stem>/`.
+/// mode, buildActiveSkill and calcFullDPS envs, minions) ([`probe_into`]).
 #[cfg(feature = "luajit")]
-fn probe_hit_sample(xml: &Path) -> Result<PathBuf, String> {
+fn probe_hit_sample(xml: &Path) -> Result<ProbeDumps, String> {
     let mut select = Vec::new();
     for f in FNS {
         for n in 1..=HIT_SAMPLE {
             select.push(format!("{f}:*#{n}"));
         }
     }
-    probe_into(xml, "pfa-probe-hits", &select)
+    probe_into(xml, &select)
 }
 
 const HIT_SAMPLE: usize = 12;
@@ -144,54 +126,37 @@ const HIT_SAMPLE: usize = 12;
 const LATE_BUILDS: &[&str] = &["allflame_exp_030", "allflame_exp_048"];
 const LATE_HITS: std::ops::RangeInclusive<usize> = 13..=24;
 
-/// `applyEnemyModifiers` hits [`LATE_HITS`], probed into `target/tmp/pfa-probe-late/<stem>/`.
+/// `applyEnemyModifiers` hits [`LATE_HITS`] ([`probe_into`]).
 #[cfg(feature = "luajit")]
-fn probe_late_hits(xml: &Path) -> Result<PathBuf, String> {
+fn probe_late_hits(xml: &Path) -> Result<ProbeDumps, String> {
     let select: Vec<String> = LATE_HITS
         .map(|n| format!("applyEnemyModifiers:*#{n}"))
         .collect();
-    probe_into(xml, "pfa-probe-late", &select)
+    probe_into(xml, &select)
 }
 
+/// The dumps of `select` in a build: the shared probe cache's entry of that selection on the
+/// copy patched with `corpus/PF-A/stages.toml`, probed in a fresh `pob_oracle probe` process when
+/// absent (`testkit::probe_selection`, `runner::SelectionCache`). CK1 (CCR-0146 §4): the entry is
+/// content-keyed (the patched source's sha, which covers the stages file, the patcher and the
+/// dump/probe Lua; the build's BLAKE3; the selection and dump cap; the probe's Rust code), so a
+/// harness, dump-format or PoB change probes again. The earlier `target/tmp/pfa-probe*/<stem>/`
+/// directories were keyed only by the dump format string (`format.txt`, FUP3), which an encoder
+/// change that keeps the string (ORC-X2's `inlineForeign`) does not change. Hold the result while
+/// reading the dumps.
 #[cfg(feature = "luajit")]
-fn probe_into(xml: &Path, sub: &str, select: &[String]) -> Result<PathBuf, String> {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join(sub)
-        .join(stem(xml));
-    let state = dir.join("state");
-    // FUP3: dumps of an older encoder (no `format.txt` of the current pob-state format) are
-    // probed again: the item mod lines of pob-state/2 decide the KNOWN_DIFFS entries
-    let current = std::fs::read_to_string(dir.join("format.txt"))
-        .is_ok_and(|f| f.trim() == pob_oracle::schema::STATE_FORMAT);
-    if current && dir.join("hits.json").is_file() && std::env::var_os("PFA_REPROBE").is_none() {
-        return Ok(state);
-    }
-    let patched = patched_src().ok_or("no patched PoB source")?;
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let log = dir.with_extension("log");
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_pob_oracle"))
-        .arg("probe")
-        .arg(xml)
-        .arg("--out-dir")
-        .arg(&dir)
-        .arg("--patched")
-        .arg(&patched)
-        .arg("--select")
-        .arg(select.join(","))
-        .arg("--no-provenance")
-        .arg("--max-dumps")
-        .arg("1000")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::fs::File::create(&log).map_err(|e| e.to_string())?)
-        .status()
-        .map_err(|e| e.to_string())?;
-    if status.success() {
-        std::fs::write(dir.join("format.txt"), pob_oracle::schema::STATE_FORMAT).map_err(|e| e.to_string())?;
-        Ok(state)
-    } else {
-        Err(format!("pob_oracle probe failed (see {})", log.display()))
-    }
+fn probe_into(xml: &Path, select: &[String]) -> Result<ProbeDumps, String> {
+    let opts = pob_oracle::runner::ProbeOptions {
+        select: select.to_vec(),
+        max_dumps: 1000,
+        provenance: false,
+    };
+    testkit::probe_selection(
+        Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+        xml,
+        Some(&stages_file()),
+        &opts,
+    )
 }
 
 /// Pairs whose mismatches are an oracle gap, not a PF-A port difference: (build, function,
@@ -641,7 +606,7 @@ fn run_corpus(
     title: &str,
     builds: &[PathBuf],
     fns: &[&'static str],
-    probe: impl Fn(&Path) -> Result<PathBuf, String>,
+    probe: impl Fn(&Path) -> Result<ProbeDumps, String>,
     all_hits: bool,
 ) -> bool {
     let mut tallies: BTreeMap<&str, Tally> = BTreeMap::new();
