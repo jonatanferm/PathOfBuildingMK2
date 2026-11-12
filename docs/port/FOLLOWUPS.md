@@ -248,6 +248,29 @@ Found while running the touched units' acceptance tests on port/FUP1 (rust-port 
    from flask `Item:20` (Flagellant's Basalt Flask of the Iguana) in Rust but from `Item:23`
    (Seething Divine Life Flask of Sealing) in PoB, i.e. which of two flasks granting the same
    immunity wins.
+   **Resolved in PFC1** (rust-port 64d1e45 + PFC1, 2026-11-12): 57/57 on the full corpus, 14/14
+   on the quick corpus.
+   - The `attempt to index a userdata value` raise no longer reproduces on 64d1e45 (not
+     bisected; RETYPE db07985 / c626f6c replaced the `minion.extra` `LifeTable` object with the
+     typed `Actor.lifeTable`, which `minion_lifeTable` reads as a data table). What was left for 039
+     was `Missing env.minion.output` plus `locals.output.Minion` (PoB: a `$ref` to it). The cause was
+     probe bookkeeping in the real `initMinionModDB`: L1157 `minion.output = output or { }` did
+     not clear the injected "absent" mark (CCR-0079 §5), so the still-empty table was exported
+     as nil. PF-B's L3 test cleared that mark in its harness (`tests/PF-B.rs` "inject marks a
+     field PoB had as nil"); the calc now clears it itself (`actor_b.rs` `probe_written`, a
+     no-op without the `probe` feature).
+   - 000's flask source is PoB nondeterminism that the harness could not see. `env.flasks` is
+     keyed by item tables, so `pairs(flasks)` (CalcPerform.lua:1773) follows addresses. Three
+     fresh probes of 000 visited items 23,20,19,10,15 / 15,10,19,20,23 / 23,19,15,10,20, and
+     the first flask merged wins `mergeBuff`. `$keys` in the state dump are sorted by content
+     (`state_dump.lua` `keyLabel`, items by id), so the injected order was always 10…23 (Item:20
+     first). The test passed only when PoB happened to visit 20 before 23 (`POB_QUERY_CACHE=off`
+     ×3: 1 pass, 2 fail). `tests/PF-C.rs` now restores PoB's order from that run's
+     `pfc:calcFlaskMods` call order (`restore_flask_order`). Without it, runs 1 and 3 fail on the 4
+     mismatches and run 2 passes. With it, all three pass.
+   - Not covered: `env.tinctures` (also item-keyed; in `mergeTinctures`' `pairs(tinctures)` loop at
+     CalcPerform.lua:1905 the order decides which tinctures fall under `tinctureLimit`) has no call-order probe. No corpus
+     build has shown a difference there.
 2. **DF-E all57 was red on mixed-run dumps, not on the calc** (resolved in FUP1, recorded for
    the record). The 139 failing hits of 363 (fullsuite 2026-11-10 02:34: 171/363) paired an
    `:in` and an `:out` dump of different PoB processes found in `.parity/probe-cache/<sha>/<build-key>/`

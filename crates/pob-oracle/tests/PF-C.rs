@@ -14,6 +14,10 @@
 //! Test-environment gaps, each worked around here and recorded in CCR-0079:
 //! * §3: the pob-state/1 item dump has no `buffModList`; the flasks' lists are
 //!   restored from the `pfc:calcFlaskMods` line dumps (their `buffModList` local).
+//! * PFC1: `env.flasks` is keyed by item tables, so PoB's `pairs(flasks)` order (CalcPerform.lua
+//!   1773) follows addresses and differs between PoB processes, and the dump sorts `$keys` by
+//!   content; the order the run's `pfc:calcFlaskMods` calls show is restored before the segment
+//!   runs ([`restore_flask_order`]). It picks the flask whose buff `mergeBuff` keeps.
 //! * §4: the injected graph has no passive tree (PT, BM-A), so `modLib.mergeKeystones`
 //!   (ported, CT) cannot resolve keystones; its recorded delta is replayed after it.
 //! * `env.partyMembers` is the build model's `partyTab.actor` (CalcPerform.lua:1310);
@@ -264,6 +268,9 @@ struct BuildDumps {
     replays: Rc<BTreeMap<&'static str, (Replay, Vec<String>)>>,
     /// item id → `item.buffModList` as PoB had it (from the `pfc:calcFlaskMods` dumps).
     buffModLists: BTreeMap<i64, Vec<Mod>>,
+    /// The item ids of `env.flasks` in the order PoB's `pairs(flasks)` (CalcPerform.lua:1773)
+    /// visited them in this process (the `pfc:calcFlaskMods` call order; see [`buff_mod_lists`]).
+    flaskOrder: Vec<i64>,
 }
 
 /// The definition of `j` when it is a `{"$ref": n}` in `root`.
@@ -287,12 +294,26 @@ fn deref<'a>(root: &'a J, j: &'a J) -> &'a J {
 }
 
 /// `item.buffModList` per item id from the `pfc:calcFlaskMods` line dumps of the segment's
-/// `calcs.perform` call (CCR-0079 §3: the pob-state/1 item dump leaves the field out).
+/// `calcs.perform` call (CCR-0079 §3: the pob-state/1 item dump leaves the field out), and the
+/// item ids in the order of those calls.
+///
+/// PFC1: the order is the one PoB's `for item in pairs(flasks)` (CalcPerform.lua:1773, from
+/// `mergeFlasks(env.flasks, false, true)` at 1937) took in this process. `env.flasks` is keyed by
+/// item tables, so that order follows table addresses and changes from one PoB process to the
+/// next (allflame_exp_000, three fresh probes: items 23,20,19,10,15 / 15,10,19,20,23 /
+/// 23,19,15,10,20). The state dump cannot carry it: `$keys` entries are sorted by content
+/// (state_dump.lua `keyLabel`, Items by id), so the injected `env.flasks` is in id order. It
+/// decides which of two flasks granting the same buff `mergeBuff` keeps (the first one merged:
+/// CalcPerform.lua:54-59), e.g. the `source` of 000's `BleedImmune` (Item:20 or Item:23).
+/// Only the calls with `baseName == item.baseName` and no `onlyMinion` are kept: those are the
+/// 1937 call's (the 3121 call, after the segment, passes "LifeFlask"/"ManaFlask" or
+/// `onlyMinion = true`); each flask of the loop makes exactly one.
 fn buff_mod_lists(
     dumps: &BTreeMap<String, StateDump>,
     din: &StateDump,
-) -> Result<BTreeMap<i64, Vec<Mod>>, String> {
+) -> Result<(BTreeMap<i64, Vec<Mod>>, Vec<i64>), String> {
     let mut out = BTreeMap::new();
+    let mut order: Vec<(u64, i64)> = Vec::new();
     for d in dumps.values() {
         if d.probe != "pfc:calcFlaskMods" || d.stack != din.stack || d.env_id != din.env_id {
             continue;
@@ -327,8 +348,10 @@ fn buff_mod_lists(
             mods.push(m);
         }
         out.insert(id as i64, mods);
+        order.push((d.n, id as i64));
     }
-    Ok(out)
+    order.sort_unstable();
+    Ok((out, order.into_iter().map(|(_, id)| id).collect()))
 }
 
 fn load_build_dumps(state: &Path) -> Result<BuildDumps, String> {
@@ -370,7 +393,7 @@ fn load_build_dumps(state: &Path) -> Result<BuildDumps, String> {
         hits.sort();
         replays.insert(*callee, (r, hits.into_iter().map(|(_, h)| h).collect()));
     }
-    let buffModLists = buff_mod_lists(&dumps, &din)?;
+    let (buffModLists, flaskOrder) = buff_mod_lists(&dumps, &din)?;
     Ok(BuildDumps {
         din,
         dout,
@@ -378,6 +401,7 @@ fn load_build_dumps(state: &Path) -> Result<BuildDumps, String> {
         up1862,
         replays: Rc::new(replays),
         buffModLists,
+        flaskOrder,
     })
 }
 
@@ -430,6 +454,29 @@ fn restore_buff_mod_lists(env: &EnvRef, lists: &BTreeMap<i64, Vec<Mod>>) {
             item.buffModList.set(Some(l));
         }
     }
+}
+
+/// PFC1: put `env.flasks` in the order PoB's `pairs` visited it (`order`, item ids; see
+/// [`buff_mod_lists`]); the port's `pairs` is insertion order (setup_flasks.rs L1773
+/// LUA-ORDER). Flasks PoB did not visit keep their relative order after the visited ones.
+fn restore_flask_order(env: &EnvRef, order: &[i64]) {
+    if order.is_empty() {
+        return;
+    }
+    env.flasks.get().with_mut(|f| {
+        let mut entries = f.pairs();
+        let rank = |item: &ItemRef| {
+            item.id
+                .get()
+                .and_then(|id| order.iter().position(|o| *o as f64 == id))
+                .unwrap_or(order.len())
+        };
+        entries.sort_by_key(|(item, _)| rank(item));
+        f.wipe();
+        for (item, v) in entries {
+            f.set(&item, Some(v));
+        }
+    });
 }
 
 /// CalcPerform.lua 1310-1311: `env.partyMembers` and `env.player.partyMembers` are the build's
@@ -563,6 +610,8 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
     // every replay: `apply_onto` refills the items from the export, which lacks the field)
     let lists = Rc::new(b.buffModLists.clone());
     restore_buff_mod_lists(&env, &lists);
+    // PFC1: and PoB's per-process `pairs` order of `env.flasks`, which the dump sorts away
+    restore_flask_order(&env, &b.flaskOrder);
     let injected_skills = reachable_skills(&env);
 
     // the replay hook
@@ -579,6 +628,7 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
         let env = env.clone();
         let replays = b.replays.clone();
         let lists = lists.clone();
+        let flaskOrder = b.flaskOrder.clone();
         callee_replay::set_hook(Some(Box::new(move |name, args| {
             if name == "mergeBuff" {
                 let (Some(src), Some(dest), Some(key)) = (
@@ -599,6 +649,7 @@ fn run_build(stem: &str, b: &BuildDumps) -> Outcome {
             };
             let r = replays[name].0.apply_report(&hit, &env);
             restore_buff_mod_lists(&env, &lists);
+            restore_flask_order(&env, &flaskOrder);
             match r {
                 Ok(a) => {
                     let mut l = log.borrow_mut();
