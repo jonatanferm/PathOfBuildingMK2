@@ -2290,6 +2290,7 @@ pub(crate) fn initMinionModDB(env: &EnvRef, activeSkill: &ActiveSkillRef, output
         Some(o) => o.clone(),
         None => Table::new(),
     });
+    probe_written(&minion, "output");
     // L1158
     minion
         .modDB
@@ -2986,6 +2987,19 @@ fn add_list_opt(modDB: &ModDB, list: Option<ModList>) {
         Some(list) => modDB.AddList(&list.ipairs()),
         None => lua_error!("bad argument #1 to 'ipairs' (table expected, got nil)"),
     }
+}
+
+/// Probe builds only: Lua just assigned the typed actor field `key` (CCR-0079 §5). Injection
+/// marks the typed fields that were nil in the dump as absent, and the exporter hides an absent
+/// field that holds its default, so `minion.output = output or { }` (L1157) on a minion whose
+/// `output` was nil exported as still nil while PoB has `{ }` there (PFC1: allflame_exp_039's
+/// `env.minion.output` at perform:1943). A no-op without the `probe` feature.
+#[inline]
+fn probe_written(actor: &ActorRef, key: &str) {
+    #[cfg(feature = "probe")]
+    crate::probe::unmark_absent(crate::probe::rc_ptr(actor), key);
+    #[cfg(not(feature = "probe"))]
+    let _ = (actor, key);
 }
 
 /// The crate-private helpers of this file, for the oracle tests (`crates/pob-oracle/tests/PF-B.rs`;
