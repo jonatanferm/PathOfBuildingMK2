@@ -8,6 +8,10 @@
 //! Serving: Trunk serves `dist/`; PoB's files are expected under `pob/` next to `index.html`
 //! (`pob/src/...`, `pob/runtime/SimpleGraphic/Fonts/...`, optionally `pob/web-prefetch.txt`,
 //! see `pob_host::web`), e.g. a symlink to `.PathOfBuilding` in `dist/`.
+//!
+//! CCR-0134 §6 (U54): with `?app=pob` the page also needs `pob-dump compile`'s output under
+//! `pob/dump/` (`data.bin`, `trees/<ver>.bin`; `?data=<url>` overrides), and the calc runs in a
+//! Web Worker started from this same module (`pob_app::calc::worker_web`).
 
 use pob_host::{App, PlatformParts};
 use pob_sg::{Align, Font, Key, Sg, Sys};
@@ -209,6 +213,11 @@ mod web {
     /// Trunk's entry point.
     #[wasm_bindgen(start)]
     pub fn start() {
+        // CCR-0134 §6: this module also runs in the calc's Web Worker (pob_app's WorkerCalc,
+        // calc doc D15), which must not start the app
+        if pob_app::calc::worker_web::in_worker() {
+            return;
+        }
         wasm_bindgen_futures::spawn_local(async {
             let cfg = pob_host::HostConfig {
                 title: "Path of Building".into(),
@@ -217,11 +226,37 @@ mod web {
                 pob_src: "pob/src".into(),
                 sg_runtime: "pob/runtime/SimpleGraphic".into(),
             };
-            let pob = web_sys::window()
+            let search = web_sys::window()
                 .and_then(|w| w.location().search().ok())
-                .is_some_and(|q| q.contains("app=pob"));
+                .unwrap_or_default();
+            let pob = search.contains("app=pob");
             let r = if pob {
-                pob_host::run_web("pob_canvas", cfg, pob_app::PobApp::new).await
+                // CCR-0134 §6: the game data (`?data=<url>`, default `pob/dump`) and the calc in a
+                // Web Worker (WorkerCalc, calc doc D15)
+                use pob_app::calc::worker_web::{self, WebWorkerConfig, WorkerCalc};
+                let data_base = search
+                    .trim_start_matches('?')
+                    .split('&')
+                    .find_map(|kv| kv.strip_prefix("data="))
+                    .map_or_else(|| worker_web::DEFAULT_DATA_BASE.to_owned(), str::to_owned);
+                if let Err(e) = worker_web::init_web_data(&data_base).await {
+                    web_sys::console::error_1(&e);
+                    return;
+                }
+                let spawn = worker_web::web_spawner(WebWorkerConfig {
+                    glue_url: None,
+                    data_base: Some(data_base),
+                });
+                pob_host::run_web("pob_canvas", cfg, move |parts| {
+                    pob_app::PobApp::with_calc(
+                        parts,
+                        std::rc::Rc::new(move || {
+                            Box::new(WorkerCalc::new(spawn.clone()))
+                                as Box<dyn pob_app::calc::CalcFacade>
+                        }),
+                    )
+                })
+                .await
             } else {
                 pob_host::run_web("pob_canvas", cfg, super::TestCard::new).await
             };

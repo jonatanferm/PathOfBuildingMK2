@@ -2888,6 +2888,7 @@ version = "0.0.1"
 dependencies = [
  "flate2",
  "indexmap",
+ "js-sys",
  "miniz_oxide",
  "pob-calc",
  "pob-gamedata",
@@ -2899,6 +2900,9 @@ dependencies = [
  "pob-ui-core",
  "serde_json",
  "sha2",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

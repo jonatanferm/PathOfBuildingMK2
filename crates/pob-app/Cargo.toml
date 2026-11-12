@@ -25,6 +25,18 @@ serde_json.workspace = true
 sha2 = "0.10"
 miniz_oxide = "0.8"
 
+# U54 (WorkerCalc, calc/worker_web.rs): the Web Worker, its message events, the data fetches and
+# the worker's panic hook (calc doc D15).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+js-sys = "0.3"
+web-sys = { workspace = true, features = [
+    "Window", "Document", "Element", "Response", "console", "Worker", "WorkerOptions",
+    "WorkerType", "MessageEvent", "ErrorEvent", "Blob", "BlobPropertyBag", "Url",
+    "WorkerGlobalScope", "DedicatedWorkerGlobalScope",
+] }
+
 [dev-dependencies]
 # U28's unit tests: a small `data.powerStatList` and an item base from JSON.
 serde_json.workspace = true
