@@ -1067,6 +1067,8 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                         .unwrap_or_else(|| lua_error!("attempt to index local 'gemInstance' (a nil value)"));
                     // L1044
                     gemInstance.enableGlobal1.set(state);
+                    // an explicit value is no longer CalcSetup's nil (CCR-0145 §4)
+                    gemInstance.extra.set(n!("$enableGlobal1Nil"), Val::Nil);
                     // L1045
                     add_undo_state(cx, me);
                     // L1046
@@ -1117,6 +1119,8 @@ pub fn CreateGemSlot(cx: &mut Cx, me: CtrlId, index: usize) {
                         .unwrap_or_else(|| lua_error!("attempt to index local 'gemInstance' (a nil value)"));
                     // L1063
                     gemInstance.enableGlobal2.set(state);
+                    // an explicit value is no longer CalcSetup's nil (CCR-0145 §4)
+                    gemInstance.extra.set(n!("$enableGlobal2Nil"), Val::Nil);
                     // L1064
                     add_undo_state(cx, me);
                     // L1065

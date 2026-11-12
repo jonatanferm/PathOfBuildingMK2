@@ -139,8 +139,9 @@ pub struct CalcBreakdownControl {
     pub calcs_tab: Option<CtrlId>,
     /// `self.tooltip`
     pub tooltip: Tooltip,
-    /// `self.nodeViewer` (U23's object; lent to [`BreakdownHooks::node_viewer_draw`])
-    pub node_viewer: PassiveTreeView,
+    /// `self.nodeViewer` (U23's object; lent to [`BreakdownHooks::node_viewer_draw`]); `None`
+    /// until its first draw builds it (DIVERGENCE(load-order), see `node_viewer_draw`)
+    pub node_viewer: Option<PassiveTreeView>,
     /// `self.rangeGuide`
     pub range_guide: ImageHandle,
     /// `self.uiOverlay`
@@ -212,7 +213,10 @@ pub fn default_breakdown_hooks() -> BreakdownHooks {
         // CCR-0145 §5 (U53 cut-over): U23's PassiveTreeView
         node_viewer_draw: Rc::new(node_viewer_draw),
         node_viewer_highlight_ring: Rc::new(|cx, me| {
-            Some(cx.w::<CalcBreakdownControl>(me).node_viewer.highlight_ring.clone())
+            cx.w::<CalcBreakdownControl>(me)
+                .node_viewer
+                .as_ref()
+                .map(|v| v.highlight_ring.clone())
         }),
     }
 }
@@ -221,18 +225,19 @@ pub fn default_breakdown_hooks() -> BreakdownHooks {
 /// viewer:Draw(build, viewPort, { })` on `self.nodeViewer`, lent to its own `Draw` (ui doc §7.2).
 /// DIVERGENCE(load-order): L26 `self.nodeViewer = new("PassiveTreeView"):PassiveTreeView()` runs
 /// in the constructor in Lua; `CalcBreakdownControl::new` has no `Cx`, so the viewer is built
-/// on its first draw (`zoom_level` is 0 only before `PassiveTreeView::new`, which sets 3). Only
-/// the frame of its image loads moves; nothing reads the viewer before it draws.
+/// on its first draw (the field is `None` until then). Only the frame of its image loads moves;
+/// nothing reads the viewer before it draws.
 fn node_viewer_draw(cx: &mut Cx, me: CtrlId, zoom: f64, zoom_x: f64, zoom_y: f64, vp: &ViewPort) {
-    let mut v = std::mem::take(&mut cx.w_mut::<CalcBreakdownControl>(me).node_viewer);
-    if v.zoom_level == 0.0 {
-        v = PassiveTreeView::new(cx);
-    }
+    let taken = cx.w_mut::<CalcBreakdownControl>(me).node_viewer.take();
+    let mut v = match taken {
+        Some(v) => v,
+        None => PassiveTreeView::new(cx),
+    };
     v.zoom = zoom;
     v.zoom_x = Some(zoom_x);
     v.zoom_y = Some(zoom_y);
     v.draw(cx, vp, &mut pob_ui_core::input::InputEvents::default());
-    cx.w_mut::<CalcBreakdownControl>(me).node_viewer = v;
+    cx.w_mut::<CalcBreakdownControl>(me).node_viewer = Some(v);
 }
 
 thread_local! {
@@ -510,7 +515,7 @@ impl CalcBreakdownControl {
                 // L23
                 calcs_tab: calcsTab,
                 tooltip: Tooltip::default(),
-                node_viewer: PassiveTreeView::default(),
+                node_viewer: None,
                 range_guide: ImageHandle::default(),
                 ui_overlay: ImageHandle::default(),
                 border_thickness: 0.0,

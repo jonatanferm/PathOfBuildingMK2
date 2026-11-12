@@ -173,26 +173,43 @@ PoB per build. Measured on rust-port fa733f3 + INT-1F-A:
 
 ## U53 cut-over (2026-11-12)
 
-On `port/U53` (merged rust-port b20e2bd). CCR-0145 lists every cross-unit edit.
+On `port/U53` (merged rust-port, fix round 1). CCR-0145 lists every cross-unit edit.
 
 - **E2E with the Rust calc, no stand-ins:** `crates/pob-ui-oracle/scenarios/e2e/*.pobscript`
-  (12 scenarios: build list, tree open/hover/allocate/undo/search/zoom/drag, Skills, Items +
-  undo/redo, Calcs, Config, Notes + Ctrl+S, Party, Import/Export, Compare) under
-  `tests/u53_e2e.rs`: unmodified PoB Lua vs `pob_app::PobApp::new` (RustCalc), 24 runs at
-  1280x800@1 and 1920x1080@1.5, 1,438,240 Lua draw ops, **0 T3 divergences**, T4 28 pairs
-  identical, same window titles, no error on either side.
+  (15 scenarios: build list, tree open/hover/allocate/undo at 1280x800 and at 1920x1080@1.5,
+  tree search/zoom/drag, a right click on an allocated jewel socket (to the Items tab and its
+  socket viewer), the Items tab's jewel-socket hover (the socket viewer), Skills, Items +
+  undo/redo, Calcs, Config (a check box ticked: a recalc), Notes + Ctrl+S, Party,
+  Import/Export, Compare) under `tests/u53_e2e.rs`: unmodified PoB Lua vs
+  `pob_app::PobApp::new` (RustCalc), 27 runs, 1,668,755 Lua draw ops, **0 T3 divergences**, T4
+  33 pairs identical, same window titles, no error on either side. Each scenario's
+  `#! expect-*` guards (DrawString text, Lua source files of the last frame, snapshots that must
+  differ: a click that allocates, an undo, a config tick, an unequip/undo/redo) fail the run
+  when a step misses its target.
 - **Every unit harness on the Rust calc:** `LuaCalcBridge::new` now delegates to RustCalc
   (`POB_UI_CALC=lua` for the old bridge; `LuaCalcBridge::lua` for u15 and `lua-calc`). All of
   u16-u52 (35 binaries) pass with it, plus `parity` (54 cases, 42 gallery runs). No text masks:
   no open calc issue needed one.
 - **Integration fixes found by the e2e run:** Save of nil `mainActiveSkill(Calcs)` and nil gem
-  `enableGlobal1/2` of the calc's own groups (CCR-0145 §3-§4); the last stand-ins in the shipping
-  hook defaults (SkillsTab→ItemsTab socket line/tooltip/undo, ItemsTab undo/redo, LIST subPath,
-  the breakdown node viewer, the character-import seams; §5).
+  `enableGlobal1/2` of the calc's own groups (CCR-0145 §3-§4); the stand-ins left in the
+  shipping hook defaults (§5): SkillsTab→ItemsTab socket line/tooltip/undo, ItemsTab
+  undo/redo, LIST subPath, the breakdown node viewer, the character-import seams, and (fix
+  round 1, found by grepping every `not_ported` call) the ItemsTab socket viewer (its Draw
+  and AddNodeName), the Items tab's "Manage..." spec button, the tree's right click on a jewel
+  socket, and the timeless-jewel list's SetSelItemId/PopulateSlots/AddUndoState. Only U51's
+  trade hooks (on hold) still raise. The first spec undo state is the one `PassiveSpec:Load`
+  takes (CCR-0123 §2, §8 here): an undo right after loading a cluster-jewel build now restores
+  what PoB restores.
+- **Perf pass met:** `tests/u53_perf.rs` (release, asserted by default in builds without debug
+  assertions): Tree tab draw at 1920x1080 over 72 frames per build, p50 1.65-2.41 ms, p95
+  1.86-3.55 ms on the four fixture builds over two runs on the loaded machine (was p50
+  2.6-3.7, p95 2.7-4.5 before; CCR-0145 §9).
+- **Web:** the grey node icons were the web `Fs::search` not listing the fetched `src/` files,
+  so the tree looked for its sprite sheets outside the version directory (CCR-0145 §10, fixed
+  in `pob-host`). Checked in headless Chromium (release wasm): node icons drawn, wheel zoom,
+  hover tooltips with the worker's stat differences, a click allocates (1/123, Life 60 → 72).
 - **Renames:** `app/pob-port-{desktop,web}` → `app/pob-{desktop,web}`; the egui `crates/pob-ui`
-  and the legacy apps are deleted. `pob-engine`/`pob-data` stay for calc:INT-4. The web page runs
-  the app by default (`?app=testcard` for the test card).
-- **Open (FOLLOWUPS "U53"):** T6 (Wine not installed); the tree perf gate (< 4 ms at 1080p:
-  p50 2.7-4.2 ms, p95 3.1-5.3 ms, two of four builds over); web tree node icons draw as grey
-  squares (the app loads and runs in headless Chromium: build mode with the worker's numbers,
-  tabs, build list).
+  and the legacy apps are deleted (before the T6 gate, which stays open: orchestrator's call).
+  `pob-engine`/`pob-data` stay for calc:INT-4. The web page runs the app by default
+  (`?app=testcard` for the test card).
+- **Open (FOLLOWUPS "U53"):** T6 (Wine not installed).

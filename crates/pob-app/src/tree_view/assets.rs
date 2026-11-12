@@ -64,10 +64,6 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// The asset and sprite maps: an `IndexMap` (insertion order, which the ORDER notes above rely
-/// on) with ahash: the tree draw looks names up in them per node per frame, and std's SipHash
-/// was a tenth of the draw (U53 perf pass).
-pub type IndexMap<K, V> = indexmap::IndexMap<K, V, ahash::RandomState>;
 use pob_lua::{n, Name};
 use pob_sg::{ImageFlags, ImageHandle};
 use pob_ui_core::prelude::*;
@@ -75,6 +71,11 @@ use pob_ui_core::prelude::*;
 use crate::app::CxApp;
 use crate::model::gamedata::{DataTable, DataValue};
 use crate::model::{self, Node, PassiveTreeRef, Val};
+
+/// The asset and sprite maps: an `IndexMap` (insertion order, which the ORDER notes above rely
+/// on) with ahash: the tree draw looks names up in them per node per frame, and std's SipHash
+/// was a tenth of the draw (U53 perf pass).
+pub type IndexMap<K, V> = indexmap::IndexMap<K, V, ahash::RandomState>;
 
 pub use super::connectors::Connector;
 
@@ -779,7 +780,6 @@ impl TreeAssets {
         }
     }
 
-    /// `tree.assets[name]`
     /// `subGraph.connectors` as polygons ([`super::connectors::build_subgraph_connectors`],
     /// memoised per pair list; see [`TreeAssets::subgraph_cache`]).
     pub fn subgraph_connectors(&self, sub_graph: &model::Table) -> Rc<Vec<Rc<Connector>>> {
@@ -810,6 +810,7 @@ impl TreeAssets {
         connectors
     }
 
+    /// `tree.assets[name]`
     pub fn asset(&self, name: &str) -> Option<&Rc<Asset>> {
         self.assets.get(name)
     }
@@ -834,9 +835,12 @@ impl TreeAssets {
             }
         }
         let v = self.sprites(Some(icon));
-        self.icon_cache
-            .borrow_mut()
-            .insert(key, (icon.clone(), v.clone()));
+        let mut cache = self.icon_cache.borrow_mut();
+        // a tree has a few thousand icon strings; replaced nodes add a few more
+        if cache.len() >= 16384 {
+            cache.clear();
+        }
+        cache.insert(key, (icon.clone(), v.clone()));
         v
     }
 

@@ -124,7 +124,9 @@ jobs:
         run: cargo check -p pob-web --target wasm32-unknown-unknown
 
       - name: cargo clippy (UI crates)
-        run: cargo clippy -p pob-sg -p pob-host -p pob-ui-core -p pob-app -p pob-desktop --all-targets -- -D warnings
+        # --no-deps: lint only these crates; their workspace dependencies (pob-lua, the calc
+        # crates) are not clippy-clean under -D warnings (pob-lua's inline(always) helpers).
+        run: cargo clippy --no-deps -p pob-sg -p pob-host -p pob-ui-core -p pob-app -p pob-desktop --all-targets -- -D warnings
 
       - name: cargo test (pob-sg, pob-ui-core)
         run: cargo test -p pob-sg -p pob-ui-core
