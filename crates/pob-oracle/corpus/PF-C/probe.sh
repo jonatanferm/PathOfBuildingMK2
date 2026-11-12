@@ -4,7 +4,9 @@
 # `perform:1862` (CCR-0079 §1) and every call of the replayed callees.
 #
 # Usage: crates/pob-oracle/corpus/PF-C/probe.sh [build.xml ...]   (default: .parity/builds/*.xml)
-# Output: target/tmp/pfc-probe/<stem>/ (hits.json, state/); the test reads it from there.
+# Output: target/tmp/pfc-probe/<stem>/ (hits.json, state/). Optional since FS1: the test probes
+# the same selection itself through the shared probe cache; it reads this output only when run
+# with PFC_PROBE_DIR=target/tmp/pfc-probe.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../../../.." && pwd)"
 parity="${POB_PARITY_DIR:-}"

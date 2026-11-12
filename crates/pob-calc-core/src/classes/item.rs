@@ -1,7 +1,8 @@
 //! @pob-file Classes/Item.lua @16de4b82d
-//! @pob-file Modules/ItemSlotHelper.lua @16de4b82d
 //! @pob-file Modules/Utils.lua @16de4b82d
-//! Classes/Item.lua 1-423, 1646-2191 (Item core), Modules/ItemSlotHelper.lua, Modules/Utils.lua.
+//! Classes/Item.lua 1-423, 1646-2191 (Item core), Modules/Utils.lua. Modules/ItemSlotHelper.lua
+//! (IT-B's row) holds only the UI's `M.DrawViewer`; U32 ports and marks the whole module in
+//! pob-app `tabs/items/slot_helper.rs` (FS1: one marker per Lua line).
 //!
 //! Owner: IT-B. Signatures were frozen by U0; the deviations are CCR-0032
 //! (`GetVariantGroupOptions` returns variant ids, `MutateMod` takes a boolean,
@@ -2191,13 +2192,9 @@ impl Item {
 
 // ---- Modules/ItemSlotHelper.lua -------------------------------------------------------------
 
-// @pob Modules/ItemSlotHelper.lua:1-1 h=5ce3829c
-// (module-level statements: M)
-
-// @pob-skip Modules/ItemSlotHelper.lua:10-38 reason="M.DrawViewer: UI drawing (SetDrawLayer/DrawImage/SetViewport and the tree viewer); the UI port owns it (CCR-0032 §1)"
-
-// @pob Modules/ItemSlotHelper.lua:40-40 h=85c34a63
-// (module-level statements: Return)
+// L1 `local M = {}`, L10-38 `M.DrawViewer` (UI drawing: SetDrawLayer/DrawImage/SetViewport and
+// the tree viewer, CCR-0032 §1), L40 `return M`: nothing in the model. U32 ports and marks the
+// module in pob-app `tabs/items/slot_helper.rs` (FS1: one marker per Lua line).
 
 // ---- Modules/Utils.lua ----------------------------------------------------------------------
 

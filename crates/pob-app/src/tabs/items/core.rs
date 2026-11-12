@@ -691,9 +691,13 @@ pub fn PopulateSlots(cx: &mut Cx) {
     populate_slot_lists(cx);
 }
 
-/// lua: ItemsTab.lua:1619-1649 `ItemsTabClass:EquipItemInSet(item, itemSetId)` (calc:BM-A's
-/// `ItemsTab::EquipItemInSet` leaves out L1632-1637 and L1647; see the module docs)
-/// @pob Classes/ItemsTab.lua:1619-1649 h=06719695
+/// lua: ItemsTab.lua:1619-1649 `ItemsTabClass:EquipItemInSet(item, itemSetId)` (model part:
+/// calc:BM-A `ItemsTab::EquipItemInSet`, which leaves out L1632-1637 and L1647; see the module
+/// docs). The UI copy cannot call the model one: the SHIFT redirect (L1632-1637) sits between
+/// L1631 and L1638, and L1629/L1646/L1647 go through the UI's AddItem, PopulateSlots and undo
+/// state. The `@pob` marker of 1620-1649 is BM-A's (ui doc §10.2 "Each split function is
+/// commented `// lua: … (model part: …)`"; FS1: one marker per Lua line), so an upstream change
+/// to these lines shows up as BM-A's work item: re-port this copy with it.
 pub fn EquipItemInSet(cx: &mut Cx, item: &model::ItemRef, itemSetId: f64) {
     let m = cx.build().model.clone();
     let mut item = item.clone();
