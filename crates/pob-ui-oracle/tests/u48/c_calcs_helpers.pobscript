@@ -1,0 +1,35 @@
+# U48 c: import Sub/allflame_exp_030, open the Calcs sub-tab: the stand-in Draw shows
+# CompareCalcsHelpers' DrawCalcsTooltip for the CalcSections "Dexterity" cell (breakdown lines of
+# both builds; Dex modifiers without modType: FormatCalcModValue, split into common / primary-only
+# / compare-only by ModRowKey, sources resolved by ResolveSourceName) and the first "Total Base"
+# cell (Life BASE: formatRound values), and DrawSkillBreakdownPanel for both builds' SkillBuffs.
+# Three frames: the tooltips are built once (CheckForUpdate) and drawn every frame.
+#! u48-expect-text u48 CALCS progress=0
+screen 1280 800 dpi 1
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 718 48
+click LEFTBUTTON
+frames 2
+move 640 460
+click LEFTBUTTON
+frames 2
+move 640 236
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 640 236
+click LEFTBUTTON
+frames 2
+move 585 625
+click LEFTBUTTON
+frames 3
+move 656 138
+click LEFTBUTTON
+frames 3

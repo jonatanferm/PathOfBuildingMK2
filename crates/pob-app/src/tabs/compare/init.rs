@@ -363,14 +363,7 @@ pub fn default_compare_hooks() -> CompareHooks {
         entry_open_version_convert_popup: Rc::new(|_, _, _| {
             not_ported("CompareEntry treeTab:OpenVersionConvertPopup", "U47")
         }),
-        power_report_list: Rc::new(|cx, me| {
-            cx.add(
-                me,
-                "comparePowerReportList",
-                New::new(Base::new(Anchor::NONE, rect(0, 0, 750, 250)), PendingPowerReportList),
-            )
-            .id()
-        }),
+        power_report_list: Rc::new(super::power_list::ctor_hook), // U48 (CCR-0136 §1)
     }
 }
 
