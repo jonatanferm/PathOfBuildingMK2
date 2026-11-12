@@ -604,7 +604,7 @@ Found while running FUP2's acceptance tests (port/FUP2 on rust-port 4c24bc2, 202
 Code and doc differences found while deciding CCRs 0043-0145 (AMENDMENTS A14). CCRDOC changed no
 code. Each item was checked by reading the code on `rust-port` `f0ef34a`; none was reproduced in
 the running app. Items 1-5 and 7 differ from PoB in the product; 6, 8, 9 and 11 are hygiene; 10 is
-a sub-pixel draw difference.
+a sub-pixel draw difference; 12 cannot be reached until a host passes the command line.
 
 1. **Options Save in the build list does not rebuild the list** (CCR-0099 B). Main.lua:1218-1220
    calls `self.modes.LIST:BuildList()` after Save when the mode is LIST (a changed build path
@@ -666,6 +666,12 @@ a sub-pixel draw difference.
     bare `LjIntMap<NodeRef>` (`radiusJewelList[i].nodes`) as `{"$userdata": true}`, and a second
     pass's `override.extraJewelFuncs` actor does not line up path by path. `tests/CS2.rs` excuses
     both within `EXPLAINED_MAX`. Owner: ORC-X (probe.rs).
+12. **A build link on the command line still raises** (DIVERGENCE(no-cli-args)). Main.lua:71-82
+    imports `arg[1]` through `buildSites.ParseImportLinkFromURI`/`DownloadBuild`, which U43 has
+    ported (`tabs/import/build_sites.rs`). `pob-app/src/main_mode/init.rs:150-153` still raises
+    "needs buildSites ... not ported yet". It cannot be reached in the product, because no host
+    sets `launch.arg` (`pob-app/src/launch.rs:93`). Fix: port L72-81 on U43's functions when a
+    host passes the command line. Owner: U16 (main_mode/init.rs).
 
 Dev-only bridge gaps (no product effect, recorded for completeness): `LuaCalcBridge` cannot carry
 `override.extra["$removeNodeIds"]` (CCR-0122 §1), the jewel-comparison spec (CCR-0125 §6) or a

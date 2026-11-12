@@ -557,7 +557,7 @@ not `env.player`) alive in `newSkill.extra["summonSkillKeep"]` (`summonSkillKeep
 CCR-0113's `actorKeep`; it closes no cycle (the summoning skill never reaches the copy). Test:
 `crates/pob-calc/tests/leak1_cycles.rs` (a CALCULATOR env, and the envs a recalc replaces, incl.
 every `GlobalCache` entry's: 0 survivors on allflame_exp_039, _007, _001, _000). Two
-build-level cycles remain (CCR-0142, decided by CCRDOC in A14: §3 A applied, §3 B not built:
+build-level cycles remain (CCR-0142, decided by CCRDOC in A14: §3 A applied, §3 B open and not built:
 `Env.build`/`MiscCalculator.build` ↔ `calcsTab`, and `ActiveSkill.socketGroup` ↔
 `SocketGroup.displaySkillList(Calcs)`); they leak a dropped build or a deleted socket group, not a
 recalc. The web calc worker, which drops a build
@@ -646,6 +646,8 @@ names the merge commit of the code it describes. The decisions:
   the as-built design and stays. Where the difference is visible in the product, FOLLOWUPS
   "CCRDOC" lists it.
 - **superseded**: a later CCR or unit replaced it.
+- **open**: a fix for a real defect that is not built yet (only CCR-0142 §3 B); FOLLOWUPS
+  "CCRDOC" tracks it.
 
 Most UI CCRs mix the two kinds: the seams were applied, and their requests to other owners (a
 re-export, a `pub fn`, a shared helper) were not built.
@@ -700,13 +702,13 @@ re-export, a `pub fn`, a shared helper) were not built.
 | 0138 | U48 | applied; §1 switch, §3 deletion not done | FOLLOWUPS "CCRDOC" 9 |
 | 0140 | FUP3 | rejected (not built; test-only) | FOLLOWUPS "CCRDOC" 11 |
 | 0141 | FUP2 | applied (amends CCR-0091 §6: a jewel closure prints `function: 0x` + an FNV-1a hash of its spec, `mod_tools::function_text`) | — |
-| 0142 | LEAK1 | §3 A applied; §3 B rejected | calc doc §3.3 rule 4 + STYLE.md; A12; FOLLOWUPS "CCRDOC" 7 |
+| 0142 | LEAK1 | §3 A applied; §3 B open (a real desktop leak, not built) | calc doc §3.3 rule 4 + STYLE.md; A12; FOLLOWUPS "CCRDOC" 7 |
 | 0143 | U49 | applied; §2-§4 not built | ui doc §10.5, §13 item 15; FOLLOWUPS "CCRDOC" 4 |
 | 0144 | U50 | applied | ui doc §10.5 |
 | 0145 | U53 | applied (§6 by INT-4); §4 typed field rejected | ui doc §10.3, §10.4, §10.5, §11.3; contracts#model-census |
 
-CCR-0135, 0139, 0146 and 0147 already had a final status (0135: A12), as did 0001-0094 (A7, A8,
-A10). Every file in `docs/port/ccr/` now carries one. The A8 "Needs code" list is CCR2's record
+CCR-0131 (applied by CSPLIT, A11), 0135 (A12), 0139, 0146 and 0147 already had a final status,
+as did the other CCRs of 0001-0094 (A7, A8, A10; 0089 applied by HYG3). Every file in `docs/port/ccr/` now carries one. The A8 "Needs code" list is CCR2's record
 of 2026-11-10. CCRDOC re-checked only the items that belong to the CCRs above (0043, 0044, 0088;
 item 11's two clauses noted there). The other items of CCRs 0014-0094 keep the status CCR2, ORC-X2
 (A9) or RETYPE (A10) gave them.

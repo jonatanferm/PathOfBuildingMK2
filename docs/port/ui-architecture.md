@@ -2574,7 +2574,7 @@ cargo check -p pob-app --target wasm32-unknown-unknown     # web stays possible
 ---
 ## 12. Work units
 
-Status (2026-11-12, docs/port/STATUS.md): every row below is merged into `rust-port` except **U51** Trade, which the user deferred on 2026-11-12. U53's T6 gate (SSIM against real SimpleGraphic under Wine) is pending because Wine is not installed (AMENDMENTS A5). The update checker is stubbed by the user's decision of 2026-11-12 (FOLLOWUPS "BRAND" 1).
+Status (2026-11-12, docs/port/STATUS.md): every row below is merged into `rust-port` except **U51** Trade, which the user deferred on 2026-11-12. U53's T6 gate (SSIM against real SimpleGraphic under Wine) is pending because Wine is not installed (AMENDMENTS A5). The update checker is stubbed by the user's decision of 2026-11-12 (FOLLOWUPS "BRAND" 1). U16 does not import a build link given on the command line (Main.lua:71-82, DIVERGENCE(no-cli-args); no host passes one; FOLLOWUPS "CCRDOC" 12).
 
 ### 12.1 Rules
 
@@ -2660,7 +2660,7 @@ Status (2026-11-12, docs/port/STATUS.md): every row below is merged into `rust-p
 | **U41** ConfigTab A | `ConfigTab.lua:1-834` (CustomModBlockControl, ctor building every option control) | `tabs/config/{custom_mod_block.rs,ctor.rs}` | U13, U11, ext:model-config | Every option type; ifFlag/ifSkill visibility; custom mod blocks; tooltips with enable compares (bridge). |
 | **U42** ConfigTab B | `ConfigTab.lua:835-1362` (UpdateControls, Draw, sets, undo; the model halves of 839-1204 are calc:BM-B/CO-C; as built U41 ports 835-837 `IsSectionCollapsed` and the UI half of 1302-1334 `UpdateCustomModsControls`, CCR-0110 §2); `ConfigSetListControl` 1-114; `Modules/ConfigModBrowser.lua` 1-311; `Modules/ConfigVisibility.lua` 1-160 | `tabs/config/{core.rs,set_list.rs,mod_browser.rs,visibility.rs}` | U41 | Config sets; mod browser; visibility identical through the bridge (`used()` tables). |
 | **U43** ImportTab A | `ImportTab.lua:1-775` (OAuth/account controls, ctor, Load/Save, Draw), as built also 776-787 (`Draw`) and the globals `HexToChar`/`UrlDecode` 1913-1924 (CCR-0109 §5, §7); `PoEAPI.lua` 1-238; `Modules/BuildSiteTools.lua` 1-129 | `tabs/import/{accounts.rs,core.rs,poe_api.rs,build_sites.rs}` | U16, U7 (Net), ext:model-core | Build-code import/export round-trips with Lua (T4); site URL import with recorded fixtures. |
-| **U44** ImportTab B | `ImportTab.lua:776-1932` (character list, downloads, import tree/items/skills, reimport state; as built 789-1912 and 1925-1932, CCR-0109 §5) | `tabs/import/character.rs` | U43, ext:model-items/skills/tree | Account import flows against recorded HTTP fixtures produce identical builds (T4). |
+| **U44** ImportTab B | `ImportTab.lua:776-1932` (character list, downloads, import tree/items/skills, reimport state; as built 789-1912 and 1926-1932, CCR-0109 §5) | `tabs/import/character.rs` | U43, ext:model-items/skills/tree | Account import flows against recorded HTTP fixtures produce identical builds (T4). |
 | **U45** PartyTab | `PartyTab.lua:16-515, 670-717` (ctor, Draw; Load/Save and ParseBuffs/exports are calc:BM-B) | `tabs/party.rs` | U11, ext:model-party | Paste and parse buffs; enable toggles; layout. |
 
 ### 12.7 Wave 5
