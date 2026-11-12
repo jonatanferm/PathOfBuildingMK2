@@ -364,12 +364,14 @@ pub struct BuildHooks {
     pub breakdown: Rc<dyn Fn(&mut Cx, CtrlId, BreakdownInit)>,
 }
 
+#[allow(dead_code)] // every seam of this table is ported (U46); kept for new seams
 #[track_caller]
 fn not_ported(what: &str, owner: &str) -> ! {
     lua_error!("{what} is not ported yet ({owner})")
 }
 
 /// A tab whose UI constructor is not ported yet: no node (`Ctrl::null()`).
+#[allow(dead_code)] // every tab constructor is ported (U46); kept for new seams
 fn pending_tab() -> TabCtor {
     Rc::new(|_cx, _build| CtrlId::default())
 }
@@ -427,7 +429,7 @@ pub fn default_hooks() -> BuildHooks {
         tree_tab: Rc::new(crate::tabs::tree::core::ctor_hook),
         skills_tab: Rc::new(crate::tabs::skills::core::ctor_hook),
         calcs_tab: Rc::new(crate::tabs::calcs::core::ctor_hook),
-        compare_tab: pending_tab(),
+        compare_tab: Rc::new(crate::tabs::compare::init::ctor_hook),
         // U40 (CalcBreakdownControl, Build.lua:616-621)
         breakdown: Rc::new(crate::tabs::calcs::breakdown::sidebar_breakdown_ctor),
     }

@@ -1,0 +1,48 @@
+# U46 c (1280x800): the import popup's "Import from Folder" (ClosePopup, OpenImportFolderPopup):
+# the search box (its changeFunc: FilterBuildList; the placeholder), the BuildListControl over
+# the popup's list host, a search that matches nothing and one that matches, cleared again; the
+# folder row and RETURN (the instance OnSelKeyDown -> LoadBuild: the path control's
+# SetSubPath, BuildList), the build row in the sub folder and Open (importBuildEntry: io.open,
+# ImportBuild with the file's build name, ClosePopup). The tab then shows the entry.
+#! u46-expect-text u46 SUMMARY n=1 active=1 allflame_exp_030
+screen 1280 800 dpi 1
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 122
+click LEFTBUTTON
+frames 3
+move 718 48
+click LEFTBUTTON
+frames 2
+move 640 460
+click LEFTBUTTON
+frames 2
+type "zzz"
+frames 2
+key-down CTRL
+press a
+key-up CTRL
+type "048"
+frames 2
+key-down CTRL
+press a
+key-up CTRL
+press BACK
+frames 2
+move 640 236
+frames 2
+click LEFTBUTTON
+frames 1
+press RETURN
+frames 3
+move 640 236
+click LEFTBUTTON
+frames 2
+move 585 625
+frames 1
+click LEFTBUTTON
+frames 3
+move 352 300
+frames 2
