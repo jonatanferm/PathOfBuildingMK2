@@ -133,3 +133,21 @@ INT-1-B: L6 headline 741/741, all keys 45,954/45,954, CALCS lists 171/171, used-
 513/513, misc calculator 1,248/1,248, 0 Rust errors; D13 62/62 fixed points (MAIN, and now
 CALCS too), 0 errors. `CA.rs` gates all of these as exact (no floors left). Still open for
 INT-1: L6 on 100 fresh poe.ninja builds (a new corpus and a new triage round).
+
+## INT-1 fresh-100: measured and triaged (INT-1-FRESH, 2026-11-12)
+
+The fresh corpus has 100 poe.ninja builds (105 fetched, 5 dropped because their character API
+returned 404, 0 dropped for a PoB error or for game data; docs/port/parity/fresh-corpus.md). On
+rust-port 645e2e1 with `CA_CORPUS_DIR=.parity/fresh`, the results are:
+
+- L6: headline 1,300/1,300, all keys 85,603/85,606 (every PoB key exact; 3 keys are Rust-only),
+  CALCS lists 300/300, used-tracking 900/900, misc 2,200/2,200, 0 Rust errors.
+- D13: 99/100 fixed points.
+
+docs/port/parity/INT-1-fresh-triage.md finds two buckets. Both are XS:
+
+- **INT-1F-A** (OF-C, CCR-0019 §8): costs_passes.rs ignores `levelCostCleared`, so a triggered
+  item curse keeps its mana cost and adds a `ManaCostWarningList` entry. The candidate fix
+  measured 85,603/85,603.
+- **INT-1F-B** (CA): fresh_017 is not a fixed point on a warm cache in PoB itself, so it needs a
+  `D13_POB_WARM_CACHE` entry.

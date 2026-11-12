@@ -1,0 +1,60 @@
+screen 1280 800 dpi 1.0
+# U36: EditDisplayItemText (ItemsTab.lua:2709-2761) without a display item: "Create custom..."
+# opens "Create Custom Item from Text" (rarity Rare, the FIXED edit); hover "Create" with an
+# empty buffer (enabled false: the invalid-item tooltip); type a rare ring (buildRaw prefixes
+# "Rarity: RARE"), hover "Create" (the valid tooltip), "Create" (CreateDisplayItemFromRaw with
+# normalise); then "Edit..." on it: the popup with the item text, the rarity switched to Magic,
+# the whole text replaced (Ctrl+A, typing), "Save" (the id kept).
+#! u36-expect Create Custom Item from Text
+#! u36-expect The item is invalid.
+#! u36-expect Edit Item Text
+#! u36-expect Gale Ruby Ring
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 1262 50
+click LEFTBUTTON
+frames 3
+move 595 630
+frames 3
+move 640 300
+click LEFTBUTTON
+type "Doom Loop"
+press RETURN
+type "Ruby Ring"
+press RETURN
+type "+20 to maximum Life"
+press RETURN
+type "+30% to Fire Resistance"
+frames 2
+move 595 630
+frames 3
+click LEFTBUTTON
+frames 3
+move 936 50
+click LEFTBUTTON
+frames 3
+move 450 169
+click LEFTBUTTON
+frames 2
+move 450 199
+click LEFTBUTTON
+frames 2
+move 640 300
+click LEFTBUTTON
+key-down CTRL
+press a
+key-up CTRL
+type "Gale Ruby Ring"
+press RETURN
+type "+25 to maximum Life"
+frames 2
+move 595 630
+frames 3
+click LEFTBUTTON
+frames 3

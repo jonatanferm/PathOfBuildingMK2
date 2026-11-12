@@ -1,0 +1,83 @@
+screen 1280 800 dpi 1.0
+# U36: AddImplicitPopup.lua. A custom rare helmet without influence: "Add Implicit..." opens the
+# popup with the Custom source only (source disabled, the modifier dropdowns hidden, height 110,
+# the custom edit as the default control); type a line, hover "Add" (the AddItemTooltip stand-in
+# of addModifier), "Add". Set the Searing Exarch influence and reopen: the Searing Exarch source
+# first (buildMods: the item's affixes with spawn weight, grouped, sorted, relabelled; height
+# 130); hover the Modifier box (AddModComparisonTooltip through the calc); switch the source to
+# Custom and back (the selFunc's two branches: modSelectLabel.y, buildMods, SetSel, and the
+# Default-sort applySort: both table.sorts, UpdateSearch); drop the Modifier list and pick its
+# second entry; "Add" (the Eldritch implicit). The power sort is d_enchant's (here it would run
+# the calc for every Eldritch mod on both sides: minutes through the bridge).
+# The Type dropdown is never hovered: its tooltip lists a group's first `pairs` mod (module docs).
+#! u36-expect Add Implicit to Item
+#! u36-expect Searing Exarch
+#! u36-expect +10 to Strength
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 1262 50
+click LEFTBUTTON
+frames 3
+move 640 300
+click LEFTBUTTON
+type "Doom Visor"
+press RETURN
+type "Iron Hat"
+press RETURN
+type "+20 to maximum Life"
+frames 2
+move 595 630
+click LEFTBUTTON
+frames 3
+move 1134 106
+click LEFTBUTTON
+frames 3
+type "+10 to Strength"
+frames 2
+move 596 437
+frames 3
+click LEFTBUTTON
+frames 3
+move 848 134
+click LEFTBUTTON
+frames 2
+move 848 264
+frames 2
+click LEFTBUTTON
+frames 3
+move 1134 106
+click LEFTBUTTON
+frames 3
+move 600 414
+frames 4
+move 460 364
+click LEFTBUTTON
+frames 2
+move 460 394
+click LEFTBUTTON
+frames 3
+move 460 364
+click LEFTBUTTON
+frames 2
+move 460 376
+click LEFTBUTTON
+frames 3
+move 1100 600
+frames 2
+move 600 414
+click LEFTBUTTON
+frames 2
+move 600 446
+frames 3
+click LEFTBUTTON
+frames 3
+move 596 447
+frames 3
+click LEFTBUTTON
+frames 3

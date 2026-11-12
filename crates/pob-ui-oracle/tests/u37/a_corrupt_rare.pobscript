@@ -1,0 +1,69 @@
+screen 1280 800 dpi 1.0
+# U37: CorruptDisplayItem on a rare ring (the "Corrupted" source, two implicit slots). Open the
+# first implicit dropdown and hover an entry (the tooltip: the mod lines and
+# AddModComparisonTooltip with replaceImplicits through the calc), pick it (the selFunc:
+# buildCorruptLists, so the second dropdown loses that mod's group), pick a second implicit,
+# hover the Corrupt button (its tooltip: corruptItem(true) through AddItemTooltip), switch the
+# sort to the second stat (applySort: getSortValue through calcFunc for every entry, the stable
+# re-sort, the lists rebuilt with the selections kept, UpdateSearch), reopen the first dropdown,
+# then Corrupt (SetDisplayItem of the corrupted item, ClosePopup). Runs once (the popup is
+# centred, and the power sort calls the calc once per implicit on each side).
+#! u37-expect display: Blight Whorl, Steel Ring
+#! u37-expect Adding this mod will give
+#! u37-expect increased Attributes
+fixture userdir=user
+frames 2
+load-build "Builds/u37_items.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 800 102
+click LEFTBUTTON
+click LEFTBUTTON
+frames 4
+move 848 78
+click LEFTBUTTON
+frames 3
+move 637 392
+click LEFTBUTTON
+frames 3
+move 637 438
+frames 3
+click LEFTBUTTON
+frames 3
+move 637 412
+click LEFTBUTTON
+frames 3
+move 637 458
+frames 3
+click LEFTBUTTON
+frames 3
+move 595 457
+frames 4
+move 812 357
+click LEFTBUTTON
+frames 3
+move 812 389
+frames 2
+click LEFTBUTTON
+frames 3
+move 637 392
+click LEFTBUTTON
+frames 3
+move 637 452
+frames 3
+move 1000 600
+click LEFTBUTTON
+frames 2
+move 595 457
+click LEFTBUTTON
+frames 3
+move 1270 700
+frames 3
+move 848 50
+click LEFTBUTTON
+frames 3
+snapshot crafted
+frames 1
