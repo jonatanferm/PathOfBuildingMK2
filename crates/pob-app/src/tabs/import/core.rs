@@ -278,6 +278,7 @@ pub struct ImportHooks {
     pub compare_import_build: Rc<dyn Fn(&mut Cx, Option<&str>, &str) -> bool>,
 }
 
+#[allow(dead_code)] // every seam of this table is ported (U46); kept for new seams
 #[track_caller]
 fn not_ported(what: &str, owner: &str) -> ! {
     lua_error!("{what} is not ported yet ({owner})")
@@ -295,7 +296,7 @@ pub fn default_import_hooks() -> ImportHooks {
         download_passive_tree: Rc::new(u44::download_passive_tree),
         download_items: Rc::new(u44::download_items),
         set_predefined_build_name: Rc::new(u44::set_predefined_build_name),
-        compare_import_build: Rc::new(|_, _, _| not_ported("CompareTab:ImportBuild", "U46")),
+        compare_import_build: Rc::new(crate::tabs::compare::init::import_build_hook),
     }
 }
 
