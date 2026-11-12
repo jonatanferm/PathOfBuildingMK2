@@ -444,10 +444,14 @@ fn canon(j: &J) -> String {
 /// 337-345 `modList`).
 ///
 /// Also the lists whose order is PoB's per-process `pairs` order (LUA-ORDER, calc doc §3.4):
-/// `<type>MaximumHitTaken.rowList` (`pairs(takenDamages)`, string keys, CalcDefence.lua:3325).
+/// `<type>MaximumHitTaken.rowList` (`pairs(takenDamages)`, string keys, CalcDefence.lua:3325), and
+/// `TotalBuildDegen.rowList` (`pairs(actor.damageOverTimeShiftTable[damageType])`, string keys,
+/// CalcDefence.lua:3389: e.g. allflame_exp_002's Physical / Fire rows swap between PoB processes).
 fn ui_sorted(key: &str, entry: &J) -> J {
     let mut e = entry.clone();
-    let has_source = e.get("source").is_some_and(|s| !s.is_null()) || key.ends_with("MaximumHitTaken");
+    let has_source = e.get("source").is_some_and(|s| !s.is_null())
+        || key.ends_with("MaximumHitTaken")
+        || key == "TotalBuildDegen";
     if let J::Object(m) = &mut e {
         for (k, v) in m.iter_mut() {
             let sort = k == "slots" || k == "modList" || (k == "rowList" && has_source);
