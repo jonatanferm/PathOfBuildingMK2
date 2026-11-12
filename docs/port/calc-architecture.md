@@ -209,7 +209,7 @@ No file has two owners. A unit edits only its own files, its `crates/pob-oracle/
 1. Never hold a `Ref`/`RefMut` across a call. Public APIs return **owned values or handles**, never references into a `RefCell`. `Field::with`/`Shared::with` closures MUST be leaf code: no calls into calc, ModStore or table methods on the same object. Debug builds report a violation as a panic that cites this rule.
 2. Compute first, then write: `let v = q(...); output.set(k, v);`.
 3. `Field<T>` requires `T: CheapClone`, which is Copy, an `Rc`/`Arc`/`Weak` handle, `Name`, `Table`, `Shared<_>`, or `Option` of these. Collections that Lua mutates in place and aliases are `Shared<Vec<_>>` / `Shared<IndexMap<_,_>>` / `Table`, never a `Field<Vec<_>>`.
-4. `Rc` cycles are forbidden. Back-pointers (`ActiveSkill.actor`, `ModStore.actor`, `Actor.enemy/parent/player`) are `Weak`. `Env` owns its actors. `GlobalCache` owns cached envs, and wiping it frees them.
+4. `Rc` cycles are forbidden. Back-pointers (`ActiveSkill.actor`, `ActiveSkill.summonSkill`, `ModStore.actor`, `Actor.enemy/parent/player`) are `Weak`. `Env` owns its actors. `GlobalCache` owns cached envs, and wiping it frees them. `ActiveSkill.summonSkill` (CCR-0135): the summoning skill owns its minion (`activeSkill.minion`), which owns the minion's skills; readers use `ActiveSkill::summonSkill()`, which panics on a dead handle (an ownership bug, never a Lua nil); `copyActiveSkill` keeps a summoning skill whose actor is not `env.player` alive in the copy's `extra["summonSkillKeep"]` (the same keep-alive as CCR-0113's `actorKeep`). `crates/pob-calc/tests/leak1_cycles.rs` checks that a dropped env and the envs a recalc replaces free their whole graph.
 
 ### 3.4 Iteration order policy
 
@@ -968,7 +968,8 @@ pub struct ActiveSkill {
     pub activeEffect: Field<SkillEffectRef>,
     pub supportList: Field<Shared<Vec<SkillEffectRef>>>, pub effectList: Field<Shared<Vec<SkillEffectRef>>>,
     pub actor: Field<ActorWeak>,                  // may point into another env (copyActiveSkill, D2)
-    pub summonSkill: Field<Option<ActiveSkillRef>>, pub socketGroup: Field<Option<SocketGroupRef>>,
+    pub summonSkill: Field<Option<ActiveSkillWeak>>, // back-pointer (§3.3 rule 4, CCR-0135); read via summonSkill()
+    pub socketGroup: Field<Option<SocketGroupRef>>,
     pub skillTypes: Field<SkillTypes>, pub minionSkillTypes: Field<Option<SkillTypes>>,
     pub skillFlags: Field<Table>, pub skillData: Field<Table>,
     pub skillModList: Field<ModList>, pub baseSkillModList: Field<ModList>,

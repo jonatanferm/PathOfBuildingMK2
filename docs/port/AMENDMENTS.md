@@ -306,7 +306,7 @@ Each item names the CCRs, the files to change, and the local workarounds to dele
     `CalcsTab.sectionList`, `Load -> bool` (CCR-0080 §2-§4, 0052 §9, 0072 §6 `buildName`);
     `SocketGroup.mainActiveSkill(Calcs)`/`Build.mainSocketGroup: Option`, typed `sourceItem`,
     `displayGemList`, `reqOverride`, `explodeSource` (CCR-0083 §3-§4); `PassiveSpec.subGraphs:
-    Shared<LjIntMap<Table>>` (CCR-0072 §4); `ActiveSkill.summonSkill` as `Weak` (CCR-0040 §7).
+    Shared<LjIntMap<Table>>` (CCR-0072 §4); `ActiveSkill.summonSkill` as `Weak` (CCR-0040 §7; done by LEAK1, CCR-0135, A12).
 
 16. **Test-input policy** (CCR-0031 B): `crates/pob-oracle/tests/{BM-A,CO-C,DF-C,DF-D,DF-E,DF-G,MI,OF-D,PF-A,PF-C,PF-D,PF-E,PF-F,PF-G,PS-B,PS-C,SK-A,SK-B,TR-A,TR-B}.rs`
     still skip a missing input unless `POB_ORACLE_REQUIRE=1`; switch them to `pob_testpaths::require`.
@@ -540,3 +540,29 @@ Moved items and the new files' owners: CCR-0131 §3 (`calc_perform_shared.rs` [P
 A branch that adds a file under the old `crates/pob-calc/src/` gets a directory-rename conflict on
 merge: `git mv` it into the crate of the table above (git's suggested directory can be wrong,
 because `src/modules/` is split across crates). `POB_PORT_SLOTS` stays 1.
+
+## A12. CCR-0135 applied by LEAK1 (2026-11-12; orchestrator approved)
+
+`ActiveSkill.summonSkill` is `Field<Option<ActiveSkillWeak>>` (calc doc §3.3 rule 4, §5.4): the
+strong back-pointer closed the cycle summoning skill → `minion` → minion skill → `summonSkill`,
+so every env with a minion skill leaked its skill graph (CCR-0135 §1-§2). Code: the field and the
+reader `ActiveSkill::summonSkill()` (`pob-calc-core/src/active_skill.rs`; a dead handle panics, it
+is an ownership bug, not a Lua nil), `createActiveSkill` stores `Rc::downgrade`, every reader
+upgrades (`calc_active_skill.rs` copy/modlist, `calc_tools.rs`, `buffs.rs`, `skills_misc.rs`,
+`pob-ui-oracle/src/lua_calc.rs`), `ProbeField for Weak<ActiveSkill>` (`probe.rs`; a dead handle
+reads as nil). CCR-0135 §3's open point: `copyActiveSkill` keeps a foreign summoning skill (actor
+not `env.player`) alive in `newSkill.extra["summonSkillKeep"]` (`summonSkillKeepKey`), like
+CCR-0113's `actorKeep`; it closes no cycle (the summoning skill never reaches the copy). Test:
+`crates/pob-calc/tests/leak1_cycles.rs` (a CALCULATOR env, and the envs a recalc replaces, incl.
+every `GlobalCache` entry's: 0 survivors on allflame_exp_039, _007, _001, _000). Two
+build-level cycles remain (CCR-0142, pending: `Env.build`/`MiscCalculator.build` ↔
+`calcsTab`, and `ActiveSkill.socketGroup` ↔ `SocketGroup.displaySkillList(Calcs)`); they leak
+a dropped build or a deleted socket group, not a recalc. The web calc worker, which drops a build
+per request, breaks both locally (`worker_web.rs` `run_request`, CCR-0142 §3 A; gate
+`build_teardown_frees_everything_ccr0142` in the same test file); the general teardown is
+CCR-0142 §3 B. Timing (`perf_bench.sh`, bench profile, 3 rounds, load average 6-12, Rust-only runs of
+rust-port b9888df vs LEAK1, output and power digests identical): power report allflame_exp_039
+6.87 → 7.52 s (+9 %), allflame_exp_007 4.90 → 5.41 s (+10 %); recalc 47.3 → 50.7 ms and 46.8 →
+50.9 ms (+7-9 %): freeing the graphs costs what the leak saved (CCR-0135 §4). RSS after one power
+report 2,770 → 691 MB and 2,033 → 452 MB. With LuaJIT in the same run, LEAK1 stays below it
+(power 0.73 / 0.71, recalc 0.77 / 0.81).

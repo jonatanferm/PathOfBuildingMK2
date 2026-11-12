@@ -21,6 +21,8 @@ pob-calc-perform.workspace = true
 pob-lua.workspace = true
 # benches/INT-2.rs: data.bin and the timeless jewel LUTs.
 pob-gamedata.workspace = true
+# tests/leak1_cycles.rs: the gitignored inputs (data/dump, .parity/builds).
+pob-testpaths.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 # HYG1 `#t` property test against LuaJIT (tests/hyg1_len.rs). Dev-only: the calc has no Lua runtime.

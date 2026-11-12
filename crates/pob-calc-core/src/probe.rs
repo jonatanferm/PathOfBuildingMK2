@@ -581,6 +581,21 @@ mod imp {
             Kind::Actor
         }
     }
+    /// `ActiveSkill.summonSkill` (CCR-0135): a dead handle reads as nil, like `Weak<Actor>`.
+    impl ProbeField for Weak<ActiveSkill> {
+        fn to_val(&self) -> Val {
+            self.upgrade().map_or(Val::Nil, |s| Val::Obj(s))
+        }
+        fn from_val(v: &Val) -> Option<Self> {
+            if v.is_nil() {
+                return Some(Weak::new());
+            }
+            v.obj::<ActiveSkill>().map(|s| Rc::downgrade(&s))
+        }
+        fn kind() -> Kind {
+            Kind::Skill
+        }
+    }
     impl ProbeField for Breakdown {
         fn to_val(&self) -> Val {
             Val::Obj(Rc::new(self.clone()))
