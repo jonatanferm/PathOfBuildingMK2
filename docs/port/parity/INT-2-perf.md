@@ -1,28 +1,48 @@
 # INT-2 performance: power report and full recalc vs PoB under LuaJIT
 
-Unit INT-2 (calc doc §11 row INT-2, §9.7 "Final (INT-2)"), measured 2026-11-12 on rust-port
-`fa733f3`. Gate: the power report time ≤ PoB's LuaJIT time and the full recalc time ≤ PoB's
-LuaJIT time, both single-threaded, release build, with the JIT on.
+Unit INT-2 (calc doc §11 row INT-2, §9.7 "Final (INT-2)"). First measured 2026-11-12 on
+rust-port `fa733f3`, then re-measured the same day at low load on rust-port `91c97a3` (fix round 1
+after review). The only calc change between the two is b13853e (one `levelCostCleared` lookup per
+skill in the cost pass); the Rust times agree with the first version's within a few per cent.
+Gate: the power report time ≤ PoB's LuaJIT time and the full recalc time ≤ PoB's LuaJIT time,
+both single-threaded, release build, with the JIT on.
 
 ## 1. Result
 
-**Gate passed on every build measured, with no code change to the calc.**
+**Gate met on every build measured, with no code change to the calc. On the light builds the
+margin is small: allflame_exp_000's power report is about level with LuaJIT (0.95-0.99),
+and the tightest recalcs are 0.92-0.97. Those margins are within run-to-run noise (§2 "Noise").**
 
-- Gate set (10 builds, §3): the Rust power report takes **0.48-0.85** of LuaJIT's CPU time
-  (total 57.1 s vs 88.5 s, 0.65). The full recalc takes **0.64-0.82** of LuaJIT's (total
-  0.437 s vs 0.585 s, 0.75).
-- 4 more builds, the ones with the highest Rust/LuaJIT power ratio in the unpinned corpus
-  survey: power 0.70-0.83, recalc 0.81-0.88.
-- Unpinned full-corpus survey (57 builds, ranking only, §4): recalc ≤ LuaJIT on 57/57 (total
-  0.73). Power ≤ LuaJIT on 56/57 (total 0.61). The exception, allflame_exp_012 (1.07), comes from
-  two runs at different times without pinning. Pinned, it is 0.80 (§3.2).
-- No optimisation was applied. The profile (§6) has no hot spot in INT-2's files (`calcs.rs`,
-  `power.rs`), and no symbol above 3.6 % self time. It is spread over the table, interning and
-  mod-store primitives of other units. With the gate met, none of that work was justified.
+All numbers are pinned to the performance cores, at load average about 2-4, with the order of the
+two sides alternating per round (§2). Ratio = Rust min CPU / LuaJIT min CPU.
+
+- Gate set (10 builds, 5 rounds, §3.1): power report **0.51-0.95** of LuaJIT's CPU time (total
+  56.8 s vs 86.3 s, 0.66). Full recalc **0.70-0.85** (total 0.438 s vs 0.563 s, 0.78).
+- **allflame_exp_000** (no minions, a PWR gate build) is the tight power case. Its power report
+  is 0.95 here (Rust 4.43 s vs LuaJIT 4.65 s; per-round pairs 0.87-0.99). An independent review
+  run measured 0.99 (LuaJIT 4.52-4.98 s, Rust 4.47-4.55 s). Rust is stable at 4.36-4.72 s across
+  every session. LuaJIT ranges from 4.52 s to 5.57 s at a similar load average (§2 "Noise"). So
+  the honest figure is "about level, Rust a few per cent ahead". The gate holds, but with no
+  margin worth the name.
+- The 4 other light builds with the highest power ratios (§3.2): 0.71-0.86.
+- Full-corpus recalc survey (57 builds, 3 rounds x 20 recalcs, pinned, §4): Rust ≤ LuaJIT on 57/57,
+  ratio 0.70-0.97 (median 0.84), total 1.710 s vs 2.064 s (0.83). The tightest builds are the light
+  ones: allflame_exp_024 0.97, allflame_exp_021 0.97, allflame_exp_035 0.96, **allflame_exp_023
+  0.92-0.96**, allflame_exp_000 0.85-0.96, allflame_exp_016 0.89-0.94, **allflame_exp_028
+  0.88-0.96** (ranges over sessions, §3.2).
+- Power, full corpus: only an unpinned survey exists (§4, ranking only). Its LuaJIT samples ran at
+  load average 7-10 and are slowed. The pinned re-measurement covers the 16 builds of §3.
+- No optimisation was applied in INT-2. The profile (§6) has no hot spot in INT-2's files
+  (`calcs.rs`, `power.rs`), and no symbol above 3.6 % self time. The time is spread over the
+  table, interning and mod-store primitives of other units. The gate is met, so INT-2 does not
+  justify that work. But "≤ LuaJIT" holds on allflame_exp_000's power report and the light-build
+  recalcs by only a few per cent. If a robust margin is wanted there, the §6 candidates are the
+  place to start, in their owning units.
 - Finding: an `Rc` cycle leaks memory. Each minion skill's `summonSkill` back-pointer closes a
   cycle, so every dropped env leaks its minion skills. One power report keeps up to 2.25 GB, and
   a recalc about 12 MB. This is **CCR-0135** (§5). The proposed fix gives bit-identical results
-  on the gate set and the gate still passes with it (power 0.54-0.85, recalc 0.69-0.88).
+  on the gate set. Measured with it applied (§5), the gate set still passes: power 0.55-0.89,
+  recalc 0.72-0.86. The fix does not touch allflame_exp_000 (no minion skill).
 - No semantic change: CA, D13, PWR and AS are exact on the full corpus (§7).
 
 ## 2. Method
@@ -35,11 +55,13 @@ LuaJIT time, both single-threaded, release build, with the JIT on.
 | full recalc | `wipeGlobalCache()` + `calcsTab:BuildOutput()` (the calc part of `Build:OnFrame` on `buildFlag`, Build.lua:1258-1266: MAIN + CALCS `calcs.buildOutput`, which includes the cost-warning `buildActiveSkill` pass, and `getMiscCalculator`) | `common::wipeGlobalCache()` + `power::BuildOutput` |
 | power report | `powerStat = nil` (Offence/Defence), `nodePowerMaxDepth = nil` (whole tree), `powerMax = nil`, then `calcsTab:PowerBuilder()` called directly (outside a coroutine it never yields; the work is the coroutine's) | the same settings, `power::PowerBuilder_run(…, PowerOptions::default())` (sequential, D12) |
 
-Per process: load, 3 untimed recalcs, 10 timed recalcs, 1 timed power report. **3 rounds** use
-fresh processes, and the two sides of a build run back to back in each round. The summary takes
-the **minimum process CPU time** (`CLOCK_PROCESS_CPUTIME_ID`) over all samples, which is the
-least disturbed run on a shared machine. Wall time and medians are recorded too. Only one power
-report runs per process, because a second one does not fit in 3 GB until CCR-0135 is applied (§5).
+Per process: load, 3 untimed recalcs, 10 timed recalcs (20 in the §3.2 and §4 runs), 1 timed
+power report. Each round uses fresh processes (the default is 3 rounds; the §3.1 run used 5). The
+two sides of a build run back to back, LuaJIT first in odd rounds and Rust first in even ones, so
+neither side always gets the later slot. The summary takes the **minimum process CPU time**
+(`CLOCK_PROCESS_CPUTIME_ID`) over all samples, which is the least disturbed run on a shared
+machine. Wall time and medians are recorded too. Only one power report runs per process, because
+a second one does not fit in 3 GB until CCR-0135 is applied (§5).
 
 **Engines.**
 - PoB v2.67.2 @16de4b82d, unpatched, in-process through `mlua` 0.10 with the vendored LuaJIT
@@ -52,7 +74,9 @@ report runs per process, because a second one does not fit in 3 GB until CCR-013
 
 **Host.** Apple M1 Pro (2 Icestorm efficiency cores, CPUs 0-1 at 2.06 GHz; 6 Firestorm
 performance cores, CPUs 2-7 at 3.04 GHz), Asahi Linux 7.1.13, 16 GB. The machine is shared with
-other agents (load average 7-10 during the runs).
+other agents. The first version of this report ran at load average 7-10. Every number in §3, §5
+and the §4 recalc survey now comes from runs at load average about 2-4 (each run's `load.txt`
+records the load at the start of every process).
 
 **Pinning.** Both sides are pinned to the performance cores (`taskset -c 2-7`, the script's
 default: the CPUs with the highest max frequency). The first, unpinned runs were dominated by
@@ -60,23 +84,47 @@ the scheduler moving a run onto an efficiency core. perf showed one Rust power r
 20 % of its cycles on Icestorm, and the same binary on the same build varied by up to 1.6x
 (allflame_exp_013 with the CCR-0135 patch: 9.1 s pinned, 13.2-14.5 s unpinned).
 
+**Noise.** Pinning removes the efficiency-core effect, but not the other agents' load on the
+shared caches and memory, and that load slows LuaJIT much more than Rust. On allflame_exp_000,
+Rust's best power report is 4.36-4.47 s in every session. LuaJIT's best is 4.52-5.14 s at low
+load and was 5.29 s in the first version at load 7-10 (§3.1). A plausible reason is the working
+set: LuaJIT's process is about 1 GB against Rust's 0.5 GB on this build, and its GC walks that
+heap. Whatever the cause, a ratio measured under load is optimistic for Rust. Even at the same
+low load average, LuaJIT's best runs differ by up to 14 % between sessions (4.52 vs 5.14 s), and
+the ratio of one back-to-back pair varies by 0.1 or more (the "pairs" columns). Ratios within
+about 5 % of 1 are not a measurable lead.
+
 **Reproduce.**
 
 ```sh
+scripts/port/perf_bench.sh --rounds 5 --builds <§3.1 and §3.2 builds>      # §3.1, §3.2 first part
+scripts/port/perf_bench.sh --rounds 8 --recalc 20 \
+    --builds allflame_exp_000,allflame_exp_023,allflame_exp_028            # §3.2 second part
+scripts/port/perf_bench.sh --builds all --power 0 --recalc 20 --rounds 3  # §4 corpus recalc
 scripts/port/perf_bench.sh                       # the gate set (10 builds, 3 rounds)
-scripts/port/perf_bench.sh --builds a,b --rounds 1
-scripts/port/perf_bench.sh --batch --builds all --power 0 --recalc 5   # corpus recalc survey
 scripts/port/perf_bench.sh --digest              # Rust only: output/power digests of every build
 ```
 
-Each Rust run is one `cargo.sh bench -p pob-calc --bench INT-2` (a run slot, a memory-capped
-scope). Each PoB run is one `pob_calc_timing` process (the machine-wide oracle lock, a 3 GB
-scope). Results go to `target/int2-perf/<stamp>/{lua,rust}.jsonl` and `summary.txt`. The Rust
+The whole measurement is one `cargo.sh bench -p pob-calc --bench INT-2`. cargo.sh compiles
+under a compile slot and then runs `perf_bench.sh` itself as the bench's runner, under one run
+slot. The script then starts each Rust bench process and each PoB `pob_calc_timing` process (the
+latter takes the machine-wide oracle lock) one at a time, each pinned and in its own 3 GB scope.
+The first version started one `cargo.sh bench` per Rust run. Behind long full-suite runs each of
+those can wait minutes for a run slot (seen during this re-measurement), which moves the two
+sides of a build apart in time. Outside `.claude/worktrees/*`, set `POB_PARITY_DIR`,
+`POB_DUMP_DIR` and `POB_SRC` to the main checkout's `.parity`, `data/dump` and
+`.PathOfBuilding/src`. The script finds `pob_calc_timing` wherever cargo.sh builds it, including
+the `~/.cache/pob-port-targets/` dir of `/tmp` worktrees.
+
+Results go to `target/int2-perf/<stamp>/{lua,rust}.jsonl`, `load.txt` and `summary.txt`. The
+raw data of this version's four runs is kept in `docs/port/parity/INT-2-perf-data/`: `runA`
+(§3.1 and the first part of §3.2), `runD` (the second part of §3.2), `runB` (§4 recalc) and
+`runC-ccr0135` (§5, the calc patched with CCR-0135). The Rust
 lines also carry an output digest and a power digest (exact f64 bits of every main/CALCS output
 leaf and node power leaf), so a later optimisation can be checked bit for bit on the whole corpus
 in minutes, before the oracle gates run.
 
-## 3. Gate results (pinned, 3 rounds, min CPU time)
+## 3. Gate results (pinned, alternating, min CPU time)
 
 ### 3.1 Gate set
 
@@ -87,46 +135,90 @@ allflame_exp_011 had the 3rd- and 4th-highest Rust/LuaJIT power ratio in the sur
 two and the next two are in §3.2); allflame_exp_000 is also a PWR gate build. allflame_exp_014 is
 the PWR gate's cluster-jewel minion build.
 
-| build | recalc LuaJIT ms (min/med) | recalc Rust ms (min/med) | ratio | power LuaJIT s (min/med) | power Rust s (min/med) | ratio | peak RSS MB LuaJIT / Rust |
-|---|---|---|---|---|---|---|---|
-| allflame_exp_013 | 49.0 / 54.2 | 38.7 / 39.9 | 0.79 | 13.34 / 14.57 | 8.63 / 9.00 | 0.65 | 882 / 1902 |
-| allflame_exp_051 | 56.8 / 63.5 | 42.7 / 44.3 | 0.75 | 12.06 / 13.36 | 7.81 / 8.03 | 0.65 | 901 / 1616 |
-| allflame_exp_030 | 75.4 / 87.0 | 48.4 / 49.7 | 0.64 | 10.53 / 10.98 | 5.08 / 5.24 | 0.48 | 800 / 1738 |
-| allflame_exp_039 | 63.7 / 83.8 | 47.2 / 48.6 | 0.74 | 9.81 / 12.33 | 6.79 / 6.82 | 0.69 | 1000 / 2770 |
-| upstream_Dual_Wield_Cospris_CoC | 53.1 / 57.4 | 42.0 / 43.0 | 0.79 | 8.60 / 8.89 | 5.69 / 5.71 | 0.66 | 871 / 1402 |
-| allflame_exp_043 | 63.6 / 71.6 | 47.2 / 49.5 | 0.74 | 8.16 / 8.37 | 4.85 / 5.05 | 0.59 | 868 / 2132 |
-| allflame_exp_007 | 65.8 / 75.5 | 47.2 / 49.6 | 0.72 | 7.51 / 7.87 | 5.06 / 5.93 | 0.67 | 843 / 2033 |
-| allflame_exp_014 | 58.8 / 74.8 | 48.3 / 49.6 | 0.82 | 6.82 / 7.32 | 4.75 / 4.77 | 0.70 | 860 / 2045 |
-| allflame_exp_011 | 53.9 / 81.9 | 40.9 / 42.4 | 0.76 | 6.39 / 7.33 | 3.91 / 4.02 | 0.61 | 794 / 1140 |
-| allflame_exp_000 | 44.9 / 54.6 | 34.0 / 37.5 | 0.76 | 5.29 / 5.42 | 4.51 / 4.52 | 0.85 | 1055 / 490 |
+Run 2026-11-12 08:30-08:54, 5 rounds (LuaJIT first in rounds 1, 3 and 5; Rust first in 2 and 4),
+load average 1.7-3.8. The "pairs" column is the power ratio of each round's two back-to-back
+processes. It shows the noise on one sample.
 
-recalc: total min CPU LuaJIT 0.585 s, Rust 0.437 s, ratio 0.75. Power: LuaJIT 88.5 s, Rust
-57.1 s, ratio 0.65. Every build ≤ LuaJIT on both. The Rust digests are the same in all 3 rounds.
+| build | recalc LuaJIT ms (min/med) | recalc Rust ms (min/med) | ratio | power LuaJIT s (min/med) | power Rust s (min/med) | ratio | power pairs | peak RSS MB LuaJIT / Rust |
+|---|---|---|---|---|---|---|---|---|
+| allflame_exp_013 | 47.6 / 52.2 | 39.3 / 40.8 | 0.82 | 12.41 / 13.27 | 8.47 / 8.66 | 0.68 | 0.64-0.69 | 886 / 1902 |
+| allflame_exp_051 | 57.6 / 63.7 | 42.7 / 43.6 | 0.74 | 12.34 / 13.26 | 7.85 / 8.17 | 0.64 | 0.59-0.67 | 900 / 1616 |
+| allflame_exp_030 | 70.2 / 80.9 | 49.1 / 50.7 | 0.70 | 10.13 / 10.78 | 5.13 / 5.24 | 0.51 | 0.45-0.51 | 803 / 1738 |
+| allflame_exp_039 | 60.1 / 72.1 | 47.2 / 49.1 | 0.79 | 9.83 / 10.16 | 6.88 / 7.05 | 0.70 | 0.68-0.72 | 1004 / 2770 |
+| upstream_Dual_Wield_Cospris_CoC | 53.5 / 57.9 | 41.8 / 44.0 | 0.78 | 8.99 / 9.16 | 5.75 / 5.92 | 0.64 | 0.64-0.68 | 874 / 1402 |
+| allflame_exp_043 | 63.6 / 70.9 | 47.4 / 49.4 | 0.75 | 8.06 / 8.23 | 4.76 / 5.00 | 0.59 | 0.58-0.62 | 865 / 2132 |
+| allflame_exp_007 | 59.8 / 70.9 | 47.3 / 48.6 | 0.79 | 7.44 / 7.80 | 4.86 / 5.01 | 0.65 | 0.61-0.66 | 848 / 2033 |
+| allflame_exp_014 | 60.6 / 66.8 | 48.5 / 50.7 | 0.80 | 6.69 / 7.02 | 4.78 / 4.94 | 0.72 | 0.67-0.75 | 859 / 2045 |
+| allflame_exp_011 | 50.4 / 55.6 | 41.1 / 42.4 | 0.81 | 5.81 / 5.85 | 3.91 / 4.06 | 0.67 | 0.64-0.72 | 801 / 1140 |
+| **allflame_exp_000** | 39.4 / 52.7 | 33.6 / 35.1 | 0.85 | 4.65 / 4.83 | 4.43 / 4.58 | **0.95** | **0.87-0.99** | 1057 / 490 |
+
+recalc: total min CPU LuaJIT 0.563 s, Rust 0.438 s, ratio 0.78. Power: LuaJIT 86.3 s, Rust
+56.8 s, ratio 0.66. Every build ≤ LuaJIT on both. The Rust digests are the same in all rounds.
 Peak RSS is the whole process (PoB includes its booted UI state). The Rust peaks above ~500 MB
-are the CCR-0135 leak.
+are the CCR-0135 leak, and they flatter Rust's times on the minion builds (§5).
 
-### 3.2 Highest-ratio builds from the survey
+**allflame_exp_000 across sessions** (pinned, alternating, at load average about 2-4 in each):
 
-| build | recalc LuaJIT ms (min/med) | recalc Rust ms (min/med) | ratio | power LuaJIT s (min/med) | power Rust s (min/med) | ratio | peak RSS MB LuaJIT / Rust |
-|---|---|---|---|---|---|---|---|
-| allflame_exp_032 | 35.1 / 37.4 | 28.5 / 29.5 | 0.81 | 5.05 / 5.25 | 4.08 / 4.16 | 0.81 | 789 / 439 |
-| allflame_exp_016 | 23.9 / 26.7 | 20.9 / 21.1 | 0.88 | 4.16 / 4.25 | 3.45 / 3.63 | 0.83 | 727 / 430 |
-| allflame_exp_012 | 32.7 / 36.8 | 26.7 / 27.1 | 0.82 | 4.05 / 4.30 | 3.23 / 3.26 | 0.80 | 721 / 437 |
-| upstream_OccVortex | 29.8 / 31.5 | 25.4 / 26.0 | 0.85 | 3.78 / 3.94 | 2.63 / 2.74 | 0.70 | 782 / 425 |
+| session | rounds | power LuaJIT s (min / all) | power Rust s (min / all) | ratio | recalc ratio |
+|---|---|---|---|---|---|
+| this report, gate run (above) | 5 | 4.65 / 4.65-5.09 | 4.43 / 4.43-4.72 | 0.95 | 0.85 |
+| this report, close-build run (§3.2) | 8 | 5.14 / 5.14-5.57 (7.16 at load 7) | 4.36 / 4.36-4.72 (5.87 at load 4.5) | 0.85 | 0.93 |
+| this report, corpus recalc run (§4) | 3 | - | - | - | 0.96 |
+| independent review run | 7 | 4.52 / 4.52-4.98 | 4.47 / 4.47-4.55 | 0.99 | 0.82-0.89 |
 
-The margin is smallest on light builds without minions (0.80-0.88). On the heavy minion and
-mirage builds the Rust lead is largest (0.48-0.70), partly because of the leak (§5).
+Rust's best runs agree within 3 % in every session (4.36-4.47 s). LuaJIT's best runs differ by
+14 % between sessions at the same load average (4.52-5.14 s). The 0.85 of the second session
+comes from slower LuaJIT runs, not faster Rust ones. The figure to rely on is therefore the
+fastest LuaJIT runs: **about 0.95-0.99, level within noise.** The first version of this report
+gave 0.85 (LuaJIT 5.29 s, at load average 7-10). That number was the load, not the code.
 
-## 4. Corpus surveys (unpinned, for ranking only)
+### 3.2 Close builds
 
-- **Recalc**, all 57 builds, one process per side (`--batch`, 5 timed recalcs): Rust ≤ LuaJIT on
-  57/57, ratio 0.49-0.88 (median 0.75), total 1.771 s vs 2.423 s (0.73).
-- **Power**, all 57 builds, 1 report each. LuaJIT ran in one batch process. Rust ran one process
-  per build, because the batch process was OOM-killed at 5 GB after 13 builds (§5). Rust ≤ LuaJIT
-  on 56/57, ratio 0.42-1.07 (median 0.64), total 248.8 s vs 408.3 s (0.61). The 1.07 is
-  allflame_exp_012, from separate unpinned runs; pinned it is 0.80 (§3.2). The next highest ratios
-  are upstream_OccVortex 0.93, allflame_exp_000 0.90, allflame_exp_011 0.84, allflame_exp_016
-  0.75 and allflame_exp_032 0.74. All were re-measured pinned (§3).
+The light builds, where the ratios are highest. The first four had the highest power ratios in
+the unpinned survey and were measured in the §3.1 run. allflame_exp_023 and allflame_exp_028 were
+the tightest recalc builds in the review's pinned survey; they were measured together with
+allflame_exp_000 in a second run (8 rounds x 20 recalcs, 2026-11-12 09:58-10:04, load average
+1.8-2.7 except the last round, at 5-10).
+
+| build | recalc LuaJIT ms (min/med) | recalc Rust ms (min/med) | ratio | power LuaJIT s (min/med) | power Rust s (min/med) | ratio | power pairs | peak RSS MB LuaJIT / Rust |
+|---|---|---|---|---|---|---|---|---|
+| allflame_exp_032 | 32.8 / 35.7 | 28.3 / 29.7 | 0.86 | 4.98 / 5.04 | 3.97 / 4.31 | 0.80 | 0.77-0.89 | 788 / 439 |
+| allflame_exp_016 | 23.9 / 25.6 | 21.2 / 21.8 | 0.89 | 3.97 / 4.29 | 3.42 / 3.57 | 0.86 | 0.83-0.92 | 732 / 430 |
+| allflame_exp_012 | 32.0 / 34.8 | 26.9 / 28.1 | 0.84 | 3.99 / 4.16 | 3.26 / 3.28 | 0.82 | 0.77-0.83 | 721 / 438 |
+| upstream_OccVortex | 29.3 / 32.1 | 25.5 / 26.6 | 0.87 | 3.80 / 3.90 | 2.71 / 2.80 | 0.71 | 0.66-0.74 | 780 / 425 |
+| **allflame_exp_023** | 12.8 / 14.2 | 11.8 / 12.2 | **0.92** | 2.73 / 2.87 | 2.07 / 2.09 | 0.76 | 0.72-0.87 | 728 / 428 |
+| **allflame_exp_028** | 8.5 / 10.7 | 8.2 / 8.5 | **0.96** | 2.01 / 2.25 | 1.87 / 1.88 | 0.93 | 0.69-0.99 | 741 / 936 |
+| allflame_exp_000 | 36.1 / 41.4 | 33.6 / 34.4 | 0.93 | 5.14 / 5.49 | 4.36 / 4.47 | 0.85 | 0.78-0.92 | 1065 / 490 |
+
+Recalc ratios of the tight builds over all sessions: allflame_exp_023 0.92 (here), 0.96 (§4), 0.95
+(review, 3 x 20 samples; 1.03 on one 5-sample process); allflame_exp_028 0.96 (here), 0.88 (§4),
+0.93 (review); allflame_exp_000 0.85 (§3.1), 0.93 (here), 0.96 (§4), 0.82-0.89 (review);
+allflame_exp_016 0.89 (§3.1), 0.94 (§4). These are **about 0.92-0.96: Rust ahead by a few per cent,
+close to the noise.** One process of 5 recalcs is not enough to rank them: the first version of
+this report put the highest corpus recalc ratio at 0.88, from such runs.
+
+The margin is smallest on the light builds. On the heavy minion and mirage builds the Rust lead
+is largest (0.51-0.72 power), partly because of the leak (§5).
+
+## 4. Corpus surveys
+
+- **Recalc, pinned** (2026-11-12 09:33-09:53, 3 rounds x 20 timed recalcs per side and build, one
+  process per build and side, alternating, load average 1.3-4 for most of the run, peaks to 9):
+  Rust ≤ LuaJIT on 57/57. Ratio of the minima 0.70-0.97 (median 0.84); ratio of the medians
+  0.62-0.92 (median 0.78). Total 1.710 s vs 2.064 s (0.83). Highest ratios: allflame_exp_024 0.97
+  (7.1 vs 6.9 ms), allflame_exp_021 0.97 (7.2 vs 6.9 ms), allflame_exp_035 0.96 (8.5 vs 8.2 ms),
+  allflame_exp_023 0.96 (12.3 vs 11.8 ms), allflame_exp_000 0.96, allflame_exp_016 0.94,
+  allflame_exp_010 0.93, allflame_exp_002 0.93. The smallest builds recalc in 7-8 ms on both
+  sides, and LuaJIT's minimum is its luckiest of 60 runs (its median is 8-10 ms), so the min ratio
+  is the conservative one.
+- **Power, unpinned** (ranking only; from the first version of this report, load average 7-10),
+  all 57 builds, 1 report each. LuaJIT ran in one batch process. Rust ran one process per build,
+  because the batch process was OOM-killed at 5 GB after 13 builds (§5). Rust ≤ LuaJIT on 56/57,
+  ratio 0.42-1.07 (median 0.64), total 248.8 s vs 408.3 s (0.61). The 1.07 is allflame_exp_012,
+  from separate unpinned runs; pinned it is 0.82 (§3.2). The next highest ratios were
+  upstream_OccVortex 0.93, allflame_exp_000 0.90, allflame_exp_011 0.84, allflame_exp_016 0.75 and
+  allflame_exp_032 0.74. All were re-measured pinned (§3). Since the load slows LuaJIT more than
+  Rust (§2 "Noise"), these ratios are optimistic for Rust; only the ranking is used.
 
 ## 5. Finding: summonSkill `Rc` cycle (CCR-0135)
 
@@ -144,25 +236,31 @@ nothing survives.
 
 The proposed fix makes `summonSkill` a `Weak` (CCR-0135 §3). It touches 7 call sites in core,
 setup, perform and offence plus probe and ui-oracle, all files of other units, so it is not
-applied here. Measured with the fix applied temporarily (pinned, 3 rounds, same session as §3.1;
-the LuaJIT column is §3.1's):
+applied here. Measured with the fix applied temporarily (pinned, alternating, 3 rounds,
+2026-11-12 10:14-10:26, load average 1.5-3.3). The LuaJIT column is from that same run. The
+unpatched Rust column is §3.1's (Rust's times agree within a few per cent across sessions, §2
+"Noise").
 
-| build | recalc ms LuaJIT / Rust / Rust+CCR-0135 | power s LuaJIT / Rust / Rust+CCR-0135 | power ratio Rust+CCR-0135 / LuaJIT | RSS after power MB Rust / Rust+CCR-0135 | digests equal |
-|---|---|---|---|---|---|
-| allflame_exp_013 | 49.0 / 38.7 / 40.8 | 13.34 / 8.63 / 9.07 | 0.68 | 1902 / 484 | yes |
-| allflame_exp_051 | 56.8 / 42.7 / 44.6 | 12.06 / 7.81 / 8.51 | 0.71 | 1616 / 484 | yes |
-| allflame_exp_030 | 75.4 / 48.4 / 52.0 | 10.53 / 5.08 / 5.69 | 0.54 | 1738 / 445 | yes |
-| allflame_exp_039 | 63.7 / 47.2 / 51.2 | 9.81 / 6.79 / 7.86 | 0.80 | 2770 / 690 | yes |
-| upstream_Dual_Wield_Cospris_CoC | 53.1 / 42.0 / 44.2 | 8.60 / 5.69 / 6.38 | 0.74 | 1402 / 434 | yes |
-| allflame_exp_043 | 63.6 / 47.2 / 50.4 | 8.16 / 4.85 / 5.17 | 0.63 | 2132 / 447 | yes |
-| allflame_exp_007 | 65.8 / 47.2 / 50.2 | 7.51 / 5.06 / 5.21 | 0.69 | 2033 / 451 | yes |
-| allflame_exp_014 | 58.8 / 48.3 / 51.8 | 6.82 / 4.75 / 5.63 | 0.83 | 2045 / 447 | yes |
-| allflame_exp_011 | 53.9 / 40.9 / 43.2 | 6.39 / 3.91 / 4.12 | 0.64 | 1140 / 441 | yes |
-| allflame_exp_000 | 44.9 / 34.0 / 34.4 | 5.29 / 4.51 / 4.51 | 0.85 | 490 / 489 | yes |
+| build | recalc ms LuaJIT / Rust / Rust+CCR-0135 | ratio Rust+CCR-0135 | power s LuaJIT / Rust / Rust+CCR-0135 | ratio Rust+CCR-0135 | RSS after power MB Rust / Rust+CCR-0135 | digests equal |
+|---|---|---|---|---|---|---|
+| allflame_exp_013 | 47.7 / 39.3 / 41.0 | 0.86 | 12.66 / 8.47 / 9.05 | 0.71 | 1902 / 484 | yes |
+| allflame_exp_051 | 59.6 / 42.7 / 44.3 | 0.74 | 12.74 / 7.85 / 8.51 | 0.67 | 1616 / 485 | yes |
+| allflame_exp_030 | 71.3 / 49.1 / 51.2 | 0.72 | 10.08 / 5.13 / 5.50 | 0.55 | 1738 / 445 | yes |
+| allflame_exp_039 | 61.4 / 47.2 / 50.0 | 0.81 | 10.24 / 6.88 / 7.55 | 0.74 | 2770 / 691 | yes |
+| upstream_Dual_Wield_Cospris_CoC | 52.5 / 41.8 / 43.4 | 0.83 | 9.03 / 5.75 / 6.13 | 0.68 | 1402 / 435 | yes |
+| allflame_exp_043 | 61.9 / 47.4 / 49.8 | 0.80 | 7.73 / 4.76 / 5.02 | 0.65 | 2132 / 448 | yes |
+| allflame_exp_007 | 62.0 / 47.3 / 49.7 | 0.80 | 7.74 / 4.86 / 5.16 | 0.67 | 2033 / 452 | yes |
+| allflame_exp_014 | 62.7 / 48.5 / 51.2 | 0.82 | 6.90 / 4.78 / 5.47 | 0.79 | 2045 / 448 | yes |
+| allflame_exp_011 | 51.4 / 41.1 / 42.2 | 0.82 | 5.82 / 3.91 / 4.07 | 0.70 | 1140 / 442 | yes |
+| allflame_exp_000 | 39.5 / 33.6 / 33.5 | 0.85 | 4.95 / 4.43 / 4.39 | 0.89 | 490 / 490 | yes |
 
 "Digests equal": the output and power digests of every round equal the unpatched calc's. The
-fix costs time (0 %…+19 % power, +1 %…+8 % recalc), because the leak saved the frees. Even so,
-the gate still passes with it on every gate build: power ≤ 0.85, recalc ≤ 0.88. Re-run
+fix costs time, because the leak saved the frees: power +4 %…+14 % (allflame_exp_014 4.78 →
+5.47 s), recalc +3 %…+6 %, nothing on allflame_exp_000, which has no minion skill. With the fix
+the gate set still passes: power 0.55-0.89 of LuaJIT (total 60.9 s vs 87.9 s, 0.69), recalc
+0.72-0.86 (total 0.456 s vs 0.570 s, 0.80). The heavy builds keep a clear margin (power ≤ 0.79).
+allflame_exp_000 is the same case as in §3.1: 0.89 by the minima, but one of its three round
+pairs was 1.01, so it is level with LuaJIT within noise, with or without the fix. Re-run
 `perf_bench.sh` after CCR-0135 merges.
 
 ## 6. Profile (perf, release bench binary, power report)
@@ -191,7 +289,8 @@ the gate still passes with it on every gate build: power ≤ 0.85, recalc ≤ 0.
   PoB keeps the processed tree across builds in one process and Rust builds it per load, so the
   two are not comparable.
 
-Candidates for the owning units, if a later gate tightens: `CatBuf::intern` for constant
+Candidates for the owning units, if a robust margin is wanted on the light builds (§3:
+allflame_exp_000's power report, the light-build recalcs): `CatBuf::intern` for constant
 prefixes, pre-sizing large output tables (a Rust-side capacity hint; Lua's rehash sequence is
 not observable), and the cost of `Arc<Mod>` reference counting in mod-list copies.
 
@@ -221,5 +320,7 @@ binary at a time through `cargo.sh`, pinned to CPUs 0-1:
 - The full recalc is the calc part of a build change. `Build:OnFrame` also runs
   `skillsTab:UpdateSocketGroups()` and `RefreshStatList()`, which are UI and not part of either
   side.
-- The machine was shared and loaded throughout. The minimum-CPU statistic and P-core pinning
-  limit, but do not remove, that noise. Medians are shown for context.
+- The machine is shared. Low load, the minimum-CPU statistic, alternation and P-core pinning
+  limit, but do not remove, the noise (§2 "Noise"). Ratios within about 5 % of 1
+  (allflame_exp_000's power report, the light-build recalcs) are level within that noise, not a
+  measured lead. Medians are shown for context.

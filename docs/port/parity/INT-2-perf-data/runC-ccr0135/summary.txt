@@ -1,0 +1,14 @@
+| build | recalc LuaJIT ms (min/med) | recalc Rust ms (min/med) | ratio | power LuaJIT s (min/med) | power Rust s (min/med) | ratio | peak RSS MB LuaJIT / Rust |
+|---|---|---|---|---|---|---|---|
+| allflame_exp_051 | 59.6 / 62.5 | 44.3 / 45.6 | 0.74 | 12.74 / 12.96 | 8.51 / 8.67 | 0.67 | 890 / 485 |
+| allflame_exp_013 | 47.7 / 50.9 | 41.0 / 42.1 | 0.86 | 12.66 / 12.83 | 9.05 / 9.19 | 0.71 | 887 / 484 |
+| allflame_exp_039 | 61.4 / 69.8 | 50.0 / 50.7 | 0.81 | 10.24 / 10.29 | 7.55 / 7.67 | 0.74 | 1008 / 691 |
+| allflame_exp_030 | 71.3 / 78.7 | 51.2 / 57.0 | 0.72 | 10.08 / 11.18 | 5.50 / 5.92 | 0.55 | 799 / 445 |
+| upstream_Dual_Wield_Cospris_CoC | 52.5 / 58.1 | 43.4 / 44.1 | 0.83 | 9.03 / 9.10 | 6.13 / 6.22 | 0.68 | 871 / 435 |
+| allflame_exp_007 | 62.0 / 73.3 | 49.7 / 50.2 | 0.80 | 7.74 / 7.84 | 5.16 / 5.40 | 0.67 | 847 / 452 |
+| allflame_exp_043 | 61.9 / 68.3 | 49.8 / 50.1 | 0.80 | 7.73 / 7.83 | 5.02 / 5.05 | 0.65 | 867 / 448 |
+| allflame_exp_014 | 62.7 / 73.2 | 51.2 / 52.7 | 0.82 | 6.90 / 7.07 | 5.47 / 5.49 | 0.79 | 862 / 448 |
+| allflame_exp_011 | 51.4 / 55.0 | 42.2 / 43.7 | 0.82 | 5.82 / 5.87 | 4.07 / 4.10 | 0.70 | 795 / 442 |
+| allflame_exp_000 | 39.5 / 53.9 | 33.5 / 34.3 | 0.85 | 4.95 / 5.09 | 4.39 / 4.54 | 0.89 | 1051 / 490 |
+recalc: total min CPU LuaJIT 0.570 s, Rust 0.456 s, ratio 0.80; every build <= LuaJIT: True
+power: total min CPU LuaJIT 87.895 s, Rust 60.863 s, ratio 0.69; every build <= LuaJIT: True

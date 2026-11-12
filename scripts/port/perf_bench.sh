@@ -12,24 +12,46 @@
 #              needs memory headroom: until CCR-0135 the Rust power report keeps 0.1-2.3 GB per run
 #              (summonSkill Rc cycles), so 2 runs of a minion build exceed the 3 GB cap
 #   --rounds   repeat the whole per-build sequence N times (default 3), fresh processes each round;
-#              the summary takes the minimum over every round's samples
-#   --out      result dir (default target/int2-perf/<stamp>): lua.jsonl, rust.jsonl, summary.txt
+#              the summary takes the minimum over every round's samples. Odd rounds run LuaJIT
+#              first, even rounds Rust first, so neither side always gets the later (warmer or
+#              more loaded) slot
+#   --out      result dir (default target/int2-perf/<stamp>): lua.jsonl, rust.jsonl, load.txt,
+#              summary.txt
 #   --batch    one process per side for all the builds (LuaJIT side, then Rust side) instead of
-#              the two sides of each build back to back: one run-slot wait instead of one per build
+#              the two sides of each build back to back: faster, but the two sides then run far
+#              apart in time, so use it for ranking only
 #   --digest   Rust only, every corpus build, --recalc 0 --power 1 (unless given), one process per
 #              build: prints the output and power digests (exact f64 bits) to compare two builds of
 #              the calc bit for bit
 #
+# Inputs: .parity/builds is found by walking up from the checkout (the main checkout's
+# .parity, from a .claude/worktrees/* worktree). In a worktree elsewhere (/tmp/review-*), set
+# POB_PARITY_DIR=<main>/.parity, POB_DUMP_DIR=<main>/data/dump and POB_SRC=<main>/.PathOfBuilding/src.
+# The machine is shared: measure at low load (load.txt records the load average at the start of
+# every process). Margins under ~5 % are within run-to-run noise even pinned (INT-2-perf.md §2).
+#
 # Rust: `pob-calc`'s `benches/INT-2.rs` (bench profile = release: thin LTO, codegen-units = 1; no
-# `probe` feature), one `cargo.sh bench` (run slot, memory-capped scope) per build. LuaJIT:
-# `pob-oracle`'s `pob_calc_timing` (release), PoB unpatched with the JIT on, one process per build
-# (it takes the machine-wide oracle lock; memory-capped scope). The two sides of a build run back
-# to back, so they see the same machine load. Both report wall and process CPU seconds per run;
+# `probe` feature). LuaJIT: `pob-oracle`'s `pob_calc_timing` (release), PoB unpatched with the JIT
+# on (it takes the machine-wide oracle lock). The whole measurement runs under ONE `cargo.sh bench`
+# run slot: cargo.sh runs this script as the bench binary's runner (`--as-runner`), and the script
+# then starts every Rust and LuaJIT process itself, one at a time, each in its own 3 GB scope
+# ($POB_PERF_MEM). One slot wait per measurement instead of one per Rust process (behind long
+# full-suite runs those waits took minutes each, and moved the two sides of a build far apart in
+# time). One process per build and side; the two sides of a build run back to back, so they see
+# the same machine load. Both report wall and process CPU seconds per run;
 # the summary compares the minimum CPU time of each side (the least disturbed run on a shared
 # machine) and also shows the medians.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+orig_args=("$@")
+# Runner mode: cargo.sh bench -> cargo -> this script with the bench binary (see the header).
+# cargo appends its own arguments (`--bench`); the measurement's arguments come from the outer call.
+rust_bin=""
+if [ "${1:-}" = --as-runner ]; then
+    rust_bin="$2"
+    eval "set -- ${POB_PERF_ARGS:-}"
+fi
 
 # The INT-2 gate set (docs/port/parity/INT-2-perf.md §3.1): 6 of the 9 heaviest corpus builds by PoB
 # power-report time, the heaviest by PoB recalc time, two of the builds with the highest Rust/LuaJIT
@@ -71,12 +93,28 @@ fi
 out="${out:-$root/target/int2-perf/$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$out"
 
-if [ "$rust" = 1 ]; then
-    scripts/port/cargo.sh build -q --profile bench -p pob-calc --bench INT-2
+if [ -n "$rust_bin" ]; then
+    lua_bin="${POB_PERF_LUA_BIN:-}"
+elif [ "$lua" = 1 ]; then
+    # Ask cargo where the binary is: cargo.sh builds /tmp and /dev/shm worktrees into
+    # ~/.cache/pob-port-targets/<name>/ (cargo.sh, "RAM-backed /tmp"), not target/.
+    lua_bin=$(scripts/port/cargo.sh build -q --release -p pob-oracle --bin pob_calc_timing \
+        --message-format=json-render-diagnostics \
+        | python3 -Ic 'import json, sys
+for l in sys.stdin:
+    j = json.loads(l)
+    if j.get("reason") == "compiler-artifact" and j.get("executable") and j["target"]["name"] == "pob_calc_timing":
+        print(j["executable"])')
+    [ -x "$lua_bin" ] || { echo "perf_bench: pob_calc_timing not built" >&2; exit 1; }
 fi
-if [ "$lua" = 1 ]; then
-    scripts/port/cargo.sh build -q --release -p pob-oracle --bin pob_calc_timing
-    lua_bin="$root/target/release/pob_calc_timing"
+if [ -z "$rust_bin" ] && [ "$rust" = 1 ]; then
+    # Hand the measurement to cargo.sh bench as the bench's runner: it compiles under a compile
+    # slot, then runs this script under one run slot.
+    host=$(rustc -vV | sed -n 's/^host: //p')
+    POB_PERF_ARGS="$(printf '%q ' "${orig_args[@]}") --out $(printf '%q' "$out")"
+    export POB_PERF_ARGS POB_PERF_LUA_BIN="${lua_bin:-}" POB_PARITY_DIR="$parity"
+    exec scripts/port/cargo.sh bench -q -p pob-calc --bench INT-2 \
+        --config "target.$host.runner=[\"$root/scripts/port/perf_bench.sh\", \"--as-runner\"]"
 fi
 
 scope=()
@@ -100,7 +138,7 @@ if [ -n "$cpus" ] && [ "$cpus" != none ] && command -v taskset >/dev/null 2>&1; 
     echo "perf_bench: pinned to CPUs $cpus" >&2
 fi
 
-: > "$out/lua.jsonl"; : > "$out/rust.jsonl"
+: > "$out/lua.jsonl"; : > "$out/rust.jsonl"; : > "$out/load.txt"
 IFS=, read -ra list <<< "$builds"
 if [ "$batch" = 1 ]; then
     xmls=()
@@ -112,8 +150,7 @@ if [ "$batch" = 1 ]; then
             >> "$out/lua.jsonl" 2> "$out/lua.stderr" || echo "perf_bench: LuaJIT failed (see $out/lua.stderr)" >&2
     fi
     if [ "$rust" = 1 ]; then
-        "${pin[@]}" scripts/port/cargo.sh bench -q -p pob-calc --bench INT-2 -- \
-            --recalc "$recalc" --warmup "$warmup" --power "$power" "${xmls[@]}" \
+        "${pin[@]}" "${scope[@]}" "$rust_bin" --recalc "$recalc" --warmup "$warmup" --power "$power" "${xmls[@]}" \
             2> "$out/rust.stderr" | grep '^{' >> "$out/rust.jsonl" || echo "perf_bench: Rust failed (see $out/rust.stderr)" >&2
     fi
     list=()
@@ -123,15 +160,19 @@ for round in $(seq 1 "$rounds"); do
 for b in "${list[@]}"; do
     xml="$parity/builds/$b.xml"
     [ -f "$xml" ] || { echo "perf_bench: $xml not found" >&2; continue; }
-    if [ "$lua" = 1 ]; then
+    run_lua() {
+        [ "$lua" = 1 ] || return 0
+        echo "round $round $b lua $(cut -d' ' -f1-3 /proc/loadavg)" >> "$out/load.txt"
         "${pin[@]}" "${scope[@]}" "$lua_bin" --recalc "$recalc" --warmup "$warmup" --power "$power" "$xml" \
             >> "$out/lua.jsonl" 2>> "$out/lua.$b.stderr" || echo "perf_bench: LuaJIT $b failed (see $out/lua.$b.stderr)" >&2
-    fi
-    if [ "$rust" = 1 ]; then
-        "${pin[@]}" scripts/port/cargo.sh bench -q -p pob-calc --bench INT-2 -- \
-            --recalc "$recalc" --warmup "$warmup" --power "$power" "$xml" \
+    }
+    run_rust() {
+        [ "$rust" = 1 ] || return 0
+        echo "round $round $b rust $(cut -d' ' -f1-3 /proc/loadavg)" >> "$out/load.txt"
+        "${pin[@]}" "${scope[@]}" "$rust_bin" --recalc "$recalc" --warmup "$warmup" --power "$power" "$xml" \
             2>> "$out/rust.$b.stderr" | grep '^{' >> "$out/rust.jsonl" || echo "perf_bench: Rust $b failed (see $out/rust.$b.stderr)" >&2
-    fi
+    }
+    if [ $((round % 2)) = 1 ]; then run_lua; run_rust; else run_rust; run_lua; fi
     echo "perf_bench: round $round: $b done" >&2
 done
 done

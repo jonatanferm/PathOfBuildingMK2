@@ -96,16 +96,30 @@ its `summonSkill` there, not a proof.
 ## 4. Validation done and still needed
 
 Done here (bench profile, the diff above applied temporarily, then reverted; numbers in
-`docs/port/parity/INT-2-perf.md` §5): on the 10 INT-2 gate builds, 3 rounds each, pinned to the
-performance cores, the output digest (every main- and CALCS-output leaf, exact f64 bits) and the
-power digest (every node power leaf and `powerMax`) are identical to the unpatched calc, and RSS
-after one power report drops to 434-690 MB (from 1,140-2,770 MB on the nine minion builds; the
-one build without a minion skill stays at 490 MB). Time: freeing the graphs costs what the leak
-saved. The power report takes 0 %…+19 % more CPU (allflame_exp_014 4.75 → 5.63 s, LuaJIT
-6.82 s), the recalc +1 %…+8 %. The patched calc still beats LuaJIT on every gate build (power
-0.54-0.85 of LuaJIT, recalc 0.69-0.88), so the INT-2 gate holds after this CCR. That the
-digests match says that no `summonSkill` lookup changed a result on these builds; it does not
-prove the copy case of §3 cannot occur.
+`docs/port/parity/INT-2-perf.md` §5). Re-measured in INT-2's fix round 1, pinned to the
+performance cores, at load average 1.5-3.3, the two sides alternating per round, with LuaJIT
+measured in the same run. On the 10 INT-2 gate builds, 3 rounds each, the output digest (every
+main- and CALCS-output leaf, exact f64 bits) and the power digest (every node power leaf and
+`powerMax`) are identical to the unpatched calc. RSS after one power report drops to 435-691 MB
+(from 1,140-2,770 MB on the nine minion builds; the one build without a minion skill,
+allflame_exp_000, stays at 490 MB). Time: freeing the graphs costs what the leak saved. The
+power report takes +4 %…+14 % more CPU (allflame_exp_014 4.78 → 5.47 s, LuaJIT 6.90 s), the
+recalc +3 %…+6 %, and allflame_exp_000 is unchanged. The patched calc is still at or below
+LuaJIT on every gate build: power 0.55-0.89 of LuaJIT, recalc 0.72-0.86. The minion builds keep
+a clear margin (power ≤ 0.79). allflame_exp_000 (0.89 by the minima, one round pair at 1.01) is
+level with LuaJIT within noise, with or without this CCR; the CCR does not change it. So the
+INT-2 gate holds after this CCR, with the same caveat as without it: the light builds have no
+margin to spare (INT-2-perf.md §1, §3).
+
+The first version of this section gave "power 0.54-0.85, recalc 0.69-0.88" and "+0 %…+19 %".
+Those ratios used LuaJIT samples taken at load average 7-10, which slows LuaJIT more than Rust
+(INT-2-perf.md §2 "Noise"). The numbers above replace them.
+
+The build with the `probe` feature (the oracle's) also needs `ProbeField for Weak<ActiveSkill>`
+(`probe.rs`, next to the `Weak<Actor>` impl; `kind()` = `Kind::Skill`, `to_val` upgrades or
+gives nil). Without it `pob-oracle` does not compile. That digests match says that no
+`summonSkill` lookup changed a result on these builds; it does not prove the copy case of §3
+cannot occur.
 
 Needed before merge (the implementing unit): CA `ca_l6_corpus` / `ca_l5_post` /
 `ca_d13_fixed_point`, PWR (108,820 exact), AS with `POB_FULL_SUITE=1`, and the INT-2 bench
