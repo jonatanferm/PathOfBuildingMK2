@@ -28,6 +28,10 @@
 //!   itself does not reproduce on a warm GlobalCache (`D13_POB_WARM_CACHE`) gets its warm run
 //!   checked against PoB's warm values and its fixed points checked after a `wipeGlobalCache()`.
 //!   Gate (INT-1): every build runs and is a fixed point.
+//! * `ca_level_cost_cleared` (INT-1F-A, Rust only, values measured in PoB): an item-granted
+//!   triggered curse is free (SkillsTab.lua:1190, CCR-0019 §8), so is a later level-1 gem of the
+//!   same skill in the same process, and `reset_level_cost_cleared` (CCR-0133), which L6 and D13
+//!   above call per build, gives the gem its cost back.
 //!
 //! PoB runs (probe dumps + `ca.lua`) are cached in `target/tmp/ca-probe/<stem>/`. Knobs:
 //! `CA_BUILDS=stem1,stem2`, `CA_LIMIT=n`, `CA_VERBOSE=1`; `CA_CORPUS_DIR=dir` takes the corpus
@@ -439,6 +443,118 @@ fn rust_load(xml: &str, rounds: usize) -> Result<(BuildRef, Vec<String>), String
     Ok((build, errors))
 }
 
+// ---- SkillsTab.lua:1190 cleared level costs (INT-1F-A, Rust only) ------------------------------
+
+/// A level 90 Witch whose only skill is the triggered Vulnerability (level 1) of a rare ring's
+/// "Curse Enemies with Vulnerability on Hit" (ModParser.lua:3383 / 2063 `triggerExtraSkill`).
+const LEVEL_COST_ITEM_CURSE_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Build className="Witch" ascendClassName="None" level="90" mainSocketGroup="1" targetVersion="3_0"/>
+	<Tree activeSpec="1">
+		<Spec ascendClassId="0" classId="3" nodes="" treeVersion="3_28"/>
+	</Tree>
+	<Items activeItemSet="1">
+		<Item id="1">
+			Rarity: RARE
+Plague Eye
+Helical Ring
+Implicits: 0
+Curse Enemies with Vulnerability on Hit
+</Item>
+		<ItemSet id="1">
+			<Slot itemId="1" name="Ring 1"/>
+		</ItemSet>
+	</Items>
+	<Skills activeSkillSet="1">
+		<SkillSet id="1"/>
+	</Skills>
+	<Config activeConfigSet="1">
+		<ConfigSet id="1"/>
+	</Config>
+</PathOfBuilding>
+"#;
+
+/// The same Witch casting a normal level 1 Vulnerability gem.
+const LEVEL_COST_GEM_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+	<Build className="Witch" ascendClassName="None" level="90" mainSocketGroup="1" targetVersion="3_0"/>
+	<Tree activeSpec="1">
+		<Spec ascendClassId="0" classId="3" nodes="" treeVersion="3_28"/>
+	</Tree>
+	<Items activeItemSet="1">
+		<ItemSet id="1"/>
+	</Items>
+	<Skills activeSkillSet="1">
+		<SkillSet id="1">
+			<Skill enabled="true" label="" mainActiveSkill="1" mainActiveSkillCalcs="1">
+				<Gem enableGlobal1="true" enableGlobal2="true" enabled="true" gemId="Metadata/Items/Gems/SkillGemNewVulnerability" level="1" nameSpec="Vulnerability" quality="0" skillId="Vulnerability" variantId="Vulnerability"/>
+			</Skill>
+		</SkillSet>
+	</Skills>
+	<Config activeConfigSet="1">
+		<ConfigSet id="1"/>
+	</Config>
+</PathOfBuilding>
+"#;
+
+/// CCR-0019 §8 / CCR-0133: ProcessSocketGroup empties the cost of an item-granted triggered
+/// skill's level in PoB's global data (SkillsTab.lua:1188-1191), so CalcOffence.lua:1720 finds no
+/// cost for it, in that build and in every later build of the process; a freshly booted PoB (the
+/// oracle boots one per build, and the harness calls `reset_level_cost_cleared` per build) has
+/// the gem's cost again.
+#[test]
+fn ca_level_cost_cleared() {
+    let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !init_data() {
+        return skip("data/dump/data.bin not found");
+    }
+    quiet_lua_errors();
+    use pob_calc::model::skills_tab::{levelCostCleared, reset_level_cost_cleared};
+    // (main skill's granted effect id and level, its ManaCost); 2 rounds, as a loaded build has:
+    // the second runs UpdateSocketGroups
+    let main_cost = |xml: &str| {
+        pob_calc::global_cache::clear_all();
+        let (build, errors) = rust_load(xml, 2).unwrap_or_else(|e| panic!("{e}"));
+        assert!(errors.is_empty(), "{errors:?}");
+        let env = build.calcsTab.mainEnv.get().expect("main env");
+        let skill = env.player.mainSkill.get().expect("main skill");
+        let effect = skill.activeEffect.get();
+        let id = (effect.grantedEffect.get().id.to_string(), effect.level.get());
+        let cost = env.player.output.get().num(n!("ManaCost"));
+        lut::clear_timeless_jewel_luts(None);
+        pob_calc::global_cache::clear_all();
+        (id, cost)
+    };
+    let vuln1 = ("Vulnerability".to_owned(), 1.0);
+    let vuln = n!("Vulnerability");
+
+    // The expected values are PoB's (pob_headless, POB_ENGINE=jit, the three loads below in one
+    // process: ManaCost 16, 0, 0; the cost table has 1, 0, 0 entries).
+    // a fresh process: the gem has its level 1 cost (Data/Skills/act_str.lua:12958 `{ Mana = 16 }`)
+    reset_level_cost_cleared();
+    let (id, gem_cost) = main_cost(LEVEL_COST_GEM_XML);
+    assert_eq!(id, vuln1);
+    assert_eq!(gem_cost, 16.0, "a level 1 Vulnerability gem costs 16 mana");
+    assert!(!levelCostCleared(vuln, 1.0));
+
+    // the item-granted triggered curse: its level's cost is `{}`, so the skill is free
+    reset_level_cost_cleared();
+    let (id, item_cost) = main_cost(LEVEL_COST_ITEM_CURSE_XML);
+    assert_eq!(id, vuln1);
+    assert!(levelCostCleared(vuln, 1.0), "UpdateSocketGroups records the cleared level");
+    assert_eq!(item_cost, 0.0, "the triggered item curse has no cost");
+
+    // same process, no reset: PoB's data stays changed, so the gem is free too
+    let (_, same_process) = main_cost(LEVEL_COST_GEM_XML);
+    assert_eq!(same_process, 0.0, "the cleared level persists for the process");
+
+    // after the per-build reset the gem has its cost again
+    reset_level_cost_cleared();
+    assert!(!levelCostCleared(vuln, 1.0));
+    let (_, again) = main_cost(LEVEL_COST_GEM_XML);
+    assert_eq!(again, gem_cost);
+}
+
 // ---- D13 fixed point (Rust only) ---------------------------------------------------------------
 
 fn slice5_xmls() -> Vec<(String, String)> {
@@ -478,6 +594,8 @@ fn ca_d13_fixed_point() {
     let mut warm_checked = 0;
     for (name, xml) in &builds {
         let warm = D13_POB_WARM_CACHE.iter().find(|(b, _)| b == name).map(|(_, v)| *v);
+        // a fresh process per build, as for L6 (CCR-0133)
+        pob_calc::model::skills_tab::reset_level_cost_cleared();
         let run = catch(|| {
             let build = pob_calc::model::build_xml::loadBuildModelFromXML(xml, pob_gamedata::data())
                 .unwrap_or_else(|e| lua_error!("load: {e}"));
@@ -1426,6 +1544,9 @@ mod oracle_side {
             let rounds = (run.hits["counts"]["ca:399"].as_u64().unwrap_or(2) / 2) as usize;
             let text = std::fs::read_to_string(xml).unwrap_or_default();
             pob_calc::global_cache::clear_all();
+            // the oracle boots a fresh PoB per build, which forgets SkillsTab.lua:1190's
+            // `levels[level].cost = {}` writes (CCR-0133)
+            pob_calc::model::skills_tab::reset_level_cost_cleared();
             let r = rust_load(&text, rounds);
             lut::clear_timeless_jewel_luts(None);
             let build = match r {
@@ -1662,10 +1783,8 @@ mod oracle_side {
     /// measured at INT-1-FRESH (rust-port 645e2e1; docs/port/parity/INT-1-fresh-triage.md §1):
     /// 100 builds, headline 1,300/1,300, CALCS lists 300/300, used-tracking key sets 900/900, misc
     /// calculator 2,200/2,200, 0 Rust errors. `keys` is PoB's 85,603 main-output keys, all exact.
-    /// Until INT-1F-A lands, Rust adds 3 Rust-only `ManaCostWarningList` keys (fresh_015, _018;
-    /// triage §4 A), so the run compares 85,606 keys, 85,603 of them exact, and fails the
-    /// exactness assert above before it reaches this pin; INT-1F-A removes them, and then the
-    /// run compares exactly these 85,603.
+    /// Before INT-1F-A, Rust added 3 Rust-only `ManaCostWarningList` keys (fresh_015, _018;
+    /// triage §4 A); INT-1F-A (CCR-0133) removed them, so the run compares exactly these 85,603.
     const L6_FRESH: L6Pins = L6Pins {
         builds: 100,
         headline: 1_300,

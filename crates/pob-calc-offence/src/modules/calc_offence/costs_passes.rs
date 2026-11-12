@@ -293,10 +293,21 @@ pub fn seg_costsAndPasses(ctx: &mut OffenceCtx) -> Flow {
                     &[cat!("Base", resource, "CostOverride")],
                 ));
                 lor(o, || {
-                    let gel = match activeSkill.activeEffect.get().grantedEffectLevel.get() {
+                    let activeEffect = activeSkill.activeEffect.get();
+                    let gel = match activeEffect.grantedEffectLevel.get() {
                         Some(g) => g,
                         None => lua_error!("attempt to index field 'grantedEffectLevel' (a nil value)"),
                     };
+                    // CCR-0019 §8 (CCR-0133 §2): SkillsTab.lua:1190 replaced `levels[gemInstance.level].cost`
+                    // with `{}` in PoB's global data; `grantedEffectLevel` is
+                    // `activeGrantedEffect.levels[activeEffect.level]` (CalcActiveSkill.lua:514/579),
+                    // so it is that table when the effect and level are the cleared ones.
+                    if crate::model::skills_tab::levelCostCleared(
+                        activeEffect.grantedEffect.get().id,
+                        activeEffect.level.get(),
+                    ) {
+                        return Val::Nil;
+                    }
                     // `gel.cost and gel.cost[resource] or nil` (an absent cost table reads as empty)
                     match gel.cost.iter().find(|(k, _)| *k == resource) {
                         Some((_, c)) => Val::Num(*c),
