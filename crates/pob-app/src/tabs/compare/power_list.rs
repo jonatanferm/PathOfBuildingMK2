@@ -337,7 +337,9 @@ impl ComparePowerReportListControl {
             if tooltip.check_for_update(cx, &[TtKey::Obj(TtObj(obj)), shift, dev_mode_alt, rev]) {
                 // L142
                 let h = crate::tabs::items::slot_helper::items_hooks();
-                (h.add_item_tooltip)(cx, tooltip, &item, None, false);
+                // (`build` is `self.compareTab.primaryBuild`)
+                let b = cx.build().model.clone();
+                (h.add_item_tooltip)(cx, &b, tooltip, &item, None, false);
             }
         } else {
             // L145

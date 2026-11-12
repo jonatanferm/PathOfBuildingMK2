@@ -17,6 +17,17 @@
 //! CalcPerform.lua:2139 `reqSource.sourceSlot`, CalcBreakdownControl's `row.source`); indexing
 //! a string reads nil (`("x").slotNum`, the string library has no such member).
 //!
+//! The ItemsTab of another build (FUP6, closing CCR-0122 §2 and CCR-0143 §4): a comparison
+//! entry has its own ItemsTab (CompareEntry.lua:113), reached as
+//! `compareSpec.build.itemsTab` (PassiveTreeView.lua:1492/1783) and `hoverItemsTab`
+//! (CompareTab.lua:3988). [`AddItemTooltip`] and [`AddItemStatDifferences`] take `self` as an
+//! [`ItemsTabSelf`]: for an entry they run with the entry swapped in for the open build
+//! (`compare::entry::with_entry_as_build`: `self.build.X` is then `cx.build().X`), `self.slots`
+//! are the entry model's slot tables (their `shown()` is calc:BM-A's `slot_IsShown`, the same
+//! closures over the model table) and `self.build:AddStatComparesToTooltip` /
+//! `AddRequirementsToTooltip` are CompareEntry's (U47). U32's hook passes the model build
+//! (`ItemsTabSelf::of_build`: an entry's model selects that entry, any other the open build).
+//!
 //! The entries of the other units' hook tables that name these methods are installed by one
 //! line each in their defaults (CCR-0107 §1, CCR-0116 §4, CCR-0106 §2;
 //! CCR-0125 §4 lists them): [`add_item_tooltip_hook`], [`add_undo_state_hook`],
@@ -101,6 +112,7 @@ use crate::calc::MiscCalc;
 use crate::controls::gem_tooltip::{self, GemTooltipOptions, TooltipGemData, TooltipGemInstance};
 use crate::main_mode::folders::stat_color;
 use crate::model::{self, gamedata, Key, LjIntMap, Output, Shared, Table, Val};
+use crate::tabs::compare::init::CompareEntryRef;
 // CCR-0120 §3 / CCR-0125 §5: model.rs (U15) re-exports neither ItemTools nor ModCfg
 use pob_calc::cfg::ModCfg;
 use pob_calc::classes::item_tools::{formatModLine, influenceInfo_all};
@@ -144,6 +156,141 @@ pub const UNDO_OPS: UndoOps<UndoState> = UndoOps {
 fn tab(cx: &Cx) -> CtrlId {
     slot_helper::items_tab(cx)
         .unwrap_or_else(|| lua_error!("attempt to index field 'itemsTab' (a nil value)"))
+}
+
+/// `self` of this file's ItemsTab methods: the ItemsTab whose `self.build` and `self.slots` a
+/// call means (FUP6; module notes "The ItemsTab of another build").
+#[derive(Clone)]
+pub enum ItemsTabSelf {
+    /// the open build's ItemsTab node (`self.slots` its ItemSlotControls)
+    Open(CtrlId),
+    /// `compareEntry.itemsTab` (CompareEntry.lua:113): `self.build` is the entry, `self.slots`
+    /// the entry model's slot tables (calc:BM-A's model half of the ItemSlotControls; the entry
+    /// has no slot controls)
+    Entry(CompareEntryRef),
+}
+
+impl From<CtrlId> for ItemsTabSelf {
+    fn from(id: CtrlId) -> ItemsTabSelf {
+        ItemsTabSelf::Open(id)
+    }
+}
+
+impl ItemsTabSelf {
+    /// `build.itemsTab` for the model build `build`: a comparison entry's ItemsTab when `build`
+    /// is one of the Compare tab's entries, else the open build's.
+    #[track_caller]
+    pub fn of_build(cx: &Cx, build: &model::BuildRef) -> ItemsTabSelf {
+        let entry = crate::tabs::compare::init::tab(cx).and_then(|ct| {
+            crate::tabs::compare::init::st(cx, ct)
+                .compareEntries
+                .iter()
+                .find(|e| Rc::ptr_eq(&e.model, build))
+                .cloned()
+        });
+        match entry {
+            Some(e) => ItemsTabSelf::Entry(e),
+            None => ItemsTabSelf::Open(tab(cx)),
+        }
+    }
+
+    /// `f` with `self.build` as `cx.build()`: an entry's methods run with the entry swapped in
+    /// for the open build (`compare::entry::with_entry_as_build`, which does nothing when the
+    /// entry is swapped in already).
+    fn run<R>(&self, cx: &mut Cx, f: impl FnOnce(&mut Cx) -> R) -> R {
+        match self {
+            ItemsTabSelf::Open(_) => f(cx),
+            ItemsTabSelf::Entry(e) => crate::tabs::compare::entry::with_entry_as_build(cx, e, f),
+        }
+    }
+
+    /// `pairs(self.slots)`: `(slotName, slot)` with the slot's model table, in slot creation
+    /// order (the module docs' ORDER notes).
+    fn slots(&self, cx: &Cx) -> Vec<(Name, Table, Option<CtrlId>)> {
+        match self {
+            ItemsTabSelf::Open(me) => cx
+                .w::<ItemsTab>(*me)
+                .ctor
+                .slots
+                .iter()
+                .map(|(k, id)| (*k, cx.w::<ItemSlotControl>(*id).slot.clone(), Some(*id)))
+                .collect(),
+            ItemsTabSelf::Entry(e) => e
+                .model
+                .itemsTab
+                .slots
+                .with(|s| s.iter().map(|(k, t)| (*k, t.clone(), None)).collect()),
+        }
+    }
+
+    /// `slot.shown()` of a slot of [`Self::slots`]: the control's `shown`, or for an entry slot
+    /// the same closures over the model table (calc:BM-A `slot_IsShown`).
+    fn slot_shown(&self, cx: &Cx, slot: &Table, id: Option<CtrlId>) -> bool {
+        match (self, id) {
+            (ItemsTabSelf::Open(_), Some(id)) => cx.base(id).shown.get(cx, id),
+            (ItemsTabSelf::Entry(e), _) => model::items_tab::slot_IsShown(&e.model, slot),
+            (ItemsTabSelf::Open(_), None) => unreachable!("an open-build slot without its control"),
+        }
+    }
+
+    /// `self.slots[slotName]` (the slot's model table)
+    fn slot_named(&self, cx: &Cx, slot_name: &str) -> Option<Table> {
+        match self {
+            ItemsTabSelf::Open(me) => {
+                slot_control(cx, *me, slot_name).map(|id| cx.w::<ItemSlotControl>(id).slot.clone())
+            }
+            ItemsTabSelf::Entry(e) => e
+                .model
+                .itemsTab
+                .slots
+                .with(|s| s.get(&Name::from(slot_name)).cloned()),
+        }
+    }
+
+    /// `self.build:AddStatComparesToTooltip(tooltip, calcBase, output, header)`: BuildMode's
+    /// (Build.lua:2168-2180) or CompareEntry's (CompareEntry.lua:427-442).
+    fn add_stat_compares(
+        &self,
+        cx: &Cx,
+        tooltip: &mut Tooltip,
+        base: &Output,
+        output: &Output,
+        header: &str,
+    ) -> f64 {
+        match self {
+            ItemsTabSelf::Open(_) => {
+                build_stats::add_stat_compares_to_tooltip(cx, tooltip, base, output, header, None)
+            }
+            ItemsTabSelf::Entry(e) => crate::tabs::compare::entry::CompareEntry::AddStatComparesToTooltip(
+                cx, e, tooltip, base, output, header, None,
+            ),
+        }
+    }
+
+    /// `self.build:AddRequirementsToTooltip(tooltip, level, str, dex, int, strBase, dexBase,
+    /// intBase)`: BuildMode's (Build.lua:2185-2218) or CompareEntry's (CompareEntry.lua:514-550).
+    #[allow(clippy::too_many_arguments)]
+    fn add_requirements(
+        &self,
+        cx: &Cx,
+        tooltip: &mut Tooltip,
+        level: Option<f64>,
+        str: Option<f64>,
+        dex: Option<f64>,
+        int: Option<f64>,
+        strBase: Option<f64>,
+        dexBase: Option<f64>,
+        intBase: Option<f64>,
+    ) {
+        match self {
+            ItemsTabSelf::Open(_) => build_stats::add_requirements_to_tooltip(
+                cx, tooltip, level, str, dex, int, strBase, dexBase, intBase,
+            ),
+            ItemsTabSelf::Entry(e) => crate::tabs::compare::entry::CompareEntry::AddRequirementsToTooltip(
+                cx, e, tooltip, level, str, dex, int, strBase, dexBase, intBase,
+            ),
+        }
+    }
 }
 
 /// `item.<k>` of an untyped Item field.
@@ -765,12 +912,31 @@ fn mod_line_ref(modLine: &Table) -> ModLineRef {
 }
 
 /// lua: ItemsTab.lua:4214-4659 `ItemsTabClass:AddItemTooltip(tooltip, item, slot, dbMode,
-/// maxWidth)` (`me` is `self`; `slot` see the module docs)
+/// maxWidth)` (`me` is `self`, the open build's ItemsTab node or a comparison entry's
+/// [`ItemsTabSelf`]; `slot` see the module docs)
 /// @pob Classes/ItemsTab.lua:4214-4660 h=bcd759f6
 #[allow(clippy::too_many_arguments)]
 pub fn AddItemTooltip(
     cx: &mut Cx,
-    me: CtrlId,
+    me: impl Into<ItemsTabSelf>,
+    tooltip: &mut Tooltip,
+    item: &model::ItemRef,
+    slot: &Val,
+    dbMode: bool,
+    maxWidth: Option<f64>,
+) {
+    let me: ItemsTabSelf = me.into();
+    // `self.build` is the entry for an entry's ItemsTab (FUP6)
+    me.clone().run(cx, |cx| {
+        AddItemTooltip_as(cx, &me, tooltip, item, slot, dbMode, maxWidth);
+    });
+}
+
+/// [`AddItemTooltip`]'s body, run with `self.build` as `cx.build()`.
+#[allow(clippy::too_many_arguments)]
+fn AddItemTooltip_as(
+    cx: &mut Cx,
+    me: &ItemsTabSelf,
     tooltip: &mut Tooltip,
     item: &model::ItemRef,
     slot: &Val,
@@ -1447,7 +1613,7 @@ pub fn AddItemTooltip(
     // Requirements
     // L4470-4472
     let req = &item.requirements;
-    build_stats::add_requirements_to_tooltip(
+    me.add_requirements(
         cx,
         tooltip,
         req.opt_num(n!("level")),
@@ -1806,7 +1972,7 @@ pub fn AddItemTooltip(
         tooltip.add_line(cx, 14.0, &text);
     }
     // L4654
-    AddItemStatDifferences(cx, me, tooltip, item, Some(&base), slot);
+    AddItemStatDifferences(cx, me.clone(), tooltip, item, Some(&base), slot);
 
     // L4656
     if cx.app().launch.dev_mode_alt {
@@ -1931,7 +2097,21 @@ impl Param {
 /// @pob Classes/ItemsTab.lua:4661-5020 h=4fe1ff00
 pub fn AddItemStatDifferences(
     cx: &mut Cx,
-    me: CtrlId,
+    me: impl Into<ItemsTabSelf>,
+    tooltip: &mut Tooltip,
+    item: &model::ItemRef,
+    base: Option<&gamedata::ItemBaseRef>,
+    slot: &Val,
+) {
+    let me: ItemsTabSelf = me.into();
+    // `self.build` is the entry for an entry's ItemsTab (FUP6)
+    me.clone().run(cx, |cx| AddItemStatDifferences_as(cx, &me, tooltip, item, base, slot));
+}
+
+/// [`AddItemStatDifferences`]'s body, run with `self.build` as `cx.build()`.
+fn AddItemStatDifferences_as(
+    cx: &mut Cx,
+    me: &ItemsTabSelf,
     tooltip: &mut Tooltip,
     item: &model::ItemRef,
     base: Option<&gamedata::ItemBaseRef>,
@@ -2284,16 +2464,10 @@ pub fn AddItemStatDifferences(
         // L4806
         let mut emptyFlaskSlots = 0.0;
         // L4807 ORDER: (c) a count
-        let slots: Vec<(Name, CtrlId)> = cx
-            .w::<ItemsTab>(me)
-            .ctor
-            .slots
-            .iter()
-            .map(|(k, v)| (*k, *v))
-            .collect();
-        for (slotName, slot_id) in &slots {
+        let slots = me.slots(cx);
+        for (slotName, slot, _) in &slots {
             // L4808
-            let sel = cx.w::<ItemSlotControl>(*slot_id).slot.get(n!("selItemId"));
+            let sel = slot.get(n!("selItemId"));
             if pob_lua::find(slotName, "^Flask", None, false).is_some() && sel.raw_eq(&Val::Num(0.0))
             {
                 // L4809
@@ -2425,7 +2599,7 @@ pub fn AddItemStatDifferences(
             "^7Activating this flask will give you:"
         };
         // L4873
-        build_stats::add_stat_compares_to_tooltip(cx, tooltip, &calcBase, &output, header, None);
+        me.add_stat_compares(cx, tooltip, &calcBase, &output, header);
     } else if base.tincture.is_some() {
         // Special handling for tinctures
         // L4876
@@ -2515,13 +2689,13 @@ pub fn AddItemStatDifferences(
             "^7Activating this tincture will give you:"
         };
         // L4909
-        build_stats::add_stat_compares_to_tooltip(cx, tooltip, &calcBase, &output, header, None);
+        me.add_stat_compares(cx, tooltip, &calcBase, &output, header);
     } else {
         // L4911
         model.itemsTab.UpdateSockets(&model);
         // Build sorted list of slots to compare with
         // L4913
-        let mut compareSlots: Vec<(Table, CtrlId)> = Vec::new();
+        let mut compareSlots: Vec<Table> = Vec::new();
         let useSecond = model
             .itemsTab
             .activeItemSet
@@ -2529,15 +2703,8 @@ pub fn AddItemStatDifferences(
             .unwrap_or_else(|| lua_error!("attempt to index field 'activeItemSet' (a nil value)"))
             .truthy(n!("useSecondWeaponSet"));
         // L4914 ORDER: the module docs
-        let slots: Vec<(Name, CtrlId)> = cx
-            .w::<ItemsTab>(me)
-            .ctor
-            .slots
-            .iter()
-            .map(|(k, v)| (*k, *v))
-            .collect();
-        for (slotName, slot_id) in slots {
-            let s = cx.w::<ItemSlotControl>(slot_id).slot.clone();
+        let slots = me.slots(cx);
+        for (slotName, s, slot_id) in slots {
             // L4915
             let weaponSet = s.get(n!("weaponSet"));
             if model
@@ -2546,10 +2713,10 @@ pub fn AddItemStatDifferences(
                 && !s.truthy(n!("inactive"))
                 && (!weaponSet.truthy()
                     || weaponSet.raw_eq(&Val::Num(if useSecond { 2.0 } else { 1.0 })))
-                && cx.base(slot_id).shown.get(cx, slot_id)
+                && me.slot_shown(cx, &s, slot_id)
             {
                 // L4916
-                compareSlots.push((s, slot_id));
+                compareSlots.push(s);
             }
         }
 
@@ -2623,7 +2790,7 @@ pub fn AddItemStatDifferences(
                 )
             };
             // L4939
-            build_stats::add_stat_compares_to_tooltip(cx, tooltip, &calcBase, &output, &header, None);
+            me.add_stat_compares(cx, tooltip, &calcBase, &output, &header);
             Some(())
         };
 
@@ -2634,8 +2801,7 @@ pub fn AddItemStatDifferences(
         if cx.app().main.slot_only_tooltips && slot.truthy() {
             // L4947
             let slot: Option<Table> = match slot {
-                Val::Str(name) => slot_control(cx, me, name)
-                    .map(|id| cx.w::<ItemSlotControl>(id).slot.clone()),
+                Val::Str(name) => me.slot_named(cx, name),
                 Val::Table(t) => Some(t.clone()),
                 _ => None,
             };
@@ -2655,7 +2821,7 @@ pub fn AddItemStatDifferences(
         // L4955
         let mut currentSameUniqueCount = 0.0;
         // L4956
-        for (compareSlot, _) in &compareSlots {
+        for compareSlot in &compareSlots {
             // L4957
             let Some((selItem, output)) = getReplacedItemAndOutput(cx, compareSlot) else {
                 return;
@@ -2890,16 +3056,17 @@ pub fn RestoreUndoState(cx: &mut Cx, me: CtrlId, state: UndoState) {
 
 // ---- the entries other units call (CCR-0125 §4) ----------------------------------------------
 
-/// `itemsTab:AddItemTooltip(tooltip, item, slot, dbMode)` as U32's `ItemsTabHooks` calls it
-/// (`slot` the slot's model table).
+/// `build.itemsTab:AddItemTooltip(tooltip, item, slot, dbMode)` as U32's `ItemsTabHooks` calls
+/// it (`build` the model build whose ItemsTab is meant, `slot` the slot's model table).
 pub fn add_item_tooltip_hook(
     cx: &mut Cx,
+    build: &model::BuildRef,
     tooltip: &mut Tooltip,
     item: &model::ItemRef,
     slot: Option<&Table>,
     dbMode: bool,
 ) {
-    let me = tab(cx);
+    let me = ItemsTabSelf::of_build(cx, build);
     let slot = slot.map_or(Val::Nil, |t| Val::Table(t.clone()));
     AddItemTooltip(cx, me, tooltip, item, &slot, dbMode, None);
 }

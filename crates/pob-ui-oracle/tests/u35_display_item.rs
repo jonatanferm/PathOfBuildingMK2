@@ -509,7 +509,7 @@ fn rust_stubs() {
             ITEMS_MOD_FLAG.with(|f| f.set(true));
         });
         h.set_mod_flag = Rc::new(|_, v| ITEMS_MOD_FLAG.with(|f| f.set(v)));
-        h.add_item_tooltip = Rc::new(|cx, tooltip, item, slot, db| {
+        h.add_item_tooltip = Rc::new(|cx, _build, tooltip, item, slot, db| {
             add_item_tooltip(cx, tooltip, item, slot, db);
         });
         h.socket_viewer_draw = Rc::new(|cx, a, _vp| {

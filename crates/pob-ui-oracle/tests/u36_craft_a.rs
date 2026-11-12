@@ -518,7 +518,7 @@ fn rust_stubs() {
                 .map_or_else(|| "Default".to_owned(), |t| t.to_string());
             tooltip.add_line(cx, 16.0, &format!("^7set {title}"));
         });
-        h.add_item_tooltip = Rc::new(|cx, tooltip, item, slot, db| {
+        h.add_item_tooltip = Rc::new(|cx, _build, tooltip, item, slot, db| {
             add_item_tooltip(cx, tooltip, item, slot, db);
         });
         h.socket_viewer_draw = Rc::new(|cx, a, _vp| {

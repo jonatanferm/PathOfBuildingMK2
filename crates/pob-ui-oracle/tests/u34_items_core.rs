@@ -600,7 +600,7 @@ fn rust_stubs() {
         *h = sh::default_items_hooks();
         h.add_undo_state = Rc::new(|cx| add_undo_state(cx, false));
         h.set_mod_flag = Rc::new(|_, v| UNDO.with(|u| u.borrow_mut().mod_flag = v));
-        h.add_item_tooltip = Rc::new(|cx, tooltip, item, slot, db| {
+        h.add_item_tooltip = Rc::new(|cx, _build, tooltip, item, slot, db| {
             add_item_tooltip(cx, tooltip, item, slot, db);
         });
         h.set_display_item = Rc::new(set_display_item);

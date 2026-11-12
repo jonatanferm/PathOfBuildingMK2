@@ -1,6 +1,6 @@
 # CCR-0122: U24 tree tooltips (the bridge's node-id `removeNodes`, the compare build's ItemsTab, the hook wiring)
 
-**Status: applied (CCRDOC, 2026-11-12; code `bc34c1b` Merge port/U24): §3. Not built: §1 (the dev-only bridge still raises on `$removeNodeIds`) and §2 (`ItemsTabHooks::add_item_tooltip` takes no build, so compare-spec jewel tooltips use the open build's ItemsTab; FOLLOWUPS "CCRDOC" 4).**
+**Status: applied (CCRDOC, 2026-11-12; code `bc34c1b` Merge port/U24): §3. Not built: §1 (the dev-only bridge still raises on `$removeNodeIds`) and §2 (`ItemsTabHooks::add_item_tooltip` takes no build, so compare-spec jewel tooltips use the open build's ItemsTab; FOLLOWUPS "CCRDOC" 4). §2 built by FUP6 (2026-11-13): the hook takes the model build, L1492/L1783 pass `compareSpec.build`.**
 
 Unit: **U24** (`PassiveTreeView.lua:1412-1856`; files `pob-app/src/tree_view/{names.rs,tooltip.rs}`).
 Filed status: **pending** (the code on `port/U24` follows it). Number reserved with `scripts/port/next_ccr.sh`.

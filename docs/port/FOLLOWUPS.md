@@ -626,10 +626,29 @@ a sub-pixel draw difference; 12 cannot be reached until a host passes the comman
    `compareSpec.build.itemsTab:AddItemTooltip` (PassiveTreeView.lua:1492/1783) and
    `hoverItemsTab:AddItemTooltip` for an entry item (CompareTab.lua:3988) show the primary
    build's "Equipping this item" blocks where PoB shows the entry's. Owner: U38 with U46-U49.
+   **Closed by FUP6** (port/FUP6, 2026-11-13): the hook takes the model build
+   (`Fn(&mut Cx, &model::BuildRef, &mut Tooltip, &ItemRef, Option<&Table>, bool)`) and
+   `ItemsTabSelf::of_build` selects the entry's ItemsTab for an entry's model; `AddItemTooltip` /
+   `AddItemStatDifferences` take `impl Into<ItemsTabSelf>` and run an entry's with the entry
+   swapped in (`compare::entry::with_entry_as_build`), over the entry model's slot tables (calc:BM-A
+   `slot_IsShown`, now `pub`), with CompareEntry's `AddStatComparesToTooltip` /
+   `AddRequirementsToTooltip`. PassiveTreeView.lua:1492/1783 pass `compareSpec.build`, L1501 the
+   drawn build, CompareTab.lua:3988 the hovered side's ItemsTab. Scenarios
+   `u49/e_entry_items_1280x800` (entry Weapon 1, Helmet, cluster jewel) and
+   `u49/f_entry_tree_1280x800` (jewel sockets, overlay and side by side).
 5. **The comparison build's config controls have no tooltip** (CCR-0137 §2).
    `CompareHooks::entry_config_var_control` is always `None` (`tabs/compare/init.rs:353`), because
    U41's ConfigTab constructor cannot be built for a second build. Owner: U41 (a constructor for a
    given model) with U47.
+   **Closed by FUP6** (port/FUP6, 2026-11-13): `ConfigTab::new_for(build, ForBuild)` builds the tab
+   for another build (its constructor and option `tooltipFunc`s run inside `ForBuild::run`, its
+   `self.build:AddStatComparesToTooltip` is `ForBuild::add_stat_compares`); CompareEntry's
+   LoadFromXML builds one per entry (`entry::new_config_tab`, after the sections load as for the open
+   build, DIVERGENCE(init-order)) and `entry_config_var_control` answers from its `var_controls`.
+   Left: a copied `tooltipText` drawn without a `tooltipFunc` (only `enemyDamageRollRange`,
+   `hideIfInvalid`) is evaluated with the open build, which differs only under `launch.devModeAlt`
+   (`tabs/config/ctor.rs` DIVERGENCE(other-build-tooltip-text)). Scenario
+   `u49/g_entry_config_1280x800`.
 6. **ConfigTab.lua 1302-1334 is covered by two `@pob` markers** (CCR-0121 §1).
    `python3 scripts/port/provenance.py coverage --range Classes/ConfigTab.lua:1-1362` reports FAIL
    with 31 lines covered twice (1302-1315, 1317-1323, 1325-1334): `pob-app/src/tabs/config/ctor.rs:2465`

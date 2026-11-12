@@ -27,10 +27,9 @@
 //!   one after it (`// CCR-0143 §3`). Exact for DPI scales >= 1 (every logical position has a
 //!   physical one); the tree viewports' offsets are integers (`m_floor`), so the patched
 //!   positions are integers as in Lua.
-//! * `hoverItemsTab:AddItemTooltip(...)` (L3958) with `compareEntry.itemsTab`: the entry has no
-//!   UI ItemsTab (CCR-0137 §2); U38's `AddItemTooltip` is the open build's ItemsTab, so the
-//!   comparison build's item tooltip is built by the primary ItemsTab (its stat differences are
-//!   the primary build's). GAP, `// CCR-0143 §4` (U24 has the same gap, CCR-0122 §2).
+//! * `hoverItemsTab:AddItemTooltip(...)` (L3988) with `compareEntry.itemsTab`: U38's
+//!   `AddItemTooltip` with the entry's `ItemsTabSelf` (FUP6: its stat differences are the
+//!   entry's, against the entry's slots; CCR-0143 §4 closed).
 //! * `slots[name].shown()` (AddAbyssSockets, L3685-3686): the model slot's `$shown` kinds, as
 //!   power.rs (`// CCR-0138 §2`: calc:BM-A's `slot_IsShown` is private).
 //! * `buySimilar.openPopup(item, slot, build)` (L3948, U51): U33's
@@ -272,35 +271,11 @@ fn set_cursor_logical(cx: &mut Cx, x: f64, y: f64, scale: f32) {
 }
 
 /// `viewer:Draw(compareEntry, ...)`: the open build's model, calc facade and name swapped for
-/// the entry's while `f` runs (module notes, CCR-0143 §2).
+/// the entry's while `f` runs (module notes, CCR-0143 §2; U47's `entry::with_entry_as_build`
+/// since FUP6, which the entry's ItemsTab and ConfigTab methods use too).
 fn with_entry_as_build<R>(cx: &mut Cx, entry: &CompareEntryRef, f: impl FnOnce(&mut Cx) -> R) -> R {
     // CCR-0143 §2
-    let swap = |cx: &mut Cx| {
-        let e = entry::ext(entry);
-        let b = cx.build_mut();
-        let mut calc = e.calc.borrow_mut();
-        std::mem::swap(&mut b.calc, &mut *calc);
-        drop(calc);
-        drop(e);
-    };
-    let name = Some(entry::ext(entry).buildName.clone());
-    let saved_model = std::mem::replace(&mut cx.build_mut().model, entry.model.clone());
-    let saved_name = std::mem::replace(&mut cx.build_mut().build_name, name);
-    swap(cx);
-    #[cfg(not(target_arch = "wasm32"))]
-    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(cx)));
-    #[cfg(target_arch = "wasm32")]
-    let r: Result<R, ()> = Ok(f(cx));
-    swap(cx);
-    cx.build_mut().model = saved_model;
-    cx.build_mut().build_name = saved_name;
-    match r {
-        Ok(r) => r,
-        #[cfg(not(target_arch = "wasm32"))]
-        Err(p) => std::panic::resume_unwind(p),
-        #[cfg(target_arch = "wasm32")]
-        Err(()) => unreachable!(),
-    }
+    entry::with_entry_as_build(cx, entry, f)
 }
 
 // ---- tradeHelpers copies (U51's TradeHelpers.lua; CCR-0143 §1) ---------------------------------
@@ -2419,11 +2394,17 @@ impl CompareTab {
             cx.lend::<CompareTab, _, _>(me, |w| &mut w.init.itemTooltip, |cx, tt| {
                 // L3987
                 tt.clear(false);
-                // L3988 (both sides through the open build's ItemsTab: CCR-0143 §4)
-                if let Some(tab) = items_tab_node(cx) {
+                // L3988 (`hoverItemsTab`: the primary build's ItemsTab or `compareEntry.itemsTab`)
+                let hoverItemsTab = match f.hoverItemsTab {
+                    Some(ItemsTabSide::Compare) => {
+                        Some(crate::tabs::items::tooltip::ItemsTabSelf::Entry(compareEntry.clone()))
+                    }
+                    _ => items_tab_node(cx).map(crate::tabs::items::tooltip::ItemsTabSelf::Open),
+                };
+                if let Some(hoverItemsTab) = hoverItemsTab {
                     crate::tabs::items::tooltip::AddItemTooltip(
                         cx,
-                        tab,
+                        hoverItemsTab,
                         tt,
                         &hoverItem,
                         &Val::Nil,

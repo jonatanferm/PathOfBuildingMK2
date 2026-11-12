@@ -1105,7 +1105,8 @@ impl ItemDBControl {
         if tooltip.check_for_update(cx, &keys) {
             // L342
             let f = items_hooks().add_item_tooltip;
-            f(cx, tooltip, &item, None, true);
+            let b = cx.build().model.clone();
+            f(cx, &b, tooltip, &item, None, true);
         }
     }
 

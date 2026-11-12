@@ -20,7 +20,13 @@
 //!   (U23/U24: both trees of the Tree view are drawn), the ItemsTab tooltips (U38) and the
 //!   stat-comparison tooltip (U21) on hover;
 //! * `DrawSkills`, `DrawCalcs`, `DrawConfig` (U50) are not reached (the scripts do not open
-//!   those sub-views); every other tab's `Draw` draws nothing (as u22), plus u22's `utf8.next`.
+//!   those sub-views); every other tab's `Draw` draws nothing (as u22), plus u22's `utf8.next`
+//!   and u53's `debug.traceback` (the oracle VM has no `debug` library; ItemsTab.lua:4175 passes
+//!   it to `xpcall` when a hovered jewel's tooltip builds its comparison spec, FUP6's
+//!   `f_entry_tree`).
+//! * FUP6's `e_entry_*`, `f_entry_*`, `g_entry_*` hover the comparison build's items, jewels and
+//!   config controls: the entry's ItemsTab (U38 `ItemsTabSelf::Entry`) and ConfigTab (U41
+//!   `ConfigTab::new_for`); `g_entry_config` reaches U50's `DrawConfig`.
 
 #![allow(non_snake_case, clippy::too_many_lines)]
 
@@ -70,6 +76,9 @@ fn test_dir() -> PathBuf {
 /// The Lua stand-ins (see the module notes): u22's `utf8.next`, the other tabs' `Draw`, and
 /// the import on the Compare tab's first `Draw`.
 const LUA_STUBS: &str = r#"
+if not debug then
+	debug = { traceback = function(msg) return msg end }
+end
 local lutf8 = require("lua-utf8")
 if not lutf8.next then
 	local function iscont(s, p)

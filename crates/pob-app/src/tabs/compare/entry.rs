@@ -38,9 +38,15 @@
 //! * `entry.treeTab:OpenVersionConvertPopup(version, true)` ([`OpenVersionConvertPopup`]: the
 //!   TreeTab popup and its `ConvertToVersion` run on the entry's tree tab);
 //! * `entry.configTab.varControls[var]` (CompareTab.lua:1208, the source of the compare config
-//!   controls' tooltips): GAP, CCR-0137 §2. The entry has no ConfigTab controls, so the compare
-//!   build's config controls carry no `tooltipText`/`tooltipFunc` (hovering one shows no
-//!   tooltip; PoB shows the option's help).
+//!   controls' tooltips): the entry has a UI ConfigTab (FUP6, closing CCR-0137 §2), U41's
+//!   constructor for the entry's model ([`new_config_tab`]); its closures run with the entry
+//!   swapped in ([`with_entry_as_build`]), so the copied `tooltipFunc` shows the option's help and
+//!   the entry build's stat comparison. Its `UpdateControls`/`SetActiveConfigSet` calls from
+//!   CompareTab stay the model halves ([`entry_config_update_controls`]): the entry's controls
+//!   are never drawn, and the tooltips read the model (`input`, `placeholder`).
+//! * `compareEntry.itemsTab` (CompareTab.lua:3988, PassiveTreeView.lua:1492/1783): U38's
+//!   `AddItemTooltip` with the entry's `ItemsTabSelf` (FUP6, `tabs/items/tooltip.rs` module
+//!   notes).
 //! * the window title the entry TreeTab's `SetActiveSpec` sets (TreeTab.lua:556,
 //!   `self.build.spec:SetWindowTitleWithBuildClass()` with `self.build` the entry, so its
 //!   `buildName`): [`set_title`].
@@ -72,7 +78,7 @@
 
 #![allow(non_snake_case)]
 
-use std::cell::{Ref, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::rc::Rc;
 
 use pob_lua::math::{m_floor, m_max, m_min};
@@ -92,7 +98,7 @@ use super::init::{at_num, CompareEntryHandle, CompareEntryRef};
 use crate::app::CxApp;
 use crate::build::display_stats::{self, DisplayStat};
 use crate::build::init::{self as build_init, MinionListValue};
-use crate::calc::CalcFacade;
+use crate::calc::{CalcFacade, MiscCalc};
 use crate::model::build_xml;
 use crate::model::xml::{XmlChild, XmlNode};
 use crate::model::{self, gamedata::ModType, Output, Table, Val};
@@ -119,6 +125,13 @@ pub struct CompareEntry {
     pub viewer: RefCell<PassiveTreeView>,
     /// the calc the entry's `calcsTab:BuildOutput()` runs on
     pub calc: RefCell<Box<dyn CalcFacade>>,
+    /// `self.configTab.calcFunc`, `self.configTab.calcBase` (ConfigTab.lua:159-161, 756-757):
+    /// the entry ConfigTab's misc calculator, in `BuildState::calc_func`/`calc_base` while the
+    /// entry is swapped in ([`with_entry_as_build`])
+    pub config_calc: RefCell<(Option<Rc<dyn MiscCalc>>, Option<Output>)>,
+    /// `self.configTab` (L112): the entry's ConfigTab node (U41's constructor for the entry's
+    /// model, [`new_config_tab`]); `None` until LoadFromXML builds it
+    pub config_tab: Cell<Option<CtrlId>>,
 }
 
 /// The entry's [`CompareEntry`] (the handle's `ext`).
@@ -143,6 +156,78 @@ fn flush_titles_as(cx: &mut Cx, buildName: &str) {
     let saved = cx.build_mut().build_name.replace(buildName.to_owned());
     build_init::flush_window_titles(cx);
     cx.build_mut().build_name = saved;
+}
+
+/// Run `f` with the entry as `self.build` of the code it calls: the open build's `model`, calc
+/// facade, `build_name` and ConfigTab misc calculator (`calc_func`/`calc_base`) are swapped
+/// for the entry's (its [`CompareEntry`] holds the open build's meanwhile) and swapped back
+/// afterwards, also when `f` raises (`catch_unwind` + `resume_unwind`; wasm32 aborts on panic).
+/// Nested calls for the same entry run `f` directly. CCR-0143 §2 (U49's tree draw), FUP6 (the
+/// entry's ItemsTab and ConfigTab methods).
+pub fn with_entry_as_build<R>(cx: &mut Cx, entry: &CompareEntryRef, f: impl FnOnce(&mut Cx) -> R) -> R {
+    if Rc::ptr_eq(&cx.build().model, &entry.model) {
+        return f(cx);
+    }
+    let swap = |cx: &mut Cx| {
+        let e = ext(entry);
+        let b = cx.build_mut();
+        std::mem::swap(&mut b.calc, &mut *e.calc.borrow_mut());
+        let mut cc = e.config_calc.borrow_mut();
+        std::mem::swap(&mut b.calc_func, &mut cc.0);
+        std::mem::swap(&mut b.calc_base, &mut cc.1);
+    };
+    let name = Some(ext(entry).buildName.clone());
+    let saved_model = std::mem::replace(&mut cx.build_mut().model, entry.model.clone());
+    let saved_name = std::mem::replace(&mut cx.build_mut().build_name, name);
+    swap(cx);
+    #[cfg(not(target_arch = "wasm32"))]
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(cx)));
+    #[cfg(target_arch = "wasm32")]
+    let r: Result<R, ()> = Ok(f(cx));
+    swap(cx);
+    cx.build_mut().model = saved_model;
+    cx.build_mut().build_name = saved_name;
+    match r {
+        Ok(r) => r,
+        #[cfg(not(target_arch = "wasm32"))]
+        Err(p) => std::panic::resume_unwind(p),
+        #[cfg(target_arch = "wasm32")]
+        Err(()) => unreachable!(),
+    }
+}
+
+/// `self.configTab = new("ConfigTab"):ConfigTab(self)` (L112): U41's constructor for the
+/// entry's model ([`ConfigTab::new_for`]), run with the entry swapped in, its closures (the
+/// option tooltips CompareTab copies, CompareTab.lua:1170-1173) run the same way, and
+/// `self.build:AddStatComparesToTooltip` CompareEntry's. The node is owned by the open build's
+/// BuildMode node (freed with the build; the compare config controls keep the entry's tooltip
+/// closures, which read these controls, as Lua's references keep them alive).
+/// DIVERGENCE(init-order): built after the entry's sections are loaded, as the open build's
+/// ConfigTab UI half (`tabs/config/ctor.rs` module notes).
+fn new_config_tab(cx: &mut Cx, entry: &CompareEntryRef) -> CtrlId {
+    use crate::tabs::config::ctor::ForBuild;
+    use crate::tabs::config::ConfigTab;
+    let weak = Rc::downgrade(entry);
+    let run_entry = weak.clone();
+    let stat_entry = weak;
+    let for_build = ForBuild {
+        run: Rc::new(move |cx: &mut Cx, f: &mut dyn FnMut(&mut Cx)| {
+            match run_entry.upgrade() {
+                Some(e) => with_entry_as_build(cx, &e, f),
+                None => f(cx),
+            }
+        }),
+        add_stat_compares: Rc::new(
+            move |cx: &mut Cx, tooltip: &mut Tooltip, base: &Output, output: &Output, header: &str| {
+                let e = stat_entry
+                    .upgrade()
+                    .unwrap_or_else(|| lua_error!("CompareEntry: the entry was dropped"));
+                CompareEntry::AddStatComparesToTooltip(cx, &e, tooltip, base, output, header, None)
+            },
+        ),
+    };
+    let owner = cx.app().build.as_ref().map(|b| b.node.id());
+    with_entry_as_build(cx, entry, |cx| cx.add_free(owner, ConfigTab::new_for(CtrlId::default(), for_build)).id())
 }
 
 /// `self.build.spec:SetWindowTitleWithBuildClass()` of the entry's TreeTab:SetActiveSpec
@@ -325,6 +410,8 @@ impl CompareEntry {
                 xmlSectionList: Vec::new(),
                 viewer: RefCell::new(viewer),
                 calc: RefCell::new(calc),
+                config_calc: RefCell::new((None, None)),
+                config_tab: Cell::new(None),
             }))),
         });
 
@@ -546,6 +633,12 @@ impl CompareEntry {
         pob_calc::modules::common::wipeGlobalCache();
         // L184
         Self::BuildOutput(entry);
+        // L112 (the UI half; DIVERGENCE(init-order), `new_config_tab`; outside BUILD mode, where
+        // no CompareTab exists, there is no build to swap with)
+        if cx.app().build.is_some() {
+            let config_tab = new_config_tab(cx, entry);
+            ext(entry).config_tab.set(Some(config_tab));
+        }
         // L185
         m.buildFlag.set(false);
         flush_titles_as(cx, &buildName);
@@ -1717,6 +1810,27 @@ pub fn entry_config_set_active_config_set(_cx: &mut Cx, entry: &CompareEntryRef,
 pub fn entry_config_update_controls(_cx: &mut Cx, entry: &CompareEntryRef) {
     let m = &entry.model;
     m.configTab.UpdateControls(m);
+}
+
+/// `entry.configTab.varControls and entry.configTab.varControls[var]` (CompareTab.lua:1208):
+/// the entry ConfigTab's option control (`None` for an entry without a ConfigTab node: one
+/// LoadFromXML did not finish, or a test's stand-in entry whose `ext` is not a [`CompareEntry`]).
+pub fn entry_config_var_control(
+    cx: &Cx,
+    entry: &CompareEntryRef,
+    var: Name,
+) -> Option<(CtrlId, crate::tabs::config::ctor::VarClass)> {
+    let tab = entry
+        .ext
+        .borrow()
+        .as_ref()
+        .and_then(|b| b.downcast_ref::<CompareEntry>())
+        .and_then(|e| e.config_tab.get())?;
+    cx.w::<crate::tabs::config::ConfigTab>(tab)
+        .ctor
+        .var_controls
+        .get(&var)
+        .map(|v| (v.id, v.class))
 }
 
 /// `entry.treeTab.viewer.searchStr = buf`

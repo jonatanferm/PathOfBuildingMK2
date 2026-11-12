@@ -613,7 +613,7 @@ fn rust_stubs() {
     });
     pob_app::tabs::items::slot_helper::set_items_hooks(|h| {
         *h = pob_app::tabs::items::slot_helper::default_items_hooks();
-        h.add_item_tooltip = Rc::new(|cx, tt, item, _slot, _db| {
+        h.add_item_tooltip = Rc::new(|cx, _build, tt, item, _slot, _db| {
             tt.add_line(cx, 16.0, &format!("^7{}", item.name.get()));
             tt.add_line(cx, 14.0, &format!("^7stub {}", item.rarity.get()));
         });
