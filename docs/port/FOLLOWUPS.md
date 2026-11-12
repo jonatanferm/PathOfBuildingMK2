@@ -341,3 +341,12 @@ CCR-0101).
    would add the level's cost to `pool.<res>.baseFlat`, where PoB adds 0 (the emptied table is
    still truthy, so PoB takes the branch with `cost.Mana or 0`). Not seen in either corpus.
    INT-1F-A fixed only the OF-C reader (CalcOffence.lua:1720).
+
+## OF-A
+
+1. **`ofa_l4_setup`: 8 L4 hits differ on ActiveMineLimit / ActiveTrapLimit** (owner: OF-A; found
+   at the TP1 merge, 2026-11-12). On upstream_Dual_Savior and upstream_Mirage_Archer_Toxic_Rain the
+   offence:362 segment gives 0 in Rust where PoB has 15, with or without the TP1 pool. The end-to-end
+   L6 output is exact on both builds, so this is probably an injected-state (harness) gap rather than
+   a calc bug, but that is not verified. The full-corpus gate (98 %) passes; the quick corpus has a
+   97 % floor for it. Closing it: root-cause it, then restore one 98 % (or 100 %) gate.

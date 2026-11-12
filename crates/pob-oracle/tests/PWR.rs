@@ -763,7 +763,12 @@ fn pwr_l5_replay() {
         "PWR L5: {runs} runs over {} builds, {total_exact}/{total_keys} power values exact, {total_calls} PoB calc calls replayed",
         builds.len()
     );
-    assert!(gate_builds >= 3 || std::env::var_os("PWR_BUILDS").is_some(), "fewer than 3 gate builds found");
+    // The quick corpus (14 builds) holds only one of PWR's gate builds.
+    let min_gate = if pob_testpaths::quick_corpus() { 1 } else { 3 };
+    assert!(
+        gate_builds >= min_gate || std::env::var_os("PWR_BUILDS").is_some(),
+        "fewer than {min_gate} gate builds found"
+    );
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
