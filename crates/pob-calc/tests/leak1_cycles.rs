@@ -15,7 +15,7 @@
 //!   build-level cycles of CCR-0142 frees it and its envs.
 //!
 //! Builds: the three minion builds of the CCR (allflame_exp_039, _007, _001) and one without a
-//! minion skill (allflame_exp_000). Before CCR-0135 every skill with a `minion` survived.
+//! minion skill (allflame_exp_024; in the quick corpus, unlike _000). Before CCR-0135 every skill with a `minion` survived.
 #![allow(non_snake_case)]
 
 use std::collections::HashSet;
@@ -35,7 +35,7 @@ const BUILDS: [(&str, bool); 4] = [
     ("allflame_exp_039", true),
     ("allflame_exp_007", true),
     ("allflame_exp_001", true),
-    ("allflame_exp_000", false),
+    ("allflame_exp_024", false),
 ];
 
 fn init() -> bool {
