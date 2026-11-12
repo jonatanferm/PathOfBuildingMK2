@@ -57,7 +57,9 @@ Applied: `pob-calc-core/src/late.rs` holds the one list `late_fns!` of the five 
 `pob_calc_late_<name>` plus a safe `pub fn <name>` that calls it; `pob-calc-perform/src/late_provider.rs`
 expands the same list into `#[export_name = "pob_calc_late_<name>"]` functions that call the real
 bodies. No registration call, no runtime cost (a direct call), and a binary that links the core
-without the provider fails to link (`undefined symbol: pob_calc_late_…`), never at run time.
+without the provider fails to link (`undefined symbol: pob_calc_late_…`), never at run time. The
+declarations are `extern "Rust"` (the Rust ABI), so a Lua error (a panic, D15) unwinds through
+the seam as through any other call.
 
 **`unsafe_code` exception** (the workspace has `unsafe_code = "deny"`): `#[allow(unsafe_code)]` is
 allowed on exactly two macro-generated modules, both named `seam`: the declaration side in
@@ -162,6 +164,25 @@ Seam gates on the real crates (plan §7):
   split in release (thin LTO, `codegen-units = 1`).
 * `calc_depgraph.py check`: 946 file edges, 0 wrong-way; `external-paths`: 905 `pob_calc::`
   references / 281 distinct paths outside the calc, all served by the facade.
+
+Oracle acceptance on the split tree (full corpus, `POB_FULL_SUITE=1`, one binary at a time through
+`cargo.sh`): CA `ca_l6_corpus` headline 741/741, all keys 45,954/45,954, CALCS lists 171/171,
+used-tracking 513/513, misc calculator 1,248/1,248, 0 Rust errors; `ca_l5_post` CALCS lists 57/57
+clean; `ca_d13_fixed_point` 62/62 fixed points, 0 differ. PWR 108,820/108,820 power values exact
+(15 runs over 4 builds; coroutine and parallel runs exact). PF-B 1,238/1,239 clean
+(`actionSpeedMod` 399/399; the other one is the documented not-gated itemsTab-slots case of
+allflame_exp_039, as before). AS 5,015 cases, 0 MISMATCH; L4 56/56. CS2 L4 1,104/1,104 pass, 0
+fail, restarts 6/6 identical; overrides 0 failures. Provenance `check`: 2,159 `@pob`, 215
+`@pob-skip`, 226 `@pob-file` (one more: `calc_perform_shared.rs`), 0 errors; `coverage` is
+unchanged from rust-port (0 uncovered, the same 421 lines covered twice by pob-app's tab code);
+`locals_audit.py --check` ok. Further pob-oracle binaries (full corpus): CO-A 2/2 and CO-B 2/2
+(they read `apply_{a,b}.rs` at the new path), SK-B 2/2 and SK-A's `ska_rows_cover_act_int`
+(sources at the new path), ORC-X 6/6, DF-C, OF-G, OF-I, PF-E, PF-D 2/2 (L4 through
+`run_segment`), MS-B 2/2, BM-B 5/5, oracle_harness 2/2, u0_smoke; U0 5/6, its
+`provenance_check_and_coverage` failing on the same pre-existing coverage duplicates as rust-port.
+A simulated pre-split branch that edits `hit_dps.rs`,
+`mod_store.rs`, `probe.rs` and `actor_b.rs` merges cleanly (`merge-tree`), each edit at the new
+path.
 
 Compile memory (dev profile, `CARGO_BUILD_JOBS=3`, peak RSS per rustc from `wait4`):
 
