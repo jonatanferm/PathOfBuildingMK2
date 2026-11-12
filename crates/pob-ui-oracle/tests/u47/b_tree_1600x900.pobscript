@@ -1,0 +1,28 @@
+# U47 b: Tree view with Sub/allflame_exp_030: LayoutTreeView in overlay mode (the header and
+# footer backgrounds, spec/version selectors, overlay check and search), the layer-1 redraw and
+# the two build names, then side by side (the overlay check box: the two footer halves, the
+# footer anchors and search widths), typing in the right footer search (the entry viewer's
+# searchStr), overlay again, back to Summary.
+#! u47-import Sub/allflame_exp_030.xml
+#! u47-expect-text u47 TREE ov=true
+#! u47-expect-text u47 TREE ov=false
+screen 1600 900 dpi 1
+fixture userdir=../u46/user
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 3
+move 116 98
+click LEFTBUTTON
+frames 3
+move 428 138
+click LEFTBUTTON
+frames 3
+move 476 215
+click LEFTBUTTON
+frames 3
+move 476 215
+click LEFTBUTTON
+frames 2
+move 352 138
+click LEFTBUTTON
+frames 2
