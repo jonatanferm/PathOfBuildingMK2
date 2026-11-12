@@ -35,7 +35,8 @@
 //!   drop them: the Lua stub turns `main:SetWindowTitleSubtext` off while the constructor runs,
 //!   the Rust side drops the titles the entry's model queued); the title ImportBuild restores is;
 //! * `ComparePowerReportListControl` (U48) draws nothing on both sides (the Lua instance's `Draw`
-//!   is replaced; U46's placeholder control has an empty `Draw`);
+//!   is replaced; the Rust side installs U46's placeholder control, which has an empty `Draw`,
+//!   instead of U48's control: CCR-0138 §4);
 //! * every other tab's `Draw` draws nothing (as u22), u22's `utf8.next`, and u43's
 //!   `Deflate`/`Inflate` rebinding of the Lua globals (the oracle's natives return "" for a
 //!   failed stream, so an invalid code would read as valid).
@@ -530,6 +531,15 @@ fn rust_stubs() {
     ci::set_compare_hooks(|h| {
         *h = ci::default_compare_hooks();
         h.new_compare_entry = Rc::new(compare_entry);
+        // the power report list draws nothing (as the Lua stub's); U48's own scenarios are u48
+        h.power_report_list = Rc::new(|cx, me| {
+            cx.add(
+                me,
+                "comparePowerReportList",
+                New::new(Base::new(Anchor::NONE, rect(0, 0, 750, 250)), ci::PendingPowerReportList),
+            )
+            .id()
+        });
     });
     of::set_shell_hooks(|h| {
         *h = of::default_shell_hooks();
