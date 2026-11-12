@@ -20,9 +20,10 @@ use std::time::Instant;
 
 use pob_app::app::CxApp;
 use pob_app::build::on_frame::{self as of, BuildTab};
-use pob_host::PlatformParts;
+use pob_host::{App, PlatformParts};
+use pob_sg::{Key, Sg, Sys};
 use pob_ui_oracle::boot::{self, OracleHandles};
-use pob_ui_oracle::runner::{self, Driver, RustPobApp, UserDir};
+use pob_ui_oracle::runner::{self, Driver, ScenarioApp, UserDir};
 
 thread_local! {
     /// Tree tab draw times of the current run (ms).
@@ -62,6 +63,46 @@ fn install_timer() {
             }
         });
     });
+}
+
+/// `PobApp` as a scenario app (its own `load_build`, as u53_e2e's Rust side).
+struct Side(pob_app::PobApp);
+
+impl App for Side {
+    fn sg(&mut self) -> &mut Sg {
+        self.0.sg()
+    }
+    fn sys(&mut self) -> &mut Sys {
+        self.0.sys()
+    }
+    fn on_init(&mut self) {
+        self.0.on_init();
+    }
+    fn on_frame(&mut self) {
+        self.0.on_frame();
+    }
+    fn on_key_down(&mut self, key: Key, double_click: bool) {
+        self.0.on_key_down(key, double_click);
+    }
+    fn on_key_up(&mut self, key: Key) {
+        self.0.on_key_up(key);
+    }
+    fn on_char(&mut self, ch: Key) {
+        self.0.on_char(ch);
+    }
+    fn on_lua_error(&mut self, msg: String) {
+        self.0.on_lua_error(msg);
+    }
+}
+
+impl ScenarioApp for Side {
+    fn load_build(&mut self, name: &str, xml: &str) -> anyhow::Result<()> {
+        self.0.load_build(name, xml);
+        Ok(())
+    }
+    fn snapshot(&mut self) -> anyhow::Result<Option<String>> {
+        Ok(self.0.snapshot())
+    }
 }
 
 fn script(build: &str) -> String {
@@ -116,7 +157,7 @@ fn u53_tree_perf_1080p() {
         let (sg, sys) = boot::oracle_parts(&root, &user.path, &handles).expect("parts");
         TREE_MS.with(|t| t.borrow_mut().clear());
         install_timer();
-        let mut app = RustPobApp(pob_app::PobApp::new(PlatformParts { sg, sys }));
+        let mut app = Side(pob_app::PobApp::new(PlatformParts { sg, sys }));
         app.0.cx.app_mut().launch.force_release_install = true;
         let mut d = Driver::new(runner::screen(1920, 1080, 1.0), handles, user.path.clone());
         let t0 = Instant::now();
