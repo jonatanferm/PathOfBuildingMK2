@@ -1,0 +1,56 @@
+# U25: version conversion at 1280x800 on a 3_19 tree (titled, no search: see the test notes) (the "older tree version" bar with Convert / Convert all):
+# Convert (ConvertToVersion with success: the "Tree Converted" message, RETURN closes it; the copy becomes the active
+# tree), UP back to the old tree (the bar returns), the version dropdown (a pick opens "Convert to Version ...":
+# Cancel resets the dropdown; a second pick: Copy + Convert), UP again and Convert all (its popup: Convert), then the
+# build XML (the converted specs).
+screen 1280 800
+fixture userdir=user
+frames 2
+load-build "Builds/tree_3_19_plain.xml"
+frames 3
+move 970 730
+frames 1
+click LEFTBUTTON
+frames 2
+press RETURN
+frames 2
+move 800 400
+press UP
+frames 2
+move 916 762
+frames 1
+click LEFTBUTTON
+frames 1
+move 916 600
+frames 1
+click LEFTBUTTON
+frames 2
+move 765 445
+frames 1
+click LEFTBUTTON
+frames 2
+move 916 762
+frames 1
+click LEFTBUTTON
+frames 1
+move 916 560
+frames 1
+click LEFTBUTTON
+frames 2
+move 640 445
+frames 1
+click LEFTBUTTON
+frames 2
+move 800 400
+press UP
+frames 2
+move 1120 730
+frames 1
+click LEFTBUTTON
+frames 2
+move 582 445
+frames 1
+click LEFTBUTTON
+frames 3
+snapshot converted
+frames 1

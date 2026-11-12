@@ -20,7 +20,7 @@
 //! RefreshSkillSelectControls (U16-U21) and the Calcs tab. Stand-ins (both sides run the same
 //! ones) for the units not ported yet:
 //! * the other tabs' `Draw` draw nothing (the Lua tabs' `Draw` are replaced after Init; the
-//!   Rust side's `draw_tab` has no arm for them);
+//!   Rust side masks the Tree arm of `draw_tab`, the tab a build opens on);
 //! * `calcsTab.controls.breakdown` (CalcBreakdownControl, U40) is U39's stand-in on both sides
 //!   (`tabs::calcs::core::BreakdownStandIn`: never shown, draws nothing, ignores keys,
 //!   `SetBreakdownData` keeps `pinned`/`sourceData`); the Lua side replaces the same methods on
@@ -195,6 +195,13 @@ fn rust_stubs() {
     });
     of::set_shell_hooks(|h| {
         *h = of::default_shell_hooks();
+        // LUA_STUBS replaces `treeTab.Draw`: the Tree tab (U25) draws nothing here as well
+        let all_tabs = h.draw_tab.clone();
+        h.draw_tab = Rc::new(move |cx, tab, vp, ev| {
+            if tab != of::BuildTab::Tree {
+                all_tabs(cx, tab, vp, ev);
+            }
+        });
         // keep the default arms (Notes, Calcs) and add the spec stand-in
         let (flag, set_flag) = (h.tab_flag.clone(), h.set_tab_flag.clone());
         h.tab_flag = Rc::new(move |cx, f| {

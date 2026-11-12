@@ -1,0 +1,11 @@
+# U25: the responsive reflow at 1600x900 (dpi 1): the control lines with and without the heat-map controls.
+screen 1600 900
+fixture userdir=user
+frames 2
+load-build "Builds/allflame_compare.xml"
+frames 3
+move 900 400
+press p
+frames 2
+press p
+frames 2

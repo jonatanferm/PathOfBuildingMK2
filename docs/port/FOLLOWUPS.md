@@ -107,6 +107,15 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    `L6_MIN_KEYS_EXACT = 44_908`, `L6_MAX_RUST_ERRORS = 4`, `L6_MAX_STAGE_ERRORS` MAIN / CALCS /
    getMiscCalculator / configTab GetMiscCalculator 1 each: the upstream_Dual_Savior mirage raise of item 6),
    `D13_MAX_ERRORS = 1` (the same raise), and `D13_POB_WARM_CACHE` (item 5, measured in PoB).
+   **Closed by INT-1-B (port/INT-1-B on rust-port 4870179, 2026-11-11).** With INT-1-A
+   (CCR-0113), INT-1-C and INT-1-B's `flat_table` marker rendering, the full corpus
+   (`POB_FULL_SUITE=1`) is exact: 57 builds, headline 741/741, all keys 45,954/45,954, CALCS
+   lists 171/171, used-tracking 513/513, misc 1,248/1,248, 0 Rust errors. The floors and the
+   per-stage error bounds are gone: `ca_l6_corpus` now asserts every compared value exact and no
+   Rust error on any corpus subset, and pins the full corpus's totals (`L6_BUILDS`, …,
+   `L6_MISC`). `ca_d13_fixed_point` now covers CALCS mode too (two CALCS runs with
+   `calcsTab.mainEnv` set): 62/62 fixed points, 0 errors, no error bound. Details in
+   docs/port/parity/INT-1-triage.md §8.
 2. **`CalcsTab:BuildOutput` scaffold in CA.rs** (owner: PWR). `power::BuildOutput`
    (CalcsTab.lua:441-472) is still a stub, so `loadBuildFromXML` computes nothing; CA.rs carries
    a scaffold copy (`calcsTab_BuildOutput`, `rust_load`: Init's pass plus PoB's `OnFrame`
@@ -157,6 +166,16 @@ Open items found while porting Calcs.lua (port/CA, 2026-11-10; `crates/pob-oracl
    alive for as long as `env.player.mainSkill` points into it, e.g. a strong reference held by
    the outer env, as CCR-0105 §4 does for `override.extraJewelFuncs.actor`. After that, lower
    the bounds to 0.
+   **Cause corrected, and closed (INT-1, 2026-11-11).** The actor that dies is not the mirage
+   env's but the **source** skill's: CalcMirages.lua:40 copies DoubleStrike from an earlier
+   `buildActiveSkill` env, and CalcPerform.lua:3989's `cacheData` then overwrites the
+   GlobalCache entry that was that env's only owner, so the copy's `Weak` actor dies
+   (docs/port/parity/INT-1-triage.md §4 A). Keeping the mirage env alive (MI) would not help.
+   Fixed in AS by INT-1-A: `copyActiveSkill` keeps a foreign actor alive on the copy
+   (CCR-0113, `0113-int-1-a-foreign-actor-keepalive.md`). INT-1-C made the MAIN env honour
+   `calcs.mirages`' return (CalcPerform.lua:3798). The bounds are now 0 (INT-1-B): `CA.rs` has
+   no `L6_MAX_RUST_ERRORS` / `L6_MAX_STAGE_ERRORS` / `D13_MAX_ERRORS` any more, and the tests
+   assert no error; upstream_Dual_Savior is 903/903 at L6 and a D13 fixed point.
 
 ## CS2
 

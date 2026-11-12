@@ -960,11 +960,17 @@ fn as_oracle() {
         .count();
     // coverage (HYG2/V2): every socket group of the 57 corpus builds x 5 weapon set-ups, and
     // every non-support granted effect
-    assert_eq!(
-        (corpus_n, cases.len() - corpus_n),
-        AS_CASES,
-        "AS case counts (corpus, synthetic)"
-    );
+    if pob_testpaths::quick_corpus() {
+        // quick corpus (14 builds): only the synthetic half has a fixed count
+        assert_eq!(cases.len() - corpus_n, AS_CASES.1, "AS synthetic case count");
+        assert!(corpus_n > 0, "AS: no corpus cases on the quick corpus");
+    } else {
+        assert_eq!(
+            (corpus_n, cases.len() - corpus_n),
+            AS_CASES,
+            "AS case counts (corpus, synthetic)"
+        );
+    }
     let _lock = pob_oracle::runner::OracleLock::acquire().unwrap_or_else(|e| panic!("{e}"));
     let t0 = std::time::Instant::now();
     let mut pob = JitPob::boot_oracle(&src, None).unwrap_or_else(|e| panic!("boot: {e}"));
