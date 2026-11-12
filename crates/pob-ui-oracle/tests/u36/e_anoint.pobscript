@@ -1,0 +1,60 @@
+screen 1280 800 dpi 1.0
+# U36: AnointDisplayItem (ItemsTab.lua:3081-3118) with anointItem and AppendAnointTooltip
+# (L3011-3066). A custom rare amulet: "Anoint..." opens the popup with U28's NotableDBControl
+# (`self` is the AnointItemsTab adapter: anointItem, AppendAnointTooltip, the socket viewer's
+# AddNodeName); the save button reads "Remove Force of Darkness" (normalise copied the equipped
+# amulet's anoint, CopyAnointsAndEldritchImplicits; its x and width are functions of the label);
+# search "heart", hover two rows (the row tooltip: AddNodeName, the node lines, AppendAnointTooltip
+# through the calc), select the first (the label "Anoint ..."), hover the button (its tooltip:
+# AppendAnointTooltip), click it (SetDisplayItem of the anointed copy). Reopen: the label reads
+# "Remove ..." (getAnoint); hover it (anointing nothing) and click it (the anoint removed).
+#! u36-expect Anoint Item
+#! u36-expect Remove Force of Darkness
+#! u36-expect Remove
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 1262 50
+click LEFTBUTTON
+frames 3
+move 640 300
+click LEFTBUTTON
+type "Doom Charm"
+press RETURN
+type "Onyx Amulet"
+press RETURN
+type "+20 to maximum Life"
+frames 2
+move 595 630
+click LEFTBUTTON
+frames 3
+move 848 78
+click LEFTBUTTON
+frames 4
+move 590 225
+click LEFTBUTTON
+type "heart"
+frames 4
+move 600 252
+frames 4
+move 600 268
+frames 4
+move 600 252
+click LEFTBUTTON
+frames 3
+move 580 610
+frames 4
+click LEFTBUTTON
+frames 3
+move 848 78
+click LEFTBUTTON
+frames 4
+move 580 610
+frames 4
+click LEFTBUTTON
+frames 3
