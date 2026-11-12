@@ -1,7 +1,9 @@
 # CCR-0118: U30 Skills tab seams (U31/U38 hooks, the BuildMode arms, nil `mainActiveSkill`)
 
+**Status: applied (CCRDOC, 2026-11-12; code `41e8c3a` Merge port/U30): §1 `SkillsHooks` (filled by U31 and U53), §2 and §4. §3 was applied by U53 (CCR-0145 §3, `tostring_opt_nan`).**
+
 Unit: **U30** (SkillsTab A, `Classes/SkillsTab.lua:1-742, 1081-1502`; the model halves are
-calc:BM-A/BM-B). Status: **pending** (code on `port/U30` follows it). Number reserved with
+calc:BM-A/BM-B). Filed status: **pending** (code on `port/U30` follows it). Number reserved with
 `scripts/port/next_ccr.sh` (`U30-skills-tab-seams`).
 
 ## 1. `SkillsHooks`: what the tab calls in units not merged yet

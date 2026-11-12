@@ -1,6 +1,8 @@
 # CCR-0044: L4 cannot replay a callee in the middle of a segment (OF-B)
 
-**Status: partly applied 2026-11-10 by ORC-X2: the `unported!` replay hook (`pob_gamedata::stub::set_replay_hook`) and item 2 (another env's actors and mod stores are dumped in full, so a copied skill's store chain injects with its mods); `testkit::segment_diff_with_replay` and the `[[function]]` probes for OF-A's helpers still need code. See AMENDMENTS A8, A9.**
+**Status: applied in part (ORC-X2, `d8a4407`; AMENDMENTS A9): `pob_gamedata::stub::set_replay_hook` and the full dump of another env's actors and mod stores (§2). The rest is rejected (CCRDOC, 2026-11-12): `testkit::segment_diff_with_replay` and the `[[function]]` probes for OF-A's helpers were not built. The per-unit probe seams of calc doc §9.2 are the as-built mechanism, and OF-B's stub attribution became moot when OF-A merged (OF-A..OF-I all merged with their L4 gates).**
+
+**Previous status: partly applied 2026-11-10 by ORC-X2: the `unported!` replay hook (`pob_gamedata::stub::set_replay_hook`) and item 2 (another env's actors and mod stores are dumped in full, so a copied skill's store chain injects with its mods); `testkit::segment_diff_with_replay` and the `[[function]]` probes for OF-A's helpers still need code. See AMENDMENTS A8, A9.**
 
 Filed status: proposed. Unit: OF-B (test side only; nothing in the frozen calc API changes for
 shipping code). Affects: ORC-X (`pob_oracle::replay`, `testkit`), U0 (`pob_calc::stub`), every

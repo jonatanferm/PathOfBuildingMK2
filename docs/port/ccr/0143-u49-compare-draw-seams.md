@@ -1,9 +1,11 @@
 # CCR-0143: U49 CompareTab D seams (TradeHelpers copies, drawing another build's tree, the cursor patch, the entry's item tooltips, the hook install)
 
+**Status: applied (CCRDOC, 2026-11-12; code `2de5161` Merge port/U49): §1 (the TradeHelpers copies; U51 is deferred), §2 `with_entry_as_build`, §3 `with_cursor_origin`, §5 and §6; §7 Buy raises until U51; §8 was fixed by U53 (CCR-0145 §5). Not built: §2 `PassiveTreeView::draw_for`, §3 `Sys::set_cursor_offset` and §4 (the comparison build's item tooltip uses the open build's ItemsTab; FOLLOWUPS "CCRDOC" 4).**
+
 Unit: **U49** (`Classes/CompareTab.lua:3162-4048`: DrawSummary, DrawStatList, DrawTree,
 DrawItemExpanded, ShouldShowRing3, AddAbyssSockets, DrawItems; file
 `pob-app/src/tabs/compare/draw_a.rs`).
-Status: **pending** (code on `port/U49` follows it, with the local workarounds marked `// CCR-0143`).
+Filed status: **pending** (code on `port/U49` follows it, with the local workarounds marked `// CCR-0143`).
 Number reserved with `scripts/port/next_ccr.sh`.
 
 No frozen contract changes. Local workarounds for code other units own, two gaps, and the

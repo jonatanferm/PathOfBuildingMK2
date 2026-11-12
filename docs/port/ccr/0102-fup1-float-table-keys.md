@@ -1,6 +1,8 @@
 # CCR-0102: FUP1: float keys in `Table` (`Key::F`), and the shared patched-source root
 
-Unit: **FUP1** (orchestrator follow-up batch). Status: **pending** (the code on `port/FUP1`
+**Status: applied (CCRDOC, 2026-11-12; code `404338a` Merge port/FUP1). Calc doc §5.1 has `Key::F(FKey)`, `Key::try_num` and `Key::as_num`. §2 (the shared patched-source root) is in `crates/pob-oracle/README.md`. This also closes the `Item:Craft` fractional-statOrder raise of AMENDMENTS A8 item 11 (CCR-0061 §8).**
+
+Unit: **FUP1** (orchestrator follow-up batch). Filed status: **pending** (the code on `port/FUP1`
 follows it). Renumber on merge if another unit took 0102 first (AMENDMENTS A8).
 
 ## 1. `Key` gains a float variant (calc doc §5.1, frozen contract)

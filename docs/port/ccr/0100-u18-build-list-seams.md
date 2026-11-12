@@ -1,6 +1,8 @@
 # CCR-0100: U18 seams: BuildList's background, the mode registration, and U16's test
 
-Unit: **U18** (BuildList mode). Status: **pending** (code on `port/U18` follows it). The number was
+**Status: applied (CCRDOC, 2026-11-12; code `2ae853b` Merge port/U18): §B, §C and §D. In §A the test seam `build_list::set_draw_background_override` stays (the u18/u52 harnesses use it, and the product never sets it: AMENDMENTS test seams). The proposed deletion is superseded by keeping the seam as a test seam; the product draws U17's real background.**
+
+Unit: **U18** (BuildList mode). Filed status: **pending** (code on `port/U18` follows it). The number was
 originally 0095 (taken by PF-B on merge; 0096-0099 held or reserved), renumbered to 0100 on merge (AMENDMENTS A8: in-flight units take 0095+ in
 merge order); renumber on merge if another unit took it first.
 

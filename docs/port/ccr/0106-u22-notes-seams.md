@@ -1,6 +1,8 @@
 # CCR-0106: U22 Notes tab seams (mutable UI savers, the per-tab hook arms)
 
-Unit: **U22** (NotesTab, `Classes/NotesTab.lua:1-112`, the wave-4 template gate). Status:
+**Status: applied (CCRDOC, 2026-11-12; code `32b022c` Merge port/U22): §1 (`&mut Cx` savers), §2 (the per-tab arms; ui doc §10.5), §3, §4 and §5 (`app/pob-desktop` initialises the game data). The §4 clean-ups were not done: `on_frame::State.last_*` and `StatLineInfo` stay as fallbacks (FOLLOWUPS "CCRDOC" 9).**
+
+Unit: **U22** (NotesTab, `Classes/NotesTab.lua:1-112`, the wave-4 template gate). Filed status:
 **pending** (code on `port/U22` follows it). Number reserved with `scripts/port/next_ccr.sh`.
 
 ## 1. `ShellHooks::save_ui_section` and `io::save_db` take `&mut Cx`

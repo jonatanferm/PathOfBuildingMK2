@@ -1,6 +1,8 @@
 # CCR-0098: U19 build shell seams (BuildState, Init_model, hooks, mode registration)
 
-Unit: **U19** (Build shell A: `Build.lua:1-770`). Status: **pending** (code on `port/U19`
+**Status: applied (CCRDOC, 2026-11-12; code `64158de` Merge port/U19; §5 by U20, `ebf8954`). §1 `BuildState` is in ui doc §10.1, §3 `BuildHooks` in ui doc §10.5, and §7 and §8 are as built. Rejected because they were not built: §2 (`Init_model` takes no `defaultCharLevel`; `build/init.rs` DIVERGENCE(default-char-level) replays L83/L88 and BuildModList), §4 (the re-exports; ui doc §10.2 as amended) and §6 (no model hook for `SetActiveSpec`'s UI lines; U19/U25 replay them with the approximations listed in §6).**
+
+Unit: **U19** (Build shell A: `Build.lua:1-770`). Filed status: **pending** (code on `port/U19`
 follows it). Numbered 0098 to stay clear of the three pending 0091s (CA, PF-B, U16), which take
 0095-0097 when they merge (AMENDMENTS A8).
 
@@ -78,7 +80,7 @@ per call, each documented with its owner) and `pub fn default_hooks()`; `hooks(c
 (`Ctrl::null()`), `breakdown` stores a hidden placeholder control, the model-backed set switches
 call the model halves, and the user-triggered rest raise `lua_error!("… not ported yet (Uxx)")`.
 Proposed: each owner replaces its entry in `init::default_hooks` (one line each), as with
-CCR-0091 B.
+CCR-0096 B.
 
 ## 4. `model.rs` (U15) lacks two re-exports
 
@@ -97,7 +99,7 @@ passive_spec_cluster::set_window_title_subtext_hook}` directly (marked CCR-0098 
 
 ## 5. Registering `main.modes.BUILD` is deferred
 
-Evidence: CCR-0091 A has U19 replace `PendingMode::new("BUILD")` in
+Evidence: CCR-0096 A has U19 replace `PendingMode::new("BUILD")` in
 `pob-app/src/main_mode/init.rs:42` (`default_modes`). Doing so breaks U16's acceptance tests:
 `pob-ui-oracle/tests/u16_main.rs` keeps PoB's real modes out on the Lua side (`stubMode`) and
 relies on pob-app's `PendingMode` on the Rust side; `tests/u16/settings/b_build_custom.xml`

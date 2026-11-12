@@ -1,7 +1,9 @@
 # CCR-0108: U29 gem select seams (StatDescriber has no owner, `itemLib.wiki`, bridge notes)
 
+**Status: applied (CCRDOC, 2026-11-12; code `6e06682` Merge port/U29). The ui doc U29 row and §13 item 15 record `Modules/StatDescriber.lua` as U29's (`controls/gem_tooltip.rs::stat_describer`, also called by U27) and the `itemLib.wiki` helpers in `controls/gem_select.rs`. §3 is informational.**
+
 Unit: **U29** (GemSelectControl `Classes/GemSelectControl.lua:1-854`, `Classes/GemTooltip.lua:1-261`).
-Status: **pending** (code on `port/U29` follows it). Number reserved with `scripts/port/next_ccr.sh`.
+Filed status: **pending** (code on `port/U29` follows it). Number reserved with `scripts/port/next_ccr.sh`.
 
 ## 1. `Modules/StatDescriber.lua` (`data.describeStats`) has no owner
 

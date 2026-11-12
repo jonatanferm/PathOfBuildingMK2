@@ -1,6 +1,45 @@
 # Rust port: status and how to resume
 
-Paused 2026-10-10 10:05 CEST, on the user's request. Branch: **`rust-port`** (integration branch, local only, never pushed).
+## Current status (2026-11-12, CCRDOC)
+
+**Every planned unit row is merged into `rust-port`** (the integration branch). This covers every
+row of calc doc §11.1, including INT-1..INT-4, and every row of ui doc §12, including U53 (cut-over)
+and the optional U52 and U54. The only exception is U51. U16 keeps one known gap: the
+command-line import of Main.lua:71-82 (DIVERGENCE(no-cli-args), FOLLOWUPS "CCRDOC" 12).
+
+- **Calc:** no Lua at runtime (`cargo tree -e normal | grep -c mlua` = 0 for pob-calc, pob-app,
+  pob-desktop and pob-web; AMENDMENTS A13). Parity, last measured by FUP4 (FOLLOWUPS "FUP4"):
+  all57 L6 headline 741/741, all keys 45,954/45,954, 0 Rust errors, D13 62/62. The fresh
+  100-build corpus gave all keys 85,603/85,603 and D13 100/100.
+- **UI:** `pob-app` on `RustCalc` is the product (`app/pob-desktop`, `app/pob-web`). U53's e2e
+  run (27 runs, 1,668,755 Lua draw ops) had 0 T3 divergences, and T4 matched (33 pairs). Every
+  unit harness u16-u52 runs on the Rust calc (CCR-0145 §1).
+- **Contracts:** every CCR file in `docs/port/ccr/` has a final status: applied, rejected (not
+  built, with the reason) or superseded. CCRDOC decided the last 52 (0043-0145, AMENDMENTS A14).
+  calc doc, ui doc, contracts.md and STYLE.md describe the code as built.
+
+**Deferred by user decision (2026-11-12):**
+
+- **U51 Trade** (TradeQuery and the related classes; ui doc §12.7). Its two ItemsTab hooks still raise
+  "… is not ported yet (U51)". U27 and U49 carry the local copies they need (`FetchLeagues`,
+  TradeHelpers).
+- **Update checker:** stubbed, and the "Check for Update" button is hidden (FOLLOWUPS
+  "BRAND" 1). The port's version is the `VERSION` file (`YYYY.MM.DD.N`).
+
+**Pending per AMENDMENTS A5:** T6, the SSIM ≥ 0.995 check against real SimpleGraphic under Wine
+on 15 scenes (U53 row). Wine is not installed (FOLLOWUPS "U53" 1).
+
+**Open follow-ups** (`docs/port/FOLLOWUPS.md`):
+
+- "CCRDOC" 1-12 are code and doc differences found while deciding the CCRs. Five differ from
+  PoB in the product: Options Save does not rebuild the build list; Import-to-new-build draws one
+  stale frame; POSTs have no Content-Type; the comparison build's item/jewel tooltips and config
+  tooltips are wrong or missing. Item 7 is a leak: a dropped build leaks on desktop. Item 12:
+  a build link on the command line still raises (DIVERGENCE(no-cli-args); no host passes one
+  today). The rest is hygiene.
+- "U53" 4 (the unit harnesses' nil rule) and "BRAND" 1 (above).
+- The older sections (CS0, HYG2 exposed, BM-A, CA, CS2, CCR2, FUP1, PF-B, PWR, INT-1F-A, OF-A,
+  FUP2) mark their items closed or open in place. CCRDOC did not re-verify them.
 
 ## Goal
 
@@ -15,12 +54,22 @@ A feature-complete **Rust** port of Path of Building v2.67.2 (`.PathOfBuilding/`
 1. `docs/port/AMENDMENTS.md`: reconciles the two docs with what was built. It wins on conflict.
 2. `docs/port/calc-architecture.md`: unit table in §11.
 3. `docs/port/ui-architecture.md`: unit table in §12.
-4. `docs/port/ccr/`: contract change requests (`Status: applied …` marks the applied ones).
+4. `docs/port/ccr/`: contract change requests. Each file's first `Status:` line gives the final decision (AMENDMENTS A7, A8, A10-A14).
 5. `docs/port/research/`: the original maps of the Lua and Rust code bases.
+6. `docs/port/FOLLOWUPS.md`: open items found after a unit merged. `docs/port/STYLE.md`, `contracts.md` and `testing.md` hold the porting rules, the frozen contracts and the test harness.
 
-## Progress
+## History
 
-### Merged into `rust-port`
+The sections below are the dated history of the port (oldest first). Their "in flight" and "not
+started" lists are superseded by the current status above.
+
+### Paused 2026-10-10
+
+Paused 2026-10-10 10:05 CEST, on the user's request. Branch: **`rust-port`** (integration branch).
+
+#### Progress at the 2026-10-10 pause
+
+##### Merged into `rust-port`
 
 | Group | Units |
 |---|---|
@@ -32,7 +81,7 @@ A feature-complete **Rust** port of Path of Building v2.67.2 (`.PathOfBuilding/`
 | Calc Wave 2 | MS-A (ModStore/ModDB/ModList), CT (calc tools), MP0 (ModParser core), LUT (timeless/abyss LUTs) |
 | UI Wave 1 | U1 (sg core), U2 (fonts), U3 (images/loaders) |
 
-### Started but not merged (work committed on `port/<id>` branches)
+##### Started but not merged (work committed on `port/<id>` branches)
 
 | Stage | Units |
 |---|---|
@@ -41,7 +90,7 @@ A feature-complete **Rust** port of Path of Building v2.67.2 (`.PathOfBuilding/`
 
 Their worktrees are still under `.claude/worktrees/wf_cfba68ed-a85-*`. They may contain uncommitted edits from agents stopped mid-fix. The committed branch heads are the source of truth.
 
-### Not started
+##### Not started
 
 | Plan | Units |
 |---|---|
@@ -56,7 +105,7 @@ Their worktrees are still under `.claude/worktrees/wf_cfba68ed-a85-*`. They may 
 
 Roughly 22 of about 125 units are merged. Little of the calc or UI logic itself is ported yet: the waves so far built the foundations, oracle and contracts. The calc runs end to end on stubs that return default values. Nothing renders PoB's screens yet; only the renderer demos do.
 
-## How to resume
+### How to resume (the 2026-10-10 workflow; history)
 
 The units are driven by a workflow script, the "unit DAG". For each unit it:
 
@@ -74,7 +123,7 @@ At most 3 heavy agents run at once. Script (session-local copy):
   2. schedule calc Wave 3 and UI Waves 2–3;
   3. decide new CCRs between waves.
 
-### Environment notes
+#### Environment notes
 
 - **sccache** is at `~/.cargo/bin/sccache` (not on PATH).
 - **Serialised commands:** use `scripts/port/cargo.sh` (flock-serialised cargo) and `scripts/port/oracle.sh`.
@@ -84,7 +133,7 @@ At most 3 heavy agents run at once. Script (session-local copy):
 - **Legacy app:** the old egui app (`app/pob-desktop`, PoB Lua at runtime) still builds and runs. It is replaced at cut-over (UI U53, calc INT-4). *Since 2026-11-12: replaced; U53 deleted it and INT-4 deleted `pob-engine`/`pob-data`/`pob-extract` (sections below).*
 - **Wine:** not installed. The real-SimpleGraphic pixel checks (ui doc T6) stay pending until it is.
 
-## Update 2026-11-10 03:30 (resumed 2026-11-09 via /goal "complete the full Rust port")
+### Update 2026-11-10 03:30 (resumed 2026-11-09 via /goal "complete the full Rust port")
 
 Merged since the resume (unique units): AS BM-A BM-B CO-A CO-B CO-C CS0 CS1 CS3 DF-A DF-B DF-C DF-D DF-E DF-F DF-G HYG1 HYG2 IT-A IT-B IT-C MI MP1 MP2 MP3 MP4 MP5 MP6 MP7 MPFIX MS-B OF-A OF-B OF-C OF-D OF-E OF-F OF-G OF-H OF-I ORC-X PF-A PF-C PF-D PF-E PF-F PF-G PS-A PS-B PS-C PT SK-A SK-B TR-A TR-B U10 U11 U12 U13 U14 U4 U5 U6 U7 U8 U9 
 
@@ -98,7 +147,7 @@ Process changes made in this session (see memory + commits):
 - Cross-workflow merge lock /tmp/pob-port-merge.lock. Open review issues land in docs/port/FOLLOWUPS.md.
 - Resuming a killed run: do NOT use Workflow resumeFromRunId for these concurrent DAGs (it re-runs finished units). Derive per-unit state from the run journals, commit WIP in killed worktrees, and relaunch v5 with explicit `start` (impl | resume | review | fix | merge) per unit.
 
-## Paused 2026-11-10 ~14:50 (user: weekly usage nearly spent)
+### Paused 2026-11-10 ~14:50 (user: weekly usage nearly spent)
 
 90 units merged since the 2026-11-09 resume. Calc: every plan unit merged except INT-1..4; parity after CS2
 (full 57-build corpus) L6 headline 728/741, keys 44,908/45,954; INT-1A (docs/port/parity/INT-1-triage.md)
@@ -125,7 +174,7 @@ pob-port-push (hourly push of rust-port to GitHub, running), pob-port-fullsuite 
 
 Superseded/orphaned agent commits found at the pause are kept as `refs/archive/orphan-<sha>` (not branches); all their units are merged.
 
-## INT-1 all57 gate: done (INT-1-B, 2026-11-11)
+### INT-1 all57 gate: done (INT-1-B, 2026-11-11)
 
 INT-1-A (CCR-0113), INT-1-C and INT-1-B together meet the all57 half of INT-1's gate (calc doc
 §11.1 row INT-1; docs/port/parity/INT-1-triage.md §8). Full corpus on rust-port 4870179 +
@@ -134,7 +183,7 @@ INT-1-B: L6 headline 741/741, all keys 45,954/45,954, CALCS lists 171/171, used-
 CALCS too), 0 errors. `CA.rs` gates all of these as exact (no floors left). Still open for
 INT-1: L6 on 100 fresh poe.ninja builds (a new corpus and a new triage round).
 
-## INT-1 fresh-100: measured and triaged (INT-1-FRESH, 2026-11-12)
+### INT-1 fresh-100: measured and triaged (INT-1-FRESH, 2026-11-12)
 
 The fresh corpus has 100 poe.ninja builds (105 fetched, 5 dropped because their character API
 returned 404, 0 dropped for a PoB error or for game data; docs/port/parity/fresh-corpus.md). On
@@ -152,7 +201,7 @@ docs/port/parity/INT-1-fresh-triage.md finds two buckets. Both are XS:
 - **INT-1F-B** (CA): fresh_017 is not a fixed point on a warm cache in PoB itself, so it needs a
   `D13_POB_WARM_CACHE` entry.
 
-## INT-1: done (INT-1F-A, 2026-11-12)
+### INT-1: done (INT-1F-A, 2026-11-12)
 
 INT-1F-A (CCR-0133, amending CCR-0019 §8) fixes bucket A of INT-1-fresh-triage.md:
 `calc_offence/costs_passes.rs` (CalcOffence.lua:1720) now treats the cost of a level that
@@ -171,7 +220,7 @@ PoB per build. Measured on rust-port fa733f3 + INT-1F-A:
   halves of INT-1's gate (L6 exact on all57 and on 100 fresh poe.ninja builds, D13 everywhere)
   hold. See FOLLOWUPS "INT-1F-A".
 
-## U53 cut-over (2026-11-12)
+### U53 cut-over (2026-11-12)
 
 On `port/U53` (merged rust-port, fix round 1). CCR-0145 lists every cross-unit edit.
 
@@ -214,7 +263,7 @@ On `port/U53` (merged rust-port, fix round 1). CCR-0145 lists every cross-unit e
   (`?app=testcard` for the test card).
 - **Open (FOLLOWUPS "U53"):** T6 (Wine not installed).
 
-## INT-4 retire (2026-11-12)
+### INT-4 retire (2026-11-12)
 
 On `port/INT-4` (from rust-port af4f731). The last calc row (calc doc §11.1). AMENDMENTS A13 has
 the details.

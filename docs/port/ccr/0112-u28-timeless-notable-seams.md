@@ -1,8 +1,10 @@
 # CCR-0112: U28 timeless and notable lists (the `build`/`itemsTab` arguments, `math.random`, `matchOrPattern`)
 
+**Status: applied (CCRDOC, 2026-11-12; code `8be58b6` Merge port/U28): the `TimelessBuild`, `SocketViewer` and `NotableItemsTab` traits (U53 filled the placeholders, CCR-0145 §5), §3 and §4. §2's move of the PRNG to `pob_lua::math` was not done: two LuaJIT `math.random` ports remain (FOLLOWUPS "CCRDOC" 8).**
+
 Unit: **U28** (`TimelessJewelListControl` 1-352, `TimelessJewelSocketControl` 1-57,
 `NotableDBControl` 1-293; files `pob-app/src/tabs/tree/{timeless_list,timeless_socket,notable_db}.rs`).
-Status: **pending** (code on `port/U28` follows it). Number reserved with `scripts/port/next_ccr.sh`.
+Filed status: **pending** (code on `port/U28` follows it). Number reserved with `scripts/port/next_ccr.sh`.
 
 No frozen contract changes. This CCR records the seams U28 introduced inside its own files, which
 the units that construct these controls (U27 for the timeless controls, U36 for the notable DB)

@@ -1,7 +1,9 @@
 # CCR-0133: a per-process reset for SkillsTab.lua:1190's cleared level costs
 
+**Status: applied (CCRDOC, 2026-11-12; code `280cde6` Merge port/INT-1F-A). Calc doc §4.4's `levels[level].cost` row names `reset_level_cost_cleared()`. §3 is done as well: `calc_perform/pools_charges.rs` consults `levelCostCleared` too, which closes that clause of AMENDMENTS A8 item 11.**
+
 Unit: **INT-1F-A** (docs/port/parity/INT-1-fresh-triage.md §6; owner OF-C, with BM-B for the
-reset). Status: **pending**. Code on `port/INT-1F-A` follows it. Amends CCR-0019 §8. Number
+reset). Filed status: **pending**. Code on `port/INT-1F-A` follows it. Amends CCR-0019 §8. Number
 reserved with `scripts/port/next_ccr.sh`.
 
 ## 1. The write is process state; the oracle boots a fresh process per build

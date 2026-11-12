@@ -1,6 +1,8 @@
 # CCR-0068: DF-D — CalcDefence module locals; `calcs.armourReduction` (withdrawn)
 
-**Status: withdrawn (by DF-D, 2026-11-09; recorded by CCR2 in AMENDMENTS A8). See AMENDMENTS A8.**
+**Status: superseded (CCRDOC, 2026-11-12): withdrawn by DF-D on 2026-11-09, because DF-A (`edd8169`) already provides `isElemental`, `hitSourceList`, `dmgTypeList` and the real `armourReduction`. No contract change.**
+
+**Previous status: withdrawn (by DF-D, 2026-11-09; recorded by CCR2 in AMENDMENTS A8). See AMENDMENTS A8.**
 
 Filed status: withdrawn by DF-D (2026-11-09): superseded, DF-A landed on rust-port in edd8169
 ("Merge port/DF-A"). No contract change remains.

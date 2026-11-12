@@ -1,6 +1,8 @@
 # CCR-0096: U16 seams to the mode objects, the Main popups, LoadTree, and the oracle
 
-Unit: **U16** (Launch and Main core). Status: **pending** (code on `port/U16` follows it).
+**Status: applied (CCRDOC, 2026-11-12; code `149150b` Merge port/U16). The ui doc §10.1 now describes the `Mode` trait, `main.modes` as `IndexMap<String, Rc<dyn Mode>>`, `MainHooks` (§10.5) and `MainState.input_events: Rc<RefCell<InputEvents>>`. `default_modes` installs U18's and U20's real modes, and `PendingMode` is used only by tests. §C is rejected (the re-export was not added; `main_mode::new_item` calls pob-calc directly, ui doc §10.2 as amended). §D.1 is not adopted by the generic runner's `RustPobApp`: the unit harnesses drive `PobApp` themselves.**
+
+Unit: **U16** (Launch and Main core). Filed status: **pending** (code on `port/U16` follows it).
 
 U16 calls code that later units own (U17 popups, U18 BuildList, U19-U21 Build, U23 LoadTree,
 U20 SaveDB) and that does not exist yet; the frozen stubs declare no signature for it. U16 adds

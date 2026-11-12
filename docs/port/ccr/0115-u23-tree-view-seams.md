@@ -1,6 +1,8 @@
 # CCR-0115: U23 tree view seams (hooks into U24/U25/U26/U32-34, model re-exports, applied seams)
 
-Unit: **U23** (tree assets and view). Status: **pending** (the code on `port/U23` follows it).
+**Status: applied (CCRDOC, 2026-11-12; code `d111f94` Merge port/U23): §A `TreeViewHooks` (ui doc §10.5), §C and §D. §B is rejected because the re-exports were not added (ui doc §10.2 as amended).**
+
+Unit: **U23** (tree assets and view). Filed status: **pending** (the code on `port/U23` follows it).
 
 U23's range (`PassiveTreeView.lua:1-1411`, the image/sprite/connector parts of `PassiveTree.lua`,
 `Main.lua:352-364`) calls code later units own and reads calc-plan items `pob-app/src/model.rs`

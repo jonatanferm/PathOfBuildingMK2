@@ -1,5 +1,7 @@
 # CCR-0105 (CS2): CalcSetup.lua 800-1450 — removeNodes id keys, flaskSlotMap, explodeSources, restart actor
 
+**Status: applied (CCRDOC, 2026-11-12; code `3d4735d` Merge port/CS2) with the extra-key representation. Calc doc §5.4 `Override` lists `extra["$removeNodeIds"]` (§1, also filled by U24's tooltips) and `extra["$extraJewelFuncsActor"]` (§4). §1's typed `removeNodeIds` field is rejected because it was not built. §2-§3 are superseded by RETYPE E1 (typed `Env.flaskSlotMap` and `explodeSources`; AMENDMENTS A10).**
+
 **Filed status: proposed (CS2, 2026-11-10).** No frozen file was changed. Every item is worked
 around inside CS2's own file (`crates/pob-calc/src/modules/calc_setup/init_env_items.rs`) and
 marked there; the test notes are in `crates/pob-oracle/tests/CS2.rs`.

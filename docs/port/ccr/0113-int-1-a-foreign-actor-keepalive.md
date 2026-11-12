@@ -1,7 +1,9 @@
 # CCR-0113: INT-1-A: `copyActiveSkill` keeps a copied skill's foreign actor alive
 
+**Status: applied (CCRDOC, 2026-11-12; code `9823b55` Merge port/INT-1-A) in the form of §3: `copyActiveSkill` keeps a foreign actor in `newSkill.extra["actorKeep"]` (calc doc §3.3 rule 4, STYLE.md). §2's typed `ActiveSkill.actorKeep` field is rejected because it was not built: the extra key is the design, and it shows as an extra `actorKeep` key in probe exports of such a copy.**
+
 Unit: **INT-1-A** (INT-1 triage `docs/port/parity/INT-1-triage.md` fix unit for bucket A, named
-INT-1B in its §7 table; owner AS). Status: **pending** (the code on `port/INT-1-A` follows the
+INT-1B in its §7 table; owner AS). Filed status: **pending** (the code on `port/INT-1-A` follows the
 workaround in §3; §2 is the proposed contract change). Number reserved with
 `scripts/port/next_ccr.sh`.
 

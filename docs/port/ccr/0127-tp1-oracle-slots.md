@@ -1,6 +1,8 @@
 # CCR-0127: TP1 more than one LuaJIT oracle at a time (`POB_ORACLE_SLOTS`)
 
-Unit: **TP1** (pob-oracle test speed). Status: **pending**; the code on `port/TP1` implements the
+**Status: applied in part (CCRDOC, 2026-11-12; code `fa733f3` Merge port/TP1): `POB_ORACLE_SLOTS=N` (N flocks, slot 0 = `oracle.sh`'s lock) exists with **default 1**, which calc doc D20, AMENDMENTS A5 and testing.md now state. The default-3 change is rejected because it was not applied (`runner::oracle_slots` still returns 1, within the shared-machine memory budget).**
+
+Unit: **TP1** (pob-oracle test speed). Filed status: **pending**; the code on `port/TP1` implements the
 slots with the D20 default (1), so nothing changes until this CCR is applied. Number reserved with
 `scripts/port/next_ccr.sh`.
 

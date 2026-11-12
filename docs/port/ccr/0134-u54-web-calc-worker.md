@@ -1,7 +1,9 @@
 # CCR-0134: U54 web calc client (WorkerCalc) — the D15 worker protocol and its seams
 
+**Status: applied (CCRDOC, 2026-11-12; code `92ffd69` Merge port/U54). Ui doc §10.4's `WorkerCalc` row describes the protocol, the pre-flight design and the first calc on the main thread. Not built: §3 (env adoption; the calc still runs twice on the web), §4 (the `mainEnv`-nil placeholders; the work-around stays) and §5 (`CalcFacade::take_lua_error`; worker errors go to the console only).**
+
 Unit: **U54** (ui doc §12 row U54, optional; file `crates/pob-app/src/calc/worker_web.rs`).
-Status: **pending** (code on `port/U54` follows it). Number reserved with `scripts/port/next_ccr.sh`.
+Filed status: **pending** (code on `port/U54` follows it). Number reserved with `scripts/port/next_ccr.sh`.
 
 Calc doc D15 says that on wasm32 "the calc runs in a dedicated Web Worker that the UI restarts after
 an abort", and ui doc §10.4 says `WorkerCalc` "returns `Pending` until the worker answers". Neither

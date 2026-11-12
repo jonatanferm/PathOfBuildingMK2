@@ -1,7 +1,9 @@
 # CCR-0111: U39 Calcs tab seams (BuildOutput UI tail, the breakdown seam, shared section tables)
 
+**Status: applied (CCRDOC, 2026-11-12; code `e4f87ce` Merge port/U39). §1 was applied by U40 (CCR-0116 §2); §2 `CalcsHooks` (ui doc §10.5) and §3-§6 are as built. §3's optional U21 proposal was not done (U21 keeps its own section list).**
+
 Unit: **U39** (CalcsTab, `Classes/CalcsTab.lua:1-162, 226-440`, `Classes/CalcSectionControl.lua
-1-550`, `Modules/CalcSections.lua` as data). Status: **pending** (code on `port/U39` follows it).
+1-550`, `Modules/CalcSections.lua` as data). Filed status: **pending** (code on `port/U39` follows it).
 Number reserved with `scripts/port/next_ccr.sh`.
 
 ## 1. The UI tail of `CalcsTab:BuildOutput` is not called by anyone

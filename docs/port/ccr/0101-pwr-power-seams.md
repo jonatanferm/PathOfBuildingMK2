@@ -1,6 +1,8 @@
 # CCR-0101: PWR (CalcsTab power report) contract notes and seams
 
-Status: proposed by PWR (port/PWR, 2026-11-10). Renumbered from 0100 (held by U18 on rust-port).
+**Status: applied (CCRDOC, 2026-11-12; code `74fb78a` Merge port/PWR). Calc doc §5.10 lists the `power.rs` surface (`CalculateCombinedOffDefStat -> (f64, f64)`, `PowerBuilder_run`, `set_GetTime`, `PowerOptions`, `calc_replay`), and contracts.md#model-census lists the `calcsTab` side-table fields. §1's optional typed fields were not added (the accessors are the design).**
+
+Filed status: proposed by PWR (port/PWR, 2026-11-10). Renumbered from 0100 (held by U18 on rust-port).
 The §2 signature change is already applied in the owned file (power.rs); the AMENDMENTS registry
 row for this CCR is added at integration.
 

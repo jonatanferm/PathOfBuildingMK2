@@ -1,6 +1,8 @@
 # CCR-0141: a per-closure text for jewel closures in `modLib.formatValue`
 
-Unit: **FUP2** (docs/port/FOLLOWUPS.md "PWR" item 2; owner of the file: CT). Status: **pending**.
+**Status: applied (CCRDOC, 2026-11-12; code `ae0dc52` Merge port/FUP2): `mod_tools::{FUNCTION_TEXT_PREFIX, function_text}`. It amends CCR-0091 §6 (AMENDMENTS A14).**
+
+Unit: **FUP2** (docs/port/FOLLOWUPS.md "PWR" item 2; owner of the file: CT). Filed status: **pending**.
 Code on `port/FUP2` follows it. Amends CCR-0091 §6 (the "smaller notes" line on
 `formatValue` / `formatTag`). Number reserved with `scripts/port/next_ccr.sh`.
 

@@ -1,8 +1,10 @@
 # CCR-0124: U35 display item seams
 
+**Status: applied (CCRDOC, 2026-11-12; code `d479e21` Merge port/U35): §1-§4. The §5 finding for U33 (the range slider is drawn unrounded while it is dragged) has no fix in `ctor.rs` (FOLLOWUPS "CCRDOC" 10).**
+
 Unit: **U35** (ItemsTab display item, `Classes/ItemsTab.lua:1948-2608`,
 `pob-app/src/tabs/items/display_item.rs`).
-Status: **pending** (code on `port/U35` follows it, with the local workarounds marked
+Filed status: **pending** (code on `port/U35` follows it, with the local workarounds marked
 `// CCR-0124`). Number reserved with `scripts/port/next_ccr.sh`.
 
 ## 1. `CopyAnointsAndEldritchImplicits` has no hook entry

@@ -386,7 +386,7 @@ Final-review open issues, both resolved in the merge commit's follow-up (listed 
    but 0091 is CT's on rust-port (AMENDMENTS A8). Renamed to
    `docs/port/ccr/0095-pf-b-minion-fields-and-fn-probes.md`; every `CCR-0091` marker in
    `crates/pob-calc/src/modules/calc_perform/actor_b.rs` (8) and `crates/pob-oracle/tests/PF-B.rs`
-   (2) now reads `CCR-0095`. **Still open (U16 / CA / CCR3):** U16 merged with
+   (2) now reads `CCR-0095`. **Resolved since (CCRDOC check, 2026-11-12):** U16's file is `0096-u16-main-mode-seams.md` and CA's `0097-ca-calcs-seams.md`, so only CT holds 0091. The original note: U16 merged with
    `docs/port/ccr/0096-u16-main-mode-seams.md` without renumbering, so 0091 is still held twice on
    rust-port (CT and U16). Per A8, U16 must take the next free number (0096 now that PF-B holds
    0095) and update its markers; CA's in-flight `0091-ca-calcs-seams.md` takes the one after (renamed to `0097-ca-calcs-seams.md` at the CA merge, leaving 0096 for U16).
@@ -598,3 +598,85 @@ Found while running FUP2's acceptance tests (port/FUP2 on rust-port 4c24bc2, 202
    `YYYY.MM.DD.N` is compared), then a port of the update flow against it and the removal of
    the `checkUpdate.shown` divergence and of oracle patch 9's checkUpdate entry. Owner: unassigned
    (user decision pending).
+
+## CCRDOC
+
+Code and doc differences found while deciding CCRs 0043-0145 (AMENDMENTS A14). CCRDOC changed no
+code. Each item was checked by reading the code on `rust-port` `f0ef34a`; none was reproduced in
+the running app. Items 1-5 and 7 differ from PoB in the product; 6, 8, 9 and 11 are hygiene; 10 is
+a sub-pixel draw difference; 12 cannot be reached until a host passes the command line.
+
+1. **Options Save in the build list does not rebuild the list** (CCR-0099 B). Main.lua:1218-1220
+   calls `self.modes.LIST:BuildList()` after Save when the mode is LIST (a changed build path
+   then shows the new folder). `pob-app/src/main_mode/options_popup.rs:1501-1504` keeps the empty
+   `if` from before U18, although `crate::build_list::rebuild(cx)` exists (CCR-0100 B). Fix: call
+   it there (one line). Owner: U17 (options_popup.rs). `u17_popups` stubs BuildList on the Lua
+   side, so its scenarios do not see the difference.
+2. **Import "to a new build" draws the old build node for one frame** (CCR-0109 §9).
+   `build/on_frame.rs` reads the build node once at the top. After `draw_tab` (ImportTab.lua:
+   665-667 re-initialises the build inside the tab's Draw), the rest of OnFrame (L1321-1351)
+   draws the old node's controls. Fix: re-read `cx.app().build` after the `draw_tab` call
+   (`on_frame.rs:704-706`). Owner: U20. `u43/d_new_build.pobscript` sets frame 30 aside for it.
+3. **POST requests carry no Content-Type** (CCR-0109 §10). curl's `OPT_POSTFIELDS` sends
+   `application/x-www-form-urlencoded`; `pob-host/src/net_native.rs:87` sends the body with
+   ureq's `send_bytes` and no default header. This affects UploadBuild and the OAuth token
+   requests. Owner: U7.
+4. **The comparison build's item and jewel tooltips are built against the open build**
+   (CCR-0122 §2, CCR-0143 §4). `ItemsTabHooks::add_item_tooltip` takes no build, so
+   `compareSpec.build.itemsTab:AddItemTooltip` (PassiveTreeView.lua:1492/1783) and
+   `hoverItemsTab:AddItemTooltip` for an entry item (CompareTab.lua:3988) show the primary
+   build's "Equipping this item" blocks where PoB shows the entry's. Owner: U38 with U46-U49.
+5. **The comparison build's config controls have no tooltip** (CCR-0137 §2).
+   `CompareHooks::entry_config_var_control` is always `None` (`tabs/compare/init.rs:353`), because
+   U41's ConfigTab constructor cannot be built for a second build. Owner: U41 (a constructor for a
+   given model) with U47.
+6. **ConfigTab.lua 1302-1334 is covered by two `@pob` markers** (CCR-0121 §1).
+   `python3 scripts/port/provenance.py coverage --range Classes/ConfigTab.lua:1-1362` reports FAIL
+   with 31 lines covered twice (1302-1315, 1317-1323, 1325-1334): `pob-app/src/tabs/config/ctor.rs:2465`
+   (U41) and `pob-calc-core/src/model/config_tab.rs:810` (BM-B). Fix: U41's marker becomes a
+   `/// lua:` note (ui doc §10.5, "Provenance of split functions").
+7. **A dropped build leaks on desktop** (CCR-0142 §3 B). `build/init.rs:759` drops the previous
+   `BuildState` without breaking `Env.build`/`MiscCalculator.build` ↔ `calcsTab` and
+   `ActiveSkill.socketGroup` ↔ `displaySkillList(Calcs)` (calc doc §3.3 rule 4). Every switch of
+   build therefore keeps the old build and its envs alive (LEAK1 measured 100-252 objects per
+   build, `leak1_cycles.rs`), and deleting a socket group keeps its last display skills. Only
+   the web worker tears down. Fix: a `Build::teardown` (model owner) called before the drop and
+   by the Skills tab on group removal.
+8. **Duplicate helper ports** (CCR-0107 §3, 0109 §4, 0112 §2, 0114 §3; ui doc §13 item 15).
+   `string:matchOrPattern` has four ports (notable_db.rs, item_db.rs, config/ctor.rs,
+   tree_view/mod.rs), LuaJIT `math.random` two (timeless_list.rs, poe_api.rs), and zlib `Inflate`
+   two (import/core.rs on miniz_oxide, party.rs on flate2). pob-oracle's LuaJIT `Inflate`/`Deflate`
+   natives differ from SimpleGraphic (`""` instead of nil, default level), which the u43/u45
+   harnesses work around. Owner: whoever takes the shared helpers (pob-lua for the PRNG).
+9. **Dead or duplicate code left by the seams.** `tabs/items/ctor.rs::flavourLookup` drops every
+   entry and is unused (U38's `tooltip::flavour_lookup` is the one used; CCR-0125 §1);
+   `on_frame::State.last_*` and `on_frame::StatLineInfo` are fallbacks nothing writes (CCR-0106 §4);
+   `compare/init.rs` `State::comparePowerCompareId` is unused (CCR-0138 §3); `compare/power.rs`
+   keeps private copies of U49's `ShouldShowRing3`/`AddAbyssSockets` and U47's group helpers
+   (CCR-0138 §1); `items/craft_b.rs` copies `checkLineForAllocates` (CCR-0129 §1); `entry.rs`
+   repeats three private BM-A helpers (CCR-0137 §1); OF-B's `radius_breakpoints` wrapper could call
+   `calcRadiusBreakpointsOpt` directly (CCR-0043). Two code comments in `pob-app/src/build/mod.rs`
+   (lines 10, 136) still cite `CCR-0091 A`, U16's pre-renumbering number: they mean CCR-0096 A
+   (the CCR files were corrected by CCRDOC). No behaviour change expected.
+10. **The ItemsTab range slider draws its knob from the unrounded value while dragged**
+    (CCR-0124 §5). `ctor.rs` `range_slider_overrides` syncs `val` from `modLine.range` only before
+    the class Draw, so the drag step's unrounded `5/82` is drawn where PoB draws `round(5/82, 6)`
+    (knob x 1163.0 vs 1163.000032). Owner: U33.
+11. **Exporter gaps behind CS2's excused buckets** (CCR-0140, test-only). `probe.rs` exports a
+    bare `LjIntMap<NodeRef>` (`radiusJewelList[i].nodes`) as `{"$userdata": true}`, and a second
+    pass's `override.extraJewelFuncs` actor does not line up path by path. `tests/CS2.rs` excuses
+    both within `EXPLAINED_MAX`. Owner: ORC-X (probe.rs).
+12. **A build link on the command line still raises** (DIVERGENCE(no-cli-args)). Main.lua:71-82
+    imports `arg[1]` through `buildSites.ParseImportLinkFromURI`/`DownloadBuild`, which U43 has
+    ported (`tabs/import/build_sites.rs`). `pob-app/src/main_mode/init.rs:150-153` still raises
+    "needs buildSites ... not ported yet". It cannot be reached in the product, because no host
+    sets `launch.arg` (`pob-app/src/launch.rs:93`). Fix: port L72-81 on U43's functions when a
+    host passes the command line. Owner: U16 (main_mode/init.rs).
+
+Dev-only bridge gaps (no product effect, recorded for completeness): `LuaCalcBridge` cannot carry
+`override.extra["$removeNodeIds"]` (CCR-0122 §1), the jewel-comparison spec (CCR-0125 §6) or a
+NaN-id pseudo node (CCR-0132 §4). It does not use `inject_keep` (CCR-0088 §2) and keeps the
+SaveDB side effects (CCR-0114 §6). `pob-ui-oracle` `sg_bridge::deliver_subscripts` frees a
+sub-script slot before its callback runs (CCR-0117 §8), and `runner::Driver::frame` drops
+`Net::poll` (CCR-0109 §8). Since U53 the unit harnesses run on `RustCalc`, so these gaps matter
+only for `POB_UI_CALC=lua` runs.

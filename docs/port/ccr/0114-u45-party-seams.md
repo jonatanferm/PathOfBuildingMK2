@@ -1,6 +1,8 @@
 # CCR-0114: U45 PartyTab seams (model-held control state, build sites, Inflate, re-exports)
 
-Unit: **U45** (PartyTab UI, `Classes/PartyTab.lua:16-515, 670-717`). Status: **pending**
+**Status: applied (CCRDOC, 2026-11-12; code `967edaa` Merge port/U45): §1 (model-held control state, ui doc §10.5), §2 (`SiteHooks`, now U43's functions), §3 (`party::inflate`) and §5. Not built: §3's single shared `Inflate` (FOLLOWUPS "CCRDOC" 8), §4 (the re-exports) and §6 (the bridge's SaveDB side effects; the bridge is dev-only since U53).**
+
+Unit: **U45** (PartyTab UI, `Classes/PartyTab.lua:16-515, 670-717`). Filed status: **pending**
 (code on `port/U45` follows it). Number reserved with `scripts/port/next_ccr.sh`.
 
 ## 1. The controls' state lives in two places (CCR-0019 control tables)

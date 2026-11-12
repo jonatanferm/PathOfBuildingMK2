@@ -1,6 +1,8 @@
 # CCR-0088: U15 — inject bound to the live build model (socket groups, gem instances, items), several documents per registry
 
-**Status: needs code (CCR2, 2026-11-10; ORC-X2). See AMENDMENTS A8. ORC-X2 (2026-11-10) added `inject::inject_keep` (§2; U15's bridge is not switched to it yet); §1 `inject_bound` still needs code.**
+**Status: applied in part, rejected in part (CCRDOC, 2026-11-12). §2 is built (`inject::inject_keep`, ORC-X2 `d8a4407`), but the bridge does not use it (it still injects the main env's document last). §1 `inject_bound` is rejected because it was not built: the as-built design is the bridge's write-back and re-pointing (`pob-ui-oracle/src/lua_calc.rs` `adopt_build_output`, `Rebind`). Since U53 the bridge is dev-only (`POB_UI_CALC=lua`, `LuaCalcBridge::lua`; ui doc §10.4).**
+
+**Previous status: needs code (CCR2, 2026-11-10; ORC-X2). See AMENDMENTS A8. ORC-X2 (2026-11-10) added `inject::inject_keep` (§2; U15's bridge is not switched to it yet); §1 `inject_bound` still needs code.**
 
 Filed status: proposed by U15 (2026-11-10). Not blocking: U15 works around both items locally
 (`crates/pob-ui-oracle/src/lua_calc.rs`, marked `// CCR-0088`).
