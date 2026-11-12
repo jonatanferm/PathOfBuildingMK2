@@ -512,3 +512,27 @@ Found while running FUP2's acceptance tests (port/FUP2 on rust-port 4c24bc2, 202
      Rust export leaves it out); INT-3 fixed it in its own harness's `norm`, CA.rs's L5 compare
      does not have that normalisation yet.
 
+
+## U53
+
+1. **T6 (real SimpleGraphic under Wine) not run.** Wine is still not installed (AMENDMENTS A5), so
+   the 15-scene SSIM ≥ 0.995 gate of the U53 row is pending. The e2e scenes to use are
+   `crates/pob-ui-oracle/scenarios/e2e/*.pobscript` (T3/T4 green against PoB's Lua with the Rust
+   calc). Owner: U53 follow-up once Wine exists.
+2. **Tree perf gate (< 4 ms at 1080p) not met consistently.** `tests/u53_perf.rs` (release, no
+   LTO, on a loaded 8-core aarch64 machine) measured the Tree tab's Draw over 72 frames per
+   build: p50 2.7-4.2 ms, p95 3.1-5.3 ms over 3 runs; allflame_exp_001/048 exceed 4 ms, the two
+   upstream builds pass. `perf` attributes 14 % of `PassiveTreeView::draw` to `format!` (asset and
+   sprite keys built per node per frame: `draw.rs` connector/frame/overlay keys) and 11 % to SipHash
+   in `Table::get` (`node.extra` lookups such as `overlay_key`, `node_sprites`). Candidates: cache
+   the per-node keys in `TreeAssets`, and an `Ustr`-aware hasher for `lua_table::Table` (calc-core,
+   INT-2's area). Run: `CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+   U53_PERF_GATE=1 scripts/port/cargo.sh test --release -p pob-ui-oracle --test u53_perf -- --nocapture`.
+3. **Web: tree node icons render as solid grey squares.** `app/pob-web` (debug and release wasm,
+   wasm-bindgen 0.2.129, headless Chromium on SwiftShader, U54's `web-prefetch.txt`) starts in
+   BUILD mode with the worker's numbers (Total Life 60), the tabs switch, `<< Back` shows the build
+   list. The normal/notable node icons (the JPEG sheets `TreeData/3_29/skills-3.jpg`,
+   `skills-disabled-3.jpg`) draw as grey squares even after 7 minutes; the same trace renders
+   correctly through pob-sg-wgpu and the CPU raster (`trace-render`), so the cause is web-side
+   (probably `loader_web` / the JPEG path, not the port). Wheel and hover events sent over CDP had
+   no visible effect (not investigated). Owner: U3/U7 (web loader/host).
