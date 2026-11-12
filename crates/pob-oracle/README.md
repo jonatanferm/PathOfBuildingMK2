@@ -1,13 +1,14 @@
 # pob-oracle
 
-Path of Building's own Lua, run headless. Everything Lua-related lives here so
-that `pob-calc` (the Rust port of PoB's calculations) has no Lua runtime:
+**Dev only** (AMENDMENTS A13): no shipping binary depends on this crate; it is the
+`pob-luahost` of the docs (A1). Path of Building's own Lua, run headless. Everything
+Lua-related lives here so that `pob-calc` (the Rust port of PoB's calculations) has no Lua runtime:
 
 | Module | What |
 |---|---|
 | `jit` | PoB booted under vendored LuaJIT (desktop; PoB's own runtime). Oracle parity runs boot through `JitPob::boot_oracle`, which switches the JIT off first (`jit.off()`: the interpreter is the reference, CCR-0001/0002; `POB_ORACLE_JIT=on` for diagnostics only). |
 | `lua`, `headless` | A small pure-Rust Lua 5.1 interpreter and PoB booted in it (wasm / fallback). |
-| `worker` | A background thread owning a booted PoB; the current app's calc backend. |
+| `worker` | A background thread owning a booted PoB (the legacy app's calc backend; since U53/INT-4 only `tests/worker_smoke.rs` uses it). |
 | `mod_parser` | PoB's `Modules/ModParser.lua`, run unchanged. |
 | `oracle` | The parity harness: PoB's numbers per build as JSON, and typed loaders for tests. |
 | `patcher` | The probe oracle's patched copy of PoB's sources (line / function probes, write provenance). |

@@ -1,6 +1,6 @@
 [package]
 name = "pob-oracle"
-description = "Path of Building itself, run headless (LuaJIT on desktop): the test oracle for pob-calc and the app's current calc backend."
+description = "DEV ONLY: Path of Building itself, run headless under LuaJIT, as the test oracle for pob-calc (calc doc D4; the pob-luahost of the docs, AMENDMENTS A1, A13). Never a dependency of a shipping binary."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

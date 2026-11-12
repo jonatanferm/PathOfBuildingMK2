@@ -1,6 +1,8 @@
 # CCR-0145: U53 cut-over seams (Rust calc in every scenario, the e2e harness, the last stand-ins)
 
-Status: proposed by U53 (ui doc §12.7 U53 row), applied on `port/U53`.
+Status: proposed by U53 (ui doc §12.7 U53 row), applied on `port/U53`. **§6 applied to the docs
+by INT-4 (2026-11-12): ui doc D1, D16, §3 and the U53 row; AMENDMENTS A13** (the renames were
+done by U53; `pob-engine`/`pob-data` are deleted). §1-§5 and §7-§10 are not INT-4's to decide.
 
 U53 integrates the whole app and runs it end to end against PoB with the Rust calc. Doing so
 touched files of merged units; each change below is the smallest one that makes the full app

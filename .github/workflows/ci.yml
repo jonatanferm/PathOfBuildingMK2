@@ -18,30 +18,44 @@ env:
 
 jobs:
   test:
-    name: cargo test (calc engine)
+    name: cargo test (calc)
     runs-on: ubuntu-latest
+    # The Rust calc (docs/port/calc-architecture.md): pob-lua, pob-gamedata, pob-modparser and the
+    # pob-calc crates. Tests that need the gitignored PoB checkout or data dump skip under
+    # POB_ALLOW_SKIP=1. INT-4 deleted the legacy pob-engine / pob-data / pob-extract this job ran.
+    env:
+      POB_ALLOW_SKIP: 1
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Cache Cargo registry + target
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
 
-      # Headless calc-engine crates (no native UI deps). The UI crate is
-      # gated separately in the `ui` job below, which installs the extra
-      # Linux system libs that `winit` / `wgpu` / `eframe` / `rfd` need.
-      - name: cargo build (engine)
-        run: cargo build -p pob-engine -p pob-data -p pob-extract --all-targets
+      - name: No Lua at runtime (calc doc D4, INT-4 gate)
+        # mlua must not be in the normal dependency tree of the calc or of a shipping product.
+        run: |
+          for p in pob-calc pob-app pob-desktop pob-web; do
+            n=$(cargo tree -p "$p" -e normal | grep -c mlua || true)
+            echo "$p: $n"
+            test "$n" = 0
+          done
 
-      - name: cargo test (engine)
-        # Some integration tests require generated data (under `data/`, which
-        # is gitignored) and self-skip when it's missing. Data-independent
-        # tests (mod_parser, mod_db, parser coverage, validation) still run.
-        run: cargo test -p pob-engine -p pob-data -p pob-extract
+      - name: cargo check (runtime crates, wasm32)
+        run: >-
+          cargo check --target wasm32-unknown-unknown
+          -p pob-lua -p pob-gamedata -p pob-modparser
+          -p pob-calc-core -p pob-calc-setup -p pob-calc-config -p pob-calc-defence
+          -p pob-calc-offence -p pob-calc-perform -p pob-calc
+
+      - name: cargo test (pob-lua, pob-gamedata, pob-modparser)
+        run: cargo test -p pob-lua -p pob-gamedata -p pob-modparser
 
   fmt:
     name: cargo fmt --check
@@ -59,32 +73,6 @@ jobs:
 
       - name: cargo fmt --check
         run: cargo fmt --all --check
-
-  clippy:
-    name: cargo clippy
-    runs-on: ubuntu-latest
-    # Issue #49: promoted from advisory to required. The workspace
-    # is now `cargo clippy ... -- -D warnings` clean across the
-    # engine crates, so this gates every PR against new lint
-    # introductions instead of letting warnings drift.
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain (with clippy)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache Cargo registry + target
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-
-      - name: cargo clippy (engine)
-        # Same deal as the test job: limit to the headless calc-engine crates
-        # so we don't need the Linux UI system packages.
-        # Issue #49: `-D warnings` makes clippy fail on lint introductions.
-        run: cargo clippy -p pob-engine -p pob-data -p pob-extract --all-targets -- -D warnings
 
   ui:
     name: cargo test + clippy (UI port)
@@ -131,45 +119,6 @@ jobs:
       - name: cargo test (pob-sg, pob-ui-core)
         run: cargo test -p pob-sg -p pob-ui-core
 
-  # Optional: run pob_diff against an upstream PoB checkout. Manual trigger
-  # only — the upstream PoB repo is not redistributable as a CI artifact, so
-  # this job is meant for maintainers who clone PoB locally and want to
-  # publish a regression run on demand.
-  pob-diff:
-    name: pob_diff regression (manual)
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Checkout upstream PoB into .PathOfBuilding
-        uses: actions/checkout@v4
-        with:
-          repository: PathOfBuildingCommunity/PathOfBuilding
-          path: .PathOfBuilding
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo registry + target
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-
-      - name: pob_diff (witch L90 Arc)
-        run: |
-          cargo run --release -p pob-extract --bin pob_diff -- \
-            --build crates/pob-extract/test-builds/witch_l90_arc_with_items.xml
-
-      - name: pob_diff (marauder L90 bleeding cleave)
-        run: |
-          cargo run --release -p pob-extract --bin pob_diff -- \
-            --build crates/pob-extract/test-builds/marauder_l90_bleeding_cleave.xml
-
-      # Issue #197: corrupted cluster jewel build — exercises the full
-      # XML→synth pipeline against PoB's authoritative output, covering
-      # both `+1 socket` and `+50% increased Effect` corruption rolls.
-      - name: pob_diff (marauder L90 corrupted cluster jewel)
-        run: |
-          cargo run --release -p pob-extract --bin pob_diff -- \
-            --build crates/pob-extract/test-builds/marauder_l90_corrupted_cluster.xml
+  # The legacy `pob_diff` job (pob-extract, against the hand-written pob-engine) is gone with
+  # those crates (INT-4). Parity against PoB is the pob-oracle suite (docs/port/testing.md),
+  # which needs the PoB checkout, the data dump and the corpus, so it runs locally.
