@@ -584,3 +584,17 @@ Found while running FUP2's acceptance tests (port/FUP2 on rust-port 4c24bc2, 202
    which also hides a Rust nil where PoB writes `false`. `u53_e2e` compares these fields
    verbatim, so the full app is covered; tightening the unit harnesses (compare nil verbatim now
    that the model writes it) needs a re-run of all 16. Owner: U53 follow-up.
+
+## BRAND
+
+1. **Update checker (deferred by user).** User decision 2026-11-12: no update checking for now.
+   `launch:CheckForUpdate` / `ApplyUpdate` / the first-run `UpdateCheck` stay stubbed
+   (`crates/pob-app/src/launch.rs`, DIVERGENCE(update-stub), no network), and the main-mode
+   "Check for Update" button is never shown (`crates/pob-app/src/main_mode/init.rs`,
+   DIVERGENCE(update-deferred); UI oracle patch 9 hides it on the Lua side). The port's version
+   is the repo-root `VERSION` file (`YYYY.MM.DD.N`, `scripts/port/bump_version.sh`,
+   `pob_app::launch::PORT_VERSION`), display only: nothing parses or compares it. Closing this
+   needs a user decision on the release feed (where port releases are published, how
+   `YYYY.MM.DD.N` is compared), then a port of the update flow against it and the removal of
+   the `checkUpdate.shown` divergence and of oracle patch 9's checkUpdate entry. Owner: unassigned
+   (user decision pending).

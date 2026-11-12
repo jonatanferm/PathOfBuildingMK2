@@ -6,4 +6,4 @@ move 400 120
 frames 2
 #! expect-text allflame_exp_048
 #! expect-text upstream_Generals_Perforate_Zerker
-#! expect-text Version: 2.67.2
+#! expect-text Version: 20

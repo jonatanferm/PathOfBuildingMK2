@@ -22,6 +22,16 @@
 //!    runtime in markers.rs.
 //! 8. `Net`/`LaunchSubScript`: runtime, scripted fixtures in sg_bridge (`LaunchSubScript`,
 //!    `deliver_subscripts` at the start of the next frame).
+//!
+//! And one beyond §11.2, the narrow mask for the port's user-decided branding (2026-11-12):
+//!
+//! 9. Branding and the deferred update checker: text, Modules/Main.lua (below), keyed one-to-one
+//!    to the Rust sites marked DIVERGENCE(branding) / DIVERGENCE(update-deferred) in
+//!    pob-app's main_mode/init.rs and main_mode/about_popup.rs. The Lua draws exactly the two
+//!    port strings (`forkLabel`, the About `version` label) and the port version
+//!    (`__portVersion`, set by boot.rs from `pob_app::launch::PORT_VERSION`) in `versionLabel`,
+//!    and never shows `checkUpdate`. Nothing else is masked: every other draw, including these
+//!    controls' positions, colours and the Rust side's actual text, is still compared.
 
 /// One source substitution.
 #[derive(Clone, Copy, Debug)]
@@ -77,6 +87,30 @@ pub const PATCHES: &[Patch] = &[
         find: "\t\tpopup.GetMouseOverControl = function(self)\n\t\t\tfor _, control in pairs(self.controls) do\n",
         replace: "\t\tpopup.GetMouseOverControl = function(self)\n\t\t\tfor _, control in __canonPairs(self.controls) do -- pob-ui-oracle patch 6\n",
         reason: "patch 6 (D7): the scrolling popup's GetMouseOverControl override (Main.lua:1308) hit-tests in canonical order.",
+    },
+    Patch {
+        file: "Modules/Main.lua",
+        find: "\tself.controls.checkUpdate.shown = function()\n\t\treturn not launch.devMode and (not launch.updateAvailable or launch.updateAvailable == \"none\")\n",
+        replace: "\tself.controls.checkUpdate.shown = function()\n\t\treturn false -- pob-ui-oracle patch 9\n",
+        reason: "patch 9 (DIVERGENCE(update-deferred), user decision 2026-11-12): the port hides the Check for Update button (the update checker is deferred), so the Lua hides it too.",
+    },
+    Patch {
+        file: "Modules/Main.lua",
+        find: "\t\treturn \"^8PoB Community Fork\"\n",
+        replace: "\t\treturn \"^8PoB Rust Port\" -- pob-ui-oracle patch 9\n",
+        reason: "patch 9 (DIVERGENCE(branding), user decision 2026-11-12): forkLabel reads 'PoB Rust Port' on the port.",
+    },
+    Patch {
+        file: "Modules/Main.lua",
+        find: "\t\treturn \"^8\" .. (launch.versionBranch == \"beta\" and \"Beta: \" or \"Version: \") .. launch.versionNumber .. (launch.versionBranch == \"dev\" and \" (Dev)\" or \"\")\n",
+        replace: "\t\treturn \"^8\" .. (launch.versionBranch == \"beta\" and \"Beta: \" or \"Version: \") .. __portVersion .. (launch.versionBranch == \"dev\" and \" (Dev)\" or \"\") -- pob-ui-oracle patch 9\n",
+        reason: "patch 9 (DIVERGENCE(branding), user decision 2026-11-12): versionLabel shows the port's YYYY.MM.DD.N version (launch.versionNumber is unchanged).",
+    },
+    Patch {
+        file: "Modules/Main.lua",
+        find: "LabelControl(nil, {0, 18, 0, 18}, \"^7Path of Building Community Fork v\"..launch.versionNumber)\n",
+        replace: "LabelControl(nil, {0, 18, 0, 18}, \"^7Path of Building Rust Port v\"..__portVersion) -- pob-ui-oracle patch 9\n",
+        reason: "patch 9 (DIVERGENCE(branding), user decision 2026-11-12): the About popup's version line names the Rust port and its version.",
     },
 ];
 
@@ -157,5 +191,36 @@ mod tests {
         let e = apply(p.file, &twice).unwrap_err();
         assert!(e.contains("found 2 times"), "{e}");
         assert_eq!(apply("Classes/Other.lua", "x").unwrap(), "x");
+    }
+
+    /// Patch 9 masks exactly the DIVERGENCE(branding) / DIVERGENCE(update-deferred) sites, and
+    /// draws the same strings as the Rust side (pob-app main_mode/init.rs, about_popup.rs).
+    #[test]
+    fn patch_9_matches_the_rust_branding() {
+        let p9: Vec<&Patch> = PATCHES.iter().filter(|p| p.reason.starts_with("patch 9")).collect();
+        assert_eq!(p9.len(), 4);
+        assert!(p9.iter().all(|p| p.file == "Modules/Main.lua"));
+        let fork = pob_app::main_mode::init::FORK_LABEL;
+        assert!(p9.iter().any(|p| p.replace.contains(&format!("return \"{fork}\""))));
+        let about = pob_app::main_mode::about_popup::about_version_text();
+        let prefix = about.strip_suffix(pob_app::launch::PORT_VERSION).unwrap();
+        assert!(p9
+            .iter()
+            .any(|p| p.replace.contains(&format!("\"{prefix}\"..__portVersion)"))));
+        assert!(p9
+            .iter()
+            .any(|p| p.replace.contains("or \"Version: \") .. __portVersion ..")));
+        assert!(p9.iter().any(|p| p.find.starts_with("\tself.controls.checkUpdate.shown")
+            && p.replace.contains("return false")));
+        // Nothing but these sites: every patch-9 anchor names one of the four controls' code.
+        for p in &p9 {
+            assert!(
+                p.find.contains("checkUpdate.shown")
+                    || p.find.contains("PoB Community Fork")
+                    || p.find.contains("launch.versionNumber .. (launch.versionBranch")
+                    || p.find.contains("Path of Building Community Fork v"),
+                "{p:?}"
+            );
+        }
     }
 }
