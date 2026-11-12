@@ -143,6 +143,16 @@ fn val_key(v: &Val) -> Key {
     }
 }
 
+/// `t[k]` read (FUP2, FOLLOWUPS "FUP1" item 6): a nil or NaN key reads nil (`lj_tab_get` finds
+/// nothing), where a store at it raises ([`val_key`]); the same rule as item.rs `tget`.
+fn read_at(t: &Table, k: &Val) -> Val {
+    match k {
+        Val::Nil => Val::Nil,
+        Val::Num(x) => Key::try_num(*x).map_or(Val::Nil, |k| t.get(k)),
+        other => t.get(val_key(other)),
+    }
+}
+
 fn value_key(v: &Value) -> Key {
     val_key(&Val::from_value(v))
 }
@@ -307,9 +317,9 @@ pub fn mergeSkillInstanceMods(
             // L58 (pairs over a list: 1..n in order)
             for (_, stat) in extraStats.pairs() {
                 // L59
-                let k = val_key(&stat.get(n!("key")));
-                let v = stats.get(k).num_or(0.0) + stat.get(n!("value")).num();
-                stats.set(k, v);
+                let k = stat.get(n!("key"));
+                let v = read_at(&stats, &k).num_or(0.0) + stat.get(n!("value")).num();
+                stats.set(val_key(&k), v);
             }
         }
     }
@@ -2501,4 +2511,27 @@ pub fn createMinionSkills(env: &EnvRef, activeSkill: &ActiveSkillRef) {
     minion
         .mainSkill
         .set(activeSkillList.with(|v| index_f64(v, skillIndex).cloned()));
+}
+
+#[cfg(test)]
+mod fup2_key_tests {
+    use super::*;
+
+    /// FOLLOWUPS "FUP1" item 6: CalcActiveSkill.lua:59
+    /// `stats[stat.key] = (stats[stat.key] or 0) + stat.value` reads nil at a NaN (or nil) key,
+    /// so a nil `stat.value` raises the arithmetic error first, as in Lua; with a number value
+    /// the store raises "table index is NaN".
+    #[test]
+    fn nan_and_nil_keys_read_nil() {
+        let stats = Table::new();
+        stats.set(n!("base_skill_effect_duration"), 1000.0);
+        assert!(read_at(&stats, &Val::Num(f64::NAN)).is_nil());
+        assert!(read_at(&stats, &Val::Nil).is_nil());
+        assert_eq!(read_at(&stats, &Val::from("base_skill_effect_duration")).num(), 1000.0);
+        let k = Val::Num(f64::NAN);
+        let e = pob_lua::error::catch(|| read_at(&stats, &k).num_or(0.0) + Val::Nil.num()).unwrap_err();
+        assert!(e.0.contains("arithmetic on a nil value"), "{}", e.0);
+        let e = pob_lua::error::catch(|| stats.set(val_key(&k), 1.0)).unwrap_err();
+        assert!(e.0.contains("table index is NaN"), "{}", e.0);
+    }
 }

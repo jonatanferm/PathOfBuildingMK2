@@ -36,7 +36,7 @@ use pob_calc::classes::passive_tree::{
 };
 use pob_calc::classes::{ModList, Node, NodeRef, PassiveTree};
 use pob_calc::lua_table::{Key, Val};
-use pob_gamedata::mod_tools::{formatMod, FUNCTION_TEXT};
+use pob_gamedata::mod_tools::{formatMod, FUNCTION_TEXT_PREFIX};
 use pob_gamedata::{data, n, ModRef, Name};
 use pob_lua::{lfmt, tostring_num};
 use pob_oracle::headless::{Engine, Ret};
@@ -301,9 +301,21 @@ fn key_text(k: Key) -> String {
 }
 
 /// The Lua side's `gsub("function: 0x%x+", "table")` (a jewel closure's address) on the Rust
-/// side's text for a closure (`FUNCTION_TEXT`).
+/// side's text for a closure (`mod_tools::function_text`: `function: 0x` and a per-closure hex
+/// identity, FUP2).
 fn fn_text(s: String) -> String {
-    s.replace(FUNCTION_TEXT, "table")
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s.as_str();
+    while let Some(i) = rest.find(FUNCTION_TEXT_PREFIX) {
+        let after = &rest[i + FUNCTION_TEXT_PREFIX.len()..];
+        let hex = after.find(|c: char| !c.is_ascii_hexdigit()).unwrap_or(after.len());
+        out.push_str(&rest[..i]);
+        // `%x+` needs at least one digit
+        out.push_str(if hex == 0 { FUNCTION_TEXT_PREFIX } else { "table" });
+        rest = &after[hex..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn ms(m: &ModRef) -> String {

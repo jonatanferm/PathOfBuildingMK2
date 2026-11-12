@@ -56,7 +56,7 @@ fn cl(modList: &ModList, name: &str, r#type: ModType, flags: u32) -> f64 {
     calcLocal(modList, Name::from(name), r#type, flags).num()
 }
 
-/// A Lua value as a table key (`t[v] = …`).
+/// A Lua value as a table key to store at (`t[v] = …`): a nil or NaN key raises.
 fn key_of(v: &Val) -> Key {
     match v {
         Val::Str(s) => Key::S(Name::from(&**s)),
@@ -67,6 +67,16 @@ fn key_of(v: &Val) -> Key {
             "a {} value as a table key is not supported by Table",
             other.lua_type()
         ),
+    }
+}
+
+/// `t[v]` read (FUP2, FOLLOWUPS "FUP1" item 6): a nil or NaN key reads nil (`lj_tab_get` finds
+/// nothing), where a store at it raises ([`key_of`]); the same rule as item.rs `tget`.
+fn read_at(t: &Table, v: &Val) -> Val {
+    match v {
+        Val::Nil => Val::Nil,
+        Val::Num(x) => Key::try_num(*x).map_or(Val::Nil, |k| t.get(k)),
+        other => t.get(key_of(other)),
     }
 }
 
@@ -364,8 +374,8 @@ impl Item {
                 // L2260
                 let group = socket.get(n!("group"));
                 // L2261
-                let k = key_of(&group);
-                groupCounts.set(k, Val::Num(groupCounts.get(k).num_or(0.0) + 1.0));
+                let count = read_at(&groupCounts, &group).num_or(0.0) + 1.0;
+                groupCounts.set(key_of(&group), Val::Num(count));
                 // L2262
                 if let Some(name) = multiName(&socket.get(n!("color"))) {
                     // L2263
@@ -1019,7 +1029,7 @@ impl Item {
                 if skill.truthy() {
                     let skills = clusterJewel.get(n!("skills"));
                     let known = match &skills {
-                        Val::Table(s) => s.get(key_of(&skill)).truthy(),
+                        Val::Table(s) => read_at(s, &skill).truthy(),
                         other => lua_error!("attempt to index field 'skills' (a {} value)", other.lua_type()),
                     };
                     if !known {
@@ -1526,5 +1536,27 @@ impl Item {
         }
         // L2735
         self.GetModSpawnWeight(r#mod, Some(&includeTags), None, None) > 0.0
+    }
+}
+
+#[cfg(test)]
+mod fup2_key_tests {
+    use super::*;
+
+    /// FOLLOWUPS "FUP1" item 6: `t[0/0]` and `t[nil]` read nil in Lua; a store at NaN raises.
+    /// L2261 (`groupCounts[socket.group] = (groupCounts[socket.group] or 0) + 1`) with a NaN
+    /// group: the read gives 0 + 1, the store raises "table index is NaN".
+    #[test]
+    fn nan_and_nil_keys_read_nil() {
+        let t = Table::new();
+        t.set(n!("Tribal Fury"), true);
+        assert!(read_at(&t, &Val::Num(f64::NAN)).is_nil());
+        assert!(read_at(&t, &Val::Nil).is_nil());
+        assert!(read_at(&t, &Val::from("Tribal Fury")).truthy());
+        let group = Val::Num(f64::NAN);
+        let count = read_at(&t, &group).num_or(0.0) + 1.0;
+        assert_eq!(count, 1.0);
+        let e = pob_lua::error::catch(|| t.set(key_of(&group), count)).unwrap_err();
+        assert!(e.0.contains("table index is NaN"), "{}", e.0);
     }
 }

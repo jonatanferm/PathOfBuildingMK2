@@ -116,14 +116,35 @@ fn data_or_level(skillData: &Table, activeSkill: &ActiveSkill, k: Name) -> f64 {
     0.0
 }
 
-/// `grantedEffectLevel.cost` is truthy. CCR-0093: the typed `SkillLevel.cost` cannot tell a
-/// missing `cost` from `cost = { }` (minion/spectre levels only); both read as absent here.
-fn has_cost(level: &pob_gamedata::SkillLevel) -> bool {
-    !level.cost.is_empty()
+/// Whether `activeSkill.activeEffect.grantedEffectLevel` is a level whose `cost` SkillsTab.lua:1190
+/// replaced with `{ }` in PoB's global data (CCR-0019 §8, CCR-0133 §2): `grantedEffectLevel` is
+/// `activeGrantedEffect.levels[activeEffect.level]` (CalcActiveSkill.lua:514/579), so it is that
+/// table when the effect's id and level are the cleared ones (as `calc_offence/costs_passes.rs`
+/// checks at CalcOffence.lua:1720).
+fn level_cost_cleared(activeSkill: &ActiveSkill) -> bool {
+    let activeEffect = activeSkill.activeEffect.get();
+    crate::model::skills_tab::levelCostCleared(
+        activeEffect.grantedEffect.get().id,
+        activeEffect.level.get(),
+    )
 }
 
-/// `grantedEffectLevel.cost[resource] or 0`.
-fn cost_of(level: &pob_gamedata::SkillLevel, resource: &str) -> f64 {
+/// `grantedEffectLevel.cost` is truthy. CCR-0093: the typed `SkillLevel.cost` cannot tell a
+/// missing `cost` from `cost = { }` (minion/spectre levels only); both read as absent here. A
+/// cleared level's `{ }` (FUP2, FOLLOWUPS "INT-1F-A" item 2) is a table, so it is truthy.
+fn has_cost(activeSkill: &ActiveSkill) -> bool {
+    let level = grantedEffectLevel(activeSkill);
+    // CCR-0019 §8 (CCR-0133 §2)
+    level_cost_cleared(activeSkill) || !level.cost.is_empty()
+}
+
+/// `grantedEffectLevel.cost[resource] or 0` (a cleared level's `{ }` has no entry: 0).
+fn cost_of(activeSkill: &ActiveSkill, resource: &str) -> f64 {
+    let level = grantedEffectLevel(activeSkill);
+    // CCR-0019 §8 (CCR-0133 §2)
+    if level_cost_cleared(activeSkill) {
+        return 0.0;
+    }
     level
         .cost
         .iter()
@@ -307,20 +328,20 @@ pub(crate) fn seg(ctx: &mut PerformCtx) -> Flow {
             // L1984
             pool[0].1.baseFlat = data_or_level(&skillData, &activeSkill, n!("manaReservationFlat"));
             // L1985
-            if skillModList.Flag(cfg, &[n!("ManaCostGainAsReservation")]) && has_cost(&grantedEffectLevel(&activeSkill)) {
+            if skillModList.Flag(cfg, &[n!("ManaCostGainAsReservation")]) && has_cost(&activeSkill) {
                 // L1986
                 pool[0].1.baseFlat = skillModList.Sum(ModType::BASE, cfg, &[n!("ManaCostBase")])
-                    + cost_of(&grantedEffectLevel(&activeSkill), "Mana");
+                    + cost_of(&activeSkill, "Mana");
             }
             // L1988
             pool[0].1.basePercent = data_or_level(&skillData, &activeSkill, n!("manaReservationPercent"));
             // L1989
             pool[1].1.baseFlat = data_or_level(&skillData, &activeSkill, n!("lifeReservationFlat"));
             // L1990
-            if skillModList.Flag(cfg, &[n!("LifeCostGainAsReservation")]) && has_cost(&grantedEffectLevel(&activeSkill)) {
+            if skillModList.Flag(cfg, &[n!("LifeCostGainAsReservation")]) && has_cost(&activeSkill) {
                 // L1991
                 pool[1].1.baseFlat = skillModList.Sum(ModType::BASE, cfg, &[n!("LifeCostBase")])
-                    + cost_of(&grantedEffectLevel(&activeSkill), "Life");
+                    + cost_of(&activeSkill, "Life");
             }
             // L1993
             pool[1].1.basePercent = data_or_level(&skillData, &activeSkill, n!("lifeReservationPercent"));

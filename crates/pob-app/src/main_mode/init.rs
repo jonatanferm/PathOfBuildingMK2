@@ -14,7 +14,6 @@
 //! DIVERGENCE(no-cli-args): the hosts pass no command line (`arg` is empty), so the `arg[1]`
 //! protocol-handler import (L71-84, `buildSites`, U43) never runs; `launch.arg` exists for a host
 //! that supplies one, and a non-empty `arg[1]` raises until U43 ports `buildSites`.
-//! DIVERGENCE(calc-item-errors): see `guard_item`.
 //! ORDER: `main.onFrameFuncs` (string keys, `pairs` at L490) runs in insertion order; neither
 //! function draws or reads the other's effects (FirstFrame prints, LoadItems fills the item DBs),
 //! so the order is not observable (§8 rule 6 (c)).
@@ -524,26 +523,6 @@ async fn pairs_yield_tick(start: &mut i64) {
     }
 }
 
-/// DIVERGENCE(calc-item-errors): one item of the DBs whose construction raises a Lua error in
-/// the calc port is skipped with a console line instead of aborting the item coroutine (PoB
-/// builds every item without error). Known case: a crafted rare of `data.rares` whose Craft
-/// raises "non-integral number keys are not supported by Table (929.1)" (docs/port/FOLLOWUPS.md,
-/// IT-B `rare#195`). Remove once the calc builds every DB item.
-fn guard_item(cx: &mut Cx, raw: &str, f: impl FnOnce(&mut Cx)) {
-    // wasm32 is panic=abort: nothing to catch there
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = raw;
-        f(cx);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    if let Err(e) = pob_lua::error::catch(|| f(cx)) {
-        let first = raw.lines().take(3).collect::<Vec<_>>().join(" / ");
-        let line = format!("Item DB: skipped an item the calc port cannot build ({first}): {}", e.0);
-        cx.sys.platform.con_print(&line);
-    }
-}
-
 /// One unique of `data.uniques` (L166-172).
 fn add_unique(cx: &mut Cx, ty: &str, raw: &str) {
     // L166
@@ -620,7 +599,7 @@ async fn load_item_dbs() {
         pairs_yield_tick(&mut start).await;
         // L165 for _, raw in pairs(typeList) do
         for raw in type_list {
-            co::with_cx(|cx| guard_item(cx, raw, |cx| add_unique(cx, ty.as_str(), raw)));
+            co::with_cx(|cx| add_unique(cx, ty.as_str(), raw));
         }
     }
     // the iterator's last call (next returns nil) also runs the yield test
@@ -637,7 +616,7 @@ async fn load_item_dbs() {
     let mut start = co::with_cx(|cx| cx.sys.time_ms());
     for raw in &data.rares {
         pairs_yield_tick(&mut start).await;
-        co::with_cx(|cx| guard_item(cx, raw, |cx| add_rare(cx, raw)));
+        co::with_cx(|cx| add_rare(cx, raw));
     }
     pairs_yield_tick(&mut start).await;
 
@@ -654,13 +633,13 @@ fn load_item_dbs_sync(cx: &mut Cx) {
     let data = cx.data();
     for (ty, type_list) in &data.uniques {
         for raw in type_list {
-            guard_item(cx, raw, |cx| add_unique(cx, ty.as_str(), raw));
+            add_unique(cx, ty.as_str(), raw);
         }
     }
     cx.app_mut().main.unique_db.loading = false;
     cx.sys.platform.con_print("Uniques loaded");
     for raw in &data.rares {
-        guard_item(cx, raw, |cx| add_rare(cx, raw));
+        add_rare(cx, raw);
     }
     cx.app_mut().main.rare_db.loading = false;
     cx.sys.platform.con_print("Rares loaded");
