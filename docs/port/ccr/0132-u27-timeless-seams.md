@@ -55,9 +55,20 @@ empty list, as `ModList:AddList(nil)` adds nothing (CalcSetup.lua:141, ModList.l
 
 Gap reported (no change requested of U27's range): U15's LuaCalcBridge rebuilds `addNodes` on the
 Lua side as `__bridge_node(b, id)` (`lua_calc.rs` `override_lua`), i.e. by tree node id, so it
-cannot carry a pseudo node. The "Generate" button is therefore not covered by the u27 oracle
-scenarios (they run on the bridge). Proposed for U15: let `override_lua` pass a node whose id is
-NaN as `{ id = .., modList = <the mods> }` (the bridge already serialises mods for `repItem`).
+cannot carry a pseudo node. The u27 oracle scenarios that press "Generate" (`g_generate`,
+`h_generate_gv` and their `_1920` copies, marked `#! u27-rust-misc-calc`) therefore give the Rust
+side a `HybridCalc`: the bridge for `build_output` (so everything the app draws is the bridge's),
+the Rust calc (`RustCalc`) for `misc_calculator`. The Generate button is covered that way, and
+those scenarios also compare the Rust calc's misc calculator against PoB's (the weights the list
+shows are rounded to 3 decimals of x100; each script expects one generated non-zero weight row,
+`#! u27-expect-text`). Proposed for U15: let `override_lua` pass a node whose id is NaN as
+`{ id = .., modList = <the mods> }` (the bridge already serialises mods for `repItem`), so the
+plain bridge can run them too.
+
+The pseudo node's key in the id maps is `NaN as i64` = 0 (in the `addNodes` set and in
+`calcs.initEnv`'s `nodes` map, `init_env_base.rs` L718, where the allocated nodes join it). Tree
+node ids are positive, so it cannot collide with an allocated node; `generateFallbackWeights`
+`debug_assert!`s that no allocated node has id 0.
 
 ## 5. Re-exports (U15 `model.rs`)
 

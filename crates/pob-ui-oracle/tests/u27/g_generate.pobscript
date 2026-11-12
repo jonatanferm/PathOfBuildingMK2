@@ -5,6 +5,7 @@
 #! u27-rust-misc-calc
 #! u27-expect-text ^4Fallback Nodes
 #! u27-expect-text ^7Click this button to generate new fallback node weights
+#! u27-expect-text karui_notable_add_double_damage, 4.364, 0, 0
 screen 1280 800
 fixture userdir=user
 fixture net=net.json

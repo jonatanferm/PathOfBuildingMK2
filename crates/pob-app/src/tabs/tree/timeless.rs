@@ -43,10 +43,16 @@
 //!   is either a mod list ([`ModListVal`]) or a list of `{ modList, divisor }` tables. The
 //!   addition branch's `elseif legionAddition.modListGenerated` sets no divisor, so a second
 //!   "Generate" in the same process scores those additions without the `/100` of the first.
+//!   Lua tests the cache for truthiness only; the port tests its shape (a list for the
+//!   multi-stat branch, a mod list for the single-stat one). The two differ only when one
+//!   legion entry is cached by one branch and read by the other (an addition shared by two
+//!   jewel types whose `usesVariableRolls` differ); the current data does not reach that (the
+//!   Lua would then `copyTable` a ModList object as a list, where the port rebuilds the lists).
 //! * The fallback-weight pseudo nodes (`{ id, modList, divisor }`) are passed to the misc
 //!   calculator as `addNodes`: the port builds a [`Node`] with that `modList` and a NaN id
 //!   (CalcSetup.lua:717 `nodes[node.id] = node` keys it under a string in Lua; the calc's
-//!   id-keyed map puts it under one fixed key, and every call adds exactly one node). A `nil`
+//!   id-keyed map puts it under one fixed key, `NaN as i64` = 0, and every call adds exactly one
+//!   node; the allocated nodes joining that map have positive ids, `debug_assert!`ed). A `nil`
 //!   `modList` (a line `parseMod` does not know) adds nothing (`ModList:AddList` skips nil,
 //!   ModList.lua:88-94): the node gets an empty list.
 //! * `self.tradeQueryRequests = new("TradeQueryRequests"):TradeQueryRequests()`: TradeQuery*
@@ -1513,6 +1519,15 @@ impl Up {
                     modList: model::Field::new(mod_list),
                     ..Node::default()
                 });
+                // Lua keys the pseudo node by its table (L1962) and CalcSetup.lua:718 by its
+                // string id, so it never meets a tree node; here `NaN as i64` is 0, both in this
+                // set and in the calc's id-keyed `nodes` map (init_env_base.rs, L718), where the
+                // allocated tree nodes join it. That is sound only while no allocated node has
+                // id 0 (tree node ids are positive; CCR-0132 §4).
+                debug_assert!(
+                    !m.spec.get().allocNodes.with(|a| a.contains_key(0)),
+                    "an allocated node with id 0 would share the fallback pseudo node's key"
+                );
                 let mut set = LjIntMap::new();
                 set.set(node.id as i64, Some(node));
                 let ov = Override {
@@ -2565,7 +2580,11 @@ fn component_roll(component: &Val, node: &Lp, statIndex: f64) -> (Val, Val, Opti
     // L67
     let mut roll = if statMod.truthy() {
         let idx = statMod.get("index").num();
-        component.get("rolls").get(idx).opt_num()
+        let rolls = component.get("rolls");
+        if !matches!(rolls, Val::Table(_) | Val::Data(_)) {
+            lua_error!("attempt to index field 'rolls' (a {} value)", rolls.lua_type());
+        }
+        rolls.get(idx).opt_num()
     } else {
         None
     };
@@ -2999,7 +3018,11 @@ impl Up {
             // L2229
             let maxFilters = if more { 180.0 } else { 10.0 };
             // L2230
-            let conq1 = shared.get("conqueror").get("id").opt_num() == Some(1.0);
+            let conqueror = shared.get("conqueror");
+            if !matches!(conqueror, Val::Table(_) | Val::Data(_)) {
+                lua_error!("attempt to index field 'conqueror' (a {} value)", conqueror.lua_type());
+            }
+            let conq1 = conqueror.get("id").opt_num() == Some(1.0);
             endRow = startRow + m_floor(maxFilters / if conq1 { 3.0 } else { 1.0 });
         }
 
@@ -3845,8 +3868,8 @@ fn build_controls(cx: &mut Cx, up: &Rc<Up>, socketViewer: Rc<Viewer>) {
                     for (_, searchRow) in u.search_list_tbl.borrow().clone().ipairs() {
                         let searchRow = searchRow.table().unwrap();
                         let first = match searchRow.get(1i64) {
+                            // `searchRow[1]:match`: a number has no string methods
                             Val::Str(s) => s.to_string(),
-                            Val::Num(x) => tostring_num(x),
                             other => lua_error!("attempt to index field '?' (a {} value)", other.lua_type()),
                         };
                         // L1711
@@ -4236,7 +4259,9 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
                 table_items(&fallbackWeightsList),
                 Some(Rc::new(move |_cx: &mut Cx, index: usize, _value: Option<&DropItem>| {
                     // L2131
-                    t2.get_or_new_table("fallbackWeightMode").set("idx", index as f64);
+                    t2.table("fallbackWeightMode")
+                        .unwrap_or_else(|| lua_error!("attempt to index field 'fallbackWeightMode' (a nil value)"))
+                        .set("idx", index as f64);
                 }) as SelFunc),
                 None,
                 false,
@@ -4246,7 +4271,10 @@ fn build_lists(cx: &mut Cx, up: &Rc<Up>, nodeSelect: CtrlId) {
     // L2133
     cx.add(p, "fallbackWeightsLabel", LabelControl::new(Anchor::new(Right, fwl, Left), r4(-labelSpacing, 0.0, 0.0, labelHeight), "^7Fallback Weight Mode:"));
     // L2134
-    let idx = td.get("fallbackWeightMode").get("idx");
+    let idx = td
+        .table("fallbackWeightMode")
+        .unwrap_or_else(|| lua_error!("attempt to index field 'fallbackWeightMode' (a nil value)"))
+        .get("idx");
     cx.w_mut::<DropDownControl>(fwl).sel_index = if idx.truthy() { sel_of(&idx) } else { 1 };
     // L2135-2138
     let u = up.clone();

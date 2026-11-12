@@ -3,6 +3,7 @@
 # modListGenerated), show the fallback list, Generate again (the cached lists), then the build XML.
 #! u27-rust-misc-calc
 #! u27-expect-text ^4Fallback Nodes
+#! u27-expect-text vaal_notable_physical_damage_1, 0.873, 0.083, 0
 screen 1280 800
 fixture userdir=user
 fixture net=net.json

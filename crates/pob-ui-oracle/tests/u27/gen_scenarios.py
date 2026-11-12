@@ -137,6 +137,7 @@ scen['g_generate'] = ("lp.xml", """# U27 fallback weights: Lethal Pride on 61834
 #! u27-rust-misc-calc
 #! u27-expect-text ^4Fallback Nodes
 #! u27-expect-text ^7Click this button to generate new fallback node weights
+#! u27-expect-text karui_notable_add_double_damage, 4.364, 0, 0
 """, """move 880 {y346}
 frames 1
 click LEFTBUTTON
@@ -163,6 +164,7 @@ scen['h_generate_gv'] = ("gv.xml", """# U27 fallback weights with variable rolls
 # modListGenerated), show the fallback list, Generate again (the cached lists), then the build XML.
 #! u27-rust-misc-calc
 #! u27-expect-text ^4Fallback Nodes
+#! u27-expect-text vaal_notable_physical_damage_1, 0.873, 0.083, 0
 """, """move 880 {y346}
 frames 1
 click LEFTBUTTON

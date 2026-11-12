@@ -9,7 +9,9 @@
 //!   Per run: zero T3 divergences per frame (the same draw ops per `(layer, sub)` bucket and the
 //!   same side effects, `OpenURL`/`Copy` of the trade URL included), the same window titles, and
 //!   T4 (the build XML of every `snapshot`: the `TimelessData` section the popup writes is
-//!   compared strictly, as every other section).
+//!   compared strictly, as every other section). Each run is a child process of this test
+//!   binary (`U27_CHILD_RUN`), one at a time, so the peak RSS is that of one run (memory rule:
+//!   in one process the runs' leftovers added up past the 5 GB cap of scripts/port/cargo.sh).
 //!
 //!   The scripts click by coordinates, so each comes in a 1280x800 and a 1920x1080 @1.5 copy
 //!   (`*_1920`, the popup 40 virtual px higher). The six searches: Lethal Pride (`a_lp`, with the
@@ -1006,12 +1008,18 @@ fn t4(lua: &Side, rust: &Side, notes: &mut T4Notes) -> Result<(usize, usize), Ve
     }
 }
 
-#[test]
-fn u27_scenarios() {
-    let _g = LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(root) = inputs() else { return };
+/// One run of [`u27_scenarios`]: its failures and counts.
+#[derive(Default)]
+struct RunOutcome {
+    failures: Vec<String>,
+    ops: usize,
+    t4_pairs: usize,
+    t4_bytes: usize,
+}
+
+/// The scripts of `tests/u27`, sorted, with `U27_FILTER` (`a|b`: stems containing a or b)
+/// applied: `(stem, path, screens)` (a script that sets its own `screen` runs once at 1280x800).
+fn scenario_runs() -> Vec<(String, PathBuf, Vec<(i32, i32, f32)>)> {
     let mut scripts: Vec<PathBuf> = std::fs::read_dir(test_dir())
         .expect("tests/u27")
         .filter_map(Result::ok)
@@ -1021,121 +1029,245 @@ fn u27_scenarios() {
     scripts.sort();
     assert!(!scripts.is_empty(), "no tests/u27/*.pobscript");
     let filter = std::env::var("U27_FILTER").ok();
-    let mut failures = Vec::new();
-    let mut ran = 0;
-    let (mut t4_pairs, mut t4_bytes) = (0, 0);
-    let mut total_ops = 0;
+    let mut out = Vec::new();
     for path in scripts {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         if filter.as_ref().is_some_and(|f| !f.split('|').any(|p| stem.contains(p))) {
             continue;
         }
-        let (script, base_dir) = runner::load_script(&path).unwrap();
-        let fx = runner::fixtures(&script, &base_dir).unwrap();
-        let text = std::fs::read_to_string(&path).unwrap();
-        RUST_MISC_CALC.with(|c| c.set(text.lines().any(|l| l.trim() == "#! u27-rust-misc-calc")));
+        let (script, _) = runner::load_script(&path).unwrap();
         let own_screen = script
             .steps
             .iter()
             .find(|s| !matches!(s, pob_host::script::Step::Fixture { .. }))
             .is_some_and(|s| matches!(s, pob_host::script::Step::Screen { .. }));
-        let screens: Vec<(i32, i32, f32)> = if own_screen {
+        let screens = if own_screen {
             vec![(1280, 800, 1.0)]
         } else {
             SCREENS.to_vec()
         };
-        for (w, h, s) in screens {
-            let tag = if own_screen {
-                format!("u27_{stem}")
-            } else {
-                format!("u27_{stem}@{w}x{h}@{s}")
-            };
-            let (lua, rust) = match run_sides(&root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s), &fx.net) {
-                Ok(s) => s,
-                Err(e) => {
-                    failures.push(format!("{tag}: {e:#}"));
-                    continue;
+        out.push((stem, path, screens));
+    }
+    out
+}
+
+fn run_tag(stem: &str, own_screen: bool, (w, h, s): (i32, i32, f32)) -> String {
+    if own_screen {
+        format!("u27_{stem}")
+    } else {
+        format!("u27_{stem}@{w}x{h}@{s}")
+    }
+}
+
+/// The peak RSS of this process (`VmHWM`, kB), for the memory note of a child run.
+fn peak_rss_kb() -> Option<u64> {
+    let s = std::fs::read_to_string("/proc/self/status").ok()?;
+    let l = s.lines().find(|l| l.starts_with("VmHWM:"))?;
+    l.split_whitespace().nth(1)?.parse().ok()
+}
+
+/// One run (both sides, the diff, T4, the expectations), printing its summary line.
+fn run_one(root: &Path, path: &Path, own_screen: bool, (w, h, s): (i32, i32, f32)) -> RunOutcome {
+    let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
+    let mut out = RunOutcome::default();
+    let (script, base_dir) = runner::load_script(path).unwrap();
+    let fx = runner::fixtures(&script, &base_dir).unwrap();
+    let text = std::fs::read_to_string(path).unwrap();
+    RUST_MISC_CALC.with(|c| c.set(text.lines().any(|l| l.trim() == "#! u27-rust-misc-calc")));
+    let tag = run_tag(&stem, own_screen, (w, h, s));
+    let (lua, rust) = match run_sides(root, &script, fx.user_dir.as_deref(), runner::screen(w, h, s), &fx.net) {
+        Ok(s) => s,
+        Err(e) => {
+            out.failures.push(format!("{tag}: {e:#}"));
+            return out;
+        }
+    };
+    let titles = (window_titles(&lua.frames), window_titles(&rust.frames));
+    let mut notes = T4Notes::default();
+    let t4r = t4(&lua, &rust, &mut notes);
+    let divs = diff_run(&lua.frames, &rust.frames);
+    let n: usize = divs.iter().map(|(_, d)| d.len().max(1)).sum();
+    let run = RunResult {
+        lua: lua.frames,
+        rust: rust.frames,
+        rust_error: rust.error.clone(),
+        lua_snapshots: lua.snapshots.clone(),
+        rust_snapshots: rust.snapshots.clone(),
+        audit: Vec::new(),
+        compared: true,
+    };
+    // the jsonl traces for inspection (its report.txt counts ordered divergences)
+    let _ = diff_report::write_report(&out_dir(), &tag, &run, false);
+    let first = divs.first().map(|(fi, d)| {
+        format!(
+            "frame {fi}: {}",
+            d.first().map_or_else(|| "frame missing".to_owned(), describe)
+        )
+    });
+    let ops = draw_ops(&run.lua);
+    out.ops = ops;
+    let expect_errs = check_expectations(&text, &run.lua);
+    if !expect_errs.is_empty() {
+        out.failures.push(format!("{tag}: expectations: {}", expect_errs.join("; ")));
+    }
+    let t4_line = match &t4r {
+        Ok((p, b)) => {
+            out.t4_pairs = *p;
+            out.t4_bytes = *b;
+            format!(
+                "T4 {p} identical ({b} byte-identical; set aside: {} Lua nil gem/group fields, {} pairs-chosen gem variants, pending UI-saver sections differing {:?})",
+                notes.gem_nil_bools, notes.ambiguous_variants, notes.pending_sections
+            )
+        }
+        Err(e) => format!("T4 FAILED: {}", e.join("; ")),
+    };
+    println!(
+        "{tag}: {} frames, {ops} Lua draw ops, {n} divergences, {} Lua tree image loads, {t4_line}, titles {:?}{}{}{}",
+        run.lua.len(),
+        lua.images.len(),
+        distinct_titles(&titles.0),
+        lua.error
+            .as_ref()
+            .map_or_else(String::new, |e| format!(", Lua error: {e}")),
+        rust.error
+            .as_ref()
+            .map_or_else(String::new, |e| format!(", Rust error: {e}")),
+        first.as_ref().map_or_else(String::new, |f| format!(", first: {f}")),
+    );
+    if n != 0
+        || rust.error.is_some()
+        || lua.error.is_some()
+        || run.lua.len() != run.rust.len()
+        || ops == 0
+        || titles.0 != titles.1
+        || t4r.is_err()
+    {
+        out.failures.push(format!(
+            "{tag}: {n} divergences ({}), frames lua {} rust {}, {ops} ops, {t4_line}, titles lua {:?} rust {:?}, errors lua {:?} rust {:?}",
+            first.unwrap_or_default(),
+            run.lua.len(),
+            run.rust.len(),
+            distinct_titles(&titles.0),
+            distinct_titles(&titles.1),
+            lua.error,
+            rust.error,
+        ));
+    }
+    out
+}
+
+/// The child process's env var: `<stem>@<w>x<h>@<s>` (one run, see [`u27_scenarios`]).
+const CHILD_ENV: &str = "U27_CHILD_RUN";
+const CHILD_RESULT: &str = "U27-CHILD-RESULT ";
+const CHILD_FAIL: &str = "U27-CHILD-FAIL ";
+
+/// The child side of [`u27_scenarios`]: the one run `spec` names; its outcome on stdout.
+fn child_run(spec: &str) {
+    let Some(root) = inputs() else { return };
+    let (stem, scr) = spec.split_once('@').expect("U27_CHILD_RUN stem@WxH@S");
+    let (wh, s) = scr.split_once('@').unwrap();
+    let (w, h) = wh.split_once('x').unwrap();
+    let screen: (i32, i32, f32) = (w.parse().unwrap(), h.parse().unwrap(), s.parse().unwrap());
+    let path = test_dir().join(format!("{stem}.pobscript"));
+    let own_screen = scenario_runs()
+        .iter()
+        .find(|(s, _, _)| s == stem)
+        .is_some_and(|(_, _, scr)| scr.len() == 1);
+    let o = run_one(&root, &path, own_screen, screen);
+    for f in &o.failures {
+        // one line per failure (the parent splits on lines)
+        println!("{CHILD_FAIL}{}", f.replace('\n', " | "));
+    }
+    println!(
+        "{CHILD_RESULT}{} {} {} {}",
+        o.ops,
+        o.t4_pairs,
+        o.t4_bytes,
+        peak_rss_kb().unwrap_or(0)
+    );
+}
+
+/// Every `tests/u27` run, each in a child process of this test binary (`U27_CHILD_RUN`), one at a
+/// time: a run holds two PoB instances (the LuaJIT PoB and the Rust app with its calc bridge)
+/// whose memory is not all given back when they drop (process-wide data and LUT caches, the
+/// allocators keep their arenas), so 16 runs in one process passed the 5 GB cap of
+/// scripts/port/cargo.sh. A child's exit returns everything: the peak is that of one run
+/// (printed per run as `peak RSS`).
+#[test]
+fn u27_scenarios() {
+    if let Ok(spec) = std::env::var(CHILD_ENV) {
+        child_run(&spec);
+        return;
+    }
+    let _g = LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // the inputs are checked here, loaded only in the children
+    if pob_testpaths::require(pob_testpaths::pob_root(), "PoB checkout (.PathOfBuilding)").is_none()
+        || pob_testpaths::require(pob_testpaths::dump_dir(), "data/dump").is_none()
+    {
+        return;
+    }
+    let filter = std::env::var("U27_FILTER").ok();
+    let exe = std::env::current_exe().expect("test binary");
+    let mut failures = Vec::new();
+    let mut ran = 0;
+    let (mut t4_pairs, mut t4_bytes) = (0, 0);
+    let mut total_ops = 0;
+    let mut max_rss = 0u64;
+    let t0 = std::time::Instant::now();
+    for (stem, _, screens) in scenario_runs() {
+        for &(w, h, s) in &screens {
+            let tag = run_tag(&stem, screens.len() == 1, (w, h, s));
+            let child = std::process::Command::new(&exe)
+                .args(["u27_scenarios", "--exact", "--nocapture", "--test-threads=1"])
+                .env(CHILD_ENV, format!("{stem}@{w}x{h}@{s}"))
+                .stdin(std::process::Stdio::null())
+                .output()
+                .expect("spawn the u27 child run");
+            let stdout = String::from_utf8_lossy(&child.stdout);
+            let mut result = None;
+            for line in stdout.lines() {
+                // libtest's `test u27_scenarios ... ` has no newline before the test's output
+                let line = line.strip_prefix("test u27_scenarios ... ").unwrap_or(line);
+                if let Some(f) = line.strip_prefix(CHILD_FAIL) {
+                    failures.push(f.to_owned());
+                } else if let Some(r) = line.strip_prefix(CHILD_RESULT) {
+                    let v: Vec<u64> = r.split_whitespace().map(|x| x.parse().unwrap()).collect();
+                    result = Some(v);
+                } else if line.starts_with("u27_") {
+                    println!("{line}");
                 }
-            };
-            ran += 1;
-            let titles = (window_titles(&lua.frames), window_titles(&rust.frames));
-            let mut notes = T4Notes::default();
-            let t4r = t4(&lua, &rust, &mut notes);
-            let divs = diff_run(&lua.frames, &rust.frames);
-            let n: usize = divs.iter().map(|(_, d)| d.len().max(1)).sum();
-            let run = RunResult {
-                lua: lua.frames,
-                rust: rust.frames,
-                rust_error: rust.error.clone(),
-                lua_snapshots: lua.snapshots.clone(),
-                rust_snapshots: rust.snapshots.clone(),
-                audit: Vec::new(),
-                compared: true,
-            };
-            // the jsonl traces for inspection (its report.txt counts ordered divergences)
-            let _ = diff_report::write_report(&out_dir(), &tag, &run, false);
-            let first = divs.first().map(|(fi, d)| {
-                format!(
-                    "frame {fi}: {}",
-                    d.first().map_or_else(|| "frame missing".to_owned(), describe)
-                )
-            });
-            let ops = draw_ops(&run.lua);
-            total_ops += ops;
-            let expect_errs = check_expectations(&std::fs::read_to_string(&path).unwrap(), &run.lua);
-            if !expect_errs.is_empty() {
-                failures.push(format!("{tag}: expectations: {}", expect_errs.join("; ")));
             }
-            let t4_line = match &t4r {
-                Ok((p, b)) => {
-                    t4_pairs += p;
-                    t4_bytes += b;
-                    format!(
-                        "T4 {p} identical ({b} byte-identical; set aside: {} Lua nil gem/group fields, {} pairs-chosen gem variants, pending UI-saver sections differing {:?})",
-                        notes.gem_nil_bools, notes.ambiguous_variants, notes.pending_sections
-                    )
+            match result {
+                Some(v) if child.status.success() => {
+                    ran += 1;
+                    total_ops += v[0] as usize;
+                    t4_pairs += v[1] as usize;
+                    t4_bytes += v[2] as usize;
+                    max_rss = max_rss.max(v[3]);
+                    println!("{tag}: peak RSS {:.2} GB", v[3] as f64 / 1_048_576.0);
                 }
-                Err(e) => format!("T4 FAILED: {}", e.join("; ")),
-            };
-            println!(
-                "{tag}: {} frames, {ops} Lua draw ops, {n} divergences, {} Lua tree image loads, {t4_line}, titles {:?}{}{}{}",
-                run.lua.len(),
-                lua.images.len(),
-                distinct_titles(&titles.0),
-                lua.error
-                    .as_ref()
-                    .map_or_else(String::new, |e| format!(", Lua error: {e}")),
-                rust.error
-                    .as_ref()
-                    .map_or_else(String::new, |e| format!(", Rust error: {e}")),
-                first.as_ref().map_or_else(String::new, |f| format!(", first: {f}")),
-            );
-            if n != 0
-                || rust.error.is_some()
-                || lua.error.is_some()
-                || run.lua.len() != run.rust.len()
-                || ops == 0
-                || titles.0 != titles.1
-                || t4r.is_err()
-            {
-                failures.push(format!(
-                    "{tag}: {n} divergences ({}), frames lua {} rust {}, {ops} ops, {t4_line}, titles lua {:?} rust {:?}, errors lua {:?} rust {:?}",
-                    first.unwrap_or_default(),
-                    run.lua.len(),
-                    run.rust.len(),
-                    distinct_titles(&titles.0),
-                    distinct_titles(&titles.1),
-                    lua.error,
-                    rust.error,
-                ));
+                _ => {
+                    let err = String::from_utf8_lossy(&child.stderr);
+                    let tail: Vec<&str> = err.lines().rev().take(15).collect();
+                    failures.push(format!(
+                        "{tag}: child run failed ({}): {}",
+                        child.status,
+                        tail.into_iter().rev().collect::<Vec<_>>().join(" | ")
+                    ));
+                }
             }
         }
     }
-    println!("u27: {ran} runs, {total_ops} Lua draw ops, T4 {t4_pairs} pairs ({t4_bytes} byte-identical)");
+    println!(
+        "u27: {ran} runs, {total_ops} Lua draw ops, T4 {t4_pairs} pairs ({t4_bytes} byte-identical), max child peak RSS {:.2} GB, {:.1} s",
+        max_rss as f64 / 1_048_576.0,
+        t0.elapsed().as_secs_f64()
+    );
     assert!(ran > 0 || filter.is_some(), "no run");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
-
 
 /// Scenario authoring aid (not an acceptance test): `U27_PROBE=<steps; separated>` runs the steps
 /// (`fixture` lines included) on the Rust side at `U27_SCREEN=WxH@S` (default 1280x800@1) and
