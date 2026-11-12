@@ -64,7 +64,10 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use indexmap::IndexMap;
+/// The asset and sprite maps: an `IndexMap` (insertion order, which the ORDER notes above rely
+/// on) with ahash: the tree draw looks names up in them per node per frame, and std's SipHash
+/// was a tenth of the draw (U53 perf pass).
+pub type IndexMap<K, V> = indexmap::IndexMap<K, V, ahash::RandomState>;
 use pob_lua::{n, Name};
 use pob_sg::{ImageFlags, ImageHandle};
 use pob_ui_core::prelude::*;
@@ -175,6 +178,24 @@ pub struct TreeAssets {
     pub bloodline_sprite_prefixes: IndexMap<String, String>,
     /// `self.connectors` (PassiveTree.lua:627-645)
     pub connectors: Vec<Rc<Connector>>,
+    /// The polygons of each cluster subgraph's `subGraph.connectors` (PassiveSpec.lua:2021-2025),
+    /// keyed by that pair list's identity and length: PoB builds them once in `BuildSubgraph`;
+    /// the port builds them on the first draw that meets the subgraph
+    /// ([`TreeAssets::subgraph_connectors`]; rebuilding them every frame was most of the tree
+    /// draw of cluster-jewel builds, U53 perf pass).
+    pub subgraph_cache: RefCell<std::collections::HashMap<usize, SubgraphConnectors>>,
+    /// `self.spriteMap[icon]` memoised per icon string object (its `Rc` address; the string is
+    /// kept, so the address is not reused): the per-node lookups of every frame hash a pointer
+    /// instead of the icon path (U53 perf pass).
+    pub icon_cache: RefCell<std::collections::HashMap<usize, (model::LStr, Option<Rc<SpriteSet>>)>>,
+}
+
+/// One entry of [`TreeAssets::subgraph_cache`]: the pair list (kept alive, so its address is not
+/// reused), its length when built, and the polygons.
+pub struct SubgraphConnectors {
+    pairs: model::Table,
+    len: usize,
+    connectors: Rc<Vec<Rc<Connector>>>,
 }
 
 thread_local! {
@@ -216,7 +237,7 @@ fn require_assets_3_19(cx: &Cx) -> Rc<IndexMap<String, Rc<Asset>>> {
     }
     let root = read_lua_data(cx, "TreeData/3_19/Assets.lua");
     let assets = root.field("assets");
-    let mut out = IndexMap::new();
+    let mut out = IndexMap::default();
     if let Some(t) = dtable(assets) {
         for (k, v) in &t.fields {
             if let Some(vt) = dtable(v) {
@@ -376,8 +397,8 @@ impl TreeAssets {
         };
         me.build_assets(cx, tree, &raw);
         me.load_assets(cx, &dirs);
-        let mut sprite_sheets: IndexMap<String, Rc<Asset>> = IndexMap::new();
-        let mut sprite_map: IndexMap<String, SpriteSet> = IndexMap::new();
+        let mut sprite_sheets: IndexMap<String, Rc<Asset>> = IndexMap::default();
+        let mut sprite_map: IndexMap<String, SpriteSet> = IndexMap::default();
         me.build_sprite_map(cx, &raw, &dirs, &mut sprite_sheets, &mut sprite_map);
         me.build_bloodlines(tree, &sprite_map);
         me.build_legion(cx, &mut sprite_sheets, &mut sprite_map);
@@ -759,6 +780,36 @@ impl TreeAssets {
     }
 
     /// `tree.assets[name]`
+    /// `subGraph.connectors` as polygons ([`super::connectors::build_subgraph_connectors`],
+    /// memoised per pair list; see [`TreeAssets::subgraph_cache`]).
+    pub fn subgraph_connectors(&self, sub_graph: &model::Table) -> Rc<Vec<Rc<Connector>>> {
+        let Some(pairs) = sub_graph.table(n!("connectors")) else {
+            return Rc::default();
+        };
+        let key = pairs.as_ptr() as usize;
+        let len = pairs.len();
+        if let Some(e) = self.subgraph_cache.borrow().get(&key) {
+            if e.len == len && e.pairs.ptr_eq(&pairs) {
+                return e.connectors.clone();
+            }
+        }
+        let connectors = Rc::new(super::connectors::build_subgraph_connectors(self, sub_graph));
+        let mut cache = self.subgraph_cache.borrow_mut();
+        // subgraphs come and go with the jewels: forget the old ones now and then
+        if cache.len() >= 256 {
+            cache.clear();
+        }
+        cache.insert(
+            key,
+            SubgraphConnectors {
+                pairs,
+                len,
+                connectors: connectors.clone(),
+            },
+        );
+        connectors
+    }
+
     pub fn asset(&self, name: &str) -> Option<&Rc<Asset>> {
         self.assets.get(name)
     }
@@ -773,6 +824,22 @@ impl TreeAssets {
         self.sprite_map.get(name?).cloned()
     }
 
+    /// [`TreeAssets::sprites`] of a node's icon string, memoised ([`TreeAssets::icon_cache`]).
+    fn icon_sprites(&self, icon: Option<&model::LStr>) -> Option<Rc<SpriteSet>> {
+        let icon = icon?;
+        let key = Rc::as_ptr(icon).cast::<u8>() as usize;
+        if let Some((s, v)) = self.icon_cache.borrow().get(&key) {
+            if Rc::ptr_eq(s, icon) {
+                return v.clone();
+            }
+        }
+        let v = self.sprites(Some(icon));
+        self.icon_cache
+            .borrow_mut()
+            .insert(key, (icon.clone(), v.clone()));
+        v
+    }
+
     /// `node.sprites` (DIVERGENCE(sprites-lazy) in the module notes): what the last of the
     /// assigning sites gave the node.
     /// lua: PassiveTree.lua:748-753 (legion nodes), 771-777 (tattoo nodes), 876-885
@@ -783,7 +850,7 @@ impl TreeAssets {
         // a node replaced by a tattoo override (PassiveSpec.lua:286 `override.sprites =
         // self.tree.spriteMap[override.icon]`, copied by ReplaceNode :1709): no fallback
         if node.isTattoo.get() {
-            return self.sprites(icon.as_deref());
+            return self.icon_sprites(icon.as_ref());
         }
         // L877 if node.type == "Mastery" and node.masteryEffects then (masterySprites only)
         let mastery_with_effects =
@@ -792,7 +859,7 @@ impl TreeAssets {
         let sprites = if mastery_with_effects {
             None
         } else {
-            self.sprites(icon.as_deref())
+            self.icon_sprites(icon.as_ref())
         };
         // L882-884 if not node.sprites then node.sprites = spriteMap[MasteryBlank]
         sprites.or_else(|| self.sprites(Some("Art/2DArt/SkillIcons/passives/MasteryBlank.png")))

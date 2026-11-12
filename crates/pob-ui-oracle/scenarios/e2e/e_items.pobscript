@@ -28,3 +28,6 @@ frames 2
 move 900 300
 frames 2
 snapshot items
+#! expect-text ^7Helmet:
+#! expect-src Classes/ItemSlotControl.lua
+#! expect-src Classes/Tooltip.lua

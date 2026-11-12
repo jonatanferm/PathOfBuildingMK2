@@ -25,14 +25,14 @@
 use std::rc::Rc;
 
 use pob_lua::math::{lpow, m_floor, m_max, m_min};
-use pob_lua::n;
+use pob_lua::{n, Name};
 use pob_sg::{Align, Font, ImageHandle};
 use pob_ui_core::prelude::*;
 use pob_ui_core::tooltip::{TtKey, TtObj};
 
-use super::assets::{tree_assets, Asset, AssetSeq};
+use super::assets::{tree_assets, Asset, AssetSeq, SpriteSet};
 use super::compare::{compare_jewels_equal, is_abyss_conquered, DrawColor};
-use super::connectors::{build_subgraph_connectors, Connector};
+use super::connectors::Connector;
 use super::input::{pos, same, Frame};
 use super::{hooks, PassiveTreeView};
 use crate::app::CxApp;
@@ -60,11 +60,85 @@ fn opt_str(t: &Table, k: pob_lua::Name) -> Option<String> {
 }
 
 /// `node.overlay[key]` (`node.overlay` is the `nodeOverlay[type]` table PT stored).
-fn overlay_key(node: &Node, key: &str) -> Option<String> {
+fn overlay_key(node: &Node, key: Name) -> Option<String> {
     node.extra
         .get(n!("overlay"))
         .table()
         .and_then(|o| o.str(key).map(|s| s.to_string()))
+}
+
+// ---- lookup keys (U53 perf pass) ---------------------------------------------------------------
+// The draw builds Lua's `a .. b` keys for every node and connector of every frame. The helpers
+// below give the same strings without a `format!` allocation (a reused buffer) and, for the
+// `node.overlay[...]` keys, without interning a fresh string (the names are pre-interned).
+
+thread_local! {
+    static KEY_BUF: std::cell::Cell<String> = const { std::cell::Cell::new(String::new()) };
+}
+
+/// `f(a .. b .. ...)`, the key built in a reused buffer.
+fn with_key<R>(parts: &[&str], f: impl FnOnce(&str) -> R) -> R {
+    let mut k = KEY_BUF.with(std::cell::Cell::take);
+    k.clear();
+    for p in parts {
+        k.push_str(p);
+    }
+    let r = f(&k);
+    KEY_BUF.with(|b| b.set(k));
+    r
+}
+
+/// `state .. (alt and "Alt" or "")` (L852, L1124).
+fn socket_state_key(state: &str, alt: bool) -> Name {
+    match (state, alt) {
+        ("alloc", false) => n!("alloc"),
+        ("alloc", true) => n!("allocAlt"),
+        ("path", false) => n!("path"),
+        ("path", true) => n!("pathAlt"),
+        ("unalloc", false) => n!("unalloc"),
+        ("unalloc", true) => n!("unallocAlt"),
+        (s, a) => with_key(&[s, if a { "Alt" } else { "" }], Name::from),
+    }
+}
+
+/// `state .. (node.ascendancyName and "Ascend" or "") .. (node.isBlighted and "Blighted" or "")`
+/// (L888, L1141).
+fn node_state_key(state: &str, ascend: bool, blighted: bool) -> Name {
+    match (state, ascend, blighted) {
+        ("alloc", false, false) => n!("alloc"),
+        ("alloc", true, false) => n!("allocAscend"),
+        ("alloc", false, true) => n!("allocBlighted"),
+        ("alloc", true, true) => n!("allocAscendBlighted"),
+        ("path", false, false) => n!("path"),
+        ("path", true, false) => n!("pathAscend"),
+        ("path", false, true) => n!("pathBlighted"),
+        ("path", true, true) => n!("pathAscendBlighted"),
+        ("unalloc", false, false) => n!("unalloc"),
+        ("unalloc", true, false) => n!("unallocAscend"),
+        ("unalloc", false, true) => n!("unallocBlighted"),
+        ("unalloc", true, true) => n!("unallocAscendBlighted"),
+        (s, a, b) => with_key(
+            &[s, if a { "Ascend" } else { "" }, if b { "Blighted" } else { "" }],
+            Name::from,
+        ),
+    }
+}
+
+/// `sprites[node.type:lower() .. suffix]` (L887 `"Active"`/`"Inactive"`, L1138 `"Active"`).
+fn type_sprite(set: &SpriteSet, ty: &str, suffix: &str) -> Option<Rc<Asset>> {
+    let key = match (ty, suffix) {
+        ("Normal", "Active") => "normalActive",
+        ("Normal", "Inactive") => "normalInactive",
+        ("Notable", "Active") => "notableActive",
+        ("Notable", "Inactive") => "notableInactive",
+        ("Keystone", "Active") => "keystoneActive",
+        ("Keystone", "Inactive") => "keystoneInactive",
+        _ => {
+            let lower = ty.to_ascii_lowercase();
+            return with_key(&[&lower, suffix], |k| set.get(k).cloned());
+        }
+    };
+    set.get(key).cloned()
 }
 
 /// `sprites[key]`
@@ -391,9 +465,9 @@ impl PassiveTreeView {
         for (_, sub_graph) in spec.subGraphs.pairs() {
             let Some(sg) = sub_graph.table() else { continue };
             // L750
-            for connector in build_subgraph_connectors(assets, &sg) {
+            for connector in assets.subgraph_connectors(&sg).iter() {
                 // L751
-                self.render_connector(cx, f, &connector);
+                self.render_connector(cx, f, connector);
             }
         }
         // Draw connectors for compare-only subgraphs (cluster jewels only in compare build)
@@ -408,7 +482,7 @@ impl PassiveTreeView {
                 }
                 let Some(sg) = sub_graph.table() else { continue };
                 // L758
-                for connector in build_subgraph_connectors(&c_assets, &sg) {
+                for connector in c_assets.subgraph_connectors(&sg).iter() {
                     // L759-760
                     let c_node1 = cs.nodes.with(|m| m.get(connector.node_id1 as i64));
                     let c_node2 = cs.nodes.with(|m| m.get(connector.node_id2 as i64));
@@ -430,11 +504,12 @@ impl PassiveTreeView {
                         // L770
                         cx.sg.set_draw_color(0.0, 1.0, 0.0);
                         // L771
-                        let asset = f
-                            .assets
-                            .asset(&format!("{}{state}", connector.r#type))
-                            .or_else(|| f.assets.asset(&format!("{}Normal", connector.r#type)))
-                            .cloned();
+                        let asset = with_key(&[&connector.r#type, state], |k| {
+                            f.assets.asset(k).cloned()
+                        })
+                        .or_else(|| {
+                            with_key(&[&connector.r#type, "Normal"], |k| f.assets.asset(k).cloned())
+                        });
                         // L772
                         if let Some(asset) = asset {
                             let c = *connector.c.borrow();
@@ -554,21 +629,17 @@ impl PassiveTreeView {
         }
         // L725
         connector_color.set(cx);
-        // L726
-        let mut asset_name = format!("{}{state}", connector.r#type);
+        // L726 (asset_name = connector.type .. state)
         // The game uses Abyss connector art only when both connected nodes are conquered.
         // L728
-        if is_abyss_conquered(Some(&node1)) && is_abyss_conquered(Some(&node2)) {
-            // L729
-            asset_name = format!("Abyss{asset_name}");
-        }
-        // L731
-        let asset = f
-            .assets
-            .asset(&asset_name)
-            .or_else(|| f.assets.asset(&format!("{}{state}", connector.r#type)))
-            .cloned()
-            .unwrap_or_else(|| lua_error!("attempt to index local 'asset' (a nil value)"));
+        let abyss = is_abyss_conquered(Some(&node1)) && is_abyss_conquered(Some(&node2));
+        // L729 (asset_name = "Abyss" .. asset_name), L731
+        let asset = with_key(
+            &[if abyss { "Abyss" } else { "" }, &connector.r#type, state],
+            |k| f.assets.asset(k).cloned(),
+        )
+        .or_else(|| with_key(&[&connector.r#type, state], |k| f.assets.asset(k).cloned()))
+        .unwrap_or_else(|| lua_error!("attempt to index local 'asset' (a nil value)"));
         // Atlas assets provide bounds that map the usual connector coordinates into one sprite.
         // L733-734
         let left = asset.index_num(1).unwrap_or(0.0);
@@ -664,7 +735,8 @@ impl PassiveTreeView {
                 node_default_color = DrawColor::Esc(cx.main.cc.SPLITPERSONALITY.clone());
             }
 
-            let ty = node.r#type.get().to_string();
+            let ty_name = node.r#type.get();
+            let ty: &str = ty_name.as_str();
             // L828
             cx.sg.set_draw_layer(None, Some(25));
             // L829
@@ -723,11 +795,8 @@ impl PassiveTreeView {
                 if ty == "Socket" {
                     // Node is a jewel socket, retrieve the socketed jewel (if present) so we can display the correct art
                     // L852
-                    let key = format!(
-                        "{state}{}",
-                        if node.expansionJewel.get().is_some() { "Alt" } else { "" }
-                    );
-                    let o = overlay_key(&node, &key).unwrap_or_else(|| {
+                    let key = socket_state_key(state, node.expansionJewel.get().is_some());
+                    let o = overlay_key(&node, key).unwrap_or_else(|| {
                         lua_error!("attempt to concatenate field '?' (a nil value)")
                     });
                     let prefix = if node.extra.str(n!("name")).as_deref() == Some("Charm Socket") {
@@ -735,7 +804,7 @@ impl PassiveTreeView {
                     } else {
                         ""
                     };
-                    base = assets.asset(&format!("{prefix}{o}")).cloned();
+                    base = with_key(&[prefix, &o], |k| assets.asset(k).cloned());
                     // L853
                     let (_socket, jewel) = build.itemsTab.GetSocketAndJewelForNodeID(node.id);
                     // L854
@@ -819,21 +888,19 @@ impl PassiveTreeView {
                     let Some(node_sprites) = assets.node_sprites(&node) else {
                         lua_error!("attempt to index field 'sprites' (a nil value)")
                     };
-                    base = node_sprites
-                        .get(&format!(
-                            "{}{}",
-                            ty.to_ascii_lowercase(),
-                            if is_alloc { "Active" } else { "Inactive" }
-                        ))
-                        .cloned();
+                    base = type_sprite(
+                        &node_sprites,
+                        ty,
+                        if is_alloc { "Active" } else { "Inactive" },
+                    );
                     // L888
-                    let overlay_key_s = format!(
-                        "{state}{}{}",
-                        if node.ascendancyName.get().is_some() { "Ascend" } else { "" },
-                        if node.extra.truthy(n!("isBlighted")) { "Blighted" } else { "" }
+                    let overlay_key_s = node_state_key(
+                        state,
+                        node.ascendancyName.get().is_some(),
+                        node.extra.truthy(n!("isBlighted")),
                     );
                     // L889
-                    let mut overlay_name = overlay_key(&node, &overlay_key_s);
+                    let mut overlay_name = overlay_key(&node, overlay_key_s);
                     // L890
                     if is_abyss_conquered(Some(&node)) && (ty == "Notable" || ty == "Keystone") {
                         // AlternateTreeArt gives Abyss replacements their own notable,
@@ -842,7 +909,7 @@ impl PassiveTreeView {
                         let frame_type = if node.ascendancyName.get().is_some() {
                             "Ascendancy".to_owned()
                         } else {
-                            ty.clone()
+                            ty.to_owned()
                         };
                         // L894
                         let frame_state = match state {
@@ -1269,12 +1336,9 @@ impl PassiveTreeView {
             // L1123
             if cty == "Socket" {
                 // L1124
-                let key = format!(
-                    "{state}{}",
-                    if compare_node.expansionJewel.get().is_some() { "Alt" } else { "" }
-                );
+                let key = socket_state_key(state, compare_node.expansionJewel.get().is_some());
                 let name = if compare_node.extra.get(n!("overlay")).truthy() {
-                    overlay_key(&compare_node, &key)
+                    overlay_key(&compare_node, key)
                 } else {
                     None
                 }
@@ -1306,18 +1370,18 @@ impl PassiveTreeView {
                 // L1137
                 if let Some(s) = c_assets.node_sprites(&compare_node) {
                     // L1138
-                    base = s.get(&format!("{}Active", cty.to_ascii_lowercase())).cloned();
+                    base = type_sprite(&s, &cty, "Active");
                 }
                 // L1140
                 if compare_node.extra.get(n!("overlay")).truthy() {
                     // L1141
-                    let key = format!(
-                        "{state}{}{}",
-                        if compare_node.ascendancyName.get().is_some() { "Ascend" } else { "" },
-                        if compare_node.extra.truthy(n!("isBlighted")) { "Blighted" } else { "" }
+                    let key = node_state_key(
+                        state,
+                        compare_node.ascendancyName.get().is_some(),
+                        compare_node.extra.truthy(n!("isBlighted")),
                     );
                     // L1142
-                    overlay = overlay_key(&compare_node, &key);
+                    overlay = overlay_key(&compare_node, key);
                 }
             }
             // L1145

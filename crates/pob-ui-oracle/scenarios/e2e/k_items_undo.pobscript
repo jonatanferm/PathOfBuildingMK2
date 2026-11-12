@@ -31,3 +31,5 @@ key-up CTRL
 frames 3
 snapshot redone
 #! expect-snapshot undone
+#! expect-snapshot-differs unequipped undone
+#! expect-snapshot-differs undone redone

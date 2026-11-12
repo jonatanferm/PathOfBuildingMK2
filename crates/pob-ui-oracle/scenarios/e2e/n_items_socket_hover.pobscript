@@ -1,0 +1,15 @@
+# U53 e2e: allflame_exp_001 in the Items tab (Ctrl+3): hover the jewel socket slot of node 2311 (ItemSlotControl.lua:150-159: the jewel-socket viewer, ItemSlotHelper.DrawViewer on the ItemsTab's socketViewer PassiveTreeView, and the jewel's tooltip), then another socket slot (9408). The guards fail the run unless the last frame draws the viewer.
+fixture userdir=../../fixtures/user1
+frames 2
+load-build "Builds/allflame_exp_001.xml"
+frames 2
+key-down CTRL
+press 3
+key-up CTRL
+frames 3
+move 560 478
+frames 3
+move 560 544
+frames 3
+#! expect-src ItemSlotHelper.lua
+#! expect-src PassiveTreeView.lua

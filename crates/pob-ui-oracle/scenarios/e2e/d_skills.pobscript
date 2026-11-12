@@ -16,3 +16,6 @@ frames 3
 move 400 96
 frames 2
 snapshot skills
+#! expect-text ^7Socket Groups:
+#! expect-text Gem Options
+#! expect-src Classes/Tooltip.lua

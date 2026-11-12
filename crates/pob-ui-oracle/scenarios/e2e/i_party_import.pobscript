@@ -20,3 +20,5 @@ press 1
 key-up CTRL
 frames 2
 snapshot back
+#! expect-src Classes/TreeTab.lua
+#! expect-src Classes/PassiveTreeView.lua

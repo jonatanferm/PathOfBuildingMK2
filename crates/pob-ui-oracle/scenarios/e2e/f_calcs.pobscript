@@ -18,3 +18,5 @@ frames 2
 wheel up 3
 frames 2
 snapshot calcs
+#! expect-src Classes/CalcSectionControl.lua
+#! expect-src Classes/CalcBreakdownControl.lua

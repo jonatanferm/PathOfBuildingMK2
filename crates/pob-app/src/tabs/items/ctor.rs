@@ -483,7 +483,8 @@ fn not_ported(what: &str, owner: &str) -> ! {
     lua_error!("{what} is not ported yet ({owner})")
 }
 
-/// The defaults: every entry raises a Lua error naming its owner (PoB's error prompt shows it).
+/// The defaults: the owners' ports; only U51's (Trade, on hold) still raise a Lua error naming
+/// their owner (PoB's error prompt shows it).
 pub fn default_items_ui_hooks() -> ItemsUiHooks {
     ItemsUiHooks {
         add_display_item: Rc::new(super::core::add_display_item_hook),
@@ -515,11 +516,24 @@ pub fn default_items_ui_hooks() -> ItemsUiHooks {
         corrupt_display_item: Rc::new(super::craft_b::CorruptDisplayItem),
         add_custom_modifier_to_display_item: Rc::new(super::craft_b::AddCustomModifierToDisplayItem),
         add_crucible_modifier_to_display_item: Rc::new(super::craft_b::AddCrucibleModifierToDisplayItem),
-        socket_viewer_add_node_name: Rc::new(|_, _, _, _| {
-            not_ported("PassiveTreeView:AddNodeName", "U24")
+        // CCR-0145 §5 (U53 cut-over): U24's `PassiveTreeView:AddNodeName` on `self.socketViewer`
+        socket_viewer_add_node_name: Rc::new(|cx, me, tooltip, node| {
+            cx.lend::<ItemsTab, _, _>(
+                me,
+                |w| &mut w.ctor.socketViewer,
+                |cx, viewer| viewer.add_node_name(cx, tooltip, node),
+            );
         }),
-        tree_open_spec_manage_popup: Rc::new(|_, _| {
-            not_ported("TreeTab:OpenSpecManagePopup", "U25")
+        // CCR-0145 §5: U25's `TreeTab:OpenSpecManagePopup`
+        tree_open_spec_manage_popup: Rc::new(|cx, _| {
+            let tree = cx
+                .app()
+                .build
+                .as_ref()
+                .map(|b| b.tabs.tree.id())
+                .filter(|&id| cx.ui.is_alive(id))
+                .unwrap_or_else(|| lua_error!("attempt to index field 'treeTab' (a nil value)"));
+            crate::tabs::tree::TreeTab::OpenSpecManagePopup(cx, tree);
         }),
         trade_query_price_item: Rc::new(|_, _| not_ported("TradeQuery:PriceItem", "U51")),
         buy_similar_open_popup: Rc::new(|_, _, _, _| {
@@ -785,8 +799,9 @@ impl ItemsTab {
                 let me = me.id();
                 // L98
                 st_mut(cx, me).build = build;
-                // L100 self.socketViewer = new("PassiveTreeView"):PassiveTreeView() (U23: the
-                // PassiveTreeView constructor is not ported yet; the field holds its Default)
+                // L100 self.socketViewer = new("PassiveTreeView"):PassiveTreeView() (U23)
+                let viewer = crate::tree_view::PassiveTreeView::new(cx);
+                st_mut(cx, me).socketViewer = viewer;
                 // L102-108 (model part: calc:BM-A; `self.tradeQuery` is U51's)
                 ctor_sets(cx, me);
                 ctor_slots(cx, me, build);

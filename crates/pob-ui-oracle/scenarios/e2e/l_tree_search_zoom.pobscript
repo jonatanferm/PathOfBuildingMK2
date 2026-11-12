@@ -27,3 +27,5 @@ frames 2
 move 820 420
 frames 2
 snapshot searched
+#! expect-text life
+#! expect-src Classes/PassiveTreeView.lua

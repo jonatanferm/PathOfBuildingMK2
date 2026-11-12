@@ -5,12 +5,14 @@
 //! screen) and zoomed in, dragged. Owner: U53.
 //!
 //! Measured: the Tree tab's `Draw` (TreeTab:Draw with its PassiveTreeView:Draw, through the
-//! shell's `draw_tab`, ShellHooks) per frame, without the oracle's trace recorder. Frames that
-//! recalculate (`buildFlag`, the first frames after the load) are reported apart: their cost is the
-//! calc's, not the tree's. The gate is the median and the 95th percentile of the tree draw of the
-//! non-recalc frames below 4 ms; it is only meaningful in an optimised build, so the assertion
-//! runs only when `U53_PERF_GATE=1` (run it with `cargo test --release`); a debug build prints the
-//! numbers.
+//! shell's `draw_tab`, ShellHooks) per frame, without the oracle's trace recorder. The first 3
+//! tree draws after the load are reported apart (their frames carry the load: the tree assets'
+//! first build and image decodes); every later draw counts, including the hover tooltips' calls
+//! into the calc's misc calculator, which run inside the draw. The gate is the median and the
+//! 95th percentile of those draws below 4 ms. It is only meaningful in an optimised build, so it
+//! is asserted in every build without debug assertions (`cargo test --release`; `U53_PERF_GATE=0`
+//! turns it off there) and only with `U53_PERF_GATE=1` in a debug build, which otherwise prints
+//! the numbers.
 
 use std::cell::RefCell;
 use std::fmt::Write as _;
@@ -140,7 +142,11 @@ fn pct(v: &[f64], p: f64) -> f64 {
 #[test]
 fn u53_tree_perf_1080p() {
     let Some(root) = inputs() else { return };
-    let gate = std::env::var("U53_PERF_GATE").is_ok_and(|v| v == "1");
+    let gate = match std::env::var("U53_PERF_GATE").as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => !cfg!(debug_assertions),
+    };
     let base = runner::crate_dir().join("scenarios");
     let mut failures = Vec::new();
     for build in [

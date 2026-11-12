@@ -372,15 +372,27 @@ impl PassiveTreeView {
             for (_, node) in spec.nodes.with(pob_lua::LjIntMap::pairs) {
                 // L308
                 let rsq = node.extra.get(n!("rsq"));
+                if !rsq.truthy() {
+                    continue;
+                }
+                // U53 perf pass: L312's distance test first, as a filter (most nodes are far
+                // from the cursor; it saves the two `isProxy` lookups). The reads have no side
+                // effects, and a node it lets through takes Lua's path below (a nil position
+                // goes there too, so the arithmetic error is raised where Lua raises it).
+                let (nx, ny) = (node.x.get(), node.y.get());
+                let near = nx.is_nan() || ny.is_nan() || {
+                    let (v_x, v_y) = (cur_tree_x - nx, cur_tree_y - ny);
+                    v_x * v_x + v_y * v_y <= rsq.num()
+                };
+                if !near {
+                    continue;
+                }
                 let Some(group) = node.group.get() else { continue };
-                if rsq.truthy()
-                    && !node.extra.truthy(n!("isProxy"))
-                    && !group.truthy(n!("isProxy"))
-                {
+                if !node.extra.truthy(n!("isProxy")) && !group.truthy(n!("isProxy")) {
                     // Node has a defined size (i.e. has artwork)
                     // L310-311
-                    let v_x = cur_tree_x - pos(node.x.get(), "x");
-                    let v_y = cur_tree_y - pos(node.y.get(), "y");
+                    let v_x = cur_tree_x - pos(nx, "x");
+                    let v_y = cur_tree_y - pos(ny, "y");
                     // L312
                     if v_x * v_x + v_y * v_y <= rsq.num() {
                         // L313

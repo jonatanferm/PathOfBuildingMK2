@@ -731,7 +731,9 @@ fn t4(lua: &Side, rust: &Side, notes: &mut T4Notes) -> Result<(usize, usize), Ve
 
 /// `#! expect-text TEXT` (tests/parity.rs's rule): some DrawString of the Lua side's last frame
 /// contains TEXT (guards a script that silently stopped reaching its target, which both sides
-/// would agree on).
+/// would agree on). Also `#! expect-snapshot NAME`, `#! expect-src FILE` (a call of the last
+/// frame comes from a Lua file whose name contains FILE) and `#! expect-snapshot-differs A B` /
+/// `#! expect-snapshot-same A B` (below).
 fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
     let mut errs = Vec::new();
     let Some(last) = lua.frames.last() else {
@@ -749,6 +751,48 @@ fn check_expectations(text: &str, lua: &Side) -> Vec<String> {
     for want in directives(text, "expect-snapshot") {
         if !lua.snapshots.iter().any(|(n, x)| *n == want && x.contains("<PathOfBuilding")) {
             errs.push(format!("no build XML snapshot {want}"));
+        }
+    }
+    for want in directives(text, "expect-src") {
+        let found = last
+            .calls
+            .iter()
+            .any(|c| c.src.as_deref().is_some_and(|s| s.contains(want.as_str())));
+        if !found {
+            errs.push(format!("last frame has no call from {want:?}"));
+        }
+    }
+    // `#! expect-snapshot-differs A B` / `#! expect-snapshot-same A B`: the Lua side's build XML
+    // at snapshot A and at snapshot B differ / are equal after the T4 normalisation (guards a
+    // click that missed its target: both sides would agree on a no-op).
+    let snap = |name: &str| -> Result<String, String> {
+        let x = lua
+            .snapshots
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, x)| x)
+            .ok_or_else(|| format!("no snapshot {name}"))?;
+        let root = root_element(x).map_err(|e| format!("snapshot {name}: {e}"))?;
+        Ok(normalise(&root, true, &mut T4Notes::default()))
+    };
+    for (dir, want_same) in [("expect-snapshot-differs", false), ("expect-snapshot-same", true)] {
+        for arg in directives(text, dir) {
+            let Some((a, b)) = arg.split_once(' ') else {
+                errs.push(format!("#! {dir} {arg}: expected two snapshot names"));
+                continue;
+            };
+            match (snap(a), snap(b.trim())) {
+                (Ok(x), Ok(y)) if (x == y) != want_same => errs.push(format!(
+                    "snapshots {a} and {b} {}",
+                    if want_same {
+                        format!("differ ({})", first_diff(&x, &y))
+                    } else {
+                        "are equal (the step between them changed nothing)".to_owned()
+                    }
+                )),
+                (Ok(_), Ok(_)) => {}
+                (Err(e), _) | (_, Err(e)) => errs.push(e),
+            }
         }
     }
     errs

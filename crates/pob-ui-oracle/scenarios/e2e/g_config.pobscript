@@ -1,15 +1,16 @@
-# U53 e2e: upstream_Dual_Wield_Cospris_CoC in the Configuration tab (Ctrl+5): hover options, toggle a check box (a recalc), scroll, then the build XML.
+# U53 e2e: upstream_Dual_Wield_Cospris_CoC in the Configuration tab (Ctrl+5): hover options (the "Do you use Power Charges?" check box's tooltip), tick "Do you have Onslaught?" (buffOnslaught: a recalc through the Rust calc), scroll, then the build XML before and after; the guard fails the run when the click misses (config = before).
 fixture userdir=../../fixtures/user1
 frames 2
 load-build "Builds/upstream_Dual_Wield_Cospris_CoC.xml"
 frames 2
+snapshot before
 key-down CTRL
 press 5
 key-up CTRL
 frames 3
-move 500 160
+move 573 332
 frames 2
-move 500 200
+move 573 442
 frames 2
 click LEFTBUTTON
 frames 3
@@ -18,3 +19,4 @@ frames 2
 move 900 300
 frames 2
 snapshot config
+#! expect-snapshot-differs before config
