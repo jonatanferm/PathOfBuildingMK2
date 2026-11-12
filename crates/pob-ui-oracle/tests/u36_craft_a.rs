@@ -535,6 +535,13 @@ fn rust_stubs() {
     ctor::set_items_ui_hooks(|h| *h = ctor::default_items_ui_hooks());
     of::set_shell_hooks(|h| {
         *h = of::default_shell_hooks();
+        // LUA_STUBS replaces `treeTab.Draw`: the Tree tab (U25) draws nothing here as well
+        let all_tabs = h.draw_tab.clone();
+        h.draw_tab = Rc::new(move |cx, tab, vp, ev| {
+            if tab != of::BuildTab::Tree {
+                all_tabs(cx, tab, vp, ev);
+            }
+        });
         let (draw, flag, set_flag) = (
             h.draw_tab.clone(),
             h.tab_flag.clone(),
@@ -1310,6 +1317,6 @@ fn u36_scenarios() {
         }
     }
     println!("u36: {ran} runs, T4 {t4_pairs} pairs ({t4_bytes} byte-identical)");
-    assert!(ran > 0 || filter.is_some(), "no run");
+    assert!(ran > 0, "no run (U36_FILTER {filter:?} / U36_SCREEN {only_screen:?} matched nothing)");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

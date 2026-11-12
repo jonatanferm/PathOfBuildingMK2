@@ -167,7 +167,7 @@ pub fn default_items_hooks() -> ItemsTabHooks {
             super::display_item::SetDisplayItem(cx, me, item);
         }),
         get_equipped_slot_for_item: Rc::new(super::display_item::GetEquippedSlotForItem),
-        add_item_set_tooltip: Rc::new(|_, _, _| not_ported("ItemsTab:AddItemSetTooltip", "U37")),
+        add_item_set_tooltip: Rc::new(super::craft_b::AddItemSetTooltip),
         add_item_tooltip: Rc::new(super::tooltip::add_item_tooltip_hook),
         add_undo_state: Rc::new(super::tooltip::add_undo_state_hook),
         set_mod_flag: Rc::new(super::tooltip::set_mod_flag_hook),

@@ -31,7 +31,10 @@
 //! * L50 `pairs(displayItem.affixes)` (string keys: per-process random in PoB; the port walks
 //!   the dump's bytewise id order). The groups (L56) and their list mods are sorted afterwards
 //!   (L73-86, L88-116), and the group labels are recomputed from each sorted list's first entry
-//!   (L118-120), so the dropdown contents and order are deterministic, but a group's `mod` (and
+//!   (L118-120), so the dropdown contents and order are deterministic (the L73-86 group sort
+//!   keys on the group `mod`'s statOrder and level, which every tier of a group shares in the
+//!   dump's Exarch/Eater groups), unless two distinct groups tie on statOrder and level: their
+//!   order then follows `pairs` (and `table.sort`'s unstable tie handling). A group's `mod` (and
 //!   its `defaultOrder`) is the first mod of the group that `pairs` reached. That `mod` is what
 //!   the Type dropdown's tooltip lists and compares (L359, L365): in PoB those tooltip lines
 //!   depend on the process's hash seed whenever a group has several mods (a group's base,
