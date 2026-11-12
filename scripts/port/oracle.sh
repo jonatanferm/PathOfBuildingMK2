@@ -11,9 +11,10 @@
 #   scripts/port/oracle.sh run --build X.xml [--stage HIT[,HIT...]] [--stages F]
 #       probe one build (default selection, or the given hits / globs) and
 #       store the dumps in .parity/probe-cache/<sha>/<build-blake3>/
-#   scripts/port/oracle.sh nondet [--verify] [--max-runs N] [--cache] [--keep-dir DIR] [build.xml ...]
+#   scripts/port/oracle.sh nondet [--verify] [--max-runs N] [--cache] [--keep-dir DIR] [--fresh] [build.xml ...]
 #       §9.5 two (three) runs per build -> .parity/nondet/<stem>.json
-#       (default: every .parity/builds/*.xml); --verify always runs a third
+#       (default: every .parity/builds/*.xml; --fresh: every .parity/fresh/*.xml, the
+#       INT-1-FRESH corpus, whose fresh_NNN stems share .parity/nondet); --verify always runs a third
 #       time and reports differences the first pair did not record;
 #       --max-runs N keeps running (up to N) while a run still adds to the record;
 #       --cache stores run 1 in the probe cache, --keep-dir keeps it as
@@ -113,10 +114,12 @@ case "$cmd" in
                 --cache) extra+=(--cache); shift ;;
                 --keep-dir) keep_dir="$2"; shift 2 ;;
                 --stages) stages="$2"; shift 2 ;;
+                --fresh) fresh=1; shift ;;
                 *) builds+=("$1"); shift ;;
             esac
         done
         need_parity
+        if [ "${fresh:-}" = 1 ]; then builds+=("$parity"/fresh/*.xml); fi
         if [ ${#builds[@]} -eq 0 ]; then builds=("$parity"/builds/*.xml); fi
         if [ -n "$stages" ]; then stage_args=(--stages "$stages"); fi
         # patch once (outside the lock: no LuaJIT PoB involved)

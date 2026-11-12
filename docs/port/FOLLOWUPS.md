@@ -512,6 +512,49 @@ Found while running FUP2's acceptance tests (port/FUP2 on rust-port 4c24bc2, 202
      Rust export leaves it out); INT-3 fixed it in its own harness's `norm`, CA.rs's L5 compare
      does not have that normalisation yet.
 
+   **Closed by FUP4** (port/FUP4 on rust-port ae0dc52, 2026-11-12).
+   - fresh_076 is PoB nondeterminism (§9.5), and Rust's order is one PoB takes. The `pairs` site
+     is CalcSetup.lua:1807, `for _, supportGroup in pairs(supportLists[slotName])`: it adds the
+     supports of the other Gloves socket groups to the item-granted Will of the Lords. The table
+     is keyed by socket-group tables, so PoB visits them in address order. This differs between
+     processes. The port already marks the site LUA-ORDER and uses insertion order
+     (`calc_setup/init_env_skills.rs` L1807). The order decides the order of the four
+     `SupportManaMultiplier` MORE mods (Deadly Ailments 40, Trap and Mine Damage 30, Unbound
+     Ailments 20, Swift Assembly 10). ModList.lua `MoreInternal` multiplies them in list order
+     and floors the product to 4 digits (Data.lua:551 highPrecisionMods), and CalcOffence.lua:1713 floors it
+     again. In the orders 30,40,10,20 and 40,30,10,20 the f64 product is 2.4023999999999996, so
+     the floor gives 2.4023 and `ManaCostRaw` is 2.4023 × 24 / 1.26 = 45.758095…. The other
+     22 orders give 2.4024 or 2.4024000000000005, which floor to 2.4024, so `ManaCostRaw` is
+     45.76. Measured in 14 `POB_ENGINE=jit
+     pob_headless` processes, reading the main skill's `effectList` and
+     `Tabulate("SupportManaMultiplier")`: 7 used Trap and Mine, Deadly, Swift, Unbound (30,40,10,20),
+     which is the socket-group order Rust uses, and gave 45.75809523809523. One used 40,30,10,20
+     and also gave 45.758…. Six used 20,30,10,40 or 20,40,30,10 and gave 45.76. Four earlier processes used
+     40,30,20,10, 30,20,10,40, 20,30,10,40 and 20,40,30,10, and all four gave 45.76.
+     `scripts/port/oracle.sh nondet` takes `--fresh` now (every `.parity/fresh/*.xml`; the records
+     go to `.parity/nondet/fresh_NNN.json`). Its run on fresh_076 (`--verify --max-runs 6`, 6
+     processes) recorded exactly one output key, `ManaCostRaw: [45.76, 45.75809523809523]`.
+     `ca_l6_corpus` now reads the record the way `pob_calc_diff outputs` does. A main-output key
+     counts as exact when PoB's value of this run and Rust's value are both recorded PoB values.
+     Each such key is listed in the summary. No tolerance changed. The other 99 fresh builds
+     have no record, because every one of their values is exact against a single PoB run.
+     `.parity` is gitignored, so a checkout without `.parity/nondet/fresh_076.json` fails
+     `ca_l6_corpus` on the fresh corpus whenever its PoB run gives 45.76. Run
+     `scripts/port/oracle.sh nondet --verify --max-runs 6 .parity/fresh/fresh_076.xml` (about 3
+     minutes) or `oracle.sh nondet --fresh` (not run on all 100 builds here) to rebuild it.
+   - The 4 `SkillBuffs` rows: INT-3's H3 normalisation is now a shared helper,
+     `pob_oracle::mod_json::default_empty_tags`. INT-3's `norm` calls it, and so does CA.rs's
+     `canon`, which every L5 row and used-tracking compare goes through.
+   - Measured on port/FUP4 (`POB_FULL_SUITE=1`). `CA_CORPUS_DIR=.parity/fresh`: `ca_l6_corpus` 100
+     builds, 0 Rust errors, headline 1,300/1,300, all keys 85,603/85,603 (fresh_076 `ManaCostRaw`
+     accepted as nondeterministic: PoB's run gave 45.76, Rust gave 45.758…), CALCS lists 300/300,
+     used-tracking 900/900, misc 2,200/2,200. `ca_l5_post`: cost warnings, used-tracking and CALCS
+     lists each 100/100 clean. `ca_d13_fixed_point`: 100/100 fixed points. all57 (no
+     `CA_CORPUS_DIR`, all 5 CA tests): `ca_l6_corpus` headline 741/741, all keys 45,954/45,954 (0
+     values accepted as nondeterministic), CALCS lists 171/171, used-tracking 513/513, misc
+     1,248/1,248, 0 Rust errors; `ca_l5_post` 56/57/57 clean (1 harness-limited, as before);
+     `ca_d13_fixed_point` 62/62. `INT-3` `int3_breakdown_corpus` on fresh_031/_038/_040/_089 with
+     the shared helper: 1,102/1,102 entries equal.
 
 ## U53
 

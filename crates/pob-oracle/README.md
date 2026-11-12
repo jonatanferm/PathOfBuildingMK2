@@ -205,11 +205,13 @@ machine-wide. Run corpus work through the script:
 ```text
 scripts/port/oracle.sh run --build X.xml [--stage HIT[,HIT..]] [--stages F]  # -> probe cache
 scripts/port/oracle.sh corpus [--stages F] [build.xml ..]   # -> .parity/probe/<stem>/ + cache
-scripts/port/oracle.sh nondet [--verify] [--max-runs N] [--stages F] [build.xml ..] # -> .parity/nondet/<stem>.json
+scripts/port/oracle.sh nondet [--verify] [--max-runs N] [--stages F] [--fresh] [build.xml ..] # -> .parity/nondet/<stem>.json
 ```
 
 `--stages` defaults to `docs/port/stages.toml` (U0); the P3 tests use the
-dummy `corpus/P3/stages.toml`.
+dummy `corpus/P3/stages.toml`. `nondet --fresh` adds every `.parity/fresh/*.xml`
+(the INT-1-FRESH corpus; its `fresh_NNN` records share `.parity/nondet/`, which
+`tests/CA.rs` `ca_l6_corpus` reads, FUP4).
 
 ### Patched sources
 

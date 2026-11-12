@@ -28,8 +28,9 @@
 //! any corpus subset; on the full corpus the compared totals are pinned
 //! (docs/port/parity/INT-3-triage.md).
 //!
-//! PoB runs (`int3.json`, `calcs.json`: the calcsEnv dump, `hits.json`) are cached in
-//! `target/tmp/int3-probe/<stem>/`. Knobs: `INT3_BUILDS=stem1,stem2`, `INT3_LIMIT=n`,
+//! PoB runs (`int3.json`, `calcs.json`: the calcsEnv dump, `hits.json`) are cached in the shared,
+//! content-keyed oracle cache (`testkit::oracle_dir`, CK1; `POB_QUERY_CACHE=off|refresh|verify`
+//! as for the other users). Knobs: `INT3_BUILDS=stem1,stem2`, `INT3_LIMIT=n`,
 //! `INT3_VERBOSE=1`, `INT3_CORPUS_DIR=dir` (the corpus from `dir/*.xml`, no pins),
 //! `INT3_DIFFS=file` (appends every difference, accepted difference and order-only entry as TSV
 //! `stem test actor key path pob ours`), `INT3_STRICT=1` (accept none of PoB's nondeterministic
@@ -250,6 +251,8 @@ fn release(build: BuildRef) {
 
 // ---- PoB's run -----------------------------------------------------------------------------------
 
+// ---- pob-run begin (CK1: this span, from here to its end marker, is part of the cache key)
+
 struct PobRun {
     hits: J,
     int3: J,
@@ -257,6 +260,26 @@ struct PobRun {
     calcs: J,
 }
 
+/// The source of this file between the pob-run markers (the code that makes a [`PobRun`]).
+fn pob_run_code() -> &'static str {
+    const SELF: &str = include_str!("INT-3.rs");
+    // split literals, so the markers' text does not occur here
+    let begin = concat!("// ---- pob-run ", "begin");
+    let end = concat!("// ---- pob-run ", "end");
+    let a = SELF.find(begin).expect("INT-3.rs: pob-run begin marker");
+    let b = SELF[a..].find(end).expect("INT-3.rs: pob-run end marker") + a;
+    &SELF[a..b]
+}
+
+/// PoB's run of a build (`int3.json`, `calcs.json`, `hits.json`). CK1 (CCR-0146 §4, CCR-0147):
+/// an entry of the shared, content-keyed oracle cache (`testkit::oracle_dir`,
+/// `.parity/probe-cache/<source key>/<build key>/dir-<key>/`), filled by one PoB run when absent.
+/// The key is the patched tree (its sha covers `corpus/CA/stages.toml`, the patcher and the
+/// dump/probe Lua; the source key the oracle runtime and the Lua runtime), the build's bytes, its
+/// name, `int3.lua`, `runner.rs` (`probe_prelude`) and this span of the test
+/// ([`pob_run_code`]), so a harness, dump-format or PoB change runs PoB again. The earlier
+/// `target/tmp/int3-probe/<stem>/` was reused whenever its three files were there, whatever made
+/// them (and kept a failed run's `error.txt` for good). An `Err` of the run is not cached.
 fn pob_run(xml: &Path) -> Result<PobRun, String> {
     use pob_oracle::headless::Engine;
     use pob_oracle::jit::JitPob;
@@ -264,56 +287,52 @@ fn pob_run(xml: &Path) -> Result<PobRun, String> {
     use pob_oracle::runner::{probe_prelude, OracleLock, ProbeOptions};
 
     let stem = stem(xml);
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("int3-probe").join(stem);
-    let read = |dir: &Path| -> Result<PobRun, String> {
-        let j = |f: &str| -> Result<J, String> {
-            let t = std::fs::read_to_string(dir.join(f)).map_err(|e| format!("{f}: {e}"))?;
-            serde_json::from_str(&t).map_err(|e| format!("{f}: {e}"))
-        };
-        Ok(PobRun { hits: j("hits.json")?, int3: j("int3.json")?, calcs: j("calcs.json")? })
-    };
-    let files = ["hits.json", "int3.json", "calcs.json"];
-    if files.iter().all(|f| dir.join(f).is_file()) {
-        return read(&dir);
-    }
-    if let Ok(e) = std::fs::read_to_string(dir.join("error.txt")) {
-        return Err(e);
-    }
-    let src = find_pob_src().ok_or("no PoB checkout")?;
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("oracle-src");
     // the CA probes (only their hit counts are read: `ca:399` gives the number of BuildOutputs)
     let stages = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/CA/stages.toml");
-    let patched = pob_oracle::patcher::patch(&src, Some(&stages), &root).map_err(|e| format!("patch: {e}"))?;
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("state")).map_err(|e| e.to_string())?;
+    let patched = pob_oracle::testkit::shared_patch(Some(&stages))?;
     let xml_text = std::fs::read_to_string(xml).map_err(|e| e.to_string())?;
-    let result = (|| -> Result<(), String> {
-        let _lock = OracleLock::acquire().map_err(|e| format!("oracle lock: {e}"))?;
-        let out_dir = std::fs::canonicalize(&dir).map_err(|e| e.to_string())?;
-        let src_root = std::fs::canonicalize(&patched.src).map_err(|e| e.to_string())?;
-        let mut root_s = src_root.to_string_lossy().replace('\\', "/");
-        if !root_s.ends_with('/') {
-            root_s.push('/');
-        }
-        // no hit is dumped: the calcsEnv document is written by int3.lua after the load
-        let opts = ProbeOptions { select: vec!["int3:none".to_owned()], max_dumps: 0, provenance: false };
-        let pre = probe_prelude(&root_s, &out_dir, stem, &opts);
-        let mut pob = JitPob::boot_oracle(&src_root, Some(&pre))?;
-        pob.run(ORACLE_LUA)?;
-        pob.load_build_xml(&xml_text, stem)?;
-        pob.run("return __probe_finish(__mainObject__.main.modes['BUILD'].calcsTab.mainEnv)")?;
-        let r = pob.run(INT3_LUA)?;
-        let text = |i: usize| r.get(i).map(|x| x.text().to_owned()).unwrap_or_default();
-        pob_oracle::runner::write_atomic(&out_dir.join("calcs.json"), &text(1)).map_err(|e| e.to_string())?;
-        pob_oracle::runner::write_atomic(&out_dir.join("int3.json"), &text(0)).map_err(|e| e.to_string())?;
-        Ok(())
-    })();
-    if let Err(e) = result {
-        let _ = std::fs::write(dir.join("error.txt"), &e);
-        return Err(e);
-    }
-    read(&dir)
+    let entry = pob_oracle::testkit::oracle_dir(
+        &patched.src,
+        xml_text.as_bytes(),
+        &[
+            "INT-3 pob_run 1",
+            &patched.sha,
+            stem,
+            INT3_LUA,
+            include_str!("../src/runner.rs"),
+            pob_run_code(),
+        ],
+        |dir| {
+            std::fs::create_dir_all(dir.join("state")).map_err(|e| e.to_string())?;
+            let _lock = OracleLock::acquire().map_err(|e| format!("oracle lock: {e}"))?;
+            let out_dir = std::fs::canonicalize(dir).map_err(|e| e.to_string())?;
+            let src_root = std::fs::canonicalize(&patched.src).map_err(|e| e.to_string())?;
+            let mut root_s = src_root.to_string_lossy().replace('\\', "/");
+            if !root_s.ends_with('/') {
+                root_s.push('/');
+            }
+            // no hit is dumped: the calcsEnv document is written by int3.lua after the load
+            let opts = ProbeOptions { select: vec!["int3:none".to_owned()], max_dumps: 0, provenance: false };
+            let pre = probe_prelude(&root_s, &out_dir, stem, &opts);
+            let mut pob = JitPob::boot_oracle(&src_root, Some(&pre))?;
+            pob.run(ORACLE_LUA)?;
+            pob.load_build_xml(&xml_text, stem)?;
+            pob.run("return __probe_finish(__mainObject__.main.modes['BUILD'].calcsTab.mainEnv)")?;
+            let r = pob.run(INT3_LUA)?;
+            let text = |i: usize| r.get(i).map(|x| x.text().to_owned()).unwrap_or_default();
+            pob_oracle::runner::write_atomic(&out_dir.join("calcs.json"), &text(1)).map_err(|e| e.to_string())?;
+            pob_oracle::runner::write_atomic(&out_dir.join("int3.json"), &text(0)).map_err(|e| e.to_string())?;
+            Ok(())
+        },
+    )?;
+    let j = |f: &str| -> Result<J, String> {
+        let t = std::fs::read_to_string(entry.join(f)).map_err(|e| format!("{f}: {e}"))?;
+        serde_json::from_str(&t).map_err(|e| format!("{f}: {e}"))
+    };
+    Ok(PobRun { hits: j("hits.json")?, int3: j("int3.json")?, calcs: j("calcs.json")? })
 }
+
+// ---- pob-run end
 
 /// The Rust model after PoB's number of BuildOutputs (`ca:399` fires twice per BuildOutput).
 fn rust_run(xml: &Path, run: &PobRun) -> Result<(BuildRef, Vec<String>), String> {
@@ -400,14 +419,9 @@ fn norm(v: &J, ids: &HashMap<u64, &J>, stack: &mut Vec<u64>) -> J {
             // `"tags": []`, but one reached inside a data value (a LIST mod's `value.mod`, e.g.
             // the `value` of `MinionModifier` rows of `SkillBuffs`, Calcs.lua:765-770) without the
             // member (state_dump.lua `encodeMod` vs its plain values; `pob_calc::probe::
-            // plain_mod_json`). An absent `tags` is the empty tag list either way.
-            let is_mod = ["name", "type"].iter().all(|k| o.get(*k).is_some_and(J::is_string))
-                && o.contains_key("value")
-                && o.contains_key("flags")
-                && o.contains_key("keywordFlags");
-            if is_mod && !o.contains_key("tags") {
-                o.insert("tags".to_owned(), J::Array(Vec::new()));
-            }
+            // plain_mod_json`). An absent `tags` is the empty tag list either way (H3; the
+            // helper is shared with CA's L5 compare, FUP4).
+            pob_oracle::mod_json::default_empty_tags(&mut o);
             J::Object(o)
         }
         other => other.clone(),
