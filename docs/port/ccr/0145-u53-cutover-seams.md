@@ -1,6 +1,8 @@
 # CCR-0145: U53 cut-over seams (Rust calc in every scenario, the e2e harness, the last stand-ins)
 
-Status: proposed by U53 (ui doc §12.7 U53 row), applied on `port/U53`. **§6 applied to the docs
+**Status: applied (CCRDOC, 2026-11-12; code `af4f731` Merge port/U53). §6 was applied to the docs by INT-4 (`de003f7`). CCRDOC applied §1 (ui doc §10.4, §11.3), §2 (§11.3), §5 (§10.5) and §8 (§10.3). §4's proposed `GemInstance.enableGlobal1/2: Cell<Option<bool>>` is rejected because it was not built: the `extra["$enableGlobal1Nil"]`/`["$enableGlobal2Nil"]` markers are the design.**
+
+Filed status: proposed by U53 (ui doc §12.7 U53 row), applied on `port/U53`. **§6 applied to the docs
 by INT-4 (2026-11-12): ui doc D1, D16, §3 and the U53 row; AMENDMENTS A13** (the renames were
 done by U53; `pob-engine`/`pob-data` are deleted). §1-§5 and §7-§10 are not INT-4's to decide.
 

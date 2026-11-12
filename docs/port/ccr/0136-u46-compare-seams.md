@@ -1,7 +1,9 @@
 # CCR-0136: U46 CompareTab A seams (the CompareEntry handle, CompareHooks, the Widget impl, the folder popup's list host)
 
+**Status: applied (CCRDOC, 2026-11-12; code `f571987` Merge port/U46): §1 `CompareEntryRef`/`CompareHooks` (ui doc §10.5), §2, §3's work-around (the ListControl `ov.on_sel_click`/`on_sel_key_down` slots; U18's `load_build_ov` was not added), §4 and §5.**
+
 Unit: **U46** (`Classes/CompareTab.lua:1-1649`; files `pob-app/src/tabs/compare/{init.rs,import.rs}`).
-Status: **pending** (code on `port/U46` follows it, with the local workarounds marked `// CCR-0136`).
+Filed status: **pending** (code on `port/U46` follows it, with the local workarounds marked `// CCR-0136`).
 Number reserved with `scripts/port/next_ccr.sh`.
 
 No frozen contract changes. This CCR records the shapes U46 defined in its own files for U47-U50, the

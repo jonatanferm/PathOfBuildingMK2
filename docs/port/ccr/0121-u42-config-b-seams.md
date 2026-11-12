@@ -1,7 +1,9 @@
 # CCR-0121: U42 ConfigTab B seams (provenance of the split lines, reset-undo, hook wiring)
 
+**Status: applied (CCRDOC, 2026-11-12; code `70125f9` Merge port/U42): §2-§5 and §6 (test-local). Not built: §1's fix of U41's second marker (`provenance.py coverage --range Classes/ConfigTab.lua:1-1362` still reports 1302-1315, 1317-1323 and 1325-1334 covered twice, FOLLOWUPS "CCRDOC" 6), and §6's patch registration in `patches.rs` (the u42 harness keeps its reload).**
+
 Unit: **U42** (ConfigTab B: `ConfigTab.lua:835-1362`, ConfigSetListControl, ConfigModBrowser,
-ConfigVisibility). Status: **pending** (code on `port/U42` follows it). Number reserved with
+ConfigVisibility). Filed status: **pending** (code on `port/U42` follows it). Number reserved with
 `scripts/port/next_ccr.sh`.
 
 ## 1. Lines of U42's range already covered by calc markers

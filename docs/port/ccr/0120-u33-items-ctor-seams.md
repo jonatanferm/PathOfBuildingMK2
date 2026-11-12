@@ -1,7 +1,9 @@
 # CCR-0120: U33 ItemsTab constructor seams
 
+**Status: applied (CCRDOC, 2026-11-12; code `2032c24` Merge port/U33): §1 `ItemsUiHooks` (filled by U34-U38 and U53; only U51's `trade_query_price_item` and `buy_similar_open_popup` still raise), §2, §4 (by U53), §5 and §6. §3 is rejected because the re-export was not added.**
+
 Unit: **U33** (ItemsTab A, `Classes/ItemsTab.lua:1-1215`, `pob-app/src/tabs/items/ctor.rs`).
-Status: **pending** (code on `port/U33` follows it, with the local workarounds marked
+Filed status: **pending** (code on `port/U33` follows it, with the local workarounds marked
 `// CCR-0120`). Number reserved with `scripts/port/next_ccr.sh`.
 
 ## 1. `ItemsUiHooks`: the methods the constructor's closures call

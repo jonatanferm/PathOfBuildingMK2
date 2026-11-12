@@ -1,6 +1,8 @@
 # CCR-0097: CA (Calcs.lua) test seams and contract notes
 
-Status: proposed by CA (port/CA, 2026-11-10)
+**Status: applied (CCRDOC, 2026-11-12; code `20dfa57` Merge port/CA). Calc doc §5.10 lists the `buildOutput_*` blocks, `MiscCalculator.usedFullDPS: Cell<bool>` and `FullDPS.extra["cullingDPS"]`; calc doc §9.2 lists `calcs::replay_hook`; calc doc §3.2 and STYLE.md carry the Flag-stored-in-a-table rule (§3).**
+
+Filed status: proposed by CA (port/CA, 2026-11-10)
 
 No frozen signature of calc doc §5.10 changes. This CCR records what CA added next to the frozen
 API and one change it made in three other units' test files, so the integrator can review them

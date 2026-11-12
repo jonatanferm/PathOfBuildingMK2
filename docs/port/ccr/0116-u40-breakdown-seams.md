@@ -1,7 +1,9 @@
 # CCR-0116: U40 CalcBreakdownControl seams (hook arms, the BuildOutput UI tail, U23/U38 hooks)
 
+**Status: applied (CCRDOC, 2026-11-12; code `572bc74` Merge port/U40): §1, §2, §4 `BreakdownHooks` (U53 filled the node-viewer entries, CCR-0145 §5), §5 (`known_diffs.toml` U40-1) and §6. §3's optional `BuildHooks::breakdown` argument was not added (DIVERGENCE(calcs-tab-late)).**
+
 Unit: **U40** (CalcBreakdownControl, `Classes/CalcBreakdownControl.lua:1-789`; also
-`Modules/Common.lua:836-871`, the `format*` family, ui doc §13 item 15). Status: **pending**
+`Modules/Common.lua:836-871`, the `format*` family, ui doc §13 item 15). Filed status: **pending**
 (code on `port/U40` follows it). Number reserved with `scripts/port/next_ccr.sh`.
 
 ## 1. Hook arms installed (one line each, as CCR-0098 §3 / CCR-0104 §1 / CCR-0111 §2 propose)

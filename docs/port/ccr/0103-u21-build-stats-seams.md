@@ -1,6 +1,8 @@
 # CCR-0103: U21 build stats seams (hooks, SetDisplayStat owner, minionList, re-exports)
 
-Unit: **U21** (Build stats: `Build.lua:1618-2221`, `Modules/BuildDisplayStats.lua`). Status:
+**Status: applied (CCRDOC, 2026-11-12; code `977648e` Merge port/U21): §1, §2 (with nothing registered, RefreshStatList calls U20's `loadouts::estimate_player_progress`, CCR-0106 §4) and §6. Rejected because they were not built: §3 (the schema keeps `minionList: Vec<Name>`; `calc_active_skill::minionList_is_set` is the accessor), §4 (the re-exports; ui doc §10.2) and §5 (U21 keeps its own section list, DIVERGENCE(section-list)).**
+
+Unit: **U21** (Build stats: `Build.lua:1618-2221`, `Modules/BuildDisplayStats.lua`). Filed status:
 **pending** (code on `port/U21` follows it). Number reserved with `scripts/port/next_ccr.sh`.
 
 ## 1. U21's entries in `init::default_hooks` and the save-stats hook (CCR-0098 §3, CCR-0080 §8)

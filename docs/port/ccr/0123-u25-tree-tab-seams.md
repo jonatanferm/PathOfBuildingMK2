@@ -1,6 +1,8 @@
 # CCR-0123: U25 Tree tab seams (spec undo, the load-time ResetUndo, tattoo ids, PoEURL, U26/U27 hooks)
 
-Unit: **U25** (TreeTab core). Status: **pending** (the code on `port/U25` follows it).
+**Status: applied (CCRDOC, 2026-11-12; code `5702326` Merge port/U25): §1 (ui doc §10.3: one undo stack per spec), §2 (by U53, CCR-0145 §8), §5-§8. §3 DIVERGENCE(tattoo-alias) and §4 DIVERGENCE(poeurl-resolve; poeurl.com is defunct) are kept as divergences. §9 is rejected because the re-exports were not added.**
+
+Unit: **U25** (TreeTab core). Filed status: **pending** (the code on `port/U25` follows it).
 
 U25 ports the UI half of `TreeTab.lua:1-1046`, `PassiveSpecListControl.lua` and
 `PassiveMasteryControl.lua` (`pob-app/src/tabs/tree/{core.rs,popups.rs,spec_list.rs,mastery.rs}`).

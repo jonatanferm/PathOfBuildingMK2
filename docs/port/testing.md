@@ -217,8 +217,8 @@ not consumed). Adopting it is a one-line change of a `for build in &builds` loop
 returns its per-build tally.
 
 What stays on the test thread: anything reading process-global state, chiefly the `unported!`
-counters (`pob_calc::stub::stub_report`), which are process-wide (CCR-0128 proposes per-thread
-counters). The timeless-jewel LUT table (`pob_gamedata::timeless_lut`) is process-wide too:
+counters (`pob_calc::stub::stub_report`), which are process-wide (per-thread
+counters, CCR-0128, were not built: rejected, AMENDMENTS A14). The timeless-jewel LUT table (`pob_gamedata::timeless_lut`) is process-wide too:
 dropping it between builds (`clear_timeless_jewel_luts`, for RSS) goes through
 `testkit::release_shared`, which runs it only when no multi-worker pool is running (the serial
 path keeps the per-build drop); a pooled test drops it once after the pool. A clear inside `f`
@@ -279,7 +279,7 @@ Full corpus (57 builds; before = `.parity/fullsuite/20261111-1426/pob-oracle.log
 
 ### Open
 
-* Per-thread `unported!` counters (CCR-0128) would let OF-B/D/E/F, CO-C and the other
+* Per-thread `unported!` counters (CCR-0128, rejected as not built) would let OF-B/D/E/F, CO-C and the other
   stub-reading L4 tests pool their Rust side.
 * Not on the shared cache yet: PF-B (three dependent probe runs, the second pruned in place),
   CS3 (edits its patched copy after patching, so the patch sha does not describe it), MI,

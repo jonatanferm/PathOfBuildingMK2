@@ -1,7 +1,9 @@
 # CCR-0144: U50 CompareTab E seams (the entry's group-list icons, nested breakdowns in GetBreakdownLines, the bridge's isSupporting keys)
 
+**Status: applied (CCRDOC, 2026-11-12; code `1d3ee5c` Merge port/U50): §1's work-around (`entry_row_icon`; U30's `row_icon_for` was not added), §2, §3, §4 and §5.**
+
 Unit: **U50** (`Classes/CompareTab.lua:4049-5036`; file `pob-app/src/tabs/compare/draw_b.rs`).
-Status: **pending** (code on `port/U50` follows it, with the local workaround marked `// CCR-0144`).
+Filed status: **pending** (code on `port/U50` follows it, with the local workaround marked `// CCR-0144`).
 Number reserved with `scripts/port/next_ccr.sh`.
 
 No frozen contract changes. One local workaround for a private method of another unit, one bug

@@ -1,6 +1,8 @@
 # CCR-0128: TP1 per-thread `unported!` counters (so stub-reading L4 tests can pool their Rust side)
 
-Unit: **TP1** (pob-oracle test speed). Status: **pending**. Number reserved with
+**Status: rejected (CCRDOC, 2026-11-12): not built. `pob-gamedata/src/stub.rs` keeps only the process-wide counters, so the stub-reading L4 tests keep their Rust side on the test thread (testing.md "Open").**
+
+Unit: **TP1** (pob-oracle test speed). Filed status: **pending**. Number reserved with
 `scripts/port/next_ccr.sh`. Owner of the change: whoever owns `crates/pob-gamedata/src/stub.rs`
 (shared by pob-gamedata, pob-modparser and pob-calc; ORC-X / U0).
 

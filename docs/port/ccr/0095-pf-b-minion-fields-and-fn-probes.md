@@ -1,6 +1,8 @@
 # CCR-0095: PF-B — untyped minion fields, `Override`'s zero-value return, crate-private helpers in tests
 
-Status: proposed by PF-B (2026-11-09); §4 applied at merge (2026-11-10); §1 applied 2026-11-10 by RETYPE (= CCR-0040 §1, AMENDMENTS A10: typed `Actor` minion fields, the PF-B test adapter removed). Numbered 0034, then 0091,
+**Status: applied (CCRDOC, 2026-11-12). §1 was done by RETYPE (`4870179`, AMENDMENTS A10) and §4 at the PF-B merge (`adac0b7`). CCRDOC applied §2 to calc doc §3.2 and STYLE.md (the trailing unmatched `Override` passes no argument: `actor_b::lua_max_override`, `// LUA-QUIRK`). §3 is rejected because it was not built: there is no `probe::run_function`, and PF-B's `#[cfg(feature = "probe")] actor_b::probe_fns` wrappers remain.**
+
+Filed status: proposed by PF-B (2026-11-09); §4 applied at merge (2026-11-10); §1 applied 2026-11-10 by RETYPE (= CCR-0040 §1, AMENDMENTS A10: typed `Actor` minion fields, the PF-B test adapter removed). Numbered 0034, then 0091,
 renumbered to 0095 at merge (AMENDMENTS A8: 0091 is CT's).
 
 ## 1. Minion actor fields with no typed `Actor` field

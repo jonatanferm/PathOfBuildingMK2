@@ -1,7 +1,9 @@
 # CCR-0110: U41 ConfigTab constructor seams (U42 hooks, the var-controls bridge, ownership)
 
+**Status: applied (CCRDOC, 2026-11-12; code `9493f99` Merge port/U41): `ConfigHooks` (filled by U42, CCR-0121 §3), §2, the var-controls rule (ui doc §10.5), §4 (ui doc §12.1: a tab's `Widget` impl lives with its constructor), §5, §6 and §7.**
+
 Unit: **U41** (ConfigTab A: `ConfigTab.lua:1-834`, CustomModBlockControl and the constructor).
-Status: **pending** (code on `port/U41` follows it). Number reserved with
+Filed status: **pending** (code on `port/U41` follows it). Number reserved with
 `scripts/port/next_ccr.sh`.
 
 ## 1. `ConfigHooks`: the U42 methods the constructor calls
