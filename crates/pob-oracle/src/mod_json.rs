@@ -171,6 +171,57 @@ pub fn decode_mod(j: &J) -> Result<(Mod, Option<String>), String> {
     ))
 }
 
+// ---- jewel closures ----------------------------------------------------------------------------
+
+/// The closures whose `JewelFuncSpec` key is their own source range
+/// (`pob_calc::modules::jewel_funcs` `closure_func`) and whose `args` are upvalues: the upvalue
+/// names in `args` order. The ranges are the inner closures of the jewelOtherFuncs capture
+/// functions (ModParser.lua 6231-6364; `args` = the capture function's parameters,
+/// `pob_modparser::jewel_func_list::callCaptureClosure`) and the two `ExtraJewelFunc`
+/// closures of specialModList (2622-2627 `[dmgType]`, 2630-2634 `[val, attr]`; CCR-0039).
+pub const CLOSURE_ARGS: &[(&str, &[&str])] = &[
+    ("Modules/ModParser.lua:2622-2627", &["dmgType"]),
+    ("Modules/ModParser.lua:2630-2634", &["val", "attr"]),
+    ("Modules/ModParser.lua:6232-6236", &["num"]),
+    ("Modules/ModParser.lua:6244-6248", &["num"]),
+    ("Modules/ModParser.lua:6261-6266", &["min", "max"]),
+    ("Modules/ModParser.lua:6269-6273", &["num"]),
+    ("Modules/ModParser.lua:6276-6280", &["num"]),
+    ("Modules/ModParser.lua:6283-6287", &["num"]),
+    ("Modules/ModParser.lua:6290-6294", &["num"]),
+    ("Modules/ModParser.lua:6297-6301", &["num"]),
+    ("Modules/ModParser.lua:6304-6308", &["num"]),
+    ("Modules/ModParser.lua:6311-6315", &["num"]),
+    ("Modules/ModParser.lua:6318-6325", &["num"]),
+    ("Modules/ModParser.lua:6328-6332", &["num"]),
+    ("Modules/ModParser.lua:6335-6339", &["num", "type"]),
+    ("Modules/ModParser.lua:6342-6348", &["num1", "num2"]),
+    ("Modules/ModParser.lua:6351-6356", &["num"]),
+    ("Modules/ModParser.lua:6359-6364", &["num"]),
+];
+
+/// `JewelFuncSpec.args` of a dumped closure: its upvalues (`"$up": [[name, value], …]`,
+/// `lua/state_dump.lua`, pob-state/2) picked by [`CLOSURE_ARGS`] name (a name the closure does
+/// not capture is nil, as an unset Lua upvalue reads). Empty for any other closure and for a
+/// dump without `$up` (pob-state/1, or a host without the upvalue reader).
+pub fn closure_args(src: &str, up: Option<&J>) -> smallvec::SmallVec<[Value; 4]> {
+    let Some(J::Array(up)) = up else {
+        return smallvec::SmallVec::new();
+    };
+    let Some((_, names)) = CLOSURE_ARGS.iter().find(|(k, _)| *k == src) else {
+        return smallvec::SmallVec::new();
+    };
+    names
+        .iter()
+        .map(|name| {
+            up.iter()
+                .filter_map(J::as_array)
+                .find(|p| p.len() == 2 && p[0].as_str() == Some(name))
+                .map_or(Value::Nil, |p| j_to_value(&p[1]))
+        })
+        .collect()
+}
+
 /// A dumped plain value (a mod value, a tag field) as a `Value`: tables
 /// inline, `$num` members as `#n` fields, other `$`-members kept verbatim
 /// (markers inside mod values), jewel closures as `JewelFunc`.
@@ -211,7 +262,9 @@ pub fn j_to_value(j: &J) -> Value {
                 let only = m
                     .keys()
                     .all(|k| matches!(k.as_str(), "func" | "type" | "radius"))
-                    && m["func"].as_object().is_some_and(|f| f.len() == 1);
+                    && m["func"]
+                        .as_object()
+                        .is_some_and(|f| f.keys().all(|k| matches!(k.as_str(), "$fn" | "$up")));
                 if only {
                     let r#type = m.get("type").and_then(J::as_str).map(Name::from);
                     return Value::JewelFunc(Arc::new(pob_gamedata::JewelFuncSpec {
@@ -219,7 +272,7 @@ pub fn j_to_value(j: &J) -> Value {
                         kind: pob_gamedata::JewelFuncKind::from_type(
                             r#type.as_ref().map(|n| n.as_str()),
                         ),
-                        args: smallvec::SmallVec::new(),
+                        args: closure_args(src, m["func"].get("$up")),
                         r#type,
                         radius: m.get("radius").and_then(J::as_str).map(Name::from),
                     }));

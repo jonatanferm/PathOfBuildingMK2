@@ -271,10 +271,10 @@ env-less config applies / jewel funcs / `ConfigTab:BuildModList` `#1`) plus
 * `provenance.json` (`pob-provenance/1`): flattened output key -> last
   writer for `output`, `breakdown`, `enemy`, `minion`, `minionBreakdown` of
   the main env;
-* `state/<hit>.json` (`pob-state/1`): `{"$env", build, format, hit, kind
+* `state/<hit>.json` (`pob-state/2`): `{"$env", build, format, hit, kind
   (line|in|out), n, probe, root: {env, locals, globalCache}, stack}`.
 
-`pob-state/1` values follow `crates/pob-dump/FORMAT.md` (`$seq`, `$num`,
+`pob-state/2` values follow `crates/pob-dump/FORMAT.md` (`$seq`, `$num`,
 `$keys`, `$meta`, `$float`, `$bytes`, `$$`-escaped keys), keys sorted.
 Identity: every table is written in full once, at its canonical path (first
 reached breadth-first, so the shortest path wins), with `"$id": n` when it is
@@ -287,7 +287,14 @@ active skills and breakdowns (their mod stores and actor outputs are written in 
 "mods": ...}` (ModDB grouped by name, names sorted) with each mod in
 the mod shape (`pob_oracle::mod_json`) plus `"$at": "<file>:<line>"`; items are
 `{"$item": name, ...}` with modList, slotModList and the weapon / armour /
-flask / tincture / jewel data; active skills carry `"$uuid"`.
+flask / tincture / jewel data; active skills carry `"$uuid"`. Two members are
+injection inputs that no comparison reads (`schema::INPUT_KEYS`, with `$at`),
+added by FUP3 (the `/2`; `/1` dumps lack them and are still read): an item's
+`"$modLines"` (the mod lines `Item:FindModifierSubstring` reads and the item's
+variant fields; `inject` fills the item's `*ModLines`), and a ModParser.lua
+closure's `"$up": [[name, value], …]` (its upvalues, read through the
+`getupvalue` that `JitPob::install_probe_upvalue_reader` gives the encoder;
+`mod_json::closure_args` fills `JewelFuncSpec.args`).
 
 Dumps are cached zstd-compressed at
 `.parity/probe-cache/<sha>/<build-blake3>/<hit>.json.zst`

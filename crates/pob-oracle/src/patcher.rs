@@ -1483,6 +1483,111 @@ fn touch_use_marker(dir: &Path) -> bool {
     dir.is_dir() && std::fs::write(dir.join(USE_MARKER), format!("{}\n", std::process::id())).is_ok()
 }
 
+/// The in-use lock of a published copy (`<root>/<sha>/.in-use.lock`). Every process that is handed
+/// the copy holds a shared `flock` on it until it exits ([`hold_copy`]), and [`prune`] removes a
+/// copy only while it holds the lock exclusively, so a copy in use is never pruned however long
+/// ago its use marker was written (FUP3, FOLLOWUPS "FUP1" 4). The kernel drops a dead process's
+/// lock, so a crash cannot pin a copy.
+const USE_LOCK: &str = ".in-use.lock";
+
+#[cfg(unix)]
+fn flock(file: &std::fs::File, op: rustix::fs::FlockOperation) -> std::io::Result<bool> {
+    loop {
+        match rustix::fs::flock(file, op) {
+            Ok(()) => return Ok(true),
+            Err(e) if e == rustix::io::Errno::INTR => {}
+            Err(e) if e == rustix::io::Errno::WOULDBLOCK => return Ok(false),
+            Err(e) => return Err(std::io::Error::from(e)),
+        }
+    }
+}
+
+/// Block until this process holds a shared lock on `file`.
+#[cfg(unix)]
+fn lock_shared(file: &std::fs::File) -> std::io::Result<()> {
+    flock(file, rustix::fs::FlockOperation::LockShared).map(|_| ())
+}
+
+#[cfg(not(unix))]
+#[allow(clippy::incompatible_msrv)]
+fn lock_shared(file: &std::fs::File) -> std::io::Result<()> {
+    file.lock_shared()
+}
+
+/// Try for an exclusive lock on `file` without blocking (`Ok(false)`: another holder).
+#[cfg(unix)]
+fn try_lock_exclusive(file: &std::fs::File) -> std::io::Result<bool> {
+    flock(file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
+}
+
+#[cfg(not(unix))]
+#[allow(clippy::incompatible_msrv)]
+fn try_lock_exclusive(file: &std::fs::File) -> std::io::Result<bool> {
+    match file.try_lock() {
+        Ok(()) => Ok(true),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+        Err(std::fs::TryLockError::Error(e)) => Err(e),
+    }
+}
+
+/// Is the open `file` still the file at `path` (not renamed away with its copy, nor replaced by a
+/// republished copy's lock)?
+#[cfg(unix)]
+fn same_file(file: &std::fs::File, path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (file.metadata(), std::fs::metadata(path)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn same_file(_file: &std::fs::File, path: &Path) -> bool {
+    path.is_file()
+}
+
+/// Hold the copy in `dir` for the rest of the process: a shared lock on its [`USE_LOCK`], kept
+/// open in a process-wide table (once per copy). False when the copy is gone or was pruned while
+/// the lock was being taken (the caller publishes it again).
+pub fn hold_copy(dir: &Path) -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static HELD: OnceLock<Mutex<HashMap<PathBuf, std::fs::File>>> = OnceLock::new();
+    let lock = dir.join(USE_LOCK);
+    let mut held = HELD
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(f) = held.get(&lock) {
+        if same_file(f, &lock) {
+            return true;
+        }
+        held.remove(&lock);
+    }
+    if !dir.is_dir() {
+        return false;
+    }
+    let Ok(file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock)
+    else {
+        return false;
+    };
+    if lock_shared(&file).is_err() {
+        return false;
+    }
+    // a prune holds the lock exclusively across its rename: once ours is granted, the copy is
+    // either still at `dir` (and safe) or in the prune's trash
+    if !same_file(&file, &lock) {
+        return false;
+    }
+    held.insert(lock, file);
+    true
+}
+
 fn mtime(p: &Path) -> Option<std::time::SystemTime> {
     std::fs::symlink_metadata(p).and_then(|m| m.modified()).ok()
 }
@@ -1492,13 +1597,15 @@ fn is_sha_name(name: &str) -> bool {
     name.len() == 16 && name.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// Remove the patched copies under `root` that are stale: not `keep`, and not handed out for
-/// `max_age` (the use marker's mtime; a copy without one, by its `manifest.json`'s mtime, after
-/// [`LEGACY_AGE_FACTOR`] × `max_age`), plus leftover `.<sha>.tmp.*` / `.<sha>.prune.*`
-/// directories older than `max_age`. A copy is first renamed out of the way (atomic, so no
-/// process can find a half-deleted copy under its sha; one that looks for it republishes it),
-/// then deleted; its unpatched files are hard links, so the PoB checkout is untouched. Errors
-/// are ignored (another process may prune the same copy). Returns the copies removed.
+/// Remove the patched copies under `root` that are stale: not `keep`, not held by a running
+/// process (its [`USE_LOCK`]: [`hold_copy`]), and not handed out for `max_age` (the use marker's
+/// mtime; a copy without one, by its `manifest.json`'s mtime, after [`LEGACY_AGE_FACTOR`] ×
+/// `max_age`), plus leftover `.<sha>.tmp.*` / `.<sha>.prune.*` directories older than
+/// `max_age`. A copy is first renamed out of the way (atomic, so no process can find a
+/// half-deleted copy under its sha; one that looks for it republishes it), with its lock held
+/// exclusively across the rename, then deleted; its unpatched files are hard links, so the PoB
+/// checkout is untouched. Errors are ignored (another process may prune the same copy). Returns
+/// the copies removed.
 pub fn prune(root: &Path, keep: Option<&str>, max_age: std::time::Duration) -> Vec<PathBuf> {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let now = std::time::SystemTime::now();
@@ -1532,6 +1639,17 @@ pub fn prune(root: &Path, keep: Option<&str>, max_age: std::time::Duration) -> V
             if !stale {
                 continue;
             }
+            // in use: a process holds the copy (shared lock). No lock file: no process of this
+            // code was ever handed the copy (one that takes it now finds it renamed and
+            // republishes it).
+            let lock = std::fs::File::options().read(true).open(path.join(USE_LOCK));
+            let _exclusive = match lock {
+                Ok(f) => match try_lock_exclusive(&f) {
+                    Ok(true) => Some(f),
+                    _ => continue,
+                },
+                Err(_) => None,
+            };
             let trash = root.join(format!(
                 ".{name}.prune.{}.{}",
                 std::process::id(),
@@ -1814,7 +1932,7 @@ fn publish(
     if let Ok(text) = std::fs::read_to_string(&manifest_path) {
         if let Ok(manifest) = serde_json::from_str::<Manifest>(&text) {
             // (a copy pruned between the read and the mark is published again below)
-            if manifest.sha == sha && touch_use_marker(&dir) {
+            if manifest.sha == sha && touch_use_marker(&dir) && hold_copy(&dir) {
                 prune_now(&sha);
                 return Ok(Patched {
                     src: dir.join("src"),
@@ -1865,6 +1983,7 @@ fn publish(
             return Err(err(format!("could not publish {}: {e}", dir.display())));
         };
         touch_use_marker(&dir);
+        hold_copy(&dir);
         prune_now(&sha);
         return Ok(Patched {
             src: dir.join("src"),
@@ -1874,6 +1993,7 @@ fn publish(
         });
     }
     touch_use_marker(&dir);
+    hold_copy(&dir);
     prune_now(&sha);
     Ok(Patched {
         src: dir.join("src"),
@@ -2019,6 +2139,49 @@ mod tests {
             .filter(|n| n.contains(".prune."))
             .collect();
         assert!(left.is_empty(), "{left:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// FUP3 (FOLLOWUPS "FUP1" 4): a stale copy a process holds ([`hold_copy`]) is not pruned
+    /// while it is held (by this process or another one); one whose lock nobody holds is.
+    #[test]
+    fn prune_keeps_held_copies() {
+        use std::time::{Duration, SystemTime};
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/tmp")
+            .join(format!("fup3-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let hour = Duration::from_secs(3600);
+        let copy = |name: &str| {
+            let d = root.join(name);
+            std::fs::create_dir_all(d.join("src")).unwrap();
+            std::fs::write(d.join("manifest.json"), "{}").unwrap();
+            std::fs::write(d.join(USE_MARKER), "1\n").unwrap();
+            std::fs::File::options()
+                .read(true)
+                .open(d.join(USE_MARKER))
+                .unwrap()
+                .set_modified(SystemTime::now() - 2 * hour)
+                .unwrap();
+            d
+        };
+        let held = copy("00000000000000b1");
+        let released = copy("00000000000000b2");
+        let other_process = copy("00000000000000b3");
+        assert!(hold_copy(&held));
+        assert!(hold_copy(&held), "a second hold of the same copy is a no-op");
+        // a lock file some earlier process held and released
+        drop(std::fs::File::create(released.join(USE_LOCK)).unwrap());
+        // another holder: a shared lock through a descriptor of its own (as another process has)
+        let theirs = std::fs::File::create(other_process.join(USE_LOCK)).unwrap();
+        lock_shared(&theirs).unwrap();
+        let removed = prune(&root, None, hour);
+        assert_eq!(removed, vec![released.clone()]);
+        assert!(held.is_dir() && other_process.is_dir() && !released.exists());
+        // the other holder exits: its copy goes on the next prune; ours stays held
+        drop(theirs);
+        assert_eq!(prune(&root, None, hour), vec![other_process.clone()]);
+        assert!(held.is_dir());
         let _ = std::fs::remove_dir_all(&root);
     }
 

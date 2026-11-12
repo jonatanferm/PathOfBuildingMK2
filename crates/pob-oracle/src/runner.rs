@@ -188,6 +188,9 @@ pub fn probe_in_process(
     let pre = probe_prelude(&root_s, &out_dir, &name, opts);
     let mut pob = crate::jit::JitPob::boot_oracle(&root, Some(&pre))
         .map_err(|x| e(format!("PoB boot failed: {x}")))?;
+    // the encoder's `getupvalue`, for the closures' "$up" (state_dump.lua; FUP3)
+    pob.install_probe_upvalue_reader()
+        .map_err(|x| e(format!("probe upvalue reader: {x}")))?;
     pob.run(crate::oracle::ORACLE_LUA)
         .map_err(|x| e(format!("oracle.lua: {x}")))?;
     pob.load_build_xml(&xml, &name)
@@ -1067,10 +1070,13 @@ fn cached_query_in<E>(
     Ok(text)
 }
 
-/// Where the oracle tests publish patched copies: `$POB_ORACLE_SRC_ROOT`, else
+/// Where the oracle tests ask for patched copies: `$POB_ORACLE_SRC_ROOT`, else
 /// `target/oracle-src` of the checkout that holds the PoB source (`<checkout>/.PathOfBuilding/src`;
-/// from a git worktree that is the main checkout, so every worktree shares one copy per sha),
-/// else [`crate::patcher::default_root`].
+/// from a git worktree that is the main checkout), else [`crate::patcher::default_root`].
+/// Since FUP1 [`crate::patcher::patch`] publishes every copy into [`crate::patcher::shared_root`]
+/// whatever root it is given (this root is used only when there is no shared root, i.e. no
+/// `.parity`; copies older code left in it are pruned), so the one-copy-per-sha sharing between
+/// worktrees comes from the shared root, not from this one.
 #[must_use]
 pub fn shared_patch_root(pob_src: &Path) -> PathBuf {
     if let Some(p) = std::env::var_os("POB_ORACLE_SRC_ROOT") {

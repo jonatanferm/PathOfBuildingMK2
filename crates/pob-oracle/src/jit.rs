@@ -309,6 +309,55 @@ impl JitPob {
         drop(g);
         Ok(Self { lua })
     }
+
+    /// Give the probe encoder (`__state_dump`, `lua/state_dump.lua`) its upvalue reader
+    /// `getupvalue(f, n) -> name, value` (Lua's `debug.getupvalue`), so a dumped closure can
+    /// carry its captures (`"$up"`; FUP3, FOLLOWUPS "CS2" 2). The oracle state has no `debug`
+    /// library (mlua's safe mode) and loading one would change PoB's globals
+    /// (Classes/ItemsTab.lua:4175 reads `debug.traceback`), so the reader is a field of the
+    /// encoder's own table, not a global. A no-op when no encoder was loaded.
+    pub fn install_probe_upvalue_reader(&self) -> Result<(), String> {
+        let g = self.lua.globals();
+        let Some(s) = g.raw_get::<Option<mlua::Table>>("__state_dump").map_err(err)? else {
+            return Ok(());
+        };
+        let f = new_upvalue_reader(&self.lua).map_err(err)?;
+        s.raw_set("getupvalue", f).map_err(err)
+    }
+}
+
+/// `getupvalue(f, n)`: `lua_getupvalue(L, 1, n)` for a function `f` and an integer `n` (the
+/// upvalue's name and value), nothing otherwise or past the last upvalue (as
+/// `debug.getupvalue`; C functions' upvalues are named `""`).
+#[allow(unsafe_code)]
+unsafe extern "C-unwind" fn lua_getupvalue_fn(l: *mut mlua::lua_State) -> std::ffi::c_int {
+    use mlua::ffi;
+    // SAFETY: `l` is the calling thread's state (Lua calls this as a C function with its
+    // arguments at 1..=top). Only stack slots 1 and 2 are read, neither call raises, and at most
+    // two values are pushed (LUA_MINSTACK = 20 slots are guaranteed to a C function).
+    unsafe {
+        if ffi::lua_type(l, 1) != ffi::LUA_TFUNCTION || ffi::lua_type(l, 2) != ffi::LUA_TNUMBER {
+            return 0;
+        }
+        let Ok(n) = std::ffi::c_int::try_from(ffi::lua_tointeger(l, 2)) else {
+            return 0;
+        };
+        let name = ffi::lua_getupvalue(l, 1, n);
+        if name.is_null() {
+            return 0;
+        }
+        // stack: f, n, value -> f, n, name, value
+        ffi::lua_pushstring(l, name);
+        ffi::lua_insert(l, -2);
+    }
+    2
+}
+
+#[allow(unsafe_code)]
+fn new_upvalue_reader(lua: &Lua) -> mlua::Result<mlua::Function> {
+    // SAFETY: `lua_getupvalue_fn` is a well-behaved C function (see its SAFETY note): it never
+    // raises, longjmps or touches Rust state.
+    unsafe { lua.create_c_function(lua_getupvalue_fn) }
 }
 
 fn to_ret(v: &Value) -> Ret {

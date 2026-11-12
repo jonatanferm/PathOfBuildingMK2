@@ -1,4 +1,4 @@
--- pob-oracle: the pob-state/1 encoder (calc-architecture.md §9.2).
+-- pob-oracle: the pob-state/2 encoder (calc-architecture.md §9.2).
 --
 -- Loaded into the oracle's LuaJIT state *before* PoB boots (as part of the
 -- `pre` chunk), so it captures the raw `next` before provenance.lua replaces
@@ -31,11 +31,19 @@
 --     ModDB mods grouped by name (names sorted, PoB's order within a name),
 --     ModList mods in PoB's order, each mod in pob_calc::Mod's JSON shape plus
 --     "$at": "<file>:<line>" of the code that inserted it (provenance runs);
---   * items: {"$item": name, <whitelisted fields>};
+--   * items: {"$item": name, "$modLines": <mod lines>, <whitelisted fields>}, where
+--     "$modLines" holds what Item:FindModifierSubstring / CheckModLineVariant read
+--     (Classes/Item.lua:289-333, 2120-2146): the explicit / enchant / scourge /
+--     implicit / crucible mod lines (each line's line, disabled, variantList,
+--     versionList, variantGroupList) and the item's variant selection fields;
+--     a value object (no identity), not a table member (pob-state/2, FUP3);
 --   * functions: {"$fn": "<file>:<first>-<last>"} (probe wrappers report the
 --     function they wrap); a metatable's functions also carry their upvalue
 --     names ("upnames"), which identifies skillCond's function __index
---     layers (their values are unreachable without the debug library).
+--     layers; a closure of `S.upvalueSources` (ModParser.lua's jewel funcs)
+--     carries its upvalues as "$up": [[name, value], ...] in upvalue order,
+--     each value a value object whose functions carry no "$up" (pob-state/2,
+--     FUP3), when the host gave the encoder `S.getupvalue`.
 
 local type, tostring, tonumber, select, ipairs, pcall, error = type, tostring, tonumber, select, ipairs, pcall, error
 local rawget, getmetatable, setmetatable = rawget, getmetatable, setmetatable
@@ -45,8 +53,11 @@ local rawnext = next
 
 -- The oracle's LuaJIT state has no `debug` library (mlua's safe mode), so
 -- function sources come from `jit.util.funcinfo` and stack positions from
--- the position prefix `error(msg, level)` adds; upvalue values are not
--- reachable (only their names, `jit.util.funcuvname`).
+-- the position prefix `error(msg, level)` adds. Upvalue values come from
+-- `S.getupvalue(f, n)` (`lua_getupvalue`: name, value), which the probe host
+-- installs after boot (`JitPob::install_probe_upvalue_reader`, called by
+-- `runner::probe_in_process`); without it no "$up" is written. It is not a
+-- global, so PoB's environment is unchanged (ItemsTab.lua:4175 tests `debug`).
 local jutil
 do
 	local ok, m = pcall(require, "jit.util")
@@ -105,6 +116,19 @@ function S.fnSource(f)
 	local info = jutil and jutil.funcinfo(f)
 	if type(info) ~= "table" or not info.source then return "[C]" end
 	return S.relSource(info.source) .. ":" .. tostring(info.linedefined) .. "-" .. tostring(info.lastlinedefined)
+end
+
+-- Closures whose upvalue values are dumped ("$up"): source prefixes. ModParser.lua's
+-- closures are the jewel funcs, whose captures the port holds as `JewelFuncSpec.args`
+-- (pob_oracle::mod_json decodes them; FOLLOWUPS "CS2" 2).
+S.upvalueSources = { "Modules/ModParser.lua:" }
+
+function S.dumpsUpvalues(src)
+	if type(S.getupvalue) ~= "function" then return false end
+	for _, prefix in ipairs(S.upvalueSources) do
+		if src:sub(1, #prefix) == prefix then return true end
+	end
+	return false
 end
 
 -- Upvalue names of a Lua function.
@@ -542,9 +566,28 @@ end
 local function encodeFn(ctx, f, withUp)
 	local inner = S.wrapped[f]
 	if inner then f = inner end
-	ctx:put('{"$fn":' .. jstr(S.fnSource(f)))
+	local src = S.fnSource(f)
+	ctx:put('{"$fn":' .. jstr(src))
+	-- "$up" before "upnames": members in bytewise order
+	if not ctx.inUp and S.dumpsUpvalues(src) then
+		-- the upvalues in order (lua_getupvalue numbers them from 1); their functions are
+		-- written without "$up" (one level)
+		ctx:put(',"$up":[')
+		ctx.inUp = true
+		local i = 1
+		while true do
+			local name, value = S.getupvalue(f, i)
+			if name == nil then break end
+			if i > 1 then ctx:put(",") end
+			ctx:put("[" .. jstr(name) .. ",")
+			encodePlain(ctx, value)
+			ctx:put("]")
+			i = i + 1
+		end
+		ctx.inUp = false
+		ctx:put("]")
+	end
 	if withUp then
-		-- upvalue values are out of reach without the debug library
 		local names = S.upvalueNames(f)
 		local parts = { }
 		for i, name in ipairs(names) do parts[i] = jstr(name) end
@@ -693,6 +736,43 @@ local itemFields = { "id", "name", "title", "baseName", "type", "rarity", "quali
 	"base", "variant", "jewelRadiusIndex", "limit", "requirements",
 	"modList", "slotModList", "weaponData", "armourData", "flaskData", "tinctureData", "jewelData" }
 sort(itemFields)
+
+-- "$modLines" of an item: the mod line lists Item:FindModifierSubstring merges (Item.lua:299-305),
+-- the line fields it and CheckModLineVariant read (308, 2122-2145), and the item fields
+-- CheckModLineVariant reads besides `variant` (an item field above).
+local modLineLists = { "crucibleModLines", "enchantModLines", "explicitModLines", "implicitModLines", "scourgeModLines" }
+local modLineFields = { "disabled", "line", "variantGroupList", "variantList", "versionList" }
+local itemVariantFields = { "hasAltVariant", "hasAltVariant2", "hasAltVariant3", "hasAltVariant4", "hasAltVariant5",
+	"selectedVersion", "usesVariantGroups", "variantAlt", "variantAlt2", "variantAlt3", "variantAlt4", "variantAlt5",
+	"variantGroupSelections" }
+
+-- A plain table for encodePlain: { <list> = { <line>... } (absent when the item has no such
+-- field), variant = { <field> = value } }.
+local function itemModLines(item)
+	local out = { }
+	for _, k in ipairs(modLineLists) do
+		local list = rawget(item, k)
+		if type(list) == "table" then
+			local lines = { }
+			local i = 1
+			while true do
+				local l = rawget(list, i)
+				if l == nil then break end
+				if type(l) == "table" then
+					local line = { }
+					for _, f in ipairs(modLineFields) do line[f] = rawget(l, f) end
+					lines[#lines + 1] = line
+				end
+				i = i + 1
+			end
+			out[k] = S.array(lines)
+		end
+	end
+	local variant = { }
+	for _, f in ipairs(itemVariantFields) do variant[f] = rawget(item, f) end
+	out.variant = variant
+	return out
+end
 
 -- kind, content, extra:
 --   "marker", json | "mod", mod | "store", content, class | "item", content | "table", content
@@ -902,6 +982,9 @@ local function emitTable(ctx, t, path)
 		sep()
 		ctx:put('"$item":')
 		encodeScalar(ctx, rawget(c, "name"))
+		sep()
+		ctx:put('"$modLines":')
+		encodePlain(ctx, itemModLines(c))
 	end
 	if skill then
 		local f = rawget(_G, "cacheSkillUUID")
@@ -992,7 +1075,7 @@ function S.encodeDoc(doc)
 	local head = { }
 	head[#head + 1] = '{"$env":' .. (doc.envId and quote(doc.envId) or "null")
 	head[#head + 1] = '"build":' .. jstr(tostring(doc.build or ""))
-	head[#head + 1] = '"format":"pob-state/1"'
+	head[#head + 1] = '"format":"pob-state/2"'
 	head[#head + 1] = '"hit":' .. jstr(doc.hit)
 	head[#head + 1] = '"kind":' .. quote(doc.kind)
 	head[#head + 1] = '"n":' .. jnum(doc.n)
