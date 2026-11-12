@@ -75,3 +75,13 @@ Found by the e2e runs (`d_skills`: the sockets label) and by auditing every `def
 (egui) are deleted. `pob-engine`/`pob-data` stay for calc:INT-4. The worker's default glue name
 follows (`./pob-web.js`, `calc/worker_web.rs`). The web page runs `PobApp` by default
 (`?app=testcard` for the test card); the desktop feature `lua-calc` now injects the bridge.
+
+## 7. Consequences for the unit harnesses (`crates/pob-ui-oracle/tests/u*.rs`)
+
+- T4 normalisers: the rule "a Lua `nil` gem/group field equals the frozen Rust default" now also
+  accepts a Rust `"nil"` (§3, §4 make the model write what Lua writes): `lua && v == "nil"` →
+  `v == "nil"` in 16 harnesses.
+- u30 keeps its Lua-side ItemsTab stand-ins (`GetSocketDescriptionLine`, `AddItemTooltip`,
+  `AddUndoState`) and now installs the matching Rust ones itself (they were the defaults, §5).
+- u39/u40 keep `nodeViewer = { Draw = function() end }` on the Lua side and install a no-op
+  `node_viewer_draw` and no highlight ring on the Rust side (§5).
