@@ -30,10 +30,16 @@
 //! line probes `perform:1691` / `perform:1862`; a Lua nil boolean is `false`). A difference fails
 //! the build like a state mismatch.
 //!
-//! Dumps: `crates/pob-oracle/corpus/PF-C/probe.sh` probes every `.parity/builds`
-//! build with `corpus/PF-C/stages.toml` into `target/tmp/pfc-probe/<stem>/`
-//! (`$PFC_PROBE_DIR` overrides). Without dumps the test prints that command and
-//! skips (POB_ORACLE_REQUIRE=1 / CI make that a failure).
+//! Dumps: the test probes every `.parity/builds` build itself with `corpus/PF-C/stages.toml`
+//! and the selection [`SELECT`], through the shared content-keyed probe cache
+//! (`testkit::probe_selection`, as PF-G does; a fresh `pob_oracle probe` process per build on a
+//! miss), and reads only the main env's dumps ([`main_env_files`]). FS1: the dumps used to come
+//! only from a manual `corpus/PF-C/probe.sh` run into `target/tmp/pfc-probe/`, so the full suite
+//! (fresh target dir, `POB_ORACLE_REQUIRE=1`) failed with "no PF-C dumps" and every other run
+//! skipped silently. `$PFC_PROBE_DIR` still reads a `probe.sh` output directory instead
+//! (`<stem>/hits.json`, `<stem>/state/`). Missing inputs follow the workspace policy
+//! (`pob_testpaths::require`: a failure unless `POB_ALLOW_SKIP=1`). `PFC_ONLY=<substring>`
+//! restricts the builds.
 #![allow(non_snake_case)]
 
 use std::cell::RefCell;
@@ -61,17 +67,141 @@ const REPLAYED: &[&str] = &[
 /// Paths whose contents come from the (unloaded) build model, not from the segment.
 const MODEL_ONLY: &[&str] = &["env.partyMembers."];
 
-fn skip(why: &str) {
-    let required = std::env::var_os("POB_ORACLE_REQUIRE").is_some_and(|v| v == "1")
-        || std::env::var_os("CI").is_some_and(|v| !v.is_empty() && v != "false" && v != "0");
-    assert!(!required, "required input missing: {why}");
-    eprintln!("SKIPPED: {why}");
+/// The probe selection (the same as `corpus/PF-C/probe.sh`): the segment's line probes and the
+/// closure-upvalue probes of the main env, the `pfc:calcFlaskMods` line dumps and every call of
+/// the replayed callees. The callee globs have no `@main` (that picks only each id's first main-env
+/// hit), so they dump every env's calls; [`main_env_files`] keeps the main env's.
+const SELECT: &[&str] = &[
+    "perform:1289@main",
+    "perform:1943@main",
+    "perform:1691@main",
+    "perform:1862@main",
+    "pfc:calcFlaskMods*",
+    "mergeKeystones:*",
+    "createMinionSkills:*",
+    "initMinionModDB:*",
+    "applyEnemyModifiers:*",
+];
+
+fn stages_file() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/PF-C/stages.toml")
 }
 
-fn probe_root() -> PathBuf {
-    std::env::var_os("PFC_PROBE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("pfc-probe"))
+/// One build's input: a `$PFC_PROBE_DIR/<stem>/state` directory, or the build XML to probe.
+enum Input {
+    Dir(PathBuf),
+    Xml(PathBuf),
+}
+
+/// Where one build's dumps are read from: the directory, or the shared probe cache's entry
+/// (held while the dumps are read: a private `POB_QUERY_CACHE=off` run is deleted when dropped).
+enum DumpSource {
+    Dir(PathBuf),
+    Probe(pob_oracle::runner::ProbeDumps),
+}
+
+impl DumpSource {
+    fn state(&self) -> &Path {
+        match self {
+            DumpSource::Dir(p) => p,
+            DumpSource::Probe(d) => d.path(),
+        }
+    }
+}
+
+impl Input {
+    /// The build's dumps; an XML is probed now when the cache has no entry for it (one build at
+    /// a time, so the test streams through the corpus).
+    fn open(&self) -> Result<DumpSource, String> {
+        match self {
+            Input::Dir(d) => Ok(DumpSource::Dir(d.clone())),
+            Input::Xml(xml) => {
+                let opts = pob_oracle::runner::ProbeOptions {
+                    select: SELECT.iter().map(|s| (*s).to_owned()).collect(),
+                    max_dumps: 2000,
+                    provenance: false,
+                };
+                testkit::probe_selection(
+                    Path::new(env!("CARGO_BIN_EXE_pob_oracle")),
+                    xml,
+                    Some(&stages_file()),
+                    &opts,
+                )
+                .map(DumpSource::Probe)
+            }
+        }
+    }
+}
+
+/// The build inputs, `(stem, input)` in name order (`PFC_ONLY` filters by stem). `None`: an
+/// input is missing and `POB_ALLOW_SKIP=1` skips.
+fn build_inputs() -> Option<Vec<(String, Input)>> {
+    let keep = |stem: &str| std::env::var("PFC_ONLY").map_or(true, |only| stem.contains(&only));
+    let mut out = Vec::new();
+    if let Some(root) = std::env::var_os("PFC_PROBE_DIR").map(PathBuf::from) {
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+            .map(|rd| {
+                rd.filter_map(Result::ok)
+                    .map(|e| e.path())
+                    .filter(|p| p.join("hits.json").is_file())
+                    .collect()
+            })
+            .unwrap_or_default();
+        dirs.sort();
+        for d in dirs {
+            let stem = d.file_name().unwrap().to_string_lossy().into_owned();
+            if keep(&stem) {
+                out.push((stem, Input::Dir(d.join("state"))));
+            }
+        }
+        let what = format!("PF-C dumps under $PFC_PROBE_DIR={}", root.display());
+        return pob_testpaths::require((!out.is_empty()).then_some(out), &what);
+    }
+    let parity = pob_testpaths::require(pob_testpaths::parity_dir(), ".parity")?;
+    let mut xmls: Vec<PathBuf> = std::fs::read_dir(parity.join("builds"))
+        .map(|rd| {
+            rd.filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "xml"))
+                .collect()
+        })
+        .unwrap_or_default();
+    xmls.sort();
+    for xml in xmls {
+        let stem = xml
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_owned();
+        if keep(&stem) {
+            out.push((stem, Input::Xml(xml)));
+        }
+    }
+    let what = format!("builds under {}", parity.join("builds").display());
+    pob_testpaths::require((!out.is_empty()).then_some(out), &what)
+}
+
+/// The dump file names (without a `.zst` suffix) of the main env's hits, from the run's
+/// `hits.json` (`hits.json.zst` in the probe cache) next to `state/`. `None` when the index
+/// names no main env: every file is read then.
+fn main_env_files(state: &Path) -> Result<Option<std::collections::BTreeSet<String>>, String> {
+    let run = state.parent().ok_or("state dir without a parent")?;
+    let hits = ["hits.json", "hits.json.zst"]
+        .iter()
+        .map(|f| run.join(f))
+        .find(|p| p.is_file())
+        .ok_or_else(|| format!("{}: no hits.json", run.display()))?;
+    let idx = pob_oracle::schema::HitsIndex::load(&hits).map_err(|e| e.0)?;
+    let Some(main) = idx.main_env else {
+        return Ok(None);
+    };
+    Ok(Some(
+        idx.dumps
+            .iter()
+            .filter(|d| d.env.as_deref() == Some(main.as_str()))
+            .filter_map(|d| d.file.rsplit('/').next().map(str::to_owned))
+            .collect(),
+    ))
 }
 
 /// `mergeBuff(src, destTable, destKey)` (CalcPerform.lua 45-67), the stand-in until PF-A
@@ -201,11 +331,17 @@ fn buff_mod_lists(
     Ok(out)
 }
 
-fn load_build_dumps(dir: &Path) -> Result<BuildDumps, String> {
-    let state = dir.join("state");
+fn load_build_dumps(state: &Path) -> Result<BuildDumps, String> {
+    let keep = main_env_files(state)?;
     let mut dumps = BTreeMap::new();
-    for e in std::fs::read_dir(&state).map_err(|e| format!("{}: {e}", state.display()))? {
+    for e in std::fs::read_dir(state).map_err(|e| format!("{}: {e}", state.display()))? {
         let p = e.map_err(|e| e.to_string())?.path();
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let name = name.strip_suffix(".zst").unwrap_or(name);
+        let is_json = Path::new(name).extension().is_some_and(|x| x == "json");
+        if !is_json || keep.as_ref().is_some_and(|k| !k.contains(name)) {
+            continue;
+        }
         let d = StateDump::load(&p).map_err(|e| format!("{}: {e}", p.display()))?;
         dumps.insert(d.hit.clone(), d);
     }
@@ -596,28 +732,11 @@ fn clip(s: &str) -> String {
 
 #[test]
 fn pfc_l4_perform_1289_1943() {
-    if !testkit::init_default_data() {
-        return skip("no data dump (data/dump)");
+    if pob_testpaths::require(pob_testpaths::dump_dir(), "data/dump").is_none() {
+        return;
     }
-    let root = probe_root();
-    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
-        .map(|rd| {
-            rd.filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| p.join("hits.json").is_file())
-                .collect()
-        })
-        .unwrap_or_default();
-    dirs.sort();
-    if let Ok(only) = std::env::var("PFC_ONLY") {
-        dirs.retain(|d| d.file_name().is_some_and(|n| n.to_string_lossy().contains(&only)));
-    }
-    if dirs.is_empty() {
-        return skip(&format!(
-            "no PF-C dumps under {} (fill with: crates/pob-oracle/corpus/PF-C/probe.sh)",
-            root.display()
-        ));
-    }
+    assert!(testkit::init_default_data(), "data/dump does not load");
+    let Some(inputs) = build_inputs() else { return };
     let mut clean = 0usize;
     let mut total = 0usize;
     let mut errors = Vec::new();
@@ -627,9 +746,9 @@ fn pfc_l4_perform_1289_1943() {
     let mut upvalues_checked = 0usize;
     let mut notes = Vec::new();
     let mut unrun = 0usize;
-    for dir in &dirs {
-        let stem = dir.file_name().unwrap().to_string_lossy().into_owned();
-        let b = match load_build_dumps(dir) {
+    for (stem, input) in inputs {
+        // the probe cache entry (or private run) is held until the build's dumps are loaded
+        let b = match input.open().and_then(|s| load_build_dumps(s.state())) {
             Ok(b) => b,
             Err(e) => {
                 errors.push(format!("{stem}: {e}"));

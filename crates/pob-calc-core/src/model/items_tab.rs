@@ -1179,7 +1179,8 @@ impl ItemsTab {
     }
 }
 
-// @pob-skip Classes/ItemsTab.lua:1419-1570 reason="ItemsTab:Draw is UI drawing (ui doc U34)"
+// L1419-1570 `ItemsTab:Draw` is UI drawing: U34 ports and marks it in pob-app
+// `tabs/items/core.rs` (ui doc U34; FS1: one marker per Lua line).
 impl ItemsTab {
     /// UI drawing: the UI port owns it (ui doc U34); nothing in the model.
     pub fn Draw(&self, build: &BuildRef) {

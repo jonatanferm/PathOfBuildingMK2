@@ -116,11 +116,12 @@ pub fn pos(x: f64, what: &str) -> f64 {
     x
 }
 
-/// lua: ItemTools.lua:384-413 `itemLib.wiki` (`key`, `matchesKey`, `open`): the item tools'
-/// UI half (calc:IT-A `@pob-skip`s it), ported here for its first UI caller.
-/// @pob Modules/ItemTools.lua:404-412 h=3a09b122
+/// lua: ItemTools.lua:404-409 `itemLib.wiki.open(name)`: the item tools' UI half. No `@pob`
+/// marker: calc:IT-C's `@pob-skip` of 384-413 (`item_tools.rs`) covers the block; no UI unit owns
+/// ItemTools.lua, so its UI callers (here, `controls/gem_select.rs`, `tabs/items/slot.rs`) each
+/// carry an unmarked copy (CCR-0107 §4; FS1: one marker per Lua line).
 fn wiki_open(cx: &mut Cx, name: &str) {
-    // L401
+    // L405
     let route = pob_lua::gsub(name, " ", "_", None).0;
     // L407
     cx.sys

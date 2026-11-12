@@ -7,7 +7,8 @@
 //! (`ProcessNode`, `CalcOrbitAngles`), the jewel-radius node lists and the legion / tattoo
 //! node lists. The image, sprite-sheet and connector parts of the constructor (and
 //! `LoadImage`/`BuildConnector`, 909-1040) are the UI's (ui doc §10.2, U23
-//! `tree_view/assets.rs`); they carry `@pob-skip` markers here.
+//! `tree_view/assets.rs`, `tree_view/connectors.rs`), which carry their markers; this file
+//! names them in plain comments (one marker per Lua line, calc doc §9.6; FS1).
 //!
 //! Representation (CCR-0024, `docs/port/ccr/0024-pt-passive-tree.md`):
 //! * (§4) Nodes inside dynamic tables (`keystoneMap`, `notableMap`, `ascendancyMap`,
@@ -650,7 +651,9 @@ fn PassiveTree_ctor_classes(
         this.orbitAnglesByOrbit.push(angles);
     }
 
-    // @pob-skip Classes/PassiveTree.lua:234-435 reason="UI: tree assets, sprite sheets and sprite map, bloodline sprites, alternate ascendancy emblems and legion sprites (image handles; ui doc §10.2, U23 tree_view/assets.rs)"
+    // L234-435 UI: tree assets, sprite sheets and sprite map, bloodline sprites, alternate
+    // ascendancy emblems and legion sprites (image handles; ui doc §10.2). U23 ports and marks
+    // them in pob-app `tree_view/assets.rs` (FS1: one marker per Lua line).
 
     PassiveTree_ctor_nodes(this, treeVersion, versionNum);
 }
@@ -1083,7 +1086,8 @@ fn PassiveTree_ctor_links(
     versionNum: f64,
     nodeMap: &ahash::AHashMap<i64, NodeRef>,
 ) {
-    // @pob-skip Classes/PassiveTree.lua:626-627 reason="UI: connector polygons (self.connectors; U23 tree_view/connectors.rs)"
+    // L626-627 UI: connector polygons (`self.connectors`); U23 ports and marks them in pob-app
+    // `tree_view/connectors.rs` (FS1).
     // L628
     for (_, node) in this.nodes.pairs() {
         // L629
@@ -1100,7 +1104,8 @@ fn PassiveTree_ctor_links(
             if let Some(otherId) = otherId {
                 node.linkedId.get().push(otherId);
             }
-            // @pob-skip Classes/PassiveTree.lua:635-645 reason="UI: connector polygons for links between tree nodes (BuildConnector; U23 tree_view/connectors.rs)"
+            // L635-645 UI: connector polygons for links between tree nodes (`BuildConnector`); U23
+            // ports and marks them in pob-app `tree_view/connectors.rs` (FS1).
         }
         // @pob Classes/PassiveTree.lua:646-747 h=8b405af3
         // L647
@@ -1350,7 +1355,8 @@ fn PassiveTree_ctor_links(
             node.r#type.set(n!("Normal"));
         }
 
-        // @pob-skip Classes/PassiveTree.lua:748-753 reason="UI: legion node sprites (self.spriteMap; U23 tree_view/assets.rs)"
+        // L748-753 UI: legion node sprites (`self.spriteMap`); U23 ports and marks them in pob-app
+        // `tree_view/assets.rs` (FS1).
 
         // @pob Classes/PassiveTree.lua:754-770 h=95a3f740
         // L755
@@ -1382,7 +1388,8 @@ fn PassiveTree_ctor_links(
             node.r#type.set(n!("Normal"));
         }
 
-        // @pob-skip Classes/PassiveTree.lua:771-777 reason="UI: tattoo node sprites and effect sprites (self.spriteMap; U23 tree_view/assets.rs)"
+        // L771-777 UI: tattoo node sprites and effect sprites (`self.spriteMap`); U23 ports and marks
+        // them in pob-app `tree_view/assets.rs` (FS1).
 
         // @pob Classes/PassiveTree.lua:778-793 h=dc73e499
         // create id to dn map for calcs breakdown sourcing
@@ -1660,7 +1667,8 @@ impl PassiveTree {
 impl PassiveTree {
     /// Common processing code for nodes (used for both real tree nodes and subgraph nodes)
     pub fn ProcessNode(&self, node: &NodeRef) {
-        // @pob-skip Classes/PassiveTree.lua:876-885 reason="UI: node sprites and mastery sprites (self.spriteMap; U23 tree_view/assets.rs)"
+        // L876-885 UI: node sprites and mastery sprites (`self.spriteMap`); U23 ports and marks them
+        // in pob-app `tree_view/assets.rs` (FS1).
 
         // @pob Classes/PassiveTree.lua:886-906 h=33a03e45
         // L886

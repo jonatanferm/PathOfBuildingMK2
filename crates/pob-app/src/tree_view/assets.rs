@@ -5,16 +5,17 @@
 //! @pob-file Modules/Main.lua @16de4b82d
 //!
 //! The UI half of `PassiveTreeClass:PassiveTree(treeVersion)`: the calc plan's PT built the
-//! tree model (`model::PassiveTree`, `@pob-skip` on the blocks below); this file builds the
-//! image parts the Lua constructor interleaves with it, after the model exists:
+//! tree model (`model::PassiveTree`; it names the blocks below in plain comments, the markers
+//! are this file's, FS1); this file builds the image parts the Lua constructor interleaves with
+//! it, after the model exists:
 //!
 //! | Lua lines | here |
 //! |---|---|
-//! | 234-261 (`self.assets`: the tree's own, else `require("TreeData.3_19.Assets")`) | [`TreeAssets::build`] |
-//! | 263-267 (`LoadImage` for every asset) | [`TreeAssets::build`] |
-//! | 268-327 (sprite sheets and `self.spriteMap`) | [`TreeAssets::build`] |
-//! | 329-366 (bloodline sprites), 368-382 (alternate ascendancy emblems) | [`TreeAssets::build`] |
-//! | 384-435 (legion sprite sheets) | [`TreeAssets::build`] |
+//! | 234-258 (`self.assets`: the tree's own, else `require("TreeData.3_19.Assets")`) | [`TreeAssets::build`] |
+//! | 260-264 (`LoadImage` for every asset) | [`TreeAssets::build`] |
+//! | 266-329 (sprite sheets and `self.spriteMap`) | [`TreeAssets::build`] |
+//! | 331-370 (bloodline sprites), 372-387 (alternate ascendancy emblems) | [`TreeAssets::build`] |
+//! | 389-435 (legion sprite sheets) | [`TreeAssets::build`] |
 //! | 626-645 (connector polygons) | `connectors::build_tree_connectors` |
 //! | 748-753, 771-777, 876-885 (`node.sprites`, `effectSprites`, `masterySprites`) | [`TreeAssets::node_sprites`] and friends (read lazily, see below) |
 //! | 909-935 `LoadImage` | [`load_image`] |
@@ -51,12 +52,12 @@
 //! side effects moves; nothing is drawn in between.
 //! DIVERGENCE(download): `main.allowTreeDownload` is never set (PassiveTree.lua:97/918 "currently
 //! disabled"), so the URL argument of `LoadImage` is not built.
-//! ORDER: `pairs(self.assets)` (:265), `pairs(self.skillSprites)` (:285), `pairs(maxZoom.coords)`
-//! (:307, :424), `pairs(bloodlineSpriteTypes)` (:355), `pairs(legionSprites)` (:419) iterate
+//! ORDER: `pairs(self.assets)` (:262), `pairs(self.skillSprites)` (:296), `pairs(maxZoom.coords)`
+//! (:311, :420), `pairs(bloodlineSpriteTypes)` (:357), `pairs(legionSprites)` (:416) iterate
 //! string-keyed tables in insertion order (PoB's order is random per process). The only
 //! observable effect is the order of the `ImageLoad` side effects (compared as a multiset by the
 //! U23 test): every write is keyed and the keys of one loop are distinct. `next(spriteSet)`
-//! (:376) picks the first entry of a `Classes*` sprite set; no tree version has a `Classes*`
+//! (:381) picks the first entry of a `Classes*` sprite set; no tree version has a `Classes*`
 //! sprite in more than one sprite type (checked over 3_25-3_29), so the pick is order-free (c).
 
 use std::cell::{Cell, RefCell};
@@ -388,8 +389,8 @@ impl TreeAssets {
         me
     }
 
-    /// lua: PassiveTree.lua:234-261 (`self.assets`)
-    /// @pob Classes/PassiveTree.lua:234-261 h=0453ea7f
+    /// lua: PassiveTree.lua:234-258 (`self.assets`)
+    /// @pob Classes/PassiveTree.lua:234-258 h=99af4dab
     fn build_assets(&mut self, cx: &mut Cx, tree: &PassiveTreeRef, raw: &DataTable) {
         // L234 if not self.assets then
         if let Some(own) = dtable(raw.field("assets")) {
@@ -407,7 +408,7 @@ impl TreeAssets {
         self.assets = (*shared).clone();
         // L237 if self.alternate_ascendancies then
         if tree.alternate_ascendancies.get().is_some() {
-            // L238-260: `{[0.3835]=url}` tables (the URL is only for the disabled download)
+            // L238-256: `{[0.3835]=url}` tables (the URL is only for the disabled download)
             for name in [
                 // backgrounds
                 "ClassesPrimalist",
@@ -434,20 +435,20 @@ impl TreeAssets {
         }
     }
 
-    /// lua: PassiveTree.lua:263-267 (`LoadImage` for every asset)
-    /// @pob Classes/PassiveTree.lua:263-267 h=569dbdaf
+    /// lua: PassiveTree.lua:260-264 (`LoadImage` for every asset)
+    /// @pob Classes/PassiveTree.lua:260-264 h=281d2e21
     fn load_assets(&mut self, cx: &mut Cx, dirs: &ImageDirs) {
-        // L263 local cdnRoot = ...: only for the disabled download
-        // L264
+        // L260 local cdnRoot = ...: only for the disabled download
+        // L261
         cx.sys.platform.con_print("Loading passive tree assets...");
-        // L265 (ORDER: module notes)
+        // L262 (ORDER: module notes)
         let list: Vec<(String, Rc<Asset>)> = self
             .assets
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         for (name, data) in list {
-            // L266
+            // L263
             let flags = if is_connector_art(&name) {
                 ImageFlags::empty()
             } else {
@@ -464,8 +465,8 @@ impl TreeAssets {
         }
     }
 
-    /// lua: PassiveTree.lua:268-327 (sprite sheets and `self.spriteMap`)
-    /// @pob Classes/PassiveTree.lua:268-327 h=247ee4fd
+    /// lua: PassiveTree.lua:266-329 (sprite sheets and `self.spriteMap`)
+    /// @pob Classes/PassiveTree.lua:266-329 h=9662b2d9
     fn build_sprite_map(
         &mut self,
         cx: &mut Cx,
@@ -475,12 +476,12 @@ impl TreeAssets {
         sprite_map: &mut IndexMap<String, SpriteSet>,
     ) {
         let version_num = self.version_num;
-        // L269-270 self.spriteMap = { }; local spriteSheets = { }
-        // L271 if not self.skillSprites then
+        // L267-268 self.spriteMap = { }; local spriteSheets = { }
+        // L269 if not self.skillSprites then
         let skill_sprites: DataValue = if raw.field("skillSprites").truthy() {
             raw.field("skillSprites").clone()
         } else {
-            // L272 if not self.sprites then
+            // L270 if not self.sprites then
             let sprites = if raw.field("sprites").truthy() {
                 raw.field("sprites").clone()
             } else {
@@ -491,18 +492,18 @@ impl TreeAssets {
                     .get(&Name::from(self.tree_version.as_str()))
                     .map(|v| v.display.to_string())
                     .unwrap_or_default();
-                // L273
+                // L271
                 cx.sys.platform.con_print(&format!(
                     "Loading passive tree sprite data for version '{display}'..."
                 ));
-                // L274-293 io.open("TreeData/"..treeVersion.."/sprites.lua"); the json
+                // L272-289 io.open("TreeData/"..treeVersion.."/sprites.lua"); the json
                 // conversion branch is never taken (every version ships sprites.lua)
                 let sprite_text =
                     read_lua_data(cx, &format!("TreeData/{}/sprites.lua", self.tree_version));
-                // L294-296 for k, v in pairs(loadstring(spriteText)()) do self[k] = v end
+                // L290-292 for k, v in pairs(loadstring(spriteText)()) do self[k] = v end
                 sprite_text.field("sprites").clone()
             };
-            // L298 self.skillSprites = self.sprites
+            // L294 self.skillSprites = self.sprites
             sprites
         };
         let Some(skill_sprites) = dtable(&skill_sprites).cloned() else {
@@ -510,28 +511,28 @@ impl TreeAssets {
         };
         let image_zoom_levels = raw.field("imageZoomLevels").truthy();
         let image_root = raw.field("imageRoot").as_str().map(str::to_owned);
-        let _ = image_root; // L311: only the disabled download's URL uses it
-                            // L300 (ORDER: module notes)
+        let _ = image_root; // L308: only the disabled download's URL uses it
+                            // L296 (ORDER: module notes)
         for (sprite_type, data) in &skill_sprites.fields {
             let sprite_type = sprite_type.to_string();
-            // L301-309
+            // L297-304
             let max_zoom: DataValue = if !image_zoom_levels {
-                // L303
+                // L299
                 data.clone()
             } else if version_num >= 3.19 {
-                // L305
+                // L301
                 match data {
                     DataValue::Table(t) => zoom_or_first(t).clone(),
                     _ => DataValue::Nil,
                 }
             } else {
-                // L307 data[#data]
+                // L303 data[#data]
                 match data {
                     DataValue::Table(t) => t.seq.last().cloned().unwrap_or_default(),
                     _ => DataValue::Nil,
                 }
             };
-            // L310
+            // L305
             let filename = max_zoom
                 .field("filename")
                 .as_str()
@@ -542,7 +543,7 @@ impl TreeAssets {
             let sheet = if let Some(sheet) = sprite_sheets.get(&filename) {
                 sheet.clone()
             } else {
-                // L311-313
+                // L306-308
                 let sheet = Rc::new(Asset::default());
                 let img_name = if version_num >= 3.16 {
                     gsub1(&gsub1(&filename, "%?%x+$", ""), ".*/", "")
@@ -557,24 +558,24 @@ impl TreeAssets {
                     &sheet,
                     ImageFlags::CLAMP,
                 );
-                // L314
+                // L309
                 sprite_sheets.insert(filename.clone(), sheet.clone());
                 sheet
             };
-            // L316 (ORDER: module notes)
+            // L311 (ORDER: module notes)
             let Some(coords) = dtable(max_zoom.field("coords")).cloned() else {
                 lua_error!("bad argument #1 to 'for iterator' (table expected, got nil)")
             };
             for (name, c) in &coords.fields {
-                // L317-319
+                // L312-314
                 let set = sprite_map.entry(name.to_string()).or_default();
-                // L320-323
+                // L315-318
                 let x = last_or(c.field("x"));
                 let y = last_or(c.field("y"));
                 let w = last_or(c.field("w"));
                 let h = last_or(c.field("h"));
                 let (sw, sh) = (sheet.width.get(), sheet.height.get());
-                // L324-325
+                // L319-327
                 set.insert(
                     sprite_type.clone(),
                     Rc::new(Asset::sprite(
@@ -588,10 +589,10 @@ impl TreeAssets {
         }
     }
 
-    /// lua: PassiveTree.lua:329-382 (bloodline sprites, alternate ascendancy emblems)
-    /// @pob Classes/PassiveTree.lua:329-382 h=6243a4aa
+    /// lua: PassiveTree.lua:331-387 (bloodline sprites, alternate ascendancy emblems)
+    /// @pob Classes/PassiveTree.lua:331-387 h=211d3c03
     fn build_bloodlines(&mut self, tree: &PassiveTreeRef, sprite_map: &IndexMap<String, SpriteSet>) {
-        // L329-341
+        // L331-343
         let bloodline_sprite_types: [(&str, &str); 11] = [
             ("Trialmaster", "trialmasterBloodline"),
             ("Oshabi", "oshabiBloodline"),
@@ -605,7 +606,7 @@ impl TreeAssets {
             ("Aul", "aulBloodline"),
             ("Azmeri", "azmeriBloodline"),
         ];
-        // L342-353
+        // L344-355
         let bloodline_asset_names = [
             "AscendancyButton",
             "AscendancyButtonHighlight",
@@ -618,50 +619,50 @@ impl TreeAssets {
             "AscendancyFrameSmallAllocated",
             "AscendancyMiddle",
         ];
-        // L354 self.bloodlineSpritePrefixes = self.bloodlineSpritePrefixes or { }
-        // L355 (ORDER: module notes)
+        // L356 self.bloodlineSpritePrefixes = self.bloodlineSpritePrefixes or { }
+        // L357 (ORDER: module notes)
         for (ascendancy_name, sprite_type) in bloodline_sprite_types {
-            // L356
+            // L358
             let mut has_sprite = false;
-            // L357
+            // L359
             for asset_name in bloodline_asset_names {
-                // L358-359
+                // L360-361
                 let sprite_data = sprite_map
                     .get(asset_name)
                     .and_then(|set| set.get(sprite_type));
-                // L360
+                // L362
                 if let Some(sprite_data) = sprite_data {
-                    // L361
+                    // L363
                     self.assets
                         .insert(format!("{ascendancy_name}{asset_name}"), sprite_data.clone());
-                    // L362
+                    // L364
                     has_sprite = true;
                 }
             }
-            // L365
+            // L367
             if has_sprite {
-                // L366
+                // L368
                 self.bloodline_sprite_prefixes
                     .insert(ascendancy_name.to_owned(), ascendancy_name.to_owned());
             }
         }
 
-        // L370
+        // L372
         if tree.alternate_ascendancies.get().is_some() {
             // Use the bloodline sprite sheets for the remaining alternate ascendancy emblems
-            // L372-376 legacyClasses
+            // L374-378 legacyClasses
             let legacy_classes = ["ClassesPrimalist", "ClassesWarlock", "ClassesWarden"];
-            // L377 (ORDER: module notes)
+            // L379 (ORDER: module notes)
             for (sprite_name, sprite_set) in sprite_map {
-                // L378
+                // L380
                 if sprite_name.starts_with("Classes")
                     && !legacy_classes.contains(&sprite_name.as_str())
                     && !self.assets.contains_key(sprite_name)
                 {
-                    // L379 local _, sprite = next(spriteSet)
-                    // L380
+                    // L381 local _, sprite = next(spriteSet)
+                    // L382
                     if let Some((_, sprite)) = sprite_set.first() {
-                        // L381
+                        // L383
                         self.assets.insert(sprite_name.clone(), sprite.clone());
                     }
                 }
@@ -669,17 +670,17 @@ impl TreeAssets {
         }
     }
 
-    /// lua: PassiveTree.lua:384-435 (legion sprite sheets)
-    /// @pob Classes/PassiveTree.lua:384-435 h=7f73ab7d
+    /// lua: PassiveTree.lua:389-435 (legion sprite sheets)
+    /// @pob Classes/PassiveTree.lua:389-435 h=d0a65672
     fn build_legion(
         &mut self,
         cx: &mut Cx,
         sprite_sheets: &mut IndexMap<String, Rc<Asset>>,
         sprite_map: &mut IndexMap<String, SpriteSet>,
     ) {
-        // L385 local legionSprites = require("TreeData.legion.tree-legion")
+        // L390 local legionSprites = require("TreeData.legion.tree-legion")
         let legion_sprites = require_legion(cx);
-        // L386-396 local function loadLegionSheet(data)
+        // L391-401 local function loadLegionSheet(data)
         let mut load_legion_sheet = |cx: &mut Cx, data: &DataValue| -> Rc<Asset> {
             let filename = data
                 .field("filename")
@@ -689,7 +690,7 @@ impl TreeAssets {
             if let Some(sheet) = sprite_sheets.get(&filename) {
                 return sheet.clone();
             }
-            // L389-393
+            // L394-397
             let sheet = Rc::new(Asset::default());
             let handle = cx.sg.new_image_handle();
             handle.load(
@@ -701,7 +702,7 @@ impl TreeAssets {
             *sheet.handle.borrow_mut() = Some(handle);
             sheet.width.set(f64::from(w));
             sheet.height.set(f64::from(h));
-            // L394
+            // L398
             sprite_sheets.insert(filename, sheet.clone());
             sheet
         };
@@ -720,35 +721,35 @@ impl TreeAssets {
                 [x / sw, y / sh, (x + w) / sw, (y + h) / sh],
             ))
         };
-        // L397
+        // L402
         if let Some(tree_assets) = dtable(legion_sprites.field("treeAssets")) {
             for data in &tree_assets.seq {
-                // L398
+                // L403
                 let sheet = load_legion_sheet(cx, data);
-                // L399 (ORDER: module notes)
+                // L404 (ORDER: module notes)
                 if let Some(coords) = dtable(data.field("coords")) {
                     for (name, c) in &coords.fields {
-                        // L400-408
+                        // L405-413
                         self.assets
                             .insert(name.to_string(), coord_sprite(&sheet, c));
                     }
                 }
             }
         }
-        // L411 (ORDER: module notes)
+        // L416 (ORDER: module notes)
         for (ty, data) in &legion_sprites.fields {
-            // L412
+            // L417
             if &**ty != "treeAssets" {
-                // L413 local maxZoom = data[#data]
+                // L418 local maxZoom = data[#data]
                 let max_zoom = dtable(data)
                     .and_then(|t| t.seq.last().cloned())
                     .unwrap_or_default();
-                // L414
+                // L419
                 let sheet = load_legion_sheet(cx, &max_zoom);
-                // L415
+                // L420
                 if let Some(coords) = dtable(max_zoom.field("coords")) {
                     for (name, c) in &coords.fields {
-                        // L416-428
+                        // L421-432
                         let set = sprite_map.entry(name.to_string()).or_default();
                         set.insert(ty.to_string(), coord_sprite(&sheet, c));
                     }

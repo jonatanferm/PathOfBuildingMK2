@@ -51,9 +51,16 @@
 //! run reached a stub are reported as stub-blocked with the sites.
 //!
 //! **L5 (`cs3_l5_init_env`).** `calcs.initEnv(build, mode)` from the build XML for all57 × MAIN /
-//! CALCS / CALCULATOR against the `initEnv:end` dump of that mode's first env. It needs BM-A
-//! (build loader), CS1 and CS2 (the earlier initEnv segments); while those are stubs every run is
-//! stub-blocked, which the test reports (gate: no LuaError outside stubs).
+//! CALCS / CALCULATOR against the `initEnv:end` dump of that mode's first loaded env. The model
+//! is BM-A's (`build_xml::loadBuildModelFromXML`), with the part of PoB's first post-load
+//! `CalcsTab:BuildOutput()` that precedes the target run first ([`calcs_tab_prefix`]); the
+//! timeless LUTs load from the PoB checkout. Gate: no run raises, every stub-free run has zero
+//! unexplained mismatches. L5 compares the env only: on top of L4's classes, [`classify_l5`]
+//! explains what the dump's scope and the export leave unequal (the cleared `cs3Model`, other
+//! envs' objects, the opaque `nodesInRadius` maps (compared from the env), jewel func values,
+//! node tags, item nil-defaults). FS1 made it run: it loaded the model with the pre-BM-A
+//! `testkit::load_build` (no tree, every run raised) and compared CALCS / CALCULATOR against a
+//! model without the MAIN pass.
 //!
 //! Inputs: `data/dump`, the PoB checkout, `.parity/builds` (missing fails unless
 //! `POB_ALLOW_SKIP=1`). Knobs: `CS3_BUILDS=stem1,stem2`, `CS3_VERBOSE=1` (every mismatch),
@@ -705,6 +712,11 @@ fn diff_with_trees(
         }
     }
     strip(&mut pob);
+    // FS1: ours too. An injected mod keeps the key PoB's earlier perform wrote (L4 injects the
+    // `initEnv:1451` dump; seen on `env.override.extraJewelFuncs.actor.modDB`, an actor PoB's
+    // initEnv:1451 dump already holds), so stripping one side only reported it as a mod mismatch.
+    let mut ours = ours;
+    strip(&mut ours);
     let (pob, mut ours) = (resolve_ids(&pob), resolve_ids(&ours));
     let reordered = align_permuted_supports(&pob, &mut ours);
     (diff_trees(&pob, &ours, &opts), pob, ours, reordered)
@@ -1416,6 +1428,347 @@ fn cs3_l4_skills_segment() {
 
 // ---- L5 ---------------------------------------------------------------------------------------------
 
+/// What PoB's `Build:Init` has run on the model before the env L5 compares (FS1). The targets are
+/// the first loaded env of each mode (MAIN: `calcsTab.mainEnv`), all of the first post-load
+/// `CalcsTab:BuildOutput()` (CalcsTab.lua 441-472): MAIN is its first initEnv; CALCS follows the
+/// MAIN `calcs.buildOutput` (whose initEnv writes the socket groups' `displayLabel` /
+/// `displaySkillList`, the gem instances' `displayEffect`, … into the model the CALCS env reads);
+/// CALCULATOR (`getMiscCalculator`, L470) follows both. Running the same prefix here gives the
+/// model PoB's initEnv saw; the build loads fresh for each mode.
+fn calcs_tab_prefix(build: &BuildRef, mode: pob_calc::env::Mode) {
+    use pob_calc::env::Mode;
+    use pob_calc::modules::calcs::buildOutput;
+    if mode == Mode::MAIN {
+        return;
+    }
+    // L442-456
+    build.calcsTab.powerBuildFlag.set(true);
+    let spec = build.spec.get();
+    for (_, node) in spec.nodes.with(|n| n.pairs()) {
+        node.finalModList.set(Some(node.modList.get()));
+    }
+    // L459-460
+    let mainEnv = buildOutput(build, Mode::MAIN);
+    build
+        .calcsTab
+        .mainOutput
+        .set(Some(mainEnv.player.output.get()));
+    build.calcsTab.mainEnv.set(Some(mainEnv));
+    if mode == Mode::CALCS {
+        return;
+    }
+    // L461-462
+    let calcsEnv = buildOutput(build, Mode::CALCS);
+    build
+        .calcsTab
+        .calcsOutput
+        .set(Some(calcsEnv.player.output.get()));
+    build.calcsTab.calcsEnv.set(Some(calcsEnv));
+}
+
+/// Break the build ↔ env cycle of an L5 run (`env.build` is a strong `BuildRef` and the prefix
+/// stores envs in `calcsTab`), so each build is freed (~20 MB a build otherwise, as INT-3 notes).
+fn release(env: &pob_calc::env::EnvRef) {
+    let b = &env.build;
+    b.calcsTab.mainEnv.set(None);
+    b.calcsTab.calcsEnv.set(None);
+    b.calcsTab.mainOutput.set(None);
+    b.calcsTab.calcsOutput.set(None);
+}
+
+/// `{"$fn": …}`: a Lua function in PoB's dump.
+fn is_lua_fn(v: &J) -> bool {
+    v.as_object()
+        .is_some_and(|o| o.len() == 1 && o.contains_key("$fn"))
+}
+
+/// `{"func": {"$fn": key}, "type": …}`: the Rust `Value::JewelFunc` (`JewelFuncSpec`) export.
+fn is_jewel_func_spec(v: &J) -> bool {
+    v.as_object().is_some_and(|o| {
+        o.get("func").is_some_and(is_lua_fn) && o.keys().all(|k| k == "func" || k == "type")
+    })
+}
+
+/// `{"$foreign": …}` / `{"$env": …}`: an object of another env in PoB's dump.
+fn is_foreign(v: &J) -> bool {
+    v.as_object()
+        .is_some_and(|o| o.len() == 1 && (o.contains_key("$foreign") || o.contains_key("$env")))
+}
+
+/// `v` with every `func` member that is a Lua function (PoB) or a Rust jewel func spec (ours)
+/// replaced by one placeholder, so that two mods whose values differ only there compare equal
+/// (the value's own `type` stays compared).
+fn norm_jewel_funcs(v: &J) -> J {
+    match v {
+        J::Object(o) => J::Object(
+            o.iter()
+                .map(|(k, x)| {
+                    if k == "func" && (is_lua_fn(x) || is_jewel_func_spec(x)) {
+                        (k.clone(), J::String("$jewelFunc".to_owned()))
+                    } else {
+                        (k.clone(), norm_jewel_funcs(x))
+                    }
+                })
+                .collect(),
+        ),
+        J::Array(a) => J::Array(a.iter().map(norm_jewel_funcs).collect()),
+        _ => v.clone(),
+    }
+}
+
+/// The encoded index of `path` right after `prefix` (`env.radiusJewelList[3].nodes[…]` → 3).
+fn index_after(path: &str, prefix: &str) -> Option<usize> {
+    let rest = path.strip_prefix(prefix)?.strip_prefix('[')?;
+    rest[..rest.find(']')?].parse().ok()
+}
+
+/// L5-only representation classes (FS1), on top of [`classify`]. Each is a difference of the
+/// export or of the dump's scope, checked against the Rust env where the export cannot show it:
+/// * `model (cleared cs3Model)`: PoB's value is a `$ref` into the dump's `cs3Model` local
+///   (`?N`: the model's socket groups and gem instances, which L5 drops; L4 compares them),
+///   while ours exports the same model object inline or by its first env path;
+/// * `nodesInRadius (opaque export)`: `radiusJewelList[i].nodes` is the tree's
+///   `Rc<LjIntMap<NodeRef>>` (CCR-0024 §3), exported as `{"$userdata": true}`; the node ids are
+///   compared with PoB's here, from the env;
+/// * `jewel func (Value::JewelFunc)`: `radiusJewelList[i].func` is PoB's closure (`$fn`) and
+///   ours the `JewelFuncSpec` data value (`node_mods.rs`, CCR-0039 §4); the entry's `type` is
+///   compared on its own path;
+/// * `node tag (spec node without a tree overlay)`: PoB tags a node `$node` by its identity in
+///   `spec.nodes`, the Rust exporter by `node.tree` (probe.rs); a spec-only node (cluster jewel
+///   sockets and subgraph nodes, which PoB's spec also owns) exports as `$treeNode`. Accepted
+///   in `allocNodes` only when ours is the env spec's node object of that id, elsewhere
+///   (`explodeSources`, a gem's `explodeSource`) when the spec's node of that id has no overlay;
+/// * `gem variant (CCR-0010)`: values equal up to an `AltX`/`AltY` gem id (calc doc §9.5 names
+///   upstream_Dual_Wield_Cospris_CoC's `VaalRighteousFire`), and that gem instance's `nameSpec`;
+/// * `nil-default (item field)`: a typed `Item` bool PoB leaves nil (`corrupted`), exported
+///   `false`;
+/// * `port plumbing`: `override["$extraJewelFuncsActor"]` (Rust-only key of the override that
+///   holds the `extraJewelFuncs` list's actor), and the list's `actor` exported as a ref to it;
+///   in the global cache, a copied skill's `actorKeep` (CCR-0113) and that kept actor's
+///   `enemy`, an `ActorWeak` of a finished pass whose env is gone;
+/// * `foreign env object`: PoB writes another env's object as `$foreign`/`$env` (the global
+///   cache's skills and envs, `displaySkillList` entries of other passes); ours exports it inline
+///   or, reached first through the global cache, as a ref there.
+fn classify_l5(
+    mm: Vec<Mismatch>,
+    pob: &J,
+    ours: &J,
+    env: &pob_calc::env::EnvRef,
+) -> (Vec<Mismatch>, BTreeMap<&'static str, usize>) {
+    let mut rest = Vec::new();
+    let mut why: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let is_model_ref = |v: &Option<J>| {
+        v.as_ref()
+            .and_then(ref_path)
+            .is_some_and(|p| p.starts_with('?'))
+    };
+    let radius_ok = |i: usize| -> bool {
+        let base = format!("env.radiusJewelList[{i}].nodes");
+        let Some(mut pn) = lookup(pob, &base) else {
+            return false;
+        };
+        // two entries of one jewel share the socket's map (`nodesInRadius[radiusIndex]`)
+        if let Some(p) = ref_path(pn) {
+            let Some(t) = lookup(pob, p) else {
+                return false;
+            };
+            pn = t;
+        }
+        let pob_ids: std::collections::BTreeSet<i64> = pn
+            .get("$num")
+            .and_then(J::as_object)
+            .map(|m| m.keys().filter_map(|k| k.parse().ok()).collect())
+            .unwrap_or_default();
+        let ours_ids = env.radiusJewelList.get().with(|v| {
+            v.get(i - 1).and_then(|e| match e.get(Name::from("nodes")) {
+                Val::Obj(o) => o
+                    .downcast_ref::<pob_lua::LjIntMap<pob_calc::classes::NodeRef>>()
+                    .map(|m| {
+                        m.keys()
+                            .into_iter()
+                            .collect::<std::collections::BTreeSet<i64>>()
+                    }),
+                _ => None,
+            })
+        });
+        ours_ids.is_some_and(|o| o == pob_ids)
+    };
+    let mut radius_checked: BTreeMap<usize, bool> = BTreeMap::new();
+    let pairs: Vec<(String, MismatchKind, J)> = mm
+        .iter()
+        .filter(|m| matches!(m.kind, MismatchKind::ModMissing | MismatchKind::ModExtra))
+        .filter_map(|m| {
+            let v = m.pob.as_ref().or(m.ours.as_ref())?;
+            Some((m.path.clone(), m.kind, norm_jewel_funcs(v)))
+        })
+        .collect();
+    for m in mm {
+        if is_model_ref(&m.pob) && matches!(m.kind, MismatchKind::Value) {
+            *why.entry("model (cleared cs3Model)").or_default() += 1;
+            continue;
+        }
+        if let Some(i) = index_after(&m.path, "env.radiusJewelList") {
+            let nodes = format!("env.radiusJewelList[{i}].nodes");
+            let opaque = lookup(ours, &nodes)
+                .is_some_and(|v| v.get("$userdata").is_some_and(|b| b == &J::Bool(true)));
+            if opaque
+                && m.path.starts_with(&nodes)
+                && *radius_checked.entry(i).or_insert_with(|| radius_ok(i))
+            {
+                *why.entry("nodesInRadius (opaque export)").or_default() += 1;
+                continue;
+            }
+        }
+        if matches!(m.kind, MismatchKind::Value)
+            && m.pob.as_ref().is_some_and(is_lua_fn)
+            && m.ours.as_ref().is_some_and(is_jewel_func_spec)
+        {
+            *why.entry("jewel func (Value::JewelFunc)").or_default() += 1;
+            continue;
+        }
+        if matches!(m.kind, MismatchKind::ModMissing | MismatchKind::ModExtra) {
+            // the pair of one JewelFunc mod whose value differs only in the func's representation
+            let other = if matches!(m.kind, MismatchKind::ModMissing) {
+                MismatchKind::ModExtra
+            } else {
+                MismatchKind::ModMissing
+            };
+            let mine = m.pob.as_ref().or(m.ours.as_ref()).map(norm_jewel_funcs);
+            let paired = mine.is_some_and(|x| {
+                pairs
+                    .iter()
+                    .any(|(p, k, v)| p == &m.path && *k == other && *v == x)
+            });
+            if paired {
+                *why.entry("jewel func (Value::JewelFunc)").or_default() += 1;
+                continue;
+            }
+        }
+        if matches!(m.kind, MismatchKind::Value) && m.pob.as_ref().is_some_and(is_foreign) {
+            *why.entry("foreign env object (not this env; PoB's $foreign/$env)")
+                .or_default() += 1;
+            continue;
+        }
+        if matches!(m.kind, MismatchKind::Value)
+            && m.ours
+                .as_ref()
+                .and_then(ref_path)
+                .is_some_and(|p| p.starts_with("globalCache."))
+            && m.pob.as_ref().is_some_and(|v| ref_path(v).is_none())
+        {
+            // ours reached the object first through another env's cached skill (globalCache,
+            // which PoB dumps as `$foreign`), so it exports a ref where PoB writes it inline
+            *why.entry("foreign env object (first reached through globalCache)")
+                .or_default() += 1;
+            continue;
+        }
+        let gc_ref = |v: &Option<J>| {
+            v.as_ref()
+                .and_then(ref_path)
+                .is_some_and(|p| p.starts_with("globalCache."))
+        };
+        if matches!(m.kind, MismatchKind::Value)
+            && m.path.starts_with("globalCache.")
+            && gc_ref(&m.pob)
+            && gc_ref(&m.ours)
+        {
+            // inside the global cache (other envs' skills), both sides refer to an object by its
+            // first export path; PoB's `cachedData.MAIN` entries are `$foreign`, so its first
+            // path for a shared object is a later mode's entry
+            *why.entry("foreign env object (globalCache ref path)")
+                .or_default() += 1;
+            continue;
+        }
+        let pob_node = m
+            .pob
+            .as_ref()
+            .and_then(|v| v.get("$node"))
+            .and_then(J::as_f64);
+        let ours_tree_node = m
+            .ours
+            .as_ref()
+            .and_then(|v| v.get("$treeNode"))
+            .and_then(J::as_f64);
+        if let (true, Some(id), Some(oid)) = (
+            matches!(m.kind, MismatchKind::Value),
+            pob_node,
+            ours_tree_node,
+        ) {
+            let id = id as i64;
+            let spec_node = env.spec.get().nodes.with(|n| n.get(id));
+            let same = oid as i64 == id
+                && if m.path == format!("env.allocNodes[{id}]") {
+                    // the allocated node is the spec's own node object
+                    let a = env.allocNodes.get().with(|n| n.get(id));
+                    matches!((a, &spec_node), (Some(a), Some(s)) if Rc::ptr_eq(&a, s))
+                } else {
+                    // elsewhere (explodeSources, a gem's explodeSource): the spec's node of
+                    // that id is one the exporter tags `$treeNode`
+                    spec_node.as_ref().is_some_and(|s| s.tree.is_none())
+                };
+            if same {
+                *why.entry("node tag (spec node without a tree overlay)")
+                    .or_default() += 1;
+                continue;
+            }
+        }
+        // CCR-0010 / calc doc §9.5: the gem resolved to its `AltX`/`AltY` variant in one of the
+        // two PoB processes (the oracle's, the data dump's); `nameSpec` is that gem's name
+        if matches!(m.kind, MismatchKind::Value) {
+            let alt_eq = |a: Option<&J>, b: Option<&J>| match (a, b) {
+                (Some(a), Some(b)) => {
+                    let n = |v: &J| v.to_string().replace("AltX", "").replace("AltY", "");
+                    a != b && n(a) == n(b)
+                }
+                _ => false,
+            };
+            let variant = alt_eq(m.pob.as_ref(), m.ours.as_ref())
+                || m.path.strip_suffix(".nameSpec").is_some_and(|pre| {
+                    let id = format!("{pre}.gemId");
+                    alt_eq(lookup(pob, &id), lookup(ours, &id))
+                });
+            if variant {
+                *why.entry("gem variant (CCR-0010)").or_default() += 1;
+                continue;
+            }
+        }
+        if m.path.ends_with(".corrupted")
+            && matches!(m.kind, MismatchKind::Extra)
+            && m.ours.as_ref() == Some(&J::Bool(false))
+        {
+            *why.entry("nil-default (item field)").or_default() += 1;
+            continue;
+        }
+        // CCR-0113: a copied skill keeps its foreign actor alive in `extra["actorKeep"]`
+        // (Rust-only); that actor's `enemy` is an `ActorWeak` whose env (a finished pass's, held
+        // by nothing but PoB's global cache) is gone, so it exports nothing
+        let actor_keep = m.path.starts_with("globalCache.")
+            && ((m.path.ends_with(".actorKeep") && matches!(m.kind, MismatchKind::Extra))
+                || (m.path.ends_with(".actor.enemy") && matches!(m.kind, MismatchKind::Missing)));
+        if actor_keep {
+            *why.entry("port plumbing (CCR-0113 actorKeep, weak enemy)")
+                .or_default() += 1;
+            continue;
+        }
+        let plumbing_ref = m
+            .ours
+            .as_ref()
+            .and_then(ref_path)
+            .is_some_and(|p| p.starts_with("env.override[\"$extraJewelFuncsActor\"]"));
+        if (m.path == "env.override[\"$extraJewelFuncsActor\"]"
+            && matches!(m.kind, MismatchKind::Extra))
+            || (m.path == "env.override.extraJewelFuncs.actor"
+                && matches!(m.kind, MismatchKind::Value)
+                && plumbing_ref)
+        {
+            *why.entry("port plumbing").or_default() += 1;
+            continue;
+        }
+        rest.push(m);
+    }
+    (rest, why)
+}
+
 /// L5: `calcs.initEnv(build, mode)` from the build XML (BM-A's loader, then CS1 → CS2 → CS3) against
 /// the `initEnv:end` dump of the first loaded env of that mode without a `specEnv` (MAIN: the main
 /// env). Only the env is compared (the model and the locals are L4's). A run that reaches an
@@ -1430,9 +1783,24 @@ fn cs3_l5_init_env() {
         return;
     }
     assert!(testkit::init_default_data(), "data/dump does not load");
+    // Timeless jewel LUTs load from the PoB checkout (as CS2 / BM-A / CA do); the default
+    // `StdJewelFs::new("")` probes `./` and `./src` of the test's working directory (the crate),
+    // where they are not ("Error occurred loading Glorious Vanity data", FS1).
+    let Some(src) = pob_testpaths::require(pob_testpaths::pob_src(), "PoB checkout (src)") else {
+        return;
+    };
+    let src = std::fs::canonicalize(&src).unwrap_or(src);
+    pob_gamedata::timeless_lut::set_jewel_fs(std::sync::Arc::new(
+        pob_gamedata::timeless_lut::StdJewelFs {
+            script_path: src.to_string_lossy().into_owned(),
+            writable: false,
+        },
+    ));
+    pob_gamedata::timeless_lut::set_con_printf(|_| {});
     let Some(builds) = builds() else { return };
     let (mut pass, mut fail, mut blocked, mut errors, mut no_target) = (0, 0, 0, 0, 0);
     let mut sites: BTreeMap<String, usize> = BTreeMap::new();
+    let mut explained: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut lines = Vec::new();
     for xml in &builds {
         pob_calc::modules::calc_setup::init_env_skills::reset_grantedEffect_fromItem();
@@ -1458,9 +1826,14 @@ fn cs3_l5_init_env() {
             for p in outs.values() {
                 let Ok(d) = StateDump::load(p) else { continue };
                 let h = hit_info(&d);
+                // top-level calls only (FS1): an initEnv inside `calcs.perform` (CalcMirages'
+                // CALCULATOR envs, stack `perform:in, mirages:in, initEnv:in`) is not one of
+                // CalcsTab:BuildOutput's own, which `calcs_tab_prefix` reproduces (initEnv's own
+                // restart, CalcSetup.lua 1433 / 1923, nests `initEnv:in` only and stays)
                 let ok = h.mode == name
                     && !h.spec_env
                     && h.loaded
+                    && d.stack.iter().all(|s| s.starts_with("initEnv:in#"))
                     && (mode != Mode::MAIN || main_env.as_deref() == Some(h.env_id.as_str()));
                 if ok {
                     target = Some(d);
@@ -1473,8 +1846,18 @@ fn cs3_l5_init_env() {
                 continue;
             };
             pob_calc::stub::stub_reset();
+            // BM-A's loader (`Build:Init`'s model half and `LoadDB`, the tree included, without
+            // the first BuildOutput). FS1: this used `testkit::load_build` (`Build::new` +
+            // `LoadDB` only, the pre-BM-A stand-in), whose spec has no tree, so CalcSetup.lua:593
+            // indexed a nil `classStats` in every run ("attempt to index a nil value", 171/171).
+            let text = std::fs::read_to_string(xml).unwrap_or_default();
             let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let build = testkit::load_build(xml).unwrap_or_else(testkit::empty_build);
+                pob_calc::modules::common::wipeGlobalCache();
+                let build =
+                    pob_calc::model::build_xml::loadBuildModelFromXML(&text, pob_gamedata::data())
+                        .unwrap_or_else(|e| panic!("load: {e}"));
+                build.outputRevision.set(1.0);
+                calcs_tab_prefix(&build, mode);
                 pob_calc::modules::calc_setup::initEnv(&build, mode, None, None).0
             }));
             let stubs: Vec<String> = pob_calc::stub::stub_report()
@@ -1504,14 +1887,37 @@ fn cs3_l5_init_env() {
                 l.clear();
             }
             let (mm, pob_tree, ours_tree, reordered) = diff_with_trees(&d, Some(&env), &[], &stem);
-            let (rest, _why) = classify(mm, &pob_tree, &ours_tree, reordered);
+            if let Some(dir) = std::env::var_os("CS3_TREES") {
+                // debug knob: the two resolved trees of each L5 run
+                let dir = PathBuf::from(dir);
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::fs::write(
+                    dir.join(format!("{stem}.{name}.pob.json")),
+                    pob_tree.to_string(),
+                );
+                let _ = std::fs::write(
+                    dir.join(format!("{stem}.{name}.ours.json")),
+                    ours_tree.to_string(),
+                );
+            }
+            let (rest, why) = classify(mm, &pob_tree, &ours_tree, reordered);
+            let (rest, why5) = classify_l5(rest, &pob_tree, &ours_tree, &env);
+            for (k, n) in why.into_iter().chain(why5) {
+                *explained.entry(k).or_default() += n;
+            }
+            release(&env);
             if rest.is_empty() {
                 pass += 1;
                 lines.push(format!("ok      {stem} {name}"));
             } else {
                 fail += 1;
                 lines.push(format!("FAIL    {stem} {name}: {} mismatches", rest.len()));
-                for m in rest.iter().take(8) {
+                let shown = if std::env::var_os("CS3_VERBOSE").is_some() {
+                    rest.len()
+                } else {
+                    8
+                };
+                for m in rest.iter().take(shown) {
                     lines.push(format!("          {}", fmt_mismatch(m)));
                 }
             }
@@ -1526,9 +1932,12 @@ fn cs3_l5_init_env() {
     for (s, n) in &sites {
         eprintln!("  stub {s}: blocked {n} runs");
     }
+    for (k, n) in &explained {
+        eprintln!("  explained {k}: {n}");
+    }
     assert_eq!(
         errors, 0,
-        "CS3 L5: {errors} runs raised outside a stub (see stderr)"
+        "CS3 L5:{errors} runs raised outside a stub (see stderr)"
     );
     assert_eq!(
         fail, 0,
